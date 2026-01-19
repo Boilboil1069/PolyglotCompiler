@@ -2,6 +2,8 @@
 
 #include "frontends/common/include/lexer_base.h"
 
+#include <vector>
+
 namespace polyglot::cpp {
 
 class CppLexer : public frontends::LexerBase {
@@ -21,6 +23,9 @@ class CppLexer : public frontends::LexerBase {
   frontends::Token LexChar();
   frontends::Token LexPreprocessor();
   frontends::Token LexOperator();
+    bool StartsWithStringPrefix() const;
+
+  std::vector<frontends::Token> pending_{};
 };
 
 }  // namespace polyglot::cpp

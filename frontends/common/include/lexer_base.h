@@ -16,6 +16,10 @@ enum class TokenKind {
   kKeyword,
   kSymbol,
   kPreprocessor,
+  kComment,
+  kNewline,
+  kIndent,
+  kDedent,
   kUnknown
 };
 
@@ -23,6 +27,8 @@ struct Token {
   TokenKind kind{TokenKind::kUnknown};
   std::string lexeme;
   core::SourceLoc loc{};
+  // Optional metadata for tokens (e.g., doc comments)
+  bool is_doc{false};
 };
 
 class LexerBase {
@@ -45,6 +51,8 @@ class LexerBase {
     if (c == '\n') {
       line_++;
       column_ = 1;
+    } else if (c == '\t') {
+      column_ += tab_width_;
     } else {
       column_++;
     }
@@ -58,11 +66,16 @@ class LexerBase {
     return core::SourceLoc{file_, line_, column_};
   }
 
+  bool Eof() const { return position_ >= source_.size(); }
+
+  void SetTabWidth(size_t width) { tab_width_ = width; }
+
   std::string source_;
   std::string file_;
   size_t position_{0};
   size_t line_{1};
   size_t column_{1};
+  size_t tab_width_{4};
 };
 
 }  // namespace polyglot::frontends

@@ -2,9 +2,27 @@
 
 namespace polyglot::python {
 
+void PythonParser::Advance() { current_ = lexer_.NextToken(); }
+
 frontends::Token PythonParser::Consume() {
-  current_ = lexer_.NextToken();
+  Advance();
+  while (current_.kind == frontends::TokenKind::kComment) {
+    Advance();
+  }
   return current_;
+}
+
+void PythonParser::SkipNewlines() {
+  while (current_.kind == frontends::TokenKind::kNewline) {
+    Advance();
+    while (current_.kind == frontends::TokenKind::kComment) {
+      Advance();
+    }
+  }
+}
+
+bool PythonParser::IsSymbol(const std::string &symbol) const {
+  return current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == symbol;
 }
 
 bool PythonParser::MatchSymbol(const std::string &symbol) {
@@ -30,16 +48,16 @@ void PythonParser::ExpectSymbol(const std::string &symbol, const std::string &me
 }
 
 void PythonParser::Sync() {
-  while (current_.kind != frontends::TokenKind::kEndOfFile) {
+  while (current_.kind != frontends::TokenKind::kEndOfFile &&
+         current_.kind != frontends::TokenKind::kDedent &&
+         current_.kind != frontends::TokenKind::kNewline) {
     if (current_.kind == frontends::TokenKind::kKeyword) {
-      if (current_.lexeme == "def" || current_.lexeme == "import" ||
-          current_.lexeme == "from" || current_.lexeme == "return") {
+      if (current_.lexeme == "def" || current_.lexeme == "if" ||
+          current_.lexeme == "while" || current_.lexeme == "for" ||
+          current_.lexeme == "return" || current_.lexeme == "import" ||
+          current_.lexeme == "from") {
         return;
       }
-    }
-    if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == ";") {
-      Consume();
-      return;
     }
     Consume();
   }
@@ -51,16 +69,6 @@ std::shared_ptr<Expression> PythonParser::ParsePrimary() {
     ident->name = current_.lexeme;
     ident->loc = current_.loc;
     Consume();
-    if (MatchSymbol("(")) {
-      auto call = std::make_shared<CallExpression>();
-      call->loc = ident->loc;
-      call->callee = ident;
-      if (!MatchSymbol(")")) {
-        call->args.push_back(ParseExpression());
-        MatchSymbol(")");
-      }
-      return call;
-    }
     return ident;
   }
   if (current_.kind == frontends::TokenKind::kNumber ||
@@ -71,13 +79,173 @@ std::shared_ptr<Expression> PythonParser::ParsePrimary() {
     Consume();
     return literal;
   }
+  if (IsSymbol("(")) {
+    Consume();
+    auto expr = ParseExpression();
+    MatchSymbol(")");
+    return expr;
+  }
   diagnostics_.Report(current_.loc, "Expected expression");
   return nullptr;
 }
 
-std::shared_ptr<Expression> PythonParser::ParseExpression() {
-  return ParsePrimary();
+std::shared_ptr<Expression> PythonParser::ParsePostfix() {
+  auto expr = ParsePrimary();
+  while (true) {
+    if (IsSymbol("(")) {
+      auto call = std::make_shared<CallExpression>();
+      call->loc = expr ? expr->loc : current_.loc;
+      call->callee = expr;
+      Consume();
+      if (!IsSymbol(")")) {
+        call->args.push_back(ParseExpression());
+        while (MatchSymbol(",")) {
+          call->args.push_back(ParseExpression());
+        }
+      }
+      MatchSymbol(")");
+      expr = call;
+      continue;
+    }
+    if (IsSymbol(".")) {
+      Consume();
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        auto attr = std::make_shared<AttributeExpression>();
+        attr->object = expr;
+        attr->attribute = current_.lexeme;
+        attr->loc = current_.loc;
+        Consume();
+        expr = attr;
+        continue;
+      }
+    }
+    if (IsSymbol("[")) {
+      Consume();
+      auto idx = std::make_shared<IndexExpression>();
+      idx->object = expr;
+      idx->loc = current_.loc;
+      idx->index = ParseExpression();
+      MatchSymbol("]");
+      expr = idx;
+      continue;
+    }
+    break;
+  }
+  return expr;
 }
+
+std::shared_ptr<Expression> PythonParser::ParsePower() {
+  auto expr = ParsePostfix();
+  if (IsSymbol("**")) {
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = "**";
+    bin->left = expr;
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->right = ParseUnary();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseUnary() {
+  if (IsSymbol("+") || IsSymbol("-") || IsSymbol("~")) {
+    auto unary = std::make_shared<UnaryExpression>();
+    unary->op = current_.lexeme;
+    unary->loc = current_.loc;
+    Consume();
+    unary->operand = ParseUnary();
+    return unary;
+  }
+  return ParsePower();
+}
+
+std::shared_ptr<Expression> PythonParser::ParseMultiplicative() {
+  auto expr = ParseUnary();
+  while (IsSymbol("*") || IsSymbol("/") || IsSymbol("//") || IsSymbol("%")) {
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = current_.lexeme;
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->left = expr;
+    bin->right = ParseUnary();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseAdditive() {
+  auto expr = ParseMultiplicative();
+  while (IsSymbol("+") || IsSymbol("-")) {
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = current_.lexeme;
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->left = expr;
+    bin->right = ParseMultiplicative();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseComparison() {
+  auto expr = ParseAdditive();
+  while (current_.kind == frontends::TokenKind::kKeyword || IsSymbol("==") ||
+         IsSymbol("!=") || IsSymbol("<") || IsSymbol(">") || IsSymbol("<=") ||
+         IsSymbol(">=")) {
+    std::string op = current_.lexeme;
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = op;
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->left = expr;
+    bin->right = ParseAdditive();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseNot() {
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "not") {
+    auto unary = std::make_shared<UnaryExpression>();
+    unary->op = "not";
+    unary->loc = current_.loc;
+    Consume();
+    unary->operand = ParseNot();
+    return unary;
+  }
+  return ParseComparison();
+}
+
+std::shared_ptr<Expression> PythonParser::ParseAnd() {
+  auto expr = ParseNot();
+  while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "and") {
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = "and";
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->left = expr;
+    bin->right = ParseNot();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseOr() {
+  auto expr = ParseAnd();
+  while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "or") {
+    auto bin = std::make_shared<BinaryExpression>();
+    bin->op = "or";
+    bin->loc = expr ? expr->loc : current_.loc;
+    Consume();
+    bin->left = expr;
+    bin->right = ParseAnd();
+    expr = bin;
+  }
+  return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseExpression() { return ParseOr(); }
 
 std::shared_ptr<Statement> PythonParser::ParseImport() {
   auto stmt = std::make_shared<ImportStatement>();
@@ -110,6 +278,74 @@ std::shared_ptr<Statement> PythonParser::ParseReturn() {
   return stmt;
 }
 
+std::vector<std::shared_ptr<Statement>> PythonParser::ParseSuite() {
+  std::vector<std::shared_ptr<Statement>> body;
+  if (IsSymbol(":")) {
+    Consume();
+    if (current_.kind == frontends::TokenKind::kNewline) {
+      Consume();
+      if (current_.kind != frontends::TokenKind::kIndent) {
+        diagnostics_.Report(current_.loc, "Expected indentation");
+        return body;
+      }
+      Consume();
+      SkipNewlines();
+      while (current_.kind != frontends::TokenKind::kDedent &&
+             current_.kind != frontends::TokenKind::kEndOfFile) {
+        auto stmt = ParseStatement();
+        if (stmt) body.push_back(stmt);
+        SkipNewlines();
+      }
+      if (current_.kind == frontends::TokenKind::kDedent) {
+        Consume();
+      }
+    } else {
+      // single-line suite
+      auto stmt = ParseStatement();
+      if (stmt) body.push_back(stmt);
+    }
+  } else {
+    diagnostics_.Report(current_.loc, "Expected ':' after header");
+  }
+  return body;
+}
+
+std::shared_ptr<Statement> PythonParser::ParseIf() {
+  auto stmt = std::make_shared<IfStatement>();
+  stmt->loc = current_.loc;
+  MatchKeyword("if");
+  stmt->condition = ParseExpression();
+  stmt->then_body = ParseSuite();
+  SkipNewlines();
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
+    Consume();
+    stmt->else_body = ParseSuite();
+  }
+  return stmt;
+}
+
+std::shared_ptr<Statement> PythonParser::ParseWhile() {
+  auto stmt = std::make_shared<WhileStatement>();
+  stmt->loc = current_.loc;
+  MatchKeyword("while");
+  stmt->condition = ParseExpression();
+  stmt->body = ParseSuite();
+  return stmt;
+}
+
+std::shared_ptr<Statement> PythonParser::ParseFor() {
+  auto stmt = std::make_shared<ForStatement>();
+  stmt->loc = current_.loc;
+  MatchKeyword("for");
+  stmt->target = ParseExpression();
+  if (!MatchKeyword("in")) {
+    diagnostics_.Report(current_.loc, "Expected 'in' in for statement");
+  }
+  stmt->iterable = ParseExpression();
+  stmt->body = ParseSuite();
+  return stmt;
+}
+
 std::shared_ptr<Statement> PythonParser::ParseFunction() {
   auto fn = std::make_shared<FunctionDef>();
   fn->loc = current_.loc;
@@ -125,17 +361,16 @@ std::shared_ptr<Statement> PythonParser::ParseFunction() {
     if (current_.kind == frontends::TokenKind::kIdentifier) {
       fn->params.push_back(current_.lexeme);
       Consume();
+      while (MatchSymbol(",")) {
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+          fn->params.push_back(current_.lexeme);
+          Consume();
+        }
+      }
     }
     ExpectSymbol(")", "Expected ')' after parameters");
   }
-  ExpectSymbol(":", "Expected ':' after function signature");
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "return") {
-    fn->body.push_back(ParseReturn());
-  } else {
-    auto expr_stmt = std::make_shared<ExprStatement>();
-    expr_stmt->expr = ParseExpression();
-    fn->body.push_back(expr_stmt);
-  }
+  fn->body = ParseSuite();
   return fn;
 }
 
@@ -150,10 +385,28 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
     if (current_.lexeme == "return") {
       return ParseReturn();
     }
+    if (current_.lexeme == "if") {
+      return ParseIf();
+    }
+    if (current_.lexeme == "while") {
+      return ParseWhile();
+    }
+    if (current_.lexeme == "for") {
+      return ParseFor();
+    }
+  }
+  auto expr = ParseExpression();
+  if (IsSymbol("=")) {
+    auto assign = std::make_shared<Assignment>();
+    assign->loc = expr ? expr->loc : current_.loc;
+    assign->target = expr;
+    Consume();
+    assign->value = ParseExpression();
+    return assign;
   }
   auto expr_stmt = std::make_shared<ExprStatement>();
   expr_stmt->loc = current_.loc;
-  expr_stmt->expr = ParseExpression();
+  expr_stmt->expr = expr;
   return expr_stmt;
 }
 
@@ -171,8 +424,10 @@ void PythonParser::ParseTopLevel() {
 
 void PythonParser::ParseModule() {
   Consume();
+  SkipNewlines();
   for (;;) {
     ParseTopLevel();
+    SkipNewlines();
     if (current_.kind == frontends::TokenKind::kEndOfFile) {
       break;
     }

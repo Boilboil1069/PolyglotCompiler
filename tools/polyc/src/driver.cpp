@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
 
   polyglot::frontends::Diagnostics diagnostics;
   if (language == "python") {
-    polyglot::python::PythonLexer lexer(source, "<cli>");
+    polyglot::python::PythonLexer lexer(source, "<cli>", &diagnostics);
     polyglot::python::PythonParser parser(lexer, diagnostics);
     parser.ParseModule();
     polyglot::frontends::SemaContext sema(diagnostics);
