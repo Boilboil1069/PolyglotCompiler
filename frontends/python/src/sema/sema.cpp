@@ -5,16 +5,16 @@
 namespace polyglot::python {
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
-  for (const auto &node : module.body) {
-    auto ident = std::dynamic_pointer_cast<Identifier>(node);
-    if (!ident) {
-      continue;
+    for (const auto &node : module.body) {
+        auto ident = std::dynamic_pointer_cast<Identifier>(node);
+        if (!ident) {
+            continue;
+        }
+        core::Symbol symbol{ident->name, context.Types().String(), ident->loc};
+        if (!context.Symbols().Declare(symbol)) {
+            context.Diags().Report(ident->loc, "Duplicate symbol: " + ident->name);
+        }
     }
-    core::Symbol symbol{ident->name, context.Types().String(), ident->loc};
-    if (!context.Symbols().Declare(symbol)) {
-      context.Diags().Report(ident->loc, "Duplicate symbol: " + ident->name);
-    }
-  }
 }
 
-}  // namespace polyglot::python
+} // namespace polyglot::python

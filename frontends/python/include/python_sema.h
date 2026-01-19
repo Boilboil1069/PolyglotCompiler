@@ -7,4 +7,4 @@ namespace polyglot::python {
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context);
 
-}  // namespace polyglot::python
+} // namespace polyglot::python

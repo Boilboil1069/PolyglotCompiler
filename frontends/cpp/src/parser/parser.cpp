@@ -816,11 +816,10 @@ std::shared_ptr<Statement> CppParser::ParseStructuredBinding(std::shared_ptr<Typ
     return decl;
 }
 
-std::shared_ptr<Statement> CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type,
-                                                                 const std::string &name,
-                                                                 bool is_constexpr, bool is_inline,
-                                                                 bool is_static, bool is_operator,
-                                                                 const std::string &op_symbol) {
+std::shared_ptr<FunctionDecl>
+CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const std::string &name,
+                                      bool is_constexpr, bool is_inline, bool is_static,
+                                      bool is_operator, const std::string &op_symbol) {
     auto fn = std::make_shared<FunctionDecl>();
     fn->loc = current_.loc;
     fn->return_type = ret_type;
