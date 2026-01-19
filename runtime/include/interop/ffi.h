@@ -9,4 +9,6 @@ struct ForeignFunction {
   void *address{nullptr};
 };
 
+ForeignFunction Bind(const std::string &name, void *address);
+
 }  // namespace polyglot::runtime::interop

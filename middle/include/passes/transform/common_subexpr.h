@@ -4,6 +4,6 @@
 
 namespace polyglot::passes::transform {
 
-void RunInlining(ir::IRContext &context);
+void RunCommonSubexpressionElimination(ir::IRContext &context);
 
 }  // namespace polyglot::passes::transform
