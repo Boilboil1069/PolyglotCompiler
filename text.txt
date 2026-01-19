@@ -1,0 +1,252 @@
+我现在要实现一个多语言的编译器，现在只是先实现C/C++、python、rust的部分功能，之后再加入新的功能。项目总体结构如下所示：
+PolyglotCompiler/
+├── frontends/           # 各语言前端
+├── common/             # 公共组件
+├── middle/             # 中间层
+├── backends/           # 后端目标
+├── runtime/            # 运行时系统
+├── tools/              # 辅助工具
+└── tests/              # 测试系统
+详细的目录结构（示意）为：
+polyglot-compiler/
+├── README.md           # 项目说明
+├── LICENSE             # 许可证
+├── CMakeLists.txt      # CMake主配置文件
+├── .gitignore
+├── .clang-format       # 代码格式化配置
+├── .github/            # GitHub Actions配置
+├── build/              # 构建目录（.gitignore）
+├── install/            # 安装目录（.gitignore）
+└── docs/               # 文档
+    ├── design/         # 设计文档
+    ├── specs/          # 语言规范
+    └── api/            # API文档
+前端层：
+frontends/
+├── common/                    # 前端公共设施
+│   ├── include/
+│   │   ├── lexer_base.h      # 词法分析器基类
+│   │   ├── parser_base.h     # 语法分析器基类
+│   │   └── diagnostics.h     # 错误诊断
+│   └── src/
+│       └── token_pool.cpp    # Token池管理
+├── python/                    # Python前端
+│   ├── include/
+│   │   ├── python_lexer.h
+│   │   ├── python_parser.h
+│   │   └── python_ast.h
+│   └── src/
+│       ├── lexer/
+│       ├── parser/
+│       └── sema/            # 语义分析
+├── javascript/               # JavaScript前端
+│   ├── include/
+│   └── src/
+├── rust/                     # Rust前端（子集）
+│   ├── include/
+│   └── src/
+└── ml/                       # ML家族语言前端
+    ├── include/
+    └── src/
+公共组件：
+common/
+├── include/
+│   ├── core/
+│   │   ├── types.h          # 统一类型系统
+│   │   ├── symbols.h        # 符号表
+│   │   ├── source_loc.h     # 源代码位置
+│   │   └── config.h         # 配置系统
+│   ├── utils/
+│   │   ├── arena.h          # 内存池
+│   │   ├── string_pool.h    # 字符串池
+│   │   ├── hash.h           # 哈希工具
+│   │   └── logging.h        # 日志系统
+│   └── ir/                  # IR公共定义
+│       ├── ir_builder.h
+│       └── ir_visitor.h
+└── src/
+    └── core/
+        ├── type_system.cpp  # 类型系统实现
+        └── symbol_table.cpp
+中间表示层：
+middle/
+├── include/
+│   ├── ir/                  # 中间表示定义
+│   │   ├── nodes/          # IR节点类型
+│   │   │   ├── expressions.h
+│   │   │   ├── statements.h
+│   │   │   └── types.h
+│   │   ├── dialects/       # 方言系统
+│   │   │   ├── high_level.h
+│   │   │   ├── mid_level.h
+│   │   │   └── low_level.h
+│   │   └── ir_context.h    # IR上下文
+│   └── passes/             # 优化Pass
+│       ├── analysis/       # 分析Pass
+│       │   ├── dominance.h
+│       │   └── alias.h
+│       └── transform/      # 变换Pass
+│           ├── inlining.h
+│           └── constant_fold.h
+└── src/
+    ├── ir/
+    │   ├── builder.cpp     # IR构建器
+    │   └── verifier.cpp    # IR验证器
+    └── passes/
+        ├── pass_manager.cpp # Pass管理器
+        └── optimizations/
+后端层：
+backends/
+├── common/                  # 后端公共设施
+│   ├── include/
+│   │   ├── target_machine.h
+│   │   └── abi.h          # 调用约定
+│   └── src/
+├── x86_64/                 # x86-64后端
+│   ├── include/
+│   │   ├── x86_target.h
+│   │   └── x86_register.h
+│   └── src/
+│       ├── isel/          # 指令选择
+│       ├── regalloc/      # 寄存器分配
+│       └── asm_printer/   # 汇编输出
+├── arm64/                  # ARM64后端
+│   ├── include/
+│   └── src/
+├── wasm/                   # WebAssembly后端
+│   ├── include/
+│   └── src/
+
+运行时系统：
+runtime/
+├── include/
+│   ├── gc/                # 垃圾回收
+│   │   ├── gc_api.h
+│   │   └── gc_strategy.h
+│   ├── interop/           # 互操作
+│   │   ├── ffi.h         # 外部函数接口
+│   │   ├── type_mapping.h
+│   │   └── marshalling.h # 数据编组
+│   └── services/          # 运行时服务
+│       ├── threading.h
+│       ├── exception.h    # 异常处理
+│       └── reflection.h   # 反射
+└── src/
+    ├── gc/
+    │   ├── mark_sweep.cpp
+    │   └── generational.cpp
+    ├── interop/
+    └── libs/              # 各语言运行时库
+        ├── python_rt.c
+工具链：
+tools/
+├── polyc/                 # 主编译器驱动程序
+│   ├── include/
+│   └── src/
+│       └── driver.cpp    # 驱动逻辑
+├── polyld/                # 链接器
+│   ├── include/
+│   └── src/
+├── polyasm/               # 汇编器
+│   ├── include/
+│   └── src/
+├── polyopt/               # 优化器工具
+│   ├── include/
+│   └── src/
+└── polyrt/                # 运行时工具
+    ├── include/
+    └── src/
+测试系统：
+tests/
+├── unit/                  # 单元测试
+│   ├── frontends/
+│   │   ├── python/
+│   │   └── javascript/
+│   ├── middle/
+│   └── backends/
+├── integration/           # 集成测试
+│   ├── compile_tests/
+│   ├── interop_tests/     # 互操作测试
+│   └── performance/       # 性能测试
+├── benchmarks/            # 基准测试
+│   ├── micro/            # 微基准
+│   └── macro/            # 宏基准
+└── samples/               # 示例程序
+    ├── hello_world/
+    │   ├── main.py
+    │   ├── main.js
+    │   └── mixed.poly    # 混合语言示例
+    └── interop/          # 互操作示例
+外部库：
+third_party/
+├── cmake/                # CMake模块
+├── antlr/                # ANTLR运行时（如果使用）
+├── fmt/                  # 格式化库
+├── catch2/               # 测试框架
+├── json/                 # JSON库
+└── mimalloc/            # 内存分配器（可选）
+上述结构仅作示意，具体写的要求如下：
+（1）全部自己实现，不依靠外部库，但是可以参考外部库
+实现的功能如下所属：
+一、词法分析（Lexer）
+多语言词法规范支持：处理不同语言的标识符、字面量和注释风格
+位置信息保留：记录源码的行号、列号和文件信息
+预处理指令处理：支持各种语言的预处理和条件编译指令
+
+二、语法分析（Parser）
+多语言语法树生成：构建语言特定的AST节点，统一错误恢复机制
+语法糖处理：处理各种语言的语法糖和便捷语法
+模块/包解析：支持不同语言的模块系统和导入导出语句
+
+三、语义分析
+符号表管理：支持作用域管理和跨语言符号查找
+类型系统统一：实现类型推断、检查和跨语言类型映射
+作用域分析：处理词法/动态作用域、闭包捕获和变量提升
+
+四、中间表示（IR）
+统一的IR设计：定义跨语言的IR节点类型和结构
+控制流图（CFG）：构建基本块，计算支配关系和识别循环
+SSA形式支持：实现φ节点插入和变量版本管理
+
+五、优化系统
+必须实现的优化Pass：包括常量折叠、死代码消除、公共子表达式消除等
+跨语言优化：支持跨语言函数内联和过程间分析
+优化等级支持：提供不同级别的优化选项
+
+六、代码生成
+指令选择：实现模式匹配和指令成本计算
+寄存器分配：支持线性扫描或图着色等分配算法
+指令调度：实现流水线调度和指令重排序
+多目标支持：至少完整支持一个目标平台的代码生成
+
+七、链接器
+符号解析：处理跨语言符号解析和名称修饰
+重定位：实现各种重定位类型的处理
+段合并：合并代码段、数据段和BSS段
+
+八、运行时系统
+内存管理：实现垃圾回收算法和跨语言内存分配
+异常处理：统一异常框架、栈展开和异常传播
+线程支持：线程管理、同步原语和线程局部存储
+
+九、跨语言互操作
+函数调用约定：统一多语言的调用约定和参数传递规则
+类型映射：实现基础类型、复合类型和对象的跨语言映射
+数据编组（Marshalling）：处理内存布局转换、字节序和字符串编码
+
+十、调试信息
+DWARF/PDB生成：生成行号、变量位置和类型信息
+符号表生成：生成目标文件的符号表
+源码映射（Source Map）
+
+十一、标准库支持
+运行时基础库：实现内存分配、复制、比较等基本操作
+跨语言接口：提供基本IO、文件操作和字符串操作接口
+
+十二、编译驱动
+命令行界面：支持编译、汇编、链接等基本操作选项
+构建系统集成：支持依赖分析、增量编译和并行编译
+
+十三、测试验证
+编译器自举：实现能用自己编译自己的功能
+测试套件：建立完整的单元测试、集成测试和回归测试体系
