@@ -31,12 +31,18 @@ class CppParser : public frontends::ParserBase {
   std::shared_ptr<Statement> ParseWhile();
   std::shared_ptr<Statement> ParseFor();
   std::shared_ptr<Statement> ParseImport();
+  std::shared_ptr<Statement> ParseUsing();
   std::shared_ptr<Statement> ParseFunction();
-  std::shared_ptr<Statement> ParseFunctionWithSignature(const std::string &ret_type,
+  std::shared_ptr<Statement> ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type,
                                                         const std::string &name);
-  std::shared_ptr<Statement> ParseVarDecl(const std::string &type_name,
+  std::shared_ptr<Statement> ParseVarDecl(std::shared_ptr<TypeNode> type,
                                           const std::string &name);
+  std::shared_ptr<Statement> ParseRecord(const std::string &kind);
+  std::shared_ptr<Statement> ParseEnum();
+  std::shared_ptr<Statement> ParseNamespace();
+  std::shared_ptr<Statement> ParseTemplate();
   std::shared_ptr<Statement> ParseReturn();
+  std::shared_ptr<TypeNode> ParseType();
   std::shared_ptr<Expression> ParseExpression();
   std::shared_ptr<Expression> ParseAssignment();
   std::shared_ptr<Expression> ParseLogicalOr();
@@ -48,6 +54,8 @@ class CppParser : public frontends::ParserBase {
   std::shared_ptr<Expression> ParseUnary();
   std::shared_ptr<Expression> ParsePostfix();
   std::shared_ptr<Expression> ParsePrimary();
+  std::shared_ptr<Expression> ParseLambda();
+  std::vector<std::string> ParseTemplateParams();
 
   CppLexer &lexer_;
   std::shared_ptr<Module> module_{std::make_shared<Module>()};

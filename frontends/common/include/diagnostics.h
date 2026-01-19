@@ -8,22 +8,22 @@
 namespace polyglot::frontends {
 
 struct Diagnostic {
-  core::SourceLoc loc{};
-  std::string message;
+    core::SourceLoc loc{};
+    std::string message;
 };
 
 class Diagnostics {
- public:
-  void Report(const core::SourceLoc &loc, const std::string &message) {
-    diagnostics_.push_back(Diagnostic{loc, message});
-  }
+  public:
+    void Report(const core::SourceLoc &loc, const std::string &message) {
+        diagnostics_.push_back(Diagnostic{loc, message});
+    }
 
-  const std::vector<Diagnostic> &All() const { return diagnostics_; }
+    const std::vector<Diagnostic> &All() const { return diagnostics_; }
 
-  bool HasErrors() const { return !diagnostics_.empty(); }
+    bool HasErrors() const { return !diagnostics_.empty(); }
 
- private:
-  std::vector<Diagnostic> diagnostics_{};
+  private:
+    std::vector<Diagnostic> diagnostics_{};
 };
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends
