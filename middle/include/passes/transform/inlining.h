@@ -1,0 +1,9 @@
+#pragma once
+
+#include "middle/include/ir/ir_context.h"
+
+namespace polyglot::passes::transform {
+
+void RunInlining(ir::IRContext &context);
+
+}  // namespace polyglot::passes::transform
