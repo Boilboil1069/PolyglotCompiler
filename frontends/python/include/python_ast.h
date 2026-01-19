@@ -17,6 +17,11 @@ struct Statement : AstNode {};
 
 struct Expression : AstNode {};
 
+struct Parameter {
+  std::string name;
+  std::shared_ptr<Expression> annotation;
+};
+
 struct Identifier : Expression {
   std::string name;
 };
@@ -51,8 +56,14 @@ struct CallExpression : Expression {
   std::vector<std::shared_ptr<Expression>> args;
 };
 
+struct LambdaExpression : Expression {
+  std::vector<Parameter> params;
+  std::shared_ptr<Expression> body;
+};
+
 struct Assignment : Statement {
   std::shared_ptr<Expression> target;
+  std::shared_ptr<Expression> annotation;
   std::shared_ptr<Expression> value;
 };
 
@@ -82,13 +93,22 @@ struct ForStatement : Statement {
 };
 
 struct ImportStatement : Statement {
+  bool is_from{false};
   std::string module;
   std::string name;
+  std::string alias;
 };
 
 struct FunctionDef : Statement {
   std::string name;
-  std::vector<std::string> params;
+  std::vector<Parameter> params;
+  std::shared_ptr<Expression> return_annotation;
+  std::vector<std::shared_ptr<Statement>> body;
+};
+
+struct ClassDef : Statement {
+  std::string name;
+  std::vector<std::shared_ptr<Expression>> bases;
   std::vector<std::shared_ptr<Statement>> body;
 };
 

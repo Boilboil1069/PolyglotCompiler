@@ -55,7 +55,7 @@ void PythonParser::Sync() {
       if (current_.lexeme == "def" || current_.lexeme == "if" ||
           current_.lexeme == "while" || current_.lexeme == "for" ||
           current_.lexeme == "return" || current_.lexeme == "import" ||
-          current_.lexeme == "from") {
+          current_.lexeme == "from" || current_.lexeme == "class") {
         return;
       }
     }
@@ -63,7 +63,34 @@ void PythonParser::Sync() {
   }
 }
 
+std::shared_ptr<Expression> PythonParser::ParseLambda() {
+  auto lam = std::make_shared<LambdaExpression>();
+  lam->loc = current_.loc;
+  MatchKeyword("lambda");
+  if (!IsSymbol(":")) {
+    while (true) {
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        Parameter p;
+        p.name = current_.lexeme;
+        Consume();
+        if (MatchSymbol(":")) {
+          p.annotation = ParseExpression();
+        }
+        lam->params.push_back(std::move(p));
+      }
+      if (!MatchSymbol(",")) break;
+      if (IsSymbol(":")) break;
+    }
+  }
+  ExpectSymbol(":", "Expected ':' in lambda expression");
+  lam->body = ParseExpression();
+  return lam;
+}
+
 std::shared_ptr<Expression> PythonParser::ParsePrimary() {
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "lambda") {
+    return ParseLambda();
+  }
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     auto ident = std::make_shared<Identifier>();
     ident->name = current_.lexeme;
@@ -251,21 +278,46 @@ std::shared_ptr<Statement> PythonParser::ParseImport() {
   auto stmt = std::make_shared<ImportStatement>();
   stmt->loc = current_.loc;
   if (MatchKeyword("from")) {
+    stmt->is_from = true;
     if (current_.kind == frontends::TokenKind::kIdentifier) {
       stmt->module = current_.lexeme;
       Consume();
+      while (IsSymbol(".")) {
+        Consume();
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+          stmt->module += "." + current_.lexeme;
+          Consume();
+        }
+      }
     }
     if (!MatchKeyword("import")) {
       diagnostics_.Report(current_.loc, "Expected 'import' in from-import");
     }
   } else {
     MatchKeyword("import");
+    stmt->is_from = false;
   }
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     stmt->name = current_.lexeme;
     Consume();
+    while (!stmt->is_from && IsSymbol(".")) {
+      Consume();
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        stmt->name += "." + current_.lexeme;
+        Consume();
+      }
+    }
   } else {
     diagnostics_.Report(current_.loc, "Expected module name");
+  }
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "as") {
+    Consume();
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+      stmt->alias = current_.lexeme;
+      Consume();
+    } else {
+      diagnostics_.Report(current_.loc, "Expected alias after 'as'");
+    }
   }
   return stmt;
 }
@@ -358,20 +410,54 @@ std::shared_ptr<Statement> PythonParser::ParseFunction() {
   }
   ExpectSymbol("(", "Expected '(' after function name");
   if (!MatchSymbol(")")) {
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      fn->params.push_back(current_.lexeme);
-      Consume();
-      while (MatchSymbol(",")) {
-        if (current_.kind == frontends::TokenKind::kIdentifier) {
-          fn->params.push_back(current_.lexeme);
-          Consume();
+    while (true) {
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        Parameter p;
+        p.name = current_.lexeme;
+        Consume();
+        if (MatchSymbol(":")) {
+          p.annotation = ParseExpression();
         }
+        if (MatchSymbol("=")) {
+          ParseExpression();  // parse and discard default value
+        }
+        fn->params.push_back(std::move(p));
       }
+      if (MatchSymbol(")")) {
+        break;
+      }
+      ExpectSymbol(",", "Expected ',' between parameters");
     }
-    ExpectSymbol(")", "Expected ')' after parameters");
+  }
+  if (MatchSymbol("->")) {
+    fn->return_annotation = ParseExpression();
   }
   fn->body = ParseSuite();
   return fn;
+}
+
+std::shared_ptr<Statement> PythonParser::ParseClass() {
+  auto cls = std::make_shared<ClassDef>();
+  cls->loc = current_.loc;
+  MatchKeyword("class");
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
+    cls->name = current_.lexeme;
+    Consume();
+  } else {
+    diagnostics_.Report(current_.loc, "Expected class name");
+  }
+  if (MatchSymbol("(")) {
+    if (!IsSymbol(")")) {
+      cls->bases.push_back(ParseExpression());
+      while (MatchSymbol(",")) {
+        if (IsSymbol(")")) break;
+        cls->bases.push_back(ParseExpression());
+      }
+    }
+    ExpectSymbol(")", "Expected ')' after base classes");
+  }
+  cls->body = ParseSuite();
+  return cls;
 }
 
 std::shared_ptr<Statement> PythonParser::ParseStatement() {
@@ -381,6 +467,9 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
     }
     if (current_.lexeme == "def") {
       return ParseFunction();
+    }
+    if (current_.lexeme == "class") {
+      return ParseClass();
     }
     if (current_.lexeme == "return") {
       return ParseReturn();
@@ -396,6 +485,18 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
     }
   }
   auto expr = ParseExpression();
+  if (IsSymbol(":")) {
+    auto assign = std::make_shared<Assignment>();
+    assign->loc = expr ? expr->loc : current_.loc;
+    assign->target = expr;
+    Consume();
+    assign->annotation = ParseExpression();
+    if (IsSymbol("=")) {
+      Consume();
+      assign->value = ParseExpression();
+    }
+    return assign;
+  }
   if (IsSymbol("=")) {
     auto assign = std::make_shared<Assignment>();
     assign->loc = expr ? expr->loc : current_.loc;

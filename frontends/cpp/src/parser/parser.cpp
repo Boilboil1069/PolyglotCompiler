@@ -42,9 +42,11 @@ void CppParser::Sync() {
     while (current_.kind != frontends::TokenKind::kEndOfFile) {
         if (current_.kind == frontends::TokenKind::kKeyword) {
             if (current_.lexeme == "import" || current_.lexeme == "using" ||
-                current_.lexeme == "int" || current_.lexeme == "void" ||
-                current_.lexeme == "float" || current_.lexeme == "double" ||
-                current_.lexeme == "char" || current_.lexeme == "bool" ||
+                current_.lexeme == "switch" || current_.lexeme == "try" ||
+                current_.lexeme == "throw" || current_.lexeme == "int" ||
+                current_.lexeme == "void" || current_.lexeme == "float" ||
+                current_.lexeme == "double" || current_.lexeme == "char" ||
+                current_.lexeme == "bool" || current_.lexeme == "auto" ||
                 current_.lexeme == "class" || current_.lexeme == "struct" ||
                 current_.lexeme == "enum" || current_.lexeme == "namespace" ||
                 current_.lexeme == "template") {
@@ -60,6 +62,7 @@ void CppParser::Sync() {
     }
 }
 
+// --- Types ----------------------------------------------------
 std::shared_ptr<TypeNode> CppParser::ParseType() {
     bool is_const = false, is_volatile = false;
     while (current_.kind == frontends::TokenKind::kKeyword &&
@@ -191,6 +194,28 @@ std::vector<std::string> CppParser::ParseTemplateParams() {
     return params;
 }
 
+std::vector<std::shared_ptr<Expression>> CppParser::ParseTemplateArgs() {
+    std::vector<std::shared_ptr<Expression>> args;
+    if (!MatchSymbol("<"))
+        return args;
+    int depth = 1;
+    while (current_.kind != frontends::TokenKind::kEndOfFile && depth > 0) {
+        args.push_back(ParseExpression());
+        if (MatchSymbol(">")) {
+            depth--;
+            break;
+        }
+        if (MatchSymbol(","))
+            continue;
+        if (MatchSymbol("<")) {
+            depth++;
+            args.push_back(ParseExpression());
+        }
+    }
+    return args;
+}
+
+// --- Expressions ----------------------------------------------------
 std::shared_ptr<Expression> CppParser::ParsePrimary() {
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         auto ident = std::make_shared<Identifier>();
@@ -223,6 +248,17 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
 std::shared_ptr<Expression> CppParser::ParsePostfix() {
     auto expr = ParsePrimary();
     while (true) {
+        if (auto ident = std::dynamic_pointer_cast<Identifier>(expr)) {
+            if (IsSymbol("<")) {
+                auto args = ParseTemplateArgs();
+                auto tid = std::make_shared<TemplateIdExpression>();
+                tid->name = ident->name;
+                tid->args = std::move(args);
+                tid->loc = ident->loc;
+                expr = tid;
+                continue;
+            }
+        }
         if (IsSymbol("(")) {
             auto call = std::make_shared<CallExpression>();
             call->callee = expr;
@@ -428,8 +464,22 @@ std::shared_ptr<Expression> CppParser::ParseLogicalOr() {
     return expr;
 }
 
-std::shared_ptr<Expression> CppParser::ParseAssignment() {
+std::shared_ptr<Expression> CppParser::ParseConditional() {
     auto expr = ParseLogicalOr();
+    if (MatchSymbol("?")) {
+        auto cond = std::make_shared<ConditionalExpression>();
+        cond->condition = expr;
+        cond->then_expr = ParseExpression();
+        ExpectSymbol(":", "Expected ':' in conditional expression");
+        cond->else_expr = ParseConditional();
+        cond->loc = expr ? expr->loc : current_.loc;
+        return cond;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseAssignment() {
+    auto expr = ParseConditional();
     if (IsSymbol("=")) {
         auto bin = std::make_shared<BinaryExpression>();
         bin->op = "=";
@@ -444,6 +494,7 @@ std::shared_ptr<Expression> CppParser::ParseAssignment() {
 
 std::shared_ptr<Expression> CppParser::ParseExpression() { return ParseAssignment(); }
 
+// --- Statements ----------------------------------------------------
 std::shared_ptr<Statement> CppParser::ParseImport() {
     auto stmt = std::make_shared<ImportDeclaration>();
     stmt->loc = current_.loc;
@@ -487,6 +538,75 @@ std::shared_ptr<Statement> CppParser::ParseReturn() {
     return stmt;
 }
 
+std::shared_ptr<Statement> CppParser::ParseThrow() {
+    auto stmt = std::make_shared<ThrowStatement>();
+    stmt->loc = current_.loc;
+    MatchKeyword("throw");
+    if (!IsSymbol(";")) {
+        stmt->value = ParseExpression();
+    }
+    MatchSymbol(";");
+    return stmt;
+}
+
+std::shared_ptr<Statement> CppParser::ParseSwitch() {
+    auto sw = std::make_shared<SwitchStatement>();
+    sw->loc = current_.loc;
+    MatchKeyword("switch");
+    ExpectSymbol("(", "Expected '(' after switch");
+    sw->condition = ParseExpression();
+    ExpectSymbol(")", "Expected ')' after switch condition");
+    ExpectSymbol("{", "Expected '{' after switch");
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        SwitchCase cs;
+        bool has_label = false;
+        while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "case") {
+            Consume();
+            cs.labels.push_back(ParseExpression());
+            has_label = true;
+            ExpectSymbol(":", "Expected ':' after case label");
+        }
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "default") {
+            Consume();
+            cs.is_default = true;
+            ExpectSymbol(":", "Expected ':' after default");
+            has_label = true;
+        }
+        if (!has_label)
+            break;
+        while (!(IsSymbol("}") || (current_.kind == frontends::TokenKind::kKeyword &&
+                                   (current_.lexeme == "case" || current_.lexeme == "default")))) {
+            cs.body.push_back(ParseStatement());
+        }
+        sw->cases.push_back(std::move(cs));
+    }
+    MatchSymbol("}");
+    return sw;
+}
+
+std::shared_ptr<Statement> CppParser::ParseTry() {
+    auto tr = std::make_shared<TryStatement>();
+    tr->loc = current_.loc;
+    MatchKeyword("try");
+    tr->try_body.push_back(ParseBlock());
+    while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "catch") {
+        Consume();
+        CatchClause cc;
+        ExpectSymbol("(", "Expected '(' after catch");
+        cc.exception_type = ParseType();
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            cc.name = current_.lexeme;
+            Consume();
+        }
+        ExpectSymbol(")", "Expected ')' after catch param");
+        auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlock());
+        if (body)
+            cc.body = body->statements;
+        tr->catches.push_back(std::move(cc));
+    }
+    return tr;
+}
+
 std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
     auto rec = std::make_shared<RecordDecl>();
     rec->loc = current_.loc;
@@ -496,25 +616,109 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
         rec->name = current_.lexeme;
         Consume();
     }
-    if (MatchSymbol("{")) {
-        while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
-            auto field_type = ParseType();
-            if (current_.kind == frontends::TokenKind::kIdentifier) {
-                FieldDecl f;
-                f.type = field_type;
-                f.name = current_.lexeme;
+    if (MatchSymbol(":")) {
+        do {
+            BaseSpecifier base;
+            if (current_.kind == frontends::TokenKind::kKeyword &&
+                (current_.lexeme == "public" || current_.lexeme == "protected" ||
+                 current_.lexeme == "private")) {
+                base.access = current_.lexeme;
                 Consume();
-                rec->fields.push_back(std::move(f));
-                MatchSymbol(";");
-            } else {
-                // maybe method
-                auto stmt = ParseStatement();
-                if (stmt)
-                    rec->methods.push_back(stmt);
             }
-        }
-        MatchSymbol("}");
+            if (current_.kind == frontends::TokenKind::kIdentifier ||
+                current_.kind == frontends::TokenKind::kKeyword) {
+                std::string name = current_.lexeme;
+                Consume();
+                while (MatchSymbol("::")) {
+                    name += "::";
+                    if (current_.kind == frontends::TokenKind::kIdentifier ||
+                        current_.kind == frontends::TokenKind::kKeyword) {
+                        name += current_.lexeme;
+                        Consume();
+                    }
+                }
+                base.name = name;
+            }
+            rec->bases.push_back(std::move(base));
+        } while (MatchSymbol(","));
     }
+
+    ExpectSymbol("{", "Expected '{' for record body");
+    if (IsSymbol("{"))
+        MatchSymbol("{");
+    std::string current_access = (kind == "struct") ? "public" : "private";
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        if (current_.kind == frontends::TokenKind::kKeyword &&
+            (current_.lexeme == "public" || current_.lexeme == "protected" ||
+             current_.lexeme == "private")) {
+            std::string acc = current_.lexeme;
+            Consume();
+            MatchSymbol(":");
+            current_access = acc;
+            continue;
+        }
+
+        bool is_constexpr = false, is_inline = false, is_static = false;
+        while (current_.kind == frontends::TokenKind::kKeyword &&
+               (current_.lexeme == "constexpr" || current_.lexeme == "inline" ||
+                current_.lexeme == "static")) {
+            if (current_.lexeme == "constexpr")
+                is_constexpr = true;
+            if (current_.lexeme == "inline")
+                is_inline = true;
+            if (current_.lexeme == "static")
+                is_static = true;
+            Consume();
+        }
+
+        auto member_type = ParseType();
+        if (current_.kind == frontends::TokenKind::kIdentifier ||
+            (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator")) {
+            bool is_operator = false;
+            std::string name;
+            std::string op_symbol;
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator") {
+                is_operator = true;
+                Consume();
+                op_symbol = current_.lexeme;
+                name = "operator" + op_symbol;
+                Consume();
+            } else {
+                name = current_.lexeme;
+                Consume();
+            }
+
+            if (IsSymbol("(")) {
+                auto fn = ParseFunctionWithSignature(member_type, name, is_constexpr, is_inline,
+                                                     is_static, is_operator, op_symbol);
+                fn->access = current_access;
+                rec->methods.push_back(fn);
+                continue;
+            }
+
+            FieldDecl f;
+            f.type = member_type;
+            f.name = name;
+            f.access = current_access;
+            f.is_constexpr = is_constexpr;
+            f.is_static = is_static;
+            MatchSymbol(";");
+            rec->fields.push_back(std::move(f));
+            continue;
+        }
+
+        auto stmt = ParseStatement();
+        if (auto fn = std::dynamic_pointer_cast<FunctionDecl>(stmt)) {
+            fn->access = current_access;
+            rec->methods.push_back(fn);
+        } else if (auto vd = std::dynamic_pointer_cast<VarDecl>(stmt)) {
+            vd->access = current_access;
+            rec->methods.push_back(vd);
+        } else if (stmt) {
+            rec->methods.push_back(stmt);
+        }
+    }
+    MatchSymbol("}");
     MatchSymbol(";");
     return rec;
 }
@@ -573,11 +777,17 @@ std::shared_ptr<Statement> CppParser::ParseTemplate() {
 }
 
 std::shared_ptr<Statement> CppParser::ParseVarDecl(std::shared_ptr<TypeNode> type,
-                                                   const std::string &name) {
+                                                   const std::string &name, bool is_constexpr,
+                                                   bool is_inline, bool is_static,
+                                                   const std::string &access) {
     auto decl = std::make_shared<VarDecl>();
     decl->loc = current_.loc;
     decl->type = type;
     decl->name = name;
+    decl->is_constexpr = is_constexpr;
+    decl->is_inline = is_inline;
+    decl->is_static = is_static;
+    decl->access = access;
     if (IsSymbol("=")) {
         Consume();
         decl->init = ParseExpression();
@@ -586,12 +796,40 @@ std::shared_ptr<Statement> CppParser::ParseVarDecl(std::shared_ptr<TypeNode> typ
     return decl;
 }
 
+std::shared_ptr<Statement> CppParser::ParseStructuredBinding(std::shared_ptr<TypeNode> type,
+                                                             bool is_constexpr, bool is_inline,
+                                                             bool is_static) {
+    auto decl = std::make_shared<StructuredBindingDecl>();
+    decl->loc = current_.loc;
+    decl->type = type;
+    ExpectSymbol("[", "Expected '[' in structured binding");
+    while (current_.kind == frontends::TokenKind::kIdentifier) {
+        decl->names.push_back(current_.lexeme);
+        Consume();
+        if (!MatchSymbol(","))
+            break;
+    }
+    ExpectSymbol("]", "Expected ']' in structured binding");
+    ExpectSymbol("=", "Expected '=' in structured binding");
+    decl->init = ParseExpression();
+    MatchSymbol(";");
+    return decl;
+}
+
 std::shared_ptr<Statement> CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type,
-                                                                 const std::string &name) {
+                                                                 const std::string &name,
+                                                                 bool is_constexpr, bool is_inline,
+                                                                 bool is_static, bool is_operator,
+                                                                 const std::string &op_symbol) {
     auto fn = std::make_shared<FunctionDecl>();
     fn->loc = current_.loc;
     fn->return_type = ret_type;
     fn->name = name;
+    fn->is_constexpr = is_constexpr;
+    fn->is_inline = is_inline;
+    fn->is_static = is_static;
+    fn->is_operator = is_operator;
+    fn->operator_symbol = op_symbol;
     ExpectSymbol("(", "Expected '(' after function name");
     if (!IsSymbol(")")) {
         while (true) {
@@ -623,7 +861,6 @@ std::shared_ptr<Statement> CppParser::ParseFunctionWithSignature(std::shared_ptr
 }
 
 std::shared_ptr<Statement> CppParser::ParseFunction() {
-    // assumes current_ is at return type token
     auto ret = ParseType();
     if (current_.kind != frontends::TokenKind::kIdentifier) {
         diagnostics_.Report(current_.loc, "Expected function name");
@@ -631,7 +868,7 @@ std::shared_ptr<Statement> CppParser::ParseFunction() {
     }
     std::string name = current_.lexeme;
     Consume();
-    return ParseFunctionWithSignature(ret, name);
+    return ParseFunctionWithSignature(ret, name, false, false, false, false, "");
 }
 
 std::shared_ptr<Statement> CppParser::ParseBlock() {
@@ -675,18 +912,15 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
     stmt->loc = current_.loc;
     MatchKeyword("for");
     ExpectSymbol("(", "Expected '(' after for");
-    // init
     if (!IsSymbol(";")) {
         stmt->init = ParseStatement();
     } else {
         MatchSymbol(";");
     }
-    // condition
     if (!IsSymbol(";")) {
         stmt->condition = ParseExpression();
     }
     MatchSymbol(";");
-    // increment
     if (!IsSymbol(")")) {
         stmt->increment = ParseExpression();
     }
@@ -696,12 +930,34 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
 }
 
 std::shared_ptr<Statement> CppParser::ParseStatement() {
+    bool is_constexpr = false, is_inline = false, is_static = false;
+    while (current_.kind == frontends::TokenKind::kKeyword &&
+           (current_.lexeme == "constexpr" || current_.lexeme == "inline" ||
+            current_.lexeme == "static")) {
+        if (current_.lexeme == "constexpr")
+            is_constexpr = true;
+        if (current_.lexeme == "inline")
+            is_inline = true;
+        if (current_.lexeme == "static")
+            is_static = true;
+        Consume();
+    }
+
     if (current_.kind == frontends::TokenKind::kKeyword) {
         if (current_.lexeme == "import") {
             return ParseImport();
         }
         if (current_.lexeme == "using") {
             return ParseUsing();
+        }
+        if (current_.lexeme == "throw") {
+            return ParseThrow();
+        }
+        if (current_.lexeme == "switch") {
+            return ParseSwitch();
+        }
+        if (current_.lexeme == "try") {
+            return ParseTry();
         }
         if (current_.lexeme == "return") {
             return ParseReturn();
@@ -728,37 +984,57 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
         if (current_.lexeme == "template") {
             return ParseTemplate();
         }
-        // type keywords for var or function decls
         if (current_.lexeme == "int" || current_.lexeme == "void" || current_.lexeme == "float" ||
-            current_.lexeme == "double" || current_.lexeme == "char" || current_.lexeme == "bool") {
+            current_.lexeme == "double" || current_.lexeme == "char" || current_.lexeme == "bool" ||
+            current_.lexeme == "auto") {
             auto type = ParseType();
-            if (current_.kind != frontends::TokenKind::kIdentifier) {
+            if (IsSymbol("[")) {
+                return ParseStructuredBinding(type, is_constexpr, is_inline, is_static);
+            }
+            if (current_.kind != frontends::TokenKind::kIdentifier &&
+                !(current_.kind == frontends::TokenKind::kKeyword &&
+                  current_.lexeme == "operator")) {
                 diagnostics_.Report(current_.loc, "Expected identifier after type");
                 MatchSymbol(";");
                 return nullptr;
             }
-            std::string name = current_.lexeme;
-            Consume();
-            if (IsSymbol("(")) {
-                return ParseFunctionWithSignature(type, name);
+            std::string name;
+            bool is_operator = false;
+            std::string op_symbol;
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator") {
+                is_operator = true;
+                Consume();
+                op_symbol = current_.lexeme;
+                name = "operator" + op_symbol;
+                Consume();
+            } else {
+                name = current_.lexeme;
+                Consume();
             }
-            return ParseVarDecl(type, name);
+            if (IsSymbol("(")) {
+                return ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
+                                                  is_operator, op_symbol);
+            }
+            return ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
         }
     }
     if (IsSymbol("{")) {
         return ParseBlock();
     }
 
-    // user-defined type starting identifier
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         auto type = ParseType();
+        if (IsSymbol("[")) {
+            return ParseStructuredBinding(type, is_constexpr, is_inline, is_static);
+        }
         if (current_.kind == frontends::TokenKind::kIdentifier) {
             std::string name = current_.lexeme;
             Consume();
             if (IsSymbol("(")) {
-                return ParseFunctionWithSignature(type, name);
+                return ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
+                                                  false, "");
             }
-            return ParseVarDecl(type, name);
+            return ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
         }
     }
 

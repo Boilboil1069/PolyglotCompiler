@@ -30,12 +30,14 @@ class PythonParser : public frontends::ParserBase {
   std::shared_ptr<Statement> ParseStatement();
   std::vector<std::shared_ptr<Statement>> ParseSuite();
   std::shared_ptr<Statement> ParseImport();
+  std::shared_ptr<Statement> ParseClass();
   std::shared_ptr<Statement> ParseFunction();
   std::shared_ptr<Statement> ParseReturn();
   std::shared_ptr<Statement> ParseIf();
   std::shared_ptr<Statement> ParseWhile();
   std::shared_ptr<Statement> ParseFor();
   std::shared_ptr<Expression> ParseExpression();
+  std::shared_ptr<Expression> ParseLambda();
   std::shared_ptr<Expression> ParseOr();
   std::shared_ptr<Expression> ParseAnd();
   std::shared_ptr<Expression> ParseNot();
