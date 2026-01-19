@@ -9,12 +9,14 @@ class PythonLexer : public frontends::LexerBase {
   PythonLexer(std::string source, std::string file)
       : LexerBase(std::move(source), std::move(file)) {}
 
-  frontends::Token NextToken() override;
+ frontends::Token NextToken() override;
 
  private:
   void SkipWhitespace();
+  void SkipComment();
   frontends::Token LexIdentifier();
   frontends::Token LexNumber();
+  frontends::Token LexString();
 };
 
 }  // namespace polyglot::python

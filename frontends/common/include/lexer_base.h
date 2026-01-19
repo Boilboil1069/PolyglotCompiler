@@ -11,8 +11,11 @@ enum class TokenKind {
   kIdentifier,
   kNumber,
   kString,
+  kChar,
+  kLifetime,
   kKeyword,
   kSymbol,
+  kPreprocessor,
   kUnknown
 };
 
@@ -33,6 +36,9 @@ class LexerBase {
       : source_(std::move(source)), file_(std::move(file)) {}
 
   char Peek() const { return position_ < source_.size() ? source_[position_] : '\0'; }
+  char PeekNext() const {
+    return (position_ + 1) < source_.size() ? source_[position_ + 1] : '\0';
+  }
 
   char Get() {
     char c = Peek();

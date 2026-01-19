@@ -1,7 +1,9 @@
 #pragma once
 
+#include "middle/include/ir/ir_context.h"
+
 namespace polyglot::passes::transform {
 
-struct ConstantFoldPass {};
+void RunConstantFold(ir::IRContext &context);
 
 }  // namespace polyglot::passes::transform

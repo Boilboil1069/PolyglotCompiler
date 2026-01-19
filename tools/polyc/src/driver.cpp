@@ -4,6 +4,7 @@
 #include "backends/x86_64/include/x86_target.h"
 #include "common/include/core/source_loc.h"
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/preprocessor.h"
 #include "frontends/cpp/include/cpp_lexer.h"
 #include "frontends/cpp/include/cpp_parser.h"
 #include "frontends/common/include/sema_context.h"
@@ -31,7 +32,9 @@ int main(int argc, char **argv) {
     polyglot::frontends::SemaContext sema(diagnostics);
     polyglot::python::AnalyzeModule(*parser.TakeModule(), sema);
   } else if (language == "cpp") {
-    polyglot::cpp::CppLexer lexer(source, "<cli>");
+    polyglot::frontends::Preprocessor preprocessor(diagnostics);
+    std::string processed = preprocessor.Process(source);
+    polyglot::cpp::CppLexer lexer(processed, "<cli>");
     polyglot::cpp::CppParser parser(lexer, diagnostics);
     parser.ParseModule();
   } else if (language == "rust") {

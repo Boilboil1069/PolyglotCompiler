@@ -15,7 +15,10 @@ class Preprocessor {
     macros_[name] = value;
   }
 
+  void Undefine(const std::string &name) { macros_.erase(name); }
+
   std::string Expand(const std::string &source);
+  std::string Process(const std::string &source);
 
  private:
   Diagnostics &diagnostics_;
