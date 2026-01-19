@@ -1,2 +1,5 @@
 /build/
 /install/
+/obj/
+/bin/
+/.vs/
