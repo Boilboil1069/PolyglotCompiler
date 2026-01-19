@@ -15,7 +15,6 @@ target_include_directories(polyglot_common PUBLIC
 
 add_library(frontend_common
     frontends/common/src/token_pool.cpp
-    frontends/common/src/preprocessor.cpp
 )
 
 target_include_directories(frontend_common PUBLIC
@@ -27,7 +26,6 @@ target_link_libraries(frontend_common PUBLIC polyglot_common)
 add_library(frontend_python
     frontends/python/src/lexer/lexer.cpp
     frontends/python/src/parser/parser.cpp
-    frontends/python/src/sema/sema.cpp
 )
 
 target_include_directories(frontend_python PUBLIC
@@ -36,36 +34,10 @@ target_include_directories(frontend_python PUBLIC
 
 target_link_libraries(frontend_python PUBLIC frontend_common polyglot_common)
 
-add_library(frontend_cpp
-    frontends/cpp/src/lexer/lexer.cpp
-    frontends/cpp/src/parser/parser.cpp
-)
-
-target_include_directories(frontend_cpp PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(frontend_cpp PUBLIC frontend_common polyglot_common)
-
-add_library(frontend_rust
-    frontends/rust/src/lexer/lexer.cpp
-    frontends/rust/src/parser/parser.cpp
-)
-
-target_include_directories(frontend_rust PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(frontend_rust PUBLIC frontend_common polyglot_common)
-
 add_library(middle_ir
     middle/src/ir/builder.cpp
     middle/src/ir/verifier.cpp
     middle/src/passes/pass_manager.cpp
-    middle/src/passes/optimizations/constant_fold.cpp
-    middle/src/passes/optimizations/dead_code_elim.cpp
-    middle/src/passes/optimizations/common_subexpr.cpp
-    middle/src/passes/optimizations/inlining.cpp
 )
 
 target_include_directories(middle_ir PUBLIC
@@ -76,9 +48,6 @@ target_link_libraries(middle_ir PUBLIC polyglot_common)
 
 add_library(backend_x86_64
     backends/x86_64/src/asm_printer/emit.cpp
-    backends/x86_64/src/asm_printer/scheduler.cpp
-    backends/x86_64/src/isel/isel.cpp
-    backends/x86_64/src/regalloc/linear_scan.cpp
 )
 
 target_include_directories(backend_x86_64 PUBLIC
@@ -90,8 +59,6 @@ target_link_libraries(backend_x86_64 PUBLIC polyglot_common)
 add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
-    runtime/src/interop/ffi.cpp
-    runtime/src/libs/base.c
     runtime/src/libs/python_rt.c
 )
 
@@ -105,8 +72,6 @@ add_executable(polyc
 
 target_link_libraries(polyc
     frontend_python
-    frontend_cpp
-    frontend_rust
     backend_x86_64
     middle_ir
     runtime
