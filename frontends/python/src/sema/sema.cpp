@@ -41,6 +41,14 @@ class Analyzer {
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
 
+    void DeclareSimple(const std::string &name, SymbolKind kind, const Type &type,
+                       const core::SourceLoc &loc) {
+        Symbol sym{name, type, loc, kind, "python"};
+        if (!Syms().Declare(sym)) {
+            Diags().Report(loc, "Duplicate declaration: " + name);
+        }
+    }
+
     void AnalyzeStmt(const std::shared_ptr<Statement> &stmt) {
         if (!stmt) return;
 

@@ -25,6 +25,8 @@ struct Expression : AstNode {};
 
 struct Pattern : AstNode {};
 
+struct TypeNode : AstNode {};
+
 struct IdentifierPattern : Pattern {
     std::string name;
     bool is_ref{false};

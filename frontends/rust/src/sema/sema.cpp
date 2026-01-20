@@ -165,6 +165,7 @@ class Analyzer {
         scope_stack_.push_back({ScopeKind::kFunction});
         Syms().EnterScope(fn.name, ScopeKind::kFunction);
         current_return_type_ = MapType(fn.return_type);
+
         for (auto &p : fn.params) {
             Symbol param{p.name, MapType(p.type), fn.loc, SymbolKind::kParameter, "rust"};
             Syms().Declare(param);
@@ -415,6 +416,7 @@ class Analyzer {
     const Module &module_;
     frontends::SemaContext &ctx_;
     std::vector<ScopeState> scope_stack_{};
+    Type current_return_type_{Type::Any()};
 };
 
 }  // namespace
