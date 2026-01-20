@@ -5,6 +5,7 @@
 
 namespace polyglot::ir {
 
+// Minimal visitor kept for compatibility; can be extended as needed.
 class IRVisitor {
  public:
   virtual ~IRVisitor() = default;

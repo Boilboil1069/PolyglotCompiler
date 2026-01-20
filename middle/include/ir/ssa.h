@@ -2,24 +2,18 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+
+#include "middle/include/ir/cfg.h"
 
 namespace polyglot::ir {
 
-struct SSAVariable {
-  std::string name;
-  size_t version{0};
-};
+// Convert a function into SSA form (phi insertion + renaming).
+void ConvertToSSA(Function &func);
 
-class SSABuilder {
- public:
-  SSAVariable NextVersion(const std::string &name) {
-    size_t &version = versions_[name];
-    version += 1;
-    return SSAVariable{name, version};
-  }
-
- private:
-  std::unordered_map<std::string, size_t> versions_{};
-};
+// Exposed helpers for testing or advanced pipelines.
+void InsertPhiNodes(Function &func, const DominanceFrontier &df,
+                    const std::unordered_map<std::string, std::unordered_set<BasicBlock *>> &defsites);
+void RenameToSSA(Function &func, const DominatorTree &dom_tree);
 
 }  // namespace polyglot::ir

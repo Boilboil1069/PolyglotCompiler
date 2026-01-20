@@ -62,6 +62,9 @@ target_link_libraries(frontend_rust PUBLIC frontend_common polyglot_common)
 
 add_library(middle_ir
     middle/src/ir/builder.cpp
+    middle/src/ir/ir_context.cpp
+    middle/src/ir/cfg.cpp
+    middle/src/ir/ssa.cpp
     middle/src/ir/verifier.cpp
     middle/src/passes/pass_manager.cpp
     middle/src/passes/optimizations/constant_fold.cpp

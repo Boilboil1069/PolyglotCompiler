@@ -169,8 +169,6 @@ struct AssignmentExpression : Expression {
     std::shared_ptr<Expression> right;
 };
 
-struct TypeNode : AstNode {};
-
 struct TypePath : TypeNode {
     bool is_absolute{false};
     std::vector<std::string> segments;
