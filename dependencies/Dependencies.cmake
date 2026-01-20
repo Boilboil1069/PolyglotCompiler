@@ -1,14 +1,14 @@
 # Third-party dependency setup for PolyglotCompiler
-# Uses FetchContent to download sources into ${FETCHCONTENT_BASE_DIR} (defaults to third_party/).
+# Uses FetchContent to download sources into ${FETCHCONTENT_BASE_DIR} (defaults to dependencies/).
 
 cmake_minimum_required(VERSION 3.20)
 include_guard(GLOBAL)
 
 include(FetchContent)
 
-# Allow the user to override where dependencies are stored; default to the repo's third_party/ folder.
+# Allow the user to override where dependencies are stored; default to the repo's dependencies/ folder.
 if(NOT DEFINED FETCHCONTENT_BASE_DIR)
-    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party" CACHE PATH "Base directory for fetched third-party sources")
+    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dependencies" CACHE PATH "Base directory for fetched dependencies sources")
 endif()
 file(MAKE_DIRECTORY "${FETCHCONTENT_BASE_DIR}")
 
