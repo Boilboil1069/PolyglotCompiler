@@ -39,6 +39,7 @@ target_link_libraries(frontend_python PUBLIC frontend_common polyglot_common)
 add_library(frontend_cpp
     frontends/cpp/src/lexer/lexer.cpp
     frontends/cpp/src/parser/parser.cpp
+    frontends/cpp/src/sema/sema.cpp
 )
 
 target_include_directories(frontend_cpp PUBLIC
@@ -50,6 +51,7 @@ target_link_libraries(frontend_cpp PUBLIC frontend_common polyglot_common)
 add_library(frontend_rust
     frontends/rust/src/lexer/lexer.cpp
     frontends/rust/src/parser/parser.cpp
+    frontends/rust/src/sema/sema.cpp
 )
 
 target_include_directories(frontend_rust PUBLIC

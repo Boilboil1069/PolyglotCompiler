@@ -144,6 +144,7 @@ std::string TrimRight(std::string s) {
 
 bool IsIdentStart(char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; }
 bool IsIdentContinue(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
+bool IsWhitespace(char c) { return std::isspace(static_cast<unsigned char>(c)); }
 
 }  // namespace
 
@@ -191,10 +192,11 @@ std::optional<std::string> Preprocessor::ReadFile(const std::string &path) const
 
 std::optional<std::string> Preprocessor::ResolveInclude(const std::string &target,
                                                         const std::string &current_file_dir,
-                                                        bool search_include_paths) const {
+                                                        bool is_angle) const {
   namespace fs = std::filesystem;
   std::error_code ec;
-  if (!target.empty() && target[0] != '<' && target[0] != '>' && target[0] != '"') {
+  // quoted include: search current dir then include paths
+  if (!is_angle) {
     fs::path p = target;
     if (p.is_relative() && !current_file_dir.empty()) {
       p = fs::path(current_file_dir) / p;
@@ -202,11 +204,10 @@ std::optional<std::string> Preprocessor::ResolveInclude(const std::string &targe
     if (fs::exists(p, ec)) return p.string();
   }
 
-  if (search_include_paths) {
-    for (const auto &inc : include_paths_) {
-      fs::path p = fs::path(inc) / target;
-      if (fs::exists(p, ec)) return p.string();
-    }
+  // angle include OR fallback to include paths
+  for (const auto &inc : include_paths_) {
+    fs::path p = fs::path(inc) / target;
+    if (fs::exists(p, ec)) return p.string();
   }
   return std::nullopt;
 }
@@ -214,6 +215,21 @@ std::optional<std::string> Preprocessor::ResolveInclude(const std::string &targe
 std::string Preprocessor::Expand(const std::string &source) {
   std::unordered_set<std::string> guard;
   return ExpandLine(source, guard);
+}
+
+std::string Preprocessor::Stringize(const std::string &text) const {
+  std::string out = "\"";
+  for (char c : text) {
+    if (c == '"' || c == '\\') out.push_back('\\');
+    out.push_back(c);
+  }
+  out.push_back('"');
+  return out;
+}
+
+std::string Preprocessor::Paste(const std::string &lhs, const std::string &rhs) const {
+  std::string merged = lhs + rhs;
+  return merged;
 }
 
 std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set<std::string> &guard) {
@@ -279,7 +295,7 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
         continue;
       }
 
-      // parse arguments
+  // parse arguments, supporting variadic "..."
       ++j;  // skip '('
       int depth = 1;
       std::vector<std::string> args;
@@ -308,10 +324,23 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
       }
       i = j;
 
-      if (args.size() != macro.params.size()) {
+      bool is_variadic = !macro.params.empty() && macro.params.back() == "__VA_ARGS__";
+      size_t required = is_variadic ? macro.params.size() - 1 : macro.params.size();
+      if (args.size() < required || (!is_variadic && args.size() != macro.params.size())) {
         diagnostics_.Report(core::SourceLoc{}, "Macro argument count mismatch for " + ident);
         out.append(line.substr(start, i - start));
         continue;
+      }
+
+      // pack variadic args into last slot
+      if (is_variadic) {
+        std::string packed;
+        for (size_t idx = required; idx < args.size(); ++idx) {
+          if (idx > required) packed += ",";
+          packed += args[idx];
+        }
+        args.resize(required + 1);
+        args.back() = packed;
       }
 
       guard.insert(ident);
@@ -330,7 +359,8 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
 std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector<std::string> &args,
                                            std::unordered_set<std::string> &guard) {
   std::string result;
-  auto is_match = [](const std::string &s, size_t pos, const std::string &word) {
+
+  auto match_param = [&](const std::string &s, size_t pos, const std::string &word) {
     if (pos + word.size() > s.size()) return false;
     if (s.compare(pos, word.size(), word) != 0) return false;
     auto is_ident = [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; };
@@ -340,23 +370,91 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
   };
 
   for (size_t i = 0; i < macro.body.size();) {
+    if (macro.body[i] == '#') {
+      // stringize
+      ++i;
+      while (i < macro.body.size() && IsWhitespace(macro.body[i])) ++i;
+      bool handled = false;
+      for (size_t p = 0; p < macro.params.size(); ++p) {
+        const auto &param = macro.params[p];
+        if (match_param(macro.body, i, param)) {
+          result += Stringize(args[p]);
+          i += param.size();
+          handled = true;
+          break;
+        }
+      }
+      if (handled) continue;
+      result.push_back('#');
+      continue;
+    }
+
+    bool pasted = false;
+    // look for X ## Y
+    if (i + 1 < macro.body.size() && macro.body[i] == '#' && macro.body[i + 1] == '#') {
+      // shouldn't reach here because handled in flow, but keep safety
+      i += 2;
+      continue;
+    }
+
+    // match parameter replacement and possible paste sequence
     bool replaced = false;
     for (size_t p = 0; p < macro.params.size(); ++p) {
       const auto &param = macro.params[p];
-      if (is_match(macro.body, i, param)) {
-        guard.insert(param);
-        result += ExpandLine(args[p], guard);
-        guard.erase(param);
-        i += param.size();
+      if (!match_param(macro.body, i, param)) continue;
+
+      // check paste after
+      size_t j = i + param.size();
+      size_t save_j = j;
+      while (j + 1 < macro.body.size() && IsWhitespace(macro.body[j])) ++j;
+      bool has_paste = (j + 1 < macro.body.size() && macro.body[j] == '#' && macro.body[j + 1] == '#');
+
+      guard.insert(param);
+      std::string expanded = ExpandLine(args[p], guard);
+      guard.erase(param);
+
+      if (has_paste) {
+        j += 2;
+        while (j < macro.body.size() && IsWhitespace(macro.body[j])) ++j;
+        std::string rhs;
+        bool rhs_from_param = false;
+        for (size_t k = 0; k < macro.params.size(); ++k) {
+          const auto &param_rhs = macro.params[k];
+          if (match_param(macro.body, j, param_rhs)) {
+            guard.insert(param_rhs);
+            rhs = ExpandLine(args[k], guard);
+            guard.erase(param_rhs);
+            j += param_rhs.size();
+            rhs_from_param = true;
+            break;
+          }
+        }
+        if (!rhs_from_param && j < macro.body.size()) {
+          // take next token literal until whitespace
+          while (j < macro.body.size() && !IsWhitespace(macro.body[j]) && macro.body[j] != '#') {
+            rhs.push_back(macro.body[j]);
+            ++j;
+          }
+        }
+        result += Paste(expanded, rhs);
+        i = j;
+        pasted = true;
         replaced = true;
         break;
       }
+
+      result += expanded;
+      i = save_j;
+      replaced = true;
+      break;
     }
-    if (!replaced) {
-      result.push_back(macro.body[i]);
-      ++i;
-    }
+
+    if (pasted || replaced) continue;
+
+    result.push_back(macro.body[i]);
+    ++i;
   }
+
   return result;
 }
 
@@ -428,6 +526,9 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
         std::string value;
         std::getline(line_stream, value);
         value = TrimLeft(value);
+        if (!params.empty() && params.back() == "...") {
+          params.back() = "__VA_ARGS__";
+        }
         if (params.empty()) {
           Define(name, value);
         } else {
@@ -450,13 +551,15 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
         }
         std::string target;
         line_stream >> target;
+        bool is_angle = false;
         if (!target.empty() && target.front() == '"' && target.back() == '"') {
           target = target.substr(1, target.size() - 2);
         } else if (!target.empty() && target.front() == '<' && target.back() == '>') {
           target = target.substr(1, target.size() - 2);
+          is_angle = true;
         }
 
-        auto resolved = ResolveInclude(target, current_dir, true);
+        auto resolved = ResolveInclude(target, current_dir, is_angle);
         if (!resolved) {
           diagnostics_.Report(core::SourceLoc{file, line_no, 1}, "Failed to resolve include: " + target);
           ++line_no;
@@ -465,6 +568,29 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
         auto contents = ReadFile(*resolved);
         if (!contents) {
           diagnostics_.Report(core::SourceLoc{file, line_no, 1}, "Failed to read include: " + *resolved);
+          ++line_no;
+          continue;
+        }
+
+        // include guard / pragma once detection
+        bool skip_body = false;
+        auto guard = DetectIncludeGuard(*contents);
+        if (guard && guard->empty()) {
+          // pragma once
+          if (pragma_once_files_.count(*resolved)) {
+            skip_body = true;
+          } else {
+            pragma_once_files_.insert(*resolved);
+          }
+        } else if (guard && !guard->empty()) {
+          if (macros_.count(*guard)) {
+            skip_body = true;
+          } else {
+            Define(*guard, "1");
+            guard_to_file_[*guard] = *resolved;
+          }
+        }
+        if (skip_body) {
           ++line_no;
           continue;
         }
@@ -573,6 +699,40 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
   }
 
   return output;
+}
+
+std::optional<std::string> Preprocessor::DetectIncludeGuard(const std::string &source) const {
+  std::istringstream ss(source);
+  std::string line;
+  std::string guard;
+  bool saw_ifndef = false;
+
+  while (std::getline(ss, line)) {
+    std::string trimmed = TrimLeft(line);
+    if (trimmed.empty()) continue;
+    if (trimmed.rfind("#pragma once", 0) == 0) {
+      return std::string{};  // signal pragma once
+    }
+    if (trimmed.rfind("#ifndef", 0) == 0) {
+      std::istringstream ls(trimmed.substr(7));
+      ls >> guard;
+      if (!guard.empty()) {
+        saw_ifndef = true;
+      }
+      continue;
+    }
+    if (saw_ifndef && trimmed.rfind("#define", 0) == 0) {
+      std::istringstream ls(trimmed.substr(7));
+      std::string def;
+      ls >> def;
+      if (!def.empty() && def == guard) {
+        return guard;
+      }
+    }
+    // stop scanning after first non-guard directive/content
+    break;
+  }
+  return std::nullopt;
 }
 
 }  // namespace polyglot::frontends
