@@ -49,16 +49,16 @@ FetchContent_Declare(
     GIT_TAG v2.1.7
 )
 
-# ANTLR4 C++ runtime
-set(ANTLR_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
-set(ANTLR_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(WITH_STATIC_CRT OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    antlr4
-    GIT_REPOSITORY https://github.com/antlr/antlr4.git
-    GIT_TAG 4.13.1
-    SOURCE_SUBDIR runtime/Cpp
-)
+# # ANTLR4 C++ runtime
+# set(ANTLR_BUILD_CPP_TESTS OFF CACHE BOOL "" FORCE)
+# set(ANTLR_BUILD_CPP_EXAMPLES OFF CACHE BOOL "" FORCE)
+# set(WITH_STATIC_CRT OFF CACHE BOOL "" FORCE)
+# FetchContent_Declare(
+#     antlr4
+#     GIT_REPOSITORY https://github.com/antlr/antlr4.git
+#     GIT_TAG 4.13.1
+#     SOURCE_SUBDIR runtime/Cpp
+# )
 
 # Download (if missing) and make the packages available with their standard targets:
 # - fmt::fmt / fmt::fmt-header-only
@@ -66,4 +66,4 @@ FetchContent_Declare(
 # - Catch2::Catch2WithMain / Catch2::Catch2
 # - mimalloc-static / mimalloc
 # - antlr4_shared / antlr4_static
-FetchContent_MakeAvailable(fmt nlohmann_json Catch2 mimalloc antlr4)
+FetchContent_MakeAvailable(fmt nlohmann_json Catch2 mimalloc)
