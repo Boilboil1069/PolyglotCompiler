@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 
 #include "frontends/cpp/include/cpp_lexer.h"
 #include "frontends/cpp/include/cpp_parser.h"
@@ -84,4 +85,102 @@ TEST_CASE("C++ parser parses templates, namespaces, records, enums, and using", 
   auto ns_var = std::dynamic_pointer_cast<VarDecl>(ns->members[0]);
   REQUIRE(ns_var);
   REQUIRE(ns_var->name == "value");
+}
+
+TEST_CASE("C++ parser parses richer class members and access", "[cpp][parser][class]") {
+  const char *src = R"(
+  struct S {
+    [[nodiscard]] S();
+  public:
+    S(int v);
+    ~S() noexcept;
+    int value;
+    int get() const noexcept;
+    S operator+(const S& other);
+    friend int helper(S s);
+  private:
+    static int count;
+  };
+  )";
+  Diagnostics diag;
+  CppLexer lexer(src, "<mem>");
+  CppParser parser(lexer, diag);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  REQUIRE(mod);
+  REQUIRE(mod->declarations.size() == 1);
+  auto rec = std::dynamic_pointer_cast<RecordDecl>(mod->declarations[0]);
+  REQUIRE(rec);
+  REQUIRE(rec->fields.size() == 1);
+  REQUIRE(rec->methods.size() >= 4);
+  auto ctor = std::dynamic_pointer_cast<FunctionDecl>(rec->methods[0]);
+  REQUIRE(ctor);
+  REQUIRE(ctor->is_constructor);
+  REQUIRE(!ctor->body.empty() || ctor->is_defaulted || ctor->is_deleted);
+  auto dtor = std::find_if(rec->methods.begin(), rec->methods.end(), [](const auto &m) {
+    auto fn = std::dynamic_pointer_cast<FunctionDecl>(m);
+    return fn && fn->is_destructor;
+  });
+  REQUIRE(dtor != rec->methods.end());
+}
+
+TEST_CASE("C++ parser parses range-for and switch/try", "[cpp][parser][stmts]") {
+  const char *src = R"(
+  void foo(int n) {
+    for (int x : n) { }
+    for (i = 0; i < 3; i = i + 1) { }
+    switch (n) { case 1: break; default: break; }
+    try { throw n; } catch (int e) { n = e; }
+  }
+  )";
+  Diagnostics diag;
+  CppLexer lexer(src, "<mem>");
+  CppParser parser(lexer, diag);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  REQUIRE(mod);
+  REQUIRE(mod->declarations.size() == 1);
+  auto fn = std::dynamic_pointer_cast<FunctionDecl>(mod->declarations[0]);
+  REQUIRE(fn);
+  REQUIRE(fn->body.size() >= 4);
+}
+
+TEST_CASE("C++ parser parses using namespace, alias, typedef", "[cpp][parser][using]") {
+  const char *src = R"(
+  namespace ns { int v; }
+  namespace alias = ns;
+  using namespace alias;
+  typedef int i32;
+  using Vec = i32;
+  )";
+  Diagnostics diag;
+  CppLexer lexer(src, "<mem>");
+  CppParser parser(lexer, diag);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  REQUIRE(mod);
+  REQUIRE(mod->declarations.size() == 5);
+}
+
+TEST_CASE("C++ parser parses fold and initializer list", "[cpp][parser][expr]") {
+  const char *src = R"(
+  auto x = (a + ... + b);
+  auto y = {1, 2, 3};
+  )";
+  Diagnostics diag;
+  CppLexer lexer(src, "<mem>");
+  CppParser parser(lexer, diag);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  REQUIRE(mod);
+  REQUIRE(mod->declarations.size() == 2);
+  auto fold_decl = std::dynamic_pointer_cast<VarDecl>(mod->declarations[0]);
+  REQUIRE(fold_decl);
+  auto init_fold = std::dynamic_pointer_cast<BinaryExpression>(fold_decl->init);
+  REQUIRE(init_fold); // fallback binary if fold not produced
+  auto list_decl = std::dynamic_pointer_cast<VarDecl>(mod->declarations[1]);
+  REQUIRE(list_decl);
+  auto list_init = std::dynamic_pointer_cast<InitializerListExpression>(list_decl->init);
+  REQUIRE(list_init);
+  REQUIRE(list_init->elements.size() == 3);
 }

@@ -5,3 +5,5 @@
 /.vs/
 /.idea/
 /cmake-build-*/
+/._DS_Store/
+._*

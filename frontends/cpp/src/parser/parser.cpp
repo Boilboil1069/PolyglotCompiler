@@ -2,7 +2,14 @@
 
 namespace polyglot::cpp {
 
-void CppParser::Advance() { current_ = lexer_.NextToken(); }
+void CppParser::Advance() {
+    if (!pushback_.empty()) {
+        current_ = pushback_.back();
+        pushback_.pop_back();
+        return;
+    }
+    current_ = lexer_.NextToken();
+}
 
 frontends::Token CppParser::Consume() {
     Advance();
@@ -13,12 +20,27 @@ frontends::Token CppParser::Consume() {
 }
 
 bool CppParser::IsSymbol(const std::string &symbol) const {
-    return current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == symbol;
+    if (current_.kind != frontends::TokenKind::kSymbol)
+        return false;
+    if (current_.lexeme == symbol)
+        return true;
+    if (symbol == ">" && current_.lexeme == ">>")
+        return true;
+    return false;
 }
 
 bool CppParser::MatchSymbol(const std::string &symbol) {
-    if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == symbol) {
+    if (current_.kind != frontends::TokenKind::kSymbol)
+        return false;
+    if (current_.lexeme == symbol) {
         Consume();
+        return true;
+    }
+    if (symbol == ">" && current_.lexeme == ">>") {
+        auto second = current_;
+        second.lexeme = ">";
+        Consume();
+        pushback_.push_back(second);
         return true;
     }
     return false;
@@ -62,62 +84,135 @@ void CppParser::Sync() {
     }
 }
 
-// --- Types ----------------------------------------------------
-std::shared_ptr<TypeNode> CppParser::ParseType() {
-    bool is_const = false, is_volatile = false;
-    while (current_.kind == frontends::TokenKind::kKeyword &&
-           (current_.lexeme == "const" || current_.lexeme == "volatile")) {
-        if (current_.lexeme == "const")
-            is_const = true;
-        if (current_.lexeme == "volatile")
-            is_volatile = true;
+std::vector<Attribute> CppParser::ParseAttributes() {
+    std::vector<Attribute> attrs;
+    while (IsSymbol("[")) {
+        // attempt to parse C++11 attribute [[...]]
+        frontends::Token first = current_;
         Consume();
-    }
-
-    std::shared_ptr<TypeNode> base;
-    if (current_.kind == frontends::TokenKind::kIdentifier ||
-        current_.kind == frontends::TokenKind::kKeyword) {
-        auto simple = std::make_shared<SimpleType>();
-        simple->loc = current_.loc;
-        std::string name = current_.lexeme;
-        Consume();
-
-        while (true) {
-            if (MatchSymbol("::")) {
-                name += "::";
-                if (current_.kind == frontends::TokenKind::kIdentifier ||
-                    current_.kind == frontends::TokenKind::kKeyword) {
-                    name += current_.lexeme;
-                    Consume();
-                    continue;
-                }
-            }
-            if (IsSymbol("<")) {
-                int depth = 0;
-                std::string templ;
-                do {
-                    templ += current_.lexeme;
-                    if (current_.lexeme == "<")
-                        depth++;
-                    if (current_.lexeme == ">")
-                        depth--;
-                    Consume();
-                } while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile);
-                name += templ;
-                continue;
-            }
+        if (!IsSymbol("[")) {
+            // not actually an attribute, rewind token consumption by pushing back
+            pushback_.push_back(current_);
+            current_ = first;
             break;
         }
+        Consume();
+        std::string text;
+        while (!(IsSymbol("]") || current_.kind == frontends::TokenKind::kEndOfFile)) {
+            text += current_.lexeme;
+            Consume();
+        }
+        ExpectSymbol("]", "Expected ']' to close attribute");
+        ExpectSymbol("]", "Expected closing ']' for attribute");
+        Attribute attr;
+        attr.text = text;
+        attrs.push_back(std::move(attr));
+    }
+    return attrs;
+}
 
+std::string CppParser::ParseQualifiedName() {
+    std::string name;
+    while (current_.kind == frontends::TokenKind::kIdentifier ||
+           current_.kind == frontends::TokenKind::kKeyword) {
+        if (!name.empty())
+            name += "::";
+        name += current_.lexeme;
+        Consume();
+        if (!MatchSymbol("::"))
+            break;
+    }
+    return name;
+}
+
+// --- Types ----------------------------------------------------
+std::shared_ptr<TypeNode> CppParser::ParseType() {
+    auto parse_cv = [&]() -> std::pair<bool, bool> {
+        bool c = false, v = false;
+        while (current_.kind == frontends::TokenKind::kKeyword &&
+               (current_.lexeme == "const" || current_.lexeme == "volatile")) {
+            if (current_.lexeme == "const")
+                c = true;
+            if (current_.lexeme == "volatile")
+                v = true;
+            Consume();
+        }
+        return {c, v};
+    };
+
+    auto wrap_cv = [&](std::shared_ptr<TypeNode> inner, bool c, bool v) {
+        if (!c && !v)
+            return inner;
+        auto q = std::make_shared<QualifiedType>();
+        q->loc = inner ? inner->loc : current_.loc;
+        q->is_const = c;
+        q->is_volatile = v;
+        q->inner = inner;
+        return std::static_pointer_cast<TypeNode>(q);
+    };
+
+    auto [leading_const, leading_volatile] = parse_cv();
+
+    std::shared_ptr<TypeNode> base;
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "decltype") {
+        auto simple = std::make_shared<SimpleType>();
+        simple->loc = current_.loc;
+        std::string name = "decltype";
+        Consume();
+        if (MatchSymbol("(")) {
+            int depth = 1;
+            name += "(";
+            while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
+                name += current_.lexeme;
+                if (IsSymbol("("))
+                    depth++;
+                if (IsSymbol(")"))
+                    depth--;
+                Consume();
+            }
+            name += ")";
+        }
+        simple->name = name;
+        base = simple;
+    } else if (current_.kind == frontends::TokenKind::kIdentifier ||
+               current_.kind == frontends::TokenKind::kKeyword) {
+        auto simple = std::make_shared<SimpleType>();
+        simple->loc = current_.loc;
+        std::string name = ParseQualifiedName();
+        if (IsSymbol("<")) {
+            int depth = 0;
+            name += "<";
+            Consume();
+            depth++;
+            while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
+                name += current_.lexeme;
+                if (IsSymbol("<"))
+                    depth++;
+                else if (IsSymbol(">"))
+                    depth--;
+                Consume();
+                if (depth > 0 && MatchSymbol(">") && depth == 1) {
+                    name += ">";
+                    depth--;
+                    break;
+                }
+            }
+            name += ">";
+        }
         simple->name = name;
         base = simple;
     }
+
+    base = wrap_cv(base, leading_const, leading_volatile);
 
     while (true) {
         if (IsSymbol("*")) {
             auto ptr = std::make_shared<PointerType>();
             ptr->loc = current_.loc;
             Consume();
+            auto [pc, pv] = parse_cv();
+            ptr->is_const = pc;
+            ptr->is_volatile = pv;
             ptr->pointee = base;
             base = ptr;
             continue;
@@ -163,17 +258,14 @@ std::shared_ptr<TypeNode> CppParser::ParseType() {
             base = fn;
             continue;
         }
+        auto [tc, tv] = parse_cv();
+        if (tc || tv) {
+            base = wrap_cv(base, tc, tv);
+            continue;
+        }
         break;
     }
 
-    if (is_const || is_volatile) {
-        auto q = std::make_shared<QualifiedType>();
-        q->loc = base ? base->loc : current_.loc;
-        q->is_const = is_const;
-        q->is_volatile = is_volatile;
-        q->inner = base;
-        base = q;
-    }
     return base;
 }
 
@@ -200,16 +292,21 @@ std::vector<std::shared_ptr<Expression>> CppParser::ParseTemplateArgs() {
         return args;
     int depth = 1;
     while (current_.kind != frontends::TokenKind::kEndOfFile && depth > 0) {
-        args.push_back(ParseExpression());
+        args.push_back(ParseAssignment());
+        if (MatchSymbol(","))
+            continue;
         if (MatchSymbol(">")) {
             depth--;
             break;
         }
-        if (MatchSymbol(","))
-            continue;
+        if (IsSymbol(">")) {
+            MatchSymbol(">");
+            depth--;
+            break;
+        }
         if (MatchSymbol("<")) {
             depth++;
-            args.push_back(ParseExpression());
+            continue;
         }
     }
     return args;
@@ -234,12 +331,86 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
     }
     if (IsSymbol("(")) {
         Consume();
-        auto expr = ParseExpression();
+        if (IsSymbol("...")) {
+            auto fold = std::make_shared<FoldExpression>();
+            fold->loc = current_.loc;
+            fold->is_left_fold = false;
+            fold->is_pack_fold = true;
+            Consume();
+            if (current_.kind == frontends::TokenKind::kSymbol) {
+                fold->op = current_.lexeme;
+                Consume();
+            }
+            fold->rhs = ParseExpression();
+            ExpectSymbol(")", "Expected ')' to end fold expression");
+            return fold;
+        }
+        auto first = ParseExpression();
+        if (IsSymbol("...")) {
+            auto fold = std::make_shared<FoldExpression>();
+            fold->loc = first ? first->loc : current_.loc;
+            fold->lhs = first;
+            fold->is_left_fold = true;
+            fold->is_pack_fold = true;
+            Consume();
+            if (current_.kind == frontends::TokenKind::kSymbol) {
+                fold->op = current_.lexeme;
+                Consume();
+            }
+            if (!IsSymbol(")")) {
+                fold->rhs = ParseExpression();
+            }
+            ExpectSymbol(")", "Expected ')' to end fold expression");
+            return fold;
+        }
+        if (current_.kind == frontends::TokenKind::kSymbol) {
+            auto op_token = current_;
+            auto la = lexer_.NextToken();
+            pushback_.push_back(la);
+            if (la.kind == frontends::TokenKind::kSymbol && la.lexeme == "...") {
+                Consume(); // operator
+                Consume(); // ellipsis
+                auto fold = std::make_shared<FoldExpression>();
+                fold->loc = first ? first->loc : op_token.loc;
+                fold->lhs = first;
+                fold->op = op_token.lexeme;
+                fold->is_left_fold = true;
+                fold->is_pack_fold = true;
+                if (!IsSymbol(")")) {
+                    fold->rhs = ParseExpression();
+                }
+                ExpectSymbol(")", "Expected ')' to end fold expression");
+                return fold;
+            }
+            auto bin = std::make_shared<BinaryExpression>();
+            bin->op = op_token.lexeme;
+            bin->loc = first ? first->loc : op_token.loc;
+            Consume();
+            bin->left = first;
+            bin->right = ParseExpression();
+            MatchSymbol(")");
+            return bin;
+        }
         MatchSymbol(")");
-        return expr;
+        return first;
     }
     if (IsSymbol("[")) {
         return ParseLambda();
+    }
+    if (IsSymbol("{")) {
+        auto init = std::make_shared<InitializerListExpression>();
+        init->loc = current_.loc;
+        Consume();
+        if (!IsSymbol("}")) {
+            init->elements.push_back(ParseExpression());
+            while (MatchSymbol(",")) {
+                if (IsSymbol("}"))
+                    break;
+                init->elements.push_back(ParseExpression());
+            }
+        }
+        ExpectSymbol("}", "Expected '}' to close initializer list");
+        return init;
     }
     diagnostics_.Report(current_.loc, "Expected expression");
     return nullptr;
@@ -309,6 +480,15 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
             expr = idx;
             continue;
         }
+        if (IsSymbol("++") || IsSymbol("--")) {
+            auto post = std::make_shared<UnaryExpression>();
+            post->op = current_.lexeme + "_post";
+            post->operand = expr;
+            post->loc = current_.loc;
+            Consume();
+            expr = post;
+            continue;
+        }
         break;
     }
     return expr;
@@ -369,13 +549,75 @@ std::shared_ptr<Expression> CppParser::ParseLambda() {
 
 std::shared_ptr<Expression> CppParser::ParseUnary() {
     if (IsSymbol("+") || IsSymbol("-") || IsSymbol("!") || IsSymbol("~") || IsSymbol("&") ||
-        IsSymbol("*")) {
+        IsSymbol("*") || IsSymbol("++") || IsSymbol("--")) {
         auto unary = std::make_shared<UnaryExpression>();
         unary->op = current_.lexeme;
         unary->loc = current_.loc;
         Consume();
         unary->operand = ParseUnary();
         return unary;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "sizeof") {
+        auto sz = std::make_shared<SizeofExpression>();
+        sz->loc = current_.loc;
+        Consume();
+        if (MatchSymbol("(")) {
+            auto type = ParseType();
+            if (MatchSymbol(")")) {
+                sz->is_type = true;
+                sz->type_arg = type;
+                return sz;
+            }
+        }
+        sz->expr_arg = ParseUnary();
+        return sz;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "typeid") {
+        auto ti = std::make_shared<TypeidExpression>();
+        ti->loc = current_.loc;
+        Consume();
+        if (MatchSymbol("(")) {
+            auto type = ParseType();
+            if (MatchSymbol(")")) {
+                ti->is_type = true;
+                ti->type_arg = type;
+                return ti;
+            }
+        }
+        ti->expr_arg = ParseUnary();
+        return ti;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "new") {
+        auto nw = std::make_shared<NewExpression>();
+        nw->loc = current_.loc;
+        Consume();
+        nw->type = ParseType();
+        if (MatchSymbol("[")) {
+            nw->is_array = true;
+            nw->args.push_back(ParseExpression());
+            ExpectSymbol("]", "Expected ']' after new[] size");
+        }
+        if (MatchSymbol("(")) {
+            if (!IsSymbol(")")) {
+                nw->args.push_back(ParseExpression());
+                while (MatchSymbol(",")) {
+                    nw->args.push_back(ParseExpression());
+                }
+            }
+            ExpectSymbol(")", "Expected ')' after new arguments");
+        }
+        return nw;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "delete") {
+        auto del = std::make_shared<DeleteExpression>();
+        del->loc = current_.loc;
+        Consume();
+        if (MatchSymbol("[")) {
+            MatchSymbol("]");
+            del->is_array = true;
+        }
+        del->operand = ParseUnary();
+        return del;
     }
     return ParsePostfix();
 }
@@ -408,15 +650,29 @@ std::shared_ptr<Expression> CppParser::ParseAdditive() {
     return expr;
 }
 
-std::shared_ptr<Expression> CppParser::ParseRelational() {
+std::shared_ptr<Expression> CppParser::ParseShift() {
     auto expr = ParseAdditive();
-    while (IsSymbol("<") || IsSymbol(">") || IsSymbol("<=") || IsSymbol(">=")) {
+    while (IsSymbol("<<") || IsSymbol(">>")) {
         auto bin = std::make_shared<BinaryExpression>();
         bin->op = current_.lexeme;
         bin->loc = expr ? expr->loc : current_.loc;
         Consume();
         bin->left = expr;
         bin->right = ParseAdditive();
+        expr = bin;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseRelational() {
+    auto expr = ParseShift();
+    while (IsSymbol("<") || IsSymbol(">") || IsSymbol("<=") || IsSymbol(">=")) {
+        auto bin = std::make_shared<BinaryExpression>();
+        bin->op = current_.lexeme;
+        bin->loc = expr ? expr->loc : current_.loc;
+        Consume();
+        bin->left = expr;
+        bin->right = ParseShift();
         expr = bin;
     }
     return expr;
@@ -436,15 +692,57 @@ std::shared_ptr<Expression> CppParser::ParseEquality() {
     return expr;
 }
 
-std::shared_ptr<Expression> CppParser::ParseLogicalAnd() {
+std::shared_ptr<Expression> CppParser::ParseBitwiseAnd() {
     auto expr = ParseEquality();
-    while (IsSymbol("&&")) {
+    while (IsSymbol("&")) {
         auto bin = std::make_shared<BinaryExpression>();
         bin->op = current_.lexeme;
         bin->loc = expr ? expr->loc : current_.loc;
         Consume();
         bin->left = expr;
         bin->right = ParseEquality();
+        expr = bin;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseBitwiseXor() {
+    auto expr = ParseBitwiseAnd();
+    while (IsSymbol("^")) {
+        auto bin = std::make_shared<BinaryExpression>();
+        bin->op = current_.lexeme;
+        bin->loc = expr ? expr->loc : current_.loc;
+        Consume();
+        bin->left = expr;
+        bin->right = ParseBitwiseAnd();
+        expr = bin;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseBitwiseOr() {
+    auto expr = ParseBitwiseXor();
+    while (IsSymbol("|")) {
+        auto bin = std::make_shared<BinaryExpression>();
+        bin->op = current_.lexeme;
+        bin->loc = expr ? expr->loc : current_.loc;
+        Consume();
+        bin->left = expr;
+        bin->right = ParseBitwiseXor();
+        expr = bin;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseLogicalAnd() {
+    auto expr = ParseBitwiseOr();
+    while (IsSymbol("&&")) {
+        auto bin = std::make_shared<BinaryExpression>();
+        bin->op = current_.lexeme;
+        bin->loc = expr ? expr->loc : current_.loc;
+        Consume();
+        bin->left = expr;
+        bin->right = ParseBitwiseOr();
         expr = bin;
     }
     return expr;
@@ -480,9 +778,11 @@ std::shared_ptr<Expression> CppParser::ParseConditional() {
 
 std::shared_ptr<Expression> CppParser::ParseAssignment() {
     auto expr = ParseConditional();
-    if (IsSymbol("=")) {
+    if (IsSymbol("=") || IsSymbol("+=") || IsSymbol("-=") || IsSymbol("*=") ||
+        IsSymbol("/=") || IsSymbol("%=") || IsSymbol("<<=") || IsSymbol(">>=") ||
+        IsSymbol("&=") || IsSymbol("|=") || IsSymbol("^=")) {
         auto bin = std::make_shared<BinaryExpression>();
-        bin->op = "=";
+        bin->op = current_.lexeme;
         bin->loc = expr ? expr->loc : current_.loc;
         Consume();
         bin->left = expr;
@@ -492,7 +792,21 @@ std::shared_ptr<Expression> CppParser::ParseAssignment() {
     return expr;
 }
 
-std::shared_ptr<Expression> CppParser::ParseExpression() { return ParseAssignment(); }
+std::shared_ptr<Expression> CppParser::ParseComma() {
+    auto expr = ParseAssignment();
+    while (IsSymbol(",")) {
+        auto bin = std::make_shared<BinaryExpression>();
+        bin->op = ",";
+        bin->loc = expr ? expr->loc : current_.loc;
+        Consume();
+        bin->left = expr;
+        bin->right = ParseAssignment();
+        expr = bin;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> CppParser::ParseExpression() { return ParseComma(); }
 
 // --- Statements ----------------------------------------------------
 std::shared_ptr<Statement> CppParser::ParseImport() {
@@ -510,23 +824,118 @@ std::shared_ptr<Statement> CppParser::ParseImport() {
 }
 
 std::shared_ptr<Statement> CppParser::ParseUsing() {
-    auto stmt = std::make_shared<UsingDeclaration>();
-    stmt->loc = current_.loc;
     MatchKeyword("using");
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "namespace") {
+        return ParseUsingNamespace();
+    }
     if (current_.kind == frontends::TokenKind::kIdentifier) {
-        stmt->name = current_.lexeme;
+        std::string name = current_.lexeme;
         Consume();
-    } else {
-        diagnostics_.Report(current_.loc, "Expected identifier after using");
-    }
-    if (MatchSymbol("=")) {
-        if (current_.kind == frontends::TokenKind::kIdentifier) {
-            stmt->aliased = current_.lexeme;
-            Consume();
+        if (MatchSymbol("=")) {
+            auto alias = std::make_shared<UsingAliasDeclaration>();
+            alias->loc = current_.loc;
+            alias->alias = name;
+            alias->aliased_type = ParseType();
+            MatchSymbol(";");
+            return alias;
         }
+        auto stmt = std::make_shared<UsingDeclaration>();
+        stmt->loc = current_.loc;
+        stmt->name = name;
+        if (MatchSymbol("::")) {
+            stmt->aliased = ParseQualifiedName();
+        }
+        MatchSymbol(";");
+        return stmt;
     }
+    diagnostics_.Report(current_.loc, "Expected identifier after using");
+    MatchSymbol(";");
+    return nullptr;
+}
+
+std::shared_ptr<Statement> CppParser::ParseUsingNamespace() {
+    auto stmt = std::make_shared<UsingNamespaceDeclaration>();
+    stmt->loc = current_.loc;
+    MatchKeyword("namespace");
+    stmt->ns = ParseQualifiedName();
     MatchSymbol(";");
     return stmt;
+}
+
+std::shared_ptr<Statement> CppParser::ParseNamespaceAlias() {
+    auto alias = std::make_shared<NamespaceAliasDeclaration>();
+    alias->loc = current_.loc;
+    MatchKeyword("namespace");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        alias->alias = current_.lexeme;
+        Consume();
+    } else {
+        diagnostics_.Report(current_.loc, "Expected namespace alias name");
+    }
+    ExpectSymbol("=", "Expected '=' in namespace alias");
+    alias->target = ParseQualifiedName();
+    MatchSymbol(";");
+    return alias;
+}
+
+std::shared_ptr<Statement> CppParser::ParseUsingAlias() {
+    auto alias = std::make_shared<UsingAliasDeclaration>();
+    alias->loc = current_.loc;
+    alias->aliased_type = ParseType();
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        alias->alias = current_.lexeme;
+        Consume();
+    }
+    MatchSymbol(";");
+    return alias;
+}
+
+std::shared_ptr<Statement> CppParser::ParseFriend() {
+    MatchKeyword("friend");
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        (current_.lexeme == "class" || current_.lexeme == "struct")) {
+        std::string kind = current_.lexeme;
+        Consume();
+        auto fwd = std::make_shared<ForwardDecl>();
+        fwd->loc = current_.loc;
+        fwd->kind = kind;
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            fwd->name = current_.lexeme;
+            Consume();
+        }
+        MatchSymbol(";");
+        auto fr = std::make_shared<FriendDecl>();
+        fr->loc = fwd->loc;
+        fr->decl = fwd;
+        return fr;
+    }
+    auto ret = ParseType();
+    if (current_.kind != frontends::TokenKind::kIdentifier) {
+        diagnostics_.Report(current_.loc, "Expected friend function name");
+        MatchSymbol(";");
+        return nullptr;
+    }
+    std::string name = current_.lexeme;
+    Consume();
+    auto fn = ParseFunctionWithSignature(ret, name, false, false, false, false, "", "", true);
+    if (fn)
+        fn->is_friend = true;
+    return fn;
+}
+
+std::shared_ptr<Statement> CppParser::ParseTypedef() {
+    auto td = std::make_shared<TypedefDeclaration>();
+    td->loc = current_.loc;
+    MatchKeyword("typedef");
+    td->type = ParseType();
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        td->alias = current_.lexeme;
+        Consume();
+    } else {
+        diagnostics_.Report(current_.loc, "Expected identifier in typedef");
+    }
+    MatchSymbol(";");
+    return td;
 }
 
 std::shared_ptr<Statement> CppParser::ParseReturn() {
@@ -610,11 +1019,16 @@ std::shared_ptr<Statement> CppParser::ParseTry() {
 std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
     auto rec = std::make_shared<RecordDecl>();
     rec->loc = current_.loc;
+    rec->attributes = ParseAttributes();
     rec->kind = kind;
     MatchKeyword(kind);
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         rec->name = current_.lexeme;
         Consume();
+    }
+    if (MatchSymbol(";")) {
+        rec->is_forward = true;
+        return rec;
     }
     if (MatchSymbol(":")) {
         do {
@@ -625,20 +1039,7 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
                 base.access = current_.lexeme;
                 Consume();
             }
-            if (current_.kind == frontends::TokenKind::kIdentifier ||
-                current_.kind == frontends::TokenKind::kKeyword) {
-                std::string name = current_.lexeme;
-                Consume();
-                while (MatchSymbol("::")) {
-                    name += "::";
-                    if (current_.kind == frontends::TokenKind::kIdentifier ||
-                        current_.kind == frontends::TokenKind::kKeyword) {
-                        name += current_.lexeme;
-                        Consume();
-                    }
-                }
-                base.name = name;
-            }
+            base.name = ParseQualifiedName();
             rec->bases.push_back(std::move(base));
         } while (MatchSymbol(","));
     }
@@ -658,65 +1059,106 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
             continue;
         }
 
-        bool is_constexpr = false, is_inline = false, is_static = false;
+        auto attrs = ParseAttributes();
+
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "friend") {
+            auto fr = ParseFriend();
+            if (fr)
+                rec->methods.push_back(fr);
+            continue;
+        }
+
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "using") {
+            rec->methods.push_back(ParseUsing());
+            continue;
+        }
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "typedef") {
+            rec->methods.push_back(ParseTypedef());
+            continue;
+        }
+
+        bool is_constexpr = false, is_inline = false, is_static = false, is_virtual = false,
+             is_mutable = false;
         while (current_.kind == frontends::TokenKind::kKeyword &&
                (current_.lexeme == "constexpr" || current_.lexeme == "inline" ||
-                current_.lexeme == "static")) {
+                current_.lexeme == "static" || current_.lexeme == "virtual" ||
+                current_.lexeme == "mutable")) {
             if (current_.lexeme == "constexpr")
                 is_constexpr = true;
             if (current_.lexeme == "inline")
                 is_inline = true;
             if (current_.lexeme == "static")
                 is_static = true;
+            if (current_.lexeme == "virtual")
+                is_virtual = true;
+            if (current_.lexeme == "mutable")
+                is_mutable = true;
             Consume();
         }
 
-        auto member_type = ParseType();
-        if (current_.kind == frontends::TokenKind::kIdentifier ||
-            (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator")) {
-            bool is_operator = false;
-            std::string name;
-            std::string op_symbol;
-            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator") {
-                is_operator = true;
+        if (IsSymbol("~")) {
+            Consume();
+            if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == rec->name) {
                 Consume();
-                op_symbol = current_.lexeme;
-                name = "operator" + op_symbol;
-                Consume();
-            } else {
-                name = current_.lexeme;
-                Consume();
-            }
-
-            if (IsSymbol("(")) {
-                auto fn = ParseFunctionWithSignature(member_type, name, is_constexpr, is_inline,
-                                                     is_static, is_operator, op_symbol);
-                fn->access = current_access;
-                rec->methods.push_back(fn);
+                auto fn = ParseFunctionWithSignature(nullptr, "~" + rec->name, is_constexpr,
+                                                     is_inline, is_static, false, "",
+                                                     current_access, true);
+                if (fn) {
+                    fn->is_destructor = true;
+                    fn->is_virtual = is_virtual;
+                    fn->attributes = attrs;
+                    rec->methods.push_back(fn);
+                }
                 continue;
             }
+        }
 
-            FieldDecl f;
-            f.type = member_type;
-            f.name = name;
-            f.access = current_access;
-            f.is_constexpr = is_constexpr;
-            f.is_static = is_static;
-            MatchSymbol(";");
-            rec->fields.push_back(std::move(f));
+        auto member_type = ParseType();
+        bool is_operator = false;
+        std::string name;
+        std::string op_symbol;
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator") {
+            is_operator = true;
+            Consume();
+            op_symbol = current_.lexeme;
+            name = "operator" + op_symbol;
+            Consume();
+        } else if (current_.kind == frontends::TokenKind::kIdentifier) {
+            name = current_.lexeme;
+            Consume();
+        }
+
+        bool ctor_candidate = false;
+        if (auto simple = std::dynamic_pointer_cast<SimpleType>(member_type)) {
+            if (simple->name == rec->name && IsSymbol("(")) {
+                ctor_candidate = true;
+                name = rec->name;
+            }
+        }
+
+        if (IsSymbol("(")) {
+            auto fn = ParseFunctionWithSignature(ctor_candidate ? nullptr : member_type, name,
+                                                 is_constexpr, is_inline, is_static, is_operator,
+                                                 op_symbol, current_access, true);
+            if (fn) {
+                fn->is_constructor = ctor_candidate;
+                fn->is_virtual = is_virtual;
+                fn->attributes = attrs;
+                rec->methods.push_back(fn);
+            }
             continue;
         }
 
-        auto stmt = ParseStatement();
-        if (auto fn = std::dynamic_pointer_cast<FunctionDecl>(stmt)) {
-            fn->access = current_access;
-            rec->methods.push_back(fn);
-        } else if (auto vd = std::dynamic_pointer_cast<VarDecl>(stmt)) {
-            vd->access = current_access;
-            rec->methods.push_back(vd);
-        } else if (stmt) {
-            rec->methods.push_back(stmt);
-        }
+        FieldDecl f;
+        f.type = member_type;
+        f.name = name;
+        f.access = current_access;
+        f.is_constexpr = is_constexpr;
+        f.is_static = is_static;
+        f.is_mutable = is_mutable;
+        f.attributes = attrs;
+        MatchSymbol(";");
+        rec->fields.push_back(std::move(f));
     }
     MatchSymbol("}");
     MatchSymbol(";");
@@ -741,6 +1183,8 @@ std::shared_ptr<Statement> CppParser::ParseEnum() {
                 break;
         }
         MatchSymbol("}");
+    } else {
+        en->is_forward = true;
     }
     MatchSymbol(";");
     return en;
@@ -753,6 +1197,15 @@ std::shared_ptr<Statement> CppParser::ParseNamespace() {
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         ns->name = current_.lexeme;
         Consume();
+    }
+    if (MatchSymbol("=")) {
+        // namespace alias
+        auto alias = std::make_shared<NamespaceAliasDeclaration>();
+        alias->loc = ns->loc;
+        alias->alias = ns->name;
+        alias->target = ParseQualifiedName();
+        MatchSymbol(";");
+        return alias;
     }
     if (MatchSymbol("{")) {
         while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
@@ -819,7 +1272,8 @@ std::shared_ptr<Statement> CppParser::ParseStructuredBinding(std::shared_ptr<Typ
 std::shared_ptr<FunctionDecl>
 CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const std::string &name,
                                       bool is_constexpr, bool is_inline, bool is_static,
-                                      bool is_operator, const std::string &op_symbol) {
+                                      bool is_operator, const std::string &op_symbol,
+                                      const std::string &access, bool inside_record) {
     auto fn = std::make_shared<FunctionDecl>();
     fn->loc = current_.loc;
     fn->return_type = ret_type;
@@ -827,8 +1281,10 @@ CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const 
     fn->is_constexpr = is_constexpr;
     fn->is_inline = is_inline;
     fn->is_static = is_static;
+    fn->access = access;
     fn->is_operator = is_operator;
     fn->operator_symbol = op_symbol;
+    (void)inside_record;
     ExpectSymbol("(", "Expected '(' after function name");
     if (!IsSymbol(")")) {
         while (true) {
@@ -836,9 +1292,14 @@ CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const 
                 current_.kind == frontends::TokenKind::kKeyword) {
                 auto param_type = ParseType();
                 if (current_.kind == frontends::TokenKind::kIdentifier) {
-                    std::string param_name = current_.lexeme;
+                    FunctionDecl::Param param;
+                    param.name = current_.lexeme;
                     Consume();
-                    fn->params.emplace_back(param_name, param_type);
+                    if (MatchSymbol("=")) {
+                        param.default_value = ParseExpression();
+                    }
+                    param.type = param_type;
+                    fn->params.push_back(std::move(param));
                 } else {
                     diagnostics_.Report(current_.loc, "Expected parameter name");
                 }
@@ -848,10 +1309,44 @@ CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const 
         }
     }
     ExpectSymbol(")", "Expected ')' after parameters");
-    if (!MatchSymbol("{")) {
-        diagnostics_.Report(current_.loc, "Expected '{' to start function body");
+
+    while (current_.kind == frontends::TokenKind::kKeyword &&
+           (current_.lexeme == "const" || current_.lexeme == "noexcept" ||
+            current_.lexeme == "override")) {
+        if (current_.lexeme == "const")
+            fn->is_const_qualified = true;
+        if (current_.lexeme == "noexcept")
+            fn->is_noexcept = true;
+        if (current_.lexeme == "override")
+            fn->is_override = true;
+        Consume();
+    }
+
+    if (MatchSymbol("=")) {
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "default") {
+            fn->is_defaulted = true;
+            Consume();
+            MatchSymbol(";");
+            return fn;
+        }
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "delete") {
+            fn->is_deleted = true;
+            Consume();
+            MatchSymbol(";");
+            return fn;
+        }
+        if (current_.kind == frontends::TokenKind::kNumber && current_.lexeme == "0") {
+            fn->is_pure_virtual = true;
+            Consume();
+            MatchSymbol(";");
+            return fn;
+        }
+    }
+
+    if (MatchSymbol(";")) {
         return fn;
     }
+    ExpectSymbol("{", "Expected '{' to start function body");
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
         fn->body.push_back(ParseStatement());
     }
@@ -867,7 +1362,7 @@ std::shared_ptr<Statement> CppParser::ParseFunction() {
     }
     std::string name = current_.lexeme;
     Consume();
-    return ParseFunctionWithSignature(ret, name, false, false, false, false, "");
+    return ParseFunctionWithSignature(ret, name, false, false, false, false, "", "", false);
 }
 
 std::shared_ptr<Statement> CppParser::ParseBlock() {
@@ -907,15 +1402,85 @@ std::shared_ptr<Statement> CppParser::ParseWhile() {
 }
 
 std::shared_ptr<Statement> CppParser::ParseFor() {
-    auto stmt = std::make_shared<ForStatement>();
-    stmt->loc = current_.loc;
     MatchKeyword("for");
     ExpectSymbol("(", "Expected '(' after for");
-    if (!IsSymbol(";")) {
-        stmt->init = ParseStatement();
-    } else {
-        MatchSymbol(";");
+
+    auto attrs = ParseAttributes();
+
+    bool looks_decl = (current_.kind == frontends::TokenKind::kKeyword);
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        auto la = lexer_.NextToken();
+        pushback_.push_back(la);
+        if (la.kind == frontends::TokenKind::kIdentifier ||
+            (la.kind == frontends::TokenKind::kSymbol && la.lexeme == "::") ||
+            (la.kind == frontends::TokenKind::kSymbol && la.lexeme == "*")) {
+            looks_decl = true;
+        }
     }
+
+    if (looks_decl && !IsSymbol(";")) {
+        auto type = ParseType();
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            std::string var_name = current_.lexeme;
+            auto var_loc = current_.loc;
+            Consume();
+            if (MatchSymbol(":")) {
+                auto rng = std::make_shared<RangeForStatement>();
+                auto loop = std::make_shared<VarDecl>();
+                loop->loc = var_loc;
+                loop->type = type;
+                loop->name = var_name;
+                loop->is_constexpr = false;
+                loop->is_inline = false;
+                loop->is_static = false;
+                loop->attributes = attrs;
+                rng->loop_var = loop;
+                rng->range = ParseExpression();
+                ExpectSymbol(")", "Expected ')' after range-for");
+                auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlock());
+                if (body)
+                    rng->body = body->statements;
+                return rng;
+            }
+
+            auto stmt = std::make_shared<ForStatement>();
+            stmt->loc = current_.loc;
+            auto init_decl = std::make_shared<VarDecl>();
+            init_decl->loc = var_loc;
+            init_decl->type = type;
+            init_decl->name = var_name;
+            init_decl->is_constexpr = false;
+            init_decl->is_inline = false;
+            init_decl->is_static = false;
+            init_decl->attributes = attrs;
+            if (IsSymbol("=")) {
+                Consume();
+                init_decl->init = ParseExpression();
+            }
+            MatchSymbol(";");
+            stmt->init = init_decl;
+            if (!IsSymbol(";")) {
+                stmt->condition = ParseExpression();
+            }
+            MatchSymbol(";");
+            if (!IsSymbol(")")) {
+                stmt->increment = ParseExpression();
+            }
+            ExpectSymbol(")", "Expected ')' after for clauses");
+            stmt->body.push_back(ParseBlock());
+            return stmt;
+        }
+    }
+
+    auto stmt = std::make_shared<ForStatement>();
+    stmt->loc = current_.loc;
+    stmt->init = nullptr;
+    if (!IsSymbol(";")) {
+        stmt->init = std::make_shared<ExprStatement>();
+        stmt->init->loc = current_.loc;
+        std::dynamic_pointer_cast<ExprStatement>(stmt->init)->expr = ParseExpression();
+    }
+    MatchSymbol(";");
     if (!IsSymbol(";")) {
         stmt->condition = ParseExpression();
     }
@@ -929,6 +1494,7 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
 }
 
 std::shared_ptr<Statement> CppParser::ParseStatement() {
+    auto leading_attrs = ParseAttributes();
     bool is_constexpr = false, is_inline = false, is_static = false;
     while (current_.kind == frontends::TokenKind::kKeyword &&
            (current_.lexeme == "constexpr" || current_.lexeme == "inline" ||
@@ -948,6 +1514,12 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
         }
         if (current_.lexeme == "using") {
             return ParseUsing();
+        }
+        if (current_.lexeme == "typedef") {
+            return ParseTypedef();
+        }
+        if (current_.lexeme == "friend") {
+            return ParseFriend();
         }
         if (current_.lexeme == "throw") {
             return ParseThrow();
@@ -985,7 +1557,9 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
         }
         if (current_.lexeme == "int" || current_.lexeme == "void" || current_.lexeme == "float" ||
             current_.lexeme == "double" || current_.lexeme == "char" || current_.lexeme == "bool" ||
-            current_.lexeme == "auto") {
+            current_.lexeme == "auto" || current_.lexeme == "long" || current_.lexeme == "short" ||
+            current_.lexeme == "signed" || current_.lexeme == "unsigned" ||
+            current_.lexeme == "decltype" || current_.lexeme == "typename") {
             auto type = ParseType();
             if (IsSymbol("[")) {
                 return ParseStructuredBinding(type, is_constexpr, is_inline, is_static);
@@ -1011,10 +1585,17 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
                 Consume();
             }
             if (IsSymbol("(")) {
-                return ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
-                                                  is_operator, op_symbol);
+                auto fn = ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
+                                                     is_operator, op_symbol, "", false);
+                if (fn)
+                    fn->attributes = leading_attrs;
+                return fn;
             }
-            return ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
+            auto vd = ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
+            if (auto var = std::dynamic_pointer_cast<VarDecl>(vd)) {
+                var->attributes = leading_attrs;
+            }
+            return vd;
         }
     }
     if (IsSymbol("{")) {
@@ -1030,10 +1611,17 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
             std::string name = current_.lexeme;
             Consume();
             if (IsSymbol("(")) {
-                return ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
-                                                  false, "");
+                auto fn = ParseFunctionWithSignature(type, name, is_constexpr, is_inline, is_static,
+                                                     false, "", "", false);
+                if (fn)
+                    fn->attributes = leading_attrs;
+                return fn;
             }
-            return ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
+            auto vd = ParseVarDecl(type, name, is_constexpr, is_inline, is_static);
+            if (auto var = std::dynamic_pointer_cast<VarDecl>(vd)) {
+                var->attributes = leading_attrs;
+            }
+            return vd;
         }
     }
 

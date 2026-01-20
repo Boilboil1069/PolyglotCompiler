@@ -35,11 +35,17 @@ class CppParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseThrow();
     std::shared_ptr<Statement> ParseImport();
     std::shared_ptr<Statement> ParseUsing();
+    std::shared_ptr<Statement> ParseUsingNamespace();
+    std::shared_ptr<Statement> ParseNamespaceAlias();
+    std::shared_ptr<Statement> ParseTypedef();
+    std::shared_ptr<Statement> ParseUsingAlias();
+    std::shared_ptr<Statement> ParseFriend();
     std::shared_ptr<Statement> ParseFunction();
     std::shared_ptr<FunctionDecl>
     ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const std::string &name,
                                bool is_constexpr, bool is_inline, bool is_static,
-                               bool is_operator = false, const std::string &op_symbol = "");
+                               bool is_operator = false, const std::string &op_symbol = "",
+                               const std::string &access = "", bool inside_record = false);
     std::shared_ptr<Statement> ParseVarDecl(std::shared_ptr<TypeNode> type, const std::string &name,
                                             bool is_constexpr, bool is_inline, bool is_static,
                                             const std::string &access = "");
@@ -51,14 +57,21 @@ class CppParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseNamespace();
     std::shared_ptr<Statement> ParseTemplate();
     std::shared_ptr<Statement> ParseReturn();
+    std::vector<Attribute> ParseAttributes();
+    std::string ParseQualifiedName();
     std::shared_ptr<TypeNode> ParseType();
     std::shared_ptr<Expression> ParseExpression();
+    std::shared_ptr<Expression> ParseComma();
     std::shared_ptr<Expression> ParseConditional();
     std::shared_ptr<Expression> ParseAssignment();
     std::shared_ptr<Expression> ParseLogicalOr();
     std::shared_ptr<Expression> ParseLogicalAnd();
+    std::shared_ptr<Expression> ParseBitwiseOr();
+    std::shared_ptr<Expression> ParseBitwiseXor();
+    std::shared_ptr<Expression> ParseBitwiseAnd();
     std::shared_ptr<Expression> ParseEquality();
     std::shared_ptr<Expression> ParseRelational();
+    std::shared_ptr<Expression> ParseShift();
     std::shared_ptr<Expression> ParseAdditive();
     std::shared_ptr<Expression> ParseMultiplicative();
     std::shared_ptr<Expression> ParseUnary();
@@ -71,6 +84,7 @@ class CppParser : public frontends::ParserBase {
     CppLexer &lexer_;
     std::shared_ptr<Module> module_{std::make_shared<Module>()};
     frontends::Token current_{};
+    std::vector<frontends::Token> pushback_{};
 };
 
 } // namespace polyglot::cpp
