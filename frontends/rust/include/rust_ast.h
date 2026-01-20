@@ -8,9 +8,15 @@
 
 namespace polyglot::rust {
 
+struct Attribute {
+    std::string text;
+    bool is_inner{false};
+};
+
 struct AstNode {
     virtual ~AstNode() = default;
     core::SourceLoc loc{};
+    std::vector<Attribute> attributes;
 };
 
 struct Statement : AstNode {};
@@ -21,6 +27,8 @@ struct Pattern : AstNode {};
 
 struct IdentifierPattern : Pattern {
     std::string name;
+    bool is_ref{false};
+    bool is_mut{false};
 };
 
 struct WildcardPattern : Pattern {};
@@ -38,9 +46,47 @@ struct PathPattern : Pattern {
     std::vector<std::string> segments;
 };
 
+struct OrPattern : Pattern {
+    std::vector<std::shared_ptr<Pattern>> patterns;
+};
+
+struct RefPattern : Pattern {
+    bool is_mut{false};
+    std::shared_ptr<Pattern> inner;
+};
+
+struct RangePattern : Pattern {
+    std::shared_ptr<Pattern> start;
+    std::shared_ptr<Pattern> end;
+    bool inclusive{false};
+};
+
+struct SlicePattern : Pattern {
+    std::vector<std::shared_ptr<Pattern>> elements;
+    bool has_rest{false};
+};
+
+struct TupleStructPattern : Pattern {
+    PathPattern path;
+    std::vector<std::shared_ptr<Pattern>> elements;
+};
+
+struct BindingPattern : Pattern {
+    std::string name;
+    bool is_ref{false};
+    bool is_mut{false};
+    std::shared_ptr<Pattern> pattern;
+};
+
+struct StructPatternField {
+    std::string name;
+    std::shared_ptr<Pattern> pattern;
+    bool is_shorthand{false};
+};
+
 struct StructPattern : Pattern {
     PathPattern path;
-    std::vector<std::string> fields;
+    std::vector<StructPatternField> fields;
     bool has_rest{false};
 };
 
@@ -55,6 +101,7 @@ struct Literal : Expression {
 struct PathExpression : Expression {
     bool is_absolute{false};
     std::vector<std::string> segments;
+    std::vector<std::vector<std::shared_ptr<TypeNode>>> generic_args;
 };
 
 struct UnaryExpression : Expression {
@@ -71,6 +118,7 @@ struct BinaryExpression : Expression {
 struct MemberExpression : Expression {
     std::shared_ptr<Expression> object;
     std::string member;
+    std::vector<std::shared_ptr<TypeNode>> generic_args;
 };
 
 struct IndexExpression : Expression {
@@ -87,6 +135,14 @@ struct RangeExpression : Expression {
 struct CallExpression : Expression {
     std::shared_ptr<Expression> callee;
     std::vector<std::shared_ptr<Expression>> args;
+};
+
+struct AwaitExpression : Expression {
+    std::shared_ptr<Expression> value;
+};
+
+struct TryExpression : Expression {
+    std::shared_ptr<Expression> value;
 };
 
 struct ClosureExpression : Expression {
@@ -117,6 +173,18 @@ struct TypePath : TypeNode {
     bool is_absolute{false};
     std::vector<std::string> segments;
     std::vector<std::vector<std::shared_ptr<TypeNode>>> generic_args;
+};
+
+struct ConstExprType : TypeNode {
+    std::string expr;
+};
+
+struct TraitObjectType : TypeNode {
+    std::vector<std::shared_ptr<TypeNode>> bounds;
+};
+
+struct ImplTraitType : TypeNode {
+    std::vector<std::shared_ptr<TypeNode>> bounds;
 };
 
 struct LifetimeType : TypeNode {
@@ -206,26 +274,45 @@ struct MatchExpression : Expression {
 
 struct UseDeclaration : Statement {
     std::string path;
+    std::string visibility;
 };
 
 struct ImplItem : Statement {
+    std::string visibility;
+    bool is_unsafe{false};
+    std::vector<std::string> type_params;
     std::shared_ptr<TypeNode> target_type;
+    std::shared_ptr<TypeNode> trait_type;
+    std::string where_clause;
     std::vector<std::shared_ptr<Statement>> items;
 };
 
 struct TraitItem : Statement {
     std::string name;
+    std::string visibility;
+    std::vector<std::string> type_params;
+    std::vector<std::shared_ptr<TypeNode>> super_traits;
+    std::string where_clause;
     std::vector<std::shared_ptr<Statement>> items;
 };
 
 struct ModItem : Statement {
     std::string name;
+    std::string visibility;
     std::vector<std::shared_ptr<Statement>> items;
 };
 
 struct FunctionItem : Statement {
     std::string name;
     std::vector<std::string> type_params;
+    std::string visibility;
+    bool is_async{false};
+    bool is_const{false};
+    bool is_unsafe{false};
+    bool is_extern{false};
+    std::string extern_abi;
+    std::string where_clause;
+    bool has_body{true};
     struct Param {
         std::string name;
         std::shared_ptr<TypeNode> type;
@@ -235,14 +322,49 @@ struct FunctionItem : Statement {
     std::vector<std::shared_ptr<Statement>> body;
 };
 
+struct StructField {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::string visibility;
+};
+
 struct StructItem : Statement {
     std::string name;
-    std::vector<std::string> fields;
+    std::string visibility;
+    std::vector<StructField> fields;
+    bool is_tuple{false};
+    bool is_unit{false};
+};
+
+struct EnumVariant {
+    std::string name;
+    std::vector<std::shared_ptr<TypeNode>> tuple_fields;
+    std::vector<StructField> struct_fields;
+    std::shared_ptr<Expression> discriminant;
 };
 
 struct EnumItem : Statement {
     std::string name;
-    std::vector<std::string> variants;
+    std::string visibility;
+    std::vector<EnumVariant> variants;
+};
+
+struct ConstItem : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::shared_ptr<Expression> value;
+    std::string visibility;
+};
+
+struct TypeAliasItem : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> alias;
+    std::string visibility;
+};
+
+struct MacroRulesItem : Statement {
+    std::string name;
+    std::string body;
 };
 
 struct Module : AstNode {

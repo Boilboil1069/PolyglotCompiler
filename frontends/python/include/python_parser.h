@@ -48,7 +48,7 @@ class PythonParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseReturn();
     std::shared_ptr<Statement> ParseIf();
     std::shared_ptr<Statement> ParseWhile();
-    std::shared_ptr<Statement> ParseFor();
+    std::shared_ptr<Statement> ParseFor(bool is_async);
     std::vector<std::shared_ptr<Expression>> ParseDecorators();
     std::shared_ptr<Expression> ParseExpression();
     std::shared_ptr<Expression> ParseNamedExpression();
@@ -58,6 +58,10 @@ class PythonParser : public frontends::ParserBase {
     std::shared_ptr<Expression> ParseAnd();
     std::shared_ptr<Expression> ParseNot();
     std::shared_ptr<Expression> ParseComparison();
+    std::shared_ptr<Expression> ParseBitwiseOr();
+    std::shared_ptr<Expression> ParseBitwiseXor();
+    std::shared_ptr<Expression> ParseBitwiseAnd();
+    std::shared_ptr<Expression> ParseShift();
     std::shared_ptr<Expression> ParseAdditive();
     std::shared_ptr<Expression> ParseMultiplicative();
     std::shared_ptr<Expression> ParseUnary();
@@ -71,10 +75,13 @@ class PythonParser : public frontends::ParserBase {
     std::shared_ptr<Expression> ParseSliceOrIndex(std::shared_ptr<Expression> obj);
     void ParseCallArguments(CallExpression &call);
     std::vector<std::shared_ptr<Expression>> ParseExpressionList();
+    std::shared_ptr<Expression> ParseExpressionListAsExpr();
+    void AttachPendingDoc(const std::shared_ptr<AstNode> &node);
 
     PythonLexer &lexer_;
     std::shared_ptr<Module> module_{std::make_shared<Module>()};
     frontends::Token current_{};
+    std::string pending_doc_{};
 };
 
 } // namespace polyglot::python

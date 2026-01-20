@@ -18,6 +18,8 @@ class RustParser : public frontends::ParserBase {
 
   private:
     frontends::Token Consume();
+    frontends::Token PeekToken();
+    frontends::Token NextNonComment();
     bool IsSymbol(const std::string &symbol) const;
     bool MatchSymbol(const std::string &symbol);
     bool MatchKeyword(const std::string &keyword);
@@ -25,6 +27,12 @@ class RustParser : public frontends::ParserBase {
     void Sync();
     void ParseItem();
     std::shared_ptr<Statement> ParseStatement(bool allow_trailing_expr = false);
+    std::vector<Attribute> ParseAttributes();
+    std::string ParseVisibility();
+    std::string ParseWhereClause();
+    std::shared_ptr<Statement> ParseConstItem();
+    std::shared_ptr<Statement> ParseTypeAlias();
+    std::shared_ptr<Statement> ParseMacroRules();
     std::shared_ptr<Statement> ParseUse();
     std::shared_ptr<Statement> ParseLet();
     std::shared_ptr<Statement> ParseFunction();
@@ -63,16 +71,19 @@ class RustParser : public frontends::ParserBase {
     std::string ParseDelimitedBody(const std::string &open, const std::string &close);
     std::shared_ptr<Pattern> ParsePattern();
     std::shared_ptr<Pattern> ParseStructPattern(PathPattern path);
+    std::shared_ptr<Pattern> ParseTupleStructPattern(PathPattern path);
     std::shared_ptr<LifetimeType> ParseLifetime();
     std::shared_ptr<TypeNode> ParseType();
     std::shared_ptr<TypePath> ParseTypePath();
     std::vector<std::string> ParseTypeParams();
     std::vector<std::shared_ptr<TypeNode>> ParseGenericArgList();
+    std::vector<std::shared_ptr<TypeNode>> ParseTraitBounds();
     int GetBinaryPrecedence(const std::string &op) const;
 
     RustLexer &lexer_;
     std::shared_ptr<Module> module_{std::make_shared<Module>()};
     frontends::Token current_{};
+    std::vector<frontends::Token> pushback_{};
 };
 
 } // namespace polyglot::rust

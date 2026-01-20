@@ -11,6 +11,7 @@ namespace polyglot::python {
 struct AstNode {
     virtual ~AstNode() = default;
     core::SourceLoc loc{};
+    std::string doc;
 };
 
 struct Statement : AstNode {};
@@ -21,6 +22,9 @@ struct Parameter {
     std::string name;
     std::shared_ptr<Expression> annotation;
     std::shared_ptr<Expression> default_value;
+    bool is_vararg{false};
+    bool is_kwarg{false};
+    bool is_kwonly{false};
 };
 
 struct Identifier : Expression {
@@ -29,6 +33,7 @@ struct Identifier : Expression {
 
 struct Literal : Expression {
     std::string value;
+    bool is_string{false};
 };
 
 struct TupleExpression : Expression {
@@ -120,6 +125,7 @@ struct LambdaExpression : Expression {
 };
 
 struct Assignment : Statement {
+    std::string op{"="};
     std::vector<std::shared_ptr<Expression>> targets;
     std::shared_ptr<Expression> annotation;
     std::shared_ptr<Expression> value;
@@ -156,6 +162,7 @@ struct WhileStatement : Statement {
 };
 
 struct ForStatement : Statement {
+    bool is_async{false};
     std::shared_ptr<Expression> target;
     std::shared_ptr<Expression> iterable;
     std::vector<std::shared_ptr<Statement>> body;
@@ -232,6 +239,7 @@ struct FunctionDef : Statement {
 struct ClassDef : Statement {
     std::string name;
     std::vector<std::shared_ptr<Expression>> bases;
+    std::vector<CallArg> keywords;
     std::vector<std::shared_ptr<Statement>> body;
     std::vector<std::shared_ptr<Expression>> decorators;
 };

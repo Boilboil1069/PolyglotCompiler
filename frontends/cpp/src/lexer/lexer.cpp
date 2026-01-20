@@ -6,8 +6,24 @@
 
 namespace polyglot::cpp {
 
+static bool IsIdentStart(unsigned char c) {
+  return std::isalpha(c) || c == '_' || c >= 0x80;
+}
+
+static bool IsIdentContinue(unsigned char c) {
+  return std::isalnum(c) || c == '_' || c >= 0x80;
+}
+
 void CppLexer::SkipWhitespace() {
-  while (std::isspace(static_cast<unsigned char>(Peek()))) {
+  while (true) {
+    if (Peek() == '\\' && PeekNext() == '\n') {
+      Get();
+      Get();
+      continue;
+    }
+    if (!std::isspace(static_cast<unsigned char>(Peek()))) {
+      break;
+    }
     Get();
   }
 }
@@ -52,23 +68,24 @@ void CppLexer::SkipBlockComment() {
 frontends::Token CppLexer::LexIdentifierOrKeyword() {
   core::SourceLoc loc = CurrentLoc();
   std::string lexeme;
-  while (std::isalnum(static_cast<unsigned char>(Peek())) || Peek() == '_') {
+  while (IsIdentContinue(static_cast<unsigned char>(Peek()))) {
     lexeme.push_back(Get());
   }
   static const std::unordered_set<std::string> keywords = {
       "alignas",   "alignof",      "asm",       "auto",        "bool",       "break",
       "case",      "catch",        "char",      "char8_t",     "char16_t",   "char32_t",
       "class",     "const",        "consteval", "constexpr",   "constinit",  "continue",
-      "co_await",  "co_return",    "co_yield",  "decltype",    "default",    "delete",
-      "do",        "double",       "dynamic_cast", "else",    "enum",       "explicit",
-      "export",    "extern",       "false",     "float",       "for",        "friend",
-      "goto",      "if",           "inline",    "int",        "long",       "mutable",
-      "namespace", "new",          "noexcept",  "nullptr",     "operator",   "private",
-      "protected", "public",       "register",  "reinterpret_cast", "return", "short",
-      "signed",    "sizeof",       "static",    "static_assert", "static_cast", "struct",
-      "switch",    "template",     "this",      "thread_local", "throw",      "true",
-      "try",       "typedef",      "typeid",    "typename",    "union",      "unsigned",
-      "using",     "virtual",      "void",      "volatile",    "wchar_t",    "while"};
+      "co_await",  "co_return",    "co_yield",  "concept",     "decltype",    "default",
+      "delete",    "do",           "double",    "dynamic_cast", "else",       "enum",
+      "explicit",  "export",       "extern",    "false",       "float",       "for",
+      "friend",    "goto",         "if",        "import",      "inline",      "int",
+      "long",      "module",       "mutable",   "namespace",   "new",         "noexcept",
+      "nullptr",   "operator",     "private",   "protected",   "public",      "register",
+      "reinterpret_cast", "requires", "return", "short",       "signed",      "sizeof",
+      "static",    "static_assert", "static_cast", "struct",   "switch",      "template",
+      "this",      "thread_local", "throw",     "true",        "try",         "typedef",
+      "typeid",    "typename",     "union",     "unsigned",    "using",       "virtual",
+      "void",      "volatile",     "wchar_t",   "while"};
   frontends::TokenKind kind =
       keywords.count(lexeme) ? frontends::TokenKind::kKeyword
                              : frontends::TokenKind::kIdentifier;
@@ -250,7 +267,7 @@ frontends::Token CppLexer::LexPreprocessor() {
   auto read_identifier = [&]() {
     core::SourceLoc l = CurrentLoc();
     std::string id;
-    while (std::isalnum(static_cast<unsigned char>(Peek())) || Peek() == '_') {
+    while (IsIdentContinue(static_cast<unsigned char>(Peek()))) {
       id.push_back(Get());
     }
     if (!id.empty()) {
@@ -283,7 +300,7 @@ frontends::Token CppLexer::LexPreprocessor() {
       Get();
       continue;
     }
-    if (std::isalpha(static_cast<unsigned char>(Peek())) || Peek() == '_') {
+    if (IsIdentStart(static_cast<unsigned char>(Peek()))) {
       read_identifier();
       continue;
     }
@@ -298,6 +315,67 @@ frontends::Token CppLexer::LexPreprocessor() {
     }
 
     core::SourceLoc op_loc = CurrentLoc();
+    if (source_.compare(position_, 4, "%:%:") == 0) {
+      Get();
+      Get();
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "##", op_loc);
+      continue;
+    }
+    if (source_.compare(position_, 2, "%:") == 0) {
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "#", op_loc);
+      continue;
+    }
+    if (source_.compare(position_, 2, "<:") == 0) {
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "[", op_loc);
+      continue;
+    }
+    if (source_.compare(position_, 2, ":>") == 0) {
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "]", op_loc);
+      continue;
+    }
+    if (source_.compare(position_, 2, "<%") == 0) {
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "{", op_loc);
+      continue;
+    }
+    if (source_.compare(position_, 2, "%>") == 0) {
+      Get();
+      Get();
+      push(frontends::TokenKind::kSymbol, "}", op_loc);
+      continue;
+    }
+    if (Peek() == '?' && PeekNext() == '?' && position_ + 2 < source_.size()) {
+      char third = source_[position_ + 2];
+      char mapped = '\0';
+      switch (third) {
+        case '=': mapped = '#'; break;
+        case '/': mapped = '\\'; break;
+        case '\'': mapped = '^'; break;
+        case '(': mapped = '['; break;
+        case ')': mapped = ']'; break;
+        case '!': mapped = '|'; break;
+        case '<': mapped = '{'; break;
+        case '>': mapped = '}'; break;
+        case '-': mapped = '~'; break;
+        default: break;
+      }
+      if (mapped != '\0') {
+        Get();
+        Get();
+        Get();
+        push(frontends::TokenKind::kSymbol, std::string(1, mapped), op_loc);
+        continue;
+      }
+    }
     if (match_operator(op_loc)) {
       continue;
     }
@@ -312,6 +390,61 @@ frontends::Token CppLexer::LexPreprocessor() {
 }
 
 frontends::Token CppLexer::LexOperator() {
+  core::SourceLoc loc = CurrentLoc();
+  if (source_.compare(position_, 4, "%:%:") == 0) {
+    Get();
+    Get();
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "##", loc};
+  }
+  if (source_.compare(position_, 2, "%:") == 0) {
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "#", loc};
+  }
+  if (source_.compare(position_, 2, "<:") == 0) {
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "[", loc};
+  }
+  if (source_.compare(position_, 2, ":>") == 0) {
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "]", loc};
+  }
+  if (source_.compare(position_, 2, "<%") == 0) {
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "{", loc};
+  }
+  if (source_.compare(position_, 2, "%>") == 0) {
+    Get();
+    Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, "}", loc};
+  }
+  if (Peek() == '?' && PeekNext() == '?' && position_ + 2 < source_.size()) {
+    char third = source_[position_ + 2];
+    char mapped = '\0';
+    switch (third) {
+      case '=': mapped = '#'; break;
+      case '/': mapped = '\\'; break;
+      case '\'': mapped = '^'; break;
+      case '(': mapped = '['; break;
+      case ')': mapped = ']'; break;
+      case '!': mapped = '|'; break;
+      case '<': mapped = '{'; break;
+      case '>': mapped = '}'; break;
+      case '-': mapped = '~'; break;
+      default: break;
+    }
+    if (mapped != '\0') {
+      Get();
+      Get();
+      Get();
+      return frontends::Token{frontends::TokenKind::kSymbol, std::string(1, mapped), loc};
+    }
+  }
   static const std::vector<std::string> operators = {
     "<=>", ">>=", "<<=", "->*", "##",  "...", ">>", "<<", "==", "!=", "<=", ">=",
     "&&",  "||",  "++",  "--",  "->",  "::",  ".*", "+=", "-=", "*=", "/=", "%=",
@@ -320,14 +453,12 @@ frontends::Token CppLexer::LexOperator() {
     ")",   "[",   "]"};
   for (const auto &op : operators) {
     if (source_.compare(position_, op.size(), op) == 0) {
-      core::SourceLoc loc = CurrentLoc();
       for (size_t i = 0; i < op.size(); ++i) {
         Get();
       }
       return frontends::Token{frontends::TokenKind::kSymbol, op, loc};
     }
   }
-  core::SourceLoc loc = CurrentLoc();
   char c = Get();
   return frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc};
 }
@@ -367,7 +498,7 @@ frontends::Token CppLexer::NextToken() {
       (Peek() == 'u' && position_ + 2 < source_.size() && source_[position_ + 2] == '\'')))) {
     return LexChar();
   }
-  if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+  if (IsIdentStart(static_cast<unsigned char>(c))) {
     return LexIdentifierOrKeyword();
   }
   if (std::isdigit(static_cast<unsigned char>(c))) {

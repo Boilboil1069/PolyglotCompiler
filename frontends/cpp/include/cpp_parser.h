@@ -34,8 +34,11 @@ class CppParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseTry();
     std::shared_ptr<Statement> ParseThrow();
     std::shared_ptr<Statement> ParseImport();
+    std::shared_ptr<Statement> ParseModuleDecl(bool is_export);
+    std::shared_ptr<Statement> ParseConcept();
     std::shared_ptr<Statement> ParseUsing();
     std::shared_ptr<Statement> ParseUsingNamespace();
+    std::shared_ptr<Statement> ParseUsingEnum();
     std::shared_ptr<Statement> ParseNamespaceAlias();
     std::shared_ptr<Statement> ParseTypedef();
     std::shared_ptr<Statement> ParseUsingAlias();
@@ -43,12 +46,12 @@ class CppParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseFunction();
     std::shared_ptr<FunctionDecl>
     ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const std::string &name,
-                               bool is_constexpr, bool is_inline, bool is_static,
+                               bool is_constexpr, bool is_consteval, bool is_inline, bool is_static,
                                bool is_operator = false, const std::string &op_symbol = "",
                                const std::string &access = "", bool inside_record = false);
     std::shared_ptr<Statement> ParseVarDecl(std::shared_ptr<TypeNode> type, const std::string &name,
                                             bool is_constexpr, bool is_inline, bool is_static,
-                                            const std::string &access = "");
+                                            bool is_constinit, const std::string &access = "");
     std::shared_ptr<Statement> ParseStructuredBinding(std::shared_ptr<TypeNode> type,
                                                       bool is_constexpr, bool is_inline,
                                                       bool is_static);
@@ -57,6 +60,7 @@ class CppParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseNamespace();
     std::shared_ptr<Statement> ParseTemplate();
     std::shared_ptr<Statement> ParseReturn();
+    std::string ParseRequiresClause();
     std::vector<Attribute> ParseAttributes();
     std::string ParseQualifiedName();
     std::shared_ptr<TypeNode> ParseType();

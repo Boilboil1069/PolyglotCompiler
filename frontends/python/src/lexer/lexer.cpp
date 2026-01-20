@@ -28,10 +28,11 @@ frontends::Token PythonLexer::LexIdentifier() {
         lexeme.push_back(Get());
     }
     static const std::unordered_set<std::string> keywords = {
-        "False", "None",     "True",  "and",    "as",   "assert", "async",  "await",    "break",
-        "class", "continue", "def",   "del",    "elif", "else",   "except", "finally",  "for",
-        "from",  "global",   "if",    "import", "in",   "is",     "lambda", "nonlocal", "not",
-        "or",    "pass",     "raise", "return", "try",  "while",  "with",   "yield"};
+        "False", "None",     "True",  "and",    "as",    "assert", "async",  "await",
+        "break", "case",     "class", "continue", "def", "del",    "elif",   "else",
+        "except", "finally", "for",   "from",   "global", "if",    "import", "in",
+        "is",    "lambda",   "match", "nonlocal", "not", "or",     "pass",   "raise",
+        "return", "try",     "while", "with",   "yield"};
     frontends::TokenKind kind =
         keywords.count(lexeme) ? frontends::TokenKind::kKeyword : frontends::TokenKind::kIdentifier;
     return frontends::Token{kind, lexeme, loc};
@@ -95,6 +96,12 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
     int brace_depth = 1;
     pending_.push_back(frontends::Token{frontends::TokenKind::kSymbol, "{", brace_loc});
 
+    static const std::vector<std::string> fmt_ops = {
+        "**=", "//=", "<<=", ">>=", "==", "!=", "<=", ">=", "**", "//", "<<", ">>", "+=",
+        "-=",  "*=",  "/=",  "%=",  "&=", "|=", "^=", "@=", ":=", "->", "...", "@",
+        ":",   ".",   "=",   "+",   "-",  "*",  "/",  "%",  "&",  "|",  "^",  "~",
+        "<",   ">",   "(",   ")",   "[",  "]",  ",",  ";"};
+
     while (!Eof() && brace_depth > 0) {
         char c = Peek();
         core::SourceLoc loc = CurrentLoc();
@@ -137,8 +144,22 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
             continue;
         }
 
-        Get();
-        pending_.push_back(frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc});
+        bool matched = false;
+        for (const auto &op : fmt_ops) {
+            if (source_.compare(position_, op.size(), op) == 0) {
+                for (size_t i = 0; i < op.size(); ++i) {
+                    Get();
+                }
+                pending_.push_back(frontends::Token{frontends::TokenKind::kSymbol, op, loc});
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            Get();
+            pending_.push_back(
+                frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc});
+        }
     }
 
     pending_.push_back(frontends::Token{frontends::TokenKind::kUnknown,
@@ -262,6 +283,26 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
     return tok;
 }
 
+frontends::Token PythonLexer::LexOperator() {
+    static const std::vector<std::string> operators = {
+        "**=", "//=", "<<=", ">>=", "==", "!=", "<=", ">=", "**", "//", "<<", ">>", "+=",
+        "-=",  "*=",  "/=",  "%=",  "&=", "|=", "^=", "@=", ":=", "->", "...", "@",
+        ":",   ".",   "=",   "+",   "-",  "*",  "/",  "%",  "&",  "|",  "^",  "~",
+        "<",   ">",   "(",   ")",   "[",  "]",  "{",  "}",  ",",  ";"};
+    for (const auto &op : operators) {
+        if (source_.compare(position_, op.size(), op) == 0) {
+            core::SourceLoc loc = CurrentLoc();
+            for (size_t i = 0; i < op.size(); ++i) {
+                Get();
+            }
+            return frontends::Token{frontends::TokenKind::kSymbol, op, loc};
+        }
+    }
+    core::SourceLoc loc = CurrentLoc();
+    char c = Get();
+    return frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc};
+}
+
 void PythonLexer::HandleIndentation() {
     if (!at_line_start_ || paren_level_ > 0)
         return;
@@ -335,8 +376,12 @@ frontends::Token PythonLexer::NextToken() {
 
     if (c == '#') {
         Get();
-        SkipComment();
-        return frontends::Token{frontends::TokenKind::kComment, "", loc};
+        std::string text;
+        while (Peek() != '\0' && Peek() != '\n') {
+            text.push_back(Get());
+        }
+        bool is_doc = !text.empty() && (text[0] == '#' || text[0] == ':');
+        return frontends::Token{frontends::TokenKind::kComment, text, loc, is_doc};
     }
 
     if (c == '(' || c == '[' || c == '{') {
@@ -366,8 +411,8 @@ frontends::Token PythonLexer::NextToken() {
     if (std::isdigit(static_cast<unsigned char>(c))) {
         return LexNumber();
     }
-    Get();
-    return frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc};
+    (void)loc;
+    return LexOperator();
 }
 
 } // namespace polyglot::python

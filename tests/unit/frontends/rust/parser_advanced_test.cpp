@@ -46,7 +46,7 @@ fn main() {
 TEST_CASE("Rust parser parses struct/enum/use paths", "[rust][parser]") {
   const char *src = R"(
 use crate::foo::bar;
-struct S { a, b, c }
+struct S { a: i32, b: i32, c: i32 }
 enum E { A, B, C }
 fn f() {}
 )";

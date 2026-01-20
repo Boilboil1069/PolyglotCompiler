@@ -2,11 +2,29 @@
 
 namespace polyglot::rust {
 
+frontends::Token RustParser::NextNonComment() {
+    frontends::Token tok = lexer_.NextToken();
+    while (tok.kind == frontends::TokenKind::kComment) {
+        tok = lexer_.NextToken();
+    }
+    return tok;
+}
+
 frontends::Token RustParser::Consume() {
-    do {
-        current_ = lexer_.NextToken();
-    } while (current_.kind == frontends::TokenKind::kComment);
+    if (!pushback_.empty()) {
+        current_ = pushback_.back();
+        pushback_.pop_back();
+    } else {
+        current_ = NextNonComment();
+    }
     return current_;
+}
+
+frontends::Token RustParser::PeekToken() {
+    if (pushback_.empty()) {
+        pushback_.push_back(NextNonComment());
+    }
+    return pushback_.back();
 }
 
 bool RustParser::IsSymbol(const std::string &symbol) const {
@@ -52,6 +70,66 @@ void RustParser::Sync() {
         }
         Consume();
     }
+}
+
+std::vector<Attribute> RustParser::ParseAttributes() {
+    std::vector<Attribute> attrs;
+    while (IsSymbol("#")) {
+        Consume();
+        bool is_inner = false;
+        if (MatchSymbol("!")) {
+            is_inner = true;
+        }
+        if (!IsSymbol("[")) {
+            diagnostics_.Report(current_.loc, "Expected '[' after '#'");
+            break;
+        }
+        Attribute attr;
+        attr.is_inner = is_inner;
+        attr.text = ParseDelimitedBody("[", "]");
+        attrs.push_back(std::move(attr));
+    }
+    return attrs;
+}
+
+std::string RustParser::ParseVisibility() {
+    if (!(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "pub")) {
+        return "";
+    }
+    std::string vis = "pub";
+    Consume();
+    if (MatchSymbol("(")) {
+        std::string scope;
+        while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
+            scope += current_.lexeme;
+            Consume();
+        }
+        ExpectSymbol(")", "Expected ')' after visibility scope");
+        vis += "(" + scope + ")";
+    }
+    return vis;
+}
+
+std::string RustParser::ParseWhereClause() {
+    if (!(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "where")) {
+        return "";
+    }
+    Consume();
+    std::string clause;
+    int depth = 0;
+    while (current_.kind != frontends::TokenKind::kEndOfFile) {
+        if (depth == 0 && (IsSymbol("{") || IsSymbol(";"))) {
+            break;
+        }
+        if (IsSymbol("<")) {
+            depth++;
+        } else if (IsSymbol(">")) {
+            depth = std::max(0, depth - 1);
+        }
+        clause += current_.lexeme;
+        Consume();
+    }
+    return clause;
 }
 
 int RustParser::GetBinaryPrecedence(const std::string &op) const {
@@ -117,7 +195,10 @@ std::shared_ptr<Expression> RustParser::ParsePrimary() {
         Consume();
         return lit;
     }
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        (current_.kind == frontends::TokenKind::kKeyword &&
+         (current_.lexeme == "self" || current_.lexeme == "Self" || current_.lexeme == "super" ||
+          current_.lexeme == "crate"))) {
         return ParsePathExpression();
     }
     if (current_.kind == frontends::TokenKind::kNumber ||
@@ -184,11 +265,29 @@ std::shared_ptr<Expression> RustParser::ParsePathExpression() {
         path->is_absolute = true;
         Consume();
     }
-    while (current_.kind == frontends::TokenKind::kIdentifier) {
+    auto is_path_segment = [&]() {
+        if (current_.kind == frontends::TokenKind::kIdentifier)
+            return true;
+        if (current_.kind == frontends::TokenKind::kKeyword) {
+            return current_.lexeme == "self" || current_.lexeme == "Self" ||
+                   current_.lexeme == "super" || current_.lexeme == "crate";
+        }
+        return false;
+    };
+    while (is_path_segment()) {
         path->segments.push_back(current_.lexeme);
+        path->generic_args.emplace_back();
         Consume();
         if (IsSymbol("::")) {
             Consume();
+            if (IsSymbol("<")) {
+                path->generic_args.back() = ParseGenericArgList();
+                if (IsSymbol("::")) {
+                    Consume();
+                    continue;
+                }
+                break;
+            }
             continue;
         }
         break;
@@ -200,55 +299,167 @@ std::shared_ptr<Expression> RustParser::ParsePathExpression() {
 }
 
 std::shared_ptr<Pattern> RustParser::ParsePattern() {
-    if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "_") {
-        auto pat = std::make_shared<WildcardPattern>();
-        pat->loc = current_.loc;
-        Consume();
-        return pat;
-    }
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-        // could be path/struct/identifier
-        auto save_loc = current_.loc;
-        auto path = PathPattern{};
-        while (current_.kind == frontends::TokenKind::kIdentifier) {
-            path.segments.push_back(current_.lexeme);
+    auto parse_single = [&]() -> std::shared_ptr<Pattern> {
+        if (IsSymbol("..") || IsSymbol("..=") || IsSymbol("...")) {
+            bool inclusive = current_.lexeme != "..";
+            auto range = std::make_shared<RangePattern>();
+            range->loc = current_.loc;
+            range->inclusive = inclusive;
             Consume();
-            if (IsSymbol("::")) {
+            if (!IsSymbol(",") && !IsSymbol(")") && !IsSymbol("]")) {
+                range->end = ParsePattern();
+            }
+            return range;
+        }
+        if (IsSymbol("&")) {
+            auto ref = std::make_shared<RefPattern>();
+            ref->loc = current_.loc;
+            Consume();
+            if (MatchKeyword("mut")) {
+                ref->is_mut = true;
+            }
+            ref->inner = ParsePattern();
+            return ref;
+        }
+        if (IsSymbol("[")) {
+            auto slice = std::make_shared<SlicePattern>();
+            slice->loc = current_.loc;
+            Consume();
+            if (!IsSymbol("]")) {
+                while (true) {
+                    if (IsSymbol("..")) {
+                        Consume();
+                        slice->has_rest = true;
+                        if (IsSymbol("]"))
+                            break;
+                    } else {
+                        slice->elements.push_back(ParsePattern());
+                    }
+                    if (!MatchSymbol(","))
+                        break;
+                    if (IsSymbol("]"))
+                        break;
+                }
+            }
+            MatchSymbol("]");
+            return slice;
+        }
+        bool is_ref = false;
+        bool is_mut = false;
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "ref") {
+            is_ref = true;
+            Consume();
+        }
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "mut") {
+            is_mut = true;
+            Consume();
+        }
+        if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "_") {
+            auto pat = std::make_shared<WildcardPattern>();
+            pat->loc = current_.loc;
+            Consume();
+            return pat;
+        }
+        if (current_.kind == frontends::TokenKind::kNumber ||
+            current_.kind == frontends::TokenKind::kString ||
+            current_.kind == frontends::TokenKind::kChar ||
+            (current_.kind == frontends::TokenKind::kKeyword &&
+             (current_.lexeme == "true" || current_.lexeme == "false"))) {
+            auto lit = std::make_shared<LiteralPattern>();
+            lit->loc = current_.loc;
+            lit->value = current_.lexeme;
+            Consume();
+            return lit;
+        }
+        if (current_.kind == frontends::TokenKind::kIdentifier ||
+            (current_.kind == frontends::TokenKind::kKeyword &&
+             (current_.lexeme == "self" || current_.lexeme == "Self" ||
+              current_.lexeme == "super" || current_.lexeme == "crate"))) {
+            auto save_loc = current_.loc;
+            auto path = PathPattern{};
+            while (current_.kind == frontends::TokenKind::kIdentifier ||
+                   (current_.kind == frontends::TokenKind::kKeyword &&
+                    (current_.lexeme == "self" || current_.lexeme == "Self" ||
+                     current_.lexeme == "super" || current_.lexeme == "crate"))) {
+                path.segments.push_back(current_.lexeme);
                 Consume();
-                continue;
+                if (IsSymbol("::")) {
+                    Consume();
+                    continue;
+                }
+                break;
             }
-            break;
+            if (IsSymbol("{")) {
+                return ParseStructPattern(path);
+            }
+            if (IsSymbol("(")) {
+                return ParseTupleStructPattern(path);
+            }
+            if (path.segments.size() == 1) {
+                if (MatchSymbol("@")) {
+                    auto binding = std::make_shared<BindingPattern>();
+                    binding->loc = save_loc;
+                    binding->name = path.segments[0];
+                    binding->is_ref = is_ref;
+                    binding->is_mut = is_mut;
+                    binding->pattern = ParsePattern();
+                    return binding;
+                }
+                auto id = std::make_shared<IdentifierPattern>();
+                id->loc = save_loc;
+                id->name = path.segments[0];
+                id->is_ref = is_ref;
+                id->is_mut = is_mut;
+                return id;
+            }
+            auto pp = std::make_shared<PathPattern>(path);
+            pp->loc = save_loc;
+            return pp;
         }
-        if (IsSymbol("{")) {
-            return ParseStructPattern(path);
-        }
-        if (path.segments.size() == 1) {
-            auto id = std::make_shared<IdentifierPattern>();
-            id->loc = save_loc;
-            id->name = path.segments[0];
-            return id;
-        }
-        auto pp = std::make_shared<PathPattern>(path);
-        pp->loc = save_loc;
-        return pp;
-    }
-    if (IsSymbol("(")) {
-        auto tuple = std::make_shared<TuplePattern>();
-        tuple->loc = current_.loc;
-        Consume();
-        if (!IsSymbol(")")) {
-            tuple->elements.push_back(ParsePattern());
-            while (MatchSymbol(",")) {
-                if (IsSymbol(")"))
-                    break;
+        if (IsSymbol("(")) {
+            auto tuple = std::make_shared<TuplePattern>();
+            tuple->loc = current_.loc;
+            Consume();
+            if (!IsSymbol(")")) {
                 tuple->elements.push_back(ParsePattern());
+                while (MatchSymbol(",")) {
+                    if (IsSymbol(")"))
+                        break;
+                    tuple->elements.push_back(ParsePattern());
+                }
             }
+            MatchSymbol(")");
+            return tuple;
         }
-        MatchSymbol(")");
-        return tuple;
+        diagnostics_.Report(current_.loc, "Expected pattern");
+        return nullptr;
+    };
+
+    auto first = parse_single();
+    if (!first)
+        return nullptr;
+    if (IsSymbol("..") || IsSymbol("..=") || IsSymbol("...")) {
+        bool inclusive = current_.lexeme != "..";
+        auto range = std::make_shared<RangePattern>();
+        range->loc = first->loc;
+        range->start = first;
+        range->inclusive = inclusive;
+        Consume();
+        if (!IsSymbol(",") && !IsSymbol(")") && !IsSymbol("]")) {
+            range->end = parse_single();
+        }
+        return range;
     }
-    diagnostics_.Report(current_.loc, "Expected pattern");
-    return nullptr;
+    if (MatchSymbol("|")) {
+        auto orp = std::make_shared<OrPattern>();
+        orp->loc = first->loc;
+        orp->patterns.push_back(first);
+        do {
+            orp->patterns.push_back(parse_single());
+        } while (MatchSymbol("|"));
+        return orp;
+    }
+    return first;
 }
 
 std::shared_ptr<Pattern> RustParser::ParseStructPattern(PathPattern path) {
@@ -262,8 +473,16 @@ std::shared_ptr<Pattern> RustParser::ParseStructPattern(PathPattern path) {
             break;
         }
         if (current_.kind == frontends::TokenKind::kIdentifier) {
-            sp->fields.push_back(current_.lexeme);
+            StructPatternField field;
+            field.name = current_.lexeme;
             Consume();
+            if (MatchSymbol(":")) {
+                field.pattern = ParsePattern();
+                field.is_shorthand = false;
+            } else {
+                field.is_shorthand = true;
+            }
+            sp->fields.push_back(std::move(field));
         } else {
             diagnostics_.Report(current_.loc, "Expected field pattern");
             break;
@@ -279,20 +498,65 @@ std::shared_ptr<Pattern> RustParser::ParseStructPattern(PathPattern path) {
     return sp;
 }
 
+std::shared_ptr<Pattern> RustParser::ParseTupleStructPattern(PathPattern path) {
+    auto tp = std::make_shared<TupleStructPattern>();
+    tp->loc = current_.loc;
+    tp->path = std::move(path);
+    MatchSymbol("(");
+    if (!IsSymbol(")")) {
+        tp->elements.push_back(ParsePattern());
+        while (MatchSymbol(",")) {
+            if (IsSymbol(")"))
+                break;
+            tp->elements.push_back(ParsePattern());
+        }
+    }
+    MatchSymbol(")");
+    return tp;
+}
+
 std::vector<std::shared_ptr<TypeNode>> RustParser::ParseGenericArgList() {
     std::vector<std::shared_ptr<TypeNode>> args;
     if (!MatchSymbol("<"))
         return args;
     if (!IsSymbol(">")) {
-        args.push_back(ParseType());
+        auto parse_arg = [&]() -> std::shared_ptr<TypeNode> {
+            if (current_.kind == frontends::TokenKind::kLifetime) {
+                return ParseLifetime();
+            }
+            if (current_.kind == frontends::TokenKind::kNumber) {
+                auto ce = std::make_shared<ConstExprType>();
+                ce->loc = current_.loc;
+                ce->expr = current_.lexeme;
+                Consume();
+                return ce;
+            }
+            return ParseType();
+        };
+        args.push_back(parse_arg());
         while (MatchSymbol(",")) {
             if (IsSymbol(">"))
                 break;
-            args.push_back(ParseType());
+            args.push_back(parse_arg());
         }
     }
     ExpectSymbol(">", "Expected '>' to close generic arguments");
     return args;
+}
+
+std::vector<std::shared_ptr<TypeNode>> RustParser::ParseTraitBounds() {
+    std::vector<std::shared_ptr<TypeNode>> bounds;
+    auto parse_bound = [&]() -> std::shared_ptr<TypeNode> {
+        if (current_.kind == frontends::TokenKind::kLifetime) {
+            return ParseLifetime();
+        }
+        return ParseTypePath();
+    };
+    bounds.push_back(parse_bound());
+    while (MatchSymbol("+")) {
+        bounds.push_back(parse_bound());
+    }
+    return bounds;
 }
 
 std::shared_ptr<TypePath> RustParser::ParseTypePath() {
@@ -302,7 +566,16 @@ std::shared_ptr<TypePath> RustParser::ParseTypePath() {
         type->is_absolute = true;
         Consume();
     }
-    while (current_.kind == frontends::TokenKind::kIdentifier) {
+    auto is_type_segment = [&]() {
+        if (current_.kind == frontends::TokenKind::kIdentifier)
+            return true;
+        if (current_.kind == frontends::TokenKind::kKeyword) {
+            return current_.lexeme == "self" || current_.lexeme == "Self" ||
+                   current_.lexeme == "super" || current_.lexeme == "crate";
+        }
+        return false;
+    };
+    while (is_type_segment()) {
         type->segments.push_back(current_.lexeme);
         Consume();
         type->generic_args.push_back(ParseGenericArgList());
@@ -330,6 +603,20 @@ std::shared_ptr<LifetimeType> RustParser::ParseLifetime() {
 }
 
 std::shared_ptr<TypeNode> RustParser::ParseType() {
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "dyn") {
+        auto dyn = std::make_shared<TraitObjectType>();
+        dyn->loc = current_.loc;
+        Consume();
+        dyn->bounds = ParseTraitBounds();
+        return dyn;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "impl") {
+        auto impl = std::make_shared<ImplTraitType>();
+        impl->loc = current_.loc;
+        Consume();
+        impl->bounds = ParseTraitBounds();
+        return impl;
+    }
     // reference types
     if (IsSymbol("&")) {
         auto ref = std::make_shared<ReferenceType>();
@@ -442,20 +729,36 @@ std::vector<std::string> RustParser::ParseTypeParams() {
     if (!MatchSymbol("<"))
         return params;
     if (!IsSymbol(">")) {
-        if (current_.kind == frontends::TokenKind::kIdentifier) {
-            params.push_back(current_.lexeme);
-            Consume();
-            while (MatchSymbol(",")) {
-                if (IsSymbol(">"))
-                    break;
-                if (current_.kind == frontends::TokenKind::kIdentifier) {
-                    params.push_back(current_.lexeme);
-                    Consume();
-                } else {
-                    diagnostics_.Report(current_.loc, "Expected type parameter name");
+        std::string current_param;
+        int depth = 0;
+        auto flush_param = [&]() {
+            if (!current_param.empty()) {
+                params.push_back(current_param);
+                current_param.clear();
+            }
+        };
+        while (current_.kind != frontends::TokenKind::kEndOfFile) {
+            if (IsSymbol("<")) {
+                depth++;
+            } else if (IsSymbol(">")) {
+                if (depth == 0) {
+                    flush_param();
                     break;
                 }
+                depth = std::max(0, depth - 1);
             }
+            if (depth == 0 && IsSymbol(",")) {
+                flush_param();
+                Consume();
+                continue;
+            }
+            if (!current_param.empty())
+                current_param += " ";
+            if (current_.kind == frontends::TokenKind::kLifetime) {
+                current_param += "'";
+            }
+            current_param += current_.lexeme;
+            Consume();
         }
     }
     ExpectSymbol(">", "Expected '>' to close type parameters");
@@ -504,8 +807,34 @@ std::shared_ptr<Expression> RustParser::ParsePostfix() {
             expr = call;
             continue;
         }
+        if (IsSymbol("::")) {
+            auto mem = std::dynamic_pointer_cast<MemberExpression>(expr);
+            auto path_expr = std::dynamic_pointer_cast<PathExpression>(expr);
+            Consume();
+            if (IsSymbol("<")) {
+                auto args = ParseGenericArgList();
+                if (mem) {
+                    mem->generic_args = std::move(args);
+                } else if (path_expr && !path_expr->generic_args.empty()) {
+                    path_expr->generic_args.back() = std::move(args);
+                } else {
+                    diagnostics_.Report(current_.loc, "Unexpected turbofish");
+                }
+                continue;
+            }
+            diagnostics_.Report(current_.loc, "Expected '<' after '::'");
+            continue;
+        }
         if (IsSymbol(".")) {
             Consume();
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "await") {
+                auto aw = std::make_shared<AwaitExpression>();
+                aw->loc = current_.loc;
+                aw->value = expr;
+                Consume();
+                expr = aw;
+                continue;
+            }
             if (current_.kind == frontends::TokenKind::kIdentifier) {
                 auto mem = std::make_shared<MemberExpression>();
                 mem->object = expr;
@@ -526,6 +855,14 @@ std::shared_ptr<Expression> RustParser::ParsePostfix() {
             idx->index = ParseExpression();
             MatchSymbol("]");
             expr = idx;
+            continue;
+        }
+        if (IsSymbol("?")) {
+            auto tr = std::make_shared<TryExpression>();
+            tr->loc = current_.loc;
+            tr->value = expr;
+            Consume();
+            expr = tr;
             continue;
         }
         break;
@@ -833,6 +1170,68 @@ std::shared_ptr<Statement> RustParser::ParseUse() {
     return stmt;
 }
 
+std::shared_ptr<Statement> RustParser::ParseConstItem() {
+    auto item = std::make_shared<ConstItem>();
+    item->loc = current_.loc;
+    MatchKeyword("const");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        item->name = current_.lexeme;
+        Consume();
+    } else {
+        diagnostics_.Report(current_.loc, "Expected const name");
+    }
+    if (MatchSymbol(":")) {
+        item->type = ParseType();
+    }
+    if (MatchSymbol("=")) {
+        item->value = ParseExpression();
+    }
+    MatchSymbol(";");
+    return item;
+}
+
+std::shared_ptr<Statement> RustParser::ParseTypeAlias() {
+    auto item = std::make_shared<TypeAliasItem>();
+    item->loc = current_.loc;
+    MatchKeyword("type");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        item->name = current_.lexeme;
+        Consume();
+    } else {
+        diagnostics_.Report(current_.loc, "Expected type alias name");
+    }
+    if (MatchSymbol("=")) {
+        item->alias = ParseType();
+    }
+    MatchSymbol(";");
+    return item;
+}
+
+std::shared_ptr<Statement> RustParser::ParseMacroRules() {
+    auto item = std::make_shared<MacroRulesItem>();
+    item->loc = current_.loc;
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        Consume();
+    }
+    ExpectSymbol("!", "Expected '!' after macro_rules");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        item->name = current_.lexeme;
+        Consume();
+    } else {
+        diagnostics_.Report(current_.loc, "Expected macro name");
+    }
+    if (IsSymbol("{")) {
+        item->body = ParseDelimitedBody("{", "}");
+    } else if (IsSymbol("(")) {
+        item->body = ParseDelimitedBody("(", ")");
+    } else if (IsSymbol("[")) {
+        item->body = ParseDelimitedBody("[", "]");
+    } else {
+        diagnostics_.Report(current_.loc, "Expected macro body");
+    }
+    return item;
+}
+
 std::shared_ptr<Statement> RustParser::ParseLet() {
     auto stmt = std::make_shared<LetStatement>();
     stmt->loc = current_.loc;
@@ -918,13 +1317,21 @@ std::shared_ptr<Statement> RustParser::ParseStruct() {
     }
     if (MatchSymbol("{")) {
         while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+            StructField field;
+            field.visibility = ParseVisibility();
             if (current_.kind == frontends::TokenKind::kIdentifier) {
-                item->fields.push_back(current_.lexeme);
+                field.name = current_.lexeme;
                 Consume();
             } else {
                 diagnostics_.Report(current_.loc, "Expected field name");
                 break;
             }
+            if (MatchSymbol(":")) {
+                field.type = ParseType();
+            } else {
+                diagnostics_.Report(current_.loc, "Expected ':' after field name");
+            }
+            item->fields.push_back(std::move(field));
             if (IsSymbol(",")) {
                 Consume();
             } else {
@@ -932,7 +1339,28 @@ std::shared_ptr<Statement> RustParser::ParseStruct() {
             }
         }
         MatchSymbol("}");
+        MatchSymbol(";");
+        return item;
     }
+    if (MatchSymbol("(")) {
+        item->is_tuple = true;
+        if (!IsSymbol(")")) {
+            while (true) {
+                StructField field;
+                field.visibility = ParseVisibility();
+                field.type = ParseType();
+                item->fields.push_back(std::move(field));
+                if (!MatchSymbol(","))
+                    break;
+                if (IsSymbol(")"))
+                    break;
+            }
+        }
+        ExpectSymbol(")", "Expected ')' after tuple struct fields");
+        MatchSymbol(";");
+        return item;
+    }
+    item->is_unit = true;
     MatchSymbol(";");
     return item;
 }
@@ -949,18 +1377,49 @@ std::shared_ptr<Statement> RustParser::ParseEnum() {
     }
     if (MatchSymbol("{")) {
         while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+            EnumVariant variant;
             if (current_.kind == frontends::TokenKind::kIdentifier) {
-                item->variants.push_back(current_.lexeme);
+                variant.name = current_.lexeme;
                 Consume();
             } else {
                 diagnostics_.Report(current_.loc, "Expected variant name");
                 break;
             }
-            if (IsSymbol(",")) {
-                Consume();
-            } else {
-                break;
+            if (MatchSymbol("(")) {
+                if (!IsSymbol(")")) {
+                    while (true) {
+                        variant.tuple_fields.push_back(ParseType());
+                        if (!MatchSymbol(","))
+                            break;
+                        if (IsSymbol(")"))
+                            break;
+                    }
+                }
+                ExpectSymbol(")", "Expected ')' after tuple variant");
+            } else if (MatchSymbol("{")) {
+                while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+                    StructField field;
+                    if (current_.kind == frontends::TokenKind::kIdentifier) {
+                        field.name = current_.lexeme;
+                        Consume();
+                    } else {
+                        diagnostics_.Report(current_.loc, "Expected field name");
+                        break;
+                    }
+                    ExpectSymbol(":", "Expected ':' in variant field");
+                    field.type = ParseType();
+                    variant.struct_fields.push_back(std::move(field));
+                    if (!MatchSymbol(","))
+                        break;
+                }
+                MatchSymbol("}");
             }
+            if (MatchSymbol("=")) {
+                variant.discriminant = ParseExpression();
+            }
+            item->variants.push_back(std::move(variant));
+            if (!MatchSymbol(","))
+                break;
         }
         MatchSymbol("}");
     }
@@ -971,6 +1430,30 @@ std::shared_ptr<Statement> RustParser::ParseEnum() {
 std::shared_ptr<Statement> RustParser::ParseFunction() {
     auto fn = std::make_shared<FunctionItem>();
     fn->loc = current_.loc;
+    bool saw_modifier = true;
+    while (saw_modifier) {
+        saw_modifier = false;
+        if (MatchKeyword("async")) {
+            fn->is_async = true;
+            saw_modifier = true;
+        }
+        if (MatchKeyword("const")) {
+            fn->is_const = true;
+            saw_modifier = true;
+        }
+        if (MatchKeyword("unsafe")) {
+            fn->is_unsafe = true;
+            saw_modifier = true;
+        }
+        if (MatchKeyword("extern")) {
+            fn->is_extern = true;
+            saw_modifier = true;
+            if (current_.kind == frontends::TokenKind::kString) {
+                fn->extern_abi = current_.lexeme;
+                Consume();
+            }
+        }
+    }
     MatchKeyword("fn");
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         fn->name = current_.lexeme;
@@ -981,33 +1464,65 @@ std::shared_ptr<Statement> RustParser::ParseFunction() {
     fn->type_params = ParseTypeParams();
     ExpectSymbol("(", "Expected '(' after function name");
     if (!MatchSymbol(")")) {
-        if (current_.kind == frontends::TokenKind::kIdentifier) {
+        auto parse_param = [&]() {
             FunctionItem::Param p;
-            p.name = current_.lexeme;
-            Consume();
-            if (MatchSymbol(":")) {
-                p.type = ParseType();
-            }
-            fn->params.push_back(std::move(p));
-            while (MatchSymbol(",")) {
-                if (current_.kind == frontends::TokenKind::kIdentifier) {
-                    FunctionItem::Param p2;
-                    p2.name = current_.lexeme;
+            if (IsSymbol("&")) {
+                auto ref = std::make_shared<ReferenceType>();
+                ref->loc = current_.loc;
+                Consume();
+                if (MatchKeyword("mut")) {
+                    ref->is_mut = true;
+                }
+                if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "self") {
+                    p.name = "self";
                     Consume();
-                    if (MatchSymbol(":")) {
-                        p2.type = ParseType();
-                    }
-                    fn->params.push_back(std::move(p2));
-                } else {
-                    diagnostics_.Report(current_.loc, "Expected parameter name");
-                    break;
+                    auto self_type = std::make_shared<TypePath>();
+                    self_type->segments.push_back("Self");
+                    ref->inner = self_type;
+                    p.type = ref;
+                    fn->params.push_back(std::move(p));
+                    return;
                 }
             }
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "self") {
+                p.name = "self";
+                Consume();
+                if (MatchSymbol(":")) {
+                    p.type = ParseType();
+                } else {
+                    auto self_type = std::make_shared<TypePath>();
+                    self_type->segments.push_back("Self");
+                    p.type = self_type;
+                }
+                fn->params.push_back(std::move(p));
+                return;
+            }
+            if (current_.kind == frontends::TokenKind::kIdentifier) {
+                p.name = current_.lexeme;
+                Consume();
+                if (MatchSymbol(":")) {
+                    p.type = ParseType();
+                }
+                fn->params.push_back(std::move(p));
+                return;
+            }
+            diagnostics_.Report(current_.loc, "Expected parameter name");
+        };
+        parse_param();
+        while (MatchSymbol(",")) {
+            if (IsSymbol(")"))
+                break;
+            parse_param();
         }
         ExpectSymbol(")", "Expected ')' after parameters");
     }
     if (MatchSymbol("->")) {
         fn->return_type = ParseType();
+    }
+    fn->where_clause = ParseWhereClause();
+    if (MatchSymbol(";")) {
+        fn->has_body = false;
+        return fn;
     }
     auto body = ParseBlockExpression();
     if (body) {
@@ -1019,13 +1534,64 @@ std::shared_ptr<Statement> RustParser::ParseFunction() {
 std::shared_ptr<Statement> RustParser::ParseImpl() {
     auto item = std::make_shared<ImplItem>();
     item->loc = current_.loc;
+    if (MatchKeyword("unsafe")) {
+        item->is_unsafe = true;
+    }
     MatchKeyword("impl");
-    item->target_type = ParseType();
+    item->type_params = ParseTypeParams();
+    auto first_type = ParseType();
+    if (MatchKeyword("for")) {
+        item->trait_type = first_type;
+        item->target_type = ParseType();
+    } else {
+        item->target_type = first_type;
+    }
+    item->where_clause = ParseWhereClause();
     ExpectSymbol("{", "Expected '{' in impl body");
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
-        auto stmt = ParseStatement();
-        if (stmt)
+        auto attrs = ParseAttributes();
+        auto vis = ParseVisibility();
+        std::shared_ptr<Statement> stmt;
+        if (current_.kind == frontends::TokenKind::kIdentifier &&
+            current_.lexeme == "macro_rules" && PeekToken().kind == frontends::TokenKind::kSymbol &&
+            PeekToken().lexeme == "!") {
+            stmt = ParseMacroRules();
+        } else if (current_.kind == frontends::TokenKind::kKeyword) {
+            if (current_.lexeme == "fn" || current_.lexeme == "async" ||
+                current_.lexeme == "unsafe" || current_.lexeme == "extern" ||
+                current_.lexeme == "const") {
+                if (current_.lexeme == "const") {
+                    auto peek = PeekToken();
+                    if (peek.kind == frontends::TokenKind::kKeyword && peek.lexeme != "fn") {
+                        stmt = ParseConstItem();
+                    } else {
+                        stmt = ParseFunction();
+                    }
+                } else {
+                    stmt = ParseFunction();
+                }
+            } else if (current_.lexeme == "const") {
+                stmt = ParseConstItem();
+            } else if (current_.lexeme == "type") {
+                stmt = ParseTypeAlias();
+            }
+        }
+        if (!stmt) {
+            diagnostics_.Report(current_.loc, "Expected impl item");
+            Sync();
+        } else {
+            stmt->attributes = std::move(attrs);
+            if (!vis.empty()) {
+                if (auto fn = std::dynamic_pointer_cast<FunctionItem>(stmt)) {
+                    fn->visibility = vis;
+                } else if (auto cst = std::dynamic_pointer_cast<ConstItem>(stmt)) {
+                    cst->visibility = vis;
+                } else if (auto alias = std::dynamic_pointer_cast<TypeAliasItem>(stmt)) {
+                    alias->visibility = vis;
+                }
+            }
             item->items.push_back(stmt);
+        }
     }
     MatchSymbol("}");
     return item;
@@ -1041,16 +1607,58 @@ std::shared_ptr<Statement> RustParser::ParseTrait() {
     } else {
         diagnostics_.Report(current_.loc, "Expected trait name");
     }
-    if (MatchSymbol("{")) {
-        while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
-            auto stmt = ParseStatement();
-            if (stmt)
-                item->items.push_back(stmt);
-        }
-        MatchSymbol("}");
-    } else {
-        diagnostics_.Report(current_.loc, "Expected '{' for trait body");
+    item->type_params = ParseTypeParams();
+    if (MatchSymbol(":")) {
+        item->super_traits = ParseTraitBounds();
     }
+    item->where_clause = ParseWhereClause();
+    ExpectSymbol("{", "Expected '{' for trait body");
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        auto attrs = ParseAttributes();
+        auto vis = ParseVisibility();
+        std::shared_ptr<Statement> stmt;
+        if (current_.kind == frontends::TokenKind::kIdentifier &&
+            current_.lexeme == "macro_rules" && PeekToken().kind == frontends::TokenKind::kSymbol &&
+            PeekToken().lexeme == "!") {
+            stmt = ParseMacroRules();
+        } else if (current_.kind == frontends::TokenKind::kKeyword) {
+            if (current_.lexeme == "fn" || current_.lexeme == "async" ||
+                current_.lexeme == "unsafe" || current_.lexeme == "extern" ||
+                current_.lexeme == "const") {
+                if (current_.lexeme == "const") {
+                    auto peek = PeekToken();
+                    if (peek.kind == frontends::TokenKind::kKeyword && peek.lexeme != "fn") {
+                        stmt = ParseConstItem();
+                    } else {
+                        stmt = ParseFunction();
+                    }
+                } else {
+                    stmt = ParseFunction();
+                }
+            } else if (current_.lexeme == "const") {
+                stmt = ParseConstItem();
+            } else if (current_.lexeme == "type") {
+                stmt = ParseTypeAlias();
+            }
+        }
+        if (!stmt) {
+            diagnostics_.Report(current_.loc, "Expected trait item");
+            Sync();
+        } else {
+            stmt->attributes = std::move(attrs);
+            if (!vis.empty()) {
+                if (auto fn = std::dynamic_pointer_cast<FunctionItem>(stmt)) {
+                    fn->visibility = vis;
+                } else if (auto cst = std::dynamic_pointer_cast<ConstItem>(stmt)) {
+                    cst->visibility = vis;
+                } else if (auto alias = std::dynamic_pointer_cast<TypeAliasItem>(stmt)) {
+                    alias->visibility = vis;
+                }
+            }
+            item->items.push_back(stmt);
+        }
+    }
+    MatchSymbol("}");
     return item;
 }
 
@@ -1078,47 +1686,94 @@ std::shared_ptr<Statement> RustParser::ParseMod() {
 }
 
 std::shared_ptr<Statement> RustParser::ParseStatement(bool allow_trailing_expr) {
-    if (current_.kind == frontends::TokenKind::kKeyword) {
+    auto attrs = ParseAttributes();
+    auto visibility = ParseVisibility();
+
+    std::shared_ptr<Statement> stmt;
+    if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == "macro_rules" &&
+        PeekToken().kind == frontends::TokenKind::kSymbol && PeekToken().lexeme == "!") {
+        stmt = ParseMacroRules();
+    } else if (current_.kind == frontends::TokenKind::kKeyword) {
         if (current_.lexeme == "use") {
-            return ParseUse();
-        }
-        if (current_.lexeme == "fn") {
-            return ParseFunction();
-        }
-        if (current_.lexeme == "let") {
-            return ParseLet();
-        }
-        if (current_.lexeme == "return") {
-            return ParseReturn();
-        }
-        if (current_.lexeme == "break") {
-            return ParseBreak();
-        }
-        if (current_.lexeme == "continue") {
-            return ParseContinue();
-        }
-        if (current_.lexeme == "loop") {
-            return ParseLoop();
-        }
-        if (current_.lexeme == "for") {
-            return ParseFor();
-        }
-        if (current_.lexeme == "struct") {
-            return ParseStruct();
-        }
-        if (current_.lexeme == "enum") {
-            return ParseEnum();
-        }
-        if (current_.lexeme == "impl") {
-            return ParseImpl();
-        }
-        if (current_.lexeme == "trait") {
-            return ParseTrait();
-        }
-        if (current_.lexeme == "mod") {
-            return ParseMod();
+            stmt = ParseUse();
+        } else if (current_.lexeme == "fn" || current_.lexeme == "async" ||
+                   current_.lexeme == "unsafe" || current_.lexeme == "extern") {
+            if (current_.lexeme == "unsafe") {
+                auto peek = PeekToken();
+                if (peek.kind == frontends::TokenKind::kKeyword && peek.lexeme == "impl") {
+                    stmt = ParseImpl();
+                } else {
+                    stmt = ParseFunction();
+                }
+            } else {
+                stmt = ParseFunction();
+            }
+        } else if (current_.lexeme == "const") {
+            auto peek = PeekToken();
+            if (peek.kind == frontends::TokenKind::kKeyword && peek.lexeme == "fn") {
+                stmt = ParseFunction();
+            } else {
+                stmt = ParseConstItem();
+            }
+        } else if (current_.lexeme == "type") {
+            stmt = ParseTypeAlias();
+        } else if (current_.lexeme == "let") {
+            stmt = ParseLet();
+        } else if (current_.lexeme == "return") {
+            stmt = ParseReturn();
+        } else if (current_.lexeme == "break") {
+            stmt = ParseBreak();
+        } else if (current_.lexeme == "continue") {
+            stmt = ParseContinue();
+        } else if (current_.lexeme == "loop") {
+            stmt = ParseLoop();
+        } else if (current_.lexeme == "for") {
+            stmt = ParseFor();
+        } else if (current_.lexeme == "struct") {
+            stmt = ParseStruct();
+        } else if (current_.lexeme == "enum") {
+            stmt = ParseEnum();
+        } else if (current_.lexeme == "impl") {
+            stmt = ParseImpl();
+        } else if (current_.lexeme == "trait") {
+            stmt = ParseTrait();
+        } else if (current_.lexeme == "mod") {
+            stmt = ParseMod();
         }
     }
+
+    if (stmt) {
+        stmt->attributes = std::move(attrs);
+        if (!visibility.empty()) {
+            if (auto use_decl = std::dynamic_pointer_cast<UseDeclaration>(stmt)) {
+                use_decl->visibility = visibility;
+            } else if (auto fn = std::dynamic_pointer_cast<FunctionItem>(stmt)) {
+                fn->visibility = visibility;
+            } else if (auto st = std::dynamic_pointer_cast<StructItem>(stmt)) {
+                st->visibility = visibility;
+            } else if (auto en = std::dynamic_pointer_cast<EnumItem>(stmt)) {
+                en->visibility = visibility;
+            } else if (auto im = std::dynamic_pointer_cast<ImplItem>(stmt)) {
+                im->visibility = visibility;
+            } else if (auto tr = std::dynamic_pointer_cast<TraitItem>(stmt)) {
+                tr->visibility = visibility;
+            } else if (auto md = std::dynamic_pointer_cast<ModItem>(stmt)) {
+                md->visibility = visibility;
+            } else if (auto cst = std::dynamic_pointer_cast<ConstItem>(stmt)) {
+                cst->visibility = visibility;
+            } else if (auto alias = std::dynamic_pointer_cast<TypeAliasItem>(stmt)) {
+                alias->visibility = visibility;
+            } else {
+                diagnostics_.Report(stmt->loc, "Visibility is not allowed here");
+            }
+        }
+        return stmt;
+    }
+
+    if (!visibility.empty()) {
+        diagnostics_.Report(current_.loc, "Visibility is not allowed here");
+    }
+
     auto expr_stmt = std::make_shared<ExprStatement>();
     expr_stmt->loc = current_.loc;
     expr_stmt->expr = ParseExpression();
@@ -1127,6 +1782,7 @@ std::shared_ptr<Statement> RustParser::ParseStatement(bool allow_trailing_expr) 
             diagnostics_.Report(current_.loc, "Expected ';'");
         }
     }
+    expr_stmt->attributes = std::move(attrs);
     return expr_stmt;
 }
 

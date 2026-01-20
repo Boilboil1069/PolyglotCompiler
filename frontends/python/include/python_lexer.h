@@ -23,6 +23,7 @@ class PythonLexer : public frontends::LexerBase {
     frontends::Token LexNumber();
     frontends::Token LexString();
     frontends::Token LexStringInternal(bool allow_formatting);
+    frontends::Token LexOperator();
     void HandleIndentation();
     bool ParseFormatExpression(core::SourceLoc brace_loc);
     void Report(const core::SourceLoc &loc, const std::string &message);

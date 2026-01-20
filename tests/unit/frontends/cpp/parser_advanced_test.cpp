@@ -50,7 +50,8 @@ TEST_CASE("C++ parser parses templates, namespaces, records, enums, and using", 
 
   auto tmpl = std::dynamic_pointer_cast<TemplateDecl>(mod->declarations[0]);
   REQUIRE(tmpl);
-  REQUIRE(tmpl->params.size() == 2); // "typename", "T"
+  REQUIRE(tmpl->params.size() == 1);
+  REQUIRE(tmpl->params[0].find("typename") != std::string::npos);
   auto tmpl_fn = std::dynamic_pointer_cast<FunctionDecl>(tmpl->inner);
   REQUIRE(tmpl_fn);
   REQUIRE(tmpl_fn->name == "id");

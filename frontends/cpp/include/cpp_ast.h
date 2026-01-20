@@ -118,6 +118,7 @@ namespace polyglot::cpp {
         std::shared_ptr<TypeNode> type;
         std::string name;
         bool is_constexpr{false};
+        bool is_constinit{false};
         bool is_inline{false};
         bool is_static{false};
         std::string access;
@@ -125,11 +126,15 @@ namespace polyglot::cpp {
         std::shared_ptr<Expression> init;
     };
     struct ExprStatement : Statement {std::shared_ptr<Expression> expr;};
-    struct ReturnStatement : Statement {std::shared_ptr<Expression> value;};
+    struct ReturnStatement : Statement {
+        std::shared_ptr<Expression> value;
+        bool is_co_return{false};
+    };
     struct IfStatement : Statement {
         std::shared_ptr<Expression> condition;
         std::vector<std::shared_ptr<Statement>> then_body;
         std::vector<std::shared_ptr<Statement>> else_body;
+        bool is_constexpr{false};
     };
     struct WhileStatement : Statement {
         std::shared_ptr<Expression> condition;
@@ -142,10 +147,23 @@ namespace polyglot::cpp {
         std::vector<std::shared_ptr<Statement>> body;
     };
     struct CompoundStatement : Statement {std::vector<std::shared_ptr<Statement>> statements;};
-    struct ImportDeclaration : Statement {std::string module;};
+    struct ImportDeclaration : Statement {
+        std::string module;
+        bool is_export{false};
+        bool is_header_unit{false};
+    };
+    struct ModuleDeclaration : Statement {
+        std::string name;
+        bool is_export{false};
+        bool is_partition{false};
+        bool is_global{false};
+    };
     struct UsingDeclaration : Statement {
         std::string name;
         std::string aliased;
+    };
+    struct UsingEnumDeclaration : Statement {
+        std::string name;
     };
     struct UsingNamespaceDeclaration : Statement {std::string ns;};
     struct NamespaceAliasDeclaration : Statement {
@@ -170,11 +188,13 @@ namespace polyglot::cpp {
         std::shared_ptr<TypeNode> return_type;
         std::string name;
         bool is_constexpr{false};
+        bool is_consteval{false};
         bool is_inline{false};
         bool is_static{false};
         bool is_virtual{false};
         bool is_override{false};
         bool is_noexcept{false};
+        std::shared_ptr<Expression> noexcept_expr;
         bool is_pure_virtual{false};
         bool is_operator{false};
         bool is_constructor{false};
@@ -183,11 +203,13 @@ namespace polyglot::cpp {
         bool is_deleted{false};
         bool is_const_qualified{false};
         bool is_friend{false};
+        bool is_export{false};
         std::string operator_symbol;
         std::string access;
         std::vector<Attribute> attributes;
         std::vector<Param> params;
         std::vector<std::shared_ptr<Statement>> body;
+        std::string requires_clause;
     };
     struct FieldDecl {
         std::shared_ptr<TypeNode> type;
@@ -201,6 +223,7 @@ namespace polyglot::cpp {
     struct BaseSpecifier {
         std::string access; // public/protected/private
         std::string name;
+        bool is_virtual{false};
     };
     struct RecordDecl : Statement {
         std::string kind; // "class" or "struct"
@@ -209,12 +232,16 @@ namespace polyglot::cpp {
         std::vector<FieldDecl> fields;
         std::vector<std::shared_ptr<Statement>> methods;
         bool is_forward{false};
+        bool is_export{false};
         std::vector<Attribute> attributes;
     };
     struct EnumDecl : Statement {
         std::string name;
         std::vector<std::string> enumerators;
         bool is_forward{false};
+        bool is_scoped{false};
+        std::shared_ptr<TypeNode> underlying_type;
+        bool is_export{false};
     };
     struct NamespaceDecl : Statement {
         std::string name;
@@ -223,6 +250,12 @@ namespace polyglot::cpp {
     struct TemplateDecl : Statement {
         std::vector<std::string> params;
         std::shared_ptr<Statement> inner;
+        std::string requires_clause;
+    };
+    struct ConceptDecl : Statement {
+        std::string name;
+        std::vector<std::string> params;
+        std::string constraint;
     };
     struct FriendDecl : Statement {
         std::shared_ptr<Statement> decl;
