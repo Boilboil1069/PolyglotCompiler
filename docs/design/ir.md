@@ -23,3 +23,15 @@ This document summarizes the unified IR layer introduced for control-flow graph 
 - Variables are tracked by their `Instruction::name`; `AssignInstruction` is treated as a defining instruction (non-void type).
 - Φ nodes live in `BasicBlock::phis` and are updated automatically during renaming.
 - Unreachable blocks are ignored by dominance/SSA calculations for robustness.
+
+## Minimal example
+See `tests/samples/ir/ssa_example.cpp` for a runnable snippet that builds a loop, inserts φ nodes, and prints SSA names. Core steps:
+1. Create a `Function` and a few `BasicBlock`s (`entry`, `loop`, `exit`).
+2. Add pre-SSA defs (e.g., `AssignInstruction` / `BinaryInstruction`) and terminators (`Branch` / `CondBranch`).
+3. Call `ConvertToSSA` to place φ nodes and rename variables to SSA form.
+
+## Frontend hookup (sketch)
+Frontends can lower their AST into the IR as follows:
+- Create/obtain an `IRContext`, then a `Function` per source function and initial `BasicBlock`.
+- Emit `AssignInstruction`/`BinaryInstruction` for expressions; lower control-flow constructs to `Branch`/`CondBranch` and arrange `BasicBlock` edges accordingly.
+- Once lowering is done for a function, run `BuildCFG` + `ConvertToSSA` to normalize variable names and insert φ-nodes. This provides a clean SSA IR for optimization passes (e.g., constant folding, CSE, DCE).
