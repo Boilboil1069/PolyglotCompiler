@@ -1397,8 +1397,8 @@ std::shared_ptr<Statement> CppParser::ParseTemplate() {
     tmpl->params = ParseTemplateParams();
     tmpl->requires_clause = ParseRequiresClause();
     tmpl->inner = ParseStatement();
-    if (auto concept = std::dynamic_pointer_cast<ConceptDecl>(tmpl->inner)) {
-        concept->params = tmpl->params;
+    if (auto concept_ = std::dynamic_pointer_cast<ConceptDecl>(tmpl->inner)) {
+        concept_->params = tmpl->params;
     }
     return tmpl;
 }

@@ -25,20 +25,22 @@ int main(int argc, char **argv) {
   }
 
   polyglot::frontends::Diagnostics diagnostics;
+  polyglot::frontends::Preprocessor preprocessor(diagnostics);
+  preprocessor.AddIncludePath(".");
+  std::string processed = preprocessor.Process(source, "<cli>");
+
   if (language == "python") {
-    polyglot::python::PythonLexer lexer(source, "<cli>", &diagnostics);
+    polyglot::python::PythonLexer lexer(processed, "<cli>", &diagnostics);
     polyglot::python::PythonParser parser(lexer, diagnostics);
     parser.ParseModule();
     polyglot::frontends::SemaContext sema(diagnostics);
     polyglot::python::AnalyzeModule(*parser.TakeModule(), sema);
   } else if (language == "cpp") {
-    polyglot::frontends::Preprocessor preprocessor(diagnostics);
-    std::string processed = preprocessor.Process(source);
     polyglot::cpp::CppLexer lexer(processed, "<cli>");
     polyglot::cpp::CppParser parser(lexer, diagnostics);
     parser.ParseModule();
   } else if (language == "rust") {
-    polyglot::rust::RustLexer lexer(source, "<cli>");
+    polyglot::rust::RustLexer lexer(processed, "<cli>");
     polyglot::rust::RustParser parser(lexer, diagnostics);
     parser.ParseModule();
   } else {
