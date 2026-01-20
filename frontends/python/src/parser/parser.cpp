@@ -76,6 +76,9 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
                 if (MatchSymbol(":")) {
                     p.annotation = ParseExpression();
                 }
+                if (MatchSymbol("=")) {
+                    p.default_value = ParseExpression();
+                }
                 lam->params.push_back(std::move(p));
             }
             if (!MatchSymbol(","))
@@ -89,9 +92,21 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
     return lam;
 }
 
-std::shared_ptr<Expression> PythonParser::ParsePrimary() {
-    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "lambda") {
-        return ParseLambda();
+std::shared_ptr<Expression> PythonParser::ParseAtom() {
+    if (current_.kind == frontends::TokenKind::kKeyword) {
+        if (current_.lexeme == "lambda")
+            return ParseLambda();
+        if (current_.lexeme == "True" || current_.lexeme == "False" ||
+            current_.lexeme == "None") {
+            auto lit = std::make_shared<Literal>();
+            lit->loc = current_.loc;
+            lit->value = current_.lexeme;
+            Consume();
+            return lit;
+        }
+        if (current_.lexeme == "yield") {
+            return ParseYield();
+        }
     }
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         auto ident = std::make_shared<Identifier>();
@@ -109,30 +124,121 @@ std::shared_ptr<Expression> PythonParser::ParsePrimary() {
         return literal;
     }
     if (IsSymbol("(")) {
+        core::SourceLoc loc = current_.loc;
         Consume();
-        auto expr = ParseExpression();
+        if (IsSymbol(")")) {
+            Consume();
+            auto tup = std::make_shared<TupleExpression>();
+            tup->loc = loc;
+            tup->is_parenthesized = true;
+            return tup;
+        }
+        auto first = ParseExpression();
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+            auto comp = ParseComprehensionTail(first, false, false, true);
+            ExpectSymbol(")", "Expected ')' after generator expression");
+            return comp;
+        }
+        if (MatchSymbol(",")) {
+            auto tup = std::make_shared<TupleExpression>();
+            tup->loc = loc;
+            tup->is_parenthesized = true;
+            tup->elements.push_back(first);
+            while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
+                tup->elements.push_back(ParseExpression());
+                if (!MatchSymbol(","))
+                    break;
+            }
+            MatchSymbol(")");
+            return tup;
+        }
         MatchSymbol(")");
-        return expr;
+        return first;
+    }
+    if (IsSymbol("[")) {
+        auto list_loc = current_.loc;
+        Consume();
+        if (MatchSymbol("]")) {
+            auto lst = std::make_shared<ListExpression>();
+            lst->loc = list_loc;
+            return lst;
+        }
+        auto first = ParseExpression();
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+            auto comp = ParseComprehensionTail(first, false, false, false);
+            ExpectSymbol("]", "Expected ']' after list comprehension");
+            return comp;
+        }
+        auto lst = std::make_shared<ListExpression>();
+        lst->loc = list_loc;
+        lst->elements.push_back(first);
+        while (MatchSymbol(",")) {
+            if (IsSymbol("]"))
+                break;
+            lst->elements.push_back(ParseExpression());
+        }
+        ExpectSymbol("]", "Expected ']' to close list");
+        return lst;
+    }
+    if (IsSymbol("{")) {
+        auto brace_loc = current_.loc;
+        Consume();
+        if (MatchSymbol("}")) {
+            auto dict = std::make_shared<DictExpression>();
+            dict->loc = brace_loc;
+            return dict;
+        }
+        auto key = ParseExpression();
+        if (MatchSymbol(":")) {
+            auto dict = std::make_shared<DictExpression>();
+            dict->loc = brace_loc;
+            auto value = ParseExpression();
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+                auto comp = ParseComprehensionTail(key, true, false, false, value);
+                ExpectSymbol("}", "Expected '}' after dict comprehension");
+                return comp;
+            }
+            dict->items.push_back({key, value});
+            while (MatchSymbol(",")) {
+                if (IsSymbol("}"))
+                    break;
+                auto k = ParseExpression();
+                ExpectSymbol(":", "Expected ':' in dict literal");
+                auto v = ParseExpression();
+                dict->items.push_back({k, v});
+            }
+            ExpectSymbol("}", "Expected '}' to close dict");
+            return dict;
+        }
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+            auto comp = ParseComprehensionTail(key, false, true, false);
+            ExpectSymbol("}", "Expected '}' after set comprehension");
+            return comp;
+        }
+        auto set = std::make_shared<SetExpression>();
+        set->loc = brace_loc;
+        set->elements.push_back(key);
+        while (MatchSymbol(",")) {
+            if (IsSymbol("}"))
+                break;
+            set->elements.push_back(ParseExpression());
+        }
+        ExpectSymbol("}", "Expected '}' to close set literal");
+        return set;
     }
     diagnostics_.Report(current_.loc, "Expected expression");
     return nullptr;
 }
 
 std::shared_ptr<Expression> PythonParser::ParsePostfix() {
-    auto expr = ParsePrimary();
+    auto expr = ParseAtom();
     while (true) {
         if (IsSymbol("(")) {
             auto call = std::make_shared<CallExpression>();
             call->loc = expr ? expr->loc : current_.loc;
             call->callee = expr;
             Consume();
-            if (!IsSymbol(")")) {
-                call->args.push_back(ParseExpression());
-                while (MatchSymbol(",")) {
-                    call->args.push_back(ParseExpression());
-                }
-            }
-            MatchSymbol(")");
+            ParseCallArguments(*call);
             expr = call;
             continue;
         }
@@ -149,13 +255,7 @@ std::shared_ptr<Expression> PythonParser::ParsePostfix() {
             }
         }
         if (IsSymbol("[")) {
-            Consume();
-            auto idx = std::make_shared<IndexExpression>();
-            idx->object = expr;
-            idx->loc = current_.loc;
-            idx->index = ParseExpression();
-            MatchSymbol("]");
-            expr = idx;
+            expr = ParseSliceOrIndex(expr);
             continue;
         }
         break;
@@ -177,7 +277,30 @@ std::shared_ptr<Expression> PythonParser::ParsePower() {
     return expr;
 }
 
+std::shared_ptr<Expression> PythonParser::ParseYield() {
+    auto y = std::make_shared<YieldExpression>();
+    y->loc = current_.loc;
+    MatchKeyword("yield");
+    if (MatchKeyword("from")) {
+        y->is_from = true;
+        y->value = ParseExpression();
+        return y;
+    }
+    if (current_.kind != frontends::TokenKind::kNewline &&
+        current_.kind != frontends::TokenKind::kDedent && !IsSymbol(")")) {
+        y->value = ParseExpression();
+    }
+    return y;
+}
+
 std::shared_ptr<Expression> PythonParser::ParseUnary() {
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "await") {
+        auto aw = std::make_shared<AwaitExpression>();
+        aw->loc = current_.loc;
+        Consume();
+        aw->value = ParseUnary();
+        return aw;
+    }
     if (IsSymbol("+") || IsSymbol("-") || IsSymbol("~")) {
         auto unary = std::make_shared<UnaryExpression>();
         unary->op = current_.lexeme;
@@ -273,7 +396,148 @@ std::shared_ptr<Expression> PythonParser::ParseOr() {
     return expr;
 }
 
-std::shared_ptr<Expression> PythonParser::ParseExpression() { return ParseOr(); }
+std::vector<std::shared_ptr<Expression>> PythonParser::ParseExpressionList() {
+    std::vector<std::shared_ptr<Expression>> elems;
+    elems.push_back(ParseExpression());
+    while (MatchSymbol(",")) {
+        if (current_.kind == frontends::TokenKind::kNewline || IsSymbol(")") ||
+            IsSymbol("]") || IsSymbol("}")) {
+            break;
+        }
+        elems.push_back(ParseExpression());
+    }
+    return elems;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseComprehensionTail(std::shared_ptr<Expression> first,
+                                                                 bool is_dict, bool is_set,
+                                                                 bool is_generator,
+                                                                 std::shared_ptr<Expression> value) {
+    auto comp = std::make_shared<ComprehensionExpression>();
+    comp->loc = current_.loc;
+    comp->kind = is_dict ? ComprehensionExpression::Kind::kDict
+                         : (is_set ? ComprehensionExpression::Kind::kSet
+                                   : (is_generator ? ComprehensionExpression::Kind::kGenerator
+                                                   : ComprehensionExpression::Kind::kList));
+    if (is_dict) {
+        comp->key = first;
+        if (value) {
+            comp->elem = value;
+        } else {
+            ExpectSymbol(":", "Expected ':' after dict comprehension key");
+            comp->elem = ParseExpression();
+        }
+    } else {
+        comp->elem = first;
+    }
+    while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+        Consume();
+        Comprehension clause;
+        clause.target = ParseExpression();
+        if (!MatchKeyword("in")) {
+            diagnostics_.Report(current_.loc, "Expected 'in' in comprehension");
+        }
+        clause.iterable = ParseExpression();
+        while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "if") {
+            Consume();
+            clause.ifs.push_back(ParseExpression());
+        }
+        comp->clauses.push_back(std::move(clause));
+    }
+    return comp;
+}
+
+void PythonParser::ParseCallArguments(CallExpression &call) {
+    if (IsSymbol(")")) {
+        Consume();
+        return;
+    }
+    while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        CallArg arg;
+        if (IsSymbol("*")) {
+            arg.is_star = true;
+            Consume();
+            arg.value = ParseExpression();
+        } else if (IsSymbol("**")) {
+            arg.is_kwstar = true;
+            Consume();
+            arg.value = ParseExpression();
+        } else {
+            auto expr = ParseExpression();
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
+                arg.value = ParseComprehensionTail(expr, false, false, true);
+                ExpectSymbol(")", "Expected ')' after generator expression argument");
+                call.args.push_back(std::move(arg));
+                return;
+            }
+            if (IsSymbol("=") && std::dynamic_pointer_cast<Identifier>(expr)) {
+                arg.keyword = std::dynamic_pointer_cast<Identifier>(expr)->name;
+                Consume();
+                arg.value = ParseExpression();
+            } else {
+                arg.value = expr;
+            }
+        }
+        call.args.push_back(std::move(arg));
+        if (!MatchSymbol(","))
+            break;
+        if (IsSymbol(")"))
+            break;
+    }
+    MatchSymbol(")");
+}
+
+std::shared_ptr<Expression> PythonParser::ParseSliceOrIndex(std::shared_ptr<Expression> obj) {
+    core::SourceLoc loc = current_.loc;
+    Consume();
+    std::shared_ptr<Expression> start;
+    if (!IsSymbol(":") && !IsSymbol("]")) {
+        start = ParseExpression();
+    }
+
+    if (MatchSymbol(":")) {
+        std::shared_ptr<Expression> stop;
+        std::shared_ptr<Expression> step;
+        if (!IsSymbol("]")) {
+            stop = ParseExpression();
+        }
+        if (MatchSymbol(":")) {
+            if (!IsSymbol("]"))
+                step = ParseExpression();
+        }
+        ExpectSymbol("]", "Expected ']' after slice");
+        auto s = std::make_shared<SliceExpression>();
+        s->loc = loc;
+        s->start = start;
+        s->stop = stop;
+        s->step = step;
+        auto idx = std::make_shared<IndexExpression>();
+        idx->loc = loc;
+        idx->object = obj;
+        idx->index = s;
+        return idx;
+    }
+    ExpectSymbol("]", "Expected ']' after subscript");
+    auto idx = std::make_shared<IndexExpression>();
+    idx->loc = loc;
+    idx->object = obj;
+    idx->index = start;
+    return idx;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseNamedExpression() {
+    auto expr = ParseOr();
+    if (MatchSymbol(":=")) {
+        auto named = std::make_shared<NamedExpression>();
+        named->loc = expr ? expr->loc : current_.loc;
+        named->target = expr;
+        named->value = ParseNamedExpression();
+        return named;
+    }
+    return expr;
+}
+
+std::shared_ptr<Expression> PythonParser::ParseExpression() { return ParseNamedExpression(); }
 
 std::shared_ptr<Statement> PythonParser::ParseImport() {
     auto stmt = std::make_shared<ImportStatement>();
