@@ -4,8 +4,8 @@ project(PolyglotCompiler LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/dependencies")
-include(${CMAKE_CURRENT_SOURCE_DIR}/dependencies/Dependencies.cmake)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
+include(${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.cmake)
 
 add_library(polyglot_common
     common/src/core/type_system.cpp

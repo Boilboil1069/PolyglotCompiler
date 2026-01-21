@@ -7,8 +7,4 @@
 /cmake-build-*/
 /._DS_Store/
 ._*
-/dependencies/antlr/
-/dependencies/catch2/
-/dependencies/fmt/
-/dependencies/json/
-/dependencies/mimalloc/
+/dependencies/
