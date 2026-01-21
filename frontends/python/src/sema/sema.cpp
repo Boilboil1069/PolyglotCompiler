@@ -28,7 +28,8 @@ class Analyzer {
 
     void Run() {
         scope_states_.push_back({ScopeKind::kModule});
-        ctx_.Symbols().EnterScope("<module>", ScopeKind::kModule);
+        int sid = ctx_.Symbols().EnterScope("<module>", ScopeKind::kModule);
+        ctx_.Symbols().RegisterTypeScope("<module>", sid);
         for (const auto &stmt : module_.body) {
             AnalyzeStmt(stmt);
         }
@@ -40,6 +41,9 @@ class Analyzer {
     frontends::Diagnostics &Diags() { return ctx_.Diags(); }
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
+
+    // Simple module registry populated by imports in current module
+    std::unordered_map<std::string, std::unordered_map<std::string, Type>> module_exports_{};
 
     void DeclareSimple(const std::string &name, SymbolKind kind, const Type &type,
                        const core::SourceLoc &loc) {
@@ -157,10 +161,28 @@ class Analyzer {
             return;
         }
         if (auto imp = std::dynamic_pointer_cast<ImportStatement>(stmt)) {
-            for (auto &al : imp->names) {
-                std::string name = al.alias.empty() ? al.name : al.alias;
-                DeclareSimple(name, SymbolKind::kModule, Type{core::TypeKind::kModule, name},
-                              stmt->loc);
+            if (!imp->is_from) {
+                for (auto &al : imp->names) {
+                    std::string modname = al.name;
+                    std::string name = al.alias.empty() ? al.name : al.alias;
+                    DeclareSimple(name, SymbolKind::kModule, Type{core::TypeKind::kModule, modname},
+                                  stmt->loc);
+                    int sid = Syms().EnterScope(modname, ScopeKind::kModule);
+                    Syms().RegisterTypeScope(modname, sid);
+                    Syms().ExitScope();
+                    // we don't know actual exports; leave empty registry entry
+                    module_exports_.try_emplace(modname);
+                }
+            } else {
+                std::string modname = imp->module;
+                auto &exports = module_exports_[modname];
+                for (auto &al : imp->names) {
+                    std::string export_name = al.name;
+                    std::string bind_name = al.alias.empty() ? al.name : al.alias;
+                    Type t = Type::Any();
+                    exports[export_name] = t;
+                    DeclareSimple(bind_name, SymbolKind::kVariable, t, stmt->loc);
+                }
             }
             return;
         }
@@ -180,6 +202,9 @@ class Analyzer {
             params.push_back(Type::Any());
         }
         Type ret = fn.return_annotation ? AnalyzeExpr(fn.return_annotation) : Type::Any();
+        if (fn.is_async) {
+            ret = Types().Generic("coroutine", {ret}, "python");
+        }
         Symbol sym{fn.name, Types().FunctionType(fn.name, ret, params), fn.loc, SymbolKind::kFunction,
                    "python"};
         if (!Syms().Declare(sym)) {
@@ -222,7 +247,8 @@ class Analyzer {
 
     void AnalyzeClass(const ClassDef &cls) {
         scope_states_.push_back({ScopeKind::kClass});
-        Syms().EnterScope(cls.name, ScopeKind::kClass);
+        int sid = Syms().EnterScope(cls.name, ScopeKind::kClass);
+        Syms().RegisterTypeScope(cls.name, sid);
         for (const auto &stmt : cls.body) {
             AnalyzeStmt(stmt);
         }
@@ -299,6 +325,50 @@ class Analyzer {
             // crude numeric detection
             if (!lit->value.empty() && (isdigit(lit->value[0]) || lit->value[0] == '-')) {
                 return Type::Float();
+            }
+            return Type::Any();
+        }
+        if (auto await = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
+            auto awaited = AnalyzeExpr(await->value);
+            // If coroutine<Ret>, yield Ret
+            if (awaited.kind == core::TypeKind::kGenericInstance && awaited.name == "coroutine" && !awaited.type_args.empty()) {
+                return awaited.type_args.front();
+            }
+            return awaited;
+        }
+        if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(expr)) {
+            auto obj_t = AnalyzeExpr(attr->object);
+            if (!obj_t.name.empty()) {
+                // Builtin container protocols
+                if (auto bt = ResolveBuiltinMember(obj_t, attr->attribute); bt.kind != core::TypeKind::kInvalid) {
+                    return bt;
+                }
+                if (auto member = Syms().LookupMember(obj_t.name, attr->attribute)) {
+                    return member->symbol->type;
+                }
+                // module export lookup
+                auto it = module_exports_.find(obj_t.name);
+                if (it != module_exports_.end()) {
+                    auto found = it->second.find(attr->attribute);
+                    if (found != it->second.end()) return found->second;
+                    Diags().Report(attr->loc, "Unknown module attribute: " + attr->attribute);
+                    return Type::Any();
+                }
+            }
+            Diags().Report(attr->loc, "Unknown attribute: " + attr->attribute);
+            return Type::Any();
+        }
+        if (auto idx = std::dynamic_pointer_cast<IndexExpression>(expr)) {
+            auto obj_t = AnalyzeExpr(idx->object);
+            AnalyzeExpr(idx->index);
+            if (obj_t.kind == core::TypeKind::kGenericInstance && obj_t.name == "list" && !obj_t.type_args.empty()) {
+                return obj_t.type_args.front();
+            }
+            if (obj_t.kind == core::TypeKind::kGenericInstance && obj_t.name == "dict" && obj_t.type_args.size() >= 2) {
+                return obj_t.type_args[1];
+            }
+            if (obj_t.kind == core::TypeKind::kTuple && !obj_t.type_args.empty()) {
+                return obj_t.type_args.front();
             }
             return Type::Any();
         }
@@ -396,6 +466,30 @@ class Analyzer {
         }
         // Default fallback
         return Type::Any();
+    }
+
+    Type ResolveBuiltinMember(const Type &obj_t, const std::string &attr) {
+        // Very small protocol surface to ground attribute/type resolution.
+        if (obj_t.name == "list" && obj_t.kind == core::TypeKind::kGenericInstance) {
+            if (attr == "append") return Types().FunctionType("append", Type::Void(), {obj_t.type_args.empty() ? Type::Any() : obj_t.type_args[0]});
+            if (attr == "pop") return Types().FunctionType("pop", obj_t.type_args.empty() ? Type::Any() : obj_t.type_args[0], {});
+            if (attr == "__len__") return Type::Int();
+        }
+        if (obj_t.name == "dict" && obj_t.kind == core::TypeKind::kGenericInstance) {
+            Type k = obj_t.type_args.size() > 0 ? obj_t.type_args[0] : Type::Any();
+            Type v = obj_t.type_args.size() > 1 ? obj_t.type_args[1] : Type::Any();
+            if (attr == "get") return Types().FunctionType("get", v, {k});
+            if (attr == "keys" || attr == "values") return Types().Generic("list", {attr == "keys" ? k : v}, "python");
+            if (attr == "__len__") return Type::Int();
+        }
+        if (obj_t.name == "set" && obj_t.kind == core::TypeKind::kGenericInstance) {
+            if (attr == "add") return Types().FunctionType("add", Type::Void(), {obj_t.type_args.empty() ? Type::Any() : obj_t.type_args[0]});
+            if (attr == "__len__") return Type::Int();
+        }
+        if (obj_t.kind == core::TypeKind::kTuple) {
+            if (attr == "__len__") return Type::Int();
+        }
+        return Type::Invalid();
     }
 
     void EnterBlockScope(ScopeKind kind) {

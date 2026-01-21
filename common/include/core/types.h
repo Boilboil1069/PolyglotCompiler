@@ -18,6 +18,7 @@ enum class TypeKind {
   kString,
   kPointer,
   kFunction,
+  kReference,
   kClass,
   kModule,
   kAny,
@@ -36,6 +37,9 @@ struct Type {
   std::vector<Type> type_args;  // for generics/tuples/compound
   std::string lifetime;         // for borrow tracking (Rust-style)
 
+  bool is_const{false};
+  bool is_volatile{false};
+  bool is_rvalue_ref{false};
   static Type Invalid() { return Type{TypeKind::kInvalid, "<invalid>"}; }
   static Type Void() { return Type{TypeKind::kVoid, "void"}; }
   static Type Bool() { return Type{TypeKind::kBool, "bool"}; }
@@ -101,7 +105,25 @@ class TypeSystem {
   TypeSystem() = default;
 
   Type PointerTo(Type element) const {
-    return Type{TypeKind::kPointer, element.name + "*"};
+    Type t{TypeKind::kPointer, element.name + "*"};
+    t.type_args.push_back(std::move(element));
+    return t;
+  }
+  Type PointerToWithCV(Type element, bool is_const, bool is_volatile) const {
+    Type t{TypeKind::kPointer, (is_const ? "const " : "") + element.name + "*"};
+    t.type_args.push_back(std::move(element));
+    t.is_const = is_const;
+    t.is_volatile = is_volatile;
+    return t;
+  }
+
+  Type ReferenceTo(Type element, bool is_rvalue, bool is_const = false, bool is_volatile = false) const {
+    Type t{TypeKind::kReference, element.name + (is_rvalue ? "&&" : "&")};
+    t.type_args.push_back(std::move(element));
+    t.is_const = is_const;
+    t.is_volatile = is_volatile;
+    t.is_rvalue_ref = is_rvalue;
+    return t;
   }
 
   Type FunctionType(const std::string &name, Type return_type = Type::Any(),
@@ -140,6 +162,24 @@ class TypeSystem {
     return UserType(name, lang, TypeKind::kClass);
   }
 
+  // Coarse implicit conversion: numeric widening, add-const, pointer to void*, reference bindings.
+  bool CanImplicitlyConvert(const Type &from, const Type &to) const {
+    if (IsCompatible(from, to)) return true;
+    // numeric widening (int -> float)
+    if (from.IsNumeric() && to.kind == TypeKind::kFloat) return true;
+    // add const qualifier
+    if (from.kind == to.kind && from.name == to.name && !from.is_const && to.is_const) return true;
+    // pointer to const pointer of same pointee
+    if (from.kind == TypeKind::kPointer && to.kind == TypeKind::kPointer && !from.type_args.empty() && !to.type_args.empty()) {
+      if (IsCompatible(from.type_args[0], to.type_args[0]) && !from.is_const && to.is_const) return true;
+      if (to.type_args[0].kind == TypeKind::kVoid) return true;  // T* -> void*
+    }
+    // reference binding to const reference
+    if (from.kind == TypeKind::kReference && to.kind == TypeKind::kReference) {
+      if (IsCompatible(from.type_args[0], to.type_args[0]) && !from.is_const && to.is_const) return true;
+    }
+    return false;
+  }
   // Basic compatibility: allow Any, exact match, or both numeric.
   bool IsCompatible(const Type &lhs, const Type &rhs) const {
     if (lhs.kind == TypeKind::kAny || rhs.kind == TypeKind::kAny)
@@ -297,7 +337,8 @@ class TypeUnifier {
 
 inline bool Type::operator==(const Type &other) const {
   return kind == other.kind && name == other.name && language == other.language &&
-         type_args == other.type_args && lifetime == other.lifetime;
+         type_args == other.type_args && lifetime == other.lifetime && is_const == other.is_const &&
+         is_volatile == other.is_volatile && is_rvalue_ref == other.is_rvalue_ref;
 }
 
 }  // namespace polyglot::core

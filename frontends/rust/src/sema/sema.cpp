@@ -24,15 +24,26 @@ class Analyzer {
     void Run() {
         scope_stack_.push_back({ScopeKind::kModule});
         Syms().EnterScope("<rust-module>", ScopeKind::kModule);
+                borrow_stack_.push_back({});
         for (auto &item : module_.items) AnalyzeItem(item);
         Syms().ExitScope();
         scope_stack_.pop_back();
+                borrow_stack_.pop_back();
     }
 
   private:
     frontends::Diagnostics &Diags() { return ctx_.Diags(); }
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
+
+        struct BorrowInfo {
+                int imm{0};
+                int mut{0};
+        };
+
+        std::vector<std::unordered_map<std::string, BorrowInfo>> borrow_stack_{};
+        std::unordered_map<std::string, std::unordered_map<std::string, Type>> trait_methods_{};
+        std::unordered_map<std::string, std::vector<std::string>> impl_traits_{};
 
     Type MapType(const std::shared_ptr<TypeNode> &node) {
         if (!node) return Type::Any();
@@ -99,7 +110,8 @@ class Analyzer {
             Symbol sym{st->name, t, st->loc, SymbolKind::kTypeName, "rust"};
             Syms().Declare(sym);
             scope_stack_.push_back({ScopeKind::kClass});
-            Syms().EnterScope(st->name, ScopeKind::kClass);
+            int sid = Syms().EnterScope(st->name, ScopeKind::kClass);
+            Syms().RegisterTypeScope(st->name, sid);
             for (auto &f : st->fields) {
                 Symbol fs{f.name, MapType(f.type), st->loc, SymbolKind::kField, "rust"};
                 Syms().Declare(fs);
@@ -118,6 +130,20 @@ class Analyzer {
             }
             return;
         }
+        if (auto impl = std::dynamic_pointer_cast<ImplItem>(item)) {
+            Type target = MapType(impl->target_type);
+            scope_stack_.push_back({ScopeKind::kClass});
+            int sid = Syms().EnterScope(MapTypeName(target), ScopeKind::kClass);
+            Syms().RegisterTypeScope(MapTypeName(target), sid);
+            if (impl->trait_type) {
+                std::string trait_name = MapTypeName(MapType(impl->trait_type));
+                impl_traits_[MapTypeName(target)].push_back(trait_name);
+            }
+            for (auto &m : impl->items) AnalyzeItem(m);
+            Syms().ExitScope();
+            scope_stack_.pop_back();
+            return;
+        }
         if (auto alias = std::dynamic_pointer_cast<TypeAliasItem>(item)) {
             Symbol ts{alias->name, MapType(alias->alias), alias->loc, SymbolKind::kTypeName, "rust"};
             Syms().Declare(ts);
@@ -126,14 +152,27 @@ class Analyzer {
         if (auto rmod = std::dynamic_pointer_cast<ModItem>(item)) {
             scope_stack_.push_back({ScopeKind::kModule});
             Syms().EnterScope(rmod->name, ScopeKind::kModule);
+            borrow_stack_.push_back({});
             for (auto &m : rmod->items) AnalyzeItem(m);
             Syms().ExitScope();
             scope_stack_.pop_back();
+            borrow_stack_.pop_back();
             return;
         }
         if (auto ruse = std::dynamic_pointer_cast<UseDeclaration>(item)) {
             Symbol us{ruse->path, Type::Module(ruse->path, "rust"), ruse->loc, SymbolKind::kModule, "rust"};
             Syms().Declare(us);
+            return;
+        }
+        if (auto trait = std::dynamic_pointer_cast<TraitItem>(item)) {
+            for (auto &m : trait->items) {
+                if (auto fn = std::dynamic_pointer_cast<FunctionItem>(m)) {
+                    std::vector<Type> params;
+                    for (auto &p : fn->params) params.push_back(MapType(p.type));
+                    Type ret = MapType(fn->return_type);
+                    trait_methods_[trait->name][fn->name] = Types().FunctionType(fn->name, ret, params);
+                }
+            }
             return;
         }
         if (auto cn = std::dynamic_pointer_cast<ConstItem>(item)) {
@@ -165,10 +204,13 @@ class Analyzer {
         scope_stack_.push_back({ScopeKind::kFunction});
         Syms().EnterScope(fn.name, ScopeKind::kFunction);
         current_return_type_ = MapType(fn.return_type);
+        saw_return_ = false;
+        borrow_stack_.push_back({});
 
         for (auto &p : fn.params) {
             Symbol param{p.name, MapType(p.type), fn.loc, SymbolKind::kParameter, "rust"};
             Syms().Declare(param);
+            borrow_stack_.back()[p.name] = {};
         }
         if (fn.has_body) {
             for (auto &stmt : fn.body) AnalyzeStmt(stmt);
@@ -178,8 +220,12 @@ class Analyzer {
         if (current_return_type_.kind == core::TypeKind::kPointer && current_return_type_.lifetime.empty()) {
             Diags().Report(fn.loc, "Return reference without lifetime (placeholder borrow check)");
         }
+        if (!saw_return_ && current_return_type_.kind != core::TypeKind::kVoid && current_return_type_.kind != core::TypeKind::kAny) {
+            Diags().Report(fn.loc, "Function may exit without returning required value");
+        }
         Syms().ExitScope();
         scope_stack_.pop_back();
+        borrow_stack_.pop_back();
     }
 
     void AnalyzeStmt(const std::shared_ptr<Statement> &stmt) {
@@ -202,6 +248,7 @@ class Analyzer {
             if (!Types().IsCompatible(value, current_return_type_)) {
                 Diags().Report(ret->loc, "Return type mismatch");
             }
+            saw_return_ = true;
             return;
         }
         if (auto br = std::dynamic_pointer_cast<BreakStatement>(stmt)) {
@@ -214,16 +261,20 @@ class Analyzer {
         }
         if (auto loop = std::dynamic_pointer_cast<LoopStatement>(stmt)) {
             EnterScope(ScopeKind::kBlock);
+            borrow_stack_.push_back({});
             for (auto &s : loop->body) AnalyzeStmt(s);
             ExitScope();
+            borrow_stack_.pop_back();
             return;
         }
         if (auto fr = std::dynamic_pointer_cast<ForStatement>(stmt)) {
             EnterScope(ScopeKind::kBlock);
+            borrow_stack_.push_back({});
             DeclarePattern(fr->pattern, Type::Any(), fr->loc);
             AnalyzeExpr(fr->iterable);
             for (auto &s : fr->body) AnalyzeStmt(s);
             ExitScope();
+            borrow_stack_.pop_back();
             return;
         }
         if (auto ife = std::dynamic_pointer_cast<IfExpression>(stmt)) {
@@ -250,14 +301,19 @@ class Analyzer {
                 AnalyzeExpr(arm->body);
                 ExitScope();
             }
+            if (!IsExhaustive(mt)) {
+                Diags().Report(mt->loc, "Non-exhaustive match");
+            }
             return;
         }
     }
 
     void AnalyzeBlock(const std::vector<std::shared_ptr<Statement>> &stmts) {
         EnterScope(ScopeKind::kBlock);
+        borrow_stack_.push_back({});
         for (auto &s : stmts) AnalyzeStmt(s);
         ExitScope();
+        borrow_stack_.pop_back();
     }
 
     void DeclarePattern(const std::shared_ptr<Pattern> &pat, const Type &type,
@@ -266,11 +322,13 @@ class Analyzer {
         if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(pat)) {
             Symbol sym{id->name, type, loc, SymbolKind::kVariable, "rust"};
             Syms().Declare(sym);
+            if (!borrow_stack_.empty()) borrow_stack_.back()[id->name] = {};
             return;
         }
         if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pat)) {
             Symbol sym{bind->name, type, loc, SymbolKind::kVariable, "rust"};
             Syms().Declare(sym);
+            if (!borrow_stack_.empty()) borrow_stack_.back()[bind->name] = {};
             if (bind->pattern) DeclarePattern(bind->pattern, type, loc);
             return;
         }
@@ -355,10 +413,47 @@ class Analyzer {
             return lhs.IsNumeric() ? lhs : rhs;
         }
         if (auto un = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
+            if (un->op == "&" || un->op == "&mut") {
+                auto inner = AnalyzeExpr(un->operand);
+                std::string name;
+                if (auto id = std::dynamic_pointer_cast<Identifier>(un->operand)) name = id->name;
+                if (!name.empty()) {
+                    auto &state = EnsureBorrowState(name);
+                    if (un->op == "&mut") {
+                        if (state.imm > 0 || state.mut > 0) {
+                            Diags().Report(un->loc, "cannot take mutable borrow while borrowed");
+                        } else {
+                            state.mut += 1;
+                        }
+                        inner = Types().ReferenceTo(inner, false, false, false);
+                    } else {
+                        if (state.mut > 0) {
+                            Diags().Report(un->loc, "cannot take shared borrow while mutable borrow active");
+                        }
+                        state.imm += 1;
+                        inner = Types().ReferenceTo(inner, false, true, false);
+                    }
+                }
+                return inner;
+            }
             return AnalyzeExpr(un->operand);
         }
         if (auto mem = std::dynamic_pointer_cast<MemberExpression>(expr)) {
-            AnalyzeExpr(mem->object);
+            auto obj_t = AnalyzeExpr(mem->object);
+            if (auto member_res = Syms().LookupMember(obj_t.name, mem->member)) {
+                return member_res->symbol->type;
+            }
+            auto impl_it = impl_traits_.find(obj_t.name);
+            if (impl_it != impl_traits_.end()) {
+                for (auto &tr : impl_it->second) {
+                    auto tm = trait_methods_.find(tr);
+                    if (tm != trait_methods_.end()) {
+                        auto mf = tm->second.find(mem->member);
+                        if (mf != tm->second.end()) return mf->second;
+                    }
+                }
+            }
+            Diags().Report(mem->loc, "Unknown member: " + mem->member);
             return Type::Any();
         }
         if (auto idx = std::dynamic_pointer_cast<IndexExpression>(expr)) {
@@ -391,6 +486,9 @@ class Analyzer {
                 AnalyzeExpr(arm->body);
                 ExitScope();
             }
+            if (!IsExhaustive(mt)) {
+                Diags().Report(mt->loc, "Non-exhaustive match");
+            }
             return Type::Any();
         }
         return Type::Any();
@@ -413,10 +511,37 @@ class Analyzer {
         return false;
     }
 
+    BorrowInfo &EnsureBorrowState(const std::string &name) {
+        if (borrow_stack_.empty()) {
+            static BorrowInfo dummy;
+            return dummy;
+        }
+        return borrow_stack_.back()[name];
+    }
+
+    bool IsWildcardPattern(const std::shared_ptr<Pattern> &pat) const {
+        if (!pat) return false;
+        if (std::dynamic_pointer_cast<WildcardPattern>(pat)) return true;
+        if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(pat)) return id->name == "_";
+        if (auto orp = std::dynamic_pointer_cast<OrPattern>(pat)) {
+            for (auto &p : orp->patterns) if (IsWildcardPattern(p)) return true;
+        }
+        return false;
+    }
+
+    bool IsExhaustive(const std::shared_ptr<MatchExpression> &mt) const {
+        if (!mt) return true;
+        for (auto &arm : mt->arms) {
+            if (IsWildcardPattern(arm->pattern)) return true;
+        }
+        return false;
+    }
+
     const Module &module_;
     frontends::SemaContext &ctx_;
     std::vector<ScopeState> scope_stack_{};
     Type current_return_type_{Type::Any()};
+    bool saw_return_{false};
 };
 
 }  // namespace

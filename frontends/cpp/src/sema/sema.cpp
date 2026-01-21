@@ -45,10 +45,10 @@ class Analyzer {
             return Types().MapFromLanguage("cpp", simple->name);
         }
         if (auto ptr = std::dynamic_pointer_cast<PointerType>(node)) {
-            return Types().PointerTo(MapType(ptr->pointee));
+            return Types().PointerToWithCV(MapType(ptr->pointee), ptr->is_const, ptr->is_volatile);
         }
         if (auto ref = std::dynamic_pointer_cast<ReferenceType>(node)) {
-            return Types().PointerTo(MapType(ref->referent));
+            return Types().ReferenceTo(MapType(ref->referent), ref->is_rvalue);
         }
         if (auto arr = std::dynamic_pointer_cast<ArrayType>(node)) {
             return Types().PointerTo(MapType(arr->element_type));
@@ -58,6 +58,12 @@ class Analyzer {
             for (auto &p : fn->params) params.push_back(MapType(p));
             auto ret = MapType(fn->return_type);
             return Types().FunctionType("fn", ret, params);
+        }
+        if (auto qual = std::dynamic_pointer_cast<QualifiedType>(node)) {
+            Type inner = MapType(qual->inner);
+            inner.is_const = qual->is_const || inner.is_const;
+            inner.is_volatile = qual->is_volatile || inner.is_volatile;
+            return inner;
         }
         return Type::Any();
     }
@@ -85,6 +91,7 @@ class Analyzer {
             auto t = MapType(var->type);
             if (t.kind == core::TypeKind::kAny && var->init) t = AnalyzeExpr(var->init);
             Symbol sym{var->name, t, var->loc, SymbolKind::kVariable, "cpp"};
+            sym.access = var->access;
             if (!Syms().Declare(sym)) {
                 Diags().Report(var->loc, "Duplicate variable: " + var->name);
             }
@@ -95,12 +102,21 @@ class Analyzer {
             Symbol sym{rec->name, t, rec->loc, SymbolKind::kTypeName, "cpp"};
             Syms().Declare(sym);
             scope_stack_.push_back({ScopeKind::kClass});
-            Syms().EnterScope(rec->name, ScopeKind::kClass);
+            int sid = Syms().EnterScope(rec->name, ScopeKind::kClass);
+            Syms().RegisterTypeScope(rec->name, sid);
+            std::vector<std::string> bases;
+            for (auto &b : rec->bases) bases.push_back(b.name);
+            Syms().RegisterTypeBases(rec->name, bases);
+            std::string default_access = (rec->kind == "class") ? "private" : "public";
             for (auto &field : rec->fields) {
                 Symbol fsym{field.name, MapType(field.type), rec->loc, SymbolKind::kField, "cpp"};
+                fsym.access = field.access.empty() ? default_access : field.access;
                 Syms().Declare(fsym);
             }
             for (auto &m : rec->methods) {
+                if (auto fd = std::dynamic_pointer_cast<FunctionDecl>(m)) {
+                    if (fd->access.empty()) fd->access = default_access;
+                }
                 AnalyzeDecl(m);
             }
             Syms().ExitScope();
@@ -119,7 +135,8 @@ class Analyzer {
         }
         if (auto ns = std::dynamic_pointer_cast<NamespaceDecl>(decl)) {
             scope_stack_.push_back({ScopeKind::kModule});
-            Syms().EnterScope(ns->name, ScopeKind::kModule);
+            int sid = Syms().EnterScope(ns->name, ScopeKind::kModule);
+            Syms().RegisterTypeScope(ns->name, sid);
             for (auto &m : ns->members) AnalyzeDecl(m);
             Syms().ExitScope();
             scope_stack_.pop_back();
@@ -189,6 +206,7 @@ class Analyzer {
         Type fnt = Types().FunctionType(fn.name, ret, params);
         fnt.language = "cpp";
         Symbol sym{fn.name, fnt, fn.loc, SymbolKind::kFunction, "cpp"};
+        sym.access = fn.access;
         if (!Syms().Declare(sym)) {
             Diags().Report(fn.loc, "Duplicate function: " + fn.name);
         }
@@ -299,6 +317,12 @@ class Analyzer {
             auto callee_t = AnalyzeExpr(call->callee);
             std::vector<Type> arg_types;
             for (auto &a : call->args) arg_types.push_back(AnalyzeExpr(a));
+            // If callee is identifier, attempt overload resolution.
+            if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
+                if (auto resolved = Syms().ResolveFunction(id->name, arg_types, Types())) {
+                    callee_t = resolved->symbol->type;
+                }
+            }
             if (callee_t.kind == core::TypeKind::kFunction && callee_t.type_args.size() >= 1) {
                 TypeUnifier uf;
                 size_t param_count = callee_t.type_args.size() - 1;
@@ -335,11 +359,20 @@ class Analyzer {
         }
         if (auto mem = std::dynamic_pointer_cast<MemberExpression>(expr)) {
             AnalyzeExpr(mem->object);
+            auto obj_t = AnalyzeExpr(mem->object);
+            if (auto member_res = Syms().LookupMember(obj_t.name, mem->member)) {
+                return member_res->symbol->type;
+            }
+            Diags().Report(mem->loc, "Unknown member: " + mem->member);
             return Type::Any();
         }
         if (auto idx = std::dynamic_pointer_cast<IndexExpression>(expr)) {
-            AnalyzeExpr(idx->object);
+            auto obj_t = AnalyzeExpr(idx->object);
             AnalyzeExpr(idx->index);
+            if (!obj_t.type_args.empty() &&
+                (obj_t.kind == core::TypeKind::kPointer || obj_t.kind == core::TypeKind::kReference)) {
+                return obj_t.type_args.front();
+            }
             return Type::Any();
         }
         if (auto cond = std::dynamic_pointer_cast<ConditionalExpression>(expr)) {

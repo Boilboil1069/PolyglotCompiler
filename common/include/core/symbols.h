@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -22,6 +23,7 @@ struct Symbol {
   std::string language;
   int scope_id{-1};
   bool captured{false};
+  std::string access;  // "public"/"protected"/"private" (empty = default)
 };
 
 struct ScopeInfo {
@@ -54,14 +56,20 @@ class SymbolTable {
     if (scope_stack_.empty()) return nullptr;
     int current = scope_stack_.back();
     auto &slot = symbols_by_scope_[current];
-    if (slot.count(symbol.name) > 0) {
-      return nullptr;
+    // Functions may be overloaded; keep a vector but also preserve first-declared for simple lookup.
+    if (symbol.kind != SymbolKind::kFunction) {
+      if (slot.count(symbol.name) > 0) {
+        return nullptr;
+      }
     }
     Symbol stored = symbol;
     stored.scope_id = current;
     symbols_.push_back(std::move(stored));
     const Symbol *ptr = &symbols_.back();
     slot[symbol.name] = ptr;
+    if (symbol.kind == SymbolKind::kFunction) {
+      functions_by_scope_[current][symbol.name].push_back(ptr);
+    }
     return ptr;
   }
 
@@ -69,12 +77,17 @@ class SymbolTable {
   const Symbol *DeclareInScope(int scope_id, const Symbol &symbol) {
     if (scope_id < 0 || scope_id >= static_cast<int>(scopes_.size())) return nullptr;
     auto &slot = symbols_by_scope_[scope_id];
-    if (slot.count(symbol.name) > 0) return nullptr;
+    if (symbol.kind != SymbolKind::kFunction) {
+      if (slot.count(symbol.name) > 0) return nullptr;
+    }
     Symbol stored = symbol;
     stored.scope_id = scope_id;
     symbols_.push_back(std::move(stored));
     const Symbol *ptr = &symbols_.back();
     slot[symbol.name] = ptr;
+    if (symbol.kind == SymbolKind::kFunction) {
+      functions_by_scope_[scope_id][symbol.name].push_back(ptr);
+    }
     return ptr;
   }
 
@@ -92,6 +105,75 @@ class SymbolTable {
       auto found_symbol = found_scope->second.find(name);
       if (found_symbol != found_scope->second.end()) {
         return ResolveResult{found_symbol->second, distance};
+      }
+    }
+    return std::nullopt;
+  }
+
+  // Resolve an overloaded function by argument types using a basic compatibility score.
+  std::optional<ResolveResult> ResolveFunction(const std::string &name,
+                                               const std::vector<Type> &arg_types,
+                                               const TypeSystem &types) const {
+    int distance = 0;
+    for (auto it = scope_stack_.rbegin(); it != scope_stack_.rend(); ++it, ++distance) {
+      int scope_id = *it;
+      auto scope_it = functions_by_scope_.find(scope_id);
+      if (scope_it == functions_by_scope_.end()) continue;
+      auto fn_it = scope_it->second.find(name);
+      if (fn_it == scope_it->second.end()) continue;
+      const Symbol *best = nullptr;
+      int best_score = std::numeric_limits<int>::max();
+      for (const Symbol *cand : fn_it->second) {
+        if (!cand || cand->type.type_args.size() < 1) continue;
+        size_t param_count = cand->type.type_args.size() - 1;
+        if (param_count != arg_types.size()) continue;
+        int score = 0;
+        bool compatible = true;
+        for (size_t i = 0; i < arg_types.size(); ++i) {
+          const auto &expected = cand->type.type_args[i + 1];
+          if (types.IsCompatible(arg_types[i], expected)) continue;
+          if (types.CanImplicitlyConvert(arg_types[i], expected)) {
+            score += 1;
+            continue;
+          }
+          compatible = false;
+          break;
+        }
+        if (!compatible) continue;
+        if (score < best_score) {
+          best_score = score;
+          best = cand;
+        }
+      }
+      if (best) return ResolveResult{best, distance};
+    }
+    return std::nullopt;
+  }
+
+  void RegisterTypeScope(const std::string &name, int scope_id) {
+    if (scope_id >= 0) {
+      type_scopes_[name] = scope_id;
+      scope_to_type_[scope_id] = name;
+    }
+  }
+
+  void RegisterTypeBases(const std::string &name, std::vector<std::string> bases) {
+    type_bases_[name] = std::move(bases);
+  }
+
+  std::optional<ResolveResult> LookupMember(const std::string &type_name,
+                                            const std::string &member) const {
+    auto it = type_scopes_.find(type_name);
+    if (it == type_scopes_.end()) return std::nullopt;
+    int scope_id = it->second;
+    auto res = LookupMemberInScope(scope_id, member);
+    if (res) return res;
+    // search bases recursively
+    auto b = type_bases_.find(type_name);
+    if (b != type_bases_.end()) {
+      for (const auto &base : b->second) {
+        auto base_res = LookupMember(base, member);
+        if (base_res) return base_res;
       }
     }
     return std::nullopt;
@@ -128,9 +210,61 @@ class SymbolTable {
   }
 
  private:
+  std::optional<ResolveResult> LookupMemberInScope(int scope_id, const std::string &member) const {
+    auto scope_symbols = symbols_by_scope_.find(scope_id);
+    if (scope_symbols == symbols_by_scope_.end()) return std::nullopt;
+    auto found = scope_symbols->second.find(member);
+    if (found == scope_symbols->second.end()) return std::nullopt;
+    // access control: allow if current scope is same type or member is not private
+    const Symbol *sym = found->second;
+    if (!IsAccessible(sym, scope_id)) return std::nullopt;
+    return ResolveResult{sym, 0};
+  }
+
+  bool IsAccessible(const Symbol *sym, int declaring_scope) const {
+    if (!sym) return false;
+    if (sym->access.empty() || sym->access == "public") return true;
+    // Get current type name if inside a type scope
+    std::string current_type;
+    for (auto it = scope_stack_.rbegin(); it != scope_stack_.rend(); ++it) {
+      auto s = *it;
+      auto t = scope_to_type_.find(s);
+      if (t != scope_to_type_.end()) { current_type = t->second; break; }
+    }
+    std::string declaring_type;
+    auto itype = scope_to_type_.find(declaring_scope);
+    if (itype != scope_to_type_.end()) declaring_type = itype->second;
+
+    if (sym->access == "private") {
+      return !current_type.empty() && current_type == declaring_type;
+    }
+    if (sym->access == "protected") {
+      if (!current_type.empty() && current_type == declaring_type) return true;
+      if (!current_type.empty() && !declaring_type.empty()) {
+        return IsDerivedFrom(current_type, declaring_type);
+      }
+    }
+    return false;
+  }
+
+  bool IsDerivedFrom(const std::string &type, const std::string &base) const {
+    if (type == base) return true;
+    auto it = type_bases_.find(type);
+    if (it == type_bases_.end()) return false;
+    for (const auto &b : it->second) {
+      if (b == base) return true;
+      if (IsDerivedFrom(b, base)) return true;
+    }
+    return false;
+  }
+
   std::vector<ScopeInfo> scopes_{};
   std::vector<int> scope_stack_{};
   std::unordered_map<int, std::unordered_map<std::string, const Symbol *>> symbols_by_scope_{};
+  std::unordered_map<int, std::unordered_map<std::string, std::vector<const Symbol *>>> functions_by_scope_{};
+  std::unordered_map<std::string, int> type_scopes_{};
+  std::unordered_map<std::string, std::vector<std::string>> type_bases_{};
+  std::unordered_map<int, std::string> scope_to_type_{};
   std::vector<Symbol> symbols_{};  // owns storage
 };
 
