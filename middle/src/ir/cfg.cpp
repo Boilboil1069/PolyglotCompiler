@@ -58,6 +58,17 @@ ControlFlowGraph BuildCFG(Function &func) {
         bb->successors.push_back(cbr->false_target);
         cbr->false_target->predecessors.push_back(bb);
       }
+    } else if (auto *sw = dynamic_cast<SwitchStatement *>(bb->terminator.get())) {
+      for (auto &c : sw->cases) {
+        if (c.target) {
+          bb->successors.push_back(c.target);
+          c.target->predecessors.push_back(bb);
+        }
+      }
+      if (sw->default_target) {
+        bb->successors.push_back(sw->default_target);
+        sw->default_target->predecessors.push_back(bb);
+      }
     }
   }
   return cfg;

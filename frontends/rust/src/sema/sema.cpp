@@ -1,5 +1,6 @@
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "frontends/rust/include/rust_sema.h"
@@ -36,12 +37,12 @@ class Analyzer {
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
 
-        struct BorrowInfo {
-                int imm{0};
-                int mut{0};
-        };
+    struct BorrowInfo {
+        int imm{0};
+        int mut{0};
+    };
 
-        std::vector<std::unordered_map<std::string, BorrowInfo>> borrow_stack_{};
+    std::vector<std::unordered_map<std::string, BorrowInfo>> borrow_stack_{};
         std::unordered_map<std::string, std::unordered_map<std::string, Type>> trait_methods_{};
         std::unordered_map<std::string, std::vector<std::string>> impl_traits_{};
 
@@ -358,6 +359,10 @@ class Analyzer {
             auto resolved = Syms().Lookup(id->name);
             if (resolved.has_value()) {
                 if (resolved->scope_distance > 0 && InFunction()) Syms().MarkCaptured(resolved->symbol);
+                auto active = AggregateBorrow(id->name);
+                if (active.mut > 0) {
+                    Diags().Report(id->loc, "cannot immutably use `" + id->name + "` while mutably borrowed");
+                }
                 return resolved->symbol->type;
             }
             Diags().Report(id->loc, "Undefined identifier: " + id->name);
@@ -404,6 +409,18 @@ class Analyzer {
             }
             return Type::Any();
         }
+        if (auto assign = std::dynamic_pointer_cast<AssignmentExpression>(expr)) {
+            // check conflicts before assignment
+            if (auto lhs_id = std::dynamic_pointer_cast<Identifier>(assign->left)) {
+                auto active = AggregateBorrow(lhs_id->name);
+                if (active.mut > 0 || active.imm > 0) {
+                    Diags().Report(assign->loc, "cannot assign to `" + lhs_id->name + "` while it is borrowed");
+                }
+            }
+            auto lhs_t = AnalyzeExpr(assign->left);
+            auto rhs_t = AnalyzeExpr(assign->right);
+            return lhs_t.kind != core::TypeKind::kInvalid ? lhs_t : rhs_t;
+        }
         if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
             auto lhs = AnalyzeExpr(bin->left);
             auto rhs = AnalyzeExpr(bin->right);
@@ -418,19 +435,20 @@ class Analyzer {
                 std::string name;
                 if (auto id = std::dynamic_pointer_cast<Identifier>(un->operand)) name = id->name;
                 if (!name.empty()) {
-                    auto &state = EnsureBorrowState(name);
+                    auto active = AggregateBorrow(name);
+                    auto &local = EnsureLocalBorrow(name);
                     if (un->op == "&mut") {
-                        if (state.imm > 0 || state.mut > 0) {
+                        if (active.imm > 0 || active.mut > 0) {
                             Diags().Report(un->loc, "cannot take mutable borrow while borrowed");
                         } else {
-                            state.mut += 1;
+                            local.mut += 1;
                         }
                         inner = Types().ReferenceTo(inner, false, false, false);
                     } else {
-                        if (state.mut > 0) {
+                        if (active.mut > 0) {
                             Diags().Report(un->loc, "cannot take shared borrow while mutable borrow active");
                         }
-                        state.imm += 1;
+                        local.imm += 1;
                         inner = Types().ReferenceTo(inner, false, true, false);
                     }
                 }
@@ -511,7 +529,19 @@ class Analyzer {
         return false;
     }
 
-    BorrowInfo &EnsureBorrowState(const std::string &name) {
+    BorrowInfo AggregateBorrow(const std::string &name) const {
+        BorrowInfo total{};
+        for (auto it = borrow_stack_.rbegin(); it != borrow_stack_.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) {
+                total.imm += found->second.imm;
+                total.mut += found->second.mut;
+            }
+        }
+        return total;
+    }
+
+    BorrowInfo &EnsureLocalBorrow(const std::string &name) {
         if (borrow_stack_.empty()) {
             static BorrowInfo dummy;
             return dummy;

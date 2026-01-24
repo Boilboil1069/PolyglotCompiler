@@ -45,11 +45,21 @@ class Analyzer {
     // Simple module registry populated by imports in current module
     std::unordered_map<std::string, std::unordered_map<std::string, Type>> module_exports_{};
 
+    std::unordered_map<std::string, std::unordered_map<std::string, Type>> BuiltinModuleExports() {
+        return {
+            {"asyncio", {{"sleep", Types().FunctionType("sleep", Type::Any(), {Type::Float()})}}},
+            {"typing", {{"Any", Type::Any()}, {"Coroutine", Types().Generic("coroutine", {Type::Any()}, "python")}}},
+        };
+    }
+
     void DeclareSimple(const std::string &name, SymbolKind kind, const Type &type,
                        const core::SourceLoc &loc) {
         Symbol sym{name, type, loc, kind, "python"};
         if (!Syms().Declare(sym)) {
             Diags().Report(loc, "Duplicate declaration: " + name);
+        }
+        if (scope_states_.size() == 1) {
+            module_exports_["<module>"][name] = type;
         }
     }
 
@@ -170,11 +180,26 @@ class Analyzer {
                     int sid = Syms().EnterScope(modname, ScopeKind::kModule);
                     Syms().RegisterTypeScope(modname, sid);
                     Syms().ExitScope();
-                    // we don't know actual exports; leave empty registry entry
-                    module_exports_.try_emplace(modname);
+                    auto builtin = BuiltinModuleExports();
+                    auto it = builtin.find(modname);
+                    if (it != builtin.end()) {
+                        module_exports_[modname] = it->second;
+                    } else {
+                        module_exports_.try_emplace(modname);
+                    }
                 }
             } else {
                 std::string modname = imp->module;
+                auto builtin = BuiltinModuleExports();
+                auto it_mod = module_exports_.find(modname);
+                if (it_mod == module_exports_.end()) {
+                    auto it_builtin = builtin.find(modname);
+                    if (it_builtin != builtin.end()) {
+                        module_exports_[modname] = it_builtin->second;
+                    } else {
+                        module_exports_[modname] = {};
+                    }
+                }
                 auto &exports = module_exports_[modname];
                 for (auto &al : imp->names) {
                     std::string export_name = al.name;
@@ -210,6 +235,9 @@ class Analyzer {
         if (!Syms().Declare(sym)) {
             Diags().Report(fn.loc, "Duplicate function: " + fn.name);
         }
+        if (scope_states_.size() == 1) {
+            module_exports_["<module>"][fn.name] = sym.type;
+        }
     }
 
     void AnalyzeFunction(const FunctionDef &fn) {
@@ -242,6 +270,9 @@ class Analyzer {
                    "python"};
         if (!Syms().Declare(sym)) {
             Diags().Report(cls.loc, "Duplicate class: " + cls.name);
+        }
+        if (scope_states_.size() == 1) {
+            module_exports_["<module>"][cls.name] = sym.type;
         }
     }
 
@@ -488,6 +519,13 @@ class Analyzer {
         }
         if (obj_t.kind == core::TypeKind::kTuple) {
             if (attr == "__len__") return Type::Int();
+        }
+        if (obj_t.name == "coroutine" && obj_t.kind == core::TypeKind::kGenericInstance) {
+            Type ret = obj_t.type_args.empty() ? Type::Any() : obj_t.type_args[0];
+            if (attr == "__await__") return Types().FunctionType("__await__", Types().Generic("iterator", {ret}, "python"), {});
+            if (attr == "send") return Types().FunctionType("send", ret, {Type::Any()});
+            if (attr == "throw") return Types().FunctionType("throw", ret, {Type::Any()});
+            if (attr == "close") return Types().FunctionType("close", Type::Void(), {});
         }
         return Type::Invalid();
     }

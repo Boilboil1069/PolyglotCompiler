@@ -11,6 +11,19 @@ std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name) {
   return fn;
 }
 
+std::shared_ptr<GlobalValue> IRContext::CreateGlobal(const std::string &name, const IRType &type,
+                                                    bool is_const, const std::string &init,
+                                                    std::shared_ptr<Value> initializer) {
+  auto g = std::make_shared<GlobalValue>();
+  g->name = name;
+  g->type = type;
+  g->is_const = is_const;
+  g->init = init;
+  g->initializer = std::move(initializer);
+  globals_.push_back(g);
+  return g;
+}
+
 std::shared_ptr<Function> IRContext::DefaultFunction() {
   if (!default_function_) {
     default_function_ = CreateFunction("entry_fn");

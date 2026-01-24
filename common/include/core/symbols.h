@@ -115,6 +115,36 @@ class SymbolTable {
                                                const std::vector<Type> &arg_types,
                                                const TypeSystem &types) const {
     int distance = 0;
+    auto conv_score = [&](const Type &from, const Type &to) -> int {
+      // Lowest is best. Large sentinel means not convertible.
+      if (types.IsCompatible(from, to)) return 0;
+      // Reference binding preferences
+      if (from.kind == TypeKind::kReference && to.kind == TypeKind::kReference) {
+        if (types.IsCompatible(from.type_args.empty() ? Type::Any() : from.type_args[0],
+                               to.type_args.empty() ? Type::Any() : to.type_args[0])) {
+          // allow adding const when binding
+          if (!from.is_const && to.is_const) return 1;
+        }
+      }
+      // Bind T to const T& (temporary/lvalue binding) has a small penalty
+      if (to.kind == TypeKind::kReference && to.is_const) {
+        if (types.IsCompatible(from, to.type_args.empty() ? Type::Any() : to.type_args[0])) {
+          return 2;
+        }
+      }
+      // Prefer cv-qualification / widening implicit conversions over user-defined
+      if (types.CanImplicitlyConvert(from, to)) return 3;
+
+      // Very coarse user-defined conversion heuristic: allow class/struct to other class/struct in
+      // the same language with a high penalty to keep it lowest priority.
+      auto is_object = [](const Type &t) {
+        return t.kind == TypeKind::kClass || t.kind == TypeKind::kStruct || t.kind == TypeKind::kGenericInstance;
+      };
+      if (is_object(from) && is_object(to) && (from.language == to.language)) return 10;
+
+      return std::numeric_limits<int>::max() / 4;
+    };
+
     for (auto it = scope_stack_.rbegin(); it != scope_stack_.rend(); ++it, ++distance) {
       int scope_id = *it;
       auto scope_it = functions_by_scope_.find(scope_id);
@@ -131,13 +161,12 @@ class SymbolTable {
         bool compatible = true;
         for (size_t i = 0; i < arg_types.size(); ++i) {
           const auto &expected = cand->type.type_args[i + 1];
-          if (types.IsCompatible(arg_types[i], expected)) continue;
-          if (types.CanImplicitlyConvert(arg_types[i], expected)) {
-            score += 1;
-            continue;
+          int s = conv_score(arg_types[i], expected);
+          if (s >= (std::numeric_limits<int>::max() / 8)) {
+            compatible = false;
+            break;
           }
-          compatible = false;
-          break;
+          score += s;
         }
         if (!compatible) continue;
         if (score < best_score) {

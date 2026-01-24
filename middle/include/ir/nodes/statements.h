@@ -35,6 +35,34 @@ struct AssignInstruction : Instruction {
   AssignInstruction() { type = IRType::Invalid(); }
 };
 
+struct CallInstruction : Instruction {
+  std::string callee;
+  bool is_indirect{false};  // if true, callee is an operand name
+};
+
+struct AllocaInstruction : Instruction {
+  AllocaInstruction() { type = IRType::Pointer(IRType::Invalid()); }
+};
+
+struct LoadInstruction : Instruction {
+  LoadInstruction() { type = IRType::Invalid(); }
+};
+
+struct StoreInstruction : Instruction {
+  StoreInstruction() { type = IRType::Void(); }
+};
+
+struct CastInstruction : Instruction {
+  enum class CastKind { kZExt, kSExt, kTrunc, kBitcast };
+  CastKind cast{CastKind::kBitcast};
+};
+
+struct GetElementPtrInstruction : Instruction {
+  IRType source_type{IRType::Invalid()};
+  std::vector<size_t> indices;
+  GetElementPtrInstruction() { type = IRType::Pointer(IRType::Invalid()); }
+};
+
 struct ReturnStatement : Instruction {
   ReturnStatement() { type = IRType::Void(); }
   bool IsTerminator() const override { return true; }
@@ -50,6 +78,17 @@ struct CondBranchStatement : Instruction {
   BasicBlock *true_target{nullptr};
   BasicBlock *false_target{nullptr};
   CondBranchStatement() { type = IRType::Void(); }
+  bool IsTerminator() const override { return true; }
+};
+
+struct SwitchStatement : Instruction {
+  struct Case {
+    long long value;
+    BasicBlock *target{nullptr};
+  };
+  std::vector<Case> cases;
+  BasicBlock *default_target{nullptr};
+  SwitchStatement() { type = IRType::Void(); }
   bool IsTerminator() const override { return true; }
 };
 

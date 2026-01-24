@@ -2,6 +2,7 @@
 #include <vector>
 
 #include "middle/include/ir/ir_context.h"
+#include "middle/include/ir/passes/opt.h"
 
 namespace polyglot::passes {
 
@@ -14,6 +15,12 @@ class PassManager {
   void Run(ir::IRContext &context) {
     for (auto &pass : passes_) {
       pass(context);
+    }
+    // default optimization pipeline for all functions if no custom passes added
+    if (passes_.empty()) {
+      for (auto &fn : context.Functions()) {
+        polyglot::ir::passes::RunDefaultOptimizations(*fn);
+      }
     }
   }
 
