@@ -5,12 +5,14 @@
 
 namespace polyglot::runtime::interop {
 
-ForeignObject *AcquireForeign(void *ptr, size_t size, std::function<void(void *)> deleter) {
+ForeignObject *AcquireForeign(void *ptr, size_t size, std::function<void(void *)> deleter,
+                              Ownership ownership) {
   auto *obj = new ForeignObject();
   obj->ptr = ptr;
   obj->size = size;
   obj->deleter = std::move(deleter);
   obj->refcount.store(1);
+  obj->ownership = ownership;
   return obj;
 }
 
@@ -22,7 +24,7 @@ void RetainForeign(ForeignObject *obj) {
 void ReleaseForeign(ForeignObject *obj) {
   if (!obj) return;
   if (obj->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    if (obj->deleter) obj->deleter(obj->ptr);
+    if (obj->deleter && obj->ownership == Ownership::kOwned) obj->deleter(obj->ptr);
     delete obj;
   }
 }

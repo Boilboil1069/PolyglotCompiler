@@ -19,6 +19,7 @@
 #include "frontends/rust/include/rust_parser.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/nodes/statements.h"
+#include "runtime/include/libs/base.h"
 
 namespace {
 
@@ -147,9 +148,14 @@ int main(int argc, char **argv) {
     ret->type = polyglot::ir::IRType::Void();
     entry->SetTerminator(ret);
 
+    // Example: allocate a GC-managed scratch buffer and keep it rooted while emitting.
+    void *scratch = polyglot_alloc(32);
+    polyglot_gc_register_root(&scratch);
+
     polyglot::backends::x86_64::X86Target target(&ir_module);
     target.SetRegAllocStrategy(settings.regalloc);
     std::cout << "Target: " << target.TargetTriple() << "\n";
     std::cout << target.EmitAssembly();
+    polyglot_gc_unregister_root(&scratch);
     return 0;
 }

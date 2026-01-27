@@ -108,10 +108,17 @@ add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
     runtime/src/gc/gc_strategy.cpp
+    runtime/src/gc/runtime.cpp
     runtime/src/interop/ffi.cpp
     runtime/src/interop/memory.cpp
+    runtime/src/interop/marshalling.cpp
+    runtime/src/interop/type_mapping.cpp
+    runtime/src/interop/calling_convention.cpp
     runtime/src/libs/base.c
+    runtime/src/libs/base_gc_bridge.cpp
     runtime/src/libs/python_rt.c
+    runtime/src/libs/cpp_rt.c
+    runtime/src/libs/rust_rt.c
     runtime/src/services/exception.cpp
     runtime/src/services/threading.cpp
 )
