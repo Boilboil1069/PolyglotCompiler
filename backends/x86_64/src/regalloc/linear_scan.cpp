@@ -5,9 +5,7 @@
 #include <vector>
 
 namespace polyglot::backends::x86_64 {
-namespace {
-
-std::vector<LiveInterval> BuildIntervals(const MachineFunction &fn) {
+std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn) {
   std::unordered_map<int, LiveInterval> intervals;
   int position = 0;
   auto ensure = [&](int vreg) -> LiveInterval & {
@@ -45,6 +43,8 @@ std::vector<LiveInterval> BuildIntervals(const MachineFunction &fn) {
   return out;
 }
 
+namespace {
+
 void ExpireOldIntervals(std::vector<LiveInterval> &active, int position,
                         std::vector<Register> &free_regs) {
   auto it = active.begin();
@@ -64,7 +64,7 @@ void ExpireOldIntervals(std::vector<LiveInterval> &active, int position,
 }  // namespace
 
 AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector<Register> &available) {
-  auto intervals = BuildIntervals(fn);
+  auto intervals = ComputeLiveIntervals(fn);
   AllocationResult result;
   std::vector<LiveInterval> active;
   std::vector<Register> free_regs = available;

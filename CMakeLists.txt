@@ -94,6 +94,7 @@ add_library(backend_x86_64
     backends/x86_64/src/asm_printer/emit.cpp
     backends/x86_64/src/asm_printer/scheduler.cpp
     backends/x86_64/src/isel/isel.cpp
+    backends/x86_64/src/regalloc/graph_coloring.cpp
     backends/x86_64/src/regalloc/linear_scan.cpp
 )
 

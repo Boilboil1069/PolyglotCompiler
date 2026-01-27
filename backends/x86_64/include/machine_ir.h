@@ -115,8 +115,12 @@ struct AllocationResult {
   int stack_slots{0};
 };
 
+enum class RegAllocStrategy { kLinearScan, kGraphColoring };
+
 MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model);
 void ScheduleFunction(MachineFunction &fn);
+std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn);
 AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector<Register> &available);
+AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vector<Register> &available);
 
 }  // namespace polyglot::backends::x86_64

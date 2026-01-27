@@ -180,7 +180,16 @@ std::string X86Target::EmitAssembly() {
   for (auto &fn : module_->Functions()) {
     auto mf = SelectInstructions(*fn, cost_model);
     ScheduleFunction(mf);
-    auto alloc = LinearScanAllocate(mf, available);
+    AllocationResult alloc;
+    switch (regalloc_strategy_) {
+      case RegAllocStrategy::kGraphColoring:
+        alloc = GraphColoringAllocate(mf, available);
+        break;
+      case RegAllocStrategy::kLinearScan:
+      default:
+        alloc = LinearScanAllocate(mf, available);
+        break;
+    }
     EmitFunction(mf, alloc, os);
   }
 

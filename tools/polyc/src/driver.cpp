@@ -29,6 +29,8 @@ struct Settings {
     bool pp_rust{false};
     bool pp_python{false};
     std::vector<std::string> include_paths{"."};
+    polyglot::backends::x86_64::RegAllocStrategy regalloc{
+        polyglot::backends::x86_64::RegAllocStrategy::kLinearScan};
 };
 
 Settings ParseArgs(int argc, char **argv) {
@@ -38,6 +40,15 @@ Settings ParseArgs(int argc, char **argv) {
         std::string arg = argv[i];
         if (arg.rfind("--lang=", 0) == 0) {
             s.language = arg.substr(7);
+            continue;
+        }
+        if (arg.rfind("--regalloc=", 0) == 0) {
+            auto mode = arg.substr(11);
+            if (mode == "graph" || mode == "graph-coloring" || mode == "coloring") {
+                s.regalloc = polyglot::backends::x86_64::RegAllocStrategy::kGraphColoring;
+            } else {
+                s.regalloc = polyglot::backends::x86_64::RegAllocStrategy::kLinearScan;
+            }
             continue;
         }
         if (arg == "--pp-cpp") { s.pp_cpp = true; continue; }
@@ -137,6 +148,7 @@ int main(int argc, char **argv) {
     entry->SetTerminator(ret);
 
     polyglot::backends::x86_64::X86Target target(&ir_module);
+    target.SetRegAllocStrategy(settings.regalloc);
     std::cout << "Target: " << target.TargetTriple() << "\n";
     std::cout << target.EmitAssembly();
     return 0;
