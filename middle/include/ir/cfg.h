@@ -10,8 +10,6 @@
 
 namespace polyglot::ir {
 
-struct Function;
-
 struct BasicBlock {
   std::string name;
   std::vector<std::shared_ptr<PhiInstruction>> phis;       // Phi nodes (dominated by block)

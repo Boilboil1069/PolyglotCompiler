@@ -151,3 +151,21 @@ TEST_CASE("DebugInfoBuilder emits source map json", "[debug][sourcemap]") {
   REQUIRE(json.find("\"main.c\"") != std::string::npos);
   REQUIRE(json.find("\"main\"") != std::string::npos);
 }
+
+TEST_CASE("Base library memory and IO", "[runtime][libbase]") {
+  char buf[8];
+  polyglot_memset(buf, 'a', 7);
+  buf[7] = '\0';
+  REQUIRE(polyglot_strlen(buf) == 7);
+  REQUIRE(polyglot_strncmp(buf, "aaaaaaa", 7) == 0);
+
+  // file IO using GC buffer
+  const char *tmp = "/tmp/polyglot_runtime_test.txt";
+  REQUIRE(polyglot_write_file(tmp, "hi", 2));
+  char *file_buf = NULL;
+  size_t file_size = 0;
+  REQUIRE(polyglot_read_file(tmp, &file_buf, &file_size));
+  REQUIRE(file_size == 2);
+  REQUIRE(polyglot_strncmp(file_buf, "hi", 2) == 0);
+  polyglot_free_file_buffer(file_buf);
+}

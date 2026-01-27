@@ -4,7 +4,7 @@
 
 namespace polyglot::backends::x86_64 {
 
-enum class Register { kRax, kRbx, kRcx, kRdx };
+enum class Register { kRax, kRbx, kRcx, kRdx, kRsp, kRbp, kRsi, kRdi };
 
 inline std::string RegisterName(Register reg) {
   switch (reg) {
@@ -16,6 +16,14 @@ inline std::string RegisterName(Register reg) {
       return "rcx";
     case Register::kRdx:
       return "rdx";
+    case Register::kRsp:
+      return "rsp";
+    case Register::kRbp:
+      return "rbp";
+    case Register::kRsi:
+      return "rsi";
+    case Register::kRdi:
+      return "rdi";
   }
   return "";
 }
