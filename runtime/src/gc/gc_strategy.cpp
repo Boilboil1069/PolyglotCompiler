@@ -3,10 +3,9 @@
 #include <memory>
 
 namespace polyglot::runtime::gc {
-namespace {
+
 std::unique_ptr<GC> MakeMarkSweepGC();
 std::unique_ptr<GC> MakeGenerationalGC();
-}  // namespace
 
 std::unique_ptr<GC> MakeGC(Strategy strategy) {
   switch (strategy) {

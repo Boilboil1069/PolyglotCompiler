@@ -10,6 +10,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.cmake)
 add_library(polyglot_common
     common/src/core/type_system.cpp
     common/src/core/symbol_table.cpp
+    backends/common/src/debug_info.cpp
 )
 
 target_include_directories(polyglot_common PUBLIC

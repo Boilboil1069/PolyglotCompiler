@@ -8,6 +8,7 @@
 #include "runtime/include/interop/marshalling.h"
 #include "runtime/include/interop/type_mapping.h"
 #include "runtime/include/interop/calling_convention.h"
+#include "backends/common/include/debug_info.h"
 #include "runtime/include/services/exception.h"
 #include "runtime/include/services/threading.h"
 
@@ -138,4 +139,15 @@ TEST_CASE("Calling convention validation checks sizes", "[runtime][interop][call
   REQUIRE(interop::ValidateSignature(sig));
   sig.args[0].size = 0;
   REQUIRE_FALSE(interop::ValidateSignature(sig));
+}
+
+TEST_CASE("DebugInfoBuilder emits source map json", "[debug][sourcemap]") {
+  polyglot::backends::DebugInfoBuilder dbg;
+  dbg.AddLine({"main.c", 1, 1});
+  dbg.AddVariable({"x", "i32", "main.c", 1, 0});
+  dbg.AddType({"i32", "int", 4, 4});
+  dbg.AddSymbol({"main", ".text", 0x1000, 10, true});
+  auto json = dbg.EmitSourceMapJSON();
+  REQUIRE(json.find("\"main.c\"") != std::string::npos);
+  REQUIRE(json.find("\"main\"") != std::string::npos);
 }
