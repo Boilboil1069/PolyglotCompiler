@@ -11,6 +11,7 @@ add_library(polyglot_common
     common/src/core/type_system.cpp
     common/src/core/symbol_table.cpp
     backends/common/src/debug_info.cpp
+    backends/common/src/debug_emitter.cpp
 )
 
 target_include_directories(polyglot_common PUBLIC
