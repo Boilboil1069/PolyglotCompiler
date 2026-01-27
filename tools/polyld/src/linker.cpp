@@ -1,3 +1,4 @@
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -17,3 +18,10 @@ class Linker {
 };
 
 }  // namespace polyglot::tools
+
+int main() {
+  polyglot::tools::Linker ld;
+  ld.AddObject({"dummy.o"});
+  std::cout << ld.Link() << "\n";
+  return 0;
+}

@@ -1,9 +1,252 @@
+#include "backends/x86_64/include/machine_ir.h"
+
+#include <cstdlib>
 #include <string>
+#include <unordered_map>
+#include <utility>
+
+#include "middle/include/ir/nodes/statements.h"
 
 namespace polyglot::backends::x86_64 {
+namespace {
 
-std::string SelectInstructions() {
-  return "mov rax, rax";
+bool ParseImmediate(const std::string &text, long long *value) {
+  char *end = nullptr;
+  long long v = std::strtoll(text.c_str(), &end, 0);
+  if (end == text.c_str() || *end != '\0') return false;
+  if (value) *value = v;
+  return true;
+}
+
+void SetCost(MachineInstr &mi, const CostModel &model) {
+  mi.cost = model.Cost(mi.opcode);
+  mi.latency = model.Latency(mi.opcode);
+}
+
+Opcode ToOpcode(ir::BinaryInstruction::Op op) {
+  switch (op) {
+    case ir::BinaryInstruction::Op::kAdd:
+      return Opcode::kAdd;
+    case ir::BinaryInstruction::Op::kSub:
+      return Opcode::kSub;
+    case ir::BinaryInstruction::Op::kMul:
+      return Opcode::kMul;
+    case ir::BinaryInstruction::Op::kDiv:
+      return Opcode::kDiv;
+    case ir::BinaryInstruction::Op::kAnd:
+      return Opcode::kAnd;
+    case ir::BinaryInstruction::Op::kOr:
+      return Opcode::kOr;
+    case ir::BinaryInstruction::Op::kCmpEq:
+    case ir::BinaryInstruction::Op::kCmpLt:
+      return Opcode::kCmp;
+  }
+  return Opcode::kAdd;
+}
+
+}  // namespace
+
+int CostModel::Cost(Opcode op) const {
+  switch (op) {
+    case Opcode::kAdd:
+    case Opcode::kSub:
+    case Opcode::kMov:
+      return 1;
+    case Opcode::kAnd:
+    case Opcode::kOr:
+    case Opcode::kCmp:
+    case Opcode::kLoad:
+    case Opcode::kStore:
+    case Opcode::kLea:
+      return 2;
+    case Opcode::kMul:
+      return 3;
+    case Opcode::kDiv:
+      return 8;
+    case Opcode::kCall:
+      return 12;
+    case Opcode::kRet:
+    case Opcode::kJmp:
+    case Opcode::kJcc:
+      return 1;
+  }
+  return 1;
+}
+
+int CostModel::Latency(Opcode op) const {
+  switch (op) {
+    case Opcode::kMul:
+      return 4;
+    case Opcode::kDiv:
+      return 10;
+    case Opcode::kLoad:
+    case Opcode::kStore:
+      return 3;
+    case Opcode::kCall:
+      return 6;
+    default:
+      return 1;
+  }
+}
+
+MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model) {
+  MachineFunction mf;
+  mf.name = fn.name;
+  std::unordered_map<std::string, int> vreg_for_name;
+  int next_vreg = 0;
+
+  auto get_vreg = [&](const std::string &name) -> int {
+    auto it = vreg_for_name.find(name);
+    if (it != vreg_for_name.end()) return it->second;
+    int id = next_vreg++;
+    vreg_for_name[name] = id;
+    return id;
+  };
+
+  auto make_operand = [&](const std::string &name) -> Operand {
+    long long imm{};
+    if (ParseImmediate(name, &imm)) return Operand::Imm(imm);
+    auto it = vreg_for_name.find(name);
+    if (it != vreg_for_name.end()) return Operand::VReg(it->second);
+    int id = get_vreg(name);
+    return Operand::VReg(id);
+  };
+
+  for (auto &bb_ptr : fn.blocks) {
+    MachineBasicBlock mbb;
+    mbb.name = bb_ptr->name;
+
+    for (auto &inst_ptr : bb_ptr->instructions) {
+      if (auto *bin = dynamic_cast<ir::BinaryInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = ToOpcode(bin->op);
+        mi.uses = {get_vreg(bin->operands[0]), get_vreg(bin->operands[1])};
+        mi.operands = {make_operand(bin->operands[0]), make_operand(bin->operands[1])};
+        mi.def = get_vreg(bin->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *load = dynamic_cast<ir::LoadInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kLoad;
+        mi.def = get_vreg(load->name);
+        mi.uses = {get_vreg(load->operands[0])};
+        mi.operands = {Operand::MemVReg(mi.uses[0])};
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *store = dynamic_cast<ir::StoreInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kStore;
+        mi.uses = {get_vreg(store->operands[0]), get_vreg(store->operands[1])};
+        mi.operands = {Operand::MemVReg(mi.uses[0]), make_operand(store->operands[1])};
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *cast = dynamic_cast<ir::CastInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kMov;
+        mi.uses = {get_vreg(cast->operands[0])};
+        mi.operands = {make_operand(cast->operands[0])};
+        mi.def = get_vreg(cast->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *call = dynamic_cast<ir::CallInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kCall;
+        for (auto &arg : call->operands) {
+          mi.uses.push_back(get_vreg(arg));
+          mi.operands.push_back(make_operand(arg));
+        }
+        mi.operands.push_back(Operand::Label(call->callee));
+        if (call->HasResult()) mi.def = get_vreg(call->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *gep = dynamic_cast<ir::GetElementPtrInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kLea;
+        mi.uses = {get_vreg(gep->operands[0])};
+        mi.operands = {Operand::MemVReg(mi.uses[0])};
+        mi.def = get_vreg(gep->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+    }
+
+    if (auto *ret = dynamic_cast<ir::ReturnStatement *>(bb_ptr->terminator.get())) {
+      MachineInstr mi;
+      mi.opcode = Opcode::kRet;
+      mi.terminator = true;
+      if (!ret->operands.empty()) {
+        mi.uses.push_back(get_vreg(ret->operands[0]));
+        mi.operands.push_back(make_operand(ret->operands[0]));
+      }
+      SetCost(mi, cost_model);
+      mbb.instructions.push_back(std::move(mi));
+    } else if (auto *br = dynamic_cast<ir::BranchStatement *>(bb_ptr->terminator.get())) {
+      MachineInstr mi;
+      mi.opcode = Opcode::kJmp;
+      mi.terminator = true;
+      mi.operands.push_back(Operand::Label(br->target ? br->target->name : ""));
+      SetCost(mi, cost_model);
+      mbb.instructions.push_back(std::move(mi));
+    } else if (auto *cbr = dynamic_cast<ir::CondBranchStatement *>(bb_ptr->terminator.get())) {
+      MachineInstr cmp;
+      cmp.opcode = Opcode::kCmp;
+      cmp.uses = {get_vreg(cbr->operands[0])};
+      cmp.operands = {make_operand(cbr->operands[0]), Operand::Imm(0)};
+      SetCost(cmp, cost_model);
+      mbb.instructions.push_back(std::move(cmp));
+
+      MachineInstr mi;
+      mi.opcode = Opcode::kJcc;
+      mi.terminator = true;
+      mi.operands.push_back(Operand::Label(cbr->true_target ? cbr->true_target->name : ""));
+      mi.operands.push_back(Operand::Label(cbr->false_target ? cbr->false_target->name : ""));
+      SetCost(mi, cost_model);
+      mbb.instructions.push_back(std::move(mi));
+    } else if (auto *sw = dynamic_cast<ir::SwitchStatement *>(bb_ptr->terminator.get())) {
+      for (auto &c : sw->cases) {
+        MachineInstr cmp;
+        cmp.opcode = Opcode::kCmp;
+        cmp.uses = {get_vreg(sw->operands[0])};
+        cmp.operands = {make_operand(sw->operands[0]), Operand::Imm(c.value)};
+        SetCost(cmp, cost_model);
+        mbb.instructions.push_back(std::move(cmp));
+
+        MachineInstr jcc;
+        jcc.opcode = Opcode::kJcc;
+        jcc.terminator = false;
+        jcc.operands.push_back(Operand::Label(c.target ? c.target->name : ""));
+        jcc.operands.push_back(Operand::Label(sw->default_target ? sw->default_target->name : ""));
+        SetCost(jcc, cost_model);
+        mbb.instructions.push_back(std::move(jcc));
+      }
+      MachineInstr jm;
+      jm.opcode = Opcode::kJmp;
+      jm.terminator = true;
+      jm.operands.push_back(Operand::Label(sw->default_target ? sw->default_target->name : ""));
+      SetCost(jm, cost_model);
+      mbb.instructions.push_back(std::move(jm));
+    }
+
+    mf.blocks.push_back(std::move(mbb));
+  }
+
+  return mf;
 }
 
 }  // namespace polyglot::backends::x86_64

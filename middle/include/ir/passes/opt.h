@@ -6,7 +6,9 @@ namespace polyglot::ir::passes {
 
 void ConstantFold(Function &func);
 void DeadCodeEliminate(Function &func);
-void SimplifyCFG(Function &func);
+void CopyProp(Function &func);
+void SimplifyCFG(Function &func);  // legacy; calls CanonicalizeCFG
+void CanonicalizeCFG(Function &func);
 void EliminateRedundantPhis(Function &func);
 void CSE(Function &func);
 void Mem2Reg(Function &func);  // best-effort scalar promotion

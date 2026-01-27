@@ -17,6 +17,8 @@
 #include "frontends/rust/include/rust_sema.h"
 #include "frontends/rust/include/rust_lexer.h"
 #include "frontends/rust/include/rust_parser.h"
+#include "middle/include/ir/ir_context.h"
+#include "middle/include/ir/nodes/statements.h"
 
 namespace {
 
@@ -119,7 +121,22 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    polyglot::backends::x86_64::X86Target target;
+    polyglot::ir::IRContext ir_module;
+    auto fn = ir_module.CreateFunction("main");
+    auto *entry = fn->CreateBlock("entry");
+    auto add = std::make_shared<polyglot::ir::BinaryInstruction>();
+    add->op = polyglot::ir::BinaryInstruction::Op::kAdd;
+    add->operands = {"2", "3"};
+    add->name = "sum";
+    add->type = polyglot::ir::IRType::I64();
+    entry->AddInstruction(add);
+
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    ret->operands = {"sum"};
+    ret->type = polyglot::ir::IRType::Void();
+    entry->SetTerminator(ret);
+
+    polyglot::backends::x86_64::X86Target target(&ir_module);
     std::cout << "Target: " << target.TargetTriple() << "\n";
     std::cout << target.EmitAssembly();
     return 0;

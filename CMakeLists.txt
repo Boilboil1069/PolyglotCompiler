@@ -72,6 +72,7 @@ add_library(middle_ir
     middle/src/ir/builder.cpp
     middle/src/ir/ir_context.cpp
     middle/src/ir/cfg.cpp
+    middle/src/ir/analysis.cpp
     middle/src/ir/ssa.cpp
     middle/src/ir/verifier.cpp
     middle/src/ir/printer.cpp
@@ -125,4 +126,41 @@ target_link_libraries(polyc
     backend_x86_64
     middle_ir
     runtime
+)
+
+add_executable(polyasm
+    tools/polyasm/src/assembler.cpp
+)
+
+target_link_libraries(polyasm
+    backend_x86_64
+    middle_ir
+    polyglot_common
+)
+
+add_executable(polyld
+    tools/polyld/src/linker.cpp
+)
+
+target_link_libraries(polyld
+    polyglot_common
+)
+
+add_executable(polyopt
+    tools/polyopt/src/optimizer.cpp
+)
+
+target_link_libraries(polyopt
+    middle_ir
+    backend_x86_64
+    polyglot_common
+)
+
+add_executable(polyrt
+    tools/polyrt/src/runtime_tool.cpp
+)
+
+target_link_libraries(polyrt
+    runtime
+    polyglot_common
 )

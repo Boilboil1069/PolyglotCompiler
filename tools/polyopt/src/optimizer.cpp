@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/passes/transform/common_subexpr.h"
 #include "middle/include/passes/transform/constant_fold.h"
@@ -14,3 +16,10 @@ void Optimize(ir::IRContext &context) {
 }
 
 }  // namespace polyglot::tools
+
+int main() {
+  polyglot::ir::IRContext ctx;
+  polyglot::tools::Optimize(ctx);
+  std::cout << "optimized\n";
+  return 0;
+}
