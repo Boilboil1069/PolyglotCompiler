@@ -106,6 +106,20 @@ target_include_directories(backend_x86_64 PUBLIC
 
 target_link_libraries(backend_x86_64 PUBLIC polyglot_common)
 
+add_library(backend_arm64
+    backends/arm64/src/asm_printer/emit.cpp
+    backends/arm64/src/asm_printer/scheduler.cpp
+    backends/arm64/src/isel/isel.cpp
+    backends/arm64/src/regalloc/graph_coloring.cpp
+    backends/arm64/src/regalloc/linear_scan.cpp
+)
+
+target_include_directories(backend_arm64 PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(backend_arm64 PUBLIC polyglot_common)
+
 add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
@@ -138,6 +152,7 @@ target_link_libraries(polyc
     frontend_cpp
     frontend_rust
     backend_x86_64
+    backend_arm64
     middle_ir
     runtime
 )

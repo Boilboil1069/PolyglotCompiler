@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 #if __has_include(<elf.h>)
 #include <elf.h>
 #else
@@ -69,6 +70,7 @@ struct Elf64_Rela {
 #define EV_CURRENT 1
 #define ET_REL 1
 #define EM_X86_64 62
+#define EM_AARCH64 183
 #define SHN_UNDEF 0
 #define SHT_PROGBITS 1
 #define SHT_SYMTAB 2
@@ -84,11 +86,14 @@ struct Elf64_Rela {
 #define STT_FUNC 2
 #define R_X86_64_64 1
 #define R_X86_64_PC32 2
+#define R_AARCH64_JUMP26 282
+#define R_AARCH64_CALL26 283
 #define ELF64_ST_INFO(b, t) (((b) << 4) + ((t) & 0x0f))
 #define ELF64_R_INFO(sym, type) ((((Elf64_Xword)(sym)) << 32) + ((type) & 0xffffffffULL))
 #endif
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
 #include <mach-o/reloc.h>
@@ -97,6 +102,7 @@ struct Elf64_Rela {
 #include <vector>
 
 #include "backends/x86_64/include/x86_target.h"
+#include "backends/arm64/include/arm64_target.h"
 #include "common/include/core/source_loc.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/preprocessor.h"
@@ -116,12 +122,16 @@ struct Elf64_Rela {
 
 namespace {
 
+enum class RegAllocChoice { kLinearScan, kGraphColoring };
+
 struct Settings {
     std::string source{"print('hello')"};
     std::string language{"python"};
+    std::string arch{"x86_64"};
     bool pp_cpp{true};
     bool pp_rust{false};
     bool pp_python{false};
+    bool force{false};
     std::vector<std::string> include_paths{"."};
     std::string mode{"compile"};  // compile | assemble | link (stub)
     std::string obj_format{"pobj"};  // pobj|elf|macho
@@ -132,8 +142,7 @@ struct Settings {
     std::string polyld_path{"polyld"};
     int opt_level{0};  // 0-3
     int jobs{1};  // parallelism hint
-    polyglot::backends::x86_64::RegAllocStrategy regalloc{
-        polyglot::backends::x86_64::RegAllocStrategy::kLinearScan};
+    RegAllocChoice regalloc{RegAllocChoice::kLinearScan};
 };
 
 Settings ParseArgs(int argc, char **argv) {
@@ -190,6 +199,11 @@ Settings ParseArgs(int argc, char **argv) {
             s.emit_ir_path = arg.substr(10);
             continue;
         }
+        if (arg.rfind("--arch=", 0) == 0) {
+            s.arch = arg.substr(7);
+            continue;
+        }
+        if (arg == "--force" || arg == "--ignore-diagnostics") { s.force = true; continue; }
         if (arg.rfind("-j", 0) == 0) {
             if (arg == "-j" && i + 1 < argc) {
                 s.jobs = std::atoi(argv[++i]);
@@ -202,9 +216,9 @@ Settings ParseArgs(int argc, char **argv) {
         if (arg.rfind("--regalloc=", 0) == 0) {
             auto mode = arg.substr(11);
             if (mode == "graph" || mode == "graph-coloring" || mode == "coloring") {
-                s.regalloc = polyglot::backends::x86_64::RegAllocStrategy::kGraphColoring;
+                s.regalloc = RegAllocChoice::kGraphColoring;
             } else {
-                s.regalloc = polyglot::backends::x86_64::RegAllocStrategy::kLinearScan;
+                s.regalloc = RegAllocChoice::kLinearScan;
             }
             continue;
         }
@@ -381,8 +395,9 @@ std::string BuildPobj(const std::string &path, const std::vector<ObjSection> &ob
 }
 
 std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &obj_sections,
-                       const std::vector<ObjSymbol> &obj_symbols) {
+                       const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
     // Minimal relocatable ELF64 with .text/.data/.bss plus symtab/strtab and .rela.text
+    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
     auto align_to = [](std::size_t value, std::size_t align) {
         if (align == 0) return value;
         auto mask = align - 1;
@@ -554,7 +569,7 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
     ehdr.e_ident[EI_DATA] = ELFDATA2LSB;
     ehdr.e_ident[EI_VERSION] = EV_CURRENT;
     ehdr.e_type = ET_REL;
-    ehdr.e_machine = EM_X86_64;
+    ehdr.e_machine = is_arm64 ? EM_AARCH64 : EM_X86_64;
     ehdr.e_version = EV_CURRENT;
     ehdr.e_ehsize = sizeof(Elf64_Ehdr);
     ehdr.e_phentsize = 0;
@@ -605,7 +620,13 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
         for (const auto &r : text_it->relocs) {
             Elf64_Rela rela{};
             rela.r_offset = r.offset;
-            rela.r_info = ELF64_R_INFO(static_cast<std::uint32_t>(r.symbol_index + 1), r.type == 1 ? R_X86_64_PC32 : R_X86_64_64);
+            std::uint32_t reloc_type = 0;
+            if (is_arm64) {
+                reloc_type = (r.type == 1) ? R_AARCH64_CALL26 : R_AARCH64_JUMP26;
+            } else {
+                reloc_type = (r.type == 1) ? R_X86_64_PC32 : R_X86_64_64;
+            }
+            rela.r_info = ELF64_R_INFO(static_cast<std::uint32_t>(r.symbol_index + 1), reloc_type);
             rela.r_addend = r.addend;
             ofs.write(reinterpret_cast<const char *>(&rela), sizeof(rela));
             cursor += sizeof(rela);
@@ -624,15 +645,16 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
 }
 
 std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> &obj_sections,
-                         const std::vector<ObjSymbol> &obj_symbols) {
+                         const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
     // Minimal 64-bit relocatable Mach-O emitting __TEXT,__text plus relocations and symtab.
     auto text_it = std::find_if(obj_sections.begin(), obj_sections.end(), [](const ObjSection &s) { return s.name == ".text"; });
+    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
     std::size_t text_size = text_it != obj_sections.end() ? text_it->data.size() : 0;
 
     mach_header_64 mh{};
     mh.magic = MH_MAGIC_64;
-    mh.cputype = CPU_TYPE_X86_64;
-    mh.cpusubtype = CPU_SUBTYPE_X86_64_ALL;
+    mh.cputype = is_arm64 ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64;
+    mh.cpusubtype = is_arm64 ? CPU_SUBTYPE_ARM64_ALL : CPU_SUBTYPE_X86_64_ALL;
     mh.filetype = MH_OBJECT;
     mh.ncmds = 2;
     mh.sizeofcmds = sizeof(segment_command_64) + sizeof(section_64) + sizeof(symtab_command);
@@ -709,7 +731,7 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
             ri.r_pcrel = (r.type == 1);
             ri.r_length = 2;  // 2 => 4 bytes
             ri.r_extern = 1;
-            ri.r_type = 0;  // branch/pc-rel
+            ri.r_type = is_arm64 ? 2 : 0;  // ARM64_RELOC_BRANCH26 or X86_64_RELOC_BRANCH
             ofs.write(reinterpret_cast<const char *>(&ri), sizeof(ri));
         }
     }
@@ -733,13 +755,13 @@ std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &
     }
 
     if (settings.obj_format == "elf") {
-        auto written = BuildElf64(out, sections, symbols);
+        auto written = BuildElf64(out, sections, symbols, settings.arch);
         if (written.empty()) std::cerr << "[error] ELF emit failed\n";
         return written;
     }
 
     if (settings.obj_format == "macho") {
-        auto written = BuildMachO64(out, sections, symbols);
+        auto written = BuildMachO64(out, sections, symbols, settings.arch);
         if (written.empty()) std::cerr << "[error] Mach-O emit failed\n";
         return written;
     }
@@ -804,7 +826,7 @@ int main(int argc, char **argv) {
                            "Unknown language: " + settings.language);
     }
 
-    if (diagnostics.HasErrors()) {
+    if (!settings.force && diagnostics.HasErrors()) {
         std::cerr << "Compilation failed with " << diagnostics.All().size() << " error(s).\n";
         for (const auto &d : diagnostics.All()) {
             std::cerr << d.loc.file << ":" << d.loc.line << ":" << d.loc.column << ": " << d.message << "\n";
@@ -831,9 +853,120 @@ int main(int argc, char **argv) {
     void *scratch = polyglot_alloc(32);
     polyglot_gc_register_root(&scratch);
 
-    polyglot::backends::x86_64::X86Target target(&ir_module);
-    target.SetRegAllocStrategy(settings.regalloc);
-    auto asm_text = target.EmitAssembly();
+    std::string target_triple;
+    std::string asm_text;
+
+    // Choose backend based on arch
+    bool use_arm64 = (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
+
+    // Containers to populate from backend MC
+    std::vector<ObjSection> sections;
+    std::vector<ObjSymbol> symbols;
+
+    auto apply_regalloc = [&](auto &backend) {
+        using BackendT = std::decay_t<decltype(backend)>;
+        if constexpr (std::is_same_v<BackendT, polyglot::backends::arm64::Arm64Target>) {
+            backend.SetRegAllocStrategy(settings.regalloc == RegAllocChoice::kGraphColoring
+                                            ? polyglot::backends::arm64::RegAllocStrategy::kGraphColoring
+                                            : polyglot::backends::arm64::RegAllocStrategy::kLinearScan);
+        } else {
+            backend.SetRegAllocStrategy(settings.regalloc == RegAllocChoice::kGraphColoring
+                                            ? polyglot::backends::x86_64::RegAllocStrategy::kGraphColoring
+                                            : polyglot::backends::x86_64::RegAllocStrategy::kLinearScan);
+        }
+    };
+
+    auto run_backend = [&](auto &backend) {
+        apply_regalloc(backend);
+        target_triple = backend.TargetTriple();
+        asm_text = backend.EmitAssembly();
+        auto mc = backend.EmitObjectCode();
+
+        using SectionT = typename std::decay_t<decltype(mc.sections)>::value_type;
+        if (mc.sections.empty()) {
+            SectionT text;
+            text.name = ".text";
+            if constexpr (std::is_same_v<std::decay_t<decltype(backend)>, polyglot::backends::x86_64::X86Target>) {
+                text.data = {0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3};
+            } else {
+                // mov x0,#0; ret
+                text.data = {0x00, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6};
+            }
+            mc.sections.push_back(text);
+            mc.symbols.push_back({"_start", ".text", 0, static_cast<std::uint64_t>(text.data.size()), true, true});
+            std::cerr << "[warn] backend did not return sections; using stub\n";
+        }
+
+        // Map sections
+        sections.clear();
+        symbols.clear();
+        std::unordered_map<std::string, std::uint32_t> sec_index;
+        sections.reserve(mc.sections.size());
+        for (const auto &sec : mc.sections) {
+            ObjSection osec;
+            osec.name = sec.name;
+            osec.data = sec.data;
+            osec.bss = sec.bss;
+            sec_index[sec.name] = static_cast<std::uint32_t>(sections.size());
+            sections.push_back(std::move(osec));
+        }
+
+        // Build symbols
+        symbols.reserve(mc.symbols.size() + 1);
+        symbols.push_back({"_start", sec_index.count(".text") ? sec_index[".text"] : 0, 0,
+                          mc.sections.front().data.size(), true, true});
+        for (const auto &sym : mc.symbols) {
+            ObjSymbol osym;
+            osym.name = sym.name;
+            if (sym.defined && sec_index.count(sym.section)) {
+                osym.section_index = sec_index[sym.section];
+                osym.defined = true;
+            } else {
+                osym.section_index = 0xFFFFFFFF;
+                osym.defined = false;
+            }
+            osym.value = sym.value;
+            osym.size = sym.size;
+            osym.global = sym.global;
+            symbols.push_back(osym);
+        }
+
+        // Build symbol name -> index map
+        std::unordered_map<std::string, std::uint32_t> sym_index;
+        for (std::uint32_t i = 0; i < symbols.size(); ++i) sym_index[symbols[i].name] = i;
+
+        // Attach relocations to sections
+        for (const auto &r : mc.relocs) {
+            auto s_it = sec_index.find(r.section.empty() ? ".text" : r.section);
+            if (s_it == sec_index.end()) continue;
+            ObjReloc orr{};
+            orr.section_index = s_it->second;
+            orr.offset = r.offset;
+            orr.type = r.type;
+            auto sym_it = sym_index.find(r.symbol);
+            if (sym_it == sym_index.end()) {
+                ObjSymbol ext{};
+                ext.name = r.symbol;
+                ext.section_index = 0xFFFFFFFF;
+                ext.defined = false;
+                ext.global = true;
+                symbols.push_back(ext);
+                sym_index[ext.name] = static_cast<std::uint32_t>(symbols.size() - 1);
+                sym_it = sym_index.find(r.symbol);
+            }
+            orr.symbol_index = sym_it->second;
+            orr.addend = r.addend;
+            sections[orr.section_index].relocs.push_back(orr);
+        }
+    };
+
+    if (use_arm64) {
+        polyglot::backends::arm64::Arm64Target target(&ir_module);
+        run_backend(target);
+    } else {
+        polyglot::backends::x86_64::X86Target target(&ir_module);
+        run_backend(target);
+    }
 
     if (!settings.emit_ir_path.empty()) {
         std::ofstream ofs(settings.emit_ir_path);
@@ -846,78 +979,6 @@ int main(int argc, char **argv) {
     if (!settings.emit_asm_path.empty()) {
         std::ofstream ofs(settings.emit_asm_path);
         if (ofs.is_open()) ofs << asm_text;
-    }
-
-    auto mc = target.EmitObjectCode();
-    if (mc.sections.empty()) {
-        polyglot::backends::x86_64::X86Target::MCSection text;
-        text.name = ".text";
-        text.data = {0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3};
-        mc.sections.push_back(text);
-        mc.symbols.push_back({"_start", ".text", 0, static_cast<std::uint64_t>(text.data.size()), true, true});
-        std::cerr << "[warn] backend did not return sections; using stub\n";
-    }
-
-    // Map sections
-    std::vector<ObjSection> sections;
-    sections.reserve(mc.sections.size());
-    std::unordered_map<std::string, std::uint32_t> sec_index;
-    for (const auto &sec : mc.sections) {
-        ObjSection osec;
-        osec.name = sec.name;
-        osec.data = sec.data;
-        osec.bss = sec.bss;
-        sec_index[sec.name] = static_cast<std::uint32_t>(sections.size());
-        sections.push_back(std::move(osec));
-    }
-
-    // Build symbols
-    std::vector<ObjSymbol> symbols;
-    symbols.reserve(mc.symbols.size() + 1);
-    symbols.push_back({"_start", sec_index.count(".text") ? sec_index[".text"] : 0, 0,
-                      mc.sections.front().data.size(), true, true});
-    for (const auto &sym : mc.symbols) {
-        ObjSymbol osym;
-        osym.name = sym.name;
-        if (sym.defined && sec_index.count(sym.section)) {
-            osym.section_index = sec_index[sym.section];
-            osym.defined = true;
-        } else {
-            osym.section_index = 0xFFFFFFFF;
-            osym.defined = false;
-        }
-        osym.value = sym.value;
-        osym.size = sym.size;
-        osym.global = sym.global;
-        symbols.push_back(osym);
-    }
-
-    // Build symbol name -> index map
-    std::unordered_map<std::string, std::uint32_t> sym_index;
-    for (std::uint32_t i = 0; i < symbols.size(); ++i) sym_index[symbols[i].name] = i;
-
-    // Attach relocations to sections
-    for (const auto &r : mc.relocs) {
-        auto s_it = sec_index.find(r.section.empty() ? ".text" : r.section);
-        if (s_it == sec_index.end()) continue;
-        ObjReloc orr{};
-        orr.section_index = s_it->second;
-        orr.offset = r.offset;
-        orr.type = r.type;
-        auto sym_it = sym_index.find(r.symbol);
-        if (sym_it == sym_index.end()) {
-            ObjSymbol ext{};
-            ext.name = r.symbol;
-            ext.section_index = 0xFFFFFFFF;
-            ext.defined = false;
-            ext.global = true;
-            symbols.push_back(ext);
-            sym_index[ext.name] = static_cast<std::uint32_t>(symbols.size() - 1);
-            sym_it = sym_index.find(r.symbol);
-        }
-        orr.symbol_index = sym_it->second;
-        orr.addend = r.addend;
-        sections[orr.section_index].relocs.push_back(orr);
     }
 
     if (settings.mode == "compile" || settings.mode == "assemble") {
@@ -963,7 +1024,7 @@ int main(int argc, char **argv) {
         if (!emit_object_and_maybe_link(false)) return 1;
     }
 
-    std::cout << "Target: " << target.TargetTriple() << "\n";
+    std::cout << "Target: " << target_triple << "\n";
     polyglot_gc_unregister_root(&scratch);
     return 0;
 }
