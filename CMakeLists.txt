@@ -107,9 +107,13 @@ target_link_libraries(backend_x86_64 PUBLIC polyglot_common)
 add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
+    runtime/src/gc/gc_strategy.cpp
     runtime/src/interop/ffi.cpp
+    runtime/src/interop/memory.cpp
     runtime/src/libs/base.c
     runtime/src/libs/python_rt.c
+    runtime/src/services/exception.cpp
+    runtime/src/services/threading.cpp
 )
 
 target_include_directories(runtime PUBLIC
