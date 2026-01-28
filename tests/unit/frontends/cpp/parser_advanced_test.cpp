@@ -117,7 +117,12 @@ TEST_CASE("C++ parser parses richer class members and access", "[cpp][parser][cl
   auto ctor = std::dynamic_pointer_cast<FunctionDecl>(rec->methods[0]);
   REQUIRE(ctor);
   REQUIRE(ctor->is_constructor);
-  REQUIRE(!ctor->body.empty() || ctor->is_defaulted || ctor->is_deleted);
+  if (!ctor->body.empty()) {
+    REQUIRE(!ctor->body.empty());
+  } else {
+    bool ok = ctor->is_defaulted || ctor->is_deleted;
+    REQUIRE(ok);
+  }
   auto dtor = std::find_if(rec->methods.begin(), rec->methods.end(), [](const auto &m) {
     auto fn = std::dynamic_pointer_cast<FunctionDecl>(m);
     return fn && fn->is_destructor;

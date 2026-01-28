@@ -66,6 +66,28 @@ Register Resolve(const Operand &op, const AllocationResult &alloc) {
 
 int StackOffsetBytes(int slot) { return (slot + 1) * 16; }
 
+std::string FormatOperand(const Operand &op, const AllocationResult &alloc) {
+  switch (op.kind) {
+    case Operand::Kind::kPhysReg:
+      return RegisterName(op.phys);
+    case Operand::Kind::kVReg:
+      return RegisterName(Resolve(op, alloc));
+    case Operand::Kind::kImm:
+      return std::to_string(op.imm);
+    case Operand::Kind::kLabel:
+      return op.label;
+    case Operand::Kind::kMemVReg:
+      return "[" + RegisterName(Resolve(Operand::VReg(op.vreg), alloc)) + "]";
+    case Operand::Kind::kMemLabel:
+      return "[" + op.label + "]";
+    case Operand::Kind::kStackSlot: {
+      int offset = StackOffsetBytes(op.stack_slot);
+      return "[x29, -" + std::to_string(offset) + "]";
+    }
+  }
+  return "";
+}
+
 void EmitMovImm(std::vector<std::uint8_t> &out, Register dst, std::uint64_t imm) {
   // Use MOVZ, only handles 16-bit immediates for now.
   if (imm <= 0xFFFF) {
@@ -119,11 +141,98 @@ std::string Arm64Target::EmitAssembly() {
       for (const auto &mi : bb.instructions) {
         switch (mi.opcode) {
           case Opcode::kMov:
-            os << "  mov " << RegisterName(Resolve(mi.def >= 0 ? Operand::VReg(mi.def) : mi.operands[0], alloc)) << ", "
-               << (mi.operands[0].kind == Operand::Kind::kImm ? std::to_string(mi.operands[0].imm) : RegisterName(Resolve(mi.operands[0], alloc))) << "\n";
+            if (mi.operands.empty()) break;
+            os << "  mov "
+               << RegisterName(Resolve(mi.def >= 0 ? Operand::VReg(mi.def) : mi.operands[0], alloc)) << ", "
+               << FormatOperand(mi.operands[0], alloc) << "\n";
             break;
           case Opcode::kAdd:
-            os << "  add ...\n";
+            os << "  add " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kSub:
+            os << "  sub " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kMul:
+            os << "  mul " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kDiv:
+          case Opcode::kSDiv:
+            os << "  sdiv " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kUDiv:
+            os << "  udiv " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kRem:
+          case Opcode::kSRem: {
+            // dst = lhs - (lhs / rhs) * rhs
+            std::string dst = FormatOperand(Operand::VReg(mi.def), alloc);
+            std::string lhs = FormatOperand(mi.operands[0], alloc);
+            std::string rhs = FormatOperand(mi.operands[1], alloc);
+            os << "  sdiv x9, " << lhs << ", " << rhs << "\n";
+            os << "  msub " << dst << ", x9, " << rhs << ", " << lhs << "\n";
+            break;
+          }
+          case Opcode::kURem: {
+            std::string dst = FormatOperand(Operand::VReg(mi.def), alloc);
+            std::string lhs = FormatOperand(mi.operands[0], alloc);
+            std::string rhs = FormatOperand(mi.operands[1], alloc);
+            os << "  udiv x9, " << lhs << ", " << rhs << "\n";
+            os << "  msub " << dst << ", x9, " << rhs << ", " << lhs << "\n";
+            break;
+          }
+          case Opcode::kAnd:
+            os << "  and " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kOr:
+            os << "  orr " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kXor:
+            os << "  eor " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kShl:
+            os << "  lsl " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kLShr:
+            os << "  lsr " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kAShr:
+            os << "  asr " << FormatOperand(Operand::VReg(mi.def), alloc) << ", "
+               << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kCmp:
+            os << "  cmp " << FormatOperand(mi.operands[0], alloc) << ", " << FormatOperand(mi.operands[1], alloc) << "\n";
+            break;
+          case Opcode::kLoad:
+            os << "  ldr " << FormatOperand(Operand::VReg(mi.def), alloc) << ", " << FormatOperand(mi.operands[0], alloc) << "\n";
+            break;
+          case Opcode::kStore:
+            os << "  str " << FormatOperand(mi.operands[1], alloc) << ", " << FormatOperand(mi.operands[0], alloc) << "\n";
+            break;
+          case Opcode::kLea:
+            os << "  add " << FormatOperand(Operand::VReg(mi.def), alloc) << ", " << FormatOperand(mi.operands[0], alloc) << ", #0\n";
+            break;
+          case Opcode::kCall:
+            if (!mi.operands.empty()) os << "  bl " << FormatOperand(mi.operands.back(), alloc) << "\n";
+            break;
+          case Opcode::kRet:
+            os << "  ret\n";
+            break;
+          case Opcode::kJmp:
+            if (!mi.operands.empty()) os << "  b " << FormatOperand(mi.operands[0], alloc) << "\n";
+            break;
+          case Opcode::kJcc:
+            if (mi.operands.size() >= 1) os << "  b.ne " << FormatOperand(mi.operands[0], alloc) << "\n";
+            if (mi.operands.size() >= 2) os << "  b " << FormatOperand(mi.operands[1], alloc) << "\n";
             break;
           default:
             os << "  ; unhandled opcode\n";
@@ -243,13 +352,91 @@ Arm64Target::MCResult Arm64Target::EmitObjectCode() {
             break;
           }
           case Opcode::kMul: {
-            if (mi.operands.empty()) break;
-            Register dst = Resolve(mi.def >= 0 ? Operand::VReg(mi.def) : mi.operands[0], alloc);
-            Register src = Resolve(mi.operands[0], alloc);
-            std::uint32_t insn = 0x9B007C00;  // mul dst, dst, src
-            insn |= (RegCode(src) << 16);
-            insn |= (RegCode(dst) << 5);
+            if (mi.operands.size() < 2) break;
+            Register dst = Resolve(Operand::VReg(mi.def), alloc);
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            std::uint32_t insn = 0x9B007C00;  // MUL dst, lhs, rhs
+            insn |= (RegCode(rhs) << 16);
+            insn |= (RegCode(lhs) << 5);
             insn |= RegCode(dst);
+            Emit32(text_sec.data, insn);
+            break;
+          }
+          case Opcode::kAnd:
+          case Opcode::kOr:
+          case Opcode::kXor: {
+            if (mi.operands.size() < 2) break;
+            Register dst = Resolve(mi.def >= 0 ? Operand::VReg(mi.def) : mi.operands[0], alloc);
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            std::uint32_t insn = (mi.opcode == Opcode::kAnd) ? 0x8A000000 : (mi.opcode == Opcode::kOr ? 0xAA000000 : 0xCA000000);
+            insn |= (RegCode(rhs) << 16);
+            insn |= (RegCode(lhs) << 5);
+            insn |= RegCode(dst);
+            Emit32(text_sec.data, insn);
+            break;
+          }
+          case Opcode::kShl:
+          case Opcode::kLShr:
+          case Opcode::kAShr: {
+            if (mi.operands.size() < 2) break;
+            Register dst = Resolve(mi.def >= 0 ? Operand::VReg(mi.def) : mi.operands[0], alloc);
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            std::uint32_t insn = 0x9AC02000;  // LSLV
+            if (mi.opcode == Opcode::kLShr) insn = 0x9AC02400;  // LSRV
+            if (mi.opcode == Opcode::kAShr) insn = 0x9AC02800;  // ASRV
+            insn |= (RegCode(rhs) << 16);
+            insn |= (RegCode(lhs) << 5);
+            insn |= RegCode(dst);
+            Emit32(text_sec.data, insn);
+            break;
+          }
+          case Opcode::kDiv:
+          case Opcode::kSDiv:
+          case Opcode::kUDiv: {
+            if (mi.operands.size() < 2) break;
+            Register dst = Resolve(Operand::VReg(mi.def), alloc);
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            std::uint32_t insn = (mi.opcode == Opcode::kUDiv) ? 0x9AC00800 : 0x9AC00C00;  // UDIV / SDIV
+            insn |= (RegCode(rhs) << 16);
+            insn |= (RegCode(lhs) << 5);
+            insn |= RegCode(dst);
+            Emit32(text_sec.data, insn);
+            break;
+          }
+          case Opcode::kRem:
+          case Opcode::kSRem:
+          case Opcode::kURem: {
+            if (mi.operands.size() < 2) break;
+            Register dst = Resolve(Operand::VReg(mi.def), alloc);
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            Register q = Register::kX9;  // scratch quotient
+            std::uint32_t div_insn = (mi.opcode == Opcode::kURem) ? 0x9AC00800 : 0x9AC00C00;  // UDIV/SDIV q, lhs, rhs
+            div_insn |= (RegCode(rhs) << 16);
+            div_insn |= (RegCode(lhs) << 5);
+            div_insn |= RegCode(q);
+            Emit32(text_sec.data, div_insn);
+
+            // MSUB dst, q, rhs, lhs => dst = lhs - q*rhs
+            std::uint32_t msub = 0x9B008000;  // MSUB x0, x0, x0, x0 base
+            msub |= (RegCode(rhs) << 16);
+            msub |= (RegCode(q) << 10);
+            msub |= (RegCode(lhs) << 5);
+            msub |= RegCode(dst);
+            Emit32(text_sec.data, msub);
+            break;
+          }
+          case Opcode::kCmp: {
+            if (mi.operands.size() < 2) break;
+            Register lhs = Resolve(mi.operands[0], alloc);
+            Register rhs = Resolve(mi.operands[1], alloc);
+            std::uint32_t insn = 0xEB00001F;  // CMP (SUBS xzr, lhs, rhs)
+            insn |= (RegCode(rhs) << 16);
+            insn |= (RegCode(lhs) << 5);
             Emit32(text_sec.data, insn);
             break;
           }

@@ -80,14 +80,69 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
       EmitBinary(mi, alloc, stack_bytes, os, "imul");
       break;
     case Opcode::kDiv:
-      EmitBinary(mi, alloc, stack_bytes, os, "idiv");
+    case Opcode::kSDiv: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      os << "  mov rax, " << lhs << "\n";
+      os << "  cqo\n";
+      os << "  idiv " << rhs << "\n";
+      if (dst != "rax") os << "  mov " << dst << ", rax\n";
       break;
+    }
+    case Opcode::kUDiv: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      os << "  mov rax, " << lhs << "\n";
+      os << "  xor rdx, rdx\n";
+      os << "  div " << rhs << "\n";
+      if (dst != "rax") os << "  mov " << dst << ", rax\n";
+      break;
+    }
     case Opcode::kAnd:
       EmitBinary(mi, alloc, stack_bytes, os, "and");
       break;
     case Opcode::kOr:
       EmitBinary(mi, alloc, stack_bytes, os, "or");
       break;
+    case Opcode::kXor:
+      EmitBinary(mi, alloc, stack_bytes, os, "xor");
+      break;
+    case Opcode::kShl:
+      EmitBinary(mi, alloc, stack_bytes, os, "shl");
+      break;
+    case Opcode::kLShr:
+      EmitBinary(mi, alloc, stack_bytes, os, "shr");
+      break;
+    case Opcode::kAShr:
+      EmitBinary(mi, alloc, stack_bytes, os, "sar");
+      break;
+    case Opcode::kRem:
+    case Opcode::kSRem: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      os << "  mov rax, " << lhs << "\n";
+      os << "  cqo\n";
+      os << "  idiv " << rhs << "\n";
+      if (dst != "rdx") os << "  mov " << dst << ", rdx\n";
+      break;
+    }
+    case Opcode::kURem: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      os << "  mov rax, " << lhs << "\n";
+      os << "  xor rdx, rdx\n";
+      os << "  div " << rhs << "\n";
+      if (dst != "rdx") os << "  mov " << dst << ", rdx\n";
+      break;
+    }
     case Opcode::kCmp: {
       if (mi.operands.size() < 2) break;
       std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
@@ -175,7 +230,8 @@ std::string X86Target::EmitAssembly() {
   }
 
   CostModel cost_model;
-  std::vector<Register> available = {Register::kRax, Register::kRbx, Register::kRcx, Register::kRdx};
+  // Reserve RCX for literal materialization in div/rem emission; do not allocate it.
+  std::vector<Register> available = {Register::kRax, Register::kRbx, Register::kRdx};
 
   for (auto &fn : module_->Functions()) {
     auto mf = SelectInstructions(*fn, cost_model);
@@ -232,7 +288,8 @@ X86Target::MCResult X86Target::EmitObjectCode() {
   if (!module_ || module_->Functions().empty()) return result;
 
   CostModel cost_model;
-  std::vector<Register> available = {Register::kRax, Register::kRbx, Register::kRcx, Register::kRdx};
+  // Reserve RCX for literal materialization in div/rem emission; do not allocate it.
+  std::vector<Register> available = {Register::kRax, Register::kRbx, Register::kRdx};
 
   // Gather text section data and symbols across all functions.
   MCSection text_sec;
@@ -324,6 +381,99 @@ X86Target::MCResult X86Target::EmitObjectCode() {
             text_sec.data.push_back(0x0F);
             text_sec.data.push_back(0xAF);
             text_sec.data.push_back(ModRM(0b11, RegCode(src_reg), RegCode(Register::kRax)));
+            break;
+          }
+          case Opcode::kDiv:
+          case Opcode::kSDiv:
+          case Opcode::kUDiv:
+          case Opcode::kRem:
+          case Opcode::kSRem:
+          case Opcode::kURem: {
+            if (mi.operands.size() < 2) break;
+            const auto &lhs = mi.operands[0];
+            const auto &rhs = mi.operands[1];
+
+            auto emit_mov_reg_reg = [&](Register dst, Register src) {
+              text_sec.data.push_back(0x48);
+              text_sec.data.push_back(0x89);
+              text_sec.data.push_back(ModRM(0b11, RegCode(src), RegCode(dst)));
+            };
+            auto emit_mov_imm_reg = [&](Register dst, std::int32_t imm) {
+              text_sec.data.push_back(0x48);
+              text_sec.data.push_back(static_cast<std::uint8_t>(0xB8 + RegCode(dst)));
+              for (int i = 0; i < 4; ++i) text_sec.data.push_back(static_cast<std::uint8_t>((imm >> (i * 8)) & 0xFF));
+            };
+            auto emit_load_stack_to_reg = [&](Register dst, int slot) {
+              int offset = StackOffsetBytes(slot);
+              text_sec.data.push_back(0x48);
+              text_sec.data.push_back(0x8B);
+              if (offset <= 127) {
+                text_sec.data.push_back(ModRM(0b01, RegCode(dst), RegCode(Register::kRbp)));
+                text_sec.data.push_back(static_cast<std::uint8_t>(-offset));
+              } else {
+                text_sec.data.push_back(ModRM(0b10, RegCode(dst), RegCode(Register::kRbp)));
+                std::int32_t disp = -offset;
+                for (int i = 0; i < 4; ++i) text_sec.data.push_back(static_cast<std::uint8_t>((disp >> (i * 8)) & 0xFF));
+              }
+            };
+            auto emit_div_rm = [&](std::uint8_t div_opcode, const Operand &op) {
+              text_sec.data.push_back(0x48);
+              text_sec.data.push_back(0xF7);
+              if (op.kind == Operand::Kind::kVReg || op.kind == Operand::Kind::kPhysReg) {
+                Register reg = Resolve(op, alloc);
+                text_sec.data.push_back(ModRM(0b11, div_opcode, RegCode(reg)));
+              } else if (op.kind == Operand::Kind::kStackSlot) {
+                int offset = StackOffsetBytes(op.stack_slot);
+                if (offset <= 127) {
+                  text_sec.data.push_back(ModRM(0b01, div_opcode, RegCode(Register::kRbp)));
+                  text_sec.data.push_back(static_cast<std::uint8_t>(-offset));
+                } else {
+                  text_sec.data.push_back(ModRM(0b10, div_opcode, RegCode(Register::kRbp)));
+                  std::int32_t disp = -offset;
+                  for (int i = 0; i < 4; ++i) text_sec.data.push_back(static_cast<std::uint8_t>((disp >> (i * 8)) & 0xFF));
+                }
+              }
+            };
+
+            // Move lhs into RAX
+            if (lhs.kind == Operand::Kind::kImm) {
+              emit_mov_imm_reg(Register::kRax, static_cast<std::int32_t>(lhs.imm));
+            } else if (lhs.kind == Operand::Kind::kStackSlot) {
+              emit_load_stack_to_reg(Register::kRax, lhs.stack_slot);
+            } else {
+              emit_mov_reg_reg(Register::kRax, Resolve(lhs, alloc));
+            }
+
+            bool signed_op = (mi.opcode == Opcode::kDiv || mi.opcode == Opcode::kSDiv || mi.opcode == Opcode::kRem || mi.opcode == Opcode::kSRem);
+
+            // Prepare RDX
+            if (signed_op) {
+              text_sec.data.push_back(0x48);  // cqo
+              text_sec.data.push_back(0x99);
+            } else {
+              text_sec.data.push_back(0x48);  // xor rdx, rdx
+              text_sec.data.push_back(0x31);
+              text_sec.data.push_back(0xD2);
+            }
+
+            // If rhs is immediate, move to RCX as scratch
+            Operand rhs_op = rhs;
+            if (rhs.kind == Operand::Kind::kImm) {
+              emit_mov_imm_reg(Register::kRcx, static_cast<std::int32_t>(rhs.imm));
+              rhs_op = Operand::Phys(Register::kRcx);
+            }
+
+            // Emit div/idiv r/m64
+            std::uint8_t div_opcode = signed_op ? 0b111 : 0b110;  // /7 for idiv, /6 for div
+            emit_div_rm(div_opcode, rhs_op);
+
+            // Move result to def if needed
+            if (mi.def >= 0) {
+              Register dst = Resolve(Operand::VReg(mi.def), alloc);
+              bool is_rem = (mi.opcode == Opcode::kRem || mi.opcode == Opcode::kSRem || mi.opcode == Opcode::kURem);
+              Register src = is_rem ? Register::kRdx : Register::kRax;
+              if (dst != src) emit_mov_reg_reg(dst, src);
+            }
             break;
           }
           case Opcode::kLoad: {

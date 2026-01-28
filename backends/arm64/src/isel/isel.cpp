@@ -24,15 +24,40 @@ void SetCost(MachineInstr &mi, const CostModel &model) {
 }
 
 Opcode ToOpcode(ir::BinaryInstruction::Op op) {
+  using Op = ir::BinaryInstruction::Op;
   switch (op) {
-    case ir::BinaryInstruction::Op::kAdd: return Opcode::kAdd;
-    case ir::BinaryInstruction::Op::kSub: return Opcode::kSub;
-    case ir::BinaryInstruction::Op::kMul: return Opcode::kMul;
-    case ir::BinaryInstruction::Op::kDiv: return Opcode::kDiv;
-    case ir::BinaryInstruction::Op::kAnd: return Opcode::kAnd;
-    case ir::BinaryInstruction::Op::kOr: return Opcode::kOr;
-    case ir::BinaryInstruction::Op::kCmpEq:
-    case ir::BinaryInstruction::Op::kCmpLt: return Opcode::kCmp;
+    case Op::kAdd: return Opcode::kAdd;
+    case Op::kSub: return Opcode::kSub;
+    case Op::kMul: return Opcode::kMul;
+    case Op::kDiv:
+    case Op::kSDiv: return Opcode::kSDiv;
+    case Op::kUDiv: return Opcode::kUDiv;
+    case Op::kRem:
+    case Op::kSRem: return Opcode::kSRem;
+    case Op::kURem: return Opcode::kURem;
+    case Op::kAnd: return Opcode::kAnd;
+    case Op::kOr: return Opcode::kOr;
+    case Op::kXor: return Opcode::kXor;
+    case Op::kShl: return Opcode::kShl;
+    case Op::kLShr: return Opcode::kLShr;
+    case Op::kAShr: return Opcode::kAShr;
+    case Op::kCmpEq:
+    case Op::kCmpNe:
+    case Op::kCmpUlt:
+    case Op::kCmpUle:
+    case Op::kCmpUgt:
+    case Op::kCmpUge:
+    case Op::kCmpSlt:
+    case Op::kCmpSle:
+    case Op::kCmpSgt:
+    case Op::kCmpSge:
+    case Op::kCmpFoe:
+    case Op::kCmpFne:
+    case Op::kCmpFlt:
+    case Op::kCmpFle:
+    case Op::kCmpFgt:
+    case Op::kCmpFge:
+    case Op::kCmpLt: return Opcode::kCmp;
   }
   return Opcode::kAdd;
 }
@@ -44,9 +69,13 @@ int CostModel::Cost(Opcode op) const {
     case Opcode::kAdd:
     case Opcode::kSub:
     case Opcode::kMov:
+    case Opcode::kShl:
+    case Opcode::kLShr:
+    case Opcode::kAShr:
       return 1;
     case Opcode::kAnd:
     case Opcode::kOr:
+    case Opcode::kXor:
     case Opcode::kCmp:
     case Opcode::kLoad:
     case Opcode::kStore:
@@ -55,6 +84,11 @@ int CostModel::Cost(Opcode op) const {
     case Opcode::kMul:
       return 3;
     case Opcode::kDiv:
+    case Opcode::kSDiv:
+    case Opcode::kUDiv:
+    case Opcode::kRem:
+    case Opcode::kSRem:
+    case Opcode::kURem:
       return 8;
     case Opcode::kCall:
       return 12;
@@ -71,6 +105,11 @@ int CostModel::Latency(Opcode op) const {
     case Opcode::kMul:
       return 4;
     case Opcode::kDiv:
+    case Opcode::kSDiv:
+    case Opcode::kUDiv:
+    case Opcode::kRem:
+    case Opcode::kSRem:
+    case Opcode::kURem:
       return 10;
     case Opcode::kLoad:
     case Opcode::kStore:

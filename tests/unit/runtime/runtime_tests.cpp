@@ -12,6 +12,10 @@
 #include "runtime/include/services/exception.h"
 #include "runtime/include/services/threading.h"
 
+extern "C" {
+#include "runtime/include/libs/base.h"
+}
+
 using namespace polyglot::runtime;
 
 TEST_CASE("Runtime error captures stack trace", "[runtime][exception]") {

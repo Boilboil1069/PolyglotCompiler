@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void *polyglot_memcpy(void *dest, const void *src, size_t size);
 int polyglot_memcmp(const void *lhs, const void *rhs, size_t size);
 void *polyglot_memset(void *dest, int value, size_t size);
@@ -14,9 +18,6 @@ int polyglot_strcmp(const char *lhs, const char *rhs);
 int polyglot_strncmp(const char *lhs, const char *rhs, size_t n);
 
 // GC-backed allocation helpers exposed with C linkage for runtimes.
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 void *polyglot_alloc(size_t size);
 void polyglot_gc_collect();

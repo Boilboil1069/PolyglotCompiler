@@ -165,6 +165,7 @@ add_executable(polyasm
 
 target_link_libraries(polyasm
     backend_x86_64
+    backend_arm64
     middle_ir
     polyglot_common
 )
@@ -184,6 +185,7 @@ add_executable(polyopt
 target_link_libraries(polyopt
     middle_ir
     backend_x86_64
+    backend_arm64
     polyglot_common
 )
 
@@ -195,3 +197,20 @@ target_link_libraries(polyrt
     runtime
     polyglot_common
 )
+
+file(GLOB_RECURSE UNIT_TEST_SOURCES tests/unit/*.cpp)
+add_executable(unit_tests ${UNIT_TEST_SOURCES})
+target_link_libraries(unit_tests PRIVATE
+    polyglot_common
+    frontend_python
+    frontend_cpp
+    frontend_rust
+    middle_ir
+    backend_x86_64
+    backend_arm64
+    runtime
+    Catch2::Catch2
+    Catch2::Catch2WithMain
+)
+enable_testing()
+add_test(NAME unit_tests COMMAND unit_tests)
