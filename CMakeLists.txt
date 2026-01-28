@@ -75,9 +75,11 @@ add_library(middle_ir
     middle/src/ir/ir_context.cpp
     middle/src/ir/cfg.cpp
     middle/src/ir/analysis.cpp
+    middle/src/ir/data_layout.cpp
     middle/src/ir/ssa.cpp
     middle/src/ir/verifier.cpp
     middle/src/ir/printer.cpp
+    middle/src/ir/parser.cpp
     middle/src/ir/passes/opt.cpp
     middle/src/passes/pass_manager.cpp
     middle/src/passes/optimizations/constant_fold.cpp

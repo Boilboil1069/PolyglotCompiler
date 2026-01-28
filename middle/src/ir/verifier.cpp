@@ -7,10 +7,13 @@
 #include <vector>
 
 #include "middle/include/ir/cfg.h"
+#include "middle/include/ir/data_layout.h"
 
 namespace polyglot::ir {
 
 namespace {
+bool IsPowerOfTwo(size_t v) { return v && ((v & (v - 1)) == 0); }
+
 bool Fail(const std::string &reason, std::string *msg) {
 	if (msg) *msg = reason;
 	return false;
@@ -26,16 +29,110 @@ IRType LookupType(const std::string &name, const std::unordered_map<std::string,
 	return it == types.end() ? IRType::Invalid() : it->second;
 }
 
-bool CheckBinary(const BinaryInstruction &bin, const IRType &lhs, const IRType &rhs, std::string *msg) {
-	const bool is_cmp = bin.op == BinaryInstruction::Op::kCmpEq || bin.op == BinaryInstruction::Op::kCmpLt;
-	if (!(lhs.IsScalar() && rhs.IsScalar())) return Fail("binary operands must be scalar", msg);
-	if (!lhs.SameShape(rhs)) return Fail("binary operands type mismatch", msg);
-	if (is_cmp) {
-		if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
-		return true;
+size_t NaturalAlign(const IRType &type, const DataLayout *layout) {
+	if (layout) return layout->AlignOf(type);
+	switch (type.kind) {
+		case IRTypeKind::kI1:
+		case IRTypeKind::kI8: return 1;
+		case IRTypeKind::kI16: return 2;
+		case IRTypeKind::kI32:
+		case IRTypeKind::kF32: return 4;
+		case IRTypeKind::kI64:
+		case IRTypeKind::kF64: return 8;
+		case IRTypeKind::kPointer:
+		case IRTypeKind::kReference: return 8;
+		case IRTypeKind::kArray:
+		case IRTypeKind::kVector: {
+			if (type.subtypes.empty()) return 1;
+			return NaturalAlign(type.subtypes[0], layout);
+		}
+		case IRTypeKind::kStruct: {
+			size_t max_align = 1;
+			for (auto &f : type.subtypes) {
+				max_align = std::max(max_align, NaturalAlign(f, layout));
+			}
+			return max_align == 0 ? 1 : max_align;
+		}
+		case IRTypeKind::kFunction:
+		case IRTypeKind::kInvalid:
+		case IRTypeKind::kVoid:
+		default:
+			return 1;
 	}
-	if (!bin.type.SameShape(lhs)) return Fail("binary result type mismatch", msg);
-	return true;
+}
+
+bool CheckBinary(const BinaryInstruction &bin, const IRType &lhs, const IRType &rhs, std::string *msg) {
+	const auto require_same_scalar = [&]() -> bool {
+		if (!(lhs.IsScalar() && rhs.IsScalar())) return Fail("binary operands must be scalar", msg);
+		if (!lhs.SameShape(rhs)) return Fail("binary operands type mismatch", msg);
+		return true;
+	};
+	const auto require_int = [&]() -> bool {
+		if (!lhs.IsInteger() || !rhs.IsInteger()) return Fail("binary operands must be integer", msg);
+		if (!lhs.SameShape(rhs)) return Fail("binary operands type mismatch", msg);
+		return true;
+	};
+	const auto require_float = [&]() -> bool {
+		if (!lhs.IsFloat() || !rhs.IsFloat()) return Fail("binary operands must be float", msg);
+		if (!lhs.SameShape(rhs)) return Fail("binary operands type mismatch", msg);
+		return true;
+	};
+
+	switch (bin.op) {
+		case BinaryInstruction::Op::kAdd:
+		case BinaryInstruction::Op::kSub:
+		case BinaryInstruction::Op::kMul:
+			if (!require_same_scalar()) return false;
+			if (!bin.type.SameShape(lhs)) return Fail("binary result type mismatch", msg);
+			return true;
+		case BinaryInstruction::Op::kDiv:
+		case BinaryInstruction::Op::kSDiv:
+		case BinaryInstruction::Op::kUDiv:
+		case BinaryInstruction::Op::kRem:
+		case BinaryInstruction::Op::kSRem:
+		case BinaryInstruction::Op::kURem:
+			if (!require_int()) return false;
+			if (!bin.type.SameShape(lhs)) return Fail("binary result type mismatch", msg);
+			return true;
+		case BinaryInstruction::Op::kAnd:
+		case BinaryInstruction::Op::kOr:
+		case BinaryInstruction::Op::kXor:
+		case BinaryInstruction::Op::kShl:
+		case BinaryInstruction::Op::kLShr:
+		case BinaryInstruction::Op::kAShr:
+			if (!require_int()) return false;
+			if (!bin.type.SameShape(lhs)) return Fail("binary result type mismatch", msg);
+			return true;
+		case BinaryInstruction::Op::kCmpEq:
+		case BinaryInstruction::Op::kCmpNe:
+			if (!require_same_scalar()) return false;
+			if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
+			return true;
+		case BinaryInstruction::Op::kCmpUlt:
+		case BinaryInstruction::Op::kCmpUle:
+		case BinaryInstruction::Op::kCmpUgt:
+		case BinaryInstruction::Op::kCmpUge:
+			if (!require_int()) return false;
+			if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
+			return true;
+		case BinaryInstruction::Op::kCmpSlt:
+		case BinaryInstruction::Op::kCmpSle:
+		case BinaryInstruction::Op::kCmpSgt:
+		case BinaryInstruction::Op::kCmpSge:
+			if (!require_int()) return false;
+			if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
+			return true;
+		case BinaryInstruction::Op::kCmpFoe:
+		case BinaryInstruction::Op::kCmpFne:
+		case BinaryInstruction::Op::kCmpFlt:
+		case BinaryInstruction::Op::kCmpFle:
+		case BinaryInstruction::Op::kCmpFgt:
+		case BinaryInstruction::Op::kCmpFge:
+			if (!require_float()) return false;
+			if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
+			return true;
+	}
+	return Fail("unknown binary op", msg);
 }
 
 bool CheckCast(const CastInstruction &cast, const IRType &src, std::string *msg) {
@@ -53,41 +150,111 @@ bool CheckCast(const CastInstruction &cast, const IRType &src, std::string *msg)
 		case CastInstruction::CastKind::kBitcast:
 			if (!src.CanBitcastTo(dst)) return Fail("illegal bitcast", msg);
 			return true;
+		case CastInstruction::CastKind::kFpExt:
+			if (!src.IsFloat() || !dst.IsFloat()) return Fail("fpext requires float types", msg);
+			if (!src.CanLosslesslyConvertTo(dst)) return Fail("fpext must widen", msg);
+			return true;
+		case CastInstruction::CastKind::kFpTrunc:
+			if (!src.IsFloat() || !dst.IsFloat()) return Fail("fptrunc requires float types", msg);
+			if (!dst.CanLosslesslyConvertTo(src)) return Fail("fptrunc must narrow", msg);
+			return true;
+		case CastInstruction::CastKind::kIntToPtr:
+			if (!src.IsInteger()) return Fail("inttoptr requires integer source", msg);
+			if (dst.kind != IRTypeKind::kPointer && dst.kind != IRTypeKind::kReference) return Fail("inttoptr requires pointer dest", msg);
+			return true;
+		case CastInstruction::CastKind::kPtrToInt:
+			if (src.kind != IRTypeKind::kPointer && src.kind != IRTypeKind::kReference) return Fail("ptrtoint requires pointer source", msg);
+			if (!dst.IsInteger()) return Fail("ptrtoint requires integer dest", msg);
+			return true;
 	}
 	return Fail("unknown cast kind", msg);
 }
 
-bool CheckGEP(const GetElementPtrInstruction &gep, const IRType &base_ptr, std::string *msg) {
+bool CheckGEP(const GetElementPtrInstruction &gep, const IRType &base_ptr, const DataLayout *layout, std::string *msg) {
+	if (!(base_ptr.kind == IRTypeKind::kPointer || base_ptr.kind == IRTypeKind::kReference)) {
+		return Fail("gep base is not a pointer", msg);
+	}
+	if (base_ptr.subtypes.empty()) return Fail("gep base missing pointee", msg);
+
 	IRType cur = base_ptr;
+	size_t offset = 0;
+	size_t cur_align = 1;
 	for (size_t idx : gep.indices) {
 		switch (cur.kind) {
 			case IRTypeKind::kPointer:
 			case IRTypeKind::kReference:
 				if (cur.subtypes.empty()) return Fail("gep on pointer with unknown pointee", msg);
 				cur = cur.subtypes[0];
+				if (layout) {
+					cur_align = layout->AlignOf(cur);
+				}
 				break;
 			case IRTypeKind::kArray:
 			case IRTypeKind::kVector:
+				if (cur.count == 0) return Fail("gep on zero-length aggregate", msg);
 				if (idx >= cur.count) return Fail("gep index out of bounds", msg);
 				if (cur.subtypes.empty()) return Fail("gep on array/vector with unknown element", msg);
+				if (layout) {
+					size_t elem_size = layout->SizeOf(cur.subtypes[0]);
+					size_t elem_align = layout->AlignOf(cur.subtypes[0]);
+					if (elem_size == 0) return Fail("gep element has zero size", msg);
+					offset += idx * elem_size;
+					cur_align = std::max(cur_align, elem_align);
+				}
 				cur = cur.subtypes[0];
 				break;
 			case IRTypeKind::kStruct:
 				if (idx >= cur.subtypes.size()) return Fail("gep struct field out of bounds", msg);
+				if (layout) {
+					size_t field_off = 0;
+					size_t struct_align = 1;
+					for (size_t i = 0; i < cur.subtypes.size(); ++i) {
+						size_t a = layout->AlignOf(cur.subtypes[i]);
+						size_t s = layout->SizeOf(cur.subtypes[i]);
+						struct_align = std::max(struct_align, a);
+						field_off = (field_off + (a - 1)) / a * a; // align up
+						if (i == idx) {
+							offset += field_off;
+							cur_align = std::max(cur_align, a);
+							break;
+						}
+						field_off += s;
+					}
+				}
 				cur = cur.subtypes[idx];
 				break;
 			default:
 				return Fail("gep on non-aggregate", msg);
 		}
 	}
+
 	IRType expect = IRType::Pointer(cur);
 	if (!expect.SameShape(gep.type)) return Fail("gep result type mismatch", msg);
+
+	// If layout exists, ensure we can compute size/align of the final pointee (not used yet for offset, but rejects unsized types).
+	if (layout) {
+		size_t align = layout->AlignOf(cur);
+		size_t size = layout->SizeOf(cur);
+		if (size == 0 && cur.kind != IRTypeKind::kFunction && cur.kind != IRTypeKind::kVoid && cur.kind != IRTypeKind::kInvalid) {
+			return Fail("gep result has unsized type", msg);
+		}
+		if (align == 0) {
+			return Fail("gep result has invalid alignment", msg);
+		}
+		( void )offset;  // offset computed for validation; could be used later
+	}
+
 	return true;
 }
 }  // namespace
 
 bool Verify(const Function &func, std::string *msg) {
+	return Verify(func, nullptr, msg);
+}
+
+bool Verify(const Function &func, const DataLayout *layout, std::string *msg) {
 	if (!func.entry) return Fail("function has no entry block", msg);
+	if (func.ret_type.kind == IRTypeKind::kInvalid) return Fail("function missing return type", msg);
 
 	std::unordered_set<const BasicBlock *> block_set;
 	std::unordered_set<std::string> block_names;
@@ -97,6 +264,43 @@ bool Verify(const Function &func, std::string *msg) {
 	}
 	if (block_set.count(func.entry) == 0) return Fail("entry block not in function blocks", msg);
 
+	std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>> succs;
+	std::unordered_map<const BasicBlock *, std::vector<const BasicBlock *>> preds;
+	auto add_edge = [&](const BasicBlock *from, const BasicBlock *to) -> bool {
+		if (!to) return Fail("edge targets null block", msg);
+		if (block_set.count(to) == 0) return Fail("terminator targets block outside function", msg);
+		succs[from].push_back(to);
+		preds[to].push_back(from);
+		return true;
+	};
+
+	for (auto &bb_ptr : func.blocks) {
+		auto *bb = bb_ptr.get();
+		if (!bb->terminator) return Fail("block missing terminator: " + bb->name, msg);
+		auto *term = bb->terminator.get();
+		if (auto *br = dynamic_cast<BranchStatement *>(term)) {
+			if (!br->target) return Fail("branch missing target in block " + bb->name, msg);
+			if (!add_edge(bb, br->target)) return false;
+		} else if (auto *cbr = dynamic_cast<CondBranchStatement *>(term)) {
+			if (!cbr->true_target || !cbr->false_target) return Fail("condbr missing target in block " + bb->name, msg);
+			if (!add_edge(bb, cbr->true_target)) return false;
+			if (!add_edge(bb, cbr->false_target)) return false;
+		} else if (auto *sw = dynamic_cast<SwitchStatement *>(term)) {
+			for (auto &c : sw->cases) {
+				if (!c.target) return Fail("switch case missing target in block " + bb->name, msg);
+				if (!add_edge(bb, c.target)) return false;
+			}
+			if (!sw->default_target) return Fail("switch missing default target in block " + bb->name, msg);
+			if (!add_edge(bb, sw->default_target)) return false;
+		} else if (dynamic_cast<UnreachableStatement *>(term)) {
+			// no successors
+		} else if (dynamic_cast<ReturnStatement *>(term)) {
+			// no successors
+		} else {
+			return Fail("unknown terminator in block " + bb->name, msg);
+		}
+	}
+
 	// Reachability
 	std::unordered_set<const BasicBlock *> reachable;
 	std::queue<const BasicBlock *> q;
@@ -105,28 +309,117 @@ bool Verify(const Function &func, std::string *msg) {
 	while (!q.empty()) {
 		auto *b = q.front();
 		q.pop();
-		for (auto *succ : b->successors) {
+		auto it = succs.find(b);
+		if (it == succs.end()) continue;
+		for (auto *succ : it->second) {
 			if (reachable.insert(succ).second) q.push(succ);
 		}
 	}
-	for (auto *b : block_set) {
-		if (!reachable.count(b)) return Fail("unreachable block: " + b->name, msg);
+	// Unreachable blocks are allowed but skipped in dominance checks; still validated for typing/structure below.
+	std::vector<const BasicBlock *> reachable_list(reachable.begin(), reachable.end());
+
+	// Compute immediate dominators for reachable blocks.
+	std::unordered_map<const BasicBlock *, int> rpo_index;
+	{
+		std::vector<const BasicBlock *> rpo;
+		std::unordered_set<const BasicBlock *> visited;
+		std::vector<const BasicBlock *> stack{func.entry};
+		while (!stack.empty()) {
+			const BasicBlock *n = stack.back();
+			stack.pop_back();
+			if (visited.count(n)) continue;
+			visited.insert(n);
+			rpo.push_back(n);
+			auto it = succs.find(n);
+			if (it != succs.end()) {
+				for (auto *succ : it->second) {
+					if (reachable.count(succ) && !visited.count(succ)) stack.push_back(succ);
+				}
+			}
+		}
+		std::reverse(rpo.begin(), rpo.end());
+		for (size_t i = 0; i < rpo.size(); ++i) rpo_index[rpo[i]] = static_cast<int>(i);
 	}
+
+	auto Intersect = [&](const BasicBlock *b1, const BasicBlock *b2, const std::unordered_map<const BasicBlock *, const BasicBlock *> &idom) {
+		const BasicBlock *i1 = b1;
+		const BasicBlock *i2 = b2;
+		while (i1 != i2) {
+			while (rpo_index.at(i1) < rpo_index.at(i2)) i1 = idom.at(i1);
+			while (rpo_index.at(i2) < rpo_index.at(i1)) i2 = idom.at(i2);
+		}
+		return i1;
+	};
+
+	std::unordered_map<const BasicBlock *, const BasicBlock *> idom;
+	if (!reachable.empty()) {
+		idom[func.entry] = func.entry;
+		bool changed = true;
+		while (changed) {
+			changed = false;
+			for (auto *b : reachable) {
+				if (b == func.entry) continue;
+				const BasicBlock *new_idom = nullptr;
+				auto pred_it = preds.find(b);
+				if (pred_it == preds.end()) continue;
+				for (auto *p : pred_it->second) {
+					if (!reachable.count(p)) continue;
+					auto id_it = idom.find(p);
+					if (id_it == idom.end()) continue;
+					if (!new_idom) {
+						new_idom = p;
+					} else {
+						new_idom = Intersect(p, new_idom, idom);
+					}
+				}
+				if (!new_idom) continue;
+				if (idom[b] != new_idom) {
+					idom[b] = new_idom;
+					changed = true;
+				}
+			}
+		}
+	}
+
+	auto Dominates = [&](const BasicBlock *a, const BasicBlock *b) {
+		if (a == b) return true;
+		auto it = idom.find(b);
+		if (it == idom.end()) return false;
+		const BasicBlock *runner = it->second;
+		while (runner && runner != a) {
+			auto it2 = idom.find(runner);
+			if (it2 == idom.end()) return false;
+			if (it2->second == runner) break;  // reached entry without finding a
+			runner = it2->second;
+		}
+		return runner == a;
+	};
 
 	// Collect definitions (params are treated as pre-defined names with unknown type)
 	std::unordered_set<std::string> defs(func.params.begin(), func.params.end());
 	std::unordered_map<std::string, IRType> types;
-	for (const auto &p : func.params) types[p] = IRType::Invalid();
+	for (size_t i = 0; i < func.params.size(); ++i) {
+		IRType param_ty = (i < func.param_types.size()) ? func.param_types[i] : IRType::Invalid();
+		types[func.params[i]] = param_ty;
+	}
+	struct DefLoc {
+		const BasicBlock *block;
+		int index;  // order within block, params use -1
+	};
+	std::unordered_map<std::string, DefLoc> def_locs;
+	for (const auto &p : func.params) {
+		def_locs[p] = {nullptr, -1};
+	}
 
 	for (auto &bb_ptr : func.blocks) {
 		auto *bb = bb_ptr.get();
-		// terminator presence and uniqueness
-		if (!bb->terminator) return Fail("block missing terminator: " + bb->name, msg);
+		int order = 0;
 
 		for (auto &phi : bb->phis) {
 			if (phi->HasResult()) {
 				if (!defs.insert(phi->name).second) return Fail("duplicate SSA name: " + phi->name, msg);
 				types[phi->name] = phi->type;
+				def_locs[phi->name] = {bb, order++};
 			}
 		}
 
@@ -137,46 +430,60 @@ bool Verify(const Function &func, std::string *msg) {
 			if (inst->HasResult()) {
 				if (!defs.insert(inst->name).second) return Fail("duplicate SSA name: " + inst->name, msg);
 				types[inst->name] = inst->type;
+				def_locs[inst->name] = {bb, order++};
 			}
 		}
 		seen_terminator = bb->terminator != nullptr;
 
-		// predecessor/successor consistency
-		for (auto *succ : bb->successors) {
-			bool back = false;
-			for (auto *pred : succ->predecessors) {
-				if (pred == bb) {
-					back = true;
-					break;
-				}
+		// operand checks for instructions and terminator
+		auto check_dom_use = [&](const std::string &op, const BasicBlock *use_block, int use_index, const BasicBlock *incoming_pred) -> bool {
+			auto it = def_locs.find(op);
+			if (it == def_locs.end()) return true;  // undefined handled elsewhere
+			const DefLoc &def = it->second;
+			if (def.block == nullptr) return true;  // params dominate all
+			if (!reachable.count(use_block)) return true;  // skip dominance for unreachable uses
+			if (!reachable.count(def.block)) return true;   // def unreachable; skip dominance
+			if (incoming_pred) {
+				const BasicBlock *pred = incoming_pred;
+				if (!reachable.count(pred)) return true;
+				if (def.block == pred) return true;
+				if (!Dominates(def.block, pred)) return Fail("phi incoming not dominated by definition: " + op, msg);
+				return true;
 			}
-			if (!back) return Fail("successor missing back-edge from predecessor in block " + bb->name, msg);
-		}
-		for (auto *pred : bb->predecessors) {
-			bool fwd = false;
-			for (auto *succ : pred->successors) {
-				if (succ == bb) {
-					fwd = true;
-					break;
-				}
+			if (def.block == use_block) {
+				if (def.index >= use_index) return Fail("use before def in block " + use_block->name + " for value " + op, msg);
+				return true;
 			}
-			if (!fwd) return Fail("predecessor missing forward-edge to block " + bb->name, msg);
-		}
+			if (!Dominates(def.block, use_block)) return Fail("use not dominated by definition in block " + use_block->name + " for value " + op, msg);
+			return true;
+		};
 
+		auto check_operands = [&](const Instruction &inst, int use_index) -> bool {
+			for (const auto &op : inst.operands) {
+				if (!IsDefined(op, defs)) return Fail("use of undefined value: " + op + " in block " + bb->name, msg);
+				if (!check_dom_use(op, bb, use_index, nullptr)) return false;
+			}
+			return true;
+		};
+
+		const auto pred_it = preds.find(bb);
+		std::vector<const BasicBlock *> empty_preds;
+		const auto &pred_list = (pred_it == preds.end()) ? empty_preds : pred_it->second;
 		// phi incoming must match predecessors (count and order)
 		for (auto &phi : bb->phis) {
-			if (phi->incomings.size() != bb->predecessors.size()) {
+			if (phi->incomings.size() != pred_list.size()) {
 				return Fail("phi incoming count mismatch predecessors in block " + bb->name, msg);
 			}
 			for (size_t i = 0; i < phi->incomings.size(); ++i) {
 				auto &inc = phi->incomings[i];
 				if (!inc.first) return Fail("phi missing predecessor in block " + bb->name, msg);
-				if (inc.first != bb->predecessors[i]) {
+				if (i >= pred_list.size() || inc.first != pred_list[i]) {
 					return Fail("phi predecessor order mismatch in block " + bb->name, msg);
 				}
 				if (!IsDefined(inc.second, defs)) {
 					return Fail("phi uses undefined value " + inc.second + " in block " + bb->name, msg);
 				}
+				if (!check_dom_use(inc.second, bb, 0, inc.first)) return false;
 				if (phi->HasResult()) {
 					IRType inc_ty = LookupType(inc.second, types);
 					if (!inc_ty.SameShape(phi->type)) {
@@ -186,16 +493,9 @@ bool Verify(const Function &func, std::string *msg) {
 			}
 		}
 
-		// operand checks for instructions and terminator
-		auto check_operands = [&](const Instruction &inst) -> bool {
-			for (const auto &op : inst.operands) {
-				if (!IsDefined(op, defs)) return Fail("use of undefined value: " + op + " in block " + bb->name, msg);
-			}
-			return true;
-		};
-
+		int inst_use_index = static_cast<int>(bb->phis.size());
 		for (auto &inst : bb->instructions) {
-			if (!check_operands(*inst)) return false;
+			if (!check_operands(*inst, inst_use_index)) return false;
 
 			if (auto *bin = dynamic_cast<BinaryInstruction *>(inst.get())) {
 				if (bin->operands.size() < 2) return Fail("binary missing operands in block " + bb->name, msg);
@@ -212,6 +512,10 @@ bool Verify(const Function &func, std::string *msg) {
 				}
 				if (ptr_ty.subtypes.empty()) return Fail("load pointer missing pointee type in block " + bb->name, msg);
 				if (!ld->type.SameShape(ptr_ty.subtypes[0])) return Fail("load type mismatch pointee in block " + bb->name, msg);
+				size_t natural = NaturalAlign(ptr_ty.subtypes[0], layout);
+				size_t requested = ld->align ? ld->align : natural;
+				if (!IsPowerOfTwo(requested)) return Fail("load alignment not power of two in block " + bb->name, msg);
+				if (requested < natural) return Fail("load alignment smaller than natural in block " + bb->name, msg);
 			}
 
 			if (auto *st = dynamic_cast<StoreInstruction *>(inst.get())) {
@@ -223,12 +527,47 @@ bool Verify(const Function &func, std::string *msg) {
 				}
 				if (ptr_ty.subtypes.empty()) return Fail("store pointer missing pointee type in block " + bb->name, msg);
 				if (!ptr_ty.subtypes[0].SameShape(val_ty)) return Fail("store value type mismatch pointee in block " + bb->name, msg);
+				size_t natural = NaturalAlign(ptr_ty.subtypes[0], layout);
+				size_t requested = st->align ? st->align : natural;
+				if (!IsPowerOfTwo(requested)) return Fail("store alignment not power of two in block " + bb->name, msg);
+				if (requested < natural) return Fail("store alignment smaller than natural in block " + bb->name, msg);
 			}
 
 			if (auto *cast = dynamic_cast<CastInstruction *>(inst.get())) {
 				if (cast->operands.size() < 1) return Fail("cast missing operand in block " + bb->name, msg);
 				IRType src_ty = LookupType(cast->operands[0], types);
 				if (!CheckCast(*cast, src_ty, msg)) return false;
+			}
+
+			if (auto *mc = dynamic_cast<MemcpyInstruction *>(inst.get())) {
+				if (mc->operands.size() < 3) return Fail("memcpy missing operands in block " + bb->name, msg);
+				IRType dst_ty = LookupType(mc->operands[0], types);
+				IRType src_ty = LookupType(mc->operands[1], types);
+				IRType size_ty = LookupType(mc->operands[2], types);
+				if (!(dst_ty.kind == IRTypeKind::kPointer || dst_ty.kind == IRTypeKind::kReference)) return Fail("memcpy dst not pointer", msg);
+				if (!(src_ty.kind == IRTypeKind::kPointer || src_ty.kind == IRTypeKind::kReference)) return Fail("memcpy src not pointer", msg);
+				if (!size_ty.IsInteger()) return Fail("memcpy size not integer", msg);
+				if (!dst_ty.subtypes.empty() && !src_ty.subtypes.empty() && !dst_ty.subtypes[0].SameShape(src_ty.subtypes[0])) {
+					return Fail("memcpy src/dst pointee mismatch", msg);
+				}
+				size_t natural = dst_ty.subtypes.empty() ? 1 : NaturalAlign(dst_ty.subtypes[0], layout);
+				size_t requested = mc->align ? mc->align : natural;
+				if (!IsPowerOfTwo(requested)) return Fail("memcpy alignment not power of two in block " + bb->name, msg);
+				if (requested < natural) return Fail("memcpy alignment smaller than natural in block " + bb->name, msg);
+			}
+
+			if (auto *ms = dynamic_cast<MemsetInstruction *>(inst.get())) {
+				if (ms->operands.size() < 3) return Fail("memset missing operands in block " + bb->name, msg);
+				IRType dst_ty = LookupType(ms->operands[0], types);
+				IRType val_ty = LookupType(ms->operands[1], types);
+				IRType size_ty = LookupType(ms->operands[2], types);
+				if (!(dst_ty.kind == IRTypeKind::kPointer || dst_ty.kind == IRTypeKind::kReference)) return Fail("memset dst not pointer", msg);
+				if (!val_ty.IsInteger()) return Fail("memset value not integer", msg);
+				if (!size_ty.IsInteger()) return Fail("memset size not integer", msg);
+				size_t natural = dst_ty.subtypes.empty() ? 1 : NaturalAlign(dst_ty.subtypes[0], layout);
+				size_t requested = ms->align ? ms->align : natural;
+				if (!IsPowerOfTwo(requested)) return Fail("memset alignment not power of two in block " + bb->name, msg);
+				if (requested < natural) return Fail("memset alignment smaller than natural in block " + bb->name, msg);
 			}
 
 			if (auto *gep = dynamic_cast<GetElementPtrInstruction *>(inst.get())) {
@@ -241,28 +580,67 @@ bool Verify(const Function &func, std::string *msg) {
 				if (!expect_source.SameShape(gep->source_type)) {
 					return Fail("gep source_type mismatch base pointee in block " + bb->name, msg);
 				}
-				if (!CheckGEP(*gep, base_ptr, msg)) return false;
+				if (!CheckGEP(*gep, base_ptr, layout, msg)) return false;
 			}
 
 			if (auto *call = dynamic_cast<CallInstruction *>(inst.get())) {
-				IRType callee_ty = LookupType(call->callee, types);
-				IRType fn_ty = callee_ty;
-				if (fn_ty.kind == IRTypeKind::kPointer || fn_ty.kind == IRTypeKind::kReference) {
-					if (!fn_ty.subtypes.empty()) fn_ty = fn_ty.subtypes[0];
-				}
-				if (fn_ty.kind == IRTypeKind::kFunction) {
-					if (fn_ty.count != call->operands.size()) return Fail("call arg count mismatch", msg);
-					if (!call->type.SameShape(fn_ty.subtypes[0])) return Fail("call return type mismatch", msg);
-					for (size_t i = 0; i < call->operands.size(); ++i) {
-						IRType arg_ty = LookupType(call->operands[i], types);
-						if (!arg_ty.SameShape(fn_ty.subtypes[i + 1])) return Fail("call arg type mismatch", msg);
+				IRType fn_ty = call->callee_type;
+				if (fn_ty.kind == IRTypeKind::kInvalid) {
+					IRType callee_ty = LookupType(call->callee, types);
+					fn_ty = callee_ty;
+					if (fn_ty.kind == IRTypeKind::kPointer || fn_ty.kind == IRTypeKind::kReference) {
+						if (!fn_ty.subtypes.empty()) fn_ty = fn_ty.subtypes[0];
 					}
+					if (fn_ty.kind == IRTypeKind::kInvalid) return Fail("call callee has unknown type", msg);
+				}
+				if (fn_ty.kind != IRTypeKind::kFunction) return Fail("call callee is not a function", msg);
+				const size_t param_count = fn_ty.count;
+				if (!call->is_vararg && param_count != call->operands.size()) return Fail("call arg count mismatch", msg);
+				if (call->is_vararg && call->operands.size() < param_count) return Fail("call vararg missing fixed args", msg);
+				if (!call->type.SameShape(fn_ty.subtypes[0])) return Fail("call return type mismatch", msg);
+				for (size_t i = 0; i < std::min(call->operands.size(), fn_ty.subtypes.size() - 1); ++i) {
+					IRType arg_ty = LookupType(call->operands[i], types);
+					if (!arg_ty.SameShape(fn_ty.subtypes[i + 1])) return Fail("call arg type mismatch", msg);
 				}
 			}
+			++inst_use_index;
 		}
 
 		if (bb->terminator) {
-			if (!check_operands(*bb->terminator)) return false;
+			if (!check_operands(*bb->terminator, inst_use_index)) return false;
+			if (auto *ret = dynamic_cast<ReturnStatement *>(bb->terminator.get())) {
+				const IRType fn_ret = func.ret_type;
+				if (fn_ret.kind == IRTypeKind::kVoid) {
+					if (!ret->operands.empty()) return Fail("return with value in void function in block " + bb->name, msg);
+				} else {
+					if (ret->operands.size() != 1) return Fail("return missing value in non-void function in block " + bb->name, msg);
+					IRType val_ty = LookupType(ret->operands[0], types);
+					if (!val_ty.SameShape(fn_ret)) return Fail("return value type mismatch in block " + bb->name, msg);
+				}
+			}
+
+			if (auto *br = dynamic_cast<BranchStatement *>(bb->terminator.get())) {
+				if (!br->target) return Fail("branch missing target in block " + bb->name, msg);
+			}
+
+			if (auto *cbr = dynamic_cast<CondBranchStatement *>(bb->terminator.get())) {
+				if (cbr->operands.size() < 1) return Fail("condbr missing condition in block " + bb->name, msg);
+				IRType cond_ty = LookupType(cbr->operands[0], types);
+				if (cond_ty.kind != IRTypeKind::kI1) return Fail("condbr condition must be i1 in block " + bb->name, msg);
+				if (!cbr->true_target || !cbr->false_target) return Fail("condbr missing target in block " + bb->name, msg);
+			}
+
+			if (auto *sw = dynamic_cast<SwitchStatement *>(bb->terminator.get())) {
+				if (sw->operands.size() < 1) return Fail("switch missing operand in block " + bb->name, msg);
+				IRType scrut_ty = LookupType(sw->operands[0], types);
+				if (!scrut_ty.IsInteger()) return Fail("switch operand must be integer in block " + bb->name, msg);
+				if (!sw->default_target) return Fail("switch missing default target in block " + bb->name, msg);
+				std::unordered_set<long long> seen_cases;
+				for (auto &c : sw->cases) {
+					if (!c.target) return Fail("switch case missing target in block " + bb->name, msg);
+					if (!seen_cases.insert(c.value).second) return Fail("duplicate switch case value in block " + bb->name, msg);
+				}
+			}
 		}
 	}
 
@@ -271,7 +649,7 @@ bool Verify(const Function &func, std::string *msg) {
 
 bool Verify(const IRContext &ctx, std::string *msg) {
 	for (auto &fn : ctx.Functions()) {
-		if (!Verify(*fn, msg)) return false;
+		if (!Verify(*fn, &ctx.Layout(), msg)) return false;
 	}
 	return true;
 }

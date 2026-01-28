@@ -28,6 +28,9 @@ struct Function {
   std::vector<std::shared_ptr<BasicBlock>> blocks{};
   BasicBlock *entry{nullptr};
   std::vector<std::string> params{};
+  std::vector<IRType> param_types{};
+  IRType ret_type{IRType::Invalid()};
+  IRType function_type{IRType::Invalid()};
 
   BasicBlock *CreateBlock(const std::string &block_name);
 };

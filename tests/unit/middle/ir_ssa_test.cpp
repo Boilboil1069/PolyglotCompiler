@@ -1,5 +1,4 @@
-#define CATCH_CONFIG_MAIN
-#include <catch2/catch_test_macros.hpp>
+#include "deps/catch2/catch_test_macros.hpp"
 
 #include "middle/include/ir/cfg.h"
 #include "middle/include/ir/ir_context.h"
@@ -8,9 +7,7 @@
 using namespace polyglot::ir;
 
 namespace {
-std::shared_ptr<AssignInstruction> MakeAssign(BasicBlock *bb, const std::string &name,
-                                             const std::vector<std::string> &operands,
-                                             IRType type = IRType::Invalid()) {
+std::shared_ptr<AssignInstruction> MakeAssign(BasicBlock *bb, const std::string &name, const std::vector<std::string> &operands, IRType type = IRType::Invalid()) {
   auto inst = std::make_shared<AssignInstruction>();
   inst->name = name;
   inst->operands = operands;
@@ -20,8 +17,7 @@ std::shared_ptr<AssignInstruction> MakeAssign(BasicBlock *bb, const std::string 
   return inst;
 }
 
-std::shared_ptr<CondBranchStatement> MakeCond(BasicBlock *bb, const std::string &cond,
-                                             BasicBlock *t, BasicBlock *f) {
+std::shared_ptr<CondBranchStatement> MakeCond(BasicBlock *bb, const std::string &cond, BasicBlock *t, BasicBlock *f) {
   auto br = std::make_shared<CondBranchStatement>();
   br->operands = {cond};
   br->true_target = t;

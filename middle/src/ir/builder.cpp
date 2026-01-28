@@ -15,10 +15,16 @@ IRType ComputeGEPType(const IRType &base_type, const std::vector<size_t> &indice
 }
 
 std::shared_ptr<BasicBlock> IRBuilder::GetOrCreateEntryBlock() {
+  return CurrentBlock();
+}
+
+std::shared_ptr<BasicBlock> IRBuilder::CurrentBlock() {
+  if (insert_block_) return insert_block_;
   auto fn = context_.DefaultFunction();
   auto bb = context_.DefaultBlock();
   if (!fn->entry) fn->entry = bb.get();
-  return bb;
+  insert_block_ = bb;
+  return insert_block_;
 }
 
 std::string IRBuilder::NextTempName(const std::string &hint) {
@@ -33,7 +39,7 @@ std::shared_ptr<LiteralExpression> IRBuilder::MakeLiteral(long long value, const
 }
 
 std::shared_ptr<AllocaInstruction> IRBuilder::MakeAlloca(const IRType &type, const std::string &name) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<AllocaInstruction>();
   inst->type = IRType::Pointer(type);
   inst->name = name.empty() ? NextTempName("p") : name;
@@ -43,21 +49,24 @@ std::shared_ptr<AllocaInstruction> IRBuilder::MakeAlloca(const IRType &type, con
 }
 
 std::shared_ptr<LoadInstruction> IRBuilder::MakeLoad(const std::string &addr, const IRType &type,
-                                                    const std::string &name) {
-  auto bb = GetOrCreateEntryBlock();
+                                                    const std::string &name, size_t align) {
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<LoadInstruction>();
   inst->operands = {addr};
   inst->type = type;
   inst->name = name.empty() ? NextTempName("ld") : name;
+  inst->align = align;
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
 }
 
-std::shared_ptr<StoreInstruction> IRBuilder::MakeStore(const std::string &addr, const std::string &value) {
-  auto bb = GetOrCreateEntryBlock();
+std::shared_ptr<StoreInstruction> IRBuilder::MakeStore(const std::string &addr, const std::string &value,
+                                                      size_t align) {
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<StoreInstruction>();
   inst->operands = {addr, value};
+  inst->align = align;
   inst->parent = bb.get();
   bb->AddInstruction(inst);
   return inst;
@@ -67,7 +76,7 @@ std::shared_ptr<CastInstruction> IRBuilder::MakeCast(CastInstruction::CastKind k
                                                     const std::string &value,
                                                     const IRType &dest_type,
                                                     const std::string &name) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<CastInstruction>();
   inst->cast = kind;
   inst->operands = {value};
@@ -81,12 +90,16 @@ std::shared_ptr<CastInstruction> IRBuilder::MakeCast(CastInstruction::CastKind k
 std::shared_ptr<CallInstruction> IRBuilder::MakeCall(const std::string &callee,
                                                     const std::vector<std::string> &args,
                                                     const IRType &ret_type,
-                                                    const std::string &name) {
-  auto bb = GetOrCreateEntryBlock();
+                                                    const std::string &name,
+                                                    const IRType &fn_type,
+                                                    bool is_vararg) {
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<CallInstruction>();
   inst->callee = callee;
   inst->operands = args;
   inst->type = ret_type;
+  inst->callee_type = fn_type;
+  inst->is_vararg = is_vararg;
   inst->name = ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("call") : name);
   inst->parent = bb.get();
   bb->AddInstruction(inst);
@@ -97,7 +110,7 @@ std::shared_ptr<GetElementPtrInstruction> IRBuilder::MakeGEP(const std::string &
                                                             const IRType &base_type,
                                                             const std::vector<size_t> &indices,
                                                             const std::string &name) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<GetElementPtrInstruction>();
   inst->operands = {base};
   inst->source_type = base_type;
@@ -109,11 +122,45 @@ std::shared_ptr<GetElementPtrInstruction> IRBuilder::MakeGEP(const std::string &
   return inst;
 }
 
+std::shared_ptr<MemcpyInstruction> IRBuilder::MakeMemcpy(const std::string &dst, const std::string &src, const std::string &size_name, size_t align) {
+  auto bb = CurrentBlock();
+  auto inst = std::make_shared<MemcpyInstruction>();
+  inst->operands = {dst, src, size_name};
+  inst->align = align;
+  inst->parent = bb.get();
+  bb->AddInstruction(inst);
+  return inst;
+}
+
+std::shared_ptr<MemsetInstruction> IRBuilder::MakeMemset(const std::string &dst, const std::string &value, const std::string &size_name, size_t align) {
+  auto bb = CurrentBlock();
+  auto inst = std::make_shared<MemsetInstruction>();
+  inst->operands = {dst, value, size_name};
+  inst->align = align;
+  inst->parent = bb.get();
+  bb->AddInstruction(inst);
+  return inst;
+}
+
+std::shared_ptr<UnreachableStatement> IRBuilder::MakeUnreachable() {
+  auto bb = CurrentBlock();
+  auto ur = std::make_shared<UnreachableStatement>();
+  ur->parent = bb.get();
+  bb->SetTerminator(ur);
+  return ur;
+}
+
+std::shared_ptr<Function> IRBuilder::CreateFunction(const std::string &name, const IRType &ret,
+                                                    const std::vector<std::pair<std::string, IRType>> &params) {
+  insert_block_.reset();  // reset insertion point for new function
+  return context_.CreateFunction(name, ret, params);
+}
+
 std::shared_ptr<BinaryInstruction> IRBuilder::MakeBinary(BinaryInstruction::Op op,
                                                         const std::string &lhs,
                                                         const std::string &rhs,
                                                         const std::string &result) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto inst = std::make_shared<BinaryInstruction>();
   inst->op = op;
   inst->operands = {lhs, rhs};
@@ -124,7 +171,7 @@ std::shared_ptr<BinaryInstruction> IRBuilder::MakeBinary(BinaryInstruction::Op o
 }
 
 std::shared_ptr<Statement> IRBuilder::MakeReturn(const std::string &value_name) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto ret = std::make_shared<ReturnStatement>();
   if (!value_name.empty()) ret->operands.push_back(value_name);
   ret->parent = bb.get();
@@ -133,7 +180,7 @@ std::shared_ptr<Statement> IRBuilder::MakeReturn(const std::string &value_name) 
 }
 
 std::shared_ptr<BranchStatement> IRBuilder::MakeBranch(BasicBlock *target) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto br = std::make_shared<BranchStatement>();
   br->target = target;
   br->parent = bb.get();
@@ -144,7 +191,7 @@ std::shared_ptr<BranchStatement> IRBuilder::MakeBranch(BasicBlock *target) {
 std::shared_ptr<CondBranchStatement> IRBuilder::MakeCondBranch(const std::string &cond,
                                                               BasicBlock *true_bb,
                                                               BasicBlock *false_bb) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto br = std::make_shared<CondBranchStatement>();
   br->operands = {cond};
   br->true_target = true_bb;
@@ -157,7 +204,7 @@ std::shared_ptr<CondBranchStatement> IRBuilder::MakeCondBranch(const std::string
 std::shared_ptr<SwitchStatement> IRBuilder::MakeSwitch(const std::string &value,
                                                       const std::vector<SwitchStatement::Case> &cases,
                                                       BasicBlock *default_bb) {
-  auto bb = GetOrCreateEntryBlock();
+  auto bb = CurrentBlock();
   auto sw = std::make_shared<SwitchStatement>();
   sw->operands = {value};
   sw->cases = cases;

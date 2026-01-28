@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "middle/include/ir/cfg.h"
+#include "middle/include/ir/data_layout.h"
 #include "middle/include/ir/nodes/expressions.h"
 #include "middle/include/ir/nodes/statements.h"
 
@@ -12,7 +13,11 @@ namespace polyglot::ir {
 
 class IRContext {
  public:
+  explicit IRContext(DataLayout::Arch arch = DataLayout::Arch::kX86_64) : layout_(arch) {}
+
   std::shared_ptr<Function> CreateFunction(const std::string &name);
+  std::shared_ptr<Function> CreateFunction(const std::string &name, const IRType &ret,
+                                          const std::vector<std::pair<std::string, IRType>> &params);
   std::shared_ptr<GlobalValue> CreateGlobal(const std::string &name, const IRType &type,
                                            bool is_const = false, const std::string &init = "",
                                            std::shared_ptr<Value> initializer = nullptr);
@@ -26,11 +31,15 @@ class IRContext {
   const std::vector<std::shared_ptr<Function>> &Functions() const { return functions_; }
   const std::vector<std::shared_ptr<GlobalValue>> &Globals() const { return globals_; }
 
+  const DataLayout &Layout() const { return layout_; }
+  DataLayout &Layout() { return layout_; }
+
  private:
   std::vector<std::shared_ptr<Function>> functions_{};
   std::shared_ptr<Function> default_function_{};
   std::shared_ptr<BasicBlock> default_block_{};
   std::vector<std::shared_ptr<GlobalValue>> globals_{};
+  DataLayout layout_;
 };
 
 }  // namespace polyglot::ir

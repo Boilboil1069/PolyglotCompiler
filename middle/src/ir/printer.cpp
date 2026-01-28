@@ -5,6 +5,57 @@
 namespace polyglot::ir {
 
 namespace {
+std::string BinOpToString(BinaryInstruction::Op op) {
+  switch (op) {
+    case BinaryInstruction::Op::kAdd: return "add";
+    case BinaryInstruction::Op::kSub: return "sub";
+    case BinaryInstruction::Op::kMul: return "mul";
+    case BinaryInstruction::Op::kDiv:
+    case BinaryInstruction::Op::kSDiv: return "sdiv";
+    case BinaryInstruction::Op::kUDiv: return "udiv";
+    case BinaryInstruction::Op::kRem:
+    case BinaryInstruction::Op::kSRem: return "srem";
+    case BinaryInstruction::Op::kURem: return "urem";
+    case BinaryInstruction::Op::kAnd: return "and";
+    case BinaryInstruction::Op::kOr: return "or";
+    case BinaryInstruction::Op::kXor: return "xor";
+    case BinaryInstruction::Op::kShl: return "shl";
+    case BinaryInstruction::Op::kLShr: return "lshr";
+    case BinaryInstruction::Op::kAShr: return "ashr";
+    case BinaryInstruction::Op::kCmpEq: return "cmpeq";
+    case BinaryInstruction::Op::kCmpNe: return "cmpne";
+    case BinaryInstruction::Op::kCmpUlt: return "cmpult";
+    case BinaryInstruction::Op::kCmpUle: return "cmpule";
+    case BinaryInstruction::Op::kCmpUgt: return "cmpugt";
+    case BinaryInstruction::Op::kCmpUge: return "cmpuge";
+    case BinaryInstruction::Op::kCmpSlt: return "cmpslt";
+    case BinaryInstruction::Op::kCmpSle: return "cmpsle";
+    case BinaryInstruction::Op::kCmpSgt: return "cmpsgt";
+    case BinaryInstruction::Op::kCmpSge: return "cmpsge";
+    case BinaryInstruction::Op::kCmpFoe: return "cmpfoe";
+    case BinaryInstruction::Op::kCmpFne: return "cmpfne";
+    case BinaryInstruction::Op::kCmpFlt: return "cmpflt";
+    case BinaryInstruction::Op::kCmpFle: return "cmpfle";
+    case BinaryInstruction::Op::kCmpFgt: return "cmpfgt";
+    case BinaryInstruction::Op::kCmpFge: return "cmpfge";
+  }
+  return "bin";
+}
+
+std::string CastToString(CastInstruction::CastKind kind) {
+  switch (kind) {
+    case CastInstruction::CastKind::kZExt: return "zext";
+    case CastInstruction::CastKind::kSExt: return "sext";
+    case CastInstruction::CastKind::kTrunc: return "trunc";
+    case CastInstruction::CastKind::kBitcast: return "bitcast";
+    case CastInstruction::CastKind::kFpExt: return "fpext";
+    case CastInstruction::CastKind::kFpTrunc: return "fptrunc";
+    case CastInstruction::CastKind::kIntToPtr: return "inttoptr";
+    case CastInstruction::CastKind::kPtrToInt: return "ptrtoint";
+  }
+  return "cast";
+}
+
 std::string TypeToString(const IRType &t) {
   switch (t.kind) {
     case IRTypeKind::kPointer:
@@ -37,6 +88,7 @@ std::string TypeToString(const IRType &t) {
     case IRTypeKind::kInvalid:
     case IRTypeKind::kI1:
     case IRTypeKind::kI8:
+    case IRTypeKind::kI16:
     case IRTypeKind::kI32:
     case IRTypeKind::kI64:
     case IRTypeKind::kF32:
@@ -58,9 +110,8 @@ void PrintInst(const Instruction &inst, std::ostream &os) {
     os << inst.name << " = ";
   }
   if (auto bin = dynamic_cast<const BinaryInstruction *>(&inst)) {
-    os << "bin(" << static_cast<int>(bin->op) << ": ";
+    os << BinOpToString(bin->op) << " ";
     print_ops(bin->operands);
-    os << ")";
   } else if (auto phi = dynamic_cast<const PhiInstruction *>(&inst)) {
     os << "phi ";
     for (size_t i = 0; i < phi->incomings.size(); ++i) {
@@ -72,16 +123,23 @@ void PrintInst(const Instruction &inst, std::ostream &os) {
     os << "call " << (call->is_indirect ? "*" : "") << call->callee << "(";
     print_ops(call->operands);
     os << ")";
+    if (call->callee_type.kind == IRTypeKind::kFunction || call->is_vararg) {
+      os << " [fn " << TypeToString(call->callee_type);
+      if (call->is_vararg) os << " vararg";
+      os << "]";
+    }
   } else if (dynamic_cast<const AllocaInstruction *>(&inst)) {
     os << "alloca";
   } else if (auto ld = dynamic_cast<const LoadInstruction *>(&inst)) {
     os << "load ";
     print_ops(ld->operands);
+    if (ld->align) os << " align " << ld->align;
   } else if (auto st = dynamic_cast<const StoreInstruction *>(&inst)) {
     os << "store ";
     print_ops(st->operands);
+    if (st->align) os << " align " << st->align;
   } else if (auto cast = dynamic_cast<const CastInstruction *>(&inst)) {
-    os << "cast " << static_cast<int>(cast->cast) << " ";
+    os << CastToString(cast->cast) << " ";
     print_ops(cast->operands);
   } else if (auto gep = dynamic_cast<const GetElementPtrInstruction *>(&inst)) {
     os << "gep " << (gep->operands.empty() ? "" : gep->operands[0]) << " [";
@@ -90,6 +148,7 @@ void PrintInst(const Instruction &inst, std::ostream &os) {
       os << gep->indices[i];
     }
     os << "]";
+    if (gep->inbounds) os << " inbounds";
   } else if (dynamic_cast<const ReturnStatement *>(&inst)) {
     os << "ret";
     if (!inst.operands.empty()) {
@@ -107,6 +166,16 @@ void PrintInst(const Instruction &inst, std::ostream &os) {
       os << " " << c.value << " -> " << (c.target ? c.target->name : "<null>");
     }
     os << " default -> " << (sw->default_target ? sw->default_target->name : "<null>") << " }";
+  } else if (dynamic_cast<const MemcpyInstruction *>(&inst)) {
+    os << "memcpy ";
+    print_ops(inst.operands);
+    if (static_cast<const MemcpyInstruction &>(inst).align) os << " align " << static_cast<const MemcpyInstruction &>(inst).align;
+  } else if (dynamic_cast<const MemsetInstruction *>(&inst)) {
+    os << "memset ";
+    print_ops(inst.operands);
+    if (static_cast<const MemsetInstruction &>(inst).align) os << " align " << static_cast<const MemsetInstruction &>(inst).align;
+  } else if (dynamic_cast<const UnreachableStatement *>(&inst)) {
+    os << "unreachable";
   } else {
     os << "inst";
   }

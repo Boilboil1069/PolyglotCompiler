@@ -7,6 +7,23 @@ namespace polyglot::ir {
 std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name) {
   auto fn = std::make_shared<Function>();
   fn->name = name;
+  fn->ret_type = IRType::Void();
+  fn->function_type = IRType::Function(fn->ret_type, fn->param_types);
+  functions_.push_back(fn);
+  return fn;
+}
+
+std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name, const IRType &ret, const std::vector<std::pair<std::string, IRType>> &params) {
+  auto fn = std::make_shared<Function>();
+  fn->name = name;
+  fn->ret_type = ret;
+  fn->params.reserve(params.size());
+  fn->param_types.reserve(params.size());
+  for (auto &p : params) {
+    fn->params.push_back(p.first);
+    fn->param_types.push_back(p.second);
+  }
+  fn->function_type = IRType::Function(ret, fn->param_types);
   functions_.push_back(fn);
   return fn;
 }
