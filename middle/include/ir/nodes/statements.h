@@ -31,6 +31,11 @@ struct BinaryInstruction : Instruction {
     kSRem,
     kURem,
     kRem,   // legacy alias: treated as signed rem
+    kFAdd,  // Floating-point add
+    kFSub,  // Floating-point subtract
+    kFMul,  // Floating-point multiply
+    kFDiv,  // Floating-point divide
+    kFRem,  // Floating-point remainder
     kAnd,
     kOr,
     kXor,
@@ -47,12 +52,12 @@ struct BinaryInstruction : Instruction {
     kCmpSle,
     kCmpSgt,
     kCmpSge,
-    kCmpFoe,
-    kCmpFne,
-    kCmpFlt,
-    kCmpFle,
-    kCmpFgt,
-    kCmpFge,
+    kCmpFoe,  // Floating-point ordered equal
+    kCmpFne,  // Floating-point ordered not equal
+    kCmpFlt,  // Floating-point ordered less than
+    kCmpFle,  // Floating-point ordered less than or equal
+    kCmpFgt,  // Floating-point ordered greater than
+    kCmpFge,  // Floating-point ordered greater than or equal
     kCmpLt
   };
   Op op {Op::kAdd};
@@ -143,6 +148,66 @@ struct SwitchStatement : Instruction {
 struct UnreachableStatement : Instruction {
   UnreachableStatement() { type = IRType::Void(); }
   bool IsTerminator() const override { return true; }
+};
+
+// Exception handling instructions
+struct InvokeInstruction : Instruction {
+  std::string callee;
+  BasicBlock *normal_dest{nullptr};  // Success continuation
+  BasicBlock *unwind_dest{nullptr};  // Exception landing pad
+  bool is_indirect{false};
+  IRType callee_type{IRType::Invalid()};
+};
+
+struct LandingPadInstruction : Instruction {
+  bool is_cleanup{false};  // Is this a cleanup landing pad?
+  std::vector<IRType> catch_types;  // Types this pad catches
+  LandingPadInstruction() { type = IRType::Invalid(); }
+};
+
+struct ResumeInstruction : Instruction {
+  ResumeInstruction() { type = IRType::Void(); }
+  bool IsTerminator() const override { return true; }
+};
+
+// SIMD/Vector instructions
+struct VectorInstruction : Instruction {
+  enum class VecOp {
+    // Arithmetic
+    kVecAdd,
+    kVecSub,
+    kVecMul,
+    kVecDiv,
+    kVecFAdd,
+    kVecFSub,
+    kVecFMul,
+    kVecFDiv,
+    // Logical
+    kVecAnd,
+    kVecOr,
+    kVecXor,
+    // Comparison
+    kVecCmpEq,
+    kVecCmpNe,
+    kVecCmpLt,
+    kVecCmpLe,
+    kVecCmpGt,
+    kVecCmpGe,
+    // Special operations
+    kVecShuffle,
+    kVecBroadcast,
+    kVecExtract,
+    kVecInsert,
+    kVecMin,
+    kVecMax,
+    kVecSqrt,
+    kVecRcp,   // Reciprocal
+    kVecRsqrt  // Reciprocal square root
+  };
+  VecOp op{VecOp::kVecAdd};
+  std::vector<int> shuffle_mask;  // For shuffle operation
+  int extract_index{0};            // For extract operation
+  int insert_index{0};             // For insert operation
 };
 
 using Statement = Instruction;  // backward compatibility

@@ -38,6 +38,7 @@ add_library(frontend_python
     frontends/python/src/lexer/lexer.cpp
     frontends/python/src/parser/parser.cpp
     frontends/python/src/sema/sema.cpp
+    frontends/python/src/lowering/lowering.cpp
 )
 
 target_include_directories(frontend_python PUBLIC
@@ -63,6 +64,7 @@ add_library(frontend_rust
     frontends/rust/src/lexer/lexer.cpp
     frontends/rust/src/parser/parser.cpp
     frontends/rust/src/sema/sema.cpp
+    frontends/rust/src/lowering/lowering.cpp
 )
 
 target_include_directories(frontend_rust PUBLIC
@@ -87,6 +89,7 @@ add_library(middle_ir
     middle/src/passes/optimizations/dead_code_elim.cpp
     middle/src/passes/optimizations/common_subexpr.cpp
     middle/src/passes/optimizations/inlining.cpp
+    middle/src/passes/optimizations/devirtualization.cpp
 )
 
 target_include_directories(middle_ir PUBLIC

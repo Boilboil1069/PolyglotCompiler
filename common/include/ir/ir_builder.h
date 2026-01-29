@@ -20,6 +20,7 @@ class IRBuilder {
   std::shared_ptr<BasicBlock> GetInsertPoint() const { return insert_block_; }
 
   std::shared_ptr<LiteralExpression> MakeLiteral(long long value, const std::string &name = "");
+  std::shared_ptr<LiteralExpression> MakeLiteral(double value, const std::string &name = "");
   std::shared_ptr<BinaryInstruction> MakeBinary(BinaryInstruction::Op op, const std::string &lhs,
                                                 const std::string &rhs, const std::string &result);
   std::shared_ptr<AllocaInstruction> MakeAlloca(const IRType &type, const std::string &name = "");

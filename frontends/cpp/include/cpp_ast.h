@@ -74,6 +74,14 @@ namespace polyglot::cpp {
         std::shared_ptr<TypeNode> type_arg;
         std::shared_ptr<Expression> expr_arg;
     };
+    struct DynamicCastExpression : Expression {
+        std::shared_ptr<TypeNode> target_type;
+        std::shared_ptr<Expression> operand;
+    };
+    struct StaticCastExpression : Expression {
+        std::shared_ptr<TypeNode> target_type;
+        std::shared_ptr<Expression> operand;
+    };
     struct InitializerListExpression : Expression {std::vector<std::shared_ptr<Expression>> elements;};
     struct FoldExpression : Expression {
         std::string op;

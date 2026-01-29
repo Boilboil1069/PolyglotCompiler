@@ -35,12 +35,20 @@ Opcode ToOpcode(ir::BinaryInstruction::Op op) {
     case Op::kRem:
     case Op::kSRem: return Opcode::kSRem;
     case Op::kURem: return Opcode::kURem;
+    // Floating-point operations
+    case Op::kFAdd: return Opcode::kAddsd;
+    case Op::kFSub: return Opcode::kSubsd;
+    case Op::kFMul: return Opcode::kMulsd;
+    case Op::kFDiv: return Opcode::kDivsd;
+    case Op::kFRem: return Opcode::kDivsd;  // No direct frem, use divsd
+    // Logical
     case Op::kAnd: return Opcode::kAnd;
     case Op::kOr: return Opcode::kOr;
     case Op::kXor: return Opcode::kXor;
     case Op::kShl: return Opcode::kShl;
     case Op::kLShr: return Opcode::kLShr;
     case Op::kAShr: return Opcode::kAShr;
+    // Comparisons
     case Op::kCmpEq:
     case Op::kCmpNe:
     case Op::kCmpUlt:
@@ -51,13 +59,13 @@ Opcode ToOpcode(ir::BinaryInstruction::Op op) {
     case Op::kCmpSle:
     case Op::kCmpSgt:
     case Op::kCmpSge:
+    case Op::kCmpLt: return Opcode::kCmp;
     case Op::kCmpFoe:
     case Op::kCmpFne:
     case Op::kCmpFlt:
     case Op::kCmpFle:
     case Op::kCmpFgt:
-    case Op::kCmpFge:
-    case Op::kCmpLt: return Opcode::kCmp;
+    case Op::kCmpFge: return Opcode::kCmpsd;
   }
   return Opcode::kAdd;
 }
@@ -90,6 +98,30 @@ int CostModel::Cost(Opcode op) const {
     case Opcode::kSRem:
     case Opcode::kURem:
       return 8;
+    // Floating-point operations (typically same as integer)
+    case Opcode::kMovsd:
+    case Opcode::kMovss:
+    case Opcode::kAddsd:
+    case Opcode::kSubsd:
+      return 1;
+    case Opcode::kMulsd:
+      return 3;
+    case Opcode::kDivsd:
+      return 8;
+    case Opcode::kCmpsd:
+      return 2;
+    // SIMD operations
+    case Opcode::kMovaps:
+    case Opcode::kMovups:
+    case Opcode::kAddps:
+    case Opcode::kSubps:
+      return 1;
+    case Opcode::kMulps:
+      return 3;
+    case Opcode::kDivps:
+      return 8;
+    case Opcode::kShufps:
+      return 1;
     case Opcode::kCall:
       return 12;
     case Opcode::kRet:
@@ -267,6 +299,57 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
         mi.uses = {get_vreg(gep->operands[0])};
         mi.operands = {Operand::MemVReg(mi.uses[0])};
         mi.def = get_vreg(gep->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      // SIMD vector instructions
+      if (auto *vec = dynamic_cast<ir::VectorInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        using VecOp = ir::VectorInstruction::VecOp;
+        
+        switch (vec->op) {
+          case VecOp::kVecAdd:
+          case VecOp::kVecFAdd:
+            mi.opcode = Opcode::kAddps;
+            break;
+          case VecOp::kVecSub:
+          case VecOp::kVecFSub:
+            mi.opcode = Opcode::kSubps;
+            break;
+          case VecOp::kVecMul:
+          case VecOp::kVecFMul:
+            mi.opcode = Opcode::kMulps;
+            break;
+          case VecOp::kVecDiv:
+          case VecOp::kVecFDiv:
+            mi.opcode = Opcode::kDivps;
+            break;
+          case VecOp::kVecShuffle:
+            mi.opcode = Opcode::kShufps;
+            break;
+          default:
+            mi.opcode = Opcode::kMovaps;  // Default fallback
+            break;
+        }
+        
+        for (auto &op : vec->operands) {
+          add_use_if_vreg(mi, op);
+          mi.operands.push_back(make_operand(op));
+        }
+        
+        // Add shuffle mask if present
+        if (vec->op == VecOp::kVecShuffle && !vec->shuffle_mask.empty()) {
+          // Encode shuffle mask as immediate (simplified)
+          int mask = 0;
+          for (size_t i = 0; i < vec->shuffle_mask.size() && i < 4; ++i) {
+            mask |= (vec->shuffle_mask[i] & 0x3) << (i * 2);
+          }
+          mi.operands.push_back(Operand::Imm(mask));
+        }
+        
+        if (vec->HasResult()) mi.def = get_vreg(vec->name);
         SetCost(mi, cost_model);
         mbb.instructions.push_back(std::move(mi));
         continue;

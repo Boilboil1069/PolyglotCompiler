@@ -27,6 +27,23 @@ enum class Opcode {
   kLShr,
   kAShr,
   kCmp,
+  // Floating-point operations
+  kMovsd,     // movsd (scalar double)
+  kMovss,     // movss (scalar single)
+  kAddsd,     // addsd
+  kSubsd,     // subsd
+  kMulsd,     // mulsd
+  kDivsd,     // divsd
+  kCmpsd,     // comisd (compare scalar double)
+  // SIMD operations
+  kAddps,     // addps (packed single)
+  kSubps,     // subps
+  kMulps,     // mulps
+  kDivps,     // divps
+  kShufps,    // shufps
+  kMovaps,    // movaps (aligned packed single)
+  kMovups,    // movups (unaligned packed single)
+  // General
   kLoad,
   kStore,
   kLea,

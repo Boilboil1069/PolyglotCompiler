@@ -170,6 +170,135 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc,
       os << "  cmp " << lhs << ", " << rhs << "\n";
       break;
     }
+    // Floating-point instructions
+    case Opcode::kMovsd: {
+      std::string dst = mi.def >= 0 ? RegisterName(def_reg) : FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
+      if (dst != src) os << "  movsd " << dst << ", " << src << "\n";
+      break;
+    }
+    case Opcode::kMovss: {
+      std::string dst = mi.def >= 0 ? RegisterName(def_reg) : FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
+      if (dst != src) os << "  movss " << dst << ", " << src << "\n";
+      break;
+    }
+    case Opcode::kAddsd: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movsd " << dst << ", " << lhs << "\n";
+      os << "  addsd " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kSubsd: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movsd " << dst << ", " << lhs << "\n";
+      os << "  subsd " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kMulsd: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movsd " << dst << ", " << lhs << "\n";
+      os << "  mulsd " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kDivsd: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movsd " << dst << ", " << lhs << "\n";
+      os << "  divsd " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kCmpsd: {
+      if (mi.operands.size() < 2) break;
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      os << "  comisd " << lhs << ", " << rhs << "\n";
+      break;
+    }
+    // SIMD instructions
+    case Opcode::kMovaps: {
+      std::string dst = mi.def >= 0 ? RegisterName(def_reg) : FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
+      if (dst != src) os << "  movaps " << dst << ", " << src << "\n";
+      break;
+    }
+    case Opcode::kMovups: {
+      std::string dst = mi.def >= 0 ? RegisterName(def_reg) : FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
+      if (dst != src) os << "  movups " << dst << ", " << src << "\n";
+      break;
+    }
+    case Opcode::kAddps: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movaps " << dst << ", " << lhs << "\n";
+      os << "  addps " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kSubps: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movaps " << dst << ", " << lhs << "\n";
+      os << "  subps " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kMulps: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movaps " << dst << ", " << lhs << "\n";
+      os << "  mulps " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kDivps: {
+      if (mi.operands.size() < 2 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movaps " << dst << ", " << lhs << "\n";
+      os << "  divps " << dst << ", " << rhs << "\n";
+      break;
+    }
+    case Opcode::kShufps: {
+      if (mi.operands.size() < 3 || mi.def < 0) break;
+      std::string dst = RegisterName(def_reg);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      std::string imm = FormatOperand(mi.operands[2], alloc, pre);
+      os << pre.str();
+      if (dst != lhs) os << "  movaps " << dst << ", " << lhs << "\n";
+      os << "  shufps " << dst << ", " << rhs << ", " << imm << "\n";
+      break;
+    }
     case Opcode::kLoad: {
       std::string dst = RegisterName(def_reg);
       std::string mem = FormatOperand(mi.operands[0], alloc, pre);

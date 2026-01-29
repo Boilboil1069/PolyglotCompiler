@@ -38,6 +38,13 @@ std::shared_ptr<LiteralExpression> IRBuilder::MakeLiteral(long long value, const
   return lit;
 }
 
+std::shared_ptr<LiteralExpression> IRBuilder::MakeLiteral(double value, const std::string &name) {
+  auto lit = std::make_shared<LiteralExpression>(value);
+  lit->name = name.empty() ? NextTempName("cf") : name;
+  // Literals are values; no instruction stream needed.
+  return lit;
+}
+
 std::shared_ptr<AllocaInstruction> IRBuilder::MakeAlloca(const IRType &type, const std::string &name) {
   auto bb = CurrentBlock();
   auto inst = std::make_shared<AllocaInstruction>();
