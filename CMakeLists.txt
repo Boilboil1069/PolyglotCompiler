@@ -12,6 +12,7 @@ add_library(polyglot_common
     common/src/core/symbol_table.cpp
     backends/common/src/debug_info.cpp
     backends/common/src/debug_emitter.cpp
+    common/src/debug/dwarf5.cpp
 )
 
 target_include_directories(polyglot_common PUBLIC
@@ -52,6 +53,7 @@ add_library(frontend_cpp
     frontends/cpp/src/parser/parser.cpp
     frontends/cpp/src/sema/sema.cpp
     frontends/cpp/src/lowering/lowering.cpp
+    frontends/cpp/src/constexpr/cpp_constexpr.cpp
 )
 
 target_include_directories(frontend_cpp PUBLIC
@@ -90,6 +92,8 @@ add_library(middle_ir
     middle/src/passes/optimizations/common_subexpr.cpp
     middle/src/passes/optimizations/inlining.cpp
     middle/src/passes/optimizations/devirtualization.cpp
+    middle/src/passes/optimizations/loop_optimization.cpp
+    middle/src/passes/optimizations/gvn.cpp
 )
 
 target_include_directories(middle_ir PUBLIC

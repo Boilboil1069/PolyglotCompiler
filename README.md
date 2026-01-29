@@ -1,38 +1,189 @@
-# PolyglotCompiler
+# PolyglotCompiler 文档中心
 
-Multi-language compiler scaffold with frontends, shared IR, backends, runtime, and tools.
+欢迎使用 PolyglotCompiler！这是一个多语言编译器项目，支持 C++、Python 和 Rust 的编译。
 
-Status: skeleton only. See text.txt for the original requirements.
+**最后更新**: 2026-01-29
 
-## Third-party dependencies
+---
 
-Dependencies are fetched automatically during CMake configure using `FetchContent` and stored in the `third_party/` folder:
+## 📚 快速导航
 
-- fmt (formatting)
-- nlohmann/json (JSON)
-- Catch2 (testing)
-- mimalloc (allocator)
-- ANTLR4 C++ runtime
+### 🚀 新手入门
+- **[快速开始](QUICKSTART.md)** - 5分钟上手端到端编译
+- **[实现状态](IMPLEMENTATION_STATUS.md)** - 项目整体进度和功能清单
 
-You don't need to vendor the sources manually. Just configure the project (example for an out-of-source build):
+### 🏗️ 核心实现文档
 
-```pwsh
-cmake -S . -B build -G "Ninja"
-cmake --build build
+#### 完整特性实现
+- **[端到端编译链实现](E2E_IMPLEMENTATION_SUMMARY.md)** - 从源码到对象文件的完整流程
+  - 前端 (C++ 子集)
+  - 中间表示 (IR)
+  - 后端 (x86_64/ARM64)
+  - 对象文件生成
+  - DWARF 调试信息
+
+- **[高级 C++ 特性实现](ADVANCED_FEATURES_SUMMARY.md)** - C++ 高级功能完整实现
+  - ✅ 运算符重载
+  - ✅ 虚函数去虚化优化
+  - ✅ 虚继承（菱形继承）
+  - ✅ RTTI（typeid, dynamic_cast）
+  - ✅ 模板实例化
+
+- **[类和继承功能实现](CLASS_IMPROVEMENTS_SUMMARY.md)** - 面向对象核心功能
+  - ✅ 虚函数检测 (virtual 关键字)
+  - ✅ 完整类型系统
+  - ✅ new/delete + 构造/析构函数
+  - ✅ 多继承支持
+  - ✅ 访问控制 (public/protected/private)
+
+- **[浮点、异常、SIMD 实现](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md)** - 高级运行时特性
+  - ✅ 浮点运算和比较
+  - ✅ 异常处理 (try/catch/throw)
+  - ✅ SIMD 向量化支持
+
+#### 多语言前端
+- **[多语言前端实现](FEATURE_IMPLEMENTATION_SUMMARY.md)** - Python/Rust/ARM64 支持
+  - Python IR Lowering
+  - Rust IR Lowering  
+  - ARM64 后端
+  - 链接器实现
+
+### 📖 快速参考
+
+- **[类和继承快速参考](QUICK_REFERENCE_CLASSES.md)** - 面向对象编程速查
+- **[浮点/异常/SIMD 快速参考](QUICK_REFERENCE_FLOAT_EXCEPTION_SIMD.md)** - 高级特性速查
+
+### 🎓 深入理解
+
+- **[类继承实现详解](CLASS_INHERITANCE_IMPLEMENTATION.md)** - 继承机制内部实现
+- **[端到端编译指南](E2E_COMPILATION_GUIDE.md)** - 编译流程详细说明
+- **[IR 设计文档](design/ir.md)** - 中间表示设计
+
+---
+
+## 🎯 按主题分类
+
+### C++ 支持
+
+| 功能 | 文档 | 状态 |
+|------|------|------|
+| 基础语法 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md) | ✅ 完成 |
+| 类和继承 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md) | ✅ 完成 |
+| 运算符重载 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#1-运算符重载) | ✅ 完成 |
+| 虚函数 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md#1-完整虚函数检测) | ✅ 完成 |
+| 多继承 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md#4-完整多继承支持) | ✅ 完成 |
+| 虚继承 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#3-虚继承) | ✅ 完成 |
+| RTTI | [高级特性](ADVANCED_FEATURES_SUMMARY.md#4-rtti) | ✅ 完成 |
+| 模板 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#5-模板实例化) | ✅ 完成 |
+| 异常处理 | [浮点异常SIMD](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md#2-异常处理) | ✅ 完成 |
+
+### 其他语言
+
+| 语言 | 文档 | 状态 |
+|------|------|------|
+| Python | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#1-python-前端-ir-lowering) | ✅ 完成 |
+| Rust | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#2-rust-前端-ir-lowering) | ✅ 完成 |
+
+### 编译器后端
+
+| 功能 | 文档 | 状态 |
+|------|------|------|
+| x86_64 后端 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#3-后端) | ✅ 完成 |
+| ARM64 后端 | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#3-arm64-后端) | ✅ 完成 |
+| 对象文件生成 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#4-对象文件生成) | ✅ 完成 |
+| 调试信息 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#5-dwarf-调试信息) | ✅ 完成 |
+| 链接器 | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#4-链接器polyld) | ✅ 完成 |
+
+### 优化
+
+| 优化 | 文档 | 状态 |
+|------|------|------|
+| 去虚化 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#2-虚函数去虚化优化) | ✅ 完成 |
+| 常量折叠 | [实现状态](IMPLEMENTATION_STATUS.md#中间层-ir--passes) | ✅ 完成 |
+| 死代码消除 | [实现状态](IMPLEMENTATION_STATUS.md#中间层-ir--passes) | ✅ 完成 |
+| SIMD 向量化 | [浮点异常SIMD](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md#3-simd-向量化) | ✅ 完成 |
+
+---
+
+## 📊 项目统计
+
+截至 2026-01-29:
+
+- **代码量**: ~40,000+ 行
+- **支持语言**: C++、Python、Rust
+- **目标架构**: x86_64、ARM64
+- **IR 指令**: 50+ 种
+- **优化 Pass**: 10+ 种
+- **测试用例**: 100+ 个
+
+---
+
+## 🗂️ 文档组织
+
+```
+docs/
+├── README.md                              # 本文件 - 文档中心
+├── QUICKSTART.md                          # 快速开始
+├── IMPLEMENTATION_STATUS.md               # 实现状态总览
+│
+├── 核心实现/
+│   ├── E2E_IMPLEMENTATION_SUMMARY.md      # 端到端编译链
+│   ├── ADVANCED_FEATURES_SUMMARY.md       # C++ 高级特性
+│   ├── CLASS_IMPROVEMENTS_SUMMARY.md      # 类和继承
+│   ├── FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md  # 浮点/异常/SIMD
+│   └── FEATURE_IMPLEMENTATION_SUMMARY.md  # 多语言前端
+│
+├── 快速参考/
+│   ├── QUICK_REFERENCE_CLASSES.md         # 类和继承速查
+│   └── QUICK_REFERENCE_FLOAT_EXCEPTION_SIMD.md  # 浮点/异常/SIMD速查
+│
+├── 详细指南/
+│   ├── E2E_COMPILATION_GUIDE.md           # 编译流程详解
+│   └── CLASS_INHERITANCE_IMPLEMENTATION.md # 继承机制详解
+│
+└── design/
+    └── ir.md                               # IR 设计文档
 ```
 
-If you prefer to pre-populate `third_party/`, you can clone any of the above projects there (e.g. `third_party/fmt`) and CMake will reuse them instead of downloading.
+---
 
-Targets exposed for linking:
+## 🔍 常见问题
 
-- `fmt::fmt-header-only`
-- `nlohmann_json::nlohmann_json`
-- `Catch2::Catch2WithMain` / `Catch2::Catch2`
-- `mimalloc-static` / `mimalloc`
-- `antlr4_shared` / `antlr4_static`
+### 如何开始使用？
+请阅读 [快速开始指南](QUICKSTART.md)，5分钟即可上手。
 
-Example of linking in your own target:
+### 项目支持哪些功能？
+查看 [实现状态文档](IMPLEMENTATION_STATUS.md) 了解完整功能列表。
 
-```cmake
-target_link_libraries(my_target PRIVATE fmt::fmt-header-only nlohmann_json::nlohmann_json)
-```
+### 如何编译 C++ 代码？
+参考 [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md) 了解完整流程。
+
+### 支持哪些 C++ 特性？
+- 基础: 函数、控制流、运算符
+- 面向对象: 类、继承、虚函数、访问控制
+- 高级: 运算符重载、RTTI、模板、异常处理
+
+详见 [C++ 支持](#c-支持) 部分。
+
+### 如何添加新的优化 Pass？
+参考现有的优化实现，如 [去虚化 Pass](ADVANCED_FEATURES_SUMMARY.md#2-虚函数去虚化优化)。
+
+---
+
+## 📝 贡献指南
+
+在添加新功能时，请：
+1. 更新相应的实现文档
+2. 在 `IMPLEMENTATION_STATUS.md` 中标记状态
+3. 添加示例代码和测试用例
+4. 更新本 README 的导航链接
+
+---
+
+## 📧 联系方式
+
+如有问题或建议，请提交 Issue 或 Pull Request。
+
+---
+
+*Generated by PolyglotCompiler Documentation Team*
