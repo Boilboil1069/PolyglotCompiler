@@ -44,12 +44,14 @@ struct Operand {
   long long imm{0};
   std::string label;
   int stack_slot{-1};
+  bool is_float{false};
 
-  static Operand VReg(int v) { return Operand{Kind::kVReg, v}; }
-  static Operand Phys(Register r) {
+  static Operand VReg(int v, bool is_float = false) { return Operand{Kind::kVReg, v, Register::kX0, 0, "", -1, is_float}; }
+  static Operand Phys(Register r, bool is_float = false) {
     Operand op;
     op.kind = Kind::kPhysReg;
     op.phys = r;
+    op.is_float = is_float;
     return op;
   }
   static Operand Imm(long long v) {

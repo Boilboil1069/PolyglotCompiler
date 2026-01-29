@@ -93,6 +93,13 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
     }
   }
 
+  // rename operands in terminator (if any)
+  if (bb->terminator) {
+    for (auto &op : bb->terminator->operands) {
+      op = current_top(op);
+    }
+  }
+
   // update phi operands in successors
   for (auto *succ : bb->successors) {
     for (auto &phi : succ->phis) {

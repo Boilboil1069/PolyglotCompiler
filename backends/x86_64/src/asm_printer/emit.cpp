@@ -12,7 +12,14 @@ namespace {
 
 int StackOffsetBytes(int slot) { return static_cast<int>((slot + 1) * 8); }
 
-std::string FormatOperand(const Operand &op, const AllocationResult &alloc, int stack_bytes) {
+bool IsSpilled(int vreg, const AllocationResult &alloc) {
+  return alloc.vreg_to_phys.find(vreg) == alloc.vreg_to_phys.end() &&
+         alloc.vreg_to_slot.find(vreg) != alloc.vreg_to_slot.end();
+}
+
+// format operand; inserts reloads into 'pre' when spilled.
+std::string FormatOperand(const Operand &op, const AllocationResult &alloc,
+                          std::ostringstream &pre) {
   switch (op.kind) {
     case Operand::Kind::kImm:
       return std::to_string(op.imm);
@@ -27,19 +34,18 @@ std::string FormatOperand(const Operand &op, const AllocationResult &alloc, int 
     case Operand::Kind::kVReg: {
       auto phys_it = alloc.vreg_to_phys.find(op.vreg);
       if (phys_it != alloc.vreg_to_phys.end()) return RegisterName(phys_it->second);
-      auto slot_it = alloc.vreg_to_slot.find(op.vreg);
-      if (slot_it != alloc.vreg_to_slot.end()) {
-        int offset = StackOffsetBytes(slot_it->second);
-        return "[rbp - " + std::to_string(offset) + "]";
+      if (IsSpilled(op.vreg, alloc)) {
+        int offset = StackOffsetBytes(alloc.vreg_to_slot.at(op.vreg));
+        pre << "  mov r10, [rbp - " << offset << "]\n";
+        return "r10";
       }
       return "v" + std::to_string(op.vreg);
     }
     case Operand::Kind::kMemVReg: {
       auto phys_it = alloc.vreg_to_phys.find(op.vreg);
       if (phys_it != alloc.vreg_to_phys.end()) return "[" + RegisterName(phys_it->second) + "]";
-      auto slot_it = alloc.vreg_to_slot.find(op.vreg);
-      if (slot_it != alloc.vreg_to_slot.end()) {
-        int offset = StackOffsetBytes(slot_it->second);
+      if (IsSpilled(op.vreg, alloc)) {
+        int offset = StackOffsetBytes(alloc.vreg_to_slot.at(op.vreg));
         return "[rbp - " + std::to_string(offset) + "]";
       }
       return "[v" + std::to_string(op.vreg) + "]";
@@ -50,41 +56,51 @@ std::string FormatOperand(const Operand &op, const AllocationResult &alloc, int 
   return "";
 }
 
-void EmitBinary(const MachineInstr &mi, const AllocationResult &alloc, int stack_bytes,
+void EmitBinary(const MachineInstr &mi, const AllocationResult &alloc,
                 std::ostream &os, const std::string &mnemonic) {
-  std::string dst = mi.def >= 0 ? FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes)
-                                : FormatOperand(mi.operands[0], alloc, stack_bytes);
-  std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-  std::string rhs = mi.operands.size() > 1 ? FormatOperand(mi.operands[1], alloc, stack_bytes) : lhs;
+  std::ostringstream pre;
+  std::string dst = mi.def >= 0 ? FormatOperand(Operand::VReg(mi.def), alloc, pre)
+                                : FormatOperand(mi.operands[0], alloc, pre);
+  std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+  std::string rhs = mi.operands.size() > 1 ? FormatOperand(mi.operands[1], alloc, pre) : lhs;
+  os << pre.str();
   if (dst != lhs) os << "  mov " << dst << ", " << lhs << "\n";
   os << "  " << mnemonic << " " << dst << ", " << rhs << "\n";
 }
 
-void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int stack_bytes,
+void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc,
                      std::ostream &os) {
+  std::ostringstream pre;
+  bool def_spilled = (mi.def >= 0 && IsSpilled(mi.def, alloc));
+  Register def_reg = (mi.def >= 0 && alloc.vreg_to_phys.count(mi.def))
+                         ? alloc.vreg_to_phys.at(mi.def)
+                         : (def_spilled ? Register::kR10 : Register::kRax);
+
   switch (mi.opcode) {
     case Opcode::kMov: {
-      std::string dst = mi.def >= 0 ? FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes)
-                                    : FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string src = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string dst = mi.def >= 0 ? RegisterName(def_reg)
+                                    : FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
       if (dst != src) os << "  mov " << dst << ", " << src << "\n";
       break;
     }
     case Opcode::kAdd:
-      EmitBinary(mi, alloc, stack_bytes, os, "add");
+      EmitBinary(mi, alloc, os, "add");
       break;
     case Opcode::kSub:
-      EmitBinary(mi, alloc, stack_bytes, os, "sub");
+      EmitBinary(mi, alloc, os, "sub");
       break;
     case Opcode::kMul:
-      EmitBinary(mi, alloc, stack_bytes, os, "imul");
+      EmitBinary(mi, alloc, os, "imul");
       break;
     case Opcode::kDiv:
     case Opcode::kSDiv: {
       if (mi.operands.size() < 2 || mi.def < 0) break;
-      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      std::string dst = RegisterName(def_reg);
+      os << pre.str();
       os << "  mov rax, " << lhs << "\n";
       os << "  cqo\n";
       os << "  idiv " << rhs << "\n";
@@ -93,9 +109,10 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
     }
     case Opcode::kUDiv: {
       if (mi.operands.size() < 2 || mi.def < 0) break;
-      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      std::string dst = RegisterName(def_reg);
+      os << pre.str();
       os << "  mov rax, " << lhs << "\n";
       os << "  xor rdx, rdx\n";
       os << "  div " << rhs << "\n";
@@ -103,29 +120,30 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
       break;
     }
     case Opcode::kAnd:
-      EmitBinary(mi, alloc, stack_bytes, os, "and");
+      EmitBinary(mi, alloc, os, "and");
       break;
     case Opcode::kOr:
-      EmitBinary(mi, alloc, stack_bytes, os, "or");
+      EmitBinary(mi, alloc, os, "or");
       break;
     case Opcode::kXor:
-      EmitBinary(mi, alloc, stack_bytes, os, "xor");
+      EmitBinary(mi, alloc, os, "xor");
       break;
     case Opcode::kShl:
-      EmitBinary(mi, alloc, stack_bytes, os, "shl");
+      EmitBinary(mi, alloc, os, "shl");
       break;
     case Opcode::kLShr:
-      EmitBinary(mi, alloc, stack_bytes, os, "shr");
+      EmitBinary(mi, alloc, os, "shr");
       break;
     case Opcode::kAShr:
-      EmitBinary(mi, alloc, stack_bytes, os, "sar");
+      EmitBinary(mi, alloc, os, "sar");
       break;
     case Opcode::kRem:
     case Opcode::kSRem: {
       if (mi.operands.size() < 2 || mi.def < 0) break;
-      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      std::string dst = RegisterName(def_reg);
+      os << pre.str();
       os << "  mov rax, " << lhs << "\n";
       os << "  cqo\n";
       os << "  idiv " << rhs << "\n";
@@ -134,9 +152,10 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
     }
     case Opcode::kURem: {
       if (mi.operands.size() < 2 || mi.def < 0) break;
-      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      std::string dst = RegisterName(def_reg);
+      os << pre.str();
       os << "  mov rax, " << lhs << "\n";
       os << "  xor rdx, rdx\n";
       os << "  div " << rhs << "\n";
@@ -145,54 +164,69 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
     }
     case Opcode::kCmp: {
       if (mi.operands.size() < 2) break;
-      std::string lhs = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string rhs = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string lhs = FormatOperand(mi.operands[0], alloc, pre);
+      std::string rhs = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
       os << "  cmp " << lhs << ", " << rhs << "\n";
       break;
     }
     case Opcode::kLoad: {
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
-      std::string mem = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string dst = RegisterName(def_reg);
+      std::string mem = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
       os << "  mov " << dst << ", " << mem << "\n";
       break;
     }
     case Opcode::kStore: {
       if (mi.operands.size() < 2) break;
-      std::string mem = FormatOperand(mi.operands[0], alloc, stack_bytes);
-      std::string src = FormatOperand(mi.operands[1], alloc, stack_bytes);
+      std::string mem = FormatOperand(mi.operands[0], alloc, pre);
+      std::string src = FormatOperand(mi.operands[1], alloc, pre);
+      os << pre.str();
       os << "  mov " << mem << ", " << src << "\n";
       break;
     }
     case Opcode::kLea: {
-      std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
-      std::string mem = FormatOperand(mi.operands[0], alloc, stack_bytes);
+      std::string dst = RegisterName(def_reg);
+      std::string mem = FormatOperand(mi.operands[0], alloc, pre);
+      os << pre.str();
       os << "  lea " << dst << ", " << mem << "\n";
       break;
     }
     case Opcode::kCall: {
-      // Basic ABI: assume arguments already placed; just issue call and move return to def.
+      os << pre.str();
+      static const Register kIArgRegs[] = {Register::kRdi, Register::kRsi, Register::kRdx,
+                                           Register::kRcx, Register::kR8,  Register::kR9};
+      size_t argn = mi.operands.size() > 0 ? mi.operands.size() - 1 : 0;
+      for (size_t ai = 0; ai < argn && ai < 6; ++ai) {
+        std::string src = FormatOperand(mi.operands[ai], alloc, pre);
+        std::string dst = RegisterName(kIArgRegs[ai]);
+        if (src != dst) os << "  mov " << dst << ", " << src << "\n";
+      }
       if (!mi.operands.empty()) {
         const auto &label = mi.operands.back();
-        os << "  call " << FormatOperand(label, alloc, stack_bytes) << "\n";
+        os << "  call " << FormatOperand(label, alloc, pre) << "\n";
       }
       if (mi.def >= 0) {
-        std::string dst = FormatOperand(Operand::VReg(mi.def), alloc, stack_bytes);
+        std::string dst = RegisterName(def_reg);
         if (dst != "rax") os << "  mov " << dst << ", rax\n";
       }
       break;
     }
     case Opcode::kJmp: {
-      if (!mi.operands.empty()) os << "  jmp " << FormatOperand(mi.operands[0], alloc, stack_bytes) << "\n";
+      os << pre.str();
+      if (!mi.operands.empty()) os << "  jmp " << FormatOperand(mi.operands[0], alloc, pre) << "\n";
       break;
     }
     case Opcode::kJcc: {
-      if (mi.operands.size() >= 1) os << "  jne " << FormatOperand(mi.operands[0], alloc, stack_bytes) << "\n";
-      if (mi.operands.size() >= 2) os << "  jmp " << FormatOperand(mi.operands[1], alloc, stack_bytes) << "\n";
+      os << pre.str();
+      if (mi.operands.size() >= 1) os << "  jne " << FormatOperand(mi.operands[0], alloc, pre) << "\n";
+      if (mi.operands.size() >= 2) os << "  jmp " << FormatOperand(mi.operands[1], alloc, pre) << "\n";
       break;
     }
     case Opcode::kRet: {
+      os << pre.str();
       if (!mi.operands.empty()) {
-        std::string src = FormatOperand(mi.operands[0], alloc, stack_bytes);
+        std::string src = FormatOperand(mi.operands[0], alloc, pre);
         if (src != "rax") os << "  mov rax, " << src << "\n";
       }
       os << "  leave\n";
@@ -200,24 +234,48 @@ void EmitInstruction(const MachineInstr &mi, const AllocationResult &alloc, int 
       break;
     }
   }
+
+  if (def_spilled && mi.opcode != Opcode::kCall) {
+    int offset = StackOffsetBytes(alloc.vreg_to_slot.at(mi.def));
+    os << "  mov [rbp - " << offset << "], " << RegisterName(def_reg) << "\n";
+  }
 }
 
 void EmitFunction(const MachineFunction &mf, const AllocationResult &alloc, std::ostream &os) {
+  auto is_callee_saved = [](Register r) {
+    return r == Register::kRbx || r == Register::kR12 || r == Register::kR13 || r == Register::kR14 || r == Register::kR15;
+  };
+  std::vector<Register> callee_used;
+  for (auto &kv : alloc.vreg_to_phys) {
+    if (is_callee_saved(kv.second)) callee_used.push_back(kv.second);
+  }
+  std::sort(callee_used.begin(), callee_used.end());
+  callee_used.erase(std::unique(callee_used.begin(), callee_used.end()), callee_used.end());
+
   int stack_bytes = alloc.stack_slots * 8;
-  if (stack_bytes % 16 != 0) stack_bytes += 8;  // keep simple alignment
+  if ((stack_bytes + 8) % 16 != 0) stack_bytes += 8;  // align after push rbp
 
   os << ".globl " << mf.name << "\n";
   os << mf.name << ":\n";
   os << "  push rbp\n";
   os << "  mov rbp, rsp\n";
   if (stack_bytes > 0) os << "  sub rsp, " << stack_bytes << "\n";
+  for (auto r : callee_used) {
+    os << "  push " << RegisterName(r) << "\n";
+  }
 
   for (const auto &bb : mf.blocks) {
     os << bb.name << ":\n";
     for (const auto &mi : bb.instructions) {
-      EmitInstruction(mi, alloc, stack_bytes, os);
+      EmitInstruction(mi, alloc, os);
     }
   }
+
+  for (auto it = callee_used.rbegin(); it != callee_used.rend(); ++it) {
+    os << "  pop " << RegisterName(*it) << "\n";
+  }
+  os << "  leave\n";
+  os << "  ret\n";
 }
 
 }  // namespace
@@ -562,6 +620,22 @@ X86Target::MCResult X86Target::EmitObjectCode() {
             break;
           }
           case Opcode::kRet: {
+            if (!mi.operands.empty()) {
+              const auto &src = mi.operands[0];
+              if (src.kind == Operand::Kind::kImm) {
+                text_sec.data.push_back(0x48);  // REX.W
+                text_sec.data.push_back(static_cast<std::uint8_t>(0xB8 + RegCode(Register::kRax)));
+                std::uint64_t imm = static_cast<std::uint64_t>(src.imm);
+                for (int i = 0; i < 8; ++i) {
+                  text_sec.data.push_back(static_cast<std::uint8_t>((imm >> (8 * i)) & 0xFF));
+                }
+              } else {
+                Register src_reg = Resolve(src, alloc);
+                text_sec.data.push_back(0x48);
+                text_sec.data.push_back(0x89);  // mov r/m64, r64
+                text_sec.data.push_back(ModRM(0b11, RegCode(src_reg), RegCode(Register::kRax)));
+              }
+            }
             text_sec.data.push_back(0xC9);  // leave
             text_sec.data.push_back(0xC3);  // ret
             break;

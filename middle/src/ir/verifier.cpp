@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <cstdlib>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -19,12 +20,21 @@ bool Fail(const std::string &reason, std::string *msg) {
 	return false;
 }
 
+bool IsImmediate(const std::string &name) {
+	if (name.empty()) return false;
+	char *end = nullptr;
+	(void)std::strtoll(name.c_str(), &end, 0);
+	return end && end != name.c_str() && *end == '\0';
+}
+
 bool IsDefined(const std::string &name, const std::unordered_set<std::string> &defs) {
 	if (name.empty()) return true;  // allow empty/literal operands
+	if (IsImmediate(name)) return true;
 	return defs.count(name) > 0;
 }
 
 IRType LookupType(const std::string &name, const std::unordered_map<std::string, IRType> &types) {
+	if (IsImmediate(name)) return IRType::I64(true);
 	auto it = types.find(name);
 	return it == types.end() ? IRType::Invalid() : it->second;
 }
@@ -119,6 +129,7 @@ bool CheckBinary(const BinaryInstruction &bin, const IRType &lhs, const IRType &
 		case BinaryInstruction::Op::kCmpSle:
 		case BinaryInstruction::Op::kCmpSgt:
 		case BinaryInstruction::Op::kCmpSge:
+		case BinaryInstruction::Op::kCmpLt:
 			if (!require_int()) return false;
 			if (bin.type.kind != IRTypeKind::kI1) return Fail("cmp result must be i1", msg);
 			return true;

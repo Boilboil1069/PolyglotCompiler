@@ -44,12 +44,14 @@ struct Operand {
   long long imm{0};
   std::string label;
   int stack_slot{-1};
+  bool is_float{false};  // used for call arg placement
 
-  static Operand VReg(int v) { return Operand{Kind::kVReg, v}; }
-  static Operand Phys(Register r) {
+  static Operand VReg(int v, bool is_float = false) { return Operand{Kind::kVReg, v, Register::kRax, 0, "", -1, is_float}; }
+  static Operand Phys(Register r, bool is_float = false) {
     Operand op;
     op.kind = Kind::kPhysReg;
     op.phys = r;
+    op.is_float = is_float;
     return op;
   }
   static Operand Imm(long long v) {
@@ -70,10 +72,11 @@ struct Operand {
     op.stack_slot = slot;
     return op;
   }
-  static Operand MemVReg(int v) {
+  static Operand MemVReg(int v, bool is_float = false) {
     Operand op;
     op.kind = Kind::kMemVReg;
     op.vreg = v;
+    op.is_float = is_float;
     return op;
   }
   static Operand MemLabel(const std::string &name) {

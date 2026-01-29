@@ -109,6 +109,7 @@ struct Elf64_Rela {
 #include "frontends/common/include/sema_context.h"
 #include "frontends/cpp/include/cpp_lexer.h"
 #include "frontends/cpp/include/cpp_parser.h"
+#include "frontends/cpp/include/cpp_lowering.h"
 #include "frontends/python/include/python_lexer.h"
 #include "frontends/python/include/python_parser.h"
 #include "frontends/python/include/python_sema.h"
@@ -118,6 +119,9 @@ struct Elf64_Rela {
 #include "frontends/rust/include/rust_parser.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/nodes/statements.h"
+#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ssa.h"
+#include "middle/include/ir/verifier.h"
 #include "runtime/include/libs/base.h"
 
 namespace {
@@ -803,24 +807,32 @@ int main(int argc, char **argv) {
         processed = run_pp(settings.pp_python);
     }
 
+    polyglot::ir::IRContext ir_module;
+    bool lowered = false;
+
     if (settings.language == "python") {
         polyglot::python::PythonLexer lexer(processed, "<cli>", &diagnostics);
         polyglot::python::PythonParser parser(lexer, diagnostics);
         parser.ParseModule();
         polyglot::frontends::SemaContext sema(diagnostics);
         polyglot::python::AnalyzeModule(*parser.TakeModule(), sema);
+        // No lowering for python yet.
     } else if (settings.language == "cpp") {
         polyglot::cpp::CppLexer lexer(processed, "<cli>");
         polyglot::cpp::CppParser parser(lexer, diagnostics);
         parser.ParseModule();
+        auto cpp_mod = parser.TakeModule();
         polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::cpp::AnalyzeModule(*parser.TakeModule(), sema);
+        polyglot::cpp::AnalyzeModule(*cpp_mod, sema);
+        polyglot::cpp::LowerToIR(*cpp_mod, ir_module, diagnostics);
+        lowered = true;
     } else if (settings.language == "rust") {
         polyglot::rust::RustLexer lexer(processed, "<cli>");
         polyglot::rust::RustParser parser(lexer, diagnostics);
         parser.ParseModule();
         polyglot::frontends::SemaContext sema(diagnostics);
         polyglot::rust::AnalyzeModule(*parser.TakeModule(), sema);
+        // No lowering for rust yet.
     } else {
         diagnostics.Report(polyglot::core::SourceLoc{"<cli>", 1, 1},
                            "Unknown language: " + settings.language);
@@ -834,20 +846,32 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    polyglot::ir::IRContext ir_module;
-    auto fn = ir_module.CreateFunction("main");
-    auto *entry = fn->CreateBlock("entry");
-    auto add = std::make_shared<polyglot::ir::BinaryInstruction>();
-    add->op = polyglot::ir::BinaryInstruction::Op::kAdd;
-    add->operands = {"2", "3"};
-    add->name = "sum";
-    add->type = polyglot::ir::IRType::I64();
-    entry->AddInstruction(add);
+    if (!lowered) {
+        // Fallback stub if lowering not implemented for language.
+        auto fn = ir_module.CreateFunction("main");
+        auto *entry = fn->CreateBlock("entry");
+        auto add = std::make_shared<polyglot::ir::BinaryInstruction>();
+        add->op = polyglot::ir::BinaryInstruction::Op::kAdd;
+        add->operands = {"2", "3"};
+        add->name = "sum";
+        add->type = polyglot::ir::IRType::I64();
+        entry->AddInstruction(add);
 
-    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
-    ret->operands = {"sum"};
-    ret->type = polyglot::ir::IRType::Void();
-    entry->SetTerminator(ret);
+        auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+        ret->operands = {"sum"};
+        ret->type = polyglot::ir::IRType::Void();
+        entry->SetTerminator(ret);
+    }
+
+    // Optional SSA conversion and verification
+    for (auto &fn : ir_module.Functions()) {
+        polyglot::ir::ConvertToSSA(*fn);
+    }
+    std::string verify_msg;
+    if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
+        std::cerr << "[error] IR verification failed: " << verify_msg << "\n";
+        if (!settings.force) return 1;
+    }
 
     // Example: allocate a GC-managed scratch buffer and keep it rooted while emitting.
     void *scratch = polyglot_alloc(32);
@@ -971,8 +995,7 @@ int main(int argc, char **argv) {
     if (!settings.emit_ir_path.empty()) {
         std::ofstream ofs(settings.emit_ir_path);
         if (ofs.is_open()) {
-            // TODO: replace with real IR printer
-            ofs << asm_text;  // placeholder until IR printer is wired
+            polyglot::ir::PrintModule(ir_module, ofs);
         }
     }
 

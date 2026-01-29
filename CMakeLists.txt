@@ -50,6 +50,7 @@ add_library(frontend_cpp
     frontends/cpp/src/lexer/lexer.cpp
     frontends/cpp/src/parser/parser.cpp
     frontends/cpp/src/sema/sema.cpp
+    frontends/cpp/src/lowering/lowering.cpp
 )
 
 target_include_directories(frontend_cpp PUBLIC

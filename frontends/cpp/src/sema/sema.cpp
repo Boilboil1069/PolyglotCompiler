@@ -309,8 +309,18 @@ class Analyzer {
             return Type::Invalid();
         }
         if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
-            if (!lit->value.empty() && (isdigit(lit->value[0]) || lit->value[0] == '-'))
-                return Type::Float();
+            // Classify numeric literals more precisely to reduce downstream IR mismatches.
+            if (!lit->value.empty() && (std::isdigit(static_cast<unsigned char>(lit->value[0])) ||
+                                        lit->value[0] == '-' || lit->value[0] == '+')) {
+                bool is_float = false;
+                for (char c : lit->value) {
+                    if (c == '.' || c == 'e' || c == 'E' || c == 'f' || c == 'F') {
+                        is_float = true;
+                        break;
+                    }
+                }
+                return is_float ? Type::Float() : Type::Int();
+            }
             return Type::String();
         }
         if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {

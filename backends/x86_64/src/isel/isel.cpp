@@ -127,6 +127,20 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
   std::unordered_map<std::string, int> vreg_for_name;
   int next_vreg = 0;
 
+  // Map SSA name -> IRType for float detection.
+  std::unordered_map<std::string, ir::IRType> value_types;
+  for (size_t i = 0; i < fn.params.size(); ++i) {
+    value_types[fn.params[i]] = (i < fn.param_types.size()) ? fn.param_types[i] : ir::IRType::Invalid();
+  }
+  for (auto &bb_ptr : fn.blocks) {
+    for (auto &phi : bb_ptr->phis) {
+      if (phi->HasResult()) value_types[phi->name] = phi->type;
+    }
+    for (auto &inst : bb_ptr->instructions) {
+      if (inst->HasResult()) value_types[inst->name] = inst->type;
+    }
+  }
+
   auto get_vreg = [&](const std::string &name) -> int {
     auto it = vreg_for_name.find(name);
     if (it != vreg_for_name.end()) return it->second;
@@ -138,10 +152,19 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
   auto make_operand = [&](const std::string &name) -> Operand {
     long long imm{};
     if (ParseImmediate(name, &imm)) return Operand::Imm(imm);
+    bool is_float = false;
+    auto t_it = value_types.find(name);
+    if (t_it != value_types.end()) is_float = t_it->second.IsFloat();
     auto it = vreg_for_name.find(name);
-    if (it != vreg_for_name.end()) return Operand::VReg(it->second);
+    if (it != vreg_for_name.end()) return Operand::VReg(it->second, is_float);
     int id = get_vreg(name);
-    return Operand::VReg(id);
+    return Operand::VReg(id, is_float);
+  };
+
+  auto add_use_if_vreg = [&](MachineInstr &mi, const std::string &name) {
+    long long imm{};
+    if (ParseImmediate(name, &imm)) return;
+    mi.uses.push_back(get_vreg(name));
   };
 
   for (auto &bb_ptr : fn.blocks) {
@@ -152,7 +175,8 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       if (auto *bin = dynamic_cast<ir::BinaryInstruction *>(inst_ptr.get())) {
         MachineInstr mi;
         mi.opcode = ToOpcode(bin->op);
-        mi.uses = {get_vreg(bin->operands[0]), get_vreg(bin->operands[1])};
+        add_use_if_vreg(mi, bin->operands[0]);
+        add_use_if_vreg(mi, bin->operands[1]);
         mi.operands = {make_operand(bin->operands[0]), make_operand(bin->operands[1])};
         mi.def = get_vreg(bin->name);
         SetCost(mi, cost_model);
@@ -164,8 +188,10 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
         MachineInstr mi;
         mi.opcode = Opcode::kLoad;
         mi.def = get_vreg(load->name);
-        mi.uses = {get_vreg(load->operands[0])};
-        mi.operands = {Operand::MemVReg(mi.uses[0])};
+        bool imm_base = ParseImmediate(load->operands[0], nullptr);
+        if (!imm_base) add_use_if_vreg(mi, load->operands[0]);
+        int base = imm_base ? 0 : get_vreg(load->operands[0]);
+        mi.operands = {Operand::MemVReg(base)};
         SetCost(mi, cost_model);
         mbb.instructions.push_back(std::move(mi));
         continue;
@@ -174,8 +200,11 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       if (auto *store = dynamic_cast<ir::StoreInstruction *>(inst_ptr.get())) {
         MachineInstr mi;
         mi.opcode = Opcode::kStore;
-        mi.uses = {get_vreg(store->operands[0]), get_vreg(store->operands[1])};
-        mi.operands = {Operand::MemVReg(mi.uses[0]), make_operand(store->operands[1])};
+        bool imm_base = ParseImmediate(store->operands[0], nullptr);
+        if (!imm_base) add_use_if_vreg(mi, store->operands[0]);
+        add_use_if_vreg(mi, store->operands[1]);
+        int base = imm_base ? 0 : get_vreg(store->operands[0]);
+        mi.operands = {Operand::MemVReg(base), make_operand(store->operands[1])};
         SetCost(mi, cost_model);
         mbb.instructions.push_back(std::move(mi));
         continue;
@@ -184,7 +213,7 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       if (auto *cast = dynamic_cast<ir::CastInstruction *>(inst_ptr.get())) {
         MachineInstr mi;
         mi.opcode = Opcode::kMov;
-        mi.uses = {get_vreg(cast->operands[0])};
+        add_use_if_vreg(mi, cast->operands[0]);
         mi.operands = {make_operand(cast->operands[0])};
         mi.def = get_vreg(cast->name);
         SetCost(mi, cost_model);
@@ -196,11 +225,37 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
         MachineInstr mi;
         mi.opcode = Opcode::kCall;
         for (auto &arg : call->operands) {
-          mi.uses.push_back(get_vreg(arg));
+          add_use_if_vreg(mi, arg);
           mi.operands.push_back(make_operand(arg));
         }
         mi.operands.push_back(Operand::Label(call->callee));
         if (call->HasResult()) mi.def = get_vreg(call->name);
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *mc = dynamic_cast<ir::MemcpyInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kCall;
+        for (auto &op : mc->operands) {
+          add_use_if_vreg(mi, op);
+          mi.operands.push_back(make_operand(op));
+        }
+        mi.operands.push_back(Operand::Label("memcpy"));
+        SetCost(mi, cost_model);
+        mbb.instructions.push_back(std::move(mi));
+        continue;
+      }
+
+      if (auto *ms = dynamic_cast<ir::MemsetInstruction *>(inst_ptr.get())) {
+        MachineInstr mi;
+        mi.opcode = Opcode::kCall;
+        for (auto &op : ms->operands) {
+          add_use_if_vreg(mi, op);
+          mi.operands.push_back(make_operand(op));
+        }
+        mi.operands.push_back(Operand::Label("memset"));
         SetCost(mi, cost_model);
         mbb.instructions.push_back(std::move(mi));
         continue;
