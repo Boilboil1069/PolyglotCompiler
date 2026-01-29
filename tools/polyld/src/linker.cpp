@@ -1,405 +1,448 @@
-#include <cstdint>
+#include "tools/polyld/include/linker.h"
+
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
-namespace {
+#if __has_include(<elf.h>)
+#include <elf.h>
+#else
+// Minimal ELF definitions
+using Elf64_Addr = std::uint64_t;
+using Elf64_Off = std::uint64_t;
+using Elf64_Half = std::uint16_t;
+using Elf64_Word = std::uint32_t;
+using Elf64_Xword = std::uint64_t;
 
-struct Symbol {
-  std::string name;
-  std::uint64_t address{0};
-  std::uint64_t size{0};
-  bool defined{false};
-  std::string section;
+struct Elf64_Ehdr {
+    unsigned char e_ident[16];
+    Elf64_Half e_type;
+    Elf64_Half e_machine;
+    Elf64_Word e_version;
+    Elf64_Addr e_entry;
+    Elf64_Off e_phoff;
+    Elf64_Off e_shoff;
+    Elf64_Word e_flags;
+    Elf64_Half e_ehsize;
+    Elf64_Half e_phentsize;
+    Elf64_Half e_phnum;
+    Elf64_Half e_shentsize;
+    Elf64_Half e_shnum;
+    Elf64_Half e_shstrndx;
 };
 
-struct Section {
-  std::string name;
-  std::vector<std::uint8_t> data;
-  std::uint64_t address{0};
-  std::uint64_t size{0};  // declared size (for bss)
-  bool bss{false};
+struct Elf64_Shdr {
+    Elf64_Word sh_name;
+    Elf64_Word sh_type;
+    Elf64_Xword sh_flags;
+    Elf64_Addr sh_addr;
+    Elf64_Off sh_offset;
+    Elf64_Xword sh_size;
+    Elf64_Word sh_link;
+    Elf64_Word sh_info;
+    Elf64_Xword sh_addralign;
+    Elf64_Xword sh_entsize;
 };
 
-enum class RelocType { kAbs64, kRel32 };
-
-struct Relocation {
-  std::string section;   // section this relocation applies to
-  std::size_t offset{0}; // offset within section data
-  RelocType type{RelocType::kAbs64};
-  std::string symbol;    // target symbol name
-  std::int64_t addend{0};
+struct Elf64_Sym {
+    Elf64_Word st_name;
+    unsigned char st_info;
+    unsigned char st_other;
+    Elf64_Half st_shndx;
+    Elf64_Addr st_value;
+    Elf64_Xword st_size;
 };
 
-// Simple custom object container format ("POBJ")
-#pragma pack(push, 1)
-struct FileHeader {
-  char magic[4];
-  std::uint16_t version{1};
-  std::uint16_t section_count{0};
-  std::uint16_t symbol_count{0};
-  std::uint16_t reloc_count{0};
-  std::uint64_t strtab_offset{0};
+struct Elf64_Phdr {
+    Elf64_Word p_type;
+    Elf64_Word p_flags;
+    Elf64_Off p_offset;
+    Elf64_Addr p_vaddr;
+    Elf64_Addr p_paddr;
+    Elf64_Xword p_filesz;
+    Elf64_Xword p_memsz;
+    Elf64_Xword p_align;
 };
 
-struct SectionRecord {
-  std::uint32_t name_offset{0};
-  std::uint32_t flags{0};  // bit0: alloc/data, bit1: bss
-  std::uint64_t offset{0};
-  std::uint64_t size{0};
-};
+#define ELFMAG "\177ELF"
+#define SELFMAG 4
+#define ET_REL 1
+#define ET_EXEC 2
+#define SHT_PROGBITS 1
+#define SHT_SYMTAB 2
+#define SHT_STRTAB 3
+#define SHF_WRITE 0x1
+#define SHF_ALLOC 0x2
+#define SHF_EXECINSTR 0x4
+#define STB_GLOBAL 1
+#define STT_FUNC 2
+#define PT_LOAD 1
+#define PF_X 1
+#define PF_W 2
+#define PF_R 4
+#endif
 
-struct SymbolRecord {
-  std::uint32_t name_offset{0};
-  std::uint32_t section_index{0xFFFFFFFF};  // 0xFFFFFFFF => undefined
-  std::uint64_t value{0};
-  std::uint64_t size{0};
-  std::uint8_t binding{0};  // 0: local, 1: global
-  std::uint8_t reserved[3]{};
-};
+namespace polyglot::linker {
 
-struct RelocRecord {
-  std::uint32_t section_index{0};
-  std::uint64_t offset{0};
-  std::uint32_t type{0};
-  std::uint32_t symbol_index{0};
-  std::int64_t addend{0};
-};
-#pragma pack(pop)
+Linker::Linker(const LinkerConfig &config) : config_(config) {}
 
-static_assert(sizeof(FileHeader) == 20, "Unexpected header size");
-static_assert(sizeof(SectionRecord) == 24, "Unexpected section record size");
-static_assert(sizeof(SymbolRecord) == 28, "Unexpected symbol record size");
-static_assert(sizeof(RelocRecord) == 28, "Unexpected reloc record size");
-
-constexpr std::uint32_t kSectionFlagBss = 1u << 1;
-
-std::string LoadString(const std::vector<std::uint8_t> &strtab, std::uint32_t offset) {
-  if (offset >= strtab.size()) return {};
-  const char *base = reinterpret_cast<const char *>(strtab.data());
-  return std::string(base + offset);
+void Linker::ReportError(const std::string &msg) {
+    errors_.push_back(msg);
+    std::cerr << "Error: " << msg << "\n";
 }
 
-}  // namespace
-
-namespace polyglot::tools {
-
-struct ObjectFile {
-  std::string name;
-  std::unordered_map<std::string, Symbol> symbols;
-  std::vector<Section> sections;
-  std::vector<Relocation> relocs;
-};
-
-bool LoadObjectFile(const std::string &path, ObjectFile &obj) {
-  std::ifstream ifs(path, std::ios::binary);
-  if (!ifs.is_open()) return false;
-
-  FileHeader hdr{};
-  ifs.read(reinterpret_cast<char *>(&hdr), sizeof(hdr));
-  if (ifs.gcount() != static_cast<std::streamsize>(sizeof(hdr))) return false;
-  if (std::strncmp(hdr.magic, "POBJ", 4) != 0 || hdr.version != 1) return false;
-
-  std::vector<SectionRecord> section_recs(hdr.section_count);
-  if (!section_recs.empty()) {
-    ifs.read(reinterpret_cast<char *>(section_recs.data()), static_cast<std::streamsize>(section_recs.size() * sizeof(SectionRecord)));
-    if (ifs.gcount() != static_cast<std::streamsize>(section_recs.size() * sizeof(SectionRecord))) return false;
-  }
-
-  std::vector<SymbolRecord> symbol_recs(hdr.symbol_count);
-  if (!symbol_recs.empty()) {
-    ifs.read(reinterpret_cast<char *>(symbol_recs.data()), static_cast<std::streamsize>(symbol_recs.size() * sizeof(SymbolRecord)));
-    if (ifs.gcount() != static_cast<std::streamsize>(symbol_recs.size() * sizeof(SymbolRecord))) return false;
-  }
-
-  std::vector<RelocRecord> reloc_recs(hdr.reloc_count);
-  if (!reloc_recs.empty()) {
-    ifs.read(reinterpret_cast<char *>(reloc_recs.data()), static_cast<std::streamsize>(reloc_recs.size() * sizeof(RelocRecord)));
-    if (ifs.gcount() != static_cast<std::streamsize>(reloc_recs.size() * sizeof(RelocRecord))) return false;
-  }
-
-  // Load string table
-  ifs.seekg(0, std::ios::end);
-  auto file_size = static_cast<std::size_t>(ifs.tellg());
-  if (hdr.strtab_offset > file_size) return false;
-  std::size_t strtab_size = file_size - static_cast<std::size_t>(hdr.strtab_offset);
-  std::vector<std::uint8_t> strtab(strtab_size);
-  ifs.seekg(static_cast<std::streamoff>(hdr.strtab_offset), std::ios::beg);
-  if (strtab_size > 0) {
-    ifs.read(reinterpret_cast<char *>(strtab.data()), static_cast<std::streamsize>(strtab_size));
-    if (ifs.gcount() != static_cast<std::streamsize>(strtab_size)) return false;
-  }
-
-  obj.name = path;
-  obj.sections.reserve(section_recs.size());
-  for (std::size_t i = 0; i < section_recs.size(); ++i) {
-    const auto &rec = section_recs[i];
-    Section sec;
-    sec.name = LoadString(strtab, rec.name_offset);
-    sec.size = rec.size;
-    sec.bss = (rec.flags & kSectionFlagBss) != 0;
-    if (!sec.bss && rec.size > 0) {
-      sec.data.resize(static_cast<std::size_t>(rec.size));
-      ifs.seekg(static_cast<std::streamoff>(rec.offset), std::ios::beg);
-      ifs.read(reinterpret_cast<char *>(sec.data.data()), static_cast<std::streamsize>(rec.size));
-      if (ifs.gcount() != static_cast<std::streamsize>(rec.size)) return false;
-    }
-    obj.sections.push_back(std::move(sec));
-  }
-
-  std::vector<std::string> symbol_names;
-  symbol_names.reserve(symbol_recs.size());
-  for (const auto &rec : symbol_recs) {
-    Symbol sym;
-    sym.name = LoadString(strtab, rec.name_offset);
-    sym.size = rec.size;
-    if (rec.section_index != 0xFFFFFFFF && rec.section_index < section_recs.size()) {
-      sym.defined = true;
-      sym.section = obj.sections[rec.section_index].name;
-      sym.address = rec.value;
-    }
-    obj.symbols[sym.name] = sym;
-    symbol_names.push_back(sym.name);
-  }
-
-  for (const auto &rec : reloc_recs) {
-    if (rec.section_index >= obj.sections.size() || rec.symbol_index >= symbol_names.size()) return false;
-    Relocation r;
-    r.section = obj.sections[rec.section_index].name;
-    r.offset = rec.offset;
-    r.type = (rec.type == 0) ? RelocType::kAbs64 : RelocType::kRel32;
-    r.symbol = symbol_names[rec.symbol_index];
-    r.addend = rec.addend;
-    obj.relocs.push_back(std::move(r));
-  }
-
-  return true;
+void Linker::ReportWarning(const std::string &msg) {
+    warnings_.push_back(msg);
+    std::cerr << "Warning: " << msg << "\n";
 }
 
-class Linker {
- public:
-  void AddObject(const ObjectFile &obj) { objects_.push_back(obj); }
-  bool AddObjectFromFile(const std::string &path) {
-    ObjectFile obj;
-    if (!LoadObjectFile(path, obj)) return false;
-    objects_.push_back(std::move(obj));
+std::uint64_t Linker::AlignTo(std::uint64_t value, std::uint64_t align) {
+    if (align == 0) return value;
+    return (value + align - 1) & ~(align - 1);
+}
+
+bool Linker::LoadELF(const std::string &path, ObjectFile &obj) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        ReportError("Cannot open file: " + path);
+        return false;
+    }
+    
+    Elf64_Ehdr ehdr;
+    file.read(reinterpret_cast<char*>(&ehdr), sizeof(ehdr));
+    
+    if (std::memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
+        ReportError("Not an ELF file: " + path);
+        return false;
+    }
+    
+    if (ehdr.e_type != ET_REL) {
+        ReportError("Not a relocatable object file: " + path);
+        return false;
+    }
+    
+    // Read section headers
+    std::vector<Elf64_Shdr> shdrs(ehdr.e_shnum);
+    file.seekg(ehdr.e_shoff);
+    file.read(reinterpret_cast<char*>(shdrs.data()), ehdr.e_shnum * sizeof(Elf64_Shdr));
+    
+    // Read section header string table
+    std::vector<char> shstrtab(shdrs[ehdr.e_shstrndx].sh_size);
+    file.seekg(shdrs[ehdr.e_shstrndx].sh_offset);
+    file.read(shstrtab.data(), shstrtab.size());
+    
+    // Load sections
+    for (size_t i = 0; i < shdrs.size(); ++i) {
+        const auto &shdr = shdrs[i];
+        if (shdr.sh_type != SHT_PROGBITS && shdr.sh_type != SHT_SYMTAB &&
+            shdr.sh_type != SHT_STRTAB) {
+            continue;
+        }
+        
+        std::string name = &shstrtab[shdr.sh_name];
+        
+        if (shdr.sh_type == SHT_PROGBITS) {
+            InputSection sec;
+            sec.name = name;
+            sec.alignment = shdr.sh_addralign;
+            sec.flags = shdr.sh_flags;
+            sec.object_file_index = static_cast<int>(objects_.size());
+            
+            if (shdr.sh_size > 0) {
+                sec.data.resize(shdr.sh_size);
+                file.seekg(shdr.sh_offset);
+                file.read(reinterpret_cast<char*>(sec.data.data()), shdr.sh_size);
+            }
+            
+            obj.sections.push_back(sec);
+        } else if (shdr.sh_type == SHT_SYMTAB) {
+            // Load symbol table
+            std::vector<Elf64_Sym> syms(shdr.sh_size / sizeof(Elf64_Sym));
+            file.seekg(shdr.sh_offset);
+            file.read(reinterpret_cast<char*>(syms.data()), shdr.sh_size);
+            
+            // Load associated string table
+            const auto &strtab_shdr = shdrs[shdr.sh_link];
+            std::vector<char> strtab(strtab_shdr.sh_size);
+            file.seekg(strtab_shdr.sh_offset);
+            file.read(strtab.data(), strtab.size());
+            
+            for (const auto &sym : syms) {
+                if (sym.st_name == 0) continue;
+                
+                Symbol symbol;
+                symbol.name = &strtab[sym.st_name];
+                symbol.offset = sym.st_value;
+                symbol.size = sym.st_size;
+                symbol.is_global = (sym.st_info >> 4) == STB_GLOBAL;
+                symbol.is_defined = sym.st_shndx != 0;
+                symbol.object_file_index = static_cast<int>(objects_.size());
+                
+                if (sym.st_shndx > 0 && sym.st_shndx < shdrs.size()) {
+                    symbol.section = &shstrtab[shdrs[sym.st_shndx].sh_name];
+                }
+                
+                obj.symbols.push_back(symbol);
+            }
+        }
+    }
+    
     return true;
-  }
-
-  // Very simplified linker: assign addresses sequentially, merge .text/.data/.bss, and report undefined symbols.
-  std::string Link(const std::string &output) {
-    section_offsets_.clear();
-    Section text{.name = ".text"};
-    Section data{.name = ".data"};
-    Section bss{.name = ".bss"};
-
-    std::unordered_map<std::string, Symbol> symtab;
-    auto mangle = [](const std::string &name) {
-      // Simple Itanium-like: leave names as-is, prefix global with '_' for demonstration.
-      if (!name.empty() && name[0] == '_') return name;
-      return std::string("_") + name;
-    };
-    for (const auto &obj : objects_) {
-      for (const auto &[name, sym] : obj.symbols) {
-        std::string key = mangle(name);
-        Symbol entry = sym;
-        entry.name = key;
-        if (sym.defined) {
-          symtab[key] = entry;
-        } else if (symtab.find(key) == symtab.end()) {
-          symtab[key] = entry;  // keep placeholder for undefined
-        }
-      }
-    }
-
-    std::uint64_t text_base = 0x1000;
-    std::uint64_t data_base = 0x8000;
-    std::uint64_t bss_base = 0xA000;
-    std::uint64_t text_cursor = text_base;
-    std::uint64_t data_cursor = data_base;
-    std::uint64_t bss_cursor = bss_base;
-
-    // Track section base addresses for relocation application
-    std::unordered_map<std::string, std::uint64_t> section_base{{".text", text_base}, {".data", data_base}, {".bss", bss_base}};
-
-    for (const auto &obj : objects_) {
-      for (const auto &sec : obj.sections) {
-        std::size_t sec_size = sec.size ? static_cast<std::size_t>(sec.size) : sec.data.size();
-        if (sec.name == ".text") {
-          auto offset = text_cursor - text_base;
-          text.data.insert(text.data.end(), sec.data.begin(), sec.data.end());
-          if (sec.data.size() < sec_size) text.data.resize(text.data.size() + (sec_size - sec.data.size()), 0);
-          text_cursor += sec_size;
-          section_offsets_[obj.name + sec.name] = offset;
-        } else if (sec.name == ".data") {
-          auto offset = data_cursor - data_base;
-          data.data.insert(data.data.end(), sec.data.begin(), sec.data.end());
-          if (sec.data.size() < sec_size) data.data.resize(data.data.size() + (sec_size - sec.data.size()), 0);
-          data_cursor += sec_size;
-          section_offsets_[obj.name + sec.name] = offset;
-        } else if (sec.name == ".bss" || sec.bss) {
-          auto offset = bss_cursor - bss_base;
-          bss_cursor += sec_size;
-          section_offsets_[obj.name + sec.name] = offset;
-        }
-      }
-    }
-
-    // Finalize merged section base addresses for relocation math
-    text.address = text_base;
-    data.address = data_base;
-    bss.address = bss_base;
-
-    // Fix up symbol absolute addresses now that layout is known
-    for (const auto &obj : objects_) {
-      for (const auto &[name, sym] : obj.symbols) {
-        if (!sym.defined) continue;
-        auto base_it = section_base.find(sym.section);
-        auto off_it = section_offsets_.find(obj.name + sym.section);
-        if (base_it == section_base.end() || off_it == section_offsets_.end()) continue;
-        auto it = symtab.find(mangle(name));
-        if (it == symtab.end()) continue;
-        it->second.address = base_it->second + off_it->second + sym.address;
-      }
-    }
-
-    // Apply relocations (only handles relocations into merged .text/.data)
-    auto apply_reloc = [&](Section &merged, const Relocation &r, std::uint64_t offset_in_merged) {
-      auto sym_it = symtab.find(mangle(r.symbol));
-      if (sym_it == symtab.end() || !sym_it->second.defined) return false;
-      std::uint64_t S = sym_it->second.address + r.addend;
-      std::uint64_t P = merged.address + offset_in_merged;
-      if (offset_in_merged + (r.type == RelocType::kAbs64 ? 8 : 4) > merged.data.size()) return false;
-      if (r.type == RelocType::kAbs64) {
-        for (int i = 0; i < 8; ++i) merged.data[offset_in_merged + i] = static_cast<std::uint8_t>((S >> (i * 8)) & 0xFF);
-      } else if (r.type == RelocType::kRel32) {
-        std::int64_t rel = static_cast<std::int64_t>(S) - static_cast<std::int64_t>(P);
-        for (int i = 0; i < 4; ++i) merged.data[offset_in_merged + i] = static_cast<std::uint8_t>((rel >> (i * 8)) & 0xFF);
-      }
-      return true;
-    };
-
-    for (const auto &obj : objects_) {
-      for (const auto &rel : obj.relocs) {
-        auto off_it = section_offsets_.find(obj.name + rel.section);
-        std::uint64_t base_off = (off_it != section_offsets_.end()) ? off_it->second : 0;
-        if (rel.section == ".text") {
-          apply_reloc(text, rel, base_off + rel.offset);
-        } else if (rel.section == ".data") {
-          apply_reloc(data, rel, base_off + rel.offset);
-        }
-      }
-    }
-
-    std::vector<std::string> undefined;
-    for (const auto &[name, sym] : symtab) {
-      if (!sym.defined) undefined.push_back(name);
-    }
-
-    if (!undefined.empty()) {
-      std::cerr << "Undefined symbols:\n";
-      for (auto &u : undefined) std::cerr << "  " << u << "\n";
-    }
-
-    std::ofstream ofs(output, std::ios::binary | std::ios::trunc);
-    if (ofs.is_open()) {
-      ofs.write(reinterpret_cast<const char *>(text.data.data()), static_cast<std::streamsize>(text.data.size()));
-      ofs.write(reinterpret_cast<const char *>(data.data.data()), static_cast<std::streamsize>(data.data.size()));
-    }
-    return output;
-  }
-
- private:
-  std::vector<ObjectFile> objects_{};
-  std::unordered_map<std::string, std::uint64_t> section_offsets_{};  // key: obj+section
-};
-
-}  // namespace polyglot::tools
-
-bool WriteDemoObject(const std::string &path) {
-  // Build a tiny object: .text with two NOPs and a rel32 call to puts, plus _start symbol.
-  std::vector<std::uint8_t> strtab{0};
-  auto add_str = [&](const std::string &s) {
-    std::uint32_t off = static_cast<std::uint32_t>(strtab.size());
-    strtab.insert(strtab.end(), s.begin(), s.end());
-    strtab.push_back(0);
-    return off;
-  };
-
-  std::vector<std::uint8_t> text_data{0x90, 0x90, 0x00, 0x00, 0x00, 0x00};
-
-  SectionRecord text_sec{};
-  text_sec.name_offset = add_str(".text");
-  text_sec.flags = 0;
-  text_sec.size = text_data.size();
-
-  std::vector<SectionRecord> sections{std::move(text_sec)};
-
-  SymbolRecord start_sym{};
-  start_sym.name_offset = add_str("_start");
-  start_sym.section_index = 0;  // .text
-  start_sym.value = 0;
-  start_sym.size = text_data.size();
-  start_sym.binding = 1;  // global
-
-  SymbolRecord puts_sym{};
-  puts_sym.name_offset = add_str("puts");
-  puts_sym.section_index = 0xFFFFFFFF;  // undefined
-  puts_sym.binding = 1;
-
-  std::vector<SymbolRecord> symbols{start_sym, puts_sym};
-
-  RelocRecord rel{};
-  rel.section_index = 0;  // .text
-  rel.offset = 2;         // patch bytes 2..5
-  rel.type = 1;           // Rel32
-  rel.symbol_index = 1;   // puts
-  rel.addend = -4;
-
-  std::vector<RelocRecord> relocs{rel};
-
-  FileHeader hdr{};
-  std::memcpy(hdr.magic, "POBJ", 4);
-  hdr.version = 1;
-  hdr.section_count = static_cast<std::uint16_t>(sections.size());
-  hdr.symbol_count = static_cast<std::uint16_t>(symbols.size());
-  hdr.reloc_count = static_cast<std::uint16_t>(relocs.size());
-
-  std::size_t header_bytes = sizeof(FileHeader);
-  std::size_t table_bytes = sections.size() * sizeof(SectionRecord) + symbols.size() * sizeof(SymbolRecord) + relocs.size() * sizeof(RelocRecord);
-  std::size_t cursor = header_bytes + table_bytes;
-
-  sections[0].offset = cursor;
-  cursor += text_data.size();
-  hdr.strtab_offset = cursor;
-
-  std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-  if (!ofs.is_open()) return false;
-  ofs.write(reinterpret_cast<const char *>(&hdr), static_cast<std::streamsize>(sizeof(hdr)));
-  ofs.write(reinterpret_cast<const char *>(sections.data()), static_cast<std::streamsize>(sections.size() * sizeof(SectionRecord)));
-  ofs.write(reinterpret_cast<const char *>(symbols.data()), static_cast<std::streamsize>(symbols.size() * sizeof(SymbolRecord)));
-  ofs.write(reinterpret_cast<const char *>(relocs.data()), static_cast<std::streamsize>(relocs.size() * sizeof(RelocRecord)));
-  ofs.write(reinterpret_cast<const char *>(text_data.data()), static_cast<std::streamsize>(text_data.size()));
-  ofs.write(reinterpret_cast<const char *>(strtab.data()), static_cast<std::streamsize>(strtab.size()));
-  return ofs.good();
 }
 
-int main() {
-  const std::string demo_obj = "demo.pobj";
-  if (!WriteDemoObject(demo_obj)) {
-    std::cerr << "failed to write demo object\n";
-    return 1;
-  }
+bool Linker::LoadMachO(const std::string &path, ObjectFile &obj) {
+    ReportWarning("Mach-O loading not yet fully implemented: " + path);
+    return false;
+}
 
-  polyglot::tools::Linker ld;
-  if (!ld.AddObjectFromFile(demo_obj)) {
-    std::cerr << "failed to load demo object\n";
-    return 1;
-  }
+bool Linker::LoadObjectFiles() {
+    for (const auto &path : config_.input_files) {
+        ObjectFile obj;
+        obj.path = path;
+        
+        // Try ELF first
+        if (LoadELF(path, obj)) {
+            objects_.push_back(obj);
+            continue;
+        }
+        
+        // Try Mach-O
+        if (LoadMachO(path, obj)) {
+            objects_.push_back(obj);
+            continue;
+        }
+        
+        ReportError("Failed to load object file: " + path);
+        return false;
+    }
+    
+    return true;
+}
 
-  std::cout << ld.Link("a.out") << "\n";
-  return 0;
+bool Linker::ResolveSymbols() {
+    // Build symbol table
+    for (const auto &obj : objects_) {
+        for (const auto &sym : obj.symbols) {
+            if (!sym.is_defined) continue;
+            
+            auto it = symbol_table_.find(sym.name);
+            if (it != symbol_table_.end()) {
+                if (it->second.is_defined && sym.is_global && it->second.is_global) {
+                    ReportError("Multiple definitions of symbol: " + sym.name);
+                    return false;
+                }
+                // Prefer defined symbol
+                if (sym.is_defined) {
+                    it->second = sym;
+                }
+            } else {
+                symbol_table_[sym.name] = sym;
+            }
+        }
+    }
+    
+    // Check for undefined symbols
+    for (const auto &obj : objects_) {
+        for (const auto &sym : obj.symbols) {
+            if (!sym.is_defined && sym.is_global) {
+                auto it = symbol_table_.find(sym.name);
+                if (it == symbol_table_.end() || !it->second.is_defined) {
+                    ReportError("Undefined symbol: " + sym.name);
+                    return false;
+                }
+            }
+        }
+    }
+    
+    return true;
+}
+
+bool Linker::LayoutSections() {
+    std::uint64_t current_addr = config_.base_address;
+    
+    // Group sections by name
+    std::unordered_map<std::string, std::vector<const InputSection*>> section_groups;
+    for (const auto &obj : objects_) {
+        for (const auto &sec : obj.sections) {
+            section_groups[sec.name].push_back(&sec);
+        }
+    }
+    
+    // Create output sections
+    for (const auto &pair : section_groups) {
+        OutputSection out_sec;
+        out_sec.name = pair.first;
+        out_sec.alignment = 16;  // Default alignment
+        
+        // Determine flags
+        if (pair.first == ".text") {
+            out_sec.flags = SHF_ALLOC | SHF_EXECINSTR;
+        } else if (pair.first == ".data") {
+            out_sec.flags = SHF_ALLOC | SHF_WRITE;
+        } else if (pair.first == ".rodata") {
+            out_sec.flags = SHF_ALLOC;
+        }
+        
+        // Merge input sections
+        for (const auto *in_sec : pair.second) {
+            std::uint64_t align_offset = AlignTo(out_sec.data.size(), in_sec->alignment);
+            
+            // Add padding
+            while (out_sec.data.size() < align_offset) {
+                out_sec.data.push_back(0);
+            }
+            
+            // Append section data
+            out_sec.data.insert(out_sec.data.end(), in_sec->data.begin(), in_sec->data.end());
+            out_sec.alignment = std::max(out_sec.alignment, in_sec->alignment);
+        }
+        
+        // Assign virtual address
+        current_addr = AlignTo(current_addr, out_sec.alignment);
+        out_sec.virtual_address = current_addr;
+        current_addr += out_sec.data.size();
+        
+        output_sections_.push_back(out_sec);
+    }
+    
+    return true;
+}
+
+bool Linker::ApplyRelocations() {
+    // Simplified relocation - would need full implementation
+    ReportWarning("Relocation processing not yet fully implemented");
+    return true;
+}
+
+bool Linker::GenerateExecutable() {
+    std::ofstream out(config_.output_file, std::ios::binary);
+    if (!out) {
+        ReportError("Cannot create output file: " + config_.output_file);
+        return false;
+    }
+    
+    // Generate ELF executable
+    Elf64_Ehdr ehdr{};
+    std::memcpy(ehdr.e_ident, ELFMAG, SELFMAG);
+    ehdr.e_ident[4] = 2;  // ELFCLASS64
+    ehdr.e_ident[5] = 1;  // ELFDATA2LSB
+    ehdr.e_ident[6] = 1;  // EV_CURRENT
+    ehdr.e_type = ET_EXEC;
+    ehdr.e_machine = 62;  // EM_X86_64
+    ehdr.e_version = 1;
+    ehdr.e_ehsize = sizeof(Elf64_Ehdr);
+    ehdr.e_phentsize = sizeof(Elf64_Phdr);
+    
+    // Find entry point
+    auto entry_it = symbol_table_.find(config_.entry_point);
+    if (entry_it != symbol_table_.end()) {
+        ehdr.e_entry = entry_it->second.offset + config_.base_address;
+    }
+    
+    // Create program headers
+    std::vector<Elf64_Phdr> phdrs;
+    std::uint64_t file_offset = sizeof(Elf64_Ehdr) + sizeof(Elf64_Phdr) * output_sections_.size();
+    
+    for (auto &sec : output_sections_) {
+        file_offset = AlignTo(file_offset, sec.alignment);
+        sec.file_offset = file_offset;
+        
+        Elf64_Phdr phdr{};
+        phdr.p_type = PT_LOAD;
+        phdr.p_offset = sec.file_offset;
+        phdr.p_vaddr = sec.virtual_address;
+        phdr.p_paddr = sec.virtual_address;
+        phdr.p_filesz = sec.data.size();
+        phdr.p_memsz = sec.data.size();
+        phdr.p_align = sec.alignment;
+        
+        if (sec.flags & SHF_EXECINSTR) phdr.p_flags |= PF_X;
+        if (sec.flags & SHF_WRITE) phdr.p_flags |= PF_W;
+        phdr.p_flags |= PF_R;
+        
+        phdrs.push_back(phdr);
+        file_offset += sec.data.size();
+    }
+    
+    ehdr.e_phoff = sizeof(Elf64_Ehdr);
+    ehdr.e_phnum = static_cast<Elf64_Half>(phdrs.size());
+    
+    // Write ELF header
+    out.write(reinterpret_cast<const char*>(&ehdr), sizeof(ehdr));
+    
+    // Write program headers
+    for (const auto &phdr : phdrs) {
+        out.write(reinterpret_cast<const char*>(&phdr), sizeof(phdr));
+    }
+    
+    // Write sections
+    for (const auto &sec : output_sections_) {
+        out.seekp(sec.file_offset);
+        out.write(reinterpret_cast<const char*>(sec.data.data()), sec.data.size());
+    }
+    
+    return true;
+}
+
+bool Linker::Link() {
+    if (!LoadObjectFiles()) {
+        ReportError("Failed to load object files");
+        return false;
+    }
+    
+    if (!ResolveSymbols()) {
+        ReportError("Symbol resolution failed");
+        return false;
+    }
+    
+    if (!LayoutSections()) {
+        ReportError("Section layout failed");
+        return false;
+    }
+    
+    if (!ApplyRelocations()) {
+        ReportError("Relocation failed");
+        return false;
+    }
+    
+    if (!GenerateExecutable()) {
+        ReportError("Executable generation failed");
+        return false;
+    }
+    
+    std::cout << "Successfully linked: " << config_.output_file << "\n";
+    return true;
+}
+
+} // namespace polyglot::linker
+
+// Main entry point for polyld
+int main(int argc, char **argv) {
+    using namespace polyglot::linker;
+    
+    LinkerConfig config;
+    
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-o" && i + 1 < argc) {
+            config.output_file = argv[++i];
+        } else if (arg == "-L" && i + 1 < argc) {
+            config.library_paths.push_back(argv[++i]);
+        } else if (arg == "-e" && i + 1 < argc) {
+            config.entry_point = argv[++i];
+        } else if (arg == "--strip-debug") {
+            config.strip_debug = true;
+        } else if (arg[0] != '-') {
+            config.input_files.push_back(arg);
+        }
+    }
+    
+    if (config.input_files.empty()) {
+        std::cerr << "Usage: polyld [-o output] [-e entry] [object files...]\n";
+        return 1;
+    }
+    
+    Linker linker(config);
+    return linker.Link() ? 0 : 1;
 }

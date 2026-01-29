@@ -20,7 +20,15 @@ enum class Register {
   kR12,
   kR13,
   kR14,
-  kR15
+  kR15,
+  kXmm0,
+  kXmm1,
+  kXmm2,
+  kXmm3,
+  kXmm4,
+  kXmm5,
+  kXmm6,
+  kXmm7
 };
 
 inline std::string RegisterName(Register reg) {
@@ -57,6 +65,22 @@ inline std::string RegisterName(Register reg) {
       return "r14";
     case Register::kR15:
       return "r15";
+    case Register::kXmm0:
+      return "xmm0";
+    case Register::kXmm1:
+      return "xmm1";
+    case Register::kXmm2:
+      return "xmm2";
+    case Register::kXmm3:
+      return "xmm3";
+    case Register::kXmm4:
+      return "xmm4";
+    case Register::kXmm5:
+      return "xmm5";
+    case Register::kXmm6:
+      return "xmm6";
+    case Register::kXmm7:
+      return "xmm7";
   }
   return "";
 }
