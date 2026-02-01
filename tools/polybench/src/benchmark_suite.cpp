@@ -1,11 +1,11 @@
 /**
- * PolyglotCompiler 性能基准测试套件
+ * PolyglotCompiler performance benchmark suite
  * 
- * 提供全面的性能基准测试，涵盖：
- * - 编译性能
- * - 运行时性能
- * - GC性能
- * - 优化效果
+ * Provides comprehensive performance benchmarks covering:
+ * - Compilation performance
+ * - Runtime performance
+ * - GC performance
+ * - Optimization effectiveness
  */
 
 #include <chrono>
@@ -27,7 +27,7 @@
 using json = nlohmann::json;
 using namespace std::chrono;
 
-// ============ 基准测试框架 ============
+// ============ Benchmark framework ============
 
 class BenchmarkResult {
 public:
@@ -148,12 +148,12 @@ private:
     }
 };
 
-// ============ GC性能基准测试 ============
+// ============ GC performance benchmarks ============
 
 void BenchmarkGC() {
     BenchmarkRunner runner("GC Performance");
     
-    // 标记-清除GC
+    // Mark-sweep GC
     runner.AddBenchmark("MarkSweep - 1000 allocations", []() {
         using namespace polyglot::runtime::gc;
         Heap heap(Strategy::kMarkSweep);
@@ -163,7 +163,7 @@ void BenchmarkGC() {
         heap.Collect();
     }, 50);
     
-    // 分代GC
+    // Generational GC
     runner.AddBenchmark("Generational - 1000 allocations", []() {
         using namespace polyglot::runtime::gc;
         Heap heap(Strategy::kGenerational);
@@ -173,7 +173,7 @@ void BenchmarkGC() {
         heap.Collect();
     }, 50);
     
-    // 复制式GC
+    // Copying GC
     runner.AddBenchmark("Copying - 500 allocations", []() {
         using namespace polyglot::runtime::gc;
         Heap heap(Strategy::kCopying);
@@ -183,7 +183,7 @@ void BenchmarkGC() {
         heap.Collect();
     }, 50);
     
-    // 增量式GC
+    // Incremental GC
     runner.AddBenchmark("Incremental - 1000 allocations", []() {
         using namespace polyglot::runtime::gc;
         Heap heap(Strategy::kIncremental);
@@ -197,12 +197,12 @@ void BenchmarkGC() {
     runner.SaveResults("benchmark_gc.json");
 }
 
-// ============ 编译性能基准测试 ============
+// ============ Compilation performance benchmarks ============
 
 void BenchmarkCompilation() {
     BenchmarkRunner runner("Compilation Performance");
     
-    // Python编译
+    // Python compilation
     runner.AddBenchmark("Python - Simple function", []() {
         using namespace polyglot::python;
         std::string code = R"(
@@ -211,10 +211,10 @@ def fibonacci(n):
         return n
     return fibonacci(n-1) + fibonacci(n-2)
 )";
-        // TODO: 实际编译
+        // TODO: Perform actual compilation
     }, 100);
     
-    // Rust编译
+    // Rust compilation
     runner.AddBenchmark("Rust - Simple function", []() {
         using namespace polyglot::rust;
         std::string code = R"(
@@ -223,10 +223,10 @@ fn fibonacci(n: i32) -> i32 {
     else { fibonacci(n-1) + fibonacci(n-2) }
 }
 )";
-        // TODO: 实际编译
+        // TODO: Perform actual compilation
     }, 100);
     
-    // C++编译
+    // C++ compilation
     runner.AddBenchmark("C++ - Simple function", []() {
         using namespace polyglot::cpp;
         std::string code = R"(
@@ -235,14 +235,14 @@ int fibonacci(int n) {
     return fibonacci(n-1) + fibonacci(n-2);
 }
 )";
-        // TODO: 实际编译
+    // TODO: Perform actual compilation
     }, 100);
     
     runner.Run();
     runner.SaveResults("benchmark_compilation.json");
 }
 
-// ============ 优化性能基准测试 ============
+// ============ Optimization performance benchmarks ============
 
 void BenchmarkOptimizations() {
     BenchmarkRunner runner("Optimization Performance");
@@ -250,11 +250,11 @@ void BenchmarkOptimizations() {
     using namespace polyglot::ir;
     using namespace polyglot::passes::transform;
     
-    // 创建测试函数
+    // Create a test function
     auto create_test_func = []() {
         Function func;
         func.name = "test";
-        // TODO: 添加基本块和指令
+        // TODO: Add basic blocks and instructions
         return func;
     };
     
@@ -287,40 +287,40 @@ void BenchmarkOptimizations() {
     runner.SaveResults("benchmark_optimizations.json");
 }
 
-// ============ 端到端性能基准测试 ============
+// ============ End-to-end performance benchmarks ============
 
 void BenchmarkEndToEnd() {
     BenchmarkRunner runner("End-to-End Performance");
     
-    // 小程序编译
+    // Small program compilation
     runner.AddBenchmark("E2E - Small program (100 LOC)", []() {
-        // TODO: 完整编译流程
+        // TODO: Full compilation pipeline
     }, 50);
     
-    // 中等程序编译
+    // Medium program compilation
     runner.AddBenchmark("E2E - Medium program (1000 LOC)", []() {
-        // TODO: 完整编译流程
+        // TODO: Full compilation pipeline
     }, 10);
     
-    // 大程序编译
+    // Large program compilation
     runner.AddBenchmark("E2E - Large program (10000 LOC)", []() {
-        // TODO: 完整编译流程
+        // TODO: Full compilation pipeline
     }, 3);
     
     runner.Run();
     runner.SaveResults("benchmark_e2e.json");
 }
 
-// ============ 对比基准测试 ============
+// ============ Comparative benchmarks ============
 
 void BenchmarkComparison() {
     BenchmarkRunner runner("Optimization Level Comparison");
     
-    // 无优化 vs 优化
+    // No optimization vs. optimized levels
     for (int opt_level = 0; opt_level <= 3; ++opt_level) {
         std::string name = "Compile with -O" + std::to_string(opt_level);
         runner.AddBenchmark(name, [opt_level]() {
-            // TODO: 使用不同优化级别编译
+            // TODO: Compile using different optimization levels
         }, 20);
     }
     
@@ -328,7 +328,7 @@ void BenchmarkComparison() {
     runner.SaveResults("benchmark_comparison.json");
 }
 
-// ============ 主函数 ============
+// ============ Main entrypoint ============
 
 int main(int argc, char* argv[]) {
     std::cout << "╔════════════════════════════════════════════════╗\n";
@@ -364,7 +364,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Usage: " << argv[0] << " <suite>\n";
         std::cout << "Suites: gc, compile, opt, e2e, compare, all\n\n";
         
-        // 默认运行所有
+        // Run all suites by default
         BenchmarkGC();
         BenchmarkCompilation();
         BenchmarkOptimizations();

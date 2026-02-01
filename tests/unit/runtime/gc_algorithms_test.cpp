@@ -7,7 +7,7 @@
 
 using namespace polyglot::runtime::gc;
 
-// 测试辅助函数
+// Test helper structures
 struct TestObject {
     int value;
     TestObject* next;
@@ -15,7 +15,7 @@ struct TestObject {
     TestObject(int v) : value(v), next(nullptr) {}
 };
 
-// 测试场景1: 基本分配和回收
+// Scenario 1: Basic allocation and collection
 TEST_CASE("GC - Basic Allocation and Collection", "[gc][allocation]") {
     SECTION("MarkSweep GC") {
         Heap heap(Strategy::kMarkSweep);
@@ -24,7 +24,7 @@ TEST_CASE("GC - Basic Allocation and Collection", "[gc][allocation]") {
         REQUIRE(ptr != nullptr);
         
         heap.Collect();
-        // 对象应该被回收（没有根引用）
+        // Object should be collected (no root references)
     }
     
     SECTION("Generational GC") {
@@ -55,7 +55,7 @@ TEST_CASE("GC - Basic Allocation and Collection", "[gc][allocation]") {
     }
 }
 
-// 测试场景2: 多对象分配
+// Scenario 2: Multiple object allocation
 TEST_CASE("GC - Multiple Object Allocation", "[gc][allocation]") {
     std::vector<Strategy> strategies = {
         Strategy::kMarkSweep,
@@ -68,7 +68,7 @@ TEST_CASE("GC - Multiple Object Allocation", "[gc][allocation]") {
         Heap heap(strategy);
         std::vector<void*> objects;
         
-        // 分配100个对象
+        // Allocate 100 objects
         for (int i = 0; i < 100; ++i) {
             void* ptr = heap.Allocate(64);
             REQUIRE(ptr != nullptr);
@@ -79,24 +79,26 @@ TEST_CASE("GC - Multiple Object Allocation", "[gc][allocation]") {
     }
 }
 
-// 测试场景3: 根引用跟踪
+// Scenario 3: Root reference tracking
 TEST_CASE("GC - Root Tracking", "[gc][roots]") {
     Heap heap(Strategy::kMarkSweep);
     
     void* obj1 = heap.Allocate(128);
     void* obj2 = heap.Allocate(128);
+    (void)obj2;
     
-    // 注册根引用
+    // Register root reference
     auto handle1 = heap.Track(&obj1);
+    (void)handle1;
     
-    // 执行GC - obj1应该存活，obj2应该被回收
+    // After GC, obj1 should survive and obj2 should be collected
     heap.Collect();
     
-    // obj1仍然可用
+    // obj1 remains usable
     REQUIRE(obj1 != nullptr);
 }
 
-// 测试场景4: 大对象分配
+// Scenario 4: Large object allocation
 TEST_CASE("GC - Large Object Allocation", "[gc][large]") {
     std::vector<Strategy> strategies = {
         Strategy::kMarkSweep,
@@ -108,44 +110,45 @@ TEST_CASE("GC - Large Object Allocation", "[gc][large]") {
     for (auto strategy : strategies) {
         Heap heap(strategy);
         
-        // 分配1MB对象
+        // Allocate a 1MB object
         void* large_obj = heap.Allocate(1024 * 1024);
         
         if (strategy == Strategy::kCopying) {
-            // 复制式GC可能因空间不足失败
-            // 这是正常的
+            // Copying GC may fail because of insufficient space
+            // This is expected
         } else {
             REQUIRE(large_obj != nullptr);
         }
     }
 }
 
-// 测试场景5: 连续GC周期
+// Scenario 5: Multiple GC cycles
 TEST_CASE("GC - Multiple Collection Cycles", "[gc][collection]") {
     Heap heap(Strategy::kGenerational);
     
     for (int cycle = 0; cycle < 10; ++cycle) {
-        // 分配一些对象
+        // Allocate some objects
         for (int i = 0; i < 50; ++i) {
             heap.Allocate(128);
         }
         
-        // 执行GC
+        // Run GC
         heap.Collect();
     }
     
-    // 应该能够成功完成所有周期
+    // All cycles should complete successfully
     REQUIRE(true);
 }
 
-// 测试场景6: 对象存活测试
+// Scenario 6: Object survival
 TEST_CASE("GC - Object Survival", "[gc][survival]") {
     Heap heap(Strategy::kGenerational);
     
     void* long_lived = heap.Allocate(256);
     auto handle = heap.Track(&long_lived);
+    (void)handle;
     
-    // 多次GC后，对象应该被提升到老年代
+    // After multiple GCs the object should be promoted to the old generation
     for (int i = 0; i < 5; ++i) {
         heap.Collect();
     }
@@ -153,17 +156,17 @@ TEST_CASE("GC - Object Survival", "[gc][survival]") {
     REQUIRE(long_lived != nullptr);
 }
 
-// 测试场景7: 内存压力测试
+// Scenario 7: Memory pressure
 TEST_CASE("GC - Memory Pressure", "[gc][pressure]") {
     Heap heap(Strategy::kMarkSweep);
     std::vector<void*> live_objects;
     
-    // 分配直到内存压力增加
+    // Allocate until memory pressure rises
     for (int i = 0; i < 1000; ++i) {
         void* obj = heap.Allocate(1024);
         if (obj) {
             if (i % 10 == 0) {
-                // 保持10%的对象存活
+                // Keep 10% of objects alive
                 live_objects.push_back(obj);
             }
         }
@@ -176,17 +179,18 @@ TEST_CASE("GC - Memory Pressure", "[gc][pressure]") {
     REQUIRE(live_objects.size() > 0);
 }
 
-// 测试场景8: 碎片化测试
+// Scenario 8: Fragmentation
 TEST_CASE("GC - Fragmentation", "[gc][fragmentation]") {
-    Heap heap(Strategy::kCopying);  // 复制式GC应该能处理碎片
+    Heap heap(Strategy::kCopying);  // Copying GC should handle fragmentation
     
-    // 分配不同大小的对象
+    // Allocate objects of different sizes
     std::vector<size_t> sizes = {16, 32, 64, 128, 256, 512, 1024};
     
     for (int round = 0; round < 5; ++round) {
         for (size_t size : sizes) {
             void* obj = heap.Allocate(size);
-            // 某些分配可能失败，这是正常的
+            // Some allocations may fail; that's fine
+            (void)obj;
         }
         heap.Collect();
     }
@@ -194,25 +198,25 @@ TEST_CASE("GC - Fragmentation", "[gc][fragmentation]") {
     REQUIRE(true);
 }
 
-// 测试场景9: 增量GC的增量性
+// Scenario 9: Incrementality of incremental GC
 TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
     Heap heap(Strategy::kIncremental);
     
-    // 分配一些对象
+    // Allocate some objects
     for (int i = 0; i < 200; ++i) {
         heap.Allocate(64);
     }
     
-    // 增量GC应该在多次分配中逐步完成
-    // 而不是一次性完成
+    // Incremental GC should progress over multiple allocations
+    // rather than completing in a single step
     for (int i = 0; i < 50; ++i) {
-        heap.Allocate(64);  // 每次分配触发增量步骤
+        heap.Allocate(64);  // Each allocation triggers an incremental step
     }
     
     REQUIRE(true);
 }
 
-// 测试场景10: GC性能基准
+// Scenario 10: GC performance benchmark
 TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     const int NUM_ALLOCATIONS = 10000;
     
@@ -234,7 +238,7 @@ TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     
     // BENCHMARK("Copying GC") {
     //     Heap heap(Strategy::kCopying);
-    //     for (int i = 0; i < NUM_ALLOCATIONS / 10; ++i) {  // 更少的分配
+    //     for (int i = 0; i < NUM_ALLOCATIONS / 10; ++i) {  // fewer allocations
     //         heap.Allocate(64);
     //         if (i % 100 == 0) heap.Collect();
     //     }
@@ -249,17 +253,18 @@ TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     // };
 }
 
-// 额外测试：边界条件
+// Additional tests: edge cases
 TEST_CASE("GC - Edge Cases", "[gc][edge]") {
     SECTION("Zero-size allocation") {
         Heap heap(Strategy::kMarkSweep);
         void* ptr = heap.Allocate(0);
-        // 实现可能返回nullptr或小的sentinel值
+        // Implementation may return nullptr or a small sentinel value
+        (void)ptr;
     }
     
     SECTION("Collect with no allocations") {
         Heap heap(Strategy::kMarkSweep);
-        heap.Collect();  // 不应该崩溃
+        heap.Collect();  // Should not crash
         REQUIRE(true);
     }
     

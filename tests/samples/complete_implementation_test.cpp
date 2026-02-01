@@ -1,12 +1,12 @@
-// 完整实现验证测试 - 展示5项改进
-// 编译: polyc complete_implementation_test.cpp -o test
+// Full implementation validation test - showcasing 5 improvements
+// Compile: polyc complete_implementation_test.cpp -o test
 
-// ============ 改进1: 虚函数检测（使用 virtual 关键字）============
+// ============ Improvement 1: Virtual function detection (using the virtual keyword) ============
 class Shape {
 public:
     int id;
     
-    // ✅ 使用标准 C++ 语法 virtual 关键字（不再需要 [[virtual]] attribute）
+    // ✅ Use the standard C++ virtual keyword (no [[virtual]] attribute needed)
     virtual int area() {
         return 0;
     }
@@ -15,18 +15,18 @@ public:
         return 0;
     }
     
-    // ✅ 虚析构函数
+    // ✅ Virtual destructor
     virtual ~Shape() {}
 };
 
-// ============ 改进2: 完整类型系统 ============
+// ============ Improvement 2: Full type system ============
 class Point {
 public:
-    // ✅ 不同类型的字段（不再假设所有字段都是 i64）
-    double x;      // f64 类型
-    double y;      // f64 类型
-    int* ref;      // i32* 指针类型
-    bool valid;    // i1 布尔类型
+    // ✅ Fields with multiple types (no longer assume all fields are i64)
+    double x;      // f64 type
+    double y;      // f64 type
+    int* ref;      // i32* pointer type
+    bool valid;    // i1 boolean type
     
     Point(double px, double py) {
         x = px;
@@ -35,39 +35,39 @@ public:
     }
     
     double distance() {
-        // ✅ 浮点运算
-        return x * x + y * y;  // 简化的距离平方
+        // ✅ Floating-point operations
+        return x * x + y * y;  // Simplified squared distance
     }
 };
 
-// ============ 改进3: new/delete 和构造/析构函数 ============
+// ============ Improvement 3: new/delete and constructors/destructors ============
 class Rectangle : public Shape {
 public:
-    double width;   // ✅ f64 类型
-    double height;  // ✅ f64 类型
+    double width;   // ✅ f64 type
+    double height;  // ✅ f64 type
     
-    // ✅ 构造函数（自动初始化 vtable 指针）
+    // ✅ Constructor (automatically initializes the vtable pointer)
     Rectangle(double w, double h) {
         width = w;
         height = h;
     }
     
-    // ✅ 重写虚函数
+    // ✅ Override virtual functions
     int area() override {
-        return width * height;  // 简化为整数返回
+        return width * height;  // Simplified to an integer return
     }
     
     int perimeter() override {
         return 2 * (width + height);
     }
     
-    // ✅ 析构函数
+    // ✅ Destructor
     ~Rectangle() {
-        // 清理资源
+        // Clean up resources
     }
 };
 
-// ============ 改进4: 多继承支持 ============
+// ============ Improvement 4: Multiple inheritance support ============
 class Printable {
 public:
     virtual void print() {}
@@ -78,75 +78,75 @@ public:
     virtual void serialize() {}
 };
 
-// ✅ 多继承（每个基类有独立的 vtable 指针）
+// ✅ Multiple inheritance (each base class has its own vtable pointer)
 class Document : public Printable, public Serializable {
 private:
-    int page_count;  // ✅ private 字段
+    int page_count;  // ✅ private field
     
 public:
     void print() override {
-        // 打印文档
+        // Print document
     }
     
     void serialize() override {
-        // 序列化文档
+        // Serialize document
     }
     
     int get_pages() {
-        return page_count;  // ✅ 本类方法可访问 private
+        return page_count;  // ✅ Class methods can access private state
     }
 };
 
-// ============ 改进5: 访问控制检查 ============
+// ============ Improvement 5: Access control checks ============
 class BankAccount {
 private:
-    double balance;      // ✅ private: 仅本类可访问
+    double balance;      // ✅ private: only this class can access
     
 protected:
-    int account_id;      // ✅ protected: 本类和派生类可访问
+    int account_id;      // ✅ protected: this class and derived classes can access
     
 public:
     void deposit(double amount) {
-        balance += amount;  // ✅ 正确：本类可访问 private
+        balance += amount;  // ✅ Correct: this class can access private state
     }
     
     double get_balance() {
-        return balance;  // ✅ 正确：通过 public 方法访问
+        return balance;  // ✅ Correct: accessed through a public method
     }
 };
 
 class SavingsAccount : public BankAccount {
 public:
     void set_id(int id) {
-        account_id = id;  // ✅ 正确：派生类可访问 protected
-        // balance = 0;   // ❌ 错误：派生类不能访问基类的 private
+        account_id = id;  // ✅ Correct: derived class can access protected
+        // balance = 0;   // ❌ Incorrect: derived class cannot access base private state
     }
 };
 
-// ============ 综合测试 ============
+// ============ Integrated tests ============
 int main() {
-    // ✅ new 表达式（调用构造函数，初始化 vtable）
+    // ✅ new expression (calls constructor, initializes vtable)
     Shape* shape = new Rectangle(10, 20);
     
-    // ✅ 虚函数调用（通过 vtable）
+    // ✅ Virtual function call (via vtable)
     int area = shape->area();
     
-    // ✅ 多态
+    // ✅ Polymorphism
     int perim = shape->perimeter();
     
-    // ✅ delete 表达式（调用析构函数，释放内存）
+    // ✅ delete expression (calls destructor, releases memory)
     delete shape;
     
-    // ✅ 多继承
+    // ✅ Multiple inheritance
     Document* doc = new Document();
     doc->print();
     doc->serialize();
     delete doc;
     
-    // ✅ 访问控制
+    // ✅ Access control
     BankAccount* account = new BankAccount();
-    account->deposit(100);  // ✅ 通过 public 方法
-    // account->balance += 50;  // ❌ 编译错误：无法访问 private
+    account->deposit(100);  // ✅ Through a public method
+    // account->balance += 50;  // ❌ Compile error: private member is inaccessible
     delete account;
     
     return 0;

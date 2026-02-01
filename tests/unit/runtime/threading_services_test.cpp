@@ -8,7 +8,7 @@
 
 using namespace polyglot::runtime::services;
 
-// ============ 测试1: 线程池 ============
+// ============ Test 1: Thread Pool ============
 TEST_CASE("Threading - Thread Pool", "[threading][pool]") {
     SECTION("Basic task submission") {
         ThreadPool pool(4);
@@ -61,7 +61,7 @@ TEST_CASE("Threading - Thread Pool", "[threading][pool]") {
     }
 }
 
-// ============ 测试2: 任务调度器 ============
+// ============ Test 2: Task Scheduler ============
 TEST_CASE("Threading - Task Scheduler", "[threading][scheduler]") {
     SECTION("Basic scheduling") {
         TaskScheduler scheduler;
@@ -138,7 +138,7 @@ TEST_CASE("Threading - Task Scheduler", "[threading][scheduler]") {
     }
 }
 
-// ============ 测试3: 工作窃取调度器 ============
+// ============ Test 3: Work-Stealing Scheduler ============
 TEST_CASE("Threading - Work Stealing Scheduler", "[threading][worksteal]") {
     SECTION("Parallel for") {
         WorkStealingScheduler scheduler(4);
@@ -195,7 +195,7 @@ TEST_CASE("Threading - Work Stealing Scheduler", "[threading][worksteal]") {
     }
 }
 
-// ============ 测试4: 同步原语 - 读写锁 ============
+// ============ Test 4: Synchronization Primitive - RWLock ============
 TEST_CASE("Threading - RWLock", "[threading][rwlock]") {
     SECTION("Basic read lock") {
         RWLock lock;
@@ -283,7 +283,7 @@ TEST_CASE("Threading - RWLock", "[threading][rwlock]") {
     }
 }
 
-// ============ 测试5: 同步原语 - 屏障 ============
+// ============ Test 5: Synchronization Primitive - Barrier ============
 TEST_CASE("Threading - Barrier", "[threading][barrier]") {
     SECTION("Basic barrier") {
         Barrier barrier(5);
@@ -358,7 +358,7 @@ TEST_CASE("Threading - Barrier", "[threading][barrier]") {
     }
 }
 
-// ============ 测试6: 无锁数据结构 ============
+// ============ Test 6: Lock-Free Data Structure ============
 TEST_CASE("Threading - Lock-Free Queue", "[threading][lockfree]") {
     SECTION("Basic push/pop") {
         LockFreeQueue<int> queue;
@@ -425,7 +425,7 @@ TEST_CASE("Threading - Lock-Free Queue", "[threading][lockfree]") {
     }
 }
 
-// ============ 测试7: 协程 ============
+// ============ Test 7: Coroutines ============
 TEST_CASE("Threading - Coroutines", "[threading][coroutine]") {
     SECTION("Basic coroutine") {
         CoroutineScheduler scheduler;
@@ -458,7 +458,7 @@ TEST_CASE("Threading - Coroutines", "[threading][coroutine]") {
     }
 }
 
-// ============ 测试8: Future/Promise ============
+// ============ Test 8: Future/Promise ============
 TEST_CASE("Threading - Future/Promise", "[threading][future]") {
     SECTION("Basic future") {
         Promise<int> promise;
@@ -498,7 +498,7 @@ TEST_CASE("Threading - Future/Promise", "[threading][future]") {
     }
 }
 
-// 性能基准测试
+// Performance benchmarks
 TEST_CASE("Threading - Performance", "[threading][benchmark]") {
     // BENCHMARK("Thread Pool - 1000 tasks") {
         ThreadPool pool(4);

@@ -128,7 +128,7 @@ class Barrier {
   std::mutex mutex_;
   std::condition_variable cv_;
   size_t num_threads_;
-  size_t count_{0}
+  size_t count_{0};
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
@@ -284,7 +284,8 @@ class Promise {
 
  private:
   struct Impl;
-  std::shared_ptr<std::promise<T>> promise
+    std::shared_ptr<std::promise<T>> promise_;
+  };
 
 // 9. 内存序（Memory Order）控制
 
