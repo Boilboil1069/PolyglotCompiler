@@ -10,10 +10,10 @@
 namespace polyglot::runtime::gc {
 namespace {
 
-// 增量式GC（Incremental GC）- 三色标记算法
-// 白色：未访问的对象
-// 灰色：已访问但未扫描其引用的对象
-// 黑色：已访问且扫描完成的对象
+// Incremental GC - tri-color marking
+// White: object not yet visited
+// Gray: visited but references not yet scanned
+// Black: visited and fully scanned
 
 struct IBlock {
   void *ptr{nullptr};
@@ -21,7 +21,7 @@ struct IBlock {
   enum Color { WHITE, GRAY, BLACK } color{WHITE};
 };
 
-constexpr size_t kIncrementalStepSize = 100;  // 每次增量处理的对象数
+constexpr size_t kIncrementalStepSize = 100;  // Number of objects processed per incremental step
 
 }  // namespace
 
@@ -34,7 +34,7 @@ class IncrementalGC : public GC {
     blocks_.push_back({mem, size, IBlock::WHITE});
     index_[mem] = blocks_.size() - 1;
 
-    // 每次分配后执行一小步增量GC
+    // Perform a small incremental GC step after each allocation
     if (!gc_running_) {
       StartGC();
     }
@@ -44,7 +44,7 @@ class IncrementalGC : public GC {
   }
 
   void Collect() override {
-    // 执行完整的GC周期
+    // Run a full GC cycle
     StartGC();
     while (gc_running_) {
       IncrementalStep();
@@ -63,12 +63,12 @@ class IncrementalGC : public GC {
 
  private:
   void StartGC() {
-    // 将所有对象标记为白色
+    // Mark all objects white
     for (auto &b : blocks_) {
       b.color = IBlock::WHITE;
     }
 
-    // 将所有根对象标记为灰色
+    // Mark all roots gray
     gray_set_.clear();
     for (auto **root : roots_) {
       if (!root || !*root) continue;
@@ -85,7 +85,7 @@ class IncrementalGC : public GC {
   void IncrementalStep() {
     if (!gc_running_) return;
 
-    // 处理一批灰色对象
+    // Process a batch of gray objects
     size_t processed = 0;
     std::unordered_set<size_t> new_gray;
 
@@ -95,18 +95,18 @@ class IncrementalGC : public GC {
         continue;
       }
 
-      // 将灰色对象标记为黑色
+      // Mark the gray object black
       blocks_[idx].color = IBlock::BLACK;
       ++processed;
 
-      // 在完整实现中，这里需要扫描对象内的引用
-      // 并将引用的白色对象标记为灰色
-      // 简化版本跳过这一步
+      // In a full implementation, scan references
+      // and move referenced white objects to gray.
+      // Simplified version omits this.
     }
 
     gray_set_ = std::move(new_gray);
 
-    // 如果没有灰色对象了，进入清除阶段
+    // If no gray objects remain, enter sweep phase
     if (gray_set_.empty()) {
       Sweep();
       gc_running_ = false;
@@ -121,7 +121,7 @@ class IncrementalGC : public GC {
         continue;
       }
 
-      // 清除白色和灰色对象（灰色对象理论上不应该存在）
+      // Free white and any stray gray objects (gray should not remain)
       std::free(blocks_[i].ptr);
       index_.erase(blocks_[i].ptr);
 
@@ -129,7 +129,7 @@ class IncrementalGC : public GC {
         blocks_[i] = blocks_.back();
         index_[blocks_[i].ptr] = i;
 
-        // 更新灰色集合中的索引
+        // Update indices inside the gray set
         if (gray_set_.count(blocks_.size() - 1)) {
           gray_set_.erase(blocks_.size() - 1);
           gray_set_.insert(i);

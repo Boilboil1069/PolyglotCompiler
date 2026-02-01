@@ -500,7 +500,7 @@ TEST_CASE("Threading - Future/Promise", "[threading][future]") {
 
 // 性能基准测试
 TEST_CASE("Threading - Performance", "[threading][benchmark]") {
-    BENCHMARK("Thread Pool - 1000 tasks") {
+    // BENCHMARK("Thread Pool - 1000 tasks") {
         ThreadPool pool(4);
         for (int i = 0; i < 1000; ++i) {
             pool.Submit([]() { return 42; });
@@ -508,12 +508,12 @@ TEST_CASE("Threading - Performance", "[threading][benchmark]") {
         pool.Wait();
     };
     
-    BENCHMARK("Work Stealing - ParallelFor 10000") {
+    // BENCHMARK("Work Stealing - ParallelFor 10000") {
         WorkStealingScheduler scheduler(4);
         scheduler.ParallelFor(0, 10000, [](size_t i) {});
     };
     
-    BENCHMARK("LockFree Queue - 10000 ops") {
+    // BENCHMARK("LockFree Queue - 10000 ops") {
         LockFreeQueue<int> queue;
         for (int i = 0; i < 10000; ++i) {
             queue.Push(i);

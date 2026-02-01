@@ -2,11 +2,11 @@
 #include <string>
 
 #include "frontends/python/include/python_parser.h"
-#include "frontends/python/include/python_advanced_features.h"
+#include "frontends/python/include/python_ast.h"
 
 using namespace polyglot::python;
 
-// ============ 测试1: 装饰器 ============
+// ============ Test 1: Decorators ============
 TEST_CASE("Python - Decorators", "[python][decorator]") {
     SECTION("@property decorator") {
         std::string code = R"(
@@ -15,7 +15,7 @@ class Person:
     def name(self):
         return self._name
 )";
-        // TODO: 解析并验证装饰器
+        // TODO: Parse and validate decorator lowering
         REQUIRE(true);
     }
     
@@ -45,7 +45,7 @@ def func(): pass
     }
 }
 
-// ============ 测试2: 上下文管理器 ============
+// ============ Test 2: Context Managers ============
 TEST_CASE("Python - Context Managers", "[python][with]") {
     SECTION("Basic with statement") {
         std::string code = "with open('file.txt') as f:\n    data = f.read()";
@@ -81,7 +81,7 @@ class CM:
     }
 }
 
-// ============ 测试3: 生成器 ============
+// ============ Test 3: Generators ============
 TEST_CASE("Python - Generators", "[python][generator]") {
     SECTION("Simple generator") {
         std::string code = "def gen():\n    yield 1\n    yield 2";
@@ -109,7 +109,7 @@ TEST_CASE("Python - Generators", "[python][generator]") {
     }
 }
 
-// ============ 测试4: async/await ============
+// ============ Test 4: async/await ============
 TEST_CASE("Python - Async/Await", "[python][async]") {
     SECTION("Async function") {
         std::string code = "async def func():\n    return 42";
@@ -137,7 +137,7 @@ TEST_CASE("Python - Async/Await", "[python][async]") {
     }
 }
 
-// ============ 测试5-10: 推导式 ============
+// ============ Tests 5-10: Comprehensions ============
 TEST_CASE("Python - List Comprehension", "[python][comp]") {
     SECTION("Basic list comp") {
         std::string code = "[x*2 for x in range(10)]";
@@ -193,7 +193,7 @@ TEST_CASE("Python - Set Comprehension", "[python][set]") {
     }
 }
 
-// ============ 测试11: 匹配语句 ============
+// ============ Test 11: Match statement ============
 TEST_CASE("Python - Match Statement", "[python][match]") {
     SECTION("Simple match") {
         std::string code = R"(
@@ -249,7 +249,7 @@ match value:
     }
 }
 
-// ============ 测试12: f-string ============
+// ============ Test 12: f-string ============
 TEST_CASE("Python - F-String", "[python][fstring]") {
     std::string codes[] = {
         "f'Hello {name}'",
@@ -264,7 +264,7 @@ TEST_CASE("Python - F-String", "[python][fstring]") {
     }
 }
 
-// ============ 测试13: 海象运算符 ============
+// ============ Test 13: Walrus operator ============
 TEST_CASE("Python - Walrus Operator", "[python][walrus]") {
     std::string codes[] = {
         "if (n := len(data)) > 10: pass",
@@ -279,7 +279,7 @@ TEST_CASE("Python - Walrus Operator", "[python][walrus]") {
     }
 }
 
-// ============ 测试14-25: 其他特性 ============
+// ============ Tests 14-25: Other features ============
 
 TEST_CASE("Python - Dataclass", "[python][dataclass]") {
     std::string code = R"(
@@ -345,7 +345,7 @@ TEST_CASE("Python - Global/Nonlocal", "[python][scope]") {
     }
 }
 
-// 集成测试
+// Integration test
 TEST_CASE("Python - Combined Features", "[python][integration]") {
     std::string code = R"(
 @dataclass

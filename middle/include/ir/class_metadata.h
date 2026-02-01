@@ -10,20 +10,20 @@
 
 namespace polyglot::ir {
 
-// 虚函数表项
+// Virtual function table entry
 struct VTableEntry {
-    std::string function_name;  // 函数名称
-    size_t offset;              // 在 vtable 中的偏移量（以指针大小为单位）
-    bool is_pure{false};        // 是否为纯虚函数
+    std::string function_name;  // Function name
+    size_t offset;              // Offset in the vtable (in pointer-sized units)
+    bool is_pure{false};        // Whether this is a pure virtual function
 };
 
-// 虚函数表
+// Virtual function table
 struct VTable {
-    std::string class_name;                    // 所属类名
-    std::vector<VTableEntry> entries;          // vtable 条目
-    std::shared_ptr<GlobalValue> global_var;   // vtable 的全局变量
+    std::string class_name;                    // Owning class name
+    std::vector<VTableEntry> entries;          // Vtable entries
+    std::shared_ptr<GlobalValue> global_var;   // Global variable holding the vtable
     
-    // 查找虚函数在 vtable 中的偏移
+    // Find the offset of a virtual function within the vtable
     int FindFunctionOffset(const std::string &func_name) const {
         for (size_t i = 0; i < entries.size(); ++i) {
             if (entries[i].function_name == func_name) {
@@ -34,28 +34,28 @@ struct VTable {
     }
 };
 
-// 类布局信息
+// Class layout information
 struct ClassLayout {
     std::string class_name;
-    IRType struct_type;                         // 类的 IR 结构类型
-    std::vector<std::string> field_names;       // 字段名称列表
-    std::unordered_map<std::string, size_t> field_offsets;  // 字段名 -> 偏移量
-    std::vector<std::string> base_classes;      // 基类列表（按声明顺序）
-    std::shared_ptr<VTable> vtable;             // 主 vtable（第一个基类或本类的）
-    bool has_vtable{false};                     // 是否包含 vtable 指针
-    size_t vtable_offset{0};                    // 主 vtable 指针在对象中的偏移
+    IRType struct_type;                         // IR struct type of the class
+    std::vector<std::string> field_names;       // List of field names
+    std::unordered_map<std::string, size_t> field_offsets;  // Field name -> offset
+    std::vector<std::string> base_classes;      // Base classes (declaration order)
+    std::shared_ptr<VTable> vtable;             // Primary vtable (first base or this class)
+    bool has_vtable{false};                     // Whether the object holds a vtable pointer
+    size_t vtable_offset{0};                    // Offset of the primary vtable pointer in the object
     
-    // 多继承支持：为每个基类保存 vtable 指针偏移
-    std::unordered_map<std::string, size_t> base_vtable_offsets;  // 基类名 -> vtable 偏移
-    std::unordered_map<std::string, std::shared_ptr<VTable>> base_vtables;  // 基类名 -> vtable
+    // Multiple inheritance support: store vtable pointer offset for each base class
+    std::unordered_map<std::string, size_t> base_vtable_offsets;  // Base class name -> vtable offset
+    std::unordered_map<std::string, std::shared_ptr<VTable>> base_vtables;  // Base class name -> vtable
     
-    // 虚继承支持：虚基类表（VBTable）
-    std::vector<std::string> virtual_bases;      // 虚基类列表
-    std::unordered_map<std::string, size_t> virtual_base_offsets;  // 虚基类名 -> 偏移
-    bool has_vbtable{false};                     // 是否需要虚基类表
-    size_t vbtable_offset{0};                    // 虚基类表指针偏移
+    // Virtual inheritance support: virtual base table (VBTable)
+    std::vector<std::string> virtual_bases;      // List of virtual base classes
+    std::unordered_map<std::string, size_t> virtual_base_offsets;  // Virtual base name -> offset
+    bool has_vbtable{false};                     // Whether a VBTable is needed
+    size_t vbtable_offset{0};                    // Offset of the VBTable pointer
     
-    // 获取字段偏移
+    // Get a field offset
     size_t GetFieldOffset(const std::string &field_name) const {
         auto it = field_offsets.find(field_name);
         if (it != field_offsets.end()) {
@@ -64,7 +64,7 @@ struct ClassLayout {
         return static_cast<size_t>(-1);
     }
     
-    // 获取指定基类的 vtable 偏移
+    // Get the vtable offset for a specific base class
     size_t GetBaseVTableOffset(const std::string &base_name) const {
         auto it = base_vtable_offsets.find(base_name);
         if (it != base_vtable_offsets.end()) {
@@ -73,7 +73,7 @@ struct ClassLayout {
         return static_cast<size_t>(-1);
     }
     
-    // 获取虚基类的偏移
+    // Get the offset for a virtual base class
     size_t GetVirtualBaseOffset(const std::string &base_name) const {
         auto it = virtual_base_offsets.find(base_name);
         if (it != virtual_base_offsets.end()) {
@@ -82,31 +82,31 @@ struct ClassLayout {
         return static_cast<size_t>(-1);
     }
     
-    // 检查是否是虚基类
+    // Check if this is a virtual base class
     bool IsVirtualBase(const std::string &base_name) const {
         return std::find(virtual_bases.begin(), virtual_bases.end(), base_name) 
                != virtual_bases.end();
     }
 };
 
-// RTTI (运行时类型信息)
+// RTTI (runtime type information)
 struct TypeInfo {
     std::string class_name;
-    std::string mangled_name;           // 类型的修饰名称
-    std::vector<std::string> base_types;  // 基类列表
-    bool has_virtual_functions{false};   // 是否有虚函数
-    size_t type_info_offset{0};         // type_info 在 vtable 前的偏移
+    std::string mangled_name;           // Mangled type name
+    std::vector<std::string> base_types;  // List of base classes
+    bool has_virtual_functions{false};   // Whether the type declares virtual functions
+    size_t type_info_offset{0};         // Offset of type_info before the vtable
     
-    // type_info 对象的全局变量名
+    // Global variable name for the type_info object
     std::string GetTypeInfoName() const {
         return "__type_info_" + class_name;
     }
 };
 
-// 方法信息
+// Method information
 struct MethodInfo {
     std::string name;
-    std::string mangled_name;   // 修饰后的名称
+    std::string mangled_name;   // Mangled name
     IRType return_type;
     std::vector<IRType> param_types;
     bool is_virtual{false};
@@ -116,7 +116,7 @@ struct MethodInfo {
     std::string access;         // public/protected/private
 };
 
-// 字段信息
+// Field information
 struct FieldInfo {
     std::string name;
     IRType type;
@@ -126,15 +126,15 @@ struct FieldInfo {
     bool is_mutable{false};
 };
 
-// 类元数据管理器
+// Class metadata manager
 class ClassMetadata {
 public:
-    // 注册类布局
+    // Register a class layout
     void RegisterClass(const std::string &name, ClassLayout layout) {
         layouts_[name] = std::move(layout);
     }
     
-    // 获取类布局
+    // Get class layout
     const ClassLayout* GetLayout(const std::string &name) const {
         auto it = layouts_.find(name);
         return it != layouts_.end() ? &it->second : nullptr;
@@ -145,40 +145,40 @@ public:
         return it != layouts_.end() ? &it->second : nullptr;
     }
     
-    // 注册方法
+    // Register a method
     void RegisterMethod(const std::string &class_name, MethodInfo method) {
         methods_[class_name].push_back(std::move(method));
     }
     
-    // 获取类的所有方法
+    // Get all methods of a class
     const std::vector<MethodInfo>* GetMethods(const std::string &class_name) const {
         auto it = methods_.find(class_name);
         return it != methods_.end() ? &it->second : nullptr;
     }
     
-    // 注册字段
+    // Register a field
     void RegisterField(const std::string &class_name, FieldInfo field) {
         fields_[class_name].push_back(std::move(field));
     }
     
-    // 获取类的所有字段
+    // Get all fields of a class
     const std::vector<FieldInfo>* GetFields(const std::string &class_name) const {
         auto it = fields_.find(class_name);
         return it != fields_.end() ? &it->second : nullptr;
     }
     
-    // 注册RTTI信息
+    // Register RTTI information
     void RegisterTypeInfo(const std::string &class_name, TypeInfo type_info) {
         type_infos_[class_name] = std::move(type_info);
     }
     
-    // 获取RTTI信息
+    // Get RTTI information
     const TypeInfo* GetTypeInfo(const std::string &class_name) const {
         auto it = type_infos_.find(class_name);
         return it != type_infos_.end() ? &it->second : nullptr;
     }
     
-    // 检查类型转换是否合法（用于dynamic_cast）
+    // Check whether a type conversion is valid (for dynamic_cast)
     bool IsBaseOf(const std::string &base, const std::string &derived) const {
         if (base == derived) return true;
         
@@ -194,7 +194,7 @@ public:
         return false;
     }
     
-    // 查找虚函数
+    // Find a virtual method
     const MethodInfo* FindVirtualMethod(const std::string &class_name, 
                                        const std::string &method_name) const {
         auto it = methods_.find(class_name);

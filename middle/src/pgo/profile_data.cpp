@@ -1,5 +1,5 @@
 /**
- * PGO Profile数据实现
+ * PGO profile data implementation
  */
 
 #include "middle/include/pgo/profile_data.h"
@@ -12,12 +12,12 @@ using json = nlohmann::json;
 
 namespace polyglot::pgo {
 
-// ============ FunctionProfile 实现 ============
+// ============ FunctionProfile implementation ============
 
 std::vector<size_t> FunctionProfile::GetHotBlocks() const {
     if (basic_blocks.empty()) return {};
     
-    // 找出执行次数前10%的基本块
+    // Find the hottest 10% of basic blocks by execution count
     std::vector<std::pair<size_t, uint64_t>> blocks;
     for (const auto& bb : basic_blocks) {
         blocks.push_back({bb.block_id, bb.execution_count});
@@ -38,7 +38,7 @@ std::vector<size_t> FunctionProfile::GetHotBlocks() const {
 std::vector<size_t> FunctionProfile::GetColdBlocks() const {
     if (basic_blocks.empty()) return {};
     
-    // 执行次数 < 平均值的10%
+    // Execution count < 10% of the average
     uint64_t total = 0;
     for (const auto& bb : basic_blocks) {
         total += bb.execution_count;
@@ -57,7 +57,7 @@ std::vector<size_t> FunctionProfile::GetColdBlocks() const {
 }
 
 std::vector<size_t> FunctionProfile::GetCriticalPath() const {
-    // 简化实现：返回执行时间最长的基本块序列
+    // Simplified: return the basic blocks with the largest execution time
     std::vector<std::pair<size_t, double>> blocks;
     for (const auto& bb : basic_blocks) {
         blocks.push_back({bb.block_id, bb.execution_time_ns});
@@ -74,7 +74,7 @@ std::vector<size_t> FunctionProfile::GetCriticalPath() const {
     return path;
 }
 
-// ============ ProfileData 实现 ============
+// ============ ProfileData implementation ============
 
 void ProfileData::AddFunctionProfile(const FunctionProfile& profile) {
     functions_[profile.function_name] = profile;
@@ -92,12 +92,12 @@ void ProfileData::Merge(const ProfileData& other) {
         if (it == functions_.end()) {
             functions_[name] = other_profile;
         } else {
-            // 合并执行计数
+            // Merge execution counts
             auto& profile = it->second;
             profile.invocation_count += other_profile.invocation_count;
             profile.total_time_ns += other_profile.total_time_ns;
             
-            // 合并基本块数据
+            // Merge basic block data
             for (const auto& other_bb : other_profile.basic_blocks) {
                 bool found = false;
                 for (auto& bb : profile.basic_blocks) {
@@ -113,7 +113,7 @@ void ProfileData::Merge(const ProfileData& other) {
                 }
             }
             
-            // 合并分支数据
+            // Merge branch data
             for (const auto& other_br : other_profile.branches) {
                 bool found = false;
                 for (auto& br : profile.branches) {
@@ -238,7 +238,7 @@ std::vector<std::string> ProfileData::GetHotFunctions(size_t top_n) const {
     return hot_funcs;
 }
 
-// ============ RuntimeProfiler 实现 ============
+// ============ RuntimeProfiler implementation ============
 
 RuntimeProfiler& RuntimeProfiler::Instance() {
     static RuntimeProfiler instance;
@@ -302,19 +302,19 @@ void RuntimeProfiler::Reset() {
     profiles_.clear();
 }
 
-// ============ PGOOptimizer 实现 ============
+// ============ PGOOptimizer implementation ============
 
 std::vector<PGOOptimizer::InliningDecision> 
 PGOOptimizer::MakeInliningDecisions() const {
     std::vector<InliningDecision> decisions;
     
-    // 遍历所有函数的 profile 数据
+    // Iterate over all function profile data
     for (size_t i = 0; i < profile_.GetFunctionCount(); ++i) {
-        // 注意：需要通过名称列表遍历，因为 functions_ 是私有的
-        // 这里暂时跳过内联决策的实现
+        // Note: must iterate via the name list because functions_ is private
+        // Temporarily skip the inlining decision logic here
     }
     
-    // TODO: 实现基于 profile 的内联决策
+    // TODO: Implement profile-guided inlining decisions
     /*
     for (const auto& call_site : profile.call_sites) {
             InliningDecision decision;
@@ -339,7 +339,7 @@ PGOOptimizer::MakeInliningDecisions() const {
 }
 
 bool PGOOptimizer::ShouldInline(const CallSiteProfile& call_site) const {
-    // 简单启发式：调用次数 > 1000 则内联
+    // Simple heuristic: inline if call count > 1000
     return call_site.call_count > 1000;
 }
 
@@ -347,8 +347,8 @@ std::vector<PGOOptimizer::BranchPredictionHint>
 PGOOptimizer::GetBranchPredictions() const {
     std::vector<BranchPredictionHint> hints;
     
-    // TODO: 实现分支预测提示
-    // 需要添加公有 API 来遍历 functions_
+    // TODO: Implement branch prediction hints
+    // Need a public API to iterate functions_
     /*
     for (const auto& [func_name, profile] : profile_.functions_) {
         for (const auto& branch : profile.branches) {

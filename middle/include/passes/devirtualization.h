@@ -1,5 +1,5 @@
-// 虚函数去虚化优化Pass
-// 将确定类型的虚函数调用转换为直接调用
+// Devirtualization optimization pass
+// Converts virtual calls with known types into direct calls
 
 #pragma once
 
@@ -13,51 +13,51 @@
 
 namespace polyglot::passes {
 
-// 虚函数去虚化优化
-// 
-// 优化策略：
-// 1. Final类检测 - 如果类标记为final，所有虚函数调用可以去虚化
-// 2. 单一实现检测 - 如果虚函数只有一个实现，可以去虚化
-// 3. 类型传播 - 如果能确定对象的实际类型，可以去虚化
-// 4. 调用点分析 - 分析特定调用点的可能类型
+// Devirtualization optimization
+//
+// Optimization strategies:
+// 1. Final class detection - if a class is final, all virtual calls can be devirtualized
+// 2. Single implementation detection - if a virtual function has only one implementation, devirtualize it
+// 3. Type propagation - when an object's concrete type can be inferred, devirtualize
+// 4. Call-site analysis - analyze possible types at each call site
 class DevirtualizationPass {
 public:
     explicit DevirtualizationPass(ir::IRContext &ctx, ir::ClassMetadata &metadata)
         : ir_ctx_(ctx), class_metadata_(metadata) {}
     
-    // 运行优化
+    // Run the optimization
     bool Run();
     
 private:
-    // 分析函数中的虚函数调用
+    // Analyze virtual calls in a function
     bool OptimizeFunction(ir::Function *func);
     
-    // 尝试去虚化单个调用指令
+    // Attempt to devirtualize a single call instruction
     bool TryDevirtualize(ir::CallInstruction *call, ir::BasicBlock *block);
     
-    // 检查类是否为final（不能被继承）
+    // Check if a class is final (non-inheritable)
     bool IsFinalClass(const std::string &class_name);
     
-    // 检查方法是否为final（不能被重写）
+    // Check if a method is final (non-overridable)
     bool IsFinalMethod(const std::string &class_name, const std::string &method_name);
     
-    // 获取虚函数的唯一实现（如果只有一个）
+    // Get the unique implementation of a virtual function (if only one exists)
     const ir::MethodInfo* GetUniqueImplementation(const std::string &class_name, 
                                                    const std::string &method_name);
     
-    // 尝试通过类型传播确定对象类型
+    // Try to determine the object type via type propagation
     std::string InferObjectType(const std::string &value_name, ir::Function *func);
     
     ir::IRContext &ir_ctx_;
     ir::ClassMetadata &class_metadata_;
     
-    // 统计信息
+    // Statistics
     size_t devirtualized_count_ = 0;
     
-    // Final类集合（可以从类属性中读取）
+    // Set of final classes (can be read from class attributes)
     std::unordered_set<std::string> final_classes_;
     
-    // 类型推导缓存
+    // Type inference cache
     std::unordered_map<std::string, std::string> type_cache_;
 };
 

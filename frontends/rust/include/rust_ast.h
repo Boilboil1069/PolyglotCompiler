@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -129,6 +130,8 @@ struct IndexExpression : Expression {
 };
 
 struct RangeExpression : Expression {
+    enum class RangeKind { kExclusive, kInclusive, kFrom, kTo, kFull };
+    RangeKind kind{RangeKind::kExclusive};
     std::shared_ptr<Expression> start;
     std::shared_ptr<Expression> end;
     bool inclusive{false};
@@ -141,6 +144,7 @@ struct CallExpression : Expression {
 
 struct AwaitExpression : Expression {
     std::shared_ptr<Expression> value;
+    std::shared_ptr<Expression> future;
 };
 
 struct TryExpression : Expression {
@@ -365,6 +369,224 @@ struct TypeAliasItem : Statement {
 struct MacroRulesItem : Statement {
     std::string name;
     std::string body;
+};
+
+// Advanced Rust language features consolidated here to avoid separate headers.
+
+struct TraitDecl : Statement {
+    std::string name;
+    std::vector<std::string> type_params;
+    std::vector<std::string> super_traits;
+    std::vector<std::string> method_names;
+    std::vector<std::string> associated_type_names;
+};
+
+struct ImplDecl : Statement {
+    std::string trait_name;
+    std::shared_ptr<TypeNode> for_type;
+    std::vector<std::string> type_params;
+    std::vector<std::string> method_names;
+    std::vector<std::string> associated_item_names;
+};
+
+struct Lifetime {
+    std::string name;
+    bool is_static{false};
+
+    bool operator==(const Lifetime &other) const {
+        return name == other.name && is_static == other.is_static;
+    }
+};
+
+struct LifetimeBound {
+    Lifetime lifetime;
+    std::vector<Lifetime> bounds;
+};
+
+struct BorrowInfo {
+    enum Kind { kShared, kMutable, kMove };
+    Kind kind{kShared};
+    Lifetime lifetime;
+    std::string borrowed_var;
+    core::SourceLoc loc;
+};
+
+struct BorrowChecker {
+    std::vector<BorrowInfo> active_borrows;
+    std::vector<std::string> moved_vars;
+
+    bool CheckBorrow(const BorrowInfo &borrow) {
+        for (const auto &active : active_borrows) {
+            if (active.borrowed_var != borrow.borrowed_var) {
+                continue;
+            }
+            if (borrow.kind == BorrowInfo::kMutable || active.kind == BorrowInfo::kMutable) {
+                return false;  // mutable conflicts with any existing borrow of the same variable
+            }
+        }
+        active_borrows.push_back(borrow);
+        return true;
+    }
+
+    bool CheckMoveAfterUse(const std::string &var) {
+        if (std::find(moved_vars.begin(), moved_vars.end(), var) != moved_vars.end()) {
+            return false;
+        }
+        moved_vars.push_back(var);
+        return true;
+    }
+
+    void EndLifetime(const Lifetime &lifetime) {
+        active_borrows.erase(
+            std::remove_if(active_borrows.begin(), active_borrows.end(), [&](const BorrowInfo &info) {
+                return info.lifetime == lifetime;
+            }),
+            active_borrows.end());
+    }
+};
+
+struct OwnershipInfo {
+    enum Ownership { kOwned, kBorrowed, kMutBorrowed };
+    Ownership ownership{kOwned};
+    Lifetime lifetime;
+};
+
+enum CaptureMode { kMove, kRef, kMutRef };
+
+struct ClosureCaptureInfo {
+    CaptureMode capture_mode{kRef};
+    std::vector<std::string> captures;
+    std::vector<OwnershipInfo> capture_ownership;
+};
+
+struct PatternExtension {
+    enum PatternKind {
+        kWildcard,
+        kLiteral,
+        kVariable,
+        kTuple,
+        kStruct,
+        kEnum,
+        kSlice,
+        kRange,
+        kOr,
+        kRef,
+    };
+
+    PatternKind pattern_kind{kWildcard};
+    std::string name;
+    std::vector<std::shared_ptr<Pattern>> subpatterns;
+    std::shared_ptr<Expression> value;
+    bool is_mutable{false};
+};
+
+struct EnumDeclExtension {
+    std::string name;
+    std::vector<std::string> type_params;
+    std::vector<std::string> variant_names;
+};
+
+struct TypeBound {
+    enum BoundKind { kTrait, kLifetime, kSized };
+    BoundKind bound_kind{kTrait};
+    std::string trait_name;
+    Lifetime lifetime;
+};
+
+struct GenericParam {
+    std::string name;
+    std::vector<TypeBound> bounds;
+    std::shared_ptr<TypeNode> default_type;
+};
+
+struct AssociatedType {
+    std::string name;
+    std::vector<TypeBound> bounds;
+    std::shared_ptr<TypeNode> default_type;
+};
+
+struct MacroInvocation : Expression {
+    std::string macro_name;
+    std::vector<std::string> tokens;
+};
+
+struct MacroDecl : Statement {
+    std::string name;
+    std::vector<std::string> rules;
+};
+
+struct Visibility {
+    enum Level { kPrivate, kPub, kPubCrate, kPubSuper, kPubIn };
+    Level level{kPrivate};
+    std::string path;
+};
+
+struct ModuleDecl : Statement {
+    std::string name;
+    std::vector<std::shared_ptr<Statement>> items;
+    Visibility visibility;
+    bool is_inline{true};
+};
+
+struct UseDecl : Statement {
+    std::vector<std::string> path;
+    std::string alias;
+    bool is_glob{false};
+    std::vector<std::string> items;
+};
+
+struct ConstDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::shared_ptr<Expression> value;
+    Visibility visibility;
+};
+
+struct StaticDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::shared_ptr<Expression> value;
+    bool is_mutable{false};
+    Visibility visibility;
+};
+
+struct TypeAliasDecl : Statement {
+    std::string name;
+    std::vector<GenericParam> type_params;
+    std::shared_ptr<TypeNode> aliased_type;
+    Visibility visibility;
+};
+
+struct SmartPointerType : TypeNode {
+    enum PointerKind { kBox, kRc, kArc, kCell, kRefCell };
+    PointerKind pointer_kind{kBox};
+    std::shared_ptr<TypeNode> inner;
+};
+
+struct FnPointerType : TypeNode {
+    std::vector<std::shared_ptr<TypeNode>> param_types;
+    std::shared_ptr<TypeNode> return_type;
+    bool is_unsafe{false};
+};
+
+struct UnsafeBlock : Statement {
+    std::vector<std::shared_ptr<Statement>> body;
+};
+
+struct AsyncBlock : Expression {
+    std::vector<std::shared_ptr<Statement>> body;
+};
+
+struct DerefCoercion {
+    std::shared_ptr<TypeNode> from_type;
+    std::shared_ptr<TypeNode> to_type;
+    int deref_count{0};
+};
+
+struct AutoRef {
+    bool add_ref{false};
+    bool add_mut_ref{false};
+    int deref_count{0};
 };
 
 struct Module : AstNode {

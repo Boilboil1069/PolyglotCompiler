@@ -30,8 +30,7 @@ class ThreadPool {
   size_t NumThreads() const { return num_threads_; }
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  // 使用简化实现而非 Pimpl 模式以避免不完整类型问题
   size_t num_threads_;
 };
 
@@ -59,8 +58,8 @@ class TaskScheduler {
   bool Cancel(size_t task_id);
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  // 使用简化实现
+  std::vector<Task> tasks_;
 };
 
 // 3. 工作窃取调度器（Work-Stealing Scheduler）
@@ -77,8 +76,8 @@ class WorkStealingScheduler {
   T ParallelReduce(size_t start, size_t end, T init, F&& reducer);
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  // 使用简化实现
+  size_t num_workers_;
 };
 
 // 4. 同步原语
@@ -109,8 +108,11 @@ class RWLock {
   };
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  // 使用简化实现
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  int readers_{0};
+  bool writer_{false};
 };
 
 // 屏障（Barrier）
@@ -122,8 +124,11 @@ class Barrier {
   void Wait();
 
   // 重置屏障
-  void Reset(size_t num_threads);
-
+  // 使用简化实现
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  size_t num_threads_;
+  size_t count_{0}
  private:
   struct Impl;
   std::unique_ptr<Impl> impl_;
@@ -139,8 +144,10 @@ class Semaphore {
   bool TryWait();
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  // 使用简化实现
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  int count_;
 };
 
 // 5. 无锁数据结构
@@ -157,9 +164,13 @@ class LockFreeQueue {
   bool Empty() const;
 
  private:
-  struct Node;
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  struct Node {
+    T value;
+    std::atomic<Node*> next;
+    Node(const T& val) : value(val), next(nullptr) {}
+  };
+  std::atomic<Node*> head_;
+  std::atomic<Node*> tail_;
 };
 
 // 无锁栈（Lock-Free Stack）
@@ -174,9 +185,12 @@ class LockFreeStack {
   bool Empty() const;
 
  private:
-  struct Node;
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  struct Node {
+    T value;
+    std::atomic<Node*> next;
+    Node(const T& val) : value(val), next(nullptr) {}
+  };
+  std::atomic<Node*> head_;
 };
 
 // 6. 线程局部存储（Thread-Local Storage）
@@ -190,8 +204,8 @@ class ThreadLocal {
   void Set(const T &value);
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::unordered_map<std::thread::id, T> storage_;
+  std::mutex mutex_;
 };
 
 // 7. 协程（Coroutines）支持
@@ -228,8 +242,8 @@ class CoroutineScheduler {
   void Run();
 
  private:
-  struct Impl;
-  std::unique_ptr<Impl> impl_;
+  std::vector<std::shared_ptr<Coroutine>> coroutines_;
+  std::mutex mutex_;
 };
 
 // 8. 异步I/O
@@ -251,8 +265,7 @@ class Future {
   void Then(F&& callback);
 
  private:
-  struct Impl;
-  std::shared_ptr<Impl> impl_;
+  std::shared_ptr<std::promise<T>> promise_;
 };
 
 template <typename T>
@@ -271,8 +284,7 @@ class Promise {
 
  private:
   struct Impl;
-  std::shared_ptr<Impl> impl_;
-};
+  std::shared_ptr<std::promise<T>> promise
 
 // 9. 内存序（Memory Order）控制
 

@@ -831,6 +831,7 @@ std::shared_ptr<Expression> RustParser::ParsePostfix() {
                 auto aw = std::make_shared<AwaitExpression>();
                 aw->loc = current_.loc;
                 aw->value = expr;
+                aw->future = expr;
                 Consume();
                 expr = aw;
                 continue;
@@ -1031,6 +1032,7 @@ std::shared_ptr<Expression> RustParser::ParseRange() {
         range->loc = expr ? expr->loc : current_.loc;
         range->start = expr;
         range->inclusive = inclusive;
+        range->kind = inclusive ? RangeExpression::RangeKind::kInclusive : RangeExpression::RangeKind::kExclusive;
         range->end = ParseLogicalOr();
         expr = range;
     }

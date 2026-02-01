@@ -1,7 +1,7 @@
 /**
- * Profile-Guided Optimization (PGO) 支持
- * 
- * 收集和使用运行时性能分析数据来优化编译
+ * Profile-Guided Optimization (PGO) support
+ *
+ * Collect and use runtime profiling data to optimize compilation
  */
 
 #pragma once
@@ -18,10 +18,10 @@ class Function;
 
 namespace polyglot::pgo {
 
-// ============ 性能分析数据结构 ============
+// ============ Profiling data structures ============
 
 /**
- * 基本块执行计数
+ * Basic block execution counts
  */
 struct BasicBlockProfile {
     size_t block_id;
@@ -30,7 +30,7 @@ struct BasicBlockProfile {
 };
 
 /**
- * 分支预测数据
+ * Branch prediction data
  */
 struct BranchProfile {
     size_t branch_id;
@@ -44,7 +44,7 @@ struct BranchProfile {
 };
 
 /**
- * 函数调用分析
+ * Function call analysis
  */
 struct CallSiteProfile {
     size_t call_site_id;
@@ -52,12 +52,12 @@ struct CallSiteProfile {
     uint64_t call_count;
     double avg_call_time_ns;
     
-    // 虚函数调用的具体目标
+    // Concrete targets of virtual calls
     std::map<std::string, uint64_t> virtual_targets;
 };
 
 /**
- * 循环性能数据
+ * Loop performance data
  */
 struct LoopProfile {
     size_t loop_id;
@@ -68,7 +68,7 @@ struct LoopProfile {
 };
 
 /**
- * 内存访问模式
+ * Memory access patterns
  */
 struct MemoryProfile {
     size_t instruction_id;
@@ -83,7 +83,7 @@ struct MemoryProfile {
 };
 
 /**
- * 函数性能分析数据
+ * Function-level profiling data
  */
 class FunctionProfile {
 public:
@@ -98,37 +98,37 @@ public:
     std::vector<LoopProfile> loops;
     std::vector<MemoryProfile> memory_accesses;
     
-    // 热点基本块（执行次数前10%）
+    // Hot basic blocks (top 10% by execution count)
     std::vector<size_t> GetHotBlocks() const;
     
-    // 冷代码块（很少执行）
+    // Cold blocks (rarely executed)
     std::vector<size_t> GetColdBlocks() const;
     
-    // 关键路径分析
+    // Critical path analysis
     std::vector<size_t> GetCriticalPath() const;
 };
 
 /**
- * 完整的性能分析数据
+ * Complete profiling dataset
  */
 class ProfileData {
 public:
     ProfileData() = default;
     
-    // 添加函数性能数据
+    // Add function profiling data
     void AddFunctionProfile(const FunctionProfile& profile);
     
-    // 获取函数性能数据
+    // Fetch function profiling data
     const FunctionProfile* GetFunctionProfile(const std::string& name) const;
     
-    // 合并多个profile数据（用于多次运行）
+    // Merge multiple profile datasets (for multiple runs)
     void Merge(const ProfileData& other);
     
-    // 序列化/反序列化
+    // Serialization / deserialization
     bool SaveToFile(const std::string& filename) const;
     bool LoadFromFile(const std::string& filename);
     
-    // 统计信息
+    // Statistics
     size_t GetFunctionCount() const { return functions_.size(); }
     std::vector<std::string> GetHotFunctions(size_t top_n = 10) const;
     
@@ -137,35 +137,35 @@ private:
     std::string profile_version_ = "1.0";
 };
 
-// ============ 性能分析数据收集 ============
+// ============ Profiling data collection ============
 
 /**
- * 运行时性能计数器
+ * Runtime profiling counters
  */
 class RuntimeProfiler {
 public:
     static RuntimeProfiler& Instance();
     
-    // 记录基本块执行
+    // Record a basic block execution
     void RecordBasicBlock(const std::string& func, size_t block_id);
     
-    // 记录分支跳转
+    // Record a branch outcome
     void RecordBranch(const std::string& func, size_t branch_id, bool taken);
     
-    // 记录函数调用
+    // Record a function call
     void RecordCall(const std::string& caller, size_t call_site_id, 
                    const std::string& callee);
     
-    // 记录循环迭代
+    // Record a loop iteration
     void RecordLoopIteration(const std::string& func, size_t loop_id);
     
-    // 获取收集的数据
+    // Retrieve collected data
     ProfileData GetProfileData() const;
     
-    // 重置所有计数器
+    // Reset all counters
     void Reset();
     
-    // 启用/禁用profiling
+    // Enable / disable profiling
     void Enable() { enabled_ = true; }
     void Disable() { enabled_ = false; }
     
@@ -176,17 +176,17 @@ private:
     std::map<std::string, FunctionProfile> profiles_;
 };
 
-// ============ PGO优化器 ============
+// ============ PGO optimizer ============
 
 /**
- * 使用profile数据进行优化
+ * Optimize using profile data
  */
 class PGOOptimizer {
 public:
     explicit PGOOptimizer(const ProfileData& profile) 
         : profile_(profile) {}
     
-    // 基于profile的内联决策
+    // Profile-guided inlining decisions
     struct InliningDecision {
         std::string caller;
         size_t call_site_id;
@@ -196,14 +196,14 @@ public:
     };
     std::vector<InliningDecision> MakeInliningDecisions() const;
     
-    // 基于profile的代码布局优化
+    // Profile-guided code layout optimization
     struct CodeLayoutHint {
         std::string function;
-        std::vector<size_t> block_order;  // 优化后的基本块顺序
+        std::vector<size_t> block_order;  // Optimized basic block order
     };
     std::vector<CodeLayoutHint> OptimizeCodeLayout() const;
     
-    // 基于profile的循环优化决策
+    // Profile-guided loop optimization decisions
     struct LoopOptimizationHint {
         std::string function;
         size_t loop_id;
@@ -213,7 +213,7 @@ public:
     };
     std::vector<LoopOptimizationHint> OptimizeLoops() const;
     
-    // 虚函数去虚化
+    // Devirtualization hints
     struct DevirtualizationHint {
         std::string function;
         size_t call_site_id;
@@ -222,7 +222,7 @@ public:
     };
     std::vector<DevirtualizationHint> FindDevirtualizationOpportunities() const;
     
-    // 分支预测提示
+    // Branch prediction hints
     struct BranchPredictionHint {
         std::string function;
         size_t branch_id;
@@ -234,57 +234,57 @@ public:
 private:
     const ProfileData& profile_;
     
-    // 内联启发式
+    // Inlining heuristic
     bool ShouldInline(const CallSiteProfile& call_site) const;
     
-    // 代码布局启发式
+    // Code layout heuristic
     std::vector<size_t> ComputeOptimalBlockOrder(
         const FunctionProfile& func) const;
 };
 
-// ============ 插桩代码生成 ============
+// ============ Instrumentation code generation ============
 
 /**
- * 为PGO生成插桩代码
+ * Generate instrumentation code for PGO
  */
 class ProfileInstrumentation {
 public:
-    // 在IR中插入profiling代码
+    // Insert profiling code into the IR
     static void InstrumentFunction(ir::Function& func);
     
-    // 生成profiling运行时库调用
+    // Generate calls to the profiling runtime library
     static void GenerateProfilerCalls(ir::Function& func);
     
-    // 优化插桩开销
+    // Reduce instrumentation overhead
     static void OptimizeInstrumentation(ir::Function& func);
 };
 
-// ============ PGO工作流 ============
+// ============ PGO workflow ============
 
 /**
- * PGO完整工作流程
- * 
- * 使用方式：
- * 1. 构建插桩版本：polyc -fprofile-generate input.cpp -o app.instrumented
- * 2. 运行获取profile：./app.instrumented (生成 default.profdata)
- * 3. 使用profile优化：polyc -fprofile-use=default.profdata input.cpp -o app.optimized
+ * End-to-end PGO workflow
+ *
+ * Usage:
+ * 1. Build instrumented binary: polyc -fprofile-generate input.cpp -o app.instrumented
+ * 2. Run to gather profile: ./app.instrumented (produces default.profdata)
+ * 3. Use profile to optimize: polyc -fprofile-use=default.profdata input.cpp -o app.optimized
  */
 class PGOWorkflow {
 public:
-    // Step 1: 生成插桩版本
+    // Step 1: Generate instrumented binary
     static bool GenerateInstrumentedBinary(
         const std::string& source_file,
         const std::string& output_file);
     
-    // Step 2: 运行并收集profile（由用户执行）
+    // Step 2: Run and collect the profile (user executes)
     
-    // Step 3: 使用profile优化编译
+    // Step 3: Compile using the collected profile
     static bool CompileWithProfile(
         const std::string& source_file,
         const std::string& profile_file,
         const std::string& output_file);
     
-    // 工具：合并多个profile文件
+    // Utility: merge multiple profile files
     static bool MergeProfiles(
         const std::vector<std::string>& input_files,
         const std::string& output_file);

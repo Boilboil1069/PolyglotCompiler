@@ -16,7 +16,7 @@ namespace {
 
 using Name = std::string;
 
-// 类型辅助函数保持不变
+// Type helper functions remain unchanged.
 
 ir::IRType ToIRType(const core::Type &t) {
     using Kind = core::TypeKind;
@@ -60,9 +60,9 @@ struct LoweringContext {
     ir::IRContext &ir_ctx;
     frontends::Diagnostics &diags;
     std::unordered_map<Name, EnvEntry> env;
-    ir::ClassMetadata class_metadata;     // 类元数据管理
-    ir::TemplateInstantiator template_instantiator;  // 模板实例化管理
-    std::string current_class;            // 当前正在处理的类名
+    ir::ClassMetadata class_metadata;     // Class metadata management
+    ir::TemplateInstantiator template_instantiator;  // Template instantiation management
+    std::string current_class;            // Current class being lowered
     ir::IRBuilder builder;
     std::shared_ptr<ir::Function> fn;
     bool terminated{false};
@@ -104,9 +104,9 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
     return {lit->name, ir::IRType::F64()};
 }
 
-// ==================== 成员访问和虚函数调用 ====================
+// ==================== Member access and virtual calls ====================
 
-// 处理数组下标/operator[] 重载
+// Handle subscript/operator[] overloads
 EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, LoweringContext &lc) {
     auto obj = EvalExpr(idx->object, lc);
     auto index = EvalExpr(idx->index, lc);
@@ -116,7 +116,7 @@ EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, Lowering
         return {};
     }
     
-    // 检查是否是类类型（可能重载了 operator[]）
+    // Check whether this is a class type (which may overload operator[])
     std::string class_name;
     if (obj.type.kind == ir::IRTypeKind::kStruct) {
         class_name = obj.type.name;
@@ -126,13 +126,13 @@ EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, Lowering
         class_name = obj.type.subtypes[0].name;
     }
     
-    // 如果是类类型，查找 operator[] 重载
+    // If it is a class type, look for an operator[] overload
     if (!class_name.empty()) {
         auto *methods = lc.class_metadata.GetMethods(class_name);
         if (methods) {
             for (const auto &method : *methods) {
                 if (method.name == "operator[]") {
-                    // 调用重载的 operator[]
+                    // Call the overloaded operator[]
                     std::vector<std::string> args = {obj.value, index.value};
                     auto call = lc.builder.MakeCall(method.mangled_name, args, 
                                                     method.return_type, "");
@@ -142,21 +142,21 @@ EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, Lowering
         }
     }
     
-    // 普通数组访问或指针运算
+    // Plain array access or pointer arithmetic
     if (obj.type.kind == ir::IRTypeKind::kPointer) {
-        // 计算元素类型
-        ir::IRType elem_type = ir::IRType::I64(true);  // 默认
+        // Compute element type
+        ir::IRType elem_type = ir::IRType::I64(true);  // default fallback
         if (!obj.type.subtypes.empty()) {
             elem_type = obj.type.subtypes[0];
         }
         
-        // 使用指针算术: ptr + index * elem_size
-        // 简化实现：直接使用 GEP 与单个动态索引
-        // 注意：这里需要运行时索引，暂时使用简化方式
-        // TODO: 实现真正的动态 GEP 或指针算术
-        
-        // 对于简化实现，假设可以直接访问
-        // 生成一个临时值表示数组访问结果
+        // Use pointer arithmetic: ptr + index * elem_size
+        // Simplified lowering: use a single dynamic GEP-like access
+        // Note: this needs runtime indexing; using a temporary simplification for now
+        // TODO: implement real dynamic GEP or pointer arithmetic
+
+        // For this simplified lowering, assume direct access is sufficient
+        // Generate a temporary value representing the array access result
         std::string result_name = "arr_elem_" + std::to_string(
             reinterpret_cast<uintptr_t>(idx.get()));
         return {result_name, elem_type};
@@ -166,16 +166,16 @@ EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, Lowering
     return {};
 }
 
-// 处理 new 表达式
+// Handle new expressions
 EvalResult EvalNew(const std::shared_ptr<NewExpression> &new_expr, LoweringContext &lc) {
-    // 获取要分配的类型
+    // Compute the allocated type
     ir::IRType alloc_type = ToIRType(new_expr->type);
     if (alloc_type.kind == ir::IRTypeKind::kInvalid) {
         lc.diags.Report(new_expr->loc, "Invalid type for new expression");
         return {};
     }
     
-    // 处理数组 new
+    // Handle array new
     if (new_expr->is_array) {
         if (new_expr->args.empty()) {
             lc.diags.Report(new_expr->loc, "Array new requires size argument");
@@ -185,43 +185,43 @@ EvalResult EvalNew(const std::shared_ptr<NewExpression> &new_expr, LoweringConte
         auto size_result = EvalExpr(new_expr->args[0], lc);
         if (size_result.type.kind == ir::IRTypeKind::kInvalid) return {};
         
-        // 调用 __builtin_new_array(size, element_size)
-        // 简化实现：假设 element_size 固定
-        std::vector<std::string> args = {size_result.value, "8"};  // 假设每个元素 8 字节
+        // Call __builtin_new_array(size, element_size)
+        // Simplified: assume element_size is fixed
+        std::vector<std::string> args = {size_result.value, "8"};  // assume 8 bytes per element
         auto call = lc.builder.MakeCall("__builtin_new_array", args, 
                                        ir::IRType::Pointer(alloc_type), "");
         return {call->name, call->type};
     }
     
-    // 单对象 new
-    // 1. 调用 __builtin_new 分配内存
+    // Single-object new
+    // 1. Call __builtin_new to allocate memory
     auto ptr_type = ir::IRType::Pointer(alloc_type);
     auto alloc_call = lc.builder.MakeCall("__builtin_new", {}, ptr_type, "");
     
-    // 2. 如果是类类型，需要调用构造函数
+    // 2. If this is a class type, call its constructor
     std::string class_name;
     if (alloc_type.kind == ir::IRTypeKind::kStruct) {
         class_name = alloc_type.name;
         
-        // 检查是否有构造函数
+        // Check whether a constructor exists
         auto *layout = lc.class_metadata.GetLayout(class_name);
         if (layout) {
-            // 3. 初始化 vtable 指针（如果有）
+            // 3. Initialize the vtable pointer (if present)
             if (layout->has_vtable && layout->vtable) {
-                // 生成 GEP 访问 __vptr 字段（偏移 0）
+                // Generate a GEP to access the __vptr field (offset 0)
                 auto vptr_gep = lc.builder.MakeGEP(alloc_call->name, ptr_type, {0, 0});
                 
-                // 获取 vtable 全局变量地址
+                // Fetch the vtable global variable address
                 std::string vtable_name = "__vtable_" + class_name;
                 
-                // 存储 vtable 指针
+                // Store the vtable pointer
                 lc.builder.MakeStore(vtable_name, vptr_gep->name);
             }
             
-            // 4. 调用构造函数（如果存在）
+            // 4. Call the constructor (if present)
             std::string ctor_name = class_name + "::" + class_name;  // ClassName::ClassName
             
-            // 准备构造函数参数：this 指针 + 用户提供的参数
+            // Prepare constructor arguments: this pointer + user-provided args
             std::vector<std::string> ctor_args = {alloc_call->name};
             for (const auto &arg : new_expr->args) {
                 auto arg_result = EvalExpr(arg, lc);
@@ -229,8 +229,7 @@ EvalResult EvalNew(const std::shared_ptr<NewExpression> &new_expr, LoweringConte
                 ctor_args.push_back(arg_result.value);
             }
             
-            // 调用构造函数（如果存在的话）
-            // 注意：这里不检查构造函数是否存在，lowering 时会处理
+            // Invoke the constructor without checking existence here; lowering handles resolution
             lc.builder.MakeCall(ctor_name, ctor_args, ir::IRType::Void(), "");
         }
     }
@@ -238,7 +237,7 @@ EvalResult EvalNew(const std::shared_ptr<NewExpression> &new_expr, LoweringConte
     return {alloc_call->name, ptr_type};
 }
 
-// 处理 delete 表达式
+// Handle delete expressions
 EvalResult EvalDelete(const std::shared_ptr<DeleteExpression> &del_expr, LoweringContext &lc) {
     auto obj = EvalExpr(del_expr->operand, lc);
     if (obj.type.kind == ir::IRTypeKind::kInvalid) {
@@ -250,35 +249,35 @@ EvalResult EvalDelete(const std::shared_ptr<DeleteExpression> &del_expr, Lowerin
         return {};
     }
     
-    // 处理数组 delete
+    // Handle array delete
     if (del_expr->is_array) {
         lc.builder.MakeCall("__builtin_delete_array", {obj.value}, ir::IRType::Void(), "");
         return {obj.value, ir::IRType::Void()};
     }
     
-    // 单对象 delete
-    // 1. 如果是类类型，调用析构函数
+    // Single-object delete
+    // 1. If this is a class type, call the destructor
     if (!obj.type.subtypes.empty() && obj.type.subtypes[0].kind == ir::IRTypeKind::kStruct) {
         std::string class_name = obj.type.subtypes[0].name;
         std::string dtor_name = class_name + "::~" + class_name;
         
-        // 调用析构函数
+        // Call the destructor
         lc.builder.MakeCall(dtor_name, {obj.value}, ir::IRType::Void(), "");
     }
     
-    // 2. 调用 __builtin_delete 释放内存
+    // 2. Call __builtin_delete to free memory
     lc.builder.MakeCall("__builtin_delete", {obj.value}, ir::IRType::Void(), "");
     
     return {obj.value, ir::IRType::Void()};
 }
 
-// 处理 typeid 表达式
+// Handle typeid expressions
 EvalResult EvalTypeid(const std::shared_ptr<TypeidExpression> &typeid_expr, LoweringContext &lc) {
     std::string class_name;
     
     if (typeid_expr->is_type) {
         // typeid(Type)
-        // 从类型节点提取类名
+        // Extract the class name from the type node
         if (auto simple = std::dynamic_pointer_cast<SimpleType>(typeid_expr->type_arg)) {
             class_name = simple->name;
         } else {
@@ -287,13 +286,13 @@ EvalResult EvalTypeid(const std::shared_ptr<TypeidExpression> &typeid_expr, Lowe
         }
     } else {
         // typeid(expression)
-        // 评估表达式并获取其类型
+        // Evaluate the expression and obtain its type
         auto val = EvalExpr(typeid_expr->expr_arg, lc);
         if (val.type.kind == ir::IRTypeKind::kInvalid) {
             return {};
         }
         
-        // 提取类名
+        // Extract the class name
         if (val.type.kind == ir::IRTypeKind::kStruct) {
             class_name = val.type.name;
         } else if (val.type.kind == ir::IRTypeKind::kPointer &&
@@ -306,10 +305,10 @@ EvalResult EvalTypeid(const std::shared_ptr<TypeidExpression> &typeid_expr, Lowe
         }
     }
     
-    // 获取type_info对象
+    // Retrieve the type_info object
     auto *type_info = lc.class_metadata.GetTypeInfo(class_name);
     if (!type_info) {
-        // 如果还没有注册，现在注册
+        // Register now if it has not been recorded yet
         ir::TypeInfo new_info;
         new_info.class_name = class_name;
         new_info.mangled_name = "_ZTI" + std::to_string(class_name.length()) + class_name;
@@ -324,34 +323,34 @@ EvalResult EvalTypeid(const std::shared_ptr<TypeidExpression> &typeid_expr, Lowe
         type_info = lc.class_metadata.GetTypeInfo(class_name);
     }
     
-    // 返回指向type_info的指针
+    // Return a pointer to the type_info
     std::string type_info_name = type_info->GetTypeInfoName();
     
-    // 创建type_info类型（简化为指针类型）
+    // Create a type_info type (simplified to a pointer type)
     ir::IRType type_info_ptr = ir::IRType::Pointer(ir::IRType::I8());
     
     return {type_info_name, type_info_ptr};
 }
 
-// 处理 dynamic_cast 表达式
+// Handle dynamic_cast expressions
 EvalResult EvalDynamicCast(const std::shared_ptr<DynamicCastExpression> &cast_expr, LoweringContext &lc) {
-    // 获取源对象
+    // Get the source object
     auto src = EvalExpr(cast_expr->operand, lc);
     if (src.type.kind == ir::IRTypeKind::kInvalid) {
         return {};
     }
     
-    // 获取目标类型
+    // Determine the target type
     ir::IRType target_type = ToIRType(cast_expr->target_type);
     if (target_type.kind == ir::IRTypeKind::kInvalid) {
         lc.diags.Report(cast_expr->loc, "Invalid target type for dynamic_cast");
         return {};
     }
     
-    // 提取源类型和目标类型的类名
+    // Extract class names for source and target types
     std::string src_class, target_class;
     
-    // 源类型应该是指针或引用
+    // The source type should be a pointer or reference
     if (src.type.kind == ir::IRTypeKind::kPointer) {
         if (!src.type.subtypes.empty() && src.type.subtypes[0].kind == ir::IRTypeKind::kStruct) {
             src_class = src.type.subtypes[0].name;
@@ -373,27 +372,27 @@ EvalResult EvalDynamicCast(const std::shared_ptr<DynamicCastExpression> &cast_ex
         return {};
     }
     
-    // 检查类型关系
-    bool is_upcast = lc.class_metadata.IsBaseOf(target_class, src_class);    // 向上转换
-    bool is_downcast = lc.class_metadata.IsBaseOf(src_class, target_class);  // 向下转换
+    // Check the inheritance relationship
+    bool is_upcast = lc.class_metadata.IsBaseOf(target_class, src_class);    // upcast
+    bool is_downcast = lc.class_metadata.IsBaseOf(src_class, target_class);  // downcast
     
     if (!is_upcast && !is_downcast) {
         lc.diags.Report(cast_expr->loc, "Invalid dynamic_cast: no inheritance relationship");
         return {};
     }
     
-    // 对于向上转换（派生→基类），在编译期即可确定成功
+    // Upcasts (derived → base) are known-safe at compile time
     if (is_upcast) {
-        // 简化实现：直接返回源指针（在真实实现中需要调整指针偏移）
+        // Simplified: return the source pointer (real impl would adjust pointer offset)
         return {src.value, target_type};
     }
     
-    // 对于向下转换（基类→派生），需要运行时检查
-    // 调用运行时辅助函数 __dynamic_cast_check
+    // Downcasts (base → derived) require runtime checks
+    // Call the runtime helper __dynamic_cast_check
     std::vector<std::string> args = {
-        src.value,                                // 源对象指针
-        "\"" + src_class + "\"",                  // 源类型名
-        "\"" + target_class + "\""                // 目标类型名
+        src.value,                                // source object pointer
+        "\"" + src_class + "\"",                  // source type name
+        "\"" + target_class + "\""                // target type name
     };
     
     auto result = lc.builder.MakeCall(
@@ -406,37 +405,37 @@ EvalResult EvalDynamicCast(const std::shared_ptr<DynamicCastExpression> &cast_ex
     return {result->name, target_type};
 }
 
-// 处理 static_cast 表达式
+// Handle static_cast expressions
 EvalResult EvalStaticCast(const std::shared_ptr<StaticCastExpression> &cast_expr, LoweringContext &lc) {
-    // 获取源对象
+    // Get the source object
     auto src = EvalExpr(cast_expr->operand, lc);
     if (src.type.kind == ir::IRTypeKind::kInvalid) {
         return {};
     }
     
-    // 获取目标类型
+    // Determine the target type
     ir::IRType target_type = ToIRType(cast_expr->target_type);
     if (target_type.kind == ir::IRTypeKind::kInvalid) {
         lc.diags.Report(cast_expr->loc, "Invalid target type for static_cast");
         return {};
     }
     
-    // static_cast 在编译期检查，不需要运行时检查
-    // 简化实现：直接返回源值和目标类型
-    // TODO: 添加更完善的类型转换逻辑（整数/浮点转换、指针转换等）
+    // static_cast is compile-time only; no runtime checks
+    // Simplified: return the source value with the target type
+    // TODO: add full conversion logic (integer/float conversions, pointer conversions, etc.)
     
     return {src.value, target_type};
 }
 
-// 处理成员访问表达式
+// Handle member access expressions
 EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, LoweringContext &lc) {
-    // 评估对象表达式
+    // Evaluate the object expression
     auto obj = EvalExpr(mem->object, lc);
     if (obj.type.kind == ir::IRTypeKind::kInvalid) {
         return {};
     }
     
-    // 获取对象的类型名称
+    // Obtain the object's type name
     std::string class_name;
     if (obj.type.kind == ir::IRTypeKind::kPointer || obj.type.kind == ir::IRTypeKind::kReference) {
         if (!obj.type.subtypes.empty() && obj.type.subtypes[0].kind == ir::IRTypeKind::kStruct) {
@@ -451,23 +450,23 @@ EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, Loweri
         return {};
     }
     
-    // 查找类布局
+    // Look up the class layout
     auto *layout = lc.class_metadata.GetLayout(class_name);
     if (!layout) {
         lc.diags.Report(mem->loc, "Unknown class: " + class_name);
         return {};
     }
     
-    // 获取字段偏移
+    // Compute the field offset
     size_t field_offset = layout->GetFieldOffset(mem->member);
     if (field_offset == static_cast<size_t>(-1)) {
         lc.diags.Report(mem->loc, "Unknown field: " + mem->member);
         return {};
     }
     
-    // 访问控制检查
-    // 查找字段的访问修饰符
-    std::string field_access = "public";  // 默认 public
+    // Access control
+    // Find the field's access specifier
+    std::string field_access = "public";  // default to public
     auto *fields = lc.class_metadata.GetFields(class_name);
     if (fields) {
         for (const auto &field : *fields) {
@@ -478,17 +477,17 @@ EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, Loweri
         }
     }
     
-    // 检查访问权限
+    // Check access permissions
     bool access_allowed = true;
     if (field_access == "private") {
-        // private: 仅本类可访问
+        // private: only this class may access
         if (lc.current_class != class_name) {
             access_allowed = false;
         }
     } else if (field_access == "protected") {
-        // protected: 本类和派生类可访问
+        // protected: this class and derived classes may access
         if (lc.current_class != class_name) {
-            // 检查 lc.current_class 是否是 class_name 的派生类
+            // Check whether lc.current_class derives from class_name
             auto *current_layout = lc.class_metadata.GetLayout(lc.current_class);
             bool is_derived = false;
             if (current_layout) {
@@ -504,7 +503,7 @@ EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, Loweri
             }
         }
     }
-    // public: 总是允许
+    // public: always allowed
     
     if (!access_allowed) {
         lc.diags.Report(mem->loc, "Cannot access " + field_access + " member '" + 
@@ -512,25 +511,25 @@ EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, Loweri
         return {};
     }
     
-    // 生成 GEP 指令访问字段
+    // Generate a GEP to access the field
     std::string ptr_value = obj.value;
     
-    // 如果是 arrow 访问或已经是指针，直接使用
-    // 否则需要取地址
+    // If this is an arrow access or already a pointer, use it directly
+    // Otherwise the address must be taken
     bool is_ptr = (obj.type.kind == ir::IRTypeKind::kPointer) || mem->is_arrow;
     
     if (!is_ptr) {
-        // 需要获取对象地址（简化实现：假设对象已在栈上）
-        // 实际应该使用 alloca
+        // Need the object address (simplified: assume it lives on the stack)
+        // A real implementation should use alloca
         lc.diags.Report(mem->loc, "Member access on non-pointer not fully implemented");
         return {};
     }
     
-    // 使用 GEP 访问字段
+    // Use GEP to reach the field
     auto gep = lc.builder.MakeGEP(ptr_value, obj.type, {0, field_offset});
     
-    // 从类布局获取字段类型（完整类型解析）
-    ir::IRType field_type = ir::IRType::I64(true);  // 默认
+    // Get the field type from the class layout
+    ir::IRType field_type = ir::IRType::I64(true);  // default
     if (field_offset < layout->struct_type.subtypes.size()) {
         field_type = layout->struct_type.subtypes[field_offset];
     } else {
@@ -587,7 +586,7 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
     if (lhs.type.kind == ir::IRTypeKind::kInvalid || rhs.type.kind == ir::IRTypeKind::kInvalid)
         return {};
     
-    // 运算符重载检查：如果左操作数是类类型，查找重载的运算符
+    // Operator overloading: if the left operand is a class type, look for overloaded operators
     if (lhs.type.kind == ir::IRTypeKind::kStruct || 
         (lhs.type.kind == ir::IRTypeKind::kPointer && 
          !lhs.type.subtypes.empty() && lhs.type.subtypes[0].kind == ir::IRTypeKind::kStruct)) {
@@ -599,13 +598,13 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
             class_name = lhs.type.subtypes[0].name;
         }
         
-        // 查找 operator+ 等方法
+        // Look for operator+ style methods
         std::string operator_name = "operator" + bin->op;
         auto *methods = lc.class_metadata.GetMethods(class_name);
         if (methods) {
             for (const auto &method : *methods) {
                 if (method.name == operator_name) {
-                    // 找到重载运算符，调用它
+                    // Found an overloaded operator, invoke it
                     std::vector<std::string> args = {lhs.value, rhs.value};
                     auto call = lc.builder.MakeCall(method.mangled_name, args, 
                                                     method.return_type, "");
@@ -615,7 +614,7 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
         }
     }
     
-    // 没有找到运算符重载，使用内置运算
+    // Fall back to built-in arithmetic if no overload is found
     bool is_float = (lhs.type.kind == ir::IRTypeKind::kF32 || lhs.type.kind == ir::IRTypeKind::kF64);
     ir::BinaryInstruction::Op op = MapBinOp(bin->op, is_float);
     auto inst = lc.builder.MakeBinary(op, lhs.value, rhs.value, "");
@@ -1049,36 +1048,36 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
     return true;
 }
 
-// ==================== 类和继承 Lowering ====================
+// ==================== Class and inheritance lowering ====================
 
-// 构建类的 vtable
+// Build a class vtable
 std::shared_ptr<ir::VTable> BuildVTable(const std::shared_ptr<RecordDecl> &record, 
                                         LoweringContext &lc) {
     auto vtable = std::make_shared<ir::VTable>();
     vtable->class_name = record->name;
     
-    // 收集虚函数
+    // Collect virtual functions
     std::vector<std::shared_ptr<FunctionDecl>> virtual_methods;
     for (auto &method_stmt : record->methods) {
         if (auto func = std::dynamic_pointer_cast<FunctionDecl>(method_stmt)) {
-            // 使用 FunctionDecl 的 is_virtual 标志（已由 parser 在解析 "virtual" 关键字时设置）
+            // Use FunctionDecl::is_virtual set by the parser when reading the "virtual" keyword
             if (func->is_virtual) {
                 virtual_methods.push_back(func);
                 ir::VTableEntry entry;
                 entry.function_name = record->name + "::" + func->name;
                 entry.offset = vtable->entries.size();
-                entry.is_pure = func->is_pure_virtual; // 使用 is_pure_virtual 标志
+                entry.is_pure = func->is_pure_virtual; // Use the is_pure_virtual flag
                 vtable->entries.push_back(entry);
             }
         }
     }
     
-    // 如果没有虚函数，返回空
+    // If there are no virtual functions, return null
     if (vtable->entries.empty()) {
         return nullptr;
     }
     
-    // 创建 vtable 全局变量（数组of函数指针）
+    // Create the vtable global (array of function pointers)
     std::string vtable_name = "__vtable_" + record->name;
     vtable->global_var = lc.ir_ctx.CreateGlobal(
         vtable_name,
@@ -1089,31 +1088,31 @@ std::shared_ptr<ir::VTable> BuildVTable(const std::shared_ptr<RecordDecl> &recor
     return vtable;
 }
 
-// Lower 类声明
+// Lower class declarations
 bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc) {
     if (record->is_forward) {
-        // 前向声明，暂不处理
+        // Forward declaration; nothing to do
         return true;
     }
     
     lc.current_class = record->name;
     
-    // 构建类布局
+    // Build the class layout
     ir::ClassLayout layout;
     layout.class_name = record->name;
     
-    // 处理基类（支持多继承和虚继承）
+    // Handle base classes (supports multiple inheritance and virtual inheritance)
     size_t current_field_offset = 0;
     size_t base_index = 0;
     
-    // 第一遍：处理虚基类
+    // Pass 1: handle virtual bases
     std::unordered_set<std::string> processed_virtual_bases;
     for (auto &base : record->bases) {
         if (base.is_virtual) {
-            // 虚基类
+            // Virtual base
             layout.virtual_bases.push_back(base.name);
             
-            // 检查是否已经处理过（菱形继承中，虚基类只存储一次）
+            // Skip duplicates (diamond inheritance stores a virtual base once)
             if (processed_virtual_bases.count(base.name) > 0) {
                 continue;
             }
@@ -1121,28 +1120,27 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
             
             auto *base_layout = lc.class_metadata.GetLayout(base.name);
             if (base_layout) {
-                // 虚基类放在对象的最后
-                // 先记录，稍后添加
-                layout.virtual_base_offsets[base.name] = static_cast<size_t>(-1);  // 稍后更新
+                // Virtual bases are placed at the end; record now, fill later
+                layout.virtual_base_offsets[base.name] = static_cast<size_t>(-1);  // updated later
             }
         }
     }
     
-    // 如果有虚基类，需要虚基类表（vbtable）
+    // If there are virtual bases, we need a vbtable
     if (!layout.virtual_bases.empty()) {
         layout.has_vbtable = true;
         layout.vbtable_offset = current_field_offset;
         
-        // 添加 vbtable 指针
+        // Add vbtable pointer
         layout.field_names.push_back("__vbtable");
         layout.field_offsets["__vbtable"] = current_field_offset;
         current_field_offset++;
     }
     
-    // 第二遍：处理普通基类
+    // Pass 2: handle non-virtual bases
     for (auto &base : record->bases) {
         if (base.is_virtual) {
-            // 虚基类已处理
+            // Virtual base already handled
             continue;
         }
         
@@ -1150,20 +1148,20 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         
         auto *base_layout = lc.class_metadata.GetLayout(base.name);
         if (base_layout) {
-            // 为每个基类添加 vtable 指针（如果有）
+            // Add a vtable pointer for each base (if present)
             if (base_layout->has_vtable) {
                 std::string vptr_name = "__vptr_" + base.name;
                 layout.field_names.push_back(vptr_name);
                 layout.field_offsets[vptr_name] = current_field_offset;
                 layout.base_vtable_offsets[base.name] = current_field_offset;
                 
-                // 第一个基类的 vtable 作为主 vtable
+                // The first base vtable becomes the primary vtable
                 if (base_index == 0) {
                     layout.has_vtable = true;
                     layout.vtable_offset = current_field_offset;
                 }
                 
-                // 保存基类的 vtable（用于多继承）
+                // Keep the base vtable for multiple inheritance
                 if (base_layout->vtable) {
                     layout.base_vtables[base.name] = base_layout->vtable;
                 }
@@ -1171,10 +1169,10 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
                 current_field_offset++;
             }
             
-            // 复制基类的非 vtable 字段
+            // Copy non-vtable fields from the base
             for (size_t i = 0; i < base_layout->field_names.size(); ++i) {
                 const auto &field_name = base_layout->field_names[i];
-                // 跳过 vtable 指针字段
+                // Skip vtable pointer fields
                 if (field_name.find("__vptr") == 0) continue;
                 
                 layout.field_names.push_back(field_name);
@@ -1185,16 +1183,16 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         base_index++;
     }
     
-    // 构建 vtable（如果有虚函数）
+    // Build vtable if virtual functions exist
     layout.vtable = BuildVTable(record, lc);
     if (layout.vtable && !layout.has_vtable) {
-        // 这个类首次引入 vtable（没有虚基类）
+        // This class introduces a vtable for the first time (no virtual bases)
         layout.has_vtable = true;
         std::string vptr_name = "__vptr";
         layout.field_names.insert(layout.field_names.begin(), vptr_name);
         layout.vtable_offset = 0;
         
-        // 调整其他字段的偏移
+        // Adjust offsets for the remaining fields
         for (auto &kv : layout.field_offsets) {
             kv.second += 1;
         }
@@ -1202,31 +1200,31 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         current_field_offset++;
     }
     
-    // 添加本类的字段
+    // Add this class's own fields
     std::vector<ir::IRType> field_types;
     
-    // 为每个基类的 vtable 指针添加类型
+    // Add types for each base's vtable pointer
     for (const auto &base : record->bases) {
         auto *base_layout = lc.class_metadata.GetLayout(base.name);
         if (base_layout && base_layout->has_vtable) {
             field_types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
         }
-        // 添加基类的字段类型
+        // Append base field types
         if (base_layout) {
             for (const auto &base_field_type : base_layout->struct_type.subtypes) {
-                // 跳过 vtable 指针（已单独处理）
+                // Skip vtable pointers (handled separately)
                 if (base_field_type.kind == ir::IRTypeKind::kPointer) continue;
                 field_types.push_back(base_field_type);
             }
         }
     }
     
-    // 如果本类引入了 vtable 但没有基类
+    // If this class introduces a vtable but has no bases
     if (layout.has_vtable && record->bases.empty()) {
         field_types.push_back(ir::IRType::Pointer(ir::IRType::I8()));
     }
     
-    // 添加本类声明的字段
+    // Add fields declared in this class
     for (auto &field : record->fields) {
         layout.field_names.push_back(field.name);
         layout.field_offsets[field.name] = current_field_offset++;
@@ -1234,25 +1232,25 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         ir::IRType field_type = ToIRType(field.type);
         field_types.push_back(field_type);
         
-        // 注册字段信息（用于访问控制）
+        // Register field info (for access control)
         ir::FieldInfo field_info;
         field_info.name = field.name;
         field_info.type = field_type;
-        field_info.access = field.access.empty() ? "public" : field.access;  // 默认 public
+        field_info.access = field.access.empty() ? "public" : field.access;  // default public
         field_info.is_static = field.is_static;
         field_info.is_const = field.is_constexpr;
         field_info.is_mutable = field.is_mutable;
         lc.class_metadata.RegisterField(record->name, field_info);
     }
     
-    // 添加虚基类的字段（放在最后）
+    // Append fields from virtual bases (placed last)
     for (const auto &vbase_name : layout.virtual_bases) {
         auto *vbase_layout = lc.class_metadata.GetLayout(vbase_name);
         if (vbase_layout) {
-            // 更新虚基类偏移
+            // Update the virtual base offset
             layout.virtual_base_offsets[vbase_name] = current_field_offset;
             
-            // 添加虚基类的字段
+            // Append the virtual base fields
             for (size_t i = 0; i < vbase_layout->field_names.size(); ++i) {
                 const auto &field_name = vbase_layout->field_names[i];
                 if (field_name.find("__vptr") == 0 || field_name == "__vbtable") continue;
@@ -1260,7 +1258,7 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
                 layout.field_names.push_back("__vbase_" + vbase_name + "_" + field_name);
                 layout.field_offsets["__vbase_" + vbase_name + "_" + field_name] = current_field_offset++;
                 
-                // 添加字段类型
+                // Add the corresponding field type
                 if (i < vbase_layout->struct_type.subtypes.size()) {
                     field_types.push_back(vbase_layout->struct_type.subtypes[i]);
                 }
@@ -1268,22 +1266,22 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         }
     }
     
-    // 创建结构类型
+    // Create the struct type
     layout.struct_type = ir::IRType::Struct(record->name, field_types);
     
-    // 注册类布局
+    // Register the class layout
     lc.class_metadata.RegisterClass(record->name, layout);
     
-    // Lower 方法
+    // Lower methods
     for (auto &method_stmt : record->methods) {
         if (auto func = std::dynamic_pointer_cast<FunctionDecl>(method_stmt)) {
-            // 注册方法信息
+            // Register method metadata
             ir::MethodInfo method_info;
             method_info.name = func->name;
             method_info.mangled_name = record->name + "::" + func->name;
             method_info.return_type = ToIRType(func->return_type);
             
-            // 使用 FunctionDecl 的标志（已由 parser 解析）
+            // Use flags already parsed from FunctionDecl
             method_info.is_virtual = func->is_virtual;
             method_info.is_pure_virtual = func->is_pure_virtual;
             method_info.is_static = func->is_static;
@@ -1292,15 +1290,15 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
             
             lc.class_metadata.RegisterMethod(record->name, method_info);
             
-            // Lower 非纯虚方法
+            // Lower non-pure-virtual methods
             if (!method_info.is_pure_virtual) {
-                // 创建修饰后的函数
+                // Create the mangled function
                 FunctionDecl mangled_func = *func;
                 mangled_func.name = method_info.mangled_name;
                 
-                // 添加隐式 this 参数（如果不是静态方法）
+                // Add the implicit this parameter for non-static methods
                 if (!method_info.is_static) {
-                    // this 指针类型
+                    // Type of the this pointer
                     auto this_type = std::make_shared<PointerType>();
                     this_type->pointee = std::make_shared<SimpleType>();
                     std::dynamic_pointer_cast<SimpleType>(this_type->pointee)->name = record->name;
@@ -1311,13 +1309,13 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
                     mangled_func.params.insert(mangled_func.params.begin(), this_param);
                 }
                 
-                // 特殊处理：构造函数需要初始化 vtable 指针
+                // Special case: constructors need to initialize the vtable pointer
                 if (func->is_constructor && layout.has_vtable && layout.vtable) {
-                    // 在构造函数体前插入 vtable 初始化代码
-                    // 创建赋值语句：this->__vptr = &__vtable_ClassName
+                    // Inject vtable initialization code before the constructor body
+                    // Create an assignment: this->__vptr = &__vtable_ClassName
                     
-                    // 这需要在实际的函数 lowering 前准备好
-                    // 简化实现：在 LowerFunction 中检测构造函数并添加初始化
+                    // This should be prepared before actual function lowering
+                    // Simplified: LowerFunction detects constructors and adds init
                 }
                 
                 if (!LowerFunction(mangled_func, lc)) {
@@ -1327,7 +1325,7 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
         }
     }
     
-    // 注册 RTTI TypeInfo
+    // Register RTTI TypeInfo
     ir::TypeInfo type_info;
     type_info.class_name = record->name;
     type_info.mangled_name = "_ZTI" + std::to_string(record->name.length()) + record->name;
@@ -1339,38 +1337,38 @@ bool LowerRecord(const std::shared_ptr<RecordDecl> &record, LoweringContext &lc)
     return true;
 }
 
-// 处理模板声明
+// Handle template declarations
 bool LowerTemplate(const std::shared_ptr<TemplateDecl> &tmpl, LoweringContext &lc) {
-    // 提取模板参数
+    // Gather template parameters
     std::vector<ir::TemplateParameter> params;
     for (const auto &param_name : tmpl->params) {
         ir::TemplateParameter param;
         param.name = param_name;
-        param.is_typename = true;  // 简化：假设所有参数都是类型参数
+        param.is_typename = true;  // Simplified: assume all parameters are type parameters
         params.push_back(param);
     }
     
-    // 检查内部声明的类型
+    // Inspect the type of the inner declaration
     if (auto func = std::dynamic_pointer_cast<FunctionDecl>(tmpl->inner)) {
-        // 函数模板
+        // Function template
         lc.template_instantiator.RegisterFunctionTemplate(
             func->name,
             params,
             tmpl->inner.get()
         );
         
-        // 不立即lower，等待实例化时再处理
+        // Do not lower immediately; wait for instantiation
         return true;
         
     } else if (auto record = std::dynamic_pointer_cast<RecordDecl>(tmpl->inner)) {
-        // 类模板
+        // Class template
         lc.template_instantiator.RegisterClassTemplate(
             record->name,
             params,
             tmpl->inner.get()
         );
         
-        // 不立即lower，等待实例化时再处理
+        // Do not lower immediately; wait for instantiation
         return true;
         
     } else {

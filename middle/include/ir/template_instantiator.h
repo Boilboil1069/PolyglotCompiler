@@ -9,22 +9,22 @@
 
 namespace polyglot::ir {
 
-// 模板参数
+// Template parameter
 struct TemplateParameter {
-    std::string name;          // 参数名
+    std::string name;          // Parameter name
     bool is_typename{true};    // true: typename/class, false: non-type parameter
-    IRType type;               // 非类型参数的类型
-    std::string default_value; // 默认值
+    IRType type;               // Type for non-type parameters
+    std::string default_value; // Default value
 };
 
-// 模板实参
+// Template argument
 struct TemplateArgument {
-    bool is_type{true};        // true: 类型实参, false: 非类型实参
-    IRType type;               // 类型实参
-    std::string value;         // 非类型实参的值
+    bool is_type{true};        // true: type argument, false: non-type argument
+    IRType type;               // Type argument
+    std::string value;         // Value for non-type argument
 };
 
-// 模板实例化键（用于缓存）
+// Template instantiation key (for caching)
 struct TemplateInstantiationKey {
     std::string template_name;
     std::vector<TemplateArgument> arguments;
@@ -49,11 +49,11 @@ struct TemplateInstantiationKey {
     }
 };
 
-// 模板特化信息
+// Template specialization information
 struct TemplateSpecialization {
-    std::vector<TemplateArgument> pattern;  // 特化模式
-    void *specialized_ast{nullptr};         // 特化的AST（实际类型取决于是类还是函数）
-    int specificity{0};                     // 特化的具体程度（用于排序）
+    std::vector<TemplateArgument> pattern;  // Specialization pattern
+    void *specialized_ast{nullptr};         // Specialized AST (type depends on class vs function)
+    int specificity{0};                     // How specific this specialization is (for sorting)
 };
 
 }  // namespace polyglot::ir
@@ -67,7 +67,7 @@ struct hash<polyglot::ir::TemplateInstantiationKey> {
         for (const auto &arg : key.arguments) {
             h ^= hash<bool>()(arg.is_type);
             if (arg.is_type) {
-                // 简化：使用类型的字符串表示
+                // Simplified: use the type's string representation
                 h ^= hash<int>()(static_cast<int>(arg.type.kind));
             } else {
                 h ^= hash<string>()(arg.value);
@@ -80,10 +80,10 @@ struct hash<polyglot::ir::TemplateInstantiationKey> {
 
 namespace polyglot::ir {
 
-// 模板实例化管理器
+// Template instantiation manager
 class TemplateInstantiator {
 public:
-    // 注册类模板
+    // Register a class template
     void RegisterClassTemplate(const std::string &name,
                                const std::vector<TemplateParameter> &params,
                                void *template_ast) {
@@ -91,7 +91,7 @@ public:
         class_templates_[name].ast = template_ast;
     }
     
-    // 注册函数模板
+    // Register a function template
     void RegisterFunctionTemplate(const std::string &name,
                                   const std::vector<TemplateParameter> &params,
                                   void *template_ast) {
@@ -99,7 +99,7 @@ public:
         function_templates_[name].ast = template_ast;
     }
     
-    // 注册模板特化
+    // Register a template specialization
     void RegisterSpecialization(const std::string &template_name,
                                const std::vector<TemplateArgument> &pattern,
                                void *specialized_ast) {
@@ -110,7 +110,7 @@ public:
         
         specializations_[template_name].push_back(spec);
         
-        // 按特化程度排序（越具体越靠前）
+        // Sort by how specific each specialization is (more specific first)
         std::sort(specializations_[template_name].begin(),
                  specializations_[template_name].end(),
                  [](const TemplateSpecialization &a, const TemplateSpecialization &b) {
@@ -118,71 +118,71 @@ public:
                  });
     }
     
-    // 实例化类模板
-    // 返回实例化后的类名（如 "vector<int>"）
+    // Instantiate a class template
+    // Returns the instantiated class name (e.g., "vector<int>")
     std::string InstantiateClass(const std::string &template_name,
                                  const std::vector<TemplateArgument> &arguments) {
         TemplateInstantiationKey key{template_name, arguments};
         
-        // 检查缓存
+        // Check cache
         auto it = instantiated_classes_.find(key);
         if (it != instantiated_classes_.end()) {
             return it->second;
         }
         
-        // 生成实例化类名
+        // Generate instantiated class name
         std::string instantiated_name = GenerateInstanceName(template_name, arguments);
         
-        // 查找最佳特化
+        // Find the best specialization
         void *ast = FindBestSpecialization(template_name, arguments);
         if (!ast) {
-            // 使用主模板
+            // Use the primary template
             auto tmpl_it = class_templates_.find(template_name);
             if (tmpl_it == class_templates_.end()) {
-                return "";  // 错误：模板不存在
+                return "";  // Error: template does not exist
             }
             ast = tmpl_it->second.ast;
         }
         
-        // 执行参数替换并实例化
-        // TODO: 实现 AST 遍历和参数替换
+        // Perform parameter substitution and instantiate
+        // TODO: Implement AST traversal and parameter substitution
         
-        // 缓存结果
+        // Cache the result
         instantiated_classes_[key] = instantiated_name;
         
         return instantiated_name;
     }
     
-    // 实例化函数模板
+    // Instantiate a function template
     std::string InstantiateFunction(const std::string &template_name,
                                    const std::vector<TemplateArgument> &arguments) {
         TemplateInstantiationKey key{template_name, arguments};
         
-        // 检查缓存
+        // Check cache
         auto it = instantiated_functions_.find(key);
         if (it != instantiated_functions_.end()) {
             return it->second;
         }
         
-        // 生成实例化函数名
+        // Generate instantiated function name
         std::string instantiated_name = GenerateInstanceName(template_name, arguments);
         
-        // 查找模板
+        // Find the template
         auto tmpl_it = function_templates_.find(template_name);
         if (tmpl_it == function_templates_.end()) {
-            return "";  // 错误：模板不存在
+            return "";  // Error: template does not exist
         }
         
-        // 执行参数替换并实例化
-        // TODO: 实现 AST 遍历和参数替换
+        // Perform parameter substitution and instantiate
+        // TODO: Implement AST traversal and parameter substitution
         
-        // 缓存结果
+        // Cache the result
         instantiated_functions_[key] = instantiated_name;
         
         return instantiated_name;
     }
     
-    // 类型推导（用于函数模板）
+    // Type deduction (for function templates)
     std::vector<TemplateArgument> DeduceTemplateArguments(
         const std::string &template_name,
         const std::vector<IRType> &argument_types) {
@@ -192,10 +192,10 @@ public:
             return {};
         }
         
-        // TODO: 实现模板参数推导算法
-        // 1. 匹配函数参数类型
-        // 2. 从实参类型推导模板参数
-        // 3. 检查约束
+        // TODO: Implement template parameter deduction
+        // 1. Match function parameter types
+        // 2. Deduce template parameters from argument types
+        // 3. Check constraints
         
         return {};
     }
@@ -213,7 +213,7 @@ private:
     std::unordered_map<TemplateInstantiationKey, std::string> instantiated_classes_;
     std::unordered_map<TemplateInstantiationKey, std::string> instantiated_functions_;
     
-    // 查找最佳特化
+    // Find the best specialization
     void* FindBestSpecialization(const std::string &template_name,
                                 const std::vector<TemplateArgument> &arguments) {
         auto it = specializations_.find(template_name);
@@ -230,7 +230,7 @@ private:
         return nullptr;
     }
     
-    // 检查实参是否匹配特化模式
+    // Check whether arguments match a specialization pattern
     bool MatchesPattern(const std::vector<TemplateArgument> &arguments,
                        const std::vector<TemplateArgument> &pattern) {
         if (arguments.size() != pattern.size()) return false;
@@ -242,7 +242,7 @@ private:
             if (arg.is_type != pat.is_type) return false;
             
             if (arg.is_type) {
-                // TODO: 实现更复杂的类型匹配（考虑模板参数、通配符等）
+                // TODO: Implement more complex type matching (template params, wildcards, etc.)
                 if (arg.type != pat.type) return false;
             } else {
                 if (arg.value != pat.value) return false;
@@ -252,24 +252,24 @@ private:
         return true;
     }
     
-    // 计算特化的具体程度
+    // Compute how specific a specialization is
     int CalculateSpecificity(const std::vector<TemplateArgument> &pattern) {
         int specificity = 0;
         for (const auto &arg : pattern) {
             if (arg.is_type) {
-                // 具体类型比模板参数更具体
+                // Concrete types are more specific than template parameters
                 if (arg.type.kind != IRTypeKind::kInvalid) {
                     specificity += 10;
                 }
             } else {
-                // 具体值
+                // Concrete value
                 specificity += 10;
             }
         }
         return specificity;
     }
     
-    // 生成实例化名称
+    // Generate the instantiated name
     std::string GenerateInstanceName(const std::string &template_name,
                                     const std::vector<TemplateArgument> &arguments) {
         std::string name = template_name + "<";
@@ -287,7 +287,7 @@ private:
         return name;
     }
     
-    // 将类型转换为字符串
+    // Convert a type to its string representation
     std::string TypeToString(const IRType &type) const {
         switch (type.kind) {
             case IRTypeKind::kI32: return "int";

@@ -244,6 +244,117 @@ struct ClassDef : Statement {
     std::vector<std::shared_ptr<Expression>> decorators;
 };
 
+// Advanced Python language features consolidated here to avoid separate headers.
+
+struct Decorator : AstNode {
+    std::string name;
+    std::vector<std::shared_ptr<Expression>> args;
+};
+
+struct AsyncFunctionDef : Statement {
+    std::string name;
+    std::vector<Parameter> params;
+    std::vector<std::shared_ptr<Statement>> body;
+    bool is_async{true};
+};
+
+struct ComprehensionClause {
+    std::string var;
+    std::shared_ptr<Expression> iter;
+    std::vector<std::shared_ptr<Expression>> conditions;
+};
+
+struct ListComprehension : Expression {
+    std::shared_ptr<Expression> element;
+    std::vector<ComprehensionClause> clauses;
+};
+
+struct DictComprehension : Expression {
+    std::shared_ptr<Expression> key;
+    std::shared_ptr<Expression> value;
+    std::vector<ComprehensionClause> clauses;
+};
+
+struct SetComprehension : Expression {
+    std::shared_ptr<Expression> element;
+    std::vector<ComprehensionClause> clauses;
+};
+
+struct DataclassDecl : ClassDef {
+    bool frozen{false};
+    bool order{false};
+    bool slots{false};
+    bool init{true};
+    bool repr{true};
+    bool eq{true};
+};
+
+struct PropertyDecl : AstNode {
+    std::shared_ptr<FunctionDef> getter;
+    std::shared_ptr<FunctionDef> setter;
+    std::shared_ptr<FunctionDef> deleter;
+    std::string doc;
+};
+
+struct MethodKind {
+    enum Kind { kInstance, kStatic, kClass };
+    Kind kind{kInstance};
+};
+
+struct InheritanceInfo {
+    std::vector<std::string> base_classes;
+    std::vector<std::string> mro;
+};
+
+struct MetaclassInfo {
+    std::string metaclass_name;
+    std::vector<std::shared_ptr<Expression>> kwargs;
+};
+
+struct DescriptorInfo {
+    bool has_get{false};
+    bool has_set{false};
+    bool has_delete{false};
+};
+
+struct AnnotatedAssignment : Statement {
+    std::string target;
+    std::shared_ptr<Expression> value;
+};
+
+struct FormattedString : Expression {
+    struct Part {
+        bool is_literal{true};
+        std::string literal;
+        std::shared_ptr<Expression> expr;
+        std::string format_spec;
+    };
+    std::vector<Part> parts;
+};
+
+struct WalrusExpression : Expression {
+    std::string target;
+    std::shared_ptr<Expression> value;
+};
+
+struct TypeHint : AstNode {
+    enum HintKind {
+        kSimple,
+        kGeneric,
+        kUnion,
+        kOptional,
+        kCallable,
+        kLiteral,
+        kTypeVar,
+        kProtocol,
+        kAnnotated
+    };
+
+    HintKind hint_kind{kSimple};
+    std::string name;
+    std::vector<std::shared_ptr<TypeHint>> args;
+};
+
 struct Module : AstNode {
     std::vector<std::shared_ptr<Statement>> body;
 };

@@ -1,4 +1,4 @@
-// 虚函数去虚化优化Pass实现
+// Devirtualization pass implementation
 
 #include "middle/include/passes/devirtualization.h"
 #include "middle/include/ir/nodes/statements.h"
@@ -9,10 +9,10 @@ namespace polyglot::passes {
 bool DevirtualizationPass::Run() {
     devirtualized_count_ = 0;
     
-    // 遍历所有函数
+    // Iterate over all functions
     for (auto &func : ir_ctx_.Functions()) {
         if (OptimizeFunction(func.get())) {
-            // 函数被修改
+            // Function was modified
         }
     }
     
@@ -24,13 +24,13 @@ bool DevirtualizationPass::OptimizeFunction(ir::Function *func) {
     
     bool modified = false;
     
-    // 遍历所有基本块
+    // Iterate over all basic blocks
     for (auto &block : func->blocks) {
-        // 遍历所有指令
+        // Iterate over all instructions
         for (size_t i = 0; i < block->instructions.size(); ++i) {
             auto &inst = block->instructions[i];
             
-            // 查找CallInstruction
+            // Look for CallInstruction
             if (auto *call = dynamic_cast<ir::CallInstruction*>(inst.get())) {
                 if (TryDevirtualize(call, block.get())) {
                     modified = true;
@@ -47,22 +47,22 @@ bool DevirtualizationPass::TryDevirtualize(ir::CallInstruction *call,
                                           ir::BasicBlock *block) {
     if (!call) return false;
     
-    // 检查是否是虚函数调用
-    // 虚函数调用的特征：
-    // 1. 第一个参数是 this 指针
-    // 2. 函数名包含类名（ClassName::methodName）
+    // Check whether this is a virtual call
+    // Characteristics of a virtual call:
+    // 1. First argument is the this pointer
+    // 2. Callee name contains the class (ClassName::methodName)
     
     std::string callee = call->callee;
     size_t pos = callee.find("::");
     if (pos == std::string::npos) {
-        // 不是成员函数调用
+        // Not a member function call
         return false;
     }
     
     std::string class_name = callee.substr(0, pos);
     std::string method_name = callee.substr(pos + 2);
     
-    // 检查这个方法是否是虚函数
+    // Check whether this method is virtual
     auto *methods = class_metadata_.GetMethods(class_name);
     if (!methods) return false;
     
@@ -75,42 +75,42 @@ bool DevirtualizationPass::TryDevirtualize(ir::CallInstruction *call,
     }
     
     if (!method_info || !method_info->is_virtual) {
-        // 不是虚函数，无需去虚化
+        // Not virtual, no devirtualization needed
         return false;
     }
     
-    // 策略1: 检查是否是final类
+    // Strategy 1: check whether the class is final
     if (IsFinalClass(class_name)) {
-        // Final类的虚函数可以直接调用
-        // 已经是直接调用形式，标记为已优化
+        // Virtuals in final classes can be called directly
+        // Already a direct call; mark as optimized
         return true;
     }
     
-    // 策略2: 检查是否是final方法
+    // Strategy 2: check whether the method is final
     if (IsFinalMethod(class_name, method_name)) {
-        // Final方法不能被重写，可以直接调用
+        // Final methods cannot be overridden; call directly
         return true;
     }
     
-    // 策略3: 检查是否只有唯一实现
+    // Strategy 3: check whether there is a unique implementation
     const ir::MethodInfo *unique_impl = GetUniqueImplementation(class_name, method_name);
     if (unique_impl) {
-        // 只有一个实现，直接调用它
+        // Only one implementation; call it directly
         call->callee = unique_impl->mangled_name;
         return true;
     }
     
-    // 策略4: 尝试类型传播
+    // Strategy 4: attempt type propagation
     if (!call->operands.empty()) {
         std::string obj_name = call->operands[0];
         std::string obj_type = InferObjectType(obj_name, nullptr);
         if (!obj_type.empty() && obj_type != class_name) {
-            // 确定了更具体的类型
+            // A more specific type was identified
             auto *derived_methods = class_metadata_.GetMethods(obj_type);
             if (derived_methods) {
                 for (const auto &m : *derived_methods) {
                     if (m.name == method_name) {
-                        // 找到派生类的实现
+                        // Found a derived-class implementation
                         call->callee = m.mangled_name;
                         return true;
                     }
@@ -123,22 +123,22 @@ bool DevirtualizationPass::TryDevirtualize(ir::CallInstruction *call,
 }
 
 bool DevirtualizationPass::IsFinalClass(const std::string &class_name) {
-    // 检查final_classes_集合
-    // 注意：需要在类解析时填充这个集合
+    // Check the final_classes_ set
+    // Note: this set must be populated during class parsing
     return final_classes_.count(class_name) > 0;
 }
 
 bool DevirtualizationPass::IsFinalMethod(const std::string &class_name, 
                                         const std::string &method_name) {
-    // 检查方法是否标记为final
+    // Check whether the method is marked final
     auto *methods = class_metadata_.GetMethods(class_name);
     if (!methods) return false;
     
     for (const auto &m : *methods) {
         if (m.name == method_name) {
-            // TODO: 需要在MethodInfo中添加is_final标志
+            // TODO: Add an is_final flag to MethodInfo
             // return m.is_final;
-            return false;  // 暂时返回false
+            return false;  // Temporary fallback
         }
     }
     
@@ -148,19 +148,19 @@ bool DevirtualizationPass::IsFinalMethod(const std::string &class_name,
 const ir::MethodInfo* DevirtualizationPass::GetUniqueImplementation(
     const std::string &class_name, const std::string &method_name) {
     
-    // 查找所有可能的实现
+    // Find all possible implementations
     std::vector<const ir::MethodInfo*> implementations;
     
-    // 检查基类
+    // Check base classes
     const ir::MethodInfo *base_impl = class_metadata_.FindVirtualMethod(
         class_name, method_name);
     if (base_impl) {
         implementations.push_back(base_impl);
     }
     
-    // 检查所有派生类
-    // 注意：需要维护类继承关系图
-    // 简化实现：仅检查当前类
+    // Check all derived classes
+    // Note: requires maintaining a class hierarchy graph
+    // Simplified: only checks the current class
     
     if (implementations.size() == 1) {
         return implementations[0];
@@ -171,29 +171,29 @@ const ir::MethodInfo* DevirtualizationPass::GetUniqueImplementation(
 
 std::string DevirtualizationPass::InferObjectType(const std::string &value_name, 
                                                   ir::Function *func) {
-    // 检查缓存
+    // Check cache first
     auto it = type_cache_.find(value_name);
     if (it != type_cache_.end()) {
         return it->second;
     }
     
-    // 简单的类型推导：
-    // 1. 如果值来自new表达式，可以确定类型
-    // 2. 如果值来自局部变量，检查赋值语句
-    // 3. 如果值来自参数，使用参数类型
+    // Simple type inference:
+    // 1. If the value comes from a new expression, the type is known
+    // 2. If the value comes from a local, inspect its assignments
+    // 3. If the value is a parameter, use the parameter type
     
     if (!func) {
         return "";
     }
     
-    // 遍历函数的所有指令，查找value_name的定义
+    // Walk all instructions in the function to find the definition of value_name
     for (auto &block : func->blocks) {
         for (auto &inst : block->instructions) {
             if (inst->name == value_name) {
-                // 找到定义
-                // 检查指令类型
+                // Found the definition
+                // Inspect the instruction type
                 if (auto *call = dynamic_cast<ir::CallInstruction*>(inst.get())) {
-                    // 如果是构造函数调用或new，可能知道类型
+                    // Constructor/new calls may reveal the type
                     std::string callee = call->callee;
                     if (callee.find("::") != std::string::npos) {
                         std::string class_name = callee.substr(0, callee.find("::"));
@@ -201,7 +201,7 @@ std::string DevirtualizationPass::InferObjectType(const std::string &value_name,
                         return class_name;
                     }
                 }
-                // 其他指令类型...
+                // Other instruction types...
             }
         }
     }

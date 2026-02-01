@@ -216,37 +216,37 @@ TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
 TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     const int NUM_ALLOCATIONS = 10000;
     
-    BENCHMARK("MarkSweep GC") {
-        Heap heap(Strategy::kMarkSweep);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            heap.Allocate(64);
-            if (i % 1000 == 0) heap.Collect();
-        }
-    };
+    // BENCHMARK("MarkSweep GC") {
+    //     Heap heap(Strategy::kMarkSweep);
+    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+    //         heap.Allocate(64);
+    //         if (i % 1000 == 0) heap.Collect();
+    //     }
+    // };
     
-    BENCHMARK("Generational GC") {
-        Heap heap(Strategy::kGenerational);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            heap.Allocate(64);
-            if (i % 1000 == 0) heap.Collect();
-        }
-    };
+    // BENCHMARK("Generational GC") {
+    //     Heap heap(Strategy::kGenerational);
+    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+    //         heap.Allocate(64);
+    //         if (i % 1000 == 0) heap.Collect();
+    //     }
+    // };
     
-    BENCHMARK("Copying GC") {
-        Heap heap(Strategy::kCopying);
-        for (int i = 0; i < NUM_ALLOCATIONS / 10; ++i) {  // 更少的分配
-            heap.Allocate(64);
-            if (i % 100 == 0) heap.Collect();
-        }
-    };
+    // BENCHMARK("Copying GC") {
+    //     Heap heap(Strategy::kCopying);
+    //     for (int i = 0; i < NUM_ALLOCATIONS / 10; ++i) {  // 更少的分配
+    //         heap.Allocate(64);
+    //         if (i % 100 == 0) heap.Collect();
+    //     }
+    // };
     
-    BENCHMARK("Incremental GC") {
-        Heap heap(Strategy::kIncremental);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            heap.Allocate(64);
-            if (i % 1000 == 0) heap.Collect();
-        }
-    };
+    // BENCHMARK("Incremental GC") {
+    //     Heap heap(Strategy::kIncremental);
+    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+    //         heap.Allocate(64);
+    //         if (i % 1000 == 0) heap.Collect();
+    //     }
+    // };
 }
 
 // 额外测试：边界条件

@@ -13,12 +13,12 @@
 namespace polyglot::passes::transform {
 namespace {
 
-// 辅助函数：检查指令是否为尾调用
+// Helper: check whether the instruction is a tail call
 bool IsTailCall(const std::shared_ptr<ir::Instruction> &inst, const ir::Function &func) {
   auto call = std::dynamic_pointer_cast<ir::CallInstruction>(inst);
   if (!call) return false;
 
-  // 检查调用是否是基本块中的最后一条指令（ret之前）
+  // Check if the call is the last instruction in the basic block (just before ret)
   auto parent = inst->parent;
   if (!parent || parent->instructions.empty()) return false;
 
@@ -26,12 +26,12 @@ bool IsTailCall(const std::shared_ptr<ir::Instruction> &inst, const ir::Function
   auto it = std::find(instructions.begin(), instructions.end(), inst);
   if (it == instructions.end()) return false;
 
-  // 检查下一条指令是否是return
+  // Check whether the next instruction is a return
   ++it;
   while (it != instructions.end()) {
     if (auto ret = std::dynamic_pointer_cast<ir::ReturnStatement>(*it)) {
-      // 检查是否是自递归调用
-      // 简化实现：假设如果紧接着return，就是尾调用
+      // Check whether this is a self-recursive call
+      // Simplified: assume a call immediately before return is a tail call
       return call->callee == func.name;
     }
     ++it;
@@ -42,22 +42,22 @@ bool IsTailCall(const std::shared_ptr<ir::Instruction> &inst, const ir::Function
 
 }  // namespace
 
-// 尾调用优化实现
+// Tail-call optimization
 void TailCallOptimization(ir::Function &func) {
   bool changed = false;
 
   for (auto &bb : func.blocks) {
     for (auto &inst : bb->instructions) {
       if (IsTailCall(inst, func)) {
-        // 将尾递归转换为循环
-        // 1. 创建循环入口基本块
-        // 2. 将参数赋值移到循环开始
-        // 3. 用跳转替换递归调用
-        // 简化实现：仅标记为尾调用，由后端处理
+        // Convert tail recursion to a loop
+        // 1. Create a loop entry basic block
+        // 2. Move parameter assignments to the loop prologue
+        // 3. Replace the recursive call with a jump
+        // Simplified: only mark as tail call; let the backend handle it
 
         auto call = std::dynamic_pointer_cast<ir::CallInstruction>(inst);
         if (call) {
-          // TODO: 标记为尾调用（需要在 CallInstruction 中添加 is_tail_call 字段）
+          // TODO: Mark as tail call (needs an is_tail_call field on CallInstruction)
           // call->is_tail_call = true;
           changed = true;
         }
@@ -66,22 +66,22 @@ void TailCallOptimization(ir::Function &func) {
   }
 }
 
-// 循环展开实现
+// Loop unrolling
 void LoopUnrolling(ir::Function &func, size_t factor) {
-  // 识别循环
-  // TODO: 实现循环检测（需要在 ir::analysis 中实现 DetectLoops）
-  std::vector<std::shared_ptr<void>> loops;  // 占位符
+  // Identify loops
+  // TODO: Implement loop detection (needs DetectLoops in ir::analysis)
+  std::vector<std::shared_ptr<void>> loops;  // placeholder
   (void)factor;
 
-  // TODO: 完整实现循环展开
-  // 需要：
-  // 1. 计算循环迭代次数
-  // 2. 复制循环体 factor 次
-  // 3. 调整控制流和phi节点
-  // 4. 更新循环归纳变量
+  // TODO: Implement full loop unrolling
+  // Requires:
+  // 1. Compute iteration count
+  // 2. Clone the loop body factor times
+  // 3. Fix control flow and phi nodes
+  // 4. Update induction variables
 }
 
-// 强度削减实现
+// Strength reduction
 void StrengthReduction(ir::Function &func) {
   for (auto &bb : func.blocks) {
     std::vector<std::shared_ptr<ir::Instruction>> new_insts;
@@ -90,47 +90,47 @@ void StrengthReduction(ir::Function &func) {
       auto bin = std::dynamic_pointer_cast<ir::BinaryInstruction>(inst);
       if (!bin) continue;
 
-      // 将乘以2的幂次的操作替换为左移
+      // Replace multiplies by a power of two with a left shift
       if (bin->op == ir::BinaryInstruction::Op::kMul) {
-        // 检查是否有一个操作数是2的幂次
-        // 简化实现：假设常量折叠已经完成
-        // 完整实现需要在SSA图中查找常量定义
+        // Check whether one operand is a power of two
+        // Simplified: assume constant folding already ran
+        // Full implementation should find constant definitions in the SSA graph
 
-        // 示例：x * 8 -> x << 3
-        // 这里需要分析操作数是否为常量
+        // Example: x * 8 -> x << 3
+        // Need to analyze whether an operand is a constant
       }
 
-      // 将除以2的幂次的操作替换为右移
+      // Replace divides by a power of two with a right shift
       if (bin->op == ir::BinaryInstruction::Op::kDiv ||
           bin->op == ir::BinaryInstruction::Op::kSDiv) {
-        // 示例：x / 8 -> x >> 3
+        // Example: x / 8 -> x >> 3
       }
     }
   }
 }
 
-// 循环不变代码外提实现
+// Loop-invariant code motion
 void LoopInvariantCodeMotion(ir::Function &func) {
-  // TODO: 实现循环检测
-  // 循环不变代码外提需要先实现循环分析基础设施
+  // TODO: Implement loop detection
+  // LICM needs loop analysis infrastructure first
   (void)func;
 }
 
-// 归纳变量消除实现
+// Induction variable elimination
 void InductionVariableElimination(ir::Function &func) {
-  // TODO: 实现循环检测
-  std::vector<std::shared_ptr<void>> loops;  // 占位符
+  // TODO: Implement loop detection
+  std::vector<std::shared_ptr<void>> loops;  // placeholder
 
-  // TODO: 完整实现归纳变量消除
-  // 需要：
-  // 1. 识别基本归纳变量
-  // 2. 识别派生归纳变量
-  // 3. 强度削减优化
+  // TODO: Implement full induction variable elimination
+  // Requires:
+  // 1. Identify basic induction variables
+  // 2. Identify derived induction variables
+  // 3. Apply strength-reduction style transforms
 }
 
-// 逃逸分析实现
+// Escape analysis
 void EscapeAnalysis(ir::Function &func) {
-  // 分析每个分配的对象是否逃逸到函数外
+  // Analyze whether each allocation escapes the function
 
   for (auto &bb : func.blocks) {
     for (auto &inst : bb->instructions) {
@@ -139,23 +139,23 @@ void EscapeAnalysis(ir::Function &func) {
 
       bool escapes = false;
 
-      // 检查对象是否：
-      // 1. 存储到全局变量或堆对象
-      // 2. 传递给其他函数
-      // 3. 被返回
+      // Check whether the object:
+      // 1. Is stored to globals or heap objects
+      // 2. Is passed to other functions
+      // 3. Is returned
 
-      // 在使用链中查找逃逸点
-      // 简化实现：保守假设所有对象都逃逸
+      // Find escape sites along the use chain
+      // Simplified: conservatively assume all objects escape
 
       if (!escapes) {
-        // TODO: 标记为不逃逸（需要在 AllocaInstruction 中添加 no_escape 字段）
+        // TODO: Mark as non-escaping (needs a no_escape field on AllocaInstruction)
         // alloca->no_escape = true;
       }
     }
   }
 }
 
-// 标量替换实现
+// Scalar replacement
 void ScalarReplacement(ir::Function &func) {
   for (auto &bb : func.blocks) {
     std::vector<std::shared_ptr<ir::Instruction>> to_replace;
@@ -164,131 +164,130 @@ void ScalarReplacement(ir::Function &func) {
       auto alloca = std::dynamic_pointer_cast<ir::AllocaInstruction>(inst);
       if (!alloca) continue;
 
-      // 检查是否分配结构体或数组
-      // 如果所有访问都是常量索引，可以分解为标量
+      // Check whether a struct or array is allocated
+      // If all accesses use constant indices, split it into scalars
 
-      // 示例：struct {int x, y;} s; -> int s_x; int s_y;
+      // Example: struct {int x, y;} s; -> int s_x; int s_y;
 
-      // 收集所有使用该alloca的GEP指令
-      // 为每个字段创建独立的alloca
-      // 替换load/store为对应字段的操作
+      // Collect all GEPs that use the alloca
+      // Create a dedicated alloca per field
+      // Replace loads/stores with field-specific operations
     }
   }
 }
 
-// 死存储消除实现
+// Dead-store elimination
 void DeadStoreElimination(ir::Function &func) {
-  // 识别永远不会被读取的store指令
+  // Identify store instructions whose value is never read
 
   for (auto &bb : func.blocks) {
     std::unordered_map<std::string, std::shared_ptr<ir::Instruction>> last_store;
 
     for (auto &inst : bb->instructions) {
       if (auto store = std::dynamic_pointer_cast<ir::StoreInstruction>(inst)) {
-        // 如果之前有存储到同一位置且中间没有load，删除之前的store
+        // If there was a prior store to the same address with no intervening load, drop the earlier store
         const auto &addr = store->operands[0];
         if (last_store.count(addr)) {
-          // TODO: 标记为死存储（需要在 Instruction 中添加 dead 字段）
+          // TODO: Mark as dead store (needs a dead field on Instruction)
           // last_store[addr]->dead = true;
         }
         last_store[addr] = store;
       } else if (auto load = std::dynamic_pointer_cast<ir::LoadInstruction>(inst)) {
-        // load会使用存储的值
+        // Loads consume the stored value
         const auto &addr = load->operands[0];
         last_store.erase(addr);
       } else if (auto call = std::dynamic_pointer_cast<ir::CallInstruction>(inst)) {
-        // 函数调用可能访问任何内存，清空跟踪
+        // Function calls may touch any memory; clear tracking
         last_store.clear();
       }
     }
   }
 
-  // TODO: 移除标记为死的存储指令
-  // 需要在 Instruction 中添加 dead 字段后实现
+  // TODO: Remove stores marked dead
+  // Requires a dead flag on Instruction
 }
 
-// 自动向量化实现
+// Auto-vectorization
 void AutoVectorization(ir::Function &func) {
-  // TODO: 实现循环检测
-  std::vector<std::shared_ptr<void>> loops;  // 占位符
+  // TODO: Implement loop detection
+  std::vector<std::shared_ptr<void>> loops;  // placeholder
 
   for (auto &loop : loops) {
-    // 检查循环是否可向量化：
-    // 1. 没有循环依赖
-    // 2. 内存访问模式规则（连续访问）
-    // 3. 操作支持SIMD指令
+    // Check if the loop is vectorizable:
+    // 1. No loop-carried dependencies
+    // 2. Regular (contiguous) memory access
+    // 3. Operations supported by SIMD instructions
 
     bool can_vectorize = true;
 
-    // 依赖性分析
-    // 检查是否有读后写、写后读、写后写依赖
+    // Dependence analysis
+    // Check RAW/WAR/WAW dependencies
 
     if (can_vectorize) {
-      // TODO: 将标量操作替换为向量操作
-      // 需要在循环结构中添加 is_vectorized 和 vector_width 字段
+      // TODO: Rewrite scalar ops to vector ops
+      // Needs is_vectorized and vector_width on loop metadata
     }
   }
 }
 
-// 循环融合实现
+// Loop fusion
 void LoopFusion(ir::Function &func) {
-  // TODO: 实现循环检测
-  std::vector<std::shared_ptr<void>> loops;  // 占位符
+  // TODO: Implement loop detection
+  std::vector<std::shared_ptr<void>> loops;  // placeholder
 
-  // 查找可以融合的循环对
+  // Find loop pairs that can be fused
   for (size_t i = 0; i < loops.size(); ++i) {
     for (size_t j = i + 1; j < loops.size(); ++j) {
-      // 检查融合条件：
-      // 1. 相同的循环范围
-      // 2. 没有数据依赖阻止融合
-      // 3. 相邻的循环
+      // Check fusion conditions:
+      // 1. Same loop bounds
+      // 2. No data dependencies that block fusion
+      // 3. Adjacent loops
 
       bool can_fuse = true;
 
-      // 简化实现：仅检查基本条件
+      // Simplified: only check basic conditions
 
       if (can_fuse) {
-        // 合并循环体
-        // 更新控制流
+        // Merge loop bodies
+        // Update control flow
       }
     }
   }
 }
 
-// SCCP实现（稀疏条件常量传播）
+// SCCP implementation (Sparse Conditional Constant Propagation)
 void SCCP(ir::Function &func) {
-  // 基于SSA的高级常量传播
-  // 使用抽象解释和工作列表算法
+  // Based on SSA: abstract interpretation + worklist
 
-  // TODO: 实现 SCCP（需要定义 LatticeValue 类型）
+  // TODO: Implement SCCP (needs LatticeValue)
   // std::unordered_map<std::string, LatticeValue> lattice;
   
-  // 简化实现：暂时跳过
+  // Simplified: skip for now
   (void)func;
 
 }
 
-// 跳转线程化实现
+// Jump threading
 void JumpThreading(ir::Function &func) {
-  // 优化跳转链：A -> B -> C 转换为 A -> C
+  // Optimize jump chains: A -> B -> C becomes A -> C
 
   bool changed = true;
   while (changed) {
     changed = false;
 
     for (auto &bb : func.blocks) {
-      // 检查基本块是否只包含一个无条件跳转
+      // Check if the basic block only contains an unconditional jump
       if (bb->instructions.size() == 1) {
         if (auto br = std::dynamic_pointer_cast<ir::BranchStatement>(bb->instructions[0])) {
-          // TODO: 检查是否为无条件跳转（需要在 BranchStatement 中添加 successors 字段）
+          // TODO: Detect unconditional branch (needs successors on BranchStatement)
           if (false) {
-            // 这是一个跳转链节点
+            // This is a jump-chain node
             std::string target;
 
-            // 更新所有跳转到此基本块的前驱
+            // Rewrite all predecessors that branch here
             for (auto *pred : bb->predecessors) {
-              // 将pred的跳转目标从bb改为target
-              // 更新phi节点
+              // Retarget predecessor branch from bb to target
+              // Update phi nodes
               changed = true;
             }
           }
@@ -298,74 +297,74 @@ void JumpThreading(ir::Function &func) {
   }
 }
 
-// 预取插入实现
+// Prefetch insertion
 void PrefetchInsertion(ir::Function &func) {
-  // TODO: 实现循环检测
-  std::vector<std::shared_ptr<void>> loops;  // 占位符
+  // TODO: Implement loop detection
+  std::vector<std::shared_ptr<void>> loops;  // placeholder
 
   for (auto &loop : loops) {
-    // 分析循环中的内存访问模式
-    // 识别可预测的访问序列
+    // Analyze memory access patterns in the loop
+    // Identify predictable access sequences
 
-    // 插入预取指令在访问前若干迭代
-    // 示例：for (i = 0; i < n; ++i) {
-    //         __builtin_prefetch(&a[i + 8]);  // 预取未来的数据
-    //         sum += a[i];
-    //       }
+    // Insert prefetches several iterations ahead of use
+    // Example: for (i = 0; i < n; ++i) {
+    //            __builtin_prefetch(&a[i + 8]);  // prefetch future data
+    //            sum += a[i];
+    //          }
   }
 }
 
-// 其他优化的简化实现...
+// Other optimizations (simplified stubs)...
 
 void SoftwarePipelining(ir::Function &func) {
-  // 软件流水线：重叠循环迭代
-  // 需要调度分析和寄存器压力估算
+  // Software pipelining: overlap loop iterations
+  // Needs scheduling analysis and register pressure estimation
 }
 
 void PartialEvaluation(ir::Function &func) {
-  // 部分求值：在编译时执行已知的计算
+  // Partial evaluation: execute known computations at compile time
 }
 
 void LoopFission(ir::Function &func) {
-  // 循环分裂：将一个循环拆分为多个
+  // Loop fission: split one loop into several
 }
 
 void LoopInterchange(ir::Function &func) {
-  // 循环交换：改变嵌套循环的顺序
+  // Loop interchange: change the order of nested loops
 }
 
 void LoopTiling(ir::Function &func, size_t tile_size) {
-  // 循环分块：提高缓存局部性
+  // Loop tiling: improve cache locality
   (void)tile_size;
 }
 
 void AliasAnalysis(ir::Function &func) {
-  // 别名分析：确定指针是否可能指向同一内存
+  // Alias analysis: determine whether pointers may alias
 }
 
 void CodeSinking(ir::Function &func) {
-  // 代码沉降：将计算移到更接近使用的位置
+  // Code sinking: move computations closer to their use sites
 }
 
 void CodeHoisting(ir::Function &func) {
-  // 代码提升：提升公共代码到支配节点
+  // Code hoisting: lift common code to dominating nodes
 }
 
 void GVN(ir::Function &func) {
-  // 全局值编号：已在gvn.cpp中实现
-  // 这里是占位符
+  // Global value numbering: implemented in gvn.cpp
+  // Placeholder here
 }
 
 void BranchPredictionOptimization(ir::Function &func) {
-  // 分支预测优化：基于profile数据
+  // Branch prediction optimization: profile-guided
 }
 
 void LoopPredication(ir::Function &func) {
-  // 循环谓词化：使用谓词执行
+  // Loop predication: use predicated execution
 }
 
 void MemoryLayoutOptimization(ir::Function &func) {
-  // 内存布局优化：优化数据结构
+  // Memory layout optimization: tune data structures
 }
 
 }  // namespace polyglot::passes::transform

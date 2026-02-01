@@ -2,11 +2,11 @@
 #include <string>
 
 #include "frontends/rust/include/rust_parser.h"
-#include "frontends/rust/include/rust_advanced_features.h"
+#include "frontends/rust/include/rust_ast.h"
 
 using namespace polyglot::rust;
 
-// ============ 测试1: 特征(Traits) ============
+// ============ Test 1: Traits ============
 TEST_CASE("Rust - Traits", "[rust][trait]") {
     SECTION("Basic trait") {
         std::string code = R"(
@@ -57,7 +57,7 @@ trait Convert<T> {
     }
 }
 
-// ============ 测试2: 特征实现 ============
+// ============ Test 2: Impl blocks ============
 TEST_CASE("Rust - Impl", "[rust][impl]") {
     SECTION("Inherent impl") {
         std::string code = R"(
@@ -111,7 +111,7 @@ impl<T: Display + Clone> Container<T> {
     }
 }
 
-// ============ 测试3: 生命周期 ============
+// ============ Test 3: Lifetimes ============
 TEST_CASE("Rust - Lifetimes", "[rust][lifetime]") {
     SECTION("Basic lifetime") {
         std::string code = R"(
@@ -157,7 +157,7 @@ static NAME: &'static str = "Rust";
     }
 }
 
-// ============ 测试4: 借用检查器 ============
+// ============ Test 4: Borrow checker ============
 TEST_CASE("Rust - Borrow Checker", "[rust][borrow]") {
     SECTION("Immutable borrow") {
         std::string code = R"(
@@ -207,7 +207,7 @@ let y = x;
     }
 }
 
-// ============ 测试5: 闭包 ============
+// ============ Test 5: Closures ============
 TEST_CASE("Rust - Closures", "[rust][closure]") {
     SECTION("Simple closure") {
         std::string code = "let add_one = |x| x + 1;";
@@ -245,7 +245,7 @@ fn call<F: Fn()>(f: F) { f(); }
     }
 }
 
-// ============ 测试6: 模式匹配 ============
+// ============ Test 6: Pattern matching ============
 TEST_CASE("Rust - Pattern Matching", "[rust][match]") {
     SECTION("Basic match") {
         std::string code = R"(
@@ -301,7 +301,7 @@ match value {
     }
 }
 
-// ============ 测试7-15: 其他核心特性 ============
+// ============ Tests 7-15: Core features ============
 
 TEST_CASE("Rust - Enums", "[rust][enum]") {
     std::string codes[] = {
@@ -401,7 +401,7 @@ TEST_CASE("Rust - Unsafe", "[rust][unsafe]") {
     }
 }
 
-// ============ 测试16-28: 高级特性 ============
+// ============ Tests 16-28: Advanced features ============
 
 TEST_CASE("Rust - Associated Types", "[rust][assoc]") {
     std::string code = R"(
@@ -453,7 +453,7 @@ TEST_CASE("Rust - Const and Static", "[rust][const_static]") {
     }
 }
 
-// 集成测试
+// Integration test
 TEST_CASE("Rust - Complex Integration", "[rust][integration]") {
     std::string code = R"(
 use std::fmt::Display;

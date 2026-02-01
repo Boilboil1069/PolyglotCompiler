@@ -1,7 +1,7 @@
 /**
- * Link-Time Optimization (LTO) 支持
- * 
- * 在链接时进行跨模块优化
+ * Link-Time Optimization (LTO) support
+ *
+ * Perform cross-module optimization at link time
  */
 
 #pragma once
@@ -16,11 +16,11 @@
 
 namespace polyglot::lto {
 
-// ============ LTO IR表示 ============
+// ============ LTO IR representation ============
 
 /**
- * LTO使用的中间表示
- * 包含完整的模块信息用于跨模块分析
+ * IR used by LTO
+ * Includes full module information for cross-module analysis
  */
 class LTOModule {
 public:
@@ -28,37 +28,37 @@ public:
     std::vector<ir::Function> functions;
     std::vector<ir::GlobalVariable> globals;
     
-    // 符号导出信息
+    // Symbol export information
     std::map<std::string, bool> exported_symbols;  // name -> is_public
     
-    // 模块间依赖
+    // Inter-module dependencies
     std::vector<std::string> dependencies;
     
-    // 序列化为bitcode
+    // Serialize to bitcode
     bool SaveBitcode(const std::string& filename) const;
     bool LoadBitcode(const std::string& filename);
 };
 
 /**
- * LTO上下文 - 管理所有参与链接的模块
+ * LTO context - manages all modules participating in the link
  */
 class LTOContext {
 public:
-    // 添加模块
+    // Add a module
     void AddModule(std::unique_ptr<LTOModule> module);
     
-    // 获取所有模块
+    // Get all modules
     const std::vector<std::unique_ptr<LTOModule>>& GetModules() const {
         return modules_;
     }
     
-    // 查找函数（跨模块）
+    // Find a function (cross-module)
     ir::Function* FindFunction(const std::string& name);
     
-    // 查找全局变量
+    // Find a global variable
     ir::GlobalVariable* FindGlobal(const std::string& name);
     
-    // 构建调用图
+    // Build a call graph
     class CallGraph {
     public:
         struct Node {
@@ -80,19 +80,19 @@ private:
     std::map<std::string, ir::GlobalVariable*> global_map_;
 };
 
-// ============ LTO优化Passes ============
+// ============ LTO optimization passes ============
 
 /**
- * 跨模块内联
+ * Cross-module inlining
  */
 class CrossModuleInliner {
 public:
     explicit CrossModuleInliner(LTOContext& context) : context_(context) {}
     
-    // 执行跨模块内联
+    // Perform cross-module inlining
     void Run();
     
-    // 内联决策
+    // Inlining decisions
     struct InlineCandidate {
         std::string caller;
         std::string callee;
@@ -110,16 +110,16 @@ private:
 };
 
 /**
- * 全局死代码消除
+ * Global dead code elimination
  */
 class GlobalDeadCodeElimination {
 public:
     explicit GlobalDeadCodeElimination(LTOContext& context) : context_(context) {}
     
-    // 消除未使用的函数和全局变量
+    // Remove unused functions and global variables
     void Run();
     
-    // 标记可达的符号
+    // Mark reachable symbols
     std::set<std::string> MarkReachableSymbols() const;
     
 private:
@@ -127,7 +127,7 @@ private:
 };
 
 /**
- * 常量传播（跨模块）
+ * Constant propagation (cross-module)
  */
 class InterproceduralConstantPropagation {
 public:
@@ -139,28 +139,28 @@ public:
 private:
     LTOContext& context_;
     
-    // 分析常量参数
+    // Analyze constant arguments
     std::map<std::string, std::vector<ir::Value>> AnalyzeConstantArgs() const;
 };
 
 /**
- * 全局优化器（协调所有LTO优化）
+ * Global optimizer (coordinates all LTO optimizations)
  */
 class GlobalOptimizer {
 public:
     explicit GlobalOptimizer(LTOContext& context) : context_(context) {}
     
-    // 运行完整的LTO优化流程
+    // Run the full LTO optimization pipeline
     void Optimize();
     
-    // 单独的优化阶段
+    // Individual optimization stages
     void RunInlining();
     void RunDeadCodeElimination();
     void RunConstantPropagation();
     void RunDevirtualization();
     void RunGlobalValueNumbering();
     
-    // 优化统计
+    // Optimization statistics
     struct Statistics {
         size_t functions_inlined;
         size_t functions_removed;
@@ -174,36 +174,36 @@ private:
     Statistics stats_;
 };
 
-// ============ LTO链接器集成 ============
+// ============ LTO linker integration ============
 
 /**
- * LTO链接器
+ * LTO linker
  */
 class LTOLinker {
 public:
     LTOLinker() = default;
     
-    // 添加输入对象文件（包含LTO bitcode）
+    // Add an input object file (contains LTO bitcode)
     void AddInputFile(const std::string& filename);
     
-    // 设置优化级别
+    // Set optimization level
     void SetOptimizationLevel(int level) { opt_level_ = level; }
     
-    // 执行LTO链接
+    // Perform LTO link
     bool Link(const std::string& output_file);
     
-    // 配置选项
+    // Configuration options
     struct Config {
         int opt_level = 2;
-        bool thin_lto = false;      // Thin LTO模式
-        bool emit_bitcode = false;   // 输出优化后的bitcode
-        bool preserve_symbols = false; // 保留所有符号（调试用）
+        bool thin_lto = false;      // Thin LTO mode
+        bool emit_bitcode = false;   // Emit optimized bitcode
+        bool preserve_symbols = false; // Preserve all symbols (for debugging)
         size_t inline_threshold = 225;
         size_t max_function_size = 10000;
     };
     void SetConfig(const Config& config) { config_ = config; }
     
-    // 获取链接统计
+    // Get link statistics
     struct LinkStats {
         size_t modules_linked;
         size_t total_functions;
@@ -218,35 +218,35 @@ private:
     LinkStats stats_;
     int opt_level_ = 2;
     
-    // 加载所有模块
+    // Load all modules
     bool LoadModules(LTOContext& context);
     
-    // 优化阶段
+    // Optimization phase
     void OptimizeModules(LTOContext& context);
     
-    // 代码生成阶段
+    // Code generation phase
     bool GenerateCode(const LTOContext& context, const std::string& output);
 };
 
-// ============ Thin LTO支持 ============
+// ============ Thin LTO support ============
 
 /**
- * Thin LTO - 可扩展的LTO实现
- * 
- * 相比传统LTO，Thin LTO:
- * - 并行化更好
- * - 内存占用更小
- * - 增量编译友好
+ * Thin LTO - scalable LTO implementation
+ *
+ * Compared to traditional LTO, Thin LTO:
+ * - Offers better parallelism
+ * - Uses less memory
+ * - Is friendly to incremental builds
  */
 class ThinLTOCodeGenerator {
 public:
-    // 添加模块
+    // Add a module
     void AddModule(const std::string& identifier, const std::string& bitcode);
     
-    // 执行Thin LTO
+    // Run Thin LTO
     bool Run();
     
-    // 生成摘要索引
+    // Generate a summary index
     struct ModuleSummary {
         std::string module_id;
         std::vector<std::string> defined_symbols;
@@ -255,10 +255,10 @@ public:
     };
     std::vector<ModuleSummary> GenerateSummaries() const;
     
-    // 导入分析
+    // Import analysis
     std::map<std::string, std::vector<std::string>> ComputeImports() const;
     
-    // 并行优化
+    // Optimize in parallel
     void OptimizeInParallel(size_t num_threads);
     
 private:
@@ -266,40 +266,40 @@ private:
     std::vector<ModuleSummary> summaries_;
 };
 
-// ============ 工具函数 ============
+// ============ Utility functions ============
 
 /**
- * 编译为LTO bitcode
+ * Compile to LTO bitcode
  */
 bool CompileToBitcode(const std::string& source_file,
                      const std::string& output_bitcode);
 
 /**
- * 合并bitcode文件
+ * Merge bitcode files
  */
 bool MergeBitcode(const std::vector<std::string>& input_files,
                  const std::string& output_file);
 
 /**
- * 从bitcode生成目标代码
+ * Generate object code from bitcode
  */
 bool GenerateObjectFromBitcode(const std::string& bitcode_file,
                               const std::string& output_object);
 
 /**
- * LTO工作流辅助
+ * LTO workflow helpers
  */
 class LTOWorkflow {
 public:
-    // Step 1: 编译所有源文件为bitcode
+    // Step 1: compile all source files to bitcode
     static bool CompilePhase(const std::vector<std::string>& sources,
                             const std::string& output_dir);
     
-    // Step 2: 链接时优化
+    // Step 2: link-time optimization
     static bool LinkPhase(const std::vector<std::string>& bitcodes,
                          const std::string& output_exe);
     
-    // 完整流程
+    // Full pipeline
     static bool FullLTO(const std::vector<std::string>& sources,
                        const std::string& output_exe,
                        int opt_level = 2);
