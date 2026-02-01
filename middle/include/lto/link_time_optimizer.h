@@ -10,6 +10,7 @@
 #include <vector>
 #include <memory>
 #include <map>
+#include <set>
 
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/cfg.h"
@@ -26,7 +27,7 @@ class LTOModule {
 public:
     std::string module_name;
     std::vector<ir::Function> functions;
-    std::vector<ir::GlobalVariable> globals;
+    std::vector<ir::GlobalValue> globals;
     
     // Symbol export information
     std::map<std::string, bool> exported_symbols;  // name -> is_public
@@ -51,12 +52,20 @@ public:
     const std::vector<std::unique_ptr<LTOModule>>& GetModules() const {
         return modules_;
     }
+
+    // Mutable access for transformation passes
+    std::vector<std::unique_ptr<LTOModule>>& MutableModules() {
+        return modules_;
+    }
     
     // Find a function (cross-module)
     ir::Function* FindFunction(const std::string& name);
     
     // Find a global variable
-    ir::GlobalVariable* FindGlobal(const std::string& name);
+    ir::GlobalValue* FindGlobal(const std::string& name);
+
+    // Refresh lookup tables after transformations
+    void RebuildIndexes();
     
     // Build a call graph
     class CallGraph {
@@ -77,7 +86,7 @@ public:
 private:
     std::vector<std::unique_ptr<LTOModule>> modules_;
     std::map<std::string, ir::Function*> function_map_;
-    std::map<std::string, ir::GlobalVariable*> global_map_;
+    std::map<std::string, ir::GlobalValue*> global_map_;
 };
 
 // ============ LTO optimization passes ============
@@ -103,6 +112,7 @@ public:
     std::vector<InlineCandidate> FindInlineCandidates() const;
     
 private:
+     friend class GlobalOptimizer;
     LTOContext& context_;
     
     bool ShouldInline(const ir::Function& caller, const ir::Function& callee) const;
@@ -171,7 +181,7 @@ public:
     
 private:
     LTOContext& context_;
-    Statistics stats_;
+    Statistics stats_{};
 };
 
 // ============ LTO linker integration ============

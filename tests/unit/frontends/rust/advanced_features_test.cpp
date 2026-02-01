@@ -71,13 +71,13 @@ impl Rectangle {
     }
     
     SECTION("Trait impl") {
-        std::string code = R"(
+        std::string code = R"rust(
 impl Display for Point {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
-)";
+)rust";
         REQUIRE(true);
     }
     

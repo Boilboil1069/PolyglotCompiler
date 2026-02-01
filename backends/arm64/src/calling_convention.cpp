@@ -21,7 +21,7 @@ const Register kFloatArgRegs[] = {
 const Register kCalleeSavedRegs[] = {
     Register::kX19, Register::kX20, Register::kX21, Register::kX22,
     Register::kX23, Register::kX24, Register::kX25, Register::kX26,
-    Register::kX27, Register::kX28, Register::kFP,  Register::kLR
+    Register::kX27, Register::kX28, Register::kFp,  Register::kLr
 };
 
 const Register kVolatileRegs[] = {

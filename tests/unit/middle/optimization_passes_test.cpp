@@ -401,35 +401,26 @@ TEST_CASE("Optimization - Jump Threading", "[opt][jump]") {
 // Integration test: combine multiple optimizations
 TEST_CASE("Optimization - Combined Passes", "[opt][combined]") {
     Function func = CreateTestFunction("combined");
-    
-    // Apply multiple optimizations
-    ir::passes::ConstantFold(func);
-    ir::passes::DeadCodeEliminate(func);
+
+    polyglot::ir::passes::ConstantFold(func);
+    polyglot::ir::passes::DeadCodeEliminate(func);
     LoopInvariantCodeMotion(func);
     StrengthReduction(func);
     AutoVectorization(func);
     DeadStoreElimination(func);
-    
+
     REQUIRE(true);
 }
 
 // Performance benchmark
 TEST_CASE("Optimization - Performance", "[opt][benchmark]") {
     Function func = CreateTestFunction("benchmark");
-    
-    // BENCHMARK("Constant Folding") {
-        // polyglot::ir::passes::ConstantFold(func);
-    };
-    
-    // BENCHMARK("Dead Code Elimination") {
-        // polyglot::ir::passes::DeadCodeEliminate(func);
-    };
-    
-    // BENCHMARK("LICM") {
-        LoopInvariantCodeMotion(func);
-    };
-    
-    // BENCHMARK("Vectorization") {
-        AutoVectorization(func);
-    };
+
+    // Placeholder performance smoke calls
+    polyglot::ir::passes::ConstantFold(func);
+    polyglot::ir::passes::DeadCodeEliminate(func);
+    LoopInvariantCodeMotion(func);
+    AutoVectorization(func);
+
+    REQUIRE(true);
 }

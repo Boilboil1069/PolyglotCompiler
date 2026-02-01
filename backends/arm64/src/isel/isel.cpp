@@ -29,6 +29,11 @@ Opcode ToOpcode(ir::BinaryInstruction::Op op) {
     case Op::kAdd: return Opcode::kAdd;
     case Op::kSub: return Opcode::kSub;
     case Op::kMul: return Opcode::kMul;
+    case Op::kFAdd: return Opcode::kAdd;
+    case Op::kFSub: return Opcode::kSub;
+    case Op::kFMul: return Opcode::kMul;
+    case Op::kFDiv: return Opcode::kDiv;
+    case Op::kFRem: return Opcode::kRem;
     case Op::kDiv:
     case Op::kSDiv: return Opcode::kSDiv;
     case Op::kUDiv: return Opcode::kUDiv;

@@ -27,7 +27,23 @@ std::uint8_t RegCode(Register r) {
     case Register::kX5: return 5;
     case Register::kX6: return 6;
     case Register::kX7: return 7;
+    case Register::kV8: return 8;
+    case Register::kV9: return 9;
+    case Register::kV10: return 10;
+    case Register::kV11: return 11;
+    case Register::kV12: return 12;
+    case Register::kV13: return 13;
+    case Register::kV14: return 14;
+    case Register::kV15: return 15;
     case Register::kX8: return 8;
+    case Register::kV0: return 0;
+    case Register::kV1: return 1;
+    case Register::kV2: return 2;
+    case Register::kV3: return 3;
+    case Register::kV4: return 4;
+    case Register::kV5: return 5;
+    case Register::kV6: return 6;
+    case Register::kV7: return 7;
     case Register::kX9: return 9;
     case Register::kX10: return 10;
     case Register::kX11: return 11;
@@ -51,6 +67,7 @@ std::uint8_t RegCode(Register r) {
     case Register::kFp: return 29;
     case Register::kLr: return 30;
     case Register::kSp: return 31;
+    
   }
   return 0;
 }

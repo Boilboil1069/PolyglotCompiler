@@ -96,6 +96,7 @@ add_library(middle_ir
     middle/src/passes/optimizations/gvn.cpp
     middle/src/passes/optimizations/advanced_optimizations.cpp
     middle/src/pgo/profile_data.cpp
+    middle/src/lto/link_time_optimizer.cpp
 )
 
 target_include_directories(middle_ir PUBLIC
@@ -110,6 +111,7 @@ add_library(backend_x86_64
     backends/x86_64/src/isel/isel.cpp
     backends/x86_64/src/regalloc/graph_coloring.cpp
     backends/x86_64/src/regalloc/linear_scan.cpp
+    backends/x86_64/src/optimizations.cpp
 )
 
 target_include_directories(backend_x86_64 PUBLIC
@@ -150,6 +152,7 @@ add_library(runtime
     runtime/src/libs/cpp_rt.c
     runtime/src/libs/rust_rt.c
     runtime/src/services/exception.cpp
+    runtime/src/services/reflection.cpp
     runtime/src/services/threading.cpp
 )
 

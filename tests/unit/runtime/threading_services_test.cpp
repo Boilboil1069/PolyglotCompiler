@@ -3,8 +3,9 @@
 #include <chrono>
 #include <vector>
 #include <atomic>
+#include <future>
 
-#include "runtime/include/services/advanced_threading.h"
+#include "runtime/include/services/threading.h"
 
 using namespace polyglot::runtime::services;
 
@@ -500,25 +501,21 @@ TEST_CASE("Threading - Future/Promise", "[threading][future]") {
 
 // Performance benchmarks
 TEST_CASE("Threading - Performance", "[threading][benchmark]") {
-    // BENCHMARK("Thread Pool - 1000 tasks") {
-        ThreadPool pool(4);
-        for (int i = 0; i < 1000; ++i) {
-            pool.Submit([]() { return 42; });
-        }
-        pool.Wait();
-    };
-    
-    // BENCHMARK("Work Stealing - ParallelFor 10000") {
-        WorkStealingScheduler scheduler(4);
-        scheduler.ParallelFor(0, 10000, [](size_t i) {});
-    };
-    
-    // BENCHMARK("LockFree Queue - 10000 ops") {
-        LockFreeQueue<int> queue;
-        for (int i = 0; i < 10000; ++i) {
-            queue.Push(i);
-        }
-        int value;
-        while (queue.Pop(value)) {}
-    };
+    ThreadPool pool(4);
+    for (int i = 0; i < 1000; ++i) {
+        pool.Submit([]() { return 42; });
+    }
+    pool.Wait();
+
+    WorkStealingScheduler scheduler(4);
+    scheduler.ParallelFor(0, 10000, [](size_t) {});
+
+    LockFreeQueue<int> queue;
+    for (int i = 0; i < 10000; ++i) {
+        queue.Push(i);
+    }
+    int value;
+    while (queue.Pop(value)) {}
+
+    REQUIRE(true);
 }

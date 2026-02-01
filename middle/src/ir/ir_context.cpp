@@ -1,8 +1,13 @@
 #include "middle/include/ir/ir_context.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace polyglot::ir {
+
+IRContext::IRContext(DataLayout::Arch arch) : layout_(arch) {
+  RegisterBuiltInDialects();
+}
 
 std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name) {
   auto fn = std::make_shared<Function>();
@@ -66,6 +71,17 @@ void IRContext::AddStatement(const std::shared_ptr<Statement> &stmt) {
   } else {
     bb->AddInstruction(stmt);
   }
+}
+
+void IRContext::RegisterDialectByName(const std::string &name) {
+  if (std::find(dialects_.begin(), dialects_.end(), name) != dialects_.end()) return;
+  dialects_.push_back(name);
+}
+
+void IRContext::RegisterBuiltInDialects() {
+  RegisterDialect<dialects::HighLevelDialect>();
+  RegisterDialect<dialects::MidLevelDialect>();
+  RegisterDialect<dialects::LowLevelDialect>();
 }
 
 }  // namespace polyglot::ir
