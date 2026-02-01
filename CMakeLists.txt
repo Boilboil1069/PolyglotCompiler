@@ -94,6 +94,8 @@ add_library(middle_ir
     middle/src/passes/optimizations/devirtualization.cpp
     middle/src/passes/optimizations/loop_optimization.cpp
     middle/src/passes/optimizations/gvn.cpp
+    middle/src/passes/optimizations/advanced_optimizations.cpp
+    middle/src/pgo/profile_data.cpp
 )
 
 target_include_directories(middle_ir PUBLIC
@@ -133,6 +135,8 @@ target_link_libraries(backend_arm64 PUBLIC polyglot_common)
 add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
+    runtime/src/gc/copying.cpp
+    runtime/src/gc/incremental.cpp
     runtime/src/gc/gc_strategy.cpp
     runtime/src/gc/runtime.cpp
     runtime/src/interop/ffi.cpp
@@ -198,12 +202,28 @@ target_link_libraries(polyopt
 )
 
 add_executable(polyrt
-    tools/polyrt/src/runtime_tool.cpp
+    tools/polyrt/src/polyrt.cpp
 )
 
 target_link_libraries(polyrt
     runtime
     polyglot_common
+)
+
+add_executable(polybench
+    tools/polybench/src/benchmark_suite.cpp
+)
+
+target_link_libraries(polybench
+    polyglot_common
+    frontend_python
+    frontend_cpp
+    frontend_rust
+    middle_ir
+    backend_x86_64
+    backend_arm64
+    runtime
+    nlohmann_json::nlohmann_json
 )
 
 file(GLOB_RECURSE UNIT_TEST_SOURCES tests/unit/*.cpp)
