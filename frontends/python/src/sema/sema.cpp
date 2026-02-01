@@ -44,12 +44,96 @@ class Analyzer {
 
     // Simple module registry populated by imports in current module
     std::unordered_map<std::string, std::unordered_map<std::string, Type>> module_exports_{};
+    // Set of imported modules for tracking
+    std::unordered_set<std::string> imported_modules_{};
 
+    // Built-in module exports registry. Returns known modules with their exported symbols.
     std::unordered_map<std::string, std::unordered_map<std::string, Type>> BuiltinModuleExports() {
         return {
-            {"asyncio", {{"sleep", Types().FunctionType("sleep", Type::Any(), {Type::Float()})}}},
-            {"typing", {{"Any", Type::Any()}, {"Coroutine", Types().Generic("coroutine", {Type::Any()}, "python")}}},
+            // Standard library modules
+            {"math", {
+                {"sin", Types().FunctionType("sin", Type::Float(), {Type::Float()})},
+                {"cos", Types().FunctionType("cos", Type::Float(), {Type::Float()})},
+                {"sqrt", Types().FunctionType("sqrt", Type::Float(), {Type::Float()})},
+                {"floor", Types().FunctionType("floor", Type::Int(), {Type::Float()})},
+                {"ceil", Types().FunctionType("ceil", Type::Int(), {Type::Float()})},
+                {"pi", Type::Float()},
+                {"e", Type::Float()},
+            }},
+            {"os", {
+                {"getcwd", Types().FunctionType("getcwd", Type::String(), {})},
+                {"listdir", Types().FunctionType("listdir", Type::Any(), {Type::String()})},
+                {"path", Type{core::TypeKind::kModule, "os.path"}},
+            }},
+            {"sys", {
+                {"argv", Type::Any()},
+                {"exit", Types().FunctionType("exit", Type::Void(), {Type::Int()})},
+                {"version", Type::String()},
+            }},
+            {"asyncio", {
+                {"sleep", Types().FunctionType("sleep", Types().Generic("coroutine", {Type::Void()}, "python"), {Type::Float()})},
+                {"run", Types().FunctionType("run", Type::Any(), {Type::Any()})},
+                {"gather", Types().FunctionType("gather", Type::Any(), {})},
+            }},
+            {"typing", {
+                {"Any", Type::Any()},
+                {"Optional", Type::Any()},
+                {"Union", Type::Any()},
+                {"List", Type::Any()},
+                {"Dict", Type::Any()},
+                {"Tuple", Type::Any()},
+                {"Callable", Type::Any()},
+                {"TypeVar", Types().FunctionType("TypeVar", Type::Any(), {Type::String()})},
+                {"Coroutine", Types().Generic("coroutine", {Type::Any()}, "python")},
+            }},
+            {"json", {
+                {"dumps", Types().FunctionType("dumps", Type::String(), {Type::Any()})},
+                {"loads", Types().FunctionType("loads", Type::Any(), {Type::String()})},
+            }},
+            {"re", {
+                {"match", Types().FunctionType("match", Type::Any(), {Type::String(), Type::String()})},
+                {"search", Types().FunctionType("search", Type::Any(), {Type::String(), Type::String()})},
+                {"compile", Types().FunctionType("compile", Type::Any(), {Type::String()})},
+            }},
+            {"collections", {
+                {"defaultdict", Type::Any()},
+                {"Counter", Type::Any()},
+                {"deque", Type::Any()},
+            }},
+            {"functools", {
+                {"partial", Types().FunctionType("partial", Type::Any(), {Type::Any()})},
+                {"reduce", Types().FunctionType("reduce", Type::Any(), {Type::Any(), Type::Any()})},
+                {"lru_cache", Type::Any()},
+            }},
+            {"itertools", {
+                {"chain", Types().FunctionType("chain", Type::Any(), {})},
+                {"zip_longest", Types().FunctionType("zip_longest", Type::Any(), {})},
+                {"product", Types().FunctionType("product", Type::Any(), {})},
+            }},
+            {"dataclasses", {
+                {"dataclass", Type::Any()},
+                {"field", Types().FunctionType("field", Type::Any(), {})},
+            }},
         };
+    }
+
+    // Check if a module is known (built-in or already imported)
+    bool IsKnownModule(const std::string &modname) {
+        if (imported_modules_.count(modname)) return true;
+        auto builtin = BuiltinModuleExports();
+        return builtin.count(modname) > 0;
+    }
+
+    // Get exports for a module
+    std::unordered_map<std::string, Type> GetModuleExports(const std::string &modname) {
+        auto builtin = BuiltinModuleExports();
+        if (auto it = builtin.find(modname); it != builtin.end()) {
+            return it->second;
+        }
+        if (auto it = module_exports_.find(modname); it != module_exports_.end()) {
+            return it->second;
+        }
+        return {};
     }
 
     void DeclareSimple(const std::string &name, SymbolKind kind, const Type &type,
@@ -171,45 +255,89 @@ class Analyzer {
             return;
         }
         if (auto imp = std::dynamic_pointer_cast<ImportStatement>(stmt)) {
-            if (!imp->is_from) {
-                for (auto &al : imp->names) {
-                    std::string modname = al.name;
-                    std::string name = al.alias.empty() ? al.name : al.alias;
-                    DeclareSimple(name, SymbolKind::kModule, Type{core::TypeKind::kModule, modname},
-                                  stmt->loc);
-                    int sid = Syms().EnterScope(modname, ScopeKind::kModule);
-                    Syms().RegisterTypeScope(modname, sid);
-                    Syms().ExitScope();
-                    auto builtin = BuiltinModuleExports();
-                    auto it = builtin.find(modname);
-                    if (it != builtin.end()) {
-                        module_exports_[modname] = it->second;
-                    } else {
-                        module_exports_.try_emplace(modname);
-                    }
+            AnalyzeImportStatement(*imp, stmt->loc);
+            return;
+        }
+    }
+
+    // Handle import statements with full diagnostics
+    void AnalyzeImportStatement(const ImportStatement &imp, const core::SourceLoc &loc) {
+        auto builtin = BuiltinModuleExports();
+        
+        if (!imp.is_from) {
+            // import module [as alias], import module1, module2
+            for (const auto &al : imp.names) {
+                std::string modname = al.name;
+                std::string bind_name = al.alias.empty() ? al.name : al.alias;
+                
+                // Record as imported
+                imported_modules_.insert(modname);
+                
+                // Check if module is known
+                bool is_known = IsKnownModule(modname);
+                if (!is_known) {
+                    Diags().Report(loc, "Unknown module '" + modname + "'; assuming dynamic import");
                 }
-            } else {
-                std::string modname = imp->module;
-                auto builtin = BuiltinModuleExports();
-                auto it_mod = module_exports_.find(modname);
-                if (it_mod == module_exports_.end()) {
-                    auto it_builtin = builtin.find(modname);
-                    if (it_builtin != builtin.end()) {
-                        module_exports_[modname] = it_builtin->second;
-                    } else {
-                        module_exports_[modname] = {};
-                    }
-                }
-                auto &exports = module_exports_[modname];
-                for (auto &al : imp->names) {
-                    std::string export_name = al.name;
-                    std::string bind_name = al.alias.empty() ? al.name : al.alias;
-                    Type t = Type::Any();
-                    exports[export_name] = t;
-                    DeclareSimple(bind_name, SymbolKind::kVariable, t, stmt->loc);
+                
+                // Declare the module variable
+                DeclareSimple(bind_name, SymbolKind::kModule, 
+                             Type{core::TypeKind::kModule, modname}, loc);
+                
+                // Register module scope
+                int sid = Syms().EnterScope(modname, ScopeKind::kModule);
+                Syms().RegisterTypeScope(modname, sid);
+                Syms().ExitScope();
+                
+                // Populate module exports
+                if (auto it = builtin.find(modname); it != builtin.end()) {
+                    module_exports_[modname] = it->second;
+                } else {
+                    module_exports_.try_emplace(modname);
                 }
             }
-            return;
+        } else {
+            // from module import name [as alias] / from module import *
+            std::string modname = imp.module;
+            imported_modules_.insert(modname);
+            
+            // Check if module is known
+            bool is_known = IsKnownModule(modname);
+            if (!is_known) {
+                Diags().Report(loc, "Unknown module '" + modname + "'; assuming dynamic import");
+            }
+            
+            // Get or create module exports
+            auto exports = GetModuleExports(modname);
+            module_exports_[modname] = exports;
+            
+            if (imp.is_star) {
+                // from module import *: import all exports
+                if (exports.empty() && !is_known) {
+                    Diags().Report(loc, "Cannot determine exports for 'from " + modname + " import *'");
+                }
+                for (const auto &[name, type] : exports) {
+                    DeclareSimple(name, SymbolKind::kVariable, type, loc);
+                }
+            } else {
+                // from module import name1, name2 as alias2
+                for (const auto &al : imp.names) {
+                    std::string export_name = al.name;
+                    std::string bind_name = al.alias.empty() ? al.name : al.alias;
+                    
+                    // Lookup type from exports
+                    Type t = Type::Any();
+                    if (auto it = exports.find(export_name); it != exports.end()) {
+                        t = it->second;
+                    } else if (is_known) {
+                        // Known module but member not found
+                        Diags().Report(loc, "Module '" + modname + "' has no member '" + export_name + "'");
+                    }
+                    // Unknown modules: silently accept any member
+                    
+                    module_exports_[modname][export_name] = t;
+                    DeclareSimple(bind_name, SymbolKind::kVariable, t, loc);
+                }
+            }
         }
     }
 

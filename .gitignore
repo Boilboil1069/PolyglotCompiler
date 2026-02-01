@@ -3,6 +3,7 @@
 /obj/
 /bin/
 /.vs/
+/.vscode/
 /.idea/
 /cmake-build-*/
 /._DS_Store/

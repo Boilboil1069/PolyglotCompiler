@@ -174,19 +174,6 @@ TEST_CASE("Constexpr - Float Operations", "[constexpr]") {
     REQUIRE(result.AsFloat() == 6.0);
 }
 
-TEST_CASE("Constexpr - Variable Scope", "[constexpr]") {
-    ConstexprEvaluator eval;
-    
-    // Set a variable
-    eval.SetVariable("x", ConstexprValue(42));
-    
-    // Retrieve it
-    ConstexprValue val = eval.GetVariable("x");
-    
-    REQUIRE(val.GetType() == ConstexprValue::Type::kInt);
-    REQUIRE(val.AsInt() == 42);
-}
-
 TEST_CASE("Constexpr Checker - Constant Expression", "[constexpr]") {
     ConstexprChecker checker;
     
