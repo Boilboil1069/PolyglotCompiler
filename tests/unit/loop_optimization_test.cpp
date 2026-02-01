@@ -12,34 +12,37 @@ TEST_CASE("Loop Analysis - Simple Loop Detection", "[loop-optimization]") {
     
     // Create a simple loop structure
     auto entry = std::make_shared<BasicBlock>();
-    entry->label = "entry";
+    entry->name = "entry";
     
     auto loop_header = std::make_shared<BasicBlock>();
-    loop_header->label = "loop.header";
+    loop_header->name = "loop.header";
     
     auto loop_body = std::make_shared<BasicBlock>();
-    loop_body->label = "loop.body";
+    loop_body->name = "loop.body";
     
     auto loop_exit = std::make_shared<BasicBlock>();
-    loop_exit->label = "loop.exit";
+    loop_exit->name = "loop.exit";
     
     // Connect blocks
-    auto br1 = std::make_shared<BranchInstruction>();
-    br1->operands = {"loop.header"};
-    entry->terminator = br1;
+    auto br1 = std::make_shared<BranchStatement>();
+    br1->target = loop_header.get();
+    entry->SetTerminator(br1);
     
-    auto br2 = std::make_shared<BranchInstruction>();
-    br2->operands = {"%cond", "loop.body", "loop.exit"};
-    loop_header->terminator = br2;
+    auto br2 = std::make_shared<CondBranchStatement>();
+    br2->operands = {"%cond"};
+    br2->true_target = loop_body.get();
+    br2->false_target = loop_exit.get();
+    loop_header->SetTerminator(br2);
     
-    auto br3 = std::make_shared<BranchInstruction>();
-    br3->operands = {"loop.header"};  // Back edge
-    loop_body->terminator = br3;
+    auto br3 = std::make_shared<BranchStatement>();
+    br3->target = loop_header.get();  // Back edge
+    loop_body->SetTerminator(br3);
     
     func.blocks.push_back(entry);
     func.blocks.push_back(loop_header);
     func.blocks.push_back(loop_body);
     func.blocks.push_back(loop_exit);
+    func.entry = entry.get();
     
     // Analyze loops
     LoopAnalysis analysis(func);
@@ -54,7 +57,7 @@ TEST_CASE("LICM - Hoist Loop Invariant", "[loop-optimization]") {
     
     // Create simple loop with invariant computation
     auto entry = std::make_shared<BasicBlock>();
-    entry->label = "entry";
+    entry->name = "entry";
     
     // x = a + b  (loop invariant)
     auto add = std::make_shared<BinaryInstruction>();
@@ -64,6 +67,7 @@ TEST_CASE("LICM - Hoist Loop Invariant", "[loop-optimization]") {
     entry->instructions.push_back(add);
     
     func.blocks.push_back(entry);
+    func.entry = entry.get();
     
     LICMPass pass(func);
     // pass.Run();
@@ -78,9 +82,10 @@ TEST_CASE("Loop Unrolling - Small Loop", "[loop-optimization]") {
     func.name = "test_unroll";
     
     auto loop = std::make_shared<BasicBlock>();
-    loop->label = "loop";
+    loop->name = "loop";
     
     func.blocks.push_back(loop);
+    func.entry = loop.get();
     
     LoopUnrollingPass pass(func, 4);
     // bool changed = pass.Run();

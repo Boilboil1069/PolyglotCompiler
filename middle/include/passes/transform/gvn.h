@@ -53,10 +53,10 @@ private:
     size_t GetValueNumber(const std::string& operand);
     
     // Create expression key for instruction
-    Expression CreateExpression(Instruction* inst);
+    Expression CreateExpression(ir::Instruction* inst);
     
     // Check if instruction is pure (no side effects)
-    bool IsPure(Instruction* inst) const;
+    bool IsPure(ir::Instruction* inst) const;
     
     ir::Function& func_;
     size_t next_value_number_;
@@ -82,6 +82,10 @@ private:
         bool operator<(const Expression& other) const {
             if (opcode != other.opcode) return opcode < other.opcode;
             return operands < other.operands;
+        }
+
+        bool operator==(const Expression& other) const {
+            return opcode == other.opcode && operands == other.operands;
         }
     };
     

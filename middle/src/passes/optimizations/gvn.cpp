@@ -25,7 +25,6 @@ bool GVNPass::Run() {
 
 void GVNPass::ComputeValueNumbers() {
     // Process blocks in dominator tree order for better precision
-    ir::DominanceInfo dom_info(func_);
     
     for (auto& bb_ptr : func_.blocks) {
         BasicBlock* bb = bb_ptr.get();
@@ -87,10 +86,10 @@ void GVNPass::EliminateRedundancies() {
         
         // Update phi nodes
         for (auto& phi_ptr : bb->phis) {
-            for (auto& [bb_name, value] : phi_ptr->incomings) {
-                auto it = replacements_.find(value);
+            for (auto& incoming : phi_ptr->incomings) {
+                auto it = replacements_.find(incoming.second);
                 if (it != replacements_.end()) {
-                    value = it->second;
+                    incoming.second = it->second;
                 }
             }
         }
@@ -181,13 +180,6 @@ GVNPass::Expression GVNPass::CreateExpression(Instruction* inst) {
             expr.operand_numbers.push_back(vn1);
             expr.operand_numbers.push_back(vn2);
         }
-    } else if (auto* cmp = dynamic_cast<CompareInstruction*>(inst)) {
-        expr.opcode = "compare_" + std::to_string(static_cast<int>(cmp->predicate));
-        
-        if (cmp->operands.size() >= 2) {
-            expr.operand_numbers.push_back(GetValueNumber(cmp->operands[0]));
-            expr.operand_numbers.push_back(GetValueNumber(cmp->operands[1]));
-        }
     } else if (auto* load = dynamic_cast<LoadInstruction*>(inst)) {
         expr.opcode = "load";
         if (!load->operands.empty()) {
@@ -199,7 +191,7 @@ GVNPass::Expression GVNPass::CreateExpression(Instruction* inst) {
             expr.operand_numbers.push_back(GetValueNumber(op));
         }
     } else if (auto* cast = dynamic_cast<CastInstruction*>(inst)) {
-        expr.opcode = "cast_" + std::to_string(static_cast<int>(cast->kind));
+        expr.opcode = "cast_" + std::to_string(static_cast<int>(cast->cast));
         if (!cast->operands.empty()) {
             expr.operand_numbers.push_back(GetValueNumber(cast->operands[0]));
         }
@@ -247,15 +239,14 @@ bool PREPass::Run() {
     // Find insertion points and insert compensation code
     for (auto& bb_ptr : func_.blocks) {
         BasicBlock* bb = bb_ptr.get();
-        
-        // For each expression that is anticipated but not available
-        for (const auto& [expr, anticipated_set] : anticipated_in_) {
-            if (!anticipated_set.count(bb)) continue;
-            if (available_in_.count(expr) && available_in_[expr].count(bb)) continue;
-            
-            // Check if this is a merge point (multiple predecessors)
+
+        auto& anticipated_set = anticipated_in_[bb];
+        auto& available_set = available_in_[bb];
+
+        for (const auto& expr : anticipated_set) {
+            if (available_set.count(expr) > 0) continue;
+
             if (bb->predecessors.size() > 1) {
-                // Insert compensation code
                 if (InsertCompensationCode(bb, expr)) {
                     changed = true;
                 }
@@ -280,25 +271,19 @@ void PREPass::ComputeAvailability() {
             std::set<Expression, ExpressionCompare> new_in;
             bool first_pred = true;
             
-            for (const auto& pred_name : bb->predecessors) {
-                auto pred_it = std::find_if(func_.blocks.begin(), func_.blocks.end(),
-                    [&](const auto& b) { return b->name == pred_name; });
-                
-                if (pred_it == func_.blocks.end()) continue;
-                
-                const auto& pred_out = available_out_[*pred_it.get()];
+            for (auto* pred : bb->predecessors) {
+                auto& pred_out = available_out_[pred];
                 
                 if (first_pred) {
                     new_in = pred_out;
                     first_pred = false;
                 } else {
-                    // Intersection
                     std::set<Expression, ExpressionCompare> intersection;
                     std::set_intersection(new_in.begin(), new_in.end(),
-                                        pred_out.begin(), pred_out.end(),
-                                        std::inserter(intersection, intersection.begin()),
-                                        ExpressionCompare{});
-                    new_in = intersection;
+                                          pred_out.begin(), pred_out.end(),
+                                          std::inserter(intersection, intersection.begin()),
+                                          ExpressionCompare{});
+                    new_in = std::move(intersection);
                 }
             }
             
@@ -342,25 +327,19 @@ void PREPass::ComputeAnticipation() {
             std::set<Expression, ExpressionCompare> new_out;
             bool first_succ = true;
             
-            for (const auto& succ_name : bb->successors) {
-                auto succ_it = std::find_if(func_.blocks.begin(), func_.blocks.end(),
-                    [&](const auto& b) { return b->name == succ_name; });
-                
-                if (succ_it == func_.blocks.end()) continue;
-                
-                const auto& succ_in = anticipated_in_[succ_it->get()];
+            for (auto* succ : bb->successors) {
+                auto& succ_in = anticipated_in_[succ];
                 
                 if (first_succ) {
                     new_out = succ_in;
                     first_succ = false;
                 } else {
-                    // Intersection
                     std::set<Expression, ExpressionCompare> intersection;
                     std::set_intersection(new_out.begin(), new_out.end(),
-                                        succ_in.begin(), succ_in.end(),
-                                        std::inserter(intersection, intersection.begin()),
-                                        ExpressionCompare{});
-                    new_out = intersection;
+                                          succ_in.begin(), succ_in.end(),
+                                          std::inserter(intersection, intersection.begin()),
+                                          ExpressionCompare{});
+                    new_out = std::move(intersection);
                 }
             }
             
@@ -393,22 +372,22 @@ bool PREPass::InsertCompensationCode(BasicBlock* bb, const Expression& expr) {
     // This is a simplified version - real implementation would be more sophisticated
     
     // Create new instruction for the expression
-    auto new_inst = std::make_unique<Instruction>();
-    new_inst->name = \"_pre_temp_\" + std::to_string(next_temp_id_++);
-    new_inst->type = \"i32\";  // Simplified
+    auto new_inst = std::make_shared<Instruction>();
+    new_inst->name = "_pre_temp_" + std::to_string(next_temp_id_++);
+    new_inst->type = IRType::I32();  // Simplified type for placeholder
     
     // Add to beginning of block
-    bb->instructions.insert(bb->instructions.begin(), std::move(new_inst));
+    bb->instructions.insert(bb->instructions.begin(), new_inst);
     
     return true;
 }
 
-Expression PREPass::CreateExpression(Instruction* inst) {
+PREPass::Expression PREPass::CreateExpression(Instruction* inst) {
     // Reuse GVN's expression creation logic
     Expression expr;
     
     if (auto* bin = dynamic_cast<BinaryInstruction*>(inst)) {
-        expr.opcode = \"binary_\" + std::to_string(static_cast<int>(bin->op));
+        expr.opcode = "binary_" + std::to_string(static_cast<int>(bin->op));
         if (bin->operands.size() >= 2) {
             expr.operands = {bin->operands[0], bin->operands[1]};
         }
@@ -523,7 +502,8 @@ void AliasAnalysisPass::BuildPointsToSets() {
                 } else if (auto* phi = dynamic_cast<PhiInstruction*>(inst_ptr.get())) {
                     // Phi merges points-to sets
                     // points-to(phi) = ∪ points-to(incoming) for all incoming values
-                    for (const auto& [bb_name, value] : phi->incomings) {
+                    for (const auto& incoming : phi->incomings) {
+                        const auto& value = incoming.second;
                         auto value_it = points_to_.find(value);
                         if (value_it != points_to_.end()) {
                             auto& current = points_to_[phi->name];

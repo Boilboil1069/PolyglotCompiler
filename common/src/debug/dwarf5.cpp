@@ -503,7 +503,7 @@ DIE* DwarfBuilder::AddTemplateValueParameter(DIE* parent, const std::string& nam
                          static_cast<uint64_t>(int_val));
     } catch (...) {
         // Store as string if not a number
-        die->SetAttribute(dwarf::Attribute::kStringValue, value);
+        die->SetAttribute(dwarf::Attribute::kConstValue, value);
     }
     
     DIE* ptr = die.get();

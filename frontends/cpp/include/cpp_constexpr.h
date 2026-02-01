@@ -5,26 +5,11 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <type_traits>
+
+#include "frontends/cpp/include/cpp_ast.h"
 
 namespace polyglot::cpp {
-
-// Forward declarations
-struct Expression;
-struct Statement;
-struct BinaryExpression;
-struct UnaryExpression;
-struct ConditionalExpression;
-struct Literal;
-struct Identifier;
-struct CallExpression;
-struct MemberExpression;
-struct IndexExpression;
-struct StaticCastExpression;
-struct InitializerListExpression;
-struct VarDecl;
-struct ReturnStatement;
-struct IfStatement;
-struct ExprStatement;
 
 // Compile-time value representation
 class ConstexprValue {
@@ -48,6 +33,21 @@ public:
     
     explicit ConstexprValue(bool val) 
         : type_(Type::kBool), bool_value_(val) {}
+
+    template <typename T,
+              typename = std::enable_if_t<std::is_arithmetic_v<std::decay_t<T>> &&
+                                          !std::is_same_v<std::decay_t<T>, bool> &&
+                                          !std::is_same_v<std::decay_t<T>, long long> &&
+                                          !std::is_same_v<std::decay_t<T>, double>>>
+    explicit ConstexprValue(T val) {
+        if constexpr (std::is_integral_v<std::decay_t<T>>) {
+            type_ = Type::kInt;
+            int_value_ = static_cast<long long>(val);
+        } else {
+            type_ = Type::kFloat;
+            float_value_ = static_cast<double>(val);
+        }
+    }
     
     static ConstexprValue Null() {
         ConstexprValue v;

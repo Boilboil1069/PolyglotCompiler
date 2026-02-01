@@ -51,13 +51,6 @@ public:
     bool Run();
     
 private:
-    bool UnrollLoop(LoopInfo* loop);
-    bool IsUnrollable(const LoopInfo* loop) const;
-    int EstimateIterationCount(const LoopInfo* loop) const;
-    std::unique_ptr<ir::Instruction> CloneInstruction(const ir::Instruction* inst, 
-                                                      std::map<std::string, std::string>& value_map, 
-                                                      int iteration);
-    
     ir::Function& func_;
     int unroll_factor_;
 };

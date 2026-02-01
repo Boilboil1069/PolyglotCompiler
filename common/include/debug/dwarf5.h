@@ -35,17 +35,23 @@ namespace dwarf {
         kLexicalBlock = 0x0b,
         kBaseType = 0x24,
         kPointerType = 0x0f,
+        kReferenceType = 0x10,
         kStructType = 0x13,
         kClassType = 0x02,
+        kUnionType = 0x17,
         kMember = 0x0d,
         kInheritance = 0x1c,
         kTemplateTypeParameter = 0x2f,
+        kTemplateValueParameter = 0x30,
         kNamespace = 0x39,
         kEnumerationType = 0x04,
         kEnumerator = 0x28,
         kTypedef = 0x16,
         kArrayType = 0x01,
         kSubrangeType = 0x21,
+        kConstType = 0x26,
+        kVolatileType = 0x35,
+        kRvalueReferenceType = 0x42,
     };
     
     // Attribute encoding
@@ -72,6 +78,8 @@ namespace dwarf {
         kAccessibility = 0x32,
         kVirtuality = 0x4c,
         kVtableElemLocation = 0x4d,
+        kConstValue = 0x1c,
+        kUpperBound = 0x2f,
     };
     
     // Form encoding

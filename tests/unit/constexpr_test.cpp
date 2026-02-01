@@ -1,7 +1,64 @@
 #include <catch2/catch_test_macros.hpp>
+#include <sstream>
+
 #include "frontends/cpp/include/cpp_constexpr.h"
 
 using namespace polyglot::cpp;
+
+namespace {
+
+std::shared_ptr<Literal> MakeIntLiteral(long long value) {
+    auto lit = std::make_shared<Literal>();
+    lit->value = std::to_string(value);
+    return lit;
+}
+
+std::shared_ptr<Literal> MakeFloatLiteral(double value) {
+    auto lit = std::make_shared<Literal>();
+    std::ostringstream oss;
+    oss << value;
+    lit->value = oss.str();
+    return lit;
+}
+
+std::shared_ptr<Literal> MakeBoolLiteral(bool value) {
+    auto lit = std::make_shared<Literal>();
+    lit->value = value ? "true" : "false";
+    return lit;
+}
+
+std::shared_ptr<BinaryExpression> MakeBinaryExpr(
+    const std::string& op,
+    std::shared_ptr<Expression> lhs,
+    std::shared_ptr<Expression> rhs) {
+    auto expr = std::make_shared<BinaryExpression>();
+    expr->op = op;
+    expr->left = lhs;
+    expr->right = rhs;
+    return expr;
+}
+
+std::shared_ptr<UnaryExpression> MakeUnaryExpr(
+    const std::string& op,
+    std::shared_ptr<Expression> operand) {
+    auto expr = std::make_shared<UnaryExpression>();
+    expr->op = op;
+    expr->operand = operand;
+    return expr;
+}
+
+std::shared_ptr<ConditionalExpression> MakeConditionalExpr(
+    std::shared_ptr<Expression> condition,
+    std::shared_ptr<Expression> then_expr,
+    std::shared_ptr<Expression> else_expr) {
+    auto expr = std::make_shared<ConditionalExpression>();
+    expr->condition = condition;
+    expr->then_expr = then_expr;
+    expr->else_expr = else_expr;
+    return expr;
+}
+
+}  // namespace
 
 TEST_CASE("Constexpr - Basic Value", "[constexpr]") {
     ConstexprValue val1(42);
@@ -20,25 +77,25 @@ TEST_CASE("Constexpr - Basic Value", "[constexpr]") {
 TEST_CASE("Constexpr - Binary Operations", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    ConstexprValue lhs(10);
-    ConstexprValue rhs(5);
-    
-    ConstexprValue result = eval.ApplyBinaryOp("+", lhs, rhs);
+    auto add_expr = MakeBinaryExpr("+", MakeIntLiteral(10), MakeIntLiteral(5));
+    ConstexprValue result = eval.Evaluate(add_expr.get());
     REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
     REQUIRE(result.AsInt() == 15);
     
-    result = eval.ApplyBinaryOp("-", lhs, rhs);
+    auto sub_expr = MakeBinaryExpr("-", MakeIntLiteral(10), MakeIntLiteral(5));
+    result = eval.Evaluate(sub_expr.get());
     REQUIRE(result.AsInt() == 5);
     
-    result = eval.ApplyBinaryOp("*", lhs, rhs);
+    auto mul_expr = MakeBinaryExpr("*", MakeIntLiteral(10), MakeIntLiteral(5));
+    result = eval.Evaluate(mul_expr.get());
     REQUIRE(result.AsInt() == 50);
 }
 
 TEST_CASE("Constexpr - Unary Operations", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    ConstexprValue val(42);
-    ConstexprValue result = eval.ApplyUnaryOp("-", val);
+    auto expr = MakeUnaryExpr("-", MakeIntLiteral(42));
+    ConstexprValue result = eval.Evaluate(expr.get());
     
     REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
     REQUIRE(result.AsInt() == -42);
@@ -77,16 +134,7 @@ TEST_CASE("Constexpr - Nested Scopes", "[constexpr]") {
 TEST_CASE("Constexpr - Integer Arithmetic", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    // Test: 5 + 3
-    auto expr = std::make_unique<BinaryExpr>();
-    expr->op = BinaryExpr::Op::kAdd;
-    expr->lhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->lhs.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->lhs.get())->int_value = 5;
-    expr->rhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->rhs.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->rhs.get())->int_value = 3;
-    
+    auto expr = MakeBinaryExpr("+", MakeIntLiteral(5), MakeIntLiteral(3));
     ConstexprValue result = eval.Evaluate(expr.get());
     
     REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
@@ -96,16 +144,7 @@ TEST_CASE("Constexpr - Integer Arithmetic", "[constexpr]") {
 TEST_CASE("Constexpr - Multiplication", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    // Test: 4 * 7
-    auto expr = std::make_unique<BinaryExpr>();
-    expr->op = BinaryExpr::Op::kMul;
-    expr->lhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->lhs.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->lhs.get())->int_value = 4;
-    expr->rhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->rhs.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->rhs.get())->int_value = 7;
-    
+    auto expr = MakeBinaryExpr("*", MakeIntLiteral(4), MakeIntLiteral(7));
     ConstexprValue result = eval.Evaluate(expr.get());
     
     REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
@@ -115,21 +154,10 @@ TEST_CASE("Constexpr - Multiplication", "[constexpr]") {
 TEST_CASE("Constexpr - Conditional Expression", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    // Test: true ? 10 : 20
-    auto expr = std::make_unique<ConditionalExpr>();
-    
-    expr->condition = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->condition.get())->kind = LiteralExpr::Kind::kBool;
-    static_cast<LiteralExpr*>(expr->condition.get())->bool_value = true;
-    
-    expr->true_expr = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->true_expr.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->true_expr.get())->int_value = 10;
-    
-    expr->false_expr = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->false_expr.get())->kind = LiteralExpr::Kind::kInteger;
-    static_cast<LiteralExpr*>(expr->false_expr.get())->int_value = 20;
-    
+    auto expr = MakeConditionalExpr(
+        MakeBoolLiteral(true),
+        MakeIntLiteral(10),
+        MakeIntLiteral(20));
     ConstexprValue result = eval.Evaluate(expr.get());
     
     REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
@@ -139,16 +167,7 @@ TEST_CASE("Constexpr - Conditional Expression", "[constexpr]") {
 TEST_CASE("Constexpr - Float Operations", "[constexpr]") {
     ConstexprEvaluator eval;
     
-    // Test: 3.5 + 2.5
-    auto expr = std::make_unique<BinaryExpr>();
-    expr->op = BinaryExpr::Op::kAdd;
-    expr->lhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->lhs.get())->kind = LiteralExpr::Kind::kFloat;
-    static_cast<LiteralExpr*>(expr->lhs.get())->float_value = 3.5;
-    expr->rhs = std::make_unique<LiteralExpr>();
-    static_cast<LiteralExpr*>(expr->rhs.get())->kind = LiteralExpr::Kind::kFloat;
-    static_cast<LiteralExpr*>(expr->rhs.get())->float_value = 2.5;
-    
+    auto expr = MakeBinaryExpr("+", MakeFloatLiteral(3.5), MakeFloatLiteral(2.5));
     ConstexprValue result = eval.Evaluate(expr.get());
     
     REQUIRE(result.GetType() == ConstexprValue::Type::kFloat);
@@ -172,9 +191,7 @@ TEST_CASE("Constexpr Checker - Constant Expression", "[constexpr]") {
     ConstexprChecker checker;
     
     // Literal is always constant
-    auto lit = std::make_unique<LiteralExpr>();
-    lit->kind = LiteralExpr::Kind::kInteger;
-    lit->int_value = 100;
+    auto lit = MakeIntLiteral(100);
     
     REQUIRE(checker.IsConstantExpression(lit.get()) == true);
 }

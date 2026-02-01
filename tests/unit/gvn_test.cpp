@@ -11,7 +11,7 @@ TEST_CASE("GVN - Basic Redundancy Elimination", "[gvn]") {
     func.name = "test_gvn";
     
     auto bb = std::make_shared<BasicBlock>();
-    bb->label = "entry";
+    bb->name = "entry";
     
     // Create redundant computations
     // %1 = add %a, %b
@@ -36,6 +36,7 @@ TEST_CASE("GVN - Basic Redundancy Elimination", "[gvn]") {
     bb->instructions.push_back(add2);
     
     func.blocks.push_back(bb);
+    func.entry = bb.get();
     
     GVNPass pass(func);
     bool changed = pass.Run();
@@ -52,7 +53,7 @@ TEST_CASE("GVN - Commutative Operations", "[gvn]") {
     func.name = "test_gvn_comm";
     
     auto bb = std::make_shared<BasicBlock>();
-    bb->label = "entry";
+    bb->name = "entry";
     
     // %1 = add %a, %b
     auto add1 = std::make_shared<BinaryInstruction>();
@@ -69,6 +70,7 @@ TEST_CASE("GVN - Commutative Operations", "[gvn]") {
     bb->instructions.push_back(add2);
     
     func.blocks.push_back(bb);
+    func.entry = bb.get();
     
     GVNPass pass(func);
     bool changed = pass.Run();
@@ -82,7 +84,7 @@ TEST_CASE("GVN - Non-Pure Instructions", "[gvn]") {
     func.name = "test_gvn_nonpure";
     
     auto bb = std::make_shared<BasicBlock>();
-    bb->label = "entry";
+    bb->name = "entry";
     
     // Store should not be eliminated
     auto store1 = std::make_shared<StoreInstruction>();
@@ -94,6 +96,7 @@ TEST_CASE("GVN - Non-Pure Instructions", "[gvn]") {
     bb->instructions.push_back(store2);
     
     func.blocks.push_back(bb);
+    func.entry = bb.get();
     
     GVNPass pass(func);
     bool changed = pass.Run();
@@ -107,7 +110,7 @@ TEST_CASE("Alias Analysis - No Alias", "[alias-analysis]") {
     func.name = "test_alias";
     
     auto bb = std::make_shared<BasicBlock>();
-    bb->label = "entry";
+    bb->name = "entry";
     
     // Create two allocas
     auto alloca1 = std::make_shared<AllocaInstruction>();
@@ -119,6 +122,7 @@ TEST_CASE("Alias Analysis - No Alias", "[alias-analysis]") {
     bb->instructions.push_back(alloca2);
     
     func.blocks.push_back(bb);
+    func.entry = bb.get();
     
     AliasAnalysisPass pass(func);
     auto result = pass.Query("%ptr1", "%ptr2");
