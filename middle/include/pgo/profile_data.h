@@ -11,6 +11,7 @@
 #include <vector>
 #include <cstdint>
 #include <memory>
+#include <functional>
 
 namespace polyglot::ir {
 class Function;
@@ -34,12 +35,24 @@ struct BasicBlockProfile {
  */
 struct BranchProfile {
     size_t branch_id;
+    size_t source_block;  // Basic block containing the branch
     uint64_t taken_count;
     uint64_t not_taken_count;
     
     double TakenProbability() const {
         uint64_t total = taken_count + not_taken_count;
         return total > 0 ? static_cast<double>(taken_count) / total : 0.5;
+    }
+    
+    // Check if branch is highly predictable (>90% or <10% taken)
+    bool IsHighlyPredictable() const {
+        double prob = TakenProbability();
+        return prob > 0.9 || prob < 0.1;
+    }
+    
+    // Get total execution count
+    uint64_t TotalCount() const {
+        return taken_count + not_taken_count;
     }
 };
 
@@ -52,8 +65,49 @@ struct CallSiteProfile {
     uint64_t call_count;
     double avg_call_time_ns;
     
-    // Concrete targets of virtual calls
-    std::map<std::string, uint64_t> virtual_targets;
+    // Estimated callee size (instruction count, 0 if unknown)
+    size_t callee_size;
+    
+    // Whether this is a hot call site
+    bool is_hot;
+    
+    // Concrete targets of virtual calls (target name -> call count)
+    std::map<std::string, uint64_t> target_distribution;
+    
+    // Get the most likely virtual call target with its count
+    std::pair<std::string, uint64_t> GetMostLikelyTarget() const {
+        if (target_distribution.empty()) {
+            return {callee_name, call_count};
+        }
+        
+        std::string best_target;
+        uint64_t max_count = 0;
+        for (const auto& [target, count] : target_distribution) {
+            if (count > max_count) {
+                max_count = count;
+                best_target = target;
+            }
+        }
+        return {best_target, max_count};
+    }
+    
+    // Check if this is a single-target (monomorphic) call site
+    bool has_single_target() const {
+        return target_distribution.size() <= 1;
+    }
+    
+    // Get probability of the most likely target
+    double GetMostLikelyTargetProbability() const {
+        if (target_distribution.empty()) return 1.0;
+        
+        uint64_t total = 0;
+        uint64_t max_count = 0;
+        for (const auto& [target, count] : target_distribution) {
+            total += count;
+            max_count = std::max(max_count, count);
+        }
+        return total > 0 ? static_cast<double>(max_count) / total : 0.0;
+    }
 };
 
 /**
@@ -88,9 +142,15 @@ struct MemoryProfile {
 class FunctionProfile {
 public:
     std::string function_name;
-    uint64_t invocation_count;
-    double total_time_ns;
-    double avg_time_per_call_ns;
+    uint64_t invocation_count{0};
+    double total_time_ns{0.0};
+    double avg_time_per_call_ns{0.0};
+    
+    // Estimated function size (instruction count)
+    size_t estimated_size{0};
+    
+    // Whether this function is considered hot
+    bool is_hot{false};
     
     std::vector<BasicBlockProfile> basic_blocks;
     std::vector<BranchProfile> branches;
@@ -106,6 +166,17 @@ public:
     
     // Critical path analysis
     std::vector<size_t> GetCriticalPath() const;
+    
+    // Get branch profile by ID
+    const BranchProfile* GetBranchProfile(size_t branch_id) const;
+    
+    // Get call site profile by ID
+    const CallSiteProfile* GetCallSiteProfile(size_t call_site_id) const;
+    
+    // Check if function is considered hot based on invocation count
+    bool IsHotFunction(uint64_t threshold = 1000) const {
+        return invocation_count >= threshold;
+    }
 };
 
 /**
@@ -131,6 +202,18 @@ public:
     // Statistics
     size_t GetFunctionCount() const { return functions_.size(); }
     std::vector<std::string> GetHotFunctions(size_t top_n = 10) const;
+    
+    // Iterate over all function profiles
+    void ForEachFunction(const std::function<void(const std::string&, const FunctionProfile&)>& callback) const;
+    
+    // Get all function names
+    std::vector<std::string> GetFunctionNames() const;
+    
+    // Get total invocation count across all functions
+    uint64_t GetTotalInvocationCount() const;
+    
+    // Get average function invocation count
+    double GetAverageInvocationCount() const;
     
 private:
     std::map<std::string, FunctionProfile> functions_;
@@ -179,67 +262,200 @@ private:
 // ============ PGO optimizer ============
 
 /**
- * Optimize using profile data
+ * Profile-Guided Optimization (PGO) optimizer
+ *
+ * Uses runtime profiling data to make optimization decisions:
+ * - Inlining: Inline hot call sites with small callees
+ * - Code layout: Reorder basic blocks to improve cache locality
+ * - Loop optimization: Unroll/vectorize hot loops
+ * - Branch prediction: Hint likely/unlikely branches
+ * - Devirtualization: Specialize polymorphic calls
+ * - Function specialization: Clone functions for common arguments
+ * - Memory prefetching: Insert prefetch hints for strided accesses
  */
 class PGOOptimizer {
 public:
-    explicit PGOOptimizer(const ProfileData& profile) 
-        : profile_(profile) {}
-    
-    // Profile-guided inlining decisions
-    struct InliningDecision {
-        std::string caller;
-        size_t call_site_id;
-        std::string callee;
-        bool should_inline;
-        std::string reason;
+    // Configuration options for PGO decisions
+    struct Config {
+        // Inlining thresholds
+        uint64_t hot_call_threshold = 1000;       // Minimum calls to be considered hot
+        size_t max_inline_size = 100;             // Maximum instruction count for inlining
+        size_t always_inline_size = 10;           // Always inline functions smaller than this
+        double inline_benefit_ratio = 1.5;        // Call count / size ratio threshold
+        double size_growth_factor = 0.1;          // How much we penalize code size growth
+        
+        // Branch prediction thresholds
+        double branch_prediction_threshold = 0.9; // Probability threshold for hints
+        uint64_t min_branch_samples = 100;        // Minimum samples for reliable prediction
+        
+        // Loop optimization thresholds
+        uint64_t loop_unroll_threshold = 8;       // Min iterations for unroll consideration
+        uint64_t vectorization_threshold = 4;     // Min iterations for vectorization
+        
+        // Devirtualization thresholds
+        double devirt_threshold = 0.8;            // Target probability for devirtualization
+        uint64_t devirt_min_samples = 50;         // Minimum samples for devirtualization
+        
+        // Code layout thresholds
+        double hot_block_threshold = 0.1;         // Top 10% blocks are hot
+        double cold_block_threshold = 0.01;       // Bottom 1% blocks are cold
+        double cold_function_threshold = 0.1;     // Functions with <10% avg calls are cold
     };
+    
+    explicit PGOOptimizer(const ProfileData& profile);
+    PGOOptimizer(const ProfileData& profile, const Config& config);
+    
+    // Set configuration
+    void SetConfig(const Config& config) { config_ = config; }
+    const Config& GetConfig() const { return config_; }
+    
+    // ============ Inlining decisions ============
+    
+    struct InliningDecision {
+        std::string caller;           // Caller function name
+        size_t call_site_id;          // Call site ID within caller
+        std::string callee;           // Callee function name
+        bool should_inline;           // Whether to inline
+        int priority;                 // Priority (0-3, higher = more important)
+        double expected_benefit;      // Estimated performance benefit (ns)
+        std::string reason;           // Human-readable explanation
+    };
+    
     std::vector<InliningDecision> MakeInliningDecisions() const;
     
-    // Profile-guided code layout optimization
+    // ============ Code layout optimization ============
+    
     struct CodeLayoutHint {
-        std::string function;
-        std::vector<size_t> block_order;  // Optimized basic block order
+        std::string function;                 // Function name
+        std::vector<size_t> block_order;      // Optimized basic block order
+        std::vector<size_t> hot_blocks;       // Blocks to keep in hot section
+        std::vector<size_t> cold_blocks;      // Blocks to move to cold section
+        double expected_benefit;              // Estimated cache improvement (%)
+        std::string reason;                   // Human-readable explanation
     };
+    
     std::vector<CodeLayoutHint> OptimizeCodeLayout() const;
     
-    // Profile-guided loop optimization decisions
+    // ============ Loop optimization ============
+    
     struct LoopOptimizationHint {
-        std::string function;
-        size_t loop_id;
-        bool should_unroll;
-        size_t unroll_factor;
-        bool should_vectorize;
+        std::string function;             // Function containing the loop
+        size_t loop_header_block;         // Loop header basic block ID
+        bool should_unroll;               // Whether to unroll the loop
+        size_t unroll_factor;             // Suggested unroll factor
+        bool should_vectorize;            // Whether to vectorize
+        double expected_benefit;          // Estimated benefit (ns)
+        std::string reason;               // Human-readable explanation
     };
+    
     std::vector<LoopOptimizationHint> OptimizeLoops() const;
     
-    // Devirtualization hints
-    struct DevirtualizationHint {
-        std::string function;
-        size_t call_site_id;
-        std::string likely_target;
-        double probability;
+    // ============ Branch prediction ============
+    
+    struct BranchPredictionHint {
+        std::string function;             // Function containing the branch
+        size_t branch_id;                 // Branch ID
+        size_t block_id;                  // Basic block containing the branch
+        bool likely_taken;                // Whether branch is likely taken
+        double confidence;                // Confidence in prediction (0.0 - 1.0)
+        double taken_probability;         // Actual taken probability
+        std::string reason;               // Human-readable explanation
     };
+    
+    std::vector<BranchPredictionHint> GetBranchPredictions() const;
+    
+    // ============ Devirtualization ============
+    
+    struct DevirtualizationHint {
+        std::string function;             // Function containing the call
+        size_t call_site_id;              // Virtual call site ID
+        std::string likely_target;        // Most likely concrete target
+        double confidence;                // Confidence in prediction (0.0 - 1.0)
+        uint64_t call_count;              // Total calls to this site
+        bool should_specialize;           // Whether to fully specialize (>95%)
+        std::string reason;               // Human-readable explanation
+    };
+    
     std::vector<DevirtualizationHint> FindDevirtualizationOpportunities() const;
     
-    // Branch prediction hints
-    struct BranchPredictionHint {
-        std::string function;
-        size_t branch_id;
-        bool likely_taken;
-        double confidence;
+    // ============ Function specialization ============
+    
+    struct SpecializationHint {
+        std::string function;             // Function to specialize
+        size_t call_site_id;              // Call site triggering specialization
+        std::string caller;               // Caller function
+        uint64_t call_count;              // Call count at this site
+        bool should_specialize;           // Whether specialization is worthwhile
+        std::vector<std::pair<size_t, int64_t>> constant_args;  // (arg_index, value)
+        double expected_benefit;          // Estimated benefit (ns)
+        std::string reason;               // Human-readable explanation
     };
-    std::vector<BranchPredictionHint> GetBranchPredictions() const;
+    
+    std::vector<SpecializationHint> FindSpecializationOpportunities() const;
+    
+    // ============ Memory prefetching ============
+    
+    struct PrefetchHint {
+        std::string function;             // Function containing access
+        size_t block_id;                  // Basic block with access
+        size_t prefetch_distance;         // Suggested prefetch distance (iterations)
+        uint64_t target_address;          // Base address to prefetch (if known)
+        int locality;                     // Cache locality hint (0-3)
+        double expected_benefit;          // Estimated benefit (ns)
+        std::string reason;               // Human-readable explanation
+    };
+    
+    std::vector<PrefetchHint> GetPrefetchHints() const;
+    
+    // ============ Analysis helpers ============
+    
+    // Get hottest functions by time spent
+    std::vector<std::string> GetHotFunctions(size_t top_n = 10) const;
+    
+    // Get coldest functions (candidates for outline/remove)
+    std::vector<std::string> GetColdFunctions() const;
+    
+    // ============ Report generation ============
+    
+    struct OptimizationReport {
+        size_t total_functions;
+        size_t hot_functions;
+        size_t cold_functions;
+        size_t inlining_candidates;
+        size_t predictable_branches;
+        size_t devirt_candidates;
+        double estimated_speedup_percent;
+        
+        std::vector<InliningDecision> inlining_decisions;
+        std::vector<BranchPredictionHint> branch_predictions;
+        std::vector<CodeLayoutHint> layout_hints;
+        std::vector<LoopOptimizationHint> loop_hints;
+        std::vector<DevirtualizationHint> devirt_hints;
+        std::vector<SpecializationHint> specialization_hints;
+        std::vector<PrefetchHint> prefetch_hints;
+    };
+    
+    // Generate comprehensive optimization report
+    OptimizationReport GenerateReport() const;
+    
+    // Export report to JSON file
+    bool ExportReportToJson(const std::string& filename) const;
     
 private:
     const ProfileData& profile_;
+    Config config_;
     
-    // Inlining heuristic
+    // Internal helpers
     bool ShouldInline(const CallSiteProfile& call_site) const;
     
-    // Code layout heuristic
-    std::vector<size_t> ComputeOptimalBlockOrder(
-        const FunctionProfile& func) const;
+    InliningDecision MakeInliningDecision(
+        const std::string& caller,
+        const CallSiteProfile& call_site,
+        const FunctionProfile& caller_profile) const;
+    
+    BranchPredictionHint MakeBranchPrediction(
+        const std::string& function,
+        const BranchProfile& branch) const;
 };
 
 // ============ Instrumentation code generation ============

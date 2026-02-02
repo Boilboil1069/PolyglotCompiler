@@ -171,12 +171,31 @@ void LineNumberProgram::AddFile(const std::string& filename,
 void LineNumberProgram::AddLine(uint64_t address, const SourceLocation& loc) {
     LineEntry entry;
     entry.address = address;
-    entry.file_index = 1;  // TODO: Lookup file index
+    entry.file_index = LookupFileIndex(loc.file);
     entry.line = loc.line;
     entry.column = loc.column;
     entry.is_stmt = true;
     entry.end_sequence = false;
     lines_.push_back(entry);
+}
+
+uint32_t LineNumberProgram::LookupFileIndex(const std::string& filepath) const {
+    // Extract filename from path for matching
+    std::string filename = filepath;
+    size_t pos = filepath.find_last_of("/\\");
+    if (pos != std::string::npos) {
+        filename = filepath.substr(pos + 1);
+    }
+    
+    // Search for matching file in file table
+    for (size_t i = 0; i < files_.size(); ++i) {
+        if (files_[i].filename == filename || files_[i].filename == filepath) {
+            return static_cast<uint32_t>(i + 1);  // DWARF file indices are 1-based
+        }
+    }
+    
+    // If not found, return 1 (first file) as default, or 0 if no files registered
+    return files_.empty() ? 0 : 1;
 }
 
 void LineNumberProgram::SetEndSequence(uint64_t address) {

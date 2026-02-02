@@ -227,6 +227,9 @@ private:
     uint32_t current_line_;
     uint32_t current_column_;
     
+    // Lookup file index by filepath (returns 1-based index, or default if not found)
+    uint32_t LookupFileIndex(const std::string& filepath) const;
+    
     // Helper methods for LEB128 encoding
     void EncodeULEB128(std::vector<uint8_t>& out, uint64_t value) const;
     void EncodeSLEB128(std::vector<uint8_t>& out, int64_t value) const;
