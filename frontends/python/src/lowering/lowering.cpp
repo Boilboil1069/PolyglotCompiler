@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <optional>
+#include <set>
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -237,28 +238,49 @@ bool IsCmpOp(ir::BinaryInstruction::Op op) {
 // Binary expression evaluation.
 // ----------------------------------------------------------------------------
 EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringContext &lc) {
-    // Handle logical and/or with short-circuit evaluation
+    // Handle logical and/or with short-circuit evaluation and proper PHI nodes
     if (bin->op == "and" || bin->op == "or") {
         auto lhs = EvalExpr(bin->left, lc);
         if (!lhs.IsValid()) return EvalResult::Invalid();
 
         auto *rhs_block = lc.fn->CreateBlock(bin->op == "and" ? "and.rhs" : "or.rhs");
         auto *merge_block = lc.fn->CreateBlock(bin->op == "and" ? "and.end" : "or.end");
+        
+        // Get current block for PHI incoming
+        auto *lhs_block = lc.builder.GetInsertPoint().get();
 
         if (bin->op == "and") {
+            // and: if lhs is false, result is lhs; otherwise evaluate rhs
             lc.builder.MakeCondBranch(lhs.value, rhs_block, merge_block);
         } else {
+            // or: if lhs is true, result is lhs; otherwise evaluate rhs
             lc.builder.MakeCondBranch(lhs.value, merge_block, rhs_block);
         }
 
         lc.SetInsertBlock(rhs_block);
         auto rhs = EvalExpr(bin->right, lc);
         if (!rhs.IsValid()) return EvalResult::Invalid();
+        
+        auto *rhs_end_block = lc.builder.GetInsertPoint().get();
         lc.builder.MakeBranch(merge_block);
 
         lc.SetInsertBlock(merge_block);
-        // PHI would be needed for proper SSA; simplified here
-        return rhs;
+        
+        // Create PHI node to select between lhs and rhs results
+        // For 'and': if lhs was false, use lhs (false); else use rhs
+        // For 'or': if lhs was true, use lhs (true); else use rhs
+        ir::IRType result_type = lhs.type;
+        if (result_type.kind == ir::IRTypeKind::kInvalid) {
+            result_type = ir::IRType::I64(true);
+        }
+        
+        std::vector<std::pair<ir::BasicBlock*, std::string>> phi_incomings = {
+            {lhs_block, lhs.value},
+            {rhs_end_block, rhs.value}
+        };
+        
+        auto phi = lc.builder.MakePhi(result_type, phi_incomings, lc.NextTemp("logic"));
+        return {phi->name, result_type};
     }
 
     auto lhs = EvalExpr(bin->left, lc);
@@ -362,9 +384,29 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
         return {inst->name, ir::IRType::I64(true)};
     }
     if (callee_name == "range") {
-        // Range returns an iterator; simplified to just return first arg
-        auto inst = lc.builder.MakeCall("__py_range", args, ir::IRType::I64(true), lc.NextTemp("range"));
-        return {inst->name, ir::IRType::I64(true)};
+        // Range returns an iterator object with start, stop, step, and current
+        // __py_range creates an iterator object that can be used with for loops
+        // The iterator protocol: __iter__ returns self, __next__ returns next value or raises StopIteration
+        
+        ir::IRType range_iter_type = ir::IRType::Pointer(ir::IRType::I64(true));
+        
+        std::string range_fn;
+        if (args.size() == 1) {
+            // range(stop) -> range(0, stop, 1)
+            range_fn = "__py_range_1";
+        } else if (args.size() == 2) {
+            // range(start, stop) -> range(start, stop, 1)
+            range_fn = "__py_range_2";
+        } else if (args.size() == 3) {
+            // range(start, stop, step)
+            range_fn = "__py_range_3";
+        } else {
+            lc.diags.Report(call->loc, "range() requires 1-3 arguments");
+            return EvalResult::Invalid();
+        }
+        
+        auto inst = lc.builder.MakeCall(range_fn, args, range_iter_type, lc.NextTemp("range"));
+        return {inst->name, range_iter_type};
     }
 
     auto inst = lc.builder.MakeCall(callee_name, args, ir::IRType::I64(true), lc.NextTemp("call"));
@@ -477,9 +519,11 @@ EvalResult EvalSet(const std::shared_ptr<SetExpression> &set_expr, LoweringConte
 
 // ----------------------------------------------------------------------------
 // Comprehension expression evaluation.
+// Implements full loop unrolling for list/set/dict comprehensions.
+// e.g. [x*2 for x in range(10) if x > 5] generates proper loop IR.
 // ----------------------------------------------------------------------------
 EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &comp, LoweringContext &lc) {
-    // Create a temporary list/set/dict and loop over iterables
+    // Create a temporary list/set/dict container
     std::string result_name;
     ir::IRType result_type = ir::IRType::I64(true);
 
@@ -500,31 +544,148 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
 
     // Create empty container
     std::string init_fn;
+    std::string append_fn;
     switch (comp->kind) {
         case ComprehensionExpression::Kind::kList:
         case ComprehensionExpression::Kind::kGenerator:
             init_fn = "__py_make_list";
+            append_fn = "__py_list_append";
             break;
         case ComprehensionExpression::Kind::kSet:
             init_fn = "__py_make_set";
+            append_fn = "__py_set_add";
             break;
         case ComprehensionExpression::Kind::kDict:
             init_fn = "__py_make_dict";
+            append_fn = "__py_dict_setitem";
             break;
     }
 
     auto container = lc.builder.MakeCall(init_fn, {}, result_type, result_name);
 
-    // For simplicity, we generate a call to a runtime comprehension helper
-    // A full implementation would unroll the loops
-    if (!comp->clauses.empty()) {
-        auto &clause = comp->clauses[0];
+    if (comp->clauses.empty()) {
+        return {container->name, result_type};
+    }
+
+    // Generate nested loops for each comprehension clause
+    // Stack to track loop blocks for proper nesting
+    struct LoopInfo {
+        ir::BasicBlock *header;
+        ir::BasicBlock *body;
+        ir::BasicBlock *end;
+        std::string iter_var;
+        std::string iter_obj;
+    };
+    std::vector<LoopInfo> loops;
+
+    // Process each clause (for x in iterable if condition)
+    // Note: Comprehension struct uses 'ifs' for conditions and 'target'/'iterable' for loop
+    for (const auto &clause : comp->clauses) {
         auto iterable = EvalExpr(clause.iterable, lc);
         if (!iterable.IsValid()) return EvalResult::Invalid();
+
+        // Get iterator from iterable
+        auto iter = lc.builder.MakeCall("__py_iter", {iterable.value}, 
+                                        ir::IRType::Pointer(ir::IRType::I64(true)), 
+                                        lc.NextTemp("iter"));
+
+        // Create loop blocks
+        auto *header = lc.fn->CreateBlock("comp.header");
+        auto *body = lc.fn->CreateBlock("comp.body");
+        auto *filter_block = clause.ifs.empty() ? body : lc.fn->CreateBlock("comp.filter");
+        auto *end = lc.fn->CreateBlock("comp.end");
+
+        lc.builder.MakeBranch(header);
+        lc.SetInsertBlock(header);
+
+        // Call __py_next to get next element; returns None when exhausted
+        auto next_val = lc.builder.MakeCall("__py_next", {iter->name}, 
+                                            ir::IRType::I64(true), 
+                                            lc.NextTemp("next"));
         
-        // Just return the container; full loop unrolling is complex
-        lc.diags.Report(comp->loc, "Comprehension lowering simplified; runtime support needed");
+        // Check if iterator is exhausted (returns special sentinel value)
+        auto is_done = lc.builder.MakeCall("__py_iter_done", {next_val->name}, 
+                                           ir::IRType::I1(), 
+                                           lc.NextTemp("done"));
+        
+        lc.builder.MakeCondBranch(is_done->name, end, filter_block);
+
+        // Bind loop variable
+        std::string target_name;
+        if (auto id = std::dynamic_pointer_cast<Identifier>(clause.target)) {
+            target_name = id->name;
+        } else {
+            lc.diags.Report(comp->loc, "Only simple identifiers supported as comprehension targets");
+            return EvalResult::Invalid();
+        }
+
+        // Store in filter block or body block
+        lc.SetInsertBlock(filter_block);
+        lc.env[target_name] = {next_val->name, ir::IRType::I64(true), "", false};
+
+        // Evaluate filter conditions (ifs)
+        if (!clause.ifs.empty()) {
+            auto *current_block = filter_block;
+            for (size_t i = 0; i < clause.ifs.size(); ++i) {
+                auto cond = EvalExpr(clause.ifs[i], lc);
+                if (!cond.IsValid()) return EvalResult::Invalid();
+                
+                if (i + 1 < clause.ifs.size()) {
+                    // More conditions to check
+                    auto *next_filter = lc.fn->CreateBlock("comp.filter");
+                    lc.builder.MakeCondBranch(cond.value, next_filter, header);
+                    lc.SetInsertBlock(next_filter);
+                } else {
+                    // Last condition, branch to body or back to header
+                    lc.builder.MakeCondBranch(cond.value, body, header);
+                }
+            }
+        }
+
+        loops.push_back({header, body, end, target_name, iter->name});
+        lc.SetInsertBlock(body);
     }
+
+    // Now in innermost body block, evaluate the element expression and append
+    // ComprehensionExpression uses 'elem' for element and 'key' for dict key
+    if (comp->kind == ComprehensionExpression::Kind::kDict) {
+        // Dict comprehension: key: value
+        if (comp->key && comp->elem) {
+            auto key = EvalExpr(comp->key, lc);
+            auto value = EvalExpr(comp->elem, lc);
+            if (!key.IsValid() || !value.IsValid()) return EvalResult::Invalid();
+            lc.builder.MakeCall(append_fn, {container->name, key.value, value.value}, 
+                                ir::IRType::Void(), "");
+        }
+    } else {
+        // List/Set/Generator: single element
+        auto elem = EvalExpr(comp->elem, lc);
+        if (!elem.IsValid()) return EvalResult::Invalid();
+        lc.builder.MakeCall(append_fn, {container->name, elem.value}, ir::IRType::Void(), "");
+    }
+
+    // Branch back to innermost header
+    if (!loops.empty()) {
+        lc.builder.MakeBranch(loops.back().header);
+    }
+
+    // Wire up end blocks - go from innermost to outermost
+    for (int i = static_cast<int>(loops.size()) - 1; i >= 0; --i) {
+        lc.SetInsertBlock(loops[i].end);
+        if (i > 0) {
+            // Continue to outer loop header
+            lc.builder.MakeBranch(loops[i-1].header);
+        }
+        // else: outermost end block, will be set as final block below
+    }
+
+    // Final block after all loops
+    auto *final_block = lc.fn->CreateBlock("comp.done");
+    if (!loops.empty()) {
+        lc.SetInsertBlock(loops[0].end);
+        lc.builder.MakeBranch(final_block);
+    }
+    lc.SetInsertBlock(final_block);
 
     return {container->name, result_type};
 }
@@ -892,12 +1053,16 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
     auto *else_block = if_stmt->else_body.empty() ? nullptr : lc.fn->CreateBlock("if.else");
     auto *merge_block = lc.fn->CreateBlock("if.end");
 
+    // Save environment state before branches for PHI generation
+    std::unordered_map<std::string, EnvEntry> env_before = lc.env;
+
     lc.builder.MakeCondBranch(cond.value, then_block,
                               else_block ? else_block : merge_block);
     lc.terminated = false;
 
     // Then block
     lc.SetInsertBlock(then_block);
+    lc.env = env_before;  // Start with same environment
     bool then_term = false;
     for (auto &s : if_stmt->then_body) {
         if (!LowerStmt(s, lc)) return false;
@@ -906,14 +1071,20 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
             break;
         }
     }
+    auto *then_end_block = lc.builder.GetInsertPoint().get();
+    std::unordered_map<std::string, EnvEntry> env_after_then = lc.env;
     if (!then_term) {
         lc.builder.MakeBranch(merge_block);
     }
 
     // Else block
     bool else_term = false;
+    ir::BasicBlock *else_end_block = nullptr;
+    std::unordered_map<std::string, EnvEntry> env_after_else = env_before;
+    
     if (else_block) {
         lc.SetInsertBlock(else_block);
+        lc.env = env_before;  // Reset to same starting environment
         lc.terminated = false;
         for (auto &s : if_stmt->else_body) {
             if (!LowerStmt(s, lc)) return false;
@@ -922,6 +1093,8 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
                 break;
             }
         }
+        else_end_block = lc.builder.GetInsertPoint().get();
+        env_after_else = lc.env;
         if (!else_term) {
             lc.builder.MakeBranch(merge_block);
         }
@@ -929,6 +1102,85 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
 
     lc.SetInsertBlock(merge_block);
     lc.terminated = then_term && (else_term || !else_block);
+
+    // Generate PHI nodes for variables modified in either branch
+    // Only needed if both branches can reach merge block
+    if (!then_term || (!else_term && else_block)) {
+        std::set<std::string> modified_vars;
+        
+        // Find variables modified in then branch
+        for (const auto &[name, info] : env_after_then) {
+            auto it = env_before.find(name);
+            if (it == env_before.end() || it->second.value != info.value) {
+                modified_vars.insert(name);
+            }
+        }
+        
+        // Find variables modified in else branch
+        for (const auto &[name, info] : env_after_else) {
+            auto it = env_before.find(name);
+            if (it == env_before.end() || it->second.value != info.value) {
+                modified_vars.insert(name);
+            }
+        }
+
+        // Generate PHI for each modified variable
+        for (const auto &var_name : modified_vars) {
+            std::string then_val, else_val;
+            ir::IRType var_type = ir::IRType::I64(true);
+            
+            // Get value from then branch
+            auto then_it = env_after_then.find(var_name);
+            if (then_it != env_after_then.end()) {
+                then_val = then_it->second.value;
+                var_type = then_it->second.type;
+            } else {
+                auto before_it = env_before.find(var_name);
+                then_val = before_it != env_before.end() ? before_it->second.value : "";
+            }
+            
+            // Get value from else branch (or original if no else)
+            auto else_it = env_after_else.find(var_name);
+            if (else_it != env_after_else.end()) {
+                else_val = else_it->second.value;
+            } else {
+                auto before_it = env_before.find(var_name);
+                else_val = before_it != env_before.end() ? before_it->second.value : "";
+            }
+            
+            // Only create PHI if both values are valid and different
+            if (!then_val.empty() && !else_val.empty() && then_val != else_val) {
+                ir::BasicBlock *then_pred = then_term ? nullptr : then_end_block;
+                ir::BasicBlock *else_pred = (else_term || !else_block) ? nullptr 
+                                            : (else_end_block ? else_end_block : merge_block);
+                
+                // Create PHI with incomings from reachable predecessors
+                std::vector<std::pair<ir::BasicBlock*, std::string>> phi_incomings;
+                if (then_pred && !then_term) {
+                    phi_incomings.push_back({then_pred, then_val});
+                }
+                if (else_block && !else_term && else_pred) {
+                    phi_incomings.push_back({else_pred, else_val});
+                } else if (!else_block && !then_term) {
+                    // No else branch: use original value from entry
+                    auto *entry_pred = lc.fn->entry;
+                    phi_incomings.push_back({entry_pred, else_val});
+                }
+                
+                if (phi_incomings.size() > 1) {
+                    auto phi = lc.builder.MakePhi(var_type, phi_incomings, lc.NextTemp("phi"));
+                    lc.env[var_name] = {phi->name, var_type, "", false};
+                } else if (!phi_incomings.empty()) {
+                    // Only one incoming, use directly
+                    lc.env[var_name] = {phi_incomings[0].second, var_type, "", false};
+                }
+            } else if (!then_val.empty()) {
+                // Same value, just update environment
+                lc.env[var_name] = {then_val, var_type, "", false};
+            }
+        }
+    }
+
     return true;
 }
 
@@ -939,12 +1191,20 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
     auto *body_block = lc.fn->CreateBlock("while.body");
     auto *exit_block = lc.fn->CreateBlock("while.end");
 
+    // Save environment before loop for PHI generation
+    std::unordered_map<std::string, EnvEntry> env_before = lc.env;
+    auto *entry_block = lc.builder.GetInsertPoint().get();
+
     // Push loop context for break/continue
     lc.loop_stack.push({cond_block, exit_block});
 
     lc.builder.MakeBranch(cond_block);
     lc.SetInsertBlock(cond_block);
     lc.terminated = false;
+
+    // Create placeholder PHI nodes for variables that might be modified in loop
+    // These will be updated after processing the loop body
+    std::vector<std::pair<std::string, std::shared_ptr<ir::PhiInstruction>>> loop_phis;
 
     auto cond = EvalExpr(while_stmt->condition, lc);
     if (!cond.IsValid()) {
@@ -956,6 +1216,8 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
 
     lc.SetInsertBlock(body_block);
     lc.terminated = false;
+    
+    // Process loop body
     for (auto &s : while_stmt->body) {
         if (!LowerStmt(s, lc)) {
             lc.loop_stack.pop();
@@ -963,8 +1225,31 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
         }
         if (lc.terminated) break;
     }
+    
+    auto *body_end_block = lc.builder.GetInsertPoint().get();
+    std::unordered_map<std::string, EnvEntry> env_after_body = lc.env;
+    
     if (!lc.terminated) {
         lc.builder.MakeBranch(cond_block);
+    }
+
+    // Now go back to cond_block and create proper PHI nodes for modified variables
+    lc.SetInsertBlock(cond_block);
+    
+    for (const auto &[name, info] : env_after_body) {
+        auto it = env_before.find(name);
+        if (it != env_before.end() && it->second.value != info.value) {
+            // Variable was modified in loop body
+            std::vector<std::pair<ir::BasicBlock*, std::string>> phi_incomings = {
+                {entry_block, it->second.value},   // Value before loop
+                {body_end_block, info.value}       // Value after loop iteration
+            };
+            
+            auto phi = lc.builder.MakePhi(info.type, phi_incomings, lc.NextTemp("loop.phi"));
+            
+            // Update the environment to use PHI in subsequent iterations
+            lc.env[name] = {phi->name, info.type, "", false};
+        }
     }
 
     lc.loop_stack.pop();
@@ -975,6 +1260,10 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
 
 bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc) {
     if (lc.terminated) return true;
+
+    // Save environment before loop for PHI generation
+    std::unordered_map<std::string, EnvEntry> env_before = lc.env;
+    auto *entry_block = lc.builder.GetInsertPoint().get();
 
     // Evaluate iterable
     auto iterable = EvalExpr(for_stmt->iterable, lc);
@@ -1028,8 +1317,33 @@ bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc
         }
         if (lc.terminated) break;
     }
+    
+    auto *body_end_block = lc.builder.GetInsertPoint().get();
+    std::unordered_map<std::string, EnvEntry> env_after_body = lc.env;
+    
     if (!lc.terminated) {
         lc.builder.MakeBranch(cond_block);
+    }
+
+    // Create PHI nodes for variables modified in for loop body
+    lc.SetInsertBlock(cond_block);
+    
+    for (const auto &[name, info] : env_after_body) {
+        auto it = env_before.find(name);
+        if (it != env_before.end() && it->second.value != info.value) {
+            // Variable was modified in loop body (skip loop variable itself)
+            if (auto target_id = std::dynamic_pointer_cast<Identifier>(for_stmt->target)) {
+                if (name == target_id->name) continue;  // Skip loop variable
+            }
+            
+            std::vector<std::pair<ir::BasicBlock*, std::string>> phi_incomings = {
+                {entry_block, it->second.value},
+                {body_end_block, info.value}
+            };
+            
+            auto phi = lc.builder.MakePhi(info.type, phi_incomings, lc.NextTemp("for.phi"));
+            lc.env[name] = {phi->name, info.type, "", false};
+        }
     }
 
     lc.loop_stack.pop();
@@ -1101,7 +1415,7 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
     auto *try_block = lc.fn->CreateBlock("try.body");
     auto *exit_block = lc.fn->CreateBlock("try.end");
     
-    // Create handler blocks
+    // Create handler blocks for each except clause
     std::vector<ir::BasicBlock *> handler_blocks;
     for (size_t i = 0; i < try_stmt->handlers.size(); ++i) {
         handler_blocks.push_back(lc.fn->CreateBlock("except." + std::to_string(i)));
@@ -1109,15 +1423,38 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
     
     auto *else_block = try_stmt->orelse.empty() ? nullptr : lc.fn->CreateBlock("try.else");
     auto *finally_block = try_stmt->finalbody.empty() ? nullptr : lc.fn->CreateBlock("try.finally");
-
-    // Set up exception landing pad (simplified)
-    lc.builder.MakeCall("__py_try_begin", {}, ir::IRType::Void(), "");
-    lc.builder.MakeBranch(try_block);
     
+    // Create landing pad block for exception dispatch
+    auto *landing_pad = lc.fn->CreateBlock("try.landingpad");
+    auto *unwind_block = lc.fn->CreateBlock("try.unwind");
+
+    // Set up exception frame with proper landing pad registration
+    // __py_push_exception_frame returns a context that includes:
+    // - The landing pad address for setjmp/longjmp style unwinding
+    // - Exception type information for RTTI-based dispatch
+    auto exc_frame = lc.builder.MakeCall("__py_push_exception_frame", 
+                                         {}, 
+                                         ir::IRType::Pointer(ir::IRType::I64(true)), 
+                                         lc.NextTemp("excframe"));
+    
+    // Check if we're entering fresh (0) or re-entering from exception (non-zero)
+    auto setjmp_result = lc.builder.MakeCall("__py_setjmp", 
+                                             {exc_frame->name}, 
+                                             ir::IRType::I32(), 
+                                             lc.NextTemp("setjmp"));
+    
+    // If setjmp returns 0, enter try block; otherwise go to landing pad
+    auto is_exception = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
+                                              setjmp_result->name, "0",
+                                              lc.NextTemp("is_exc"));
+    is_exception->type = ir::IRType::I1();
+    
+    lc.builder.MakeCondBranch(is_exception->name, landing_pad, try_block);
+    
+    // --- Try block ---
     lc.SetInsertBlock(try_block);
     lc.terminated = false;
 
-    // Lower try body
     bool try_term = false;
     for (auto &s : try_stmt->body) {
         if (!LowerStmt(s, lc)) return false;
@@ -1127,8 +1464,9 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // Branch to else or finally or exit
+    // Normal exit from try: pop exception frame and branch to else/finally/exit
     if (!try_term) {
+        lc.builder.MakeCall("__py_pop_exception_frame", {}, ir::IRType::Void(), "");
         if (else_block) {
             lc.builder.MakeBranch(else_block);
         } else if (finally_block) {
@@ -1138,18 +1476,82 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // Lower exception handlers
+    // --- Landing pad block: dispatch to appropriate handler ---
+    lc.SetInsertBlock(landing_pad);
+    lc.terminated = false;
+    
+    // Get the current exception object and type
+    auto exc_obj = lc.builder.MakeCall("__py_get_exception", 
+                                       {}, 
+                                       ir::IRType::Pointer(ir::IRType::I64(true)), 
+                                       lc.NextTemp("exc"));
+    auto exc_type = lc.builder.MakeCall("__py_get_exception_type", 
+                                        {}, 
+                                        ir::IRType::I64(true), 
+                                        lc.NextTemp("exctype"));
+
+    // Chain of type checks for each handler
+    ir::BasicBlock *current_check_block = landing_pad;
+    for (size_t i = 0; i < try_stmt->handlers.size(); ++i) {
+        const auto &handler = try_stmt->handlers[i];
+        
+        ir::BasicBlock *next_check = (i + 1 < try_stmt->handlers.size()) 
+                                      ? lc.fn->CreateBlock("except.check." + std::to_string(i + 1))
+                                      : unwind_block;
+        
+        if (i > 0) {
+            lc.SetInsertBlock(current_check_block);
+        }
+        
+        if (handler.type) {
+            // Typed handler: check if exception matches this type
+            auto handler_type = EvalExpr(handler.type, lc);
+            if (!handler_type.IsValid()) return false;
+            
+            auto type_match = lc.builder.MakeCall("__py_exception_isinstance",
+                                                  {exc_obj->name, handler_type.value},
+                                                  ir::IRType::I1(),
+                                                  lc.NextTemp("typematch"));
+            lc.builder.MakeCondBranch(type_match->name, handler_blocks[i], next_check);
+        } else {
+            // Bare except: catches all exceptions
+            lc.builder.MakeBranch(handler_blocks[i]);
+        }
+        
+        current_check_block = next_check;
+    }
+
+    // --- Unwind block: re-raise if no handler matched ---
+    lc.SetInsertBlock(unwind_block);
+    lc.terminated = false;
+    
+    // Pop frame and re-raise the exception
+    lc.builder.MakeCall("__py_pop_exception_frame", {}, ir::IRType::Void(), "");
+    if (finally_block) {
+        // Must run finally before re-raising
+        // Store that we need to re-raise after finally
+        lc.builder.MakeCall("__py_set_reraise_flag", {}, ir::IRType::Void(), "");
+        lc.builder.MakeBranch(finally_block);
+    } else {
+        lc.builder.MakeCall("__py_reraise", {}, ir::IRType::Void(), "");
+        lc.builder.MakeUnreachable();
+        lc.terminated = true;
+    }
+
+    // --- Exception handlers ---
     for (size_t i = 0; i < try_stmt->handlers.size(); ++i) {
         lc.SetInsertBlock(handler_blocks[i]);
         lc.terminated = false;
         
         const auto &handler = try_stmt->handlers[i];
         
+        // Clear the exception (it's been handled)
+        lc.builder.MakeCall("__py_clear_exception", {}, ir::IRType::Void(), "");
+        lc.builder.MakeCall("__py_pop_exception_frame", {}, ir::IRType::Void(), "");
+        
         // Bind exception to variable if named
         if (!handler.name.empty()) {
-            auto exc = lc.builder.MakeCall("__py_get_exception", {},
-                                          ir::IRType::I64(true), lc.NextTemp("exc"));
-            lc.env[handler.name] = {exc->name, exc->type, "", false};
+            lc.env[handler.name] = {exc_obj->name, exc_obj->type, "", false};
         }
 
         bool handler_term = false;
@@ -1170,7 +1572,7 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // Lower else block
+    // --- Else block: executed if no exception occurred ---
     if (else_block) {
         lc.SetInsertBlock(else_block);
         lc.terminated = false;
@@ -1187,7 +1589,7 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // Lower finally block
+    // --- Finally block: always executed ---
     if (finally_block) {
         lc.SetInsertBlock(finally_block);
         lc.terminated = false;
@@ -1196,12 +1598,23 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
             if (lc.terminated) break;
         }
         if (!lc.terminated) {
-            lc.builder.MakeBranch(exit_block);
+            // Check if we need to re-raise after finally
+            auto needs_reraise = lc.builder.MakeCall("__py_check_reraise_flag", 
+                                                     {}, 
+                                                     ir::IRType::I1(), 
+                                                     lc.NextTemp("reraise"));
+            
+            auto *reraise_block = lc.fn->CreateBlock("finally.reraise");
+            lc.builder.MakeCondBranch(needs_reraise->name, reraise_block, exit_block);
+            
+            lc.SetInsertBlock(reraise_block);
+            lc.builder.MakeCall("__py_clear_reraise_flag", {}, ir::IRType::Void(), "");
+            lc.builder.MakeCall("__py_reraise", {}, ir::IRType::Void(), "");
+            lc.builder.MakeUnreachable();
         }
     }
 
     lc.SetInsertBlock(exit_block);
-    lc.builder.MakeCall("__py_try_end", {}, ir::IRType::Void(), "");
     lc.terminated = false;
     return true;
 }
@@ -1594,6 +2007,7 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
 
 // ----------------------------------------------------------------------------
 // Function lowering.
+// Handles parameters with default values using PHI nodes for proper SSA.
 // ----------------------------------------------------------------------------
 bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
     // Determine return type from type hints
@@ -1637,11 +2051,54 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
         lc.env[p.first] = {p.first, p.second, "", false};
     }
 
-    // Handle default arguments
-    for (const auto &arg : fn.params) {
+    // Handle default arguments with PHI nodes for proper SSA
+    // For each parameter with default: check if arg was provided, use default if not
+    // Python's sentinel is typically a special "not provided" marker
+    for (size_t i = 0; i < fn.params.size(); ++i) {
+        const auto &arg = fn.params[i];
         if (arg.default_value) {
-            // Generate code to check and use default
-            // This is simplified; full implementation would need PHI nodes
+            // Check if this argument was provided (compare with sentinel)
+            auto sentinel_check = lc.builder.MakeCall(
+                "__py_arg_provided",
+                {arg.name, std::to_string(i)},
+                ir::IRType::I1(),
+                lc.NextTemp("arg_provided"));
+            
+            auto *use_arg_block = lc.fn->CreateBlock("default.use_arg." + arg.name);
+            auto *use_default_block = lc.fn->CreateBlock("default.use_default." + arg.name);
+            auto *merge_block = lc.fn->CreateBlock("default.merge." + arg.name);
+            
+            auto *check_block = lc.builder.GetInsertPoint().get();
+            lc.builder.MakeCondBranch(sentinel_check->name, use_arg_block, use_default_block);
+            
+            // Branch 1: Use the provided argument value
+            lc.SetInsertBlock(use_arg_block);
+            std::string provided_val = arg.name;
+            lc.builder.MakeBranch(merge_block);
+            auto *arg_end_block = lc.builder.GetInsertPoint().get();
+            
+            // Branch 2: Evaluate and use the default value
+            lc.SetInsertBlock(use_default_block);
+            auto default_result = EvalExpr(arg.default_value, lc);
+            std::string default_val = default_result.IsValid() 
+                                     ? default_result.value 
+                                     : MakeLiteral(0, lc).value;
+            lc.builder.MakeBranch(merge_block);
+            auto *default_end_block = lc.builder.GetInsertPoint().get();
+            
+            // Merge with PHI node
+            lc.SetInsertBlock(merge_block);
+            
+            ir::IRType param_type = params[i].second;
+            std::vector<std::pair<ir::BasicBlock*, std::string>> phi_incomings = {
+                {arg_end_block, provided_val},
+                {default_end_block, default_val}
+            };
+            
+            auto phi = lc.builder.MakePhi(param_type, phi_incomings, lc.NextTemp("param"));
+            
+            // Update environment with PHI result
+            lc.env[arg.name] = {phi->name, param_type, "", false};
         }
     }
 

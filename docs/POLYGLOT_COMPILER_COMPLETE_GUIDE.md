@@ -2042,11 +2042,13 @@ polyc --distributed --workers=10 --master=master.example.com program.cpp
 ### 7.4.1 机器学习辅助优化
 
 #### 学习型优化器
+
 - 使用 ML 预测最佳优化策略
 - 自适应 Pass 顺序
 - 基于历史数据的优化
 
 #### 自动调优
+
 ```bash
 # 自动寻找最佳编译选项
 polyc --autotune --benchmark=./benchmark program.cpp
@@ -2055,6 +2057,7 @@ polyc --autotune --benchmark=./benchmark program.cpp
 ### 7.4.2 形式化验证
 
 #### 程序正确性验证
+
 ```cpp
 // 前置条件和后置条件
 int divide(int a, int b)

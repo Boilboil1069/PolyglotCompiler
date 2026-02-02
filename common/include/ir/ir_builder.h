@@ -60,6 +60,15 @@ const std::vector<std::string> &args,
   std::shared_ptr<SwitchStatement> MakeSwitch(const std::string &value,
                                               const std::vector<SwitchStatement::Case> &cases,
                                               BasicBlock *default_bb);
+  
+  // Create a PHI instruction for SSA form
+  // The incomings vector contains pairs of (predecessor block, value name)
+  std::shared_ptr<PhiInstruction> MakePhi(const IRType &type, 
+                                          const std::vector<std::pair<BasicBlock*, std::string>> &incomings,
+                                          const std::string &name = "");
+  
+  // Add an incoming edge to an existing PHI instruction
+  void AddPhiIncoming(PhiInstruction *phi, BasicBlock *pred, const std::string &value);
 
   std::shared_ptr<BasicBlock> CreateBlock(const std::string &name);
   std::shared_ptr<Function> CurrentFunction() { return context_.DefaultFunction(); }

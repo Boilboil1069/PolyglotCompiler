@@ -85,6 +85,7 @@ add_library(middle_ir
     middle/src/ir/verifier.cpp
     middle/src/ir/printer.cpp
     middle/src/ir/parser.cpp
+    middle/src/ir/template_instantiator.cpp
     middle/src/ir/passes/opt.cpp
     middle/src/passes/pass_manager.cpp
     middle/src/passes/optimizations/constant_fold.cpp
@@ -185,6 +186,21 @@ target_link_libraries(polyasm
     polyglot_common
 )
 
+# Linker library (for unit tests)
+add_library(linker_lib OBJECT
+    tools/polyld/src/linker.cpp
+)
+
+target_include_directories(linker_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(linker_lib PUBLIC
+    polyglot_common
+)
+
+target_compile_definitions(linker_lib PRIVATE LINKER_LIBRARY)
+
 add_executable(polyld
     tools/polyld/src/linker.cpp
 )
@@ -240,6 +256,7 @@ target_link_libraries(unit_tests PRIVATE
     backend_x86_64
     backend_arm64
     runtime
+    linker_lib
     Catch2::Catch2
     Catch2::Catch2WithMain
 )

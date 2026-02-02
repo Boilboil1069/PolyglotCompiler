@@ -1,6 +1,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "frontends/rust/include/rust_sema.h"
@@ -14,8 +15,43 @@ using polyglot::core::Type;
 
 namespace {
 
+// Scope state for tracking context during analysis
 struct ScopeState {
     ScopeKind kind{ScopeKind::kBlock};
+    std::string name;  // Name of the scope for error messages
+};
+
+// Extended borrow information for comprehensive borrow checking
+struct BorrowInfo {
+    int imm{0};     // Count of active immutable borrows
+    int mut{0};     // Count of active mutable borrows
+    bool moved{false};  // Whether the value has been moved
+    std::string lifetime;  // Associated lifetime if any
+    core::SourceLoc loc;   // Location where borrow was created
+};
+
+// Lifetime information for lifetime analysis
+struct LifetimeInfo {
+    std::string name;
+    bool is_static{false};
+    int scope_depth{0};  // Depth at which lifetime is valid
+    std::vector<std::string> outlives;  // Lifetimes this one must outlive
+};
+
+// Move state for tracking ownership
+enum class OwnershipState {
+    kOwned,         // Value is owned
+    kMoved,         // Value has been moved
+    kBorrowed,      // Value is currently borrowed
+    kMutBorrowed    // Value is mutably borrowed
+};
+
+// Variable ownership tracking
+struct VarOwnership {
+    OwnershipState state{OwnershipState::kOwned};
+    std::string borrow_holder;  // Who holds the borrow
+    core::SourceLoc borrow_loc; // Where the borrow was created
+    bool is_copy{false};        // Whether the type implements Copy
 };
 
 class Analyzer {
@@ -23,13 +59,18 @@ class Analyzer {
     Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
 
     void Run() {
-        scope_stack_.push_back({ScopeKind::kModule});
+        scope_stack_.push_back({ScopeKind::kModule, "<rust-module>"});
         Syms().EnterScope("<rust-module>", ScopeKind::kModule);
-                borrow_stack_.push_back({});
+        borrow_stack_.push_back({});
+        ownership_stack_.push_back({});
+        lifetime_stack_.push_back({});
+        current_scope_depth_ = 0;
         for (auto &item : module_.items) AnalyzeItem(item);
         Syms().ExitScope();
         scope_stack_.pop_back();
-                borrow_stack_.pop_back();
+        borrow_stack_.pop_back();
+        ownership_stack_.pop_back();
+        lifetime_stack_.pop_back();
     }
 
   private:
@@ -37,14 +78,115 @@ class Analyzer {
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
 
-    struct BorrowInfo {
-        int imm{0};
-        int mut{0};
-    };
-
+    // Borrow tracking stacks
     std::vector<std::unordered_map<std::string, BorrowInfo>> borrow_stack_{};
-        std::unordered_map<std::string, std::unordered_map<std::string, Type>> trait_methods_{};
-        std::unordered_map<std::string, std::vector<std::string>> impl_traits_{};
+    // Ownership tracking stacks
+    std::vector<std::unordered_map<std::string, VarOwnership>> ownership_stack_{};
+    // Lifetime tracking stacks
+    std::vector<std::unordered_map<std::string, LifetimeInfo>> lifetime_stack_{};
+    // Trait method signatures
+    std::unordered_map<std::string, std::unordered_map<std::string, Type>> trait_methods_{};
+    // Types implementing traits
+    std::unordered_map<std::string, std::vector<std::string>> impl_traits_{};
+    // Copy types (types implementing Copy trait)
+    std::unordered_set<std::string> copy_types_{"i8", "i16", "i32", "i64", "i128",
+                                                  "u8", "u16", "u32", "u64", "u128",
+                                                  "f32", "f64", "bool", "char"};
+    // Current scope depth for lifetime analysis
+    int current_scope_depth_{0};
+    // Current function's lifetime parameters
+    std::vector<std::string> current_fn_lifetimes_{};
+
+    // Check if a type implements the Copy trait
+    bool IsCopyType(const Type &t) const {
+        if (t.kind == core::TypeKind::kInt || t.kind == core::TypeKind::kFloat ||
+            t.kind == core::TypeKind::kBool) {
+            return true;
+        }
+        return copy_types_.count(t.name) > 0;
+    }
+
+    // Register a lifetime in the current scope
+    void RegisterLifetime(const std::string &name, bool is_static = false) {
+        if (lifetime_stack_.empty()) return;
+        LifetimeInfo info;
+        info.name = name;
+        info.is_static = is_static;
+        info.scope_depth = current_scope_depth_;
+        lifetime_stack_.back()[name] = info;
+    }
+
+    // Check if lifetime 'a outlives lifetime 'b
+    bool LifetimeOutlives(const std::string &a, const std::string &b) const {
+        if (a == "'static") return true;
+        if (b == "'static") return false;
+        if (a == b) return true;
+        
+        // Look up lifetime scopes
+        int depth_a = -1, depth_b = -1;
+        for (auto it = lifetime_stack_.rbegin(); it != lifetime_stack_.rend(); ++it) {
+            if (auto found = it->find(a); found != it->end()) {
+                depth_a = found->second.scope_depth;
+            }
+            if (auto found = it->find(b); found != it->end()) {
+                depth_b = found->second.scope_depth;
+            }
+        }
+        // Lifetime at lower scope depth outlives one at higher depth
+        return depth_a <= depth_b;
+    }
+
+    // Validate lifetime for return type - comprehensive check
+    bool ValidateReturnLifetime(const Type &ret_type, const std::vector<std::string> &fn_lifetimes,
+                                 const core::SourceLoc &loc) {
+        if (ret_type.kind != core::TypeKind::kPointer) return true;
+        
+        if (ret_type.lifetime.empty() || ret_type.lifetime == "anon") {
+            // Reference return type must have explicit lifetime
+            Diags().Report(loc, "returning reference requires explicit lifetime annotation");
+            return false;
+        }
+        
+        // Check if the lifetime is one of the function's lifetime parameters
+        bool valid_lifetime = ret_type.lifetime == "'static";
+        for (const auto &lt : fn_lifetimes) {
+            if (ret_type.lifetime == lt || ret_type.lifetime == lt.substr(1)) {
+                valid_lifetime = true;
+                break;
+            }
+        }
+        
+        if (!valid_lifetime) {
+            Diags().Report(loc, "return type has unknown lifetime '" + ret_type.lifetime + "'");
+            return false;
+        }
+        
+        return true;
+    }
+
+    // Validate borrow lifetime when passing references
+    bool ValidateBorrowLifetime(const Type &arg_type, const std::string &param_lifetime,
+                                 const core::SourceLoc &loc) {
+        if (arg_type.kind != core::TypeKind::kPointer) return true;
+        
+        // If parameter expects a lifetime, arg must have compatible lifetime
+        if (!param_lifetime.empty() && param_lifetime != "anon") {
+            if (arg_type.lifetime.empty() || arg_type.lifetime == "anon") {
+                Diags().Report(loc, "passing reference without lifetime to parameter expecting '" + 
+                              param_lifetime + "'");
+                return false;
+            }
+            
+            // Check lifetime compatibility
+            if (!LifetimeOutlives(arg_type.lifetime, param_lifetime)) {
+                Diags().Report(loc, "lifetime '" + arg_type.lifetime + 
+                              "' does not outlive '" + param_lifetime + "'");
+                return false;
+            }
+        }
+        
+        return true;
+    }
 
     Type MapType(const std::shared_ptr<TypeNode> &node) {
         if (!node) return Type::Any();
@@ -193,40 +335,115 @@ class Analyzer {
         std::vector<Type> params;
         for (auto &p : fn.params) params.push_back(MapType(p.type));
         Type ret = MapType(fn.return_type);
-    Type fnt = Types().FunctionType(fn.name, ret, params);
-    fnt.language = "rust";
+        Type fnt = Types().FunctionType(fn.name, ret, params);
+        fnt.language = "rust";
         Symbol sym{fn.name, fnt, fn.loc, SymbolKind::kFunction, "rust"};
         if (!Syms().Declare(sym)) {
             Diags().Report(fn.loc, "Duplicate function: " + fn.name);
         }
     }
 
+    // Extract lifetime parameters from function type parameters
+    std::vector<std::string> ExtractLifetimeParams(const std::vector<std::string> &type_params) {
+        std::vector<std::string> lifetimes;
+        for (const auto &tp : type_params) {
+            if (!tp.empty() && tp[0] == '\'') {
+                lifetimes.push_back(tp);
+            }
+        }
+        return lifetimes;
+    }
+
     void AnalyzeFunction(const FunctionItem &fn) {
-        scope_stack_.push_back({ScopeKind::kFunction});
+        scope_stack_.push_back({ScopeKind::kFunction, fn.name});
         Syms().EnterScope(fn.name, ScopeKind::kFunction);
         current_return_type_ = MapType(fn.return_type);
         saw_return_ = false;
         borrow_stack_.push_back({});
+        ownership_stack_.push_back({});
+        lifetime_stack_.push_back({});
+        current_scope_depth_++;
 
-        for (auto &p : fn.params) {
-            Symbol param{p.name, MapType(p.type), fn.loc, SymbolKind::kParameter, "rust"};
-            Syms().Declare(param);
-            borrow_stack_.back()[p.name] = {};
+        // Extract and register lifetime parameters
+        current_fn_lifetimes_ = ExtractLifetimeParams(fn.type_params);
+        for (const auto &lt : current_fn_lifetimes_) {
+            RegisterLifetime(lt);
         }
+        // Always have 'static available
+        RegisterLifetime("'static", true);
+
+        // Process parameters and track their ownership
+        for (auto &p : fn.params) {
+            Type param_type = MapType(p.type);
+            Symbol param{p.name, param_type, fn.loc, SymbolKind::kParameter, "rust"};
+            Syms().Declare(param);
+            
+            // Initialize borrow tracking for parameter
+            BorrowInfo binfo;
+            binfo.lifetime = param_type.lifetime;
+            binfo.loc = fn.loc;
+            borrow_stack_.back()[p.name] = binfo;
+            
+            // Track ownership - parameters are owned unless borrowed
+            VarOwnership ownership;
+            ownership.is_copy = IsCopyType(param_type);
+            if (param_type.kind == core::TypeKind::kPointer) {
+                ownership.state = OwnershipState::kBorrowed;
+            }
+            ownership_stack_.back()[p.name] = ownership;
+        }
+
+        // Analyze function body
         if (fn.has_body) {
             for (auto &stmt : fn.body) AnalyzeStmt(stmt);
         }
 
-        // basic borrow/lifetime note: if return is a pointer with empty lifetime, warn (placeholder)
-        if (current_return_type_.kind == core::TypeKind::kPointer && current_return_type_.lifetime.empty()) {
-            Diags().Report(fn.loc, "Return reference without lifetime (placeholder borrow check)");
+        // Comprehensive return type lifetime validation
+        if (current_return_type_.kind == core::TypeKind::kPointer) {
+            if (current_return_type_.lifetime.empty() || current_return_type_.lifetime == "anon") {
+                // Return reference must have explicit lifetime unless elision applies
+                // For single parameter functions, lifetime elision allows implicit lifetime
+                bool elision_applies = false;
+                if (fn.params.size() == 1) {
+                    Type pt = MapType(fn.params[0].type);
+                    if (pt.kind == core::TypeKind::kPointer && !pt.lifetime.empty()) {
+                        elision_applies = true;
+                    }
+                }
+                // Check for &self parameter (method receiver)
+                for (const auto &p : fn.params) {
+                    if (p.name == "self") {
+                        Type pt = MapType(p.type);
+                        if (pt.kind == core::TypeKind::kPointer) {
+                            elision_applies = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!elision_applies && current_fn_lifetimes_.empty()) {
+                    Diags().Report(fn.loc, "return type contains reference but function has no lifetime parameters");
+                }
+            } else {
+                // Validate the return lifetime against function lifetime parameters
+                ValidateReturnLifetime(current_return_type_, current_fn_lifetimes_, fn.loc);
+            }
         }
-        if (!saw_return_ && current_return_type_.kind != core::TypeKind::kVoid && current_return_type_.kind != core::TypeKind::kAny) {
-            Diags().Report(fn.loc, "Function may exit without returning required value");
+
+        // Check that all non-void functions return
+        if (!saw_return_ && current_return_type_.kind != core::TypeKind::kVoid && 
+            current_return_type_.kind != core::TypeKind::kAny) {
+            Diags().Report(fn.loc, "function may exit without returning required value");
         }
+
+        // Clean up scopes
+        current_scope_depth_--;
+        current_fn_lifetimes_.clear();
         Syms().ExitScope();
         scope_stack_.pop_back();
         borrow_stack_.pop_back();
+        ownership_stack_.pop_back();
+        lifetime_stack_.pop_back();
     }
 
     void AnalyzeStmt(const std::shared_ptr<Statement> &stmt) {
@@ -234,10 +451,44 @@ class Analyzer {
         if (auto let = std::dynamic_pointer_cast<LetStatement>(stmt)) {
             auto t = MapType(let->type_annotation);
             if (t.kind == core::TypeKind::kAny && let->init) t = AnalyzeExpr(let->init);
-            DeclarePattern(let->pattern, t, let->loc);
-            if (t.kind == core::TypeKind::kPointer && t.lifetime.empty()) {
-                Diags().Report(let->loc, "Borrow without lifetime annotation (placeholder)");
+            
+            // Track ownership for the new binding
+            std::string var_name;
+            if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(let->pattern)) {
+                var_name = id->name;
             }
+            
+            DeclarePattern(let->pattern, t, let->loc);
+            
+            // Check for references without proper lifetime annotation
+            if (t.kind == core::TypeKind::kPointer) {
+                if (t.lifetime.empty() || t.lifetime == "anon") {
+                    // Try to infer lifetime from the initializer
+                    bool can_infer = false;
+                    if (let->init) {
+                        // If initializer is a reference to a local, inherit its lifetime
+                        if (auto ref = std::dynamic_pointer_cast<UnaryExpression>(let->init)) {
+                            if (ref->op == "&" || ref->op == "&mut") {
+                                can_infer = true;  // Local reference - lifetime is current scope
+                            }
+                        }
+                    }
+                    if (!can_infer) {
+                        Diags().Report(let->loc, "reference binding requires lifetime annotation or initialization from local reference");
+                    }
+                }
+            }
+            
+            // Initialize ownership tracking for this variable
+            if (!var_name.empty() && !ownership_stack_.empty()) {
+                VarOwnership ownership;
+                ownership.is_copy = IsCopyType(t);
+                if (t.kind == core::TypeKind::kPointer) {
+                    ownership.state = OwnershipState::kBorrowed;
+                }
+                ownership_stack_.back()[var_name] = ownership;
+            }
+            
             return;
         }
         if (auto exprs = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
@@ -246,8 +497,29 @@ class Analyzer {
         }
         if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
             Type value = AnalyzeExpr(ret->value);
+            
+            // Check return value lifetime
+            if (current_return_type_.kind == core::TypeKind::kPointer && ret->value) {
+                // Ensure returned reference doesn't outlive its source
+                if (value.kind == core::TypeKind::kPointer) {
+                    if (!value.lifetime.empty() && value.lifetime != "'static") {
+                        // Check if the lifetime is valid for return
+                        bool valid = false;
+                        for (const auto &lt : current_fn_lifetimes_) {
+                            if (value.lifetime == lt || value.lifetime == lt.substr(1)) {
+                                valid = true;
+                                break;
+                            }
+                        }
+                        if (!valid) {
+                            Diags().Report(ret->loc, "cannot return reference with local lifetime");
+                        }
+                    }
+                }
+            }
+            
             if (!Types().IsCompatible(value, current_return_type_)) {
-                Diags().Report(ret->loc, "Return type mismatch");
+                Diags().Report(ret->loc, "return type mismatch");
             }
             saw_return_ = true;
             return;
@@ -263,19 +535,23 @@ class Analyzer {
         if (auto loop = std::dynamic_pointer_cast<LoopStatement>(stmt)) {
             EnterScope(ScopeKind::kBlock);
             borrow_stack_.push_back({});
+            ownership_stack_.push_back({});
             for (auto &s : loop->body) AnalyzeStmt(s);
             ExitScope();
             borrow_stack_.pop_back();
+            ownership_stack_.pop_back();
             return;
         }
         if (auto fr = std::dynamic_pointer_cast<ForStatement>(stmt)) {
             EnterScope(ScopeKind::kBlock);
             borrow_stack_.push_back({});
+            ownership_stack_.push_back({});
             DeclarePattern(fr->pattern, Type::Any(), fr->loc);
             AnalyzeExpr(fr->iterable);
             for (auto &s : fr->body) AnalyzeStmt(s);
             ExitScope();
             borrow_stack_.pop_back();
+            ownership_stack_.pop_back();
             return;
         }
         if (auto ife = std::dynamic_pointer_cast<IfExpression>(stmt)) {
@@ -390,18 +666,36 @@ class Analyzer {
             if (callee_t.kind == core::TypeKind::kFunction && callee_t.type_args.size() >= 1) {
                 size_t param_count = callee_t.type_args.size() - 1;
                 if (param_count != arg_types.size()) {
-                    Diags().Report(call->loc, "Argument count mismatch");
+                    Diags().Report(call->loc, "argument count mismatch");
                 } else {
                     for (size_t i = 0; i < arg_types.size(); ++i) {
                         const auto &expected = callee_t.type_args[i + 1];
                         if (expected.kind == core::TypeKind::kGenericParam && arg_types[i].IsConcrete()) {
                             // allow inference by concreteness
                         } else if (!Types().IsCompatible(arg_types[i], expected)) {
-                            Diags().Report(call->loc, "Argument type mismatch");
+                            Diags().Report(call->loc, "argument type mismatch");
                             break;
                         }
-                        if (arg_types[i].kind == core::TypeKind::kPointer && arg_types[i].lifetime.empty()) {
-                            Diags().Report(call->loc, "Passing reference without lifetime (placeholder borrow check)");
+                        
+                        // Comprehensive lifetime check for reference arguments
+                        if (arg_types[i].kind == core::TypeKind::kPointer) {
+                            if (expected.kind == core::TypeKind::kPointer) {
+                                // Both are references - validate lifetime compatibility
+                                if (!ValidateBorrowLifetime(arg_types[i], expected.lifetime, call->loc)) {
+                                    // Error already reported
+                                }
+                            } else if (arg_types[i].lifetime.empty() || arg_types[i].lifetime == "anon") {
+                                // Passing reference to non-reference parameter without lifetime
+                                // This is typically a move or auto-deref situation
+                            }
+                        }
+                        
+                        // Check for move semantics on non-Copy types
+                        if (auto arg_id = std::dynamic_pointer_cast<Identifier>(call->args[i])) {
+                            if (!IsCopyType(arg_types[i]) && expected.kind != core::TypeKind::kPointer) {
+                                // Value is being moved into the function
+                                CheckMove(arg_id->name, call->loc);
+                            }
                         }
                     }
                 }
@@ -513,13 +807,15 @@ class Analyzer {
     }
 
     void EnterScope(ScopeKind kind) {
-        scope_stack_.push_back({kind});
+        scope_stack_.push_back({kind, "<block>"});
         Syms().EnterScope("<block>", kind);
+        current_scope_depth_++;
     }
 
     void ExitScope() {
         Syms().ExitScope();
         if (!scope_stack_.empty()) scope_stack_.pop_back();
+        current_scope_depth_--;
     }
 
     bool InFunction() const {
@@ -527,6 +823,49 @@ class Analyzer {
             if (it->kind == ScopeKind::kFunction) return true;
         }
         return false;
+    }
+
+    // Check if a variable has been moved
+    bool IsMoved(const std::string &name) const {
+        for (auto it = ownership_stack_.rbegin(); it != ownership_stack_.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) {
+                return found->second.state == OwnershipState::kMoved;
+            }
+        }
+        return false;
+    }
+
+    // Mark a variable as moved and check for use-after-move
+    void CheckMove(const std::string &name, const core::SourceLoc &loc) {
+        // First check if already moved
+        if (IsMoved(name)) {
+            Diags().Report(loc, "use of moved value: `" + name + "`");
+            return;
+        }
+        
+        // Check for active borrows
+        auto active = AggregateBorrow(name);
+        if (active.imm > 0 || active.mut > 0) {
+            Diags().Report(loc, "cannot move out of `" + name + "` while it is borrowed");
+            return;
+        }
+        
+        // Mark as moved in current scope
+        for (auto it = ownership_stack_.rbegin(); it != ownership_stack_.rend(); ++it) {
+            auto found = it->find(name);
+            if (found != it->end()) {
+                found->second.state = OwnershipState::kMoved;
+                return;
+            }
+        }
+    }
+
+    // Check use of a value - detects use-after-move
+    void CheckUse(const std::string &name, const core::SourceLoc &loc) {
+        if (IsMoved(name)) {
+            Diags().Report(loc, "use of moved value: `" + name + "`");
+        }
     }
 
     BorrowInfo AggregateBorrow(const std::string &name) const {
@@ -564,7 +903,7 @@ class Analyzer {
         for (auto &arm : mt->arms) {
             if (IsWildcardPattern(arm->pattern)) return true;
         }
-        return false;
+        return false;;
     }
 
     const Module &module_;

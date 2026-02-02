@@ -259,6 +259,28 @@ std::shared_ptr<SwitchStatement> IRBuilder::MakeSwitch(const std::string &value,
   return sw;
 }
 
+std::shared_ptr<PhiInstruction> IRBuilder::MakePhi(const IRType &type,
+                                                   const std::vector<std::pair<BasicBlock*, std::string>> &incomings,
+                                                   const std::string &name) {
+  auto bb = CurrentBlock();
+  auto phi = std::make_shared<PhiInstruction>();
+  phi->type = type;
+  phi->incomings = incomings;
+  phi->name = name.empty() ? NextTempName("phi") : name;
+  phi->parent = bb.get();
+  
+  // PHI instructions must be at the beginning of a basic block
+  // Insert at the front of the instructions
+  bb->instructions.insert(bb->instructions.begin(), phi);
+  return phi;
+}
+
+void IRBuilder::AddPhiIncoming(PhiInstruction *phi, BasicBlock *pred, const std::string &value) {
+  if (phi) {
+    phi->incomings.push_back({pred, value});
+  }
+}
+
 std::shared_ptr<BasicBlock> IRBuilder::CreateBlock(const std::string &name) {
   GetOrCreateEntryBlock();  // ensure default function exists
   auto target_fn = context_.DefaultFunction();
