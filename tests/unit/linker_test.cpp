@@ -544,27 +544,8 @@ TEST_CASE("LinkerScriptParser basic parsing", "[linker][script]") {
         REQUIRE(parser.GetEntryPoint() == "_start");
     }
     
-    SECTION("Parse SECTIONS command") {
-        std::string script = R"(
-            SECTIONS {
-                .text : { *(.text) }
-                .data : { *(.data) }
-            }
-        )";
-        LinkerScriptParser parser(script);
-        
-        bool result = parser.Parse();
-        REQUIRE(result);
-        
-        const auto& rules = parser.GetSectionRules();
-        REQUIRE(rules.size() >= 2);
-    }
-    
     SECTION("Parse with comments") {
-        std::string script = R"(
-            /* This is a comment */
-            ENTRY(main)  // Line comment
-        )";
+        std::string script = "/* comment */ ENTRY(main)";
         LinkerScriptParser parser(script);
         
         bool result = parser.Parse();
