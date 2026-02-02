@@ -6,7 +6,8 @@ namespace polyglot::passes::transform {
 
 // Tail Call Optimization
 // Convert tail recursion to loops to avoid stack overflow
-void TailCallOptimization(ir::Function &func);
+// Set convert_to_loop=false to only mark tail calls without conversion
+void TailCallOptimization(ir::Function &func, bool convert_to_loop = true);
 
 // Loop Unrolling
 // Unroll loops to reduce loop overhead and improve ILP

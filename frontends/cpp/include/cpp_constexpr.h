@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <string>
 #include <vector>
@@ -83,10 +84,21 @@ public:
     
     // Check if a function can be evaluated at compile time
     bool IsConstexprFunction(VarDecl* func) const;
+    bool IsConstexprFunction(FunctionDecl* func) const;
     
-    // Evaluate a constexpr function call
+    // Evaluate a constexpr function call (legacy - for VarDecl-based functions)
     ConstexprValue EvaluateCall(VarDecl* func, 
                                 const std::vector<ConstexprValue>& args);
+    
+    // Evaluate a constexpr function call (FunctionDecl-based)
+    ConstexprValue EvaluateFunctionCall(FunctionDecl* func,
+                                        const std::vector<ConstexprValue>& args);
+    
+    // Register a function for constexpr evaluation
+    void RegisterFunction(const std::string& name, FunctionDecl* func);
+    
+    // Look up a registered function by name
+    FunctionDecl* LookupFunction(const std::string& name) const;
     
     // Set variable value in current scope
     void SetVariable(const std::string& name, const ConstexprValue& value);
@@ -118,6 +130,9 @@ private:
     bool EvaluateIfStmt(IfStatement* stmt, ConstexprValue& return_value);
     bool EvaluateReturnStmt(ReturnStatement* stmt, ConstexprValue& return_value);
     bool EvaluateDeclStmt(VarDecl* stmt);
+    bool EvaluateWhileStmt(WhileStatement* stmt, ConstexprValue& return_value);
+    bool EvaluateForStmt(ForStatement* stmt, ConstexprValue& return_value);
+    bool EvaluateCompoundStmt(CompoundStatement* stmt, ConstexprValue& return_value);
     
     // Apply binary operator
     ConstexprValue ApplyBinaryOp(const std::string& op, 
@@ -134,12 +149,18 @@ private:
     
     std::vector<Scope> scopes_;
     
+    // Function table for constexpr evaluation
+    std::unordered_map<std::string, FunctionDecl*> function_table_;
+    
     // Cache of constexpr function results
     std::unordered_map<std::string, ConstexprValue> function_cache_;
     
     // Recursion depth limit
     static constexpr int kMaxRecursionDepth = 512;
     int recursion_depth_ = 0;
+    
+    // Iteration limit for constexpr loops
+    static constexpr int kMaxIterations = 1000000;
 };
 
 // Constexpr checker - validates that expressions/functions can be constexpr
@@ -150,15 +171,39 @@ public:
     // Check if expression is a constant expression
     bool IsConstantExpression(Expression* expr) const;
     
-    // Check if function can be constexpr
+    // Check if function can be constexpr (VarDecl-based)
     bool CanBeConstexpr(VarDecl* func) const;
+    
+    // Check if function can be constexpr (FunctionDecl-based)
+    bool CanBeConstexpr(FunctionDecl* func) const;
     
     // Check if statement is valid in constexpr context
     bool IsConstexprStatement(Statement* stmt) const;
     
+    // Register a known constexpr function
+    void RegisterConstexprFunction(const std::string& name);
+    
+    // Check if a function is known to be constexpr
+    bool IsKnownConstexprFunction(const std::string& name) const;
+    
 private:
+    // Core expression checker implementation
     bool IsConstexprExpr(Expression* expr) const;
+    
+    // Call expression checker
     bool CheckCallExpr(CallExpression* expr) const;
+    
+    // Check if a binary expression is constexpr
+    bool CheckBinaryExpr(BinaryExpression* expr) const;
+    
+    // Check if a unary expression is constexpr
+    bool CheckUnaryExpr(UnaryExpression* expr) const;
+    
+    // Check if a conditional expression is constexpr
+    bool CheckConditionalExpr(ConditionalExpression* expr) const;
+    
+    // Set of known constexpr function names
+    std::unordered_set<std::string> constexpr_functions_;
 };
 
 }  // namespace polyglot::cpp

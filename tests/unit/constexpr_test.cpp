@@ -182,3 +182,111 @@ TEST_CASE("Constexpr Checker - Constant Expression", "[constexpr]") {
     
     REQUIRE(checker.IsConstantExpression(lit.get()) == true);
 }
+
+TEST_CASE("Constexpr Checker - Binary Expression", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    // Binary expression with literal operands is constant
+    auto expr = MakeBinaryExpr("+", MakeIntLiteral(5), MakeIntLiteral(3));
+    REQUIRE(checker.IsConstantExpression(expr.get()) == true);
+}
+
+TEST_CASE("Constexpr Checker - Conditional Expression", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    auto cond_expr = MakeConditionalExpr(
+        MakeBoolLiteral(true),
+        MakeIntLiteral(1),
+        MakeIntLiteral(2));
+    REQUIRE(checker.IsConstantExpression(cond_expr.get()) == true);
+}
+
+TEST_CASE("Constexpr Checker - IsConstexprStatement with VarDecl", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    // Variable declaration with constexpr initializer
+    auto decl = std::make_shared<VarDecl>();
+    decl->name = "x";
+    decl->is_constexpr = true;
+    decl->init = MakeIntLiteral(42);
+    
+    REQUIRE(checker.IsConstexprStatement(decl.get()) == true);
+}
+
+TEST_CASE("Constexpr Checker - IsConstexprStatement with Return", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    auto ret = std::make_shared<ReturnStatement>();
+    ret->value = MakeIntLiteral(42);
+    
+    REQUIRE(checker.IsConstexprStatement(ret.get()) == true);
+}
+
+TEST_CASE("Constexpr Checker - Static variable not allowed", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    // Static variable is not allowed in constexpr context
+    auto decl = std::make_shared<VarDecl>();
+    decl->name = "x";
+    decl->is_static = true;
+    decl->init = MakeIntLiteral(42);
+    
+    REQUIRE(checker.IsConstexprStatement(decl.get()) == false);
+}
+
+TEST_CASE("Constexpr Checker - CanBeConstexpr FunctionDecl", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    // Create a constexpr function with valid body
+    auto func = std::make_shared<FunctionDecl>();
+    func->name = "add";
+    func->is_constexpr = true;
+    
+    // Add a simple return statement
+    auto ret = std::make_shared<ReturnStatement>();
+    ret->value = MakeIntLiteral(42);
+    func->body.push_back(ret);
+    
+    REQUIRE(checker.CanBeConstexpr(func.get()) == true);
+}
+
+TEST_CASE("Constexpr Function Evaluation", "[constexpr]") {
+    ConstexprEvaluator eval;
+    
+    // Create a constexpr function: constexpr int square(int x) { return x * x; }
+    auto func = std::make_shared<FunctionDecl>();
+    func->name = "square";
+    func->is_constexpr = true;
+    func->params.push_back({"x", nullptr, nullptr});
+    
+    // Create return statement: return x * x;
+    auto x_ref = std::make_shared<Identifier>();
+    x_ref->name = "x";
+    
+    auto ret_expr = MakeBinaryExpr("*", 
+        std::static_pointer_cast<Expression>(std::make_shared<Identifier>(*x_ref)),
+        std::static_pointer_cast<Expression>(std::make_shared<Identifier>(*x_ref)));
+    
+    auto ret_stmt = std::make_shared<ReturnStatement>();
+    ret_stmt->value = ret_expr;
+    func->body.push_back(ret_stmt);
+    
+    // Register and evaluate
+    eval.RegisterFunction("square", func.get());
+    
+    std::vector<ConstexprValue> args = {ConstexprValue(5LL)};
+    ConstexprValue result = eval.EvaluateFunctionCall(func.get(), args);
+    
+    REQUIRE(result.GetType() == ConstexprValue::Type::kInt);
+    REQUIRE(result.AsInt() == 25);
+}
+
+TEST_CASE("Constexpr Checker - Register and lookup", "[constexpr]") {
+    ConstexprChecker checker;
+    
+    // Register a constexpr function
+    checker.RegisterConstexprFunction("my_constexpr_func");
+    
+    REQUIRE(checker.IsKnownConstexprFunction("my_constexpr_func") == true);
+    REQUIRE(checker.IsKnownConstexprFunction("unknown_func") == false);
+}

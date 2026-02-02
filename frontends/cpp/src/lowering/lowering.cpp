@@ -150,16 +150,14 @@ EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, Lowering
             elem_type = obj.type.subtypes[0];
         }
         
-        // Use pointer arithmetic: ptr + index * elem_size
-        // Simplified lowering: use a single dynamic GEP-like access
-        // Note: this needs runtime indexing; using a temporary simplification for now
-        // TODO: implement real dynamic GEP or pointer arithmetic
-
-        // For this simplified lowering, assume direct access is sufficient
-        // Generate a temporary value representing the array access result
-        std::string result_name = "arr_elem_" + std::to_string(
-            reinterpret_cast<uintptr_t>(idx.get()));
-        return {result_name, elem_type};
+        // Use dynamic GEP for runtime-computed array indexing
+        // This generates: ptr_elem = base + index * sizeof(elem_type)
+        auto ptr_inst = lc.builder.MakeDynamicGEP(obj.value, elem_type, index.value, "arr_ptr");
+        
+        // Load the element value from the computed pointer
+        auto load_inst = lc.builder.MakeLoad(ptr_inst->name, elem_type, "arr_elem");
+        
+        return {load_inst->name, elem_type};
     }
     
     lc.diags.Report(idx->loc, "Subscript operator requires array or class with operator[]");
@@ -420,11 +418,116 @@ EvalResult EvalStaticCast(const std::shared_ptr<StaticCastExpression> &cast_expr
         return {};
     }
     
-    // static_cast is compile-time only; no runtime checks
-    // Simplified: return the source value with the target type
-    // TODO: add full conversion logic (integer/float conversions, pointer conversions, etc.)
+    // If source and target types are the same, no conversion needed
+    if (src.type == target_type) {
+        return {src.value, target_type};
+    }
     
-    return {src.value, target_type};
+    // Determine the appropriate cast operation based on source and target types
+    ir::CastInstruction::CastKind cast_kind;
+    bool needs_cast = true;
+    
+    // Integer to integer conversions
+    if (src.type.IsInteger() && target_type.IsInteger()) {
+        int src_bits = src.type.BitWidth();
+        int dst_bits = target_type.BitWidth();
+        
+        if (dst_bits > src_bits) {
+            // Widening conversion: use sign extension or zero extension
+            cast_kind = src.type.is_signed ? 
+                ir::CastInstruction::CastKind::kSExt : 
+                ir::CastInstruction::CastKind::kZExt;
+        } else if (dst_bits < src_bits) {
+            // Narrowing conversion: truncate
+            cast_kind = ir::CastInstruction::CastKind::kTrunc;
+        } else {
+            // Same size, just a type reinterpretation (e.g., signed to unsigned)
+            cast_kind = ir::CastInstruction::CastKind::kBitcast;
+        }
+    }
+    // Float to float conversions
+    else if (src.type.IsFloat() && target_type.IsFloat()) {
+        int src_bits = src.type.BitWidth();
+        int dst_bits = target_type.BitWidth();
+        
+        if (dst_bits > src_bits) {
+            // float to double
+            cast_kind = ir::CastInstruction::CastKind::kFpExt;
+        } else if (dst_bits < src_bits) {
+            // double to float
+            cast_kind = ir::CastInstruction::CastKind::kFpTrunc;
+        } else {
+            needs_cast = false;  // Same float type
+        }
+    }
+    // Integer to float conversions
+    else if (src.type.IsInteger() && target_type.IsFloat()) {
+        // Use runtime conversion via call to __builtin_sitofp or __builtin_uitofp
+        std::string intrinsic = src.type.is_signed ? "__builtin_sitofp" : "__builtin_uitofp";
+        auto call = lc.builder.MakeCall(intrinsic, {src.value}, target_type, "i2f");
+        return {call->name, target_type};
+    }
+    // Float to integer conversions
+    else if (src.type.IsFloat() && target_type.IsInteger()) {
+        // Use runtime conversion via call to __builtin_fptosi or __builtin_fptoui
+        std::string intrinsic = target_type.is_signed ? "__builtin_fptosi" : "__builtin_fptoui";
+        auto call = lc.builder.MakeCall(intrinsic, {src.value}, target_type, "f2i");
+        return {call->name, target_type};
+    }
+    // Pointer to integer conversions (ptr to int)
+    else if (src.type.kind == ir::IRTypeKind::kPointer && target_type.IsInteger()) {
+        cast_kind = ir::CastInstruction::CastKind::kPtrToInt;
+    }
+    // Integer to pointer conversions (int to ptr)
+    else if (src.type.IsInteger() && target_type.kind == ir::IRTypeKind::kPointer) {
+        cast_kind = ir::CastInstruction::CastKind::kIntToPtr;
+    }
+    // Pointer to pointer conversions (reinterpret as different pointer type)
+    else if (src.type.kind == ir::IRTypeKind::kPointer && 
+             target_type.kind == ir::IRTypeKind::kPointer) {
+        // Pointer-to-pointer cast is just a bitcast
+        cast_kind = ir::CastInstruction::CastKind::kBitcast;
+    }
+    // Class type conversions (up/down casts in inheritance hierarchy)
+    else if ((src.type.kind == ir::IRTypeKind::kPointer || 
+              src.type.kind == ir::IRTypeKind::kStruct) &&
+             (target_type.kind == ir::IRTypeKind::kPointer || 
+              target_type.kind == ir::IRTypeKind::kStruct)) {
+        // For class types, static_cast performs compile-time checked casts
+        // In a simplified model, this is just pointer reinterpretation
+        cast_kind = ir::CastInstruction::CastKind::kBitcast;
+    }
+    // Reference conversions
+    else if (src.type.kind == ir::IRTypeKind::kReference || 
+             target_type.kind == ir::IRTypeKind::kReference) {
+        // Reference casts are similar to pointer casts
+        cast_kind = ir::CastInstruction::CastKind::kBitcast;
+    }
+    // Boolean conversions (to bool)
+    else if (target_type.kind == ir::IRTypeKind::kI1) {
+        // Convert any type to bool: compare against zero
+        auto zero_lit = lc.builder.MakeLiteral(0LL);
+        auto cmp = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpNe, 
+                                        src.value, zero_lit->name, "tobool");
+        return {cmp->name, target_type};
+    }
+    // From boolean to other integer types
+    else if (src.type.kind == ir::IRTypeKind::kI1 && target_type.IsInteger()) {
+        // bool to int: zero-extend
+        cast_kind = ir::CastInstruction::CastKind::kZExt;
+    }
+    else {
+        // Unknown conversion - use bitcast as fallback
+        cast_kind = ir::CastInstruction::CastKind::kBitcast;
+    }
+    
+    if (!needs_cast) {
+        return {src.value, target_type};
+    }
+    
+    // Generate the cast instruction
+    auto cast_inst = lc.builder.MakeCast(cast_kind, src.value, target_type, "cast");
+    return {cast_inst->name, target_type};
 }
 
 // Handle member access expressions

@@ -15,6 +15,7 @@ struct BasicBlock;  // fwd
 struct Instruction : Value {
   BasicBlock *parent{nullptr};
   std::vector<std::string> operands;  // variable/use names; constants use empty names
+  bool is_dead{false};  // Marked for removal by dead code elimination
 
   virtual bool IsTerminator() const { return false; }
   bool HasResult() const { return !name.empty() && type.kind != IRTypeKind::kVoid; }
@@ -78,9 +79,11 @@ struct CallInstruction : Instruction {
   bool is_indirect{false};  // if true, callee is an operand name
   IRType callee_type{IRType::Invalid()};  // optional function type annotation
   bool is_vararg{false};
+  bool is_tail_call{false};  // Tail call optimization flag
 };
 
 struct AllocaInstruction : Instruction {
+  bool no_escape{false};  // Set by escape analysis if allocation doesn't escape
   AllocaInstruction() { type = IRType::Pointer(IRType::Invalid()); }
 };
 

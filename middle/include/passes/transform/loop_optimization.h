@@ -14,23 +14,32 @@ namespace polyglot::ir {
 
 namespace polyglot::passes::transform {
 
-// Loop information structure
+/**
+ * Loop information structure
+ * Contains all relevant information about a natural loop
+ */
 struct LoopInfo {
-    ir::BasicBlock* header;                          // Loop header block
+    ir::BasicBlock* header{nullptr};                 // Loop header block
     std::unordered_set<ir::BasicBlock*> body;        // All blocks in the loop
-    std::unordered_set<ir::BasicBlock*> exits;       // Exit blocks
-    ir::BasicBlock* preheader;                       // Preheader block (for LICM)
-    int depth;                                       // Nesting depth
+    std::vector<ir::BasicBlock*> exits;              // Exit blocks (have successors outside loop)
+    std::vector<ir::BasicBlock*> latches;            // Latch blocks (have back edges to header)
+    ir::BasicBlock* preheader{nullptr};              // Preheader block (single external pred)
+    LoopInfo* parent{nullptr};                       // Parent loop (if nested)
+    int depth{0};                                    // Nesting depth
     std::vector<LoopInfo*> nested_loops;             // Nested loops
 };
 
-// Loop analysis - detect natural loops
+/**
+ * Loop analysis - detect natural loops
+ * Uses dominator tree and back edge detection
+ */
 class LoopAnalysis {
 public:
     explicit LoopAnalysis(ir::Function& func);
     
     const std::vector<std::unique_ptr<LoopInfo>>& GetLoops() const { return loops_; }
     LoopInfo* GetLoopForBlock(ir::BasicBlock* bb) const;
+    bool IsInLoop(ir::BasicBlock* bb) const;
     
 private:
     void AnalyzeLoops();
@@ -41,9 +50,13 @@ private:
     ir::Function& func_;
     std::vector<std::unique_ptr<LoopInfo>> loops_;
     std::unordered_map<ir::BasicBlock*, LoopInfo*> block_to_loop_;
+    std::vector<std::pair<ir::BasicBlock*, ir::BasicBlock*>> back_edges_;
 };
 
-// Loop Unrolling Pass
+/**
+ * Loop Unrolling Pass
+ * Replicates loop body to reduce loop overhead and enable ILP
+ */
 class LoopUnrollingPass {
 public:
     explicit LoopUnrollingPass(ir::Function& func, int unroll_factor = 4);
@@ -51,11 +64,18 @@ public:
     bool Run();
     
 private:
+    bool CanUnroll(const LoopInfo* loop) const;
+    void UnrollLoop(LoopInfo* loop);
+    void UpdateLoopBound(LoopInfo* loop);
+    
     ir::Function& func_;
     int unroll_factor_;
 };
 
-// Loop-Invariant Code Motion (LICM) Pass
+/**
+ * Loop-Invariant Code Motion (LICM) Pass
+ * Hoists loop-invariant computations out of loops
+ */
 class LICMPass {
 public:
     explicit LICMPass(ir::Function& func);
@@ -72,7 +92,10 @@ private:
     ir::Function& func_;
 };
 
-// Loop Fusion Pass
+/**
+ * Loop Fusion Pass
+ * Merges adjacent loops with the same iteration space
+ */
 class LoopFusionPass {
 public:
     explicit LoopFusionPass(ir::Function& func);
@@ -86,7 +109,10 @@ private:
     ir::Function& func_;
 };
 
-// Loop Strength Reduction Pass
+/**
+ * Loop Strength Reduction Pass
+ * Replaces expensive operations with cheaper ones based on induction variables
+ */
 class LoopStrengthReductionPass {
 public:
     explicit LoopStrengthReductionPass(ir::Function& func);
@@ -96,7 +122,7 @@ public:
 private:
     struct InductionVarInfo {
         std::string base;
-        int step;
+        int64_t step{0};
     };
     
     bool ProcessLoop(LoopInfo* loop);

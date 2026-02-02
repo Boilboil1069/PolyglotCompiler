@@ -136,9 +136,8 @@ bool DevirtualizationPass::IsFinalMethod(const std::string &class_name,
     
     for (const auto &m : *methods) {
         if (m.name == method_name) {
-            // TODO: Add an is_final flag to MethodInfo
-            // return m.is_final;
-            return false;  // Temporary fallback
+            // Use the is_final flag on MethodInfo
+            return m.is_final;
         }
     }
     

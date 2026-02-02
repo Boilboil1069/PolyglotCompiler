@@ -113,6 +113,8 @@ struct MethodInfo {
     bool is_pure_virtual{false};
     bool is_static{false};
     bool is_const{false};
+    bool is_final{false};       // Method is final and cannot be overridden
+    bool is_override{false};    // Method overrides a base class method
     std::string access;         // public/protected/private
 };
 

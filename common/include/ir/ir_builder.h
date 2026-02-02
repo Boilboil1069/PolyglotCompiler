@@ -37,6 +37,14 @@ const std::vector<std::string> &args,
                                             const IRType &fn_type = IRType::Invalid(),
                                             bool is_vararg = false);
   std::shared_ptr<GetElementPtrInstruction> MakeGEP(const std::string &base, const IRType &base_type, const std::vector<size_t> &indices, const std::string &name = "");
+  
+  // Dynamic GEP with runtime-computed index for array access
+  // Returns a pointer to the element at the given dynamic index
+  std::shared_ptr<BinaryInstruction> MakeDynamicGEP(const std::string &base,
+                                                    const IRType &elem_type,
+                                                    const std::string &index,
+                                                    const std::string &name = "");
+  
   std::shared_ptr<MemcpyInstruction> MakeMemcpy(const std::string &dst, const std::string &src, const std::string &size_name, size_t align = 0);
   std::shared_ptr<MemsetInstruction> MakeMemset(const std::string &dst, const std::string &value, const std::string &size_name, size_t align = 0);
   std::shared_ptr<UnreachableStatement> MakeUnreachable();

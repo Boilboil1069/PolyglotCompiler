@@ -129,6 +129,44 @@ std::shared_ptr<GetElementPtrInstruction> IRBuilder::MakeGEP(const std::string &
   return inst;
 }
 
+std::shared_ptr<BinaryInstruction> IRBuilder::MakeDynamicGEP(const std::string &base,
+                                                             const IRType &elem_type,
+                                                             const std::string &index,
+                                                             const std::string &name) {
+  // Dynamic GEP is implemented as pointer arithmetic:
+  // result = base + index * sizeof(elem_type)
+  //
+  // We emit:
+  //   1. elem_size = sizeof(elem_type)  (computed at compile time)
+  //   2. offset = index * elem_size
+  //   3. result = base + offset
+  
+  auto bb = CurrentBlock();
+  
+  // Compute element size at compile time using DataLayout
+  size_t elem_size = context_.Layout().SizeOf(elem_type);
+  if (elem_size == 0) {
+    elem_size = 8;  // Default to 8 bytes for unknown types
+  }
+  
+  // Create a literal for the element size
+  auto size_lit = MakeLiteral(static_cast<long long>(elem_size));
+  
+  // Multiply index by element size: offset = index * elem_size
+  auto offset = MakeBinary(BinaryInstruction::Op::kMul, index, size_lit->name,
+                           name.empty() ? NextTempName("offset") : name + "_off");
+  
+  // Add offset to base pointer: result = base + offset
+  // This performs pointer arithmetic
+  auto result = MakeBinary(BinaryInstruction::Op::kAdd, base, offset->name,
+                           name.empty() ? NextTempName("ptr") : name);
+  
+  // Set the result type to pointer to element type
+  result->type = IRType::Pointer(elem_type);
+  
+  return result;
+}
+
 std::shared_ptr<MemcpyInstruction> IRBuilder::MakeMemcpy(const std::string &dst, const std::string &src, const std::string &size_name, size_t align) {
   auto bb = CurrentBlock();
   auto inst = std::make_shared<MemcpyInstruction>();
