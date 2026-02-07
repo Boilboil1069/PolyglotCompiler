@@ -297,4 +297,20 @@ class SymbolTable {
   std::vector<Symbol> symbols_{};  // owns storage
 };
 
+// ============================================================================
+// Free-standing utility functions (implemented in symbol_table.cpp)
+// ============================================================================
+
+/// Convert a SymbolKind enum to its human-readable string name.
+std::string SymbolKindToString(SymbolKind kind);
+
+/// Convert a ScopeKind enum to its human-readable string name.
+std::string ScopeKindToString(ScopeKind kind);
+
+/// Format a Symbol for diagnostic output (includes type, language, access, location).
+std::string FormatSymbol(const Symbol &sym);
+
+/// Format a ScopeInfo for diagnostic output.
+std::string FormatScope(const ScopeInfo &scope);
+
 }  // namespace polyglot::core
