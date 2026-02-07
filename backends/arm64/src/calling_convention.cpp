@@ -2,6 +2,7 @@
 #include "backends/arm64/include/machine_ir.h"
 
 #include <algorithm>
+#include <ostream>
 #include <vector>
 
 namespace polyglot::backends::arm64 {

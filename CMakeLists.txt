@@ -12,6 +12,7 @@ add_library(polyglot_common
     common/src/core/symbol_table.cpp
     backends/common/src/debug_info.cpp
     backends/common/src/debug_emitter.cpp
+    backends/common/src/object_file.cpp
     common/src/debug/dwarf5.cpp
 )
 
@@ -113,6 +114,7 @@ add_library(backend_x86_64
     backends/x86_64/src/regalloc/graph_coloring.cpp
     backends/x86_64/src/regalloc/linear_scan.cpp
     backends/x86_64/src/optimizations.cpp
+    backends/x86_64/src/calling_convention.cpp
 )
 
 target_include_directories(backend_x86_64 PUBLIC
@@ -127,6 +129,7 @@ add_library(backend_arm64
     backends/arm64/src/isel/isel.cpp
     backends/arm64/src/regalloc/graph_coloring.cpp
     backends/arm64/src/regalloc/linear_scan.cpp
+    backends/arm64/src/calling_convention.cpp
 )
 
 target_include_directories(backend_arm64 PUBLIC
