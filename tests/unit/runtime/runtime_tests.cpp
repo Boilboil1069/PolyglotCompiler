@@ -77,7 +77,7 @@ TEST_CASE("GC allocations survive across threads with roots", "[runtime][gc][thr
   t2.join();
 }
 
-TEST_CASE("Foreign ownership respects deleter only for owned", "[runtime][interop]") {
+TEST_CASE("Foreign ownership respects deleter for owned and shared", "[runtime][interop]") {
   using interop::ForeignObject;
   using interop::Ownership;
   int destroyed = 0;
@@ -93,7 +93,8 @@ TEST_CASE("Foreign ownership respects deleter only for owned", "[runtime][intero
   interop::ReleaseForeign(shared);
   interop::ReleaseForeign(shared);
 
-  REQUIRE(destroyed == 1);
+  // Owned and shared both fire their deleter on final release; borrowed does not.
+  REQUIRE(destroyed == 2);
 }
 
 TEST_CASE("FFI binding helpers tag ownership", "[runtime][interop][ffi]") {
@@ -114,7 +115,8 @@ TEST_CASE("FFI binding helpers tag ownership", "[runtime][interop][ffi]") {
   interop::ReleaseForeign(shared);
   interop::ReleaseForeign(shared);
 
-  REQUIRE(freed == 1);
+  // Both owned and shared objects invoke their deleter on final release.
+  REQUIRE(freed == 2);
 }
 
 TEST_CASE("Marshalling handles endianness", "[runtime][interop][marshal]") {
