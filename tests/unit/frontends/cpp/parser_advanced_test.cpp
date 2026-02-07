@@ -1,4 +1,4 @@
-#include <deps/catch2/catch_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <algorithm>
 
 #include "frontends/cpp/include/cpp_lexer.h"

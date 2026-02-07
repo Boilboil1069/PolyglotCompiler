@@ -1,5 +1,5 @@
 #define CATCH_CONFIG_MAIN
-#include "deps/catch2/catch_test_macros.hpp"
+#include <catch2/catch_test_macros.hpp>
 
 #include "common/include/ir/ir_parser.h"
 #include "common/include/ir/ir_printer.h"
