@@ -94,9 +94,11 @@ struct Elf64_Rela {
 #include <fstream>
 #include <iostream>
 #include <memory>
+#if defined(__APPLE__)
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
 #include <mach-o/reloc.h>
+#endif
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -648,6 +650,7 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
     return ofs.good() ? path : std::string{};
 }
 
+#if defined(__APPLE__)
 std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> &obj_sections,
                          const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
     // Minimal 64-bit relocatable Mach-O emitting __TEXT,__text plus relocations and symtab.
@@ -746,6 +749,13 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
     ofs.write(strtab.data(), static_cast<std::streamsize>(strtab.size()));
     return ofs.good() ? path : std::string{};
 }
+#else
+// Non-Apple platforms: stub out Mach-O emission.
+std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> &, const std::vector<ObjSymbol> &, const std::string &) {
+    (void)path;
+    return {};
+}
+#endif
 
 std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &sections,
                       const std::vector<ObjSymbol> &symbols) {
@@ -765,9 +775,14 @@ std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &
     }
 
     if (settings.obj_format == "macho") {
+#if defined(__APPLE__)
         auto written = BuildMachO64(out, sections, symbols, settings.arch);
         if (written.empty()) std::cerr << "[error] Mach-O emit failed\n";
         return written;
+#else
+        std::cerr << "[error] Mach-O emit requested on non-Apple platform; skipping.\n";
+        return {};
+#endif
     }
 
     std::cerr << "[warn] unknown obj format: " << settings.obj_format << ", falling back to POBJ\n";

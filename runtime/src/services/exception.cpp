@@ -1,12 +1,21 @@
 #include "runtime/include/services/exception.h"
 
+#ifdef _WIN32
+#include <cstdlib>
+#else
 #include <execinfo.h>
 #include <cstdlib>
+#endif
 #include <sstream>
 
 namespace polyglot::runtime::services {
 
 std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
+#ifdef _WIN32
+  (void)max_frames;
+  // TODO: use CaptureStackBackTrace for richer info on Windows.
+  return {};
+#else
   std::vector<void *> buffer(max_frames);
   int captured = ::backtrace(buffer.data(), static_cast<int>(buffer.size()));
   char **symbols = ::backtrace_symbols(buffer.data(), captured);
@@ -16,6 +25,7 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
     std::free(symbols);
   }
   return frames;
+#endif
 }
 
 [[noreturn]] void ThrowRuntimeError(const std::string &message) {

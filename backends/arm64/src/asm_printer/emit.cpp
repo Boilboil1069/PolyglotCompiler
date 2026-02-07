@@ -1,5 +1,6 @@
 #include "backends/arm64/include/arm64_target.h"
 
+#include <algorithm>
 #include <sstream>
 #include <unordered_map>
 #include <vector>

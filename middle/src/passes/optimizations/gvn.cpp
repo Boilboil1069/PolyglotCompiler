@@ -4,6 +4,7 @@
 #include "middle/include/ir/nodes/statements.h"
 #include <algorithm>
 #include <functional>
+#include <iterator>
 
 namespace polyglot::passes::transform {
 

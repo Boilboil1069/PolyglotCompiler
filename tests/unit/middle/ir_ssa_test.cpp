@@ -1,4 +1,4 @@
-#include "deps/catch2/catch_test_macros.hpp"
+#include <catch2/catch_test_macros.hpp>
 
 #include "middle/include/ir/cfg.h"
 #include "middle/include/ir/ir_context.h"

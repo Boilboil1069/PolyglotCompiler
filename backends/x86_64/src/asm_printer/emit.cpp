@@ -1,5 +1,6 @@
 #include "backends/x86_64/include/x86_target.h"
 
+#include <algorithm>
 #include <sstream>
 #include <string>
 #include <vector>

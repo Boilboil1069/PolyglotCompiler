@@ -1,4 +1,4 @@
-#include "deps/catch2/catch_test_macros.hpp"
+#include <catch2/catch_test_macros.hpp>
 
 #include "backends/arm64/include/machine_ir.h"
 #include "backends/x86_64/include/machine_ir.h"
