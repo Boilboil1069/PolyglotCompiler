@@ -13,6 +13,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#undef GetObject
+#undef LoadLibrary
 #else
 #include <dlfcn.h>
 #endif

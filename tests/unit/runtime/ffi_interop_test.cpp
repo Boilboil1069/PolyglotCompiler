@@ -8,7 +8,7 @@
  * @date     2026-02-06
  * @version  1.0.0
  */
-#include <deps/catch2/catch_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <functional>
 #include <string>
