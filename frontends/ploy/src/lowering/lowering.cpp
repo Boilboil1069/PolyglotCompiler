@@ -82,6 +82,7 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     }
     // BREAK and CONTINUE are handled at a higher level (loop lowering)
     // MAP_TYPE is metadata only, no IR generation needed
+    // CONFIG VENV/CONDA/UV/PIPENV/POETRY is metadata only, processed during semantic analysis
 }
 
 // ============================================================================
@@ -113,6 +114,32 @@ void PloyLowering::LowerImportDecl(const std::shared_ptr<ImportDecl> &import) {
 
     // Declare as an external global (opaque pointer to the module descriptor)
     ir_ctx_.CreateGlobal(module_sym, ir::IRType::Pointer(ir::IRType::I8()), false, "external");
+
+    // If version constraint is specified, emit a version metadata global.
+    // The linker uses this to verify package compatibility.
+    if (!import->version_op.empty() && !import->version_constraint.empty()) {
+        std::string ver_sym = module_sym + "_version_constraint";
+        std::string ver_data = import->version_op + " " + import->version_constraint;
+        ir_ctx_.CreateGlobal(ver_sym, ir::IRType::Pointer(ir::IRType::I8()), false, ver_data);
+    }
+
+    // If selective imports are specified, emit a symbol list metadata global.
+    // The linker uses this to generate targeted bindings for selected symbols only.
+    if (!import->selected_symbols.empty()) {
+        std::string sel_sym = module_sym + "_selected_symbols";
+        std::string sel_data;
+        for (size_t i = 0; i < import->selected_symbols.size(); ++i) {
+            if (i > 0) sel_data += ",";
+            sel_data += import->selected_symbols[i];
+        }
+        ir_ctx_.CreateGlobal(sel_sym, ir::IRType::Pointer(ir::IRType::I8()), false, sel_data);
+
+        // Also declare individual external symbols for each selected import
+        for (const auto &sym : import->selected_symbols) {
+            std::string sym_name = module_sym + "_" + sym;
+            ir_ctx_.CreateGlobal(sym_name, ir::IRType::Pointer(ir::IRType::I8()), false, "external");
+        }
+    }
 }
 
 // ============================================================================

@@ -2,6 +2,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/include/core/types.h"
@@ -56,6 +57,29 @@ struct LinkEntry {
 };
 
 // ============================================================================
+// Package Registry Entry (for auto-discovery)
+// ============================================================================
+
+struct PackageInfo {
+    std::string name;                   // Package name (e.g. "numpy")
+    std::string version;                // Installed version (e.g. "1.24.3")
+    std::string language;               // Language ecosystem (e.g. "python")
+    std::string install_path;           // Filesystem path to the package
+    std::vector<std::string> symbols;   // Exported symbols (functions, classes)
+};
+
+// ============================================================================
+// Virtual Environment Configuration
+// ============================================================================
+
+struct VenvConfig {
+    VenvConfigDecl::ManagerKind manager{VenvConfigDecl::ManagerKind::kVenv};
+    std::string language;       // e.g. "python"
+    std::string venv_path;      // Path to the virtual environment / env name
+    core::SourceLoc defined_at{};
+};
+
+// ============================================================================
 // Semantic Analyzer
 // ============================================================================
 
@@ -71,6 +95,10 @@ class PloySema {
     const std::vector<LinkEntry> &Links() const { return links_; }
     const std::vector<TypeMappingEntry> &TypeMappings() const { return type_mappings_; }
     const std::unordered_map<std::string, PloySymbol> &Symbols() const { return symbols_; }
+    const std::vector<VenvConfig> &VenvConfigs() const { return venv_configs_; }
+    const std::unordered_map<std::string, PackageInfo> &DiscoveredPackages() const {
+        return discovered_packages_;
+    }
 
   private:
     // Declaration analysis
@@ -84,6 +112,7 @@ class PloySema {
     void AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var);
     void AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
     void AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
+    void AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config);
 
     // Statement analysis
     void AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
@@ -110,6 +139,26 @@ class PloySema {
     bool IsValidLanguage(const std::string &lang) const;
     bool AreTypesCompatible(const core::Type &from, const core::Type &to) const;
 
+    // Version constraint validation
+    bool IsValidVersionString(const std::string &version) const;
+    bool IsValidVersionOp(const std::string &op) const;
+    bool CompareVersions(const std::string &installed, const std::string &required,
+                         const std::string &op) const;
+    std::vector<int> ParseVersionParts(const std::string &version) const;
+
+    // Package auto-discovery
+    void DiscoverPackages(const std::string &language, const std::string &venv_path = "",
+                          VenvConfigDecl::ManagerKind manager = VenvConfigDecl::ManagerKind::kVenv);
+    void DiscoverPythonPackages(const std::string &venv_path = "",
+                                VenvConfigDecl::ManagerKind manager = VenvConfigDecl::ManagerKind::kVenv);
+    void DiscoverPythonPackagesViaPip(const std::string &python_cmd);
+    void DiscoverPythonPackagesViaConda(const std::string &env_name);
+    void DiscoverPythonPackagesViaUv(const std::string &venv_path);
+    void DiscoverPythonPackagesViaPipenv(const std::string &project_path);
+    void DiscoverPythonPackagesViaPoetry(const std::string &project_path);
+    void DiscoverRustCrates();
+    void DiscoverCppPackages();
+
     // Helper
     void Report(const core::SourceLoc &loc, const std::string &message);
     bool DeclareSymbol(const PloySymbol &symbol);
@@ -125,6 +174,13 @@ class PloySema {
     std::unordered_map<std::string, core::Type> map_funcs_{};
     int loop_depth_{0};
     core::Type current_return_type_{core::Type::Invalid()};
+
+    // Virtual environment configurations
+    std::vector<VenvConfig> venv_configs_{};
+    // Discovered package registry: key = "language::package_name"
+    std::unordered_map<std::string, PackageInfo> discovered_packages_{};
+    // Track whether discovery has been run for each language
+    std::unordered_set<std::string> discovery_completed_{};
 };
 
 } // namespace polyglot::ploy

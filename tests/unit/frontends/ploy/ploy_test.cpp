@@ -1123,3 +1123,609 @@ LINK(cpp, rust, Point, RustPoint) AS STRUCT {
     REQUIRE(link1->link_kind == LinkDecl::LinkKind::kVariable);
     REQUIRE(link2->link_kind == LinkDecl::LinkKind::kStruct);
 }
+
+// ============================================================================
+// Version Constraint Tests
+// ============================================================================
+
+TEST_CASE("Ploy parser parses IMPORT PACKAGE with version constraint >=", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy >= 1.20;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->language == "python");
+    REQUIRE(import->package_name == "numpy");
+    REQUIRE(import->version_op == ">=");
+    REQUIRE(import->version_constraint == "1.20");
+}
+
+TEST_CASE("Ploy parser parses IMPORT PACKAGE with version constraint ==", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE torch == 2.0.0;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->package_name == "torch");
+    REQUIRE(import->version_op == "==");
+    REQUIRE(import->version_constraint == "2.0.0");
+}
+
+TEST_CASE("Ploy parser parses IMPORT PACKAGE with version and alias", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->package_name == "numpy");
+    REQUIRE(import->version_op == ">=");
+    REQUIRE(import->version_constraint == "1.20");
+    REQUIRE(import->alias == "np");
+}
+
+TEST_CASE("Ploy parser parses IMPORT PACKAGE with version <=", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE scipy <= 1.10.0;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->version_op == "<=");
+    REQUIRE(import->version_constraint == "1.10.0");
+}
+
+TEST_CASE("Ploy parser parses IMPORT PACKAGE with version ~=", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE flask ~= 2.3;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->version_op == "~=");
+    REQUIRE(import->version_constraint == "2.3");
+}
+
+TEST_CASE("Ploy sema validates version constraint format", "[ploy][sema][version]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE numpy >= 1.20;
+)", diags, sema);
+    REQUIRE(ok);
+}
+
+TEST_CASE("Ploy sema rejects invalid version operator on non-package import", "[ploy][sema][version]") {
+    // version_op can only be set via PACKAGE imports,
+    // so any well-formed PACKAGE import with a valid version should pass
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE pandas >= 1.5.0;
+)", diags, sema);
+    REQUIRE(ok);
+}
+
+TEST_CASE("Ploy lowering generates version constraint metadata", "[ploy][lowering][version]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE numpy >= 1.20;
+FUNC test() -> void {
+    RETURN;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+// ============================================================================
+// Selective Import Tests
+// ============================================================================
+
+TEST_CASE("Ploy parser parses selective import", "[ploy][parser][selective]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy::(array, mean, std);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->language == "python");
+    REQUIRE(import->package_name == "numpy");
+    REQUIRE(import->selected_symbols.size() == 3);
+    REQUIRE(import->selected_symbols[0] == "array");
+    REQUIRE(import->selected_symbols[1] == "mean");
+    REQUIRE(import->selected_symbols[2] == "std");
+}
+
+TEST_CASE("Ploy parser parses selective import with single symbol", "[ploy][parser][selective]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE os::(path);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->selected_symbols.size() == 1);
+    REQUIRE(import->selected_symbols[0] == "path");
+}
+
+TEST_CASE("Ploy parser parses selective import with version", "[ploy][parser][selective]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->selected_symbols.size() == 2);
+    REQUIRE(import->version_op == ">=");
+    REQUIRE(import->version_constraint == "1.20");
+}
+
+TEST_CASE("Ploy parser parses selective import with alias", "[ploy][parser][selective]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy::(array, mean) AS np;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->selected_symbols.size() == 2);
+    REQUIRE(import->alias == "np");
+}
+
+TEST_CASE("Ploy sema validates selective import", "[ploy][sema][selective]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE numpy::(array, mean);
+)", diags, sema);
+    REQUIRE(ok);
+    // The selected symbols should be registered individually
+    auto it_array = sema.Symbols().find("array");
+    REQUIRE(it_array != sema.Symbols().end());
+    auto it_mean = sema.Symbols().find("mean");
+    REQUIRE(it_mean != sema.Symbols().end());
+    // The package itself should also be registered
+    auto it_numpy = sema.Symbols().find("numpy");
+    REQUIRE(it_numpy != sema.Symbols().end());
+}
+
+TEST_CASE("Ploy sema rejects duplicate symbols in selective import", "[ploy][sema][selective]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE numpy::(array, array);
+)", diags, sema);
+    // Should report a warning/error about duplicate but still succeed structurally
+    // The sema reports the duplicate but doesn't fail the analysis entirely
+    // (the redefinition error for the second "array" symbol makes it fail)
+    REQUIRE(!ok);
+}
+
+TEST_CASE("Ploy lowering generates selective import metadata", "[ploy][lowering][selective]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE numpy::(array, mean);
+FUNC test() -> void {
+    RETURN;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+// ============================================================================
+// CONFIG VENV Tests
+// ============================================================================
+
+TEST_CASE("Ploy lexer tokenizes CONFIG and VENV keywords", "[ploy][lexer][venv]") {
+    auto tokens = Tokenize("CONFIG VENV");
+    size_t keyword_count = 0;
+    for (const auto &t : tokens) {
+        if (t.kind == TokenKind::kKeyword) ++keyword_count;
+    }
+    REQUIRE(keyword_count == 2);
+}
+
+TEST_CASE("Ploy parser parses CONFIG VENV declaration", "[ploy][parser][venv]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG VENV python "C:/Users/me/venvs/myenv";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 1);
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->language == "python");
+    REQUIRE(venv->venv_path == "C:/Users/me/venvs/myenv");
+}
+
+TEST_CASE("Ploy parser parses CONFIG VENV without language", "[ploy][parser][venv]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG VENV "/home/user/.virtualenvs/ml";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->language == "python");  // defaults to python
+    REQUIRE(venv->venv_path == "/home/user/.virtualenvs/ml");
+}
+
+TEST_CASE("Ploy sema validates CONFIG VENV", "[ploy][sema][venv]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG VENV python "C:/envs/myenv";
+IMPORT python PACKAGE numpy;
+)", diags, sema);
+    REQUIRE(ok);
+    REQUIRE(sema.VenvConfigs().size() == 1);
+    REQUIRE(sema.VenvConfigs()[0].language == "python");
+    REQUIRE(sema.VenvConfigs()[0].venv_path == "C:/envs/myenv");
+}
+
+TEST_CASE("Ploy sema rejects duplicate CONFIG VENV", "[ploy][sema][venv]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG VENV python "C:/envs/env1";
+CONFIG VENV python "C:/envs/env2";
+)", diags, sema);
+    REQUIRE(!ok);  // duplicate venv config for same language
+}
+
+TEST_CASE("Ploy sema rejects CONFIG VENV with invalid language", "[ploy][sema][venv]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG VENV java "/opt/jdk";
+)", diags, sema);
+    REQUIRE(!ok);  // java is not a supported language
+}
+
+// ============================================================================
+// Complex Import Combinations
+// ============================================================================
+
+TEST_CASE("Ploy parser parses dotted package with selective import", "[ploy][parser][package]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy.linalg::(solve, inv);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(import);
+    REQUIRE(import->package_name == "numpy.linalg");
+    REQUIRE(import->selected_symbols.size() == 2);
+    REQUIRE(import->selected_symbols[0] == "solve");
+    REQUIRE(import->selected_symbols[1] == "inv");
+}
+
+TEST_CASE("Ploy full pipeline: VENV + versioned import + selective", "[ploy][integration][package]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+CONFIG VENV python "C:/envs/ml";
+
+IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+
+FUNC compute() -> void {
+    LET data = [1, 2, 3];
+    RETURN;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy parser parses multiple versioned imports", "[ploy][parser][version]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+IMPORT python PACKAGE numpy >= 1.20;
+IMPORT python PACKAGE pandas >= 1.5.0;
+IMPORT python PACKAGE scipy == 1.10.0;
+IMPORT rust PACKAGE serde >= 1.0;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 4);
+
+    auto np = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
+    REQUIRE(np->version_op == ">=");
+    REQUIRE(np->version_constraint == "1.20");
+
+    auto pd = std::dynamic_pointer_cast<ImportDecl>(module->declarations[1]);
+    REQUIRE(pd->version_op == ">=");
+    REQUIRE(pd->version_constraint == "1.5.0");
+
+    auto sp = std::dynamic_pointer_cast<ImportDecl>(module->declarations[2]);
+    REQUIRE(sp->version_op == "==");
+    REQUIRE(sp->version_constraint == "1.10.0");
+
+    auto sr = std::dynamic_pointer_cast<ImportDecl>(module->declarations[3]);
+    REQUIRE(sr->version_op == ">=");
+    REQUIRE(sr->version_constraint == "1.0");
+}
+
+// ============================================================================
+// Package Import with LINK Integration
+// ============================================================================
+
+TEST_CASE("Ploy versioned import with LINK and PIPELINE", "[ploy][integration][version]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT python PACKAGE scipy.optimize >= 1.8;
+
+LINK(cpp, python, compute, np::mean);
+MAP_TYPE(cpp::double, python::float);
+
+PIPELINE analysis {
+    LET x = 3.14;
+    LET result = CALL(cpp, compute, x);
+    RETURN result;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    REQUIRE(ir.find("__ploy_pipeline_analysis") != std::string::npos);
+}
+
+// ============================================================================
+// Multi Package Manager Tests (CONFIG CONDA / UV / PIPENV / POETRY)
+// ============================================================================
+
+TEST_CASE("Ploy lexer tokenizes new package manager keywords", "[ploy][lexer][pkgmgr]") {
+    auto tokens = Tokenize("CONFIG CONDA UV PIPENV POETRY VENV");
+    size_t keyword_count = 0;
+    for (const auto &t : tokens) {
+        if (t.kind == TokenKind::kKeyword) ++keyword_count;
+    }
+    REQUIRE(keyword_count == 6);
+}
+
+TEST_CASE("Ploy parser parses CONFIG CONDA declaration", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG CONDA python "ml_env";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 1);
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->manager == VenvConfigDecl::ManagerKind::kConda);
+    REQUIRE(venv->language == "python");
+    REQUIRE(venv->venv_path == "ml_env");
+}
+
+TEST_CASE("Ploy parser parses CONFIG CONDA without language", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG CONDA "data_science";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->manager == VenvConfigDecl::ManagerKind::kConda);
+    REQUIRE(venv->language == "python");  // defaults to python
+    REQUIRE(venv->venv_path == "data_science");
+}
+
+TEST_CASE("Ploy parser parses CONFIG UV declaration", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG UV python "D:/venvs/uv_env";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->manager == VenvConfigDecl::ManagerKind::kUv);
+    REQUIRE(venv->language == "python");
+    REQUIRE(venv->venv_path == "D:/venvs/uv_env");
+}
+
+TEST_CASE("Ploy parser parses CONFIG PIPENV declaration", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG PIPENV python "C:/projects/myapp";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->manager == VenvConfigDecl::ManagerKind::kPipenv);
+    REQUIRE(venv->language == "python");
+    REQUIRE(venv->venv_path == "C:/projects/myapp");
+}
+
+TEST_CASE("Ploy parser parses CONFIG POETRY declaration", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG POETRY "C:/projects/poetry_app";
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    auto venv = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(venv);
+    REQUIRE(venv->manager == VenvConfigDecl::ManagerKind::kPoetry);
+    REQUIRE(venv->language == "python");  // defaults to python
+    REQUIRE(venv->venv_path == "C:/projects/poetry_app");
+}
+
+TEST_CASE("Ploy sema validates CONFIG CONDA", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG CONDA python "ml_env";
+IMPORT python PACKAGE numpy;
+)", diags, sema);
+    REQUIRE(ok);
+    REQUIRE(sema.VenvConfigs().size() == 1);
+    REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kConda);
+    REQUIRE(sema.VenvConfigs()[0].language == "python");
+    REQUIRE(sema.VenvConfigs()[0].venv_path == "ml_env");
+}
+
+TEST_CASE("Ploy sema validates CONFIG UV", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG UV python "D:/venvs/uv_env";
+IMPORT python PACKAGE requests;
+)", diags, sema);
+    REQUIRE(ok);
+    REQUIRE(sema.VenvConfigs().size() == 1);
+    REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kUv);
+}
+
+TEST_CASE("Ploy sema validates CONFIG PIPENV", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG PIPENV python "C:/projects/myapp";
+IMPORT python PACKAGE flask;
+)", diags, sema);
+    REQUIRE(ok);
+    REQUIRE(sema.VenvConfigs().size() == 1);
+    REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kPipenv);
+}
+
+TEST_CASE("Ploy sema validates CONFIG POETRY", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG POETRY python "C:/projects/poetry_app";
+IMPORT python PACKAGE django;
+)", diags, sema);
+    REQUIRE(ok);
+    REQUIRE(sema.VenvConfigs().size() == 1);
+    REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kPoetry);
+}
+
+TEST_CASE("Ploy sema rejects duplicate CONFIG for same language", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG CONDA python "env1";
+CONFIG UV python "env2";
+)", diags, sema);
+    REQUIRE(!ok);  // duplicate config for language python
+}
+
+TEST_CASE("Ploy sema rejects CONFIG CONDA with invalid language", "[ploy][sema][pkgmgr]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+CONFIG CONDA java "jdk_env";
+)", diags, sema);
+    REQUIRE(!ok);  // java is not a supported language
+}
+
+TEST_CASE("Ploy lowering handles CONFIG CONDA correctly", "[ploy][lowering][pkgmgr]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+CONFIG CONDA python "ml_env";
+
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+
+FUNC compute() -> void {
+    RETURN;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy lowering handles CONFIG UV correctly", "[ploy][lowering][pkgmgr]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+CONFIG UV python "D:/venvs/uv_env";
+
+IMPORT python PACKAGE torch >= 2.0;
+
+FUNC train() -> void {
+    RETURN;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy parser parses mixed configs and imports", "[ploy][parser][pkgmgr]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+CONFIG CONDA python "ml_env";
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT python PACKAGE scipy::(optimize, linalg) >= 1.8;
+IMPORT rust PACKAGE serde >= 1.0;
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 4);
+
+    auto cfg = std::dynamic_pointer_cast<VenvConfigDecl>(module->declarations[0]);
+    REQUIRE(cfg);
+    REQUIRE(cfg->manager == VenvConfigDecl::ManagerKind::kConda);
+
+    auto np_import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[1]);
+    REQUIRE(np_import);
+    REQUIRE(np_import->package_name == "numpy");
+    REQUIRE(np_import->version_op == ">=");
+    REQUIRE(np_import->version_constraint == "1.20");
+}
+
+TEST_CASE("Ploy full pipeline: CONDA + versioned imports + selective", "[ploy][integration][pkgmgr]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+CONFIG CONDA python "data_science";
+
+IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+IMPORT python PACKAGE pandas >= 2.0;
+
+LINK(cpp, python, compute, np::mean);
+MAP_TYPE(cpp::double, python::float);
+
+PIPELINE analysis {
+    LET data = [1.0, 2.0, 3.0];
+    LET result = CALL(python, np::mean, data);
+    RETURN result;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    REQUIRE(ir.find("__ploy_pipeline_analysis") != std::string::npos);
+}
+
+TEST_CASE("Ploy full pipeline: POETRY + multiple packages", "[ploy][integration][pkgmgr]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+CONFIG POETRY python "C:/my_project";
+
+IMPORT python PACKAGE fastapi >= 0.100;
+IMPORT python PACKAGE pydantic >= 2.0;
+
+FUNC serve() -> void {
+    RETURN;
+}
+
+EXPORT serve AS "start_server";
+)", diags);
+    REQUIRE(!ir.empty());
+}

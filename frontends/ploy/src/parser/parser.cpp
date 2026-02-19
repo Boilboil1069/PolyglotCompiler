@@ -123,6 +123,10 @@ void PloyParser::ParseTopLevel() {
             module_->declarations.push_back(ParseMapFuncDecl());
             return;
         }
+        if (kw == "CONFIG") {
+            module_->declarations.push_back(ParseConfigDecl());
+            return;
+        }
     }
     // Fallback: parse as a statement
     module_->declarations.push_back(ParseStatement());
@@ -266,7 +270,7 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
 
         if (current_.kind == frontends::TokenKind::kKeyword &&
             current_.lexeme == "PACKAGE") {
-            // Package import: IMPORT lang PACKAGE pkg [AS alias];
+            // Package import: IMPORT lang PACKAGE pkg [:: (sym1, sym2)] [>= ver] [AS alias];
             node->language = first;
             Advance(); // consume 'PACKAGE'
 
@@ -287,6 +291,69 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
                 }
             } else {
                 diagnostics_.Report(current_.loc, "expected package name after PACKAGE");
+            }
+
+            // Optional: selective imports via ::(sym1, sym2, ...)
+            if (IsSymbol("::")) {
+                Advance(); // consume '::'
+                if (IsSymbol("(")) {
+                    Advance(); // consume '('
+                    // Parse comma-separated list of symbol names
+                    while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
+                        if (current_.kind == frontends::TokenKind::kIdentifier) {
+                            node->selected_symbols.push_back(current_.lexeme);
+                            Advance();
+                        } else {
+                            diagnostics_.Report(current_.loc,
+                                                "expected symbol name in selective import list");
+                            break;
+                        }
+                        if (IsSymbol(",")) {
+                            Advance(); // consume ','
+                        } else {
+                            break;
+                        }
+                    }
+                    ExpectSymbol(")", "expected ')' after selective import list");
+                } else {
+                    diagnostics_.Report(current_.loc,
+                                        "expected '(' after '::' in selective import");
+                }
+            }
+
+            // Optional: version constraint (>=, <=, ==, >, <, ~=)
+            if (IsSymbol(">=") || IsSymbol("<=") || IsSymbol("==") ||
+                IsSymbol(">") || IsSymbol("<") || IsSymbol("~=")) {
+                node->version_op = current_.lexeme;
+                Advance(); // consume version operator
+
+                // Parse version string: may be numeric tokens joined by dots (1.20.0)
+                if (current_.kind == frontends::TokenKind::kNumber ||
+                    current_.kind == frontends::TokenKind::kIdentifier) {
+                    node->version_constraint = current_.lexeme;
+                    Advance();
+                    // Handle dotted version: 1.20.0
+                    while (IsSymbol(".")) {
+                        node->version_constraint += ".";
+                        Advance();
+                        if (current_.kind == frontends::TokenKind::kNumber ||
+                            current_.kind == frontends::TokenKind::kIdentifier) {
+                            node->version_constraint += current_.lexeme;
+                            Advance();
+                        }
+                    }
+                } else if (current_.kind == frontends::TokenKind::kString) {
+                    // Allow quoted version strings: >= "1.20"
+                    std::string raw = current_.lexeme;
+                    if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                        raw = raw.substr(1, raw.size() - 2);
+                    }
+                    node->version_constraint = raw;
+                    Advance();
+                } else {
+                    diagnostics_.Report(current_.loc,
+                                        "expected version number after '" + node->version_op + "'");
+                }
             }
         } else if (IsSymbol("::")) {
             // Qualified import: IMPORT cpp::module_name
@@ -1205,6 +1272,194 @@ std::shared_ptr<Statement> PloyParser::ParseMapFuncDecl() {
     ExpectSymbol("}", "expected '}' at end of MAP_FUNC body");
 
     return node;
+}
+
+// ============================================================================
+// CONFIG Declaration
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseConfigDecl() {
+    auto loc = current_.loc;
+    Advance(); // consume 'CONFIG'
+
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        current_.lexeme == "VENV") {
+        // CONFIG VENV "path/to/venv";
+        // CONFIG VENV python "path/to/venv";
+        auto node = std::make_shared<VenvConfigDecl>();
+        node->loc = loc;
+        node->manager = VenvConfigDecl::ManagerKind::kVenv;
+        Advance(); // consume 'VENV'
+
+        // Optional language specifier
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->language = current_.lexeme;
+            Advance();
+        } else {
+            // Default to python if no language specified
+            node->language = "python";
+        }
+
+        // Expect the venv path as a string literal
+        if (current_.kind == frontends::TokenKind::kString) {
+            std::string raw = current_.lexeme;
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            node->venv_path = raw;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "expected string path after CONFIG VENV");
+        }
+
+        ExpectSymbol(";", "expected ';' after CONFIG VENV");
+        return node;
+    }
+
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        current_.lexeme == "CONDA") {
+        // CONFIG CONDA "env_name";
+        // CONFIG CONDA python "env_name";
+        auto node = std::make_shared<VenvConfigDecl>();
+        node->loc = loc;
+        node->manager = VenvConfigDecl::ManagerKind::kConda;
+        Advance(); // consume 'CONDA'
+
+        // Optional language specifier
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->language = current_.lexeme;
+            Advance();
+        } else {
+            node->language = "python";
+        }
+
+        // Expect the conda environment name or path as a string literal
+        if (current_.kind == frontends::TokenKind::kString) {
+            std::string raw = current_.lexeme;
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            node->venv_path = raw;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "expected string environment name or path after CONFIG CONDA");
+        }
+
+        ExpectSymbol(";", "expected ';' after CONFIG CONDA");
+        return node;
+    }
+
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        current_.lexeme == "UV") {
+        // CONFIG UV "path/to/venv";
+        // CONFIG UV python "path/to/venv";
+        auto node = std::make_shared<VenvConfigDecl>();
+        node->loc = loc;
+        node->manager = VenvConfigDecl::ManagerKind::kUv;
+        Advance(); // consume 'UV'
+
+        // Optional language specifier
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->language = current_.lexeme;
+            Advance();
+        } else {
+            node->language = "python";
+        }
+
+        // Expect the uv venv path as a string literal
+        if (current_.kind == frontends::TokenKind::kString) {
+            std::string raw = current_.lexeme;
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            node->venv_path = raw;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "expected string path after CONFIG UV");
+        }
+
+        ExpectSymbol(";", "expected ';' after CONFIG UV");
+        return node;
+    }
+
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        current_.lexeme == "PIPENV") {
+        // CONFIG PIPENV "path/to/project";
+        // CONFIG PIPENV python "path/to/project";
+        auto node = std::make_shared<VenvConfigDecl>();
+        node->loc = loc;
+        node->manager = VenvConfigDecl::ManagerKind::kPipenv;
+        Advance(); // consume 'PIPENV'
+
+        // Optional language specifier
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->language = current_.lexeme;
+            Advance();
+        } else {
+            node->language = "python";
+        }
+
+        // Expect the pipenv project path as a string literal
+        if (current_.kind == frontends::TokenKind::kString) {
+            std::string raw = current_.lexeme;
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            node->venv_path = raw;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "expected string path after CONFIG PIPENV");
+        }
+
+        ExpectSymbol(";", "expected ';' after CONFIG PIPENV");
+        return node;
+    }
+
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        current_.lexeme == "POETRY") {
+        // CONFIG POETRY "path/to/project";
+        // CONFIG POETRY python "path/to/project";
+        auto node = std::make_shared<VenvConfigDecl>();
+        node->loc = loc;
+        node->manager = VenvConfigDecl::ManagerKind::kPoetry;
+        Advance(); // consume 'POETRY'
+
+        // Optional language specifier
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->language = current_.lexeme;
+            Advance();
+        } else {
+            node->language = "python";
+        }
+
+        // Expect the poetry project path as a string literal
+        if (current_.kind == frontends::TokenKind::kString) {
+            std::string raw = current_.lexeme;
+            if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+                raw = raw.substr(1, raw.size() - 2);
+            }
+            node->venv_path = raw;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "expected string path after CONFIG POETRY");
+        }
+
+        ExpectSymbol(";", "expected ';' after CONFIG POETRY");
+        return node;
+    }
+
+    diagnostics_.Report(current_.loc,
+                        "expected configuration directive after CONFIG (e.g., VENV, CONDA, UV, PIPENV, POETRY)");
+    Sync();
+    // Return a dummy statement so parsing can continue
+    auto dummy = std::make_shared<ExprStatement>();
+    dummy->loc = loc;
+    return dummy;
 }
 
 // ============================================================================

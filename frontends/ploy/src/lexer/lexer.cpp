@@ -60,7 +60,8 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
         "NOT",      "CALL",     "VOID",     "INT",      "FLOAT",
         "STRING",   "BOOL",     "ARRAY",    "STRUCT",   "PACKAGE",
         "LIST",     "TUPLE",    "DICT",     "OPTION",
-        "MAP_FUNC", "CONVERT"
+        "MAP_FUNC", "CONVERT",  "CONFIG",   "VENV",
+        "CONDA",    "UV",       "PIPENV",   "POETRY"
     };
 
     frontends::TokenKind kind = keywords.count(lexeme) ? frontends::TokenKind::kKeyword
@@ -212,6 +213,12 @@ frontends::Token PloyLexer::LexOperator() {
             break;
 
         case '+': case '*':
+            break;
+
+        case '~':
+            if (Peek() == '=') {
+                lexeme.push_back(Get());
+            }
             break;
 
         case '.':

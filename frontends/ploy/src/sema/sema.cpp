@@ -1,6 +1,9 @@
 #include "frontends/ploy/include/ploy_sema.h"
 
 #include <algorithm>
+#include <cctype>
+#include <cstdio>
+#include <sstream>
 #include <unordered_set>
 
 namespace polyglot::ploy {
@@ -65,6 +68,8 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
         AnalyzeStructDecl(struct_decl);
     } else if (auto map_func = std::dynamic_pointer_cast<MapFuncDecl>(stmt)) {
         AnalyzeMapFuncDecl(map_func);
+    } else if (auto venv_config = std::dynamic_pointer_cast<VenvConfigDecl>(stmt)) {
+        AnalyzeVenvConfigDecl(venv_config);
     }
 }
 
@@ -144,6 +149,79 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         Report(import->loc, "unknown language '" + import->language + "' in IMPORT");
     }
 
+    // Validate version constraint if present
+    if (!import->version_op.empty()) {
+        if (!IsValidVersionOp(import->version_op)) {
+            Report(import->loc,
+                   "invalid version operator '" + import->version_op + "' in IMPORT");
+        }
+        if (import->version_constraint.empty()) {
+            Report(import->loc, "version operator without version number in IMPORT");
+        } else if (!IsValidVersionString(import->version_constraint)) {
+            Report(import->loc,
+                   "invalid version string '" + import->version_constraint + "' in IMPORT");
+        }
+        if (import->package_name.empty()) {
+            Report(import->loc,
+                   "version constraints are only valid for PACKAGE imports");
+        }
+    }
+
+    // Validate selective imports
+    if (!import->selected_symbols.empty()) {
+        if (import->package_name.empty()) {
+            Report(import->loc,
+                   "selective imports (::) are only valid for PACKAGE imports");
+        }
+        // Check for duplicate symbols in the selection list
+        std::unordered_set<std::string> seen;
+        for (const auto &sym : import->selected_symbols) {
+            if (!seen.insert(sym).second) {
+                Report(import->loc,
+                       "duplicate symbol '" + sym + "' in selective import list");
+            }
+        }
+    }
+
+    // Run package auto-discovery for the specified language if not done yet
+    if (!import->language.empty() && !import->package_name.empty()) {
+        if (discovery_completed_.find(import->language) == discovery_completed_.end()) {
+            // Find the venv path and manager kind for this language, if configured
+            std::string venv_path;
+            VenvConfigDecl::ManagerKind manager = VenvConfigDecl::ManagerKind::kVenv;
+            for (const auto &vc : venv_configs_) {
+                if (vc.language == import->language) {
+                    venv_path = vc.venv_path;
+                    manager = vc.manager;
+                    break;
+                }
+            }
+            DiscoverPackages(import->language, venv_path, manager);
+            discovery_completed_.insert(import->language);
+        }
+
+        // If package discovery found this package, validate the version constraint
+        std::string pkg_key = import->language + "::" + import->package_name;
+        auto pkg_it = discovered_packages_.find(pkg_key);
+        if (pkg_it != discovered_packages_.end()) {
+            // Package found — check version constraint if specified
+            if (!import->version_op.empty() && !import->version_constraint.empty()) {
+                if (!CompareVersions(pkg_it->second.version,
+                                     import->version_constraint,
+                                     import->version_op)) {
+                    Report(import->loc,
+                           "installed package '" + import->package_name +
+                           "' version " + pkg_it->second.version +
+                           " does not satisfy constraint " +
+                           import->version_op + " " + import->version_constraint);
+                }
+            }
+        }
+        // Note: if the package is not discovered, we do NOT emit an error,
+        // as the package might be available at link-time or in a different
+        // environment. The discovery is best-effort.
+    }
+
     // Determine the symbol name to register
     std::string sym_name;
     if (!import->alias.empty()) {
@@ -164,6 +242,17 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     sym.type = core::Type::Module(sym_name, import->language);
     sym.defined_at = import->loc;
     DeclareSymbol(sym);
+
+    // If selective imports are specified, register each selected symbol individually
+    for (const auto &selected : import->selected_symbols) {
+        PloySymbol sel_sym;
+        sel_sym.kind = PloySymbol::Kind::kImport;
+        sel_sym.name = selected;
+        sel_sym.language = import->language;
+        sel_sym.type = core::Type::Any();
+        sel_sym.defined_at = import->loc;
+        DeclareSymbol(sel_sym);
+    }
 }
 
 // ============================================================================
@@ -855,6 +944,486 @@ bool PloySema::DeclareSymbol(const PloySymbol &symbol) {
         return false;
     }
     return true;
+}
+
+// ============================================================================
+// CONFIG VENV Analysis
+// ============================================================================
+
+void PloySema::AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config) {
+    // Validate the language
+    if (!IsValidLanguage(venv_config->language)) {
+        Report(venv_config->loc,
+               "unknown language '" + venv_config->language + "' in CONFIG");
+        return;
+    }
+
+    // Check for duplicate venv config for the same language
+    for (const auto &existing : venv_configs_) {
+        if (existing.language == venv_config->language) {
+            Report(venv_config->loc,
+                   "duplicate CONFIG for language '" + venv_config->language +
+                   "' (previously defined at " + existing.defined_at.file +
+                   ":" + std::to_string(existing.defined_at.line) + ")");
+            return;
+        }
+    }
+
+    if (venv_config->venv_path.empty()) {
+        Report(venv_config->loc, "CONFIG environment path is empty");
+        return;
+    }
+
+    VenvConfig vc;
+    vc.manager = venv_config->manager;
+    vc.language = venv_config->language;
+    vc.venv_path = venv_config->venv_path;
+    vc.defined_at = venv_config->loc;
+    venv_configs_.push_back(vc);
+}
+
+// ============================================================================
+// Version Constraint Validation
+// ============================================================================
+
+bool PloySema::IsValidVersionOp(const std::string &op) const {
+    return op == ">=" || op == "<=" || op == "==" ||
+           op == ">"  || op == "<"  || op == "~=";
+}
+
+bool PloySema::IsValidVersionString(const std::string &version) const {
+    if (version.empty()) return false;
+    // Version strings consist of digits separated by dots: 1.20, 2.0.0, etc.
+    // Also allow pre-release suffixes like 1.0.0-beta, 1.0.0rc1
+    bool has_digit = false;
+    for (size_t i = 0; i < version.size(); ++i) {
+        char c = version[i];
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            has_digit = true;
+        } else if (c == '.') {
+            // Dot must be preceded and followed by a digit (or end of version)
+            if (i == 0 || i == version.size() - 1) return false;
+        } else if (std::isalpha(static_cast<unsigned char>(c)) || c == '-') {
+            // Allow pre-release identifiers after a digit
+            if (!has_digit) return false;
+        } else {
+            return false;
+        }
+    }
+    return has_digit;
+}
+
+std::vector<int> PloySema::ParseVersionParts(const std::string &version) const {
+    std::vector<int> parts;
+    std::string current;
+    for (char c : version) {
+        if (std::isdigit(static_cast<unsigned char>(c))) {
+            current += c;
+        } else if (c == '.') {
+            if (!current.empty()) {
+                parts.push_back(std::stoi(current));
+                current.clear();
+            }
+        } else {
+            // Stop at non-numeric, non-dot characters (pre-release suffix)
+            break;
+        }
+    }
+    if (!current.empty()) {
+        parts.push_back(std::stoi(current));
+    }
+    return parts;
+}
+
+bool PloySema::CompareVersions(const std::string &installed, const std::string &required,
+                                const std::string &op) const {
+    auto inst_parts = ParseVersionParts(installed);
+    auto req_parts = ParseVersionParts(required);
+
+    // Pad the shorter vector with zeros for comparison
+    size_t max_len = std::max(inst_parts.size(), req_parts.size());
+    while (inst_parts.size() < max_len) inst_parts.push_back(0);
+    while (req_parts.size() < max_len) req_parts.push_back(0);
+
+    // Lexicographic comparison
+    int cmp = 0;
+    for (size_t i = 0; i < max_len; ++i) {
+        if (inst_parts[i] < req_parts[i]) { cmp = -1; break; }
+        if (inst_parts[i] > req_parts[i]) { cmp = 1; break; }
+    }
+
+    if (op == ">=") return cmp >= 0;
+    if (op == "<=") return cmp <= 0;
+    if (op == "==") return cmp == 0;
+    if (op == ">")  return cmp > 0;
+    if (op == "<")  return cmp < 0;
+    if (op == "~=") {
+        // Compatible release: ~= 1.20 means >= 1.20, < 2.0
+        //                     ~= 1.20.3 means >= 1.20.3, < 1.21.0
+        if (cmp < 0) return false; // installed < required
+        // Check upper bound: the second-to-last segment must match
+        auto upper = req_parts;
+        if (upper.size() >= 2) {
+            upper[upper.size() - 2] += 1;
+            upper[upper.size() - 1] = 0;
+            for (size_t i = 0; i < upper.size(); ++i) {
+                if (inst_parts[i] < upper[i]) return true;
+                if (inst_parts[i] > upper[i]) return false;
+            }
+            return false; // exactly at upper bound, which is exclusive
+        }
+        return cmp >= 0;
+    }
+
+    return false;
+}
+
+// ============================================================================
+// Package Auto-Discovery
+// ============================================================================
+
+void PloySema::DiscoverPackages(const std::string &language, const std::string &venv_path,
+                                VenvConfigDecl::ManagerKind manager) {
+    if (language == "python") {
+        DiscoverPythonPackages(venv_path, manager);
+    } else if (language == "rust") {
+        DiscoverRustCrates();
+    } else if (language == "cpp" || language == "c") {
+        DiscoverCppPackages();
+    }
+    // Other languages can be added here
+}
+
+void PloySema::DiscoverPythonPackages(const std::string &venv_path,
+                                      VenvConfigDecl::ManagerKind manager) {
+    switch (manager) {
+        case VenvConfigDecl::ManagerKind::kConda:
+            DiscoverPythonPackagesViaConda(venv_path);
+            return;
+        case VenvConfigDecl::ManagerKind::kUv:
+            DiscoverPythonPackagesViaUv(venv_path);
+            return;
+        case VenvConfigDecl::ManagerKind::kPipenv:
+            DiscoverPythonPackagesViaPipenv(venv_path);
+            return;
+        case VenvConfigDecl::ManagerKind::kPoetry:
+            DiscoverPythonPackagesViaPoetry(venv_path);
+            return;
+        case VenvConfigDecl::ManagerKind::kVenv:
+        default:
+            break;
+    }
+
+    // Default: standard venv/virtualenv via pip
+    std::string python_cmd;
+    if (!venv_path.empty()) {
+#ifdef _WIN32
+        python_cmd = "\"" + venv_path + "\\Scripts\\python.exe\" -m pip list --format=freeze";
+#else
+        python_cmd = "\"" + venv_path + "/bin/python\" -m pip list --format=freeze";
+#endif
+    } else {
+        python_cmd = "python -m pip list --format=freeze";
+    }
+
+    DiscoverPythonPackagesViaPip(python_cmd);
+}
+
+void PloySema::DiscoverPythonPackagesViaPip(const std::string &pip_cmd) {
+    // Execute the command and capture output
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen(pip_cmd.c_str(), "r");
+#else
+    FILE *pipe = popen(pip_cmd.c_str(), "r");
+#endif
+    if (!pipe) {
+        // pip not available — silently skip discovery
+        return;
+    }
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse pip freeze output: each line is "package==version"
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        // Skip empty lines and comment lines
+        if (line.empty() || line[0] == '#') continue;
+
+        // Format: package==version or package===version
+        size_t eq_pos = line.find("==");
+        if (eq_pos == std::string::npos) continue;
+
+        std::string pkg_name = line.substr(0, eq_pos);
+        std::string pkg_version = line.substr(eq_pos + 2);
+
+        // Trim trailing whitespace/newlines
+        while (!pkg_version.empty() &&
+               (pkg_version.back() == '\n' || pkg_version.back() == '\r' ||
+                pkg_version.back() == ' ')) {
+            pkg_version.pop_back();
+        }
+        while (!pkg_name.empty() &&
+               (pkg_name.back() == '\n' || pkg_name.back() == '\r' ||
+                pkg_name.back() == ' ')) {
+            pkg_name.pop_back();
+        }
+
+        // Normalize package name (pip uses hyphens, Python uses underscores)
+        std::string normalized_name = pkg_name;
+        for (char &c : normalized_name) {
+            if (c == '-') c = '_';
+        }
+
+        PackageInfo info;
+        info.name = normalized_name;
+        info.version = pkg_version;
+        info.language = "python";
+
+        std::string key = "python::" + normalized_name;
+        discovered_packages_[key] = info;
+
+        // Also register with original name (case-insensitive matching)
+        if (normalized_name != pkg_name) {
+            std::string alt_key = "python::" + pkg_name;
+            discovered_packages_[alt_key] = info;
+        }
+    }
+}
+
+void PloySema::DiscoverPythonPackagesViaConda(const std::string &env_name) {
+    // Build the conda list command targeting the specified environment
+    std::string conda_cmd;
+    if (!env_name.empty()) {
+        conda_cmd = "conda list -n " + env_name + " --export 2>nul";
+    } else {
+        conda_cmd = "conda list --export 2>nul";
+    }
+
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen(conda_cmd.c_str(), "r");
+#else
+    // Redirect stderr on Unix
+    std::string unix_cmd = env_name.empty()
+        ? "conda list --export 2>/dev/null"
+        : "conda list -n " + env_name + " --export 2>/dev/null";
+    FILE *pipe = popen(unix_cmd.c_str(), "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse conda list --export output: each line is "package=version=build_string"
+    // Lines starting with '#' are comments
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.empty() || line[0] == '#' || line[0] == '@') continue;
+
+        // Format: package=version=build
+        size_t first_eq = line.find('=');
+        if (first_eq == std::string::npos) continue;
+
+        std::string pkg_name = line.substr(0, first_eq);
+        std::string rest = line.substr(first_eq + 1);
+
+        size_t second_eq = rest.find('=');
+        std::string pkg_version = (second_eq != std::string::npos)
+                                      ? rest.substr(0, second_eq)
+                                      : rest;
+
+        // Trim whitespace
+        while (!pkg_version.empty() &&
+               (pkg_version.back() == '\n' || pkg_version.back() == '\r' ||
+                pkg_version.back() == ' ')) {
+            pkg_version.pop_back();
+        }
+        while (!pkg_name.empty() &&
+               (pkg_name.back() == '\n' || pkg_name.back() == '\r' ||
+                pkg_name.back() == ' ')) {
+            pkg_name.pop_back();
+        }
+
+        // Normalize package name
+        std::string normalized_name = pkg_name;
+        for (char &c : normalized_name) {
+            if (c == '-') c = '_';
+        }
+
+        PackageInfo info;
+        info.name = normalized_name;
+        info.version = pkg_version;
+        info.language = "python";
+
+        std::string key = "python::" + normalized_name;
+        discovered_packages_[key] = info;
+
+        if (normalized_name != pkg_name) {
+            std::string alt_key = "python::" + pkg_name;
+            discovered_packages_[alt_key] = info;
+        }
+    }
+}
+
+void PloySema::DiscoverPythonPackagesViaUv(const std::string &venv_path) {
+    // uv manages venvs similarly to pip, but uses its own command
+    // uv pip list --format=freeze (within a specific venv)
+    std::string uv_cmd;
+    if (!venv_path.empty()) {
+#ifdef _WIN32
+        // Use the python from the uv-managed venv
+        uv_cmd = "\"" + venv_path + "\\Scripts\\python.exe\" -m pip list --format=freeze";
+#else
+        uv_cmd = "\"" + venv_path + "/bin/python\" -m pip list --format=freeze";
+#endif
+    } else {
+        // Try uv pip list directly
+        uv_cmd = "uv pip list --format=freeze 2>nul";
+    }
+
+    DiscoverPythonPackagesViaPip(uv_cmd);
+}
+
+void PloySema::DiscoverPythonPackagesViaPipenv(const std::string &project_path) {
+    // pipenv run pip list --format=freeze
+    // If project_path is specified, run from that directory
+    std::string pipenv_cmd;
+    if (!project_path.empty()) {
+#ifdef _WIN32
+        pipenv_cmd = "cmd /c \"cd /d " + project_path + " && pipenv run pip list --format=freeze 2>nul\"";
+#else
+        pipenv_cmd = "cd " + project_path + " && pipenv run pip list --format=freeze 2>/dev/null";
+#endif
+    } else {
+        pipenv_cmd = "pipenv run pip list --format=freeze 2>nul";
+    }
+
+    DiscoverPythonPackagesViaPip(pipenv_cmd);
+}
+
+void PloySema::DiscoverPythonPackagesViaPoetry(const std::string &project_path) {
+    // poetry run pip list --format=freeze
+    // If project_path is specified, run from that directory
+    std::string poetry_cmd;
+    if (!project_path.empty()) {
+#ifdef _WIN32
+        poetry_cmd = "cmd /c \"cd /d " + project_path + " && poetry run pip list --format=freeze 2>nul\"";
+#else
+        poetry_cmd = "cd " + project_path + " && poetry run pip list --format=freeze 2>/dev/null";
+#endif
+    } else {
+        poetry_cmd = "poetry run pip list --format=freeze 2>nul";
+    }
+
+    DiscoverPythonPackagesViaPip(poetry_cmd);
+}
+
+void PloySema::DiscoverRustCrates() {
+    // Use cargo to list installed crates
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen("cargo install --list 2>nul", "r");
+#else
+    FILE *pipe = popen("cargo install --list 2>/dev/null", "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse cargo install --list output: "crate_name v1.2.3:"
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.empty() || line[0] == ' ') continue;
+
+        // Lines look like: "crate_name v1.2.3:"
+        size_t space_pos = line.find(' ');
+        if (space_pos == std::string::npos) continue;
+
+        std::string crate_name = line.substr(0, space_pos);
+        std::string version_str;
+
+        size_t v_pos = line.find('v', space_pos);
+        size_t colon_pos = line.find(':', v_pos);
+        if (v_pos != std::string::npos && colon_pos != std::string::npos) {
+            version_str = line.substr(v_pos + 1, colon_pos - v_pos - 1);
+        }
+
+        PackageInfo info;
+        info.name = crate_name;
+        info.version = version_str;
+        info.language = "rust";
+
+        std::string key = "rust::" + crate_name;
+        discovered_packages_[key] = info;
+    }
+}
+
+void PloySema::DiscoverCppPackages() {
+    // C++ package discovery via pkg-config
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen("pkg-config --list-all 2>nul", "r");
+#else
+    FILE *pipe = popen("pkg-config --list-all 2>/dev/null", "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse pkg-config output: "package_name  description"
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+
+        size_t space_pos = line.find(' ');
+        std::string pkg_name = (space_pos != std::string::npos)
+                                    ? line.substr(0, space_pos)
+                                    : line;
+
+        PackageInfo info;
+        info.name = pkg_name;
+        info.language = "cpp";
+
+        std::string key = "cpp::" + pkg_name;
+        discovered_packages_[key] = info;
+    }
 }
 
 } // namespace polyglot::ploy

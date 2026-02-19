@@ -166,11 +166,24 @@ struct LinkDecl : Statement {
 };
 
 // IMPORT "path" AS alias; or IMPORT lang::module; or IMPORT lang PACKAGE pkg AS alias;
+// Extended with version constraints and selective imports:
+//   IMPORT python PACKAGE numpy >= 1.20;
+//   IMPORT python PACKAGE numpy::(array, mean);
 struct ImportDecl : Statement {
     std::string module_path;
     std::string alias;
     std::string language;       // empty if importing by path
     std::string package_name;   // non-empty when importing a language-specific package
+
+    // Version constraint: ">=", "<=", "==", ">", "<", "~="
+    std::string version_op;
+    std::string version_constraint;  // e.g. "1.20", "2.0.0"
+
+    // Selective imports: IMPORT python PACKAGE numpy::(array, mean);
+    std::vector<std::string> selected_symbols;
+
+    // Virtual environment path (populated from CONFIG VENV directive)
+    std::string venv_path;
 };
 
 // EXPORT function_name; or EXPORT function_name AS "external_name";
@@ -279,6 +292,25 @@ struct MapFuncDecl : Statement {
     std::vector<FuncDecl::Param> params;
     std::shared_ptr<TypeNode> return_type;
     std::vector<std::shared_ptr<Statement>> body;
+};
+
+// CONFIG VENV "path/to/venv";
+// CONFIG CONDA env_name;
+// CONFIG UV "path/to/venv";
+// CONFIG PIPENV "path/to/project";
+// CONFIG POETRY "path/to/project";
+// Specifies a virtual environment or package manager to use for package resolution
+struct VenvConfigDecl : Statement {
+    enum class ManagerKind {
+        kVenv,      // Standard Python venv / virtualenv
+        kConda,     // Conda environment
+        kUv,        // uv-managed virtual environment
+        kPipenv,    // Pipenv project
+        kPoetry     // Poetry project
+    };
+    ManagerKind manager{ManagerKind::kVenv};
+    std::string language;       // e.g. "python"
+    std::string venv_path;      // path to the virtual environment / project / env name
 };
 
 // ============================================================================

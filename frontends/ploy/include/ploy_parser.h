@@ -37,6 +37,7 @@ class PloyParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseFuncDecl();
     std::shared_ptr<Statement> ParseStructDecl();
     std::shared_ptr<Statement> ParseMapFuncDecl();
+    std::shared_ptr<Statement> ParseConfigDecl();
 
     // Statements
     std::shared_ptr<Statement> ParseStatement();
