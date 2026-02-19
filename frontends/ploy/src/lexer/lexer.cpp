@@ -58,7 +58,7 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
         "CASE",     "DEFAULT",  "BREAK",    "CONTINUE", "AS",
         "TRUE",     "FALSE",    "NULL",     "AND",      "OR",
         "NOT",      "CALL",     "VOID",     "INT",      "FLOAT",
-        "STRING",   "BOOL",     "ARRAY",    "STRUCT",
+        "STRING",   "BOOL",     "ARRAY",    "STRUCT",   "PACKAGE",
         "LIST",     "TUPLE",    "DICT",     "OPTION",
         "MAP_FUNC", "CONVERT"
     };

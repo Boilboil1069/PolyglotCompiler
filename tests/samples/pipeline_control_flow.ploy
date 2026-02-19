@@ -3,96 +3,100 @@
 // Demonstrates PIPELINE, IF/ELSE, WHILE, FOR..IN, MATCH, BREAK, CONTINUE
 // =============================================================================
 
-LINK cpp::math::sqrt AS FUNC(f64) -> f64
-LINK cpp::math::abs AS FUNC(f64) -> f64
+// Import C++ math functions
+IMPORT cpp::math;
+
+// Link C++ math functions
+LINK(cpp, python, math::sqrt, py_math::sqrt);
+LINK(cpp, python, math::abs, py_math::abs);
 
 // A pipeline that performs iterative computation across languages
 PIPELINE iterative_solver {
-    VAR tolerance = 0.0001
-    VAR guess = 1.0
-    VAR target = 25.0
-    VAR iteration = 0
+    VAR tolerance = 0.0001;
+    VAR guess = 1.0;
+    VAR target = 25.0;
+    VAR iteration = 0;
 
     // Newton's method loop
     WHILE iteration < 100 {
-        LET error = abs(guess * guess - target)
+        LET error = CALL(cpp, math::abs, guess * guess - target);
 
         IF error < tolerance {
-            BREAK
+            BREAK;
         }
 
-        guess = (guess + target / guess) / 2.0
-        iteration = iteration + 1
+        guess = (guess + target / guess) / 2.0;
+        iteration = iteration + 1;
     }
 
-    RETURN guess
+    RETURN guess;
 }
 
 // A function showcasing FOR..IN with range
 FUNC sum_of_squares(n: i32) -> i32 {
-    VAR total = 0
+    VAR total = 0;
     FOR i IN 0..n {
-        total = total + i * i
+        total = total + i * i;
     }
-    RETURN total
+    RETURN total;
 }
 
 // A function showcasing MATCH (pattern matching / switch)
 FUNC fibonacci(n: i32) -> i32 {
     MATCH n {
         CASE 0 {
-            RETURN 0
+            RETURN 0;
         }
         CASE 1 {
-            RETURN 1
+            RETURN 1;
         }
         DEFAULT {
             // Iterative fibonacci for larger values
-            VAR a = 0
-            VAR b = 1
-            VAR i = 2
+            VAR a = 0;
+            VAR b = 1;
+            VAR i = 2;
             WHILE i <= n {
-                LET temp = a + b
-                a = b
-                b = temp
-                i = i + 1
+                LET temp = a + b;
+                a = b;
+                b = temp;
+                i = i + 1;
             }
-            RETURN b
+            RETURN b;
         }
     }
 }
 
 // Nested control flow
 FUNC classify_range(start: i32, end: i32) -> i32 {
-    VAR even_count = 0
-    VAR odd_count = 0
+    VAR even_count = 0;
+    VAR odd_count = 0;
 
     FOR i IN start..end {
         IF i > 1000 {
-            BREAK
+            BREAK;
         }
 
         // Skip negative values
         IF i < 0 {
-            CONTINUE
+            CONTINUE;
         }
 
         // Classify using match
-        LET remainder = i - (i / 2) * 2
+        LET remainder = i - (i / 2) * 2;
         MATCH remainder {
             CASE 0 {
-                even_count = even_count + 1
+                even_count = even_count + 1;
             }
             DEFAULT {
-                odd_count = odd_count + 1
+                odd_count = odd_count + 1;
             }
         }
     }
 
-    RETURN even_count - odd_count
+    RETURN even_count - odd_count;
 }
 
-EXPORT iterative_solver AS "ploy_iterative_solver"
-EXPORT sum_of_squares AS "ploy_sum_of_squares"
-EXPORT fibonacci AS "ploy_fibonacci"
-EXPORT classify_range AS "ploy_classify_range"
+EXPORT iterative_solver AS "ploy_iterative_solver";
+EXPORT sum_of_squares AS "ploy_sum_of_squares";
+EXPORT fibonacci AS "ploy_fibonacci";
+EXPORT classify_range AS "ploy_classify_range";

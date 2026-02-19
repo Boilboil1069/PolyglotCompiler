@@ -68,6 +68,23 @@ class LexerBase {
 
     void SetTabWidth(size_t width) { tab_width_ = width; }
 
+    // Save/restore lexer state for lookahead (public for parser access)
+  public:
+    struct LexerState {
+        size_t position;
+        size_t line;
+        size_t column;
+    };
+
+    LexerState SaveState() const { return {position_, line_, column_}; }
+
+    void RestoreState(const LexerState &state) {
+        position_ = state.position;
+        line_ = state.line;
+        column_ = state.column;
+    }
+
+  protected:
     std::string source_;
     std::string file_;
     size_t position_{0};

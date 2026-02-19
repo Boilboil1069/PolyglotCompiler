@@ -1,0 +1,90 @@
+// ============================================================================
+// Mixed Compilation Example
+// Demonstrates .ploy orchestrating multiple languages in one program
+// ============================================================================
+
+// --- Language Imports ---
+IMPORT cpp::image_processing;
+IMPORT python PACKAGE torch AS pt;
+IMPORT python PACKAGE torchvision.transforms AS transforms;
+IMPORT rust::rayon;
+
+// --- Cross-Language Function Links ---
+
+// Image loading: Rust provides fast I/O
+LINK(cpp, rust, load_image, rayon::par_load) {
+    MAP_TYPE(cpp::unsigned_char_ptr, rust::Vec_u8);
+    MAP_TYPE(cpp::int, rust::usize);
+}
+
+// ML inference: Python provides the model
+LINK(cpp, python, run_inference, pt::forward) {
+    MAP_TYPE(cpp::float_ptr, python::Tensor);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// Image transforms: Python preprocesses data
+LINK(cpp, python, preprocess, transforms::compose) {
+    MAP_TYPE(cpp::float_ptr, python::Tensor);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::float, python::float);
+MAP_TYPE(cpp::double, rust::f64);
+
+// --- Struct for results ---
+STRUCT InferenceResult {
+    label: STRING;
+    confidence: f64;
+    processing_time_ms: i32;
+}
+
+// --- Main Processing Pipeline ---
+PIPELINE image_classifier {
+    // Stage 1: Load image using Rust parallel I/O
+    FUNC load(path: STRING) -> LIST(f64) {
+        LET raw = CALL(rust, rayon::par_load, path);
+        RETURN raw;
+    }
+
+    // Stage 2: Preprocess with Python torchvision
+    FUNC preprocess_image(raw: LIST(f64)) -> LIST(f64) {
+        LET tensor = CALL(python, transforms::compose, raw);
+        RETURN tensor;
+    }
+
+    // Stage 3: Run inference with PyTorch
+    FUNC classify(data: LIST(f64)) -> InferenceResult {
+        LET output = CALL(python, pt::forward, data);
+        LET result = InferenceResult {
+            label: "cat",
+            confidence: 0.95,
+            processing_time_ms: 42
+        };
+        RETURN result;
+    }
+}
+
+// --- Control Flow: Process Multiple Images ---
+FUNC batch_process(image_paths: LIST(STRING)) -> LIST(InferenceResult) {
+    VAR results = [];
+    FOR path IN image_paths {
+        LET raw = CALL(rust, rayon::par_load, path);
+        LET preprocessed = CALL(python, transforms::compose, raw);
+        LET result = CALL(python, pt::forward, preprocessed);
+
+        IF result > 0.5 {
+            LET r = InferenceResult {
+                label: "positive",
+                confidence: result,
+                processing_time_ms: 0
+            };
+            results = results;
+        }
+    }
+    RETURN results;
+}
+
+// --- Exports ---
+EXPORT image_classifier AS "classifier_pipeline";
+EXPORT batch_process AS "batch_classify";

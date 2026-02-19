@@ -243,7 +243,10 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
     node->loc = current_.loc;
     Advance(); // consume 'IMPORT'
 
-    // IMPORT "path" AS alias; or IMPORT lang::module;
+    // IMPORT "path" AS alias;
+    // IMPORT lang::module;
+    // IMPORT lang PACKAGE pkg;
+    // IMPORT lang PACKAGE pkg AS alias;
     if (current_.kind == frontends::TokenKind::kString) {
         // Path import: IMPORT "path/to/module"
         std::string raw = current_.lexeme;
@@ -255,11 +258,40 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
         Advance();
     } else if (current_.kind == frontends::TokenKind::kIdentifier ||
                current_.kind == frontends::TokenKind::kKeyword) {
-        // Qualified import: IMPORT cpp::module_name
-        node->language = current_.lexeme;
+        // Could be: IMPORT cpp::module_name;
+        //       or: IMPORT python PACKAGE numpy;
+        //       or: IMPORT python PACKAGE numpy AS np;
+        std::string first = current_.lexeme;
         Advance();
-        if (IsSymbol("::")) {
-            Advance();
+
+        if (current_.kind == frontends::TokenKind::kKeyword &&
+            current_.lexeme == "PACKAGE") {
+            // Package import: IMPORT lang PACKAGE pkg [AS alias];
+            node->language = first;
+            Advance(); // consume 'PACKAGE'
+
+            if (current_.kind == frontends::TokenKind::kIdentifier) {
+                node->package_name = current_.lexeme;
+                node->module_path = current_.lexeme;
+                Advance();
+                // Handle dotted package paths: numpy.linalg
+                while (IsSymbol(".")) {
+                    node->package_name += ".";
+                    node->module_path += ".";
+                    Advance();
+                    if (current_.kind == frontends::TokenKind::kIdentifier) {
+                        node->package_name += current_.lexeme;
+                        node->module_path += current_.lexeme;
+                        Advance();
+                    }
+                }
+            } else {
+                diagnostics_.Report(current_.loc, "expected package name after PACKAGE");
+            }
+        } else if (IsSymbol("::")) {
+            // Qualified import: IMPORT cpp::module_name
+            node->language = first;
+            Advance(); // consume '::'
             if (current_.kind == frontends::TokenKind::kIdentifier) {
                 node->module_path = current_.lexeme;
                 Advance();
@@ -274,8 +306,8 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
                 }
             }
         } else {
-            // Just an identifier without ::
-            node->module_path = node->language;
+            // Just an identifier without :: or PACKAGE
+            node->module_path = first;
             node->language.clear();
         }
     } else {
@@ -898,10 +930,30 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
         }
 
         // Check for struct literal: Name { field: value, ... }
+        // Use lookahead to distinguish from block statement: peek past '{' to see
+        // if the next two tokens are 'identifier :' (struct literal pattern)
         if (IsSymbol("{")) {
-            // Peek ahead to see if this looks like a struct literal
-            // (identifier followed by ':') vs a block statement
-            return ParseStructLiteral(name);
+            auto saved = lexer_.SaveState();
+            auto saved_current = current_;
+            Advance(); // consume '{'
+            bool is_struct = false;
+            if (current_.kind == frontends::TokenKind::kIdentifier) {
+                auto field_name_tok = current_;
+                Advance();
+                if (IsSymbol(":")) {
+                    is_struct = true;
+                }
+            }
+            // Also treat empty braces `{}` as empty struct literal
+            if (IsSymbol("}")) {
+                is_struct = true;
+            }
+            // Restore lexer and parser state
+            lexer_.RestoreState(saved);
+            current_ = saved_current;
+            if (is_struct) {
+                return ParseStructLiteral(name);
+            }
         }
 
         // Check for range: name..end

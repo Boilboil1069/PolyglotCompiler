@@ -667,7 +667,7 @@ void PloyLowering::LowerStructDecl(const std::shared_ptr<StructDecl> &struct_dec
 
     // Register the struct as a named type in the IR context.
     // The struct layout is: { field0_type, field1_type, ... }
-    ir::IRType struct_type = ir::IRType::Struct(field_types);
+    ir::IRType struct_type = ir::IRType::Struct(struct_decl->name, field_types);
     // Store the struct name mapping for later struct literal lowering.
     EnvEntry entry;
     entry.ir_name = struct_decl->name;
@@ -775,7 +775,7 @@ PloyLowering::EvalResult PloyLowering::LowerTupleLiteral(
         elem_values.push_back(e.value);
     }
 
-    ir::IRType tuple_type = ir::IRType::Struct(elem_types);
+    ir::IRType tuple_type = ir::IRType::Struct("tuple", elem_types);
 
     // Allocate the tuple on the stack
     auto alloca_inst = builder_.MakeAlloca(tuple_type, "tuple.addr");
@@ -784,9 +784,9 @@ PloyLowering::EvalResult PloyLowering::LowerTupleLiteral(
     for (size_t i = 0; i < elem_values.size(); ++i) {
         std::string field_ptr = alloca_inst->name + ".field" + std::to_string(i);
         // GEP to the field, then store
-        auto gep = builder_.MakeGetElementPtr(alloca_inst->name, tuple_type,
-                                               {std::to_string(i)}, field_ptr);
-        builder_.MakeStore(elem_values[i], gep->name);
+        auto gep = builder_.MakeGEP(alloca_inst->name, tuple_type,
+                                     {i}, field_ptr);
+        builder_.MakeStore(gep->name, elem_values[i]);
     }
 
     return {alloca_inst->name, tuple_type};
@@ -840,9 +840,9 @@ PloyLowering::EvalResult PloyLowering::LowerStructLiteral(
     for (size_t i = 0; i < struct_lit->fields.size(); ++i) {
         EvalResult field_val = LowerExpression(struct_lit->fields[i].value);
         std::string field_ptr = alloca_inst->name + "." + struct_lit->fields[i].name;
-        auto gep = builder_.MakeGetElementPtr(alloca_inst->name, struct_type,
-                                               {std::to_string(i)}, field_ptr);
-        builder_.MakeStore(field_val.value, gep->name);
+        auto gep = builder_.MakeGEP(alloca_inst->name, struct_type,
+                                     {i}, field_ptr);
+        builder_.MakeStore(gep->name, field_val.value);
     }
 
     return {alloca_inst->name, struct_type};
@@ -1042,7 +1042,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
             for (const auto &arg : pt->type_args) {
                 field_types.push_back(PloyTypeToIR(arg));
             }
-            return ir::IRType::Struct(field_types);
+            return ir::IRType::Struct("tuple", field_types);
         }
         if (pt->name == "DICT" && pt->type_args.size() >= 2) {
             // Dicts are opaque pointers to runtime dict descriptors
@@ -1051,7 +1051,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
         if (pt->name == "OPTION" && !pt->type_args.empty()) {
             // Options are struct { i1 has_value, T value }
             ir::IRType inner = PloyTypeToIR(pt->type_args[0]);
-            return ir::IRType::Struct({ir::IRType::I1(), inner});
+            return ir::IRType::Struct("option", {ir::IRType::I1(), inner});
         }
     }
 
@@ -1082,13 +1082,13 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
             for (const auto &arg : ct.type_args) {
                 fields.push_back(CoreTypeToIR(arg));
             }
-            return ir::IRType::Struct(fields);
+            return ir::IRType::Struct("tuple", fields);
         }
         case core::TypeKind::kOptional: {
             // Optional[T] maps to struct { i1, T }
             ir::IRType inner = ct.type_args.empty() ? ir::IRType::I64(true)
                                                      : CoreTypeToIR(ct.type_args[0]);
-            return ir::IRType::Struct({ir::IRType::I1(), inner});
+            return ir::IRType::Struct("option", {ir::IRType::I1(), inner});
         }
         case core::TypeKind::kStruct:
             // Named structs are opaque pointers unless resolved

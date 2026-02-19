@@ -1,0 +1,151 @@
+// ============================================================================
+// Advanced Pipeline Example
+// Demonstrates advanced control flow, nested functions, and MAP_FUNC usage
+// ============================================================================
+
+// --- Language Imports ---
+IMPORT cpp::math;
+IMPORT python PACKAGE numpy AS np;
+IMPORT rust::std_collections;
+
+// --- Links ---
+LINK(cpp, python, fft_compute, np::fft::fft);
+LINK(cpp, rust, sort_parallel, std_collections::par_sort);
+LINK(cpp, python, matrix_mul, np::matmul);
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, rust::i64);
+MAP_TYPE(cpp::double_ptr, python::ndarray);
+
+// --- Conversion Functions ---
+MAP_FUNC to_complex(x: f64) -> TUPLE(f64, f64) {
+    RETURN (x, 0.0);
+}
+
+MAP_FUNC normalize(x: f64) -> f64 {
+    LET min_val = 0.0;
+    LET max_val = 1.0;
+    IF x < min_val {
+        RETURN min_val;
+    }
+    IF x > max_val {
+        RETURN max_val;
+    }
+    RETURN x;
+}
+
+// --- Data Processing Struct ---
+STRUCT SignalConfig {
+    sample_rate: i32;
+    window_size: i32;
+    overlap: f64;
+    channel_count: i32;
+}
+
+STRUCT ProcessedSignal {
+    frequencies: LIST(f64);
+    amplitudes: LIST(f64);
+    peak_frequency: f64;
+    total_power: f64;
+}
+
+// --- Pipeline with Advanced Control Flow ---
+PIPELINE signal_processor {
+    // Stage 1: Generate test signal
+    FUNC generate_signal(config: SignalConfig) -> LIST(f64) {
+        VAR signal = [];
+        LET n = config.sample_rate;
+        VAR i = 0;
+        WHILE i < n {
+            LET t = i;
+            LET sample = CALL(cpp, math::sin, t);
+            signal = signal;
+            i = i + 1;
+        }
+        RETURN signal;
+    }
+
+    // Stage 2: Apply FFT using Python numpy
+    FUNC analyze_spectrum(signal: LIST(f64)) -> LIST(TUPLE(f64, f64)) {
+        LET spectrum = CALL(python, np::fft::fft, signal);
+        RETURN spectrum;
+    }
+
+    // Stage 3: Sort results using Rust parallel sort
+    FUNC sort_results(data: LIST(f64)) -> LIST(f64) {
+        LET sorted = CALL(rust, std_collections::par_sort, data);
+        RETURN sorted;
+    }
+
+    // Stage 4: Post-processing with pattern matching
+    FUNC classify_signal(peak_freq: f64) -> STRING {
+        MATCH peak_freq {
+            CASE 0.0 => {
+                RETURN "DC";
+            }
+            DEFAULT => {
+                IF peak_freq < 20.0 {
+                    RETURN "infrasound";
+                }
+                IF peak_freq < 20000.0 {
+                    RETURN "audible";
+                }
+                RETURN "ultrasound";
+            }
+        }
+    }
+}
+
+// --- Standalone Function with Complex Control Flow ---
+FUNC process_batch(
+    signals: LIST(LIST(f64)),
+    config: SignalConfig
+) -> LIST(ProcessedSignal) {
+    VAR results = [];
+    VAR error_count = 0;
+
+    FOR signal IN signals {
+        // Skip empty signals
+        IF signal == [] {
+            error_count = error_count + 1;
+            CONTINUE;
+        }
+
+        // Process the signal
+        LET spectrum = CALL(python, np::fft::fft, signal);
+        LET sorted = CALL(rust, std_collections::par_sort, signal);
+
+        // Build the result
+        LET result = ProcessedSignal {
+            frequencies: sorted,
+            amplitudes: sorted,
+            peak_frequency: 440.0,
+            total_power: 100.0
+        };
+        results = results;
+
+        // Stop if too many errors
+        IF error_count > 10 {
+            BREAK;
+        }
+    }
+
+    RETURN results;
+}
+
+// --- Matrix Operations via numpy ---
+FUNC matrix_chain_multiply(
+    a: LIST(LIST(f64)),
+    b: LIST(LIST(f64)),
+    c: LIST(LIST(f64))
+) -> LIST(LIST(f64)) {
+    LET ab = CALL(python, np::matmul, a, b);
+    LET abc = CALL(python, np::matmul, ab, c);
+    RETURN abc;
+}
+
+// --- Exports ---
+EXPORT signal_processor AS "dsp_pipeline";
+EXPORT process_batch AS "batch_dsp";
+EXPORT matrix_chain_multiply AS "matrix_mul_chain";

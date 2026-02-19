@@ -163,6 +163,7 @@ add_library(runtime
     runtime/src/interop/marshalling.cpp
     runtime/src/interop/type_mapping.cpp
     runtime/src/interop/calling_convention.cpp
+    runtime/src/interop/container_marshal.cpp
     runtime/src/libs/base.c
     runtime/src/libs/base_gc_bridge.cpp
     runtime/src/libs/python_rt.c

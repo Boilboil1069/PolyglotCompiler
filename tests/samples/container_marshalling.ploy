@@ -1,0 +1,88 @@
+// ============================================================================
+// Cross-Language Container Marshalling Example
+// Demonstrates how .ploy maps container types across languages
+// ============================================================================
+
+// --- Module imports ---
+
+IMPORT cpp::data;
+IMPORT python::analytics;
+IMPORT python::ml;
+IMPORT rust::algo;
+IMPORT rust::crypto;
+
+// --- Type mappings for containers ---
+
+MAP_TYPE(cpp::std::vector, python::list);
+MAP_TYPE(cpp::std::map, python::dict);
+MAP_TYPE(rust::Vec, cpp::std::vector);
+MAP_TYPE(rust::HashMap, python::dict);
+
+// --- LINK: C++ functions accepting/returning containers ---
+
+LINK(cpp, python, data::sort_vector, analytics::sort);
+LINK(cpp, python, data::merge_maps, analytics::merge);
+
+// --- LINK: Python functions accepting/returning containers ---
+
+LINK(python, cpp, analytics::compute_stats, data::raw_stats);
+LINK(python, rust, ml::predict, algo::infer);
+
+// --- LINK: Rust functions accepting/returning containers ---
+
+LINK(rust, cpp, algo::parallel_sort, data::sort_vector);
+LINK(rust, python, crypto::hash_entries, analytics::hash);
+
+// --- STRUCT for structured data ---
+
+STRUCT DataPoint {
+    timestamp: i64,
+    value: f64,
+    label: str
+}
+
+STRUCT ModelConfig {
+    layers: i32,
+    learning_rate: f64,
+    batch_size: i32
+}
+
+// --- MAP_FUNC: convert between container representations ---
+
+MAP_FUNC data_to_pylist(dp: ptr) -> ptr {
+    // Convert a DataPoint struct to a Python-friendly list of floats
+    RETURN 0;
+}
+
+MAP_FUNC pydict_to_config(d: ptr) -> ptr {
+    // Convert a Python dict to a ModelConfig struct
+    RETURN 0;
+}
+
+// --- PIPELINE: end-to-end cross-language data processing ---
+
+PIPELINE process_data {
+    // Create sample data points
+    LET data = [1.0, 2.0, 3.0, 4.0, 5.0];
+
+    // Sort using C++ (fast native sort)
+    LET sorted = CALL(cpp, data::sort_vector, data);
+
+    // Compute statistics using Python (numpy/scipy)
+    LET stats = CALL(python, analytics::compute_stats, sorted);
+
+    RETURN 0;
+}
+
+PIPELINE train_model {
+    // Configure model
+    LET config = ModelConfig { layers: 5, learning_rate: 0.01, batch_size: 64 };
+
+    // Prepare training data as list
+    LET features = [0.5, 1.2, 3.4, 2.1, 0.8];
+
+    // Run prediction using Python ML library
+    LET result = CALL(python, ml::predict, features);
+
+    RETURN 0;
+}

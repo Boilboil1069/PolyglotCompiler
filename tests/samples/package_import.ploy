@@ -1,0 +1,46 @@
+// ============================================================================
+// Package Import Example
+// Demonstrates IMPORT PACKAGE syntax for using language-native packages
+// ============================================================================
+
+// Import Python packages with aliases
+IMPORT python PACKAGE numpy AS np;
+IMPORT python PACKAGE scipy.optimize AS opt;
+
+// Import a standard qualified module
+IMPORT cpp::math;
+IMPORT rust::serde;
+
+// Import Python package without alias (uses package name directly)
+IMPORT python PACKAGE pandas;
+
+// Link Python numpy functions to use from the pipeline
+LINK(cpp, python, compute_mean, np::mean);
+LINK(cpp, python, compute_std, np::std);
+LINK(cpp, python, optimize, opt::minimize);
+
+// Map numeric types between languages
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+
+// Pipeline: collect data, compute statistics, optimize
+PIPELINE data_analysis {
+    FUNC collect_data() -> LIST(f64) {
+        LET data = [1.0, 2.5, 3.7, 4.2, 5.8, 6.1, 7.3];
+        RETURN data;
+    }
+
+    FUNC statistics(data: LIST(f64)) -> TUPLE(f64, f64) {
+        LET avg = CALL(python, np::mean, data);
+        LET sd = CALL(python, np::std, data);
+        RETURN (avg, sd);
+    }
+
+    FUNC run_optimization(initial: f64) -> f64 {
+        LET result = CALL(python, opt::minimize, initial);
+        RETURN result;
+    }
+}
+
+// Export the pipeline entry point
+EXPORT data_analysis AS "data_analysis_pipeline";

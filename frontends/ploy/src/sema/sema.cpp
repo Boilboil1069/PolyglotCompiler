@@ -134,7 +134,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 // ============================================================================
 
 void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
-    if (import->module_path.empty()) {
+    if (import->module_path.empty() && import->package_name.empty()) {
         Report(import->loc, "IMPORT module path is empty");
         return;
     }
@@ -144,12 +144,24 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         Report(import->loc, "unknown language '" + import->language + "' in IMPORT");
     }
 
+    // Determine the symbol name to register
+    std::string sym_name;
+    if (!import->alias.empty()) {
+        sym_name = import->alias;
+    } else if (!import->package_name.empty()) {
+        // For IMPORT python PACKAGE numpy;  -> register as "numpy"
+        // For IMPORT python PACKAGE numpy.linalg; -> register as "numpy.linalg"
+        sym_name = import->package_name;
+    } else {
+        sym_name = import->module_path;
+    }
+
     // Register the import as a symbol
     PloySymbol sym;
     sym.kind = PloySymbol::Kind::kImport;
-    sym.name = import->alias.empty() ? import->module_path : import->alias;
+    sym.name = sym_name;
     sym.language = import->language;
-    sym.type = core::Type::Module(sym.name, import->language);
+    sym.type = core::Type::Module(sym_name, import->language);
     sym.defined_at = import->loc;
     DeclareSymbol(sym);
 }
@@ -594,11 +606,12 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     if (!type_node) return core::Type::Invalid();
 
     if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
-        if (st->name == "INT") return core::Type::Int();
-        if (st->name == "FLOAT") return core::Type::Float();
-        if (st->name == "BOOL") return core::Type::Bool();
-        if (st->name == "STRING") return core::Type::String();
-        if (st->name == "VOID") return core::Type::Void();
+        if (st->name == "INT" || st->name == "i32" || st->name == "i64" || st->name == "int") return core::Type::Int();
+        if (st->name == "FLOAT" || st->name == "f32" || st->name == "f64" || st->name == "float") return core::Type::Float();
+        if (st->name == "BOOL" || st->name == "bool") return core::Type::Bool();
+        if (st->name == "STRING" || st->name == "str" || st->name == "string") return core::Type::String();
+        if (st->name == "VOID" || st->name == "void") return core::Type::Void();
+        if (st->name == "ptr" || st->name == "PTR" || st->name == "pointer") return core::Type::Any(); // opaque pointer
         // User-defined type
         return core::Type::Struct(st->name);
     }

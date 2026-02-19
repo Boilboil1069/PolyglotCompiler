@@ -165,11 +165,12 @@ struct LinkDecl : Statement {
     std::vector<std::shared_ptr<Statement>> body;
 };
 
-// IMPORT "path" AS alias; or IMPORT lang::module;
+// IMPORT "path" AS alias; or IMPORT lang::module; or IMPORT lang PACKAGE pkg AS alias;
 struct ImportDecl : Statement {
     std::string module_path;
     std::string alias;
-    std::string language;  // empty if importing by path
+    std::string language;       // empty if importing by path
+    std::string package_name;   // non-empty when importing a language-specific package
 };
 
 // EXPORT function_name; or EXPORT function_name AS "external_name";
