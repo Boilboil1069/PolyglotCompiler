@@ -1,0 +1,130 @@
+#pragma once
+
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "common/include/core/types.h"
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/ploy/include/ploy_ast.h"
+
+namespace polyglot::ploy {
+
+// ============================================================================
+// Symbol Table Entry
+// ============================================================================
+
+struct PloySymbol {
+    enum class Kind { kVariable, kFunction, kImport, kLinkTarget, kPipeline };
+    Kind kind{Kind::kVariable};
+    std::string name;
+    core::Type type{core::Type::Invalid()};
+    bool is_mutable{false};
+    std::string language;           // For imported symbols
+    std::string external_name;     // For exported symbols
+    core::SourceLoc defined_at{};
+};
+
+// ============================================================================
+// Type Mapping Entry
+// ============================================================================
+
+struct TypeMappingEntry {
+    std::string source_language;
+    std::string source_type;
+    std::string target_language;
+    std::string target_type;
+    core::SourceLoc defined_at{};
+};
+
+// ============================================================================
+// Link Entry (validated cross-language link)
+// ============================================================================
+
+struct LinkEntry {
+    LinkDecl::LinkKind kind{LinkDecl::LinkKind::kFunction};
+    std::string target_language;
+    std::string source_language;
+    std::string target_symbol;
+    std::string source_symbol;
+    // Resolved types for source and target function signatures
+    core::Type target_type{core::Type::Invalid()};
+    core::Type source_type{core::Type::Invalid()};
+    // Per-parameter type mappings from the LINK body
+    std::vector<TypeMappingEntry> param_mappings;
+    core::SourceLoc defined_at{};
+};
+
+// ============================================================================
+// Semantic Analyzer
+// ============================================================================
+
+class PloySema {
+  public:
+    explicit PloySema(frontends::Diagnostics &diagnostics)
+        : diagnostics_(diagnostics) {}
+
+    // Run semantic analysis on the parsed module
+    bool Analyze(const std::shared_ptr<Module> &module);
+
+    // Access results
+    const std::vector<LinkEntry> &Links() const { return links_; }
+    const std::vector<TypeMappingEntry> &TypeMappings() const { return type_mappings_; }
+    const std::unordered_map<std::string, PloySymbol> &Symbols() const { return symbols_; }
+
+  private:
+    // Declaration analysis
+    void AnalyzeStatement(const std::shared_ptr<Statement> &stmt);
+    void AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link);
+    void AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import);
+    void AnalyzeExportDecl(const std::shared_ptr<ExportDecl> &export_decl);
+    void AnalyzeMapTypeDecl(const std::shared_ptr<MapTypeDecl> &map_type);
+    void AnalyzePipelineDecl(const std::shared_ptr<PipelineDecl> &pipeline);
+    void AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func);
+    void AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var);
+    void AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
+    void AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
+
+    // Statement analysis
+    void AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
+    void AnalyzeWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt);
+    void AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt);
+    void AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
+    void AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
+    void AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
+
+    // Expression analysis
+    core::Type AnalyzeExpression(const std::shared_ptr<Expression> &expr);
+    core::Type AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call);
+    core::Type AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call);
+    core::Type AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpression> &bin);
+    core::Type AnalyzeUnaryExpression(const std::shared_ptr<UnaryExpression> &unary);
+    core::Type AnalyzeConvertExpression(const std::shared_ptr<ConvertExpression> &conv);
+    core::Type AnalyzeListLiteral(const std::shared_ptr<ListLiteral> &list);
+    core::Type AnalyzeTupleLiteral(const std::shared_ptr<TupleLiteral> &tuple);
+    core::Type AnalyzeDictLiteral(const std::shared_ptr<DictLiteral> &dict);
+    core::Type AnalyzeStructLiteral(const std::shared_ptr<StructLiteral> &struct_lit);
+
+    // Type resolution
+    core::Type ResolveType(const std::shared_ptr<TypeNode> &type_node);
+    bool IsValidLanguage(const std::string &lang) const;
+    bool AreTypesCompatible(const core::Type &from, const core::Type &to) const;
+
+    // Helper
+    void Report(const core::SourceLoc &loc, const std::string &message);
+    bool DeclareSymbol(const PloySymbol &symbol);
+
+    frontends::Diagnostics &diagnostics_;
+    core::TypeSystem type_system_{};
+    std::unordered_map<std::string, PloySymbol> symbols_{};
+    std::vector<LinkEntry> links_{};
+    std::vector<TypeMappingEntry> type_mappings_{};
+    // Struct definitions: struct name -> list of (field_name, field_type)
+    std::unordered_map<std::string, std::vector<std::pair<std::string, core::Type>>> struct_defs_{};
+    // MAP_FUNC registry: function name -> return type
+    std::unordered_map<std::string, core::Type> map_funcs_{};
+    int loop_depth_{0};
+    core::Type current_return_type_{core::Type::Invalid()};
+};
+
+} // namespace polyglot::ploy

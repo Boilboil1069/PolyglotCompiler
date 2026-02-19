@@ -1,0 +1,67 @@
+// =============================================================================
+// Example 3: Multi-Language Data Processing Pipeline
+// Demonstrates linking C++, Python, and Rust functions together
+// =============================================================================
+
+// C++ numeric computation
+LINK cpp::linalg::dot_product AS FUNC(ptr, ptr, i32) -> f64
+LINK cpp::linalg::normalize AS FUNC(ptr, i32) -> void
+
+// Python data processing
+LINK python::pandas::read_csv AS FUNC(str) -> ptr
+LINK python::pandas::to_numpy AS FUNC(ptr) -> ptr
+LINK python::sklearn::predict AS FUNC(ptr, ptr) -> ptr
+
+// Rust safe string handling
+LINK rust::serde::serialize AS FUNC(ptr) -> str
+LINK rust::serde::deserialize AS FUNC(str) -> ptr
+
+// Type mappings for cross-language interop
+MAP_TYPE cpp::double -> python::float
+MAP_TYPE cpp::double -> rust::f64
+MAP_TYPE python::float -> rust::f64
+MAP_TYPE cpp::char_ptr -> python::str
+MAP_TYPE cpp::char_ptr -> rust::String
+
+// Data ingestion pipeline: Python reads data, C++ processes, Rust serializes
+PIPELINE ml_inference {
+    // Step 1: Load data via Python
+    LET dataset = read_csv("input.csv")
+    LET raw_data = to_numpy(dataset)
+
+    // Step 2: Normalize via C++
+    LET size = 1024
+    normalize(raw_data, size)
+
+    // Step 3: Run ML prediction via Python
+    LET model_weights = read_csv("weights.csv")
+    LET model_data = to_numpy(model_weights)
+    LET predictions = predict(model_data, raw_data)
+
+    // Step 4: Serialize results via Rust
+    LET json_output = serialize(predictions)
+    RETURN json_output
+}
+
+// Helper function that computes similarity between two vectors
+FUNC cosine_similarity(vec_a: ptr, vec_b: ptr, len: i32) -> f64 {
+    LET dot = dot_product(vec_a, vec_b, len)
+
+    // Compute magnitudes
+    LET mag_a = dot_product(vec_a, vec_a, len)
+    LET mag_b = dot_product(vec_b, vec_b, len)
+
+    // Avoid division by zero
+    IF mag_a < 0.000001 {
+        RETURN 0.0
+    }
+    IF mag_b < 0.000001 {
+        RETURN 0.0
+    }
+
+    // Return cosine similarity
+    RETURN dot / (mag_a + mag_b)
+}
+
+EXPORT ml_inference AS "polyglot_ml_inference"
+EXPORT cosine_similarity AS "polyglot_cosine_similarity"

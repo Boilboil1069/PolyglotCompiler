@@ -76,6 +76,19 @@ target_include_directories(frontend_rust PUBLIC
 
 target_link_libraries(frontend_rust PUBLIC frontend_common polyglot_common)
 
+add_library(frontend_ploy
+    frontends/ploy/src/lexer/lexer.cpp
+    frontends/ploy/src/parser/parser.cpp
+    frontends/ploy/src/sema/sema.cpp
+    frontends/ploy/src/lowering/lowering.cpp
+)
+
+target_include_directories(frontend_ploy PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(frontend_ploy PUBLIC frontend_common polyglot_common middle_ir)
+
 add_library(middle_ir
     middle/src/ir/builder.cpp
     middle/src/ir/ir_context.cpp
@@ -172,6 +185,7 @@ target_link_libraries(polyc
     frontend_python
     frontend_cpp
     frontend_rust
+    frontend_ploy
     backend_x86_64
     backend_arm64
     middle_ir
@@ -192,6 +206,7 @@ target_link_libraries(polyasm
 # Linker library (for unit tests)
 add_library(linker_lib OBJECT
     tools/polyld/src/linker.cpp
+    tools/polyld/src/polyglot_linker.cpp
 )
 
 target_include_directories(linker_lib PUBLIC
@@ -200,16 +215,19 @@ target_include_directories(linker_lib PUBLIC
 
 target_link_libraries(linker_lib PUBLIC
     polyglot_common
+    frontend_ploy
 )
 
 target_compile_definitions(linker_lib PRIVATE LINKER_LIBRARY)
 
 add_executable(polyld
     tools/polyld/src/linker.cpp
+    tools/polyld/src/polyglot_linker.cpp
 )
 
 target_link_libraries(polyld
     polyglot_common
+    frontend_ploy
 )
 
 add_executable(polyopt
@@ -241,6 +259,7 @@ target_link_libraries(polybench
     frontend_python
     frontend_cpp
     frontend_rust
+    frontend_ploy
     middle_ir
     backend_x86_64
     backend_arm64
@@ -255,6 +274,7 @@ target_link_libraries(unit_tests PRIVATE
     frontend_python
     frontend_cpp
     frontend_rust
+    frontend_ploy
     middle_ir
     backend_x86_64
     backend_arm64
