@@ -224,3 +224,10 @@ pip.exe : ERROR: To modify pip, please run the following command:
 2.帮我添加.net的支持，需要支持.net6、7、8、9
 
 --end
+
+2026-02-20-10
+
+1.补全：docs\api\内文档
+2.补全：docs\specs\内文档
+
+--end

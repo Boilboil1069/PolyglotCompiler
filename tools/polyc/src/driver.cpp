@@ -127,6 +127,14 @@ struct Elf64_Rela {
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 #include "frontends/ploy/include/ploy_lowering.h"
+#include "frontends/java/include/java_lexer.h"
+#include "frontends/java/include/java_parser.h"
+#include "frontends/java/include/java_sema.h"
+#include "frontends/java/include/java_lowering.h"
+#include "frontends/dotnet/include/dotnet_lexer.h"
+#include "frontends/dotnet/include/dotnet_parser.h"
+#include "frontends/dotnet/include/dotnet_sema.h"
+#include "frontends/dotnet/include/dotnet_lowering.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/nodes/statements.h"
 #include "common/include/ir/ir_printer.h"
@@ -141,9 +149,9 @@ namespace fs = std::filesystem;
 enum class RegAllocChoice { kLinearScan, kGraphColoring };
 
 struct Settings {
-    std::string source{"print('hello')"};
+    std::string source{};
     std::string source_path{};            // original file path (empty if inline)
-    std::string language{"python"};
+    std::string language{"ploy"};
     bool language_explicit{false};        // true if --lang= was specified
     std::string arch{"x86_64"};
     bool pp_cpp{true};
@@ -153,7 +161,7 @@ struct Settings {
     bool verbose{true};                   // progress output (default on)
     bool emit_aux{true};                  // emit aux/ intermediate files (default on)
     std::vector<std::string> include_paths{"."};
-    std::string mode{"compile"};  // compile | assemble | link (stub)
+    std::string mode{"link"};  // compile | assemble | link (stub)
 #if defined(_WIN32)
     std::string obj_format{"coff"};  // auto-detect COFF on Windows
 #elif defined(__APPLE__)
@@ -181,6 +189,8 @@ std::string DetectLanguage(const std::string &path) {
     if (ext == ".py") return "python";
     if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".c" || ext == ".hpp" || ext == ".h") return "cpp";
     if (ext == ".rs") return "rust";
+    if (ext == ".java") return "java";
+    if (ext == ".cs" || ext == ".vb") return "dotnet";
     return "";
 }
 
@@ -228,7 +238,7 @@ Settings ParseArgs(int argc, char **argv) {
             std::cout << "Usage: polyc [options] <source-file-or-code>\n"
                       << "\n"
                       << "Options:\n"
-                      << "  --lang=<lang>       Language: ploy|python|cpp|rust (auto-detected from extension)\n"
+                      << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet (auto-detected from extension)\n"
                       << "  -O<0-3>             Optimisation level\n"
                       << "  -o <output>         Output file name\n"
                       << "  --mode=<mode>       compile|assemble|link\n"
@@ -243,7 +253,7 @@ Settings ParseArgs(int argc, char **argv) {
                       << "  -j<N>               Parallelism hint\n"
                       << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
                       << "\n"
-                      << "The source argument can be a file path (.ploy, .py, .cpp, .rs) or inline code.\n"
+                      << "The source argument can be a file path (.ploy, .py, .cpp, .rs, .java, .cs) or inline code.\n"
                       << "When a file is given, auxiliary files are written to <dir>/aux/.\n";
             std::exit(0);
         }
@@ -1436,6 +1446,28 @@ int main(int argc, char **argv) {
         polyglot::rust::AnalyzeModule(*parser.TakeModule(), sema);
         t.Stop();
         // No lowering for rust yet.
+    } else if (settings.language == "java") {
+        StageTimer t("Frontend (java)", V);
+        polyglot::java::JavaLexer lexer(processed, source_label);
+        polyglot::java::JavaParser parser(lexer, diagnostics);
+        parser.ParseModule();
+        auto java_mod = parser.TakeModule();
+        polyglot::frontends::SemaContext sema(diagnostics);
+        polyglot::java::AnalyzeModule(*java_mod, sema);
+        polyglot::java::LowerToIR(*java_mod, ir_module, diagnostics);
+        lowered = true;
+        t.Stop();
+    } else if (settings.language == "dotnet" || settings.language == "csharp") {
+        StageTimer t("Frontend (dotnet)", V);
+        polyglot::dotnet::DotnetLexer lexer(processed, source_label);
+        polyglot::dotnet::DotnetParser parser(lexer, diagnostics);
+        parser.ParseModule();
+        auto dotnet_mod = parser.TakeModule();
+        polyglot::frontends::SemaContext sema(diagnostics);
+        polyglot::dotnet::AnalyzeModule(*dotnet_mod, sema);
+        polyglot::dotnet::LowerToIR(*dotnet_mod, ir_module, diagnostics);
+        lowered = true;
+        t.Stop();
     } else {
         diagnostics.Report(polyglot::core::SourceLoc{source_label, 1, 1},
                            "Unknown language: " + settings.language);

@@ -182,6 +182,11 @@ class PloySema {
     void DiscoverPythonPackagesViaPoetry(const std::string &project_path);
     void DiscoverRustCrates();
     void DiscoverCppPackages();
+    void DiscoverJavaPackages(const std::string &classpath = "");
+    void DiscoverJavaPackagesViaMaven(const std::string &project_path);
+    void DiscoverJavaPackagesViaGradle(const std::string &project_path);
+    void DiscoverDotnetPackages();
+    void DiscoverDotnetNugetPackages();
 
     // Helper
     void Report(const core::SourceLoc &loc, const std::string &message);

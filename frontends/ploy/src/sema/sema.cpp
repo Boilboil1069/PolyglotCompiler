@@ -1089,7 +1089,8 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
 
 bool PloySema::IsValidLanguage(const std::string &lang) const {
     return lang == "cpp" || lang == "python" || lang == "rust" ||
-           lang == "c" || lang == "ploy";
+           lang == "c" || lang == "ploy" ||
+           lang == "java" || lang == "dotnet" || lang == "csharp";
 }
 
 bool PloySema::AreTypesCompatible(const core::Type &from, const core::Type &to) const {
@@ -1515,6 +1516,10 @@ void PloySema::DiscoverPackages(const std::string &language, const std::string &
         DiscoverRustCrates();
     } else if (language == "cpp" || language == "c") {
         DiscoverCppPackages();
+    } else if (language == "java") {
+        DiscoverJavaPackages(venv_path);
+    } else if (language == "dotnet" || language == "csharp") {
+        DiscoverDotnetPackages();
     }
     // Other languages can be added here
 }
@@ -1970,6 +1975,331 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
         } else {
             ReportError(method_stmt->loc, frontends::ErrorCode::kTypeMismatch,
                         "only FUNC declarations are allowed inside EXTEND body");
+        }
+    }
+}
+
+// ============================================================================
+// Java Package Discovery
+// ============================================================================
+
+void PloySema::DiscoverJavaPackages(const std::string &classpath) {
+    // Discover Java packages using 'java -version' to verify installation
+    // and optionally scanning the CLASSPATH or Maven/Gradle dependencies.
+    if (discovery_completed_.count("java")) return;
+    discovery_completed_.insert("java");
+
+    // First, verify Java is available and detect version
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen("java -version 2>&1", "r");
+#else
+    FILE *pipe = popen("java -version 2>&1", "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse Java version from output (e.g., "openjdk version \"17.0.1\"")
+    std::string java_version;
+    size_t ver_start = output.find('"');
+    if (ver_start != std::string::npos) {
+        size_t ver_end = output.find('"', ver_start + 1);
+        if (ver_end != std::string::npos) {
+            java_version = output.substr(ver_start + 1, ver_end - ver_start - 1);
+        }
+    }
+
+    // Register the Java runtime as a discovered package
+    if (!java_version.empty()) {
+        PackageInfo info;
+        info.name = "java.lang";
+        info.version = java_version;
+        info.language = "java";
+        discovered_packages_["java::java.lang"] = info;
+
+        // Register common Java standard library packages
+        static const char *java_std_packages[] = {
+            "java.util", "java.io", "java.nio", "java.net",
+            "java.math", "java.sql", "java.time", "java.text",
+            "java.security", "java.util.concurrent",
+            "java.util.stream", "java.util.function",
+            "java.lang.reflect", "java.lang.invoke",
+            "javax.crypto", "javax.net", "javax.sql"
+        };
+        for (const char *pkg : java_std_packages) {
+            PackageInfo std_info;
+            std_info.name = pkg;
+            std_info.version = java_version;
+            std_info.language = "java";
+            discovered_packages_["java::" + std::string(pkg)] = std_info;
+        }
+    }
+
+    // If a classpath or project path is specified, scan Maven/Gradle deps
+    if (!classpath.empty()) {
+        DiscoverJavaPackagesViaMaven(classpath);
+        DiscoverJavaPackagesViaGradle(classpath);
+    }
+}
+
+void PloySema::DiscoverJavaPackagesViaMaven(const std::string &project_path) {
+    // Try to list dependencies from a Maven project
+    std::string cmd;
+#ifdef _WIN32
+    cmd = "cd /d \"" + project_path + "\" && mvn dependency:list -DoutputAbsoluteArtifactFilename=true -q 2>nul";
+#else
+    cmd = "cd \"" + project_path + "\" && mvn dependency:list -DoutputAbsoluteArtifactFilename=true -q 2>/dev/null";
+#endif
+
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen(cmd.c_str(), "r");
+#else
+    FILE *pipe = popen(cmd.c_str(), "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse Maven dependency:list output
+    // Lines like: "    com.google.guava:guava:jar:31.1-jre:compile"
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        // Trim leading whitespace
+        size_t start = line.find_first_not_of(" \t");
+        if (start == std::string::npos) continue;
+        line = line.substr(start);
+
+        // Split by ':'
+        std::vector<std::string> parts;
+        std::istringstream part_stream(line);
+        std::string part;
+        while (std::getline(part_stream, part, ':')) {
+            parts.push_back(part);
+        }
+
+        // Expected format: groupId:artifactId:packaging:version:scope
+        if (parts.size() >= 4) {
+            PackageInfo info;
+            info.name = parts[0] + "." + parts[1]; // groupId.artifactId
+            info.version = parts[3];
+            info.language = "java";
+            std::string key = "java::" + info.name;
+            discovered_packages_[key] = info;
+        }
+    }
+}
+
+void PloySema::DiscoverJavaPackagesViaGradle(const std::string &project_path) {
+    // Try to list dependencies from a Gradle project
+    std::string cmd;
+#ifdef _WIN32
+    cmd = "cd /d \"" + project_path + "\" && gradle dependencies --configuration compileClasspath -q 2>nul";
+#else
+    cmd = "cd \"" + project_path + "\" && gradle dependencies --configuration compileClasspath -q 2>/dev/null";
+#endif
+
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen(cmd.c_str(), "r");
+#else
+    FILE *pipe = popen(cmd.c_str(), "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse Gradle dependency tree output
+    // Lines like: "+--- com.google.guava:guava:31.1-jre"
+    std::istringstream stream(output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        // Look for lines with dependency notation
+        size_t dash_pos = line.find("--- ");
+        if (dash_pos == std::string::npos) continue;
+
+        std::string dep = line.substr(dash_pos + 4);
+        // Remove trailing scope markers like " (*)" or " -> x.y.z"
+        size_t arrow_pos = dep.find(" ->");
+        if (arrow_pos != std::string::npos) dep = dep.substr(0, arrow_pos);
+        size_t paren_pos = dep.find(" (");
+        if (paren_pos != std::string::npos) dep = dep.substr(0, paren_pos);
+
+        // Split by ':'
+        std::vector<std::string> parts;
+        std::istringstream part_stream(dep);
+        std::string part;
+        while (std::getline(part_stream, part, ':')) {
+            parts.push_back(part);
+        }
+
+        if (parts.size() >= 3) {
+            PackageInfo info;
+            info.name = parts[0] + "." + parts[1];
+            info.version = parts[2];
+            info.language = "java";
+            std::string key = "java::" + info.name;
+            discovered_packages_[key] = info;
+        }
+    }
+}
+
+// ============================================================================
+// .NET Package Discovery
+// ============================================================================
+
+void PloySema::DiscoverDotnetPackages() {
+    // Discover .NET SDKs and NuGet packages
+    if (discovery_completed_.count("dotnet")) return;
+    discovery_completed_.insert("dotnet");
+
+    // First, detect installed .NET SDKs
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen("dotnet --list-sdks 2>nul", "r");
+#else
+    FILE *pipe = popen("dotnet --list-sdks 2>/dev/null", "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[256];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Parse SDK version output (e.g., "8.0.100 [/usr/share/dotnet/sdk]")
+    std::istringstream sdk_stream(output);
+    std::string line;
+    std::string latest_version;
+    while (std::getline(sdk_stream, line)) {
+        if (line.empty()) continue;
+        size_t space_pos = line.find(' ');
+        if (space_pos != std::string::npos) {
+            latest_version = line.substr(0, space_pos);
+        }
+    }
+
+    // Register the .NET runtime as a discovered package
+    if (!latest_version.empty()) {
+        // Register common .NET framework assemblies
+        static const char *dotnet_std_packages[] = {
+            "System", "System.Collections", "System.Collections.Generic",
+            "System.IO", "System.Linq", "System.Net", "System.Net.Http",
+            "System.Text", "System.Text.Json", "System.Threading",
+            "System.Threading.Tasks", "System.Runtime",
+            "System.Console", "System.Math", "System.Numerics",
+            "Microsoft.Extensions.DependencyInjection",
+            "Microsoft.Extensions.Logging",
+            "Microsoft.Extensions.Configuration"
+        };
+        for (const char *pkg : dotnet_std_packages) {
+            PackageInfo info;
+            info.name = pkg;
+            info.version = latest_version;
+            info.language = "dotnet";
+            discovered_packages_["dotnet::" + std::string(pkg)] = info;
+        }
+    }
+
+    // Discover NuGet packages from global cache
+    DiscoverDotnetNugetPackages();
+}
+
+void PloySema::DiscoverDotnetNugetPackages() {
+    // List globally installed NuGet packages
+    std::string output;
+#ifdef _WIN32
+    FILE *pipe = _popen("dotnet nuget locals global-packages --list 2>nul", "r");
+#else
+    FILE *pipe = popen("dotnet nuget locals global-packages --list 2>/dev/null", "r");
+#endif
+    if (!pipe) return;
+
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(pipe);
+#else
+    pclose(pipe);
+#endif
+
+    // Output is like: "global-packages: C:\Users\...\.nuget\packages\"
+    // We could scan this directory, but for now just register the path
+    // Actual package resolution happens at link time via the .NET toolchain
+
+    // Try listing packages from the current project (if any)
+    std::string proj_output;
+#ifdef _WIN32
+    FILE *proj_pipe = _popen("dotnet list package 2>nul", "r");
+#else
+    FILE *proj_pipe = popen("dotnet list package 2>/dev/null", "r");
+#endif
+    if (!proj_pipe) return;
+
+    while (fgets(buffer, sizeof(buffer), proj_pipe) != nullptr) {
+        proj_output += buffer;
+    }
+#ifdef _WIN32
+    _pclose(proj_pipe);
+#else
+    pclose(proj_pipe);
+#endif
+
+    // Parse 'dotnet list package' output
+    // Lines like: "   > Newtonsoft.Json           13.0.3      13.0.3"
+    std::istringstream stream(proj_output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.find('>') == std::string::npos) continue;
+
+        size_t gt_pos = line.find('>');
+        std::string rest = line.substr(gt_pos + 1);
+
+        // Trim and split by whitespace
+        std::istringstream word_stream(rest);
+        std::string pkg_name, requested_ver, resolved_ver;
+        word_stream >> pkg_name >> requested_ver >> resolved_ver;
+
+        if (!pkg_name.empty()) {
+            PackageInfo info;
+            info.name = pkg_name;
+            info.version = resolved_ver.empty() ? requested_ver : resolved_ver;
+            info.language = "dotnet";
+            std::string key = "dotnet::" + pkg_name;
+            discovered_packages_[key] = info;
         }
     }
 }

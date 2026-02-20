@@ -1,5 +1,6 @@
 #pragma once
 
+#include <deque>
 #include <limits>
 #include <optional>
 #include <string>
@@ -294,7 +295,7 @@ class SymbolTable {
   std::unordered_map<std::string, int> type_scopes_{};
   std::unordered_map<std::string, std::vector<std::string>> type_bases_{};
   std::unordered_map<int, std::string> scope_to_type_{};
-  std::vector<Symbol> symbols_{};  // owns storage
+  std::deque<Symbol> symbols_{};  // owns storage; deque guarantees pointer stability
 };
 
 // ============================================================================

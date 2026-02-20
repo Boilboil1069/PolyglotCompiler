@@ -1049,9 +1049,9 @@ TEST_CASE("Ploy sema rejects invalid language in IMPORT PACKAGE", "[ploy][sema][
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
-IMPORT java PACKAGE javax.swing;
+IMPORT cobol PACKAGE legacy.system;
 )", diags, sema);
-    // 'java' is not a supported language
+    // 'cobol' is not a supported language
     REQUIRE(!ok);
 }
 
@@ -1436,9 +1436,9 @@ TEST_CASE("Ploy sema rejects CONFIG VENV with invalid language", "[ploy][sema][v
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
-CONFIG VENV java "/opt/jdk";
+CONFIG VENV cobol "/opt/legacy";
 )", diags, sema);
-    REQUIRE(!ok);  // java is not a supported language
+    REQUIRE(!ok);  // cobol is not a supported language
 }
 
 // ============================================================================
@@ -1675,9 +1675,9 @@ TEST_CASE("Ploy sema rejects CONFIG CONDA with invalid language", "[ploy][sema][
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
-CONFIG CONDA java "jdk_env";
+CONFIG CONDA cobol "legacy_env";
 )", diags, sema);
-    REQUIRE(!ok);  // java is not a supported language
+    REQUIRE(!ok);  // cobol is not a supported language
 }
 
 TEST_CASE("Ploy lowering handles CONFIG CONDA correctly", "[ploy][lowering][pkgmgr]") {
@@ -1937,7 +1937,7 @@ TEST_CASE("Ploy sema rejects NEW with invalid language", "[ploy][sema][class]") 
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
-LET obj = NEW(java, SomeClass);
+LET obj = NEW(cobol, SomeClass);
 )", diags, sema);
     REQUIRE(!ok);
 }
@@ -2332,7 +2332,7 @@ TEST_CASE("Ploy sema: GET invalid language", "[ploy][sema]") {
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
-    LET val = GET(java, obj, attr);
+    LET val = GET(cobol, obj, attr);
     RETURN 0;
 }
 )", diags, sema);
@@ -2358,7 +2358,7 @@ TEST_CASE("Ploy sema: SET invalid language", "[ploy][sema]") {
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
-    SET(java, obj, x, 42);
+    SET(cobol, obj, x, 42);
     RETURN 0;
 }
 )", diags, sema);
@@ -2388,7 +2388,7 @@ TEST_CASE("Ploy sema: WITH invalid language", "[ploy][sema]") {
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
-    WITH(java, NEW(python, open, "file.txt")) AS f {
+    WITH(cobol, NEW(python, open, "file.txt")) AS f {
         LET data = METHOD(python, f, read);
     }
     RETURN 0;
@@ -2695,7 +2695,7 @@ TEST_CASE("Ploy sema: DELETE invalid language", "[ploy][sema]") {
     bool ok = AnalyzeCode(R"(
 FUNC cleanup() {
     LET obj = NEW(python, MyClass);
-    DELETE(java, obj);
+    DELETE(cobol, obj);
 }
 )", diags, sema);
     // Should produce an error for unsupported language
@@ -2812,7 +2812,7 @@ TEST_CASE("Ploy sema: EXTEND invalid language error", "[ploy][sema]") {
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
-EXTEND(java, Base) AS Derived {
+EXTEND(cobol, Base) AS Derived {
     FUNC foo() { }
 }
 )", diags, sema);

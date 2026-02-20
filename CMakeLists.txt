@@ -89,6 +89,32 @@ target_include_directories(frontend_ploy PUBLIC
 
 target_link_libraries(frontend_ploy PUBLIC frontend_common polyglot_common middle_ir)
 
+add_library(frontend_java
+    frontends/java/src/lexer/lexer.cpp
+    frontends/java/src/parser/parser.cpp
+    frontends/java/src/sema/sema.cpp
+    frontends/java/src/lowering/lowering.cpp
+)
+
+target_include_directories(frontend_java PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(frontend_java PUBLIC frontend_common polyglot_common middle_ir)
+
+add_library(frontend_dotnet
+    frontends/dotnet/src/lexer/lexer.cpp
+    frontends/dotnet/src/parser/parser.cpp
+    frontends/dotnet/src/sema/sema.cpp
+    frontends/dotnet/src/lowering/lowering.cpp
+)
+
+target_include_directories(frontend_dotnet PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(frontend_dotnet PUBLIC frontend_common polyglot_common middle_ir)
+
 add_library(middle_ir
     middle/src/ir/builder.cpp
     middle/src/ir/ir_context.cpp
@@ -169,6 +195,8 @@ add_library(runtime
     runtime/src/libs/python_rt.c
     runtime/src/libs/cpp_rt.c
     runtime/src/libs/rust_rt.c
+    runtime/src/libs/java_rt.c
+    runtime/src/libs/dotnet_rt.c
     runtime/src/services/exception.cpp
     runtime/src/services/reflection.cpp
     runtime/src/services/threading.cpp
@@ -187,6 +215,8 @@ target_link_libraries(polyc
     frontend_cpp
     frontend_rust
     frontend_ploy
+    frontend_java
+    frontend_dotnet
     backend_x86_64
     backend_arm64
     middle_ir
@@ -261,6 +291,8 @@ target_link_libraries(polybench
     frontend_cpp
     frontend_rust
     frontend_ploy
+    frontend_java
+    frontend_dotnet
     middle_ir
     backend_x86_64
     backend_arm64
@@ -276,6 +308,8 @@ target_link_libraries(unit_tests PRIVATE
     frontend_cpp
     frontend_rust
     frontend_ploy
+    frontend_java
+    frontend_dotnet
     middle_ir
     backend_x86_64
     backend_arm64
@@ -294,6 +328,8 @@ target_link_libraries(integration_tests PRIVATE
     frontend_cpp
     frontend_rust
     frontend_ploy
+    frontend_java
+    frontend_dotnet
     middle_ir
     backend_x86_64
     backend_arm64
@@ -312,6 +348,8 @@ target_link_libraries(benchmark_tests PRIVATE
     frontend_cpp
     frontend_rust
     frontend_ploy
+    frontend_java
+    frontend_dotnet
     middle_ir
     backend_x86_64
     backend_arm64

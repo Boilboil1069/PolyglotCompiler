@@ -1,0 +1,513 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "common/include/core/source_loc.h"
+
+namespace polyglot::dotnet {
+
+// ============================================================================
+// Base AST Nodes
+// ============================================================================
+
+struct AstNode {
+    virtual ~AstNode() = default;
+    core::SourceLoc loc{};
+};
+
+struct Statement : AstNode {};
+struct Expression : AstNode {};
+struct TypeNode : AstNode {};
+
+// ============================================================================
+// Type Nodes
+// ============================================================================
+
+struct SimpleType : TypeNode {
+    std::string name;
+};
+
+struct ArrayType : TypeNode {
+    std::shared_ptr<TypeNode> element_type;
+    int rank{1}; // multi-dimensional arrays
+};
+
+struct GenericType : TypeNode {
+    std::string name;
+    std::vector<std::shared_ptr<TypeNode>> type_args;
+};
+
+struct NullableType : TypeNode {
+    std::shared_ptr<TypeNode> inner;
+};
+
+struct TupleType : TypeNode {
+    struct Element {
+        std::shared_ptr<TypeNode> type;
+        std::string name; // optional tuple element name
+    };
+    std::vector<Element> elements;
+};
+
+struct FunctionPointerType : TypeNode {
+    std::vector<std::shared_ptr<TypeNode>> param_types;
+    std::shared_ptr<TypeNode> return_type;
+};
+
+// ============================================================================
+// Expression Nodes
+// ============================================================================
+
+struct Identifier : Expression {
+    std::string name;
+};
+
+struct Literal : Expression {
+    std::string value;
+};
+
+struct UnaryExpression : Expression {
+    std::string op;
+    std::shared_ptr<Expression> operand;
+    bool postfix{false};
+};
+
+struct BinaryExpression : Expression {
+    std::string op;
+    std::shared_ptr<Expression> left;
+    std::shared_ptr<Expression> right;
+};
+
+struct CallExpression : Expression {
+    std::shared_ptr<Expression> callee;
+    std::vector<std::shared_ptr<Expression>> args;
+};
+
+struct MemberExpression : Expression {
+    std::shared_ptr<Expression> object;
+    std::string member;
+    bool null_conditional{false}; // ?. operator
+};
+
+struct NewExpression : Expression {
+    std::shared_ptr<TypeNode> type;
+    std::vector<std::shared_ptr<Expression>> args;
+    std::vector<std::shared_ptr<Expression>> initializer; // object/collection initializer
+};
+
+struct CastExpression : Expression {
+    std::shared_ptr<TypeNode> target_type;
+    std::shared_ptr<Expression> expr;
+};
+
+struct AsExpression : Expression {
+    std::shared_ptr<Expression> expr;
+    std::shared_ptr<TypeNode> type;
+};
+
+struct IsExpression : Expression {
+    std::shared_ptr<Expression> expr;
+    std::shared_ptr<TypeNode> type;
+    std::string pattern_var; // pattern matching: if (obj is string s)
+};
+
+struct IndexExpression : Expression {
+    std::shared_ptr<Expression> object;
+    std::shared_ptr<Expression> index;
+    bool null_conditional{false}; // ?[] operator
+};
+
+struct LambdaExpression : Expression {
+    struct Param {
+        std::string name;
+        std::shared_ptr<TypeNode> type;
+        bool is_ref{false};
+        bool is_out{false};
+    };
+    std::vector<Param> params;
+    std::shared_ptr<Statement> body;   // block body
+    std::shared_ptr<Expression> expr;  // expression body
+    bool is_async{false};
+};
+
+struct TernaryExpression : Expression {
+    std::shared_ptr<Expression> condition;
+    std::shared_ptr<Expression> then_expr;
+    std::shared_ptr<Expression> else_expr;
+};
+
+struct NullCoalescingExpression : Expression {
+    std::shared_ptr<Expression> left;
+    std::shared_ptr<Expression> right;
+};
+
+struct AwaitExpression : Expression {
+    std::shared_ptr<Expression> operand;
+};
+
+struct ThrowExpression : Expression {
+    std::shared_ptr<Expression> operand;
+};
+
+struct InterpolatedString : Expression {
+    struct Part {
+        bool is_literal{true};
+        std::string text;
+        std::shared_ptr<Expression> expr;
+        std::string format; // optional format specifier
+    };
+    std::vector<Part> parts;
+};
+
+struct SwitchExpression : Expression {
+    std::shared_ptr<Expression> governing;
+    struct Arm {
+        std::shared_ptr<Expression> pattern;
+        std::shared_ptr<Expression> guard; // when clause
+        std::shared_ptr<Expression> value;
+    };
+    std::vector<Arm> arms;
+};
+
+struct RangeExpression : Expression {
+    std::shared_ptr<Expression> start; // nullable for ^
+    std::shared_ptr<Expression> end;   // nullable
+};
+
+struct TupleExpression : Expression {
+    struct Element {
+        std::string name;
+        std::shared_ptr<Expression> value;
+    };
+    std::vector<Element> elements;
+};
+
+struct TypeofExpression : Expression {
+    std::shared_ptr<TypeNode> type;
+};
+
+struct NameofExpression : Expression {
+    std::string name;
+};
+
+struct DefaultExpression : Expression {
+    std::shared_ptr<TypeNode> type; // nullable for default literal
+};
+
+// ============================================================================
+// Statement Nodes
+// ============================================================================
+
+struct Attribute {
+    std::string name;
+    std::vector<std::shared_ptr<Expression>> args;
+};
+
+struct Parameter {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::shared_ptr<Expression> default_value;
+    std::vector<Attribute> attributes;
+    bool is_ref{false};
+    bool is_out{false};
+    bool is_in{false};
+    bool is_params{false};
+    bool is_this{false}; // extension method this parameter
+};
+
+struct BlockStatement : Statement {
+    std::vector<std::shared_ptr<Statement>> statements;
+};
+
+struct VarDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type; // nullptr for 'var'
+    std::shared_ptr<Expression> init;
+    bool is_const{false};
+    bool is_readonly{false};
+    std::vector<Attribute> attributes;
+};
+
+struct ExprStatement : Statement {
+    std::shared_ptr<Expression> expr;
+};
+
+struct ReturnStatement : Statement {
+    std::shared_ptr<Expression> value;
+};
+
+struct IfStatement : Statement {
+    std::shared_ptr<Expression> condition;
+    std::shared_ptr<Statement> then_body;
+    std::shared_ptr<Statement> else_body;
+};
+
+struct WhileStatement : Statement {
+    std::shared_ptr<Expression> condition;
+    std::shared_ptr<Statement> body;
+};
+
+struct DoWhileStatement : Statement {
+    std::shared_ptr<Statement> body;
+    std::shared_ptr<Expression> condition;
+};
+
+struct ForStatement : Statement {
+    std::shared_ptr<Statement> init;
+    std::shared_ptr<Expression> condition;
+    std::shared_ptr<Expression> update;
+    std::shared_ptr<Statement> body;
+};
+
+struct ForEachStatement : Statement {
+    std::string var_name;
+    std::shared_ptr<TypeNode> var_type;
+    std::shared_ptr<Expression> iterable;
+    std::shared_ptr<Statement> body;
+};
+
+struct SwitchStatement : Statement {
+    std::shared_ptr<Expression> governing;
+    struct Section {
+        std::vector<std::shared_ptr<Expression>> labels;
+        std::vector<std::shared_ptr<Statement>> body;
+        bool is_default{false};
+    };
+    std::vector<Section> sections;
+};
+
+struct TryStatement : Statement {
+    std::shared_ptr<Statement> body;
+    struct CatchClause {
+        std::string var_name;
+        std::shared_ptr<TypeNode> exception_type;
+        std::shared_ptr<Expression> filter; // when clause (C# exception filters)
+        std::shared_ptr<Statement> body;
+    };
+    std::vector<CatchClause> catches;
+    std::shared_ptr<Statement> finally_body;
+};
+
+struct ThrowStatement : Statement {
+    std::shared_ptr<Expression> expr; // nullptr for rethrow
+};
+
+struct UsingStatement : Statement {
+    std::shared_ptr<VarDecl> declaration;
+    std::shared_ptr<Expression> expression;
+    std::shared_ptr<Statement> body;
+    bool is_await{false}; // C# 8.0+
+};
+
+struct LockStatement : Statement {
+    std::shared_ptr<Expression> expr;
+    std::shared_ptr<Statement> body;
+};
+
+struct YieldStatement : Statement {
+    std::shared_ptr<Expression> value; // nullptr for yield break
+    bool is_break{false};
+};
+
+struct BreakStatement : Statement {};
+struct ContinueStatement : Statement {};
+
+struct FixedStatement : Statement {
+    std::shared_ptr<VarDecl> declaration;
+    std::shared_ptr<Statement> body;
+};
+
+struct CheckedStatement : Statement {
+    std::shared_ptr<Statement> body;
+    bool is_unchecked{false};
+};
+
+// ============================================================================
+// Top-Level Declarations
+// ============================================================================
+
+struct TypeParameter {
+    std::string name;
+    std::vector<std::shared_ptr<TypeNode>> constraints;
+    bool has_new_constraint{false};
+    bool has_class_constraint{false};
+    bool has_struct_constraint{false};
+    bool has_unmanaged_constraint{false};
+    bool has_notnull_constraint{false};
+    bool has_default_constraint{false}; // .NET 7+
+};
+
+struct MethodDecl : Statement {
+    std::string name;
+    std::vector<Parameter> params;
+    std::shared_ptr<TypeNode> return_type;
+    std::vector<std::shared_ptr<Statement>> body;
+    std::vector<Attribute> attributes;
+    std::vector<TypeParameter> type_params;
+    std::string access;
+    bool is_static{false};
+    bool is_abstract{false};
+    bool is_virtual{false};
+    bool is_override{false};
+    bool is_sealed{false};
+    bool is_async{false};
+    bool is_partial{false};
+    bool is_extern{false};
+    bool is_new{false}; // new modifier (hides base member)
+    std::shared_ptr<Expression> expression_body; // => expr;
+};
+
+struct PropertyDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::string access;
+    bool is_static{false};
+    bool is_virtual{false};
+    bool is_override{false};
+    bool is_abstract{false};
+    bool has_getter{false};
+    bool has_setter{false};
+    bool is_init_only{false}; // C# 9.0 init accessor
+    bool is_required{false};  // C# 11 required modifier
+    std::shared_ptr<Expression> init;
+    std::shared_ptr<Expression> expression_body;
+    std::vector<Attribute> attributes;
+};
+
+struct EventDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::string access;
+    bool is_static{false};
+    std::vector<Attribute> attributes;
+};
+
+struct IndexerDecl : Statement {
+    std::shared_ptr<TypeNode> type;
+    std::vector<Parameter> params;
+    std::string access;
+    bool has_getter{false};
+    bool has_setter{false};
+    std::vector<Attribute> attributes;
+};
+
+struct FieldDecl : Statement {
+    std::string name;
+    std::shared_ptr<TypeNode> type;
+    std::shared_ptr<Expression> init;
+    std::vector<Attribute> attributes;
+    std::string access;
+    bool is_static{false};
+    bool is_readonly{false};
+    bool is_const{false};
+    bool is_volatile{false};
+    bool is_required{false}; // C# 11 required
+};
+
+struct ConstructorDecl : Statement {
+    std::string name;
+    std::vector<Parameter> params;
+    std::vector<std::shared_ptr<Statement>> body;
+    std::vector<Attribute> attributes;
+    std::string access;
+    std::string initializer_kind; // "base" or "this"
+    std::vector<std::shared_ptr<Expression>> initializer_args;
+    bool is_static{false};
+};
+
+struct DestructorDecl : Statement {
+    std::string name;
+    std::vector<std::shared_ptr<Statement>> body;
+};
+
+struct ClassDecl : Statement {
+    std::string name;
+    std::string access;
+    bool is_abstract{false};
+    bool is_sealed{false};
+    bool is_static{false};
+    bool is_partial{false};
+    bool is_record{false};  // record class (C# 9.0+)
+    bool is_file_scoped{false}; // C# 11 file-scoped types
+    std::vector<TypeParameter> type_params;
+    std::shared_ptr<TypeNode> base_type;
+    std::vector<std::shared_ptr<TypeNode>> interfaces;
+    std::vector<std::shared_ptr<Statement>> members;
+    std::vector<Attribute> attributes;
+    std::vector<Parameter> primary_ctor_params; // C# 12 primary constructors
+};
+
+struct StructDecl : Statement {
+    std::string name;
+    std::string access;
+    bool is_readonly{false};
+    bool is_ref{false};
+    bool is_record{false}; // record struct (C# 10)
+    bool is_partial{false};
+    std::vector<TypeParameter> type_params;
+    std::vector<std::shared_ptr<TypeNode>> interfaces;
+    std::vector<std::shared_ptr<Statement>> members;
+    std::vector<Attribute> attributes;
+    std::vector<Parameter> primary_ctor_params;
+};
+
+struct InterfaceDecl : Statement {
+    std::string name;
+    std::string access;
+    bool is_partial{false};
+    std::vector<TypeParameter> type_params;
+    std::vector<std::shared_ptr<TypeNode>> extends_types;
+    std::vector<std::shared_ptr<Statement>> members;
+    std::vector<Attribute> attributes;
+};
+
+struct EnumDecl : Statement {
+    std::string name;
+    std::string access;
+    std::shared_ptr<TypeNode> underlying_type; // : int, byte, etc.
+    struct EnumMember {
+        std::string name;
+        std::shared_ptr<Expression> value;
+        std::vector<Attribute> attributes;
+    };
+    std::vector<EnumMember> members;
+    std::vector<Attribute> attributes;
+};
+
+struct DelegateDecl : Statement {
+    std::string name;
+    std::string access;
+    std::shared_ptr<TypeNode> return_type;
+    std::vector<Parameter> params;
+    std::vector<TypeParameter> type_params;
+    std::vector<Attribute> attributes;
+};
+
+struct NamespaceDecl : Statement {
+    std::string name;
+    std::vector<std::shared_ptr<Statement>> members;
+    bool is_file_scoped{false}; // C# 10 file-scoped namespace
+};
+
+struct UsingDirective : Statement {
+    std::string ns;            // namespace name
+    std::string alias;         // alias = name
+    bool is_static{false};
+    bool is_global{false};     // C# 10 global usings
+};
+
+// ============================================================================
+// Module (compilation unit)
+// ============================================================================
+
+struct Module {
+    std::string filename;
+    std::vector<std::shared_ptr<UsingDirective>> usings;
+    std::vector<std::shared_ptr<Statement>> declarations;
+    // Top-level statements (C# 9.0+)
+    std::vector<std::shared_ptr<Statement>> top_level_statements;
+};
+
+} // namespace polyglot::dotnet

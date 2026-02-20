@@ -1504,6 +1504,10 @@ PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
         delete_func = "__ploy_cpp_delete";
     } else if (lang == "rust") {
         delete_func = "__ploy_rust_drop";
+    } else if (lang == "java") {
+        delete_func = "__ploy_java_release";
+    } else if (lang == "dotnet" || lang == "csharp") {
+        delete_func = "__ploy_dotnet_dispose";
     } else {
         delete_func = "__ploy_delete_" + lang;
     }
