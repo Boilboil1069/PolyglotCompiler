@@ -79,6 +79,8 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
         LowerStructDecl(struct_decl);
     } else if (auto map_func = std::dynamic_pointer_cast<MapFuncDecl>(stmt)) {
         LowerMapFuncDecl(map_func);
+    } else if (auto with_stmt = std::dynamic_pointer_cast<WithStatement>(stmt)) {
+        LowerWithStatement(with_stmt);
     }
     // BREAK and CONTINUE are handled at a higher level (loop lowering)
     // MAP_TYPE is metadata only, no IR generation needed
@@ -442,6 +444,18 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     if (auto cross_call = std::dynamic_pointer_cast<CrossLangCallExpression>(expr)) {
         return LowerCrossLangCall(cross_call);
     }
+    if (auto new_expr = std::dynamic_pointer_cast<NewExpression>(expr)) {
+        return LowerNewExpression(new_expr);
+    }
+    if (auto method_call = std::dynamic_pointer_cast<MethodCallExpression>(expr)) {
+        return LowerMethodCallExpression(method_call);
+    }
+    if (auto get_attr = std::dynamic_pointer_cast<GetAttrExpression>(expr)) {
+        return LowerGetAttrExpression(get_attr);
+    }
+    if (auto set_attr = std::dynamic_pointer_cast<SetAttrExpression>(expr)) {
+        return LowerSetAttrExpression(set_attr);
+    }
     if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
         // Qualified identifiers are treated as external references
         std::string sym = qid->qualifier + "_" + qid->name;
@@ -677,6 +691,272 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     // Emit the call instruction to the stub
     auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
     return {inst->name, inst->type};
+}
+
+PloyLowering::EvalResult PloyLowering::LowerNewExpression(
+    const std::shared_ptr<NewExpression> &new_expr) {
+    // Lower constructor arguments
+    std::vector<std::string> arg_names;
+    std::vector<ir::IRType> arg_types;
+    for (const auto &arg : new_expr->args) {
+        EvalResult a = LowerExpression(arg);
+        arg_names.push_back(a.value);
+        arg_types.push_back(a.type);
+    }
+
+    // Generate the stub name for the constructor call
+    std::string stub_name = MangleStubName("ploy", new_expr->language,
+                                           new_expr->class_name + "::__init__");
+
+    // Record the cross-language call descriptor for the constructor
+    CrossLangCallDescriptor desc;
+    desc.stub_name = stub_name;
+    desc.source_language = new_expr->language;
+    desc.target_language = "ploy";
+    desc.source_function = new_expr->class_name + "::__init__";
+    desc.target_function = stub_name;
+    desc.source_param_types = arg_types;
+    // Constructor returns an opaque object handle (pointer-sized)
+    desc.source_return_type = ir::IRType::Pointer(ir::IRType::Void());
+    desc.target_return_type = ir::IRType::Pointer(ir::IRType::Void());
+
+    // Generate marshalling descriptors for each argument
+    for (const auto &at : arg_types) {
+        CrossLangCallDescriptor::MarshalOp marshal;
+        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        marshal.from = at;
+        marshal.to = at;
+        desc.param_marshal.push_back(marshal);
+    }
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::Pointer(ir::IRType::Void());
+    desc.return_marshal.to = ir::IRType::Pointer(ir::IRType::Void());
+
+    call_descriptors_.push_back(desc);
+
+    // Emit the call instruction to the constructor stub
+    auto inst = builder_.MakeCall(stub_name, arg_names,
+                                  ir::IRType::Pointer(ir::IRType::Void()), "");
+    return {inst->name, inst->type};
+}
+
+PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
+    const std::shared_ptr<MethodCallExpression> &method_call) {
+    // Lower the receiver object
+    EvalResult obj = LowerExpression(method_call->object);
+
+    // Lower method arguments — the object is passed as the first argument
+    std::vector<std::string> arg_names;
+    std::vector<ir::IRType> arg_types;
+    arg_names.push_back(obj.value);
+    arg_types.push_back(obj.type);
+    for (const auto &arg : method_call->args) {
+        EvalResult a = LowerExpression(arg);
+        arg_names.push_back(a.value);
+        arg_types.push_back(a.type);
+    }
+
+    // Generate the stub name for the method call
+    std::string stub_name = MangleStubName("ploy", method_call->language,
+                                           method_call->method_name);
+
+    // Record the cross-language call descriptor for the method
+    CrossLangCallDescriptor desc;
+    desc.stub_name = stub_name;
+    desc.source_language = method_call->language;
+    desc.target_language = "ploy";
+    desc.source_function = method_call->method_name;
+    desc.target_function = stub_name;
+    desc.source_param_types = arg_types;
+    desc.source_return_type = ir::IRType::I64(true);
+    desc.target_return_type = ir::IRType::I64(true);
+
+    // Generate marshalling descriptors for each argument (including object)
+    for (const auto &at : arg_types) {
+        CrossLangCallDescriptor::MarshalOp marshal;
+        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        marshal.from = at;
+        marshal.to = at;
+        desc.param_marshal.push_back(marshal);
+    }
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::I64(true);
+    desc.return_marshal.to = ir::IRType::I64(true);
+
+    call_descriptors_.push_back(desc);
+
+    // Emit the call instruction to the method stub
+    auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
+    return {inst->name, inst->type};
+}
+
+PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
+    const std::shared_ptr<GetAttrExpression> &get_attr) {
+    // Lower the receiver object
+    EvalResult obj = LowerExpression(get_attr->object);
+
+    // GET is lowered as a call to __getattr__ bridge stub
+    // The object is passed as the first argument
+    std::vector<std::string> arg_names;
+    std::vector<ir::IRType> arg_types;
+    arg_names.push_back(obj.value);
+    arg_types.push_back(obj.type);
+
+    // Generate the stub name for the getattr call
+    std::string stub_name = MangleStubName("ploy", get_attr->language,
+                                           "__getattr__" + get_attr->attr_name);
+
+    // Record the cross-language call descriptor
+    CrossLangCallDescriptor desc;
+    desc.stub_name = stub_name;
+    desc.source_language = get_attr->language;
+    desc.target_language = "ploy";
+    desc.source_function = "__getattr__::" + get_attr->attr_name;
+    desc.target_function = stub_name;
+    desc.source_param_types = arg_types;
+    desc.source_return_type = ir::IRType::I64(true);
+    desc.target_return_type = ir::IRType::I64(true);
+
+    // Generate marshalling descriptors
+    for (const auto &at : arg_types) {
+        CrossLangCallDescriptor::MarshalOp marshal;
+        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        marshal.from = at;
+        marshal.to = at;
+        desc.param_marshal.push_back(marshal);
+    }
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::I64(true);
+    desc.return_marshal.to = ir::IRType::I64(true);
+
+    call_descriptors_.push_back(desc);
+
+    // Emit the call
+    auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
+    return {inst->name, inst->type};
+}
+
+PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
+    const std::shared_ptr<SetAttrExpression> &set_attr) {
+    // Lower the receiver object and the value
+    EvalResult obj = LowerExpression(set_attr->object);
+    EvalResult val = LowerExpression(set_attr->value);
+
+    // SET is lowered as a call to __setattr__ bridge stub
+    // object and value are passed as arguments
+    std::vector<std::string> arg_names;
+    std::vector<ir::IRType> arg_types;
+    arg_names.push_back(obj.value);
+    arg_types.push_back(obj.type);
+    arg_names.push_back(val.value);
+    arg_types.push_back(val.type);
+
+    // Generate the stub name for the setattr call
+    std::string stub_name = MangleStubName("ploy", set_attr->language,
+                                           "__setattr__" + set_attr->attr_name);
+
+    // Record the cross-language call descriptor
+    CrossLangCallDescriptor desc;
+    desc.stub_name = stub_name;
+    desc.source_language = set_attr->language;
+    desc.target_language = "ploy";
+    desc.source_function = "__setattr__::" + set_attr->attr_name;
+    desc.target_function = stub_name;
+    desc.source_param_types = arg_types;
+    desc.source_return_type = ir::IRType::Void();
+    desc.target_return_type = ir::IRType::Void();
+
+    // Generate marshalling descriptors
+    for (const auto &at : arg_types) {
+        CrossLangCallDescriptor::MarshalOp marshal;
+        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        marshal.from = at;
+        marshal.to = at;
+        desc.param_marshal.push_back(marshal);
+    }
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::Void();
+    desc.return_marshal.to = ir::IRType::Void();
+
+    call_descriptors_.push_back(desc);
+
+    // Emit the call — returns void but we return the value for expression chaining
+    builder_.MakeCall(stub_name, arg_names, ir::IRType::Void(), "");
+    return {val.value, val.type};
+}
+
+// ============================================================================
+// WITH Statement Lowering
+// ============================================================================
+
+void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
+    // WITH(lang, resource) AS name { body }
+    // Lowered to:
+    //   1. Evaluate the resource expression
+    //   2. Call __enter__ on the resource
+    //   3. Bind the result to 'name'
+    //   4. Execute body
+    //   5. Call __exit__ on the resource (even on error)
+
+    // Step 1: Evaluate resource
+    EvalResult resource = LowerExpression(with_stmt->resource_expr);
+
+    // Step 2: Call __enter__ on the resource
+    std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__");
+    std::vector<std::string> enter_args = {resource.value};
+    auto enter_result = builder_.MakeCall(enter_stub, enter_args,
+                                          ir::IRType::Pointer(ir::IRType::Void()), "");
+
+    // Record __enter__ call descriptor
+    CrossLangCallDescriptor enter_desc;
+    enter_desc.stub_name = enter_stub;
+    enter_desc.source_language = with_stmt->language;
+    enter_desc.target_language = "ploy";
+    enter_desc.source_function = "__enter__";
+    enter_desc.target_function = enter_stub;
+    enter_desc.source_param_types = {resource.type};
+    enter_desc.source_return_type = ir::IRType::Pointer(ir::IRType::Void());
+    enter_desc.target_return_type = ir::IRType::Pointer(ir::IRType::Void());
+    CrossLangCallDescriptor::MarshalOp enter_marshal;
+    enter_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    enter_marshal.from = resource.type;
+    enter_marshal.to = resource.type;
+    enter_desc.param_marshal.push_back(enter_marshal);
+    enter_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    enter_desc.return_marshal.from = ir::IRType::Pointer(ir::IRType::Void());
+    enter_desc.return_marshal.to = ir::IRType::Pointer(ir::IRType::Void());
+    call_descriptors_.push_back(enter_desc);
+
+    // Step 3: Bind the result to the variable name
+    env_[with_stmt->var_name] = EnvEntry{enter_result->name, enter_result->type};
+
+    // Step 4: Execute body
+    LowerBlockStatements(with_stmt->body);
+
+    // Step 5: Call __exit__ on the resource
+    std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
+    std::vector<std::string> exit_args = {resource.value};
+    builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
+
+    // Record __exit__ call descriptor
+    CrossLangCallDescriptor exit_desc;
+    exit_desc.stub_name = exit_stub;
+    exit_desc.source_language = with_stmt->language;
+    exit_desc.target_language = "ploy";
+    exit_desc.source_function = "__exit__";
+    exit_desc.target_function = exit_stub;
+    exit_desc.source_param_types = {resource.type};
+    exit_desc.source_return_type = ir::IRType::Void();
+    exit_desc.target_return_type = ir::IRType::Void();
+    CrossLangCallDescriptor::MarshalOp exit_marshal;
+    exit_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    exit_marshal.from = resource.type;
+    exit_marshal.to = resource.type;
+    exit_desc.param_marshal.push_back(exit_marshal);
+    exit_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    exit_desc.return_marshal.from = ir::IRType::Void();
+    exit_desc.return_marshal.to = ir::IRType::Void();
+    call_descriptors_.push_back(exit_desc);
 }
 
 // ============================================================================

@@ -72,19 +72,43 @@ IMPORT python PACKAGE numpy.linalg::(solve, inv);
 
 // 单符号导入
 IMPORT python PACKAGE os::(path);
+```
 
-// 与版本约束组合
+**与版本约束和别名的组合：**
+
+完整语法的解析顺序为：
+
+```
+IMPORT <语言> PACKAGE <包名>[::(<符号列表>)] [<版本运算符> <版本号>] [AS <别名>];
+                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~
+                      ①包名+可选选择性导入          ②可选版本约束(修饰包)    ③可选别名
+```
+
+> **注意：** 版本约束 `>= 1.20` 修饰的是**整个包**（如 numpy），而非选择性导入的符号。
+> 选择性导入 `::()` 紧跟包名，表示"从该包中仅导入这些符号"；版本约束在其后，表示"该包的版本要求"。
+
+```ploy
+// 选择性导入 + 版本约束：要求 numpy >= 1.20，且仅导入 array 和 mean
 IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 
-// 与版本约束和别名组合
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+// 选择性导入 + 版本约束：要求 torch >= 2.0，且仅导入 tensor 和 no_grad
+IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
+
+// 整包导入 + 别名：将 torch 包别名为 pt
+IMPORT python PACKAGE torch >= 2.0 AS pt;
 ```
+
+> **限制：** 选择性导入 `::()` 与 `AS` 别名**不能同时使用**。
+> 例如 `IMPORT python PACKAGE torch::(tensor, no_grad) AS pt;` 是非法的，
+> 因为 `pt` 无法确定指代的是 `torch::tensor` 还是 `torch::no_grad`。
+> 如需别名，请使用整包导入（不带 `::()`）；如需选择性导入，请省略 `AS`。
 
 **行为说明：**
 - 包本身被注册为符号（例如 `numpy`）
 - 每个选择的符号被单独注册（例如 `array`、`mean`）
 - 链接器仅为选择的符号生成目标绑定
 - 选择列表中的重复符号会导致编译时错误
+- 选择性导入与 AS 别名的组合会导致编译时错误
 
 ### 3. 包自动发现
 

@@ -27,7 +27,7 @@
 
 ### 3.1 关键字
 
-`.ploy` 语言共有 **41 个保留关键字**：
+`.ploy` 语言共有 **49 个保留关键字**：
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
@@ -38,7 +38,8 @@ TRUE        FALSE       NULL        AND         OR
 NOT         CALL        VOID        INT         FLOAT
 STRING      BOOL        ARRAY       STRUCT      PACKAGE
 LIST        TUPLE       DICT        OPTION      MAP_FUNC
-CONVERT
+CONVERT     CONFIG      VENV        CONDA       UV
+PIPENV      POETRY      NEW         METHOD
 ```
 
 > **关键字分类：**
@@ -49,7 +50,8 @@ CONVERT
 > - **运算符关键字**：`AND`、`OR`、`NOT`、`AS` — 逻辑运算和类型别名
 > - **字面量关键字**：`TRUE`、`FALSE`、`NULL` — 布尔值和空值
 > - **类型关键字**：`VOID`、`INT`、`FLOAT`、`STRING`、`BOOL`、`ARRAY`、`LIST`、`TUPLE`、`DICT`、`OPTION` — 内置类型名称
-> - **操作关键字**：`CALL`、`CONVERT` — 跨语言调用和类型转换
+> - **操作关键字**：`CALL`、`CONVERT`、`NEW`、`METHOD` — 跨语言调用、类型转换、类实例化和方法调用
+> - **包管理器**：`CONFIG`、`VENV`、`CONDA`、`UV`、`PIPENV`、`POETRY` — 包管理器环境配置
 
 ### 3.2 标识符
 

@@ -1,189 +1,327 @@
-# PolyglotCompiler 文档中心
+# PolyglotCompiler
 
-欢迎使用 PolyglotCompiler！这是一个多语言编译器项目，支持 C++、Python 和 Rust 的编译。
+<p align="center">
+  <strong>A modern multi-language compiler with cross-language interoperability</strong><br/>
+  <strong>现代多语言编译器，支持跨语言互操作</strong>
+</p>
 
-**最后更新**: 2026-01-29
-
----
-
-## 📚 快速导航
-
-### 🚀 新手入门
-- **[快速开始](QUICKSTART.md)** - 5分钟上手端到端编译
-- **[实现状态](IMPLEMENTATION_STATUS.md)** - 项目整体进度和功能清单
-
-### 🏗️ 核心实现文档
-
-#### 完整特性实现
-- **[端到端编译链实现](E2E_IMPLEMENTATION_SUMMARY.md)** - 从源码到对象文件的完整流程
-  - 前端 (C++ 子集)
-  - 中间表示 (IR)
-  - 后端 (x86_64/ARM64)
-  - 对象文件生成
-  - DWARF 调试信息
-
-- **[高级 C++ 特性实现](ADVANCED_FEATURES_SUMMARY.md)** - C++ 高级功能完整实现
-  - ✅ 运算符重载
-  - ✅ 虚函数去虚化优化
-  - ✅ 虚继承（菱形继承）
-  - ✅ RTTI（typeid, dynamic_cast）
-  - ✅ 模板实例化
-
-- **[类和继承功能实现](CLASS_IMPROVEMENTS_SUMMARY.md)** - 面向对象核心功能
-  - ✅ 虚函数检测 (virtual 关键字)
-  - ✅ 完整类型系统
-  - ✅ new/delete + 构造/析构函数
-  - ✅ 多继承支持
-  - ✅ 访问控制 (public/protected/private)
-
-- **[浮点、异常、SIMD 实现](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md)** - 高级运行时特性
-  - ✅ 浮点运算和比较
-  - ✅ 异常处理 (try/catch/throw)
-  - ✅ SIMD 向量化支持
-
-#### 多语言前端
-- **[多语言前端实现](FEATURE_IMPLEMENTATION_SUMMARY.md)** - Python/Rust/ARM64 支持
-  - Python IR Lowering
-  - Rust IR Lowering  
-  - ARM64 后端
-  - 链接器实现
-
-### 📖 快速参考
-
-- **[类和继承快速参考](QUICK_REFERENCE_CLASSES.md)** - 面向对象编程速查
-- **[浮点/异常/SIMD 快速参考](QUICK_REFERENCE_FLOAT_EXCEPTION_SIMD.md)** - 高级特性速查
-
-### 🎓 深入理解
-
-- **[类继承实现详解](CLASS_INHERITANCE_IMPLEMENTATION.md)** - 继承机制内部实现
-- **[端到端编译指南](E2E_COMPILATION_GUIDE.md)** - 编译流程详细说明
-- **[IR 设计文档](design/ir.md)** - 中间表示设计
+<p align="center">
+  <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
+  <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
+  <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-171_cases_|_523_assertions-brightgreen.svg"/>
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
+</p>
 
 ---
 
-## 🎯 按主题分类
+## Overview / 项目概述
 
-### C++ 支持
+PolyglotCompiler is a multi-language compiler that compiles **C++**, **Python**, and **Rust** source code into a unified intermediate representation (IR), and provides cross-language interoperability through the **`.ploy`** domain-specific language. It features its own frontends, optimisation passes, backends targeting x86_64 and ARM64, and a runtime with garbage collection and FFI support.
 
-| 功能 | 文档 | 状态 |
-|------|------|------|
-| 基础语法 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md) | ✅ 完成 |
-| 类和继承 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md) | ✅ 完成 |
-| 运算符重载 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#1-运算符重载) | ✅ 完成 |
-| 虚函数 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md#1-完整虚函数检测) | ✅ 完成 |
-| 多继承 | [类功能实现](CLASS_IMPROVEMENTS_SUMMARY.md#4-完整多继承支持) | ✅ 完成 |
-| 虚继承 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#3-虚继承) | ✅ 完成 |
-| RTTI | [高级特性](ADVANCED_FEATURES_SUMMARY.md#4-rtti) | ✅ 完成 |
-| 模板 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#5-模板实例化) | ✅ 完成 |
-| 异常处理 | [浮点异常SIMD](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md#2-异常处理) | ✅ 完成 |
+PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python** 和 **Rust** 源代码编译为统一的中间表示（IR），并通过 **`.ploy`** 领域特定语言实现跨语言互操作。项目拥有自己的前端、优化 Pass、面向 x86_64/ARM64 的后端，以及包含垃圾回收和 FFI 的运行时系统。
 
-### 其他语言
+### Key Features / 核心特性
 
-| 语言 | 文档 | 状态 |
-|------|------|------|
-| Python | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#1-python-前端-ir-lowering) | ✅ 完成 |
-| Rust | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#2-rust-前端-ir-lowering) | ✅ 完成 |
-
-### 编译器后端
-
-| 功能 | 文档 | 状态 |
-|------|------|------|
-| x86_64 后端 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#3-后端) | ✅ 完成 |
-| ARM64 后端 | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#3-arm64-后端) | ✅ 完成 |
-| 对象文件生成 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#4-对象文件生成) | ✅ 完成 |
-| 调试信息 | [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md#5-dwarf-调试信息) | ✅ 完成 |
-| 链接器 | [多语言前端](FEATURE_IMPLEMENTATION_SUMMARY.md#4-链接器polyld) | ✅ 完成 |
-
-### 优化
-
-| 优化 | 文档 | 状态 |
-|------|------|------|
-| 去虚化 | [高级特性](ADVANCED_FEATURES_SUMMARY.md#2-虚函数去虚化优化) | ✅ 完成 |
-| 常量折叠 | [实现状态](IMPLEMENTATION_STATUS.md#中间层-ir--passes) | ✅ 完成 |
-| 死代码消除 | [实现状态](IMPLEMENTATION_STATUS.md#中间层-ir--passes) | ✅ 完成 |
-| SIMD 向量化 | [浮点异常SIMD](FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md#3-simd-向量化) | ✅ 完成 |
+- **Multi-Frontend Architecture** — Dedicated frontends for C++, Python, Rust, and `.ploy`
+- **Shared IR** — All languages compile to a common SSA-form intermediate representation
+- **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
+- **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH` keywords for cross-language class instantiation, method calls, attribute access, and resource management
+- **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/pkg-config
+- **Dual Backend** — Code generation for x86_64 (SSE/AVX) and ARM64 (NEON)
+- **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
+- **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
 
 ---
 
-## 📊 项目统计
-
-截至 2026-01-29:
-
-- **代码量**: ~40,000+ 行
-- **支持语言**: C++、Python、Rust
-- **目标架构**: x86_64、ARM64
-- **IR 指令**: 50+ 种
-- **优化 Pass**: 10+ 种
-- **测试用例**: 100+ 个
-
----
-
-## 🗂️ 文档组织
+## Architecture / 架构设计
 
 ```
-docs/
-├── README.md                              # 本文件 - 文档中心
-├── QUICKSTART.md                          # 快速开始
-├── IMPLEMENTATION_STATUS.md               # 实现状态总览
-│
-├── 核心实现/
-│   ├── E2E_IMPLEMENTATION_SUMMARY.md      # 端到端编译链
-│   ├── ADVANCED_FEATURES_SUMMARY.md       # C++ 高级特性
-│   ├── CLASS_IMPROVEMENTS_SUMMARY.md      # 类和继承
-│   ├── FLOAT_EXCEPTION_SIMD_IMPLEMENTATION.md  # 浮点/异常/SIMD
-│   └── FEATURE_IMPLEMENTATION_SUMMARY.md  # 多语言前端
-│
-├── 快速参考/
-│   ├── QUICK_REFERENCE_CLASSES.md         # 类和继承速查
-│   └── QUICK_REFERENCE_FLOAT_EXCEPTION_SIMD.md  # 浮点/异常/SIMD速查
-│
-├── 详细指南/
-│   ├── E2E_COMPILATION_GUIDE.md           # 编译流程详解
-│   └── CLASS_INHERITANCE_IMPLEMENTATION.md # 继承机制详解
-│
-└── design/
-    └── ir.md                               # IR 设计文档
+┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐
+│  C++ Source  │  │ Python Source │  │  Rust Source  │  │ .ploy Source │
+└──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────┬──────┘
+       │                │                  │                  │
+       ▼                ▼                  ▼                  ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ C++ Frontend │ │Python Frontend│ │ Rust Frontend│ │ Ploy Frontend│
+└──────┬──────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+       │               │                │                 │
+       └───────────────┴────────┬───────┘                 │
+                                │                         │
+                          ┌─────▼─────┐            ┌──────▼──────┐
+                          │ Shared IR │            │  Polyglot   │
+                          │   (SSA)   │            │   Linker    │
+                          └─────┬─────┘            └──────┬──────┘
+                                │                         │
+                      ┌─────────┴─────────┐               │
+                      ▼                   ▼               │
+               ┌───────────┐      ┌───────────┐           │
+               │  x86_64   │      │   ARM64   │           │
+               │  Backend  │      │  Backend  │           │
+               └─────┬─────┘      └─────┬─────┘           │
+                     │                   │                │
+                     └─────────┬─────────┘                │
+                               ▼                          ▼
+                        ┌─────────────┐          ┌─────────────┐
+                        │ Object Files│          │ Glue Code   │
+                        └──────┬──────┘          └──────┬──────┘
+                               └────────┬───────────────┘
+                                        ▼
+                                 ┌─────────────┐
+                                 │  Executable  │
+                                 └─────────────┘
+```
+
+> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython). The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step.
+
+---
+
+## Quick Start / 快速开始
+
+### Prerequisites / 环境要求
+
+- **C++20** compatible compiler (MSVC 2022+, GCC 12+, Clang 15+)
+- **CMake** 3.20+
+- **Ninja** (recommended) or Make
+
+All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched automatically via CMake `FetchContent`.
+
+### Build / 构建
+
+```bash
+# Clone the repository
+git clone https://github.com/user/PolyglotCompiler.git
+cd PolyglotCompiler
+
+# Configure (dependencies are fetched automatically)
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+# Build everything
+cmake --build build
+
+# Run tests
+cd build && ./unit_tests [ploy] -r compact
+```
+
+**Windows (Visual Studio 2022+):**
+
+```cmd
+rem Activate MSVC toolchain — MUST use -arch=amd64
+call "C:\...\VsDevCmd.bat" -arch=amd64
+cmake -B build -G Ninja
+cmake --build build --target unit_tests
+cd build && unit_tests.exe [ploy] -r compact 2>&1 <nul
+```
+
+### Usage / 使用
+
+```bash
+# Compile a source file
+polyc --lang=cpp -O2 -o output input.cpp
+
+# Compile .ploy cross-language specification
+polyc --lang=ploy input.ploy
+
+# Link object files
+polyld -o program file1.o file2.o
+
+# Assemble
+polyasm input.s -o output.o
+
+# Optimise IR
+polyopt -O3 input.ir -o optimised.ir
 ```
 
 ---
 
-## 🔍 常见问题
+## The .ploy Language / .ploy 跨语言链接语言
 
-### 如何开始使用？
-请阅读 [快速开始指南](QUICKSTART.md)，5分钟即可上手。
+`.ploy` is a domain-specific language for describing cross-language interoperability. It serves as a "glue language" that orchestrates function calls, class instantiation, method invocation, attribute access, resource management, and data flow between C++, Python, and Rust.
 
-### 项目支持哪些功能？
-查看 [实现状态文档](IMPLEMENTATION_STATUS.md) 了解完整功能列表。
+### Example: Cross-Language ML Pipeline
 
-### 如何编译 C++ 代码？
-参考 [端到端编译链](E2E_IMPLEMENTATION_SUMMARY.md) 了解完整流程。
+```ploy
+IMPORT python PACKAGE torch >= 2.0;
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT cpp::image_processing;
 
-### 支持哪些 C++ 特性？
-- 基础: 函数、控制流、运算符
-- 面向对象: 类、继承、虚函数、访问控制
-- 高级: 运算符重载、RTTI、模板、异常处理
+PIPELINE ml_pipeline {
+    FUNC preprocess(path: STRING) -> LIST(f64) {
+        LET raw = CALL(cpp, image_processing::load, path);
+        LET tensor = CALL(python, np::array, raw);
+        RETURN tensor;
+    }
 
-详见 [C++ 支持](#c-支持) 部分。
+    FUNC train(data: LIST(f64)) -> INT {
+        LET model = NEW(python, torch::nn::Linear, 784, 10);
+        LET optimizer = NEW(python, torch::optim::Adam,
+                            METHOD(python, model, parameters), 0.001);
 
-### 如何添加新的优化 Pass？
-参考现有的优化实现，如 [去虚化 Pass](ADVANCED_FEATURES_SUMMARY.md#2-虚函数去虚化优化)。
+        LET output = METHOD(python, model, forward, data);
+        LET loss_val = METHOD(python, output, mean);
+        METHOD(python, loss_val, backward);
+        METHOD(python, optimizer, step);
+
+        LET lr = GET(python, optimizer, learning_rate);
+        SET(python, model, training, FALSE);
+
+        RETURN 0;
+    }
+
+    FUNC evaluate(model_path: STRING) -> FLOAT {
+        LET f = NEW(python, open, model_path);
+        WITH(python, f) AS handle {
+            LET data = METHOD(python, handle, read);
+            RETURN CALL(python, np::mean, data);
+        }
+    }
+}
+
+EXPORT ml_pipeline AS "train_model";
+```
+
+### Language Keywords (52)
+
+```
+LINK    IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC     CONFIG
+LET     VAR       STRUCT    VOID       INT        FLOAT    STRING
+BOOL    ARRAY     LIST      TUPLE      DICT       OPTION
+RETURN  IF        ELSE      WHILE      FOR        IN       MATCH
+CASE    DEFAULT   BREAK     CONTINUE
+AS      AND       OR        NOT        CALL       CONVERT  MAP_FUNC
+NEW     METHOD    GET       SET        WITH
+TRUE    FALSE     NULL      PACKAGE
+VENV    CONDA     UV        PIPENV     POETRY
+```
+
+### Core Syntax / 核心语法
+
+| Feature | Syntax | Description |
+|---------|--------|-------------|
+| Function Link | `LINK(cpp, python, f, g);` | Cross-language function binding |
+| Package Import | `IMPORT python PACKAGE numpy >= 1.20;` | Import with version constraints |
+| Selective Import | `IMPORT python PACKAGE torch::(tensor, no_grad);` | Import specific symbols |
+| Function Call | `CALL(python, np::mean, data)` | Cross-language function call |
+| Class Instantiation | `NEW(python, torch::nn::Linear, 784, 10)` | Create foreign class instance |
+| Method Call | `METHOD(python, model, forward, data)` | Call method on foreign object |
+| Attribute Get | `GET(python, obj, weight)` | Read foreign object attribute |
+| Attribute Set | `SET(python, obj, threshold, 0.5)` | Write foreign object attribute |
+| Resource Management | `WITH(python, resource) AS r { ... }` | Auto `__enter__`/`__exit__` |
+| Type Conversion | `CONVERT(value, FLOAT)` | Explicit type conversion |
+| Type Mapping | `MAP_TYPE(cpp::int, python::int);` | Cross-language type mapping |
+| Pipeline | `PIPELINE name { ... }` | Multi-stage processing pipeline |
+| Package Manager | `CONFIG CONDA "env_name";` | Configure package discovery |
+| Type Annotation | `LET model: python::nn::Module = NEW(...);` | Qualified type annotations |
+
+### Compilation Model / 编译模型
+
+PolyglotCompiler uses its own frontends to compile **all** languages (C++, Python, Rust) to a shared SSA-form IR. The `.ploy` frontend produces cross-language call descriptors consumed by the **PolyglotLinker**, which generates FFI glue code, type marshalling, and ownership tracking. The resulting IR is lowered through the backend to produce a **unified native binary** — no external compilers or interpreters are invoked at compile time.
 
 ---
 
-## 📝 贡献指南
+## Toolchain / 工具链
 
-在添加新功能时，请：
-1. 更新相应的实现文档
-2. 在 `IMPLEMENTATION_STATUS.md` 中标记状态
-3. 添加示例代码和测试用例
-4. 更新本 README 的导航链接
-
----
-
-## 📧 联系方式
-
-如有问题或建议，请提交 Issue 或 Pull Request。
+| Tool | Binary | Purpose |
+|------|--------|---------|
+| Compiler Driver | `polyc` | Source → IR → Target code |
+| Linker | `polyld` | Object file linking + cross-language glue |
+| Assembler | `polyasm` | Assembly → Object file |
+| Optimiser | `polyopt` | IR optimisation passes |
+| Runtime Tool | `polyrt` | GC / FFI / Thread management |
+| Benchmark | `polybench` | Performance evaluation suite |
 
 ---
 
-*Generated by PolyglotCompiler Documentation Team*
+## Project Structure / 项目结构
+
+```
+PolyglotCompiler/
+├── frontends/
+│   ├── common/         # Shared frontend infrastructure (token pool, diagnostics)
+│   ├── cpp/            # C++ frontend (lexer, parser, sema, lowering, constexpr)
+│   ├── python/         # Python frontend (lexer, parser, sema, lowering)
+│   ├── rust/           # Rust frontend (lexer, parser, sema, lowering)
+│   └── ploy/           # .ploy cross-language frontend (lexer, parser, sema, lowering)
+├── middle/             # Middle layer: IR, SSA, CFG, optimisation passes, PGO, LTO
+├── backends/
+│   ├── common/         # Shared backend (debug info, object file emission)
+│   ├── x86_64/         # x86_64 backend (isel, regalloc, asm_printer, scheduler)
+│   └── arm64/          # ARM64 backend (isel, regalloc, asm_printer)
+├── runtime/            # Runtime: GC (4 algorithms), FFI, marshalling, threading
+├── common/             # Common utilities: type system, symbol table, DWARF5
+├── tools/              # Compiler driver (polyc), linker (polyld), assembler, etc.
+├── tests/
+│   ├── unit/           # Unit tests (Catch2)
+│   ├── samples/        # .ploy and C++ sample files
+│   └── integration/    # Integration tests
+└── docs/               # Documentation (bilingual: Chinese + English)
+```
+
+---
+
+## Testing / 测试
+
+The project uses **Catch2** as the testing framework. Tests are automatically discovered from `tests/unit/`.
+
+```bash
+# Run all tests
+./unit_tests
+
+# Run .ploy frontend tests
+./unit_tests [ploy]
+
+# Run by category
+./unit_tests [ploy][lexer]       # Lexer tests
+./unit_tests [ploy][parser]      # Parser tests
+./unit_tests [ploy][sema]        # Semantic analysis tests
+./unit_tests [ploy][lowering]    # IR lowering tests
+./unit_tests [ploy][integration] # Integration tests
+./unit_tests [ploy][pkgmgr]     # Package manager tests
+```
+
+### Test Statistics / 测试统计
+
+| Suite | Tag | Cases | Coverage |
+|-------|-----|-------|----------|
+| .ploy Frontend | `[ploy]` | 171 (523 assertions) | Lexer / Parser / Sema / IR / Integration / Package / OOP |
+| GC Algorithms | `[gc]` | 40+ | 4 GC algorithms |
+| Optimisation Passes | `[opt]` | 50+ | 25+ passes |
+| Python Features | `[python]` | 25+ | 25+ advanced features |
+| Rust Features | `[rust]` | 28+ | 28+ advanced features |
+
+---
+
+## Dependencies / 依赖
+
+Managed automatically via CMake `FetchContent`:
+
+| Dependency | Purpose |
+|-----------|---------|
+| [fmt](https://github.com/fmtlib/fmt) | Formatted output |
+| [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
+| [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
+| [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator |
+
+---
+
+## Documentation / 文档
+
+All documentation is provided in **bilingual** format (Chinese + English) under `docs/`:
+
+| Document | Description |
+|----------|-------------|
+| [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete user guide (English) |
+| [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide (Chinese / 完整用户指南) |
+| [`docs/realization/`](docs/realization/) | Implementation details (bilingual) |
+| [`docs/specs/`](docs/specs/) | Language specifications |
+
+---
+
+## License / 许可证
+
+This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+*Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
+*Last updated / 最后更新: 2026-02-20*

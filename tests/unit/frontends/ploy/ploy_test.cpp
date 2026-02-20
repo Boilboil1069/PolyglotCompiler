@@ -71,6 +71,33 @@ std::string LowerAndGetIR(const std::string &code, Diagnostics &diags) {
     return oss.str();
 }
 
+// Helper to lower code and return both IR text and cross-language call descriptors
+struct LowerResult {
+    std::string ir_text;
+    std::vector<CrossLangCallDescriptor> descriptors;
+};
+
+LowerResult LowerAndGetDescriptors(const std::string &code, Diagnostics &diags) {
+    PloyLexer lexer(code, "<test>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    if (!module || diags.HasErrors()) return {"", {}};
+
+    PloySema sema(diags);
+    if (!sema.Analyze(module)) return {"", {}};
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    if (!lowering.Lower(module)) return {"", {}};
+
+    std::ostringstream oss;
+    for (const auto &fn : ctx.Functions()) {
+        polyglot::ir::PrintFunction(*fn, oss);
+    }
+    return {oss.str(), lowering.CallDescriptors()};
+}
+
 } // namespace
 
 // ============================================================================
@@ -1278,6 +1305,7 @@ IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 }
 
 TEST_CASE("Ploy parser parses selective import with alias", "[ploy][parser][selective]") {
+    // Parser accepts this syntax, but sema will reject it
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy::(array, mean) AS np;
@@ -1288,6 +1316,16 @@ IMPORT python PACKAGE numpy::(array, mean) AS np;
     REQUIRE(import);
     REQUIRE(import->selected_symbols.size() == 2);
     REQUIRE(import->alias == "np");
+}
+
+TEST_CASE("Ploy sema rejects selective import with alias", "[ploy][sema][selective]") {
+    // Selective import + AS alias is ambiguous and must be rejected
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE numpy::(array, mean) AS np;
+)", diags, sema);
+    REQUIRE(!ok);
 }
 
 TEST_CASE("Ploy sema validates selective import", "[ploy][sema][selective]") {
@@ -1426,7 +1464,7 @@ TEST_CASE("Ploy full pipeline: VENV + versioned import + selective", "[ploy][int
     std::string ir = LowerAndGetIR(R"(
 CONFIG VENV python "C:/envs/ml";
 
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 
 FUNC compute() -> void {
     LET data = [1, 2, 3];
@@ -1697,15 +1735,15 @@ TEST_CASE("Ploy full pipeline: CONDA + versioned imports + selective", "[ploy][i
     std::string ir = LowerAndGetIR(R"(
 CONFIG CONDA python "data_science";
 
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 IMPORT python PACKAGE pandas >= 2.0;
 
-LINK(cpp, python, compute, np::mean);
+LINK(cpp, python, compute, numpy::mean);
 MAP_TYPE(cpp::double, python::float);
 
 PIPELINE analysis {
     LET data = [1.0, 2.0, 3.0];
-    LET result = CALL(python, np::mean, data);
+    LET result = CALL(python, numpy::mean, data);
     RETURN result;
 }
 )", diags);
@@ -1727,5 +1765,889 @@ FUNC serve() -> void {
 
 EXPORT serve AS "start_server";
 )", diags);
+    REQUIRE(!ir.empty());
+}
+
+// ============================================================================
+// Class Instantiation Tests — NEW and METHOD keywords
+// ============================================================================
+
+// -- Lexer tests --
+
+TEST_CASE("Ploy lexer tokenizes NEW keyword", "[ploy][lexer][class]") {
+    auto tokens = Tokenize("NEW");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+    CHECK(tokens[0].lexeme == "NEW");
+}
+
+TEST_CASE("Ploy lexer tokenizes METHOD keyword", "[ploy][lexer][class]") {
+    auto tokens = Tokenize("METHOD");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+    CHECK(tokens[0].lexeme == "METHOD");
+}
+
+TEST_CASE("Ploy lexer tokenizes NEW and METHOD in context", "[ploy][lexer][class]") {
+    auto tokens = Tokenize("LET obj = NEW(python, MyClass, 42);");
+    bool found_new = false;
+    bool found_method = false;
+    for (const auto &t : tokens) {
+        if (t.kind == TokenKind::kKeyword && t.lexeme == "NEW") found_new = true;
+    }
+    CHECK(found_new);
+
+    tokens = Tokenize("LET result = METHOD(python, obj, forward, data);");
+    for (const auto &t : tokens) {
+        if (t.kind == TokenKind::kKeyword && t.lexeme == "METHOD") found_method = true;
+    }
+    CHECK(found_method);
+}
+
+// -- Parser tests --
+
+TEST_CASE("Ploy parser parses NEW expression", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 1);
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[0]);
+    REQUIRE(var);
+    CHECK(var->name == "model");
+
+    auto new_expr = std::dynamic_pointer_cast<NewExpression>(var->init);
+    REQUIRE(new_expr);
+    CHECK(new_expr->language == "python");
+    CHECK(new_expr->class_name == "torch::nn::Linear");
+    CHECK(new_expr->args.size() == 2);
+}
+
+TEST_CASE("Ploy parser parses NEW with no args", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET obj = NEW(python, MyClass);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 1);
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[0]);
+    REQUIRE(var);
+    auto new_expr = std::dynamic_pointer_cast<NewExpression>(var->init);
+    REQUIRE(new_expr);
+    CHECK(new_expr->language == "python");
+    CHECK(new_expr->class_name == "MyClass");
+    CHECK(new_expr->args.empty());
+}
+
+TEST_CASE("Ploy parser parses NEW with string args", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET conn = NEW(python, sqlite3::Connection, "database.db");
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[0]);
+    REQUIRE(var);
+    auto new_expr = std::dynamic_pointer_cast<NewExpression>(var->init);
+    REQUIRE(new_expr);
+    CHECK(new_expr->language == "python");
+    CHECK(new_expr->class_name == "sqlite3::Connection");
+    CHECK(new_expr->args.size() == 1);
+}
+
+TEST_CASE("Ploy parser parses METHOD expression", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET model = NEW(python, Model);
+LET output = METHOD(python, model, forward, data);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(module->declarations.size() == 2);
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[1]);
+    REQUIRE(var);
+    CHECK(var->name == "output");
+
+    auto method = std::dynamic_pointer_cast<MethodCallExpression>(var->init);
+    REQUIRE(method);
+    CHECK(method->language == "python");
+    CHECK(method->method_name == "forward");
+    CHECK(method->args.size() == 1);
+
+    auto obj_id = std::dynamic_pointer_cast<Identifier>(method->object);
+    REQUIRE(obj_id);
+    CHECK(obj_id->name == "model");
+}
+
+TEST_CASE("Ploy parser parses METHOD with no extra args", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET obj = NEW(python, Tokenizer);
+LET text = METHOD(python, obj, get_vocab);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[1]);
+    REQUIRE(var);
+    auto method = std::dynamic_pointer_cast<MethodCallExpression>(var->init);
+    REQUIRE(method);
+    CHECK(method->language == "python");
+    CHECK(method->method_name == "get_vocab");
+    CHECK(method->args.empty());
+}
+
+TEST_CASE("Ploy parser parses METHOD with qualified method name", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LET obj = NEW(python, Module);
+LET val = METHOD(python, obj, utils::serialize, data);
+)", diags);
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+
+    auto var = std::dynamic_pointer_cast<VarDecl>(module->declarations[1]);
+    REQUIRE(var);
+    auto method = std::dynamic_pointer_cast<MethodCallExpression>(var->init);
+    REQUIRE(method);
+    CHECK(method->method_name == "utils::serialize");
+}
+
+// -- Sema tests --
+
+TEST_CASE("Ploy sema validates NEW expression", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE torch;
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+)", diags, sema);
+    REQUIRE(ok);
+}
+
+TEST_CASE("Ploy sema rejects NEW with invalid language", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+LET obj = NEW(java, SomeClass);
+)", diags, sema);
+    REQUIRE(!ok);
+}
+
+TEST_CASE("Ploy sema validates METHOD expression", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE torch;
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+LET output = METHOD(python, model, forward, data);
+)", diags, sema);
+    // Note: 'data' is undefined, but cross-lang contexts are lenient
+    // The important check is that NEW and METHOD themselves are valid
+    REQUIRE(!ok); // 'data' is undefined
+}
+
+TEST_CASE("Ploy sema validates METHOD with defined args", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+IMPORT python PACKAGE sklearn;
+LET model = NEW(python, sklearn::LinearRegression);
+LET input = [1.0, 2.0, 3.0];
+LET result = METHOD(python, model, predict, input);
+)", diags, sema);
+    REQUIRE(ok);
+}
+
+TEST_CASE("Ploy sema rejects METHOD with invalid language", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+LET obj = NEW(python, MyClass);
+LET result = METHOD(ruby, obj, run);
+)", diags, sema);
+    REQUIRE(!ok);
+}
+
+// -- Lowering tests --
+
+TEST_CASE("Ploy lowering generates NEW constructor stub", "[ploy][lowering][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE torch;
+
+FUNC create_model() -> INT {
+    LET model = NEW(python, torch::nn::Linear, 784, 10);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    // The IR should contain a call to the constructor stub
+    CHECK(ir.find("__ploy_bridge") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering generates METHOD call stub", "[ploy][lowering][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE torch;
+
+FUNC run_model() -> INT {
+    LET model = NEW(python, torch::nn::Linear, 10, 5);
+    LET input = 42;
+    LET output = METHOD(python, model, forward, input);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    // The IR should contain both constructor and method call stubs
+    CHECK(ir.find("__ploy_bridge") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering generates correct call descriptor for NEW", "[ploy][lowering][class]") {
+    Diagnostics diags;
+    PloyLexer lexer(R"(
+IMPORT python PACKAGE sklearn;
+
+FUNC build() -> INT {
+    LET model = NEW(python, sklearn::LinearRegression);
+    RETURN 0;
+}
+)", "<test>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+
+    PloySema sema(diags);
+    REQUIRE(sema.Analyze(module));
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const auto &descriptors = lowering.CallDescriptors();
+    bool found_ctor = false;
+    for (const auto &desc : descriptors) {
+        if (desc.source_function.find("__init__") != std::string::npos) {
+            found_ctor = true;
+            CHECK(desc.source_language == "python");
+        }
+    }
+    CHECK(found_ctor);
+}
+
+TEST_CASE("Ploy lowering generates correct call descriptor for METHOD", "[ploy][lowering][class]") {
+    Diagnostics diags;
+    PloyLexer lexer(R"(
+IMPORT python PACKAGE torch;
+
+FUNC infer() -> INT {
+    LET model = NEW(python, torch::Module);
+    LET x = 1;
+    LET result = METHOD(python, model, forward, x);
+    RETURN 0;
+}
+)", "<test>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module);
+    REQUIRE(!diags.HasErrors());
+
+    PloySema sema(diags);
+    REQUIRE(sema.Analyze(module));
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const auto &descriptors = lowering.CallDescriptors();
+    bool found_method = false;
+    for (const auto &desc : descriptors) {
+        if (desc.source_function == "forward") {
+            found_method = true;
+            CHECK(desc.source_language == "python");
+            // Method call should have object as first param
+            CHECK(desc.source_param_types.size() == 2); // object + x
+        }
+    }
+    CHECK(found_method);
+}
+
+// -- Integration tests --
+
+TEST_CASE("Ploy full pipeline: NEW + METHOD + LINK", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE torch;
+IMPORT cpp::inference_engine;
+
+LINK(cpp, python, run_inference, torch::forward) {
+    MAP_TYPE(cpp::float_ptr, python::Tensor);
+}
+
+FUNC inference_pipeline() -> INT {
+    LET model = NEW(python, torch::nn::Sequential);
+    LET data = 42;
+    LET prediction = METHOD(python, model, forward, data);
+    LET result = CALL(cpp, inference_engine::postprocess, prediction);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy full pipeline: multiple NEW + METHOD chain", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE sklearn;
+IMPORT python PACKAGE numpy;
+
+FUNC ml_pipeline() -> INT {
+    LET scaler = NEW(python, sklearn::StandardScaler);
+    LET model = NEW(python, sklearn::LinearRegression);
+    LET data = [1.0, 2.0, 3.0];
+    LET scaled = METHOD(python, scaler, fit_transform, data);
+    LET prediction = METHOD(python, model, predict, scaled);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy full pipeline: NEW inside PIPELINE", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE torch;
+
+PIPELINE ml_pipeline {
+    LET model = NEW(python, torch::nn::Linear, 128, 10);
+    LET optimizer = NEW(python, torch::optim::SGD, 0.01);
+    LET loss = METHOD(python, model, forward, 42);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy full pipeline: NEW with Rust classes", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT rust PACKAGE tokio;
+
+FUNC async_io() -> INT {
+    LET runtime = NEW(rust, tokio::Runtime);
+    LET handle = METHOD(rust, runtime, spawn, 42);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+// ============================================================================
+// GET / SET / WITH — Lexer Tests
+// ============================================================================
+
+TEST_CASE("Ploy lexer: GET keyword recognised", "[ploy][lexer]") {
+    auto tokens = Tokenize("GET");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+    CHECK(tokens[0].lexeme == "GET");
+}
+
+TEST_CASE("Ploy lexer: SET keyword recognised", "[ploy][lexer]") {
+    auto tokens = Tokenize("SET");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+    CHECK(tokens[0].lexeme == "SET");
+}
+
+TEST_CASE("Ploy lexer: WITH keyword recognised", "[ploy][lexer]") {
+    auto tokens = Tokenize("WITH");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+    CHECK(tokens[0].lexeme == "WITH");
+}
+
+TEST_CASE("Ploy lexer: GET SET WITH in context", "[ploy][lexer]") {
+    auto tokens = Tokenize("GET(python, obj, attr); SET(python, obj, x, 42); WITH(python, res) AS r {}");
+    int get_count = 0, set_count = 0, with_count = 0;
+    for (const auto &t : tokens) {
+        if (t.kind == TokenKind::kKeyword && t.lexeme == "GET") get_count++;
+        if (t.kind == TokenKind::kKeyword && t.lexeme == "SET") set_count++;
+        if (t.kind == TokenKind::kKeyword && t.lexeme == "WITH") with_count++;
+    }
+    CHECK(get_count == 1);
+    CHECK(set_count == 1);
+    CHECK(with_count == 1);
+}
+
+// ============================================================================
+// GET / SET — Parser Tests
+// ============================================================================
+
+TEST_CASE("Ploy parser: GET attribute expression", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    LET val = GET(python, obj, my_attr);
+    RETURN val;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(mod->declarations.size() == 1);
+    auto func = std::dynamic_pointer_cast<FuncDecl>(mod->declarations[0]);
+    REQUIRE(func);
+    REQUIRE(func->body.size() == 3);
+    auto var_decl = std::dynamic_pointer_cast<VarDecl>(func->body[1]);
+    REQUIRE(var_decl);
+    auto get = std::dynamic_pointer_cast<GetAttrExpression>(var_decl->init);
+    REQUIRE(get);
+    CHECK(get->language == "python");
+    CHECK(get->attr_name == "my_attr");
+}
+
+TEST_CASE("Ploy parser: SET attribute expression", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(python, obj, x, 42);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(mod->declarations.size() == 1);
+    auto func = std::dynamic_pointer_cast<FuncDecl>(mod->declarations[0]);
+    REQUIRE(func);
+    REQUIRE(func->body.size() == 3);
+    auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(func->body[1]);
+    REQUIRE(expr_stmt);
+    auto set_expr = std::dynamic_pointer_cast<SetAttrExpression>(expr_stmt->expr);
+    REQUIRE(set_expr);
+    CHECK(set_expr->language == "python");
+    CHECK(set_expr->attr_name == "x");
+}
+
+TEST_CASE("Ploy parser: GET with qualified object", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, torch::nn::Linear, 10, 5);
+    LET w = GET(python, obj, weight);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy parser: SET with expression value", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(python, obj, threshold, 0.5 + 0.1);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+}
+
+// ============================================================================
+// WITH Statement — Parser Tests
+// ============================================================================
+
+TEST_CASE("Ploy parser: WITH statement basic", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "file.txt")) AS f {
+        LET data = METHOD(python, f, read);
+    }
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(mod->declarations.size() == 1);
+    auto func = std::dynamic_pointer_cast<FuncDecl>(mod->declarations[0]);
+    REQUIRE(func);
+    REQUIRE(func->body.size() == 2);
+    auto with_stmt = std::dynamic_pointer_cast<WithStatement>(func->body[0]);
+    REQUIRE(with_stmt);
+    CHECK(with_stmt->language == "python");
+    CHECK(with_stmt->var_name == "f");
+    REQUIRE(with_stmt->body.size() == 1);
+}
+
+TEST_CASE("Ploy parser: WITH with multiple statements", "[ploy][parser]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, sqlite3::Connection, "db.sqlite")) AS conn {
+        LET cursor = METHOD(python, conn, cursor);
+        METHOD(python, cursor, execute, "SELECT 1");
+        LET result = METHOD(python, cursor, fetchone);
+    }
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    auto func = std::dynamic_pointer_cast<FuncDecl>(mod->declarations[0]);
+    REQUIRE(func);
+    auto with_stmt = std::dynamic_pointer_cast<WithStatement>(func->body[0]);
+    REQUIRE(with_stmt);
+    CHECK(with_stmt->body.size() == 3);
+}
+
+// ============================================================================
+// GET / SET — Sema Tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: GET valid language", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    LET val = GET(python, obj, my_attr);
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(ok);
+}
+
+TEST_CASE("Ploy sema: GET invalid language", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    LET val = GET(java, obj, attr);
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(!ok);
+}
+
+TEST_CASE("Ploy sema: SET valid", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(python, obj, x, 42);
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(ok);
+}
+
+TEST_CASE("Ploy sema: SET invalid language", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(java, obj, x, 42);
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(!ok);
+}
+
+// ============================================================================
+// WITH — Sema Tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: WITH valid", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "file.txt")) AS f {
+        LET data = METHOD(python, f, read);
+    }
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(ok);
+}
+
+TEST_CASE("Ploy sema: WITH invalid language", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    WITH(java, NEW(python, open, "file.txt")) AS f {
+        LET data = METHOD(python, f, read);
+    }
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(!ok);
+}
+
+TEST_CASE("Ploy sema: WITH variable accessible in body", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "test.csv")) AS file {
+        LET content = METHOD(python, file, read);
+        LET size = METHOD(python, file, tell);
+    }
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(ok);
+}
+
+// ============================================================================
+// GET / SET — Lowering Tests
+// ============================================================================
+
+TEST_CASE("Ploy lowering: GET generates getattr stub", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    LET val = GET(python, obj, my_attr);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__getattr__") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering: SET generates setattr stub", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(python, obj, x, 42);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__setattr__") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering: GET descriptor recorded", "[ploy][lowering]") {
+    Diagnostics diags;
+    auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    LET w = GET(python, obj, weight);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir_str.empty());
+
+    bool found_getattr = false;
+    for (const auto &d : descriptors) {
+        if (d.source_function.find("__getattr__") != std::string::npos &&
+            d.source_function.find("weight") != std::string::npos) {
+            found_getattr = true;
+            CHECK(d.source_language == "python");
+        }
+    }
+    CHECK(found_getattr);
+}
+
+TEST_CASE("Ploy lowering: SET descriptor recorded", "[ploy][lowering]") {
+    Diagnostics diags;
+    auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass);
+    SET(python, obj, x, 99);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir_str.empty());
+
+    bool found_setattr = false;
+    for (const auto &d : descriptors) {
+        if (d.source_function.find("__setattr__") != std::string::npos &&
+            d.source_function.find("x") != std::string::npos) {
+            found_setattr = true;
+            CHECK(d.source_language == "python");
+        }
+    }
+    CHECK(found_setattr);
+}
+
+// ============================================================================
+// WITH — Lowering Tests
+// ============================================================================
+
+TEST_CASE("Ploy lowering: WITH generates enter/exit stubs", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "file.txt")) AS f {
+        LET data = METHOD(python, f, read);
+    }
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__enter__") != std::string::npos);
+    CHECK(ir.find("__exit__") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering: WITH descriptor records enter and exit", "[ploy][lowering]") {
+    Diagnostics diags;
+    auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "data.csv")) AS f {
+        LET line = METHOD(python, f, readline);
+    }
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir_str.empty());
+
+    bool found_enter = false, found_exit = false;
+    for (const auto &d : descriptors) {
+        if (d.source_function == "__enter__") found_enter = true;
+        if (d.source_function == "__exit__") found_exit = true;
+    }
+    CHECK(found_enter);
+    CHECK(found_exit);
+}
+
+// ============================================================================
+// Type Annotation Tests
+// ============================================================================
+
+TEST_CASE("Ploy parser: qualified type annotation on NEW", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+FUNC test() -> INT {
+    LET model: python::nn::Module = NEW(python, torch::nn::Linear, 10, 5);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    auto func = std::dynamic_pointer_cast<FuncDecl>(mod->declarations[0]);
+    REQUIRE(func);
+    auto var_decl = std::dynamic_pointer_cast<VarDecl>(func->body[0]);
+    REQUIRE(var_decl);
+    CHECK(var_decl->name == "model");
+    auto qt = std::dynamic_pointer_cast<QualifiedType>(var_decl->type);
+    REQUIRE(qt);
+    CHECK(qt->language == "python");
+    CHECK(qt->type_name == "nn::Module");
+}
+
+TEST_CASE("Ploy sema: qualified type annotation with NEW accepted", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC test() -> INT {
+    LET model: python::nn::Module = NEW(python, torch::nn::Linear, 10, 5);
+    LET output = METHOD(python, model, forward, 42);
+    RETURN 0;
+}
+)", diags, sema);
+    CHECK(ok);
+}
+
+// ============================================================================
+// Interface Mapping Tests (MAP_TYPE with classes)
+// ============================================================================
+
+TEST_CASE("Ploy parser: MAP_TYPE for class interface", "[ploy][parser][class]") {
+    Diagnostics diags;
+    auto mod = Parse(R"(
+MAP_TYPE(python::nn::Module, cpp::NeuralNet);
+
+LINK(cpp, python, run_model, torch::forward) {
+    MAP_TYPE(cpp::NeuralNet, python::nn::Module);
+}
+)", diags);
+    REQUIRE(!diags.HasErrors());
+    REQUIRE(mod->declarations.size() >= 2);
+}
+
+TEST_CASE("Ploy sema: MAP_TYPE interface mapping valid", "[ploy][sema][class]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+MAP_TYPE(python::nn::Module, cpp::NeuralNet);
+)", diags, sema);
+    CHECK(ok);
+}
+
+// ============================================================================
+// Integration Tests — GET / SET / WITH combined
+// ============================================================================
+
+TEST_CASE("Ploy integration: GET + SET + METHOD combined", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC test() -> INT {
+    LET obj = NEW(python, MyClass, 10);
+    SET(python, obj, threshold, 0.5);
+    LET t = GET(python, obj, threshold);
+    LET result = METHOD(python, obj, process, t);
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy integration: WITH + GET + SET pipeline", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC test() -> INT {
+    WITH(python, NEW(python, open, "config.json")) AS f {
+        LET content = METHOD(python, f, read);
+        LET size = GET(python, f, name);
+    }
+    RETURN 0;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy integration: mixed cross-lang class instantiation", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+IMPORT python PACKAGE sklearn.preprocessing;
+IMPORT cpp::image_processing;
+
+FUNC cross_lang_demo() -> INT {
+    LET scaler = NEW(python, sklearn::preprocessing::StandardScaler);
+    LET scaled = METHOD(python, scaler, fit_transform, [1.0, 2.0, 3.0]);
+    LET processor = NEW(cpp, image_processing::ImageProcessor, scaled);
+    LET result = METHOD(cpp, processor, process, 640, 480);
+    RETURN result;
+}
+)", diags);
+    REQUIRE(!ir.empty());
+}
+
+TEST_CASE("Ploy integration: WITH for database connection", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"ploy(
+FUNC db_query() -> INT {
+    WITH(python, NEW(python, sqlite3::connect, "app.db")) AS conn {
+        LET cursor = METHOD(python, conn, cursor);
+        METHOD(python, cursor, execute, "CREATE TABLE t");
+        METHOD(python, conn, commit);
+    }
+    RETURN 0;
+}
+)ploy", diags);
     REQUIRE(!ir.empty());
 }

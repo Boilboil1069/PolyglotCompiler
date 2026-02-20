@@ -120,12 +120,17 @@ class PloySema {
     void AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt);
     void AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
     void AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
+    void AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
     void AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
 
     // Expression analysis
     core::Type AnalyzeExpression(const std::shared_ptr<Expression> &expr);
     core::Type AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call);
     core::Type AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call);
+    core::Type AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr);
+    core::Type AnalyzeMethodCallExpression(const std::shared_ptr<MethodCallExpression> &method_call);
+    core::Type AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr);
+    core::Type AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr);
     core::Type AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpression> &bin);
     core::Type AnalyzeUnaryExpression(const std::shared_ptr<UnaryExpression> &unary);
     core::Type AnalyzeConvertExpression(const std::shared_ptr<ConvertExpression> &conv);

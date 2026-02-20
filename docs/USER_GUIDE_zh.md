@@ -1,11 +1,11 @@
-# PolyglotCompiler 完整指南
+# PolyglotCompiler 用户指南
 
 > 一个功能完整的多语言编译器项目  
 > 支持 C++、Python、Rust → x86_64/ARM64  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v4.0  
-**最后更新**: 2026-02-19
+**版本**: v4.2  
+**最后更新**: 2026-02-20
 
 ---
 
@@ -39,7 +39,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 - ✅ **多目标平台**: x86_64 和 ARM64 架构后端
 - ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
-- ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` 关键字支持类实例化和方法调用
+- ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` 关键字支持类实例化、方法调用、属性访问和资源管理
 - ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config
 - ✅ **生产级质量**: 完整实现而非最小原型
 
@@ -52,7 +52,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | **C++** | ✅ | ✅ | OOP/模板/RTTI/异常/constexpr/SIMD | **完整** |
 | **Python** | ✅ | ✅ | 类型注解/推导/装饰器/生成器/async/25+高级特性 | **完整** |
 | **Rust** | ✅ | ✅ | 借用检查/闭包/生命周期/Traits/28+高级特性 | **完整** |
-| **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用 | **完整** |
+| **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理 | **完整** |
 
 ### 平台支持
 
@@ -157,7 +157,7 @@ EXPORT inference AS "run_inference";
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Source Code                           │
+│                  Source Code                                │
 │           C++ / Python / Rust / .ploy                       │
 └─────────────────────┬───────────────────────────────────────┘
                       │
@@ -196,7 +196,7 @@ EXPORT inference AS "run_inference";
           ▼         ▼         ▼
       ┌───────┐ ┌────────┐ ┌──────┐
       │ISelect│ │RegAlloc│ │AsmGen│
-      └───┬───┘ └──┬─────┘ └──┬───┘
+      └───┬───┘ └──┬─────┘ └───┬──┘
           └────────┼───────────┘
                    │
            ┌───────────────┐
@@ -277,14 +277,15 @@ PolyglotCompiler/
 │   └── ui/                 # UI 工具
 ├── tests/                  # 测试
 │   ├── unit/               # 单元测试（Catch2 框架）
-│   │   └── frontends/ploy/ #   ploy_test.cpp（117+ 测试用例）
-│   ├── samples/            # 示例程序（9 个 .ploy 文件 + C++ 测试文件）
+│   │   └── frontends/ploy/ #   ploy_test.cpp（171+ 测试用例）
+│   ├── samples/            # 示例程序（10 个 .ploy 文件 + C++ 测试文件）
 │   ├── integration/        # 集成测试
 │   └── benchmarks/         # 性能基准
 └── docs/                   # 文档
     ├── realization/        # 实现文档（6 主题 × 2 语言 = 12 文件）
     ├── demand/             # 需求文档
-    └── POLYGLOT_COMPILER_COMPLETE_GUIDE.md  # 本文档
+    ├── USER_GUIDE.md       # 完整指南（英文版）
+    └── USER_GUIDE_zh.md    # 本文档（中文版）
 ```
 
 ## 3.3 前端设计
@@ -320,7 +321,7 @@ Source Code
 ### 设计目标
 
 1. **声明式链接** — 用简洁的语法描述跨语言函数调用关系
-2. **面向对象互操作** — 通过 `NEW` / `METHOD` 支持跨语言类实例化和方法调用
+2. **面向对象互操作** — 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` 支持跨语言类实例化、方法调用、属性访问和资源管理
 3. **类型映射** — 自动处理不同语言之间的类型转换
 4. **包管理集成** — 直接引用各语言生态的包（numpy, rayon, opencv 等）
 5. **管道编排** — 将多阶段跨语言工作流组织为可复用管道
@@ -329,12 +330,12 @@ Source Code
 
 | 组件 | 头文件 | 实现 | 行数 | 职责 |
 |------|--------|------|------|------|
-| 词法分析器 | `ploy_lexer.h` | `lexer.cpp` | ~290 | 49 个关键字、运算符、字面量 |
-| 语法分析器 | `ploy_parser.h` | `parser.cpp` | ~1760 | 声明/语句/表达式解析 |
-| 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1500 | 类型检查、包发现、版本验证 |
-| IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1240 | AST → IR 转换 |
+| 词法分析器 | `ploy_lexer.h` | `lexer.cpp` | ~295 | 52 个关键字、运算符、字面量 |
+| 语法分析器 | `ploy_parser.h` | `parser.cpp` | ~1900 | 声明/语句/表达式解析 |
+| 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1590 | 类型检查、包发现、版本验证 |
+| IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1410 | AST → IR 转换 |
 
-### 关键字列表（49 个）
+### 关键字列表（52 个）
 
 ```
 // 声明关键字
@@ -352,7 +353,7 @@ CASE      DEFAULT   BREAK     CONTINUE
 AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
 
 // 面向对象操作
-NEW       METHOD
+NEW       METHOD    GET       SET        WITH
 
 // 值
 TRUE      FALSE     NULL      PACKAGE
@@ -573,6 +574,18 @@ LET model = NEW(python, torch::nn::Linear, 784, 10);
 // 跨语言方法调用
 LET output = METHOD(python, model, forward, input_data);
 
+// 属性访问
+LET weight = GET(python, model, weight);
+SET(python, model, training, FALSE);
+
+// 资源管理
+WITH(python, open_file) AS handle {
+    LET data = METHOD(python, handle, read);
+}
+
+// 带限定类型的类型注解
+LET model: python::nn::Module = NEW(python, torch::nn::Linear, 784, 10);
+
 // 容器字面量
 LET list = [1, 2, 3];
 LET tuple = (1, "hello", 3.14);
@@ -674,6 +687,113 @@ PIPELINE ml_pipeline {
 EXPORT ml_pipeline AS "train_ml";
 ```
 
+### 4.2.12 GET — 跨语言属性访问
+
+`GET` 关键字用于读取其他语言对象的属性值。生成 `__getattr__` 桥接桩函数。
+
+```ploy
+// 基本语法
+GET(language, object_expression, attribute_name)
+
+// 示例：读取 Python 对象属性
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+LET weight = GET(python, model, weight);
+LET bias = GET(python, model, bias);
+
+// 读取 Rust 结构体字段
+LET value = GET(rust, config, max_retries);
+
+// 在表达式中使用
+IF GET(python, model, training) {
+    METHOD(python, model, eval);
+}
+```
+
+**语义规则：**
+- 第一个参数必须是已知语言标识符（`python`、`cpp`、`rust`）
+- 第二个参数是对象表达式
+- 第三个参数是属性名（必须是有效标识符）
+- 返回 `Any` 类型
+
+**IR 生成：** 属性访问桥接桩命名为 `__ploy_bridge_ploy_<lang>___getattr__<attr_name>`。
+
+### 4.2.13 SET — 跨语言属性赋值
+
+`SET` 关键字用于向其他语言对象的属性写入值。生成 `__setattr__` 桥接桩函数。
+
+```ploy
+// 基本语法
+SET(language, object_expression, attribute_name, value)
+
+// 示例：写入 Python 对象属性
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+SET(python, model, training, FALSE);
+SET(python, model, learning_rate, 0.001);
+
+// 设置 Rust 结构体字段
+SET(rust, config, max_retries, 5);
+
+// 值可以是任意表达式
+SET(python, model, weight, CALL(python, np::zeros, 784));
+```
+
+**语义规则：**
+- 第一个参数必须是已知语言标识符
+- 第二个参数是对象表达式
+- 第三个参数是属性名（必须是有效标识符）
+- 第四个参数是值表达式
+- 返回 `Any` 类型（赋值后的值会被传递，支持链式操作）
+
+**IR 生成：** 属性赋值桥接桩命名为 `__ploy_bridge_ploy_<lang>___setattr__<attr_name>`，对象和值作为参数传入。
+
+### 4.2.14 WITH — 跨语言资源管理
+
+`WITH` 关键字提供自动资源管理，类似于 Python 的 `with` 语句。生成 `__enter__` 和 `__exit__` 桥接桩函数，确保资源被正确清理。
+
+```ploy
+// 基本语法
+WITH(language, resource_expression) AS variable_name {
+    // 语句体 — variable_name 绑定为 __enter__ 的返回值
+}
+
+// 示例：文件处理
+LET f = NEW(python, open, "data.csv");
+WITH(python, f) AS handle {
+    LET data = METHOD(python, handle, read);
+    LET lines = METHOD(python, data, splitlines);
+}
+
+// 数据库连接
+WITH(python, NEW(python, sqlite3::connect, "app.db")) AS db {
+    LET cursor = METHOD(python, db, cursor);
+    METHOD(python, cursor, execute, "SELECT * FROM users");
+    LET rows = METHOD(python, cursor, fetchall);
+}
+
+// 多个 WITH 块
+WITH(python, resource1) AS r1 {
+    METHOD(python, r1, process);
+}
+WITH(python, resource2) AS r2 {
+    METHOD(python, r2, process);
+}
+```
+
+**语义规则：**
+- 第一个参数必须是已知语言标识符
+- 第二个参数是资源表达式（任何求值为具有 `__enter__`/`__exit__` 的对象的表达式）
+- `AS` 关键字后跟一个变量名，在语句体作用域内绑定
+- 语句体是由 `{ }` 包围的语句块
+- 绑定的变量在语句体作用域内可用
+- 返回 `Any` 类型
+
+**IR 生成：**
+1. 求值资源表达式
+2. 调用 `__enter__` 桥接桩 → 将结果绑定到变量名
+3. 执行语句体
+4. 调用 `__exit__` 桥接桩进行清理
+5. 记录两个跨语言描述符：一个用于 `__enter__`，一个用于 `__exit__`
+
 ## 4.3 包管理器自动发现
 
 `.ploy` 前端在语义分析阶段自动发现已安装的包。
@@ -752,12 +872,17 @@ EXPORT ml_pipeline AS "train_ml";
 | 控制流编排 | ✅ | IF/WHILE/FOR/MATCH |
 | 跨语言类实例化 | ✅ | `NEW(python, torch::nn::Linear, 784, 10)` |
 | 跨语言方法调用 | ✅ | `METHOD(python, model, forward, data)` |
+| 跨语言属性访问 | ✅ | `GET(python, model, weight)` |
+| 跨语言属性赋值 | ✅ | `SET(python, model, training, FALSE)` |
+| 自动资源管理 | ✅ | `WITH(python, f) AS handle { ... }` |
+| 类型注解 | ✅ | `LET model: python::nn::Module = NEW(...)` |
+| 接口映射 | ✅ | `MAP_TYPE(python::nn::Module, cpp::NeuralNet)` |
 
 ### 架构约束
 
 | 约束 | 解释 |
 |------|------|
-| **函数/对象级粒度** | 不能在单个函数体内混合不同语言的代码，但支持跨语言函数调用、类实例化和方法调用 |
+| **函数/对象级粒度** | 不能在单个函数体内混合不同语言的代码，但支持跨语言函数调用、类实例化、方法调用、属性访问和资源管理 |
 | **运行时开销** | 跨语言调用涉及参数编组 |
 | **内存模型差异** | 每种语言管理自己的内存，所有权通过 OwnershipTracker 追踪 |
 
@@ -829,10 +954,14 @@ EXPORT ml_pipeline AS "train_ml";
 - 5 种包管理器配置（VENV/CONDA/UV/PIPENV/POETRY）
 - 自动包发现
 - 跨语言类实例化（NEW）和方法调用（METHOD）
+- 跨语言属性访问（GET）和属性赋值（SET）
+- 自动资源管理（WITH）
+- 类型注解与限定类型
+- 接口映射（MAP_TYPE）
 - 完整的类型系统（原始类型 + 容器类型 + 结构体 + 函数类型）
 - 控制流（IF/ELSE/WHILE/FOR/MATCH/BREAK/CONTINUE）
 - 结构体字面量（带前瞻消歧，使用 LexerBase SaveState/RestoreState）
-- IR Lowering（函数/管道/链接/表达式/控制流/类实例化/方法调用）
+- IR Lowering（函数/管道/链接/表达式/控制流/类实例化/方法调用/属性访问/资源管理）
 
 ---
 
@@ -907,7 +1036,7 @@ polyc -flto=thin file1.o file2.o -o app
 
 ## 6.5 .ploy 示例文件
 
-项目在 `tests/samples/` 中包含 9 个 `.ploy` 示例：
+项目在 `tests/samples/` 中包含 10 个 `.ploy` 示例：
 
 | 文件 | 内容 |
 |------|------|
@@ -920,6 +1049,7 @@ polyc -flto=thin file1.o file2.o -o app
 | `mixed_compilation.ploy` | 混合编译示例 |
 | `error_handling.ploy` | 错误处理 |
 | `package_import.ploy` | 包导入 + 版本约束 + 选择性导入 + CONFIG |
+| `cross_lang_class_instantiation.ploy` | 跨语言类实例化混合调用 |
 
 ---
 
@@ -1155,7 +1285,7 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 140 (443 断言) | 词法/语法/语义/IR/集成/包管理/类实例化 |
+| .ploy 前端 | `[ploy]` | 171 (523 断言) | 词法/语法/语义/IR/集成/包管理/OOP互操作 |
 | GC 算法 | `[gc]` | 40+ | 4 种 GC 算法 |
 | 优化 Passes | `[opt]` | 50+ | 25+ 优化 passes |
 | Python 特性 | `[python]` | 25+ | 25+ Python 高级特性 |
@@ -1167,11 +1297,11 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 类别 | 标签 | 数量 | 覆盖内容 |
 |------|------|------|---------|
-| 词法分析 | `[ploy][lexer]` | 11 | 关键字(49)、标识符、数字、字符串、运算符 |
-| 语法分析 | `[ploy][parser]` | 31 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD |
-| 语义分析 | `[ploy][sema]` | 25 | 类型检查、作用域、版本验证、包发现、类实例化 |
-| IR 生成 | `[ploy][lowering]` | 19 | 函数/管道/链接/表达式/控制流/类实例化/方法调用 |
-| 集成测试 | `[ploy][integration]` | 14 | 完整管道端到端 |
+| 词法分析 | `[ploy][lexer]` | 15 | 关键字(52)、标识符、数字、字符串、运算符 |
+| 语法分析 | `[ploy][parser]` | 37 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH |
+| 语义分析 | `[ploy][sema]` | 31 | 类型检查、作用域、版本验证、包发现、OOP互操作 |
+| IR 生成 | `[ploy][lowering]` | 25 | 函数/管道/链接/表达式/控制流/OOP互操作 |
+| 集成测试 | `[ploy][integration]` | 19 | 完整管道端到端 |
 | 版本约束 | `[ploy][version]` | 5+ | 6 种版本运算符 |
 | 选择性导入 | `[ploy][selective]` | 7 | 单/多符号、版本组合、别名 |
 | CONFIG VENV | `[ploy][venv]` | 6 | 解析/验证/重复检测/无效语言 |
@@ -1200,7 +1330,7 @@ unit_tests.exe [ploy] -r compact 2>&1 <nul
 
 ## 10.4 示例程序
 
-`tests/samples/` 目录包含 9 个 `.ploy` 示例文件和多个 C++ 测试文件：
+`tests/samples/` 目录包含 10 个 `.ploy` 示例文件和多个 C++ 测试文件：
 
 ```
 tests/samples/
@@ -1208,6 +1338,7 @@ tests/samples/
 ├── basic_linking.ploy                  # 基础链接
 ├── complex_types.ploy                  # 复杂类型
 ├── container_marshalling.ploy          # 容器编组
+├── cross_lang_class_instantiation.ploy # 跨语言类实例化混合调用
 ├── error_handling.ploy                 # 错误处理
 ├── mixed_compilation.ploy              # 混合编译
 ├── multi_language_pipeline.ploy        # 三语言管道
@@ -1351,6 +1482,9 @@ tests/samples/
 | `CONVERT` | 类型转换 | `CONVERT(value, FLOAT)` |
 | `NEW` | 跨语言类实例化 | `NEW(python, torch::nn::Linear, 784, 10)` |
 | `METHOD` | 跨语言方法调用 | `METHOD(python, model, forward, data)` |
+| `GET` | 跨语言属性访问 | `GET(python, model, weight)` |
+| `SET` | 跨语言属性赋值 | `SET(python, model, training, FALSE)` |
+| `WITH` | 自动资源管理 | `WITH(python, f) AS handle { ... }` |
 | `CONFIG` | 环境配置 | `CONFIG CONDA "env";` |
 | `VENV` | pip/venv 环境 | `CONFIG VENV python "/path";` |
 | `CONDA` | Conda 环境 | `CONFIG CONDA "env_name";` |
@@ -1378,6 +1512,16 @@ tests/samples/
 - PEP 440: https://peps.python.org/pep-0440/
 
 ## 13.5 更新日志
+
+### v4.2 (2026-02-20)
+- ✅ 新增跨语言属性访问 `GET` 和属性赋值 `SET` 关键字
+- ✅ 新增自动资源管理 `WITH` 关键字
+- ✅ 新增带限定类型的类型注解支持
+- ✅ 新增通过 `MAP_TYPE` 进行接口映射
+- ✅ AST / 词法 / 语法 / 语义 / IR Lowering 全链路实现（GET/SET/WITH）
+- ✅ 31 个新测试用例，总计 171 测试用例、523 断言
+- ✅ 中英双语用户指南（USER_GUIDE.md / USER_GUIDE_zh.md）
+- ✅ 关键字数量 49 → 52
 
 ### v4.1 (2026-02-20)
 - ✅ 新增跨语言类实例化 `NEW` 和方法调用 `METHOD` 关键字
@@ -1410,4 +1554,4 @@ tests/samples/
 
 *本文档由 PolyglotCompiler 团队维护*  
 *最后更新: 2026-02-20*  
-*文档版本: v4.1*
+*文档版本: v4.2*

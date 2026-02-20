@@ -75,19 +75,46 @@ IMPORT python PACKAGE numpy.linalg::(solve, inv);
 
 // Single symbol import
 IMPORT python PACKAGE os::(path);
+```
 
-// Combined with version constraint
+**Combining with version constraints and aliases:**
+
+The full syntax is parsed in this fixed order:
+
+```
+IMPORT <language> PACKAGE <package>[::(<symbols>)] [<version_op> <version>] [AS <alias>];
+                         ~~~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~~~~~~~~~~~~~~  ~~~~~~~~~~~
+                         ① package + optional       ② optional version      ③ optional
+                           selective imports          constraint (for pkg)     alias
+```
+
+> **Note:** The version constraint (e.g., `>= 1.20`) applies to the **entire package** (e.g., numpy),
+> not to the individual selected symbols. The `::()` syntax immediately follows the package name
+> and means "import only these symbols from the package"; the version constraint comes after and
+> means "require this version of the package".
+
+```ploy
+// Selective import + version constraint: require numpy >= 1.20, import only array and mean
 IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 
-// Combined with version constraint and alias
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20 AS np;
+// Selective import + version constraint: require torch >= 2.0, import only tensor and no_grad
+IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
+
+// Whole-package import + alias: alias torch as pt
+IMPORT python PACKAGE torch >= 2.0 AS pt;
 ```
+
+> **Restriction:** Selective import `::()` and `AS` alias **cannot be combined**.
+> For example, `IMPORT python PACKAGE torch::(tensor, no_grad) AS pt;` is illegal because
+> `pt` is ambiguous — it is unclear whether it refers to `torch::tensor` or `torch::no_grad`.
+> If you need an alias, use a whole-package import (without `::()`); if you need selective import, omit `AS`.
 
 **Behavior:**
 - The package itself is registered as a symbol (e.g., `numpy`)
 - Each selected symbol is registered individually (e.g., `array`, `mean`)
 - The linker generates targeted bindings only for the selected symbols
 - Duplicate symbols in the selection list cause a compile-time error
+- Combining selective import with AS alias causes a compile-time error
 
 ### 3. Package Auto-Discovery
 

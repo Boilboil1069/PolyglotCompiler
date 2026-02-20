@@ -96,6 +96,40 @@ struct CrossLangCallExpression : Expression {
     std::vector<std::shared_ptr<Expression>> args;
 };
 
+// Cross-language constructor: NEW(language, class, arg1, arg2, ...)
+// Instantiates a class from a foreign language
+struct NewExpression : Expression {
+    std::string language;
+    std::string class_name;  // Possibly qualified: module::ClassName
+    std::vector<std::shared_ptr<Expression>> args;
+};
+
+// Cross-language method call: METHOD(language, object, method_name, arg1, arg2, ...)
+// Invokes a method on an object obtained from a foreign language
+struct MethodCallExpression : Expression {
+    std::string language;
+    std::shared_ptr<Expression> object;
+    std::string method_name;
+    std::vector<std::shared_ptr<Expression>> args;
+};
+
+// Cross-language attribute get: GET(language, object, attribute_name)
+// Retrieves an attribute/property value from a foreign object
+struct GetAttrExpression : Expression {
+    std::string language;
+    std::shared_ptr<Expression> object;
+    std::string attr_name;
+};
+
+// Cross-language attribute set: SET(language, object, attribute_name, value)
+// Sets an attribute/property value on a foreign object
+struct SetAttrExpression : Expression {
+    std::string language;
+    std::shared_ptr<Expression> object;
+    std::string attr_name;
+    std::shared_ptr<Expression> value;
+};
+
 // Member access: obj.member
 struct MemberExpression : Expression {
     std::shared_ptr<Expression> object;
@@ -274,6 +308,15 @@ struct BreakStatement : Statement {};
 
 // CONTINUE;
 struct ContinueStatement : Statement {};
+
+// WITH(language, expression) AS name { body }
+// Automatic resource management: calls __enter__ before and __exit__ after the body
+struct WithStatement : Statement {
+    std::string language;
+    std::shared_ptr<Expression> resource_expr;
+    std::string var_name;                       // bound variable name after AS
+    std::vector<std::shared_ptr<Statement>> body;
+};
 
 // STRUCT Name { field1: Type1, field2: Type2, ... }
 struct StructDecl : Statement {

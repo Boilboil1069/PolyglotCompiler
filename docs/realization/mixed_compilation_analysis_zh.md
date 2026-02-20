@@ -24,7 +24,7 @@
 
 ### 3.2 PolyglotCompiler 的混合编译方式
 
-> **我们的方案：函数级别链接 + 自动化编组（marshalling）。**
+> **我们的方案：统一 IR + 函数级别链接 + 自动化编组（marshalling）。**
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
@@ -33,14 +33,24 @@
        │                 │                 │
        ▼                 ▼                 ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  C++ 编译器   │  │ Python 解释器 │  │  Rust 编译器  │
-│  (MSVC/GCC)  │  │  (CPython)   │  │   (rustc)    │
+│ C++ Frontend │  │Python Frontend│  │ Rust Frontend│
+│(frontend_cpp)│  │(frontend_py) │  │(frontend_rust│
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                 │                 │
+       └─── Shared IR ───┼─── Shared IR ───┘
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │  Backend      │
+                 │(x86_64/ARM64) │
+                 └───────┬───────┘
+                         │
+       ┌─────────────────┼─────────────────┐
        │                 │                 │
        ▼                 ▼                 ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  目标代码     │  │  .pyc / .pyd │  │  目标代码     │
-│   (.obj)     │  │              │  │   (.rlib)    │
+│  目标代码     │  │  目标代码     │  │  目标代码     │
+│   (.obj)     │  │   (.obj)     │  │   (.obj)     │
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
        │                 │                 │
        └────────────┬────┴────────────┬────┘
@@ -58,7 +68,24 @@
                               └───────────┘
 ```
 
-> **核心思想：** 每种语言由其**原生编译器**编译。`.ploy` 文件描述跨语言连接关系，PolyglotCompiler 生成粘合代码将它们连接起来。
+> **核心思想：** PolyglotCompiler 使用**自己的前端**（`frontend_cpp`、`frontend_python`、`frontend_rust`）将所有语言的源代码编译为统一的中间表示（IR）。`.ploy` 文件描述跨语言连接关系，PolyglotLinker 生成粘合代码将它们连接起来。
+
+**与外部编译器的关系：**
+
+| 组件 | 是否使用 | 说明 |
+|------|---------|------|
+| MSVC/GCC/Clang (C++ 编译器) | ❌ 不直接调用 | PolyglotCompiler 有自己的 C++ 前端 (`frontend_cpp`)，直接解析 C++ 源码生成 IR |
+| CPython (Python 解释器) | ❌ 不直接调用 | PolyglotCompiler 有自己的 Python 前端 (`frontend_python`)，将 Python 源码编译为 IR |
+| rustc (Rust 编译器) | ❌ 不直接调用 | PolyglotCompiler 有自己的 Rust 前端 (`frontend_rust`)，将 Rust 源码编译为 IR |
+| clang/系统链接器 | ⚡ 可选，仅最终链接 | `polyc` 的 `driver.cpp` 在最终链接阶段可选择调用 `polyld` 或 `clang` 将目标文件链接为可执行文件 |
+
+**具体代码位置：**
+- C++ 前端: `frontends/cpp/src/` — lexer/parser/sema/lowering/constexpr（5 编译单元）
+- Python 前端: `frontends/python/src/` — lexer/parser/sema/lowering（4 编译单元）
+- Rust 前端: `frontends/rust/src/` — lexer/parser/sema/lowering（4 编译单元）
+- .ploy 前端: `frontends/ploy/src/` — lexer/parser/sema/lowering（4 编译单元）
+- 编译器驱动: `tools/polyc/src/driver.cpp`（~1069 行，包含所有前端的调用逻辑）
+- 多语言链接器: `tools/polyld/src/polyglot_linker.cpp`（~522 行）
 
 ## 4. 能力矩阵
 
@@ -123,8 +150,8 @@ LINK(cpp, rust, load_images, rayon::par_load) {
 }
 
 // Python：使用 PyTorch 进行 ML 推理（选择性导入，版本约束）
-IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0 AS pt;
-LINK(cpp, python, run_model, pt::forward) {
+IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
+LINK(cpp, python, run_model, torch::forward) {
     MAP_TYPE(cpp::float_ptr, python::Tensor);
 }
 
@@ -146,7 +173,7 @@ PIPELINE image_pipeline {
 
     // 阶段 3：使用 Python PyTorch 分类
     FUNC classify(data: LIST(LIST(f64))) -> LIST(STRING) {
-        LET results = CALL(python, pt::forward, data);
+        LET results = CALL(python, torch::forward, data);
         RETURN results;
     }
 }
@@ -163,11 +190,14 @@ EXPORT image_pipeline AS "classify_images";
 
 | 步骤 | 操作 | 产物 |
 |------|------|------|
-| 1 | `rustc` 编译 Rust 代码 | 共享库（带 `extern "C"` 函数） |
-| 2 | CPython 加载 Python 代码 | PyTorch 通过 `import torch` 加载 |
-| 3 | MSVC/GCC 编译 C++ 代码 | 目标文件 (.obj/.o) |
+| 1 | `frontend_rust` 编译 Rust 代码 | IR → 目标代码 |
+| 2 | `frontend_python` 编译 Python 代码 | IR → 目标代码 |
+| 3 | `frontend_cpp` 编译 C++ 代码 | IR → 目标代码 |
 | 4 | `frontend_ploy` 处理 .ploy 文件 | 生成 IR → 粘合代码 |
 | 5 | `PolyglotLinker` 链接所有产物 | 统一二进制文件 |
+
+> **注意：** 所有语言均通过 PolyglotCompiler 自身的前端编译，不依赖外部编译器（MSVC/GCC/rustc/CPython）。
+> 运行时互操作依赖 `runtime/src/interop/` 中的 FFI 绑定和类型编组代码。
 
 ## 6. 性能考量
 

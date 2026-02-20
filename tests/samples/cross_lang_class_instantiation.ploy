@@ -1,0 +1,132 @@
+// ============================================================================
+// Cross-Language Class Instantiation Example
+// Demonstrates NEW / METHOD for OOP interop across languages
+// ============================================================================
+
+// --- Package Imports ---
+IMPORT python PACKAGE torch >= 2.0;
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT python PACKAGE sklearn.preprocessing;
+IMPORT cpp::image_processing;
+IMPORT rust::serde;
+
+// --- Cross-Language Function Links ---
+
+// Link C++ image loader with Python preprocessing
+LINK(cpp, python, load_for_training, sklearn::preprocessing::scale) {
+    MAP_TYPE(cpp::std::vector_double, python::list);
+}
+
+// Link Rust serialiser with Python model export
+LINK(rust, python, serialise_model, torch::save) {
+    MAP_TYPE(rust::Vec_u8, python::bytes);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+
+// --- Struct for training configuration ---
+STRUCT TrainConfig {
+    learning_rate: f64;
+    epochs: i32;
+    batch_size: i32;
+}
+
+// ============================================================================
+// Example 1: C++ class instantiated with a Python method's return value
+// Demonstrates: Python computes a value -> C++ object uses that value
+// ============================================================================
+FUNC cross_lang_class_init() -> INT {
+    // Step 1: Create a Python StandardScaler and fit it
+    LET scaler = NEW(python, sklearn::preprocessing::StandardScaler);
+    LET raw_data = [1.0, 2.0, 3.0, 4.0, 5.0];
+    LET scaled = METHOD(python, scaler, fit_transform, raw_data);
+
+    // Step 2: Use the Python result to initialise a C++ image processor
+    // The C++ constructor receives the scaled data from the Python method
+    LET processor = NEW(cpp, image_processing::ImageProcessor, scaled);
+
+    // Step 3: Call a method on the C++ object
+    LET result = METHOD(cpp, processor, process, 640, 480);
+    RETURN result;
+}
+
+// ============================================================================
+// Example 2: PyTorch model training pipeline with NEW / METHOD
+// ============================================================================
+PIPELINE ml_training {
+    FUNC build_model(input_dim: INT, output_dim: INT) -> INT {
+        // Create PyTorch neural network layers
+        LET model = NEW(python, torch::nn::Sequential);
+        LET linear1 = NEW(python, torch::nn::Linear, input_dim, 128);
+        LET relu = NEW(python, torch::nn::ReLU);
+        LET linear2 = NEW(python, torch::nn::Linear, 128, output_dim);
+
+        // Add layers to the sequential model
+        METHOD(python, model, add_module, "fc1", linear1);
+        METHOD(python, model, add_module, "relu", relu);
+        METHOD(python, model, add_module, "fc2", linear2);
+
+        // Create optimiser using model parameters (METHOD returns opaque handle)
+        LET params = METHOD(python, model, parameters);
+        LET optimizer = NEW(python, torch::optim::Adam, params, 0.001);
+
+        RETURN 0;
+    }
+
+    FUNC train_step(model: INT, optimizer: INT, data: LIST(f64)) -> f64 {
+        // Forward pass
+        LET output = METHOD(python, model, forward, data);
+        LET loss = METHOD(python, output, mean);
+
+        // Backward pass and update
+        METHOD(python, optimizer, zero_grad);
+        METHOD(python, loss, backward);
+        METHOD(python, optimizer, step);
+
+        // Get loss value as a float
+        LET loss_val = METHOD(python, loss, item);
+        RETURN loss_val;
+    }
+}
+
+// ============================================================================
+// Example 3: Rust + Python mixed OOP
+// ============================================================================
+FUNC rust_python_interop() -> INT {
+    // Create a Rust JSON parser
+    LET parser = NEW(rust, serde::json::Parser);
+
+    // Parse JSON data using Rust
+    LET json_data = METHOD(rust, parser, parse, "{\"key\": 42}");
+
+    // Pass parsed data to a Python numpy operation
+    LET array = CALL(python, np::array, json_data);
+    LET mean_val = CALL(python, np::mean, array);
+
+    RETURN mean_val;
+}
+
+// ============================================================================
+// Example 4: Control flow with class instances
+// ============================================================================
+FUNC conditional_class_usage(mode: INT) -> INT {
+    IF mode > 0 {
+        // Use Python ML model
+        LET model = NEW(python, torch::nn::Linear, 10, 5);
+        LET result = METHOD(python, model, forward, [1.0, 2.0, 3.0]);
+        RETURN result;
+    } ELSE {
+        // Use C++ processor instead
+        LET proc = NEW(cpp, image_processing::Processor);
+        LET result = METHOD(cpp, proc, run, 42);
+        RETURN result;
+    }
+}
+
+// --- Exports ---
+EXPORT cross_lang_class_init AS "cross_lang_demo";
+EXPORT ml_training AS "training_pipeline";
+EXPORT rust_python_interop AS "rust_py_demo";
+EXPORT conditional_class_usage AS "conditional_demo";

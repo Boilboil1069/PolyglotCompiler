@@ -70,6 +70,8 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
         AnalyzeMapFuncDecl(map_func);
     } else if (auto venv_config = std::dynamic_pointer_cast<VenvConfigDecl>(stmt)) {
         AnalyzeVenvConfigDecl(venv_config);
+    } else if (auto with_stmt = std::dynamic_pointer_cast<WithStatement>(stmt)) {
+        AnalyzeWithStatement(with_stmt);
     }
 }
 
@@ -172,6 +174,14 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         if (import->package_name.empty()) {
             Report(import->loc,
                    "selective imports (::) are only valid for PACKAGE imports");
+        }
+        // Selective imports and alias cannot be used together because
+        // the alias target is ambiguous (does it refer to symbol A or B?)
+        if (!import->alias.empty()) {
+            Report(import->loc,
+                   "selective import and AS alias cannot be combined — "
+                   "alias '" + import->alias + "' is ambiguous when "
+                   "multiple symbols are selected");
         }
         // Check for duplicate symbols in the selection list
         std::unordered_set<std::string> seen;
@@ -550,6 +560,22 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         return AnalyzeCrossLangCall(cross_call);
     }
 
+    if (auto new_expr = std::dynamic_pointer_cast<NewExpression>(expr)) {
+        return AnalyzeNewExpression(new_expr);
+    }
+
+    if (auto method_call = std::dynamic_pointer_cast<MethodCallExpression>(expr)) {
+        return AnalyzeMethodCallExpression(method_call);
+    }
+
+    if (auto get_attr = std::dynamic_pointer_cast<GetAttrExpression>(expr)) {
+        return AnalyzeGetAttrExpression(get_attr);
+    }
+
+    if (auto set_attr = std::dynamic_pointer_cast<SetAttrExpression>(expr)) {
+        return AnalyzeSetAttrExpression(set_attr);
+    }
+
     if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
         AnalyzeExpression(member->object);
         return core::Type::Any(); // Member type resolution requires full module info
@@ -624,6 +650,137 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
     // Cross-language calls return Any since we cannot statically resolve the return type
     // without full module information from the target language
     return core::Type::Any();
+}
+
+core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr) {
+    // Validate language
+    if (!IsValidLanguage(new_expr->language)) {
+        Report(new_expr->loc, "unknown language '" + new_expr->language + "' in NEW");
+    }
+
+    // Validate class name is non-empty
+    if (new_expr->class_name.empty()) {
+        Report(new_expr->loc, "class name is empty in NEW");
+    }
+
+    // Analyze constructor arguments
+    for (const auto &arg : new_expr->args) {
+        AnalyzeExpression(arg);
+    }
+
+    // NEW returns an opaque object handle — typed as Any since we cannot statically
+    // resolve the foreign class type without full module information
+    return core::Type::Any();
+}
+
+core::Type PloySema::AnalyzeMethodCallExpression(
+    const std::shared_ptr<MethodCallExpression> &method_call) {
+    // Validate language
+    if (!IsValidLanguage(method_call->language)) {
+        Report(method_call->loc, "unknown language '" + method_call->language + "' in METHOD");
+    }
+
+    // Validate method name is non-empty
+    if (method_call->method_name.empty()) {
+        Report(method_call->loc, "method name is empty in METHOD");
+    }
+
+    // Analyze the receiver object
+    if (method_call->object) {
+        AnalyzeExpression(method_call->object);
+    } else {
+        Report(method_call->loc, "METHOD requires an object expression");
+    }
+
+    // Analyze arguments
+    for (const auto &arg : method_call->args) {
+        AnalyzeExpression(arg);
+    }
+
+    // Method calls return Any since we cannot statically resolve the return type
+    return core::Type::Any();
+}
+
+core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr) {
+    // Validate language
+    if (!IsValidLanguage(get_attr->language)) {
+        Report(get_attr->loc, "unknown language '" + get_attr->language + "' in GET");
+    }
+
+    // Validate attribute name is non-empty
+    if (get_attr->attr_name.empty()) {
+        Report(get_attr->loc, "attribute name is empty in GET");
+    }
+
+    // Analyze the object expression
+    if (get_attr->object) {
+        AnalyzeExpression(get_attr->object);
+    } else {
+        Report(get_attr->loc, "GET requires an object expression");
+    }
+
+    // Attribute access returns Any since we cannot statically resolve the attribute type
+    return core::Type::Any();
+}
+
+core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr) {
+    // Validate language
+    if (!IsValidLanguage(set_attr->language)) {
+        Report(set_attr->loc, "unknown language '" + set_attr->language + "' in SET");
+    }
+
+    // Validate attribute name is non-empty
+    if (set_attr->attr_name.empty()) {
+        Report(set_attr->loc, "attribute name is empty in SET");
+    }
+
+    // Analyze the object expression
+    if (set_attr->object) {
+        AnalyzeExpression(set_attr->object);
+    } else {
+        Report(set_attr->loc, "SET requires an object expression");
+    }
+
+    // Analyze the value expression
+    if (set_attr->value) {
+        AnalyzeExpression(set_attr->value);
+    } else {
+        Report(set_attr->loc, "SET requires a value expression");
+    }
+
+    // SET returns the assigned value type (Any since we cannot know the attribute type)
+    return core::Type::Any();
+}
+
+void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
+    // Validate language
+    if (!IsValidLanguage(with_stmt->language)) {
+        Report(with_stmt->loc, "unknown language '" + with_stmt->language + "' in WITH");
+    }
+
+    // Validate variable name
+    if (with_stmt->var_name.empty()) {
+        Report(with_stmt->loc, "WITH requires a variable name after AS");
+    }
+
+    // Analyze the resource expression
+    if (with_stmt->resource_expr) {
+        AnalyzeExpression(with_stmt->resource_expr);
+    } else {
+        Report(with_stmt->loc, "WITH requires a resource expression");
+    }
+
+    // Declare the bound variable in scope
+    PloySymbol sym;
+    sym.kind = PloySymbol::Kind::kVariable;
+    sym.name = with_stmt->var_name;
+    sym.type = core::Type::Any();  // Resource object is opaque
+    sym.is_mutable = false;
+    sym.defined_at = with_stmt->loc;
+    DeclareSymbol(sym);
+
+    // Analyze the body
+    AnalyzeBlockStatements(with_stmt->body);
 }
 
 core::Type PloySema::AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpression> &bin) {

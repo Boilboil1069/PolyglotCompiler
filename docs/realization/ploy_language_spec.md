@@ -32,10 +32,11 @@ TRUE        FALSE       NULL        AND         OR
 NOT         CALL        VOID        INT         FLOAT
 STRING      BOOL        ARRAY       STRUCT      PACKAGE
 LIST        TUPLE       DICT        OPTION      MAP_FUNC
-CONVERT
+CONVERT     CONFIG      VENV        CONDA       UV
+PIPENV      POETRY      NEW         METHOD
 ```
 
-Total: 41 keywords.
+Total: 49 keywords.
 
 ### 3.2 Identifiers
 

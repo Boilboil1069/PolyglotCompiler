@@ -21,7 +21,7 @@ This approach requires all languages to share the same type system and memory mo
 
 ### 3.2 PolyglotCompiler Mixed Compilation (What We Do)
 
-Our approach is **function-level linking with automated marshalling**:
+Our approach is **unified IR + function-level linking with automated marshalling**:
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
@@ -30,14 +30,24 @@ Our approach is **function-level linking with automated marshalling**:
        │                 │                 │
        ▼                 ▼                 ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ C++ Compiler │  │ Python Interp│  │ Rust Compiler│
-│  (MSVC/GCC)  │  │  (CPython)   │  │   (rustc)    │
+│ C++ Frontend │  │Python Frontend│  │ Rust Frontend│
+│(frontend_cpp)│  │(frontend_py) │  │(frontend_rust│
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                 │                 │
+       └─── Shared IR ───┼─── Shared IR ───┘
+                         │
+                         ▼
+                 ┌───────────────┐
+                 │   Backend     │
+                 │(x86_64/ARM64) │
+                 └───────┬───────┘
+                         │
+       ┌─────────────────┼─────────────────┐
        │                 │                 │
        ▼                 ▼                 ▼
 ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  Object Code │  │ .pyc / .pyd  │  │  Object Code │
-│   (.obj)     │  │              │  │   (.rlib)    │
+│  Object Code │  │  Object Code │  │  Object Code │
+│   (.obj)     │  │   (.obj)     │  │   (.obj)     │
 └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
        │                 │                 │
        └────────────┬────┴────────────┬────┘
@@ -55,7 +65,24 @@ Our approach is **function-level linking with automated marshalling**:
                               └───────────┘
 ```
 
-Each language is compiled by its **native compiler**. The `.ploy` file describes the cross-language connections, and the PolyglotCompiler generates glue code to connect them.
+PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, `frontend_rust`) to compile all language source code into a shared IR. The `.ploy` file describes the cross-language connections, and the PolyglotLinker generates glue code to connect them.
+
+**Relationship to external compilers:**
+
+| Component | Used? | Explanation |
+|-----------|-------|-------------|
+| MSVC/GCC/Clang (C++ compiler) | ❌ Not directly invoked | PolyglotCompiler has its own C++ frontend (`frontend_cpp`) |
+| CPython (Python interpreter) | ❌ Not directly invoked | PolyglotCompiler has its own Python frontend (`frontend_python`) |
+| rustc (Rust compiler) | ❌ Not directly invoked | PolyglotCompiler has its own Rust frontend (`frontend_rust`) |
+| clang/system linker | ⚡ Optional, final link only | `polyc`'s `driver.cpp` can optionally invoke `polyld` or `clang` for the final linking stage |
+
+**Source code locations:**
+- C++ Frontend: `frontends/cpp/src/` — lexer/parser/sema/lowering/constexpr (5 compilation units)
+- Python Frontend: `frontends/python/src/` — lexer/parser/sema/lowering (4 compilation units)
+- Rust Frontend: `frontends/rust/src/` — lexer/parser/sema/lowering (4 compilation units)
+- .ploy Frontend: `frontends/ploy/src/` — lexer/parser/sema/lowering (4 compilation units)
+- Compiler Driver: `tools/polyc/src/driver.cpp` (~1069 lines, integrates all frontends)
+- Polyglot Linker: `tools/polyld/src/polyglot_linker.cpp` (~522 lines)
 
 ## 4. Capabilities
 
@@ -137,11 +164,14 @@ EXPORT image_pipeline AS "classify_images";
 
 ### 5.2 How It Compiles
 
-1. **Rust code** is compiled by `rustc` to produce a shared library with `extern "C"` functions
-2. **Python code** runs in an embedded CPython interpreter; PyTorch is loaded via `import torch`
-3. **C++ code** is compiled by MSVC/GCC/Clang
+1. **Rust code** is compiled by `frontend_rust` → IR → object code
+2. **Python code** is compiled by `frontend_python` → IR → object code
+3. **C++ code** is compiled by `frontend_cpp` → IR → object code
 4. **`.ploy` file** is processed by `frontend_ploy` → generates IR → `PolyglotLinker` generates glue stubs
 5. **Final binary** links all object files + glue stubs + runtime libraries
+
+> **Note:** All languages are compiled through PolyglotCompiler's own frontends, not external compilers (MSVC/GCC/rustc/CPython).
+> Runtime interoperability relies on FFI bindings and type marshalling code in `runtime/src/interop/`.
 
 ## 6. Performance Considerations
 

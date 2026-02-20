@@ -556,6 +556,7 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
         if (kw == "FOR") { return ParseForStatement(); }
         if (kw == "MATCH") { return ParseMatchStatement(); }
         if (kw == "RETURN") { return ParseReturnStatement(); }
+        if (kw == "WITH") { return ParseWithStatement(); }
         if (kw == "BREAK") {
             auto node = std::make_shared<BreakStatement>();
             node->loc = current_.loc;
@@ -935,6 +936,26 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
         return ParseCallDirective();
     }
 
+    // NEW expression: NEW(language, class, args...)
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "NEW") {
+        return ParseNewExpression();
+    }
+
+    // METHOD expression: METHOD(language, object, method, args...)
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "METHOD") {
+        return ParseMethodCallDirective();
+    }
+
+    // GET expression: GET(language, object, attribute)
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "GET") {
+        return ParseGetAttrExpression();
+    }
+
+    // SET expression: SET(language, object, attribute, value)
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "SET") {
+        return ParseSetAttrExpression();
+    }
+
     // CONVERT expression: CONVERT(expr, Type)
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "CONVERT") {
         return ParseConvertExpression();
@@ -1172,6 +1193,231 @@ std::shared_ptr<Expression> PloyParser::ParseCallDirective() {
     }
 
     ExpectSymbol(")", "expected ')' after CALL arguments");
+    return node;
+}
+
+std::shared_ptr<Expression> PloyParser::ParseNewExpression() {
+    auto node = std::make_shared<NewExpression>();
+    node->loc = current_.loc;
+    Advance(); // consume 'NEW'
+
+    ExpectSymbol("(", "expected '(' after NEW");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in NEW");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in NEW");
+
+    // Class name (possibly qualified with ::)
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->class_name = current_.lexeme;
+        Advance();
+        while (IsSymbol("::")) {
+            node->class_name += "::";
+            Advance();
+            if (current_.kind == frontends::TokenKind::kIdentifier) {
+                node->class_name += current_.lexeme;
+                Advance();
+            }
+        }
+    } else {
+        diagnostics_.Report(current_.loc, "expected class name in NEW");
+        Sync();
+        return node;
+    }
+
+    // Constructor arguments (optional)
+    while (MatchSymbol(",")) {
+        node->args.push_back(ParseExpression());
+    }
+
+    ExpectSymbol(")", "expected ')' after NEW arguments");
+    return node;
+}
+
+std::shared_ptr<Expression> PloyParser::ParseMethodCallDirective() {
+    auto node = std::make_shared<MethodCallExpression>();
+    node->loc = current_.loc;
+    Advance(); // consume 'METHOD'
+
+    ExpectSymbol("(", "expected '(' after METHOD");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in METHOD");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in METHOD");
+
+    // Object expression
+    node->object = ParseExpression();
+
+    ExpectSymbol(",", "expected ',' after object in METHOD");
+
+    // Method name (possibly qualified with ::)
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->method_name = current_.lexeme;
+        Advance();
+        while (IsSymbol("::")) {
+            node->method_name += "::";
+            Advance();
+            if (current_.kind == frontends::TokenKind::kIdentifier) {
+                node->method_name += current_.lexeme;
+                Advance();
+            }
+        }
+    } else {
+        diagnostics_.Report(current_.loc, "expected method name in METHOD");
+        Sync();
+        return node;
+    }
+
+    // Method arguments (optional)
+    while (MatchSymbol(",")) {
+        node->args.push_back(ParseExpression());
+    }
+
+    ExpectSymbol(")", "expected ')' after METHOD arguments");
+    return node;
+}
+
+std::shared_ptr<Expression> PloyParser::ParseGetAttrExpression() {
+    auto node = std::make_shared<GetAttrExpression>();
+    node->loc = current_.loc;
+    Advance(); // consume 'GET'
+
+    ExpectSymbol("(", "expected '(' after GET");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in GET");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in GET");
+
+    // Object expression
+    node->object = ParseExpression();
+
+    ExpectSymbol(",", "expected ',' after object in GET");
+
+    // Attribute name
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->attr_name = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected attribute name in GET");
+        Sync();
+        return node;
+    }
+
+    ExpectSymbol(")", "expected ')' after GET arguments");
+    return node;
+}
+
+std::shared_ptr<Expression> PloyParser::ParseSetAttrExpression() {
+    auto node = std::make_shared<SetAttrExpression>();
+    node->loc = current_.loc;
+    Advance(); // consume 'SET'
+
+    ExpectSymbol("(", "expected '(' after SET");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in SET");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in SET");
+
+    // Object expression
+    node->object = ParseExpression();
+
+    ExpectSymbol(",", "expected ',' after object in SET");
+
+    // Attribute name
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->attr_name = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected attribute name in SET");
+        Sync();
+        return node;
+    }
+
+    ExpectSymbol(",", "expected ',' after attribute name in SET");
+
+    // Value expression
+    node->value = ParseExpression();
+
+    ExpectSymbol(")", "expected ')' after SET arguments");
+    return node;
+}
+
+// ============================================================================
+// WITH Statement: WITH(language, resource_expr) AS name { body }
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseWithStatement() {
+    auto node = std::make_shared<WithStatement>();
+    node->loc = current_.loc;
+    Advance(); // consume 'WITH'
+
+    ExpectSymbol("(", "expected '(' after WITH");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in WITH");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in WITH");
+
+    // Resource expression (typically a NEW expression)
+    node->resource_expr = ParseExpression();
+
+    ExpectSymbol(")", "expected ')' after WITH arguments");
+
+    // AS variable_name
+    ExpectKeyword("AS", "expected 'AS' after WITH(...)");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->var_name = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected variable name after AS in WITH");
+        Sync();
+        return node;
+    }
+
+    // Body block
+    ExpectSymbol("{", "expected '{' after WITH ... AS name");
+    node->body = ParseBlockBody();
+    ExpectSymbol("}", "expected '}' to close WITH block");
+
     return node;
 }
 

@@ -63,11 +63,18 @@ class PloyParser : public frontends::ParserBase {
     std::shared_ptr<Expression> ParsePostfix();
     std::shared_ptr<Expression> ParsePrimary();
     std::shared_ptr<Expression> ParseCallDirective();
+    std::shared_ptr<Expression> ParseNewExpression();
+    std::shared_ptr<Expression> ParseMethodCallDirective();
+    std::shared_ptr<Expression> ParseGetAttrExpression();
+    std::shared_ptr<Expression> ParseSetAttrExpression();
     std::shared_ptr<Expression> ParseConvertExpression();
     std::shared_ptr<Expression> ParseListLiteral();
     std::shared_ptr<Expression> ParseDictLiteral();
     std::shared_ptr<Expression> ParseStructLiteral(const std::string &struct_name);
     std::vector<std::shared_ptr<Expression>> ParseArguments();
+
+    // Statements
+    std::shared_ptr<Statement> ParseWithStatement();
 
     // Types
     std::shared_ptr<TypeNode> ParseType();

@@ -77,6 +77,7 @@ class PloyLowering {
     void LowerForStatement(const std::shared_ptr<ForStatement> &for_stmt);
     void LowerMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
     void LowerReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
+    void LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
     void LowerBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
     void LowerStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
     void LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
@@ -90,6 +91,10 @@ class PloyLowering {
     EvalResult LowerExpression(const std::shared_ptr<Expression> &expr);
     EvalResult LowerCallExpression(const std::shared_ptr<CallExpression> &call);
     EvalResult LowerCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call);
+    EvalResult LowerNewExpression(const std::shared_ptr<NewExpression> &new_expr);
+    EvalResult LowerMethodCallExpression(const std::shared_ptr<MethodCallExpression> &method_call);
+    EvalResult LowerGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr);
+    EvalResult LowerSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr);
     EvalResult LowerBinaryExpression(const std::shared_ptr<BinaryExpression> &bin);
     EvalResult LowerUnaryExpression(const std::shared_ptr<UnaryExpression> &unary);
     EvalResult LowerIdentifier(const std::shared_ptr<Identifier> &id);
