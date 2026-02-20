@@ -35,7 +35,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 
 **核心目标：**
 
-- ✅ **多语言支持**: C++、Python、Rust 的完整编译前端
+- ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#) 的完整编译前端
 - ✅ **多目标平台**: x86_64 和 ARM64 架构后端
 - ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
@@ -52,6 +52,8 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | **C++** | ✅ | ✅ | OOP/模板/RTTI/异常/constexpr/SIMD | **完整** |
 | **Python** | ✅ | ✅ | 类型注解/推导/装饰器/生成器/async/25+高级特性 | **完整** |
 | **Rust** | ✅ | ✅ | 借用检查/闭包/生命周期/Traits/28+高级特性 | **完整** |
+| **Java** | ✅ | ✅ | Java 8/17/21/23/记录类/密封类/模式匹配/文本块/Switch表达式 | **完整** |
+| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9/记录类/顶级语句/主构造器/文件范围命名空间/可空引用类型 | **完整** |
 | **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理/对象销毁/类继承 | **完整** |
 
 ### 平台支持
@@ -158,24 +160,24 @@ EXPORT inference AS "run_inference";
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                  Source Code                                │
-│           C++ / Python / Rust / .ploy                       │
+│       C++ / Python / Rust / Java / C# / .ploy              │
 └─────────────────────┬───────────────────────────────────────┘
                       │
-        ┌─────────────┼──────────────┬───────────────┐
-        │             │              │               │
-        ▼             ▼              ▼               ▼
-   ┌────────┐   ┌────────┐   ┌────────┐      ┌──────────┐
-   │  C++   │   │ Python │   │  Rust  │      │  .ploy   │
-   │Frontend│   │Frontend│   │Frontend│      │ Frontend │
-   └────┬───┘   └────┬───┘   └────┬───┘      └────┬─────┘
-        │            │            │                │
-        └────────────┼────────────┘           ┌────┘
-                     │                        │
-                     ▼                        ▼
-            ┌────────────────┐     ┌───────────────────┐
-            │  Shared IR     │     │ PolyglotLinker    │
-            │ (Middle Layer) │     │ (Cross-Language)  │
-            └────────┬───────┘     └───────────────────┘
+  ┌───────┬───────────┼──────────┬───────────┬───────────┐
+  │       │           │          │           │           │
+  ▼       ▼           ▼          ▼           ▼           ▼
+┌────┐ ┌──────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
+│C++ │ │Python│ │  Rust  │ │  Java  │ │ .NET   │ │  .ploy   │
+│ FE │ │  FE  │ │   FE   │ │   FE   │ │   FE   │ │   FE     │
+└──┬─┘ └──┬───┘ └───┬────┘ └───┬────┘ └───┬────┘ └────┬─────┘
+   │      │         │          │          │           │
+   └──────┼─────────┼──────────┼──────────┘        ┌──┘
+          │         │          │                   │
+          ▼         ▼          ▼                   ▼
+            ┌────────────────┐          ┌───────────────────┐
+            │  Shared IR     │          │ PolyglotLinker    │
+            │ (Middle Layer) │          │ (Cross-Language)  │
+            └────────┬───────┘          └───────────────────┘
                      │
         ┌────────────┼────────────┐
         │            │            │
@@ -215,7 +217,7 @@ EXPORT inference AS "run_inference";
 
 ```
 PolyglotCompiler/
-├── frontends/              # 前端（4 个语言前端）
+├── frontends/              # 前端（6 个语言前端）
 │   ├── common/             # 通用前端设施（Token、Diagnostics、预处理器）
 │   │   └── src/            #   token_pool.cpp, preprocessor.cpp
 │   ├── cpp/                # C++ 前端
@@ -226,6 +228,12 @@ PolyglotCompiler/
 │   │   └── src/            #   lexer/, parser/, sema/, lowering/
 │   ├── rust/               # Rust 前端
 │   │   ├── include/        #   rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
+│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   ├── java/               # Java 前端 (Java 8/17/21/23)
+│   │   ├── include/        #   java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
+│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   ├── dotnet/             # .NET 前端 (C# .NET 6/7/8/9)
+│   │   ├── include/        #   dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
 │   │   └── src/            #   lexer/, parser/, sema/, lowering/
 │   └── ploy/               # .ploy 跨语言链接前端
 │       ├── include/        #   ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
@@ -278,7 +286,7 @@ PolyglotCompiler/
 ├── tests/                  # 测试
 │   ├── unit/               # 单元测试（Catch2 框架）
 │   │   └── frontends/ploy/ #   ploy_test.cpp（207+ 测试用例）
-│   ├── samples/            # 示例程序（10 个分类目录，含 .ploy/.cpp/.py/.rs）
+│   ├── samples/            # 示例程序（12 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
 │   ├── integration/        # 集成测试（编译管道/互操作/性能）
 │   └── benchmarks/         # 基准测试（微基准/宏基准）
 └── docs/                   # 文档
@@ -308,6 +316,8 @@ Source Code
 | C++ | `frontends/cpp/` (5 编译单元) | OOP、模板、RTTI、异常、constexpr、SIMD |
 | Python | `frontends/python/` (4 编译单元) | 类型注解、推导、25+高级特性 |
 | Rust | `frontends/rust/` (4 编译单元) | 借用检查、生命周期、闭包、28+高级特性 |
+| Java | `frontends/java/` (4 编译单元) | Java 8/17/21/23、记录类、密封类、模式匹配、Switch表达式、文本块 |
+| .NET (C#) | `frontends/dotnet/` (4 编译单元) | .NET 6/7/8/9、记录类、顶级语句、主构造器、可空引用类型 |
 | .ploy | `frontends/ploy/` (4 编译单元) | LINK、IMPORT、PIPELINE、CONFIG、包管理 |
 
 ---
@@ -986,7 +996,7 @@ Error [E3001]: Undefined variable 'unknown_var'
                               └───────────┘
 ```
 
-**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`）编译所有语言源码到统一 IR，然后通过后端生成目标代码。**不依赖**外部编译器（MSVC/GCC/rustc/CPython）。`polyc` 驱动程序 (`driver.cpp`) 中仅在最终链接阶段可选择调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
+**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过后端生成目标代码。**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 中仅在最终链接阶段可选择调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
 
 ### 能力矩阵
 
@@ -1098,6 +1108,91 @@ Error [E3001]: Undefined variable 'unknown_var'
 - 结构体字面量（带前瞻消歧，使用 LexerBase SaveState/RestoreState）
 - IR Lowering（函数/管道/链接/表达式/控制流/OOP互操作/对象销毁/类继承）
 
+## 5.5 Java 前端 (`frontend_java`) ✅
+
+完整的 Java 前端，支持 Java 8、17、21 和 23 的特性：
+
+### 词法分析器
+- 完整的 Java 关键字和运算符词法分析
+- 字符串/字符/数字/注解字面量
+- 单行和多行注释处理
+
+### 解析器
+- 类、接口、枚举、记录类（Java 16+）
+- 密封类和 permits（Java 17+）
+- 模式匹配 instanceof（Java 16+）
+- Switch 表达式（Java 14+）
+- 文本块（Java 13+）
+- 方法、构造器、字段、泛型
+- 导入和包声明
+- Lambda 表达式和方法引用
+- try-with-resources（Java 7+）
+
+### 语义分析
+- 类型解析和作用域管理
+- 方法重载检测
+- 记录类组件的隐式访问器
+- 密封类的许可验证
+- 构造器和方法体分析
+- 二元表达式的类型推导
+
+### IR 降级
+- 类 → 结构体降级，生成构造器（`<init>`）
+- 方法降级，名称修饰（`ClassName::method`）
+- 枚举 → 整型常量降级
+- 记录类 → 带组件访问器的结构体
+- 接口 → 虚表生成
+- `System.out.println` → `__ploy_java_print` 运行时桥接
+
+### 运行时桥接 (`java_rt`)
+- JNI 兼容的桥接 API
+- 版本感知的初始化（Java 8/17/21/23）
+- 对象生命周期管理
+
+## 5.6 .NET 前端 (`frontend_dotnet`) ✅
+
+完整的 C# (.NET) 前端，支持 .NET 6、7、8 和 9 的特性：
+
+### 词法分析器
+- 完整的 C# 关键字和运算符词法分析（包括 `??`、`?.`、`=>`）
+- 常规和逐字字符串字面量
+- 数值字面量（十六进制、二进制、十进制）
+- XML 文档注释处理
+
+### 解析器
+- 类、结构体、接口、枚举、记录类（.NET 5+）
+- 命名空间和文件范围命名空间（C# 10）
+- 顶级语句（C# 9+）
+- 主构造器（C# 12）
+- Using 指令（包括全局 using，C# 10）
+- 委托
+- 属性及 get/set 访问器
+- 析构器/终结器
+- 方法、构造器、字段、泛型
+- 可空引用类型
+- 模式匹配和 switch 表达式
+
+### 语义分析
+- 类型解析和作用域管理
+- 命名空间范围的符号查找
+- 属性和事件分析
+- 构造器和方法体分析
+- Using 指令注册
+- `var` 声明的类型推导
+
+### IR 降级
+- 类/结构体 → 结构体降级，生成构造器（`.ctor`）
+- 方法降级，名称修饰（`ClassName::Method`）
+- 枚举 → 整型常量降级
+- 命名空间 → 作用域前缀
+- 顶级语句 → `<Program>::Main` 入口点
+- `Console.WriteLine` → `__ploy_dotnet_print` 运行时桥接
+
+### 运行时桥接 (`dotnet_rt`)
+- CoreCLR 兼容的桥接 API
+- 版本感知的初始化（.NET 6/7/8/9）
+- 垃圾回收对象互操作
+
 ---
 
 # 6. 使用指南
@@ -1119,7 +1214,7 @@ polyc [选项] <输入文件>
 
 | 选项 | 说明 |
 |------|------|
-| `--lang=<cpp\|python\|rust\|ploy>` | 源语言（省略时根据扩展名自动检测） |
+| `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | 源语言（省略时根据扩展名自动检测） |
 | `--arch=<x86_64\|arm64>` | 目标架构（默认：x86_64） |
 | `-O<0\|1\|2\|3>` | 优化级别 |
 | `--emit-ir=<文件>` | 输出 IR 文本 |
@@ -1287,7 +1382,7 @@ polyc -flto=thin file1.o file2.o -o app
 
 ## 6.5 .ploy 示例文件
 
-项目在 `tests/samples/` 中包含 10 个 `.ploy` 示例：
+项目在 `tests/samples/` 中包含 12 个 `.ploy` 示例：
 
 | 文件 | 内容 |
 |------|------|
@@ -1301,6 +1396,8 @@ polyc -flto=thin file1.o file2.o -o app
 | `error_handling.ploy` | 错误处理 |
 | `package_import.ploy` | 包导入 + 版本约束 + 选择性导入 + CONFIG |
 | `cross_lang_class_instantiation.ploy` | 跨语言类实例化混合调用 |
+| `java_interop.ploy` | Java 互操作（字符串处理 + 跨语言管道） |
+| `dotnet_interop.ploy` | .NET 互操作（数据服务 + 统计分析管道） |
 
 ## 6.6 示例环境配置
 
@@ -1631,7 +1728,7 @@ benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
 
 ## 10.4 示例程序
 
-`tests/samples/` 目录包含 10 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py` 和 `.rs` 源文件：
+`tests/samples/` 目录包含 12 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py`、`.rs`、`.java` 和 `.cs` 源文件：
 
 ```
 tests/samples/
@@ -1649,7 +1746,15 @@ tests/samples/
 ├── 07_mixed_compilation/               # LINK + PIPELINE + STRUCT 组合
 ├── 08_container_marshalling/           # 跨语言容器转换
 ├── 09_multi_language_pipeline/         # 三语言(C++/Python/Rust)管道
-└── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
+├── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
+├── 11_java_interop/                    # Java 互操作（字符串处理 + 跨语言管道）
+│   ├── java_interop.ploy
+│   ├── StringProcessor.java
+│   └── text_analyzer.py
+└── 12_dotnet_interop/                  # .NET 互操作（数据服务 + 统计分析管道）
+    ├── dotnet_interop.ploy
+    ├── DataService.cs
+    └── stats_utils.py
 ```
 
 ## 10.5 集成测试
@@ -1722,11 +1827,13 @@ tests/benchmarks/
 | `frontend_cpp` | 静态库 | frontend_common (5 编译单元: lexer/parser/sema/lowering/constexpr) |
 | `frontend_python` | 静态库 | frontend_common (4 编译单元) |
 | `frontend_rust` | 静态库 | frontend_common (4 编译单元) |
+| `frontend_java` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
+| `frontend_dotnet` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
 | `frontend_ploy` | 静态库 | frontend_common, middle_ir (4 编译单元) |
 | `middle_ir` | 静态库 | polyglot_common (15 编译单元) |
 | `backend_x86_64` | 静态库 | polyglot_common (7 编译单元) |
 | `backend_arm64` | 静态库 | polyglot_common (6 编译单元) |
-| `runtime` | 静态库 | — (18 编译单元) |
+| `runtime` | 静态库 | — (20 编译单元，含 java_rt/dotnet_rt) |
 | `linker_lib` | 对象库 | polyglot_common, frontend_ploy |
 | `polyc` | 可执行文件 | 所有前端 + 后端 + IR + 运行时 |
 | `polyld` | 可执行文件 | polyglot_common, frontend_ploy |

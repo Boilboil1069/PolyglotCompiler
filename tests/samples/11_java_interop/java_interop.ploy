@@ -1,0 +1,109 @@
+// ============================================================================
+// java_interop.ploy — Cross-Language Java Interop Demo
+//
+// This .ploy file demonstrates mixing Java with Python using the
+// PolyglotCompiler.  Java provides a StringProcessor class while
+// Python provides text analysis utilities.
+//
+// Source files:
+//   - StringProcessor.java  (Java string processing class)
+//   - text_analyzer.py      (Python text analysis functions)
+//
+// Compile:
+//   polyc java_interop.ploy -o java_interop
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT java::StringProcessor;
+IMPORT python::text_analyzer;
+
+// --- Cross-Language Links ---
+LINK(java, python, StringProcessor::format, text_analyzer::to_uppercase) {
+    MAP_TYPE(java::String, python::str);
+    MAP_TYPE(java::int, python::int);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(java::String, python::str);
+MAP_TYPE(java::int, python::int);
+
+// ============================================================================
+// Example 1: Java class instantiation + method calls
+// ============================================================================
+FUNC java_string_ops() -> STRING {
+    // Create a Java StringProcessor object
+    LET processor = NEW(java, StringProcessor, "LOG");
+
+    // Call instance methods
+    LET formatted = METHOD(java, processor, format, "Hello from Java");
+    LET reversed = METHOD(java, processor, reverse, "PolyglotCompiler");
+    LET count = METHOD(java, processor, getProcessCount);
+
+    // Call static method
+    LET dist = CALL(java, StringProcessor::levenshteinDistance, "kitten", "sitting");
+
+    RETURN formatted;
+}
+
+// ============================================================================
+// Example 2: Python functions for text analysis
+// ============================================================================
+FUNC python_text_ops() -> INT {
+    LET sample = "The quick brown fox jumps over the lazy dog";
+
+    // Python text analysis functions
+    LET words = CALL(python, text_analyzer::word_count, sample);
+    LET upper = CALL(python, text_analyzer::to_uppercase, sample);
+    LET short_text = CALL(python, text_analyzer::summarize, sample, 20);
+
+    RETURN words;
+}
+
+// ============================================================================
+// Example 3: Cross-language pipeline (Java → Python → Java)
+// ============================================================================
+FUNC cross_language_pipeline() -> STRING {
+    // Step 1: Java formats the text
+    LET processor = NEW(java, StringProcessor, "PIPELINE");
+    LET step1 = METHOD(java, processor, format, "input data");
+
+    // Step 2: Python converts to uppercase
+    LET step2 = CALL(python, text_analyzer::to_uppercase, step1);
+
+    // Step 3: Java reverses the result
+    LET step3 = METHOD(java, processor, reverse, step2);
+
+    // Step 4: Count words in the final result
+    LET word_count = CALL(python, text_analyzer::word_count, step3);
+
+    RETURN step3;
+}
+
+// ============================================================================
+// Example 4: Resource management with Java objects
+// ============================================================================
+FUNC managed_java_ops() -> INT {
+    WITH java processor = NEW(java, StringProcessor, "SAFE") {
+        LET r1 = METHOD(java, processor, format, "message 1");
+        LET r2 = METHOD(java, processor, format, "message 2");
+        LET total = METHOD(java, processor, getProcessCount);
+        RETURN total;
+    }
+    RETURN 0;
+}
+
+// ============================================================================
+// Example 5: Conditional logic mixing Java and Python
+// ============================================================================
+FUNC conditional_interop(LET text: STRING) -> STRING {
+    LET length = CALL(python, text_analyzer::word_count, text);
+
+    IF length > 10 {
+        LET summary = CALL(python, text_analyzer::summarize, text, 50);
+        RETURN summary;
+    } ELSE {
+        LET processor = NEW(java, StringProcessor, "SHORT");
+        LET result = METHOD(java, processor, format, text);
+        RETURN result;
+    }
+}

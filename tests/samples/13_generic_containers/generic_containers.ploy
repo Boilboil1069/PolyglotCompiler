@@ -1,0 +1,124 @@
+// ============================================================================
+// generic_containers.ploy — Generic Container Cross-Language Interop Demo
+//
+// Demonstrates MAP_TYPE for complex container types (vectors, maps, arrays)
+// and CONVERT for explicit marshalling between language-specific collections.
+//
+// Source files:
+//   - SortEngine.java     (Java generic sorting with ArrayList/HashMap)
+//   - collection_utils.py (Python list/dict utility functions)
+//   - matrix_math.cpp     (C++ vector/map operations)
+//
+// Compile:
+//   polyc generic_containers.ploy -o generic_containers
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT java::SortEngine;
+IMPORT python::collection_utils;
+IMPORT cpp::matrix_math;
+
+// --- Cross-Language Links ---
+LINK(java, python, SortEngine::sortedKeys, collection_utils::invert_dict) {
+    MAP_TYPE(java::ArrayList_String, python::list);
+    MAP_TYPE(java::HashMap_String_Integer, python::dict);
+}
+
+LINK(cpp, java, matrix_math::flatten, SortEngine::sortInts) {
+    MAP_TYPE(cpp::std::vector_int, java::ArrayList_Integer);
+}
+
+LINK(python, cpp, collection_utils::running_sum, matrix_math::dot_product) {
+    MAP_TYPE(python::list, cpp::std::vector_double);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::int, java::int);
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(java::String, python::str);
+MAP_TYPE(java::int, python::int);
+MAP_TYPE(cpp::std::vector_int, java::ArrayList_Integer);
+MAP_TYPE(cpp::std::vector_double, python::list);
+MAP_TYPE(java::ArrayList_String, python::list);
+MAP_TYPE(java::HashMap_String_Integer, python::dict);
+
+// ============================================================================
+// Example 1: Java generic sorting → Python dictionary processing
+// ============================================================================
+FUNC sort_and_process() -> INT {
+    // Create a Java SortEngine
+    LET engine = NEW(java, SortEngine);
+
+    // Add items to the Java engine
+    METHOD(java, engine, addEntry, "Charlie", 3);
+    METHOD(java, engine, addEntry, "Alice", 1);
+    METHOD(java, engine, addEntry, "Bob", 2);
+    METHOD(java, engine, addEntry, "Diana", 4);
+
+    // Get sorted keys from Java (returns ArrayList<String>)
+    LET sorted_keys = METHOD(java, engine, sortedKeys);
+
+    // Pass sorted keys to Python for further processing
+    LET count = CALL(python, collection_utils::count_items, sorted_keys);
+
+    RETURN count;
+}
+
+// ============================================================================
+// Example 2: C++ vector → Java sort → Python analysis
+// ============================================================================
+FUNC three_way_container_pipeline() -> FLOAT {
+    // Generate data in C++
+    LET raw_data = CALL(cpp, matrix_math::generate_sequence, 10, 2.5);
+
+    // Flatten nested structure in C++
+    LET flat = CALL(cpp, matrix_math::flatten, raw_data);
+
+    // Sort in Java (ArrayList<Integer>)
+    LET engine = NEW(java, SortEngine);
+    LET sorted = METHOD(java, engine, sortInts, flat);
+
+    // Compute running sum in Python
+    LET sums = CALL(python, collection_utils::running_sum, sorted);
+
+    // Dot product back in C++
+    LET result = CALL(cpp, matrix_math::dot_product, sums);
+
+    RETURN result;
+}
+
+// ============================================================================
+// Example 3: Dictionary round-trip across Java/Python/C++
+// ============================================================================
+FUNC dictionary_round_trip() -> STRING {
+    // Build a map in Java
+    LET engine = NEW(java, SortEngine);
+    METHOD(java, engine, addEntry, "x", 10);
+    METHOD(java, engine, addEntry, "y", 20);
+    METHOD(java, engine, addEntry, "z", 30);
+    LET java_map = METHOD(java, engine, getMap);
+
+    // Convert Java HashMap → Python dict and invert it
+    LET inverted = CALL(python, collection_utils::invert_dict, java_map);
+
+    // Summarise in Python
+    LET summary = CALL(python, collection_utils::dict_summary, inverted);
+
+    RETURN summary;
+}
+
+// ============================================================================
+// Main pipeline — exercises all three examples
+// ============================================================================
+PIPELINE generic_containers_demo {
+    LET count = sort_and_process();
+    LET score = three_way_container_pipeline();
+    LET summary = dictionary_round_trip();
+}
+
+// --- Exports ---
+EXPORT sort_and_process;
+EXPORT three_way_container_pipeline;
+EXPORT dictionary_round_trip;
+EXPORT generic_containers_demo;

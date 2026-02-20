@@ -1,0 +1,125 @@
+// ============================================================================
+// async_pipeline.ploy — Multi-Stage Signal Processing Pipeline Demo
+//
+// Demonstrates PIPELINE, multi-function composition, control flow (IF,
+// FOR, MATCH), and three-language data flow: Rust loads data, C++
+// processes it, Python visualises results.
+//
+// Source files:
+//   - async_loader.rs    (Rust data loader)
+//   - signal_proc.cpp    (C++ signal processing functions)
+//   - visualizer.py      (Python charting / summary functions)
+//
+// Compile:
+//   polyc async_pipeline.ploy -o async_pipeline
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT rust::async_loader;
+IMPORT cpp::signal_proc;
+IMPORT python::visualizer;
+
+// --- Cross-Language Links ---
+LINK(rust, cpp, async_loader::load_signal, signal_proc::bandpass_filter) {
+    MAP_TYPE(rust::Vec_f64, cpp::std::vector_double);
+    MAP_TYPE(rust::f64, cpp::double);
+}
+
+LINK(cpp, python, signal_proc::bandpass_filter, visualizer::plot_signal) {
+    MAP_TYPE(cpp::std::vector_double, python::list);
+    MAP_TYPE(cpp::double, python::float);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(rust::f64, cpp::double);
+MAP_TYPE(rust::f64, python::float);
+MAP_TYPE(rust::Vec_f64, cpp::std::vector_double);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::std::vector_double, python::list);
+
+// ============================================================================
+// Example 1: Load data from Rust and label in Python
+// ============================================================================
+FUNC load_data(source: STRING) -> LIST {
+    // Load signal from Rust
+    LET data = CALL(rust, async_loader::load_signal, source);
+
+    // Generate a display label in Python
+    LET label = CALL(python, visualizer::generate_label, source);
+
+    RETURN data;
+}
+
+// ============================================================================
+// Example 2: Full signal processing chain
+// ============================================================================
+FUNC process_signal(source: STRING) -> STRING {
+    // Stage 1 — load from Rust
+    LET raw = CALL(rust, async_loader::load_signal, source);
+
+    // Stage 2 — bandpass filter in C++
+    LET filtered = CALL(cpp, signal_proc::bandpass_filter, raw, 0.1, 0.4);
+
+    // Stage 3 — compute statistics in C++
+    LET rms = CALL(cpp, signal_proc::rms, filtered);
+    LET peak = CALL(cpp, signal_proc::peak, filtered);
+
+    // Stage 4 — visualise in Python
+    LET chart = CALL(python, visualizer::plot_signal, filtered, "Filtered Signal");
+
+    RETURN chart;
+}
+
+// ============================================================================
+// Example 3: Multi-source loading and merge
+// ============================================================================
+FUNC multi_source_load(count: INT) -> INT {
+    // Load signals from three sources
+    LET d1 = CALL(rust, async_loader::load_signal, "sensor_a.dat");
+    LET d2 = CALL(rust, async_loader::load_signal, "sensor_b.dat");
+    LET d3 = CALL(rust, async_loader::load_signal, "sensor_c.dat");
+
+    // Merge all signals in C++
+    LET merged = CALL(cpp, signal_proc::merge_signals, d1, d2, d3);
+    LET length = CALL(cpp, signal_proc::signal_length, merged);
+
+    // Filter and visualise
+    LET filtered = CALL(cpp, signal_proc::bandpass_filter, merged, 0.05, 0.3);
+    LET chart = CALL(python, visualizer::plot_signal, filtered, "Merged Signal");
+
+    RETURN length;
+}
+
+// ============================================================================
+// Example 4: Signal quality classification
+// ============================================================================
+FUNC classify_signal(source: STRING) -> STRING {
+    LET data = CALL(rust, async_loader::load_signal, source);
+    LET peak = CALL(cpp, signal_proc::peak, data);
+    LET rms = CALL(cpp, signal_proc::rms, data);
+
+    // Classify based on RMS value
+    IF rms > 0.5 {
+        LET chart = CALL(python, visualizer::plot_signal, data, "HIGH quality");
+        RETURN "high";
+    } ELSE {
+        RETURN "low";
+    }
+}
+
+// ============================================================================
+// PIPELINE — orchestrate all processing steps
+// ============================================================================
+PIPELINE signal_processing_pipeline {
+    LET data = load_data("demo.dat");
+    LET chart = process_signal("demo.dat");
+    LET length = multi_source_load(3);
+    LET quality = classify_signal("demo.dat");
+}
+
+// --- Exports ---
+EXPORT load_data;
+EXPORT process_signal;
+EXPORT multi_source_load;
+EXPORT classify_signal;
+EXPORT signal_processing_pipeline;

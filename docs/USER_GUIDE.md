@@ -35,7 +35,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 
 **Core Goals:**
 
-- ✅ **Multi-Language Support**: Complete compilation frontends for C++, Python, Rust
+- ✅ **Multi-Language Support**: Complete compilation frontends for C++, Python, Rust, Java, and .NET (C#)
 - ✅ **Multi-Target Platforms**: x86_64 and ARM64 architecture backends
 - ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`)
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
@@ -52,6 +52,8 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 | **C++** | ✅ | ✅ | OOP / Templates / RTTI / Exceptions / constexpr / SIMD | **Complete** |
 | **Python** | ✅ | ✅ | Type annotations / Inference / Decorators / Generators / async / 25+ advanced | **Complete** |
 | **Rust** | ✅ | ✅ | Borrow checking / Closures / Lifetimes / Traits / 28+ advanced | **Complete** |
+| **Java** | ✅ | ✅ | Java 8/17/21/23 / Records / Sealed classes / Pattern matching / Text blocks / Switch expressions | **Complete** |
+| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9 / Records / Top-level statements / Primary constructors / File-scoped namespaces / Nullable ref types | **Complete** |
 | **.ploy** | ✅ | ✅ | Cross-language linking / Pipelines / Package mgmt / OOP interop (NEW/METHOD/GET/SET/WITH) | **Complete** |
 
 ### Platform Support
@@ -156,26 +158,26 @@ EXPORT inference AS "run_inference";
 ## 3.1 Overall Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Source Code                           │
-│           C++ / Python / Rust / .ploy                       │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-        ┌─────────────┼──────────────┬───────────────┐
-        │             │              │               │
-        ▼             ▼              ▼               ▼
-   ┌────────┐   ┌────────┐   ┌────────┐      ┌──────────┐
-   │  C++   │   │ Python │   │  Rust  │      │  .ploy   │
-   │Frontend│   │Frontend│   │Frontend│      │ Frontend │
-   └────┬───┘   └────┬───┘   └────┬───┘      └────┬─────┘
-        │            │            │                │
-        └────────────┼────────────┘           ┌────┘
-                     │                        │
-                     ▼                        ▼
-            ┌────────────────┐     ┌───────────────────┐
-            │  Shared IR     │     │ PolyglotLinker    │
-            │ (Middle Layer) │     │ (Cross-Language)  │
-            └────────┬───────┘     └───────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Source Code                                    │
+│             C++ / Python / Rust / Java / C# (.NET) / .ploy                 │
+└──────────────────────────────┬──────────────────────────────────────────────┘
+                               │
+     ┌──────────┬──────────┬───┼──────────┬──────────┐
+     │          │          │   │          │          │
+     ▼          ▼          ▼   ▼          ▼          ▼
+ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
+ │  C++   │ │ Python │ │  Rust  │ │  Java  │ │  .NET  │ │  .ploy   │
+ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │ Frontend │
+ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └────┬─────┘
+     │          │          │          │          │            │
+     └──────────┴──────────┴──────────┴──────────┘       ┌───┘
+                           │                             │
+                           ▼                             ▼
+                  ┌────────────────┐          ┌───────────────────┐
+                  │  Shared IR     │          │ PolyglotLinker    │
+                  │ (Middle Layer) │          │ (Cross-Language)  │
+                  └────────┬───────┘          └───────────────────┘
                      │
         ┌────────────┼────────────┐
         │            │            │
@@ -210,12 +212,13 @@ EXPORT inference AS "run_inference";
 - All languages share a unified IR intermediate representation
 - Each frontend independently implements the complete Lexer → Parser → Sema → Lowering pipeline
 - The `.ploy` frontend is unique in that its IR is consumed by the PolyglotLinker, generating cross-language glue code
+- Six frontends: C++, Python, Rust, Java, .NET (C#), and .ploy
 
 ## 3.2 Directory Structure
 
 ```
 PolyglotCompiler/
-├── frontends/              # Frontends (4 language frontends)
+├── frontends/              # Frontends (6 language frontends)
 │   ├── common/             # Shared frontend facilities (Token, Diagnostics, Preprocessor)
 │   │   └── src/            #   token_pool.cpp, preprocessor.cpp
 │   ├── cpp/                # C++ frontend
@@ -226,6 +229,12 @@ PolyglotCompiler/
 │   │   └── src/            #   lexer/, parser/, sema/, lowering/
 │   ├── rust/               # Rust frontend
 │   │   ├── include/        #   rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
+│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   ├── java/               # Java frontend (Java 8/17/21/23)
+│   │   ├── include/        #   java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
+│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   ├── dotnet/             # .NET frontend (C# .NET 6/7/8/9)
+│   │   ├── include/        #   dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
 │   │   └── src/            #   lexer/, parser/, sema/, lowering/
 │   └── ploy/               # .ploy cross-language linking frontend
 │       ├── include/        #   ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
@@ -256,7 +265,7 @@ PolyglotCompiler/
 │   └── src/
 │       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
 │       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c
+│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c
 │       └── services/       #   exception, reflection, threading
 ├── common/                 # Project-wide common facilities
 │   ├── include/
@@ -278,7 +287,7 @@ PolyglotCompiler/
 ├── tests/                  # Tests
 │   ├── unit/               # Unit tests (Catch2 framework)
 │   │   └── frontends/ploy/ #   ploy_test.cpp (171+ test cases)
-│   ├── samples/            # Sample programs (10 categorised directories with .ploy/.cpp/.py/.rs)
+│   ├── samples/            # Sample programs (12 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
 │   ├── integration/        # Integration tests (compile pipeline / interop / performance)
 │   └── benchmarks/         # Benchmark tests (micro / macro)
 │   └── benchmarks/         # Performance benchmarks
@@ -309,6 +318,8 @@ Source Code
 | C++ | `frontends/cpp/` (5 compilation units) | OOP, Templates, RTTI, Exceptions, constexpr, SIMD |
 | Python | `frontends/python/` (4 compilation units) | Type annotations, Inference, 25+ advanced features |
 | Rust | `frontends/rust/` (4 compilation units) | Borrow checking, Lifetimes, Closures, 28+ advanced features |
+| Java | `frontends/java/` (4 compilation units) | Java 8/17/21/23, Records, Sealed classes, Pattern matching, Switch expressions, Text blocks |
+| .NET (C#) | `frontends/dotnet/` (4 compilation units) | .NET 6/7/8/9, Records, Top-level statements, Primary constructors, Nullable reference types |
 | .ploy | `frontends/ploy/` (4 compilation units) | LINK, IMPORT, PIPELINE, CONFIG, Package management, OOP interop |
 
 ---
@@ -507,7 +518,7 @@ EXPORT compute;                                // Use original name
 | Struct | User-defined composite type | `STRUCT Point { x: f64, y: f64 }` |
 | Array | Fixed-length array | `ARRAY(INT)` |
 | Function | Function signature | `(INT, FLOAT) -> BOOL` |
-| Qualified | Language-specific type | `cpp::int`, `python::str`, `rust::Vec` |
+| Qualified | Language-specific type | `cpp::int`, `python::str`, `rust::Vec`, `java::String`, `dotnet::int` |
 
 ### 4.2.7 Control Flow
 
@@ -998,7 +1009,7 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
                               └───────────┘
 ```
 
-**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`) to compile all language source code to a unified IR, then generates target code through the backend. It does **NOT depend** on external compilers (MSVC/GCC/rustc/CPython). The `polyc` driver (`driver.cpp`) may optionally invoke a system linker (`polyld` or `clang`) only for the final link step to produce an executable.
+**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`) to compile all language source code to a unified IR, then generates target code through the backend. It does **NOT depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver (`driver.cpp`) may optionally invoke a system linker (`polyld` or `clang`) only for the final link step to produce an executable.
 
 ### Capability Matrix
 
@@ -1110,6 +1121,91 @@ See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Compl
 - Struct literals (with lookahead disambiguation using LexerBase SaveState/RestoreState)
 - IR Lowering (functions/pipelines/linking/expressions/control flow/OOP interop)
 
+## 5.5 Java Frontend (`frontend_java`) ✅
+
+Complete Java frontend supporting Java 8, 17, 21, and 23 features:
+
+### Lexer
+- Full Java keyword and operator tokenization
+- String / character / numeric / annotation literals
+- Single-line and multi-line comment handling
+
+### Parser
+- Classes, interfaces, enums, records (Java 16+)
+- Sealed classes and permits (Java 17+)
+- Pattern matching instanceof (Java 16+)
+- Switch expressions (Java 14+)
+- Text blocks (Java 13+)
+- Methods, constructors, fields, generics
+- Import and package declarations
+- Lambda expressions and method references
+- Try-with-resources (Java 7+)
+
+### Semantic Analysis
+- Type resolution and scope management
+- Method overloading detection
+- Record component implicit accessors
+- Sealed class permit validation
+- Constructor and method body analysis
+- Binary expression type inference
+
+### IR Lowering
+- Class → struct lowering with constructor (`<init>`) generation
+- Method lowering with mangled names (`ClassName::method`)
+- Enum → integer constant lowering
+- Record → struct with component accessors
+- Interface → vtable generation
+- `System.out.println` → `__ploy_java_print` runtime bridge
+
+### Runtime Bridge (`java_rt`)
+- JNI-compatible bridge API
+- Version-aware initialization (Java 8/17/21/23)
+- Object lifecycle management
+
+## 5.6 .NET Frontend (`frontend_dotnet`) ✅
+
+Complete C# (.NET) frontend supporting .NET 6, 7, 8, and 9 features:
+
+### Lexer
+- Full C# keyword and operator tokenization (including `??`, `?.`, `=>`)
+- Regular and verbatim string literals
+- Numeric literals (hex, binary, decimal)
+- XML documentation comment handling
+
+### Parser
+- Classes, structs, interfaces, enums, records (.NET 5+)
+- Namespaces and file-scoped namespaces (C# 10)
+- Top-level statements (C# 9+)
+- Primary constructors (C# 12)
+- Using directives (including global usings, C# 10)
+- Delegates
+- Properties with get/set accessors
+- Destructors/finalizers
+- Methods, constructors, fields, generics
+- Nullable reference types
+- Pattern matching and switch expressions
+
+### Semantic Analysis
+- Type resolution and scope management
+- Namespace-scoped symbol lookup
+- Property and event analysis
+- Constructor and method body analysis
+- Using directive registration
+- Type inference for `var` declarations
+
+### IR Lowering
+- Class/struct → struct lowering with constructor (`.ctor`) generation
+- Method lowering with mangled names (`ClassName::Method`)
+- Enum → integer constant lowering
+- Namespace → scope prefix
+- Top-level statement → `<Program>::Main` entry point
+- `Console.WriteLine` → `__ploy_dotnet_print` runtime bridge
+
+### Runtime Bridge (`dotnet_rt`)
+- CoreCLR-compatible bridge API
+- Version-aware initialization (.NET 6/7/8/9)
+- Garbage-collected object interop
+
 ---
 
 # 6. Usage Guide
@@ -1131,7 +1227,7 @@ polyc [options] <input_file>
 
 | Option | Description |
 |--------|-------------|
-| `--lang=<cpp\|python\|rust\|ploy>` | Source language (auto-detected from extension if omitted) |
+| `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | Source language (auto-detected from extension if omitted) |
 | `--arch=<x86_64\|arm64>` | Target architecture (default: x86_64) |
 | `-O<0\|1\|2\|3>` | Optimisation level |
 | `--emit-ir=<file>` | Output IR text |
@@ -1297,7 +1393,7 @@ Implementation: `middle/src/lto/link_time_optimizer.cpp`
 
 ## 6.5 .ploy Sample Files
 
-The project includes 10 `.ploy` samples in `tests/samples/`:
+The project includes 12 `.ploy` samples in `tests/samples/`:
 
 | File | Content |
 |------|---------|
@@ -1311,6 +1407,8 @@ The project includes 10 `.ploy` samples in `tests/samples/`:
 | `error_handling.ploy` | Error handling |
 | `package_import.ploy` | Package import + version constraints + selective import + CONFIG |
 | `cross_lang_class_instantiation.ploy` | Cross-language class instantiation with mixed calls |
+| `11_java_interop/java_interop.ploy` | Java interop: StringProcessor class + Python text analysis |
+| `12_dotnet_interop/dotnet_interop.ploy` | .NET interop: DataService class + Python statistics |
 
 ## 6.6 Sample Environment Setup
 
@@ -1732,11 +1830,13 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 | `frontend_cpp` | Static library | frontend_common (5 compilation units: lexer/parser/sema/lowering/constexpr) |
 | `frontend_python` | Static library | frontend_common (4 compilation units) |
 | `frontend_rust` | Static library | frontend_common (4 compilation units) |
+| `frontend_java` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
+| `frontend_dotnet` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
 | `frontend_ploy` | Static library | frontend_common, middle_ir (4 compilation units) |
 | `middle_ir` | Static library | polyglot_common (15 compilation units) |
 | `backend_x86_64` | Static library | polyglot_common (7 compilation units) |
 | `backend_arm64` | Static library | polyglot_common (6 compilation units) |
-| `runtime` | Static library | — (18 compilation units) |
+| `runtime` | Static library | — (20 compilation units, incl. java_rt/dotnet_rt) |
 | `linker_lib` | Object library | polyglot_common, frontend_ploy |
 | `polyc` | Executable | All frontends + backends + IR + runtime |
 | `polyld` | Executable | polyglot_common, frontend_ploy |

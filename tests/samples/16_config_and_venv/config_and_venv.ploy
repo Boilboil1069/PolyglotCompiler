@@ -1,0 +1,142 @@
+// ============================================================================
+// config_and_venv.ploy — Environment Configuration & Package Management Demo
+//
+// Demonstrates CONFIG VENV, IMPORT PACKAGE with version constraints,
+// advanced STRUCT definitions, CONVERT, and per-language environment
+// configuration — features not exercised by the earlier samples.
+//
+// Source files:
+//   - Transformer.cs   (C# data transformer using System.Text.Json)
+//   - data_science.py  (Python with numpy/pandas style stubs)
+//
+// Compile:
+//   polyc config_and_venv.ploy -o config_and_venv
+// ============================================================================
+
+// ============================================================================
+// Section 1: Environment / package configuration
+// ============================================================================
+
+// Point Python to a specific virtual-environment path
+CONFIG VENV python "env/python";
+
+// Point .NET to a specific SDK root
+CONFIG VENV dotnet "env/dotnet";
+
+// ============================================================================
+// Section 2: Package imports with version constraints
+// ============================================================================
+
+// Python packages
+IMPORT python PACKAGE numpy >= 1.24 AS np;
+IMPORT python PACKAGE pandas >= 2.0 AS pd;
+IMPORT python PACKAGE scipy >= 1.11 AS sp;
+
+// .NET NuGet packages (conceptual — shows the syntax)
+IMPORT dotnet PACKAGE Newtonsoft.Json >= 13.0 AS njson;
+
+// ============================================================================
+// Section 3: Module imports
+// ============================================================================
+IMPORT dotnet::Transformer;
+IMPORT python::data_science;
+
+// --- Cross-Language Links ---
+LINK(python, dotnet, data_science::to_json, Transformer::ParseJson) {
+    MAP_TYPE(python::str, dotnet::string);
+}
+
+LINK(dotnet, python, Transformer::Flatten, data_science::normalize) {
+    MAP_TYPE(dotnet::List_double, python::list);
+    MAP_TYPE(dotnet::double, python::float);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(python::str, dotnet::string);
+MAP_TYPE(python::float, dotnet::double);
+MAP_TYPE(python::int, dotnet::int);
+MAP_TYPE(python::list, dotnet::List_double);
+MAP_TYPE(dotnet::double, python::float);
+MAP_TYPE(dotnet::string, python::str);
+
+// ============================================================================
+// Section 4: Custom struct definitions (for type-system demonstration)
+// ============================================================================
+STRUCT Experiment {
+    name: STRING;
+    epochs: INT;
+    learning_rate: FLOAT;
+    converged: BOOL;
+}
+
+// ============================================================================
+// Example 1: Use versioned Python packages for data prep
+// ============================================================================
+FUNC prepare_dataset(rows: INT, cols: INT) -> LIST {
+    // numpy-backed random matrix generation
+    LET matrix = CALL(python, data_science::random_matrix, rows, cols);
+
+    // scipy-backed normalisation
+    LET normed = CALL(python, data_science::normalize, matrix);
+
+    // pandas-style describe
+    LET stats = CALL(python, data_science::describe, normed);
+
+    RETURN normed;
+}
+
+// ============================================================================
+// Example 2: JSON round-trip Python → .NET → Python
+// ============================================================================
+FUNC json_round_trip() -> STRING {
+    // Build a JSON string in Python from a data dictionary
+    LET json_str = CALL(python, data_science::to_json, "ResNet-50");
+
+    // Parse + transform in .NET
+    LET transformer = NEW(dotnet, Transformer);
+    LET parsed = METHOD(dotnet, transformer, ParseJson, json_str);
+    LET enriched = METHOD(dotnet, transformer, Enrich, parsed, "validated", "true");
+    LET back = METHOD(dotnet, transformer, ToJsonString, enriched);
+
+    // Deserialise back in Python
+    LET result = CALL(python, data_science::from_json, back);
+
+    RETURN back;
+}
+
+// ============================================================================
+// Example 3: CONVERT — explicit type marshalling
+// ============================================================================
+FUNC explicit_conversion() -> FLOAT {
+    LET py_list = CALL(python, data_science::random_matrix, 1, 5);
+
+    // Explicit conversion: Python list → .NET List<double>
+    LET dotnet_arr = CONVERT(py_list, dotnet::List_double);
+
+    // Flatten in .NET
+    LET transformer = NEW(dotnet, Transformer);
+    LET flat = METHOD(dotnet, transformer, Flatten, dotnet_arr);
+
+    // Convert back: .NET List<double> → Python list
+    LET py_flat = CONVERT(flat, python::list);
+
+    // Compute mean in Python
+    LET avg = CALL(python, data_science::mean, py_flat);
+
+    RETURN avg;
+}
+
+// ============================================================================
+// PIPELINE
+// ============================================================================
+PIPELINE config_demo_pipeline {
+    LET dataset = prepare_dataset(100, 10);
+    LET roundtrip = json_round_trip();
+    LET avg = explicit_conversion();
+}
+
+// --- Exports ---
+EXPORT prepare_dataset;
+EXPORT json_round_trip;
+EXPORT explicit_conversion;
+EXPORT config_demo_pipeline;

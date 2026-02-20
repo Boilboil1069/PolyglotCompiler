@@ -1,0 +1,127 @@
+// ============================================================================
+// full_stack.ploy — Five-Language Full-Stack Demo
+//
+// The most comprehensive sample: ties together C++, Python, Rust, Java,
+// and C# (.NET) in a single polyglot application.  Each language owns a
+// specific responsibility in a fictitious "user analytics" system.
+//
+// Source files:
+//   - hasher.cpp            (C++ hashing / crypto stubs)
+//   - analytics.py          (Python data analytics)
+//   - id_generator.rs       (Rust unique-ID generator)
+//   - UserRepository.java   (Java user storage)
+//   - ReportService.cs      (C# report generation)
+//
+// Compile:
+//   polyc full_stack.ploy -o full_stack
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::hasher;
+IMPORT python::analytics;
+IMPORT rust::id_generator;
+IMPORT java::UserRepository;
+IMPORT dotnet::ReportService;
+
+// --- Cross-Language Links ---
+LINK(rust, java, id_generator::next_id, UserRepository::addUser) {
+    MAP_TYPE(rust::String, java::String);
+    MAP_TYPE(rust::u64, java::long);
+}
+
+LINK(java, python, UserRepository::listScores, analytics::mean) {
+    MAP_TYPE(java::ArrayList_Double, python::list);
+    MAP_TYPE(java::double, python::float);
+}
+
+LINK(python, dotnet, analytics::summary_json, ReportService::RenderFromJson) {
+    MAP_TYPE(python::str, dotnet::string);
+}
+
+LINK(cpp, rust, hasher::sha256_hex, id_generator::seed_from_hash) {
+    MAP_TYPE(cpp::std::string, rust::String);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::int, java::int);
+MAP_TYPE(cpp::int, dotnet::int);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::std::string, python::str);
+MAP_TYPE(cpp::std::string, java::String);
+MAP_TYPE(cpp::std::string, rust::String);
+MAP_TYPE(cpp::std::string, dotnet::string);
+MAP_TYPE(rust::u64, java::long);
+MAP_TYPE(rust::String, java::String);
+MAP_TYPE(java::double, python::float);
+MAP_TYPE(java::String, python::str);
+MAP_TYPE(java::ArrayList_Double, python::list);
+MAP_TYPE(python::str, dotnet::string);
+MAP_TYPE(dotnet::double, python::float);
+MAP_TYPE(dotnet::string, python::str);
+
+// ============================================================================
+// STRUCT — shared user record flowing through the pipeline
+// ============================================================================
+STRUCT UserRecord {
+    id: STRING;
+    name: STRING;
+    score: FLOAT;
+}
+
+// ============================================================================
+// Example 1: User registration pipeline
+//   Rust generates ID → C++ hashes password → Java stores user
+// ============================================================================
+FUNC register_user(name: STRING, password: STRING) -> STRING {
+    // Generate a unique ID in Rust
+    LET uid = CALL(rust, id_generator::next_id);
+
+    // Hash the password in C++
+    LET pw_hash = CALL(cpp, hasher::sha256_hex, password);
+
+    // Store in Java repository
+    LET repo = NEW(java, UserRepository);
+    METHOD(java, repo, addUser, uid, name, pw_hash, 0.0);
+
+    RETURN uid;
+}
+
+// ============================================================================
+// Example 2: Score analysis pipeline
+//   Java fetches scores → Python analyses → .NET generates report
+// ============================================================================
+FUNC analyse_scores() -> STRING {
+    // Fetch all scores from Java
+    LET repo = NEW(java, UserRepository);
+    METHOD(java, repo, addUser, "u1", "Alice", "hash_a", 92.5);
+    METHOD(java, repo, addUser, "u2", "Bob", "hash_b", 87.0);
+    METHOD(java, repo, addUser, "u3", "Carol", "hash_c", 95.3);
+
+    LET scores = METHOD(java, repo, listScores);
+
+    // Analyse in Python
+    LET avg = CALL(python, analytics::mean, scores);
+    LET json_summary = CALL(python, analytics::summary_json, scores);
+
+    // Render report in .NET
+    LET report_svc = NEW(dotnet, ReportService, "ScoreReport");
+    LET html = METHOD(dotnet, report_svc, RenderFromJson, json_summary);
+
+    RETURN html;
+}
+
+// ============================================================================
+// Example 3: Full five-language pipeline
+// ============================================================================
+PIPELINE full_stack_pipeline {
+    LET hash = CALL(cpp, hasher::sha256_hex, "initial_seed");
+    LET id = CALL(rust, id_generator::next_id);
+    LET uid = register_user("Dave", "s3cret!");
+    LET report = analyse_scores();
+}
+
+// --- Exports ---
+EXPORT register_user;
+EXPORT analyse_scores;
+EXPORT full_stack_pipeline;

@@ -1,0 +1,126 @@
+// ============================================================================
+// dotnet_interop.ploy — Cross-Language .NET Interop Demo
+//
+// This .ploy file demonstrates mixing C# (.NET) with Python using the
+// PolyglotCompiler.  C# provides a DataService class while Python
+// provides statistics utility functions.
+//
+// Source files:
+//   - DataService.cs   (C# data service class)
+//   - stats_utils.py   (Python statistics utilities)
+//
+// Compile:
+//   polyc dotnet_interop.ploy -o dotnet_interop
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT dotnet::DataService;
+IMPORT python::stats_utils;
+
+// --- Cross-Language Links ---
+LINK(dotnet, python, DataService::Average, stats_utils::standard_deviation) {
+    MAP_TYPE(dotnet::double, python::float);
+    MAP_TYPE(dotnet::int, python::int);
+    MAP_TYPE(dotnet::string, python::str);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(dotnet::double, python::float);
+MAP_TYPE(dotnet::int, python::int);
+MAP_TYPE(dotnet::string, python::str);
+
+// ============================================================================
+// Example 1: .NET class instantiation + method calls
+// ============================================================================
+FUNC dotnet_data_ops() -> FLOAT {
+    // Create a C# DataService object
+    LET svc = NEW(dotnet, DataService, "SensorData");
+
+    // Add values via method calls
+    METHOD(dotnet, svc, AddValue, 10.5);
+    METHOD(dotnet, svc, AddValue, 20.3);
+    METHOD(dotnet, svc, AddValue, 15.8);
+    METHOD(dotnet, svc, AddValue, 22.1);
+
+    // Query statistics
+    LET avg = METHOD(dotnet, svc, Average);
+    LET count = METHOD(dotnet, svc, Count);
+    LET max_val = METHOD(dotnet, svc, Max);
+    LET summary = METHOD(dotnet, svc, Summary);
+
+    RETURN avg;
+}
+
+// ============================================================================
+// Example 2: Python statistics functions
+// ============================================================================
+FUNC python_stats_ops() -> FLOAT {
+    LET data = [10.5, 20.3, 15.8, 22.1, 18.7];
+
+    // Python statistics
+    LET stddev = CALL(python, stats_utils::standard_deviation, data);
+    LET normalized = CALL(python, stats_utils::normalize, data);
+    LET p50 = CALL(python, stats_utils::percentile, data, 50.0);
+    LET ma = CALL(python, stats_utils::moving_average, data, 3);
+
+    RETURN stddev;
+}
+
+// ============================================================================
+// Example 3: Cross-language pipeline (.NET → Python → .NET)
+// ============================================================================
+FUNC cross_language_pipeline() -> STRING {
+    // Step 1: .NET collects data
+    LET svc = NEW(dotnet, DataService, "Pipeline");
+    METHOD(dotnet, svc, AddValue, 5.0);
+    METHOD(dotnet, svc, AddValue, 15.0);
+    METHOD(dotnet, svc, AddValue, 25.0);
+    METHOD(dotnet, svc, AddValue, 35.0);
+
+    // Step 2: Python computes advanced statistics
+    LET values = [5.0, 15.0, 25.0, 35.0];
+    LET stddev = CALL(python, stats_utils::standard_deviation, values);
+    LET p90 = CALL(python, stats_utils::percentile, values, 90.0);
+
+    // Step 3: .NET clamps the result
+    LET clamped = CALL(dotnet, DataService::Clamp, stddev, 0.0, 100.0);
+
+    // Step 4: Get .NET summary
+    LET summary = METHOD(dotnet, svc, Summary);
+
+    RETURN summary;
+}
+
+// ============================================================================
+// Example 4: Resource management with .NET objects
+// ============================================================================
+FUNC managed_dotnet_ops() -> INT {
+    WITH dotnet svc = NEW(dotnet, DataService, "Managed") {
+        METHOD(dotnet, svc, AddValue, 1.0);
+        METHOD(dotnet, svc, AddValue, 2.0);
+        METHOD(dotnet, svc, AddValue, 3.0);
+        LET n = METHOD(dotnet, svc, Count);
+        RETURN n;
+    }
+    RETURN 0;
+}
+
+// ============================================================================
+// Example 5: Loop with mixed .NET and Python calls
+// ============================================================================
+FUNC batch_processing() -> FLOAT {
+    LET svc = NEW(dotnet, DataService, "Batch");
+    LET i = 0;
+
+    WHILE i < 5 {
+        LET val = CALL(dotnet, DataService::Clamp, i * 3.5, 0.0, 15.0);
+        METHOD(dotnet, svc, AddValue, val);
+        SET i = i + 1;
+    }
+
+    LET avg = METHOD(dotnet, svc, Average);
+    LET values = [0.0, 3.5, 7.0, 10.5, 14.0];
+    LET std = CALL(python, stats_utils::standard_deviation, values);
+
+    RETURN avg;
+}

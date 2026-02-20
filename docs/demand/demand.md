@@ -223,11 +223,16 @@ pip.exe : ERROR: To modify pip, please run the following command:
 1.帮我添加java的支持，需要支持java8、java17，java21，java23的功能。
 2.帮我添加.net的支持，需要支持.net6、7、8、9
 
---end
+--end -done
 
 2026-02-20-10
 
-1.补全：docs\api\内文档
-2.补全：docs\specs\内文档
+1.补全：docs\api\内文档；
+2.补全：docs\specs\内文档；
+3.为什么sample创建rust环境时会有：Rust environment not set up.Install rustup from https://rustup.rs/ and re-run setup_env.ps1，这不能直接安装进去吗？
+4.添加samples\setup_env中，添加java与.net环境的创建；
+5.将局部的虚拟环境都连接到samples文件夹中各个samples；
+6.整理samples文件夹，删除不必要的项，删除前询问我；
+7.生成更多samples，并检查编译。
 
---end
+--end -done
