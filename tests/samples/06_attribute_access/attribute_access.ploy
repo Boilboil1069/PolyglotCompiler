@@ -1,0 +1,115 @@
+// ============================================================================
+// attribute_access.ploy — Cross-Language Attribute Access Demo (GET/SET)
+//
+// This .ploy file demonstrates GET and SET keywords for reading and
+// writing object attributes across language boundaries.
+//
+// Source files:
+//   - config_store.cpp  (C++ ConfigStore and Sensor classes)
+//   - settings.py       (Python Settings and Counter classes)
+//
+// Compile:
+//   polyc attribute_access.ploy -o attribute_access
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::config_store;
+IMPORT python::settings;
+
+// --- Cross-Language Links ---
+LINK(cpp, python, config_store::ConfigStore, settings::Settings) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::std::string, python::str);
+
+// ============================================================================
+// Example 1: Reading attributes with GET
+// ============================================================================
+FUNC read_attributes() -> INT {
+    // Create a Python Settings object
+    LET settings_obj = NEW(python, settings::Settings, "MyApp");
+
+    // Read attributes using GET
+    LET app = GET(python, settings_obj, app_name);
+    LET debug = GET(python, settings_obj, debug);
+    LET log = GET(python, settings_obj, log_level);
+    LET max_conn = GET(python, settings_obj, max_connections);
+
+    // Create a C++ Sensor object
+    LET sensor = NEW(cpp, config_store::Sensor, 42.0);
+
+    // Read C++ attributes using GET
+    LET val = GET(cpp, sensor, value);
+    LET active = GET(cpp, sensor, active);
+    LET min_t = GET(cpp, sensor, min_threshold);
+
+    RETURN max_conn;
+}
+
+// ============================================================================
+// Example 2: Writing attributes with SET
+// ============================================================================
+FUNC write_attributes() -> FLOAT {
+    // Create a Python Counter object
+    LET counter = NEW(python, settings::Counter, 10);
+
+    // Modify attributes using SET
+    SET(python, counter, step, 5);
+    SET(python, counter, max_value, 500);
+
+    // Read back modified attributes
+    LET step_val = GET(python, counter, step);
+    METHOD(python, counter, increment);
+    LET new_val = GET(python, counter, value);
+
+    // Create a C++ ConfigStore and modify it
+    LET config = NEW(cpp, config_store::ConfigStore, "server");
+
+    // Set C++ attributes
+    SET(cpp, config, max_retries, 5);
+    SET(cpp, config, timeout, 60.0);
+    SET(cpp, config, verbose, TRUE);
+
+    // Read C++ attributes back
+    LET timeout = GET(cpp, config, timeout);
+
+    RETURN timeout;
+}
+
+// ============================================================================
+// Example 3: Cross-language attribute-driven workflow
+// ============================================================================
+FUNC attribute_workflow() -> STRING {
+    // Python settings drive C++ sensor configuration
+    LET settings_obj = NEW(python, settings::Settings, "SensorApp");
+    METHOD(python, settings_obj, enable_debug);
+
+    LET is_debug = GET(python, settings_obj, debug);
+
+    // Create C++ sensor and configure based on Python settings
+    LET sensor = NEW(cpp, config_store::Sensor, 50.0);
+
+    IF is_debug {
+        SET(cpp, sensor, min_threshold, 0.0);
+        SET(cpp, sensor, max_threshold, 200.0);
+    } ELSE {
+        SET(cpp, sensor, min_threshold, 10.0);
+        SET(cpp, sensor, max_threshold, 90.0);
+    }
+
+    // Calibrate and check
+    METHOD(cpp, sensor, calibrate, 5.0);
+    LET in_range = METHOD(cpp, sensor, in_range);
+
+    LET summary = METHOD(python, settings_obj, summary);
+    RETURN summary;
+}
+
+EXPORT read_attributes AS "demo_read_attrs";
+EXPORT write_attributes AS "demo_write_attrs";
+EXPORT attribute_workflow AS "demo_attr_workflow";

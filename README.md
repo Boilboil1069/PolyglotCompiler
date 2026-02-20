@@ -9,7 +9,7 @@
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-171_cases_|_523_assertions-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-207_cases_|_598_assertions-brightgreen.svg"/>
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -180,7 +180,7 @@ PIPELINE ml_pipeline {
 EXPORT ml_pipeline AS "train_model";
 ```
 
-### Language Keywords (52)
+### Language Keywords (54)
 
 ```
 LINK    IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC     CONFIG
@@ -189,7 +189,7 @@ BOOL    ARRAY     LIST      TUPLE      DICT       OPTION
 RETURN  IF        ELSE      WHILE      FOR        IN       MATCH
 CASE    DEFAULT   BREAK     CONTINUE
 AS      AND       OR        NOT        CALL       CONVERT  MAP_FUNC
-NEW     METHOD    GET       SET        WITH
+NEW     METHOD    GET       SET        WITH       DELETE   EXTEND
 TRUE    FALSE     NULL      PACKAGE
 VENV    CONDA     UV        PIPENV     POETRY
 ```
@@ -207,6 +207,8 @@ VENV    CONDA     UV        PIPENV     POETRY
 | Attribute Get | `GET(python, obj, weight)` | Read foreign object attribute |
 | Attribute Set | `SET(python, obj, threshold, 0.5)` | Write foreign object attribute |
 | Resource Management | `WITH(python, resource) AS r { ... }` | Auto `__enter__`/`__exit__` |
+| Object Destruction | `DELETE(python, obj)` | Destroy foreign object |
+| Class Extension | `EXTEND(python, Base) AS Derived { ... }` | Cross-language class inheritance |
 | Type Conversion | `CONVERT(value, FLOAT)` | Explicit type conversion |
 | Type Mapping | `MAP_TYPE(cpp::int, python::int);` | Cross-language type mapping |
 | Pipeline | `PIPELINE name { ... }` | Multi-stage processing pipeline |
@@ -283,7 +285,7 @@ The project uses **Catch2** as the testing framework. Tests are automatically di
 
 | Suite | Tag | Cases | Coverage |
 |-------|-----|-------|----------|
-| .ploy Frontend | `[ploy]` | 171 (523 assertions) | Lexer / Parser / Sema / IR / Integration / Package / OOP |
+| .ploy Frontend | `[ploy]` | 207 (598 assertions) | Lexer / Parser / Sema / IR / Integration / Package / OOP / Error checking |
 | GC Algorithms | `[gc]` | 40+ | 4 GC algorithms |
 | Optimisation Passes | `[opt]` | 50+ | 25+ passes |
 | Python Features | `[python]` | 25+ | 25+ advanced features |

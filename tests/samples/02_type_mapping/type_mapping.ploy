@@ -1,0 +1,84 @@
+// ============================================================================
+// type_mapping.ploy — Type Mapping and Complex Types Demo
+//
+// This .ploy file demonstrates MAP_TYPE for cross-language type mapping,
+// including primitive types, containers (LIST, TUPLE, DICT), and structs.
+//
+// Source files:
+//   - data_converter.cpp  (C++ data conversion functions)
+//   - data_processor.py   (Python data processing functions)
+//
+// Compile:
+//   polyc type_mapping.ploy -o type_mapping
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::data_converter;
+IMPORT python::data_processor;
+
+// --- Cross-Language Function Links ---
+LINK(cpp, python, data_converter::scale_vector, data_processor::normalize) {
+    MAP_TYPE(cpp::std::vector_double, python::list);
+    MAP_TYPE(cpp::double, python::float);
+}
+
+LINK(python, cpp, data_processor::stats, data_converter::average) {
+    MAP_TYPE(python::dict, cpp::double);
+}
+
+// --- Struct Definitions ---
+STRUCT DataPoint {
+    x: FLOAT;
+    y: FLOAT;
+    label: STRING;
+}
+
+STRUCT DataSet {
+    points: LIST(FLOAT);
+    name: STRING;
+    size: INT;
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::std::vector_double, python::list);
+MAP_TYPE(cpp::Point, python::tuple);
+
+// --- Functions using mapped types ---
+
+// Process data through both C++ and Python using mapped container types
+FUNC process_data(values: LIST(FLOAT), factor: FLOAT) -> LIST(FLOAT) {
+    // Scale in C++ (vector<double> → list mapping)
+    LET scaled = CALL(cpp, data_converter::scale_vector, values, factor);
+
+    // Normalize in Python (list → list)
+    LET normalized = CALL(python, data_processor::normalize, scaled);
+
+    RETURN normalized;
+}
+
+// Compute statistics crossing the language boundary
+FUNC cross_lang_stats(data: LIST(FLOAT), threshold: FLOAT) -> FLOAT {
+    // Filter in Python
+    LET filtered = CALL(python, data_processor::filter_above, data, threshold);
+
+    // Average in C++ (list → vector<double> mapping)
+    LET avg = CALL(cpp, data_converter::average, filtered);
+
+    // Dot product in C++ of original and filtered
+    LET dot = CALL(cpp, data_converter::dot_product, data, filtered);
+
+    RETURN avg;
+}
+
+// Use struct type mapping between C++ and Python
+FUNC compute_centroid(x_min: FLOAT, y_min: FLOAT, x_max: FLOAT, y_max: FLOAT) -> FLOAT {
+    // Centroid computation returns a Point struct (mapped to Python tuple)
+    LET center = CALL(cpp, data_converter::centroid, x_min, y_min, x_max, y_max);
+    RETURN center;
+}
+
+// Export functions
+EXPORT process_data AS "polyglot_process";
+EXPORT cross_lang_stats AS "polyglot_stats";

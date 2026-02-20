@@ -80,6 +80,20 @@ struct VenvConfig {
 };
 
 // ============================================================================
+// Function Signature Registry (for parameter count/type validation)
+// ============================================================================
+
+struct FunctionSignature {
+    std::string name;                         // Qualified function name
+    std::string language;                     // Source language
+    std::vector<core::Type> param_types;      // Parameter types (empty if unknown)
+    core::Type return_type{core::Type::Any()};// Return type
+    size_t param_count{0};                    // Number of parameters
+    bool param_count_known{false};            // Whether param count is statically known
+    core::SourceLoc defined_at{};             // Where the function was declared
+};
+
+// ============================================================================
 // Semantic Analyzer
 // ============================================================================
 
@@ -99,6 +113,9 @@ class PloySema {
     const std::unordered_map<std::string, PackageInfo> &DiscoveredPackages() const {
         return discovered_packages_;
     }
+    const std::unordered_map<std::string, FunctionSignature> &KnownSignatures() const {
+        return known_signatures_;
+    }
 
   private:
     // Declaration analysis
@@ -113,6 +130,7 @@ class PloySema {
     void AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
     void AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
     void AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config);
+    void AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
 
     // Statement analysis
     void AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
@@ -138,6 +156,7 @@ class PloySema {
     core::Type AnalyzeTupleLiteral(const std::shared_ptr<TupleLiteral> &tuple);
     core::Type AnalyzeDictLiteral(const std::shared_ptr<DictLiteral> &dict);
     core::Type AnalyzeStructLiteral(const std::shared_ptr<StructLiteral> &struct_lit);
+    core::Type AnalyzeDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr);
 
     // Type resolution
     core::Type ResolveType(const std::shared_ptr<TypeNode> &type_node);
@@ -166,7 +185,32 @@ class PloySema {
 
     // Helper
     void Report(const core::SourceLoc &loc, const std::string &message);
+    void ReportError(const core::SourceLoc &loc, frontends::ErrorCode code,
+                     const std::string &message);
+    void ReportError(const core::SourceLoc &loc, frontends::ErrorCode code,
+                     const std::string &message, const std::string &suggestion);
+    void ReportErrorWithTraceback(const core::SourceLoc &loc, frontends::ErrorCode code,
+                                  const std::string &message,
+                                  const core::SourceLoc &related_loc,
+                                  const std::string &related_msg);
+    void ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
+                       const std::string &message);
+    void ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
+                       const std::string &message, const std::string &suggestion);
     bool DeclareSymbol(const PloySymbol &symbol);
+
+    // Function signature validation helpers
+    void RegisterFunctionSignature(const std::string &qualified_name,
+                                   const FunctionSignature &sig);
+    const FunctionSignature *LookupSignature(const std::string &qualified_name) const;
+    void ValidateCallArgCount(const core::SourceLoc &call_loc,
+                              const std::string &func_name,
+                              size_t actual_args,
+                              const FunctionSignature *sig);
+    void ValidateCallArgTypes(const core::SourceLoc &call_loc,
+                              const std::string &func_name,
+                              const std::vector<core::Type> &actual_types,
+                              const FunctionSignature *sig);
 
     frontends::Diagnostics &diagnostics_;
     core::TypeSystem type_system_{};
@@ -177,8 +221,12 @@ class PloySema {
     std::unordered_map<std::string, std::vector<std::pair<std::string, core::Type>>> struct_defs_{};
     // MAP_FUNC registry: function name -> return type
     std::unordered_map<std::string, core::Type> map_funcs_{};
+    // Known function signatures for parameter validation
+    std::unordered_map<std::string, FunctionSignature> known_signatures_{};
     int loop_depth_{0};
     core::Type current_return_type_{core::Type::Invalid()};
+    // Track whether code is unreachable (after RETURN, BREAK, CONTINUE)
+    bool unreachable_{false};
 
     // Virtual environment configurations
     std::vector<VenvConfig> venv_configs_{};

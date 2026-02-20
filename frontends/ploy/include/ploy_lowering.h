@@ -81,6 +81,7 @@ class PloyLowering {
     void LowerBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
     void LowerStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
     void LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
+    void LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
 
     // Expression lowering — returns the IR value name and its type
     struct EvalResult {
@@ -104,6 +105,7 @@ class PloyLowering {
     EvalResult LowerTupleLiteral(const std::shared_ptr<TupleLiteral> &tuple);
     EvalResult LowerDictLiteral(const std::shared_ptr<DictLiteral> &dict);
     EvalResult LowerStructLiteral(const std::shared_ptr<StructLiteral> &struct_lit);
+    EvalResult LowerDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr);
 
     // Type conversion
     ir::IRType PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node);

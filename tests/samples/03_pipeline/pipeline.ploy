@@ -1,0 +1,118 @@
+// ============================================================================
+// pipeline.ploy — Multi-Stage Pipeline with Control Flow Demo
+//
+// This .ploy file demonstrates PIPELINE declarations with IF/ELSE, WHILE,
+// FOR, MATCH/CASE, BREAK/CONTINUE control flow constructs.
+//
+// Source files:
+//   - image_processor.cpp (C++ image processing)
+//   - ml_model.py         (Python ML model)
+//
+// Compile:
+//   polyc pipeline.ploy -o pipeline
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::image_processor;
+IMPORT python::ml_model;
+
+// --- Cross-Language Function Links ---
+LINK(cpp, python, image_processor::enhance, ml_model::predict) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+
+// --- Multi-Stage Processing Pipeline ---
+PIPELINE image_classification {
+
+    // Stage 1: Preprocess image data in C++
+    FUNC preprocess(input: ARRAY[FLOAT], size: INT) -> ARRAY[FLOAT] {
+        CALL(cpp, image_processor::gaussian_blur, input, size, 1.5);
+        CALL(cpp, image_processor::enhance, input, size);
+        RETURN input;
+    }
+
+    // Stage 2: Run prediction in Python and classify
+    FUNC classify(data: ARRAY[FLOAT], threshold: FLOAT) -> INT {
+        LET prediction = CALL(python, ml_model::predict, data);
+
+        // Control flow: classify based on prediction
+        IF prediction > threshold {
+            RETURN 1;
+        } ELSE {
+            RETURN 0;
+        }
+    }
+
+    // Stage 3: Iterative refinement loop
+    FUNC refine(data: ARRAY[FLOAT], max_iter: INT, target: FLOAT) -> FLOAT {
+        VAR current = CALL(python, ml_model::predict, data);
+        VAR iteration = 0;
+
+        // WHILE loop for iterative refinement
+        WHILE iteration < max_iter {
+            IF current > target {
+                BREAK;
+            }
+
+            CALL(cpp, image_processor::enhance, data, 100);
+            current = CALL(python, ml_model::predict, data);
+            iteration = iteration + 1;
+        }
+
+        RETURN current;
+    }
+
+    // Stage 4: Process a batch using FOR loop
+    FUNC process_batch(batch_size: INT) -> INT {
+        VAR total_positive = 0;
+
+        FOR i IN 0..batch_size {
+            LET sample = [1.0, 2.0, 3.0];
+            LET result = CALL(python, ml_model::classify, sample, 0.5);
+
+            IF result == 1 {
+                total_positive = total_positive + 1;
+            }
+        }
+
+        RETURN total_positive;
+    }
+
+    // Stage 5: MATCH-based dispatch
+    FUNC dispatch(mode: INT, data: ARRAY[FLOAT]) -> FLOAT {
+        MATCH mode {
+            CASE 0 {
+                // Raw prediction
+                RETURN CALL(python, ml_model::predict, data);
+            }
+            CASE 1 {
+                // Preprocessed prediction
+                CALL(cpp, image_processor::enhance, data, 100);
+                RETURN CALL(python, ml_model::predict, data);
+            }
+            CASE 2 {
+                // Threshold prediction
+                CALL(cpp, image_processor::threshold, data, 100, 0.5);
+                RETURN CALL(python, ml_model::predict, data);
+            }
+            DEFAULT {
+                RETURN 0.0;
+            }
+        }
+    }
+}
+
+// --- Complete Pipeline Runner ---
+FUNC run_pipeline(input: ARRAY[FLOAT], size: INT) -> FLOAT {
+    LET enhanced = CALL(cpp, image_processor::enhance, input, size);
+    LET result = CALL(python, ml_model::predict, input);
+    RETURN result;
+}
+
+EXPORT run_pipeline AS "run_pipeline";
+EXPORT image_classification AS "image_pipeline";

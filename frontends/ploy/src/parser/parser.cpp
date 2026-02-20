@@ -127,6 +127,10 @@ void PloyParser::ParseTopLevel() {
             module_->declarations.push_back(ParseConfigDecl());
             return;
         }
+        if (kw == "EXTEND") {
+            module_->declarations.push_back(ParseExtendDecl());
+            return;
+        }
     }
     // Fallback: parse as a statement
     module_->declarations.push_back(ParseStatement());
@@ -956,6 +960,11 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
         return ParseSetAttrExpression();
     }
 
+    // DELETE expression: DELETE(language, object)
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "DELETE") {
+        return ParseDeleteExpression();
+    }
+
     // CONVERT expression: CONVERT(expr, Type)
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "CONVERT") {
         return ParseConvertExpression();
@@ -1371,6 +1380,36 @@ std::shared_ptr<Expression> PloyParser::ParseSetAttrExpression() {
     node->value = ParseExpression();
 
     ExpectSymbol(")", "expected ')' after SET arguments");
+    return node;
+}
+
+// ============================================================================
+// DELETE Expression: DELETE(language, object)
+// ============================================================================
+
+std::shared_ptr<Expression> PloyParser::ParseDeleteExpression() {
+    auto node = std::make_shared<DeleteExpression>();
+    node->loc = current_.loc;
+    Advance(); // consume 'DELETE'
+
+    ExpectSymbol("(", "expected '(' after DELETE");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in DELETE");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in DELETE");
+
+    // Object expression
+    node->object = ParseExpression();
+
+    ExpectSymbol(")", "expected ')' after DELETE arguments");
     return node;
 }
 
@@ -1897,6 +1936,81 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
     st->loc = loc;
     st->name = name;
     return st;
+}
+
+// ============================================================================
+// EXTEND Declaration: EXTEND(language, base_class) AS DerivedName { methods... }
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseExtendDecl() {
+    auto node = std::make_shared<ExtendDecl>();
+    node->loc = current_.loc;
+    Advance(); // consume 'EXTEND'
+
+    ExpectSymbol("(", "expected '(' after EXTEND");
+
+    // Language name
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+    } else {
+        diagnostics_.Report(current_.loc, "expected language name in EXTEND");
+        Sync();
+        return node;
+    }
+    ExpectSymbol(",", "expected ',' after language in EXTEND");
+
+    // Base class name (possibly qualified: module::ClassName)
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword) {
+        node->base_class = current_.lexeme;
+        Advance();
+        // Handle qualified names: module::ClassName
+        while (IsSymbol("::")) {
+            node->base_class += "::";
+            Advance();
+            if (current_.kind == frontends::TokenKind::kIdentifier ||
+                current_.kind == frontends::TokenKind::kKeyword) {
+                node->base_class += current_.lexeme;
+                Advance();
+            }
+        }
+    } else {
+        diagnostics_.Report(current_.loc, "expected base class name in EXTEND");
+        Sync();
+        return node;
+    }
+
+    ExpectSymbol(")", "expected ')' after EXTEND arguments");
+
+    // AS DerivedName
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "AS") {
+        Advance();
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+            node->derived_name = current_.lexeme;
+            Advance();
+        } else {
+            diagnostics_.Report(current_.loc, "expected derived type name after AS in EXTEND");
+        }
+    } else {
+        diagnostics_.Report(current_.loc, "expected 'AS' after EXTEND(...)");
+    }
+
+    // Parse body: { FUNC ... FUNC ... }
+    ExpectSymbol("{", "expected '{' for EXTEND body");
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "FUNC") {
+            node->methods.push_back(ParseFuncDecl());
+        } else {
+            diagnostics_.Report(current_.loc,
+                                "only FUNC declarations are allowed inside EXTEND body");
+            Advance();
+        }
+    }
+    ExpectSymbol("}", "expected '}' after EXTEND body");
+
+    return node;
 }
 
 } // namespace polyglot::ploy

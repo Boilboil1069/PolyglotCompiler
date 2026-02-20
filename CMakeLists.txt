@@ -284,5 +284,44 @@ target_link_libraries(unit_tests PRIVATE
     Catch2::Catch2
     Catch2::Catch2WithMain
 )
+
+# Integration tests (compile pipeline, interop, performance stress)
+file(GLOB_RECURSE INTEGRATION_TEST_SOURCES tests/integration/*.cpp)
+add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
+target_link_libraries(integration_tests PRIVATE
+    polyglot_common
+    frontend_python
+    frontend_cpp
+    frontend_rust
+    frontend_ploy
+    middle_ir
+    backend_x86_64
+    backend_arm64
+    runtime
+    linker_lib
+    Catch2::Catch2
+    Catch2::Catch2WithMain
+)
+
+# Benchmark tests (micro and macro benchmarks)
+file(GLOB_RECURSE BENCHMARK_TEST_SOURCES tests/benchmarks/*.cpp)
+add_executable(benchmark_tests ${BENCHMARK_TEST_SOURCES})
+target_link_libraries(benchmark_tests PRIVATE
+    polyglot_common
+    frontend_python
+    frontend_cpp
+    frontend_rust
+    frontend_ploy
+    middle_ir
+    backend_x86_64
+    backend_arm64
+    runtime
+    linker_lib
+    Catch2::Catch2
+    Catch2::Catch2WithMain
+)
+
 enable_testing()
 add_test(NAME unit_tests COMMAND unit_tests)
+add_test(NAME integration_tests COMMAND integration_tests)
+add_test(NAME benchmark_tests COMMAND benchmark_tests)

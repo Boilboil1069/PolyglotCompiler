@@ -1,0 +1,82 @@
+// ============================================================================
+// package_import.ploy — Package Import, Version Constraints, Selective Import
+//
+// This .ploy file demonstrates IMPORT PACKAGE with version constraints,
+// selective imports, CONFIG for package managers, and alias usage.
+//
+// Source files:
+//   - numeric_ops.cpp  (C++ numeric operations)
+//   - science_lib.py   (Python science library)
+//
+// Compile:
+//   polyc package_import.ploy -o package_import
+// ============================================================================
+
+// --- Package Manager Configuration ---
+CONFIG VENV python "/usr/local/venvs/science";
+
+// --- Module Imports ---
+IMPORT cpp::numeric_ops;
+IMPORT python::science_lib;
+
+// --- Package Imports with Version Constraints ---
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT python PACKAGE scipy >= 1.7;
+
+// --- Selective Imports ---
+IMPORT python PACKAGE torch::(tensor, no_grad);
+
+// --- Cross-Language Links ---
+LINK(cpp, python, numeric_ops::l2_norm, science_lib::mean) {
+    MAP_TYPE(cpp::std::vector_double, python::list);
+    MAP_TYPE(cpp::double, python::float);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::std::vector_double, python::list);
+
+// --- Functions using imported packages ---
+
+// Use numpy through the alias 'np'
+FUNC compute_stats(data: LIST(FLOAT)) -> FLOAT {
+    // Call numpy's mean through the np alias
+    LET avg = CALL(python, np::mean, data);
+
+    // Call our own science_lib's std_dev
+    LET stddev = CALL(python, science_lib::std_dev, data);
+
+    // Compute L2 norm in C++
+    LET norm = CALL(cpp, numeric_ops::l2_norm, data);
+
+    RETURN avg;
+}
+
+// Use selective imports (tensor, no_grad from torch)
+FUNC create_tensor(values: LIST(FLOAT)) -> INT {
+    LET t = CALL(python, tensor, values);
+    RETURN 0;
+}
+
+// Multi-step pipeline using both C++ and Python packages
+PIPELINE numeric_pipeline {
+    FUNC analyze(data: LIST(FLOAT), window: INT) -> FLOAT {
+        // Smooth data in C++
+        LET smoothed = CALL(cpp, numeric_ops::moving_average, data, window);
+
+        // Compute statistics in Python
+        LET avg = CALL(python, science_lib::mean, smoothed);
+        LET dev = CALL(python, science_lib::std_dev, smoothed);
+
+        // Element-wise processing in C++
+        LET product = CALL(cpp, numeric_ops::element_multiply, data, smoothed);
+        LET total = CALL(cpp, numeric_ops::sum_elements, product);
+
+        RETURN total;
+    }
+}
+
+// Export
+EXPORT compute_stats AS "polyglot_stats";
+EXPORT numeric_pipeline AS "numeric_analysis";

@@ -19,8 +19,8 @@ PolyglotCompiler 在编译过程中**不会**调用任何外部编译器或解�
 │  C++ 源代码  │   │ Python 源代码 │   │  Rust 源代码  │   │  .ploy 源代码 │
 │  (*.cpp)     │   │  (*.py)      │   │  (*.rs)      │   │  (*.ploy)    │
 └──────┬──────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
-       │                 │                   │                   │
-       ▼                 ▼                   ▼                   ▼
+       │                 │                  │                  │
+       ▼                 ▼                  ▼                  ▼
   ┌──────────┐    ┌──────────┐      ┌──────────┐       ┌──────────┐
   │frontend_ │    │frontend_ │      │frontend_ │       │frontend_ │
   │  cpp     │    │ python   │      │  rust    │       │  ploy    │
@@ -109,7 +109,7 @@ PolyglotCompiler 在编译过程中**不会**调用任何外部编译器或解�
 
 ```cpp
 // image_processor.cpp
-void enhance(double* data, int size) { /* ... */ }
+void enhance(double* data, int size) { /* 应用图像增强处理 */ }
 ```
 
 ```python
@@ -123,10 +123,15 @@ def predict(data: list) -> float:
 IMPORT cpp::image_processor;
 IMPORT python PACKAGE ml_model;
 
+LINK(cpp, python, image_processor::enhance, ml_model::preprocess) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
 PIPELINE process {
-    FUNC run(input: LIST(f64)) -> f64 {
-        CALL(cpp, image_processor::enhance, input);
-        LET result = CALL(python, ml_model::predict, input);
+    FUNC run(input: ARRAY[FLOAT], size: INT) -> FLOAT {
+        LET enhance_result = CALL(cpp, image_processor::enhance, input, size);
+        LET result = CALL(python, ml_model::predict, enhance_result);
         RETURN result;
     }
 }
@@ -134,9 +139,17 @@ PIPELINE process {
 EXPORT process AS "run_pipeline";
 ```
 
-编译过程产生：
+#### 一步编译
 
+PolyglotCompiler 支持直接编译 `.ploy` 文件 — 它会自动发现并编译所有引用的源文件：
+
+```bash
+polyc pipeline.ploy -o program          # 自动编译所有引用的源文件
 ```
+
+这等效于手动的多步编译过程：
+
+```bash
 polyc --lang=cpp image_processor.cpp -o image_processor.o    # frontend_cpp → IR → x86_64 → .o
 polyc --lang=python ml_model.py -o ml_model.o                # frontend_python → IR → x86_64 → .o
 polyc --lang=ploy pipeline.ploy -o pipeline.o                # frontend_ploy → 描述符 → 粘合代码 → .o

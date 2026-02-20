@@ -127,7 +127,7 @@ Given these source files:
 
 ```cpp
 // image_processor.cpp
-void enhance(double* data, int size) { /* ... */ }
+void enhance(double* data, int size) { /* applies image enhancement */ }
 ```
 
 ```python
@@ -141,10 +141,15 @@ def predict(data: list) -> float:
 IMPORT cpp::image_processor;
 IMPORT python PACKAGE ml_model;
 
+LINK(cpp, python, image_processor::enhance, ml_model::preprocess) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
 PIPELINE process {
-    FUNC run(input: LIST(f64)) -> f64 {
-        CALL(cpp, image_processor::enhance, input);
-        LET result = CALL(python, ml_model::predict, input);
+    FUNC run(input: ARRAY[FLOAT], size: INT) -> FLOAT {
+        LET enhance_result = CALL(cpp, image_processor::enhance, input, size);
+        LET result = CALL(python, ml_model::predict, enhance_result);
         RETURN result;
     }
 }
@@ -152,9 +157,17 @@ PIPELINE process {
 EXPORT process AS "run_pipeline";
 ```
 
-The compilation produces:
+#### Single-Command Compilation / 一步编译
 
+PolyglotCompiler supports compiling a `.ploy` file directly — it will automatically discover and compile all referenced source files:
+
+```bash
+polyc pipeline.ploy -o program          # Auto-compiles all referenced sources
 ```
+
+This is equivalent to the multi-step manual process:
+
+```bash
 polyc --lang=cpp image_processor.cpp -o image_processor.o    # frontend_cpp → IR → x86_64 → .o
 polyc --lang=python ml_model.py -o ml_model.o                # frontend_python → IR → x86_64 → .o
 polyc --lang=ploy pipeline.ploy -o pipeline.o                # frontend_ploy → descriptors → glue → .o

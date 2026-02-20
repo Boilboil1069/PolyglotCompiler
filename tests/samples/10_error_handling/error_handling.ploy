@@ -1,0 +1,111 @@
+// ============================================================================
+// error_handling.ploy — Error Checking Demonstration
+//
+// This .ploy file shows examples that would trigger various error messages
+// from the semantic analyzer. Each section is commented with the expected
+// error that would be reported.
+//
+// NOTE: This file is intended as a documentation example.
+//       Each FUNC demonstrates a specific error scenario.
+//       In practice, each error would halt compilation.
+//
+// Source files:
+//   - bad_functions.cpp  (C++ functions with known signatures)
+//   - bad_functions.py   (Python functions with known signatures)
+//
+// Expected errors when compiling:
+//   polyc error_handling.ploy -o error_handling
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::bad_functions;
+IMPORT python::bad_functions;
+
+// --- Function Links with Signature Information ---
+LINK(cpp, python, bad_functions::compute, bad_functions::process) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::double, python::float);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::double, python::float);
+
+// ============================================================================
+// Error: Parameter count mismatch
+// cpp::compute takes 3 params (int, double, string), but only 1 is passed
+//
+// Expected error:
+//   Error [E3010]: Parameter count mismatch in call to 'compute'
+//     --> error_handling.ploy:44:9
+//      | Expected 3 argument(s), got 1
+//      = suggestion: Check the function signature for 'compute'
+// ============================================================================
+FUNC param_count_error() -> FLOAT {
+    LET result = CALL(cpp, bad_functions::compute, 42);
+    RETURN result;
+}
+
+// ============================================================================
+// Error: Type mismatch
+// python::process expects (int, int), but (string, int) is passed
+//
+// Expected error:
+//   Error [E3011]: Type mismatch for parameter 1 in call to 'process'
+//     --> error_handling.ploy:58:9
+//      | Expected 'INT', got 'STRING'
+//      = suggestion: Consider using CONVERT to convert the argument type
+// ============================================================================
+FUNC type_mismatch_error() -> FLOAT {
+    LET result = CALL(python, bad_functions::process, "hello", 42);
+    RETURN result;
+}
+
+// ============================================================================
+// Error: Undefined variable
+//
+// Expected error:
+//   Error [E3001]: Undefined variable 'unknown_var'
+//     --> error_handling.ploy:70:13
+// ============================================================================
+FUNC undefined_var_error() -> INT {
+    RETURN unknown_var;
+}
+
+// ============================================================================
+// Error: Assignment to immutable variable
+//
+// Expected error:
+//   Error [E3005]: Cannot assign to immutable variable 'x'
+//     --> error_handling.ploy:81:5
+//      = suggestion: Use VAR instead of LET for mutable bindings
+// ============================================================================
+FUNC immutable_error() -> INT {
+    LET x = 10;
+    x = 20;
+    RETURN x;
+}
+
+// ============================================================================
+// Error: BREAK outside of loop
+//
+// Expected error:
+//   Error [E3007]: BREAK statement outside of loop
+//     --> error_handling.ploy:93:5
+// ============================================================================
+FUNC break_outside_loop() -> INT {
+    BREAK;
+    RETURN 0;
+}
+
+// ============================================================================
+// Correct usage — no errors
+// ============================================================================
+FUNC correct_usage() -> FLOAT {
+    LET result = CALL(python, bad_functions::process, 10, 20);
+    VAR total = result;
+    total = total + 1.0;
+    RETURN total;
+}
+
+EXPORT correct_usage AS "demo_correct";

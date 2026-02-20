@@ -1,0 +1,53 @@
+// ============================================================================
+// basic_linking.ploy — Basic Cross-Language Linking Demo
+//
+// This .ploy file demonstrates the fundamental LINK/CALL/IMPORT/EXPORT
+// directives that connect C++ and Python functions together.
+//
+// Source files:
+//   - math_ops.cpp     (C++ math operations)
+//   - string_utils.py  (Python string utilities)
+//
+// Compile:
+//   polyc basic_linking.ploy -o basic_linking
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::math_ops;
+IMPORT python::string_utils;
+
+// --- Cross-Language Function Links ---
+// Link the C++ add function output to the Python format function input
+LINK(cpp, python, math_ops::add, string_utils::format_result) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// Link the Python string output back to C++ for further processing
+LINK(python, cpp, string_utils::concat, math_ops::clamp) {
+    MAP_TYPE(python::str, cpp::int);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::double, python::float);
+
+// --- Polyglot Functions ---
+
+// Compute a sum in C++ and format the result in Python
+FUNC compute_and_format(a: INT, b: INT) -> STRING {
+    LET sum = CALL(cpp, math_ops::add, a, b);
+    LET product = CALL(cpp, math_ops::multiply, 3.14, 2.0);
+    LET formatted = CALL(python, string_utils::format_result, sum);
+    RETURN formatted;
+}
+
+// Compute Euclidean distance in C++ and format with Python
+FUNC distance_report(x1: FLOAT, y1: FLOAT, x2: FLOAT, y2: FLOAT) -> STRING {
+    LET dist = CALL(cpp, math_ops::distance, x1, y1, x2, y2);
+    LET report = CALL(python, string_utils::format_result, dist);
+    RETURN report;
+}
+
+// Export the polyglot functions
+EXPORT compute_and_format AS "polyglot_compute";
+EXPORT distance_report AS "polyglot_distance";

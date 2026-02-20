@@ -81,6 +81,8 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
         LowerMapFuncDecl(map_func);
     } else if (auto with_stmt = std::dynamic_pointer_cast<WithStatement>(stmt)) {
         LowerWithStatement(with_stmt);
+    } else if (auto extend = std::dynamic_pointer_cast<ExtendDecl>(stmt)) {
+        LowerExtendDecl(extend);
     }
     // BREAK and CONTINUE are handled at a higher level (loop lowering)
     // MAP_TYPE is metadata only, no IR generation needed
@@ -483,6 +485,9 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     }
     if (auto struct_lit = std::dynamic_pointer_cast<StructLiteral>(expr)) {
         return LowerStructLiteral(struct_lit);
+    }
+    if (auto del_expr = std::dynamic_pointer_cast<DeleteExpression>(expr)) {
+        return LowerDeleteExpression(del_expr);
     }
 
     return {"", ir::IRType::Invalid()};
@@ -1410,6 +1415,142 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
 
 void PloyLowering::Report(const core::SourceLoc &loc, const std::string &message) {
     diagnostics_.Report(loc, message);
+}
+
+// ============================================================================
+// DELETE Expression Lowering
+// ============================================================================
+
+PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
+    const std::shared_ptr<DeleteExpression> &del_expr) {
+    // DELETE(language, object) — generate a destructor / cleanup call
+    // For Python objects: calls __del__ / del
+    // For C++ objects: calls destructor
+    // For Rust objects: calls drop
+
+    EvalResult obj = LowerExpression(del_expr->object);
+
+    std::string lang = del_expr->language;
+    std::string delete_func;
+    if (lang == "python") {
+        delete_func = "__ploy_py_del";
+    } else if (lang == "cpp") {
+        delete_func = "__ploy_cpp_delete";
+    } else if (lang == "rust") {
+        delete_func = "__ploy_rust_drop";
+    } else {
+        delete_func = "__ploy_delete_" + lang;
+    }
+
+    // Emit the call to the language-specific cleanup function
+    auto call_inst = builder_.MakeCall(delete_func, {obj.value}, ir::IRType::Void());
+
+    // Record the cross-language call descriptor for the linker
+    CrossLangCallDescriptor desc;
+    desc.stub_name = delete_func;
+    desc.source_language = lang;
+    desc.target_language = "ploy";
+    desc.source_function = delete_func;
+    desc.target_function = delete_func;
+    desc.source_param_types = {obj.type};
+    desc.source_return_type = ir::IRType::Void();
+    desc.target_return_type = ir::IRType::Void();
+    CrossLangCallDescriptor::MarshalOp marshal;
+    marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    marshal.from = obj.type;
+    marshal.to = obj.type;
+    desc.param_marshal.push_back(marshal);
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::Void();
+    desc.return_marshal.to = ir::IRType::Void();
+    call_descriptors_.push_back(desc);
+
+    return {call_inst->name, ir::IRType::Void()};
+}
+
+// ============================================================================
+// EXTEND Declaration Lowering
+// ============================================================================
+
+void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
+    // EXTEND(language, base_class) AS DerivedName { methods... }
+    // Generate vtable dispatch stubs for method overrides.
+    // Each method becomes a bridge function: DerivedName_methodname
+
+    for (const auto &method_stmt : extend->methods) {
+        if (auto func = std::dynamic_pointer_cast<FuncDecl>(method_stmt)) {
+            // Generate a uniquely named bridge function for the override
+            std::string bridge_name = "__ploy_extend_" + extend->derived_name +
+                                      "_" + func->name;
+
+            // Build IR parameter types
+            std::vector<std::pair<std::string, ir::IRType>> params;
+            // First param is always 'self' pointer for the object
+            params.emplace_back("self_ptr", ir::IRType::Pointer(ir::IRType::I8()));
+            for (const auto &p : func->params) {
+                params.emplace_back(p.name, PloyTypeToIR(p.type));
+            }
+
+            ir::IRType ret_type = func->return_type
+                                      ? PloyTypeToIR(func->return_type)
+                                      : ir::IRType::Void();
+
+            // Create the bridge function
+            auto ir_func = ir_ctx_.CreateFunction(bridge_name, ret_type, params);
+            auto prev_func = current_function_;
+            current_function_ = ir_func;
+
+            auto entry = builder_.CreateBlock("entry");
+            builder_.SetInsertPoint(entry);
+
+            // Set up parameter environment
+            std::unordered_map<std::string, EnvEntry> saved_env = env_;
+            env_.clear();
+
+            // self pointer (implicit first arg)
+            env_["self"] = {"self_ptr", ir::IRType::Pointer(ir::IRType::I8())};
+            for (const auto &p : func->params) {
+                ir::IRType pt = PloyTypeToIR(p.type);
+                env_[p.name] = {p.name, pt};
+            }
+
+            // Lower the function body
+            bool prev_terminated = terminated_;
+            terminated_ = false;
+            LowerBlockStatements(func->body);
+
+            // Ensure function has a terminator
+            if (!terminated_) {
+                builder_.MakeReturn();
+            }
+
+            current_function_ = prev_func;
+            env_ = saved_env;
+            terminated_ = prev_terminated;
+        }
+    }
+
+    // Generate vtable registration call: __ploy_extend_register(lang, base, derived)
+    std::string reg_func = "__ploy_extend_register";
+    std::string lang_str = builder_.MakeStringLiteral(extend->language, "ext_lang");
+    std::string base_str = builder_.MakeStringLiteral(extend->base_class, "ext_base");
+    std::string derived_str = builder_.MakeStringLiteral(extend->derived_name, "ext_derived");
+
+    builder_.MakeCall(reg_func, {lang_str, base_str, derived_str}, ir::IRType::Void());
+
+    // Record the registration call descriptor for the linker
+    CrossLangCallDescriptor desc;
+    desc.stub_name = reg_func;
+    desc.source_language = extend->language;
+    desc.target_language = "ploy";
+    desc.source_function = reg_func;
+    desc.target_function = reg_func;
+    desc.source_return_type = ir::IRType::Void();
+    desc.target_return_type = ir::IRType::Void();
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = ir::IRType::Void();
+    desc.return_marshal.to = ir::IRType::Void();
+    call_descriptors_.push_back(desc);
 }
 
 } // namespace polyglot::ploy

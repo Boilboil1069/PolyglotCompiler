@@ -1,0 +1,111 @@
+// ============================================================================
+// resource_management.ploy — Automatic Resource Management Demo (WITH)
+//
+// This .ploy file demonstrates the WITH keyword for automatic resource
+// management across language boundaries, ensuring proper cleanup via
+// __enter__/__exit__ bridge stubs.
+//
+// Source files:
+//   - file_handler.cpp     (C++ FileWriter and DatabaseConnection classes)
+//   - context_manager.py   (Python ManagedFile, Timer, TempDirectory classes)
+//
+// Compile:
+//   polyc resource_management.ploy -o resource_management
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::file_handler;
+IMPORT python::context_manager;
+
+// --- Cross-Language Links ---
+LINK(cpp, python, file_handler::FileWriter, context_manager::ManagedFile) {
+    MAP_TYPE(cpp::std::string, python::str);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::std::string, python::str);
+
+// ============================================================================
+// Example 1: Basic WITH for file management
+// ============================================================================
+FUNC file_example() -> INT {
+    // WITH ensures __enter__ is called, and __exit__ is called at block end
+    WITH(python, NEW(python, context_manager::ManagedFile, "output.txt", "w")) AS f {
+        METHOD(python, f, write, "Hello from .ploy!");
+        METHOD(python, f, write, " Cross-language resource management.");
+        LET bytes = METHOD(python, f, write, " Done.");
+    }
+    // File is automatically closed here by __exit__
+
+    RETURN 0;
+}
+
+// ============================================================================
+// Example 2: WITH for timing operations
+// ============================================================================
+FUNC timed_operation() -> FLOAT {
+    VAR elapsed = 0.0;
+
+    WITH(python, NEW(python, context_manager::Timer, "computation")) AS timer {
+        // Do some work inside the timed block
+        LET data = [1.0, 2.0, 3.0, 4.0, 5.0];
+
+        // Mix C++ and Python operations inside WITH block
+        LET writer = NEW(cpp, file_handler::FileWriter, "log.txt");
+        METHOD(cpp, writer, open);
+        METHOD(cpp, writer, write, "Processing started");
+        METHOD(cpp, writer, close);
+    }
+    // Timer automatically records elapsed time here
+
+    RETURN elapsed;
+}
+
+// ============================================================================
+// Example 3: Nested WITH blocks and temp directory management
+// ============================================================================
+FUNC temp_dir_example() -> INT {
+    WITH(python, NEW(python, context_manager::TempDirectory, "work_")) AS tmpdir {
+        // Create files in the temp directory
+        LET file1 = METHOD(python, tmpdir, add_file, "data.csv");
+        LET file2 = METHOD(python, tmpdir, add_file, "results.json");
+
+        // Use a nested WITH block for file writing
+        WITH(python, NEW(python, context_manager::ManagedFile, file1, "w")) AS f {
+            METHOD(python, f, write, "col1,col2,col3");
+        }
+
+        // List files
+        LET files = METHOD(python, tmpdir, list_files);
+    }
+    // Temp directory is automatically cleaned up here
+
+    RETURN 0;
+}
+
+// ============================================================================
+// Example 4: Database connection with WITH
+// ============================================================================
+FUNC database_example() -> INT {
+    // Create a C++ database connection
+    LET db = NEW(cpp, file_handler::DatabaseConnection, "localhost:5432/mydb");
+    METHOD(cpp, db, connect);
+
+    // Use WITH for managed file output of query results
+    WITH(python, NEW(python, context_manager::ManagedFile, "results.txt", "w")) AS out {
+        LET rows = METHOD(cpp, db, query, "SELECT * FROM users");
+        METHOD(python, out, write, "Query results saved.");
+    }
+
+    METHOD(cpp, db, disconnect);
+
+    RETURN 0;
+}
+
+EXPORT file_example AS "demo_with_file";
+EXPORT timed_operation AS "demo_with_timer";
+EXPORT temp_dir_example AS "demo_with_tmpdir";
+EXPORT database_example AS "demo_with_db";

@@ -18,6 +18,7 @@ using polyglot::ploy::PloyParser;
 using polyglot::ploy::PloySema;
 using polyglot::ploy::PloyLowering;
 using polyglot::ir::IRContext;
+using polyglot::frontends::ErrorCode;
 using namespace polyglot::ploy;
 
 // ============================================================================
@@ -2650,4 +2651,519 @@ FUNC db_query() -> INT {
 }
 )ploy", diags);
     REQUIRE(!ir.empty());
+}
+
+// ============================================================================
+// DELETE keyword tests
+// ============================================================================
+
+TEST_CASE("Ploy lexer: DELETE keyword", "[ploy][lexer]") {
+    auto tokens = Tokenize("DELETE(python, obj)");
+    REQUIRE(tokens.size() >= 2);
+    CHECK(tokens[0].lexeme == "DELETE");
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+}
+
+TEST_CASE("Ploy parser: DELETE expression", "[ploy][parser]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+FUNC cleanup() {
+    LET obj = NEW(python, MyClass);
+    DELETE(python, obj);
+}
+)", diags);
+    REQUIRE(module != nullptr);
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: DELETE valid expression", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC cleanup() {
+    LET obj = NEW(python, MyClass);
+    DELETE(python, obj);
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: DELETE invalid language", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC cleanup() {
+    LET obj = NEW(python, MyClass);
+    DELETE(java, obj);
+}
+)", diags, sema);
+    // Should produce an error for unsupported language
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy lowering: DELETE generates cleanup call", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC cleanup() {
+    LET obj = NEW(python, MyClass);
+    DELETE(python, obj);
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__ploy_py_del") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering: DELETE cpp generates cpp_delete call", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC cleanup() {
+    LET obj = NEW(cpp, MyClass);
+    DELETE(cpp, obj);
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__ploy_cpp_delete") != std::string::npos);
+}
+
+TEST_CASE("Ploy lowering: DELETE rust generates rust_drop call", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC cleanup() {
+    LET obj = NEW(rust, MyStruct);
+    DELETE(rust, obj);
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__ploy_rust_drop") != std::string::npos);
+}
+
+// ============================================================================
+// EXTEND keyword tests
+// ============================================================================
+
+TEST_CASE("Ploy lexer: EXTEND keyword", "[ploy][lexer]") {
+    auto tokens = Tokenize("EXTEND(python, Base) AS Derived");
+    REQUIRE(tokens.size() >= 4);
+    CHECK(tokens[0].lexeme == "EXTEND");
+    CHECK(tokens[0].kind == TokenKind::kKeyword);
+}
+
+TEST_CASE("Ploy parser: EXTEND declaration", "[ploy][parser]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+EXTEND(python, Animal) AS Dog {
+    FUNC speak() -> STRING {
+        RETURN "Woof";
+    }
+}
+)", diags);
+    REQUIRE(module != nullptr);
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy parser: EXTEND with multiple methods", "[ploy][parser]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+EXTEND(cpp, Shape) AS Circle {
+    FUNC area(radius: FLOAT) -> FLOAT {
+        RETURN radius;
+    }
+    FUNC perimeter(radius: FLOAT) -> FLOAT {
+        RETURN radius;
+    }
+}
+)", diags);
+    REQUIRE(module != nullptr);
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy parser: EXTEND with qualified base class", "[ploy][parser]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+EXTEND(python, sklearn::base::BaseEstimator) AS CustomEstimator {
+    FUNC fit(X: INT) -> INT {
+        RETURN X;
+    }
+}
+)", diags);
+    REQUIRE(module != nullptr);
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: EXTEND registers derived type", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+EXTEND(python, Animal) AS Dog {
+    FUNC speak() -> STRING {
+        RETURN "Woof";
+    }
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+    // The derived type should be registered in the symbol table
+    auto &symbols = sema.Symbols();
+    CHECK(symbols.count("Dog") == 1);
+}
+
+TEST_CASE("Ploy sema: EXTEND invalid language error", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+EXTEND(java, Base) AS Derived {
+    FUNC foo() { }
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: EXTEND registers method signatures", "[ploy][sema]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+EXTEND(python, Animal) AS Dog {
+    FUNC speak(volume: INT) -> STRING {
+        RETURN "Woof";
+    }
+}
+)", diags, sema);
+    CHECK(ok);
+    // Method signature should be registered as Dog::speak
+    auto &sigs = sema.KnownSignatures();
+    CHECK(sigs.count("Dog::speak") == 1);
+    if (sigs.count("Dog::speak")) {
+        CHECK(sigs.at("Dog::speak").param_count == 1);
+    }
+}
+
+TEST_CASE("Ploy lowering: EXTEND generates bridge functions", "[ploy][lowering]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+EXTEND(python, Animal) AS Dog {
+    FUNC speak() -> STRING {
+        RETURN "Woof";
+    }
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__ploy_extend_Dog_speak") != std::string::npos);
+    CHECK(ir.find("__ploy_extend_register") != std::string::npos);
+}
+
+// ============================================================================
+// Parameter count mismatch error checking tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: param count mismatch in local function call", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC add(a: INT, b: INT) -> INT {
+    RETURN a;
+}
+FUNC main() {
+    LET result = add(1);
+}
+)", diags, sema);
+    // Should report param count mismatch: expected 2, got 1
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: param count mismatch too many args", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC greet(name: STRING) -> STRING {
+    RETURN name;
+}
+FUNC main() {
+    LET result = greet("hello", "world", "extra");
+}
+)", diags, sema);
+    // Should report param count mismatch: expected 1, got 3
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: param count correct passes", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC add(a: INT, b: INT) -> INT {
+    RETURN a;
+}
+FUNC main() {
+    LET result = add(1, 2);
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+// ============================================================================
+// Type mismatch error checking tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: type mismatch in function call", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC process(value: INT) -> INT {
+    RETURN value;
+}
+FUNC main() {
+    LET result = process("not_an_int");
+}
+)", diags, sema);
+    // Should report type mismatch: expected INT, got STRING
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: type mismatch multiple params", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC compute(x: FLOAT, y: INT) -> FLOAT {
+    RETURN x;
+}
+FUNC main() {
+    LET result = compute(1, "wrong");
+}
+)", diags, sema);
+    // Second arg is STRING but expected INT
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: compatible types pass", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC process(value: INT) -> INT {
+    RETURN value;
+}
+FUNC main() {
+    LET result = process(42);
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+// ============================================================================
+// Error code and diagnostics tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: undefined variable produces error", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    LET x = undefined_var;
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+    CHECK(diags.ErrorCount() >= 1);
+}
+
+TEST_CASE("Ploy sema: redefined symbol produces error", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    LET x = 10;
+    LET x = 20;
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: BREAK outside loop error", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    BREAK;
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: CONTINUE outside loop error", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    CONTINUE;
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: immutable assignment error", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    LET x = 10;
+    x = 20;
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: mutable assignment ok", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+FUNC main() {
+    VAR x = 10;
+    x = 20;
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+// ============================================================================
+// Diagnostics infrastructure tests
+// ============================================================================
+
+TEST_CASE("Diagnostics: error count tracking", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "test error 1");
+    diags.ReportError(loc, ErrorCode::kTypeMismatch, "test error 2");
+    CHECK(diags.ErrorCount() == 2);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Diagnostics: warning count tracking", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    diags.ReportWarning(loc, ErrorCode::kGenericWarning, "test warning");
+    CHECK(diags.WarningCount() == 1);
+    CHECK(diags.HasWarnings());
+    CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Diagnostics: error with suggestion", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "undefined 'x'", "did you mean 'y'?");
+    CHECK(diags.ErrorCount() == 1);
+    auto &all = diags.All();
+    REQUIRE(all.size() == 1);
+    CHECK(all[0].suggestion == "did you mean 'y'?");
+}
+
+TEST_CASE("Diagnostics: error with traceback", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc call_loc{"test.ploy", 10, 5};
+    polyglot::core::SourceLoc decl_loc{"test.ploy", 2, 1};
+
+    // Build related diagnostic for traceback chain
+    polyglot::frontends::Diagnostic related_diag;
+    related_diag.loc = decl_loc;
+    related_diag.message = "function declared here";
+    related_diag.severity = polyglot::frontends::DiagnosticSeverity::kNote;
+
+    diags.ReportErrorWithTraceback(call_loc, ErrorCode::kParamCountMismatch,
+                                   "too many arguments",
+                                   {related_diag});
+    CHECK(diags.ErrorCount() == 1);
+    auto &all = diags.All();
+    REQUIRE(all.size() == 1);
+    CHECK(all[0].related.size() == 1);
+    CHECK(all[0].related[0].message == "function declared here");
+}
+
+TEST_CASE("Diagnostics: Format produces non-empty output", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc loc{"test.ploy", 5, 10};
+    diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "undefined identifier 'foo'");
+    std::string formatted = diags.Format(diags.All()[0]);
+    CHECK(!formatted.empty());
+    CHECK(formatted.find("test.ploy") != std::string::npos);
+    CHECK(formatted.find("undefined identifier") != std::string::npos);
+}
+
+TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics]") {
+    Diagnostics diags;
+    polyglot::core::SourceLoc loc1{"a.ploy", 1, 1};
+    polyglot::core::SourceLoc loc2{"b.ploy", 2, 2};
+    diags.ReportError(loc1, ErrorCode::kUndefinedSymbol, "error one");
+    diags.ReportWarning(loc2, ErrorCode::kGenericWarning, "warning one");
+    std::string formatted = diags.FormatAll();
+    CHECK(!formatted.empty());
+    CHECK(formatted.find("error one") != std::string::npos);
+    CHECK(formatted.find("warning one") != std::string::npos);
+}
+
+// ============================================================================
+// Cross-language param count validation tests
+// ============================================================================
+
+TEST_CASE("Ploy sema: LINK function param count mismatch in CALL", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+LINK(cpp, python, math::add, pymath::add) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC main() {
+    LET result = CALL(cpp, math::add, 1);
+}
+)", diags, sema);
+    // CALL to math::add with 1 arg but LINK has 2 MAP_TYPE entries -> expects 2
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema: LINK function correct arg count passes", "[ploy][sema][error-check]") {
+    Diagnostics diags;
+    PloySema sema(diags);
+    bool ok = AnalyzeCode(R"(
+LINK(cpp, python, math::add, pymath::add) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC main() {
+    LET result = CALL(cpp, math::add, 1, 2);
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+// ============================================================================
+// DELETE + EXTEND combined integration test
+// ============================================================================
+
+TEST_CASE("Ploy integration: EXTEND and DELETE together", "[ploy][integration][class]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+EXTEND(python, Animal) AS Dog {
+    FUNC speak() -> STRING {
+        RETURN "Woof";
+    }
+    FUNC fetch(item: STRING) -> STRING {
+        RETURN item;
+    }
+}
+
+FUNC main() {
+    LET dog = NEW(python, Dog);
+    LET sound = METHOD(python, dog, speak);
+    LET ball = METHOD(python, dog, fetch, "ball");
+    DELETE(python, dog);
+}
+)", diags);
+    REQUIRE(!ir.empty());
+    CHECK(ir.find("__ploy_extend_Dog_speak") != std::string::npos);
+    CHECK(ir.find("__ploy_extend_Dog_fetch") != std::string::npos);
+    CHECK(ir.find("__ploy_extend_register") != std::string::npos);
+    CHECK(ir.find("__ploy_py_del") != std::string::npos);
 }

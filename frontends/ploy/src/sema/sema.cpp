@@ -56,11 +56,13 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
         }
     } else if (auto brk = std::dynamic_pointer_cast<BreakStatement>(stmt)) {
         if (loop_depth_ <= 0) {
-            Report(brk->loc, "BREAK statement outside of loop");
+            ReportError(brk->loc, frontends::ErrorCode::kBreakOutsideLoop,
+                        "BREAK statement outside of loop");
         }
     } else if (auto cont = std::dynamic_pointer_cast<ContinueStatement>(stmt)) {
         if (loop_depth_ <= 0) {
-            Report(cont->loc, "CONTINUE statement outside of loop");
+            ReportError(cont->loc, frontends::ErrorCode::kContinueOutsideLoop,
+                        "CONTINUE statement outside of loop");
         }
     } else if (auto block = std::dynamic_pointer_cast<BlockStatement>(stmt)) {
         AnalyzeBlockStatements(block->statements);
@@ -72,6 +74,8 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
         AnalyzeVenvConfigDecl(venv_config);
     } else if (auto with_stmt = std::dynamic_pointer_cast<WithStatement>(stmt)) {
         AnalyzeWithStatement(with_stmt);
+    } else if (auto extend = std::dynamic_pointer_cast<ExtendDecl>(stmt)) {
+        AnalyzeExtendDecl(extend);
     }
 }
 
@@ -82,23 +86,28 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
 void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     // Validate languages
     if (!IsValidLanguage(link->target_language)) {
-        Report(link->loc, "unknown target language '" + link->target_language + "'");
+        ReportError(link->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown target language '" + link->target_language + "'");
     }
     if (!IsValidLanguage(link->source_language)) {
-        Report(link->loc, "unknown source language '" + link->source_language + "'");
+        ReportError(link->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown source language '" + link->source_language + "'");
     }
 
     // Validate that target and source are different
     if (link->target_language == link->source_language) {
-        Report(link->loc, "LINK target and source languages must be different");
+        ReportError(link->loc, frontends::ErrorCode::kTypeMismatch,
+                    "LINK target and source languages must be different");
     }
 
     // Validate symbol names are not empty
     if (link->target_symbol.empty()) {
-        Report(link->loc, "LINK target symbol is empty");
+        ReportError(link->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "LINK target symbol is empty");
     }
     if (link->source_symbol.empty()) {
-        Report(link->loc, "LINK source symbol is empty");
+        ReportError(link->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "LINK source symbol is empty");
     }
 
     // Build link entry
@@ -134,6 +143,36 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     }
 
     links_.push_back(entry);
+
+    // Register the linked function as a known symbol so CALL can reference it
+    // Also register a function signature based on the number of MAP_TYPE entries
+    // which indicate the expected parameter mappings
+    PloySymbol link_sym;
+    link_sym.kind = PloySymbol::Kind::kLinkTarget;
+    link_sym.name = link->target_symbol;
+    link_sym.language = link->target_language;
+    link_sym.type = core::Type::Any();
+    link_sym.defined_at = link->loc;
+    // Do not report redefinition for link targets — they may overlap with imports
+    symbols_.try_emplace(link->target_symbol, link_sym);
+
+    // If the link has MAP_TYPE entries, register parameter count as a signature hint
+    if (!entry.param_mappings.empty()) {
+        FunctionSignature sig;
+        sig.name = link->target_symbol;
+        sig.language = link->target_language;
+        sig.param_count = entry.param_mappings.size();
+        sig.param_count_known = true;
+        sig.defined_at = link->loc;
+        for (const auto &mapping : entry.param_mappings) {
+            // Resolve the target type from the mapping
+            core::Type param_type = type_system_.MapFromLanguage(
+                mapping.target_language.empty() ? link->target_language : mapping.target_language,
+                mapping.target_type);
+            sig.param_types.push_back(param_type);
+        }
+        RegisterFunctionSignature(link->target_symbol, sig);
+    }
 }
 
 // ============================================================================
@@ -357,6 +396,17 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     sym.defined_at = func->loc;
     DeclareSymbol(sym);
 
+    // Register function signature for parameter validation
+    FunctionSignature sig;
+    sig.name = func->name;
+    sig.language = "ploy";
+    sig.param_types = param_types;
+    sig.return_type = ret_type;
+    sig.param_count = func->params.size();
+    sig.param_count_known = true;
+    sig.defined_at = func->loc;
+    RegisterFunctionSignature(func->name, sig);
+
     // Register parameters as local symbols for body analysis
     auto saved_symbols = symbols_;
     for (size_t i = 0; i < func->params.size(); ++i) {
@@ -407,15 +457,20 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
         if (var->type) {
             // Check type compatibility
             if (!AreTypesCompatible(init_type, var_type)) {
-                Report(var->loc,
-                       "type mismatch in variable '" + var->name + "' declaration");
+                ReportError(var->loc, frontends::ErrorCode::kTypeMismatch,
+                            "type mismatch in variable '" + var->name +
+                            "' declaration: expected '" + var_type.ToString() +
+                            "' but initializer has type '" + init_type.ToString() + "'",
+                            "change the type annotation or the initializer expression");
             }
         } else {
             // Infer type from initializer
             var_type = init_type;
         }
     } else if (!var->type) {
-        Report(var->loc, "variable '" + var->name + "' requires a type annotation or initializer");
+        ReportError(var->loc, frontends::ErrorCode::kMissingTypeAnnotation,
+                    "variable '" + var->name + "' requires a type annotation or initializer",
+                    "add a type annotation: LET " + var->name + ": TYPE;");
     }
 
     PloySymbol sym;
@@ -499,7 +554,10 @@ void PloySema::AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &re
         if (current_return_type_.kind != core::TypeKind::kInvalid &&
             current_return_type_.kind != core::TypeKind::kAny) {
             if (!AreTypesCompatible(ret_type, current_return_type_)) {
-                Report(ret->loc, "return type mismatch");
+                ReportError(ret->loc, frontends::ErrorCode::kReturnTypeMismatch,
+                            "return type mismatch: function expects '" +
+                            current_return_type_.ToString() + "' but returning '" +
+                            ret_type.ToString() + "'");
             }
         }
     }
@@ -523,7 +581,8 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         if (it != symbols_.end()) {
             return it->second.type;
         }
-        Report(id->loc, "undefined identifier '" + id->name + "'");
+        ReportError(id->loc, frontends::ErrorCode::kUndefinedSymbol,
+                    "undefined identifier '" + id->name + "'");
         return core::Type::Any();
     }
 
@@ -616,6 +675,10 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         return AnalyzeStructLiteral(struct_lit);
     }
 
+    if (auto del_expr = std::dynamic_pointer_cast<DeleteExpression>(expr)) {
+        return AnalyzeDeleteExpression(del_expr);
+    }
+
     return core::Type::Any();
 }
 
@@ -623,13 +686,50 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
     // Analyze the callee
     core::Type callee_type = AnalyzeExpression(call->callee);
 
-    // Analyze arguments
+    // Analyze arguments and collect their types
+    std::vector<core::Type> arg_types;
     for (const auto &arg : call->args) {
-        AnalyzeExpression(arg);
+        arg_types.push_back(AnalyzeExpression(arg));
     }
 
-    // If the callee is a function type, return its return type
+    // Extract function name for signature lookup
+    std::string func_name;
+    if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
+        func_name = id->name;
+    } else if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(call->callee)) {
+        func_name = qid->qualifier + "::" + qid->name;
+    }
+
+    // Validate parameter count and types against known signatures
+    if (!func_name.empty()) {
+        const FunctionSignature *sig = LookupSignature(func_name);
+        ValidateCallArgCount(call->loc, func_name, call->args.size(), sig);
+        ValidateCallArgTypes(call->loc, func_name, arg_types, sig);
+    }
+
+    // If the callee is a function type, validate against function type signature
     if (callee_type.kind == core::TypeKind::kFunction && !callee_type.type_args.empty()) {
+        // type_args layout: [return_type, param_type_0, param_type_1, ...]
+        size_t expected_params = callee_type.type_args.size() - 1;
+        if (call->args.size() != expected_params) {
+            ReportError(call->loc, frontends::ErrorCode::kParamCountMismatch,
+                        "function '" + func_name + "' expects " +
+                        std::to_string(expected_params) + " argument(s), but " +
+                        std::to_string(call->args.size()) + " argument(s) provided");
+        }
+
+        // Check each argument type
+        for (size_t i = 0; i < std::min(call->args.size(), expected_params); ++i) {
+            const core::Type &expected = callee_type.type_args[i + 1];
+            if (!AreTypesCompatible(arg_types[i], expected)) {
+                ReportError(call->loc, frontends::ErrorCode::kTypeMismatch,
+                            "type mismatch for argument " + std::to_string(i + 1) +
+                            " of function '" + func_name + "': expected '" +
+                            expected.ToString() + "' but got '" +
+                            arg_types[i].ToString() + "'");
+            }
+        }
+
         return callee_type.type_args[0]; // First type_arg is return type
     }
 
@@ -639,12 +739,33 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
     // Validate language
     if (!IsValidLanguage(call->language)) {
-        Report(call->loc, "unknown language '" + call->language + "' in CALL");
+        ReportError(call->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + call->language + "' in CALL");
     }
 
-    // Analyze arguments
+    // Analyze arguments and collect their types
+    std::vector<core::Type> arg_types;
     for (const auto &arg : call->args) {
-        AnalyzeExpression(arg);
+        arg_types.push_back(AnalyzeExpression(arg));
+    }
+
+    // Validate parameter count and types against known signatures
+    // Try lookup by full function name first, then by short name
+    const FunctionSignature *sig = LookupSignature(call->function);
+    if (!sig) {
+        // Try stripping module qualifier: "module::func" -> "func"
+        auto pos = call->function.rfind("::");
+        if (pos != std::string::npos) {
+            sig = LookupSignature(call->function.substr(pos + 2));
+        }
+    }
+    ValidateCallArgCount(call->loc, call->function, call->args.size(), sig);
+    ValidateCallArgTypes(call->loc, call->function, arg_types, sig);
+
+    // If we have a known return type from the signature, use it
+    if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kInvalid) {
+        return sig->return_type;
     }
 
     // Cross-language calls return Any since we cannot statically resolve the return type
@@ -655,17 +776,38 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
 core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr) {
     // Validate language
     if (!IsValidLanguage(new_expr->language)) {
-        Report(new_expr->loc, "unknown language '" + new_expr->language + "' in NEW");
+        ReportError(new_expr->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + new_expr->language + "' in NEW");
     }
 
     // Validate class name is non-empty
     if (new_expr->class_name.empty()) {
-        Report(new_expr->loc, "class name is empty in NEW");
+        ReportError(new_expr->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "class name is empty in NEW");
     }
 
-    // Analyze constructor arguments
+    // Analyze constructor arguments and collect their types
+    std::vector<core::Type> arg_types;
     for (const auto &arg : new_expr->args) {
-        AnalyzeExpression(arg);
+        arg_types.push_back(AnalyzeExpression(arg));
+    }
+
+    // Check constructor signature if known (e.g. via LINK declaration)
+    std::string ctor_name = new_expr->class_name + "::__init__";
+    const FunctionSignature *sig = LookupSignature(ctor_name);
+    if (!sig) {
+        // Try shorter name without module qualifier
+        auto pos = new_expr->class_name.rfind("::");
+        if (pos != std::string::npos) {
+            ctor_name = new_expr->class_name.substr(pos + 2) + "::__init__";
+            sig = LookupSignature(ctor_name);
+        }
+    }
+    if (sig) {
+        ValidateCallArgCount(new_expr->loc, new_expr->class_name + " constructor",
+                             new_expr->args.size(), sig);
+        ValidateCallArgTypes(new_expr->loc, new_expr->class_name + " constructor",
+                             arg_types, sig);
     }
 
     // NEW returns an opaque object handle — typed as Any since we cannot statically
@@ -677,24 +819,43 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     const std::shared_ptr<MethodCallExpression> &method_call) {
     // Validate language
     if (!IsValidLanguage(method_call->language)) {
-        Report(method_call->loc, "unknown language '" + method_call->language + "' in METHOD");
+        ReportError(method_call->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + method_call->language + "' in METHOD");
     }
 
     // Validate method name is non-empty
     if (method_call->method_name.empty()) {
-        Report(method_call->loc, "method name is empty in METHOD");
+        ReportError(method_call->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "method name is empty in METHOD");
     }
 
     // Analyze the receiver object
     if (method_call->object) {
         AnalyzeExpression(method_call->object);
     } else {
-        Report(method_call->loc, "METHOD requires an object expression");
+        ReportError(method_call->loc, frontends::ErrorCode::kMissingExpression,
+                    "METHOD requires an object expression");
     }
 
-    // Analyze arguments
+    // Analyze arguments and collect their types
+    std::vector<core::Type> arg_types;
     for (const auto &arg : method_call->args) {
-        AnalyzeExpression(arg);
+        arg_types.push_back(AnalyzeExpression(arg));
+    }
+
+    // Check method signature if known (e.g. via LINK declaration)
+    const FunctionSignature *sig = LookupSignature(method_call->method_name);
+    if (sig) {
+        ValidateCallArgCount(method_call->loc, method_call->method_name,
+                             method_call->args.size(), sig);
+        ValidateCallArgTypes(method_call->loc, method_call->method_name,
+                             arg_types, sig);
+    }
+
+    // If we have a known return type, use it
+    if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kInvalid) {
+        return sig->return_type;
     }
 
     // Method calls return Any since we cannot statically resolve the return type
@@ -704,19 +865,22 @@ core::Type PloySema::AnalyzeMethodCallExpression(
 core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr) {
     // Validate language
     if (!IsValidLanguage(get_attr->language)) {
-        Report(get_attr->loc, "unknown language '" + get_attr->language + "' in GET");
+        ReportError(get_attr->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + get_attr->language + "' in GET");
     }
 
     // Validate attribute name is non-empty
     if (get_attr->attr_name.empty()) {
-        Report(get_attr->loc, "attribute name is empty in GET");
+        ReportError(get_attr->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "attribute name is empty in GET");
     }
 
     // Analyze the object expression
     if (get_attr->object) {
         AnalyzeExpression(get_attr->object);
     } else {
-        Report(get_attr->loc, "GET requires an object expression");
+        ReportError(get_attr->loc, frontends::ErrorCode::kMissingExpression,
+                    "GET requires an object expression");
     }
 
     // Attribute access returns Any since we cannot statically resolve the attribute type
@@ -726,26 +890,30 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
 core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr) {
     // Validate language
     if (!IsValidLanguage(set_attr->language)) {
-        Report(set_attr->loc, "unknown language '" + set_attr->language + "' in SET");
+        ReportError(set_attr->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + set_attr->language + "' in SET");
     }
 
     // Validate attribute name is non-empty
     if (set_attr->attr_name.empty()) {
-        Report(set_attr->loc, "attribute name is empty in SET");
+        ReportError(set_attr->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "attribute name is empty in SET");
     }
 
     // Analyze the object expression
     if (set_attr->object) {
         AnalyzeExpression(set_attr->object);
     } else {
-        Report(set_attr->loc, "SET requires an object expression");
+        ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
+                    "SET requires an object expression");
     }
 
     // Analyze the value expression
     if (set_attr->value) {
         AnalyzeExpression(set_attr->value);
     } else {
-        Report(set_attr->loc, "SET requires a value expression");
+        ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
+                    "SET requires a value expression");
     }
 
     // SET returns the assigned value type (Any since we cannot know the attribute type)
@@ -755,19 +923,22 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
 void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
     // Validate language
     if (!IsValidLanguage(with_stmt->language)) {
-        Report(with_stmt->loc, "unknown language '" + with_stmt->language + "' in WITH");
+        ReportError(with_stmt->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + with_stmt->language + "' in WITH");
     }
 
     // Validate variable name
     if (with_stmt->var_name.empty()) {
-        Report(with_stmt->loc, "WITH requires a variable name after AS");
+        ReportError(with_stmt->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "WITH requires a variable name after AS");
     }
 
     // Analyze the resource expression
     if (with_stmt->resource_expr) {
         AnalyzeExpression(with_stmt->resource_expr);
     } else {
-        Report(with_stmt->loc, "WITH requires a resource expression");
+        ReportError(with_stmt->loc, frontends::ErrorCode::kMissingExpression,
+                    "WITH requires a resource expression");
     }
 
     // Declare the bound variable in scope
@@ -793,7 +964,9 @@ core::Type PloySema::AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpress
         if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
             auto it = symbols_.find(id->name);
             if (it != symbols_.end() && !it->second.is_mutable) {
-                Report(bin->loc, "cannot assign to immutable variable '" + id->name + "'");
+                ReportError(bin->loc, frontends::ErrorCode::kImmutableAssignment,
+                            "cannot assign to immutable variable '" + id->name + "'",
+                            "declare '" + id->name + "' with VAR instead of LET to make it mutable");
             }
         }
         return left;
@@ -1093,14 +1266,102 @@ void PloySema::Report(const core::SourceLoc &loc, const std::string &message) {
     diagnostics_.Report(loc, message);
 }
 
+void PloySema::ReportError(const core::SourceLoc &loc, frontends::ErrorCode code,
+                           const std::string &message) {
+    diagnostics_.ReportError(loc, code, message);
+}
+
+void PloySema::ReportError(const core::SourceLoc &loc, frontends::ErrorCode code,
+                           const std::string &message, const std::string &suggestion) {
+    diagnostics_.ReportError(loc, code, message, suggestion);
+}
+
+void PloySema::ReportErrorWithTraceback(const core::SourceLoc &loc, frontends::ErrorCode code,
+                                        const std::string &message,
+                                        const core::SourceLoc &related_loc,
+                                        const std::string &related_msg) {
+    frontends::Diagnostic related;
+    related.loc = related_loc;
+    related.message = related_msg;
+    related.severity = frontends::DiagnosticSeverity::kNote;
+    diagnostics_.ReportErrorWithTraceback(loc, code, message, {related});
+}
+
+void PloySema::ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
+                             const std::string &message) {
+    diagnostics_.ReportWarning(loc, code, message);
+}
+
+void PloySema::ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
+                             const std::string &message, const std::string &suggestion) {
+    diagnostics_.ReportWarning(loc, code, message, suggestion);
+}
+
 bool PloySema::DeclareSymbol(const PloySymbol &symbol) {
     auto [it, inserted] = symbols_.try_emplace(symbol.name, symbol);
     if (!inserted) {
-        Report(symbol.defined_at,
-               "redefinition of symbol '" + symbol.name + "'");
+        ReportError(symbol.defined_at, frontends::ErrorCode::kRedefinedSymbol,
+                    "redefinition of symbol '" + symbol.name + "'");
         return false;
     }
     return true;
+}
+
+// ============================================================================
+// Function Signature Registry and Validation
+// ============================================================================
+
+void PloySema::RegisterFunctionSignature(const std::string &qualified_name,
+                                         const FunctionSignature &sig) {
+    known_signatures_[qualified_name] = sig;
+}
+
+const FunctionSignature *PloySema::LookupSignature(const std::string &qualified_name) const {
+    auto it = known_signatures_.find(qualified_name);
+    if (it != known_signatures_.end()) {
+        return &it->second;
+    }
+    return nullptr;
+}
+
+void PloySema::ValidateCallArgCount(const core::SourceLoc &call_loc,
+                                    const std::string &func_name,
+                                    size_t actual_args,
+                                    const FunctionSignature *sig) {
+    if (!sig || !sig->param_count_known) return;
+
+    if (actual_args != sig->param_count) {
+        std::string msg = "function '" + func_name + "' expects " +
+                          std::to_string(sig->param_count) + " argument(s), but " +
+                          std::to_string(actual_args) + " argument(s) provided";
+        std::string suggestion = "check the function signature and provide the correct number of arguments";
+        ReportErrorWithTraceback(call_loc, frontends::ErrorCode::kParamCountMismatch,
+                                 msg, sig->defined_at,
+                                 "'" + func_name + "' declared here with " +
+                                 std::to_string(sig->param_count) + " parameter(s)");
+    }
+}
+
+void PloySema::ValidateCallArgTypes(const core::SourceLoc &call_loc,
+                                    const std::string &func_name,
+                                    const std::vector<core::Type> &actual_types,
+                                    const FunctionSignature *sig) {
+    if (!sig || !sig->param_count_known) return;
+    if (sig->param_types.empty()) return;
+
+    size_t check_count = std::min(actual_types.size(), sig->param_types.size());
+    for (size_t i = 0; i < check_count; ++i) {
+        if (!AreTypesCompatible(actual_types[i], sig->param_types[i])) {
+            std::string msg = "type mismatch for argument " + std::to_string(i + 1) +
+                              " of function '" + func_name + "': expected '" +
+                              sig->param_types[i].ToString() + "' but got '" +
+                              actual_types[i].ToString() + "'";
+            ReportErrorWithTraceback(call_loc, frontends::ErrorCode::kTypeMismatch,
+                                     msg, sig->defined_at,
+                                     "parameter " + std::to_string(i + 1) +
+                                     " declared here");
+        }
+    }
 }
 
 // ============================================================================
@@ -1580,6 +1841,110 @@ void PloySema::DiscoverCppPackages() {
 
         std::string key = "cpp::" + pkg_name;
         discovered_packages_[key] = info;
+    }
+}
+
+// ============================================================================
+// DELETE Expression Analysis
+// ============================================================================
+
+core::Type PloySema::AnalyzeDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr) {
+    // Validate language
+    if (!del_expr->language.empty() && !IsValidLanguage(del_expr->language)) {
+        ReportError(del_expr->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + del_expr->language + "' in DELETE expression",
+                    "supported languages: python, cpp, rust");
+        return core::Type::Void();
+    }
+
+    // Analyze the object expression being deleted
+    if (!del_expr->object) {
+        ReportError(del_expr->loc, frontends::ErrorCode::kMissingExpression,
+                    "DELETE requires an object expression");
+        return core::Type::Void();
+    }
+
+    core::Type obj_type = AnalyzeExpression(del_expr->object);
+
+    // Verify the object is a valid deletable reference (identifier or member)
+    if (!std::dynamic_pointer_cast<Identifier>(del_expr->object) &&
+        !std::dynamic_pointer_cast<QualifiedIdentifier>(del_expr->object) &&
+        !std::dynamic_pointer_cast<MemberExpression>(del_expr->object) &&
+        !std::dynamic_pointer_cast<GetAttrExpression>(del_expr->object)) {
+        ReportWarning(del_expr->loc, frontends::ErrorCode::kTypeMismatch,
+                      "DELETE target should be a variable or object reference",
+                      "use DELETE(lang, variable) or DELETE(lang, GET(lang, obj, attr))");
+    }
+
+    return core::Type::Void();
+}
+
+// ============================================================================
+// EXTEND Declaration Analysis
+// ============================================================================
+
+void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
+    // Validate language
+    if (!extend->language.empty() && !IsValidLanguage(extend->language)) {
+        ReportError(extend->loc, frontends::ErrorCode::kInvalidLanguage,
+                    "unknown language '" + extend->language + "' in EXTEND declaration",
+                    "supported languages: python, cpp, rust");
+        return;
+    }
+
+    // Validate base class name
+    if (extend->base_class.empty()) {
+        ReportError(extend->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "EXTEND requires a non-empty base class name");
+        return;
+    }
+
+    // Validate derived name
+    if (extend->derived_name.empty()) {
+        ReportError(extend->loc, frontends::ErrorCode::kEmptySymbolName,
+                    "EXTEND requires a derived type name after AS");
+        return;
+    }
+
+    // Register the derived type as a symbol so it can be referenced later
+    PloySymbol derived_sym;
+    derived_sym.kind = PloySymbol::Kind::kVariable;
+    derived_sym.name = extend->derived_name;
+    derived_sym.type = core::Type::Any(); // The derived class type
+    derived_sym.is_mutable = false;
+    derived_sym.language = extend->language;
+    derived_sym.defined_at = extend->loc;
+
+    if (!DeclareSymbol(derived_sym)) {
+        ReportError(extend->loc, frontends::ErrorCode::kRedefinedSymbol,
+                    "type '" + extend->derived_name + "' is already defined");
+    }
+
+    // Analyze each method override within the EXTEND body
+    for (const auto &method_stmt : extend->methods) {
+        if (auto func = std::dynamic_pointer_cast<FuncDecl>(method_stmt)) {
+            // Register method with qualified name: DerivedName::method_name
+            AnalyzeFuncDecl(func);
+
+            // Also register as DerivedName::method for lookup
+            std::string qualified = extend->derived_name + "::" + func->name;
+            FunctionSignature sig;
+            sig.name = qualified;
+            sig.language = extend->language;
+            sig.param_count = func->params.size();
+            sig.param_count_known = true;
+            sig.defined_at = func->loc;
+            for (const auto &p : func->params) {
+                sig.param_types.push_back(ResolveType(p.type));
+            }
+            sig.return_type = func->return_type
+                                  ? ResolveType(func->return_type)
+                                  : core::Type::Void();
+            RegisterFunctionSignature(qualified, sig);
+        } else {
+            ReportError(method_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                        "only FUNC declarations are allowed inside EXTEND body");
+        }
     }
 }
 

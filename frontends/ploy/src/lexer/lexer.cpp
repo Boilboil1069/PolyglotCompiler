@@ -63,7 +63,7 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
         "MAP_FUNC", "CONVERT",  "CONFIG",   "VENV",
         "CONDA",    "UV",       "PIPENV",   "POETRY",
         "NEW",      "METHOD",   "GET",      "SET",
-        "WITH"
+        "WITH",     "DELETE",   "EXTEND"
     };
 
     frontends::TokenKind kind = keywords.count(lexeme) ? frontends::TokenKind::kKeyword

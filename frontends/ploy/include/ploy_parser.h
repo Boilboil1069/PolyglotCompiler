@@ -38,6 +38,7 @@ class PloyParser : public frontends::ParserBase {
     std::shared_ptr<Statement> ParseStructDecl();
     std::shared_ptr<Statement> ParseMapFuncDecl();
     std::shared_ptr<Statement> ParseConfigDecl();
+    std::shared_ptr<Statement> ParseExtendDecl();
 
     // Statements
     std::shared_ptr<Statement> ParseStatement();
@@ -67,6 +68,7 @@ class PloyParser : public frontends::ParserBase {
     std::shared_ptr<Expression> ParseMethodCallDirective();
     std::shared_ptr<Expression> ParseGetAttrExpression();
     std::shared_ptr<Expression> ParseSetAttrExpression();
+    std::shared_ptr<Expression> ParseDeleteExpression();
     std::shared_ptr<Expression> ParseConvertExpression();
     std::shared_ptr<Expression> ParseListLiteral();
     std::shared_ptr<Expression> ParseDictLiteral();

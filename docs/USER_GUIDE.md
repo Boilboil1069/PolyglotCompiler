@@ -4,7 +4,7 @@
 > Supports C++, Python, Rust → x86_64/ARM64  
 > With .ploy cross-language linking frontend
 
-**Version**: v4.2  
+**Version**: v4.3  
 **Last Updated**: 2026-02-20
 
 ---
@@ -39,7 +39,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 - ✅ **Multi-Target Platforms**: x86_64 and ARM64 architecture backends
 - ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`)
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
-- ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` keywords for class instantiation, method calls, attribute access, and resource management
+- ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
 - ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config
 - ✅ **Production Quality**: Complete implementation, not a minimal prototype
 
@@ -330,12 +330,12 @@ Source Code
 
 | Component | Header | Implementation | Lines | Responsibility |
 |-----------|--------|----------------|-------|---------------|
-| Lexer | `ploy_lexer.h` | `lexer.cpp` | ~295 | 52 keywords, operators, literals |
-| Parser | `ploy_parser.h` | `parser.cpp` | ~1900 | Declaration / statement / expression parsing |
-| Semantic Analyser | `ploy_sema.h` | `sema.cpp` | ~1590 | Type checking, package discovery, version verification |
-| IR Generator | `ploy_lowering.h` | `lowering.cpp` | ~1410 | AST → IR transformation |
+| Lexer | `ploy_lexer.h` | `lexer.cpp` | ~295 | 54 keywords, operators, literals |
+| Parser | `ploy_parser.h` | `parser.cpp` | ~2020 | Declaration / statement / expression parsing |
+| Semantic Analyser | `ploy_sema.h` | `sema.cpp` | ~1950 | Type checking, param validation, package discovery, version verification |
+| IR Generator | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR transformation |
 
-### Keyword List (52)
+### Keyword List (54)
 
 ```
 // Declaration keywords
@@ -353,7 +353,7 @@ CASE      DEFAULT   BREAK     CONTINUE
 AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
 
 // Object-oriented operations
-NEW       METHOD    GET       SET        WITH
+NEW       METHOD    GET       SET        WITH       DELETE    EXTEND
 
 // Values
 TRUE      FALSE     NULL      PACKAGE
@@ -805,6 +805,139 @@ PIPELINE ml_pipeline {
 EXPORT ml_pipeline AS "train_ml";
 ```
 
+### 4.2.6 Object Destruction — `DELETE`
+
+The `DELETE` keyword provides explicit cross-language object destruction:
+
+```ploy
+DELETE(python, obj);
+DELETE(cpp, ptr);
+DELETE(rust, handle);
+```
+
+**Syntax:**
+```
+DELETE ( language , expression )
+```
+
+**Semantic rules:**
+- First argument must be a known language identifier (`python`, `cpp`, `rust`)
+- Second argument is the expression evaluating to the object to destroy
+- The object must have been created via `NEW` or obtained from a cross-language call
+- Returns `Void` type (destructor calls do not produce a value)
+
+**IR generation:**
+- **Python**: Generates a call to `__ploy_py_del` bridge stub (invokes `del` / reference release)
+- **C++**: Generates a call to `__ploy_cpp_delete` bridge stub (invokes `delete` / destructor)
+- **Rust**: Generates a call to `__ploy_rust_drop` bridge stub (invokes `drop()`)
+- A `CrossLangCallDescriptor` is recorded for the runtime linker
+
+**Example — Cleanup after training:**
+```ploy
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+// ... use model ...
+DELETE(python, model);
+```
+
+### 4.2.7 Class Extension — `EXTEND`
+
+The `EXTEND` keyword enables cross-language class extension (inheritance):
+
+```ploy
+EXTEND(python, torch::nn::Module) AS MyModel {
+    FUNC forward(x: LIST(f64)) -> LIST(f64) {
+        RETURN CALL(python, self::linear, x);
+    }
+}
+```
+
+**Syntax:**
+```
+EXTEND ( language , base_class ) AS DerivedName {
+    FUNC method1 ( params ) -> ReturnType { body }
+    FUNC method2 ( params ) -> ReturnType { body }
+    ...
+}
+```
+
+**Semantic rules:**
+- First argument must be a known language identifier
+- Second argument is the base class to extend (can be namespace-qualified, e.g. `torch::nn::Module`)
+- `AS` keyword followed by the derived class name
+- Body contains one or more `FUNC` declarations (method overrides / additions)
+- The derived class name is registered in the symbol table as a type
+- Each method's signature is validated (parameter count and types)
+
+**IR generation:**
+1. For each method, a bridge function `__ploy_extend_DerivedName_method` is created via `ir_ctx_.CreateFunction()`
+2. The method body is lowered into the bridge function
+3. A `__ploy_extend_register` call is generated with the class metadata
+4. A `CrossLangCallDescriptor` is recorded for the runtime linker
+
+**Example — Extending a Python class from .ploy:**
+```ploy
+LINK(cpp, python, run_model, inference);
+IMPORT python PACKAGE torch >= 2.0;
+
+PIPELINE neural_net {
+    EXTEND(python, torch::nn::Module) AS CustomNet {
+        FUNC forward(x: LIST(f64)) -> LIST(f64) {
+            LET hidden = METHOD(python, self, relu, x);
+            RETURN METHOD(python, self, linear, hidden);
+        }
+
+        FUNC reset_parameters() -> VOID {
+            METHOD(python, self, init_weights);
+        }
+    }
+
+    FUNC main() -> INT {
+        LET net = NEW(python, CustomNet, 784, 10);
+        LET result = METHOD(python, net, forward, input_data);
+        DELETE(python, net);
+        RETURN 0;
+    }
+}
+```
+
+### 4.2.8 Error Checking
+
+The `.ploy` semantic analyzer provides comprehensive error checking:
+
+**Parameter Count Mismatch:**
+```
+Error [E3010]: Parameter count mismatch in call to 'process'
+  --> pipeline.ploy:15:9
+   | Expected 3 argument(s), got 1
+   = suggestion: Check the function signature for 'process'
+```
+
+**Type Mismatch:**
+```
+Error [E3011]: Type mismatch for parameter 1 in call to 'compute'
+  --> pipeline.ploy:22:5
+   | Expected 'INT', got 'STRING'
+   = suggestion: Consider using CONVERT to convert the argument type
+```
+
+**Undefined Symbol:**
+```
+Error [E3001]: Undefined variable 'unknown_var'
+  --> pipeline.ploy:8:13
+```
+
+**Error Code Ranges:**
+
+| Range | Category | Examples |
+|-------|----------|----------|
+| 1xxx | Lexer | Invalid character, unterminated string |
+| 2xxx | Parser | Unexpected token, missing delimiter |
+| 3xxx | Semantic | Undefined variable, type mismatch, param count |
+| 4xxx | Lowering | Unsupported target, codegen failure |
+| 5xxx | Linker | Unresolved symbol, duplicate definition |
+
+All error reports include source location, error codes, and optional suggestions. Traceback chains are supported for errors originating from multiple related locations.
+
 ## 4.3 Package Manager Auto-Discovery
 
 The `.ploy` frontend automatically discovers installed packages during semantic analysis.
@@ -958,7 +1091,7 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 
 See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Complete feature list:
 
-- 52-keyword lexical analysis
+- 54-keyword lexical analysis
 - LINK/IMPORT/EXPORT/MAP_TYPE/PIPELINE/FUNC/STRUCT/CONFIG declaration parsing
 - Version constraint verification (6 operators)
 - Selective import with symbol verification
@@ -967,6 +1100,8 @@ See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Compl
 - Cross-language class instantiation (`NEW`) and method call (`METHOD`)
 - Cross-language attribute access (`GET`) and assignment (`SET`)
 - Automatic resource management (`WITH`)
+- Cross-language object destruction (`DELETE`) and class extension (`EXTEND`)
+- Comprehensive error checking: parameter count / type mismatch / traceback chains
 - Type annotations with qualified types
 - Interface mapping via `MAP_TYPE`
 - Complete type system (primitives + containers + structs + function types)
@@ -1296,7 +1431,7 @@ The project uses the **Catch2** testing framework. Test sources are automaticall
 
 | Test Suite | Tag | Test Cases | Coverage |
 |-----------|-----|-----------|----------|
-| .ploy Frontend | `[ploy]` | 171 (523 assertions) | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop |
+| .ploy Frontend | `[ploy]` | 207 (598 assertions) | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
 | GC Algorithms | `[gc]` | 40+ | 4 GC algorithms |
 | Optimisation Passes | `[opt]` | 50+ | 25+ optimisation passes |
 | Python Features | `[python]` | 25+ | 25+ Python advanced features |
@@ -1308,11 +1443,13 @@ The project uses the **Catch2** testing framework. Test sources are automaticall
 
 | Category | Tag | Count | Coverage |
 |----------|-----|-------|----------|
-| Lexer | `[ploy][lexer]` | 15 | Keywords (52), identifiers, numbers, strings, operators |
-| Parser | `[ploy][parser]` | 37 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH |
-| Semantic Analysis | `[ploy][sema]` | 31 | Type checking, scoping, version verification, package discovery, OOP interop |
-| IR Generation | `[ploy][lowering]` | 25 | Functions/pipelines/linking/expressions/control flow/OOP interop |
-| Integration | `[ploy][integration]` | 19 | Complete pipeline end-to-end |
+| Lexer | `[ploy][lexer]` | 17 | Keywords (54), identifiers, numbers, strings, operators |
+| Parser | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
+| Semantic Analysis | `[ploy][sema]` | 40 | Type checking, scoping, version verification, package discovery, OOP interop, error checking |
+| IR Generation | `[ploy][lowering]` | 29 | Functions/pipelines/linking/expressions/control flow/OOP interop/DELETE/EXTEND |
+| Integration | `[ploy][integration]` | 20 | Complete pipeline end-to-end |
+| Diagnostics | `[ploy][diagnostics]` | 6 | Error codes, suggestions, traceback, formatting |
+| Error Checking | `[ploy][error]` | 10 | Param count mismatch, type mismatch, error code validation |
 | Version Constraints | `[ploy][version]` | 5+ | 6 version operators |
 | Selective Import | `[ploy][selective]` | 7 | Single/multi-symbol, version combination, alias |
 | CONFIG VENV | `[ploy][venv]` | 6 | Parsing/validation/duplicate detection/invalid language |
@@ -1496,6 +1633,8 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 | `GET` | Cross-language attribute access | `GET(python, model, weight)` |
 | `SET` | Cross-language attribute assignment | `SET(python, model, training, FALSE)` |
 | `WITH` | Automatic resource management | `WITH(python, f) AS handle { ... }` |
+| `DELETE` | Cross-language object destruction | `DELETE(python, obj)` |
+| `EXTEND` | Cross-language class extension | `EXTEND(python, Base) AS Derived { ... }` |
 | `CONFIG` | Environment configuration | `CONFIG CONDA "env";` |
 | `VENV` | pip/venv environment | `CONFIG VENV python "/path";` |
 | `CONDA` | Conda environment | `CONFIG CONDA "env_name";` |
@@ -1523,6 +1662,17 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - PEP 440: https://peps.python.org/pep-0440/
 
 ## 13.5 Changelog
+
+### v4.3 (2026-02-20)
+- ✅ Added cross-language object destruction `DELETE` keyword
+- ✅ Added cross-language class extension `EXTEND` keyword
+- ✅ Enhanced diagnostics infrastructure: severity levels, error codes (1xxx-5xxx), traceback chains, suggestions
+- ✅ Added parameter count mismatch checking in semantic analysis
+- ✅ Added type mismatch checking in semantic analysis
+- ✅ All error reports upgraded to use structured error codes
+- ✅ AST / Lexer / Parser / Sema / IR Lowering full chain implementation for DELETE/EXTEND
+- ✅ 36 new test cases, total 207 test cases, 598 assertions
+- ✅ Keywords count 52 → 54
 
 ### v4.2 (2026-02-20)
 - ✅ Added cross-language attribute access `GET` and assignment `SET` keywords
@@ -1565,4 +1715,4 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 *Maintained by PolyglotCompiler Team*  
 *Last Updated: 2026-02-20*  
-*Document Version: v4.2*
+*Document Version: v4.3*

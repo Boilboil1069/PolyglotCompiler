@@ -1,0 +1,122 @@
+// ============================================================================
+// delete_extend.ploy — Object Destruction and Class Extension Demo
+//
+// This .ploy file demonstrates DELETE for object destruction and
+// EXTEND for cross-language class inheritance/extension.
+//
+// Source files:
+//   - engine.cpp        (C++ GameObject and Renderer classes)
+//   - base_classes.py   (Python Component, PhysicsBody, EventSystem classes)
+//
+// Compile:
+//   polyc delete_extend.ploy -o delete_extend
+// ============================================================================
+
+// --- Module Imports ---
+IMPORT cpp::engine;
+IMPORT python::base_classes;
+
+// --- Cross-Language Links ---
+LINK(cpp, python, engine::GameObject, base_classes::Component) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::std::string, python::str);
+}
+
+// --- Type Mappings ---
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
+MAP_TYPE(cpp::std::string, python::str);
+
+// ============================================================================
+// Example 1: Object destruction with DELETE
+// ============================================================================
+FUNC delete_example() -> INT {
+    // Create objects in different languages
+    LET obj = NEW(cpp, engine::GameObject, "Player", 0.0, 0.0, 0.0);
+    LET renderer = NEW(cpp, engine::Renderer, 1920, 1080, "OpenGL");
+    LET body = NEW(python, base_classes::PhysicsBody, 75.0);
+    LET events = NEW(python, base_classes::EventSystem);
+
+    // Use the objects
+    METHOD(cpp, obj, move, 10.0, 5.0, 0.0);
+    LET dist = METHOD(cpp, obj, distance_to_origin);
+    METHOD(python, body, apply_force, 100.0, 0.0, 0.0);
+    LET energy = METHOD(python, body, kinetic_energy);
+
+    // Explicitly destroy objects with DELETE
+    // Python: invokes __del__ / reference release
+    DELETE(python, body);
+    DELETE(python, events);
+
+    // C++: invokes destructor / delete
+    DELETE(cpp, renderer);
+    DELETE(cpp, obj);
+
+    RETURN 0;
+}
+
+// ============================================================================
+// Example 2: Class extension with EXTEND
+// ============================================================================
+
+// Extend the Python Component class with custom methods
+EXTEND(python, base_classes::Component) AS HealthComponent {
+    FUNC update(dt: FLOAT) -> VOID {
+        // Custom health update logic
+        LET current = GET(python, self, enabled);
+        IF current {
+            METHOD(python, self, render);
+        }
+    }
+
+    FUNC take_damage(amount: FLOAT) -> FLOAT {
+        LET remaining = 100.0 - amount;
+        RETURN remaining;
+    }
+}
+
+// ============================================================================
+// Example 3: EXTEND + DELETE together in a game loop
+// ============================================================================
+
+// Extend PhysicsBody with custom collision response
+EXTEND(python, base_classes::PhysicsBody) AS GravityBody {
+    FUNC apply_gravity(dt: FLOAT) -> VOID {
+        LET g = GET(python, self, gravity);
+        METHOD(python, self, step, dt);
+    }
+
+    FUNC bounce(restitution: FLOAT) -> VOID {
+        LET vy = GET(python, self, vy);
+        SET(python, self, vy, 0.0 - vy * restitution);
+    }
+}
+
+FUNC game_loop() -> INT {
+    // Create game objects
+    LET player = NEW(cpp, engine::GameObject, "Hero", 0.0, 10.0, 0.0);
+    LET physics = NEW(python, GravityBody, 80.0);
+    LET health = NEW(python, HealthComponent, "PlayerHealth");
+
+    // Game tick
+    METHOD(python, physics, apply_gravity, 0.016);
+    LET energy = METHOD(python, physics, kinetic_energy);
+    METHOD(python, health, update, 0.016);
+
+    // Collision: bounce
+    METHOD(python, physics, bounce, 0.8);
+
+    // Take damage
+    LET hp = METHOD(python, health, take_damage, 25.0);
+
+    // Cleanup at end of game
+    DELETE(python, health);
+    DELETE(python, physics);
+    DELETE(cpp, player);
+
+    RETURN 0;
+}
+
+EXPORT delete_example AS "demo_delete";
+EXPORT game_loop AS "demo_game_loop";

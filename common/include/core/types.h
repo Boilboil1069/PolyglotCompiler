@@ -168,10 +168,7 @@ struct Type {
 
   // --- Type query predicates ---
 
-  bool IsNumeric() const {
-    return kind == TypeKind::kInt || kind == TypeKind::kFloat;
-  }
-
+  bool IsNumeric() const { return kind == TypeKind::kInt || kind == TypeKind::kFloat; }
   bool IsInteger() const { return kind == TypeKind::kInt; }
   bool IsFloatingPoint() const { return kind == TypeKind::kFloat; }
   bool IsPointer() const { return kind == TypeKind::kPointer; }
@@ -183,18 +180,9 @@ struct Type {
   bool IsBool() const { return kind == TypeKind::kBool; }
   bool IsString() const { return kind == TypeKind::kString; }
   bool IsCallable() const { return kind == TypeKind::kFunction; }
-
-  bool IsGeneric() const {
-    return kind == TypeKind::kGenericParam || kind == TypeKind::kGenericInstance;
-  }
-
-  bool IsAggregate() const {
-    return kind == TypeKind::kStruct || kind == TypeKind::kClass ||
-           kind == TypeKind::kUnion || kind == TypeKind::kArray || kind == TypeKind::kTuple;
-  }
-
+  bool IsGeneric() const { return kind == TypeKind::kGenericParam || kind == TypeKind::kGenericInstance; }
+  bool IsAggregate() const { return kind == TypeKind::kStruct || kind == TypeKind::kClass || kind == TypeKind::kUnion || kind == TypeKind::kArray || kind == TypeKind::kTuple; }
   bool HasTypeArgs() const { return !type_args.empty(); }
-
   bool IsConcrete() const {
     if (kind == TypeKind::kAny || kind == TypeKind::kGenericParam) return false;
     for (const auto &arg : type_args) {

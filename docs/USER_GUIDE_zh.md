@@ -4,7 +4,7 @@
 > 支持 C++、Python、Rust → x86_64/ARM64  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v4.2  
+**版本**: v4.3  
 **最后更新**: 2026-02-20
 
 ---
@@ -39,7 +39,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 - ✅ **多目标平台**: x86_64 和 ARM64 架构后端
 - ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
-- ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` 关键字支持类实例化、方法调用、属性访问和资源管理
+- ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 关键字支持类实例化、方法调用、属性访问、资源管理、对象销毁和类继承扩展
 - ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config
 - ✅ **生产级质量**: 完整实现而非最小原型
 
@@ -52,7 +52,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | **C++** | ✅ | ✅ | OOP/模板/RTTI/异常/constexpr/SIMD | **完整** |
 | **Python** | ✅ | ✅ | 类型注解/推导/装饰器/生成器/async/25+高级特性 | **完整** |
 | **Rust** | ✅ | ✅ | 借用检查/闭包/生命周期/Traits/28+高级特性 | **完整** |
-| **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理 | **完整** |
+| **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理/对象销毁/类继承 | **完整** |
 
 ### 平台支持
 
@@ -277,7 +277,7 @@ PolyglotCompiler/
 │   └── ui/                 # UI 工具
 ├── tests/                  # 测试
 │   ├── unit/               # 单元测试（Catch2 框架）
-│   │   └── frontends/ploy/ #   ploy_test.cpp（171+ 测试用例）
+│   │   └── frontends/ploy/ #   ploy_test.cpp（207+ 测试用例）
 │   ├── samples/            # 示例程序（10 个 .ploy 文件 + C++ 测试文件）
 │   ├── integration/        # 集成测试
 │   └── benchmarks/         # 性能基准
@@ -330,12 +330,12 @@ Source Code
 
 | 组件 | 头文件 | 实现 | 行数 | 职责 |
 |------|--------|------|------|------|
-| 词法分析器 | `ploy_lexer.h` | `lexer.cpp` | ~295 | 52 个关键字、运算符、字面量 |
-| 语法分析器 | `ploy_parser.h` | `parser.cpp` | ~1900 | 声明/语句/表达式解析 |
-| 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1590 | 类型检查、包发现、版本验证 |
-| IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1410 | AST → IR 转换 |
+| 词法分析器 | `ploy_lexer.h` | `lexer.cpp` | ~295 | 54 个关键字、运算符、字面量 |
+| 语法分析器 | `ploy_parser.h` | `parser.cpp` | ~2020 | 声明/语句/表达式解析 |
+| 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1950 | 类型检查、包发现、版本验证、错误检查 |
+| IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR 转换 |
 
-### 关键字列表（52 个）
+### 关键字列表（54 个）
 
 ```
 // 声明关键字
@@ -353,7 +353,7 @@ CASE      DEFAULT   BREAK     CONTINUE
 AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
 
 // 面向对象操作
-NEW       METHOD    GET       SET        WITH
+NEW       METHOD    GET       SET        WITH       DELETE    EXTEND
 
 // 值
 TRUE      FALSE     NULL      PACKAGE
@@ -794,6 +794,139 @@ WITH(python, resource2) AS r2 {
 4. 调用 `__exit__` 桥接桩进行清理
 5. 记录两个跨语言描述符：一个用于 `__enter__`，一个用于 `__exit__`
 
+### 4.2.15 DELETE — 跨语言对象销毁
+
+`DELETE` 关键字提供显式的跨语言对象销毁：
+
+```ploy
+DELETE(python, obj);
+DELETE(cpp, ptr);
+DELETE(rust, handle);
+```
+
+**语法：**
+```
+DELETE ( language , expression )
+```
+
+**语义规则：**
+- 第一个参数必须是已知语言标识符（`python`、`cpp`、`rust`）
+- 第二个参数是求值为待销毁对象的表达式
+- 对象必须是通过 `NEW` 创建或从跨语言调用获取的
+- 返回 `Void` 类型（析构调用不产生值）
+
+**IR 生成：**
+- **Python**: 生成 `__ploy_py_del` 桥接桩调用（执行 `del` / 引用释放）
+- **C++**: 生成 `__ploy_cpp_delete` 桥接桩调用（执行 `delete` / 析构函数）
+- **Rust**: 生成 `__ploy_rust_drop` 桥接桩调用（执行 `drop()`）
+- 为运行时链接器记录一个 `CrossLangCallDescriptor`
+
+**示例 — 训练后清理：**
+```ploy
+LET model = NEW(python, torch::nn::Linear, 784, 10);
+// ... 使用 model ...
+DELETE(python, model);
+```
+
+### 4.2.16 EXTEND — 跨语言类继承扩展
+
+`EXTEND` 关键字支持跨语言类继承扩展：
+
+```ploy
+EXTEND(python, torch::nn::Module) AS MyModel {
+    FUNC forward(x: LIST(f64)) -> LIST(f64) {
+        RETURN CALL(python, self::linear, x);
+    }
+}
+```
+
+**语法：**
+```
+EXTEND ( language , base_class ) AS DerivedName {
+    FUNC method1 ( params ) -> ReturnType { body }
+    FUNC method2 ( params ) -> ReturnType { body }
+    ...
+}
+```
+
+**语义规则：**
+- 第一个参数必须是已知语言标识符
+- 第二个参数是要继承的基类（支持命名空间限定，例如 `torch::nn::Module`）
+- `AS` 关键字后跟派生类名
+- 语句体包含一个或多个 `FUNC` 声明（方法重写/添加）
+- 派生类名被注册到符号表中作为类型
+- 每个方法的签名都会被验证（参数数量和类型）
+
+**IR 生成：**
+1. 对于每个方法，通过 `ir_ctx_.CreateFunction()` 创建桥接函数 `__ploy_extend_DerivedName_method`
+2. 方法体被降低到桥接函数中
+3. 生成 `__ploy_extend_register` 调用，传入类元数据
+4. 为运行时链接器记录一个 `CrossLangCallDescriptor`
+
+**示例 — 从 .ploy 扩展 Python 类：**
+```ploy
+LINK(cpp, python, run_model, inference);
+IMPORT python PACKAGE torch >= 2.0;
+
+PIPELINE neural_net {
+    EXTEND(python, torch::nn::Module) AS CustomNet {
+        FUNC forward(x: LIST(f64)) -> LIST(f64) {
+            LET hidden = METHOD(python, self, relu, x);
+            RETURN METHOD(python, self, linear, hidden);
+        }
+
+        FUNC reset_parameters() -> VOID {
+            METHOD(python, self, init_weights);
+        }
+    }
+
+    FUNC main() -> INT {
+        LET net = NEW(python, CustomNet, 784, 10);
+        LET result = METHOD(python, net, forward, input_data);
+        DELETE(python, net);
+        RETURN 0;
+    }
+}
+```
+
+### 4.2.17 错误检查
+
+`.ploy` 语义分析器提供全面的错误检查：
+
+**参数数量不匹配：**
+```
+Error [E3010]: Parameter count mismatch in call to 'process'
+  --> pipeline.ploy:15:9
+   | Expected 3 argument(s), got 1
+   = suggestion: Check the function signature for 'process'
+```
+
+**类型不匹配：**
+```
+Error [E3011]: Type mismatch for parameter 1 in call to 'compute'
+  --> pipeline.ploy:22:5
+   | Expected 'INT', got 'STRING'
+   = suggestion: Consider using CONVERT to convert the argument type
+```
+
+**未定义符号：**
+```
+Error [E3001]: Undefined variable 'unknown_var'
+  --> pipeline.ploy:8:13
+```
+
+**错误代码范围：**
+
+| 范围 | 类别 | 示例 |
+|------|------|------|
+| 1xxx | 词法分析 | 非法字符、未终止的字符串 |
+| 2xxx | 语法分析 | 意外的 token、缺少分隔符 |
+| 3xxx | 语义分析 | 未定义变量、类型不匹配、参数数量不匹配 |
+| 4xxx | IR 降低 | 不支持的目标、代码生成失败 |
+| 5xxx | 链接器 | 未解析符号、重复定义 |
+
+所有错误报告包含源位置、错误代码和可选建议。支持溯源链（traceback chains）用于追溯源自多个相关位置的错误。
+
 ## 4.3 包管理器自动发现
 
 `.ploy` 前端在语义分析阶段自动发现已安装的包。
@@ -947,7 +1080,7 @@ WITH(python, resource2) AS r2 {
 
 详见 [第 4 章](#4-ploy-跨语言链接前端)。完整功能列表：
 
-- 49 个关键字的词法分析
+- 54 个关键字的词法分析
 - LINK/IMPORT/EXPORT/MAP_TYPE/PIPELINE/FUNC/STRUCT/CONFIG 声明解析
 - 版本约束验证（6 种运算符）
 - 选择性导入与符号验证
@@ -956,12 +1089,14 @@ WITH(python, resource2) AS r2 {
 - 跨语言类实例化（NEW）和方法调用（METHOD）
 - 跨语言属性访问（GET）和属性赋值（SET）
 - 自动资源管理（WITH）
+- 跨语言对象销毁（DELETE）和类继承扩展（EXTEND）
+- 全面错误检查：参数数量不匹配 / 类型不匹配 / 溯源链
 - 类型注解与限定类型
 - 接口映射（MAP_TYPE）
 - 完整的类型系统（原始类型 + 容器类型 + 结构体 + 函数类型）
 - 控制流（IF/ELSE/WHILE/FOR/MATCH/BREAK/CONTINUE）
 - 结构体字面量（带前瞻消歧，使用 LexerBase SaveState/RestoreState）
-- IR Lowering（函数/管道/链接/表达式/控制流/类实例化/方法调用/属性访问/资源管理）
+- IR Lowering（函数/管道/链接/表达式/控制流/OOP互操作/对象销毁/类继承）
 
 ---
 
@@ -1285,7 +1420,7 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 171 (523 断言) | 词法/语法/语义/IR/集成/包管理/OOP互操作 |
+| .ploy 前端 | `[ploy]` | 207 (598 断言) | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
 | GC 算法 | `[gc]` | 40+ | 4 种 GC 算法 |
 | 优化 Passes | `[opt]` | 50+ | 25+ 优化 passes |
 | Python 特性 | `[python]` | 25+ | 25+ Python 高级特性 |
@@ -1297,11 +1432,13 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 类别 | 标签 | 数量 | 覆盖内容 |
 |------|------|------|---------|
-| 词法分析 | `[ploy][lexer]` | 15 | 关键字(52)、标识符、数字、字符串、运算符 |
-| 语法分析 | `[ploy][parser]` | 37 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH |
-| 语义分析 | `[ploy][sema]` | 31 | 类型检查、作用域、版本验证、包发现、OOP互操作 |
-| IR 生成 | `[ploy][lowering]` | 25 | 函数/管道/链接/表达式/控制流/OOP互操作 |
-| 集成测试 | `[ploy][integration]` | 19 | 完整管道端到端 |
+| 词法分析 | `[ploy][lexer]` | 17 | 关键字(54)、标识符、数字、字符串、运算符 |
+| 语法分析 | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
+| 语义分析 | `[ploy][sema]` | 40 | 类型检查、作用域、版本验证、包发现、OOP互操作、错误检查 |
+| IR 生成 | `[ploy][lowering]` | 29 | 函数/管道/链接/表达式/控制流/OOP互操作/DELETE/EXTEND |
+| 集成测试 | `[ploy][integration]` | 20 | 完整管道端到端 |
+| 诊断系统 | `[ploy][diagnostics]` | 6 | 错误代码、建议、溯源链、格式化 |
+| 错误检查 | `[ploy][error]` | 10 | 参数数量不匹配、类型不匹配、错误代码验证 |
 | 版本约束 | `[ploy][version]` | 5+ | 6 种版本运算符 |
 | 选择性导入 | `[ploy][selective]` | 7 | 单/多符号、版本组合、别名 |
 | CONFIG VENV | `[ploy][venv]` | 6 | 解析/验证/重复检测/无效语言 |
@@ -1485,6 +1622,8 @@ tests/samples/
 | `GET` | 跨语言属性访问 | `GET(python, model, weight)` |
 | `SET` | 跨语言属性赋值 | `SET(python, model, training, FALSE)` |
 | `WITH` | 自动资源管理 | `WITH(python, f) AS handle { ... }` |
+| `DELETE` | 跨语言对象销毁 | `DELETE(python, obj)` |
+| `EXTEND` | 跨语言类继承扩展 | `EXTEND(python, Base) AS Derived { ... }` |
 | `CONFIG` | 环境配置 | `CONFIG CONDA "env";` |
 | `VENV` | pip/venv 环境 | `CONFIG VENV python "/path";` |
 | `CONDA` | Conda 环境 | `CONFIG CONDA "env_name";` |
@@ -1512,6 +1651,17 @@ tests/samples/
 - PEP 440: https://peps.python.org/pep-0440/
 
 ## 13.5 更新日志
+
+### v4.3 (2026-02-20)
+- ✅ 新增跨语言对象销毁 `DELETE` 关键字
+- ✅ 新增跨语言类继承扩展 `EXTEND` 关键字
+- ✅ 增强诊断基础设施：严重性级别、错误代码（1xxx-5xxx）、溯源链、建议
+- ✅ 新增语义分析中的参数数量不匹配检查
+- ✅ 新增语义分析中的类型不匹配检查
+- ✅ 所有错误报告升级为结构化错误代码
+- ✅ AST / 词法 / 语法 / 语义 / IR Lowering 全链路实现（DELETE/EXTEND）
+- ✅ 36 个新测试用例，总计 207 测试用例、598 断言
+- ✅ 关键字数量 52 → 54
 
 ### v4.2 (2026-02-20)
 - ✅ 新增跨语言属性访问 `GET` 和属性赋值 `SET` 关键字
@@ -1554,4 +1704,4 @@ tests/samples/
 
 *本文档由 PolyglotCompiler 团队维护*  
 *最后更新: 2026-02-20*  
-*文档版本: v4.2*
+*文档版本: v4.3*

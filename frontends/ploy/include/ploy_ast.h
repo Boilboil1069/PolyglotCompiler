@@ -130,6 +130,23 @@ struct SetAttrExpression : Expression {
     std::shared_ptr<Expression> value;
 };
 
+// Cross-language destructor call: DELETE(language, object)
+// Explicitly calls the destructor / __del__ / drop on a foreign object
+struct DeleteExpression : Expression {
+    std::string language;
+    std::shared_ptr<Expression> object;
+};
+
+// Cross-language inheritance: EXTEND(language, base_class) AS DerivedName { ... }
+// Declares a .ploy type that extends a foreign language class
+struct ExtendDecl : Statement {
+    std::string language;
+    std::string base_class;     // Possibly qualified: module::ClassName
+    std::string derived_name;   // The name of the derived type in .ploy
+    // Override methods (each should be a FuncDecl)
+    std::vector<std::shared_ptr<Statement>> methods;
+};
+
 // Member access: obj.member
 struct MemberExpression : Expression {
     std::shared_ptr<Expression> object;
