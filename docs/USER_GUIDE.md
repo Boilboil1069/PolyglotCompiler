@@ -1139,7 +1139,7 @@ polyc [options] <input_file>
 | `-o <file>` | Output object file / executable |
 | `--debug` | Generate debug info (DWARF 5) |
 | `--regalloc=<linear-scan\|graph-coloring>` | Register allocator selection |
-| `--obj-format=<elf\|macho\|pobj>` | Object file format |
+| `--obj-format=<elf\|macho\|coff\|pobj>` | Object file format (auto-detected per OS: `coff` on Windows, `elf` on Linux, `macho` on macOS) |
 | `--quiet` / `-q` | Suppress progress output |
 | `--no-aux` | Disable auxiliary file generation |
 | `--force` | Continue compilation despite errors |
@@ -1172,20 +1172,30 @@ By default, `polyc` prints detailed progress to stderr:
 ----------------------------------------
 [polyc] Aux dir: ./aux
 [polyc] Lexing (.ploy)... done (1.8ms)
-[polyc]   -> ./aux/basic_linking.tokens (3585 bytes)
+[polyc]   -> ./aux/basic_linking.tokens.paux (3613 bytes, binary)
 [polyc] Parsing (.ploy)... done (2.1ms)
-[polyc]   -> ./aux/basic_linking.ast (174 bytes)
+[polyc]   -> ./aux/basic_linking.ast.paux (199 bytes, binary)
 [polyc] Semantic analysis (.ploy)... done (0.8ms)
-[polyc]   -> ./aux/basic_linking.symbols (273 bytes)
+[polyc]   -> ./aux/basic_linking.symbols.paux (212 bytes, binary)
 [polyc] IR lowering (.ploy)... done (1.1ms)
-[polyc]   -> ./aux/basic_linking.ir (877 bytes)
-[polyc]   -> ./aux/basic_linking.descriptors (539 bytes)
+[polyc]   -> ./aux/basic_linking.ir.paux (878 bytes, binary)
+[polyc]   -> ./aux/basic_linking.descriptors.paux (572 bytes, binary)
 [polyc] SSA conversion + verification... done (0.6ms)
 [polyc] Assembly generation... done (1.0ms)
-[polyc]   -> ./aux/basic_linking.asm (1323 bytes)
+[polyc] Object code emission... done (1.3ms)
+[polyc]   -> ./aux/basic_linking.asm.paux (1330 bytes, binary)
+[polyc] Per-language library emission...
+[polyc]   -> ./aux/basic_linking_cpp.lib.pobj (cpp bridge library)
+[polyc]   -> ./aux/basic_linking_python.lib.pobj (python bridge library)
+done (1.5ms)
+[polyc] Emit object... [polyc] Produced: basic_linking.obj
+[polyc]   -> ./aux/basic_linking.obj (object copy in aux)
+done (5.7ms)
 ----------------------------------------
 [polyc] Target: x86_64-unknown-elf
-[polyc] Total time: 23.2ms
+[polyc] Object format: coff
+[polyc] Total time: 27.7ms
+[polyc] Aux files (binary): ./aux
 [polyc] Compilation successful.
 ========================================
 ```
@@ -1194,18 +1204,47 @@ Use `--quiet` to suppress progress output.
 
 ### Auxiliary Files
 
-By default, `polyc` generates intermediate files in an `aux/` subdirectory alongside the source file:
+By default, `polyc` generates intermediate files in an `aux/` subdirectory alongside the source file. All auxiliary files use the **PAUX binary container format** (header: `"PAUX"` magic + version + section count) to prevent exposure of intermediate data as plaintext.
 
 | File | Content |
 |------|---------|
-| `<stem>.tokens` | Lexer token dump (kind, location, text) |
-| `<stem>.ast` | AST summary (declaration count, locations) |
-| `<stem>.symbols` | Symbol table entries (kind, type) |
-| `<stem>.ir` | IR text representation |
-| `<stem>.descriptors` | Cross-language call descriptors |
-| `<stem>.asm` | Generated assembly code |
+| `<stem>.tokens.paux` | Lexer token dump (kind, location, text) — binary |
+| `<stem>.ast.paux` | AST summary (declaration count, locations) — binary |
+| `<stem>.symbols.paux` | Symbol table entries (kind, type) — binary |
+| `<stem>.ir.paux` | IR text representation — binary |
+| `<stem>.descriptors.paux` | Cross-language call descriptors — binary |
+| `<stem>.asm.paux` | Generated assembly code — binary |
+| `<stem>.obj` / `<stem>.o` | COFF/ELF/Mach-O object file (platform-dependent) |
+| `<stem>_<lang>.lib.pobj` | Per-language bridge library (e.g., `_cpp.lib.pobj`, `_python.lib.pobj`) |
 
-Use `--no-aux` to disable auxiliary file generation. The `aux/` directory is automatically excluded from git (via `.gitignore`).
+#### PAUX Binary Format
+
+```
+Offset  Size  Field
+0       4     Magic: "PAUX"
+4       2     Version: 1
+6       2     Section count: N
+8       8     Reserved (zero)
+16      ...   Sections: for each section:
+                uint16 name_length + name_bytes + uint32 data_length + data_bytes
+```
+
+#### Per-Language Bridge Libraries
+
+Each language referenced in a `.ploy` file gets its own bridge library object file in `aux/`. For example, a `.ploy` file that links C++ and Python functions produces:
+- `<stem>_cpp.lib.pobj` — contains bridge symbols for C++ interop
+- `<stem>_python.lib.pobj` — contains bridge symbols for Python interop
+
+This enables separate compilation and linking per language instead of monolithic output.
+
+### Binary Object Output
+
+In **compile** mode (default), `polyc` now produces a binary object file alongside the intermediate files:
+- On **Windows**: COFF `.obj` file (compatible with MSVC `link.exe`)
+- On **Linux**: ELF `.o` file
+- On **macOS**: Mach-O `.o` file
+
+In **link** mode, `polyc` additionally invokes the system linker to produce an executable.
 
 ### Optimisation Levels
 

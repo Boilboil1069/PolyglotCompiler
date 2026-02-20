@@ -1127,7 +1127,7 @@ polyc [选项] <输入文件>
 | `-o <文件>` | 输出目标文件/可执行文件 |
 | `--debug` | 生成调试信息 (DWARF 5) |
 | `--regalloc=<linear-scan\|graph-coloring>` | 寄存器分配器选择 |
-| `--obj-format=<elf\|macho\|pobj>` | 目标文件格式 |
+| `--obj-format=<elf\|macho\|coff\|pobj>` | 目标文件格式（按操作系统自动检测：Windows 为 `coff`，Linux 为 `elf`，macOS 为 `macho`） |
 | `--quiet` / `-q` | 禁止进度输出 |
 | `--no-aux` | 禁止辅助文件生成 |
 | `--force` | 遇到错误继续编译 |
@@ -1160,20 +1160,30 @@ polyc [选项] <输入文件>
 ----------------------------------------
 [polyc] Aux dir: ./aux
 [polyc] Lexing (.ploy)... done (1.8ms)
-[polyc]   -> ./aux/basic_linking.tokens (3585 bytes)
+[polyc]   -> ./aux/basic_linking.tokens.paux (3613 bytes, binary)
 [polyc] Parsing (.ploy)... done (2.1ms)
-[polyc]   -> ./aux/basic_linking.ast (174 bytes)
+[polyc]   -> ./aux/basic_linking.ast.paux (199 bytes, binary)
 [polyc] Semantic analysis (.ploy)... done (0.8ms)
-[polyc]   -> ./aux/basic_linking.symbols (273 bytes)
+[polyc]   -> ./aux/basic_linking.symbols.paux (212 bytes, binary)
 [polyc] IR lowering (.ploy)... done (1.1ms)
-[polyc]   -> ./aux/basic_linking.ir (877 bytes)
-[polyc]   -> ./aux/basic_linking.descriptors (539 bytes)
+[polyc]   -> ./aux/basic_linking.ir.paux (878 bytes, binary)
+[polyc]   -> ./aux/basic_linking.descriptors.paux (572 bytes, binary)
 [polyc] SSA conversion + verification... done (0.6ms)
 [polyc] Assembly generation... done (1.0ms)
-[polyc]   -> ./aux/basic_linking.asm (1323 bytes)
+[polyc] Object code emission... done (1.3ms)
+[polyc]   -> ./aux/basic_linking.asm.paux (1330 bytes, binary)
+[polyc] Per-language library emission...
+[polyc]   -> ./aux/basic_linking_cpp.lib.pobj (cpp bridge library)
+[polyc]   -> ./aux/basic_linking_python.lib.pobj (python bridge library)
+done (1.5ms)
+[polyc] Emit object... [polyc] Produced: basic_linking.obj
+[polyc]   -> ./aux/basic_linking.obj (object copy in aux)
+done (5.7ms)
 ----------------------------------------
 [polyc] Target: x86_64-unknown-elf
-[polyc] Total time: 23.2ms
+[polyc] Object format: coff
+[polyc] Total time: 27.7ms
+[polyc] Aux files (binary): ./aux
 [polyc] Compilation successful.
 ========================================
 ```
@@ -1182,16 +1192,47 @@ polyc [选项] <输入文件>
 
 ### 辅助文件
 
-默认情况下，`polyc` 在源文件所在目录的 `aux/` 子目录中生成中间文件：
+默认情况下，`polyc` 在源文件所在目录的 `aux/` 子目录中生成中间文件。所有辅助文件使用 **PAUX 二进制容器格式**（文件头：`"PAUX"` 魔数 + 版本号 + 段数量），防止中间数据以明文形式暴露。
 
 | 文件 | 内容 |
 |------|------|
-| `<stem>.tokens` | 词法分析器 token 输出（类型、位置、文本） |
-| `<stem>.ast` | AST 摘要（声明数量、位置） |
-| `<stem>.symbols` | 符号表条目（类型、种类） |
-| `<stem>.ir` | IR 文本表示 |
-| `<stem>.descriptors` | 跨语言调用描述符 |
-| `<stem>.asm` | 生成的汇编代码 |
+| `<stem>.tokens.paux` | 词法分析器 token 输出（类型、位置、文本）— 二进制 |
+| `<stem>.ast.paux` | AST 摘要（声明数量、位置）— 二进制 |
+| `<stem>.symbols.paux` | 符号表条目（类型、种类）— 二进制 |
+| `<stem>.ir.paux` | IR 文本表示 — 二进制 |
+| `<stem>.descriptors.paux` | 跨语言调用描述符 — 二进制 |
+| `<stem>.asm.paux` | 生成的汇编代码 — 二进制 |
+| `<stem>.obj` / `<stem>.o` | COFF/ELF/Mach-O 目标文件（平台相关） |
+| `<stem>_<lang>.lib.pobj` | 按语言分离的桥接库（如 `_cpp.lib.pobj`、`_python.lib.pobj`） |
+
+#### PAUX 二进制格式
+
+```
+偏移量  大小  字段
+0       4     魔数: "PAUX"
+4       2     版本: 1
+6       2     段数量: N
+8       8     保留（零填充）
+16      ...   段数据: 每段包含:
+                uint16 名称长度 + 名称字节 + uint32 数据长度 + 数据字节
+```
+
+#### 按语言分离的桥接库
+
+`.ploy` 文件中引用的每种语言都会在 `aux/` 中生成独立的桥接库目标文件。例如，一个链接 C++ 和 Python 函数的 `.ploy` 文件会产生：
+- `<stem>_cpp.lib.pobj` — 包含 C++ 互操作桥接符号
+- `<stem>_python.lib.pobj` — 包含 Python 互操作桥接符号
+
+这样可以实现按语言的分离编译和链接，而不是单体输出。
+
+### 二进制目标文件输出
+
+在 **compile** 模式（默认）下，`polyc` 现在会在中间文件之外额外生成二进制目标文件：
+- **Windows**: COFF `.obj` 文件（与 MSVC `link.exe` 兼容）
+- **Linux**: ELF `.o` 文件
+- **macOS**: Mach-O `.o` 文件
+
+在 **link** 模式下，`polyc` 还会调用系统链接器生成可执行文件。
 
 使用 `--no-aux` 禁止辅助文件生成。`aux/` 目录通过 `.gitignore` 自动排除。
 

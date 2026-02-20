@@ -216,7 +216,7 @@ pip.exe : ERROR: To modify pip, please run the following command:
 2.ploy等语言的编译目标不应该是二进制可执行文件吗？不能到asm就结束了，
 3.需要将aux文件夹内的内容全部变为二进制文件，而不是明文在里面。
 
---end
+--end -done
 
 2026-02-20-9
 
