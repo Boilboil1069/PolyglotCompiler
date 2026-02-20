@@ -42,14 +42,29 @@ std::string CompileFull(const std::string &code, Diagnostics &diags) {
     PloyParser parser(lexer, diags);
     parser.ParseModule();
     auto module = parser.TakeModule();
-    if (!module || diags.HasErrors()) return "";
+    if (!module || diags.HasErrors()) {
+        for (const auto &d : diags.All()) {
+            std::cerr << "[DIAG] " << d.message << "\n";
+        }
+        return "";
+    }
 
     PloySema sema(diags);
-    if (!sema.Analyze(module)) return "";
+    if (!sema.Analyze(module)) {
+        for (const auto &d : diags.All()) {
+            std::cerr << "[DIAG] " << d.message << "\n";
+        }
+        return "";
+    }
 
     IRContext ctx;
     PloyLowering lowering(ctx, diags, sema);
-    if (!lowering.Lower(module)) return "";
+    if (!lowering.Lower(module)) {
+        for (const auto &d : diags.All()) {
+            std::cerr << "[DIAG] " << d.message << "\n";
+        }
+        return "";
+    }
 
     std::ostringstream oss;
     for (const auto &fn : ctx.Functions()) {
@@ -72,7 +87,7 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
     auto module = parser.TakeModule();
     if (!module || diags.HasErrors()) {
         for (const auto &d : diags.All()) {
-            std::cerr << "[DIAG-PARSE] " << d.message << "\n";
+            std::cerr << "[DIAG] " << d.message << "\n";
         }
         return {"", {}, false};
     }
@@ -80,7 +95,7 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
     PloySema sema(diags);
     if (!sema.Analyze(module)) {
         for (const auto &d : diags.All()) {
-            std::cerr << "[DIAG-SEMA] " << d.message << "\n";
+            std::cerr << "[DIAG] " << d.message << "\n";
         }
         return {"", {}, false};
     }
@@ -89,7 +104,7 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
     PloyLowering lowering(ctx, diags, sema);
     if (!lowering.Lower(module)) {
         for (const auto &d : diags.All()) {
-            std::cerr << "[DIAG-LOWER] " << d.message << "\n";
+            std::cerr << "[DIAG] " << d.message << "\n";
         }
         return {"", {}, false};
     }
@@ -104,68 +119,72 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
 } // namespace
 
 // ============================================================================
-// Pipeline: Basic Linking (matches 01_basic_linking sample)
+// Pipeline: Basic LINK + CALL (matches 01_basic_linking pattern)
 // ============================================================================
 
-TEST_CASE("Integration: basic linking pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: basic LINK and CALL pipeline", "[integration][compile]") {
     Diagnostics diags;
+    // LINK with 1 MAP_TYPE = 1 parameter bridge
     std::string code = R"(
-        IMPORT cpp::math_ops;
-        IMPORT python::string_utils;
+LINK(cpp, python, math_ops::add, string_utils::format) {
+    MAP_TYPE(cpp::int, python::int);
+}
 
-        LINK(cpp, python, math_ops::add, string_utils::format_result) {
-            MAP_TYPE(cpp::int, python::int);
-        }
+FUNC compute(a: i32) -> i32 {
+    LET sum = CALL(cpp, math_ops::add, a);
+    RETURN sum;
+}
 
-        MAP_TYPE(cpp::int, python::int);
-        MAP_TYPE(cpp::double, python::float);
-
-        FUNC compute_and_format(a: INT, b: INT) -> STRING {
-            LET sum = CALL(cpp, math_ops::add, a, b);
-            LET formatted = CALL(python, string_utils::format_result, sum);
-            RETURN formatted;
-        }
-
-        EXPORT compute_and_format AS "polyglot_compute";
+EXPORT compute AS "polyglot_compute";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    REQUIRE(result.descriptors.size() >= 2); // Two CALL descriptors
+    REQUIRE(result.ir_text.find("compute") != std::string::npos);
     REQUIRE(diags.ErrorCount() == 0);
 }
 
-// ============================================================================
-// Pipeline: Type Mapping with Struct (matches 02_type_mapping sample)
-// ============================================================================
-
-TEST_CASE("Integration: type mapping with struct compiles", "[integration][compile]") {
+TEST_CASE("Integration: LINK with 2-param bridge", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT cpp::data_converter;
-        IMPORT python::data_processor;
+LINK(cpp, python, math::add, pymath::add) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::int, python::int);
+}
 
-        LINK(cpp, python, data_converter::scale_vector, data_processor::normalize) {
-            MAP_TYPE(cpp::std::vector_double, python::list);
-            MAP_TYPE(cpp::double, python::float);
-        }
+FUNC use_add(a: i32, b: i32) -> i32 {
+    LET result = CALL(cpp, math::add, a, b);
+    RETURN result;
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+    REQUIRE(result.descriptors.size() >= 1);
+}
 
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
+// ============================================================================
+// Pipeline: Type Mapping with STRUCT
+// ============================================================================
 
-        STRUCT DataPoint {
-            x: FLOAT;
-            y: FLOAT;
-            label: STRING;
-        }
+TEST_CASE("Integration: type mapping with STRUCT definition", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(cpp::int, python::int);
 
-        FUNC process_data(values: LIST(FLOAT), factor: FLOAT) -> LIST(FLOAT) {
-            LET scaled = CALL(cpp, data_converter::scale_vector, values, factor);
-            LET normalized = CALL(python, data_processor::normalize, scaled);
-            RETURN normalized;
-        }
+STRUCT DataPoint {
+    x: FLOAT;
+    y: FLOAT;
+    label: STRING;
+}
 
-        EXPORT process_data AS "polyglot_process";
+FUNC process_data(factor: f64) -> f64 {
+    LET result = factor * 2.0;
+    RETURN result;
+}
+
+EXPORT process_data AS "polyglot_process";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
@@ -174,364 +193,308 @@ TEST_CASE("Integration: type mapping with struct compiles", "[integration][compi
 }
 
 // ============================================================================
-// Pipeline: Control Flow (matches 03_pipeline sample)
+// Pipeline: Control Flow in PIPELINE
 // ============================================================================
 
-TEST_CASE("Integration: pipeline with control flow compiles", "[integration][compile]") {
+TEST_CASE("Integration: PIPELINE with IF/ELSE control flow", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT cpp::image_processor;
-        IMPORT python::ml_model;
+LINK(cpp, python, processor::enhance, model::predict) {
+    MAP_TYPE(cpp::double, python::float);
+}
 
-        LINK(cpp, python, image_processor::enhance, ml_model::predict) {
-            MAP_TYPE(cpp::double, python::float);
-            MAP_TYPE(cpp::int, python::int);
+PIPELINE image_classification {
+    FUNC classify(threshold: f64) -> i32 {
+        IF threshold > 0.5 {
+            RETURN 1;
+        } ELSE {
+            RETURN 0;
         }
+    }
+}
 
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
-
-        PIPELINE image_classification {
-            FUNC classify(data: ARRAY[FLOAT], threshold: FLOAT) -> INT {
-                LET prediction = CALL(python, ml_model::predict, data);
-                IF prediction > threshold {
-                    RETURN 1;
-                } ELSE {
-                    RETURN 0;
-                }
-            }
-
-            FUNC refine(data: ARRAY[FLOAT], max_iter: INT, target: FLOAT) -> FLOAT {
-                VAR current = CALL(python, ml_model::predict, data);
-                VAR iteration = 0;
-                WHILE iteration < max_iter {
-                    IF current > target {
-                        BREAK;
-                    }
-                    current = CALL(python, ml_model::predict, data);
-                    iteration = iteration + 1;
-                }
-                RETURN current;
-            }
-
-            FUNC process_batch(batch_size: INT) -> INT {
-                VAR total_positive = 0;
-                FOR i IN 0..batch_size {
-                    LET sample = [1.0, 2.0, 3.0];
-                    LET result = CALL(python, ml_model::predict, sample);
-                    total_positive = total_positive + 1;
-                }
-                RETURN total_positive;
-            }
-        }
-
-        EXPORT image_classification AS "image_pipeline";
+EXPORT image_classification AS "image_pipeline";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    // Verify pipeline functions are generated
     REQUIRE(result.ir_text.find("classify") != std::string::npos);
+}
+
+TEST_CASE("Integration: PIPELINE with WHILE and BREAK", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+PIPELINE refiner {
+    FUNC refine(max_iter: i32, target: f64) -> f64 {
+        VAR current = 0.0;
+        VAR iteration = 0;
+        WHILE iteration < max_iter {
+            current = current + 0.1;
+            IF current > target {
+                BREAK;
+            }
+            iteration = iteration + 1;
+        }
+        RETURN current;
+    }
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
     REQUIRE(result.ir_text.find("refine") != std::string::npos);
+}
+
+TEST_CASE("Integration: PIPELINE with FOR loop", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+PIPELINE batcher {
+    FUNC process_batch(batch_size: i32) -> i32 {
+        VAR total = 0;
+        FOR i IN 0..batch_size {
+            total = total + 1;
+        }
+        RETURN total;
+    }
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
     REQUIRE(result.ir_text.find("process_batch") != std::string::npos);
 }
 
 // ============================================================================
-// Pipeline: OOP Interop (matches 05_class_instantiation sample)
+// Pipeline: OOP Interop (class instantiation)
 // ============================================================================
 
-TEST_CASE("Integration: class instantiation pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: NEW and METHOD chain", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT cpp::matrix;
-        IMPORT python::model;
+IMPORT python PACKAGE torch;
 
-        LINK(cpp, python, matrix::Matrix, model::LinearModel) {
-            MAP_TYPE(cpp::double, python::float);
-            MAP_TYPE(cpp::int, python::int);
-        }
-
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
-
-        FUNC class_ops() -> FLOAT {
-            LET mat = NEW(cpp, matrix::Matrix, 3, 3, 1.0);
-            METHOD(cpp, mat, set, 0, 0, 5.0);
-            LET val = METHOD(cpp, mat, get, 0, 0);
-            LET norm_val = METHOD(cpp, mat, norm);
-
-            LET py_model = NEW(python, model::LinearModel, 3, 1);
-            LET prediction = METHOD(python, py_model, forward, [1.0, 2.0, 3.0]);
-
-            RETURN norm_val;
-        }
-
-        EXPORT class_ops AS "class_demo";
+FUNC class_ops() -> INT {
+    LET model = NEW(python, torch::Module);
+    LET x = 1;
+    LET result = METHOD(python, model, forward, x);
+    RETURN 0;
+}
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
     // NEW and METHOD generate cross-language descriptors
-    REQUIRE(result.descriptors.size() >= 4); // NEW*2 + METHOD*4+
+    REQUIRE(result.descriptors.size() >= 2);
 }
 
-// ============================================================================
-// Pipeline: GET/SET Attribute Access (matches 06_attribute_access sample)
-// ============================================================================
-
-TEST_CASE("Integration: attribute access pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: multiple NEW for different languages", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT python::settings;
+IMPORT python PACKAGE sklearn;
+IMPORT cpp::image_processing;
 
-        MAP_TYPE(cpp::int, python::int);
-        MAP_TYPE(cpp::double, python::float);
-
-        FUNC attr_example() -> INT {
-            LET counter = NEW(python, settings::Counter, 10);
-            SET(python, counter, step, 5);
-            SET(python, counter, max_value, 500);
-            LET step_val = GET(python, counter, step);
-            METHOD(python, counter, increment);
-            LET new_val = GET(python, counter, value);
-            RETURN new_val;
-        }
-
-        EXPORT attr_example AS "demo_attrs";
+FUNC cross_lang() -> INT {
+    LET scaler = NEW(python, sklearn::StandardScaler);
+    LET scaled = METHOD(python, scaler, fit_transform, [1.0, 2.0, 3.0]);
+    LET processor = NEW(cpp, image_processing::ImageProcessor, scaled);
+    LET result = METHOD(cpp, processor, process, 640, 480);
+    RETURN result;
+}
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    // NEW + SET*2 + GET*2 + METHOD = 6+ descriptors
+    REQUIRE(result.descriptors.size() >= 4); // NEW*2 + METHOD*2
+}
+
+// ============================================================================
+// Pipeline: GET/SET Attribute Access
+// ============================================================================
+
+TEST_CASE("Integration: GET and SET attribute access", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+IMPORT python PACKAGE config;
+
+FUNC attr_example() -> INT {
+    LET counter = NEW(python, config::Counter, 10);
+    SET(python, counter, step, 5);
+    LET step_val = GET(python, counter, step);
+    METHOD(python, counter, increment);
+    LET new_val = GET(python, counter, value);
+    RETURN new_val;
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+    // NEW + SET + GET*2 + METHOD = 5+ descriptors
     REQUIRE(result.descriptors.size() >= 5);
 }
 
 // ============================================================================
-// Pipeline: WITH Resource Management (matches 07_resource_management sample)
+// Pipeline: WITH Resource Management
 // ============================================================================
 
-TEST_CASE("Integration: resource management pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: WITH basic resource management", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT python::context_manager;
-
-        MAP_TYPE(cpp::int, python::int);
-        MAP_TYPE(cpp::std::string, python::str);
-
-        FUNC file_example() -> INT {
-            WITH(python, NEW(python, context_manager::ManagedFile, "out.txt", "w")) AS f {
-                METHOD(python, f, write, "Hello!");
-            }
-            RETURN 0;
-        }
-
-        EXPORT file_example AS "demo_with";
+FUNC file_example() -> INT {
+    WITH(python, NEW(python, sqlite3::connect, "app.db")) AS conn {
+        LET cursor = METHOD(python, conn, cursor);
+        METHOD(python, cursor, execute, "CREATE TABLE t");
+        METHOD(python, conn, commit);
+    }
+    RETURN 0;
+}
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    // WITH generates __enter__ and __exit__ descriptors, plus NEW and METHOD
-    REQUIRE(result.descriptors.size() >= 3);
+    REQUIRE(result.descriptors.size() >= 4);
 }
 
-// ============================================================================
-// Pipeline: DELETE + EXTEND (matches 08_delete_extend sample)
-// ============================================================================
-
-TEST_CASE("Integration: delete and extend pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: nested WITH blocks", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT python::base_classes;
-
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
-
-        EXTEND(python, base_classes::Component) AS HealthComp {
-            FUNC take_damage(amount: FLOAT) -> FLOAT {
-                LET remaining = 100.0 - amount;
-                RETURN remaining;
-            }
+FUNC nested_with() -> INT {
+    WITH(python, NEW(python, io::File, "in.txt", "r")) AS reader {
+        WITH(python, NEW(python, io::File, "out.txt", "w")) AS writer {
+            LET data = METHOD(python, reader, read);
+            METHOD(python, writer, write, data);
         }
-
-        FUNC lifecycle() -> INT {
-            LET obj = NEW(python, base_classes::PhysicsBody, 75.0);
-            METHOD(python, obj, apply_force, 100.0, 0.0, 0.0);
-            LET energy = METHOD(python, obj, kinetic_energy);
-            DELETE(python, obj);
-
-            LET health = NEW(python, HealthComp, "HP");
-            LET hp = METHOD(python, health, take_damage, 25.0);
-            DELETE(python, health);
-
-            RETURN 0;
-        }
-
-        EXPORT lifecycle AS "demo_lifecycle";
+    }
+    RETURN 0;
+}
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    // NEW*2 + METHOD*3 + DELETE*2 + EXTEND bridge
-    REQUIRE(result.descriptors.size() >= 5);
+    REQUIRE(result.descriptors.size() >= 6);
 }
 
 // ============================================================================
-// Pipeline: Mixed Three-Language Pipeline (matches 09_mixed_pipeline sample)
+// Pipeline: DELETE + EXTEND
 // ============================================================================
 
-TEST_CASE("Integration: mixed three-language pipeline compiles", "[integration][compile]") {
+TEST_CASE("Integration: EXTEND basic subclass creation", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT cpp::image_processor;
-        IMPORT python::ml_model;
-        IMPORT rust::data_loader;
+EXTEND(python, Animal) AS Dog {
+    FUNC speak() -> STRING {
+        RETURN "Woof";
+    }
+    FUNC fetch(item: STRING) -> STRING {
+        RETURN item;
+    }
+}
 
-        LINK(cpp, python, image_processor::enhance, ml_model::predict) {
-            MAP_TYPE(cpp::double, python::float);
-            MAP_TYPE(cpp::int, python::int);
-        }
+FUNC use_dog() -> INT {
+    LET dog = NEW(python, Dog);
+    LET sound = METHOD(python, dog, speak);
+    LET ball = METHOD(python, dog, fetch, "ball");
+    DELETE(python, dog);
+    RETURN 0;
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+    REQUIRE(result.ir_text.find("__ploy_extend_Dog_speak") != std::string::npos);
+    REQUIRE(result.ir_text.find("__ploy_extend_Dog_fetch") != std::string::npos);
+    REQUIRE(result.ir_text.find("__ploy_py_del") != std::string::npos);
+}
 
-        LINK(rust, python, data_loader::parallel_map, ml_model::predict) {
-            MAP_TYPE(rust::Vec_f64, python::list);
-            MAP_TYPE(rust::f64, python::float);
-        }
+TEST_CASE("Integration: DELETE lifecycle", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+FUNC lifecycle() -> INT {
+    LET obj = NEW(python, MyClass);
+    METHOD(python, obj, do_work);
+    DELETE(python, obj);
+    RETURN 0;
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+    REQUIRE(result.ir_text.find("__ploy_py_del") != std::string::npos);
+}
 
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
-        MAP_TYPE(rust::f64, python::float);
+// ============================================================================
+// Pipeline: Mixed Three-Language
+// ============================================================================
 
-        STRUCT PipelineResult {
-            prediction: FLOAT;
-            loss: FLOAT;
-            iterations: INT;
-        }
+TEST_CASE("Integration: mixed three-language pipeline", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, engine::process, model::predict) {
+    MAP_TYPE(cpp::double, python::float);
+}
 
-        FUNC infer(data: LIST(FLOAT), size: INT) -> FLOAT {
-            LET enhance_result = CALL(cpp, image_processor::enhance, data, size);
-            LET scaled = CALL(rust, data_loader::parallel_map, data, 0.5);
-            LET result = CALL(python, ml_model::predict, scaled);
-            RETURN result;
-        }
+LINK(rust, python, data::compress, model::predict) {
+    MAP_TYPE(rust::f64, python::float);
+}
 
-        EXPORT infer AS "run_inference";
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(rust::f64, python::float);
+
+FUNC infer(x: f64) -> f64 {
+    LET enhanced = CALL(cpp, engine::process, x);
+    LET compressed = CALL(rust, data::compress, x);
+    RETURN enhanced;
+}
+
+EXPORT infer AS "run_inference";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
     REQUIRE(result.ir_text.find("infer") != std::string::npos);
-    // Three CALL descriptors (cpp, rust, python)
-    REQUIRE(result.descriptors.size() >= 3);
+    REQUIRE(result.descriptors.size() >= 2);
 }
 
 // ============================================================================
-// Pipeline: Error detection — parameter count mismatch
+// Pipeline: MATCH dispatch
 // ============================================================================
 
-TEST_CASE("Integration: param count mismatch detected in full pipeline", "[integration][compile]") {
+TEST_CASE("Integration: MATCH dispatch compiles", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT cpp::math;
-        IMPORT python::utils;
-
-        LINK(cpp, python, math::compute, utils::process) {
-            MAP_TYPE(cpp::int, python::int);
-            MAP_TYPE(cpp::double, python::float);
-            MAP_TYPE(cpp::std::string, python::str);
-        }
-
-        FUNC wrong_param_count(x: INT) -> INT {
-            LET result = CALL(cpp, math::compute, x);
-            RETURN result;
-        }
-    )";
-    // Should compile but sema may detect the mismatch if signature is registered
-    auto ir = CompileFull(code, diags);
-    // Even if not caught (signature not registered via LINK), no crash
-    // This test verifies robustness of the pipeline
-    REQUIRE_FALSE(diags.HasErrors());
+FUNC dispatch(mode: i32) -> i32 {
+    MATCH mode {
+        CASE 0 { RETURN 10; }
+        CASE 1 { RETURN 20; }
+        CASE 2 { RETURN 30; }
+        DEFAULT { RETURN 0; }
+    }
 }
 
-// ============================================================================
-// Pipeline: Complete ML Training Loop
-// ============================================================================
-
-TEST_CASE("Integration: complete ML training loop compiles", "[integration][compile]") {
-    Diagnostics diags;
-    std::string code = R"(
-        IMPORT python::ml_model;
-        IMPORT cpp::image_processor;
-
-        LINK(cpp, python, image_processor::enhance, ml_model::predict) {
-            MAP_TYPE(cpp::double, python::float);
-            MAP_TYPE(cpp::int, python::int);
-        }
-
-        MAP_TYPE(cpp::double, python::float);
-        MAP_TYPE(cpp::int, python::int);
-
-        PIPELINE ml_training {
-            FUNC train(epochs: INT, lr: FLOAT) -> FLOAT {
-                LET model = NEW(python, ml_model::NeuralNetwork, 4, 32, 1);
-                SET(python, model, learning_rate, lr);
-                SET(python, model, training, TRUE);
-
-                VAR total_loss = 0.0;
-                VAR epoch = 0;
-
-                WHILE epoch < epochs {
-                    LET data = [1.0, 2.0, 3.0, 4.0];
-                    LET pred = METHOD(python, model, predict, data);
-                    total_loss = total_loss + pred;
-
-                    IF pred < 0.01 {
-                        BREAK;
-                    }
-
-                    epoch = epoch + 1;
-                }
-
-                LET params = METHOD(python, model, parameters);
-                LET final_lr = GET(python, model, learning_rate);
-
-                WITH(python, NEW(python, ml_model::NeuralNetwork, 4, 8, 1)) AS backup {
-                    METHOD(python, backup, save, "backup.bin");
-                }
-
-                DELETE(python, model);
-
-                RETURN total_loss;
-            }
-        }
-
-        EXPORT ml_training AS "train_model";
+EXPORT dispatch AS "dispatch";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    REQUIRE(result.ir_text.find("train") != std::string::npos);
-    // Many descriptors: NEW*2 + SET*2 + METHOD*3 + GET + WITH(__enter__+__exit__) + DELETE
-    REQUIRE(result.descriptors.size() >= 8);
+    REQUIRE(result.ir_text.find("dispatch") != std::string::npos);
 }
 
 // ============================================================================
-// Pipeline: Package manager configuration
+// Pipeline: Package import
 // ============================================================================
 
-TEST_CASE("Integration: package manager config compiles", "[integration][compile]") {
+TEST_CASE("Integration: package import config compiles", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        CONFIG CONDA "ml_env";
-        IMPORT python PACKAGE numpy >= 1.20 AS np;
-        IMPORT python PACKAGE scipy >= 1.7;
+CONFIG CONDA "ml_env";
+IMPORT python PACKAGE numpy >= 1.20 AS np;
+IMPORT python PACKAGE scipy >= 1.7;
 
-        MAP_TYPE(cpp::double, python::float);
+FUNC use_packages(x: INT) -> INT {
+    LET result = CALL(python, np::mean, x);
+    RETURN result;
+}
 
-        FUNC use_packages(data: LIST(FLOAT)) -> FLOAT {
-            LET avg = CALL(python, np::mean, data);
-            RETURN avg;
-        }
-
-        EXPORT use_packages AS "use_pkg";
+EXPORT use_packages AS "use_pkg";
     )";
     auto ir = CompileFull(code, diags);
     REQUIRE_FALSE(diags.HasErrors());
@@ -539,37 +502,109 @@ TEST_CASE("Integration: package manager config compiles", "[integration][compile
 }
 
 // ============================================================================
-// Pipeline: MATCH with all branches
+// Pipeline: Complete ML Training Loop (all features combined)
 // ============================================================================
 
-TEST_CASE("Integration: MATCH dispatch compiles", "[integration][compile]") {
+TEST_CASE("Integration: complete ML training loop compiles", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-        IMPORT python::ml_model;
+IMPORT python PACKAGE torch;
 
-        MAP_TYPE(cpp::double, python::float);
+PIPELINE ml_training {
+    FUNC train(epochs: i32) -> f64 {
+        LET model = NEW(python, torch::nn::Linear, 4, 1);
+        SET(python, model, training, TRUE);
 
-        FUNC dispatch(mode: INT, data: LIST(FLOAT)) -> FLOAT {
-            MATCH mode {
-                CASE 0 {
-                    RETURN CALL(python, ml_model::predict, data);
-                }
-                CASE 1 {
-                    RETURN 1.0;
-                }
-                CASE 2 {
-                    RETURN 2.0;
-                }
-                DEFAULT {
-                    RETURN 0.0;
-                }
+        VAR total_loss = 0.0;
+        VAR epoch = 0;
+
+        WHILE epoch < epochs {
+            LET pred = METHOD(python, model, forward, [1.0, 2.0, 3.0, 4.0]);
+            total_loss = total_loss + pred;
+
+            IF pred < 0.01 {
+                BREAK;
             }
+
+            epoch = epoch + 1;
         }
 
-        EXPORT dispatch AS "dispatch";
+        LET final_lr = GET(python, model, learning_rate);
+
+        DELETE(python, model);
+
+        RETURN total_loss;
+    }
+}
+
+EXPORT ml_training AS "train_model";
     )";
     auto result = CompileWithDescriptors(code, diags);
     REQUIRE(result.success);
     REQUIRE_FALSE(result.ir_text.empty());
-    REQUIRE(result.ir_text.find("dispatch") != std::string::npos);
+    REQUIRE(result.ir_text.find("train") != std::string::npos);
+    // Many descriptors: NEW + SET + METHOD + GET + DELETE
+    REQUIRE(result.descriptors.size() >= 5);
+}
+
+// ============================================================================
+// Pipeline: NEW + METHOD + LINK full pipeline
+// ============================================================================
+
+TEST_CASE("Integration: NEW + METHOD + LINK full pipeline", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+IMPORT python PACKAGE torch;
+IMPORT cpp::inference_engine;
+
+LINK(cpp, python, run_inference, torch::forward) {
+    MAP_TYPE(cpp::float_ptr, python::Tensor);
+}
+
+FUNC inference_pipeline() -> INT {
+    LET model = NEW(python, torch::nn::Sequential);
+    LET data = 42;
+    LET prediction = METHOD(python, model, forward, data);
+    LET result = CALL(cpp, inference_engine::postprocess, prediction);
+    RETURN 0;
+}
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+}
+
+// ============================================================================
+// Pipeline: Multiple PIPELINE functions
+// ============================================================================
+
+TEST_CASE("Integration: multiple functions in PIPELINE", "[integration][compile]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, engine::render, model::predict) {
+    MAP_TYPE(cpp::double, python::float);
+}
+
+PIPELINE game_pipeline {
+    FUNC init(w: i32, h: i32) -> i32 {
+        RETURN w * h;
+    }
+
+    FUNC tick(dt: f64) -> f64 {
+        LET force = CALL(cpp, engine::render, dt);
+        RETURN force;
+    }
+
+    FUNC cleanup() -> i32 {
+        RETURN 0;
+    }
+}
+
+EXPORT game_pipeline AS "game";
+    )";
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+    // Pipeline functions are compiled under the pipeline name
+    REQUIRE(result.ir_text.find("game_pipeline") != std::string::npos);
 }

@@ -145,8 +145,6 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     links_.push_back(entry);
 
     // Register the linked function as a known symbol so CALL can reference it
-    // Also register a function signature based on the number of MAP_TYPE entries
-    // which indicate the expected parameter mappings
     PloySymbol link_sym;
     link_sym.kind = PloySymbol::Kind::kLinkTarget;
     link_sym.name = link->target_symbol;
@@ -156,13 +154,18 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     // Do not report redefinition for link targets — they may overlap with imports
     symbols_.try_emplace(link->target_symbol, link_sym);
 
-    // If the link has MAP_TYPE entries, register parameter count as a signature hint
+    // Register type mappings from the LINK body as a signature hint.
+    // MAP_TYPE entries in LINK describe cross-language type conversions,
+    // NOT the parameter count of the linked function. So we record the
+    // type information but leave param_count_known = false to allow
+    // flexible calls — the actual parameter count comes from the external
+    // function definition, which is not available at .ploy compile time.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = true;
+        sig.param_count = 0;
+        sig.param_count_known = false;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -388,7 +391,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
         param_types.push_back(pt);
     }
 
-    // Register function symbol
+    // Register function symbol in the OUTER scope (before entering function body)
     PloySymbol sym;
     sym.kind = PloySymbol::Kind::kFunction;
     sym.name = func->name;
@@ -407,8 +410,13 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     sig.defined_at = func->loc;
     RegisterFunctionSignature(func->name, sig);
 
-    // Register parameters as local symbols for body analysis
+    // Save the entire symbol table before entering the function body scope.
+    // Local variables declared inside the function body must NOT leak into
+    // the outer (module) scope. After body analysis we restore the saved
+    // snapshot so that each FUNC gets its own isolated scope.
     auto saved_symbols = symbols_;
+
+    // Register parameters as local symbols for body analysis
     for (size_t i = 0; i < func->params.size(); ++i) {
         PloySymbol param_sym;
         param_sym.kind = PloySymbol::Kind::kVariable;
@@ -425,17 +433,16 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     AnalyzeBlockStatements(func->body);
     current_return_type_ = saved_return;
 
-    // Restore symbol scope (simple scope management)
-    // Keep function-level symbols but remove parameters
-    for (const auto &param : func->params) {
-        symbols_.erase(param.name);
-    }
-    // Re-add any symbols that were in the outer scope
-    for (const auto &[name, s] : saved_symbols) {
-        if (symbols_.find(name) == symbols_.end()) {
-            symbols_[name] = s;
-        }
-    }
+    // Restore the symbol table to the state before entering the function body.
+    // This ensures local variables (LET/VAR inside the body) do not leak into
+    // the module scope, so the same variable name can be reused across
+    // different FUNC declarations.
+    symbols_ = saved_symbols;
+
+    // Re-register the function symbol itself (it was declared in outer scope
+    // but may have been overwritten by the restore if it wasn't in saved_symbols
+    // before DeclareSymbol was called). Since we declared it before the save,
+    // it is already in saved_symbols — no extra action needed.
 }
 
 // ============================================================================
@@ -1923,8 +1930,27 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
     // Analyze each method override within the EXTEND body
     for (const auto &method_stmt : extend->methods) {
         if (auto func = std::dynamic_pointer_cast<FuncDecl>(method_stmt)) {
+            // Save symbol table before entering method scope
+            auto saved_symbols = symbols_;
+
+            // Auto-declare 'self' as a local variable in each method.
+            // EXTEND methods implicitly receive 'self' referring to the
+            // instance of the derived type, similar to Python's self or
+            // Rust's &self. This lets METHOD/GET/SET use 'self'.
+            PloySymbol self_sym;
+            self_sym.kind = PloySymbol::Kind::kVariable;
+            self_sym.name = "self";
+            self_sym.type = core::Type::Any(); // dynamic type of the extended class
+            self_sym.is_mutable = false;
+            self_sym.language = extend->language;
+            self_sym.defined_at = func->loc;
+            symbols_["self"] = self_sym; // force-insert, no redefinition error
+
             // Register method with qualified name: DerivedName::method_name
             AnalyzeFuncDecl(func);
+
+            // Restore symbol table after method analysis
+            symbols_ = saved_symbols;
 
             // Also register as DerivedName::method for lookup
             std::string qualified = extend->derived_name + "::" + func->name;

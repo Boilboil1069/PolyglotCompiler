@@ -180,6 +180,7 @@ void PloyLowering::LowerPipelineDecl(const std::shared_ptr<PipelineDecl> &pipeli
 
     auto fn = ir_ctx_.CreateFunction(fn_name, ir::IRType::Void(), {});
     current_function_ = fn;
+    builder_.SetCurrentFunction(fn);
     terminated_ = false;
 
     auto entry = builder_.CreateBlock("entry");
@@ -193,6 +194,7 @@ void PloyLowering::LowerPipelineDecl(const std::shared_ptr<PipelineDecl> &pipeli
     }
 
     current_function_ = nullptr;
+    builder_.ClearCurrentFunction();
 }
 
 // ============================================================================
@@ -211,6 +213,7 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
 
     auto fn = ir_ctx_.CreateFunction(func->name, ret_type, params);
     current_function_ = fn;
+    builder_.SetCurrentFunction(fn);
     terminated_ = false;
 
     auto entry = builder_.CreateBlock("entry");
@@ -235,6 +238,7 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     }
 
     current_function_ = nullptr;
+    builder_.ClearCurrentFunction();
 }
 
 // ============================================================================
@@ -1009,6 +1013,7 @@ void PloyLowering::LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func
     auto fn = ir_ctx_.CreateFunction(func_name, ret_type, params);
     auto saved_fn = current_function_;
     current_function_ = fn;
+    builder_.SetCurrentFunction(fn);
 
     auto entry_block = builder_.CreateBlock("entry");
     builder_.SetInsertPoint(entry_block);
@@ -1021,6 +1026,7 @@ void PloyLowering::LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func
     LowerBlockStatements(map_func->body);
 
     current_function_ = saved_fn;
+    builder_.SetCurrentFunction(saved_fn);
 }
 
 // ============================================================================
@@ -1186,6 +1192,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
         auto fn = ir_ctx_.CreateFunction(stub_name, ret_type, params);
         auto saved_fn = current_function_;
         current_function_ = fn;
+        builder_.SetCurrentFunction(fn);
 
         auto entry = builder_.CreateBlock("stub.entry");
         builder_.SetInsertPoint(entry);
@@ -1222,6 +1229,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
         builder_.MakeReturn(call_inst->name);
 
         current_function_ = saved_fn;
+        builder_.SetCurrentFunction(saved_fn);
     } else if (link.kind == LinkDecl::LinkKind::kVariable) {
         // For variable links, create a global alias
         std::string source_var = link.source_symbol;
@@ -1236,6 +1244,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                                           {{"src", ir::IRType::Pointer(ir::IRType::I8())}});
         auto saved_fn = current_function_;
         current_function_ = fn;
+        builder_.SetCurrentFunction(fn);
 
         auto entry = builder_.CreateBlock("struct.convert.entry");
         builder_.SetInsertPoint(entry);
@@ -1251,6 +1260,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
 
         builder_.MakeReturn("src");
         current_function_ = saved_fn;
+        builder_.SetCurrentFunction(saved_fn);
     }
 }
 
@@ -1499,6 +1509,7 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
             auto ir_func = ir_ctx_.CreateFunction(bridge_name, ret_type, params);
             auto prev_func = current_function_;
             current_function_ = ir_func;
+            builder_.SetCurrentFunction(ir_func);
 
             auto entry = builder_.CreateBlock("entry");
             builder_.SetInsertPoint(entry);
@@ -1525,6 +1536,7 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
             }
 
             current_function_ = prev_func;
+            builder_.SetCurrentFunction(prev_func);
             env_ = saved_env;
             terminated_ = prev_terminated;
         }

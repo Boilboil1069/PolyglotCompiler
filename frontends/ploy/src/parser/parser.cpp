@@ -1913,7 +1913,7 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
         return qt;
     }
 
-    // Check for parameterized type: ARRAY[INT]
+    // Check for parameterized type: ARRAY[INT] or LIST(FLOAT), DICT(K, V)
     if (IsSymbol("[")) {
         auto pt = std::make_shared<ParameterizedType>();
         pt->loc = loc;
@@ -1924,6 +1924,22 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
             pt->type_args.push_back(ParseType());
         }
         ExpectSymbol("]", "expected ']' after type arguments");
+        return pt;
+    }
+
+    // Support parenthesized parameterized types: LIST(FLOAT), TUPLE(INT, STRING), DICT(STRING, INT), OPTION(T)
+    if (IsSymbol("(") &&
+        (name == "LIST" || name == "TUPLE" || name == "DICT" || name == "OPTION" ||
+         name == "ARRAY" || name == "MAP" || name == "SET")) {
+        auto pt = std::make_shared<ParameterizedType>();
+        pt->loc = loc;
+        pt->name = name;
+        Advance(); // consume '('
+        pt->type_args.push_back(ParseType());
+        while (MatchSymbol(",")) {
+            pt->type_args.push_back(ParseType());
+        }
+        ExpectSymbol(")", "expected ')' after type arguments");
         return pt;
     }
 

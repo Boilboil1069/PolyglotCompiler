@@ -264,6 +264,10 @@ bool Verify(const Function &func, std::string *msg) {
 }
 
 bool Verify(const Function &func, const DataLayout *layout, std::string *msg) {
+	// Skip verification for functions with no blocks — these are either
+	// forward declarations or external function stubs that will be resolved
+	// at link time. Only verify functions that have a body.
+	if (func.blocks.empty()) return true;
 	if (!func.entry) return Fail("function has no entry block", msg);
 	if (func.ret_type.kind == IRTypeKind::kInvalid) return Fail("function missing return type", msg);
 
@@ -595,6 +599,7 @@ bool Verify(const Function &func, const DataLayout *layout, std::string *msg) {
 			}
 
 			if (auto *call = dynamic_cast<CallInstruction *>(inst.get())) {
+				bool skip_call_check = false;
 				IRType fn_ty = call->callee_type;
 				if (fn_ty.kind == IRTypeKind::kInvalid) {
 					IRType callee_ty = LookupType(call->callee, types);
@@ -602,16 +607,26 @@ bool Verify(const Function &func, const DataLayout *layout, std::string *msg) {
 					if (fn_ty.kind == IRTypeKind::kPointer || fn_ty.kind == IRTypeKind::kReference) {
 						if (!fn_ty.subtypes.empty()) fn_ty = fn_ty.subtypes[0];
 					}
-					if (fn_ty.kind == IRTypeKind::kInvalid) return Fail("call callee has unknown type", msg);
+					if (fn_ty.kind == IRTypeKind::kInvalid) {
+						// Skip type validation for cross-language bridge stubs and
+						// runtime calls whose signatures are not available in IR.
+						// These are resolved at link time.
+						bool is_external = (call->callee.rfind("__ploy_", 0) == 0) ||
+						                   (call->callee.rfind("polyglot_", 0) == 0);
+						if (!is_external) return Fail("call callee has unknown type", msg);
+						skip_call_check = true;
+					}
 				}
-				if (fn_ty.kind != IRTypeKind::kFunction) return Fail("call callee is not a function", msg);
-				const size_t param_count = fn_ty.count;
-				if (!call->is_vararg && param_count != call->operands.size()) return Fail("call arg count mismatch", msg);
-				if (call->is_vararg && call->operands.size() < param_count) return Fail("call vararg missing fixed args", msg);
-				if (!call->type.SameShape(fn_ty.subtypes[0])) return Fail("call return type mismatch", msg);
-				for (size_t i = 0; i < std::min(call->operands.size(), fn_ty.subtypes.size() - 1); ++i) {
-					IRType arg_ty = LookupType(call->operands[i], types);
-					if (!arg_ty.SameShape(fn_ty.subtypes[i + 1])) return Fail("call arg type mismatch", msg);
+				if (!skip_call_check) {
+					if (fn_ty.kind != IRTypeKind::kFunction) return Fail("call callee is not a function", msg);
+					const size_t param_count = fn_ty.count;
+					if (!call->is_vararg && param_count != call->operands.size()) return Fail("call arg count mismatch", msg);
+					if (call->is_vararg && call->operands.size() < param_count) return Fail("call vararg missing fixed args", msg);
+					if (!call->type.SameShape(fn_ty.subtypes[0])) return Fail("call return type mismatch", msg);
+					for (size_t i = 0; i < std::min(call->operands.size(), fn_ty.subtypes.size() - 1); ++i) {
+						IRType arg_ty = LookupType(call->operands[i], types);
+						if (!arg_ty.SameShape(fn_ty.subtypes[i + 1])) return Fail("call arg type mismatch", msg);
+					}
 				}
 			}
 			++inst_use_index;

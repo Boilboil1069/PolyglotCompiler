@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <type_traits>
 #if __has_include(<elf.h>)
 #include <elf.h>
@@ -92,6 +94,7 @@ struct Elf64_Rela {
 #define ELF64_R_INFO(sym, type) ((((Elf64_Xword)(sym)) << 32) + ((type) & 0xffffffffULL))
 #endif
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #if defined(__APPLE__)
@@ -99,6 +102,7 @@ struct Elf64_Rela {
 #include <mach-o/nlist.h>
 #include <mach-o/reloc.h>
 #endif
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -119,6 +123,10 @@ struct Elf64_Rela {
 #include "frontends/rust/include/rust_sema.h"
 #include "frontends/rust/include/rust_lexer.h"
 #include "frontends/rust/include/rust_parser.h"
+#include "frontends/ploy/include/ploy_lexer.h"
+#include "frontends/ploy/include/ploy_parser.h"
+#include "frontends/ploy/include/ploy_sema.h"
+#include "frontends/ploy/include/ploy_lowering.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/nodes/statements.h"
 #include "common/include/ir/ir_printer.h"
@@ -128,16 +136,22 @@ struct Elf64_Rela {
 
 namespace {
 
+namespace fs = std::filesystem;
+
 enum class RegAllocChoice { kLinearScan, kGraphColoring };
 
 struct Settings {
     std::string source{"print('hello')"};
+    std::string source_path{};            // original file path (empty if inline)
     std::string language{"python"};
+    bool language_explicit{false};        // true if --lang= was specified
     std::string arch{"x86_64"};
     bool pp_cpp{true};
     bool pp_rust{false};
     bool pp_python{false};
     bool force{false};
+    bool verbose{true};                   // progress output (default on)
+    bool emit_aux{true};                  // emit aux/ intermediate files (default on)
     std::vector<std::string> include_paths{"."};
     std::string mode{"compile"};  // compile | assemble | link (stub)
     std::string obj_format{"pobj"};  // pobj|elf|macho
@@ -151,15 +165,89 @@ struct Settings {
     RegAllocChoice regalloc{RegAllocChoice::kLinearScan};
 };
 
+// Detect language from file extension
+std::string DetectLanguage(const std::string &path) {
+    auto ext = fs::path(path).extension().string();
+    // Convert to lowercase
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".ploy" || ext == ".poly") return "ploy";
+    if (ext == ".py") return "python";
+    if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".c" || ext == ".hpp" || ext == ".h") return "cpp";
+    if (ext == ".rs") return "rust";
+    return "";
+}
+
+// Read entire file content into string
+std::string ReadFileContent(const std::string &path) {
+    std::ifstream ifs(path, std::ios::binary | std::ios::ate);
+    if (!ifs.is_open()) return {};
+    auto size = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    std::string content(static_cast<size_t>(size), '\0');
+    ifs.read(content.data(), size);
+    return content;
+}
+
+// Timer helper for progress output
+struct StageTimer {
+    std::string name;
+    std::chrono::high_resolution_clock::time_point start;
+    bool verbose;
+
+    StageTimer(const std::string &stage_name, bool verbose_flag)
+        : name(stage_name), verbose(verbose_flag) {
+        start = std::chrono::high_resolution_clock::now();
+        if (verbose) {
+            std::cerr << "[polyc] " << name << "... " << std::flush;
+        }
+    }
+
+    double Stop() {
+        auto end = std::chrono::high_resolution_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(end - start).count();
+        if (verbose) {
+            std::cerr << "done (" << std::fixed << std::setprecision(1) << ms << "ms)\n";
+        }
+        return ms;
+    }
+};
+
 Settings ParseArgs(int argc, char **argv) {
     Settings s;
     bool source_set = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            std::cout << "Usage: polyc [options] <source-file-or-code>\n"
+                      << "\n"
+                      << "Options:\n"
+                      << "  --lang=<lang>       Language: ploy|python|cpp|rust (auto-detected from extension)\n"
+                      << "  -O<0-3>             Optimisation level\n"
+                      << "  -o <output>         Output file name\n"
+                      << "  --mode=<mode>       compile|assemble|link\n"
+                      << "  --arch=<arch>       x86_64|arm64\n"
+                      << "  --emit-ir=<path>    Write IR to file\n"
+                      << "  --emit-asm=<path>   Write assembly to file\n"
+                      << "  --emit-obj=<path>   Write object to file\n"
+                      << "  --obj-format=<fmt>  pobj|elf|macho\n"
+                      << "  --quiet             Suppress progress output\n"
+                      << "  --no-aux            Do not emit auxiliary files\n"
+                      << "  --force             Continue despite errors\n"
+                      << "  -j<N>               Parallelism hint\n"
+                      << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
+                      << "\n"
+                      << "The source argument can be a file path (.ploy, .py, .cpp, .rs) or inline code.\n"
+                      << "When a file is given, auxiliary files are written to <dir>/aux/.\n";
+            std::exit(0);
+        }
         if (arg.rfind("--lang=", 0) == 0) {
             s.language = arg.substr(7);
+            s.language_explicit = true;
             continue;
         }
+        if (arg == "--quiet" || arg == "-q") { s.verbose = false; continue; }
+        if (arg == "--no-aux") { s.emit_aux = false; continue; }
         if (arg.rfind("--mode=", 0) == 0) {
             s.mode = arg.substr(7);
             continue;
@@ -248,6 +336,26 @@ Settings ParseArgs(int argc, char **argv) {
             continue;
         }
     }
+
+    // If source looks like a file path, read its contents
+    if (source_set && fs::exists(s.source)) {
+        s.source_path = fs::absolute(s.source).string();
+        s.source = ReadFileContent(s.source_path);
+        if (s.source.empty()) {
+            std::cerr << "[error] could not read file: " << s.source_path << "\n";
+            std::exit(1);
+        }
+        // Auto-detect language from extension if not explicitly set
+        if (!s.language_explicit) {
+            auto detected = DetectLanguage(s.source_path);
+            if (!detected.empty()) {
+                s.language = detected;
+            }
+        }
+        // Add source directory to include paths
+        s.include_paths.push_back(fs::path(s.source_path).parent_path().string());
+    }
+
     return s;
 }
 
@@ -791,27 +899,93 @@ std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &
 
 }  // namespace
 
-int main(int argc, char **argv) {
-    Settings settings = ParseArgs(argc, argv);
+// Helper: create aux directory and return its path
+static std::string SetupAuxDir(const Settings &settings) {
+    if (!settings.emit_aux || settings.source_path.empty()) return {};
+    fs::path source_dir = fs::path(settings.source_path).parent_path();
+    fs::path aux_dir = source_dir / "aux";
+    std::error_code ec;
+    fs::create_directories(aux_dir, ec);
+    if (ec) {
+        std::cerr << "[warn] could not create aux/ directory: " << ec.message() << "\n";
+        return {};
+    }
+    return aux_dir.string();
+}
 
-    if (settings.jobs > 1) {
-        std::cerr << "[info] parallel build hint -j" << settings.jobs
-                  << " not yet implemented; running single-threaded.\n";
+// Helper: get stem name from source path for naming aux files
+static std::string SourceStem(const Settings &settings) {
+    if (settings.source_path.empty()) return "output";
+    return fs::path(settings.source_path).stem().string();
+}
+
+// Helper: write string content to an aux file
+static void WriteAuxFile(const std::string &aux_dir, const std::string &filename,
+                         const std::string &content, bool verbose) {
+    if (aux_dir.empty()) return;
+    fs::path path = fs::path(aux_dir) / filename;
+    std::ofstream ofs(path);
+    if (ofs.is_open()) {
+        ofs << content;
+        if (verbose) {
+            std::cerr << "[polyc]   -> " << path.string() << " ("
+                      << content.size() << " bytes)\n";
+        }
+    }
+}
+
+int main(int argc, char **argv) {
+    auto total_start = std::chrono::high_resolution_clock::now();
+
+    Settings settings = ParseArgs(argc, argv);
+    bool V = settings.verbose;
+
+    // Print header
+    if (V) {
+        std::cerr << "========================================\n";
+        std::cerr << " PolyglotCompiler v4.3  (polyc)\n";
+        std::cerr << "========================================\n";
+        if (!settings.source_path.empty()) {
+            std::cerr << "[polyc] Source: " << settings.source_path << "\n";
+        }
+        std::cerr << "[polyc] Language: " << settings.language
+                  << (settings.language_explicit ? " (explicit)" : " (auto-detected)") << "\n";
+        std::cerr << "[polyc] Arch: " << settings.arch << "\n";
+        std::cerr << "[polyc] Opt level: O" << settings.opt_level << "\n";
+        std::cerr << "[polyc] Output: " << settings.output << "\n";
+        std::cerr << "----------------------------------------\n";
+    }
+
+    if (settings.jobs > 1 && V) {
+        std::cerr << "[polyc] parallel build hint -j" << settings.jobs
+                  << " noted (single-threaded for now)\n";
     }
 
     if (settings.mode != "compile" && settings.mode != "assemble" && settings.mode != "link") {
-        std::cerr << "Unknown mode: " << settings.mode << " (use compile|assemble|link)\n";
+        std::cerr << "[error] Unknown mode: " << settings.mode << " (use compile|assemble|link)\n";
         return 1;
     }
 
-    polyglot::frontends::Diagnostics diagnostics;
-    std::string processed = settings.source;  // default: no preprocessing
+    // Set up aux output directory
+    std::string aux_dir = SetupAuxDir(settings);
+    std::string stem = SourceStem(settings);
+    if (!aux_dir.empty() && V) {
+        std::cerr << "[polyc] Aux dir: " << aux_dir << "\n";
+    }
 
-    auto run_pp = [&](bool enabled) {
+    polyglot::frontends::Diagnostics diagnostics;
+    std::string processed = settings.source;
+
+    // ---- Phase 0: Preprocessing ----
+    auto run_pp = [&](bool enabled) -> std::string {
         if (!enabled) return settings.source;
+        StageTimer t("Preprocessing", V);
         polyglot::frontends::Preprocessor preprocessor(diagnostics);
         ApplyIncludePaths(preprocessor, settings.include_paths);
-        return preprocessor.Process(settings.source, "<cli>");
+        auto result = preprocessor.Process(settings.source,
+            settings.source_path.empty() ? "<cli>" : settings.source_path);
+        t.Stop();
+        return result;
     };
 
     if (settings.language == "cpp") {
@@ -821,19 +995,149 @@ int main(int argc, char **argv) {
     } else if (settings.language == "python") {
         processed = run_pp(settings.pp_python);
     }
+    // .ploy does not use preprocessing
 
     polyglot::ir::IRContext ir_module;
     bool lowered = false;
+    std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
 
-    if (settings.language == "python") {
-        polyglot::python::PythonLexer lexer(processed, "<cli>", &diagnostics);
+    // ---- Phase 1-3: Frontend (Lex + Parse + Sema + Lower) ----
+    if (settings.language == "ploy") {
+        // ---- .ploy frontend: full pipeline ----
+
+        // Phase 1: Lexing
+        std::string token_dump;
+        {
+            StageTimer t("Lexing (.ploy)", V);
+            // Run lexer to dump tokens for aux output
+            if (!aux_dir.empty()) {
+                polyglot::ploy::PloyLexer aux_lexer(processed, source_label);
+                std::ostringstream toss;
+                polyglot::frontends::Token tok;
+                while ((tok = aux_lexer.NextToken()).kind != polyglot::frontends::TokenKind::kEndOfFile) {
+                    toss << "L" << tok.loc.line << ":" << tok.loc.column
+                         << "  [" << static_cast<int>(tok.kind) << "] "
+                         << tok.lexeme << "\n";
+                }
+                token_dump = toss.str();
+            }
+            t.Stop();
+        }
+        WriteAuxFile(aux_dir, stem + ".tokens", token_dump, V);
+
+        // Phase 2: Parsing
+        polyglot::ploy::PloyLexer lexer(processed, source_label);
+        polyglot::ploy::PloyParser parser(lexer, diagnostics);
+        std::shared_ptr<polyglot::ploy::Module> ploy_module;
+        {
+            StageTimer t("Parsing (.ploy)", V);
+            parser.ParseModule();
+            ploy_module = parser.TakeModule();
+            t.Stop();
+        }
+
+        if (!ploy_module || diagnostics.HasErrors()) {
+            std::cerr << "[error] Parse failed.\n";
+            for (const auto &d : diagnostics.All()) {
+                std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+            }
+            return 1;
+        }
+
+        // Write AST summary to aux
+        if (!aux_dir.empty()) {
+            std::ostringstream ast_oss;
+            ast_oss << "Module: " << ploy_module->declarations.size() << " declarations\n";
+            for (size_t i = 0; i < ploy_module->declarations.size(); ++i) {
+                auto &decl = ploy_module->declarations[i];
+                ast_oss << "  [" << i << "] loc=" << decl->loc.line
+                        << ":" << decl->loc.column << "\n";
+            }
+            WriteAuxFile(aux_dir, stem + ".ast", ast_oss.str(), V);
+        }
+
+        // Phase 3: Semantic analysis
+        polyglot::ploy::PloySema sema(diagnostics);
+        bool sema_ok = false;
+        {
+            StageTimer t("Semantic analysis (.ploy)", V);
+            sema_ok = sema.Analyze(ploy_module);
+            t.Stop();
+        }
+
+        if (!sema_ok && !settings.force) {
+            std::cerr << "[error] Semantic analysis failed.\n";
+            for (const auto &d : diagnostics.All()) {
+                std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+            }
+            return 1;
+        }
+
+        // Write symbol table to aux
+        if (!aux_dir.empty()) {
+            std::ostringstream sym_oss;
+            sym_oss << "Symbol Table (" << sema.Symbols().size() << " entries)\n";
+            for (const auto &[name, sym] : sema.Symbols()) {
+                sym_oss << "  " << name << " : kind="
+                        << static_cast<int>(sym.kind) << "\n";
+            }
+            WriteAuxFile(aux_dir, stem + ".symbols", sym_oss.str(), V);
+        }
+
+        // Phase 4: IR Lowering
+        polyglot::ploy::PloyLowering lowering_engine(ir_module, diagnostics, sema);
+        {
+            StageTimer t("IR lowering (.ploy)", V);
+            lowered = lowering_engine.Lower(ploy_module);
+            t.Stop();
+        }
+
+        if (!lowered && !settings.force) {
+            std::cerr << "[error] IR lowering failed.\n";
+            for (const auto &d : diagnostics.All()) {
+                std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+            }
+            return 1;
+        }
+
+        // Write IR to aux
+        if (!aux_dir.empty()) {
+            std::ostringstream ir_oss;
+            for (const auto &fn : ir_module.Functions()) {
+                polyglot::ir::PrintFunction(*fn, ir_oss);
+            }
+            WriteAuxFile(aux_dir, stem + ".ir", ir_oss.str(), V);
+        }
+
+        // Write cross-language call descriptors to aux
+        if (!aux_dir.empty()) {
+            std::ostringstream desc_oss;
+            const auto &descs = lowering_engine.CallDescriptors();
+            desc_oss << "Cross-Language Call Descriptors (" << descs.size() << ")\n";
+            for (size_t i = 0; i < descs.size(); ++i) {
+                desc_oss << "  [" << i << "] "
+                         << descs[i].source_language << "::" << descs[i].source_function
+                         << " -> "
+                         << descs[i].target_language << "::" << descs[i].target_function
+                         << " (params: " << descs[i].param_marshal.size() << ")\n";
+            }
+            WriteAuxFile(aux_dir, stem + ".descriptors", desc_oss.str(), V);
+        }
+
+        lowered = true;
+
+    } else if (settings.language == "python") {
+        StageTimer t("Frontend (python)", V);
+        polyglot::python::PythonLexer lexer(processed, source_label, &diagnostics);
         polyglot::python::PythonParser parser(lexer, diagnostics);
         parser.ParseModule();
         polyglot::frontends::SemaContext sema(diagnostics);
         polyglot::python::AnalyzeModule(*parser.TakeModule(), sema);
+        t.Stop();
         // No lowering for python yet.
     } else if (settings.language == "cpp") {
-        polyglot::cpp::CppLexer lexer(processed, "<cli>");
+        StageTimer t("Frontend (cpp)", V);
+        polyglot::cpp::CppLexer lexer(processed, source_label);
         polyglot::cpp::CppParser parser(lexer, diagnostics);
         parser.ParseModule();
         auto cpp_mod = parser.TakeModule();
@@ -841,24 +1145,31 @@ int main(int argc, char **argv) {
         polyglot::cpp::AnalyzeModule(*cpp_mod, sema);
         polyglot::cpp::LowerToIR(*cpp_mod, ir_module, diagnostics);
         lowered = true;
+        t.Stop();
     } else if (settings.language == "rust") {
-        polyglot::rust::RustLexer lexer(processed, "<cli>");
+        StageTimer t("Frontend (rust)", V);
+        polyglot::rust::RustLexer lexer(processed, source_label);
         polyglot::rust::RustParser parser(lexer, diagnostics);
         parser.ParseModule();
         polyglot::frontends::SemaContext sema(diagnostics);
         polyglot::rust::AnalyzeModule(*parser.TakeModule(), sema);
+        t.Stop();
         // No lowering for rust yet.
     } else {
-        diagnostics.Report(polyglot::core::SourceLoc{"<cli>", 1, 1},
+        diagnostics.Report(polyglot::core::SourceLoc{source_label, 1, 1},
                            "Unknown language: " + settings.language);
     }
 
     if (!settings.force && diagnostics.HasErrors()) {
-        std::cerr << "Compilation failed with " << diagnostics.All().size() << " error(s).\n";
+        std::cerr << "[error] Compilation failed with " << diagnostics.ErrorCount() << " error(s).\n";
         for (const auto &d : diagnostics.All()) {
-            std::cerr << d.loc.file << ":" << d.loc.line << ":" << d.loc.column << ": " << d.message << "\n";
+            std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
         }
         return 1;
+    }
+
+    if (diagnostics.HasWarnings() && V) {
+        std::cerr << "[polyc] " << diagnostics.WarningCount() << " warning(s)\n";
     }
 
     if (!lowered) {
@@ -878,17 +1189,21 @@ int main(int argc, char **argv) {
         entry->SetTerminator(ret);
     }
 
-    // Optional SSA conversion and verification
-    for (auto &fn : ir_module.Functions()) {
-        polyglot::ir::ConvertToSSA(*fn);
-    }
-    std::string verify_msg;
-    if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
-        std::cerr << "[error] IR verification failed: " << verify_msg << "\n";
-        if (!settings.force) return 1;
+    // ---- Phase 5: SSA + Verify ----
+    {
+        StageTimer t("SSA conversion + verification", V);
+        for (auto &fn : ir_module.Functions()) {
+            polyglot::ir::ConvertToSSA(*fn);
+        }
+        std::string verify_msg;
+        if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
+            std::cerr << "[error] IR verification failed: " << verify_msg << "\n";
+            if (!settings.force) return 1;
+        }
+        t.Stop();
     }
 
-    // Example: allocate a GC-managed scratch buffer and keep it rooted while emitting.
+    // Allocate a GC-managed scratch buffer and keep it rooted while emitting.
     void *scratch = polyglot_alloc(32);
     polyglot_gc_register_root(&scratch);
 
@@ -898,7 +1213,7 @@ int main(int argc, char **argv) {
     // Choose backend based on arch
     bool use_arm64 = (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
 
-    // Containers to populate from backend MC
+    // ---- Phase 6: Backend code generation ----
     std::vector<ObjSection> sections;
     std::vector<ObjSymbol> symbols;
 
@@ -917,8 +1232,15 @@ int main(int argc, char **argv) {
 
     auto run_backend = [&](auto &backend) {
         apply_regalloc(backend);
-        target_triple = backend.TargetTriple();
-        asm_text = backend.EmitAssembly();
+
+        {
+            StageTimer t("Assembly generation", V);
+            target_triple = backend.TargetTriple();
+            asm_text = backend.EmitAssembly();
+            t.Stop();
+        }
+
+        StageTimer t2("Object code emission", V);
         auto mc = backend.EmitObjectCode();
 
         using SectionT = typename std::decay_t<decltype(mc.sections)>::value_type;
@@ -933,7 +1255,7 @@ int main(int argc, char **argv) {
             }
             mc.sections.push_back(text);
             mc.symbols.push_back({"_start", ".text", 0, static_cast<std::uint64_t>(text.data.size()), true, true});
-            std::cerr << "[warn] backend did not return sections; using stub\n";
+            if (V) std::cerr << "[warn] backend returned no sections; using stub\n";
         }
 
         // Map sections
@@ -997,6 +1319,7 @@ int main(int argc, char **argv) {
             orr.addend = r.addend;
             sections[orr.section_index].relocs.push_back(orr);
         }
+        t2.Stop();
     };
 
     if (use_arm64) {
@@ -1007,6 +1330,10 @@ int main(int argc, char **argv) {
         run_backend(target);
     }
 
+    // Write assembly to aux
+    WriteAuxFile(aux_dir, stem + ".asm", asm_text, V);
+
+    // ---- Phase 7: Emit outputs ----
     if (!settings.emit_ir_path.empty()) {
         std::ofstream ofs(settings.emit_ir_path);
         if (ofs.is_open()) {
@@ -1024,33 +1351,35 @@ int main(int argc, char **argv) {
     }
 
     auto emit_object_and_maybe_link = [&](bool link_stage) -> bool {
+        StageTimer t(link_stage ? "Emit object + link" : "Emit object", V);
         std::string obj_path = EmitObject(settings, sections, symbols);
         if (obj_path.empty()) {
-            std::cerr << "[error] failed to emit object for stage\n";
+            std::cerr << "[error] failed to emit object\n";
             return false;
         }
-        std::cerr << "[info] produced object: " << obj_path << "\n";
+        if (V) std::cerr << "[polyc] Produced: " << obj_path << "\n";
         if (link_stage) {
             std::string out_exe = settings.output;
             if (settings.obj_format == "pobj") {
                 std::string cmd = settings.polyld_path + " " + obj_path + " -o " + out_exe;
-                std::cerr << "[info] invoking polyld -> " << out_exe << "\n";
+                if (V) std::cerr << "[polyc] Invoking polyld -> " << out_exe << "\n";
                 int rc = std::system(cmd.c_str());
                 if (rc != 0) {
-                    std::cerr << "[error] polyld failed, command: " << cmd << " (rc=" << rc << ")\n";
+                    std::cerr << "[error] polyld failed (rc=" << rc << ")\n";
                     return false;
                 }
             } else {
                 std::string cmd = "clang -o " + out_exe + " " + obj_path;
-                std::cerr << "[info] invoking system linker -> " << out_exe << "\n";
+                if (V) std::cerr << "[polyc] Invoking system linker -> " << out_exe << "\n";
                 int rc = std::system(cmd.c_str());
                 if (rc != 0) {
-                    std::cerr << "[error] system link failed, command: " << cmd << " (rc=" << rc << ")\n";
+                    std::cerr << "[error] system link failed (rc=" << rc << ")\n";
                     return false;
                 }
             }
-            std::cerr << "[info] linked executable: " << out_exe << "\n";
+            if (V) std::cerr << "[polyc] Linked: " << out_exe << "\n";
         }
+        t.Stop();
         return true;
     };
 
@@ -1062,7 +1391,22 @@ int main(int argc, char **argv) {
         if (!emit_object_and_maybe_link(false)) return 1;
     }
 
-    std::cout << "Target: " << target_triple << "\n";
+    // ---- Summary ----
+    auto total_end = std::chrono::high_resolution_clock::now();
+    double total_ms = std::chrono::duration<double, std::milli>(total_end - total_start).count();
+
+    if (V) {
+        std::cerr << "----------------------------------------\n";
+        std::cerr << "[polyc] Target: " << target_triple << "\n";
+        std::cerr << "[polyc] Total time: " << std::fixed << std::setprecision(1)
+                  << total_ms << "ms\n";
+        if (!aux_dir.empty()) {
+            std::cerr << "[polyc] Aux files written to: " << aux_dir << "\n";
+        }
+        std::cerr << "[polyc] Compilation successful.\n";
+        std::cerr << "========================================\n";
+    }
+
     polyglot_gc_unregister_root(&scratch);
     return 0;
 }

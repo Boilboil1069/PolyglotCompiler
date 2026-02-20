@@ -71,7 +71,14 @@ const std::vector<std::string> &args,
   void AddPhiIncoming(PhiInstruction *phi, BasicBlock *pred, const std::string &value);
 
   std::shared_ptr<BasicBlock> CreateBlock(const std::string &name);
-  std::shared_ptr<Function> CurrentFunction() { return context_.DefaultFunction(); }
+
+  // Set the active function that CreateBlock will add blocks to.
+  // When set, CreateBlock targets this function instead of the default one.
+  void SetCurrentFunction(const std::shared_ptr<Function> &fn) { active_function_ = fn; }
+  void ClearCurrentFunction() { active_function_.reset(); }
+  std::shared_ptr<Function> CurrentFunction() {
+      return active_function_ ? active_function_ : context_.DefaultFunction();
+  }
 
  private:
   std::shared_ptr<BasicBlock> CurrentBlock();
@@ -79,6 +86,7 @@ const std::vector<std::string> &args,
   IRContext &context_;
   size_t temp_index_{0};
   std::shared_ptr<BasicBlock> insert_block_{};
+  std::shared_ptr<Function> active_function_{};
 };
 
 }  // namespace polyglot::ir

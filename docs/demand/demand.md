@@ -170,11 +170,25 @@ IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0 AS pt;
 2.samples文件夹中按照ploy内容分类分文件夹，每个文件夹有ploy文件，与ploy中说的cpp，python与rust文件。
 3，实现tests文件夹下的integration（集成测试）文件夹与benchmarks（性能基准）文件夹。
 
---end
+--end -done
 
 2026-02-20-6 
 
-1.我需要在samples中内置一个python环境，以便samples内部调用，同样的要有一个rust环境，但是不要被git同步，要有一个bash文件以便创建环境，（windows是powershell文件）
+1.我需要在samples中内置一个python环境，以便samples内部调用，同样的要有一个rust环境（环境都在env文件夹内），但是不要被git同步，要有一个bash文件以便创建环境，（windows是powershell文件）
 2.当我运行D:\Others\PolyglotCompiler\build\polyc.exe .\basic_linking.ploy -0 basic_linking时，应该有进度的输出，但是现在什么都没有，并且运行速度很慢，内存占用很高，请帮我修改，是不是应该有中间的辅助文件的输出呢？如果有请输出在同文件夹下aux文件夹下，没有aux时，需要程序自动生成。
+
+--end -done
+
+2026-02-20-7
+
+1.编译生成的二进制lib应该是有的，不应该全部编译在一个文件里。
+2.帮我通过polyc编译samples里面的01-10sample，要成功编译，不要有报错。
+
+--end
+
+2026-02-20-8
+
+1.帮我添加java的支持，需要支持java8、java17，java21，java23的功能。
+2.帮我添加.net的支持，需要支持.net6、7、8、9
 
 --end

@@ -268,7 +268,7 @@ PolyglotCompiler/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
 ├── tools/                  # 工具链（6 个可执行文件）
-│   ├── polyc/              # 编译器驱动 (driver.cpp ~1069 行)
+│   ├── polyc/              # 编译器驱动 (driver.cpp ~1412 行)
 │   ├── polyld/             # 链接器 (linker.cpp + polyglot_linker.cpp ~522 行)
 │   ├── polyasm/            # 汇编器 (assembler.cpp)
 │   ├── polyopt/            # 优化器 (optimizer.cpp)
@@ -278,9 +278,9 @@ PolyglotCompiler/
 ├── tests/                  # 测试
 │   ├── unit/               # 单元测试（Catch2 框架）
 │   │   └── frontends/ploy/ #   ploy_test.cpp（207+ 测试用例）
-│   ├── samples/            # 示例程序（10 个 .ploy 文件 + C++ 测试文件）
-│   ├── integration/        # 集成测试
-│   └── benchmarks/         # 性能基准
+│   ├── samples/            # 示例程序（10 个分类目录，含 .ploy/.cpp/.py/.rs）
+│   ├── integration/        # 集成测试（编译管道/互操作/性能）
+│   └── benchmarks/         # 基准测试（微基准/宏基准）
 └── docs/                   # 文档
     ├── realization/        # 实现文档（6 主题 × 2 语言 = 12 文件）
     ├── demand/             # 需求文档
@@ -1105,20 +1105,95 @@ Error [E3001]: Undefined variable 'unknown_var'
 ## 6.1 编译器驱动 (`polyc`)
 
 ```bash
-# 基本用法
-polyc [选项] <输入文件>
+# 基本用法 — 根据文件扩展名自动检测语言
+polyc <输入文件> -o <输出>
 
-# 选项
---lang=<cpp|python|rust|ploy>   # 源语言
---arch=<x86_64|arm64>           # 目标架构
--O<0|1|2|3>                     # 优化级别
---emit-ir=<文件>                # 输出 IR 文本
---emit-asm=<文件>               # 输出汇编
--o <文件>                       # 输出目标文件/可执行文件
---debug                         # 生成调试信息 (DWARF 5)
---regalloc=<linear-scan|graph-coloring>  # 寄存器分配器选择
---obj-format=<elf|macho|pobj>   # 目标文件格式
+# 显式指定语言
+polyc --lang=ploy input.ploy -o output
+
+# 完整用法
+polyc [选项] <输入文件>
 ```
+
+### 选项
+
+| 选项 | 说明 |
+|------|------|
+| `--lang=<cpp\|python\|rust\|ploy>` | 源语言（省略时根据扩展名自动检测） |
+| `--arch=<x86_64\|arm64>` | 目标架构（默认：x86_64） |
+| `-O<0\|1\|2\|3>` | 优化级别 |
+| `--emit-ir=<文件>` | 输出 IR 文本 |
+| `--emit-asm=<文件>` | 输出汇编 |
+| `-o <文件>` | 输出目标文件/可执行文件 |
+| `--debug` | 生成调试信息 (DWARF 5) |
+| `--regalloc=<linear-scan\|graph-coloring>` | 寄存器分配器选择 |
+| `--obj-format=<elf\|macho\|pobj>` | 目标文件格式 |
+| `--quiet` / `-q` | 禁止进度输出 |
+| `--no-aux` | 禁止辅助文件生成 |
+| `--force` | 遇到错误继续编译 |
+| `-h` / `--help` | 显示帮助信息 |
+
+### 语言自动检测
+
+`polyc` 根据文件扩展名自动检测源语言：
+
+| 扩展名 | 语言 |
+|--------|------|
+| `.ploy` | ploy |
+| `.py` | python |
+| `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
+| `.rs` | rust |
+
+### 进度输出
+
+默认情况下，`polyc` 向 stderr 打印详细进度信息：
+
+```
+========================================
+ PolyglotCompiler v4.3  (polyc)
+========================================
+[polyc] Source: basic_linking.ploy
+[polyc] Language: ploy (auto-detected)
+[polyc] Arch: x86_64
+[polyc] Opt level: O0
+[polyc] Output: basic_linking
+----------------------------------------
+[polyc] Aux dir: ./aux
+[polyc] Lexing (.ploy)... done (1.8ms)
+[polyc]   -> ./aux/basic_linking.tokens (3585 bytes)
+[polyc] Parsing (.ploy)... done (2.1ms)
+[polyc]   -> ./aux/basic_linking.ast (174 bytes)
+[polyc] Semantic analysis (.ploy)... done (0.8ms)
+[polyc]   -> ./aux/basic_linking.symbols (273 bytes)
+[polyc] IR lowering (.ploy)... done (1.1ms)
+[polyc]   -> ./aux/basic_linking.ir (877 bytes)
+[polyc]   -> ./aux/basic_linking.descriptors (539 bytes)
+[polyc] SSA conversion + verification... done (0.6ms)
+[polyc] Assembly generation... done (1.0ms)
+[polyc]   -> ./aux/basic_linking.asm (1323 bytes)
+----------------------------------------
+[polyc] Target: x86_64-unknown-elf
+[polyc] Total time: 23.2ms
+[polyc] Compilation successful.
+========================================
+```
+
+使用 `--quiet` 禁止进度输出。
+
+### 辅助文件
+
+默认情况下，`polyc` 在源文件所在目录的 `aux/` 子目录中生成中间文件：
+
+| 文件 | 内容 |
+|------|------|
+| `<stem>.tokens` | 词法分析器 token 输出（类型、位置、文本） |
+| `<stem>.ast` | AST 摘要（声明数量、位置） |
+| `<stem>.symbols` | 符号表条目（类型、种类） |
+| `<stem>.ir` | IR 文本表示 |
+| `<stem>.descriptors` | 跨语言调用描述符 |
+| `<stem>.asm` | 生成的汇编代码 |
+
+使用 `--no-aux` 禁止辅助文件生成。`aux/` 目录通过 `.gitignore` 自动排除。
 
 ### 优化级别
 
@@ -1185,6 +1260,31 @@ polyc -flto=thin file1.o file2.o -o app
 | `error_handling.ploy` | 错误处理 |
 | `package_import.ploy` | 包导入 + 版本约束 + 选择性导入 + CONFIG |
 | `cross_lang_class_instantiation.ploy` | 跨语言类实例化混合调用 |
+
+## 6.6 示例环境配置
+
+`tests/samples/` 目录包含环境配置脚本，用于创建运行示例所需的本地 Python 和 Rust 环境。
+
+### Windows (PowerShell)
+
+```powershell
+cd tests/samples
+.\setup_env.ps1
+```
+
+### Linux / macOS (Bash)
+
+```bash
+cd tests/samples
+chmod +x setup_env.sh
+./setup_env.sh
+```
+
+脚本将创建：
+- **Python 虚拟环境**：位于 `tests/samples/env/python/`，预装 numpy、torch、typing-extensions
+- **Rust 工具链**：位于 `tests/samples/env/rust/`，使用独立的 RUSTUP_HOME/CARGO_HOME
+
+`env/` 目录通过 `.gitignore` 自动排除，不会被 git 同步。
 
 ---
 
@@ -1416,11 +1516,21 @@ GC 策略选择: `gc_strategy.cpp`
 
 ## 10.1 测试概览
 
-项目使用 **Catch2** 测试框架。测试源码通过 `file(GLOB_RECURSE)` 自动收集 `tests/unit/` 目录下所有 `.cpp` 文件。
+项目使用 **Catch2** 测试框架。共有三个测试可执行文件：
+
+| 可执行文件 | 源码目录 | 标签 | 说明 |
+|-----------|---------|------|------|
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 |
+| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 |
+| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 |
+
+### 测试套件汇总
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
 | .ploy 前端 | `[ploy]` | 207 (598 断言) | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
+| 集成测试 | `[integration]` | 45 (142 断言) | 完整管道/跨语言互操作/性能压力 |
+| 基准测试 | `[benchmark]` | 18 (129 断言) | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
 | GC 算法 | `[gc]` | 40+ | 4 种 GC 算法 |
 | 优化 Passes | `[opt]` | 50+ | 25+ 优化 passes |
 | Python 特性 | `[python]` | 25+ | 25+ Python 高级特性 |
@@ -1447,7 +1557,7 @@ GC 策略选择: `gc_strategy.cpp`
 ## 10.3 运行测试
 
 ```bash
-# 运行所有测试
+# 运行所有单元测试
 ./unit_tests
 
 # 运行 .ploy 测试
@@ -1458,39 +1568,105 @@ GC 策略选择: `gc_strategy.cpp`
 ./unit_tests [ploy][lexer]      # 词法分析测试
 ./unit_tests [ploy][sema]       # 语义分析测试
 
+# 运行集成测试
+./integration_tests [integration]
+./integration_tests [compile]   # 仅编译管道测试
+./integration_tests [interop]   # 仅互操作测试
+./integration_tests [perf]      # 仅性能压力测试
+
+# 运行基准测试
+./benchmark_tests [benchmark]
+./benchmark_tests [micro]       # 仅微基准测试
+./benchmark_tests [macro]       # 仅宏基准测试
+
 # 详细输出
 ./unit_tests [ploy] -r compact
 
 # Windows 注意：需要 <nul 防止 pip 命令挂起
 unit_tests.exe [ploy] -r compact 2>&1 <nul
+integration_tests.exe [integration] -r compact 2>&1 <nul
+benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
 ```
 
 ## 10.4 示例程序
 
-`tests/samples/` 目录包含 10 个 `.ploy` 示例文件和多个 C++ 测试文件：
+`tests/samples/` 目录包含 10 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py` 和 `.rs` 源文件：
 
 ```
 tests/samples/
-├── advanced_pipeline.ploy              # 多阶段管道
-├── basic_linking.ploy                  # 基础链接
-├── complex_types.ploy                  # 复杂类型
-├── container_marshalling.ploy          # 容器编组
-├── cross_lang_class_instantiation.ploy # 跨语言类实例化混合调用
-├── error_handling.ploy                 # 错误处理
-├── mixed_compilation.ploy              # 混合编译
-├── multi_language_pipeline.ploy        # 三语言管道
-├── package_import.ploy                 # 包导入
-├── pipeline_control_flow.ploy          # 管道控制流
-├── class_test.cpp                      # C++ OOP 测试
-├── complete_implementation_test.cpp    # 完整实现测试
-├── e2e_test.cpp                        # 端到端测试
-├── exception_test.cpp                  # 异常测试
-├── float_test.cpp                      # 浮点测试
-├── simd_test.cpp                       # SIMD 测试
-├── hello_world/                        # 入门示例
-├── interop/                            # 互操作示例
-└── ir/                                 # IR 示例
+├── README.md                           # 示例总览
+├── 01_basic_linking/                   # 基本 LINK + CALL 互操作
+│   ├── basic_linking.ploy
+│   ├── math_bridge.cpp
+│   ├── math_bridge.py
+│   └── math_bridge.rs
+├── 02_advanced_pipeline/               # 多阶段 PIPELINE
+├── 03_package_import/                  # IMPORT 与版本约束
+├── 04_complex_types/                   # STRUCT、ARRAY、MAP_TYPE
+├── 05_pipeline_control_flow/           # PIPELINE 中的 IF/ELSE/WHILE/FOR/MATCH
+├── 06_error_handling/                  # 错误处理模式
+├── 07_mixed_compilation/               # LINK + PIPELINE + STRUCT 组合
+├── 08_container_marshalling/           # 跨语言容器转换
+├── 09_multi_language_pipeline/         # 三语言(C++/Python/Rust)管道
+└── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
 ```
+
+## 10.5 集成测试
+
+`tests/integration/` 目录包含 45 个集成测试，分为 3 个类别：
+
+```
+tests/integration/
+├── compile_tests/
+│   └── compile_pipeline_test.cpp       # 17 个测试：完整编译管道
+├── interop_tests/
+│   └── interop_test.cpp                # 14 个测试：跨语言互操作
+└── performance/
+    └── perf_test.cpp                   # 14 个测试：性能压力
+```
+
+### 集成测试类别
+
+| 类别 | 标签 | 测试数 | 覆盖内容 |
+|------|------|--------|---------|
+| 编译管道 | `[integration][compile]` | 17 | LINK+CALL、STRUCT、PIPELINE、IF/ELSE/WHILE/FOR、NEW/METHOD、GET/SET、WITH、DELETE、EXTEND、MATCH、ML管道、多函数PIPELINE |
+| 跨语言互操作 | `[integration][interop]` | 14 | LINK链、NEW创建、METHOD链、生命周期(NEW→METHOD→DELETE)、多语言对象、GET/SET、WITH/嵌套WITH、EXTEND、组合OOP、三语言 |
+| 性能压力 | `[integration][perf]` | 14 | 50/100函数、10/20层嵌套、50/100 CALL、20/50阶段管道、复杂混合程序、词法/语法吞吐 |
+
+## 10.6 基准测试
+
+`tests/benchmarks/` 目录包含 18 个基准测试，分为 2 个类别：
+
+```
+tests/benchmarks/
+├── micro/
+│   └── micro_bench.cpp                 # 8 个测试：逐阶段基准
+└── macro/
+    └── macro_bench.cpp                 # 10 个测试：全管道吞吐量
+```
+
+### 微基准测试
+
+测量各编译器阶段的吞吐量，包含预热和统计报告：
+
+| 测试 | 说明 |
+|------|------|
+| 词法分析 小/中/大 | 3 种程序规模的 Token 吞吐量 |
+| 语法分析 小/中/大 | AST 构建吞吐量 |
+| 语义分析 中 | 语义分析吞吐量 |
+| Lowering 中 | IR 生成吞吐量 |
+
+### 宏基准测试
+
+测量完整管道 (lex → parse → sema → lower → IR print) 性能：
+
+| 测试 | 说明 |
+|------|------|
+| Pipeline 10/50/100/200 函数 | 函数数量增长下的吞吐量扩展 |
+| 扩展线性检查 | 验证次二次扩展 (2x 输入 < 5x 时间) |
+| OOP 10/25 类 | EXTEND + NEW + METHOD + DELETE 性能 |
+| Pipeline 10×5 / 20×10 | 多阶段管道，每阶段含多个 CALL |
+| IR 大小增长 | 验证 IR 输出大小随程序大小线性增长 |
 
 ---
 
@@ -1518,6 +1694,8 @@ tests/samples/
 | `polyrt` | 可执行文件 | runtime |
 | `polybench` | 可执行文件 | 全部 |
 | `unit_tests` | 可执行文件 | 全部 + Catch2 |
+| `integration_tests` | 可执行文件 | 全部 + Catch2 |
+| `benchmark_tests` | 可执行文件 | 全部 + Catch2 |
 
 ## 11.2 依赖管理
 

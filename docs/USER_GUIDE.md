@@ -268,7 +268,7 @@ PolyglotCompiler/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
 ├── tools/                  # Toolchain (6 executables)
-│   ├── polyc/              # Compiler driver (driver.cpp ~1069 lines)
+│   ├── polyc/              # Compiler driver (driver.cpp ~1412 lines)
 │   ├── polyld/             # Linker (linker.cpp + polyglot_linker.cpp ~522 lines)
 │   ├── polyasm/            # Assembler (assembler.cpp)
 │   ├── polyopt/            # Optimiser (optimizer.cpp)
@@ -278,8 +278,9 @@ PolyglotCompiler/
 ├── tests/                  # Tests
 │   ├── unit/               # Unit tests (Catch2 framework)
 │   │   └── frontends/ploy/ #   ploy_test.cpp (171+ test cases)
-│   ├── samples/            # Sample programs (10 .ploy files + C++ test files)
-│   ├── integration/        # Integration tests
+│   ├── samples/            # Sample programs (10 categorised directories with .ploy/.cpp/.py/.rs)
+│   ├── integration/        # Integration tests (compile pipeline / interop / performance)
+│   └── benchmarks/         # Benchmark tests (micro / macro)
 │   └── benchmarks/         # Performance benchmarks
 └── docs/                   # Documentation
     ├── realization/        # Implementation docs (6 topics × 2 languages = 12 files)
@@ -1116,20 +1117,95 @@ See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Compl
 ## 6.1 Compiler Driver (`polyc`)
 
 ```bash
-# Basic usage
-polyc [options] <input_file>
+# Basic usage — auto-detects language from file extension
+polyc <input_file> -o <output>
 
-# Options
---lang=<cpp|python|rust|ploy>   # Source language
---arch=<x86_64|arm64>           # Target architecture
--O<0|1|2|3>                     # Optimisation level
---emit-ir=<file>                # Output IR text
---emit-asm=<file>               # Output assembly
--o <file>                       # Output object file / executable
---debug                         # Generate debug info (DWARF 5)
---regalloc=<linear-scan|graph-coloring>  # Register allocator selection
---obj-format=<elf|macho|pobj>   # Object file format
+# Explicit language selection
+polyc --lang=ploy input.ploy -o output
+
+# Full options
+polyc [options] <input_file>
 ```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--lang=<cpp\|python\|rust\|ploy>` | Source language (auto-detected from extension if omitted) |
+| `--arch=<x86_64\|arm64>` | Target architecture (default: x86_64) |
+| `-O<0\|1\|2\|3>` | Optimisation level |
+| `--emit-ir=<file>` | Output IR text |
+| `--emit-asm=<file>` | Output assembly |
+| `-o <file>` | Output object file / executable |
+| `--debug` | Generate debug info (DWARF 5) |
+| `--regalloc=<linear-scan\|graph-coloring>` | Register allocator selection |
+| `--obj-format=<elf\|macho\|pobj>` | Object file format |
+| `--quiet` / `-q` | Suppress progress output |
+| `--no-aux` | Disable auxiliary file generation |
+| `--force` | Continue compilation despite errors |
+| `-h` / `--help` | Show usage information |
+
+### Language Auto-Detection
+
+`polyc` automatically detects the source language from the file extension:
+
+| Extension | Language |
+|-----------|----------|
+| `.ploy` | ploy |
+| `.py` | python |
+| `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
+| `.rs` | rust |
+
+### Progress Output
+
+By default, `polyc` prints detailed progress to stderr:
+
+```
+========================================
+ PolyglotCompiler v4.3  (polyc)
+========================================
+[polyc] Source: basic_linking.ploy
+[polyc] Language: ploy (auto-detected)
+[polyc] Arch: x86_64
+[polyc] Opt level: O0
+[polyc] Output: basic_linking
+----------------------------------------
+[polyc] Aux dir: ./aux
+[polyc] Lexing (.ploy)... done (1.8ms)
+[polyc]   -> ./aux/basic_linking.tokens (3585 bytes)
+[polyc] Parsing (.ploy)... done (2.1ms)
+[polyc]   -> ./aux/basic_linking.ast (174 bytes)
+[polyc] Semantic analysis (.ploy)... done (0.8ms)
+[polyc]   -> ./aux/basic_linking.symbols (273 bytes)
+[polyc] IR lowering (.ploy)... done (1.1ms)
+[polyc]   -> ./aux/basic_linking.ir (877 bytes)
+[polyc]   -> ./aux/basic_linking.descriptors (539 bytes)
+[polyc] SSA conversion + verification... done (0.6ms)
+[polyc] Assembly generation... done (1.0ms)
+[polyc]   -> ./aux/basic_linking.asm (1323 bytes)
+----------------------------------------
+[polyc] Target: x86_64-unknown-elf
+[polyc] Total time: 23.2ms
+[polyc] Compilation successful.
+========================================
+```
+
+Use `--quiet` to suppress progress output.
+
+### Auxiliary Files
+
+By default, `polyc` generates intermediate files in an `aux/` subdirectory alongside the source file:
+
+| File | Content |
+|------|---------|
+| `<stem>.tokens` | Lexer token dump (kind, location, text) |
+| `<stem>.ast` | AST summary (declaration count, locations) |
+| `<stem>.symbols` | Symbol table entries (kind, type) |
+| `<stem>.ir` | IR text representation |
+| `<stem>.descriptors` | Cross-language call descriptors |
+| `<stem>.asm` | Generated assembly code |
+
+Use `--no-aux` to disable auxiliary file generation. The `aux/` directory is automatically excluded from git (via `.gitignore`).
 
 ### Optimisation Levels
 
@@ -1196,6 +1272,31 @@ The project includes 10 `.ploy` samples in `tests/samples/`:
 | `error_handling.ploy` | Error handling |
 | `package_import.ploy` | Package import + version constraints + selective import + CONFIG |
 | `cross_lang_class_instantiation.ploy` | Cross-language class instantiation with mixed calls |
+
+## 6.6 Sample Environment Setup
+
+The `tests/samples/` directory includes environment setup scripts to create local Python and Rust environments for running samples.
+
+### Windows (PowerShell)
+
+```powershell
+cd tests/samples
+.\setup_env.ps1
+```
+
+### Linux / macOS (Bash)
+
+```bash
+cd tests/samples
+chmod +x setup_env.sh
+./setup_env.sh
+```
+
+The scripts create:
+- **Python venv** in `tests/samples/env/python/` with numpy, torch, typing-extensions
+- **Rust toolchain** in `tests/samples/env/rust/` with isolated RUSTUP_HOME/CARGO_HOME
+
+The `env/` directory is excluded from git via `.gitignore`.
 
 ---
 
@@ -1427,11 +1528,21 @@ GC strategy selection: `gc_strategy.cpp`
 
 ## 10.1 Test Overview
 
-The project uses the **Catch2** testing framework. Test sources are automatically collected via `file(GLOB_RECURSE)` from all `.cpp` files under `tests/unit/`.
+The project uses the **Catch2** testing framework. There are three test executables:
+
+| Executable | Source Directory | Tags | Description |
+|-----------|-----------------|------|-------------|
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules |
+| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress |
+| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks |
+
+### Test Suite Summary
 
 | Test Suite | Tag | Test Cases | Coverage |
 |-----------|-----|-----------|----------|
 | .ploy Frontend | `[ploy]` | 207 (598 assertions) | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
+| Integration Tests | `[integration]` | 45 (142 assertions) | Full pipeline / Cross-language interop / Performance stress |
+| Benchmark Tests | `[benchmark]` | 18 (129 assertions) | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
 | GC Algorithms | `[gc]` | 40+ | 4 GC algorithms |
 | Optimisation Passes | `[opt]` | 50+ | 25+ optimisation passes |
 | Python Features | `[python]` | 25+ | 25+ Python advanced features |
@@ -1458,7 +1569,7 @@ The project uses the **Catch2** testing framework. Test sources are automaticall
 ## 10.3 Running Tests
 
 ```bash
-# Run all tests
+# Run all unit tests
 ./unit_tests
 
 # Run .ploy tests
@@ -1469,39 +1580,105 @@ The project uses the **Catch2** testing framework. Test sources are automaticall
 ./unit_tests [ploy][lexer]      # Lexer tests
 ./unit_tests [ploy][sema]       # Semantic analysis tests
 
+# Run integration tests
+./integration_tests [integration]
+./integration_tests [compile]   # Compilation pipeline tests only
+./integration_tests [interop]   # Interop tests only
+./integration_tests [perf]      # Performance stress tests only
+
+# Run benchmark tests
+./benchmark_tests [benchmark]
+./benchmark_tests [micro]       # Micro-benchmarks only
+./benchmark_tests [macro]       # Macro-benchmarks only
+
 # Verbose output
 ./unit_tests [ploy] -r compact
 
 # Windows note: needs <nul to prevent pip command from hanging
 unit_tests.exe [ploy] -r compact 2>&1 <nul
+integration_tests.exe [integration] -r compact 2>&1 <nul
+benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
 ```
 
 ## 10.4 Sample Programs
 
-The `tests/samples/` directory contains 10 `.ploy` sample files and multiple C++ test files:
+The `tests/samples/` directory contains 10 categorised sample directories, each with `.ploy`, `.cpp`, `.py`, and `.rs` source files:
 
 ```
 tests/samples/
-├── advanced_pipeline.ploy              # Multi-stage pipeline
-├── basic_linking.ploy                  # Basic linking
-├── complex_types.ploy                  # Complex types
-├── container_marshalling.ploy          # Container marshalling
-├── cross_lang_class_instantiation.ploy # Cross-language class instantiation with mixed calls
-├── error_handling.ploy                 # Error handling
-├── mixed_compilation.ploy              # Mixed compilation
-├── multi_language_pipeline.ploy        # Three-language pipeline
-├── package_import.ploy                 # Package import
-├── pipeline_control_flow.ploy          # Pipeline control flow
-├── class_test.cpp                      # C++ OOP test
-├── complete_implementation_test.cpp    # Complete implementation test
-├── e2e_test.cpp                        # End-to-end test
-├── exception_test.cpp                  # Exception test
-├── float_test.cpp                      # Floating-point test
-├── simd_test.cpp                       # SIMD test
-├── hello_world/                        # Getting started
-├── interop/                            # Interop examples
-└── ir/                                 # IR examples
+├── README.md                           # Sample overview
+├── 01_basic_linking/                   # Basic LINK + CALL interop
+│   ├── basic_linking.ploy
+│   ├── math_bridge.cpp
+│   ├── math_bridge.py
+│   └── math_bridge.rs
+├── 02_advanced_pipeline/               # Multi-stage PIPELINE
+├── 03_package_import/                  # IMPORT with version constraints
+├── 04_complex_types/                   # STRUCT, ARRAY, MAP_TYPE
+├── 05_pipeline_control_flow/           # IF/ELSE/WHILE/FOR/MATCH in PIPELINE
+├── 06_error_handling/                  # Error handling patterns
+├── 07_mixed_compilation/               # Combined LINK + PIPELINE + STRUCT
+├── 08_container_marshalling/           # Cross-language container conversion
+├── 09_multi_language_pipeline/         # Three-language (C++/Python/Rust) pipeline
+└── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
 ```
+
+## 10.5 Integration Tests
+
+The `tests/integration/` directory contains 45 integration tests across 3 categories:
+
+```
+tests/integration/
+├── compile_tests/
+│   └── compile_pipeline_test.cpp       # 17 tests: full compilation pipeline
+├── interop_tests/
+│   └── interop_test.cpp                # 14 tests: cross-language interop
+└── performance/
+    └── perf_test.cpp                   # 14 tests: performance stress
+```
+
+### Integration Test Categories
+
+| Category | Tag | Tests | Coverage |
+|----------|-----|-------|----------|
+| Compile Pipeline | `[integration][compile]` | 17 | LINK+CALL, STRUCT, PIPELINE, IF/ELSE/WHILE/FOR, NEW/METHOD, GET/SET, WITH, DELETE, EXTEND, MATCH, ML pipeline, multi-function PIPELINE |
+| Cross-Language Interop | `[integration][interop]` | 14 | LINK chains, NEW creation, METHOD chains, lifecycle (NEW→METHOD→DELETE), multi-lang objects, GET/SET, WITH/nested, EXTEND, combined OOP, three-language |
+| Performance Stress | `[integration][perf]` | 14 | 50/100 functions, 10/20-level nesting, 50/100 CALLs, 20/50-stage pipelines, complex mixed program, lexer/parser throughput |
+
+## 10.6 Benchmark Tests
+
+The `tests/benchmarks/` directory contains 18 benchmark tests across 2 categories:
+
+```
+tests/benchmarks/
+├── micro/
+│   └── micro_bench.cpp                 # 8 tests: per-stage benchmarks
+└── macro/
+    └── macro_bench.cpp                 # 10 tests: full pipeline throughput
+```
+
+### Micro-Benchmarks
+
+Measure individual compiler stage throughput with warmup and statistical reporting:
+
+| Test | Description |
+|------|-------------|
+| Lexer small/medium/large | Token throughput for 3 program sizes |
+| Parser small/medium/large | AST construction throughput |
+| Sema medium | Semantic analysis throughput |
+| Lowering medium | IR generation throughput |
+
+### Macro-Benchmarks
+
+Measure full pipeline (lex → parse → sema → lower → IR print) performance:
+
+| Test | Description |
+|------|-------------|
+| Pipeline 10/50/100/200 funcs | Throughput scaling with function count |
+| Scaling linearity check | Verify sub-quadratic scaling (2x input < 5x time) |
+| OOP 10/25 classes | EXTEND + NEW + METHOD + DELETE performance |
+| Pipeline 10×5 / 20×10 | Multi-stage pipeline with per-stage CALLs |
+| IR size growth | Verify IR output size grows linearly with program size |
 
 ---
 
@@ -1529,6 +1706,8 @@ tests/samples/
 | `polyrt` | Executable | runtime |
 | `polybench` | Executable | All |
 | `unit_tests` | Executable | All + Catch2 |
+| `integration_tests` | Executable | All + Catch2 |
+| `benchmark_tests` | Executable | All + Catch2 |
 
 ## 11.2 Dependency Management
 
