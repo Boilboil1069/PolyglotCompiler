@@ -33,6 +33,7 @@ entry:
   auto &fn = *ctx.Functions().back();
   REQUIRE(Verify(fn, &ctx.Layout(), &err));
   REQUIRE(err.empty());
+  REQUIRE(err.empty());
 
   const std::string dumped = Dump(fn);
   REQUIRE(dumped == text);

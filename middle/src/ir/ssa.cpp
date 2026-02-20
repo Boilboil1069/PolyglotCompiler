@@ -53,7 +53,8 @@ void InsertPhiNodes(Function &func, const DominanceFrontier &df,
 
 static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
                         std::unordered_map<std::string, std::vector<int>> &stacks,
-                        std::unordered_map<std::string, int> &counters) {
+                        std::unordered_map<std::string, int> &counters,
+                        const std::unordered_set<std::string> &pre_defined) {
   auto new_name = [&](const std::string &base) {
     int &ctr = counters[base];
     int v = ctr++;
@@ -63,18 +64,17 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
 
   auto current_top = [&](const std::string &base) -> std::string {
     auto it = stacks.find(base);
-    if (it == stacks.end() || it->second.empty()) return base;  // fallback
+    if (it == stacks.end() || it->second.empty()) return base;
     int v = it->second.back();
     return base + "_" + std::to_string(v);
   };
 
-  // rename phi results first
+  // rename phi results first (do NOT rename phi incomings here —
+  // they are set by each predecessor in the "update phi operands in
+  // successors" step below)
   for (auto &phi : bb->phis) {
     if (!phi->name.empty()) {
       phi->name = new_name(phi->name);
-    }
-    for (auto &inc : phi->incomings) {
-      inc.second = current_top(inc.second);
     }
   }
 
@@ -105,7 +105,14 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
     for (auto &phi : succ->phis) {
       for (auto &inc : phi->incomings) {
         if (inc.first == bb) {
-          inc.second = current_top(inc.second);
+          // Check if the base name has a version on the stack
+          auto sit = stacks.find(inc.second);
+          if ((sit == stacks.end() || sit->second.empty()) && !pre_defined.count(inc.second)) {
+            // Value is undefined on this path — mark as undef
+            inc.second = "undef";
+          } else {
+            inc.second = current_top(inc.second);
+          }
         }
       }
     }
@@ -115,7 +122,7 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
   auto child_it = dom_tree.children.find(bb);
   if (child_it != dom_tree.children.end()) {
     for (auto *child : child_it->second) {
-      RenameBlock(child, dom_tree, stacks, counters);
+      RenameBlock(child, dom_tree, stacks, counters, pre_defined);
     }
   }
 
@@ -145,7 +152,61 @@ void RenameToSSA(Function &func, const DominatorTree &dom_tree) {
   if (!func.entry) return;
   std::unordered_map<std::string, std::vector<int>> stacks;
   std::unordered_map<std::string, int> counters;
-  RenameBlock(func.entry, dom_tree, stacks, counters);
+  std::unordered_set<std::string> pre_defined(func.params.begin(), func.params.end());
+  RenameBlock(func.entry, dom_tree, stacks, counters, pre_defined);
+}
+
+// Remove trivial phis: a phi is trivial if all incoming values (excluding
+// self-references) resolve to the same single value.  Such phis can be
+// replaced by that value throughout the function.
+static void RemoveTrivialPhis(Function &func) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (auto &bb_ptr : func.blocks) {
+      auto *bb = bb_ptr.get();
+      for (auto it = bb->phis.begin(); it != bb->phis.end(); ) {
+        auto &phi = *it;
+        std::string unique_val;
+        bool trivial = true;
+        for (auto &inc : phi->incomings) {
+          if (inc.second == phi->name || inc.second == "undef") continue;  // self-reference or undef
+          if (unique_val.empty()) {
+            unique_val = inc.second;
+          } else if (inc.second != unique_val) {
+            trivial = false;
+            break;
+          }
+        }
+        if (!trivial || unique_val.empty()) {
+          ++it;
+          continue;
+        }
+        // Replace all uses of phi->name with unique_val
+        const std::string old_name = phi->name;
+        auto replace_in = [&](std::vector<std::string> &ops) {
+          for (auto &op : ops) {
+            if (op == old_name) op = unique_val;
+          }
+        };
+        for (auto &b : func.blocks) {
+          for (auto &p : b->phis) {
+            for (auto &inc : p->incomings) {
+              if (inc.second == old_name) inc.second = unique_val;
+            }
+          }
+          for (auto &inst : b->instructions) {
+            replace_in(inst->operands);
+          }
+          if (b->terminator) {
+            replace_in(b->terminator->operands);
+          }
+        }
+        it = bb->phis.erase(it);
+        changed = true;
+      }
+    }
+  }
 }
 
 void ConvertToSSA(Function &func) {
@@ -155,6 +216,7 @@ void ConvertToSSA(Function &func) {
   auto defs = CollectDefSites(func);
   InsertPhiNodes(func, df, defs);
   RenameToSSA(func, dom);
+  RemoveTrivialPhis(func);
 }
 
 }  // namespace polyglot::ir

@@ -184,9 +184,41 @@ IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0 AS pt;
 1.编译生成的二进制lib应该是有的，不应该全部编译在一个文件里。
 2.帮我通过polyc编译samples里面的01-10sample，要成功编译，不要有报错。
 
---end
+--end -done
 
 2026-02-20-8
+
+1.运行tests\samples\setup_env.ps1时报错：
+
+```bash
+============================================
+ PolyglotCompiler Sample Environment Setup
+============================================
+
+[OK] env/ directory already exists
+
+--- Setting up Python environment ---
+[..] Creating Python virtual environment...
+[OK] Found Python: Python 3.10.15
+[OK] Python venv created at: D:\\Others\\PolyglotCompiler\\tests\\samples\\env\\python
+[OK] Found Python: Python 3.10.15
+[OK] Python venv created at: D:\\Others\\PolyglotCompiler\\tests\\samples\\[OK] Found Python: Python 3.10.15
+[OK] Python venv created at: D:\\Others\\PolyglotCompiler\\tests\\samples\\env\\python
+[..] Installing sample dependencies...
+pip.exe : ERROR: To modify pip, please run the following command:     
+所在位置 D:\Others\PolyglotCompiler\tests\samples\setup_env.ps1:73 字 符: 13
++             & pip install --upgrade pip 2>&1 | Out-Null
++             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ERROR: To modif...lowing command::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+```
+
+2.ploy等语言的编译目标不应该是二进制可执行文件吗？不能到asm就结束了，
+3.需要将aux文件夹内的内容全部变为二进制文件，而不是明文在里面。
+
+--end
+
+2026-02-20-9
 
 1.帮我添加java的支持，需要支持java8、java17，java21，java23的功能。
 2.帮我添加.net的支持，需要支持.net6、7、8、9

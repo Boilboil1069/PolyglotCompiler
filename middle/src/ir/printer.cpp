@@ -38,6 +38,11 @@ std::string BinOpToString(BinaryInstruction::Op op) {
     case BinaryInstruction::Op::kCmpFle: return "cmpfle";
     case BinaryInstruction::Op::kCmpFgt: return "cmpfgt";
     case BinaryInstruction::Op::kCmpFge: return "cmpfge";
+    case BinaryInstruction::Op::kFAdd: return "fadd";
+    case BinaryInstruction::Op::kFSub: return "fsub";
+    case BinaryInstruction::Op::kFMul: return "fmul";
+    case BinaryInstruction::Op::kFDiv: return "fdiv";
+    case BinaryInstruction::Op::kFRem: return "frem";
   }
   return "bin";
 }

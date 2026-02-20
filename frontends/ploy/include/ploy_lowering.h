@@ -62,6 +62,7 @@ class PloyLowering {
     struct EnvEntry {
         std::string ir_name;
         ir::IRType type{ir::IRType::Invalid()};
+        bool is_mutable{false};  // true for VAR (uses alloca/load/store)
     };
 
     // Statement lowering

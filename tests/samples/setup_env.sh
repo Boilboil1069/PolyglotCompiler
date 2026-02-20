@@ -62,15 +62,19 @@ if [ ! -d "$PYTHON_ENV_DIR" ]; then
         $PYTHON_CMD -m venv "$PYTHON_ENV_DIR"
         echo "[OK] Python venv created at: $PYTHON_ENV_DIR"
 
-        # Activate and install packages
-        source "$PYTHON_ENV_DIR/bin/activate"
+        # Use the venv's own python for pip operations
+        VENV_PYTHON="$PYTHON_ENV_DIR/bin/python"
 
         echo "[..] Installing sample dependencies..."
-        pip install --upgrade pip >/dev/null 2>&1
-        pip install numpy torch typing-extensions 2>&1 || true
+        "$VENV_PYTHON" -m pip install --upgrade pip >/dev/null 2>&1 || true
+        "$VENV_PYTHON" -m pip install numpy typing-extensions 2>&1 || true
 
         echo "[OK] Python packages installed"
-        deactivate
+
+        # # Optionally install PyTorch (large package, may take time)
+        # echo "[..] Installing PyTorch (this may take a while)..."
+        # "$VENV_PYTHON" -m pip install torch --index-url https://download.pytorch.org/whl/cpu 2>&1 || true
+        # echo "[OK] PyTorch install attempted"
     fi
 else
     echo "[OK] Python environment already exists at: $PYTHON_ENV_DIR"

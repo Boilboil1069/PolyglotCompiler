@@ -202,6 +202,12 @@ void PloyLowering::LowerPipelineDecl(const std::shared_ptr<PipelineDecl> &pipeli
 // ============================================================================
 
 void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
+    // Save outer context — nested functions (e.g. inside PIPELINE) must not
+    // clobber the enclosing function's state.
+    auto saved_fn = current_function_;
+    auto saved_insert = builder_.GetInsertPoint();
+    bool saved_terminated = terminated_;
+
     // Build parameter list
     std::vector<std::pair<std::string, ir::IRType>> params;
     for (const auto &p : func->params) {
@@ -237,8 +243,15 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
         env_.erase(p.name);
     }
 
-    current_function_ = nullptr;
-    builder_.ClearCurrentFunction();
+    // Restore outer context
+    current_function_ = saved_fn;
+    if (saved_fn) {
+        builder_.SetCurrentFunction(saved_fn);
+    } else {
+        builder_.ClearCurrentFunction();
+    }
+    builder_.SetInsertPoint(saved_insert);
+    terminated_ = saved_terminated;
 }
 
 // ============================================================================
@@ -253,11 +266,20 @@ void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
         if (init_result.type.kind != ir::IRTypeKind::kInvalid) {
             var_type = init_result.type;
         }
-        env_[var->name] = EnvEntry{init_result.value, var_type};
+        if (var->is_mutable) {
+            // Mutable VAR: use alloca/store/load pattern so that
+            // re-assignments inside loops produce correct SSA.
+            auto alloca_inst = builder_.MakeAlloca(var_type, var->name);
+            builder_.MakeStore(alloca_inst->name, init_result.value);
+            env_[var->name] = EnvEntry{alloca_inst->name, var_type, true};
+        } else {
+            // Immutable LET: bind the SSA value directly.
+            env_[var->name] = EnvEntry{init_result.value, var_type, false};
+        }
     } else {
-        // Allocate space for the variable
-        auto alloca = builder_.MakeAlloca(var_type, var->name);
-        env_[var->name] = EnvEntry{alloca->name, var_type};
+        // Allocate space for the variable (no initializer)
+        auto alloca_inst = builder_.MakeAlloca(var_type, var->name);
+        env_[var->name] = EnvEntry{alloca_inst->name, var_type, var->is_mutable};
     }
 }
 
@@ -278,6 +300,7 @@ void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt)
     builder_.SetInsertPoint(then_bb);
     terminated_ = false;
     LowerBlockStatements(if_stmt->then_body);
+    bool then_terminated = terminated_;
     if (!terminated_) {
         builder_.MakeBranch(merge_bb.get());
     }
@@ -288,13 +311,19 @@ void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt)
     if (!if_stmt->else_body.empty()) {
         LowerBlockStatements(if_stmt->else_body);
     }
+    bool else_terminated = terminated_;
     if (!terminated_) {
         builder_.MakeBranch(merge_bb.get());
     }
 
     // Continue in merge block
     builder_.SetInsertPoint(merge_bb);
-    terminated_ = false;
+    // If both branches terminated (e.g., both have RETURN), the merge block
+    // is unreachable.  Mark terminated so the caller won't emit a void return.
+    terminated_ = then_terminated && else_terminated;
+    if (terminated_) {
+        builder_.MakeUnreachable();
+    }
 }
 
 void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt) {
@@ -342,6 +371,7 @@ void PloyLowering::LowerForStatement(const std::shared_ptr<ForStatement> &for_st
     // Comparison against the iterable length (simplified: use the iter value as upper bound)
     auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpSlt,
                                    idx_load->name, iter.value, "for.cond.cmp");
+    cmp->type = ir::IRType::I1();
     builder_.MakeCondBranch(cmp->name, body_bb.get(), exit_bb.get());
 
     // Body block
@@ -355,6 +385,7 @@ void PloyLowering::LowerForStatement(const std::shared_ptr<ForStatement> &for_st
         auto idx_reload = builder_.MakeLoad(idx_alloca->name, ir::IRType::I64(true), "idx.next.load");
         auto inc = builder_.MakeBinary(ir::BinaryInstruction::Op::kAdd,
                                        idx_reload->name, "1", "idx.inc");
+        inc->type = ir::IRType::I64(true);
         builder_.MakeStore(idx_alloca->name, inc->name);
         builder_.MakeBranch(cond_bb.get());
     }
@@ -395,17 +426,23 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
     builder_.MakeSwitch(match_val.value, ir_cases, default_bb);
 
     // Lower each case body
+    bool all_terminated = true;
     for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
         builder_.SetInsertPoint(case_blocks[i]);
         terminated_ = false;
         LowerBlockStatements(match_stmt->cases[i].body);
         if (!terminated_) {
+            all_terminated = false;
             builder_.MakeBranch(merge_bb.get());
         }
     }
 
     builder_.SetInsertPoint(merge_bb);
-    terminated_ = false;
+    // If every case terminated (e.g., RETURN / BREAK), merge is unreachable
+    terminated_ = all_terminated;
+    if (terminated_) {
+        builder_.MakeUnreachable();
+    }
 }
 
 void PloyLowering::LowerReturnStatement(const std::shared_ptr<ReturnStatement> &ret) {
@@ -500,6 +537,11 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
 PloyLowering::EvalResult PloyLowering::LowerIdentifier(const std::shared_ptr<Identifier> &id) {
     auto it = env_.find(id->name);
     if (it != env_.end()) {
+        if (it->second.is_mutable) {
+            // Mutable VAR: load the current value from its alloca
+            auto load = builder_.MakeLoad(it->second.ir_name, it->second.type);
+            return {load->name, it->second.type};
+        }
         return {it->second.ir_name, it->second.type};
     }
     Report(id->loc, "undefined variable '" + id->name + "' during lowering");
@@ -543,7 +585,16 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     if (bin->op == "=") {
         EvalResult rhs = LowerExpression(bin->right);
         if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
-            env_[id->name] = EnvEntry{rhs.value, rhs.type};
+            auto it = env_.find(id->name);
+            if (it != env_.end() && it->second.is_mutable) {
+                // Mutable VAR: store to the alloca address
+                builder_.MakeStore(it->second.ir_name, rhs.value);
+                // Keep the env entry pointing to the alloca (type may change)
+                it->second.type = rhs.type;
+            } else {
+                // Immutable LET or unknown: direct SSA rebind
+                env_[id->name] = EnvEntry{rhs.value, rhs.type, false};
+            }
             return rhs;
         }
         return rhs;
@@ -605,6 +656,7 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     }
 
     auto inst = builder_.MakeBinary(op, left.value, right.value, "");
+    inst->type = result_type;
     return {inst->name, result_type};
 }
 
@@ -618,6 +670,7 @@ PloyLowering::EvalResult PloyLowering::LowerUnaryExpression(
                          operand.type.kind == ir::IRTypeKind::kF64);
         auto op = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
         auto inst = builder_.MakeBinary(op, "0", operand.value, "neg");
+        inst->type = operand.type;
         return {inst->name, operand.type};
     }
 
@@ -625,6 +678,7 @@ PloyLowering::EvalResult PloyLowering::LowerUnaryExpression(
         // Logical not: xor with 1
         auto inst = builder_.MakeBinary(ir::BinaryInstruction::Op::kXor,
                                         operand.value, "1", "not");
+        inst->type = ir::IRType::I1();
         return {inst->name, ir::IRType::I1()};
     }
 
@@ -1072,7 +1126,7 @@ PloyLowering::EvalResult PloyLowering::LowerListLiteral(
         EvalResult e = LowerExpression(elem);
         // Allocate space for the element and store it
         auto alloca_inst = builder_.MakeAlloca(e.type, e.value + ".addr");
-        builder_.MakeStore(e.value, alloca_inst->name);
+        builder_.MakeStore(alloca_inst->name, e.value);
         builder_.MakeCall("__ploy_rt_list_push",
                           {create_call->name, alloca_inst->name},
                           ir::IRType::Void(), "");
@@ -1130,9 +1184,9 @@ PloyLowering::EvalResult PloyLowering::LowerDictLiteral(
 
         // Allocate and store key and value for passing by pointer
         auto key_alloca = builder_.MakeAlloca(key.type, "dict.key.addr");
-        builder_.MakeStore(key.value, key_alloca->name);
+        builder_.MakeStore(key_alloca->name, key.value);
         auto val_alloca = builder_.MakeAlloca(val.type, "dict.val.addr");
-        builder_.MakeStore(val.value, val_alloca->name);
+        builder_.MakeStore(val_alloca->name, val.value);
 
         builder_.MakeCall("__ploy_rt_dict_insert",
                           {create_call->name, key_alloca->name, val_alloca->name},
@@ -1277,7 +1331,8 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
         assign->name = dst_name;
         assign->type = dst_type;
         assign->operands.push_back(src_val);
-        ir_ctx_.AddStatement(assign);
+        auto bb = builder_.GetInsertPoint();
+        if (bb) bb->AddInstruction(assign);
         return;
     }
 
@@ -1325,7 +1380,8 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
     assign->name = dst_name;
     assign->type = dst_type;
     assign->operands.push_back(src_val);
-    ir_ctx_.AddStatement(assign);
+    auto bb = builder_.GetInsertPoint();
+    if (bb) bb->AddInstruction(assign);
 }
 
 // ============================================================================

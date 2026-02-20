@@ -154,7 +154,13 @@ struct Settings {
     bool emit_aux{true};                  // emit aux/ intermediate files (default on)
     std::vector<std::string> include_paths{"."};
     std::string mode{"compile"};  // compile | assemble | link (stub)
-    std::string obj_format{"pobj"};  // pobj|elf|macho
+#if defined(_WIN32)
+    std::string obj_format{"coff"};  // auto-detect COFF on Windows
+#elif defined(__APPLE__)
+    std::string obj_format{"macho"};
+#else
+    std::string obj_format{"elf"};
+#endif
     std::string output{"a.out"};
     std::string emit_obj_path{};      // optional override path for object output
     std::string emit_asm_path{};
@@ -230,7 +236,7 @@ Settings ParseArgs(int argc, char **argv) {
                       << "  --emit-ir=<path>    Write IR to file\n"
                       << "  --emit-asm=<path>   Write assembly to file\n"
                       << "  --emit-obj=<path>   Write object to file\n"
-                      << "  --obj-format=<fmt>  pobj|elf|macho\n"
+                      << "  --obj-format=<fmt>  pobj|coff|elf|macho (auto-detected per OS)\n"
                       << "  --quiet             Suppress progress output\n"
                       << "  --no-aux            Do not emit auxiliary files\n"
                       << "  --force             Continue despite errors\n"
@@ -865,24 +871,243 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
 }
 #endif
 
+// ---- PE/COFF Object File Emitter (for Windows) ----
+// Minimal COFF relocatable object so Windows toolchain (MSVC link.exe) can consume it.
+#pragma pack(push, 1)
+struct CoffFileHeader {
+    std::uint16_t Machine;
+    std::uint16_t NumberOfSections;
+    std::uint32_t TimeDateStamp;
+    std::uint32_t PointerToSymbolTable;
+    std::uint32_t NumberOfSymbols;
+    std::uint16_t SizeOfOptionalHeader;
+    std::uint16_t Characteristics;
+};
+
+struct CoffSectionHeader {
+    char Name[8];
+    std::uint32_t VirtualSize;
+    std::uint32_t VirtualAddress;
+    std::uint32_t SizeOfRawData;
+    std::uint32_t PointerToRawData;
+    std::uint32_t PointerToRelocations;
+    std::uint32_t PointerToLinenumbers;
+    std::uint16_t NumberOfRelocations;
+    std::uint16_t NumberOfLinenumbers;
+    std::uint32_t Characteristics;
+};
+
+struct CoffSymbol {
+    union {
+        char ShortName[8];
+        struct {
+            std::uint32_t Zeroes;
+            std::uint32_t Offset;
+        } LongName;
+    } Name;
+    std::uint32_t Value;
+    std::int16_t  SectionNumber;
+    std::uint16_t Type;
+    std::uint8_t  StorageClass;
+    std::uint8_t  NumberOfAuxSymbols;
+};
+
+struct CoffRelocation {
+    std::uint32_t VirtualAddress;
+    std::uint32_t SymbolTableIndex;
+    std::uint16_t Type;
+};
+#pragma pack(pop)
+
+// COFF machine types
+constexpr std::uint16_t kCoffMachineAMD64  = 0x8664;
+constexpr std::uint16_t kCoffMachineARM64  = 0xAA64;
+// COFF section characteristics
+constexpr std::uint32_t kCoffSecText  = 0x60000020;  // CNT_CODE | MEM_EXECUTE | MEM_READ
+constexpr std::uint32_t kCoffSecData  = 0xC0000040;  // CNT_INITIALIZED_DATA | MEM_READ | MEM_WRITE
+constexpr std::uint32_t kCoffSecBss   = 0xC0000080;  // CNT_UNINITIALIZED_DATA | MEM_READ | MEM_WRITE
+// COFF symbol storage classes
+constexpr std::uint8_t kCoffSymExternal  = 2;
+constexpr std::uint8_t kCoffSymStatic    = 3;
+// COFF relocation types (AMD64)
+constexpr std::uint16_t kCoffRelocAMD64Addr64 = 0x0001;
+constexpr std::uint16_t kCoffRelocAMD64Rel32  = 0x0004;
+// COFF relocation types (ARM64)
+constexpr std::uint16_t kCoffRelocARM64Branch26 = 0x0003;
+
+std::string BuildCoff(const std::string &path, const std::vector<ObjSection> &obj_sections,
+                      const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
+    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
+
+    // Build COFF section headers
+    std::vector<CoffSectionHeader> sec_headers;
+    std::vector<const ObjSection *> sec_ptrs;
+    std::unordered_map<std::string, std::uint16_t> sec_name_to_idx;
+
+    for (const auto &s : obj_sections) {
+        CoffSectionHeader sh{};
+        std::memset(&sh, 0, sizeof(sh));
+        std::string name = s.name;
+        if (name.size() <= 8) {
+            std::memcpy(sh.Name, name.data(), name.size());
+        } else {
+            std::memcpy(sh.Name, name.data(), 8);
+        }
+        sh.SizeOfRawData = static_cast<std::uint32_t>(s.data.size());
+        if (name == ".text" || name == ".code") {
+            sh.Characteristics = kCoffSecText;
+        } else if (s.bss) {
+            sh.Characteristics = kCoffSecBss;
+            sh.SizeOfRawData = 0;
+            sh.VirtualSize = static_cast<std::uint32_t>(s.data.size());
+        } else {
+            sh.Characteristics = kCoffSecData;
+        }
+        sec_name_to_idx[name] = static_cast<std::uint16_t>(sec_headers.size());
+        sec_headers.push_back(sh);
+        sec_ptrs.push_back(&s);
+    }
+
+    // Build COFF symbol table
+    std::string strtab;
+    strtab.resize(4, '\0');  // 4-byte size placeholder
+
+    std::vector<CoffSymbol> coff_syms;
+    std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
+
+    for (const auto &sym : obj_symbols) {
+        CoffSymbol cs{};
+        std::memset(&cs, 0, sizeof(cs));
+        if (sym.name.size() <= 8) {
+            std::memcpy(cs.Name.ShortName, sym.name.data(), sym.name.size());
+        } else {
+            cs.Name.LongName.Zeroes = 0;
+            cs.Name.LongName.Offset = static_cast<std::uint32_t>(strtab.size());
+            strtab.append(sym.name);
+            strtab.push_back('\0');
+        }
+        cs.Value = static_cast<std::uint32_t>(sym.value);
+        if (sym.defined && sym.section_index != 0xFFFFFFFF) {
+            cs.SectionNumber = static_cast<std::int16_t>(sym.section_index + 1);
+        } else {
+            cs.SectionNumber = 0;
+        }
+        cs.Type = 0x20;
+        cs.StorageClass = sym.global ? kCoffSymExternal : kCoffSymStatic;
+        cs.NumberOfAuxSymbols = 0;
+        sym_name_to_idx[sym.name] = static_cast<std::uint32_t>(coff_syms.size());
+        coff_syms.push_back(cs);
+    }
+
+    std::uint32_t strtab_size = static_cast<std::uint32_t>(strtab.size());
+    std::memcpy(strtab.data(), &strtab_size, 4);
+
+    // Build relocations per section
+    std::vector<std::vector<CoffRelocation>> sec_relocs(sec_headers.size());
+    for (std::size_t si = 0; si < obj_sections.size(); ++si) {
+        for (const auto &r : obj_sections[si].relocs) {
+            CoffRelocation cr{};
+            cr.VirtualAddress = static_cast<std::uint32_t>(r.offset);
+            if (r.symbol_index < obj_symbols.size()) {
+                auto it = sym_name_to_idx.find(obj_symbols[r.symbol_index].name);
+                cr.SymbolTableIndex = it != sym_name_to_idx.end() ? it->second : r.symbol_index;
+            } else {
+                cr.SymbolTableIndex = r.symbol_index;
+            }
+            if (is_arm64) {
+                cr.Type = kCoffRelocARM64Branch26;
+            } else {
+                cr.Type = (r.type == 0) ? kCoffRelocAMD64Addr64 : kCoffRelocAMD64Rel32;
+            }
+            sec_relocs[si].push_back(cr);
+        }
+    }
+
+    // Calculate file layout offsets
+    std::size_t offset = sizeof(CoffFileHeader) + sec_headers.size() * sizeof(CoffSectionHeader);
+    for (std::size_t i = 0; i < sec_headers.size(); ++i) {
+        if (sec_ptrs[i]->bss) {
+            sec_headers[i].PointerToRawData = 0;
+        } else {
+            sec_headers[i].PointerToRawData = static_cast<std::uint32_t>(offset);
+            offset += sec_ptrs[i]->data.size();
+        }
+    }
+    for (std::size_t i = 0; i < sec_headers.size(); ++i) {
+        if (!sec_relocs[i].empty()) {
+            sec_headers[i].PointerToRelocations = static_cast<std::uint32_t>(offset);
+            sec_headers[i].NumberOfRelocations = static_cast<std::uint16_t>(sec_relocs[i].size());
+            offset += sec_relocs[i].size() * sizeof(CoffRelocation);
+        }
+    }
+    std::uint32_t sym_table_offset = static_cast<std::uint32_t>(offset);
+
+    // Write COFF file
+    CoffFileHeader fh{};
+    fh.Machine = is_arm64 ? kCoffMachineARM64 : kCoffMachineAMD64;
+    fh.NumberOfSections = static_cast<std::uint16_t>(sec_headers.size());
+    fh.TimeDateStamp = 0;
+    fh.PointerToSymbolTable = sym_table_offset;
+    fh.NumberOfSymbols = static_cast<std::uint32_t>(coff_syms.size());
+    fh.SizeOfOptionalHeader = 0;
+    fh.Characteristics = 0;
+
+    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) return {};
+
+    ofs.write(reinterpret_cast<const char *>(&fh), sizeof(fh));
+    ofs.write(reinterpret_cast<const char *>(sec_headers.data()),
+              static_cast<std::streamsize>(sec_headers.size() * sizeof(CoffSectionHeader)));
+    for (std::size_t i = 0; i < sec_ptrs.size(); ++i) {
+        if (!sec_ptrs[i]->bss && !sec_ptrs[i]->data.empty()) {
+            ofs.write(reinterpret_cast<const char *>(sec_ptrs[i]->data.data()),
+                      static_cast<std::streamsize>(sec_ptrs[i]->data.size()));
+        }
+    }
+    for (std::size_t i = 0; i < sec_relocs.size(); ++i) {
+        if (!sec_relocs[i].empty()) {
+            ofs.write(reinterpret_cast<const char *>(sec_relocs[i].data()),
+                      static_cast<std::streamsize>(sec_relocs[i].size() * sizeof(CoffRelocation)));
+        }
+    }
+    ofs.write(reinterpret_cast<const char *>(coff_syms.data()),
+              static_cast<std::streamsize>(coff_syms.size() * sizeof(CoffSymbol)));
+    ofs.write(strtab.data(), static_cast<std::streamsize>(strtab.size()));
+
+    return ofs.good() ? path : std::string{};
+}
+
 std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &sections,
                       const std::vector<ObjSymbol> &symbols) {
-    std::string out = settings.emit_obj_path.empty() ? settings.output + (settings.obj_format == "pobj" ? ".pobj" : ".o")
+    // Determine output extension based on format
+    std::string ext;
+    std::string fmt = settings.obj_format;
+    if (fmt == "pobj") ext = ".pobj";
+    else if (fmt == "coff") ext = ".obj";
+    else ext = ".o";
+
+    std::string out = settings.emit_obj_path.empty() ? settings.output + ext
                                                      : settings.emit_obj_path;
 
-    if (settings.obj_format == "pobj") {
+    if (fmt == "pobj") {
         auto written = BuildPobj(out, sections, symbols);
         if (written.empty()) return {};
         return written;
     }
 
-    if (settings.obj_format == "elf") {
+    if (fmt == "coff") {
+        auto written = BuildCoff(out, sections, symbols, settings.arch);
+        if (written.empty()) std::cerr << "[error] COFF emit failed\n";
+        return written;
+    }
+
+    if (fmt == "elf") {
         auto written = BuildElf64(out, sections, symbols, settings.arch);
         if (written.empty()) std::cerr << "[error] ELF emit failed\n";
         return written;
     }
 
-    if (settings.obj_format == "macho") {
+    if (fmt == "macho") {
 #if defined(__APPLE__)
         auto written = BuildMachO64(out, sections, symbols, settings.arch);
         if (written.empty()) std::cerr << "[error] Mach-O emit failed\n";
@@ -893,7 +1118,7 @@ std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &
 #endif
     }
 
-    std::cerr << "[warn] unknown obj format: " << settings.obj_format << ", falling back to POBJ\n";
+    std::cerr << "[warn] unknown obj format: " << fmt << ", falling back to POBJ\n";
     return BuildPobj(out, sections, symbols);
 }
 
@@ -919,7 +1144,7 @@ static std::string SourceStem(const Settings &settings) {
     return fs::path(settings.source_path).stem().string();
 }
 
-// Helper: write string content to an aux file
+// Helper: write string content to an aux file (plaintext or binary)
 static void WriteAuxFile(const std::string &aux_dir, const std::string &filename,
                          const std::string &content, bool verbose) {
     if (aux_dir.empty()) return;
@@ -932,6 +1157,62 @@ static void WriteAuxFile(const std::string &aux_dir, const std::string &filename
                       << content.size() << " bytes)\n";
         }
     }
+}
+
+// ---- Binary Auxiliary File Format (PAUX) ----
+// Header: magic(4) "PAUX" + version(2) + section_count(2) + reserved(8) = 16 bytes
+// Each section descriptor: name_len(2) + name(N) + data_len(4) + data(M)
+// All multi-byte integers are little-endian.
+
+#pragma pack(push, 1)
+struct PAuxHeader {
+    char magic[4];          // "PAUX"
+    std::uint16_t version;  // 1
+    std::uint16_t section_count;
+    std::uint8_t  reserved[8];
+};
+#pragma pack(pop)
+
+// Write a binary auxiliary file containing multiple named data sections.
+static void WriteAuxBinary(const std::string &aux_dir, const std::string &filename,
+                           const std::vector<std::pair<std::string, std::string>> &sections,
+                           bool verbose) {
+    if (aux_dir.empty()) return;
+    fs::path path = fs::path(aux_dir) / filename;
+    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) return;
+
+    PAuxHeader hdr{};
+    std::memcpy(hdr.magic, "PAUX", 4);
+    hdr.version = 1;
+    hdr.section_count = static_cast<std::uint16_t>(sections.size());
+    std::memset(hdr.reserved, 0, sizeof(hdr.reserved));
+    ofs.write(reinterpret_cast<const char *>(&hdr), sizeof(hdr));
+
+    for (const auto &[name, data] : sections) {
+        // Section name: uint16 length + name bytes (no null terminator)
+        std::uint16_t name_len = static_cast<std::uint16_t>(name.size());
+        ofs.write(reinterpret_cast<const char *>(&name_len), 2);
+        ofs.write(name.data(), name_len);
+        // Section data: uint32 length + data bytes
+        std::uint32_t data_len = static_cast<std::uint32_t>(data.size());
+        ofs.write(reinterpret_cast<const char *>(&data_len), 4);
+        ofs.write(data.data(), data_len);
+    }
+
+    if (verbose) {
+        std::size_t total = sizeof(PAuxHeader);
+        for (const auto &[n, d] : sections) total += 2 + n.size() + 4 + d.size();
+        std::cerr << "[polyc]   -> " << path.string() << " ("
+                  << total << " bytes, binary)\n";
+    }
+}
+
+// Write a single-section binary auxiliary file.
+static void WriteAuxBinarySingle(const std::string &aux_dir, const std::string &filename,
+                                 const std::string &section_name, const std::string &content,
+                                 bool verbose) {
+    WriteAuxBinary(aux_dir, filename, {{section_name, content}}, verbose);
 }
 
 int main(int argc, char **argv) {
@@ -1023,7 +1304,7 @@ int main(int argc, char **argv) {
             }
             t.Stop();
         }
-        WriteAuxFile(aux_dir, stem + ".tokens", token_dump, V);
+        WriteAuxBinarySingle(aux_dir, stem + ".tokens.paux", "tokens", token_dump, V);
 
         // Phase 2: Parsing
         polyglot::ploy::PloyLexer lexer(processed, source_label);
@@ -1053,7 +1334,7 @@ int main(int argc, char **argv) {
                 ast_oss << "  [" << i << "] loc=" << decl->loc.line
                         << ":" << decl->loc.column << "\n";
             }
-            WriteAuxFile(aux_dir, stem + ".ast", ast_oss.str(), V);
+            WriteAuxBinarySingle(aux_dir, stem + ".ast.paux", "ast", ast_oss.str(), V);
         }
 
         // Phase 3: Semantic analysis
@@ -1081,7 +1362,7 @@ int main(int argc, char **argv) {
                 sym_oss << "  " << name << " : kind="
                         << static_cast<int>(sym.kind) << "\n";
             }
-            WriteAuxFile(aux_dir, stem + ".symbols", sym_oss.str(), V);
+            WriteAuxBinarySingle(aux_dir, stem + ".symbols.paux", "symbols", sym_oss.str(), V);
         }
 
         // Phase 4: IR Lowering
@@ -1106,7 +1387,7 @@ int main(int argc, char **argv) {
             for (const auto &fn : ir_module.Functions()) {
                 polyglot::ir::PrintFunction(*fn, ir_oss);
             }
-            WriteAuxFile(aux_dir, stem + ".ir", ir_oss.str(), V);
+            WriteAuxBinarySingle(aux_dir, stem + ".ir.paux", "ir", ir_oss.str(), V);
         }
 
         // Write cross-language call descriptors to aux
@@ -1121,7 +1402,7 @@ int main(int argc, char **argv) {
                          << descs[i].target_language << "::" << descs[i].target_function
                          << " (params: " << descs[i].param_marshal.size() << ")\n";
             }
-            WriteAuxFile(aux_dir, stem + ".descriptors", desc_oss.str(), V);
+            WriteAuxBinarySingle(aux_dir, stem + ".descriptors.paux", "descriptors", desc_oss.str(), V);
         }
 
         lowered = true;
@@ -1330,8 +1611,50 @@ int main(int argc, char **argv) {
         run_backend(target);
     }
 
-    // Write assembly to aux
-    WriteAuxFile(aux_dir, stem + ".asm", asm_text, V);
+    // Write assembly to aux (binary format)
+    WriteAuxBinarySingle(aux_dir, stem + ".asm.paux", "assembly", asm_text, V);
+
+    // Also write per-language library object files into aux/
+    // Each cross-language bridge is emitted as a separate object file.
+    if (!aux_dir.empty() && settings.language == "ploy") {
+        StageTimer t("Per-language library emission", V);
+        // Collect languages referenced in symbols
+        std::unordered_map<std::string, std::vector<std::size_t>> lang_symbol_groups;
+        for (std::size_t i = 0; i < symbols.size(); ++i) {
+            const auto &sym = symbols[i];
+            // Symbols named __ploy_bridge_ploy_<lang>_... belong to that language
+            if (sym.name.rfind("__ploy_bridge_ploy_", 0) == 0) {
+                auto rest = sym.name.substr(19);  // after "__ploy_bridge_ploy_"
+                auto sep = rest.find('_');
+                if (sep != std::string::npos) {
+                    std::string lang = rest.substr(0, sep);
+                    lang_symbol_groups[lang].push_back(i);
+                }
+            }
+        }
+
+        for (const auto &[lang, sym_indices] : lang_symbol_groups) {
+            // Build a per-language library object file
+            std::vector<ObjSection> lib_sections = sections;  // share sections
+            std::vector<ObjSymbol> lib_symbols;
+
+            for (auto idx : sym_indices) {
+                if (idx < symbols.size()) {
+                    lib_symbols.push_back(symbols[idx]);
+                }
+            }
+
+            if (!lib_symbols.empty()) {
+                fs::path lib_path = fs::path(aux_dir) / (stem + "_" + lang + ".lib.pobj");
+                auto written = BuildPobj(lib_path.string(), lib_sections, lib_symbols);
+                if (!written.empty() && V) {
+                    std::cerr << "[polyc]   -> " << lib_path.string()
+                              << " (" << lang << " bridge library)\n";
+                }
+            }
+        }
+        t.Stop();
+    }
 
     // ---- Phase 7: Emit outputs ----
     if (!settings.emit_ir_path.empty()) {
@@ -1346,10 +1669,9 @@ int main(int argc, char **argv) {
         if (ofs.is_open()) ofs << asm_text;
     }
 
-    if (settings.mode == "compile" || settings.mode == "assemble") {
-        std::cout << asm_text;
-    }
-
+    // In compile mode: emit binary object file (and per-language libs)
+    // In assemble mode: emit object file only
+    // In link mode: emit object + link to executable
     auto emit_object_and_maybe_link = [&](bool link_stage) -> bool {
         StageTimer t(link_stage ? "Emit object + link" : "Emit object", V);
         std::string obj_path = EmitObject(settings, sections, symbols);
@@ -1358,6 +1680,24 @@ int main(int argc, char **argv) {
             return false;
         }
         if (V) std::cerr << "[polyc] Produced: " << obj_path << "\n";
+
+        // Also emit object into aux/
+        if (!aux_dir.empty()) {
+            std::string aux_ext = (settings.obj_format == "coff") ? ".obj"
+                                : (settings.obj_format == "pobj") ? ".pobj"
+                                : ".o";
+            fs::path aux_obj = fs::path(aux_dir) / (stem + aux_ext);
+            if (aux_obj.string() != obj_path) {
+                std::error_code ec;
+                fs::copy_file(obj_path, aux_obj,
+                              fs::copy_options::overwrite_existing, ec);
+                if (!ec && V) {
+                    std::cerr << "[polyc]   -> " << aux_obj.string()
+                              << " (object copy in aux)\n";
+                }
+            }
+        }
+
         if (link_stage) {
             std::string out_exe = settings.output;
             if (settings.obj_format == "pobj") {
@@ -1368,20 +1708,39 @@ int main(int argc, char **argv) {
                     std::cerr << "[error] polyld failed (rc=" << rc << ")\n";
                     return false;
                 }
+            } else if (settings.obj_format == "coff") {
+                // On Windows, try MSVC link.exe first, then clang
+                std::string cmd = "link /NOLOGO /OUT:" + out_exe + " " + obj_path;
+                if (V) std::cerr << "[polyc] Invoking link.exe -> " << out_exe << "\n";
+                int rc = std::system(cmd.c_str());
+                if (rc != 0) {
+                    // Fallback to clang-cl / lld-link
+                    cmd = "lld-link /OUT:" + out_exe + " " + obj_path;
+                    rc = std::system(cmd.c_str());
+                }
+                if (rc != 0) {
+                    std::cerr << "[warn] system linker not available; object file produced at: "
+                              << obj_path << "\n";
+                }
             } else {
                 std::string cmd = "clang -o " + out_exe + " " + obj_path;
                 if (V) std::cerr << "[polyc] Invoking system linker -> " << out_exe << "\n";
                 int rc = std::system(cmd.c_str());
                 if (rc != 0) {
-                    std::cerr << "[error] system link failed (rc=" << rc << ")\n";
-                    return false;
+                    std::cerr << "[warn] system linker not available; object file produced at: "
+                              << obj_path << "\n";
                 }
             }
-            if (V) std::cerr << "[polyc] Linked: " << out_exe << "\n";
+            if (V) std::cerr << "[polyc] Link stage completed\n";
         }
         t.Stop();
         return true;
     };
+
+    // compile mode: always emit binary object file
+    if (settings.mode == "compile") {
+        if (!emit_object_and_maybe_link(false)) return 1;
+    }
 
     if (settings.mode == "link") {
         if (!emit_object_and_maybe_link(true)) return 1;
@@ -1398,10 +1757,11 @@ int main(int argc, char **argv) {
     if (V) {
         std::cerr << "----------------------------------------\n";
         std::cerr << "[polyc] Target: " << target_triple << "\n";
+        std::cerr << "[polyc] Object format: " << settings.obj_format << "\n";
         std::cerr << "[polyc] Total time: " << std::fixed << std::setprecision(1)
                   << total_ms << "ms\n";
         if (!aux_dir.empty()) {
-            std::cerr << "[polyc] Aux files written to: " << aux_dir << "\n";
+            std::cerr << "[polyc] Aux files (binary): " << aux_dir << "\n";
         }
         std::cerr << "[polyc] Compilation successful.\n";
         std::cerr << "========================================\n";

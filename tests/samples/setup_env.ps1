@@ -61,17 +61,17 @@ if (!(Test-Path $PythonEnvDir)) {
         Write-Host "[ERR] Python not found. Please install Python 3.8+ and add to PATH." -ForegroundColor Red
         Write-Host "      Download: https://www.python.org/downloads/" -ForegroundColor Red
     } else {
-        & $PythonCmd -m venv $PythonEnvDir
+        & $PythonCmd -m venv $PythonEnvDir 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Python venv created at: $PythonEnvDir" -ForegroundColor Green
 
-            # Activate and install common packages used in samples
-            $ActivateScript = Join-Path $PythonEnvDir "Scripts\Activate.ps1"
-            & $ActivateScript
+            # Use the venv's own python executable for pip operations
+            $VenvPython = Join-Path $PythonEnvDir "Scripts\python.exe"
 
             Write-Host "[..] Installing sample dependencies..."
-            & pip install --upgrade pip 2>&1 | Out-Null
-            & pip install numpy torch typing-extensions 2>&1
+            # Upgrade pip using the venv's python -m pip (avoids "To modify pip" error)
+            & $VenvPython -m pip install --upgrade pip 2>&1 | Out-Null
+            & $VenvPython -m pip install numpy typing-extensions 2>&1 | Out-Null
 
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[OK] Python packages installed" -ForegroundColor Green
@@ -79,7 +79,14 @@ if (!(Test-Path $PythonEnvDir)) {
                 Write-Host "[WARN] Some Python packages failed to install (non-critical)" -ForegroundColor Yellow
             }
 
-            deactivate 2>$null
+            # # Optionally install PyTorch (large package, may take time)
+            # Write-Host "[..] Installing PyTorch (this may take a while)..."
+            # & $VenvPython -m pip install torch --index-url https://download.pytorch.org/whl/cpu 2>&1 | Out-Null
+            # if ($LASTEXITCODE -eq 0) {
+            #     Write-Host "[OK] PyTorch installed" -ForegroundColor Green
+            # } else {
+            #     Write-Host "[WARN] PyTorch install failed (non-critical, some samples may not work)" -ForegroundColor Yellow
+            # }
         } else {
             Write-Host "[ERR] Failed to create Python venv" -ForegroundColor Red
         }
