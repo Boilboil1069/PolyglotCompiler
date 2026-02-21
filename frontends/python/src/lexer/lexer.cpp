@@ -395,9 +395,9 @@ frontends::Token PythonLexer::NextToken() {
         return frontends::Token{frontends::TokenKind::kSymbol, std::string(1, c), loc};
     }
 
-    if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
-        return LexIdentifier();
-    }
+    // Check for string prefix characters (r/f/b) before general identifier
+    // lexing so that f-strings, raw strings, and byte strings are handled
+    // correctly.
     if (c == 'r' || c == 'R' || c == 'f' || c == 'F' || c == 'b' || c == 'B') {
         char next = PeekNext();
         if (next == '"' || next == '\'' || next == 'r' || next == 'R' || next == 'f' ||
@@ -407,6 +407,9 @@ frontends::Token PythonLexer::NextToken() {
     }
     if (c == '"' || c == '\'') {
         return LexString();
+    }
+    if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+        return LexIdentifier();
     }
     if (std::isdigit(static_cast<unsigned char>(c))) {
         return LexNumber();

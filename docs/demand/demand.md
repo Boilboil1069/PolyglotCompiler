@@ -245,6 +245,166 @@ pip.exe : ERROR: To modify pip, please run the following command:
 
 2026-02-21-2
 
-1.需要在poly语言中支持关键字参数（即通过形参名指定实参）的方式传参。
+修复这些：
+
+1.polyc 对 python/rust 仍未接入真实 IR 降低，最终会回退生成假程序。driver.cpp (line 1428)、driver.cpp (line 1448)、driver.cpp (line 1489)
+
+2.后端若没产出 section 会静默塞入 stub 机器码继续产物输出，掩盖真实失败。driver.cpp (line 1560)、driver.cpp (line 1571)
+
+3.跨语言链接器在符号找不到时创建 placeholder 并返回成功，没有硬失败机制。polyglot_linker.cpp (line 121)、polyglot_linker.cpp (line 154)
+
+4.marshalling 仍大量占位：NOP/placeholder call，且部分转换调用 relocation 根本没挂入 stub。polyglot_linker.cpp (line 370)、polyglot_linker.cpp (line 451)、polyglot_linker.cpp (line 458)、polyglot_linker.cpp (line 486)
+
+5..ploy 降低层生成的运行时符号在 runtime 里缺实现（会导致真实链接/运行断裂）。lowering.cpp (line 1502)、lowering.cpp (line 1504)、lowering.cpp (line 1506)、lowering.cpp (line 1606)lowering.cpp (line 496)、lowering.cpp (line 532)（全仓未找到这些符号定义）
+
+6.Java/.NET runtime bridge 还是 stub，核心调用返回 NULL 或空操作。java_rt.c (line 59)、dotnet_rt.c (line 63)
+
+7.LTO 工作流仍非真实编译链：所谓 bitcode/object 目前是文件拷贝级实现。link_time_optimizer.cpp (line 118)、link_time_optimizer.cpp (line 1955)、link_time_optimizer.cpp (line 1983)
+
+8.polyopt 目前不处理输入文件，只优化空 IRContext 后打印 optimized。optimizer.cpp (line 20)
+
+9.polybench 大量 TODO，编译性能/E2E 基准并未落地。benchmark_suite.cpp (line 214)、benchmark_suite.cpp (line 297)
+
+10..ploy 的跨语言静态类型/参数检查仍偏弱（大量 Any，LINK 签名默认未知参数个数）。sema.cpp (line 168)、sema.cpp (line 1339)、sema.cpp (line 1357)、lowering.cpp (line 737)
+
+11.工程化还缺：E2E 测试被 #if 0 整体禁用，且 .github 为空（无 CI workflow）。e2e_compilation_test.cpp (line 20)
+
+12..ploy 关键字参数（命名实参）尚未实现，AST 和 parser 仅支持位置参数。ploy_ast.h (line 96)、parser.cpp (line 1463)
+
+--end
+
+2026-02-21-3
+
+1.polyrt 没有 FFI 管理能力（文档写了有，实际没有命令）
+README.md (line 232) 写的是 GC/FFI/Thread，但 polyrt 只支持 status/gc/thread/bench/info，没有 ffi 子命令：polyrt.cpp (line 129)、polyrt.cpp (line 759)。
+
+2.polyrt 统计基本是“本地计数器”，没接 runtime 真指标
+统计来自 g_stats：polyrt.cpp (line 119)；GC/线程展示大量硬编码或手工累加：polyrt.cpp (line 200)、polyrt.cpp (line 329)。而 GC 接口只有分配/回收/root 注册，没有查询统计的 API：gc_api.h (line 10)。
+
+3.链接器依赖的两个 runtime 符号仍缺实现
+polyld 会发射 __ploy_rt_convert_cppvec_to_list、__ploy_rt_convert_list_generic：polyglot_linker.cpp (line 500)、polyglot_linker.cpp (line 502)；runtime 里没有对应导出。
+
+4.Python 容器转换仍是占位实现
+直接返回原指针或空壳容器：container_marshal.cpp (line 213)、container_marshal.cpp (line 224)。
+
+5.线程 Profiling 接口只有声明，没有实现
+ThreadProfiler 只在头文件声明：threading.h (line 328)，threading.cpp 无对应定义。
+
+6.Java/.NET bridge 仍是“可退化”模式，失败时大量返回空
+找不到运行时直接降级返回：java_rt.c (line 42)、dotnet_rt.c (line 84)；.NET host 初始化参数也非常最小（TRUSTED_PLATFORM_ASSEMBLIES 为空）：dotnet_rt.c (line 101)。
+
+7.polyrt 本身还有可用性问题
+源码里有明显语法错误：polyrt.cpp (line 724)；同时有编码乱码输出：polyrt.cpp (line 57)、polyrt.cpp (line 219)。
+
+8.工程化上没有 polyrt 专项测试入口
+CTest 只挂了 unit/integration/benchmark：CMakeLists.txt (line 364)、CMakeLists.txt (line 365)、CMakeLists.txt (line 366)。
+
+--end
+
+2026-02-21-4
+
+LTO 还不是“真实编译链”
+link_time_optimizer.cpp (line 118)、link_time_optimizer.cpp (line 1976)、link_time_optimizer.cpp (line 1981) 仍在用 placeholder 指令/函数；link_time_optimizer.cpp (line 1680)、link_time_optimizer.cpp (line 1684) 只是写文本摘要，不是目标码产物。
+
+高级优化 Pass 大量空壳
+advanced_optimizations.cpp (line 1476) 到 advanced_optimizations.cpp (line 1539) 这批函数基本是 (void)func;（SoftwarePipelining/LoopTiling/BranchPrediction 等）。
+
+Devirtualization 仍是弱实现
+devirtualization.cpp (line 106) 把 InferObjectType 传 nullptr，类型传播路径基本失效；devirtualization.cpp (line 162) 注释明确只做简化检查。
+
+PRE/GVN 还有占位逻辑
+gvn.cpp (line 371)、gvn.cpp (line 378) 的补偿代码插入仍是 placeholder 类型（固定 I32）。
+
+模板实例化 AST 替换未落地
+template_instantiator.cpp (line 445)、template_instantiator.cpp (line 447) 直接返回 Success(nullptr)，AST substitution 还没真正实现。
+
+分析层公共接口还是壳
+alias.h (line 5)、dominance.h (line 5) 只有空 struct，没形成可复用分析 API。
+
+中端优化流程未真正接入 polyc
+driver.cpp (line 179) 有 opt_level，但主流程只看到 SSA+Verify（driver.cpp (line 1514)、driver.cpp (line 1517)），没有把 middle 的优化 pipeline 真正跑起来。
+
+middle 的测试仍有大量“占位通过”
+optimization_passes_test.cpp (line 23)（TODO）及大量 REQUIRE(true)，很多优化并没有被行为级断言锁定。
+
+--end
+
+2026-02-21-5
+
+.ploy 跨语言 LINK 仍是占位级 lowering：wrapper 固定只放一个 arg0:i64，返回值默认 i64，不是按真实签名生成。lowering.cpp (line 1241) lowering.cpp (line 1248) lowering.cpp (line 1250)
+
+.ploy 静态类型检查仍偏弱：大量退化为 Any，且 LINK 参数个数依赖 MAP_TYPE 条目推断。sema.cpp (line 152) sema.cpp (line 159) sema.cpp (line 783) sema.cpp (line 825)
+
+命名实参语法有了，但语义上名字基本被忽略（只按 value 处理）。sema.cpp (line 688) lowering.cpp (line 533)
+
+Java/.NET 前端 lowering 发出的运行时符号与 runtime 实现不对齐：前端调用 __ploy_java_*/__ploy_dotnet_*，runtime 侧主要导出 polyglot_java_*/polyglot_dotnet_*，且多项 __ploy_* helper 未实现。lowering.cpp (line 271) lowering.cpp (line 496) lowering.cpp (line 278) lowering.cpp (line 532) java_rt.c (line 180) dotnet_rt.c (line 133)
+
+C++ lowering 仍有明显未覆盖语义。lowering.cpp (line 821) lowering.cpp (line 1478) lowering.cpp (line 1505) lowering.cpp (line 1519)
+
+Python lowering 仍有未完整实现路径（如 starred args）。lowering.cpp (line 349) lowering.cpp (line 926) lowering.cpp (line 2004)
+
+Rust lowering 仍有“skip/not fully supported”分支（宏调用、tuple 解构等）。lowering.cpp (line 774) lowering.cpp (line 827) lowering.cpp (line 1209)
+
+Java/.NET parser 对外暴露的部分接口仍是空实现返回 nullptr。parser.cpp (line 1279) parser.cpp (line 1479)
+
+--end
+
+2026-02-21-6
+
+跨语言链接主链路没接上
+polyc 只把 descriptor 写到 aux，没有把它喂给 PolyglotLinker（driver.cpp (line 1408)）。polyld 主流程里也没调用 ResolveLinks()（linker.cpp 全文件无调用点）。
+
+.ploy 生成的桥接 stub 仍是占位签名
+GenerateLinkStub 里参数还是固定 arg0: i64（lowering.cpp (line 1248)），不是按真实函数签名生成。
+
+linker 依赖的 runtime 符号还缺
+__ploy_rt_convert_cppvec_to_list、__ploy_rt_convert_list_generic 在 linker 会发射（polyglot_linker.cpp (line 500), polyglot_linker.cpp (line 502)），runtime 里没有实现。
+
+Python 容器互转还是 placeholder
+list->pylist / dict->pydict 直接返回原指针（container_marshal.cpp (line 213), container_marshal.cpp (line 224)）。
+
+wasm backend 还没落地
+backends/wasm 目录是空骨架，且 CMake 没有 backend_wasm 目标（CMakeLists.txt）。
+
+自研 linker 功能不完整
+COFF/PE 加载未实现（linker.cpp (line 1118)）；可重定位/静态库输出未实现（linker.cpp (line 2302), linker.cpp (line 2306)）；Mach-O 可执行/动态库未实现（linker.cpp (line 2454), linker.cpp (line 2459)）。
+
+LTO / polyopt 仍偏占位
+LTO 里仍有 placeholder instruction / placeholder 函数路径（link_time_optimizer.cpp (line 118), link_time_optimizer.cpp (line 1976)）；polyopt 还是空 context 走 pass（optimizer.cpp (line 88)）。
+
+backend 级跨语言 E2E 还不够
+现有 integration 多数停在“词法-语义-lowering-IR”，没有覆盖真实“跨语言链接+产物运行”链路（compile_pipeline_test.cpp (line 39)）。
+
+--end
+
+2026-02-21-7
+
+common 调试抽象里有“未落地且当前不可用”的接口
+debug_info_builder.h (line 315) 使用了未定义的 dwarf::DwarfContext；而且该头里又定义了一套 SourceLocation（debug_info_builder.h (line 26)），和 dwarf5.h (line 129) 重复，后续一旦接入会直接冲突。
+
+后端 common 的对象文件能力不完整
+object_file.cpp (line 267) 的 MachOBuilder::Build() 只写了最小头部就返回。
+object_file.cpp (line 100) ELF e_machine 固定写 EM_X86_64，没有按目标切换。
+object_file.cpp (line 21) 定义了 SHT_RELA，但构建流程里没有真正落地 section relocation。
+
+Debug 发射器实现仍是简化版，不是“完整链路”
+debug_emitter.cpp (line 894)（CFA 初始化简化）
+debug_emitter.cpp (line 996)（GUID 生成简化）
+debug_emitter.cpp (line 1061)（TPI type record 为空）
+debug_emitter.cpp (line 1214)（PDB stream block 布局简化）
+
+DWARF 代码路径重复且分裂
+仓库里有三套相关实现：dwarf5.cpp、dwarf_builder.cpp、debug_emitter.cpp 内部 builder。
+其中 dwarf_builder.cpp 目前未编进库（CMakeLists.txt (line 10)）。
+
+“公共 IR” 的 parser/printer 还不对称
+printer.cpp (line 41) 会打印 fadd/fsub/fmul/fdiv/frem，但 parser.cpp (line 127) 的 ParseBinOp 没解析这些。
+printer.cpp (line 221) 会输出 global/const，但 parser.cpp (line 524) 的 ParseModule 只拼函数文本，忽略 module 级全局。
+
+frontends/common 缺少专门测试覆盖
+preprocessor.cpp 逻辑很重，但 tests 里没有专门 preprocessor/token_pool 用例；这块回归风险较高。
+
+debug 相关测试在 Windows 路径不兼容
+runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp (line 250) 硬编码 /tmp/...，导致 [debug] 在当前 Windows 环境直接失败。
 
 --end

@@ -118,8 +118,12 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     CrossLangSymbol *source_sym = FindSymbolByName(entry.source_symbol, entry.source_language);
     CrossLangSymbol *target_sym = FindSymbolByName(entry.target_symbol, entry.target_language);
 
-    // If symbols are not found, create placeholder entries
-    // The actual symbols will be resolved at link time from object files
+    // If symbols are not found, report errors.
+    // Placeholder entries are still created so that the rest of the pipeline
+    // can continue collecting diagnostics, but the overall resolution is
+    // marked as failed.
+    bool created_placeholder = false;
+
     CrossLangSymbol source_placeholder;
     if (!source_sym) {
         source_placeholder.name = entry.source_symbol;
@@ -130,6 +134,9 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
                                       : SymbolType::kObject;
         cross_lang_symbols_.push_back(source_placeholder);
         source_sym = &cross_lang_symbols_.back();
+        ReportError("unresolved source symbol '" + entry.source_symbol +
+                    "' (language: " + entry.source_language + ")");
+        created_placeholder = true;
     }
 
     CrossLangSymbol target_placeholder;
@@ -142,6 +149,9 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
                                       : SymbolType::kObject;
         cross_lang_symbols_.push_back(target_placeholder);
         target_sym = &cross_lang_symbols_.back();
+        ReportError("unresolved target symbol '" + entry.target_symbol +
+                    "' (language: " + entry.target_language + ")");
+        created_placeholder = true;
     }
 
     // Generate the glue stub
@@ -151,7 +161,8 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     // Register the resolved symbols
     resolved_symbols_[stub.stub_name] = *target_sym;
 
-    return true;
+    // Return false if we had to create placeholder symbols (unresolved)
+    return !created_placeholder;
 }
 
 CrossLangSymbol *PolyglotLinker::FindSymbolByName(const std::string &name,
@@ -197,6 +208,12 @@ GlueStub PolyglotLinker::GenerateGlueStub(const ploy::LinkEntry &entry,
     } else if (config_.target_arch == TargetArch::kAArch64) {
         GenerateAArch64Stub(stub, entry, target_sym, source_sym);
     }
+
+    // Flush any relocations emitted by marshalling helpers into the stub
+    for (auto &reloc : pending_marshal_relocs_) {
+        stub.relocations.push_back(std::move(reloc));
+    }
+    pending_marshal_relocs_.clear();
 
     return stub;
 }
@@ -361,25 +378,52 @@ void PolyglotLinker::EmitFloatToIntMarshal(std::vector<std::uint8_t> &code, size
 void PolyglotLinker::EmitStringMarshal(std::vector<std::uint8_t> &code,
                                         const std::string &from_lang,
                                         const std::string &to_lang) {
-    // String conversion requires a runtime call
-    // Generate a call to __ploy_rt_string_convert(src_ptr, src_lang, dst_lang)
-    // This will be resolved by the runtime library
+    // String conversion requires a runtime call to __ploy_rt_string_convert.
+    // The source pointer is already in the first argument register.
+    // We emit a CALL with a relocation to be patched by the linker.
     (void)from_lang;
     (void)to_lang;
 
-    // For now, emit a placeholder NOP sled — the actual conversion is handled
-    // by the runtime's marshalling layer
-    code.push_back(0x90); // nop
-    code.push_back(0x90);
-    code.push_back(0x90);
-    code.push_back(0x90);
+    code.push_back(0xE8); // call rel32
+    size_t call_offset = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+
+    // The relocation will be stored on the containing GlueStub.
+    // We record it in a thread-local so GenerateX86_64Stub can pick it up.
+    Relocation r;
+    r.offset = call_offset;
+    r.symbol = "__ploy_rt_string_convert";
+    r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+    r.addend = -4;
+    r.is_pc_relative = true;
+    r.size = 4;
+    pending_marshal_relocs_.push_back(r);
 }
 
 void PolyglotLinker::EmitDirectCopy(std::vector<std::uint8_t> &code, size_t size) {
-    // Direct memory copy of 'size' bytes — no conversion needed
-    // For register-sized values, this is a no-op
-    (void)size;
-    code.push_back(0x90); // nop (already in correct register)
+    // Direct memory copy of 'size' bytes — no conversion needed.
+    // For register-sized values this is a no-op (already in correct register).
+    // For larger values, generate a runtime memcpy call.
+    if (size <= 8) {
+        // Value fits in a register — no marshalling required.
+        return;
+    }
+    // Emit call to __ploy_rt_memcpy for larger structs
+    code.push_back(0xE8); // call rel32
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_memcpy";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
 }
 
 void PolyglotLinker::EmitCallingConventionAdaptor(std::vector<std::uint8_t> &code,
@@ -445,31 +489,32 @@ void PolyglotLinker::EmitListMarshal(std::vector<std::uint8_t> &code,
 
     // Generate a call to the appropriate runtime conversion function.
     // The argument register already holds a pointer to the source container.
-    // We emit a CALL to __ploy_rt_convert_vec_to_list or
-    // __ploy_rt_convert_list_to_pylist depending on the language pair.
+    // We emit a CALL with a relocation to the conversion helper.
 
-    // Emit NOP sled — the actual function call is wired through a relocation.
-    // The linker will patch this with a call to the runtime helper.
-    if (from_lang == "rust" && to_lang == "cpp") {
-        // Rust Vec<T> → C++ std::vector<T> via RuntimeList intermediate
-        // call __ploy_rt_convert_vec_to_list
-        code.push_back(0xE8);
-        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
-        Relocation reloc;
-        reloc.offset = code.size() - 4;
-        reloc.symbol = "__ploy_rt_convert_vec_to_list";
-        reloc.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
-        reloc.addend = -4;
-        reloc.is_pc_relative = true;
-        reloc.size = 4;
+    std::string target_sym;
+    if (from_lang == "rust" && (to_lang == "cpp" || to_lang == "python")) {
+        target_sym = "__ploy_rt_convert_vec_to_list";
     } else if (from_lang == "python" && (to_lang == "cpp" || to_lang == "rust")) {
-        // Python list → RuntimeList
-        code.push_back(0xE8);
-        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
+        target_sym = "__ploy_rt_convert_pylist_to_list";
+    } else if (from_lang == "cpp" && (to_lang == "python" || to_lang == "rust")) {
+        target_sym = "__ploy_rt_convert_cppvec_to_list";
     } else {
-        // Same-convention or generic pass-through
-        code.push_back(0x90); code.push_back(0x90);
-        code.push_back(0x90); code.push_back(0x90);
+        target_sym = "__ploy_rt_convert_list_generic";
+    }
+
+    code.push_back(0xE8);
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = target_sym;
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
     }
 }
 
@@ -481,11 +526,22 @@ void PolyglotLinker::EmitTupleMarshal(std::vector<std::uint8_t> &code,
     (void)to_lang;
     (void)param_idx;
 
-    // Tuples are typically passed as pointers to a packed struct.
-    // The runtime layer handles layout differences between languages.
-    // Emit a call placeholder to __ploy_rt_convert_tuple.
+    // Tuples are passed as pointers to a packed struct.
+    // Emit a call to __ploy_rt_convert_tuple with a proper relocation.
     code.push_back(0xE8);
-    code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_convert_tuple";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
 }
 
 void PolyglotLinker::EmitDictMarshal(std::vector<std::uint8_t> &code,
@@ -500,7 +556,19 @@ void PolyglotLinker::EmitDictMarshal(std::vector<std::uint8_t> &code,
     // The source pointer is already in the argument register;
     // after the call the result pointer will be in rax.
     code.push_back(0xE8);
-    code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_dict_convert";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
 }
 
 void PolyglotLinker::EmitStructMarshal(std::vector<std::uint8_t> &code,
@@ -515,7 +583,19 @@ void PolyglotLinker::EmitStructMarshal(std::vector<std::uint8_t> &code,
     // The runtime helper __ploy_rt_convert_struct reads StructFieldDesc
     // metadata to perform field-by-field copying.
     code.push_back(0xE8);
-    code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_convert_struct";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
 }
 
 } // namespace polyglot::linker

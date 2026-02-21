@@ -10,7 +10,6 @@
 ._*
 /Testing/
 /deps/
-/.github/
 
 # Sample environments (created by setup_env scripts)
 tests/samples/env/

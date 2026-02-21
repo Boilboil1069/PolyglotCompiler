@@ -83,13 +83,20 @@ struct BinaryExpression : Expression {
     std::shared_ptr<Expression> right;
 };
 
-// Function call expression: func(arg1, arg2)
+// Named argument expression: name = value
+// Used in function calls to pass arguments by name: func(x = 42, y = 10)
+struct NamedArgument : Expression {
+    std::string name;
+    std::shared_ptr<Expression> value;
+};
+
+// Function call expression: func(arg1, arg2, name=value)
 struct CallExpression : Expression {
     std::shared_ptr<Expression> callee;
     std::vector<std::shared_ptr<Expression>> args;
 };
 
-// Cross-language call: CALL(language, function, arg1, arg2, ...)
+// Cross-language call: CALL(language, function, arg1, arg2, name=value, ...)
 struct CrossLangCallExpression : Expression {
     std::string language;
     std::string function;

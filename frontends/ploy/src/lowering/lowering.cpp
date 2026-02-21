@@ -530,6 +530,12 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     if (auto del_expr = std::dynamic_pointer_cast<DeleteExpression>(expr)) {
         return LowerDeleteExpression(del_expr);
     }
+    if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
+        // Named arguments are lowered by evaluating the value expression.
+        // The name is metadata used for argument matching at the call site
+        // and does not affect the IR representation.
+        return LowerExpression(named_arg->value);
+    }
 
     return {"", ir::IRType::Invalid()};
 }

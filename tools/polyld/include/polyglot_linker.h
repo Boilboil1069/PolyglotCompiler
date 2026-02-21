@@ -144,6 +144,10 @@ class PolyglotLinker {
     std::vector<GlueStub> stubs_;
     std::vector<std::string> errors_;
     std::vector<std::string> warnings_;
+
+    // Temporary storage for relocations emitted by marshalling helpers.
+    // Flushed into the active GlueStub after stub code generation completes.
+    std::vector<Relocation> pending_marshal_relocs_;
 };
 
 } // namespace polyglot::linker

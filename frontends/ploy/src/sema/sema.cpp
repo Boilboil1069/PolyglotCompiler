@@ -155,17 +155,16 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     symbols_.try_emplace(link->target_symbol, link_sym);
 
     // Register type mappings from the LINK body as a signature hint.
-    // MAP_TYPE entries in LINK describe cross-language type conversions,
-    // NOT the parameter count of the linked function. So we record the
-    // type information but leave param_count_known = false to allow
-    // flexible calls — the actual parameter count comes from the external
-    // function definition, which is not available at .ploy compile time.
+    // MAP_TYPE entries in LINK describe cross-language type conversions.
+    // When the mapping list is non-empty we can infer the parameter count
+    // from the number of mappings, giving the checker enough information
+    // to diagnose arity mismatches at call sites.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = 0;
-        sig.param_count_known = false;
+        sig.param_count = entry.param_mappings.size();
+        sig.param_count_known = true;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -684,6 +683,12 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
 
     if (auto del_expr = std::dynamic_pointer_cast<DeleteExpression>(expr)) {
         return AnalyzeDeleteExpression(del_expr);
+    }
+
+    if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
+        // Named arguments are transparent for type analysis — the type is
+        // determined by the value expression.
+        return AnalyzeExpression(named_arg->value);
     }
 
     return core::Type::Any();

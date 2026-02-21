@@ -1464,8 +1464,32 @@ std::vector<std::shared_ptr<Expression>> PloyParser::ParseArguments() {
     std::vector<std::shared_ptr<Expression>> args;
     if (IsSymbol(")")) return args;
 
+    bool seen_named = false;
+
     do {
-        args.push_back(ParseExpression());
+        auto expr = ParseExpression();
+
+        // Check if the parsed expression is a named argument pattern:
+        //   name = value  →  BinaryExpression(op="=", left=Identifier, right=value)
+        if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
+            if (bin->op == "=") {
+                if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
+                    auto named = std::make_shared<NamedArgument>();
+                    named->loc = bin->loc;
+                    named->name = id->name;
+                    named->value = bin->right;
+                    args.push_back(named);
+                    seen_named = true;
+                    continue;
+                }
+            }
+        }
+
+        // Positional argument.
+        if (seen_named) {
+            diagnostics_.Report(expr->loc, "positional argument cannot follow named argument");
+        }
+        args.push_back(expr);
     } while (MatchSymbol(","));
 
     return args;

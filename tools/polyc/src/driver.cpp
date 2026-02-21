@@ -119,10 +119,12 @@ struct Elf64_Rela {
 #include "frontends/python/include/python_lexer.h"
 #include "frontends/python/include/python_parser.h"
 #include "frontends/python/include/python_sema.h"
+#include "frontends/python/include/python_lowering.h"
 #include "frontends/cpp/include/cpp_sema.h"
 #include "frontends/rust/include/rust_sema.h"
 #include "frontends/rust/include/rust_lexer.h"
 #include "frontends/rust/include/rust_parser.h"
+#include "frontends/rust/include/rust_lowering.h"
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
@@ -1422,10 +1424,13 @@ int main(int argc, char **argv) {
         polyglot::python::PythonLexer lexer(processed, source_label, &diagnostics);
         polyglot::python::PythonParser parser(lexer, diagnostics);
         parser.ParseModule();
+        auto python_mod = parser.TakeModule();
         polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::python::AnalyzeModule(*parser.TakeModule(), sema);
+        polyglot::python::AnalyzeModule(*python_mod, sema);
+        // Lower Python AST to IR
+        polyglot::python::LowerToIR(*python_mod, ir_module, diagnostics);
+        lowered = true;
         t.Stop();
-        // No lowering for python yet.
     } else if (settings.language == "cpp") {
         StageTimer t("Frontend (cpp)", V);
         polyglot::cpp::CppLexer lexer(processed, source_label);
@@ -1442,10 +1447,13 @@ int main(int argc, char **argv) {
         polyglot::rust::RustLexer lexer(processed, source_label);
         polyglot::rust::RustParser parser(lexer, diagnostics);
         parser.ParseModule();
+        auto rust_mod = parser.TakeModule();
         polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::rust::AnalyzeModule(*parser.TakeModule(), sema);
+        polyglot::rust::AnalyzeModule(*rust_mod, sema);
+        // Lower Rust AST to IR
+        polyglot::rust::LowerToIR(*rust_mod, ir_module, diagnostics);
+        lowered = true;
         t.Stop();
-        // No lowering for rust yet.
     } else if (settings.language == "java") {
         StageTimer t("Frontend (java)", V);
         polyglot::java::JavaLexer lexer(processed, source_label);
@@ -1486,18 +1494,15 @@ int main(int argc, char **argv) {
     }
 
     if (!lowered) {
-        // Fallback stub if lowering not implemented for language.
+        // No frontend produced IR — this is an error, not a recoverable state.
+        std::cerr << "[error] IR lowering not available for language '"
+                  << settings.language << "'\n";
+        if (!settings.force) return 1;
+        // In force mode, synthesize a minimal main so the pipeline can continue.
         auto fn = ir_module.CreateFunction("main");
         auto *entry = fn->CreateBlock("entry");
-        auto add = std::make_shared<polyglot::ir::BinaryInstruction>();
-        add->op = polyglot::ir::BinaryInstruction::Op::kAdd;
-        add->operands = {"2", "3"};
-        add->name = "sum";
-        add->type = polyglot::ir::IRType::I64();
-        entry->AddInstruction(add);
-
         auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
-        ret->operands = {"sum"};
+        ret->operands = {"0"};
         ret->type = polyglot::ir::IRType::Void();
         entry->SetTerminator(ret);
     }
@@ -1522,6 +1527,7 @@ int main(int argc, char **argv) {
 
     std::string target_triple;
     std::string asm_text;
+    bool backend_failed = false;
 
     // Choose backend based on arch
     bool use_arm64 = (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
@@ -1558,17 +1564,27 @@ int main(int argc, char **argv) {
 
         using SectionT = typename std::decay_t<decltype(mc.sections)>::value_type;
         if (mc.sections.empty()) {
+            std::cerr << "[error] backend produced no code sections for target '"
+                      << backend.TargetTriple() << "'\n";
+            if (!settings.force) {
+                backend_failed = true;
+                t2.Stop();
+                return;
+            }
+            // In force mode, emit a minimal stub so the pipeline can continue
+            // with a clear warning about the stub origin.
             SectionT text;
             text.name = ".text";
             if constexpr (std::is_same_v<std::decay_t<decltype(backend)>, polyglot::backends::x86_64::X86Target>) {
-                text.data = {0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3};
+                // xor eax, eax; ret
+                text.data = {0x31, 0xC0, 0xC3};
             } else {
-                // mov x0,#0; ret
+                // mov x0, #0; ret
                 text.data = {0x00, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6};
             }
             mc.sections.push_back(text);
             mc.symbols.push_back({"_start", ".text", 0, static_cast<std::uint64_t>(text.data.size()), true, true});
-            if (V) std::cerr << "[warn] backend returned no sections; using stub\n";
+            std::cerr << "[warn] generated minimal stub in --force mode\n";
         }
 
         // Map sections
@@ -1641,6 +1657,11 @@ int main(int argc, char **argv) {
     } else {
         polyglot::backends::x86_64::X86Target target(&ir_module);
         run_backend(target);
+    }
+
+    if (backend_failed) {
+        polyglot_gc_unregister_root(&scratch);
+        return 1;
     }
 
     // Write assembly to aux (binary format)
