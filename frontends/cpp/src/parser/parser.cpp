@@ -477,13 +477,30 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
     while (true) {
         if (auto ident = std::dynamic_pointer_cast<Identifier>(expr)) {
             if (IsSymbol("<")) {
-                auto args = ParseTemplateArgs();
-                auto tid = std::make_shared<TemplateIdExpression>();
-                tid->name = ident->name;
-                tid->args = std::move(args);
-                tid->loc = ident->loc;
-                expr = tid;
-                continue;
+                // Heuristic: treat '<' as template args only when the next
+                // token is a type keyword, identifier, or '>' (empty args).
+                // Otherwise it is a relational operator handled later.
+                auto la = lexer_.NextToken();
+                pushback_.push_back(la);
+                bool looks_template =
+                    la.kind == frontends::TokenKind::kIdentifier ||
+                    (la.kind == frontends::TokenKind::kKeyword &&
+                     (la.lexeme == "int" || la.lexeme == "void" || la.lexeme == "float" ||
+                      la.lexeme == "double" || la.lexeme == "char" || la.lexeme == "bool" ||
+                      la.lexeme == "auto" || la.lexeme == "long" || la.lexeme == "short" ||
+                      la.lexeme == "unsigned" || la.lexeme == "signed" ||
+                      la.lexeme == "typename" || la.lexeme == "class" ||
+                      la.lexeme == "const" || la.lexeme == "volatile")) ||
+                    (la.kind == frontends::TokenKind::kSymbol && la.lexeme == ">");
+                if (looks_template) {
+                    auto args = ParseTemplateArgs();
+                    auto tid = std::make_shared<TemplateIdExpression>();
+                    tid->name = ident->name;
+                    tid->args = std::move(args);
+                    tid->loc = ident->loc;
+                    expr = tid;
+                    continue;
+                }
             }
         }
         if (IsSymbol("(")) {
@@ -1351,16 +1368,30 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
             continue;
         }
 
-        FieldDecl f;
-        f.type = member_type;
-        f.name = name;
-        f.access = current_access;
-        f.is_constexpr = is_constexpr;
-        f.is_static = is_static;
-        f.is_mutable = is_mutable;
-        f.attributes = attrs;
-        MatchSymbol(";");
-        rec->fields.push_back(std::move(f));
+        if (is_static) {
+            // Static data members go into methods as VarDecl
+            auto vd = std::make_shared<VarDecl>();
+            vd->loc = current_.loc;
+            vd->type = member_type;
+            vd->name = name;
+            vd->is_static = true;
+            vd->is_constexpr = is_constexpr;
+            vd->is_inline = is_inline;
+            vd->attributes = attrs;
+            MatchSymbol(";");
+            rec->methods.push_back(vd);
+        } else {
+            FieldDecl f;
+            f.type = member_type;
+            f.name = name;
+            f.access = current_access;
+            f.is_constexpr = is_constexpr;
+            f.is_static = is_static;
+            f.is_mutable = is_mutable;
+            f.attributes = attrs;
+            MatchSymbol(";");
+            rec->fields.push_back(std::move(f));
+        }
 
         // If no progress was made, force-consume to prevent infinite loop
         if (current_.loc.line == before_line &&
@@ -1817,6 +1848,35 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
         }
         if (current_.lexeme == "return" || current_.lexeme == "co_return") {
             return ParseReturn();
+        }
+        if (current_.lexeme == "break") {
+            auto brk = std::make_shared<BreakStatement>();
+            brk->loc = current_.loc;
+            Consume();
+            MatchSymbol(";");
+            return brk;
+        }
+        if (current_.lexeme == "continue") {
+            auto cont = std::make_shared<ContinueStatement>();
+            cont->loc = current_.loc;
+            Consume();
+            MatchSymbol(";");
+            return cont;
+        }
+        if (current_.lexeme == "do") {
+            auto dw = std::make_shared<DoWhileStatement>();
+            dw->loc = current_.loc;
+            Consume();
+            auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlock());
+            if (body) dw->body = body->statements;
+            if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "while") {
+                Consume();
+                ExpectSymbol("(", "Expected '(' after do-while");
+                dw->condition = ParseExpression();
+                ExpectSymbol(")", "Expected ')' after do-while condition");
+            }
+            MatchSymbol(";");
+            return dw;
         }
         if (current_.lexeme == "if") {
             return ParseIf();

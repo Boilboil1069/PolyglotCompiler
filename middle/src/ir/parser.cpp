@@ -288,7 +288,15 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       bool indirect = false;
       if (!rest.empty() && rest[0] == '*') { indirect = true; rest = rest.substr(1); }
       auto lp = rest.find('(');
-      auto rp = rest.rfind(')');
+      // Find matching ')' for the call arguments (balanced parentheses)
+      size_t rp = std::string::npos;
+      if (lp != std::string::npos) {
+        int depth = 1;
+        for (size_t k = lp + 1; k < rest.size(); ++k) {
+          if (rest[k] == '(') ++depth;
+          else if (rest[k] == ')') { --depth; if (depth == 0) { rp = k; break; } }
+        }
+      }
       call->callee = Trim(rest.substr(0, lp));
       std::string args = rp == std::string::npos ? std::string() : rest.substr(lp + 1, rp - lp - 1);
       call->operands = SplitOperands(args);
@@ -517,6 +525,22 @@ bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Func
     body_lines.push_back(line);
   }
   if (!ParseFunctionBody(body_lines, ctx, fn, msg)) return false;
+
+  // Infer return type from the first 'ret' instruction if the function was
+  // created with Void but actually returns a value.
+  if (fn->ret_type.kind == IRTypeKind::kVoid) {
+    for (auto &bb : fn->blocks) {
+      if (bb->terminator) {
+        if (auto *ret = dynamic_cast<ReturnStatement *>(bb->terminator.get())) {
+          if (ret->type.kind != IRTypeKind::kVoid) {
+            fn->ret_type = ret->type;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   if (out_fn) *out_fn = fn;
   return true;
 }

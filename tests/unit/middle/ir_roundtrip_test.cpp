@@ -31,9 +31,8 @@ entry:
   REQUIRE(err.empty());
 
   auto &fn = *ctx.Functions().back();
-  bool ok = Verify(fn, &ctx.Layout(), &err);
-  if (!ok) WARN("Verify: " << err);
-  REQUIRE(ok);
+  REQUIRE(Verify(fn, &ctx.Layout(), &err));
+  REQUIRE(err.empty());
 
   const std::string dumped = Dump(fn);
   REQUIRE(dumped == text);

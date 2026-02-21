@@ -155,6 +155,12 @@ namespace polyglot::cpp {
         std::vector<std::shared_ptr<Statement>> body;
     };
     struct CompoundStatement : Statement {std::vector<std::shared_ptr<Statement>> statements;};
+    struct BreakStatement : Statement {};
+    struct ContinueStatement : Statement {};
+    struct DoWhileStatement : Statement {
+        std::shared_ptr<Expression> condition;
+        std::vector<std::shared_ptr<Statement>> body;
+    };
     struct ImportDeclaration : Statement {
         std::string module;
         bool is_export{false};
