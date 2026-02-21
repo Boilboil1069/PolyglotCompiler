@@ -236,3 +236,15 @@ pip.exe : ERROR: To modify pip, please run the following command:
 7.生成更多samples，并检查编译。
 
 --end -done
+
+2026-02-21-1
+
+1.帮我再docs文件下建立一个tutorial文件夹，里面放入详细的ploy语言教程与详细的项目教程
+
+--end -done
+
+2026-02-21-2
+
+1.需要在poly语言中支持关键字参数（即通过形参名指定实参）的方式传参。
+
+--end
