@@ -7,8 +7,6 @@
 
 namespace polyglot::runtime::services {
 
-thread_local std::unordered_map<std::string, void *> ThreadLocalStorage::storage_;
-
 // ---------------------- ThreadPool ----------------------
 ThreadPool::ThreadPool(size_t num_threads) {
 	num_threads_ = num_threads == 0 ? std::max<size_t>(1, std::thread::hardware_concurrency()) : num_threads;

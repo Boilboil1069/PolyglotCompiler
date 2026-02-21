@@ -165,9 +165,16 @@ std::shared_ptr<BlockExpression> RustParser::ParseBlockExpression() {
     auto block = std::make_shared<BlockExpression>();
     block->loc = start_loc;
     while (current_.kind != frontends::TokenKind::kEndOfFile && !IsSymbol("}")) {
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         auto stmt = ParseStatement(true);
         if (stmt)
             block->statements.push_back(stmt);
+        // If no progress was made, force-consume to prevent infinite loop
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
+        }
     }
     MatchSymbol("}");
     return block;
@@ -219,6 +226,7 @@ std::shared_ptr<Expression> RustParser::ParsePrimary() {
         return ParseBlockExpression();
     }
     diagnostics_.Report(current_.loc, "Expected expression");
+    Consume();  // Consume the unexpected token to avoid infinite loops
     return nullptr;
 }
 
@@ -587,6 +595,7 @@ std::shared_ptr<TypePath> RustParser::ParseTypePath() {
     }
     if (type->segments.empty()) {
         diagnostics_.Report(current_.loc, "Expected type path");
+        Consume();  // Consume the unexpected token to avoid infinite loops
     }
     return type;
 }
@@ -1803,9 +1812,19 @@ void RustParser::ParseItem() {
 void RustParser::ParseModule() {
     Consume();
     for (;;) {
+        // Safety: record position before parsing so we can detect lack
+        // of progress and avoid an infinite loop on malformed input.
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         ParseItem();
         if (current_.kind == frontends::TokenKind::kEndOfFile) {
             break;
+        }
+        // If no progress was made (same position), force-consume to
+        // prevent an infinite loop.
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
         }
     }
 }

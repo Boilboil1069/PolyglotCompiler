@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <cstdio>
+#include <string>
 
 #include "runtime/include/gc/heap.h"
 #include "runtime/include/gc/runtime.h"
@@ -22,6 +24,11 @@ extern "C" {
 }
 
 using namespace polyglot::runtime;
+
+// Helper to build a cross-platform temporary file path.
+static std::string TmpPath(const char *name) {
+  return (std::filesystem::temp_directory_path() / name).string();
+}
 
 TEST_CASE("Runtime error captures stack trace", "[runtime][exception]") {
   try {
@@ -185,7 +192,8 @@ TEST_CASE("DebugEmitter emits DWARF debug info", "[debug][dwarf]") {
   dbg.AddSymbol({"helper_func", ".text", 0x1100, 0x50, true});
   
   // Test DWARF emission
-  const char *tmp_dwarf = "/tmp/polyglot_test_debug.o";
+  auto tmp_dwarf_s = TmpPath("polyglot_test_debug.o");
+  const char *tmp_dwarf = tmp_dwarf_s.c_str();
   bool dwarf_result = polyglot::backends::DebugEmitter::EmitDWARF(dbg, tmp_dwarf);
   REQUIRE(dwarf_result == true);
   
@@ -217,7 +225,8 @@ TEST_CASE("DebugEmitter emits PDB debug info", "[debug][pdb]") {
   dbg.AddType({"int", "int", 4, 4});
   
   // Test PDB emission
-  const char *tmp_pdb = "/tmp/polyglot_test_debug.pdb";
+  auto tmp_pdb_s = TmpPath("polyglot_test_debug.pdb");
+  const char *tmp_pdb = tmp_pdb_s.c_str();
   bool pdb_result = polyglot::backends::DebugEmitter::EmitPDB(dbg, tmp_pdb);
   REQUIRE(pdb_result == true);
   
@@ -247,7 +256,8 @@ TEST_CASE("DebugEmitter source map JSON format", "[debug][sourcemap]") {
   dbg.AddSymbol({"compute", ".text", 0x2000, 0x200, true});
   
   // Test source map emission
-  const char *tmp_map = "/tmp/polyglot_test.map";
+  auto tmp_map_s = TmpPath("polyglot_test.map");
+  const char *tmp_map = tmp_map_s.c_str();
   bool map_result = polyglot::backends::DebugEmitter::EmitSourceMap(dbg, tmp_map);
   REQUIRE(map_result == true);
   
@@ -277,7 +287,8 @@ TEST_CASE("Base library memory and IO", "[runtime][libbase]") {
   REQUIRE(polyglot_strncmp(buf, "aaaaaaa", 7) == 0);
 
   // file IO using GC buffer
-  const char *tmp = "/tmp/polyglot_runtime_test.txt";
+  auto tmp_s = TmpPath("polyglot_runtime_test.txt");
+  const char *tmp = tmp_s.c_str();
   REQUIRE(polyglot_write_file(tmp, "hi", 2));
   char *file_buf = NULL;
   size_t file_size = 0;
@@ -417,7 +428,8 @@ TEST_CASE("PGO ProfileData serialization", "[pgo][serialization]") {
   
   data.AddFunctionProfile(func);
   
-  const char* tmp = "/tmp/polyglot_pgo_test.json";
+  auto tmp_s = TmpPath("polyglot_pgo_test.json");
+  const char* tmp = tmp_s.c_str();
   REQUIRE(data.SaveToFile(tmp) == true);
   
   ProfileData loaded;
@@ -659,7 +671,8 @@ TEST_CASE("PGOOptimizer JSON report export", "[pgo][optimizer][json]") {
   
   PGOOptimizer optimizer(data);
   
-  const char* tmp = "/tmp/polyglot_pgo_report.json";
+  auto tmp_s = TmpPath("polyglot_pgo_report.json");
+  const char* tmp = tmp_s.c_str();
   REQUIRE(optimizer.ExportReportToJson(tmp) == true);
   
   // Verify file was created and contains expected data

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -40,20 +41,21 @@ class CopyingGC : public GC {
   }
 
   void *Allocate(size_t size) override {
-    // 对齐到 8 字节
+    std::lock_guard<std::mutex> lock(mu_);
+    // Align to 8 bytes
     size = (size + 7) & ~7;
     size_t total_size = sizeof(ObjectHeader) + size;
 
-    // 检查空间是否足够
+    // Check if there is enough space
     if (from_ptr_ + total_size > from_limit_) {
-      Collect();
-      // 如果收集后还是不够，返回 nullptr
+      CollectImpl();
+      // If still not enough after collection, return nullptr
       if (from_ptr_ + total_size > from_limit_) {
         return nullptr;
       }
     }
 
-    // 分配对象
+    // Allocate object
     auto *header = reinterpret_cast<ObjectHeader *>(from_ptr_);
     header->size = size;
     header->forwarding_addr = nullptr;
@@ -66,36 +68,39 @@ class CopyingGC : public GC {
   }
 
   void Collect() override {
-    // 重置 to-space 指针
-    to_ptr_ = static_cast<char *>(to_space_);
-
-    // 复制所有根对象
-    for (auto **root : roots_) {
-      if (!root || !*root) continue;
-      *root = Copy(*root);
-    }
-
-    // 扫描并复制 to-space 中的对象引用
-    // 这里我们假设对象内部没有指针（简化实现）
-    // 完整实现需要类型信息来识别对象内的指针字段
-
-    // 交换空间
-    std::swap(from_space_, to_space_);
-    std::swap(from_ptr_, to_ptr_);
-    from_limit_ = static_cast<char *>(from_space_) + kSemiSpaceSize;
+    std::lock_guard<std::mutex> lock(mu_);
+    CollectImpl();
   }
 
   void RegisterRoot(void **slot) override {
+    std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
+    std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
 
  private:
+  // Internal collect without locking (caller must hold mu_).
+  void CollectImpl() {
+    // Reset to-space pointer
+    to_ptr_ = static_cast<char *>(to_space_);
+
+    // Copy all root objects
+    for (auto **root : roots_) {
+      if (!root || !*root) continue;
+      *root = Copy(*root);
+    }
+
+    // Swap spaces
+    std::swap(from_space_, to_space_);
+    std::swap(from_ptr_, to_ptr_);
+    from_limit_ = static_cast<char *>(from_space_) + kSemiSpaceSize;
+  }
   void *Copy(void *obj) {
     if (!obj) return nullptr;
 
@@ -128,6 +133,7 @@ class CopyingGC : public GC {
   char *to_ptr_{nullptr};
 
   std::vector<void **> roots_;
+  std::mutex mu_;
 };
 
 std::unique_ptr<GC> MakeCopyingGC() { return std::make_unique<CopyingGC>(); }

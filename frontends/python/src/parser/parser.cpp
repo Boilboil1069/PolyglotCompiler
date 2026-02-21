@@ -323,6 +323,7 @@ std::shared_ptr<Expression> PythonParser::ParseAtom() {
         return set;
     }
     diagnostics_.Report(current_.loc, "Expected expression");
+    Consume();  // Consume the unexpected token to avoid infinite loops
     return nullptr;
 }
 
@@ -1445,10 +1446,20 @@ void PythonParser::ParseModule() {
     Consume();
     SkipNewlines();
     for (;;) {
+        // Safety: record position before parsing so we can detect lack
+        // of progress and avoid an infinite loop on malformed input.
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         ParseTopLevel();
         SkipNewlines();
         if (current_.kind == frontends::TokenKind::kEndOfFile) {
             break;
+        }
+        // If no progress was made (same position), force-consume to
+        // prevent an infinite loop.
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
         }
     }
     ExtractDocstring(module_->body, *module_);

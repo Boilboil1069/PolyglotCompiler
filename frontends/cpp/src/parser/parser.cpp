@@ -468,6 +468,7 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
         return init;
     }
     diagnostics_.Report(current_.loc, "Expected expression");
+    Consume();  // Consume the unexpected token to avoid infinite loops
     return nullptr;
 }
 
@@ -1134,8 +1135,15 @@ std::shared_ptr<Statement> CppParser::ParseSwitch() {
         if (!has_label)
             break;
         while (!(IsSymbol("}") || (current_.kind == frontends::TokenKind::kKeyword &&
-                                   (current_.lexeme == "case" || current_.lexeme == "default")))) {
+                                   (current_.lexeme == "case" || current_.lexeme == "default"))) &&
+               current_.kind != frontends::TokenKind::kEndOfFile) {
+            auto before_line = current_.loc.line;
+            auto before_col  = current_.loc.column;
             cs.body.push_back(ParseStatement());
+            if (current_.loc.line == before_line &&
+                current_.loc.column == before_col) {
+                Consume();
+            }
         }
         sw->cases.push_back(std::move(cs));
     }
@@ -1209,6 +1217,9 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
         MatchSymbol("{");
     std::string current_access = (kind == "struct") ? "public" : "private";
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
+
         if (current_.kind == frontends::TokenKind::kKeyword &&
             (current_.lexeme == "public" || current_.lexeme == "protected" ||
              current_.lexeme == "private")) {
@@ -1321,6 +1332,12 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
         f.attributes = attrs;
         MatchSymbol(";");
         rec->fields.push_back(std::move(f));
+
+        // If no progress was made, force-consume to prevent infinite loop
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
+        }
     }
     MatchSymbol("}");
     MatchSymbol(";");
@@ -1379,9 +1396,16 @@ std::shared_ptr<Statement> CppParser::ParseNamespace() {
     }
     if (MatchSymbol("{")) {
         while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+            auto before_line = current_.loc.line;
+            auto before_col  = current_.loc.column;
             auto stmt = ParseStatement();
             if (stmt)
                 ns->members.push_back(stmt);
+            // If no progress was made, force-consume to prevent infinite loop
+            if (current_.loc.line == before_line &&
+                current_.loc.column == before_col) {
+                Consume();
+            }
         }
         MatchSymbol("}");
     } else {
@@ -1540,7 +1564,14 @@ CppParser::ParseFunctionWithSignature(std::shared_ptr<TypeNode> ret_type, const 
     }
     ExpectSymbol("{", "Expected '{' to start function body");
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         fn->body.push_back(ParseStatement());
+        // If no progress was made, force-consume to prevent infinite loop
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
+        }
     }
     MatchSymbol("}");
     return fn;
@@ -1562,7 +1593,14 @@ std::shared_ptr<Statement> CppParser::ParseBlock() {
     auto block = std::make_shared<CompoundStatement>();
     MatchSymbol("{");
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         block->statements.push_back(ParseStatement());
+        // If no progress was made, force-consume to prevent infinite loop
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
+        }
     }
     MatchSymbol("}");
     return block;
@@ -1878,9 +1916,19 @@ void CppParser::ParseTopLevel() {
 void CppParser::ParseModule() {
     Consume();
     for (;;) {
+        // Safety: record position before parsing so we can detect lack
+        // of progress and avoid an infinite loop on malformed input.
+        auto before_line = current_.loc.line;
+        auto before_col  = current_.loc.column;
         ParseTopLevel();
         if (current_.kind == frontends::TokenKind::kEndOfFile) {
             break;
+        }
+        // If no progress was made (same position), force-consume to
+        // prevent an infinite loop.
+        if (current_.loc.line == before_line &&
+            current_.loc.column == before_col) {
+            Consume();
         }
     }
 }

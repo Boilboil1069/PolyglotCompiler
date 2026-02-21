@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -28,6 +29,7 @@ constexpr size_t kIncrementalStepSize = 100;  // Number of objects processed per
 class IncrementalGC : public GC {
  public:
   void *Allocate(size_t size) override {
+    std::lock_guard<std::mutex> lock(mu_);
     void *mem = std::malloc(size);
     if (!mem) return nullptr;
 
@@ -44,6 +46,7 @@ class IncrementalGC : public GC {
   }
 
   void Collect() override {
+    std::lock_guard<std::mutex> lock(mu_);
     // Run a full GC cycle
     StartGC();
     while (gc_running_) {
@@ -52,11 +55,13 @@ class IncrementalGC : public GC {
   }
 
   void RegisterRoot(void **slot) override {
+    std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
+    std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
@@ -144,6 +149,7 @@ class IncrementalGC : public GC {
   std::vector<void **> roots_;
   std::unordered_set<size_t> gray_set_;
   bool gc_running_{false};
+  std::mutex mu_;
 };
 
 std::unique_ptr<GC> MakeIncrementalGC() { return std::make_unique<IncrementalGC>(); }

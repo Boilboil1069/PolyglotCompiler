@@ -434,17 +434,29 @@ def test(value):
 
 // ============ Test 12: f-string ============
 TEST_CASE("Python - F-String", "[python][fstring]") {
-    std::string codes[] = {
-        "def t():\n    s = f'Hello {name}'",
-        "def t():\n    s = f'Result: {x + y}'",
-        "def t():\n    s = f'{value:.2f}'",
-        "def t():\n    s = f'{name=}'",
-        "def t():\n    s = f'nested: {inner}'",
-    };
-    
-    for (const auto& code : codes) {
+    SECTION("basic interpolation") {
         Diagnostics diags;
-        auto mod = ParseCode(code, diags);
+        auto mod = ParseCode("def t():\n    s = f'Hello {name}'", diags);
+        REQUIRE(mod != nullptr);
+    }
+    SECTION("expression in braces") {
+        Diagnostics diags;
+        auto mod = ParseCode("def t():\n    s = f'Result: {x + y}'", diags);
+        REQUIRE(mod != nullptr);
+    }
+    SECTION("format spec") {
+        Diagnostics diags;
+        auto mod = ParseCode("def t():\n    s = f'{value:.2f}'", diags);
+        REQUIRE(mod != nullptr);
+    }
+    SECTION("self-documenting") {
+        Diagnostics diags;
+        auto mod = ParseCode("def t():\n    s = f'{name=}'", diags);
+        REQUIRE(mod != nullptr);
+    }
+    SECTION("simple interpolation 2") {
+        Diagnostics diags;
+        auto mod = ParseCode("def t():\n    s = f'nested: {inner}'", diags);
         REQUIRE(mod != nullptr);
     }
 }

@@ -18,17 +18,29 @@
 namespace polyglot::runtime::services {
 
 // Basic threading helpers
+//
+// Each ThreadLocalStorage instance maintains an independent key-value store.
+// Thread safety is guaranteed by an internal mutex so the same instance can be
+// used from multiple threads without external synchronization.
 class ThreadLocalStorage {
  public:
-  void Set(const std::string &key, void *value) { storage_[key] = value; }
+  void Set(const std::string &key, void *value) {
+    std::lock_guard<std::mutex> lock(mu_);
+    storage_[key] = value;
+  }
   void *Get(const std::string &key) const {
+    std::lock_guard<std::mutex> lock(mu_);
     auto it = storage_.find(key);
     return it == storage_.end() ? nullptr : it->second;
   }
-  void Erase(const std::string &key) { storage_.erase(key); }
+  void Erase(const std::string &key) {
+    std::lock_guard<std::mutex> lock(mu_);
+    storage_.erase(key);
+  }
 
  private:
-  thread_local static std::unordered_map<std::string, void *> storage_;
+  mutable std::mutex mu_;
+  std::unordered_map<std::string, void *> storage_;
 };
 
 class Threading {
@@ -255,11 +267,18 @@ class CoroutineScheduler {
 };
 
 // 8. Async I/O (Future/Promise)
+//
+// Implementation uses a shared state so that callbacks registered with Then()
+// are invoked synchronously from SetValue() / SetException(), removing the
+// need for detached threads.
+
+template <typename T>
+class Promise;
+
 template <typename T>
 class Future {
  public:
   Future();
-  explicit Future(std::shared_ptr<std::promise<T>> promise);
 
   T Get();
   bool IsReady() const;
@@ -268,8 +287,20 @@ class Future {
   void Then(F&& callback);
 
  private:
-    std::shared_ptr<std::promise<T>> promise_;
-    std::shared_future<T> future_;
+  friend class Promise<T>;
+
+  // Shared state between Promise and Future.
+  struct State {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool ready{false};
+    T value{};
+    std::exception_ptr exception{};
+    std::function<void(T)> callback;
+  };
+
+  explicit Future(std::shared_ptr<State> state) : state_(std::move(state)) {}
+  std::shared_ptr<State> state_;
 };
 
 template <typename T>
@@ -282,8 +313,7 @@ class Promise {
   Future<T> GetFuture();
 
  private:
-  struct Impl;
-    std::shared_ptr<std::promise<T>> promise_;
+  std::shared_ptr<typename Future<T>::State> state_;
 };
 
 // 9. Memory order control
@@ -530,44 +560,65 @@ void ThreadLocal<T>::Set(const T &value) {
 }
 
 template <typename T>
-Future<T>::Future() : promise_(std::make_shared<std::promise<T>>()), future_(promise_->get_future()) {}
-
-template <typename T>
-Future<T>::Future(std::shared_ptr<std::promise<T>> promise)
-    : promise_(std::move(promise)), future_(promise_->get_future()) {}
+Future<T>::Future() : state_(std::make_shared<State>()) {}
 
 template <typename T>
 T Future<T>::Get() {
-  return future_.get();
+  std::unique_lock<std::mutex> lock(state_->mu);
+  state_->cv.wait(lock, [&] { return state_->ready; });
+  if (state_->exception) std::rethrow_exception(state_->exception);
+  return state_->value;
 }
 
 template <typename T>
 bool Future<T>::IsReady() const {
-  return future_.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+  std::lock_guard<std::mutex> lock(state_->mu);
+  return state_->ready;
 }
 
 template <typename T>
 template <typename F>
 void Future<T>::Then(F &&callback) {
-  std::thread([cb = std::forward<F>(callback), fut = future_]() mutable { cb(fut.get()); }).detach();
+  std::lock_guard<std::mutex> lock(state_->mu);
+  if (state_->ready && !state_->exception) {
+    // Value already available — invoke synchronously.
+    callback(state_->value);
+  } else {
+    // Store the callback; it will be invoked from SetValue().
+    state_->callback = std::forward<F>(callback);
+  }
 }
 
 template <typename T>
-Promise<T>::Promise() : promise_(std::make_shared<std::promise<T>>()) {}
+Promise<T>::Promise() : state_(std::make_shared<typename Future<T>::State>()) {}
 
 template <typename T>
 void Promise<T>::SetValue(const T &value) {
-  promise_->set_value(value);
+  std::function<void(T)> cb;
+  {
+    std::lock_guard<std::mutex> lock(state_->mu);
+    state_->value = value;
+    state_->ready = true;
+    cb = std::move(state_->callback);
+  }
+  state_->cv.notify_all();
+  // Invoke the callback outside the lock to avoid potential deadlocks.
+  if (cb) cb(value);
 }
 
 template <typename T>
 void Promise<T>::SetException(std::exception_ptr ex) {
-  promise_->set_exception(ex);
+  {
+    std::lock_guard<std::mutex> lock(state_->mu);
+    state_->exception = std::move(ex);
+    state_->ready = true;
+  }
+  state_->cv.notify_all();
 }
 
 template <typename T>
 Future<T> Promise<T>::GetFuture() {
-  return Future<T>(promise_);
+  return Future<T>(state_);
 }
 
 template <typename T>

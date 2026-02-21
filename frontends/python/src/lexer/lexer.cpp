@@ -99,8 +99,15 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
     static const std::vector<std::string> fmt_ops = {
         "**=", "//=", "<<=", ">>=", "==", "!=", "<=", ">=", "**", "//", "<<", ">>", "+=",
         "-=",  "*=",  "/=",  "%=",  "&=", "|=", "^=", "@=", ":=", "->", "...", "@",
-        ":",   ".",   "=",   "+",   "-",  "*",  "/",  "%",  "&",  "|",  "^",  "~",
+        ".",   "=",   "+",   "-",  "*",  "/",  "%",  "&",  "|",  "^",  "~",
         "<",   ">",   "(",   ")",   "[",  "]",  ",",  ";"};
+
+    // Track whether we have entered the format-spec portion of the
+    // f-string expression (the part after a bare ':' at brace_depth 1).
+    // In format-spec mode we stop doing expression parsing because the
+    // spec may contain characters like 'f', 'b', 'e', etc. that look
+    // like string prefixes or identifiers but are really format codes.
+    bool in_format_spec = false;
 
     while (!Eof() && brace_depth > 0) {
         char c = Peek();
@@ -109,6 +116,7 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
         if (c == '{') {
             Get();
             brace_depth++;
+            in_format_spec = false; // nested expression, reset
             pending_.push_back(frontends::Token{frontends::TokenKind::kSymbol, "{", loc});
             continue;
         }
@@ -119,10 +127,85 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
             if (brace_depth == 0) {
                 return true;
             }
+            in_format_spec = false;
             continue;
         }
 
+        // When inside the format-spec (e.g. {value:.2f}), consume
+        // characters raw until the closing '}'. Do NOT try to lex
+        // identifiers or strings — 'f', 'b', 'e', etc. are format
+        // codes, not language tokens.
+        if (in_format_spec) {
+            // Just consume the character — it is part of the format spec
+            // string that was already started above.
+            std::string spec_text;
+            while (!Eof() && Peek() != '}' && Peek() != '{') {
+                spec_text.push_back(Get());
+            }
+            if (!spec_text.empty()) {
+                pending_.push_back(frontends::Token{
+                    frontends::TokenKind::kString, spec_text, loc});
+            }
+            continue;
+        }
+
+        // Detect the format-spec colon at the outermost brace level.
+        // ':' inside nested braces or '::' / ':=' are NOT format-spec.
+        if (c == ':' && brace_depth == 1) {
+            // ':=' is the walrus operator — not a format spec separator
+            if (position_ + 1 < source_.size() && source_[position_ + 1] == '=') {
+                Get(); Get();
+                pending_.push_back(frontends::Token{
+                    frontends::TokenKind::kSymbol, ":=", loc});
+                continue;
+            }
+            Get();
+            pending_.push_back(frontends::Token{
+                frontends::TokenKind::kSymbol, ":", loc});
+            in_format_spec = true;
+            continue;
+        }
+
+        // Python 3.8+ self-documenting expression: f'{name=}' or f'{name=:fmt}'.
+        // The '=' right before '}' or ':' at brace_depth 1 is NOT the
+        // assignment/comparison operator — it is a debug format marker.
+        // Emit it as a string token and switch to format-spec mode so
+        // any trailing format spec (e.g. f'{value=:.2f}') is handled.
+        if (c == '=' && brace_depth == 1) {
+            // Look ahead past optional whitespace
+            size_t ahead = position_ + 1;
+            while (ahead < source_.size() && source_[ahead] == ' ') {
+                ahead++;
+            }
+            if (ahead < source_.size() &&
+                (source_[ahead] == '}' || source_[ahead] == ':')) {
+                Get();
+                pending_.push_back(frontends::Token{
+                    frontends::TokenKind::kString, "=", loc});
+                in_format_spec = true;
+                continue;
+            }
+        }
+
         if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+            // Check for string prefix (r/f/b) inside f-string expressions.
+            // Only treat as string start if followed by a quote character.
+            if (c == 'r' || c == 'R' || c == 'b' || c == 'B' || c == 'f' || c == 'F') {
+                char next_ch = (position_ + 1 < source_.size()) ? source_[position_ + 1] : '\0';
+                if (next_ch == '"' || next_ch == '\'') {
+                    pending_.push_back(LexStringInternal(false));
+                    continue;
+                }
+                // Two-char prefix (rb, br, rf, fr)
+                if (next_ch == 'r' || next_ch == 'R' || next_ch == 'b' || next_ch == 'B' ||
+                    next_ch == 'f' || next_ch == 'F') {
+                    char after = (position_ + 2 < source_.size()) ? source_[position_ + 2] : '\0';
+                    if (after == '"' || after == '\'') {
+                        pending_.push_back(LexStringInternal(false));
+                        continue;
+                    }
+                }
+            }
             pending_.push_back(LexIdentifier());
             continue;
         }
@@ -130,8 +213,7 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
             pending_.push_back(LexNumber());
             continue;
         }
-        if (c == 'r' || c == 'R' || c == 'b' || c == 'B' || c == 'f' || c == 'F' || c == '"' ||
-            c == '\'') {
+        if (c == '"' || c == '\'') {
             pending_.push_back(LexStringInternal(false));
             continue;
         }
@@ -397,12 +479,26 @@ frontends::Token PythonLexer::NextToken() {
 
     // Check for string prefix characters (r/f/b) before general identifier
     // lexing so that f-strings, raw strings, and byte strings are handled
-    // correctly.
+    // correctly.  Valid Python string prefixes are at most two characters
+    // (e.g. r, b, f, rb, br, rf, fr) and the prefix MUST be immediately
+    // followed by a quote character (' or ").  We must not mistake ordinary
+    // identifiers like "break" (b + r + ...) for string literals.
     if (c == 'r' || c == 'R' || c == 'f' || c == 'F' || c == 'b' || c == 'B') {
         char next = PeekNext();
-        if (next == '"' || next == '\'' || next == 'r' || next == 'R' || next == 'f' ||
-            next == 'F' || next == 'b' || next == 'B') {
+        if (next == '"' || next == '\'') {
+            // Single-char prefix directly followed by quote: r"...", f'...'
             return LexString();
+        }
+        // Two-char prefix: rb, br, rf, fr (and case variants)
+        if (next == 'r' || next == 'R' || next == 'f' || next == 'F' ||
+            next == 'b' || next == 'B') {
+            // Peek two characters ahead to verify a quote follows
+            if (position_ + 2 < source_.size()) {
+                char after = source_[position_ + 2];
+                if (after == '"' || after == '\'') {
+                    return LexString();
+                }
+            }
         }
     }
     if (c == '"' || c == '\'') {

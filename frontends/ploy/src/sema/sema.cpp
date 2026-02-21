@@ -154,17 +154,17 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     // Do not report redefinition for link targets — they may overlap with imports
     symbols_.try_emplace(link->target_symbol, link_sym);
 
-    // Register type mappings from the LINK body as a signature hint.
-    // MAP_TYPE entries in LINK describe cross-language type conversions.
-    // When the mapping list is non-empty we can infer the parameter count
-    // from the number of mappings, giving the checker enough information
-    // to diagnose arity mismatches at call sites.
+    // Register the LINK target as a known function signature so that the
+    // checker can validate types at call sites.  MAP_TYPE entries describe
+    // cross-language type conversions (e.g. cpp::int <-> python::int) and
+    // do NOT constrain the parameter count — the actual function arity is
+    // defined in the external language, not in the .ploy LINK block.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = true;
+        sig.param_count = 0;
+        sig.param_count_known = false;  // MAP_TYPE ≠ param count
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
