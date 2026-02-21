@@ -329,6 +329,12 @@ class Analyzer {
             Syms().Declare(ms);
             return;
         }
+        // Fall through for expression statements and other statement kinds
+        if (auto es = std::dynamic_pointer_cast<ExprStatement>(item)) {
+            AnalyzeExpr(es->expr);
+            return;
+        }
+        AnalyzeStmt(item);
     }
 
     void DeclareFunction(const FunctionItem &fn) {

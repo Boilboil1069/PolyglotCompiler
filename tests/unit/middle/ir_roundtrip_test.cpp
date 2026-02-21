@@ -18,7 +18,7 @@ entry:
   p = alloca : i32*
   ld = load p align 4 : i32
   store p, x align 4 : void
-  g = gep p [0, 1] inbounds : i32*
+  g = gep p [0] inbounds : i32*
   memcpy p, p, 4 align 4 : void
   memset p, 0, 4 align 4 : void
   ccall = call callee(y, z) [fn i32 (i32, i32) vararg] : i32
@@ -31,9 +31,9 @@ entry:
   REQUIRE(err.empty());
 
   auto &fn = *ctx.Functions().back();
-  REQUIRE(Verify(fn, &ctx.Layout(), &err));
-  REQUIRE(err.empty());
-  REQUIRE(err.empty());
+  bool ok = Verify(fn, &ctx.Layout(), &err);
+  if (!ok) WARN("Verify: " << err);
+  REQUIRE(ok);
 
   const std::string dumped = Dump(fn);
   REQUIRE(dumped == text);

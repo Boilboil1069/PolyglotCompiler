@@ -271,9 +271,11 @@ pip.exe : ERROR: To modify pip, please run the following command:
 
 12..ploy 关键字参数（命名实参）尚未实现，AST 和 parser 仅支持位置参数。ploy_ast.h (line 96)、parser.cpp (line 1463)
 
---end
+--end -done
 
 2026-02-21-3
+
+修复这些：
 
 1.polyrt 没有 FFI 管理能力（文档写了有，实际没有命令）
 README.md (line 232) 写的是 GC/FFI/Thread，但 polyrt 只支持 status/gc/thread/bench/info，没有 ffi 子命令：polyrt.cpp (line 129)、polyrt.cpp (line 759)。
@@ -303,6 +305,8 @@ CTest 只挂了 unit/integration/benchmark：CMakeLists.txt (line 364)、CMakeLi
 
 2026-02-21-4
 
+修复这些：
+
 LTO 还不是“真实编译链”
 link_time_optimizer.cpp (line 118)、link_time_optimizer.cpp (line 1976)、link_time_optimizer.cpp (line 1981) 仍在用 placeholder 指令/函数；link_time_optimizer.cpp (line 1680)、link_time_optimizer.cpp (line 1684) 只是写文本摘要，不是目标码产物。
 
@@ -331,6 +335,8 @@ optimization_passes_test.cpp (line 23)（TODO）及大量 REQUIRE(true)，很多
 
 2026-02-21-5
 
+修复这些：
+
 .ploy 跨语言 LINK 仍是占位级 lowering：wrapper 固定只放一个 arg0:i64，返回值默认 i64，不是按真实签名生成。lowering.cpp (line 1241) lowering.cpp (line 1248) lowering.cpp (line 1250)
 
 .ploy 静态类型检查仍偏弱：大量退化为 Any，且 LINK 参数个数依赖 MAP_TYPE 条目推断。sema.cpp (line 152) sema.cpp (line 159) sema.cpp (line 783) sema.cpp (line 825)
@@ -350,6 +356,8 @@ Java/.NET parser 对外暴露的部分接口仍是空实现返回 nullptr。pars
 --end
 
 2026-02-21-6
+
+修复这些：
 
 跨语言链接主链路没接上
 polyc 只把 descriptor 写到 aux，没有把它喂给 PolyglotLinker（driver.cpp (line 1408)）。polyld 主流程里也没调用 ResolveLinks()（linker.cpp 全文件无调用点）。
@@ -378,6 +386,8 @@ backend 级跨语言 E2E 还不够
 --end
 
 2026-02-21-7
+
+修复这些：
 
 common 调试抽象里有“未落地且当前不可用”的接口
 debug_info_builder.h (line 315) 使用了未定义的 dwarf::DwarfContext；而且该头里又定义了一套 SourceLocation（debug_info_builder.h (line 26)），和 dwarf5.h (line 129) 重复，后续一旦接入会直接冲突。

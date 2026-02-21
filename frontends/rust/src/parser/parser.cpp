@@ -627,6 +627,7 @@ std::shared_ptr<TypeNode> RustParser::ParseType() {
         return impl;
     }
     // reference types
+    // reference types
     if (IsSymbol("&")) {
         auto ref = std::make_shared<ReferenceType>();
         ref->loc = current_.loc;
@@ -634,6 +635,10 @@ std::shared_ptr<TypeNode> RustParser::ParseType() {
         ref->lifetime = ParseLifetime();
         if (MatchKeyword("mut")) {
             ref->is_mut = true;
+            // Also try lifetime after mut (e.g. &mut 'a i32)
+            if (!ref->lifetime) {
+                ref->lifetime = ParseLifetime();
+            }
         }
         ref->inner = ParseType();
         return ref;
@@ -1159,13 +1164,26 @@ std::shared_ptr<Statement> RustParser::ParseUse() {
         path += "::";
         Consume();
     }
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+
+    // Accept identifiers and path keywords (crate, self, super, Self)
+    auto is_path_start = [&]() {
+        if (current_.kind == frontends::TokenKind::kIdentifier) return true;
+        if (current_.kind == frontends::TokenKind::kKeyword &&
+            (current_.lexeme == "crate" || current_.lexeme == "self" ||
+             current_.lexeme == "super" || current_.lexeme == "Self")) return true;
+        return false;
+    };
+
+    if (is_path_start()) {
         path += current_.lexeme;
         Consume();
         while (IsSymbol("::")) {
             path += "::";
             Consume();
-            if (current_.kind == frontends::TokenKind::kIdentifier) {
+            if (current_.kind == frontends::TokenKind::kIdentifier ||
+                (current_.kind == frontends::TokenKind::kKeyword &&
+                 (current_.lexeme == "crate" || current_.lexeme == "self" ||
+                  current_.lexeme == "super" || current_.lexeme == "Self"))) {
                 path += current_.lexeme;
                 Consume();
             } else {

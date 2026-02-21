@@ -82,6 +82,9 @@ class PythonParser : public frontends::ParserBase {
     std::shared_ptr<Module> module_{std::make_shared<Module>()};
     frontends::Token current_{};
     std::string pending_doc_{};
+    // Flag to suppress 'in' as comparison operator while parsing for-loop
+    // targets and comprehension targets.
+    bool suppress_in_{false};
 };
 
 } // namespace polyglot::python

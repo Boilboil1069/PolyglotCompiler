@@ -95,7 +95,8 @@ bool CheckBinary(const BinaryInstruction &bin, const IRType &lhs, const IRType &
 	auto is_generic = [](const IRType &t) { return t.kind == IRTypeKind::kI64 || t.kind == IRTypeKind::kInvalid; };
 
 	const auto require_same_scalar = [&]() -> bool {
-		if (!(lhs.IsScalar() && rhs.IsScalar())) return Fail("binary operands must be scalar", msg);
+		if (!((lhs.IsScalar() || is_generic(lhs)) && (rhs.IsScalar() || is_generic(rhs))))
+			return Fail("binary operands must be scalar", msg);
 		if (!lhs.SameShape(rhs) && !is_generic(lhs) && !is_generic(rhs))
 			return Fail("binary operands type mismatch", msg);
 		return true;

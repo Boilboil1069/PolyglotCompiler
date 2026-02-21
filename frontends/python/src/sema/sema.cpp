@@ -30,6 +30,7 @@ class Analyzer {
         scope_states_.push_back({ScopeKind::kModule});
         int sid = ctx_.Symbols().EnterScope("<module>", ScopeKind::kModule);
         ctx_.Symbols().RegisterTypeScope("<module>", sid);
+        DeclareBuiltins();
         for (const auto &stmt : module_.body) {
             AnalyzeStmt(stmt);
         }
@@ -41,6 +42,84 @@ class Analyzer {
     frontends::Diagnostics &Diags() { return ctx_.Diags(); }
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
+
+    // Declare Python built-in types and functions so that names like
+    // ``int``, ``str``, ``print``, ``len``, ``range`` etc. are resolvable
+    // during semantic analysis.
+    void DeclareBuiltins() {
+        core::SourceLoc builtin_loc{"<builtin>", 0, 0};
+
+        // Built-in type names
+        auto declare_type = [&](const std::string &name, const Type &type) {
+            Symbol sym{name, type, builtin_loc, SymbolKind::kTypeName, "python"};
+            Syms().Declare(sym);
+        };
+        declare_type("int",    Type::Int());
+        declare_type("float",  Type::Float());
+        declare_type("str",    Type::String());
+        declare_type("bool",   Type::Bool());
+        declare_type("bytes",  Type::Any());
+        declare_type("complex", Type::Any());
+        declare_type("list",   Type::Any());
+        declare_type("dict",   Type::Any());
+        declare_type("set",    Type::Any());
+        declare_type("tuple",  Type::Any());
+        declare_type("type",   Type::Any());
+        declare_type("object", Type::Any());
+        declare_type("None",   Type::Void());
+        declare_type("True",   Type::Bool());
+        declare_type("False",  Type::Bool());
+
+        // Common exception types (used as identifiers in raise/except)
+        for (const auto &exc : {"Exception", "ValueError", "TypeError",
+                                "RuntimeError", "KeyError", "IndexError",
+                                "AttributeError", "StopIteration", "OSError",
+                                "IOError", "FileNotFoundError", "ZeroDivisionError",
+                                "NotImplementedError", "OverflowError",
+                                "ImportError", "NameError", "AssertionError"}) {
+            declare_type(exc, Type{core::TypeKind::kClass, exc});
+        }
+
+        // Built-in functions
+        auto declare_fn = [&](const std::string &name, const Type &ret,
+                              const std::vector<Type> &params = {}) {
+            Symbol sym{name, Types().FunctionType(name, ret, params),
+                       builtin_loc, SymbolKind::kFunction, "python"};
+            Syms().Declare(sym);
+        };
+        declare_fn("print",     Type::Void(),   {Type::Any()});
+        declare_fn("len",       Type::Int(),    {Type::Any()});
+        declare_fn("range",     Type::Any(),    {Type::Int()});
+        declare_fn("input",     Type::String(), {Type::String()});
+        declare_fn("open",      Type::Any(),    {Type::String()});
+        declare_fn("abs",       Type::Any(),    {Type::Any()});
+        declare_fn("min",       Type::Any(),    {Type::Any()});
+        declare_fn("max",       Type::Any(),    {Type::Any()});
+        declare_fn("sum",       Type::Any(),    {Type::Any()});
+        declare_fn("sorted",    Type::Any(),    {Type::Any()});
+        declare_fn("reversed",  Type::Any(),    {Type::Any()});
+        declare_fn("enumerate", Type::Any(),    {Type::Any()});
+        declare_fn("zip",       Type::Any(),    {Type::Any()});
+        declare_fn("map",       Type::Any(),    {Type::Any(), Type::Any()});
+        declare_fn("filter",    Type::Any(),    {Type::Any(), Type::Any()});
+        declare_fn("isinstance", Type::Bool(),  {Type::Any(), Type::Any()});
+        declare_fn("issubclass", Type::Bool(),  {Type::Any(), Type::Any()});
+        declare_fn("hasattr",   Type::Bool(),   {Type::Any(), Type::String()});
+        declare_fn("getattr",   Type::Any(),    {Type::Any(), Type::String()});
+        declare_fn("setattr",   Type::Void(),   {Type::Any(), Type::String(), Type::Any()});
+        declare_fn("id",        Type::Int(),    {Type::Any()});
+        declare_fn("hash",      Type::Int(),    {Type::Any()});
+        declare_fn("repr",      Type::String(), {Type::Any()});
+        declare_fn("str",       Type::String(), {Type::Any()});
+        declare_fn("iter",      Type::Any(),    {Type::Any()});
+        declare_fn("next",      Type::Any(),    {Type::Any()});
+        declare_fn("super",     Type::Any(),    {});
+
+        // Decorators commonly used at module level
+        declare_fn("staticmethod", Type::Any(), {Type::Any()});
+        declare_fn("classmethod",  Type::Any(), {Type::Any()});
+        declare_fn("property",     Type::Any(), {Type::Any()});
+    }
 
     // Simple module registry populated by imports in current module
     std::unordered_map<std::string, std::unordered_map<std::string, Type>> module_exports_{};
@@ -187,59 +266,57 @@ class Analyzer {
             }
             return;
         }
-        // Recurse into compound statements (if/while/for/with/try/match) with new block scopes
+        // Recurse into compound statements (if/while/for/with/try/match).
+        // Python does NOT create new scopes for control-flow blocks;
+        // variables assigned inside if/while/for/try/with/match are visible
+        // in the enclosing function scope.
         if (auto ifs = std::dynamic_pointer_cast<IfStatement>(stmt)) {
             AnalyzeExpr(ifs->condition);
-            AnalyzeBlock(ifs->then_body);
-            AnalyzeBlock(ifs->else_body);
+            AnalyzeBody(ifs->then_body);
+            AnalyzeBody(ifs->else_body);
             return;
         }
         if (auto w = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
             AnalyzeExpr(w->condition);
-            AnalyzeBlock(w->body);
+            AnalyzeBody(w->body);
             return;
         }
         if (auto f = std::dynamic_pointer_cast<ForStatement>(stmt)) {
             AnalyzeExpr(f->iterable);
-            EnterBlockScope(ScopeKind::kBlock);
             DeclareOrAssign(f->target, Type::Any(), f->loc);
-            AnalyzeBlock(f->body);
-            ExitScope();
+            AnalyzeBody(f->body);
             return;
         }
         if (auto with = std::dynamic_pointer_cast<WithStatement>(stmt)) {
-            EnterBlockScope(ScopeKind::kBlock);
             for (auto &item : with->items) {
                 AnalyzeExpr(item.context_expr);
                 DeclareOrAssign(item.optional_vars, Type::Any(), stmt->loc);
             }
-            AnalyzeBlock(with->body);
-            ExitScope();
+            AnalyzeBody(with->body);
             return;
         }
         if (auto t = std::dynamic_pointer_cast<TryStatement>(stmt)) {
-            AnalyzeBlock(t->body);
+            AnalyzeBody(t->body);
             for (auto &h : t->handlers) {
-                EnterBlockScope(ScopeKind::kBlock);
                 AnalyzeExpr(h.type);
                 if (!h.name.empty()) {
                     DeclareSimple(h.name, SymbolKind::kVariable, Type::Any(), stmt->loc);
                 }
-                AnalyzeBlock(h.body);
-                ExitScope();
+                AnalyzeBody(h.body);
             }
-            AnalyzeBlock(t->orelse);
-            AnalyzeBlock(t->finalbody);
+            AnalyzeBody(t->orelse);
+            AnalyzeBody(t->finalbody);
             return;
         }
         if (auto m = std::dynamic_pointer_cast<MatchStatement>(stmt)) {
             AnalyzeExpr(m->subject);
             for (auto &c : m->cases) {
-                EnterBlockScope(ScopeKind::kBlock);
-                AnalyzeExpr(c.pattern);
+                // Match patterns are not regular expressions — they contain
+                // literals, wildcards (_), and structural patterns.  Analyzing
+                // them as normal expressions would produce false "undefined
+                // name" diagnostics (e.g. for the wildcard _).
                 AnalyzeExpr(c.guard);
-                AnalyzeBlock(c.body);
-                ExitScope();
+                AnalyzeBody(c.body);
             }
             return;
         }
@@ -270,11 +347,12 @@ class Analyzer {
                 std::string modname = al.name;
                 std::string bind_name = al.alias.empty() ? al.name : al.alias;
                 
+                // Check if module is known BEFORE inserting into imported set
+                bool is_known = IsKnownModule(modname);
+                
                 // Record as imported
                 imported_modules_.insert(modname);
                 
-                // Check if module is known
-                bool is_known = IsKnownModule(modname);
                 if (!is_known) {
                     Diags().Report(loc, "Unknown module '" + modname + "'; assuming dynamic import");
                 }
@@ -298,10 +376,12 @@ class Analyzer {
         } else {
             // from module import name [as alias] / from module import *
             std::string modname = imp.module;
+            
+            // Check if module is known BEFORE inserting into imported set
+            bool is_known = IsKnownModule(modname);
+            
             imported_modules_.insert(modname);
             
-            // Check if module is known
-            bool is_known = IsKnownModule(modname);
             if (!is_known) {
                 Diags().Report(loc, "Unknown module '" + modname + "'; assuming dynamic import");
             }
@@ -349,6 +429,15 @@ class Analyzer {
         ExitScope();
     }
 
+    // Analyze statements without creating a new scope.  Used for Python
+    // control-flow blocks (if/while/for/try/with/match) that share the
+    // enclosing function's variable scope.
+    void AnalyzeBody(const std::vector<std::shared_ptr<Statement>> &body) {
+        for (const auto &stmt : body) {
+            AnalyzeStmt(stmt);
+        }
+    }
+
     void DeclareFunction(const FunctionDef &fn) {
         std::vector<Type> params;
         for (const auto &p : fn.params) {
@@ -384,7 +473,9 @@ class Analyzer {
 
         if (fn.return_annotation) {
             Type expected = AnalyzeExpr(fn.return_annotation);
-            if (!Types().IsCompatible(last_return_type_, expected)) {
+            if (expected.kind != core::TypeKind::kInvalid &&
+                last_return_type_.kind != core::TypeKind::kInvalid &&
+                !Types().IsCompatible(last_return_type_, expected)) {
                 Diags().Report(fn.loc, "Function return type mismatch annotation");
             }
         }
@@ -497,6 +588,11 @@ class Analyzer {
         }
         if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(expr)) {
             auto obj_t = AnalyzeExpr(attr->object);
+            // For duck-typed or unknown objects, accept any attribute.
+            if (obj_t.kind == core::TypeKind::kAny ||
+                obj_t.kind == core::TypeKind::kInvalid) {
+                return Type::Any();
+            }
             if (!obj_t.name.empty()) {
                 // Builtin container protocols
                 if (auto bt = ResolveBuiltinMember(obj_t, attr->attribute); bt.kind != core::TypeKind::kInvalid) {
@@ -510,11 +606,10 @@ class Analyzer {
                 if (it != module_exports_.end()) {
                     auto found = it->second.find(attr->attribute);
                     if (found != it->second.end()) return found->second;
-                    Diags().Report(attr->loc, "Unknown module attribute: " + attr->attribute);
-                    return Type::Any();
                 }
             }
-            Diags().Report(attr->loc, "Unknown attribute: " + attr->attribute);
+            // For Python's duck typing, do not report unknown attributes as
+            // errors — return Any and let runtime handle it.
             return Type::Any();
         }
         if (auto idx = std::dynamic_pointer_cast<IndexExpression>(expr)) {
@@ -560,6 +655,12 @@ class Analyzer {
         if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
             auto lhs = AnalyzeExpr(bin->left);
             auto rhs = AnalyzeExpr(bin->right);
+            // Skip compatibility check when either side is invalid (avoids
+            // cascading errors from earlier lookup failures).
+            if (lhs.kind == core::TypeKind::kInvalid ||
+                rhs.kind == core::TypeKind::kInvalid) {
+                return Type::Any();
+            }
             if (Types().IsCompatible(lhs, rhs)) return lhs.IsNumeric() ? lhs : rhs;
             Diags().Report(bin->loc, "Type mismatch in binary expression");
             return Type::Any();
@@ -574,25 +675,8 @@ class Analyzer {
                 arg_types.push_back(AnalyzeExpr(arg.value));
             }
             if (callee_t.kind == core::TypeKind::kFunction && callee_t.type_args.size() >= 1) {
-                size_t param_count = callee_t.type_args.size() - 1;
-                if (param_count != arg_types.size()) {
-                    Diags().Report(call->loc, "Argument count mismatch");
-                } else {
-                    for (size_t i = 0; i < arg_types.size(); ++i) {
-                        const auto &expected = callee_t.type_args[i + 1];
-                        if (expected.kind == core::TypeKind::kGenericParam && arg_types[i].IsConcrete()) {
-                            continue;
-                        }
-                        if (!Types().IsCompatible(arg_types[i], expected)) {
-                            Diags().Report(call->loc, "Argument type mismatch");
-                            break;
-                        }
-                        if (!arg_types[i].IsConcrete()) {
-                            Diags().Report(call->loc, "Cannot infer generic parameter (argument unknown)");
-                            break;
-                        }
-                    }
-                }
+                // Python is dynamically typed; skip strict argument count
+                // checking to avoid false positives with variadic built-ins.
                 return callee_t.type_args[0];
             }
             return Type::Any();

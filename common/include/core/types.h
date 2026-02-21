@@ -370,7 +370,16 @@ class TypeUnifier {
     Type bb = Apply(b);
     if (IsVar(aa)) return Bind(aa, bb);
     if (IsVar(bb)) return Bind(bb, aa);
-    if (aa.kind != bb.kind || aa.name != bb.name || aa.language != bb.language) return false;
+    if (aa.kind != bb.kind) return false;
+    // For numeric types, unify by kind alone (ignore name differences
+    // such as "int" vs "i32" that arise from generic vs language-specific
+    // type constructors).
+    if (aa.kind == TypeKind::kInt || aa.kind == TypeKind::kFloat ||
+        aa.kind == TypeKind::kBool || aa.kind == TypeKind::kString ||
+        aa.kind == TypeKind::kVoid || aa.kind == TypeKind::kAny) {
+        return true;
+    }
+    if (aa.name != bb.name || aa.language != bb.language) return false;
     if (aa.type_args.size() != bb.type_args.size()) return false;
     for (size_t i = 0; i < aa.type_args.size(); ++i) {
       if (!Unify(aa.type_args[i], bb.type_args[i])) return false;

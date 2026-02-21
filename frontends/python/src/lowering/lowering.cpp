@@ -170,8 +170,26 @@ EvalResult EvalName(const std::shared_ptr<Identifier> &name, LoweringContext &lc
         if (name->name == "print" || name->name == "len" || name->name == "range" ||
             name->name == "int" || name->name == "float" || name->name == "str" ||
             name->name == "list" || name->name == "dict" || name->name == "set" ||
-            name->name == "type" || name->name == "isinstance" || name->name == "hasattr") {
-            // Return a placeholder for built-in functions
+            name->name == "type" || name->name == "isinstance" || name->name == "hasattr" ||
+            name->name == "bool" || name->name == "tuple" || name->name == "object" ||
+            name->name == "abs" || name->name == "min" || name->name == "max" ||
+            name->name == "sum" || name->name == "sorted" || name->name == "reversed" ||
+            name->name == "enumerate" || name->name == "zip" || name->name == "map" ||
+            name->name == "filter" || name->name == "open" || name->name == "input" ||
+            name->name == "super" || name->name == "getattr" || name->name == "setattr" ||
+            name->name == "issubclass" || name->name == "property" ||
+            name->name == "classmethod" || name->name == "staticmethod" ||
+            // Exception types
+            name->name == "ValueError" || name->name == "TypeError" ||
+            name->name == "RuntimeError" || name->name == "KeyError" ||
+            name->name == "IndexError" || name->name == "AttributeError" ||
+            name->name == "StopIteration" || name->name == "Exception" ||
+            name->name == "IOError" || name->name == "OSError" ||
+            name->name == "FileNotFoundError" || name->name == "NameError" ||
+            name->name == "ZeroDivisionError" || name->name == "NotImplementedError" ||
+            // Constants
+            name->name == "None" || name->name == "True" || name->name == "False") {
+            // Return a placeholder for built-in functions/types
             return {name->name, ir::IRType::I64(true)};
         }
         lc.diags.Report(name->loc, "Undefined name: " + name->name);

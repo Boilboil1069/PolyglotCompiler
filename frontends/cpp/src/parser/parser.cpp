@@ -457,11 +457,11 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
         init->loc = current_.loc;
         Consume();
         if (!IsSymbol("}")) {
-            init->elements.push_back(ParseExpression());
+            init->elements.push_back(ParseAssignment());
             while (MatchSymbol(",")) {
                 if (IsSymbol("}"))
                     break;
-                init->elements.push_back(ParseExpression());
+                init->elements.push_back(ParseAssignment());
             }
         }
         ExpectSymbol("}", "Expected '}' to close initializer list");
@@ -571,11 +571,13 @@ std::shared_ptr<Expression> CppParser::ParseLambda() {
     if (!IsSymbol(")")) {
         while (true) {
             LambdaExpression::Param p;
-            if (current_.kind == frontends::TokenKind::kIdentifier) {
-                p.name = current_.lexeme;
-                Consume();
-                if (MatchSymbol(":")) {
-                    p.type = ParseType();
+            // C++ lambda params: type name (e.g., "int y")
+            if (current_.kind == frontends::TokenKind::kIdentifier ||
+                current_.kind == frontends::TokenKind::kKeyword) {
+                p.type = ParseType();
+                if (current_.kind == frontends::TokenKind::kIdentifier) {
+                    p.name = current_.lexeme;
+                    Consume();
                 }
                 lam->params.push_back(std::move(p));
             }
@@ -966,11 +968,25 @@ std::shared_ptr<Statement> CppParser::ParseUsing() {
         std::string name = current_.lexeme;
         Consume();
         if (MatchSymbol("=")) {
+            // "using Name = Type;" — produce UsingDeclaration for simple
+            // aliases and UsingAliasDeclaration for template aliases.
+            auto type = ParseType();
+            std::string type_text;
+            if (auto simple = std::dynamic_pointer_cast<SimpleType>(type)) {
+                type_text = simple->name;
+            }
+            MatchSymbol(";");
+            if (!type_text.empty()) {
+                auto decl = std::make_shared<UsingDeclaration>();
+                decl->loc = current_.loc;
+                decl->name = name;
+                decl->aliased = type_text;
+                return decl;
+            }
             auto alias = std::make_shared<UsingAliasDeclaration>();
             alias->loc = current_.loc;
             alias->alias = name;
-            alias->aliased_type = ParseType();
-            MatchSymbol(";");
+            alias->aliased_type = type;
             return alias;
         }
         auto stmt = std::make_shared<UsingDeclaration>();
@@ -1286,6 +1302,28 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
             }
         }
 
+        // Detect constructor: identifier matching the struct name followed by '('
+        if (current_.kind == frontends::TokenKind::kIdentifier &&
+            current_.lexeme == rec->name && !is_static) {
+            frontends::Token saved = current_;
+            Consume();
+            if (IsSymbol("(")) {
+                auto fn = ParseFunctionWithSignature(nullptr, saved.lexeme, is_constexpr,
+                                                     is_consteval, is_inline, is_static, false,
+                                                     "", current_access, true);
+                if (fn) {
+                    fn->is_constructor = true;
+                    fn->is_virtual = is_virtual;
+                    fn->attributes = attrs;
+                    rec->methods.push_back(fn);
+                }
+                continue;
+            }
+            // Not a constructor — push back and fall through to normal member
+            pushback_.push_back(current_);
+            current_ = saved;
+        }
+
         auto member_type = ParseType();
         bool is_operator = false;
         std::string name;
@@ -1301,20 +1339,11 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
             Consume();
         }
 
-        bool ctor_candidate = false;
-        if (auto simple = std::dynamic_pointer_cast<SimpleType>(member_type)) {
-            if (simple->name == rec->name && IsSymbol("(")) {
-                ctor_candidate = true;
-                name = rec->name;
-            }
-        }
-
         if (IsSymbol("(")) {
-            auto fn = ParseFunctionWithSignature(ctor_candidate ? nullptr : member_type, name,
+            auto fn = ParseFunctionWithSignature(member_type, name,
                                                  is_constexpr, is_consteval, is_inline, is_static,
                                                  is_operator, op_symbol, current_access, true);
             if (fn) {
-                fn->is_constructor = ctor_candidate;
                 fn->is_virtual = is_virtual;
                 fn->attributes = attrs;
                 rec->methods.push_back(fn);

@@ -119,9 +119,7 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
                     p.name = current_.lexeme;
                     p.is_vararg = true;
                     Consume();
-                    if (MatchSymbol(":")) {
-                        p.annotation = ParseExpression();
-                    }
+                    // Lambda parameters do not support annotations.
                     if (MatchSymbol("=")) {
                         p.default_value = ParseExpression();
                     }
@@ -137,9 +135,6 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
                     p.name = current_.lexeme;
                     p.is_kwarg = true;
                     Consume();
-                    if (MatchSymbol(":")) {
-                        p.annotation = ParseExpression();
-                    }
                     if (MatchSymbol("=")) {
                         p.default_value = ParseExpression();
                     }
@@ -153,9 +148,8 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
                 p.name = current_.lexeme;
                 p.is_kwonly = kwonly;
                 Consume();
-                if (MatchSymbol(":")) {
-                    p.annotation = ParseExpression();
-                }
+                // Lambda parameters do not support annotations; the ':'
+                // after the parameter list belongs to the lambda itself.
                 if (MatchSymbol("=")) {
                     p.default_value = ParseExpression();
                 }
@@ -504,6 +498,12 @@ std::shared_ptr<Expression> PythonParser::ParseComparison() {
         } else if (current_.kind == frontends::TokenKind::kKeyword &&
                    (current_.lexeme == "is" || current_.lexeme == "in" ||
                     current_.lexeme == "not")) {
+            // When parsing for-loop / comprehension targets, stop at 'in'
+            if (suppress_in_ &&
+                (current_.lexeme == "in" ||
+                 (current_.lexeme == "not"))) {
+                break;
+            }
             if (current_.lexeme == "is") {
                 Consume();
                 op = "is";
@@ -628,7 +628,9 @@ std::shared_ptr<Expression> PythonParser::ParseComprehensionTail(std::shared_ptr
     while (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "for") {
         Consume();
         Comprehension clause;
+        suppress_in_ = true;
         clause.target = ParseExpressionListAsExpr();
+        suppress_in_ = false;
         if (!MatchKeyword("in")) {
             diagnostics_.Report(current_.loc, "Expected 'in' in comprehension");
         }
@@ -904,7 +906,10 @@ std::shared_ptr<Statement> PythonParser::ParseFor(bool is_async) {
     stmt->loc = current_.loc;
     stmt->is_async = is_async;
     MatchKeyword("for");
+    // Suppress 'in' as comparison operator while parsing the target expression
+    suppress_in_ = true;
     stmt->target = ParseExpressionListAsExpr();
+    suppress_in_ = false;
     if (!MatchKeyword("in")) {
         diagnostics_.Report(current_.loc, "Expected 'in' in for statement");
     }
