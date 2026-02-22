@@ -54,10 +54,19 @@ std::vector<std::string> TokenizeExpr(const std::string &expr) {
       tokens.push_back(current);
       current.clear();
     }
-    if ((c == '&' || c == '|') && i + 1 < expr.size() && expr[i + 1] == c) {
-      tokens.emplace_back(expr.substr(i, 2));
-      ++i;
-      continue;
+    // two-character operators: ==, !=, &&, ||, <=, >=
+    if (i + 1 < expr.size()) {
+      char next = expr[i + 1];
+      if ((c == '=' && next == '=') ||
+          (c == '!' && next == '=') ||
+          (c == '&' && next == '&') ||
+          (c == '|' && next == '|') ||
+          (c == '<' && next == '=') ||
+          (c == '>' && next == '=')) {
+        tokens.emplace_back(expr.substr(i, 2));
+        ++i;
+        continue;
+      }
     }
     tokens.emplace_back(expr.substr(i, 1));
   }
@@ -68,6 +77,7 @@ std::vector<std::string> TokenizeExpr(const std::string &expr) {
 }
 
 int ParsePrimary(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
+int ParseComparison(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
 int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
 int ParseOr(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
 
@@ -107,11 +117,28 @@ int ParsePrimary(TokenCursor &cursor, const std::unordered_map<std::string, Prep
   return macros.count(token) ? 1 : 0;
 }
 
-int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+int ParseComparison(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   int left = ParsePrimary(cursor, macros);
+  while (cursor.Peek() == "==" || cursor.Peek() == "!=" ||
+         cursor.Peek() == "<"  || cursor.Peek() == ">"  ||
+         cursor.Peek() == "<=" || cursor.Peek() == ">=") {
+    std::string op = cursor.Next();
+    int right = ParsePrimary(cursor, macros);
+    if (op == "==")      left = (left == right) ? 1 : 0;
+    else if (op == "!=") left = (left != right) ? 1 : 0;
+    else if (op == "<")  left = (left <  right) ? 1 : 0;
+    else if (op == ">")  left = (left >  right) ? 1 : 0;
+    else if (op == "<=") left = (left <= right) ? 1 : 0;
+    else if (op == ">=") left = (left >= right) ? 1 : 0;
+  }
+  return left;
+}
+
+int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+  int left = ParseComparison(cursor, macros);
   while (cursor.Peek() == "&&") {
     cursor.Next();
-    int right = ParsePrimary(cursor, macros);
+    int right = ParseComparison(cursor, macros);
     left = (left && right) ? 1 : 0;
   }
   return left;
@@ -202,12 +229,16 @@ std::optional<std::string> Preprocessor::ResolveInclude(const std::string &targe
       p = fs::path(current_file_dir) / p;
     }
     if (fs::exists(p, ec)) return p.string();
+    // Also check the virtual file loader (if set) so that unit tests
+    // and in-memory file systems can provide include targets.
+    if (file_loader_ && file_loader_(p.string())) return p.string();
   }
 
   // angle include OR fallback to include paths
   for (const auto &inc : include_paths_) {
     fs::path p = fs::path(inc) / target;
     if (fs::exists(p, ec)) return p.string();
+    if (file_loader_ && file_loader_(p.string())) return p.string();
   }
   return std::nullopt;
 }
@@ -323,6 +354,13 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
         ++j;
       }
       i = j;
+
+      // A zero-parameter function-like macro invoked as MACRO() will
+      // yield args = {""} (one empty string) from the argument parser.
+      // Normalise that to an empty vector so the count check succeeds.
+      if (macro.params.empty() && args.size() == 1 && args[0].empty()) {
+        args.clear();
+      }
 
       bool is_variadic = !macro.params.empty() && macro.params.back() == "__VA_ARGS__";
       size_t required = is_variadic ? macro.params.size() - 1 : macro.params.size();
