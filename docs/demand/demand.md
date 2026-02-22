@@ -450,7 +450,7 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 14.增加编译-链接-运行一体化 e2e 测试，覆盖 x86_64 与 arm64，WASM 先补 smoke；扩展 tests/integration/compile_tests/compile_pipeline_test.cpp。
 15.同步更新能力边界与使用说明文档；修改 README.md、docs/USER_GUIDE.md、docs/USER_GUIDE_zh.md。
 
---end
+--end -done
 
 2026-02-22-4
 
@@ -470,5 +470,13 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 --end
 
 2026-02-22-5
+
+1. 解除 `common` 与 `middle` 的循环依赖：
+   - 方案将 `common/include/ir/*` 下接口迁入 `middle/include/ir/*`。
+2. 固化层级约束：在 CI 增加 include-lint 规则，禁止新出现的逆向依赖。
+3. 统一调试信息建模：`common::debug` 与 `backends::DebugInfoBuilder` 功能重叠，建议定义单一数据模型与转换边界。
+4. 补齐“高级优化/PGO/LTO”与默认管线的集成文档与开关矩阵，避免能力存在但入口分散。
+5. 将运行时 C ABI 作为独立接口层文档化（建议新增 `runtime_abi.md`），并明确与 C++ API 的职责边界。
+6. 对工具层命名空间做一致化：当前 `polyc` 主要匿名命名空间，`polyasm/polyopt/polyrt` 使用 `polyglot::tools`，风格不统一。
 
 --end

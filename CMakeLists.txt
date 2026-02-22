@@ -81,6 +81,8 @@ add_library(frontend_ploy
     frontends/ploy/src/lexer/lexer.cpp
     frontends/ploy/src/parser/parser.cpp
     frontends/ploy/src/sema/sema.cpp
+    frontends/ploy/src/sema/package_discovery_cache.cpp
+    frontends/ploy/src/sema/command_runner.cpp
     frontends/ploy/src/lowering/lowering.cpp
 )
 

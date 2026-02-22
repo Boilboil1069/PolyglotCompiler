@@ -3,6 +3,11 @@
 //
 // These benchmarks measure full pipeline throughput (lex → parse → sema →
 // lower → IR print) and scaling behavior with increasing program size.
+//
+// Environment variable POLYBENCH_MODE controls iteration counts:
+//   "fast"  — 1 warmup, 3 runs   (CI / quick sanity)
+//   "full"  — 5 warmup, 20 runs  (detailed profiling)
+//   default — 3 warmup, 10 runs  (normal)
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
@@ -14,6 +19,7 @@
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
+#include <cstdlib>
 
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -46,6 +52,10 @@ struct MacroStats {
 };
 
 MacroStats RunFullPipeline(const std::string &code, int warmup, int runs) {
+    // Build discovery-disabled options for benchmarking
+    PloySemaOptions bench_opts;
+    bench_opts.enable_package_discovery = false;
+
     // Warmup
     for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
@@ -53,7 +63,7 @@ MacroStats RunFullPipeline(const std::string &code, int warmup, int runs) {
         PloyParser parser(lexer, diags);
         parser.ParseModule();
         auto module = parser.TakeModule();
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         sema.Analyze(module);
         IRContext ctx;
         PloyLowering lowering(ctx, diags, sema);
@@ -71,7 +81,7 @@ MacroStats RunFullPipeline(const std::string &code, int warmup, int runs) {
         parser.ParseModule();
         auto module = parser.TakeModule();
 
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         sema.Analyze(module);
 
         IRContext ctx;
@@ -194,8 +204,23 @@ std::string GenerateComplexPipeline(int stages, int callsPerStage) {
     return oss.str();
 }
 
-constexpr int kWarmup = 3;
-constexpr int kRuns   = 10;
+constexpr int kDefaultWarmup = 3;
+constexpr int kDefaultRuns   = 10;
+constexpr int kFastWarmup    = 1;
+constexpr int kFastRuns      = 3;
+constexpr int kFullWarmup    = 5;
+constexpr int kFullRuns      = 20;
+
+// Read POLYBENCH_MODE environment variable and return (warmup, runs).
+static std::pair<int,int> GetBenchConfig() {
+    const char *mode = std::getenv("POLYBENCH_MODE");
+    if (mode) {
+        std::string m(mode);
+        if (m == "fast") return {kFastWarmup, kFastRuns};
+        if (m == "full") return {kFullWarmup, kFullRuns};
+    }
+    return {kDefaultWarmup, kDefaultRuns};
+}
 
 } // namespace
 
@@ -204,32 +229,36 @@ constexpr int kRuns   = 10;
 // ============================================================================
 
 TEST_CASE("Macro: full pipeline — 10 functions", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateScalingProgram(10);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/10-funcs", stats);
     REQUIRE(stats.mean_ms < 5000.0);
     REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 50 functions", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateScalingProgram(50);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/50-funcs", stats);
     REQUIRE(stats.mean_ms < 2000.0);
     REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 100 functions", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateScalingProgram(100);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/100-funcs", stats);
     REQUIRE(stats.mean_ms < 5000.0);
     REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 200 functions", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateScalingProgram(200);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/200-funcs", stats);
     REQUIRE(stats.mean_ms < 15000.0);
     REQUIRE(stats.ir_size > 0);
@@ -240,10 +269,11 @@ TEST_CASE("Macro: full pipeline — 200 functions", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: scaling linearity check", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     // Measure 25, 50, 100 functions and verify roughly linear scaling
-    auto s25  = RunFullPipeline(GenerateScalingProgram(25),  kWarmup, kRuns);
-    auto s50  = RunFullPipeline(GenerateScalingProgram(50),  kWarmup, kRuns);
-    auto s100 = RunFullPipeline(GenerateScalingProgram(100), kWarmup, kRuns);
+    auto s25  = RunFullPipeline(GenerateScalingProgram(25),  warmup, runs);
+    auto s50  = RunFullPipeline(GenerateScalingProgram(50),  warmup, runs);
+    auto s100 = RunFullPipeline(GenerateScalingProgram(100), warmup, runs);
 
     PrintMacroStats("Scaling/25-funcs",  s25);
     PrintMacroStats("Scaling/50-funcs",  s50);
@@ -266,16 +296,18 @@ TEST_CASE("Macro: scaling linearity check", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: OOP features — 10 extended classes", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateOOPProgram(10);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("OOP/10-classes", stats);
     REQUIRE(stats.mean_ms < 2000.0);
     REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: OOP features — 25 extended classes", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateOOPProgram(25);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("OOP/25-classes", stats);
     REQUIRE(stats.mean_ms < 5000.0);
     REQUIRE(stats.ir_size > 0);
@@ -286,16 +318,18 @@ TEST_CASE("Macro: OOP features — 25 extended classes", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: pipeline — 10 stages x 5 calls", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateComplexPipeline(10, 5);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/10x5", stats);
     REQUIRE(stats.mean_ms < 3000.0);
     REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: pipeline — 20 stages x 10 calls", "[benchmark][macro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateComplexPipeline(20, 10);
-    auto stats = RunFullPipeline(code, kWarmup, kRuns);
+    auto stats = RunFullPipeline(code, warmup, runs);
     PrintMacroStats("Pipeline/20x10", stats);
     REQUIRE(stats.mean_ms < 10000.0);
     REQUIRE(stats.ir_size > 0);

@@ -28,7 +28,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
 - **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND` keywords for cross-language class instantiation, method calls, attribute access, and resource management
 - **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/NuGet/Maven/Gradle/pkg-config
-- **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly
+- **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly (shadow stack, WAT/binary)
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
 - **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
@@ -375,4 +375,4 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 ---
 
 *Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-02-22*
+*Last updated / 最后更新: 2026-02-22 (v5.1)*

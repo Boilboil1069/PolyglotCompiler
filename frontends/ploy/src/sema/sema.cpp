@@ -6,7 +6,25 @@
 #include <sstream>
 #include <unordered_set>
 
+#include "frontends/ploy/include/command_runner.h"
+#include "frontends/ploy/include/package_discovery_cache.h"
+
 namespace polyglot::ploy {
+
+// ============================================================================
+// Constructor
+// ============================================================================
+
+PloySema::PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &options)
+    : diagnostics_(diagnostics),
+      strict_mode_(options.strict_mode),
+      discovery_enabled_(options.enable_package_discovery),
+      discovery_cache_(options.discovery_cache
+                           ? options.discovery_cache
+                           : std::make_shared<PackageDiscoveryCache>()),
+      command_runner_(options.command_runner
+                          ? options.command_runner
+                          : std::make_shared<DefaultCommandRunner>()) {}
 
 // ============================================================================
 // Public Interface
@@ -250,20 +268,39 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     }
 
     // Run package auto-discovery for the specified language if not done yet
-    if (!import->language.empty() && !import->package_name.empty()) {
-        if (discovery_completed_.find(import->language) == discovery_completed_.end()) {
-            // Find the venv path and manager kind for this language, if configured
-            std::string venv_path;
-            VenvConfigDecl::ManagerKind manager = VenvConfigDecl::ManagerKind::kVenv;
-            for (const auto &vc : venv_configs_) {
-                if (vc.language == import->language) {
-                    venv_path = vc.venv_path;
-                    manager = vc.manager;
-                    break;
-                }
+    if (!import->language.empty() && !import->package_name.empty() && discovery_enabled_) {
+        // Build the canonical cache key from language, manager kind, env path
+        std::string venv_path;
+        VenvConfigDecl::ManagerKind manager = VenvConfigDecl::ManagerKind::kVenv;
+        for (const auto &vc : venv_configs_) {
+            if (vc.language == import->language) {
+                venv_path = vc.venv_path;
+                manager = vc.manager;
+                break;
             }
+        }
+
+        std::string manager_str;
+        switch (manager) {
+            case VenvConfigDecl::ManagerKind::kConda:  manager_str = "conda";  break;
+            case VenvConfigDecl::ManagerKind::kUv:     manager_str = "uv";     break;
+            case VenvConfigDecl::ManagerKind::kPipenv: manager_str = "pipenv"; break;
+            case VenvConfigDecl::ManagerKind::kPoetry: manager_str = "poetry"; break;
+            default:                                   manager_str = "venv";   break;
+        }
+        std::string cache_key = PackageDiscoveryCache::MakeKey(
+            import->language, manager_str, venv_path);
+
+        if (!discovery_cache_->HasDiscovered(cache_key)) {
+            // Cache miss — run external commands and store results
             DiscoverPackages(import->language, venv_path, manager);
-            discovery_completed_.insert(import->language);
+            discovery_cache_->Store(cache_key, discovered_packages_);
+        } else {
+            // Cache hit — merge cached results into instance-local map
+            auto cached = discovery_cache_->Retrieve(cache_key);
+            for (const auto &[k, v] : cached) {
+                discovered_packages_.try_emplace(k, v);
+            }
         }
 
         // If package discovery found this package, validate the version constraint
@@ -1654,28 +1691,9 @@ void PloySema::DiscoverPythonPackages(const std::string &venv_path,
 }
 
 void PloySema::DiscoverPythonPackagesViaPip(const std::string &pip_cmd) {
-    // Execute the command and capture output
-    std::string output;
-#ifdef _WIN32
-    FILE *pipe = _popen(pip_cmd.c_str(), "r");
-#else
-    FILE *pipe = popen(pip_cmd.c_str(), "r");
-#endif
-    if (!pipe) {
-        // pip not available — silently skip discovery
-        return;
-    }
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    // Execute the command via the command runner abstraction
+    std::string output = command_runner_->Run(pip_cmd);
+    if (output.empty()) return;
 
     // Parse pip freeze output: each line is "package==version"
     std::istringstream stream(output);
@@ -1729,32 +1747,21 @@ void PloySema::DiscoverPythonPackagesViaConda(const std::string &env_name) {
     // Build the conda list command targeting the specified environment
     std::string conda_cmd;
     if (!env_name.empty()) {
+#ifdef _WIN32
         conda_cmd = "conda list -n " + env_name + " --export 2>nul";
+#else
+        conda_cmd = "conda list -n " + env_name + " --export 2>/dev/null";
+#endif
     } else {
+#ifdef _WIN32
         conda_cmd = "conda list --export 2>nul";
+#else
+        conda_cmd = "conda list --export 2>/dev/null";
+#endif
     }
 
-    std::string output;
-#ifdef _WIN32
-    FILE *pipe = _popen(conda_cmd.c_str(), "r");
-#else
-    // Redirect stderr on Unix
-    std::string unix_cmd = env_name.empty()
-        ? "conda list --export 2>/dev/null"
-        : "conda list -n " + env_name + " --export 2>/dev/null";
-    FILE *pipe = popen(unix_cmd.c_str(), "r");
-#endif
-    if (!pipe) return;
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    std::string output = command_runner_->Run(conda_cmd);
+    if (output.empty()) return;
 
     // Parse conda list --export output: each line is "package=version=build_string"
     // Lines starting with '#' are comments
@@ -1863,23 +1870,12 @@ void PloySema::DiscoverPythonPackagesViaPoetry(const std::string &project_path) 
 
 void PloySema::DiscoverRustCrates() {
     // Use cargo to list installed crates
-    std::string output;
 #ifdef _WIN32
-    FILE *pipe = _popen("cargo install --list 2>nul", "r");
+    std::string output = command_runner_->Run("cargo install --list 2>nul");
 #else
-    FILE *pipe = popen("cargo install --list 2>/dev/null", "r");
+    std::string output = command_runner_->Run("cargo install --list 2>/dev/null");
 #endif
-    if (!pipe) return;
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    if (output.empty()) return;
 
     // Parse cargo install --list output: "crate_name v1.2.3:"
     std::istringstream stream(output);
@@ -1912,23 +1908,12 @@ void PloySema::DiscoverRustCrates() {
 
 void PloySema::DiscoverCppPackages() {
     // C++ package discovery via pkg-config
-    std::string output;
 #ifdef _WIN32
-    FILE *pipe = _popen("pkg-config --list-all 2>nul", "r");
+    std::string output = command_runner_->Run("pkg-config --list-all 2>nul");
 #else
-    FILE *pipe = popen("pkg-config --list-all 2>/dev/null", "r");
+    std::string output = command_runner_->Run("pkg-config --list-all 2>/dev/null");
 #endif
-    if (!pipe) return;
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    if (output.empty()) return;
 
     // Parse pkg-config output: "package_name  description"
     std::istringstream stream(output);
@@ -2080,27 +2065,14 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
 void PloySema::DiscoverJavaPackages(const std::string &classpath) {
     // Discover Java packages using 'java -version' to verify installation
     // and optionally scanning the CLASSPATH or Maven/Gradle dependencies.
-    if (discovery_completed_.count("java")) return;
-    discovery_completed_.insert("java");
 
     // First, verify Java is available and detect version
-    std::string output;
 #ifdef _WIN32
-    FILE *pipe = _popen("java -version 2>&1", "r");
+    std::string output = command_runner_->Run("java -version 2>&1");
 #else
-    FILE *pipe = popen("java -version 2>&1", "r");
+    std::string output = command_runner_->Run("java -version 2>&1");
 #endif
-    if (!pipe) return;
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    if (output.empty()) return;
 
     // Parse Java version from output (e.g., "openjdk version \"17.0.1\"")
     std::string java_version;
@@ -2154,23 +2126,8 @@ void PloySema::DiscoverJavaPackagesViaMaven(const std::string &project_path) {
     cmd = "cd \"" + project_path + "\" && mvn dependency:list -DoutputAbsoluteArtifactFilename=true -q 2>/dev/null";
 #endif
 
-    std::string output;
-#ifdef _WIN32
-    FILE *pipe = _popen(cmd.c_str(), "r");
-#else
-    FILE *pipe = popen(cmd.c_str(), "r");
-#endif
-    if (!pipe) return;
-
-    char buffer[512];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    std::string output = command_runner_->Run(cmd);
+    if (output.empty()) return;
 
     // Parse Maven dependency:list output
     // Lines like: "    com.google.guava:guava:jar:31.1-jre:compile"
@@ -2211,23 +2168,8 @@ void PloySema::DiscoverJavaPackagesViaGradle(const std::string &project_path) {
     cmd = "cd \"" + project_path + "\" && gradle dependencies --configuration compileClasspath -q 2>/dev/null";
 #endif
 
-    std::string output;
-#ifdef _WIN32
-    FILE *pipe = _popen(cmd.c_str(), "r");
-#else
-    FILE *pipe = popen(cmd.c_str(), "r");
-#endif
-    if (!pipe) return;
-
-    char buffer[512];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
+    std::string output = command_runner_->Run(cmd);
+    if (output.empty()) return;
 
     // Parse Gradle dependency tree output
     // Lines like: "+--- com.google.guava:guava:31.1-jre"
@@ -2270,27 +2212,18 @@ void PloySema::DiscoverJavaPackagesViaGradle(const std::string &project_path) {
 
 void PloySema::DiscoverDotnetPackages() {
     // Discover .NET SDKs and NuGet packages
-    if (discovery_completed_.count("dotnet")) return;
-    discovery_completed_.insert("dotnet");
 
     // First, detect installed .NET SDKs
-    std::string output;
 #ifdef _WIN32
-    FILE *pipe = _popen("dotnet --list-sdks 2>nul", "r");
+    std::string output = command_runner_->Run("dotnet --list-sdks 2>nul");
 #else
-    FILE *pipe = popen("dotnet --list-sdks 2>/dev/null", "r");
+    std::string output = command_runner_->Run("dotnet --list-sdks 2>/dev/null");
 #endif
-    if (!pipe) return;
-
-    char buffer[256];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
+    if (output.empty()) {
+        // dotnet CLI not available; skip but still discover NuGet
+        DiscoverDotnetNugetPackages();
+        return;
     }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
 
     // Parse SDK version output (e.g., "8.0.100 [/usr/share/dotnet/sdk]")
     std::istringstream sdk_stream(output);
@@ -2332,45 +2265,21 @@ void PloySema::DiscoverDotnetPackages() {
 
 void PloySema::DiscoverDotnetNugetPackages() {
     // List globally installed NuGet packages
-    std::string output;
 #ifdef _WIN32
-    FILE *pipe = _popen("dotnet nuget locals global-packages --list 2>nul", "r");
+    std::string output = command_runner_->Run("dotnet nuget locals global-packages --list 2>nul");
 #else
-    FILE *pipe = popen("dotnet nuget locals global-packages --list 2>/dev/null", "r");
+    std::string output = command_runner_->Run("dotnet nuget locals global-packages --list 2>/dev/null");
 #endif
-    if (!pipe) return;
-
-    char buffer[512];
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(pipe);
-#else
-    pclose(pipe);
-#endif
-
     // Output is like: "global-packages: C:\Users\...\.nuget\packages\"
-    // We could scan this directory, but for now just register the path
     // Actual package resolution happens at link time via the .NET toolchain
 
     // Try listing packages from the current project (if any)
-    std::string proj_output;
 #ifdef _WIN32
-    FILE *proj_pipe = _popen("dotnet list package 2>nul", "r");
+    std::string proj_output = command_runner_->Run("dotnet list package 2>nul");
 #else
-    FILE *proj_pipe = popen("dotnet list package 2>/dev/null", "r");
+    std::string proj_output = command_runner_->Run("dotnet list package 2>/dev/null");
 #endif
-    if (!proj_pipe) return;
-
-    while (fgets(buffer, sizeof(buffer), proj_pipe) != nullptr) {
-        proj_output += buffer;
-    }
-#ifdef _WIN32
-    _pclose(proj_pipe);
-#else
-    pclose(proj_pipe);
-#endif
+    if (proj_output.empty()) return;
 
     // Parse 'dotnet list package' output
     // Lines like: "   > Newtonsoft.Json           13.0.3      13.0.3"

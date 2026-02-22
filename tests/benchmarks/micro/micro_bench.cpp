@@ -4,6 +4,11 @@
 // These benchmarks measure individual compiler stage throughput:
 // lexer, parser, sema, and lowering — each in isolation.
 // Results are printed as ops/sec and ms/op for analysis.
+//
+// Environment variable POLYBENCH_MODE controls iteration counts:
+//   "fast"  — 1 warmup, 5 runs   (CI / quick sanity)
+//   "full"  — 5 warmup, 50 runs  (detailed profiling)
+//   default — 3 warmup, 20 runs  (normal)
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
@@ -15,6 +20,7 @@
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
+#include <cstdlib>
 
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -158,8 +164,31 @@ std::string GenerateLargeProgram(int funcs) {
     return oss.str();
 }
 
-constexpr int kWarmupRuns  = 3;
-constexpr int kBenchRuns   = 20;
+constexpr int kDefaultWarmup = 3;
+constexpr int kDefaultRuns   = 20;
+constexpr int kFastWarmup    = 1;
+constexpr int kFastRuns      = 5;
+constexpr int kFullWarmup    = 5;
+constexpr int kFullRuns      = 50;
+
+// Read POLYBENCH_MODE environment variable and return (warmup, runs).
+static std::pair<int,int> GetBenchConfig() {
+    const char *mode = std::getenv("POLYBENCH_MODE");
+    if (mode) {
+        std::string m(mode);
+        if (m == "fast") return {kFastWarmup, kFastRuns};
+        if (m == "full") return {kFullWarmup, kFullRuns};
+    }
+    return {kDefaultWarmup, kDefaultRuns};
+}
+
+// PloySemaOptions with discovery disabled for benchmarks.
+static PloySemaOptions BenchSemaOptions() {
+    PloySemaOptions opts;
+    opts.enable_package_discovery = false;
+    opts.strict_mode = false;
+    return opts;
+}
 
 } // namespace
 
@@ -168,14 +197,15 @@ constexpr int kBenchRuns   = 20;
 // ============================================================================
 
 TEST_CASE("Micro: lexer throughput — small program", "[benchmark][micro]") {
+    auto [warmup, runs] = GetBenchConfig();
     // Warmup
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    for (int i = 0; i < warmup; ++i) {
         PloyLexer lexer(kSmallProgram, "<bench>");
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) {}
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         PloyLexer lexer(kSmallProgram, "<bench>");
         int tokens = 0;
@@ -190,13 +220,14 @@ TEST_CASE("Micro: lexer throughput — small program", "[benchmark][micro]") {
 }
 
 TEST_CASE("Micro: lexer throughput — medium program", "[benchmark][micro]") {
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    auto [warmup, runs] = GetBenchConfig();
+    for (int i = 0; i < warmup; ++i) {
         PloyLexer lexer(kMediumProgram, "<bench>");
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) {}
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         PloyLexer lexer(kMediumProgram, "<bench>");
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) {}
@@ -210,15 +241,16 @@ TEST_CASE("Micro: lexer throughput — medium program", "[benchmark][micro]") {
 }
 
 TEST_CASE("Micro: lexer throughput — large program (100 funcs)", "[benchmark][micro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateLargeProgram(100);
 
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    for (int i = 0; i < warmup; ++i) {
         PloyLexer lexer(code, "<bench>");
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) {}
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         PloyLexer lexer(code, "<bench>");
         int tokens = 0;
@@ -237,7 +269,8 @@ TEST_CASE("Micro: lexer throughput — large program (100 funcs)", "[benchmark][
 // ============================================================================
 
 TEST_CASE("Micro: parser throughput — small program", "[benchmark][micro]") {
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    auto [warmup, runs] = GetBenchConfig();
+    for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
         PloyLexer lexer(kSmallProgram, "<bench>");
         PloyParser parser(lexer, diags);
@@ -245,7 +278,7 @@ TEST_CASE("Micro: parser throughput — small program", "[benchmark][micro]") {
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         Diagnostics diags;
         PloyLexer lexer(kSmallProgram, "<bench>");
@@ -263,7 +296,8 @@ TEST_CASE("Micro: parser throughput — small program", "[benchmark][micro]") {
 }
 
 TEST_CASE("Micro: parser throughput — medium program", "[benchmark][micro]") {
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    auto [warmup, runs] = GetBenchConfig();
+    for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
         PloyParser parser(lexer, diags);
@@ -271,7 +305,7 @@ TEST_CASE("Micro: parser throughput — medium program", "[benchmark][micro]") {
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
@@ -289,9 +323,10 @@ TEST_CASE("Micro: parser throughput — medium program", "[benchmark][micro]") {
 }
 
 TEST_CASE("Micro: parser throughput — large program (100 funcs)", "[benchmark][micro]") {
+    auto [warmup, runs] = GetBenchConfig();
     auto code = GenerateLargeProgram(100);
 
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
         PloyLexer lexer(code, "<bench>");
         PloyParser parser(lexer, diags);
@@ -299,7 +334,7 @@ TEST_CASE("Micro: parser throughput — large program (100 funcs)", "[benchmark]
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         auto start = std::chrono::high_resolution_clock::now();
         Diagnostics diags;
         PloyLexer lexer(code, "<bench>");
@@ -321,19 +356,22 @@ TEST_CASE("Micro: parser throughput — large program (100 funcs)", "[benchmark]
 // ============================================================================
 
 TEST_CASE("Micro: sema throughput — medium program", "[benchmark][micro]") {
+    auto [warmup, runs] = GetBenchConfig();
+    auto bench_opts = BenchSemaOptions();
+
     // Pre-parse once (we are benchmarking sema only)
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
         PloyParser parser(lexer, diags);
         parser.ParseModule();
         auto module = parser.TakeModule();
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         sema.Analyze(module);
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
         PloyParser parser(lexer, diags);
@@ -341,7 +379,7 @@ TEST_CASE("Micro: sema throughput — medium program", "[benchmark][micro]") {
         auto module = parser.TakeModule();
 
         auto start = std::chrono::high_resolution_clock::now();
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         bool ok = sema.Analyze(module);
         auto end = std::chrono::high_resolution_clock::now();
 
@@ -356,16 +394,22 @@ TEST_CASE("Micro: sema throughput — medium program", "[benchmark][micro]") {
 
 // ============================================================================
 // Lowering micro-benchmarks
+//
+// The timing boundary starts AFTER parse+sema (which are prerequisites)
+// and covers only the lowering and IR generation phase.
 // ============================================================================
 
 TEST_CASE("Micro: lowering throughput — medium program", "[benchmark][micro]") {
-    for (int i = 0; i < kWarmupRuns; ++i) {
+    auto [warmup, runs] = GetBenchConfig();
+    auto bench_opts = BenchSemaOptions();
+
+    for (int i = 0; i < warmup; ++i) {
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
         PloyParser parser(lexer, diags);
         parser.ParseModule();
         auto module = parser.TakeModule();
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         sema.Analyze(module);
         IRContext ctx;
         PloyLowering lowering(ctx, diags, sema);
@@ -373,15 +417,17 @@ TEST_CASE("Micro: lowering throughput — medium program", "[benchmark][micro]")
     }
 
     std::vector<double> samples;
-    for (int i = 0; i < kBenchRuns; ++i) {
+    for (int i = 0; i < runs; ++i) {
+        // Setup phase: parse + sema (outside timing boundary)
         Diagnostics diags;
         PloyLexer lexer(kMediumProgram, "<bench>");
         PloyParser parser(lexer, diags);
         parser.ParseModule();
         auto module = parser.TakeModule();
-        PloySema sema(diags);
+        PloySema sema(diags, bench_opts);
         sema.Analyze(module);
 
+        // Timed phase: lowering only
         auto start = std::chrono::high_resolution_clock::now();
         IRContext ctx;
         PloyLowering lowering(ctx, diags, sema);

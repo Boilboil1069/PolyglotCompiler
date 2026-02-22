@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -10,6 +12,41 @@
 #include "frontends/ploy/include/ploy_ast.h"
 
 namespace polyglot::ploy {
+
+// Forward declarations for decoupled subsystems
+class PackageDiscoveryCache;
+class ICommandRunner;
+
+// ============================================================================
+// PloySemaOptions — configuration structure for PloySema
+//
+// All fields have sensible defaults so that existing call-sites that construct
+// PloySema(diagnostics) continue to work unchanged.
+// ============================================================================
+
+struct PloySemaOptions {
+    // When true, PloySema runs external package-manager commands on the first
+    // IMPORT PACKAGE for each language to discover installed packages and their
+    // versions.  Set to false in benchmarks or when the caller knows that no
+    // packages need discovery (avoids fork/exec overhead).
+    bool enable_package_discovery{true};
+
+    // Enable strict type-checking mode.  When enabled, the sema emits warnings
+    // for every site where core::Type::Any() is used as a fallback that the
+    // programmer could have resolved by adding explicit type annotations.
+    bool strict_mode{false};
+
+    // Optional shared cache for package discovery results.  When nullptr a
+    // fresh per-instance cache is used (backward-compatible default).  Callers
+    // that run multiple compilations in the same session can provide a shared
+    // cache to avoid redundant external-command invocations.
+    std::shared_ptr<PackageDiscoveryCache> discovery_cache{nullptr};
+
+    // Optional command-runner abstraction.  When nullptr the default
+    // implementation that calls _popen/popen is used.  Tests can inject a mock
+    // to avoid touching the real filesystem or spawning processes.
+    std::shared_ptr<ICommandRunner> command_runner{nullptr};
+};
 
 // ============================================================================
 // Symbol Table Entry
@@ -100,14 +137,21 @@ struct FunctionSignature {
 
 class PloySema {
   public:
+    // Backward-compatible constructor — uses default options.
     explicit PloySema(frontends::Diagnostics &diagnostics)
-        : diagnostics_(diagnostics) {}
+        : PloySema(diagnostics, PloySemaOptions{}) {}
+
+    // Full constructor — accepts options for fine-grained control.
+    PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &options);
 
     // Enable strict type-checking mode.  When enabled, the sema emits warnings
     // for every site where core::Type::Any() is used as a fallback that the
     // programmer could have resolved by adding explicit type annotations.
     void SetStrictMode(bool enable) { strict_mode_ = enable; }
     bool IsStrictMode() const { return strict_mode_; }
+
+    // Whether package discovery is enabled for this instance.
+    bool IsDiscoveryEnabled() const { return discovery_enabled_; }
 
     // Run semantic analysis on the parsed module
     bool Analyze(const std::shared_ptr<Module> &module);
@@ -226,6 +270,7 @@ class PloySema {
 
     frontends::Diagnostics &diagnostics_;
     bool strict_mode_{false};
+    bool discovery_enabled_{true};
     core::TypeSystem type_system_{};
     std::unordered_map<std::string, PloySymbol> symbols_{};
     std::vector<LinkEntry> links_{};
@@ -243,10 +288,15 @@ class PloySema {
 
     // Virtual environment configurations
     std::vector<VenvConfig> venv_configs_{};
-    // Discovered package registry: key = "language::package_name"
+
+    // Session-level discovery cache (shared across compilations or per-instance)
+    std::shared_ptr<PackageDiscoveryCache> discovery_cache_;
+
+    // Command runner abstraction (default: real popen, can be mocked in tests)
+    std::shared_ptr<ICommandRunner> command_runner_;
+
+    // Instance-local copy of discovered packages (populated from cache)
     std::unordered_map<std::string, PackageInfo> discovered_packages_{};
-    // Track whether discovery has been run for each language
-    std::unordered_set<std::string> discovery_completed_{};
 };
 
 } // namespace polyglot::ploy

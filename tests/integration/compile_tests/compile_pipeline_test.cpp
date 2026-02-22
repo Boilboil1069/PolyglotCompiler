@@ -821,3 +821,103 @@ TEST_CASE("E2E: x86_64 EmitObjectCode produces MCResult",
     }
     REQUIRE(has_sym);
 }
+
+// ============================================================================
+// E2E: ARM64 Object Code Emission
+// ============================================================================
+
+TEST_CASE("E2E: arm64 EmitObjectCode produces MCResult",
+          "[integration][e2e][arm64][objcode]") {
+    IRContext ctx;
+    auto fn = ctx.CreateFunction("identity", polyglot::ir::IRType::I64(),
+                                 {{"x", polyglot::ir::IRType::I64()}});
+    auto blk = fn->CreateBlock("entry");
+
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    ret->operands.push_back("x");
+    blk->SetTerminator(ret);
+
+    polyglot::backends::arm64::Arm64Target target(&ctx);
+    auto mc = target.EmitObjectCode();
+
+    // MCResult should have at least a .text section
+    bool has_text = false;
+    for (auto &sec : mc.sections) {
+        if (sec.name == ".text") {
+            has_text = true;
+            REQUIRE_FALSE(sec.data.empty());
+        }
+    }
+    REQUIRE(has_text);
+
+    // Should define the function symbol
+    bool has_sym = false;
+    for (auto &sym : mc.symbols) {
+        if (sym.name == "identity") {
+            has_sym = true;
+            REQUIRE(sym.global);
+        }
+    }
+    REQUIRE(has_sym);
+}
+
+// ============================================================================
+// E2E: WASM Multi-function Smoke Test
+// ============================================================================
+
+TEST_CASE("E2E: wasm multi-function binary emission",
+          "[integration][e2e][wasm][smoke]") {
+    IRContext ctx;
+
+    // Function 1: add(a, b) -> a + b
+    {
+        auto fn = ctx.CreateFunction("add", polyglot::ir::IRType::I64(),
+                                     {{"a", polyglot::ir::IRType::I64()},
+                                      {"b", polyglot::ir::IRType::I64()}});
+        auto blk = fn->CreateBlock("entry");
+        auto binop = std::make_shared<polyglot::ir::BinaryInstruction>();
+        binop->op = polyglot::ir::BinaryInstruction::Op::kAdd;
+        binop->name = "sum";
+        binop->type = polyglot::ir::IRType::I64();
+        binop->operands = {"a", "b"};
+        blk->AddInstruction(binop);
+        auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+        ret->operands.push_back("sum");
+        blk->SetTerminator(ret);
+    }
+
+    // Function 2: negate(x) -> 0 - x
+    {
+        auto fn = ctx.CreateFunction("negate", polyglot::ir::IRType::I64(),
+                                     {{"x", polyglot::ir::IRType::I64()}});
+        auto blk = fn->CreateBlock("entry");
+        auto binop = std::make_shared<polyglot::ir::BinaryInstruction>();
+        binop->op = polyglot::ir::BinaryInstruction::Op::kSub;
+        binop->name = "neg";
+        binop->type = polyglot::ir::IRType::I64();
+        binop->operands = {"0", "x"};
+        blk->AddInstruction(binop);
+        auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+        ret->operands.push_back("neg");
+        blk->SetTerminator(ret);
+    }
+
+    polyglot::backends::wasm::WasmTarget target(&ctx);
+
+    // WAT output should contain both functions
+    std::string wat = target.EmitAssembly();
+    REQUIRE_FALSE(wat.empty());
+    REQUIRE(wat.find("add") != std::string::npos);
+    REQUIRE(wat.find("negate") != std::string::npos);
+    REQUIRE(wat.find("i64.add") != std::string::npos);
+    REQUIRE(wat.find("i64.sub") != std::string::npos);
+
+    // Binary output
+    auto binary = target.EmitWasmBinary();
+    REQUIRE(binary.size() >= 8);
+    // Magic header
+    REQUIRE(binary[0] == 0x00);
+    REQUIRE(binary[1] == 0x61);
+    REQUIRE(binary[2] == 0x73);
+    REQUIRE(binary[3] == 0x6D);
+}

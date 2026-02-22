@@ -441,8 +441,8 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
         std::uint32_t alloc_size = 16;  // default conservative alignment
 
         auto pointee = alloca_inst->type;
-        if (pointee.kind == ir::IRTypeKind::kPointer && pointee.pointee_type) {
-            auto &inner = *pointee.pointee_type;
+        if (pointee.kind == ir::IRTypeKind::kPointer && !pointee.subtypes.empty()) {
+            auto &inner = pointee.subtypes[0];
             if (inner.kind == ir::IRTypeKind::kI32 || inner.kind == ir::IRTypeKind::kF32) alloc_size = 4;
             else if (inner.kind == ir::IRTypeKind::kI64 || inner.kind == ir::IRTypeKind::kF64) alloc_size = 8;
             else if (inner.kind == ir::IRTypeKind::kI8) alloc_size = 1;

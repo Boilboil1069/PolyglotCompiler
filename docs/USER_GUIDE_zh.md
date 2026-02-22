@@ -1049,6 +1049,9 @@ Error [E3001]: Undefined variable 'unknown_var'
 | **函数/对象级粒度** | 不能在单个函数体内混合不同语言的代码，但支持跨语言函数调用、类实例化、方法调用、属性访问和资源管理 |
 | **运行时开销** | 跨语言调用涉及参数编组 |
 | **内存模型差异** | 每种语言管理自己的内存，所有权通过 OwnershipTracker 追踪 |
+| **WASM alloca** | 栈分配通过影子栈模型降级（可变 i32 全局变量，初始值 65536，向下增长）；线性内存布局与原生后端不同 |
+| **链接器严格模式** | 未解析的跨语言符号视为硬错误——链接器不会为未解析的符号对生成粘合存根 |
+| **语义分析严格模式** | 启用后，`.ploy` 语义分析对无类型参数、`Any` 回退和缺少注释发出警告；默认为宽松模式 |
 
 ---
 
@@ -2010,6 +2013,22 @@ tests/benchmarks/
 - PEP 440: https://peps.python.org/pep-0440/
 
 ## 13.5 更新日志
+
+### v5.1 (2026-02-22)
+- ✅ 链接器强失败模式 — 未解析符号为硬错误；不再为未解析对生成占位存根
+- ✅ 链接器主流程：存在跨语言条目但解析失败时直接报错终止
+- ✅ `polyc` 和 `polyasm` 现支持 `--arch=wasm` WebAssembly 目标
+- ✅ WASM 后端：通过名称→索引映射实现真实函数调用索引解析（移除硬编码索引）
+- ✅ WASM 后端：alloca 降级为影子栈模型（可变 i32 全局变量，从 65536 向下增长）
+- ✅ WASM 后端：不支持的 IR 指令发射 `unreachable` + 诊断错误（不再静默 NOP）
+- ✅ `.ploy` 语义分析严格模式（`SetStrictMode(true)`）— 对无类型参数、`Any` 回退、缺少注释发出警告
+- ✅ `.ploy` lowering 在 I64 回退前先查询语义符号表；使用 `KnownSignatures` 获取返回/参数类型
+- ✅ 调试发射器：FDE 现包含正确的 CFA 指令（push rbp / mov rbp,rsp 帧建立）
+- ✅ 调试发射器：PDB TPI 流发射指针类型的 LF_POINTER 类型记录
+- ✅ Mach-O 目标文件：计算并写入每节 `reloff`/`nreloc`；发射 relocation_info 条目
+- ✅ Rust 和 Python 前端 lowering：未知类型 → I64 回退时发出诊断警告
+- ✅ Rust advanced_features_test.cpp：所有 `REQUIRE(true)` 替换为行为性解析 + AST 断言
+- ✅ E2E 测试：新增 ARM64 目标代码发射测试和 WASM 多函数二进制 smoke 测试
 
 ### v5.0 (2026-02-22)
 - ✅ 全面项目文档更新 — 所有文档刷新以反映当前状态

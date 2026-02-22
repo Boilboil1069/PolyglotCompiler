@@ -1061,6 +1061,9 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 | **Function/Object-level granularity** | Cannot mix different language code within a single function body, but supports cross-language function calls, class instantiation, method calls, attribute access, and resource management |
 | **Runtime overhead** | Cross-language calls involve argument marshalling |
 | **Memory model differences** | Each language manages its own memory; ownership tracked via OwnershipTracker |
+| **WASM alloca** | Stack allocations are lowered to a shadow stack model (mutable i32 global at 65536, grows downward); linear memory layout differs from native backends |
+| **Linker strict mode** | Unresolved cross-language symbols are hard errors — the linker will not generate glue stubs for unresolved pairs |
+| **Sema strict mode** | When enabled, `.ploy` sema emits warnings for untyped parameters, `Any` fallbacks, and missing annotations; default is permissive |
 
 ---
 
@@ -2024,6 +2027,22 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - PEP 440: https://peps.python.org/pep-0440/
 
 ## 13.5 Changelog
+
+### v5.1 (2026-02-22)
+- ✅ Linker strong failure mode — unresolved symbols are hard errors; placeholder stubs no longer generated
+- ✅ Linker main flow fatal when cross-language entries exist but resolution fails
+- ✅ `polyc` and `polyasm` now accept `--arch=wasm` for WebAssembly target
+- ✅ WASM backend: real function call index resolution via name→index map (no more hardcoded indices)
+- ✅ WASM backend: alloca lowered to shadow stack model (mutable i32 global, grows downward from 65536)
+- ✅ WASM backend: unsupported IR instructions emit `unreachable` + diagnostic error (no silent NOPs)
+- ✅ `.ploy` sema strict mode (`SetStrictMode(true)`) — warns on untyped params, `Any` fallbacks, missing annotations
+- ✅ `.ploy` lowering consults sema symbol table before I64 fallback; uses `KnownSignatures` for return/param types
+- ✅ Debug emitter: FDE now has proper CFA instructions (push rbp / mov rbp,rsp frame setup)
+- ✅ Debug emitter: PDB TPI stream emits LF_POINTER type records for pointer types
+- ✅ Mach-O object file: per-section `reloff`/`nreloc` computed and written; relocation_info entries emitted
+- ✅ Rust and Python frontend lowering: diagnostic warnings for unknown type → I64 fallbacks
+- ✅ Rust advanced_features_test.cpp: all `REQUIRE(true)` replaced with behavioral parse + AST assertions
+- ✅ E2E tests: added ARM64 object code emission test and WASM multi-function binary smoke test
 
 ### v5.0 (2026-02-22)
 - ✅ Full project documentation update — all docs refreshed to reflect current state
