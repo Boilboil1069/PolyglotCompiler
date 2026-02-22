@@ -35,6 +35,7 @@ using polyglot::frontends::TokenKind;
 using polyglot::ploy::PloyLexer;
 using polyglot::ploy::PloyParser;
 using polyglot::ploy::PloySema;
+using polyglot::ploy::PloySemaOptions;
 using polyglot::ploy::PloyLowering;
 using polyglot::ir::IRContext;
 

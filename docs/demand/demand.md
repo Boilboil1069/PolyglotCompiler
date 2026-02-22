@@ -467,7 +467,7 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 11. 增加单元测试覆盖：`discovery disabled` 不触发外部命令、同配置重复 `Analyze` 仅发现一次、不同 key 不串缓存；新增 `tests/unit/frontends/ploy/sema_discovery_test.cpp`。
 12. 更新文档说明 discovery 开关、缓存策略、benchmark 推荐构建类型（Release/RelWithDebInfo）；修改 `docs/USER_GUIDE.md`、`docs/USER_GUIDE_zh.md`。
 
---end
+--end -done
 
 2026-02-22-5
 

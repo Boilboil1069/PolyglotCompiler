@@ -4,7 +4,7 @@
 > 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v5.0  
+**版本**: v5.2  
 **最后更新**: 2026-02-22
 
 ---
@@ -964,9 +964,35 @@ Error [E3001]: Undefined variable 'unknown_var'
 
 1. **解析 CONFIG** — 确定包管理器类型和环境路径
 2. **触发发现** — 遇到 `IMPORT PACKAGE` 时执行对应的发现命令（每种语言每编译单元仅执行一次）
-3. **缓存结果** — 发现的包和版本缓存在 `discovered_packages_` 映射中
+3. **缓存结果** — 发现的包和版本缓存在会话级 `PackageDiscoveryCache` 中（键为 `language|manager|env_path`）；可跨多个 `PloySema` 编译复用共享缓存以避免重复外部命令调用
 4. **版本验证** — 对版本约束进行 6 种运算符验证
 5. **符号验证** — 验证选择性导入的符号无重复
+
+### 发现开关
+
+可通过 `PloySemaOptions::enable_package_discovery` 切换发现功能：
+
+```cpp
+PloySemaOptions opts;
+opts.enable_package_discovery = false;   // 跳过所有外部命令
+PloySema sema(diagnostics, opts);
+```
+
+禁用后，`IMPORT PACKAGE` 语句仍会被记录，但不会执行任何 `_popen`/`popen` 调用。建议在基准测试和 CI 环境中禁用发现功能。
+
+### 缓存策略
+
+`PackageDiscoveryCache` 是线程安全（互斥锁保护）的会话级缓存。规范键格式为：
+
+```
+language + "|" + manager_kind + "|" + env_path
+```
+
+例如：`"python|pip|/home/user/venv"`。当同一会话中编译多个 `.ploy` 文件时，调用者可通过 `PloySemaOptions::discovery_cache` 注入共享缓存，避免重复运行 `pip list` / `cargo install --list` 等命令。
+
+### 命令执行抽象
+
+所有外部命令执行通过 `ICommandRunner` 接口（`command_runner.h`）路由。默认实现 `DefaultCommandRunner` 使用 `_popen`/`popen`。测试可注入 `MockCommandRunner` 以验证发现行为而无需生成真实进程。
 
 ### 平台适配
 
@@ -1758,6 +1784,14 @@ GC 策略选择: `gc_strategy.cpp`
 ./benchmark_tests [micro]       # 仅微基准测试
 ./benchmark_tests [macro]       # 仅宏基准测试
 
+# 通过 CTest 档位运行基准测试（设置 POLYBENCH_MODE 环境变量）：
+ctest -L fast                   # 快速 smoke 运行（1 次预热，少量迭代）
+ctest -L full                   # 完整统计运行（5 次预热，大量迭代）
+ctest -L benchmark              # 默认档位（3 次预热，适量迭代）
+```
+
+> **基准测试推荐构建类型**：`Release` 或 `RelWithDebInfo`。Debug 构建包含断言和 sanitiser 开销，会扭曲测量结果。
+
 # 详细输出
 ./unit_tests [ploy] -r compact
 
@@ -2014,6 +2048,18 @@ tests/benchmarks/
 
 ## 13.5 更新日志
 
+### v5.2 (2026-02-22)
+- ✅ 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关
+- ✅ `PloySema` 构造函数接收 options，保持默认行为向后兼容
+- ✅ 会话级 `PackageDiscoveryCache` — 线程安全，键为 `language|manager|env_path`
+- ✅ `ICommandRunner` 抽象 — 外部命令执行与 `_popen` 解耦；支持测试 Mock
+- ✅ `DiscoverPackages` 缓存优先流程 — 命中→合并缓存结果；未命中→执行+存储
+- ✅ 基准测试套件禁用包发现，隔离编译器本体性能
+- ✅ Lowering 微基准计时修正 — 解析/语义分析排除在计时窗口外
+- ✅ 基准测试 fast/full 档位通过 `POLYBENCH_MODE` 环境变量控制（`fast`/`full`/默认）
+- ✅ CTest: `benchmark_fast` 和 `benchmark_full` 目标及标签
+- ✅ 发现子系统单元测试：禁用无命令、重复分析仅一次、键隔离、缓存往返
+
 ### v5.1 (2026-02-22)
 - ✅ 链接器强失败模式 — 未解析符号为硬错误；不再为未解析对生成占位存根
 - ✅ 链接器主流程：存在跨语言条目但解析失败时直接报错终止
@@ -2104,4 +2150,4 @@ tests/benchmarks/
 
 *本文档由 PolyglotCompiler 团队维护*  
 *最后更新: 2026-02-22*  
-*文档版本: v5.0*
+*文档版本: v5.2*

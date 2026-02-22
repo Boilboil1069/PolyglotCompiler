@@ -385,3 +385,13 @@ enable_testing()
 add_test(NAME unit_tests COMMAND unit_tests)
 add_test(NAME integration_tests COMMAND integration_tests)
 add_test(NAME benchmark_tests COMMAND benchmark_tests)
+
+# Benchmark tier targets — controlled by the POLYBENCH_MODE environment variable.
+# benchmark_fast  : POLYBENCH_MODE=fast  (1 warmup, reduced iterations)
+# benchmark_full  : POLYBENCH_MODE=full  (5 warmup, full iterations)
+add_test(NAME benchmark_fast COMMAND ${CMAKE_COMMAND} -E env POLYBENCH_MODE=fast $<TARGET_FILE:benchmark_tests>)
+add_test(NAME benchmark_full COMMAND ${CMAKE_COMMAND} -E env POLYBENCH_MODE=full $<TARGET_FILE:benchmark_tests>)
+
+set_tests_properties(benchmark_tests PROPERTIES LABELS "benchmark")
+set_tests_properties(benchmark_fast  PROPERTIES LABELS "benchmark;fast")
+set_tests_properties(benchmark_full  PROPERTIES LABELS "benchmark;full")

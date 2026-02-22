@@ -4,7 +4,7 @@
 > Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v5.0  
+**Version**: v5.2  
 **Last Updated**: 2026-02-22
 
 ---
@@ -976,9 +976,35 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 
 1. **Parse CONFIG** — Determine package manager type and environment path
 2. **Trigger Discovery** — Execute the discovery command when `IMPORT PACKAGE` is encountered (once per language per compilation unit)
-3. **Cache Results** — Discovered packages and versions are cached in `discovered_packages_` map
+3. **Cache Results** — Discovered packages and versions are cached in a session-level `PackageDiscoveryCache` (keyed by `language|manager|env_path`); a shared cache can be reused across multiple `PloySema` compilations to avoid redundant external-command invocations
 4. **Version Verification** — Verify version constraints using 6 operators
 5. **Symbol Verification** — Verify selective imports have no duplicates
+
+### Discovery Switch
+
+Discovery can be toggled via `PloySemaOptions::enable_package_discovery`:
+
+```cpp
+PloySemaOptions opts;
+opts.enable_package_discovery = false;   // skip all external commands
+PloySema sema(diagnostics, opts);
+```
+
+When disabled, `IMPORT PACKAGE` statements are still recorded, but no `_popen`/`popen` calls are executed.  This is recommended for benchmarks and CI environments where package resolution is not needed.
+
+### Cache Strategy
+
+`PackageDiscoveryCache` is a thread-safe (mutex-guarded), session-level cache.  The canonical key is:
+
+```
+language + "|" + manager_kind + "|" + env_path
+```
+
+For example: `"python|pip|/home/user/venv"`.  When multiple `.ploy` files are compiled in the same session, callers can inject a shared `PackageDiscoveryCache` via `PloySemaOptions::discovery_cache` to avoid re-running the same `pip list` / `cargo install --list` command.
+
+### Command Runner Abstraction
+
+All external command execution is routed through the `ICommandRunner` interface (`command_runner.h`).  The default implementation `DefaultCommandRunner` uses `_popen`/`popen`.  Tests can inject a `MockCommandRunner` to verify discovery behaviour without spawning real processes.
 
 ### Platform Adaptation
 
@@ -1768,6 +1794,14 @@ The project uses the **Catch2** testing framework. There are three test executab
 ./benchmark_tests [micro]       # Micro-benchmarks only
 ./benchmark_tests [macro]       # Macro-benchmarks only
 
+# Run benchmarks via CTest tiers (set POLYBENCH_MODE env var):
+ctest -L fast                   # Quick smoke-run (1 warmup, few iterations)
+ctest -L full                   # Full statistical run (5 warmup, many iterations)
+ctest -L benchmark              # Default tier (3 warmup, moderate iterations)
+```
+
+> **Recommended build type for benchmarks**: `Release` or `RelWithDebInfo`.  Debug builds include assertions and sanitiser overhead that distort measurements.
+
 # Verbose output
 ./unit_tests [ploy] -r compact
 
@@ -2028,6 +2062,18 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 ## 13.5 Changelog
 
+### v5.2 (2026-02-22)
+- ✅ New `PloySemaOptions` configuration struct with `enable_package_discovery` switch
+- ✅ `PloySema` constructor accepts options; backward-compatible default constructor preserved
+- ✅ Session-level `PackageDiscoveryCache` — thread-safe, keyed by `language|manager|env_path`
+- ✅ `ICommandRunner` abstraction — external command execution decoupled from `_popen`; test-mockable
+- ✅ `DiscoverPackages` cache-first flow — hit → merge cached results; miss → run + store
+- ✅ Benchmark suites disable package discovery, isolating compiler-only performance
+- ✅ Lowering micro-benchmark timing fix — parse/sema excluded from timing window
+- ✅ Benchmark fast/full tiers via `POLYBENCH_MODE` env var (`fast`/`full`/default)
+- ✅ CTest: `benchmark_fast` and `benchmark_full` targets with labels
+- ✅ Discovery unit tests: disabled-no-cmd, repeated-analyze-once, key-isolation, cache-roundtrip
+
 ### v5.1 (2026-02-22)
 - ✅ Linker strong failure mode — unresolved symbols are hard errors; placeholder stubs no longer generated
 - ✅ Linker main flow fatal when cross-language entries exist but resolution fails
@@ -2118,4 +2164,4 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 *Maintained by PolyglotCompiler Team*  
 *Last Updated: 2026-02-22*  
-*Document Version: v5.0*
+*Document Version: v5.2*
