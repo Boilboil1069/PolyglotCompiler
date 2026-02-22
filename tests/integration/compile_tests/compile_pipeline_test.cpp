@@ -18,6 +18,10 @@
 #include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
 #include "common/include/ir/ir_printer.h"
+#include "backends/x86_64/include/x86_target.h"
+#include "backends/arm64/include/arm64_target.h"
+#include "backends/wasm/include/wasm_target.h"
+#include "tools/polyld/include/polyglot_linker.h"
 
 using polyglot::frontends::Diagnostics;
 using polyglot::frontends::Token;
@@ -607,4 +611,213 @@ EXPORT game_pipeline AS "game";
     REQUIRE_FALSE(result.ir_text.empty());
     // Pipeline functions are compiled under the pipeline name
     REQUIRE(result.ir_text.find("game_pipeline") != std::string::npos);
+}
+
+// ============================================================================
+// E2E: Frontend → Backend x86_64 Assembly Emission
+// ============================================================================
+
+TEST_CASE("E2E: ploy compile to x86_64 assembly", "[integration][e2e][x86]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, math_ops::add, format_utils::to_str) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC compute(x: i64) -> i64 {
+    LET result = CALL(cpp, math_ops::add, x);
+    RETURN result;
+}
+    )";
+
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE_FALSE(result.ir_text.empty());
+
+    // Build an IR context and feed to x86 backend
+    IRContext ctx;
+    auto fn = ctx.CreateFunction("compute", polyglot::ir::IRType::I64(),
+                                 {{"x", polyglot::ir::IRType::I64()}});
+    auto blk = fn->CreateBlock("entry");
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    ret->operands.push_back("x");
+    blk->SetTerminator(ret);
+
+    polyglot::backends::x86_64::X86Target target(&ctx);
+    std::string asm_text = target.EmitAssembly();
+    REQUIRE_FALSE(asm_text.empty());
+    // Should contain function label
+    REQUIRE(asm_text.find("compute") != std::string::npos);
+}
+
+// ============================================================================
+// E2E: Frontend → Backend ARM64 Assembly Emission
+// ============================================================================
+
+TEST_CASE("E2E: ploy compile to arm64 assembly", "[integration][e2e][arm64]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, engine::run, data::fetch) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC engine_main() -> i64 {
+    LET val = CALL(cpp, engine::run, 100);
+    RETURN val;
+}
+    )";
+
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+
+    IRContext ctx;
+    auto fn = ctx.CreateFunction("engine_main", polyglot::ir::IRType::I64(), {});
+    auto blk = fn->CreateBlock("entry");
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    blk->SetTerminator(ret);
+
+    polyglot::backends::arm64::Arm64Target target(&ctx);
+    std::string asm_text = target.EmitAssembly();
+    REQUIRE_FALSE(asm_text.empty());
+    REQUIRE(asm_text.find("engine_main") != std::string::npos);
+}
+
+// ============================================================================
+// E2E: Frontend → Backend WASM Assembly (WAT) Emission
+// ============================================================================
+
+TEST_CASE("E2E: ploy compile to wasm WAT", "[integration][e2e][wasm]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, math::multiply, formatter::print) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC wasm_entry(a: i64, b: i64) -> i64 {
+    LET sum = a;
+    RETURN sum;
+}
+    )";
+
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+
+    // Build a simple IR module for the WASM backend
+    IRContext ctx;
+    auto fn = ctx.CreateFunction("wasm_entry", polyglot::ir::IRType::I64(),
+                                 {{"a", polyglot::ir::IRType::I64()},
+                                  {"b", polyglot::ir::IRType::I64()}});
+    auto blk = fn->CreateBlock("entry");
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    ret->operands.push_back("a");
+    blk->SetTerminator(ret);
+
+    polyglot::backends::wasm::WasmTarget target(&ctx);
+
+    // WAT text output
+    std::string wat = target.EmitAssembly();
+    REQUIRE_FALSE(wat.empty());
+    REQUIRE(wat.find("(module") != std::string::npos);
+    REQUIRE(wat.find("wasm_entry") != std::string::npos);
+    REQUIRE(wat.find("i64") != std::string::npos);
+
+    // Binary output
+    auto binary = target.EmitWasmBinary();
+    REQUIRE(binary.size() >= 8);
+    // Check magic: \0asm
+    REQUIRE(binary[0] == 0x00);
+    REQUIRE(binary[1] == 0x61);
+    REQUIRE(binary[2] == 0x73);
+    REQUIRE(binary[3] == 0x6D);
+    // Check version: 1
+    REQUIRE(binary[4] == 0x01);
+}
+
+// ============================================================================
+// E2E: PolyglotLinker — Cross-language Link Resolution
+// ============================================================================
+
+TEST_CASE("E2E: PolyglotLinker resolves cross-lang descriptors",
+          "[integration][e2e][linker]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, math::square, util::display) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC run(n: i64) -> i64 {
+    LET sq = CALL(cpp, math::square, n);
+    LET out = CALL(python, util::display, sq);
+    RETURN sq;
+}
+    )";
+
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE(result.descriptors.size() >= 1);
+
+    // Feed descriptors into PolyglotLinker and resolve
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+
+    for (auto &desc : result.descriptors) {
+        linker.AddCallDescriptor(desc);
+    }
+
+    REQUIRE(linker.ResolveLinks());
+    // After resolution, glue stubs should have been generated
+    auto &stubs = linker.GetStubs();
+    REQUIRE_FALSE(stubs.empty());
+    // Each stub must have a name and non-empty code
+    for (auto &stub : stubs) {
+        REQUIRE_FALSE(stub.stub_name.empty());
+        REQUIRE_FALSE(stub.code.empty());
+    }
+}
+
+// ============================================================================
+// E2E: x86_64 Object Code Emission
+// ============================================================================
+
+TEST_CASE("E2E: x86_64 EmitObjectCode produces MCResult",
+          "[integration][e2e][x86][objcode]") {
+    IRContext ctx;
+    auto fn = ctx.CreateFunction("add_one", polyglot::ir::IRType::I64(),
+                                 {{"x", polyglot::ir::IRType::I64()}});
+    auto blk = fn->CreateBlock("entry");
+
+    // x + 1
+    auto add = std::make_shared<polyglot::ir::BinaryInstruction>();
+    add->op = polyglot::ir::BinaryInstruction::Op::kAdd;
+    add->name = "result";
+    add->type = polyglot::ir::IRType::I64();
+    add->operands = {"x", "1"};
+    blk->AddInstruction(add);
+
+    auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
+    ret->operands.push_back("result");
+    blk->SetTerminator(ret);
+
+    polyglot::backends::x86_64::X86Target target(&ctx);
+    auto mc = target.EmitObjectCode();
+
+    // MCResult should have at least a .text section
+    bool has_text = false;
+    for (auto &sec : mc.sections) {
+        if (sec.name == ".text") {
+            has_text = true;
+            REQUIRE_FALSE(sec.data.empty());
+        }
+    }
+    REQUIRE(has_text);
+
+    // Should define the function symbol
+    bool has_sym = false;
+    for (auto &sym : mc.symbols) {
+        if (sym.name == "add_one") {
+            has_sym = true;
+            REQUIRE(sym.global);
+        }
+    }
+    REQUIRE(has_sym);
 }

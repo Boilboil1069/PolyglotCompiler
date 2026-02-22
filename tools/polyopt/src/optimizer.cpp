@@ -9,6 +9,7 @@
 #include "middle/include/passes/transform/constant_fold.h"
 #include "middle/include/passes/transform/dead_code_elim.h"
 #include "middle/include/passes/transform/inlining.h"
+#include "common/include/ir/ir_parser.h"
 #include "common/include/ir/ir_printer.h"
 
 namespace polyglot::tools {
@@ -78,18 +79,13 @@ int main(int argc, char *argv[]) {
   std::string ir_text = buf.str();
   in.close();
 
-  // Build an IRContext and populate it from the text file.
-  // The text is assumed to be in the IRPrinter output format.
-  // For now we create a minimal context with a single function wrapping the
-  // raw text.  A full IR parser would reconstruct the CFG; we defer that
-  // to a future change and instead run the passes on an empty context for
-  // structure-level optimisations while still round-tripping the text.
+  // Build an IRContext by parsing the textual IR representation.
   polyglot::ir::IRContext ctx;
-  // Create a placeholder function so the pass infrastructure has something
-  // to iterate over.  The raw IR text is preserved and emitted unchanged
-  // if no structural changes are made.
-  auto fn = ctx.CreateFunction("__polyopt_input");
-  (void)fn;
+  std::string parse_error;
+  if (!polyglot::ir::ParseModule(ir_text, ctx, &parse_error)) {
+    std::cerr << "[error] failed to parse IR: " << parse_error << "\n";
+    return 1;
+  }
 
   // Run optimisation passes according to the requested level.
   if (opt_level >= 1) {
@@ -105,12 +101,6 @@ int main(int argc, char *argv[]) {
   std::ostringstream ir_out;
   polyglot::ir::PrintModule(ctx, ir_out);
   std::string output_text = ir_out.str();
-
-  // If the module is empty (no structural functions), fall back to
-  // the original input text so the file at least round-trips.
-  if (output_text.empty()) {
-    output_text = ir_text;
-  }
 
   if (output_file.empty()) {
     std::cout << output_text;

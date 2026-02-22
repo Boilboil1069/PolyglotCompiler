@@ -173,13 +173,13 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 
     // Register the LINK target as a known function signature so that the
     // checker can validate types at call sites.  MAP_TYPE entries describe
-    // the parameter types and implicitly define the parameter count.
+    // cross-language type conversions; they do NOT define parameter count.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = true;
+        sig.param_count = 0;
+        sig.param_count_known = false;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -873,14 +873,15 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
     }
 
     // NEW returns an opaque object handle.  If the class is known from a LINK
-    // declaration, return a struct-typed reference; otherwise fall back to Any.
+    // declaration, return a struct-typed reference; otherwise fall back to Any
+    // because in cross-language contexts the class hierarchy is not available.
     auto sym_it = symbols_.find(new_expr->class_name);
     if (sym_it != symbols_.end() &&
         sym_it->second.type.kind != core::TypeKind::kAny &&
         sym_it->second.type.kind != core::TypeKind::kInvalid) {
         return sym_it->second.type;
     }
-    return core::Type::Struct(new_expr->class_name);
+    return core::Type::Any();
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(

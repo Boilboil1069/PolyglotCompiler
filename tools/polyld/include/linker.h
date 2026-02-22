@@ -571,6 +571,8 @@ private:
     bool GenerateELFSharedLibrary();
     bool GenerateMachOExecutable();
     bool GenerateMachODylib();
+    bool GenerateRelocatable();
+    bool GenerateStaticLibrary();
     
     // GOT/PLT generation
     void CreateGOT();

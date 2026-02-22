@@ -12,6 +12,7 @@ add_library(polyglot_common
     common/src/core/symbol_table.cpp
     backends/common/src/debug_info.cpp
     backends/common/src/debug_emitter.cpp
+    backends/common/src/dwarf_builder.cpp
     backends/common/src/object_file.cpp
     common/src/debug/dwarf5.cpp
 )
@@ -177,6 +178,16 @@ target_include_directories(backend_arm64 PUBLIC
 
 target_link_libraries(backend_arm64 PUBLIC polyglot_common)
 
+add_library(backend_wasm
+    backends/wasm/src/wasm_target.cpp
+)
+
+target_include_directories(backend_wasm PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(backend_wasm PUBLIC polyglot_common middle_ir)
+
 add_library(runtime
     runtime/src/gc/mark_sweep.cpp
     runtime/src/gc/generational.cpp
@@ -220,8 +231,10 @@ target_link_libraries(polyc
     frontend_dotnet
     backend_x86_64
     backend_arm64
+    backend_wasm
     middle_ir
     runtime
+    linker_lib
 )
 
 add_executable(polyasm
@@ -231,6 +244,7 @@ add_executable(polyasm
 target_link_libraries(polyasm
     backend_x86_64
     backend_arm64
+    backend_wasm
     middle_ir
     polyglot_common
 )
@@ -270,6 +284,7 @@ target_link_libraries(polyopt
     middle_ir
     backend_x86_64
     backend_arm64
+    backend_wasm
     polyglot_common
 )
 
@@ -297,6 +312,7 @@ target_link_libraries(polybench
     middle_ir
     backend_x86_64
     backend_arm64
+    backend_wasm
     runtime
     nlohmann_json::nlohmann_json
 )
@@ -314,6 +330,7 @@ target_link_libraries(unit_tests PRIVATE
     middle_ir
     backend_x86_64
     backend_arm64
+    backend_wasm
     runtime
     linker_lib
     Catch2::Catch2
@@ -334,6 +351,7 @@ target_link_libraries(integration_tests PRIVATE
     middle_ir
     backend_x86_64
     backend_arm64
+    backend_wasm
     runtime
     linker_lib
     Catch2::Catch2
@@ -354,6 +372,7 @@ target_link_libraries(benchmark_tests PRIVATE
     middle_ir
     backend_x86_64
     backend_arm64
+    backend_wasm
     runtime
     linker_lib
     Catch2::Catch2

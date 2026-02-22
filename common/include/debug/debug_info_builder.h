@@ -16,22 +16,14 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include <unordered_map>
 
 #include "common/include/debug/dwarf5.h"
 
 namespace polyglot::debug {
 
-// ============ 源码位置信息 ============
-
-struct SourceLocation {
-    std::string file_path;
-    uint32_t line;
-    uint32_t column;
-    
-    std::string ToString() const {
-        return file_path + ":" + std::to_string(line) + ":" + std::to_string(column);
-    }
-};
+// SourceLocation is defined in dwarf5.h — reuse it here.
+// Convenience alias for ranges:
 
 struct SourceRange {
     SourceLocation begin;
@@ -311,8 +303,8 @@ public:
     // 行号表
     LineTable& GetLineTable() { return line_table_; }
     
-    // 生成DWARF调试信息
-    dwarf::DwarfContext GenerateDWARF() const;
+    // Generate DWARF debug sections (.debug_info, .debug_line, etc.)
+    std::unordered_map<std::string, std::vector<uint8_t>> GenerateDWARF() const;
     
     // 优化代码调试支持
     void TrackValueLocation(DIVariable* var, uint64_t pc, 

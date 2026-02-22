@@ -23,6 +23,7 @@ constexpr std::uint32_t SHT_RELA = 4;
 constexpr std::uint64_t SHF_WRITE = 0x1;
 constexpr std::uint64_t SHF_ALLOC = 0x2;
 constexpr std::uint64_t SHF_EXECINSTR = 0x4;
+constexpr std::uint64_t SHF_INFO_LINK = 0x40;
 
 constexpr std::uint8_t STB_LOCAL = 0;
 constexpr std::uint8_t STB_GLOBAL = 1;
@@ -85,6 +86,19 @@ std::vector<std::uint8_t> ELFBuilder::Build() {
     strtab_size += 10; // ".shstrtab"
     string_table.push_back(".shstrtab");
     
+    // Track which sections have relocations and add their names
+    std::vector<std::uint32_t> rela_name_offsets;
+    std::vector<std::size_t> rela_section_indices;  // original section index
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        if (!sections_[i].relocations.empty()) {
+            rela_section_indices.push_back(i);
+            rela_name_offsets.push_back(strtab_size);
+            std::string rela_name = ".rela" + sections_[i].name;
+            strtab_size += static_cast<std::uint32_t>(rela_name.size()) + 1;
+            string_table.push_back(rela_name);
+        }
+    }
+    
     // ELF header
     std::uint8_t e_ident[16] = {0};
     e_ident[0] = 0x7F;
@@ -97,7 +111,7 @@ std::vector<std::uint8_t> ELFBuilder::Build() {
     WriteBytes(result, e_ident, 16);
     
     WriteValue<std::uint16_t>(result, ET_REL);  // e_type
-    WriteValue<std::uint16_t>(result, EM_X86_64);  // e_machine
+    WriteValue<std::uint16_t>(result, is_x64_ ? EM_X86_64 : EM_AARCH64);  // e_machine
     WriteValue<std::uint32_t>(result, EV_CURRENT);  // e_version
     WriteValue<std::uint64_t>(result, 0);  // e_entry
     WriteValue<std::uint64_t>(result, 0);  // e_phoff
@@ -112,7 +126,7 @@ std::vector<std::uint8_t> ELFBuilder::Build() {
     WriteValue<std::uint16_t>(result, 0);  // e_phnum
     WriteValue<std::uint16_t>(result, 64);  // e_shentsize
     
-    std::uint16_t shnum = static_cast<std::uint16_t>(sections_.size() + 4); // +null, symtab, strtab, shstrtab
+    std::uint16_t shnum = static_cast<std::uint16_t>(sections_.size() + 4 + rela_section_indices.size()); // +null, symtab, strtab, shstrtab, rela sections
     WriteValue<std::uint16_t>(result, shnum);  // e_shnum
     WriteValue<std::uint16_t>(result, static_cast<std::uint16_t>(shnum - 1));  // e_shstrndx
     
@@ -122,6 +136,30 @@ std::vector<std::uint8_t> ELFBuilder::Build() {
         AlignTo(result, 16);
         section_offsets.push_back(result.size());
         result.insert(result.end(), sec.data.begin(), sec.data.end());
+    }
+    
+    // Write relocation (RELA) section data
+    std::vector<std::uint64_t> rela_offsets;
+    std::vector<std::uint64_t> rela_sizes;
+    for (std::size_t ri = 0; ri < rela_section_indices.size(); ++ri) {
+        const auto &sec = sections_[rela_section_indices[ri]];
+        AlignTo(result, 8);
+        rela_offsets.push_back(result.size());
+        for (const auto &rel : sec.relocations) {
+            WriteValue<std::uint64_t>(result, rel.offset);  // r_offset
+            // Build r_info: find symbol index
+            std::uint64_t sym_idx = 0;
+            for (std::size_t si = 0; si < symbols_.size(); ++si) {
+                if (symbols_[si].name == rel.symbol) {
+                    sym_idx = si + 1;  // +1 because null symbol at 0
+                    break;
+                }
+            }
+            std::uint64_t r_info = (sym_idx << 32) | static_cast<std::uint32_t>(rel.type);
+            WriteValue<std::uint64_t>(result, r_info);  // r_info
+            WriteValue<std::int64_t>(result, rel.addend);  // r_addend
+        }
+        rela_sizes.push_back(result.size() - rela_offsets.back());
     }
     
     // Symbol string table
@@ -253,6 +291,22 @@ std::vector<std::uint8_t> ELFBuilder::Build() {
     WriteValue<std::uint64_t>(result, 1);  // sh_addralign
     WriteValue<std::uint64_t>(result, 0);  // sh_entsize
     
+    // .rela section headers
+    for (std::size_t ri = 0; ri < rela_section_indices.size(); ++ri) {
+        std::uint32_t target_shndx = static_cast<std::uint32_t>(rela_section_indices[ri] + 1);  // +1 for null
+        std::uint32_t symtab_shndx = static_cast<std::uint32_t>(sections_.size() + 1);  // .symtab index
+        WriteValue<std::uint32_t>(result, rela_name_offsets[ri]);
+        WriteValue<std::uint32_t>(result, SHT_RELA);
+        WriteValue<std::uint64_t>(result, SHF_INFO_LINK);  // sh_flags
+        WriteValue<std::uint64_t>(result, 0);  // sh_addr
+        WriteValue<std::uint64_t>(result, rela_offsets[ri]);  // sh_offset
+        WriteValue<std::uint64_t>(result, rela_sizes[ri]);  // sh_size
+        WriteValue<std::uint32_t>(result, symtab_shndx);  // sh_link -> .symtab
+        WriteValue<std::uint32_t>(result, target_shndx);  // sh_info -> target section
+        WriteValue<std::uint64_t>(result, 8);  // sh_addralign
+        WriteValue<std::uint64_t>(result, 24);  // sh_entsize (sizeof Elf64_Rela)
+    }
+    
     return result;
 }
 
@@ -265,24 +319,187 @@ void MachOBuilder::AddSymbol(const Symbol &symbol) {
 }
 
 std::vector<std::uint8_t> MachOBuilder::Build() {
-    // Simplified Mach-O generation (64-bit)
     std::vector<std::uint8_t> result;
     
-    // Mach-O header (mach_header_64)
-    WriteValue<std::uint32_t>(result, 0xFEEDFACF);  // MH_MAGIC_64
-    WriteValue<std::uint32_t>(result, is_arm64_ ? 0x0100000C : 0x01000007);  // CPU_TYPE
-    WriteValue<std::uint32_t>(result, is_arm64_ ? 0 : 3);  // CPU_SUBTYPE
-    WriteValue<std::uint32_t>(result, 1);  // MH_OBJECT
-    WriteValue<std::uint32_t>(result, 2);  // ncmds
-    WriteValue<std::uint32_t>(result, 0);  // sizeofcmds (filled later)
+    // Mach-O constants
+    constexpr std::uint32_t MH_MAGIC_64 = 0xFEEDFACF;
+    constexpr std::uint32_t MH_OBJECT = 1;
+    constexpr std::uint32_t CPU_TYPE_X86_64 = 0x01000007;
+    constexpr std::uint32_t CPU_TYPE_ARM64 = 0x0100000C;
+    constexpr std::uint32_t CPU_SUBTYPE_X86_64_ALL = 3;
+    constexpr std::uint32_t CPU_SUBTYPE_ARM64_ALL = 0;
+    constexpr std::uint32_t LC_SEGMENT_64 = 0x19;
+    constexpr std::uint32_t LC_SYMTAB = 0x02;
+    
+    // Compute section data layout
+    // Header: 32 bytes
+    // LC_SEGMENT_64: 72 bytes + 80 bytes per section
+    // LC_SYMTAB: 24 bytes
+    std::uint32_t segment_cmd_size = 72 + static_cast<std::uint32_t>(80 * sections_.size());
+    std::uint32_t symtab_cmd_size = 24;
+    std::uint32_t ncmds = 2;
+    std::uint32_t sizeofcmds = segment_cmd_size + symtab_cmd_size;
+    std::uint32_t header_size = 32 + sizeofcmds;
+    
+    // Align section data start to 16 bytes
+    std::uint32_t data_start = (header_size + 15) & ~15u;
+    
+    // Compute section offsets
+    std::vector<std::uint32_t> sec_offsets;
+    std::uint32_t current_offset = data_start;
+    for (const auto &sec : sections_) {
+        sec_offsets.push_back(current_offset);
+        current_offset += static_cast<std::uint32_t>(sec.data.size());
+        current_offset = (current_offset + 15) & ~15u;
+    }
+    
+    // Symbol and string table after sections
+    std::uint32_t strtab_offset = current_offset;
+    std::vector<std::uint8_t> strtab;
+    strtab.push_back(0x20);  // Start with space (Mach-O convention: first byte pad)
+    strtab.push_back(0);     // Null terminator for empty string
+    
+    std::vector<std::uint32_t> sym_str_offsets;
+    for (const auto &sym : symbols_) {
+        // Mach-O symbols start with '_' prefix
+        sym_str_offsets.push_back(static_cast<std::uint32_t>(strtab.size()));
+        strtab.push_back('_');
+        strtab.insert(strtab.end(), sym.name.begin(), sym.name.end());
+        strtab.push_back(0);
+    }
+    
+    std::uint32_t strtab_size = static_cast<std::uint32_t>(strtab.size());
+    std::uint32_t symtab_offset = strtab_offset + ((strtab_size + 7) & ~7u);
+    // Each nlist_64 entry is 16 bytes
+    std::uint32_t symtab_size = static_cast<std::uint32_t>(symbols_.size()) * 16;
+    
+    // --- Write Mach-O header (mach_header_64) ---
+    WriteValue<std::uint32_t>(result, MH_MAGIC_64);
+    WriteValue<std::uint32_t>(result, is_arm64_ ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64);
+    WriteValue<std::uint32_t>(result, is_arm64_ ? CPU_SUBTYPE_ARM64_ALL : CPU_SUBTYPE_X86_64_ALL);
+    WriteValue<std::uint32_t>(result, MH_OBJECT);
+    WriteValue<std::uint32_t>(result, ncmds);
+    WriteValue<std::uint32_t>(result, sizeofcmds);
     WriteValue<std::uint32_t>(result, 0);  // flags
     WriteValue<std::uint32_t>(result, 0);  // reserved
     
-    // For now, return minimal Mach-O - full implementation would add:
-    // - LC_SEGMENT_64 load commands
-    // - Section headers within segments
-    // - Symbol table (LC_SYMTAB)
-    // - String table
+    // --- LC_SEGMENT_64 ---
+    WriteValue<std::uint32_t>(result, LC_SEGMENT_64);
+    WriteValue<std::uint32_t>(result, segment_cmd_size);
+    
+    // segname (16 bytes, empty for object files)
+    for (int i = 0; i < 16; ++i) result.push_back(0);
+    
+    WriteValue<std::uint64_t>(result, 0);  // vmaddr
+    std::uint64_t vmsize = current_offset > data_start ? (current_offset - data_start) : 0;
+    WriteValue<std::uint64_t>(result, vmsize);  // vmsize
+    WriteValue<std::uint64_t>(result, data_start);  // fileoff
+    WriteValue<std::uint64_t>(result, vmsize);  // filesize
+    WriteValue<std::uint32_t>(result, 7);  // maxprot (rwx)
+    WriteValue<std::uint32_t>(result, 7);  // initprot (rwx)
+    WriteValue<std::uint32_t>(result, static_cast<std::uint32_t>(sections_.size()));  // nsects
+    WriteValue<std::uint32_t>(result, 0);  // flags
+    
+    // Section headers within LC_SEGMENT_64 (each 80 bytes)
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        const auto &sec = sections_[i];
+        
+        // sectname (16 bytes) - map common names to Mach-O conventions
+        char sectname[16] = {};
+        char segname[16] = {};
+        if (sec.name == ".text") {
+            std::memcpy(sectname, "__text", 6);
+            std::memcpy(segname, "__TEXT", 6);
+        } else if (sec.name == ".data") {
+            std::memcpy(sectname, "__data", 6);
+            std::memcpy(segname, "__DATA", 6);
+        } else if (sec.name == ".bss") {
+            std::memcpy(sectname, "__bss", 5);
+            std::memcpy(segname, "__DATA", 6);
+        } else if (sec.name == ".rodata" || sec.name == ".const") {
+            std::memcpy(sectname, "__const", 7);
+            std::memcpy(segname, "__TEXT", 6);
+        } else {
+            // Generic mapping
+            std::string mapped = sec.name.substr(0, std::min(sec.name.size(), std::size_t(15)));
+            std::memcpy(sectname, mapped.c_str(), mapped.size());
+            std::memcpy(segname, "__DATA", 6);
+        }
+        
+        WriteBytes(result, sectname, 16);
+        WriteBytes(result, segname, 16);
+        
+        WriteValue<std::uint64_t>(result, 0);  // addr
+        WriteValue<std::uint64_t>(result, sec.data.size());  // size
+        WriteValue<std::uint32_t>(result, sec_offsets[i]);  // offset
+        WriteValue<std::uint32_t>(result, 4);  // align (2^4 = 16)
+        WriteValue<std::uint32_t>(result, 0);  // reloff
+        WriteValue<std::uint32_t>(result, 0);  // nreloc
+        
+        // Section flags
+        std::uint32_t sec_flags = 0;
+        if (sec.name == ".text") {
+            sec_flags = 0x80000400;  // S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS
+        }
+        WriteValue<std::uint32_t>(result, sec_flags);
+        
+        WriteValue<std::uint32_t>(result, 0);  // reserved1
+        WriteValue<std::uint32_t>(result, 0);  // reserved2
+        WriteValue<std::uint32_t>(result, 0);  // reserved3 (padding for 64-bit)
+    }
+    
+    // --- LC_SYMTAB ---
+    WriteValue<std::uint32_t>(result, LC_SYMTAB);
+    WriteValue<std::uint32_t>(result, symtab_cmd_size);
+    WriteValue<std::uint32_t>(result, symtab_offset);  // symoff
+    WriteValue<std::uint32_t>(result, static_cast<std::uint32_t>(symbols_.size()));  // nsyms
+    WriteValue<std::uint32_t>(result, strtab_offset);  // stroff
+    WriteValue<std::uint32_t>(result, strtab_size);  // strsize
+    
+    // --- Pad to data start ---
+    while (result.size() < data_start) {
+        result.push_back(0);
+    }
+    
+    // --- Section data ---
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        while (result.size() < sec_offsets[i]) result.push_back(0);
+        result.insert(result.end(), sections_[i].data.begin(), sections_[i].data.end());
+    }
+    
+    // --- String table ---
+    while (result.size() < strtab_offset) result.push_back(0);
+    result.insert(result.end(), strtab.begin(), strtab.end());
+    
+    // --- Symbol table (nlist_64) ---
+    AlignTo(result, 8);
+    // Adjust symtab_offset if needed to match actual position
+    // (the header already points to the computed position)
+    while (result.size() < symtab_offset) result.push_back(0);
+    
+    for (std::size_t i = 0; i < symbols_.size(); ++i) {
+        const auto &sym = symbols_[i];
+        
+        WriteValue<std::uint32_t>(result, sym_str_offsets[i]);  // n_strx
+        
+        // n_type: N_EXT (1) for global, N_SECT (0x0e) for defined
+        std::uint8_t n_type = 0x0e;  // N_SECT
+        if (sym.is_global) n_type |= 0x01;  // N_EXT
+        result.push_back(n_type);
+        
+        // n_sect: 1-based section index
+        std::uint8_t n_sect = 0;
+        for (std::size_t si = 0; si < sections_.size(); ++si) {
+            if (sections_[si].name == sym.section) {
+                n_sect = static_cast<std::uint8_t>(si + 1);
+                break;
+            }
+        }
+        result.push_back(n_sect);
+        
+        WriteValue<std::uint16_t>(result, 0);  // n_desc
+        WriteValue<std::uint64_t>(result, sym.offset);  // n_value
+    }
     
     return result;
 }

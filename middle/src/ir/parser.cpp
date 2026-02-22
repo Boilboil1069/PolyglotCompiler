@@ -154,6 +154,11 @@ BinaryInstruction::Op ParseBinOp(const std::string &s) {
   if (s == "cmpfle") return BinaryInstruction::Op::kCmpFle;
   if (s == "cmpfgt") return BinaryInstruction::Op::kCmpFgt;
   if (s == "cmpfge") return BinaryInstruction::Op::kCmpFge;
+  if (s == "fadd") return BinaryInstruction::Op::kFAdd;
+  if (s == "fsub") return BinaryInstruction::Op::kFSub;
+  if (s == "fmul") return BinaryInstruction::Op::kFMul;
+  if (s == "fdiv") return BinaryInstruction::Op::kFDiv;
+  if (s == "frem") return BinaryInstruction::Op::kFRem;
   return BinaryInstruction::Op::kAdd;
 }
 
@@ -551,7 +556,89 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
   std::string current_func_text;
   bool in_func = false;
   while (std::getline(in, line)) {
-    if (StartsWith(Trim(line), "func")) {
+    std::string trimmed = Trim(line);
+    
+    // Parse module-level global/const declarations
+    if (StartsWith(trimmed, "global ") || StartsWith(trimmed, "const ")) {
+      if (in_func) {
+        if (!ParseFunction(current_func_text, ctx, nullptr, msg)) return false;
+        current_func_text.clear();
+        in_func = false;
+      }
+      
+      bool is_const = StartsWith(trimmed, "const ");
+      std::string rest = Trim(trimmed.substr(is_const ? 6 : 7));
+      
+      // Parse "name : type [= init]"
+      auto colon_pos = rest.find(" : ");
+      if (colon_pos == std::string::npos) continue;
+      
+      std::string name = Trim(rest.substr(0, colon_pos));
+      std::string after_colon = Trim(rest.substr(colon_pos + 3));
+      
+      // Split type and optional initializer at " = "
+      std::string type_str;
+      std::string init_str;
+      auto eq_pos = after_colon.find(" = ");
+      if (eq_pos != std::string::npos) {
+        type_str = Trim(after_colon.substr(0, eq_pos));
+        init_str = Trim(after_colon.substr(eq_pos + 3));
+      } else {
+        type_str = after_colon;
+      }
+      
+      IRType ty = ParseType(type_str);
+      
+      // Parse structured initializers
+      std::shared_ptr<Value> initializer;
+      if (!init_str.empty() && init_str.front() == '"') {
+        // String constant: "data\0"
+        std::string data;
+        bool null_terminated = false;
+        // Strip quotes
+        std::string inner = init_str.substr(1);
+        if (!inner.empty() && inner.back() == '"') inner.pop_back();
+        // Check for \0 suffix
+        if (inner.size() >= 2 && inner.substr(inner.size() - 2) == "\\0") {
+          null_terminated = true;
+          inner = inner.substr(0, inner.size() - 2);
+        }
+        data = inner;
+        initializer = std::make_shared<ConstantString>(data, null_terminated);
+        init_str.clear();  // Consumed
+      } else if (StartsWith(init_str, "gep @")) {
+        // Constant GEP: gep @base [idx1, idx2]
+        std::string gep_rest = Trim(init_str.substr(5));
+        auto lb = gep_rest.find('[');
+        std::string base_name = Trim(gep_rest.substr(0, lb));
+        auto rb = gep_rest.find(']');
+        std::string idx_str = gep_rest.substr(lb + 1, rb - lb - 1);
+        std::vector<size_t> indices;
+        std::stringstream ss(idx_str);
+        std::string item;
+        while (std::getline(ss, item, ',')) {
+          item = Trim(item);
+          if (!item.empty()) indices.push_back(static_cast<size_t>(std::stoul(item)));
+        }
+        // Find the base global by name
+        std::shared_ptr<Value> base_val;
+        for (auto &g : ctx.Globals()) {
+          if (g->name == base_name) {
+            base_val = g;
+            break;
+          }
+        }
+        if (base_val) {
+          initializer = std::make_shared<ConstantGEP>(base_val, indices);
+        }
+        init_str.clear();
+      }
+      
+      ctx.CreateGlobal(name, ty, is_const, init_str, initializer);
+      continue;
+    }
+    
+    if (StartsWith(trimmed, "func")) {
       if (in_func) {
         if (!ParseFunction(current_func_text, ctx, nullptr, msg)) return false;
         current_func_text.clear();

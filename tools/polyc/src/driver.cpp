@@ -144,6 +144,7 @@ struct Elf64_Rela {
 #include "middle/include/ir/verifier.h"
 #include "middle/include/ir/passes/opt.h"
 #include "middle/include/passes/transform/advanced_optimizations.h"
+#include "tools/polyld/include/polyglot_linker.h"
 #include "runtime/include/libs/base.h"
 
 namespace {
@@ -1417,6 +1418,34 @@ int main(int argc, char **argv) {
                          << " (params: " << descs[i].param_marshal.size() << ")\n";
             }
             WriteAuxBinarySingle(aux_dir, stem + ".descriptors.paux", "descriptors", desc_oss.str(), V);
+        }
+
+        // ---- Phase 4b: Cross-language link resolution ----
+        // Feed the descriptors and link entries to the PolyglotLinker so that
+        // glue stubs are resolved before we proceed to code generation.
+        {
+            StageTimer t("Cross-language link resolution", V);
+            polyglot::linker::LinkerConfig lnk_cfg;
+            lnk_cfg.verbose = V;
+            polyglot::linker::PolyglotLinker poly_linker(lnk_cfg);
+
+            for (const auto &desc : lowering_engine.CallDescriptors()) {
+                poly_linker.AddCallDescriptor(desc);
+            }
+            for (const auto &entry : sema.Links()) {
+                poly_linker.AddLinkEntry(entry);
+            }
+
+            bool link_ok = poly_linker.ResolveLinks();
+            if (!link_ok && V) {
+                std::cerr << "[polyc] Cross-language link warnings:\n";
+                for (const auto &e : poly_linker.GetErrors()) {
+                    std::cerr << "  " << e << "\n";
+                }
+            }
+            // Glue stubs are available via poly_linker.GetStubs() for
+            // downstream object emission.
+            t.Stop();
         }
 
         lowered = true;

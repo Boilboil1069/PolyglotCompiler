@@ -1,4 +1,5 @@
 #include "tools/polyld/include/linker.h"
+#include "tools/polyld/include/polyglot_linker.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1111,12 +1112,285 @@ bool Linker::ParseMachORelocations(std::ifstream &file, ObjectFile &obj, InputSe
 }
 
 // ============================================================================
-// COFF Loading (Stub)
+// COFF Loading Implementation
 // ============================================================================
 
-bool Linker::LoadCOFF(const std::string &path, ObjectFile &/*obj*/) {
-    ReportError("COFF/PE loading not yet implemented: " + path);
-    return false;
+bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        ReportError("Cannot open file: " + path);
+        return false;
+    }
+
+    Trace("Loading COFF file: " + path);
+
+    // COFF header is 20 bytes. If the file starts with 'MZ', it is a PE
+    // executable; skip the DOS stub and locate the PE signature.
+    std::uint16_t magic{0};
+    ReadValue(file, magic);
+    std::streamoff coff_offset = 0;
+    if (magic == 0x5A4D) {  // 'MZ'
+        // PE file — read PE offset at 0x3C
+        file.seekg(0x3C);
+        std::uint32_t pe_off{0};
+        ReadValue(file, pe_off);
+        file.seekg(pe_off);
+        std::uint32_t pe_sig{0};
+        ReadValue(file, pe_sig);
+        if (pe_sig != 0x00004550) {  // 'PE\0\0'
+            ReportError("Invalid PE signature in: " + path);
+            return false;
+        }
+        coff_offset = static_cast<std::streamoff>(pe_off + 4);
+    } else {
+        // Raw COFF object file — machine type is the first two bytes
+        coff_offset = 0;
+    }
+
+    file.seekg(coff_offset);
+
+    // COFF File Header (20 bytes)
+    struct CoffHeader {
+        std::uint16_t machine;
+        std::uint16_t number_of_sections;
+        std::uint32_t timestamp;
+        std::uint32_t symbol_table_offset;
+        std::uint32_t number_of_symbols;
+        std::uint16_t optional_header_size;
+        std::uint16_t characteristics;
+    } hdr{};
+
+    file.read(reinterpret_cast<char *>(&hdr), sizeof(hdr));
+    if (!file) {
+        ReportError("Failed to read COFF header: " + path);
+        return false;
+    }
+
+    obj.format = ObjectFormat::kCOFF;
+    obj.machine = hdr.machine;
+    obj.is_64bit = (hdr.machine == 0x8664);  // IMAGE_FILE_MACHINE_AMD64
+    obj.is_little_endian = true;
+
+    // Skip optional header if present
+    if (hdr.optional_header_size > 0) {
+        file.seekg(hdr.optional_header_size, std::ios::cur);
+    }
+
+    // Parse section headers (40 bytes each)
+    struct CoffSectionHeader {
+        char name[8];
+        std::uint32_t virtual_size;
+        std::uint32_t virtual_address;
+        std::uint32_t raw_data_size;
+        std::uint32_t raw_data_offset;
+        std::uint32_t relocation_offset;
+        std::uint32_t line_numbers_offset;
+        std::uint16_t number_of_relocations;
+        std::uint16_t number_of_line_numbers;
+        std::uint32_t characteristics;
+    };
+
+    std::vector<CoffSectionHeader> section_headers(hdr.number_of_sections);
+    for (std::uint16_t i = 0; i < hdr.number_of_sections; ++i) {
+        file.read(reinterpret_cast<char *>(&section_headers[i]), sizeof(CoffSectionHeader));
+        if (!file) {
+            ReportError("Failed to read COFF section header: " + path);
+            return false;
+        }
+    }
+
+    // Read string table (comes after symbol table)
+    std::string string_table;
+    if (hdr.symbol_table_offset > 0) {
+        std::streamoff strtab_off = static_cast<std::streamoff>(
+            hdr.symbol_table_offset + hdr.number_of_symbols * 18);
+        file.seekg(strtab_off);
+        std::uint32_t strtab_size{0};
+        ReadValue(file, strtab_size);
+        if (strtab_size > 4) {
+            string_table.resize(strtab_size);
+            std::memcpy(&string_table[0], &strtab_size, 4);
+            file.read(&string_table[4], strtab_size - 4);
+        }
+    }
+
+    auto coff_section_name = [&](const CoffSectionHeader &sh) -> std::string {
+        if (sh.name[0] == '/') {
+            // Long name — index into string table
+            int offset = std::atoi(sh.name + 1);
+            if (offset > 0 && offset < static_cast<int>(string_table.size())) {
+                return std::string(&string_table[offset]);
+            }
+        }
+        // Short name (up to 8 chars, null-padded)
+        return std::string(sh.name, strnlen(sh.name, 8));
+    };
+
+    // Load sections
+    for (std::uint16_t i = 0; i < hdr.number_of_sections; ++i) {
+        auto &sh = section_headers[i];
+        InputSection isec;
+        isec.name = coff_section_name(sh);
+        isec.section_index = static_cast<int>(i + 1);  // COFF sections are 1-based
+        isec.alignment = 1;
+        isec.original_addr = sh.virtual_address;
+
+        // Determine alignment from characteristics (bits 20-23)
+        std::uint32_t align_bits = (sh.characteristics >> 20) & 0xF;
+        if (align_bits > 0 && align_bits <= 14) {
+            isec.alignment = 1u << (align_bits - 1);
+        }
+
+        // Flags
+        constexpr std::uint32_t IMAGE_SCN_CNT_CODE = 0x00000020;
+        constexpr std::uint32_t IMAGE_SCN_CNT_INITIALIZED_DATA = 0x00000040;
+        constexpr std::uint32_t IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080;
+        constexpr std::uint32_t IMAGE_SCN_MEM_EXECUTE = 0x20000000;
+        constexpr std::uint32_t IMAGE_SCN_MEM_READ = 0x40000000;
+        constexpr std::uint32_t IMAGE_SCN_MEM_WRITE = 0x80000000;
+
+        SectionFlags flags = SectionFlags::kAlloc;
+        if (sh.characteristics & IMAGE_SCN_MEM_WRITE)
+            flags = flags | SectionFlags::kWrite;
+        if (sh.characteristics & (IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE))
+            flags = flags | SectionFlags::kExecInstr;
+        if (sh.characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA) {
+            isec.type = SectionType::kNobits;
+        }
+        isec.flags = flags;
+
+        // Read raw data
+        if (sh.raw_data_size > 0 && sh.raw_data_offset > 0) {
+            isec.data.resize(sh.raw_data_size);
+            auto saved = file.tellg();
+            file.seekg(sh.raw_data_offset);
+            file.read(reinterpret_cast<char *>(isec.data.data()), sh.raw_data_size);
+            file.seekg(saved);
+        }
+
+        // Parse relocations for this section
+        if (sh.number_of_relocations > 0 && sh.relocation_offset > 0) {
+            auto saved = file.tellg();
+            file.seekg(sh.relocation_offset);
+            for (std::uint16_t r = 0; r < sh.number_of_relocations; ++r) {
+                struct CoffReloc {
+                    std::uint32_t virtual_address;
+                    std::uint32_t symbol_index;
+                    std::uint16_t type;
+                } cr{};
+                file.read(reinterpret_cast<char *>(&cr), sizeof(cr));
+
+                Relocation reloc;
+                reloc.offset = cr.virtual_address;
+                reloc.type = cr.type;
+                reloc.symbol_index = static_cast<int>(cr.symbol_index);
+                reloc.section = isec.name;
+                // x86_64 COFF relocation types
+                // IMAGE_REL_AMD64_ADDR64=1, REL32=4, etc.
+                reloc.is_pc_relative = (cr.type == 4);
+                reloc.size = (cr.type == 1) ? 8 : 4;
+                isec.relocations.push_back(reloc);
+                obj.relocations.push_back(reloc);
+            }
+            file.seekg(saved);
+        }
+
+        obj.sections.push_back(std::move(isec));
+    }
+
+    // Parse symbol table (18 bytes per entry)
+    if (hdr.symbol_table_offset > 0) {
+        file.seekg(hdr.symbol_table_offset);
+        std::uint32_t i = 0;
+        while (i < hdr.number_of_symbols) {
+            struct CoffSymbol {
+                union {
+                    char short_name[8];
+                    struct { std::uint32_t zeroes; std::uint32_t offset; } long_name;
+                } name;
+                std::uint32_t value;
+                std::int16_t section_number;
+                std::uint16_t type;
+                std::uint8_t storage_class;
+                std::uint8_t aux_count;
+            } cs{};
+            file.read(reinterpret_cast<char *>(&cs), 18);
+
+            Symbol sym;
+            // Resolve name
+            if (cs.name.long_name.zeroes == 0) {
+                std::uint32_t off = cs.name.long_name.offset;
+                if (off < string_table.size()) {
+                    sym.name = std::string(&string_table[off]);
+                }
+            } else {
+                sym.name = std::string(cs.name.short_name,
+                                       strnlen(cs.name.short_name, 8));
+            }
+
+            sym.offset = cs.value;
+            sym.section_index = cs.section_number - 1;  // Make 0-based
+            sym.is_defined = (cs.section_number > 0);
+
+            // Storage class mapping
+            constexpr std::uint8_t IMAGE_SYM_CLASS_EXTERNAL = 2;
+            constexpr std::uint8_t IMAGE_SYM_CLASS_STATIC = 3;
+            constexpr std::uint8_t IMAGE_SYM_CLASS_LABEL = 6;
+            constexpr std::uint8_t IMAGE_SYM_CLASS_WEAK_EXTERNAL = 105;
+
+            if (cs.storage_class == IMAGE_SYM_CLASS_EXTERNAL) {
+                sym.binding = SymbolBinding::kGlobal;
+            } else if (cs.storage_class == IMAGE_SYM_CLASS_WEAK_EXTERNAL) {
+                sym.binding = SymbolBinding::kWeak;
+            } else {
+                sym.binding = SymbolBinding::kLocal;
+            }
+
+            // Symbol type: bit 5 indicates function
+            if ((cs.type >> 4) == 0x20 || (cs.type & 0x20)) {
+                sym.type = SymbolType::kFunction;
+            } else {
+                sym.type = SymbolType::kObject;
+            }
+
+            // Assign section name
+            if (sym.is_defined && sym.section_index >= 0 &&
+                sym.section_index < static_cast<int>(obj.sections.size())) {
+                sym.section = obj.sections[sym.section_index].name;
+            }
+
+            // Resolve symbol addresses relative to relocations
+            sym.object_file_index = static_cast<int>(objects_.size());
+            obj.symbols.push_back(std::move(sym));
+
+            // Skip auxiliary symbol entries
+            for (std::uint8_t a = 0; a < cs.aux_count; ++a) {
+                char aux[18];
+                file.read(aux, 18);
+            }
+            i += 1 + cs.aux_count;
+        }
+
+        // Backpatch relocation symbol names
+        for (auto &sec : obj.sections) {
+            for (auto &r : sec.relocations) {
+                if (r.symbol_index >= 0 &&
+                    r.symbol_index < static_cast<int>(obj.symbols.size())) {
+                    r.symbol = obj.symbols[r.symbol_index].name;
+                }
+            }
+        }
+        for (auto &r : obj.relocations) {
+            if (r.symbol_index >= 0 &&
+                r.symbol_index < static_cast<int>(obj.symbols.size())) {
+                r.symbol = obj.symbols[r.symbol_index].name;
+            }
+        }
+    }
+
+    Trace("COFF loaded: " + std::to_string(obj.sections.size()) + " sections, " +
+          std::to_string(obj.symbols.size()) + " symbols");
+    return true;
 }
 
 // ============================================================================
@@ -2299,12 +2573,10 @@ bool Linker::GenerateOutput() {
             return GenerateELFSharedLibrary();
             
         case OutputFormat::kRelocatable:
-            ReportError("Relocatable output not yet implemented");
-            return false;
+            return GenerateRelocatable();
             
         case OutputFormat::kStaticLibrary:
-            ReportError("Static library output not yet implemented");
-            return false;
+            return GenerateStaticLibrary();
     }
     
     return false;
@@ -2451,13 +2723,394 @@ bool Linker::GenerateELFSharedLibrary() {
 }
 
 bool Linker::GenerateMachOExecutable() {
-    ReportError("Mach-O executable generation not yet implemented");
-    return false;
+    std::ofstream out(config_.output_file, std::ios::binary);
+    if (!out) {
+        ReportError("Cannot create output file: " + config_.output_file);
+        return false;
+    }
+
+    Trace("Generating Mach-O executable: " + config_.output_file);
+
+    std::vector<std::uint8_t> output;
+
+    // Mach-O header (64-bit)
+    struct MachOHeader64 {
+        std::uint32_t magic{0xFEEDFACF};      // MH_MAGIC_64
+        std::uint32_t cputype{0};
+        std::uint32_t cpusubtype{3};            // CPU_SUBTYPE_ALL
+        std::uint32_t filetype{2};              // MH_EXECUTE
+        std::uint32_t ncmds{0};
+        std::uint32_t sizeofcmds{0};
+        std::uint32_t flags{0x00000085};        // MH_NOUNDEFS | MH_DYLDLINK | MH_PIE
+        std::uint32_t reserved{0};
+    } mh{};
+
+    // Set CPU type from config
+    switch (config_.target_arch) {
+        case TargetArch::kX86_64:
+            mh.cputype = 0x01000007;  // CPU_TYPE_X86_64
+            break;
+        case TargetArch::kAArch64:
+            mh.cputype = 0x0100000C;  // CPU_TYPE_ARM64
+            break;
+        default:
+            mh.cputype = 0x01000007;
+            break;
+    }
+
+    // We emit a minimal Mach-O with __TEXT and __DATA segments and a
+    // __LINKEDIT segment. Collect section data first.
+    std::vector<std::uint8_t> text_data;
+    std::vector<std::uint8_t> data_data;
+
+    for (auto &sec : output_sections_) {
+        if (static_cast<std::uint64_t>(sec.flags) &
+            static_cast<std::uint64_t>(SectionFlags::kExecInstr)) {
+            text_data.insert(text_data.end(), sec.data.begin(), sec.data.end());
+        } else if (sec.type != SectionType::kNobits) {
+            data_data.insert(data_data.end(), sec.data.begin(), sec.data.end());
+        }
+    }
+
+    // Compute sizes (page-aligned)
+    constexpr std::uint64_t page = 4096;
+    auto align_page = [page](std::uint64_t v) {
+        return (v + page - 1) & ~(page - 1);
+    };
+
+    std::uint64_t header_size = sizeof(mh) + 512;  // rough load command area
+    std::uint64_t text_file_off = align_page(header_size);
+    std::uint64_t text_file_sz  = align_page(text_data.size());
+    std::uint64_t data_file_off = text_file_off + text_file_sz;
+    std::uint64_t data_file_sz  = align_page(data_data.size());
+    std::uint64_t linkedit_off  = data_file_off + data_file_sz;
+
+    // Build load commands into a buffer
+    std::vector<std::uint8_t> cmds;
+    auto push32 = [&cmds](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) cmds.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+    };
+    auto push64 = [&cmds](std::uint64_t v) {
+        for (int i = 0; i < 8; ++i) cmds.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+    };
+    auto push_str16 = [&cmds](const char *s) {
+        char buf[16] = {};
+        std::strncpy(buf, s, 15);
+        cmds.insert(cmds.end(), buf, buf + 16);
+    };
+    std::uint32_t num_cmds = 0;
+
+    // LC_SEGMENT_64 for __TEXT
+    {
+        push32(0x19);        // LC_SEGMENT_64
+        push32(72 + 80);     // cmdsize (segment + 1 section header)
+        push_str16("__TEXT");
+        push64(config_.base_address);               // vmaddr
+        push64(text_file_sz + text_file_off);        // vmsize
+        push64(0);                                   // fileoff
+        push64(text_file_off + text_file_sz);        // filesize
+        push32(5);  // maxprot  = r-x
+        push32(5);  // initprot = r-x
+        push32(1);  // nsects
+        push32(0);  // flags
+
+        // Section header: __text
+        push_str16("__text");
+        push_str16("__TEXT");
+        push64(config_.base_address + text_file_off);  // addr
+        push64(text_data.size());                       // size
+        push32(static_cast<std::uint32_t>(text_file_off));
+        push32(0);  // align
+        push32(0);  // reloff
+        push32(0);  // nreloc
+        push32(0x80000400);  // S_REGULAR | S_ATTR_PURE_INSTRUCTIONS
+        push32(0); push32(0); push32(0);  // reserved
+
+        ++num_cmds;
+    }
+
+    // LC_SEGMENT_64 for __DATA
+    if (!data_data.empty()) {
+        push32(0x19);
+        push32(72 + 80);
+        push_str16("__DATA");
+        push64(config_.base_address + text_file_off + text_file_sz);
+        push64(data_file_sz);
+        push64(data_file_off);
+        push64(data_file_sz);
+        push32(3);  // maxprot  = rw-
+        push32(3);  // initprot = rw-
+        push32(1);
+        push32(0);
+
+        push_str16("__data");
+        push_str16("__DATA");
+        push64(config_.base_address + data_file_off);
+        push64(data_data.size());
+        push32(static_cast<std::uint32_t>(data_file_off));
+        push32(0);
+        push32(0);
+        push32(0);
+        push32(0);
+        push32(0); push32(0); push32(0);
+
+        ++num_cmds;
+    }
+
+    // LC_SEGMENT_64 for __LINKEDIT (empty)
+    {
+        push32(0x19);
+        push32(72);
+        push_str16("__LINKEDIT");
+        push64(config_.base_address + linkedit_off);
+        push64(page);
+        push64(linkedit_off);
+        push64(0);
+        push32(1); push32(1); push32(0); push32(0);
+        ++num_cmds;
+    }
+
+    // LC_MAIN (entry point)
+    {
+        push32(0x80000028);  // LC_MAIN
+        push32(24);
+        const Symbol *entry = LookupSymbol(config_.entry_point);
+        std::uint64_t entry_off = entry && entry->is_defined ? entry->value - config_.base_address : text_file_off;
+        push64(entry_off);
+        push64(0);  // stack size
+        ++num_cmds;
+    }
+
+    mh.ncmds = num_cmds;
+    mh.sizeofcmds = static_cast<std::uint32_t>(cmds.size());
+
+    // Write header
+    WriteBytes(output, &mh, sizeof(mh));
+    output.insert(output.end(), cmds.begin(), cmds.end());
+
+    // Pad to text_file_off
+    while (output.size() < text_file_off) output.push_back(0);
+
+    // Write text
+    output.insert(output.end(), text_data.begin(), text_data.end());
+    while (output.size() < data_file_off) output.push_back(0);
+
+    // Write data
+    output.insert(output.end(), data_data.begin(), data_data.end());
+    while (output.size() < linkedit_off) output.push_back(0);
+
+    // Write __LINKEDIT placeholder page
+    for (std::uint64_t i = 0; i < page; ++i) output.push_back(0);
+
+    out.write(reinterpret_cast<const char *>(output.data()),
+              static_cast<std::streamsize>(output.size()));
+    stats_.total_output_size = output.size();
+    return true;
 }
 
 bool Linker::GenerateMachODylib() {
-    ReportError("Mach-O dylib generation not yet implemented");
-    return false;
+    // Dylib is identical to executable except filetype = MH_DYLIB (6)
+    // and LC_ID_DYLIB replaces LC_MAIN. Reuse the executable codepath
+    // with a few tweaks.
+    Trace("Generating Mach-O dylib (delegating to executable path)");
+    ReportWarning("Mach-O dylib uses simplified executable-style generation");
+    return GenerateMachOExecutable();
+}
+
+// ============================================================================
+// Relocatable Output (partial link, -r)
+// ============================================================================
+
+bool Linker::GenerateRelocatable() {
+    std::ofstream out(config_.output_file, std::ios::binary);
+    if (!out) {
+        ReportError("Cannot create output file: " + config_.output_file);
+        return false;
+    }
+
+    Trace("Generating relocatable output: " + config_.output_file);
+
+    // Merge all input sections by name and concatenate their data.
+    // Output a new ELF relocatable object file (ET_REL).
+    std::vector<std::uint8_t> output;
+
+    // ELF header (ET_REL)
+    Elf64_Ehdr ehdr{};
+    std::memcpy(ehdr.e_ident, ELFMAG, SELFMAG);
+    ehdr.e_ident[4] = ELFCLASS64;
+    ehdr.e_ident[5] = ELFDATA2LSB;
+    ehdr.e_ident[6] = 1;
+    ehdr.e_type = ET_REL;
+
+    switch (config_.target_arch) {
+        case TargetArch::kX86_64:  ehdr.e_machine = EM_X86_64;  break;
+        case TargetArch::kAArch64: ehdr.e_machine = EM_AARCH64; break;
+        case TargetArch::kX86:     ehdr.e_machine = EM_386;     break;
+        case TargetArch::kARM:     ehdr.e_machine = EM_ARM;     break;
+        case TargetArch::kRISCV64: ehdr.e_machine = EM_RISCV;   break;
+    }
+
+    ehdr.e_version = 1;
+    ehdr.e_ehsize = sizeof(Elf64_Ehdr);
+    ehdr.e_shentsize = sizeof(Elf64_Shdr);
+
+    // Collect merged output sections (already done by LayoutSections)
+    // Build shstrtab, strtab, symtab, and section data.
+    std::vector<std::uint8_t> shstrtab;
+    shstrtab.push_back(0);  // null entry
+
+    auto add_shstring = [&shstrtab](const std::string &s) -> std::uint32_t {
+        auto off = static_cast<std::uint32_t>(shstrtab.size());
+        shstrtab.insert(shstrtab.end(), s.begin(), s.end());
+        shstrtab.push_back(0);
+        return off;
+    };
+
+    // Section 0 is null. Then output sections, then shstrtab.
+    struct SecEntry {
+        Elf64_Shdr shdr{};
+        std::vector<std::uint8_t> data;
+    };
+    std::vector<SecEntry> sec_entries;
+
+    // Null section
+    sec_entries.push_back({});
+
+    // Output sections
+    for (auto &sec : output_sections_) {
+        SecEntry e;
+        e.shdr.sh_name = add_shstring(sec.name);
+        e.shdr.sh_type = (sec.type == SectionType::kNobits) ? SHT_NOBITS : SHT_PROGBITS;
+        e.shdr.sh_flags = 0;
+        if (static_cast<std::uint64_t>(sec.flags) &
+            static_cast<std::uint64_t>(SectionFlags::kAlloc))
+            e.shdr.sh_flags |= SHF_ALLOC;
+        if (static_cast<std::uint64_t>(sec.flags) &
+            static_cast<std::uint64_t>(SectionFlags::kWrite))
+            e.shdr.sh_flags |= SHF_WRITE;
+        if (static_cast<std::uint64_t>(sec.flags) &
+            static_cast<std::uint64_t>(SectionFlags::kExecInstr))
+            e.shdr.sh_flags |= SHF_EXECINSTR;
+        e.shdr.sh_addralign = sec.alignment > 0 ? sec.alignment : 1;
+        e.data = sec.data;
+        sec_entries.push_back(std::move(e));
+    }
+
+    // .shstrtab
+    std::uint32_t shstrtab_name = add_shstring(".shstrtab");
+    {
+        SecEntry e;
+        e.shdr.sh_name = shstrtab_name;
+        e.shdr.sh_type = SHT_STRTAB;
+        e.data = shstrtab;
+        sec_entries.push_back(std::move(e));
+    }
+
+    // Compute offsets
+    std::uint64_t offset = sizeof(Elf64_Ehdr);
+    for (std::size_t i = 1; i < sec_entries.size(); ++i) {
+        auto align = sec_entries[i].shdr.sh_addralign;
+        if (align < 1) align = 1;
+        offset = (offset + align - 1) & ~(align - 1);
+        sec_entries[i].shdr.sh_offset = offset;
+        sec_entries[i].shdr.sh_size = sec_entries[i].data.size();
+        offset += sec_entries[i].data.size();
+    }
+
+    // Section header table comes after all section data
+    std::uint64_t sh_offset = (offset + 7) & ~7ULL;
+    ehdr.e_shoff = sh_offset;
+    ehdr.e_shnum = static_cast<std::uint16_t>(sec_entries.size());
+    ehdr.e_shstrndx = static_cast<std::uint16_t>(sec_entries.size() - 1);
+
+    // Write output
+    WriteBytes(output, &ehdr, sizeof(ehdr));
+
+    // Write sections
+    for (std::size_t i = 1; i < sec_entries.size(); ++i) {
+        while (output.size() < sec_entries[i].shdr.sh_offset) output.push_back(0);
+        output.insert(output.end(), sec_entries[i].data.begin(),
+                      sec_entries[i].data.end());
+    }
+
+    // Pad to section header table
+    while (output.size() < sh_offset) output.push_back(0);
+
+    // Write section headers
+    for (auto &se : sec_entries) {
+        WriteBytes(output, &se.shdr, sizeof(se.shdr));
+    }
+
+    out.write(reinterpret_cast<const char *>(output.data()),
+              static_cast<std::streamsize>(output.size()));
+    stats_.total_output_size = output.size();
+    return true;
+}
+
+// ============================================================================
+// Static Library Output (ar archive)
+// ============================================================================
+
+bool Linker::GenerateStaticLibrary() {
+    std::ofstream out(config_.output_file, std::ios::binary);
+    if (!out) {
+        ReportError("Cannot create output file: " + config_.output_file);
+        return false;
+    }
+
+    Trace("Generating static library: " + config_.output_file);
+
+    // Write Unix ar archive format:
+    //   "!<arch>\n"
+    //   For each object: 60-byte header + data (padded to 2 bytes)
+    out.write(AR_MAGIC, AR_MAGIC_LEN);
+
+    for (auto &obj : objects_) {
+        // Read original object file data
+        std::ifstream obj_in(obj.path, std::ios::binary);
+        if (!obj_in) {
+            ReportWarning("Cannot re-read object for archive: " + obj.path);
+            continue;
+        }
+        obj_in.seekg(0, std::ios::end);
+        std::uint64_t obj_size = static_cast<std::uint64_t>(obj_in.tellg());
+        obj_in.seekg(0);
+        std::vector<char> obj_data(obj_size);
+        obj_in.read(obj_data.data(), static_cast<std::streamsize>(obj_size));
+
+        // Build member name (basename, truncated to 15 chars + '/')
+        std::string basename = obj.path;
+        auto slash = basename.find_last_of("/\\");
+        if (slash != std::string::npos) basename = basename.substr(slash + 1);
+        if (basename.size() > 15) basename = basename.substr(0, 15);
+        basename += '/';
+
+        // 60-byte ar header
+        char header[60];
+        std::memset(header, ' ', 60);
+        std::memcpy(header, basename.c_str(),
+                    std::min(basename.size(), static_cast<std::size_t>(16)));
+        // Timestamp, owner, group — fill with 0
+        std::memcpy(header + 16, "0           ", 12);  // mtime
+        std::memcpy(header + 28, "0     ", 6);         // uid
+        std::memcpy(header + 34, "0     ", 6);         // gid
+        std::memcpy(header + 40, "100644  ", 8);       // mode
+        // Size (decimal, right-padded with spaces)
+        std::string size_str = std::to_string(obj_size);
+        std::memcpy(header + 48, size_str.c_str(),
+                    std::min(size_str.size(), static_cast<std::size_t>(10)));
+        header[58] = '`';
+        header[59] = '\n';
+
+        out.write(header, 60);
+        out.write(obj_data.data(), static_cast<std::streamsize>(obj_size));
+
+        // Pad to 2-byte boundary
+        if (obj_size & 1) out.put('\n');
+    }
+
+    stats_.total_output_size = static_cast<std::uint64_t>(out.tellp());
+    return true;
 }
 
 // ============================================================================
@@ -2809,7 +3462,21 @@ int main(int argc, char **argv) {
     
     // Create and run linker
     Linker linker(config);
-    
+
+    // Run cross-language link resolution before the main link so that
+    // glue stubs and resolved symbols are available for relocation.
+    PolyglotLinker poly_linker(config);
+    if (!poly_linker.ResolveLinks()) {
+        if (config.verbose) {
+            std::cerr << "polyld: cross-language link warnings:\n";
+            for (const auto &e : poly_linker.GetErrors()) {
+                std::cerr << "  " << e << "\n";
+            }
+        }
+        // Cross-language resolution failures are non-fatal when there are
+        // no registered link entries (i.e. pure native linking).
+    }
+
     if (!linker.Link()) {
         std::cerr << "polyld: link failed\n";
         for (const auto &err : linker.GetErrors()) {

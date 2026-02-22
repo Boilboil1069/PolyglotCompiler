@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <unordered_map>
 
 namespace polyglot::backends {
@@ -891,10 +892,20 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugFrame(const DebugInfoBuilder
     // Return address register (platform-specific, using x86-64 convention)
     WriteULEB128(result, 16);  // RIP
     
-    // Initial instructions (simplified - just set CFA)
+    // Initial instructions: define CFA and register save rules
+    // DW_CFA_def_cfa: register RSP(7), offset 8
     result.push_back(0x0c);  // DW_CFA_def_cfa
     WriteULEB128(result, 7);  // RSP
-    WriteULEB128(result, 8);  // Offset
+    WriteULEB128(result, 8);  // Offset (return address pushed by call)
+    
+    // DW_CFA_offset: return address register (RIP=16) at CFA-8
+    result.push_back(0x80 | 16);  // DW_CFA_offset for register 16 (RIP)
+    WriteULEB128(result, 1);  // offset / data_alignment_factor = 8 / 8 = 1
+    
+    // DW_CFA_nop padding to align CIE
+    while ((result.size() - cie_length_pos) % 8 != 0) {
+        result.push_back(0);  // DW_CFA_nop
+    }
     
     // Patch CIE length
     uint32_t cie_length = static_cast<uint32_t>(result.size() - cie_length_pos - 4);
@@ -998,14 +1009,16 @@ private:
 };
 
 void PdbSectionBuilder::GenerateGuid(uint8_t guid[16]) {
-    // Simple GUID generation (in production, use proper random source)
-    static uint32_t counter = 0;
-    for (int i = 0; i < 16; ++i) {
-        guid[i] = static_cast<uint8_t>((counter * 17 + i * 31) & 0xFF);
-    }
-    counter++;
+    // Use a proper random device for GUID generation
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<uint32_t> dist(0, 255);
     
-    // Set version and variant bits
+    for (int i = 0; i < 16; ++i) {
+        guid[i] = static_cast<uint8_t>(dist(gen));
+    }
+    
+    // Set version 4 (random) and variant 1 bits per RFC 4122
     guid[6] = (guid[6] & 0x0F) | 0x40;  // Version 4
     guid[8] = (guid[8] & 0x3F) | 0x80;  // Variant 1
 }
@@ -1029,12 +1042,42 @@ std::vector<uint8_t> PdbSectionBuilder::BuildPdbInfoStream() {
 std::vector<uint8_t> PdbSectionBuilder::BuildTpiStream(const DebugInfoBuilder &info) {
     std::vector<uint8_t> result;
     
-    // TPI Stream Header
+    // Build type records first to know their total size
+    std::vector<uint8_t> type_records;
+    uint32_t type_index_end = 0x1000;  // Start at min type index
+    
+    // Emit LF_ARGLIST (0x1201) for each function — empty arg list as baseline
+    {
+        uint16_t rec_len = 6;  // 2 kind + 4 count
+        WriteLE<uint16_t>(type_records, rec_len);
+        WriteLE<uint16_t>(type_records, 0x1201);  // LF_ARGLIST
+        WriteLE<uint32_t>(type_records, 0);        // argcount = 0
+        type_index_end++;
+    }
+    
+    // Emit LF_PROCEDURE (0x1008) for each function symbol
+    for (const auto &sym : info.Symbols()) {
+        if (sym.is_function) {
+            uint16_t rec_len = 14;  // 2 kind + 4 ret + 1 callconv + 1 attrs + 2 parmcount + 4 arglist
+            WriteLE<uint16_t>(type_records, rec_len);
+            WriteLE<uint16_t>(type_records, 0x1008);  // LF_PROCEDURE
+            WriteLE<uint32_t>(type_records, 0x0003);   // return type: T_VOID
+            type_records.push_back(0);                  // calling convention: near C
+            type_records.push_back(0);                  // attributes
+            WriteLE<uint16_t>(type_records, 0);         // parameter count
+            WriteLE<uint32_t>(type_records, 0x1000);    // arglist type index
+            type_index_end++;
+        }
+    }
+    
+    uint32_t type_record_bytes = static_cast<uint32_t>(type_records.size());
+    
+    // TPI Stream Header (56 bytes)
     WriteLE<uint32_t>(result, 20040203);  // Version
     WriteLE<uint32_t>(result, 56);        // Header size
     WriteLE<uint32_t>(result, 0x1000);    // Type index begin
-    WriteLE<uint32_t>(result, 0x1000);    // Type index end (start = end means no types)
-    WriteLE<uint32_t>(result, 0);         // Type record bytes
+    WriteLE<uint32_t>(result, type_index_end);  // Type index end
+    WriteLE<uint32_t>(result, type_record_bytes);  // Type record bytes
     
     // Hash stream index (-1 = not present)
     WriteLE<int16_t>(result, -1);
@@ -1058,7 +1101,8 @@ std::vector<uint8_t> PdbSectionBuilder::BuildTpiStream(const DebugInfoBuilder &i
     WriteLE<int32_t>(result, 0);
     WriteLE<uint32_t>(result, 0);
     
-    // Type records would go here (simplified - no types for now)
+    // Append type records
+    result.insert(result.end(), type_records.begin(), type_records.end());
     
     return result;
 }
@@ -1157,123 +1201,102 @@ std::vector<uint8_t> PdbSectionBuilder::BuildSymbolStream(const DebugInfoBuilder
 std::vector<uint8_t> PdbSectionBuilder::Build(const DebugInfoBuilder &info) {
     std::vector<uint8_t> result;
     
-    // MSF (Multi-Stream File) Header
-    // Magic: "Microsoft C/C++ MSF 7.00\r\n<0x1A>DS<null padding to 32 bytes>"
-    const uint8_t magic[] = {
-        'M', 'i', 'c', 'r', 'o', 's', 'o', 'f', 't', ' ',
-        'C', '/', 'C', '+', '+', ' ', 'M', 'S', 'F', ' ',
-        '7', '.', '0', '0', '\r', '\n', 0x1A, 'D', 'S',
-        0, 0, 0
-    };
-    result.insert(result.end(), magic, magic + 32);
-    
-    // Block size (4096 bytes typically)
-    WriteLE<uint32_t>(result, 4096);
-    
-    // Free block map block
-    WriteLE<uint32_t>(result, 1);
-    
-    // Number of blocks (will be updated)
-    WriteLE<uint32_t>(result, 8);
-    
-    // Number of directory bytes
-    WriteLE<uint32_t>(result, 0);
-    
-    // Unknown (reserved)
-    WriteLE<uint32_t>(result, 0);
-    
-    // Block map address
-    WriteLE<uint32_t>(result, 3);
-    
-    // Pad to block size
-    result.resize(4096);
-    
-    // Block 1: Free block map (all allocated for simplicity)
-    result.resize(result.size() + 4096, 0xFF);
-    
-    // Block 2: Free block map copy
-    result.resize(result.size() + 4096, 0xFF);
-    
     // Build streams
     std::vector<uint8_t> pdb_info = BuildPdbInfoStream();
     std::vector<uint8_t> tpi = BuildTpiStream(info);
     std::vector<uint8_t> dbi = BuildDbiStream(info);
     std::vector<uint8_t> symbols = BuildSymbolStream(info);
     
-    // Stream directory
-    std::vector<uint8_t> directory;
-    WriteLE<uint32_t>(directory, 5);  // Number of streams
-    
-    // Stream sizes
-    WriteLE<uint32_t>(directory, 0);  // Stream 0 (old directory, empty)
-    WriteLE<uint32_t>(directory, static_cast<uint32_t>(pdb_info.size()));
-    WriteLE<uint32_t>(directory, static_cast<uint32_t>(tpi.size()));
-    WriteLE<uint32_t>(directory, static_cast<uint32_t>(dbi.size()));
-    WriteLE<uint32_t>(directory, static_cast<uint32_t>(symbols.size()));
-    
-    // Stream block indices (simplified - sequential layout)
-    uint32_t block_num = 4;
-    
-    // Stream 0 blocks (empty)
-    
-    // Stream 1 blocks (PDB info)
-    if (!pdb_info.empty()) {
-        WriteLE<uint32_t>(directory, block_num++);
-    }
-    
-    // Stream 2 blocks (TPI)
-    if (!tpi.empty()) {
-        WriteLE<uint32_t>(directory, block_num++);
-    }
-    
-    // Stream 3 blocks (DBI)
-    if (!dbi.empty()) {
-        WriteLE<uint32_t>(directory, block_num++);
-    }
-    
-    // Stream 4 blocks (Symbols)
-    if (!symbols.empty()) {
-        WriteLE<uint32_t>(directory, block_num++);
-    }
-    
-    // Write directory to block 3
-    directory.resize(4096);
-    result.resize(3 * 4096);
-    result.insert(result.end(), directory.begin(), directory.end());
-    
-    // Write stream data
-    auto pad_block = [&result]() {
-        size_t remainder = result.size() % 4096;
-        if (remainder != 0) {
-            result.resize(result.size() + (4096 - remainder));
-        }
+    // Collect all streams
+    std::vector<std::vector<uint8_t>> streams = {
+        {},           // Stream 0: old directory (empty)
+        pdb_info,     // Stream 1: PDB info
+        tpi,          // Stream 2: TPI
+        dbi,          // Stream 3: DBI
+        symbols       // Stream 4: Symbol records
     };
     
-    result.insert(result.end(), pdb_info.begin(), pdb_info.end());
-    pad_block();
+    // Calculate block assignments for each stream
+    constexpr uint32_t kBlockSize = 4096;
+    uint32_t next_block = 4;  // blocks 0-3 reserved (header, fpm1, fpm2, directory)
     
-    result.insert(result.end(), tpi.begin(), tpi.end());
-    pad_block();
+    struct StreamLayout {
+        std::vector<uint32_t> blocks;
+    };
+    std::vector<StreamLayout> stream_layouts(streams.size());
     
-    result.insert(result.end(), dbi.begin(), dbi.end());
-    pad_block();
+    for (size_t si = 0; si < streams.size(); ++si) {
+        uint32_t num_blocks = streams[si].empty() ? 0 :
+            (static_cast<uint32_t>(streams[si].size()) + kBlockSize - 1) / kBlockSize;
+        for (uint32_t b = 0; b < num_blocks; ++b) {
+            stream_layouts[si].blocks.push_back(next_block++);
+        }
+    }
     
-    result.insert(result.end(), symbols.begin(), symbols.end());
-    pad_block();
+    // Build the stream directory
+    std::vector<uint8_t> directory;
+    WriteLE<uint32_t>(directory, static_cast<uint32_t>(streams.size()));  // Number of streams
     
-    // Update header with final block count
-    uint32_t num_blocks = static_cast<uint32_t>(result.size() / 4096);
-    result[40] = num_blocks & 0xFF;
-    result[41] = (num_blocks >> 8) & 0xFF;
-    result[42] = (num_blocks >> 16) & 0xFF;
-    result[43] = (num_blocks >> 24) & 0xFF;
+    // Stream sizes
+    for (const auto &stream : streams) {
+        WriteLE<uint32_t>(directory, static_cast<uint32_t>(stream.size()));
+    }
     
-    // Update directory bytes
-    uint32_t dir_bytes = static_cast<uint32_t>(directory.size());
-    result[48] = dir_bytes & 0xFF;
-    result[49] = (dir_bytes >> 8) & 0xFF;
-    result[50] = (dir_bytes >> 16) & 0xFF;
-    result[51] = (dir_bytes >> 24) & 0xFF;
+    // Stream block indices
+    for (const auto &layout : stream_layouts) {
+        for (uint32_t block : layout.blocks) {
+            WriteLE<uint32_t>(directory, block);
+        }
+    }
+    
+    uint32_t total_blocks = next_block;
+    
+    // Build the final file
+    result.clear();
+    result.resize(static_cast<size_t>(total_blocks) * kBlockSize, 0);
+    
+    // Block 0: MSF Header
+    const uint8_t magic[] = {
+        'M', 'i', 'c', 'r', 'o', 's', 'o', 'f', 't', ' ',
+        'C', '/', 'C', '+', '+', ' ', 'M', 'S', 'F', ' ',
+        '7', '.', '0', '0', '\r', '\n', 0x1A, 'D', 'S',
+        0, 0, 0
+    };
+    std::memcpy(result.data(), magic, 32);
+    
+    // MSF header fields (after magic)
+    auto write_at = [&](size_t offset, uint32_t val) {
+        for (int i = 0; i < 4; ++i) {
+            result[offset + i] = static_cast<uint8_t>((val >> (i * 8)) & 0xFF);
+        }
+    };
+    write_at(32, kBlockSize);          // Block size
+    write_at(36, 1);                   // Free block map block (block 1)
+    write_at(40, total_blocks);        // Number of blocks
+    write_at(44, static_cast<uint32_t>(directory.size()));  // Directory byte size
+    write_at(48, 0);                   // Unknown
+    write_at(52, 3);                   // Block map address (directory is at block 3)
+    
+    // Block 1 & 2: Free block maps (mark all as allocated)
+    std::memset(result.data() + kBlockSize, 0xFF, kBlockSize);
+    std::memset(result.data() + 2 * kBlockSize, 0xFF, kBlockSize);
+    
+    // Block 3: Stream directory
+    size_t copy_len = std::min(directory.size(), static_cast<size_t>(kBlockSize));
+    std::memcpy(result.data() + 3 * kBlockSize, directory.data(), copy_len);
+    
+    // Write stream data to their assigned blocks
+    for (size_t si = 0; si < streams.size(); ++si) {
+        const auto &data = streams[si];
+        const auto &layout = stream_layouts[si];
+        size_t offset = 0;
+        for (uint32_t block : layout.blocks) {
+            size_t chunk = std::min(static_cast<size_t>(kBlockSize), data.size() - offset);
+            std::memcpy(result.data() + static_cast<size_t>(block) * kBlockSize,
+                       data.data() + offset, chunk);
+            offset += chunk;
+        }
+    }
     
     return result;
 }
