@@ -4,7 +4,7 @@
 > Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v5.2  
+**Version**: v5.3  
 **Last Updated**: 2026-02-22
 
 ---
@@ -2140,6 +2140,14 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Bilingual feature documentation (`class_instantiation.md` / `class_instantiation_zh.md`)
 - ✅ Keywords count 47 → 49
 
+### v5.3 (2026-02-22)
+- ✅ Broke `common` ↔ `middle` circular dependency — canonical IR headers now live in `middle/include/ir/`; `common/include/ir/` contains forwarding shims for backward compatibility
+- ✅ Added CI include-lint script (`scripts/check_include_deps.py`) enforcing layer constraints: `middle/` must not include `common/include/ir/`, backends must not include frontends
+- ✅ Unified debug-info modelling — added `common/include/debug/debug_info_adapter.h` with `ConvertToBackendDebugInfo()` bridging `polyglot::debug` (rich DWARF model) and `polyglot::backends` (flat emission model)
+- ✅ Added optimisation pipeline & switch matrix documentation (`docs/specs/optimization_pipeline.md` / `_zh.md`)
+- ✅ Added runtime C ABI reference documentation (`docs/specs/runtime_abi.md` / `_zh.md`)
+- ✅ Unified tool-layer namespaces: `polyc` and `polybench` now use `namespace polyglot::tools`, matching `polyasm` / `polyopt` / `polyrt`
+
 ### v4.0 (2026-02-19)
 - ✅ Added complete .ploy cross-language linking frontend chapter
 - ✅ Multi-package-manager support: CONFIG CONDA / UV / PIPENV / POETRY
@@ -2164,4 +2172,4 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 *Maintained by PolyglotCompiler Team*  
 *Last Updated: 2026-02-22*  
-*Document Version: v5.2*
+*Document Version: v5.3*

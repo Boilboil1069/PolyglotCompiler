@@ -12,8 +12,8 @@
 #include <unordered_set>
 
 #include "common/include/core/types.h"
-#include "common/include/ir/ir_builder.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_builder.h"
+#include "middle/include/ir/ir_printer.h"
 
 namespace polyglot::python {
 namespace {

@@ -441,13 +441,12 @@ std::string PolyglotLinker::GetCallingConvention(const std::string &language) {
     // All supported languages use the platform's native C calling convention
     // On Linux/macOS: System V AMD64 ABI
     // On Windows: Microsoft x64 calling convention
+    (void)language;
 #ifdef _WIN32
     return "win64";
 #else
     return "sysv";
 #endif
-    // Python and Rust also use C calling convention for FFI
-    (void)language;
 }
 
 void PolyglotLinker::ReportError(const std::string &msg) {

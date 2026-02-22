@@ -4,7 +4,7 @@
 > 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v5.2  
+**版本**: v5.3  
 **最后更新**: 2026-02-22
 
 ---
@@ -2126,6 +2126,14 @@ tests/benchmarks/
 - ✅ 中英双语功能文档 (`class_instantiation.md` / `class_instantiation_zh.md`)
 - ✅ 关键字数量 47 → 49
 
+### v5.3 (2026-02-22)
+- ✅ 解除 `common` ↔ `middle` 循环依赖 — 规范 IR 头文件移至 `middle/include/ir/`；`common/include/ir/` 保留转发垫片保持向后兼容
+- ✅ 新增 CI include-lint 脚本（`scripts/check_include_deps.py`）强制层级约束：`middle/` 不可包含 `common/include/ir/`，后端不可包含前端
+- ✅ 统一调试信息建模 — 新增 `common/include/debug/debug_info_adapter.h`，通过 `ConvertToBackendDebugInfo()` 桥接 `polyglot::debug`（丰富 DWARF 模型）与 `polyglot::backends`（扁平发射模型）
+- ✅ 新增优化管线与开关矩阵文档（`docs/specs/optimization_pipeline.md` / `_zh.md`）
+- ✅ 新增运行时 C ABI 参考文档（`docs/specs/runtime_abi.md` / `_zh.md`）
+- ✅ 统一工具层命名空间：`polyc` 和 `polybench` 现使用 `namespace polyglot::tools`，与 `polyasm`/`polyopt`/`polyrt` 一致
+
 ### v4.0 (2026-02-19)
 - ✅ 新增 .ploy 跨语言链接前端完整章节
 - ✅ 多包管理器支持: CONFIG CONDA / UV / PIPENV / POETRY
@@ -2150,4 +2158,4 @@ tests/benchmarks/
 
 *本文档由 PolyglotCompiler 团队维护*  
 *最后更新: 2026-02-22*  
-*文档版本: v5.2*
+*文档版本: v5.3*

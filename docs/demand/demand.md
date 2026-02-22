@@ -479,4 +479,11 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 5. 将运行时 C ABI 作为独立接口层文档化（建议新增 `runtime_abi.md`），并明确与 C++ API 的职责边界。
 6. 对工具层命名空间做一致化：当前 `polyc` 主要匿名命名空间，`polyasm/polyopt/polyrt` 使用 `polyglot::tools`，风格不统一。
 
---end
+--end -done
+
+2026-02-22-6
+
+1.修复编译错误。
+2.编译其他平台上失败，编译要在LINUX与MACOS平台通过
+
+--end -done

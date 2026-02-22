@@ -1,4 +1,4 @@
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 
 #include <sstream>
 

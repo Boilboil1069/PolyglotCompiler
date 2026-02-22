@@ -25,7 +25,7 @@
 #include "middle/include/passes/transform/common_subexpr.h"
 #include "middle/include/passes/transform/inlining.h"
 #include "middle/include/ir/ir_context.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/python/include/python_lexer.h"
 #include "frontends/python/include/python_parser.h"
@@ -40,6 +40,8 @@
 
 using json = nlohmann::json;
 using namespace std::chrono;
+
+namespace polyglot::tools {
 
 // ============ Benchmark framework ============
 
@@ -436,9 +438,13 @@ void BenchmarkComparison() {
     runner.SaveResults("benchmark_comparison.json");
 }
 
+}  // namespace polyglot::tools
+
 // ============ Main entrypoint ============
 
 int main(int argc, char* argv[]) {
+    using namespace polyglot::tools;
+
     std::cout << "╔════════════════════════════════════════════════╗\n";
     std::cout << "║   PolyglotCompiler Benchmark Suite v3.0        ║\n";
     std::cout << "║   Comprehensive Performance Testing            ║\n";

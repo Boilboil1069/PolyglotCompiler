@@ -7,7 +7,7 @@
 #include "frontends/python/include/python_lowering.h"
 #include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 
 using polyglot::frontends::Diagnostics;
 using polyglot::python::PythonLexer;

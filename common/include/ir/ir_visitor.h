@@ -1,17 +1,4 @@
 #pragma once
-
-#include "middle/include/ir/nodes/expressions.h"
-#include "middle/include/ir/nodes/statements.h"
-
-namespace polyglot::ir {
-
-// Minimal visitor kept for compatibility; can be extended as needed.
-class IRVisitor {
- public:
-  virtual ~IRVisitor() = default;
-
-  virtual void Visit(const LiteralExpression &expr) = 0;
-  virtual void Visit(const ReturnStatement &stmt) = 0;
-};
-
-}  // namespace polyglot::ir
+// Legacy forwarding header — the canonical location is now middle/include/ir/ir_visitor.h.
+// This shim exists solely for backward compatibility; new code should include the middle path.
+#include "middle/include/ir/ir_visitor.h"

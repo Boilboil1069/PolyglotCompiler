@@ -302,6 +302,7 @@ public:
     
     // 行号表
     LineTable& GetLineTable() { return line_table_; }
+    const LineTable& GetLineTable() const { return line_table_; }
     
     // Generate DWARF debug sections (.debug_info, .debug_line, etc.)
     std::unordered_map<std::string, std::vector<uint8_t>> GenerateDWARF() const;

@@ -9,8 +9,8 @@
 #include "middle/include/passes/transform/constant_fold.h"
 #include "middle/include/passes/transform/dead_code_elim.h"
 #include "middle/include/passes/transform/inlining.h"
-#include "common/include/ir/ir_parser.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_parser.h"
+#include "middle/include/ir/ir_printer.h"
 
 namespace polyglot::tools {
 

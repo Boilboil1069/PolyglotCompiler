@@ -4,6 +4,16 @@ project(PolyglotCompiler LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Platform-portable compile options
+if(MSVC)
+    add_compile_options(/W3 /utf-8)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+endif()
+
+# Required for runtime dynamic loading (dlopen/dlsym) and threading
+find_package(Threads REQUIRED)
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}")
 include(${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.cmake)
 
@@ -218,6 +228,11 @@ add_library(runtime
 
 target_include_directories(runtime PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(runtime PUBLIC
+    ${CMAKE_DL_LIBS}
+    Threads::Threads
 )
 
 add_executable(polyc

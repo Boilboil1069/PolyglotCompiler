@@ -1,11 +1,11 @@
-#include "common/include/ir/ir_parser.h"
+#include "middle/include/ir/ir_parser.h"
 
 #include <cctype>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 
 namespace polyglot::ir {
 namespace {

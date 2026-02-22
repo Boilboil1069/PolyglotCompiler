@@ -1,4 +1,4 @@
-#include "common/include/ir/ir_builder.h"
+#include "middle/include/ir/ir_builder.h"
 
 #include <utility>
 #include <unordered_map>

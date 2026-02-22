@@ -10,7 +10,7 @@
 #include "frontends/dotnet/include/dotnet_lowering.h"
 #include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 
 using polyglot::frontends::Diagnostics;
 using polyglot::frontends::Token;

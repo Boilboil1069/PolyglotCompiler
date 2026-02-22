@@ -5,7 +5,7 @@
 #include <unordered_map>
 
 #include "common/include/core/types.h"
-#include "common/include/ir/ir_builder.h"
+#include "middle/include/ir/ir_builder.h"
 
 namespace polyglot::dotnet {
 namespace {

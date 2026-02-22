@@ -11,7 +11,7 @@
 #include <future>
 #include <numeric>
 
-#include "common/include/ir/ir_parser.h"
+#include "middle/include/ir/ir_parser.h"
 
 namespace polyglot::lto {
 

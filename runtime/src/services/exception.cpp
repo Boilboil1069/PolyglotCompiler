@@ -5,8 +5,14 @@
 #include <Windows.h>
 #include <cstdlib>
 #include <sstream>
-#else
+#elif defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
+// execinfo.h is available on macOS and glibc-based Linux distributions.
+// musl-based systems (e.g. Alpine Linux) do not provide it.
+#define HAS_EXECINFO 1
 #include <execinfo.h>
+#include <cstdlib>
+#else
+// Fallback: no backtrace support on this platform.
 #include <cstdlib>
 #endif
 #include <sstream>
@@ -25,7 +31,7 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
     frames.push_back(oss.str());
   }
   return frames;
-#else
+#elif defined(HAS_EXECINFO)
   std::vector<void *> buffer(max_frames);
   int captured = ::backtrace(buffer.data(), static_cast<int>(buffer.size()));
   char **symbols = ::backtrace_symbols(buffer.data(), captured);
@@ -35,6 +41,10 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
     std::free(symbols);
   }
   return frames;
+#else
+  // No backtrace support — return empty trace.
+  (void)max_frames;
+  return {};
 #endif
 }
 

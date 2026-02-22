@@ -1,8 +1,8 @@
 #define CATCH_CONFIG_MAIN
 #include <catch2/catch_test_macros.hpp>
 
-#include "common/include/ir/ir_parser.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_parser.h"
+#include "middle/include/ir/ir_printer.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/verifier.h"
 

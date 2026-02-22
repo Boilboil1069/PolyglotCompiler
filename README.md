@@ -362,7 +362,7 @@ All documentation is provided in **bilingual** format (Chinese + English) under 
 | [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete user guide (English) |
 | [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide (Chinese / 完整用户指南) |
 | [`docs/api/`](docs/api/) | API reference (bilingual) |
-| [`docs/specs/`](docs/specs/) | Language & IR specifications |
+| [`docs/specs/`](docs/specs/) | Language & IR specifications, optimisation pipeline, runtime ABI |
 | [`docs/realization/`](docs/realization/) | Implementation details (bilingual, 8 topics) |
 | [`docs/tutorial/`](docs/tutorial/) | Tutorials: ploy language + project (bilingual) |
 
@@ -375,4 +375,4 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 ---
 
 *Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-02-22 (v5.1)*
+*Last updated / 最后更新: 2026-02-22 (v5.3)*

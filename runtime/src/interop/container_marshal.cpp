@@ -3,6 +3,12 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 namespace polyglot::runtime::interop {
 
 // ============================================================================
@@ -212,12 +218,10 @@ void __ploy_rt_dict_free(void *raw) {
 namespace {
 
 #ifdef _WIN32
-#include <windows.h>
 typedef HMODULE py_lib_t;
 #define PY_LOAD(path) LoadLibraryA(path)
 #define PY_SYM(lib, name) ((void *)GetProcAddress((lib), (name)))
 #else
-#include <dlfcn.h>
 typedef void *py_lib_t;
 #define PY_LOAD(path) dlopen((path), RTLD_LAZY)
 #define PY_SYM(lib, name) dlsym((lib), (name))

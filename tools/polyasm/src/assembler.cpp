@@ -14,7 +14,7 @@
 #include "backends/arm64/include/arm64_target.h"
 #include "backends/x86_64/include/x86_target.h"
 #include "backends/wasm/include/wasm_target.h"
-#include "common/include/ir/ir_parser.h"
+#include "middle/include/ir/ir_parser.h"
 
 namespace polyglot::tools {
 namespace {

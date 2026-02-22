@@ -140,7 +140,7 @@ struct Elf64_Rela {
 #include "frontends/dotnet/include/dotnet_lowering.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/nodes/statements.h"
-#include "common/include/ir/ir_printer.h"
+#include "middle/include/ir/ir_printer.h"
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
 #include "middle/include/ir/passes/opt.h"
@@ -148,6 +148,7 @@ struct Elf64_Rela {
 #include "tools/polyld/include/polyglot_linker.h"
 #include "runtime/include/libs/base.h"
 
+namespace polyglot::tools {
 namespace {
 
 namespace fs = std::filesystem;
@@ -1138,7 +1139,7 @@ std::string EmitObject(const Settings &settings, const std::vector<ObjSection> &
     return BuildPobj(out, sections, symbols);
 }
 
-}  // namespace
+}  // namespace (anonymous)
 
 // Helper: create aux directory and return its path
 static std::string SetupAuxDir(const Settings &settings) {
@@ -1231,7 +1232,11 @@ static void WriteAuxBinarySingle(const std::string &aux_dir, const std::string &
     WriteAuxBinary(aux_dir, filename, {{section_name, content}}, verbose);
 }
 
+}  // namespace polyglot::tools
+
 int main(int argc, char **argv) {
+    using namespace polyglot::tools;
+
     auto total_start = std::chrono::high_resolution_clock::now();
 
     Settings settings = ParseArgs(argc, argv);

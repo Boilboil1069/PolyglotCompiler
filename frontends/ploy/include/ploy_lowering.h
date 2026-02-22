@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "common/include/ir/ir_builder.h"
+#include "middle/include/ir/ir_builder.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/ploy/include/ploy_ast.h"
 #include "frontends/ploy/include/ploy_sema.h"
