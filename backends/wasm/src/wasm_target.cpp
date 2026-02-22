@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -247,6 +248,21 @@ void WasmTarget::EmitMemorySection(std::vector<std::uint8_t> &out) {
     EmitSection(out, WasmSectionId::kMemory, payload);
 }
 
+void WasmTarget::EmitGlobalSection(std::vector<std::uint8_t> &out) {
+    // Emit the shadow stack pointer global (__stack_pointer).
+    // Initialised to the top of the first memory page (65536) so that the
+    // stack grows downward, consistent with the LLVM WASM ABI convention.
+    std::vector<std::uint8_t> payload;
+    EmitU32Leb128(payload, 1);             // 1 global
+    payload.push_back(static_cast<std::uint8_t>(WasmValType::kI32));  // type: i32
+    payload.push_back(0x01);               // mutable
+    // init_expr: i32.const 65536; end
+    payload.push_back(kOpI32Const);
+    EmitI32Leb128(payload, 65536);
+    payload.push_back(kOpEnd);
+    EmitSection(out, WasmSectionId::kGlobal, payload);
+}
+
 void WasmTarget::EmitExportSection(std::vector<std::uint8_t> &out) {
     if (exports_.empty()) return;
     std::vector<std::uint8_t> payload;
@@ -332,11 +348,18 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
 
     // Call
     if (auto *call = dynamic_cast<ir::CallInstruction *>(inst.get())) {
-        // The function index must be resolved; emit a placeholder call 0
-        // which will be patched by the linker or external module resolver.
         body.push_back(kOpCall);
-        EmitU32Leb128(body, 0);
-        (void)call;
+        // Resolve the callee name to its WASM function index.
+        auto it = func_name_to_index_.find(call->callee);
+        if (it != func_name_to_index_.end()) {
+            EmitU32Leb128(body, it->second);
+        } else {
+            // Unresolved callee — emit index 0 and record a diagnostic.
+            // An external module resolver or linker must patch this later.
+            lowering_errors_.push_back(
+                "unresolved call target '" + call->callee + "'; emitting index 0");
+            EmitU32Leb128(body, 0);
+        }
         return;
     }
 
@@ -403,10 +426,41 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
         return;
     }
 
-    // Alloca — in wasm, stack allocation is modeled via the shadow stack
-    // (global pointer minus size). Emit a simple nop placeholder for now.
-    if (dynamic_cast<ir::AllocaInstruction *>(inst.get())) {
-        body.push_back(kOpNop);
+    // Alloca — modeled via the WASM shadow stack.
+    // The shadow stack pointer lives in global 0 (__stack_pointer).  An alloca
+    // of `size` bytes is lowered as:
+    //   global.get $__stack_pointer
+    //   i32.const  <size>
+    //   i32.sub
+    //   local.tee  <result>       ;; the allocated address
+    //   global.set $__stack_pointer
+    // The caller is responsible for restoring the stack pointer on function
+    // exit (see LowerFunction's epilogue).
+    if (auto *alloca_inst = dynamic_cast<ir::AllocaInstruction *>(inst.get())) {
+        // Determine allocation size from the pointed-to type
+        std::uint32_t alloc_size = 16;  // default conservative alignment
+
+        auto pointee = alloca_inst->type;
+        if (pointee.kind == ir::IRTypeKind::kPointer && pointee.pointee_type) {
+            auto &inner = *pointee.pointee_type;
+            if (inner.kind == ir::IRTypeKind::kI32 || inner.kind == ir::IRTypeKind::kF32) alloc_size = 4;
+            else if (inner.kind == ir::IRTypeKind::kI64 || inner.kind == ir::IRTypeKind::kF64) alloc_size = 8;
+            else if (inner.kind == ir::IRTypeKind::kI8) alloc_size = 1;
+            else if (inner.kind == ir::IRTypeKind::kI16) alloc_size = 2;
+        }
+
+        body.push_back(kOpGlobalGet);
+        EmitU32Leb128(body, shadow_stack_global_);  // __stack_pointer
+        body.push_back(kOpI32Const);
+        EmitI32Leb128(body, static_cast<std::int32_t>(alloc_size));
+        body.push_back(kOpI32Sub);
+        // The result (new stack pointer value) is left on the operand stack
+        // for subsequent use as the pointer.  Also write it back.
+        body.push_back(kOpGlobalSet);
+        EmitU32Leb128(body, shadow_stack_global_);
+        // Push the new pointer again so the instruction has a result.
+        body.push_back(kOpGlobalGet);
+        EmitU32Leb128(body, shadow_stack_global_);
         return;
     }
 
@@ -430,8 +484,13 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
         return;
     }
 
-    // Phi, Assign, GEP, Memcpy, Memset, Vector, etc. — emit nop placeholder
-    body.push_back(kOpNop);
+    // Unsupported instruction — emit unreachable trap and record diagnostic.
+    // Previously this was a silent nop, which would produce incorrect code.
+    std::string inst_name = inst->name.empty() ? "(anonymous)" : inst->name;
+    lowering_errors_.push_back(
+        "unsupported IR instruction '" + inst_name + "' (kind: " +
+        std::to_string(static_cast<int>(inst->type.kind)) + "); emitting unreachable");
+    body.push_back(kOpUnreachable);
 }
 
 // ============================================================================
@@ -500,12 +559,17 @@ std::vector<std::uint8_t> WasmTarget::EmitWasmBinary() {
     exports_.clear();
     func_type_indices_.clear();
     func_bodies_.clear();
+    func_name_to_index_.clear();
+    has_shadow_stack_ = false;
+    lowering_errors_.clear();
 
     if (!module_) return {};
 
     // Phase 1: Collect function type signatures and build type section
     std::uint32_t func_index = 0;
     for (auto &fn : module_->Functions()) {
+        // Build function name → index map for call resolution
+        func_name_to_index_[fn->name] = func_index;
         WasmFuncType ft;
         for (auto &pt : fn->param_types) {
             ft.params.push_back(IRTypeToWasm(pt));
@@ -538,6 +602,21 @@ std::vector<std::uint8_t> WasmTarget::EmitWasmBinary() {
         ++func_index;
     }
 
+    // Phase 1.5: Scan for alloca instructions — if any function uses alloca,
+    // we need a shadow stack global pointer (__stack_pointer).
+    for (auto &fn : module_->Functions()) {
+        for (auto &blk : fn->blocks) {
+            for (auto &inst : blk->instructions) {
+                if (dynamic_cast<ir::AllocaInstruction *>(inst.get())) {
+                    has_shadow_stack_ = true;
+                    break;
+                }
+            }
+            if (has_shadow_stack_) break;
+        }
+        if (has_shadow_stack_) break;
+    }
+
     // Phase 2: Lower function bodies
     for (auto &fn : module_->Functions()) {
         std::vector<std::uint8_t> body;
@@ -554,6 +633,13 @@ std::vector<std::uint8_t> WasmTarget::EmitWasmBinary() {
         exports_.push_back(mem_export);
     }
 
+    // Report lowering diagnostics
+    if (!lowering_errors_.empty()) {
+        for (const auto &err : lowering_errors_) {
+            std::cerr << "[wasm] " << err << "\n";
+        }
+    }
+
     // Phase 3: Assemble the binary
     std::vector<std::uint8_t> binary;
 
@@ -566,6 +652,9 @@ std::vector<std::uint8_t> WasmTarget::EmitWasmBinary() {
     EmitImportSection(binary);
     EmitFunctionSection(binary);
     EmitMemorySection(binary);
+    if (has_shadow_stack_) {
+        EmitGlobalSection(binary);
+    }
     EmitExportSection(binary);
     EmitCodeSection(binary);
 

@@ -12,6 +12,7 @@
 3. [Inter-Module Dependency Graph](#3-inter-module-dependency-graph)
 4. [Detailed Interface Inventory by Namespace](#4-detailed-interface-inventory-by-namespace)
 5. [Unused Code Analysis](#5-unused-code-analysis)
+6. [Modification Recommendations](#6-modification-recommendations)
 
 ---
 
@@ -60,7 +61,7 @@ polyglot
 │   ├── TypeUnifier                # Type unification / inference
 │   ├── TypeRegistry               # Type registry
 │   ├── Symbol / SymbolTable       # Symbols and symbol table
-│   ├── CompilerConfig             # Compiler configuration
+│   ├── Config                     # Compiler configuration
 │   └── SourceLoc                  # Source code location
 │
 ├── utils                          # Utility library
@@ -360,10 +361,10 @@ unit_tests ──► all libraries + Catch2::Catch2WithMain
 |-------------|---------------|------------|
 | `Type` (struct) | `Int()`, `Float()`, `Array()`, `Optional()`, `Slice()`, `Tuple()`, `GenericInstance()`, `IsNumeric()`, `IsInteger()`, `ToString()`, etc. | All frontend sema/lowering, middle_ir, tests |
 | `TypeSystem` | `MapFromLanguage()`, `CanImplicitlyConvert()`, `IsCompatible()`, `SizeOf()`, `AlignOf()`, `CommonType()` | Frontend sema/lowering, middle_ir |
-| `TypeUnifier` | `Unify()`, `Apply()`, `AddTraitConstraint()` | ⚠️ Tests only |
+| `TypeUnifier` | `Unify()`, `Apply()`, `AddTraitConstraint()` | C++ sema (`frontends/cpp/src/sema/sema.cpp`) + tests |
 | `TypeRegistry` | `Register()`, `Find()`, `RegisterEquivalence()` | ⚠️ Tests only |
 | `SymbolTable` | `EnterScope()`, `ExitScope()`, `Declare()`, `Lookup()`, `ResolveFunction()` | All frontend sema |
-| `CompilerConfig` | `SetOption()`, `GetOption()` | ❌ No references |
+| `Config` | `SetOption()`, `GetOption()` | ❌ No references |
 | `SourceLoc` | `file`, `line`, `column` | Widely used across project |
 
 ### 4.2 `polyglot::utils`
@@ -479,9 +480,8 @@ unit_tests ──► all libraries + Catch2::Catch2WithMain
 | `CoroutineScheduler` | ⚠️ Tests only |
 | `Future` / `Promise` | ⚠️ Tests only |
 | `Atomic` | ⚠️ Tests only |
-| `ThreadProfiler` | ❌ No references (declared but not implemented) |
+| `ThreadProfiler` | ⚠️ Unit tests + implemented in `threading.cpp`; not yet wired into production task sampling |
 | `ReflectionRegistry` | ⚠️ Tests only |
-| `TokenPool` | ❌ Declaration only, cpp is an empty stub |
 
 ### 4.10 `polyglot::linker`
 
@@ -494,50 +494,73 @@ unit_tests ──► all libraries + Catch2::Catch2WithMain
 
 ## 5. Unused Code Analysis
 
-### 5.1 🔴 Completely Unused (never referenced by any production code or tests)
+### 5.1 🔴 Completely Unused (never referenced by production code or tests)
 
 | # | Item | Location | Notes |
 |---|------|----------|-------|
-| 1 | `CompilerConfig` | `common/include/core/config.h` | Class declared but no file includes this header |
+| 1 | `Config` | `common/include/core/config.h` | Declared and implemented, but currently not referenced |
 | 2 | `StringPool` | `common/include/utils/string_pool.h` | Declared with zero references |
 | 3 | `Logger` | `common/include/utils/logging.h` | Declared with zero references |
 | 4 | `Arena` | `common/include/utils/arena.h` | Declared with zero references |
 | 5 | `DebugInfoValidator` | `common/include/debug/debug_info_builder.h` | Declared with zero references |
 | 6 | `DebugInfoPrinter` | `common/include/debug/debug_info_builder.h` | Declared with zero references |
-| 7 | `IRVisitor` | `common/include/ir/ir_visitor.h` | Abstract base class, no subclass implementation |
-| 8 | `TokenPool` | `frontends/common/include/token_pool.h` | Declared but cpp is empty stub, zero references |
-| 9 | `ThreadProfiler` | `runtime/include/services/threading.h` | Static methods declared only, no implementation |
-| 10 | `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder` | `backends/common/include/object_file.h` | Declared + defined but no external calls |
-| 11 | calling_convention (x86_64) | `backends/x86_64/src/calling_convention.cpp` | All code in anonymous namespace with no external calls |
-| 12 | calling_convention (arm64) | `backends/arm64/src/calling_convention.cpp` | All code in anonymous namespace with no external calls |
+| 7 | `IRVisitor` | `common/include/ir/ir_visitor.h` | Abstract base class, no concrete implementation usage |
+| 8 | `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder` | `backends/common/include/object_file.h` | Builder hierarchy exists, but no external call sites |
+| 9 | calling_convention (x86_64) | `backends/x86_64/src/calling_convention.cpp` | Internal helpers with no external call sites |
+| 10 | calling_convention (arm64) | `backends/arm64/src/calling_convention.cpp` | Internal helpers with no external call sites |
 
-### 5.2 🟡 Tests Only (complete implementation and tests, but not integrated into compile pipeline)
+### 5.2 🟡 Tests Only / Not in Main Pipeline
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | `TypeUnifier` | Type unifier, tested only in type_system_test.cpp |
-| 2 | `TypeRegistry` | Type registry, tested only in type_system_test.cpp |
-| 3 | `TypeSystem::AreLayoutCompatible` | Test calls only |
-| 4 | `TypeSystem::IsWidening/IsNarrowing` | Test calls only |
-| 5 | `TypeSystem::ConversionRank` | Test calls only |
-| 6 | `TypeSystem::RegisterAlias/ResolveAlias/HasAlias` | Test calls only |
-| 7 | `SymbolKindToString/ScopeKindToString/FormatSymbol/FormatScope` | Helper functions, test calls only |
-| 8 | **All passes::transform optimizations** | 17+ optimization passes/functions, tests only |
-| 9 | **All PGO classes** | ProfileData, RuntimeProfiler, tests only |
-| 10 | **All LTO classes** | LTOModule/Optimizer/Linker etc., tests only |
-| 11 | **All backend optimization classes** | InstructionScheduler, SoftwarePipeliner, MicroArchOptimizer, etc., tests only |
-| 12 | **All runtime services** | GC Heap, FFI, Threading (TaskScheduler/WorkStealing/Coroutine, etc.), Reflection, tests only |
-| 13 | `DebugEmitter` | EmitDWARF/EmitPDB/EmitSourceMap, tests only |
-| 14 | `LinkerScriptParser` | Declared + defined, tests only, not called from Linker main flow |
+| 1 | `TokenPool` | Header-only utility, currently referenced by unit tests only |
+| 2 | `ThreadProfiler` | Implemented and tested, but not wired into production task sampling |
+| 3 | `TypeRegistry` | Primarily tested in `type_system_test.cpp`; no main-pipeline usage |
+| 4 | `TypeSystem::AreLayoutCompatible` | Test calls only |
+| 5 | `TypeSystem::IsWidening/IsNarrowing` | Test calls only |
+| 6 | `TypeSystem::ConversionRank` | Test calls only |
+| 7 | `TypeSystem::RegisterAlias/ResolveAlias/HasAlias` | Test calls only |
+| 8 | `SymbolKindToString/ScopeKindToString/FormatSymbol/FormatScope` | Helper functions, currently test-side usage only |
+| 9 | **PGO classes** | `ProfileData`, `RuntimeProfiler`, `PGOOptimizer`: mostly unit-test usage |
+| 10 | **LTO classes** | `LTOModule`/`LTOContext`/`LTOLinker` are complete but not part of default `polyc` flow |
+| 11 | **Backend advanced optimization classes** | `InstructionScheduler`/`SoftwarePipeliner`/`MicroArchOptimizer` family mainly test-side; basic scheduler path is separate |
+| 12 | **Runtime service subset** | `TaskScheduler`/`WorkStealing`/`Coroutine`/`Future`/`Atomic`/`Reflection` mainly covered by tests and `polyrt` |
+| 13 | `DebugEmitter` | `EmitDWARF`/`EmitPDB`/`EmitSourceMap` mainly validated in tests |
+| 14 | `LinkerScriptParser` | Declared + defined, but not invoked in `Linker::Link` main flow |
 
-### 5.3 📊 Statistical Summary
+### 5.3 📊 Statistical Summary (Updated)
 
 | Category | Count | Proportion |
 |----------|-------|-----------|
-| Completely unused | **12 items** | ~10% |
-| Tests only | **40+ items** | ~33% |
-| Production code usage | **~70 items** | ~57% |
+| Completely unused | **10 items** | ~8% |
+| Tests only / not in main pipeline | **30+ items** | ~25% |
+| Production code usage | **80+ items** | ~67% |
 
 ---
 
-*This document is based on static analysis of 98 header files and 80 source files. Components marked "tests only" are fully functional with complete implementations and test coverage — they have simply not yet been integrated into the compiler's main compilation pipeline.*
+## 6. Modification Recommendations
+
+### 6.1 Immediate Documentation Corrections
+
+| Priority | Item | Recommended Update |
+|----------|------|--------------------|
+| P0 | `CompilerConfig` naming | Replace with `Config` throughout this document |
+| P0 | `TokenPool` classification | Move from “Completely Unused” to “Tests Only / Not in Main Pipeline” |
+| P0 | `ThreadProfiler` classification | Mark as implemented + tested, but not integrated into production sampling |
+| P0 | `TypeUnifier` classification | Remove from tests-only claims; it is used by C++ sema |
+| P0 | `passes::transform` classification | Remove “tests only” claim; key passes are invoked in `polyc`/`polyopt` |
+
+### 6.2 Codebase Integration Priorities
+
+| Priority | Item | Recommended Action | Key Files |
+|----------|------|--------------------|-----------|
+| P1 | Type conversion utilities | Integrate `TypeRegistry` and advanced `TypeSystem` conversion APIs into cross-language sema/link checks | `common/src/core/type_system.cpp`, `frontends/*/src/sema/*.cpp`, `tools/polyld/src/polyglot_linker.cpp` |
+| P1 | PGO mainline integration | Add profile collection/use flow to `polyc` optimization pipeline | `middle/src/pgo/profile_data.cpp`, `tools/polyc/src/driver.cpp` |
+| P1 | LTO mainline integration | Wire LTO workflow into build/link flow instead of test-only path | `middle/src/lto/link_time_optimizer.cpp`, `tools/polyc/src/driver.cpp`, `tools/polyld/src/linker.cpp` |
+| P1 | Linker script support | Invoke `LinkerScriptParser` when `-T/--linker_script` is provided | `tools/polyld/src/linker.cpp` |
+| P1 | Object-file builder unification | Consolidate duplicate object emission logic currently split between driver and backend builders | `tools/polyc/src/driver.cpp`, `backends/common/src/object_file.cpp` |
+| P1 | Advanced backend optimizer adoption | Incrementally integrate advanced optimizer classes into backend emit pipeline | `backends/x86_64/src/optimizations.cpp`, `backends/*/src/asm_printer/*.cpp` |
+
+---
+
+*This document is based on static analysis of the current repository state. “Tests only / not in main pipeline” means the implementation is functional but not yet wired into the default compile-link path.*

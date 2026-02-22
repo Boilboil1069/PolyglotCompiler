@@ -103,6 +103,12 @@ class PloySema {
     explicit PloySema(frontends::Diagnostics &diagnostics)
         : diagnostics_(diagnostics) {}
 
+    // Enable strict type-checking mode.  When enabled, the sema emits warnings
+    // for every site where core::Type::Any() is used as a fallback that the
+    // programmer could have resolved by adding explicit type annotations.
+    void SetStrictMode(bool enable) { strict_mode_ = enable; }
+    bool IsStrictMode() const { return strict_mode_; }
+
     // Run semantic analysis on the parsed module
     bool Analyze(const std::shared_ptr<Module> &module);
 
@@ -219,6 +225,7 @@ class PloySema {
                               const FunctionSignature *sig);
 
     frontends::Diagnostics &diagnostics_;
+    bool strict_mode_{false};
     core::TypeSystem type_system_{};
     std::unordered_map<std::string, PloySymbol> symbols_{};
     std::vector<LinkEntry> links_{};

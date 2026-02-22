@@ -109,6 +109,7 @@ struct Elf64_Rela {
 
 #include "backends/x86_64/include/x86_target.h"
 #include "backends/arm64/include/arm64_target.h"
+#include "backends/wasm/include/wasm_target.h"
 #include "common/include/core/source_loc.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/preprocessor.h"
@@ -247,7 +248,7 @@ Settings ParseArgs(int argc, char **argv) {
                       << "  -O<0-3>             Optimisation level\n"
                       << "  -o <output>         Output file name\n"
                       << "  --mode=<mode>       compile|assemble|link\n"
-                      << "  --arch=<arch>       x86_64|arm64\n"
+                      << "  --arch=<arch>       x86_64|arm64|wasm\n"
                       << "  --emit-ir=<path>    Write IR to file\n"
                       << "  --emit-asm=<path>   Write assembly to file\n"
                       << "  --emit-obj=<path>   Write object to file\n"
@@ -1619,6 +1620,7 @@ int main(int argc, char **argv) {
 
     // Choose backend based on arch
     bool use_arm64 = (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
+    bool use_wasm  = (settings.arch == "wasm" || settings.arch == "wasm32" || settings.arch == "wasm64");
 
     // ---- Phase 6: Backend code generation ----
     std::vector<ObjSection> sections;
@@ -1739,7 +1741,43 @@ int main(int argc, char **argv) {
         t2.Stop();
     };
 
-    if (use_arm64) {
+    if (use_wasm) {
+        // WebAssembly backend — emits .wasm binary directly instead of
+        // going through the native object code pipeline.  The WASM target
+        // does not perform register allocation (stack machine).
+        polyglot::backends::wasm::WasmTarget wasm_target(&ir_module);
+
+        {
+            StageTimer t("Assembly generation (WAT)", V);
+            target_triple = wasm_target.TargetTriple();
+            asm_text = wasm_target.EmitAssembly();
+            t.Stop();
+        }
+
+        StageTimer t2("WASM binary emission", V);
+        auto wasm_binary = wasm_target.EmitWasmBinary();
+        if (wasm_binary.empty()) {
+            std::cerr << "[error] WASM backend produced empty binary\n";
+            if (!settings.force) {
+                backend_failed = true;
+                t2.Stop();
+            }
+        }
+
+        if (!backend_failed) {
+            // Wrap the WASM binary into a single .text section so that the
+            // rest of the pipeline (object file emission / aux file writing)
+            // can process it uniformly.
+            ObjSection text;
+            text.name = ".text";
+            text.data = std::move(wasm_binary);
+            sections.push_back(std::move(text));
+            symbols.push_back({"_start", 0, 0,
+                               static_cast<std::uint64_t>(sections.front().data.size()),
+                               true, true});
+        }
+        t2.Stop();
+    } else if (use_arm64) {
         polyglot::backends::arm64::Arm64Target target(&ir_module);
         run_backend(target);
     } else {

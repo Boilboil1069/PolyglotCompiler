@@ -84,6 +84,9 @@ class PolyglotLinker {
     const std::vector<std::string> &GetErrors() const { return errors_; }
     const std::vector<std::string> &GetWarnings() const { return warnings_; }
 
+    // Query whether any cross-language link entries have been registered
+    bool HasLinkEntries() const { return !link_entries_.empty() || !call_descriptors_.empty(); }
+
   private:
     // Symbol resolution
     bool ResolveSymbolPair(const ploy::LinkEntry &entry);

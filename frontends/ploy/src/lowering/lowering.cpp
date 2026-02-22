@@ -259,7 +259,20 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
 // ============================================================================
 
 void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
-    ir::IRType var_type = var->type ? PloyTypeToIR(var->type) : ir::IRType::I64(true);
+    // Resolve the type from the AST annotation if present, otherwise consult
+    // the sema symbol table to get the inferred type.  Fall back to I64 only
+    // as a last resort.
+    ir::IRType var_type = ir::IRType::I64(true);
+    if (var->type) {
+        var_type = PloyTypeToIR(var->type);
+    } else {
+        auto sym_it = sema_.Symbols().find(var->name);
+        if (sym_it != sema_.Symbols().end() &&
+            sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kInvalid) {
+            var_type = CoreTypeToIR(sym_it->second.type);
+        }
+    }
 
     if (var->init) {
         EvalResult init_result = LowerExpression(var->init);
@@ -500,12 +513,20 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
         return LowerSetAttrExpression(set_attr);
     }
     if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
-        // Qualified identifiers are treated as external references
+        // Qualified identifiers are treated as external references.
+        // Resolve the type from the sema symbol table if available.
         std::string sym = qid->qualifier + "_" + qid->name;
         for (char &c : sym) {
             if (c == ':') c = '_';
         }
-        return {sym, ir::IRType::I64(true)};
+        ir::IRType qid_type = ir::IRType::I64(true);
+        auto sym_it = sema_.Symbols().find(qid->qualifier + "::" + qid->name);
+        if (sym_it != sema_.Symbols().end() &&
+            sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kInvalid) {
+            qid_type = CoreTypeToIR(sym_it->second.type);
+        }
+        return {sym, qid_type};
     }
     if (auto range = std::dynamic_pointer_cast<RangeExpression>(expr)) {
         // Range expression — lower the end value as the iteration bound
@@ -756,7 +777,28 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
         arg_names = reordered;
     }
 
-    auto inst = builder_.MakeCall(callee_name, arg_names, ir::IRType::I64(true), "");
+    // Resolve the return type from sema's known signatures instead of
+    // always using I64.  If no signature is found, fall back to I64.
+    ir::IRType call_ret_type = ir::IRType::I64(true);
+    {
+        auto sig_it = sema_.KnownSignatures().find(callee_name);
+        if (sig_it != sema_.KnownSignatures().end() &&
+            sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
+            call_ret_type = CoreTypeToIR(sig_it->second.return_type);
+        } else {
+            // Also check the sema symbol table for function types
+            auto sym_it = sema_.Symbols().find(callee_name);
+            if (sym_it != sema_.Symbols().end() &&
+                sym_it->second.type.kind == core::TypeKind::kFunction &&
+                !sym_it->second.type.type_args.empty()) {
+                // The last type_arg of a function type is the return type
+                call_ret_type = CoreTypeToIR(sym_it->second.type.type_args.back());
+            }
+        }
+    }
+
+    auto inst = builder_.MakeCall(callee_name, arg_names, call_ret_type, "");
     return {inst->name, inst->type};
 }
 
@@ -1107,7 +1149,20 @@ void PloyLowering::LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func
 
     std::vector<std::pair<std::string, ir::IRType>> params;
     for (const auto &p : map_func->params) {
-        ir::IRType pt = p.type ? PloyTypeToIR(p.type) : ir::IRType::I64(true);
+        // Consult the sema known-signatures for parameter types when the
+        // AST annotation is absent, instead of blindly using I64.
+        ir::IRType pt = ir::IRType::I64(true);
+        if (p.type) {
+            pt = PloyTypeToIR(p.type);
+        } else {
+            auto sig_it = sema_.KnownSignatures().find(map_func->name);
+            if (sig_it != sema_.KnownSignatures().end()) {
+                size_t idx = static_cast<size_t>(&p - &map_func->params[0]);
+                if (idx < sig_it->second.param_types.size()) {
+                    pt = CoreTypeToIR(sig_it->second.param_types[idx]);
+                }
+            }
+        }
         params.emplace_back(p.name, pt);
     }
 

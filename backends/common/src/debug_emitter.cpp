@@ -926,8 +926,25 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugFrame(const DebugInfoBuilder
             
             // Address range (function size)
             WriteLE<uint64_t>(result, sym.size);
-            
-            // Instructions (empty for now - could add unwinding info)
+
+            // Call frame instructions for a standard frame-pointer prologue:
+            //   push rbp          (1 byte)  → CFA at RSP+16, RBP saved at CFA-16
+            //   mov  rbp, rsp     (3 bytes) → CFA defined by RBP+16 for the body
+            //
+            // DW_CFA_advance_loc(1): after push rbp (1 byte)
+            result.push_back(0x41);         // DW_CFA_advance_loc + 1
+            // DW_CFA_def_cfa_offset(16): stack pointer moved by 8 (call) + 8 (push)
+            result.push_back(0x0E);         // DW_CFA_def_cfa_offset
+            WriteULEB128(result, 16);
+            // DW_CFA_offset(RBP=6, 2): RBP saved at CFA-16  (offset_factor = 16/8 = 2)
+            result.push_back(0x80 | 6);     // DW_CFA_offset for register 6 (RBP)
+            WriteULEB128(result, 2);
+
+            // DW_CFA_advance_loc(3): after mov rbp, rsp (3 bytes)
+            result.push_back(0x43);         // DW_CFA_advance_loc + 3
+            // DW_CFA_def_cfa_register(RBP=6): CFA is now RBP+16
+            result.push_back(0x0D);         // DW_CFA_def_cfa_register
+            WriteULEB128(result, 6);
             
             // Patch FDE length
             uint32_t fde_length = static_cast<uint32_t>(result.size() - fde_length_pos - 4);
@@ -1053,6 +1070,21 @@ std::vector<uint8_t> PdbSectionBuilder::BuildTpiStream(const DebugInfoBuilder &i
         WriteLE<uint16_t>(type_records, 0x1201);  // LF_ARGLIST
         WriteLE<uint32_t>(type_records, 0);        // argcount = 0
         type_index_end++;
+    }
+
+    // Emit LF_POINTER (0x1002) for pointer types discovered in DebugType
+    // and LF_MODIFIER (0x1001) for const-qualified types — this gives the
+    // PDB consumer basic type layout information.
+    for (const auto &dt : info.Types()) {
+        if (dt.kind == "pointer") {
+            uint16_t rec_len = 10;  // 2 kind + 4 referent + 4 attrs
+            WriteLE<uint16_t>(type_records, rec_len);
+            WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
+            WriteLE<uint32_t>(type_records, 0x0074);   // referent: T_INT8 (char)
+            // pointer attributes: 64-bit, near, plain
+            WriteLE<uint32_t>(type_records, 0x0000000C);
+            type_index_end++;
+        }
     }
     
     // Emit LF_PROCEDURE (0x1008) for each function symbol

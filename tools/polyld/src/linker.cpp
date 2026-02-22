@@ -3467,14 +3467,22 @@ int main(int argc, char **argv) {
     // glue stubs and resolved symbols are available for relocation.
     PolyglotLinker poly_linker(config);
     if (!poly_linker.ResolveLinks()) {
-        if (config.verbose) {
-            std::cerr << "polyld: cross-language link warnings:\n";
-            for (const auto &e : poly_linker.GetErrors()) {
-                std::cerr << "  " << e << "\n";
-            }
+        // When cross-language link entries are registered, resolution
+        // failures are fatal — unresolved symbols must not be silently
+        // ignored because the resulting binary would crash at runtime.
+        std::cerr << "polyld: cross-language link failed\n";
+        for (const auto &e : poly_linker.GetErrors()) {
+            std::cerr << "  " << e << "\n";
         }
-        // Cross-language resolution failures are non-fatal when there are
-        // no registered link entries (i.e. pure native linking).
+        if (poly_linker.HasLinkEntries()) {
+            return 1;
+        }
+        // If there are no registered link entries (pure native linking),
+        // allow the pipeline to continue — the errors are just warnings
+        // from an empty cross-language phase.
+        if (config.verbose) {
+            std::cerr << "polyld: continuing (no cross-language link entries)\n";
+        }
     }
 
     if (!linker.Link()) {

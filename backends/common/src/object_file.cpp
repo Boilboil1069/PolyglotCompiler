@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <unordered_map>
 
 namespace polyglot::backends {
 namespace {
@@ -352,8 +353,22 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
         current_offset += static_cast<std::uint32_t>(sec.data.size());
         current_offset = (current_offset + 15) & ~15u;
     }
+
+    // Compute relocation table offsets (placed after all section data).
+    // Each Mach-O relocation_info entry is 8 bytes.
+    std::vector<std::uint32_t> sec_reloff(sections_.size(), 0);
+    std::vector<std::uint32_t> sec_nreloc(sections_.size(), 0);
+    std::uint32_t reloc_area_offset = current_offset;
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        if (!sections_[i].relocations.empty()) {
+            sec_reloff[i] = current_offset;
+            sec_nreloc[i] = static_cast<std::uint32_t>(sections_[i].relocations.size());
+            current_offset += sec_nreloc[i] * 8;
+            current_offset = (current_offset + 3) & ~3u;  // 4-byte align
+        }
+    }
     
-    // Symbol and string table after sections
+    // Symbol and string table after sections and relocations
     std::uint32_t strtab_offset = current_offset;
     std::vector<std::uint8_t> strtab;
     strtab.push_back(0x20);  // Start with space (Mach-O convention: first byte pad)
@@ -433,8 +448,8 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
         WriteValue<std::uint64_t>(result, sec.data.size());  // size
         WriteValue<std::uint32_t>(result, sec_offsets[i]);  // offset
         WriteValue<std::uint32_t>(result, 4);  // align (2^4 = 16)
-        WriteValue<std::uint32_t>(result, 0);  // reloff
-        WriteValue<std::uint32_t>(result, 0);  // nreloc
+        WriteValue<std::uint32_t>(result, sec_reloff[i]);  // reloff
+        WriteValue<std::uint32_t>(result, sec_nreloc[i]);  // nreloc
         
         // Section flags
         std::uint32_t sec_flags = 0;
@@ -465,6 +480,37 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     for (std::size_t i = 0; i < sections_.size(); ++i) {
         while (result.size() < sec_offsets[i]) result.push_back(0);
         result.insert(result.end(), sections_[i].data.begin(), sections_[i].data.end());
+    }
+
+    // --- Relocation entries (relocation_info, 8 bytes each) ---
+    // Build a symbol name → symbol table index map for relocation lookups.
+    std::unordered_map<std::string, std::uint32_t> sym_name_index;
+    for (std::uint32_t si = 0; si < symbols_.size(); ++si) {
+        sym_name_index[symbols_[si].name] = si;
+    }
+    for (std::size_t i = 0; i < sections_.size(); ++i) {
+        if (sections_[i].relocations.empty()) continue;
+        while (result.size() < sec_reloff[i]) result.push_back(0);
+        for (const auto &rel : sections_[i].relocations) {
+            // r_address (offset within section)
+            WriteValue<std::uint32_t>(result, static_cast<std::uint32_t>(rel.offset));
+            // Packed: r_symbolnum(24) | r_pcrel(1) | r_length(2) | r_extern(1) | r_type(4)
+            std::uint32_t r_symbolnum = 0;
+            auto sit = sym_name_index.find(rel.symbol);
+            if (sit != sym_name_index.end()) {
+                r_symbolnum = sit->second;
+            }
+            std::uint32_t r_pcrel = (rel.type == 1) ? 1u : 0u;  // type 1 = PC-relative
+            std::uint32_t r_length = 3;  // 8 bytes (2^3)
+            std::uint32_t r_extern = 1;
+            std::uint32_t r_type = 0;    // GENERIC_RELOC_VANILLA
+            std::uint32_t packed = (r_symbolnum & 0x00FFFFFFu)
+                                 | (r_pcrel << 24)
+                                 | (r_length << 25)
+                                 | (r_extern << 27)
+                                 | (r_type << 28);
+            WriteValue<std::uint32_t>(result, packed);
+        }
     }
     
     // --- String table ---

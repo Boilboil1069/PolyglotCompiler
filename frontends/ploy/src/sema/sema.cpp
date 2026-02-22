@@ -402,6 +402,11 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     std::vector<core::Type> param_types;
     for (const auto &param : func->params) {
         core::Type pt = param.type ? ResolveType(param.type) : core::Type::Any();
+        if (!param.type && strict_mode_) {
+            ReportWarning(func->loc, frontends::ErrorCode::kTypeMismatch,
+                          "parameter '" + param.name + "' has no type annotation; "
+                          "defaults to Any (strict mode)");
+        }
         param_types.push_back(pt);
     }
 
@@ -503,6 +508,13 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
     sym.type = var_type;
     sym.is_mutable = var->is_mutable;
     sym.defined_at = var->loc;
+
+    if (var_type.kind == core::TypeKind::kAny && strict_mode_) {
+        ReportWarning(var->loc, frontends::ErrorCode::kTypeMismatch,
+                      "variable '" + var->name + "' resolved to type Any "
+                      "(strict mode); consider adding explicit type annotation");
+    }
+
     DeclareSymbol(sym);
 }
 
@@ -544,6 +556,11 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
         sym.type = iter_type.type_args[0];
     } else {
         sym.type = core::Type::Any();
+        if (strict_mode_) {
+            ReportWarning(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                          "FOR iterator '" + for_stmt->iterator_name +
+                          "' type could not be inferred from iterable; defaults to Any (strict mode)");
+        }
     }
     DeclareSymbol(sym);
 
@@ -607,12 +624,22 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         }
         ReportError(id->loc, frontends::ErrorCode::kUndefinedSymbol,
                     "undefined identifier '" + id->name + "'");
+        if (strict_mode_) {
+            ReportWarning(id->loc, frontends::ErrorCode::kTypeMismatch,
+                          "unresolved identifier '" + id->name +
+                          "' falls back to Any (strict mode)");
+        }
         return core::Type::Any();
     }
 
     if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
-        // Qualified identifiers refer to imported module symbols
-        // For now, return Any since we cannot fully resolve cross-module types
+        // Qualified identifiers refer to imported module symbols.
+        // In strict mode, warn that cross-module types are not resolved.
+        if (strict_mode_) {
+            ReportWarning(qid->loc, frontends::ErrorCode::kTypeMismatch,
+                          "qualified identifier type cannot be resolved; "
+                          "defaults to Any (strict mode)");
+        }
         return core::Type::Any();
     }
 
@@ -1192,6 +1219,11 @@ void PloySema::AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl)
             continue;
         }
         core::Type field_type = field.type ? ResolveType(field.type) : core::Type::Any();
+        if (!field.type && strict_mode_) {
+            ReportWarning(struct_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                          "struct field '" + field.name + "' has no type annotation; "
+                          "defaults to Any (strict mode)");
+        }
         resolved_fields.emplace_back(field.name, field_type);
     }
 

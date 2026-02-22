@@ -3,6 +3,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <iostream>
 #include <optional>
 #include <set>
 #include <stack>
@@ -29,6 +30,10 @@ ir::IRType ToIRType(const std::string &type_hint) {
     if (type_hint == "None") return ir::IRType::Void();
     if (type_hint == "str") return ir::IRType::Pointer(ir::IRType::I8());
     // Default to i64 for dynamic types
+    if (!type_hint.empty()) {
+        std::cerr << "[python-lowering] unresolved type hint '" << type_hint
+                  << "'; defaulting to i64\n";
+    }
     return ir::IRType::I64(true);
 }
 

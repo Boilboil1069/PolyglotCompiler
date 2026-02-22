@@ -1,303 +1,451 @@
 #include <catch2/catch_test_macros.hpp>
 #include <string>
 
+#include "frontends/rust/include/rust_lexer.h"
 #include "frontends/rust/include/rust_parser.h"
 #include "frontends/rust/include/rust_ast.h"
 
+using polyglot::frontends::Diagnostics;
+using polyglot::rust::RustLexer;
+using polyglot::rust::RustParser;
 using namespace polyglot::rust;
+
+// Helper: parse code, assert no errors, return module
+static std::shared_ptr<Module> ParseOk(const std::string &code) {
+    Diagnostics diag;
+    RustLexer lexer(code.c_str(), "<test>");
+    RustParser parser(lexer, diag);
+    parser.ParseModule();
+    auto mod = parser.TakeModule();
+    REQUIRE(mod);
+    REQUIRE_FALSE(diag.HasErrors());
+    return mod;
+}
 
 // ============ Test 1: Traits ============
 TEST_CASE("Rust - Traits", "[rust][trait]") {
     SECTION("Basic trait") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 trait Drawable {
     fn draw(&self);
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto trait = std::dynamic_pointer_cast<TraitItem>(mod->items[0]);
+        REQUIRE(trait);
+        REQUIRE(trait->name == "Drawable");
+        REQUIRE(trait->items.size() == 1);
     }
     
     SECTION("Trait with default implementation") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 trait Foo {
     fn bar(&self) {
         println!("default");
     }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto trait = std::dynamic_pointer_cast<TraitItem>(mod->items[0]);
+        REQUIRE(trait);
+        REQUIRE(trait->name == "Foo");
+        REQUIRE(trait->items.size() == 1);
     }
     
     SECTION("Trait with associated type") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 trait Iterator {
     type Item;
     fn next(&mut self) -> Option<Self::Item>;
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto trait = std::dynamic_pointer_cast<TraitItem>(mod->items[0]);
+        REQUIRE(trait);
+        REQUIRE(trait->name == "Iterator");
+        REQUIRE(trait->items.size() == 2);
     }
     
     SECTION("Trait bounds") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 trait Foo: Display + Clone {
     fn method(&self);
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto trait = std::dynamic_pointer_cast<TraitItem>(mod->items[0]);
+        REQUIRE(trait);
+        REQUIRE(trait->name == "Foo");
+        REQUIRE(trait->super_traits.size() >= 1);
     }
     
     SECTION("Generic trait") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 trait Convert<T> {
     fn convert(&self) -> T;
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto trait = std::dynamic_pointer_cast<TraitItem>(mod->items[0]);
+        REQUIRE(trait);
+        REQUIRE(trait->name == "Convert");
+        REQUIRE(trait->type_params.size() == 1);
+        REQUIRE(trait->type_params[0] == "T");
     }
 }
 
 // ============ Test 2: Impl blocks ============
 TEST_CASE("Rust - Impl", "[rust][impl]") {
     SECTION("Inherent impl") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 impl Rectangle {
     fn area(&self) -> i32 {
         self.width * self.height
     }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto impl_item = std::dynamic_pointer_cast<ImplItem>(mod->items[0]);
+        REQUIRE(impl_item);
+        REQUIRE(impl_item->items.size() == 1);
     }
     
     SECTION("Trait impl") {
-        std::string code = R"rust(
+        auto mod = ParseOk(R"rust(
 impl Display for Point {
     fn fmt(&self, f: &mut Formatter) -> Result {
         write!(f, "({}, {})", self.x, self.y)
     }
 }
-)rust";
-        REQUIRE(true);
+)rust");
+        REQUIRE(mod->items.size() == 1);
+        auto impl_item = std::dynamic_pointer_cast<ImplItem>(mod->items[0]);
+        REQUIRE(impl_item);
+        REQUIRE(impl_item->trait_type != nullptr);
+        REQUIRE(impl_item->items.size() == 1);
     }
     
     SECTION("Generic impl") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 impl<T> MyType<T> {
     fn new(value: T) -> Self {
         MyType { value }
     }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto impl_item = std::dynamic_pointer_cast<ImplItem>(mod->items[0]);
+        REQUIRE(impl_item);
+        REQUIRE(impl_item->type_params.size() == 1);
+        REQUIRE(impl_item->items.size() == 1);
     }
     
     SECTION("Conditional impl") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 impl<T: Display> MyTrait for T {
     fn method(&self) {}
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto impl_item = std::dynamic_pointer_cast<ImplItem>(mod->items[0]);
+        REQUIRE(impl_item);
+        REQUIRE(impl_item->trait_type != nullptr);
     }
     
     SECTION("Multiple trait bounds") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 impl<T: Display + Clone> Container<T> {
     fn show(&self) {}
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto impl_item = std::dynamic_pointer_cast<ImplItem>(mod->items[0]);
+        REQUIRE(impl_item);
+        REQUIRE(impl_item->items.size() == 1);
     }
 }
 
 // ============ Test 3: Lifetimes ============
 TEST_CASE("Rust - Lifetimes", "[rust][lifetime]") {
     SECTION("Basic lifetime") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
     if x.len() > y.len() { x } else { y }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->name == "longest");
+        REQUIRE(fn->params.size() == 2);
+        REQUIRE(fn->return_type != nullptr);
     }
     
     SECTION("Struct with lifetime") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 struct Wrapper<'a> {
     data: &'a str
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto s = std::dynamic_pointer_cast<StructItem>(mod->items[0]);
+        REQUIRE(s);
+        REQUIRE(s->name == "Wrapper");
+        REQUIRE(s->fields.size() == 1);
+        REQUIRE(s->fields[0].name == "data");
     }
     
     SECTION("Multiple lifetimes") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 fn func<'a, 'b>(x: &'a str, y: &'b str) -> &'a str {
     x
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->name == "func");
+        REQUIRE(fn->params.size() == 2);
     }
     
     SECTION("Lifetime bounds") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 fn func<'a, 'b: 'a>(x: &'a str, y: &'b str) -> &'a str {
     y
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->params.size() == 2);
     }
     
     SECTION("Static lifetime") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 static NAME: &'static str = "Rust";
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() >= 1);
     }
 }
 
 // ============ Test 4: Borrow checker ============
 TEST_CASE("Rust - Borrow Checker", "[rust][borrow]") {
     SECTION("Immutable borrow") {
-        std::string code = R"(
-let x = 5;
-let y = &x;
-println!("{}", y);
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let x = 5;
+    let y = &x;
+    println!("{}", y);
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() >= 2);
     }
     
     SECTION("Mutable borrow") {
-        std::string code = R"(
-let mut x = 5;
-let y = &mut x;
-*y += 1;
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let mut x = 5;
+    let y = &mut x;
+    *y += 1;
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() >= 2);
     }
     
     SECTION("Multiple immutable borrows") {
-        std::string code = R"(
-let x = 5;
-let y = &x;
-let z = &x;
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let x = 5;
+    let y = &x;
+    let z = &x;
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() == 3);
     }
     
     SECTION("Borrow scope") {
-        std::string code = R"(
-let mut x = 5;
-{
-    let y = &mut x;
+        auto mod = ParseOk(R"(
+fn test() {
+    let mut x = 5;
+    {
+        let y = &mut x;
+    }
+    let z = &mut x;
 }
-let z = &mut x;
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() >= 2);
     }
     
     SECTION("Move semantics") {
-        std::string code = R"(
-let x = String::from("hello");
-let y = x;
-// x is now invalid
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let x = String::from("hello");
+    let y = x;
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() == 2);
     }
 }
 
 // ============ Test 5: Closures ============
 TEST_CASE("Rust - Closures", "[rust][closure]") {
     SECTION("Simple closure") {
-        std::string code = "let add_one = |x| x + 1;";
-        REQUIRE(true);
+        auto mod = ParseOk("fn test() { let add_one = |x| x + 1; }");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() == 1);
+        auto let_stmt = std::dynamic_pointer_cast<LetStatement>(fn->body[0]);
+        REQUIRE(let_stmt);
+        REQUIRE(let_stmt->name == "add_one");
+        auto closure = std::dynamic_pointer_cast<ClosureExpression>(let_stmt->init);
+        REQUIRE(closure);
     }
     
     SECTION("Closure with types") {
-        std::string code = "let add = |x: i32, y: i32| -> i32 { x + y };";
-        REQUIRE(true);
+        auto mod = ParseOk("fn test() { let add = |x: i32, y: i32| -> i32 { x + y }; }");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        auto let_stmt = std::dynamic_pointer_cast<LetStatement>(fn->body[0]);
+        REQUIRE(let_stmt);
+        auto closure = std::dynamic_pointer_cast<ClosureExpression>(let_stmt->init);
+        REQUIRE(closure);
+        REQUIRE(closure->params.size() == 2);
+        REQUIRE(closure->return_type != nullptr);
     }
     
     SECTION("Capturing environment") {
-        std::string code = R"(
-let x = 10;
-let add_x = |y| x + y;
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let x = 10;
+    let add_x = |y| x + y;
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() == 2);
     }
     
     SECTION("Move closure") {
-        std::string code = R"(
-let data = vec![1, 2, 3];
-let process = move || println!("{:?}", data);
-)";
-        REQUIRE(true);
+        auto mod = ParseOk(R"(
+fn test() {
+    let data = vec![1, 2, 3];
+    let process = move || println!("{:?}", data);
+}
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() == 2);
     }
     
     SECTION("FnOnce, FnMut, Fn") {
-        std::string code = R"(
+        auto mod = ParseOk(R"(
 fn call_once<F: FnOnce()>(f: F) { f(); }
 fn call_mut<F: FnMut()>(mut f: F) { f(); }
 fn call<F: Fn()>(f: F) { f(); }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 3);
+        for (int i = 0; i < 3; ++i) {
+            auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[i]);
+            REQUIRE(fn);
+            REQUIRE(fn->type_params.size() == 1);
+        }
     }
 }
 
 // ============ Test 6: Pattern matching ============
 TEST_CASE("Rust - Pattern Matching", "[rust][match]") {
     SECTION("Basic match") {
-        std::string code = R"(
-match value {
-    0 => println!("zero"),
-    1 => println!("one"),
-    _ => println!("other"),
+        auto mod = ParseOk(R"(
+fn test(value: i32) {
+    match value {
+        0 => println!("zero"),
+        1 => println!("one"),
+        _ => println!("other"),
+    }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() >= 1);
     }
     
     SECTION("Match with guard") {
-        std::string code = R"(
-match num {
-    x if x > 0 => println!("positive"),
-    x if x < 0 => println!("negative"),
-    _ => println!("zero"),
+        auto mod = ParseOk(R"(
+fn test(num: i32) {
+    match num {
+        x if x > 0 => println!("positive"),
+        x if x < 0 => println!("negative"),
+        _ => println!("zero"),
+    }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
+        REQUIRE(fn->body.size() >= 1);
     }
     
     SECTION("Destructuring") {
-        std::string code = R"(
-match point {
-    Point { x: 0, y: 0 } => println!("origin"),
-    Point { x, y } => println!("{}, {}", x, y),
+        auto mod = ParseOk(R"(
+fn test(point: Point) {
+    match point {
+        Point { x: 0, y: 0 } => println!("origin"),
+        Point { x, y } => println!("{}, {}", x, y),
+    }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
     }
     
     SECTION("Enum matching") {
-        std::string code = R"(
-match option {
-    Some(x) => println!("{}", x),
-    None => println!("none"),
+        auto mod = ParseOk(R"(
+fn test(option: Option) {
+    match option {
+        Some(x) => println!("{}", x),
+        None => println!("none"),
+    }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
     }
     
     SECTION("Range pattern") {
-        std::string code = R"(
-match value {
-    1..=5 => println!("small"),
-    6..=10 => println!("medium"),
-    _ => println!("large"),
+        auto mod = ParseOk(R"(
+fn test(value: i32) {
+    match value {
+        1..=5 => println!("small"),
+        6..=10 => println!("medium"),
+        _ => println!("large"),
+    }
 }
-)";
-        REQUIRE(true);
+)");
+        REQUIRE(mod->items.size() == 1);
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(mod->items[0]);
+        REQUIRE(fn);
     }
 }
 

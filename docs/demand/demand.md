@@ -454,6 +454,21 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 
 2026-02-22-4
 
+1. 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关；修改 `frontends/ploy/include/ploy_sema.h`。
+2. `PloySema` 构造函数接收 options，并保持默认行为向后兼容；修改 `frontends/ploy/include/ploy_sema.h`。
+3. 将 `discovery_completed_` 与 `discovered_packages_` 从实例级迁移为会话级可复用缓存服务；新增 `frontends/ploy/include/package_discovery_cache.h`、`frontends/ploy/src/sema/package_discovery_cache.cpp`。
+4. 为 discovery 缓存增加线程安全与统一 key（`language + manager + env_path`）；修改 `frontends/ploy/src/sema/package_discovery_cache.cpp`。
+5. 抽离外部命令执行层（如 `ICommandRunner`），避免语义分析直接 `_popen`；新增 `frontends/ploy/include/command_runner.h`、`frontends/ploy/src/sema/command_runner.cpp`。
+6. `DiscoverPackages` 流程改为先查缓存，未命中才执行外部命令并回填缓存；修改 `frontends/ploy/src/sema/sema.cpp`。
+7. benchmark 场景显式关闭 package discovery，确保只测编译链路本体；修改 `tests/benchmarks/micro/micro_bench.cpp`、`tests/benchmarks/macro/macro_bench.cpp`。
+8. 修正 `Lowering` micro benchmark 的计时边界，去除计时外重开销对结果的干扰；修改 `tests/benchmarks/micro/micro_bench.cpp`。
+9. 拆分 benchmark 运行档位（fast/full），通过环境变量控制 `kWarmup` 与 `kRuns`；修改 `tests/benchmarks/micro/micro_bench.cpp`、`tests/benchmarks/macro/macro_bench.cpp`。
+10. CTest 增加 benchmark 标签或拆分 test target（如 `benchmark_fast`、`benchmark_full`）；修改 `CMakeLists.txt`。
+11. 增加单元测试覆盖：`discovery disabled` 不触发外部命令、同配置重复 `Analyze` 仅发现一次、不同 key 不串缓存；新增 `tests/unit/frontends/ploy/sema_discovery_test.cpp`。
+12. 更新文档说明 discovery 开关、缓存策略、benchmark 推荐构建类型（Release/RelWithDebInfo）；修改 `docs/USER_GUIDE.md`、`docs/USER_GUIDE_zh.md`。
 
+--end
+
+2026-02-22-5
 
 --end

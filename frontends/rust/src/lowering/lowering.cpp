@@ -2,6 +2,7 @@
 #include "frontends/rust/include/rust_ast.h"
 
 #include <cstdlib>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -57,7 +58,9 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type) {
             return ir::IRType::Pointer(ir::IRType::I8());
         }
         
-        // Default to i64 for unknown types
+        // Default to i64 for unknown Rust types (warn at runtime)
+        std::cerr << "[rust-lowering] unknown type '" << type_name
+                  << "'; defaulting to i64\n";
         return ir::IRType::I64(true);
     }
     
@@ -1337,7 +1340,10 @@ bool LowerFunction(const FunctionItem &fn, LoweringContext &lc) {
     for (auto &param : fn.params) {
         ir::IRType param_ty = ToIRType(param.type);
         if (param_ty.kind == ir::IRTypeKind::kInvalid) {
-            // Default to i64 for unknown types
+            // Unresolved parameter type — default to i64 and warn
+            std::cerr << "[rust-lowering] unresolved type for parameter '"
+                      << param.name << "' in function '" << fn.name
+                      << "'; defaulting to i64\n";
             param_ty = ir::IRType::I64(true);
         }
         params.push_back({param.name, param_ty});

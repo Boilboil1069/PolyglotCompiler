@@ -13,6 +13,7 @@
 
 #include "backends/arm64/include/arm64_target.h"
 #include "backends/x86_64/include/x86_target.h"
+#include "backends/wasm/include/wasm_target.h"
 #include "common/include/ir/ir_parser.h"
 
 namespace polyglot::tools {
@@ -28,7 +29,7 @@ struct Options {
 Options ParseArgs(int argc, char **argv) {
   Options opts;
   if (argc < 2) {
-    throw std::invalid_argument("Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64] [--format=elf|pobj|macho]");
+    throw std::invalid_argument("Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64|wasm] [--format=elf|pobj|macho]");
   }
 
   opts.input = argv[1];
@@ -633,7 +634,22 @@ std::string Assemble(const std::string &source, const Options &opts) {
   std::vector<ObjSection> sections;
   std::vector<ObjSymbol> symbols;
 
-  if (opts.arch == "arm64" || opts.arch == "aarch64" || opts.arch == "armv8") {
+  if (opts.arch == "wasm" || opts.arch == "wasm32" || opts.arch == "wasm64") {
+    // WASM backend emits a binary module directly — no ELF/Mach-O wrapper.
+    polyglot::backends::wasm::WasmTarget target(&ir_module);
+    auto wasm_binary = target.EmitWasmBinary();
+    if (wasm_binary.empty()) {
+      throw std::runtime_error("WASM backend produced empty binary");
+    }
+    // Write the raw .wasm binary to the output file
+    std::ofstream out_file(opts.output, std::ios::binary);
+    if (!out_file) {
+      throw std::runtime_error("failed to open output file: " + opts.output);
+    }
+    out_file.write(reinterpret_cast<const char *>(wasm_binary.data()),
+                   static_cast<std::streamsize>(wasm_binary.size()));
+    return opts.output;
+  } else if (opts.arch == "arm64" || opts.arch == "aarch64" || opts.arch == "armv8") {
     polyglot::backends::arm64::Arm64Target target(&ir_module);
     auto mc = target.EmitObjectCode();
     ConvertBackendMC(mc, opts.arch, sections, symbols);

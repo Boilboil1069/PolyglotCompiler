@@ -4,6 +4,7 @@
 #include <iosfwd>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "backends/common/include/target_machine.h"
@@ -113,6 +114,7 @@ class WasmTarget : public polyglot::backends::TargetMachine {
     void EmitImportSection(std::vector<std::uint8_t> &out);
     void EmitFunctionSection(std::vector<std::uint8_t> &out);
     void EmitMemorySection(std::vector<std::uint8_t> &out);
+    void EmitGlobalSection(std::vector<std::uint8_t> &out);
     void EmitExportSection(std::vector<std::uint8_t> &out);
     void EmitCodeSection(std::vector<std::uint8_t> &out);
 
@@ -138,6 +140,17 @@ class WasmTarget : public polyglot::backends::TargetMachine {
     std::vector<WasmExport>   exports_;
     std::vector<std::uint32_t> func_type_indices_;
     std::vector<std::vector<std::uint8_t>> func_bodies_;
+
+    // Function name → WASM function index mapping (built during EmitWasmBinary)
+    std::unordered_map<std::string, std::uint32_t> func_name_to_index_;
+
+    // Shadow stack pointer global index for alloca lowering.
+    // Set to 0 (the first global) when alloca instructions are present.
+    std::uint32_t shadow_stack_global_{0};
+    bool has_shadow_stack_{false};
+
+    // Diagnostic errors collected during lowering
+    std::vector<std::string> lowering_errors_;
 };
 
 }  // namespace polyglot::backends::wasm

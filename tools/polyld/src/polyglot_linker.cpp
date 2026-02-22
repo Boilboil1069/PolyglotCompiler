@@ -118,40 +118,22 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     CrossLangSymbol *source_sym = FindSymbolByName(entry.source_symbol, entry.source_language);
     CrossLangSymbol *target_sym = FindSymbolByName(entry.target_symbol, entry.target_language);
 
-    // If symbols are not found, report errors.
-    // Placeholder entries are still created so that the rest of the pipeline
-    // can continue collecting diagnostics, but the overall resolution is
-    // marked as failed.
-    bool created_placeholder = false;
-
-    CrossLangSymbol source_placeholder;
+    // If symbols are not found, report hard errors and abort this entry.
+    // No placeholder symbols are created — unresolved references are treated
+    // as fatal link failures to prevent silent miscompilation.
     if (!source_sym) {
-        source_placeholder.name = entry.source_symbol;
-        source_placeholder.mangled_name = entry.source_symbol;
-        source_placeholder.language = entry.source_language;
-        source_placeholder.type = (entry.kind == ploy::LinkDecl::LinkKind::kFunction)
-                                      ? SymbolType::kFunction
-                                      : SymbolType::kObject;
-        cross_lang_symbols_.push_back(source_placeholder);
-        source_sym = &cross_lang_symbols_.back();
         ReportError("unresolved source symbol '" + entry.source_symbol +
                     "' (language: " + entry.source_language + ")");
-        created_placeholder = true;
     }
 
-    CrossLangSymbol target_placeholder;
     if (!target_sym) {
-        target_placeholder.name = entry.target_symbol;
-        target_placeholder.mangled_name = entry.target_symbol;
-        target_placeholder.language = entry.target_language;
-        target_placeholder.type = (entry.kind == ploy::LinkDecl::LinkKind::kFunction)
-                                      ? SymbolType::kFunction
-                                      : SymbolType::kObject;
-        cross_lang_symbols_.push_back(target_placeholder);
-        target_sym = &cross_lang_symbols_.back();
         ReportError("unresolved target symbol '" + entry.target_symbol +
                     "' (language: " + entry.target_language + ")");
-        created_placeholder = true;
+    }
+
+    if (!source_sym || !target_sym) {
+        // Hard failure: do not generate a glue stub for incomplete links.
+        return false;
     }
 
     // Generate the glue stub
@@ -161,8 +143,7 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     // Register the resolved symbols
     resolved_symbols_[stub.stub_name] = *target_sym;
 
-    // Return false if we had to create placeholder symbols (unresolved)
-    return !created_placeholder;
+    return true;
 }
 
 CrossLangSymbol *PolyglotLinker::FindSymbolByName(const std::string &name,
