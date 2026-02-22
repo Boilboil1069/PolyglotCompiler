@@ -1,7 +1,7 @@
 # PolyglotCompiler Language & IR Specifications
 
-> **Version**: 2.0.0  
-> **Last Updated**: 2026-02-20  
+> **Version**: 3.0.0  
+> **Last Updated**: 2026-02-22  
 
 ---
 
@@ -285,6 +285,10 @@ The IR uses a low-level type system independent of source languages:
 %result = mul i64 %a, %b
 %result = sdiv i64 %a, %b
 %result = fadd f64 %x, %y
+%result = fsub f64 %x, %y
+%result = fmul f64 %x, %y
+%result = fdiv f64 %x, %y
+%result = frem f64 %x, %y
 ```
 
 ### Memory
@@ -469,4 +473,4 @@ aux/
 |-------------|-----------------|--------|
 | x86_64 | SSE2/AVX/AVX2/AVX-512 | ✅ |
 | ARM64 (AArch64) | NEON/SVE | ✅ |
-| WebAssembly | MVP + SIMD | 🔧 Planned |
+| WebAssembly | MVP + SIMD | ✅ |

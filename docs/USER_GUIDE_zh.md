@@ -1,11 +1,11 @@
 # PolyglotCompiler 用户指南
 
 > 一个功能完整的多语言编译器项目  
-> 支持 C++、Python、Rust → x86_64/ARM64  
+> 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v4.3  
-**最后更新**: 2026-02-20
+**版本**: v5.0  
+**最后更新**: 2026-02-22
 
 ---
 
@@ -36,11 +36,11 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 **核心目标：**
 
 - ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#) 的完整编译前端
-- ✅ **多目标平台**: x86_64 和 ARM64 架构后端
+- ✅ **三重后端架构**: x86_64 (SSE/AVX)、ARM64 (NEON)、WebAssembly 后端
 - ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
 - ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 关键字支持类实例化、方法调用、属性访问、资源管理、对象销毁和类继承扩展
-- ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config
+- ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
 - ✅ **生产级质量**: 完整实现而非最小原型
 
 ## 1.2 核心特性一览
@@ -62,6 +62,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 |------|----------|------------|----------|------|
 | **x86_64** | ✅ | ✅ 图着色/线性扫描 | ✅ SysV ABI | **完整** |
 | **ARM64** | ✅ | ✅ 图着色/线性扫描 | ✅ AAPCS64 | **完整** |
+| **WebAssembly** | ✅ | ✅ 堆栈机 | ✅ WASM ABI | **完整** |
 
 ### 工具链
 
@@ -160,7 +161,7 @@ EXPORT inference AS "run_inference";
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                  Source Code                                │
-│       C++ / Python / Rust / Java / C# / .ploy              │
+│       C++ / Python / Rust / Java / C# / .ploy               │
 └─────────────────────┬───────────────────────────────────────┘
                       │
   ┌───────┬───────────┼──────────┬───────────┬───────────┐
@@ -188,24 +189,24 @@ EXPORT inference AS "run_inference";
     └──┬───┘     └──┬───┘     └──┬───┘
        └────────────┼────────────┘
                     │
-           ┌────────────────┐
-           │  Backend       │
-           │ (x86_64/ARM64) │
-           └────────┬───────┘
-                    │
-          ┌─────────┼─────────┐
-          │         │         │
-          ▼         ▼         ▼
-      ┌───────┐ ┌────────┐ ┌──────┐
-      │ISelect│ │RegAlloc│ │AsmGen│
-      └───┬───┘ └──┬─────┘ └───┬──┘
-          └────────┼───────────┘
-                   │
-           ┌───────────────┐
-           │ Object File   │
-           │ (ELF/Mach-O/  │
-           │  POBJ)        │
-           └───────────────┘
+     ┌──────────────────────────────┐
+     │         Backend              │
+     │ (x86_64 / ARM64 / WASM)      │
+     └────────────┬────────────│────┘
+                  │
+        ┌─────────┼─────────┐
+        │         │         │
+        ▼         ▼         ▼
+    ┌───────┐ ┌────────┐ ┌──────┐
+    │ISelect│ │RegAlloc│ │AsmGen│
+    └───┬───┘ └──┬─────┘ └───┬──┘
+        └────────┼───────────┘
+                 │
+         ┌───────────────┐
+         │ Object File   │
+         │ (ELF/Mach-O/  │
+         │  POBJ/WASM)   │
+         └───────────────┘
 ```
 
 **关键设计原则：**
@@ -250,21 +251,24 @@ PolyglotCompiler/
 │       │                   #     inlining, devirtualization, loop_optimization, gvn, advanced_optimizations）
 │       ├── pgo/            #   profile_data.cpp
 │       └── lto/            #   link_time_optimizer.cpp
-├── backends/               # 后端（2 个架构后端）
+├── backends/               # 后端（3 个架构后端）
 │   ├── common/             # 通用后端设施
-│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, object_file.cpp
+│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, dwarf_builder.cpp, object_file.cpp
 │   ├── x86_64/             # x86_64 后端
 │   │   ├── include/        #   x86_target.h, x86_register.h, machine_ir.h, instruction_scheduler.h
 │   │   └── src/            #   isel/, regalloc/（graph_coloring, linear_scan）, asm_printer/, optimizations, calling_convention
-│   └── arm64/              # ARM64 后端
-│       ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
-│       └── src/            #   isel/, regalloc/（graph_coloring, linear_scan）, asm_printer/, calling_convention
+│   ├── arm64/              # ARM64 后端
+│   │   ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
+│   │   └── src/            #   isel/, regalloc/（graph_coloring, linear_scan）, asm_printer/, calling_convention
+│   └── wasm/               # WebAssembly 后端
+│       ├── include/        #   wasm_target.h
+│       └── src/            #   wasm_target.cpp
 ├── runtime/                # 运行时
 │   ├── include/            # GC、FFI、服务接口
 │   └── src/
 │       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
 │       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c
+│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c
 │       └── services/       #   exception, reflection, threading
 ├── common/                 # 项目公共设施
 │   ├── include/
@@ -284,13 +288,16 @@ PolyglotCompiler/
 │   ├── polybench/          # 基准测试 (benchmark_suite.cpp)
 │   └── ui/                 # UI 工具
 ├── tests/                  # 测试
-│   ├── unit/               # 单元测试（Catch2 框架）
-│   │   └── frontends/ploy/ #   ploy_test.cpp（207+ 测试用例）
-│   ├── samples/            # 示例程序（12 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
-│   ├── integration/        # 集成测试（编译管道/互操作/性能）
-│   └── benchmarks/         # 基准测试（微基准/宏基准）
+│   ├── unit/               # 单元测试（Catch2 框架）— 734 个测试用例
+│   │   └── frontends/ploy/ #   ploy_test.cpp（207 测试用例）
+│   ├── samples/            # 示例程序（16 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
+│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 50 个测试用例
+│   └── benchmarks/         # 基准测试（微基准/宏基准）— 18 个测试用例
 └── docs/                   # 文档
-    ├── realization/        # 实现文档（6 主题 × 2 语言 = 12 文件）
+    ├── api/                # API 参考（中英双语）
+    ├── specs/              # 语言与 IR 规范
+    ├── realization/        # 实现文档（8 主题 × 2 语言 = 16 文件）
+    ├── tutorial/           # 教程（ploy 语言 + 项目教程，中英双语）
     ├── demand/             # 需求文档
     ├── USER_GUIDE.md       # 完整指南（英文版）
     └── USER_GUIDE_zh.md    # 本文档（中文版）
@@ -304,8 +311,8 @@ PolyglotCompiler/
 Source Code
     │
     ▼
-┌─────────┐    Token Stream    ┌─────────┐    AST    ┌─────────┐    Annotated AST    ┌──────────┐    IR Module
-│  Lexer  │──────────────────▶│ Parser  │────────▶│  Sema   │───────────────────▶│ Lowering │──────────▶
+┌─────────┐    Token Stream    ┌─────────┐   AST    ┌─────────┐   Annotated AST    ┌──────────┐ IR Module
+│  Lexer  │──────────────────▶ │ Parser  │────────▶ │  Sema   │───────────────────▶│ Lowering │──────────▶
 └─────────┘                    └─────────┘          └─────────┘                    └──────────┘
 ```
 
@@ -971,32 +978,39 @@ Error [E3001]: Undefined variable 'unknown_var'
 > **核心思想：PolyglotCompiler 自身编译所有语言，通过 `.ploy` 描述跨语言连接关系。**
 
 ```
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│  C++ 源代码  │   │ Python 源代码│   │  Rust 源代码 │
-└──────┬──────┘   └──────┬──────┘   └──────┬──────┘
-       │                 │                 │
-       ▼                 ▼                 ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ C++ Frontend │  │Python Frontend│  │ Rust Frontend│
-│ (polyglot)   │  │ (polyglot)   │  │ (polyglot)   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                 │                 │
-       └────────────┬────┴────────────┬────┘
-                    │   Shared IR     │
-                    ▼                 ▼
-              ┌───────────┐    ┌───────────┐
-              │  .ploy    │    │  Polyglot │
-              │  前端      │───▶│  Linker   │
-              └───────────┘    └─────┬─────┘
-                                     │
-                                     ▼
-                              ┌───────────┐
-                              │  统一      │
-                              │  二进制    │
-                              └───────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│  C++ 源代码  │  │ Python 源代码│  │  Rust 源代码 │  │  Java 源代码 │  │  C# 源代码  │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                │                │                │                │
+       ▼                ▼                ▼                ▼                ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│C++ Frontend│  │  Python    │  │   Rust     │  │   Java     │  │  .NET      │
+│ (polyglot) │  │  Frontend  │  │  Frontend  │  │  Frontend  │  │  Frontend  │
+└─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
+      │               │               │               │               │
+      └───────┬───────┴───────┬───────┴───────┬───────┴───────┬───────┘
+              │               │               │               │
+              ▼           Shared IR           ▼               │
+        ┌───────────┐                   ┌───────────┐         │
+        │  .ploy    │                   │  Polyglot │         │
+        │  Frontend │──────────────────▶│  Linker   │◄────────┘
+        └───────────┘                   └─────┬─────┘
+                                              │
+                                    ┌─────────┼─────────┐
+                                    ▼         ▼         ▼
+                               ┌────────┐┌────────┐┌────────┐
+                               │ x86_64 ││ ARM64  ││  WASM  │
+                               │Backend ││Backend ││Backend │
+                               └───┬────┘└───┬────┘└───┬────┘
+                                   └─────────┼─────────┘
+                                             ▼
+                                       ┌───────────┐
+                                       │  统一      │
+                                       │  二进制    │
+                                       └───────────┘
 ```
 
-**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过后端生成目标代码。**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 中仅在最终链接阶段可选择调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
+**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 中仅在最终链接阶段可选择调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
 
 ### 能力矩阵
 
@@ -1005,19 +1019,26 @@ Error [E3001]: Undefined variable 'unknown_var'
 | C++ ↔ Python 函数调用 | ✅ | 通过 FFI 粘合代码 + 类型编组 |
 | C++ ↔ Rust 函数调用 | ✅ | 通过 C ABI extern 函数 |
 | Python ↔ Rust 函数调用 | ✅ | 通过 FFI 桥接 |
+| Java ↔ C++ 函数调用 | ✅ | 通过 JNI 桥接 + `__ploy_java_*` 运行时 |
+| Java ↔ Python 函数调用 | ✅ | 通过 JNI ↔ CPython C API 桥接 |
+| .NET ↔ C++ 函数调用 | ✅ | 通过 CoreCLR 宿主 + `__ploy_dotnet_*` 运行时 |
+| .NET ↔ Python 函数调用 | ✅ | 通过 CoreCLR ↔ CPython C API 桥接 |
+| Java ↔ .NET 互操作 | ✅ | 通过 IR 层统一 + 双向运行时桥接 |
 | 原始类型编组 | ✅ | int, float, bool, string, void |
 | 容器类型编组 | ✅ | list, tuple, dict, optional |
 | 结构体映射 | ✅ | 跨语言结构体字段转换 |
 | 包导入 + 版本约束 | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
 | 选择性导入 | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
-| 多包管理器支持 | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config |
+| 多包管理器支持 | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
 | 多阶段管道 | ✅ | PIPELINE + 跨语言 CALL |
 | 控制流编排 | ✅ | IF/WHILE/FOR/MATCH |
 | 跨语言类实例化 | ✅ | `NEW(python, torch::nn::Linear, 784, 10)` |
-| 跨语言方法调用 | ✅ | `METHOD(python, model, forward, data)` |
-| 跨语言属性访问 | ✅ | `GET(python, model, weight)` |
+| 跨语言方法调用 | ✅ | `METHOD(java, service, processRequest, data)` |
+| 跨语言属性访问 | ✅ | `GET(dotnet, config, ConnectionString)` |
 | 跨语言属性赋值 | ✅ | `SET(python, model, training, FALSE)` |
 | 自动资源管理 | ✅ | `WITH(python, f) AS handle { ... }` |
+| 类继承扩展 | ✅ | `EXTEND(java, BaseService) { ... }` |
+| 对象销毁 | ✅ | `DELETE(dotnet, dbConnection)` |
 | 类型注解 | ✅ | `LET model: python::nn::Module = NEW(...)` |
 | 接口映射 | ✅ | `MAP_TYPE(python::nn::Module, cpp::NeuralNet)` |
 
@@ -1063,7 +1084,7 @@ Error [E3001]: Undefined variable 'unknown_var'
 - IR 支持: invoke/landingpad/resume
 
 ### 浮点运算 ✅
-- fadd, fsub, fmul, fdiv; 浮点比较; fpext, fptrunc, fptosi
+- fadd, fsub, fmul, fdiv, frem; 浮点比较; fpext, fptrunc, fptosi
 
 ### constexpr ✅
 - 编译期函数执行、constexpr 变量
@@ -1215,7 +1236,7 @@ polyc [选项] <输入文件>
 | 选项 | 说明 |
 |------|------|
 | `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | 源语言（省略时根据扩展名自动检测） |
-| `--arch=<x86_64\|arm64>` | 目标架构（默认：x86_64） |
+| `--arch=<x86_64\|arm64\|wasm>` | 目标架构（默认：x86_64） |
 | `-O<0\|1\|2\|3>` | 优化级别 |
 | `--emit-ir=<文件>` | 输出 IR 文本 |
 | `--emit-asm=<文件>` | 输出汇编 |
@@ -1466,7 +1487,7 @@ add, sub, mul, sdiv/udiv, srem/urem     # 整数运算
 and, or, xor, shl, lshr, ashr           # 位运算
 icmp (eq, ne, slt, sle, sgt, sge,       # 整数比较
       ult, ule, ugt, uge)
-fadd, fsub, fmul, fdiv                  # 浮点运算
+fadd, fsub, fmul, fdiv, frem              # 浮点运算
 fcmp (foe, fne, flt, fle, fgt, fge)     # 浮点比较
 ```
 
@@ -1643,10 +1664,16 @@ GC 策略选择: `gc_strategy.cpp`
 ## 9.5 调试信息
 
 - 完整 DWARF 5 支持 (`common/src/debug/dwarf5.cpp`)
+- 统一 DWARF 构建器 (`backends/common/src/dwarf_builder.cpp`)
 - 调试信息发射器 (`backends/common/src/debug_info.cpp`, `debug_emitter.cpp`)
+- PDB 支持：MSF 块布局、TPI 类型记录、RFC 4122 v4 GUID 生成
+- CFA（调用帧地址）寄存器保存规则和对齐
+- ELF 目标文件含 SHT_RELA 重定位节
+- Mach-O 目标文件含 LC_SEGMENT_64、LC_SYMTAB、nlist_64 符号表
 - 变量位置跟踪（优化后仍可调试）
 - 内联函数调试
 - 分离调试信息支持
+- JSON 源码映射发射
 
 ---
 
@@ -1658,23 +1685,34 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 可执行文件 | 源码目录 | 标签 | 说明 |
 |-----------|---------|------|------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 |
-| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 |
-| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **734 个用例** |
+| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **50 个用例** |
+| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 — **18 个用例** |
 
 ### 测试套件汇总
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 207 (598 断言) | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
-| 集成测试 | `[integration]` | 45 (142 断言) | 完整管道/跨语言互操作/性能压力 |
-| 基准测试 | `[benchmark]` | 18 (129 断言) | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
-| GC 算法 | `[gc]` | 40+ | 4 种 GC 算法 |
-| 优化 Passes | `[opt]` | 50+ | 25+ 优化 passes |
-| Python 特性 | `[python]` | 25+ | 25+ Python 高级特性 |
-| Rust 特性 | `[rust]` | 28+ | 28+ Rust 高级特性 |
-| 后端优化 | `[backend]` | 40+ | 调度器、融合等 |
-| 线程服务 | `[threading]` | 30+ | 并发、同步原语 |
+| .ploy 前端 | `[ploy]` | 207 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
+| Python 前端 | `[python]` | 127 | 25+ 高级特性，类型注解，async，推导式 |
+| Rust 前端 | `[rust]` | 46 | 借用检查、生命周期、闭包、Traits |
+| 链接器 | `[linker]` | 36 | 符号解析、ELF/MachO/COFF、跨语言粘合 |
+| FFI / 互操作 | `[ffi]` | 39 | FFI 绑定、编组、类型映射、所有权跟踪 |
+| E2E 管道 | `[e2e]` | 29 | 从源码到目标码的完整管道 |
+| Java 前端 | `[java]` | 22 | Java 8/17/21/23 特性 |
+| .NET 前端 | `[dotnet]` | 24 | .NET 6/7/8/9 特性 |
+| GC 算法 | `[gc]` | 20 | 4 种 GC 算法（标记清除、分代、拷贝、增量） |
+| 预处理器 | `[preprocessor]` | 18 | 对象宏/函数宏、指令、Token池 |
+| 优化 Passes | `[opt]` | 17 | 常量折叠、DCE、CSE、GVN、内联、去虚拟化 |
+| 线程服务 | `[threading]` | 16 | 线程池、同步原语、协程 |
+| LTO | `[lto]` | 14 | 链接时优化、跨模块优化 |
+| PGO | `[pgo]` | 13 | 剖面引导优化 |
+| 后端 | `[backend]` | 12 | 指令选择、寄存器分配、调度器 |
+| C++ 前端 | `[cpp]` | 10 | OOP、模板、RTTI、异常、constexpr |
+| DWARF5 调试 | `[dwarf5]` | 7 | DWARF 5 调试信息生成 |
+| 调试信息 | `[debug]` | 4 | PDB、源码映射、调试发射器 |
+| 集成测试 | `[integration]` | 50 | 完整管道/跨语言互操作/性能压力 |
+| 基准测试 | `[benchmark]` | 18 | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
 
 ## 10.2 .ploy 测试详细分类
 
@@ -1728,38 +1766,32 @@ benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
 
 ## 10.4 示例程序
 
-`tests/samples/` 目录包含 12 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py`、`.rs`、`.java` 和 `.cs` 源文件：
+`tests/samples/` 目录包含 16 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py`、`.rs`、`.java` 和/或 `.cs` 源文件：
 
 ```
 tests/samples/
 ├── README.md                           # 示例总览
 ├── 01_basic_linking/                   # 基本 LINK + CALL 互操作
-│   ├── basic_linking.ploy
-│   ├── math_bridge.cpp
-│   ├── math_bridge.py
-│   └── math_bridge.rs
-├── 02_advanced_pipeline/               # 多阶段 PIPELINE
-├── 03_package_import/                  # IMPORT 与版本约束
-├── 04_complex_types/                   # STRUCT、ARRAY、MAP_TYPE
-├── 05_pipeline_control_flow/           # PIPELINE 中的 IF/ELSE/WHILE/FOR/MATCH
-├── 06_error_handling/                  # 错误处理模式
-├── 07_mixed_compilation/               # LINK + PIPELINE + STRUCT 组合
-├── 08_container_marshalling/           # 跨语言容器转换
-├── 09_multi_language_pipeline/         # 三语言(C++/Python/Rust)管道
-├── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
-├── 11_java_interop/                    # Java 互操作（字符串处理 + 跨语言管道）
-│   ├── java_interop.ploy
-│   ├── StringProcessor.java
-│   └── text_analyzer.py
-└── 12_dotnet_interop/                  # .NET 互操作（数据服务 + 统计分析管道）
-    ├── dotnet_interop.ploy
-    ├── DataService.cs
-    └── stats_utils.py
+├── 02_type_mapping/                    # 结构体和容器类型映射
+├── 03_pipeline/                        # 多阶段 PIPELINE
+├── 04_package_import/                  # IMPORT 与版本约束 + CONFIG
+├── 05_class_instantiation/             # NEW/METHOD 跨语言 OOP
+├── 06_attribute_access/                # GET/SET 属性访问
+├── 07_resource_management/             # WITH 资源管理
+├── 08_delete_extend/                   # DELETE/EXTEND 对象生命周期
+├── 09_mixed_pipeline/                  # 组合 ML 管道(C++/Python/Rust)
+├── 10_error_handling/                  # 错误场景和诊断
+├── 11_java_interop/                    # Java 互操作（NEW/METHOD）
+├── 12_dotnet_interop/                  # .NET 互操作（NEW/METHOD）
+├── 13_generic_containers/              # 泛型容器互操作
+├── 14_async_pipeline/                  # 异步多阶段信号处理
+├── 15_full_stack/                      # 五语言全栈
+└── 16_config_and_venv/                 # 环境配置、包版本
 ```
 
 ## 10.5 集成测试
 
-`tests/integration/` 目录包含 45 个集成测试，分为 3 个类别：
+`tests/integration/` 目录包含 50 个集成测试，分为 3 个类别：
 
 ```
 tests/integration/
@@ -1822,7 +1854,7 @@ tests/benchmarks/
 
 | 目标 | 类型 | 主要依赖 |
 |------|------|---------|
-| `polyglot_common` | 静态库 | fmt, nlohmann_json |
+| `polyglot_common` | 静态库 | fmt, nlohmann_json (7 编译单元，含 dwarf_builder) |
 | `frontend_common` | 静态库 | polyglot_common |
 | `frontend_cpp` | 静态库 | frontend_common (5 编译单元: lexer/parser/sema/lowering/constexpr) |
 | `frontend_python` | 静态库 | frontend_common (4 编译单元) |
@@ -1833,7 +1865,8 @@ tests/benchmarks/
 | `middle_ir` | 静态库 | polyglot_common (15 编译单元) |
 | `backend_x86_64` | 静态库 | polyglot_common (7 编译单元) |
 | `backend_arm64` | 静态库 | polyglot_common (6 编译单元) |
-| `runtime` | 静态库 | — (20 编译单元，含 java_rt/dotnet_rt) |
+| `backend_wasm` | 静态库 | polyglot_common, middle_ir (1 编译单元) |
+| `runtime` | 静态库 | — (23 编译单元，含 java_rt/dotnet_rt/object_lifecycle) |
 | `linker_lib` | 对象库 | polyglot_common, frontend_ploy |
 | `polyc` | 可执行文件 | 所有前端 + 后端 + IR + 运行时 |
 | `polyld` | 可执行文件 | polyglot_common, frontend_ploy |
@@ -1978,6 +2011,28 @@ tests/benchmarks/
 
 ## 13.5 更新日志
 
+### v5.0 (2026-02-22)
+- ✅ 全面项目文档更新 — 所有文档刷新以反映当前状态
+- ✅ 新增 WebAssembly (WASM) 后端 (`backends/wasm/`)
+- ✅ 统一 DWARF 构建器编入 `polyglot_common` 库
+- ✅ PDB 发射：MSF 块布局、TPI 类型记录 (LF_ARGLIST/LF_PROCEDURE)、RFC 4122 v4 GUID
+- ✅ CFA 初始化含寄存器保存规则和 NOP 对齐
+- ✅ ELF：e_machine 架构切换 (x86_64/ARM64)，完整 SHT_RELA 重定位节
+- ✅ Mach-O：完整 LC_SEGMENT_64、LC_SYMTAB、nlist_64 符号表、段映射
+- ✅ IR 解析器/打印器对称：`fadd/fsub/fmul/fdiv/frem` 解析 + global/const 声明
+- ✅ 预处理器测试覆盖：18 个宏、指令、Token池 专用测试
+- ✅ 调试测试 Windows 兼容：`TmpPath()` 使用 `std::filesystem::temp_directory_path()`
+- ✅ 跨语言链接主链路完全连通：polyc → PolyglotLinker → 粘合代码 → 二进制
+- ✅ 所有 6 个前端真实 IR lowering（无回退桩）
+- ✅ E2E 测试启用：29 个端到端测试
+- ✅ 链接器完整：COFF/PE、ELF、Mach-O 全部实现
+- ✅ polyopt：读取 IR 文件并运行优化管道
+- ✅ polybench：完整基准套件（编译 + E2E）
+- ✅ polyrt：FFI 子命令、真实 GC/线程统计
+- ✅ 教程文档新增 (`docs/tutorial/`)
+- ✅ 16 个示例程序（原 12 个）
+- ✅ 总计：802 个测试用例，3 个测试套件（734 单元 + 50 集成 + 18 基准）
+
 ### v4.3 (2026-02-20)
 - ✅ 新增跨语言对象销毁 `DELETE` 关键字
 - ✅ 新增跨语言类继承扩展 `EXTEND` 关键字
@@ -2029,5 +2084,5 @@ tests/benchmarks/
 ---
 
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-02-20*  
-*文档版本: v4.3*
+*最后更新: 2026-02-22*  
+*文档版本: v5.0*

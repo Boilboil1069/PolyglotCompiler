@@ -3,7 +3,7 @@
 ## Overview
 
 The `.ploy` language provides comprehensive package management capabilities that allow
-importing packages from different language ecosystems (Python, Rust, C++), with support
+importing packages from different language ecosystems (Python, Rust, C++, Java, .NET), with support
 for version constraints, selective imports, package auto-discovery, and virtual environment
 configuration.
 

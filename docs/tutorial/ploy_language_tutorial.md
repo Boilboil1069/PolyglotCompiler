@@ -1,7 +1,7 @@
 # .ploy Language Tutorial
 
-> **Version**: 1.0.0  
-> **Last Updated**: 2026-02-21  
+> **Version**: 2.0.0
+> **Last Updated**: 2026-02-22
 > **Project**: PolyglotCompiler  
 
 ---
@@ -655,7 +655,7 @@ FUNC process_data(input: ARRAY[FLOAT]) -> STRING {
 
 # 11. Object-Oriented Interop
 
-`.ploy` provides five keywords for full cross-language OOP interoperability: `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, and `EXTEND`.
+`.ploy` provides seven keywords for full cross-language OOP interoperability: `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, and `EXTEND`.
 
 ## 11.1 NEW — Class Instantiation
 

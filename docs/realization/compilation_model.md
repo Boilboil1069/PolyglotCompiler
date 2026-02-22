@@ -44,10 +44,10 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
            └─────┬──────┘                          └───────┬───────┘
                  │                                         │
                  ▼                                         │
-         ┌──────────────┐                                  │
-         │   Backend    │                                  │
-         │(x86_64/ARM64)│◄─────────────────────────────────┘
-         └──────┬───────┘
+         ┌────────────────────┐                              │
+         │      Backend       │                              │
+         │(x86_64/ARM64/WASM) │◄─────────────────────────────┘
+         └────────┬───────────┘
                 │
                 ▼
        ┌────────────────┐
@@ -91,7 +91,7 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
 
 5. **The backend generates native code**  
    后端生成原生代码：
-   - Instruction selection for x86_64 or ARM64
+   - Instruction selection for x86_64, ARM64, or WebAssembly
    - Register allocation (graph colouring or linear scan)
    - Assembly emission
    - Object file generation (ELF/Mach-O/POBJ)
@@ -174,7 +174,7 @@ polyc --lang=ploy pipeline.ploy -o pipeline.o                # frontend_ploy →
 polyld -o program image_processor.o ml_model.o pipeline.o    # Link into single binary
 ```
 
-The final `program` is a **single native x86_64 (or ARM64) executable** — no Python interpreter, no C++ compiler, no external dependencies required at runtime.
+The final `program` is a **single native x86_64 (or ARM64 / WebAssembly) executable** — no Python interpreter, no C++ compiler, no external dependencies required at runtime.
 
 ---
 

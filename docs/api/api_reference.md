@@ -1,7 +1,7 @@
 # PolyglotCompiler API Reference
 
-> **Version**: 2.0.0  
-> **Last Updated**: 2026-02-20  
+> **Version**: 3.0.0  
+> **Last Updated**: 2026-02-22  
 
 ---
 
@@ -116,7 +116,7 @@ Central type mapping, compatibility checking, and size computation.
 
 ```cpp
 // Map a language-specific type name to the unified Type representation.
-// Supported languages: "python", "cpp", "rust"
+// Supported languages: "python", "cpp", "rust", "java", "dotnet", "ploy"
 Type MapFromLanguage(const std::string& lang, const std::string& type_name) const;
 
 // Check if 'from' is implicitly convertible to 'to'.

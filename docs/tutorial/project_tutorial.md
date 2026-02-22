@@ -1,7 +1,7 @@
 # PolyglotCompiler Project Tutorial
 
-> **Version**: 1.0.0  
-> **Last Updated**: 2026-02-21  
+> **Version**: 2.0.0
+> **Last Updated**: 2026-02-22
 > **Project**: PolyglotCompiler  
 
 ---
@@ -34,7 +34,7 @@ PolyglotCompiler is a modern multi-language compiler project built in **C++20**.
 ### Core Capabilities
 
 - **6 language frontends**: C++, Python, Rust, Java, C# (.NET), .ploy
-- **2 architecture backends**: x86_64, ARM64
+- **3 architecture backends**: x86_64, ARM64, WebAssembly
 - **6 toolchain executables**: `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`
 - **Complete compilation pipeline**: Lexer → Parser → Sema → IR Lowering → Optimisation → Code Generation
 - **Cross-language OOP**: Full interoperability via `.ploy` (NEW, METHOD, GET, SET, WITH, DELETE, EXTEND)
@@ -242,10 +242,11 @@ PolyglotCompiler/
 │       ├── passes/         #   Pass manager, optimisations
 │       ├── pgo/            #   Profile data
 │       └── lto/            #   Link-time optimiser
-├── backends/               # Architecture backends (2 backends)
+├── backends/               # Architecture backends (3 backends)
 │   ├── common/             #   Shared backend facilities
 │   ├── x86_64/             #   x86_64 backend
-│   └── arm64/              #   ARM64 backend
+│   ├── arm64/              #   ARM64 backend
+│   └── wasm/               #   WebAssembly backend
 ├── runtime/                # Runtime system
 │   ├── include/            #   GC, FFI, service interfaces
 │   └── src/
@@ -307,10 +308,10 @@ Source Code (.cpp / .py / .rs / .java / .cs / .ploy)
                                                                 └──┬───┘ └──┬───┘ └──┬───┘
                                                                    └────────┼────────┘
                                                                             ▼
-                                                                   ┌────────────────┐
-                                                                   │ Backend        │
-                                                                   │ (x86_64/ARM64) │
-                                                                   └────────┬───────┘
+                                                                   ┌──────────────────────┐
+                                                                   │ Backend              │
+                                                                   │ (x86_64/ARM64/WASM)  │
+                                                                   └──────────┬───────────┘
                                                                             │
                                                                    ┌────────┼────────┐
                                                                    ▼        ▼        ▼
@@ -353,6 +354,7 @@ The CMake build system defines the following library targets:
 | `middle_ir` | `middle/` | IR, passes, PGO, LTO |
 | `backend_x86_64` | `backends/x86_64/` | x86_64 backend |
 | `backend_arm64` | `backends/arm64/` | ARM64 backend |
+| `backend_wasm` | `backends/wasm/` | WebAssembly backend |
 | `runtime` | `runtime/` | Runtime system |
 | `linker_lib` | `tools/polyld/` | Linker library |
 

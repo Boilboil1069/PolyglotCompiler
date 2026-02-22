@@ -385,7 +385,7 @@ LTO 里仍有 placeholder instruction / placeholder 函数路径（link_time_opt
 
 --end -done
 
-2026-02-21-7
+2026-02-21-7 -done
 
 修复这些：
 
@@ -422,6 +422,38 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 2026-02-22-1
 
 1.根据整个项目更新docs中所有文档与README.md
-2.
+
+--end -done
+
+2026-02-22-2
+
+1.USER_GUIDE_zh.md文档的4.4 混合编译方式，需要加入新支持的语言。
+2.按照文档内容重写docs\specs\Namespace_Architecture_And_Usage_Analysis.md这个文档（不需要解决方案建议），并且重写后重新命名，双语文档，删除旧文档。
+
+--end -done
+
+2026-02-22-3
+
+1.链接器对未解析符号改为强失败，禁止占位符继续链接；修改 tools/polyld/src/polyglot_linker.cpp。
+2.polyld 主流程补齐输入实体与描述符接线，避免空状态调用 ResolveLinks()；修改 tools/polyld/src/linker.cpp。
+3.polyc 增加 wasm 架构选项并接入后端分发；修改 tools/polyc/src/driver.cpp。
+4.polyasm 增加 wasm 架构选项；修改 tools/polyasm/src/assembler.cpp。
+5.WASM 后端补齐真实调用目标索引生成，移除硬编码占位；修改 backends/wasm/src/wasm_target.cpp。
+6.WASM 后端实现 alloca 的合法降级与栈模型，移除 nop 占位；修改 backends/wasm/src/wasm_target.cpp。
+7.WASM 后端对未支持 IR 指令改为显式诊断错误，避免静默 nop；修改 backends/wasm/src/wasm_target.cpp。
+8..ploy 语义分析增加 strict 模式，减少或禁止 Any 回退；修改 frontends/ploy/src/sema/sema.cpp。
+9..ploy lowering 去除默认 I64 回退，按签名与推断生成类型；修改 frontends/ploy/src/lowering/lowering.cpp。
+10.完善调试信息生成，补齐 .eh_frame FDE 与 PDB 类型流；修改 backends/common/src/debug_emitter.cpp。
+11.完善 Mach-O 节重定位信息写入（reloff/nreloc）；修改 backends/common/src/object_file.cpp。
+12.逐步清理 Rust/Python/C++/.NET 前端中的 unsupported 或简化路径；修改 frontends/rust/src/lowering/lowering.cpp、frontends/python/src/lowering/lowering.cpp、frontends/cpp/src/lowering/lowering.cpp、frontends/dotnet/src/parser/parser.cpp。
+13.清理占位测试，将 REQUIRE(true) 替换为行为断言；重点修改 tests/unit/frontends/rust/advanced_features_test.cpp。
+14.增加编译-链接-运行一体化 e2e 测试，覆盖 x86_64 与 arm64，WASM 先补 smoke；扩展 tests/integration/compile_tests/compile_pipeline_test.cpp。
+15.同步更新能力边界与使用说明文档；修改 README.md、docs/USER_GUIDE.md、docs/USER_GUIDE_zh.md。
+
+--end
+
+2026-02-22-4
+
+
 
 --end

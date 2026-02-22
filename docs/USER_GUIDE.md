@@ -1,11 +1,11 @@
 # PolyglotCompiler Complete Guide
 
 > A fully-featured multi-language compiler project  
-> Supports C++, Python, Rust → x86_64/ARM64  
+> Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v4.3  
-**Last Updated**: 2026-02-20
+**Version**: v5.0  
+**Last Updated**: 2026-02-22
 
 ---
 
@@ -40,7 +40,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 - ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`)
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
 - ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
-- ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config
+- ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
 - ✅ **Production Quality**: Complete implementation, not a minimal prototype
 
 ## 1.2 Feature Overview
@@ -62,6 +62,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 |-------------|----------------------|--------------------|--------------------|--------|
 | **x86_64** | ✅ | ✅ Graph colouring / Linear scan | ✅ SysV ABI | **Complete** |
 | **ARM64** | ✅ | ✅ Graph colouring / Linear scan | ✅ AAPCS64 | **Complete** |
+| **WebAssembly** | ✅ | ✅ Stack machine | ✅ WASM ABI | **Complete** |
 
 ### Toolchain
 
@@ -160,17 +161,17 @@ EXPORT inference AS "run_inference";
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Source Code                                    │
-│             C++ / Python / Rust / Java / C# (.NET) / .ploy                 │
-└──────────────────────────────┬──────────────────────────────────────────────┘
-                               │
-     ┌──────────┬──────────┬───┼──────────┬──────────┐
-     │          │          │   │          │          │
-     ▼          ▼          ▼   ▼          ▼          ▼
+│             C++ / Python / Rust / Java / C# (.NET) / .ploy                  │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+     ┌──────────┬──────────┬──────────┼──────────┬──────────┐
+     │          │          │          │          │          │
+     ▼          ▼          ▼          ▼          ▼          ▼
  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
  │  C++   │ │ Python │ │  Rust  │ │  Java  │ │  .NET  │ │  .ploy   │
  │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │ Frontend │
  └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └────┬─────┘
-     │          │          │          │          │            │
+     │          │          │          │          │           │
      └──────────┴──────────┴──────────┴──────────┘       ┌───┘
                            │                             │
                            ▼                             ▼
@@ -251,15 +252,18 @@ PolyglotCompiler/
 │       │                   #     inlining, devirtualization, loop_optimization, gvn, advanced_optimizations)
 │       ├── pgo/            #   profile_data.cpp
 │       └── lto/            #   link_time_optimizer.cpp
-├── backends/               # Backends (2 architecture backends)
+├── backends/               # Backends (3 architecture backends)
 │   ├── common/             # Shared backend facilities
-│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, object_file.cpp
+│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, dwarf_builder.cpp, object_file.cpp
 │   ├── x86_64/             # x86_64 backend
 │   │   ├── include/        #   x86_target.h, x86_register.h, machine_ir.h, instruction_scheduler.h
 │   │   └── src/            #   isel/, regalloc/ (graph_coloring, linear_scan), asm_printer/, optimizations, calling_convention
-│   └── arm64/              # ARM64 backend
-│       ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
-│       └── src/            #   isel/, regalloc/ (graph_coloring, linear_scan), asm_printer/, calling_convention
+│   ├── arm64/              # ARM64 backend
+│   │   ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
+│   │   └── src/            #   isel/, regalloc/ (graph_coloring, linear_scan), asm_printer/, calling_convention
+│   └── wasm/               # WebAssembly backend
+│       ├── include/        #   wasm_target.h
+│       └── src/            #   wasm_target.cpp
 ├── runtime/                # Runtime
 │   ├── include/            # GC, FFI, service interfaces
 │   └── src/
@@ -285,14 +289,16 @@ PolyglotCompiler/
 │   ├── polybench/          # Benchmark (benchmark_suite.cpp)
 │   └── ui/                 # UI tool
 ├── tests/                  # Tests
-│   ├── unit/               # Unit tests (Catch2 framework)
-│   │   └── frontends/ploy/ #   ploy_test.cpp (171+ test cases)
-│   ├── samples/            # Sample programs (12 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
-│   ├── integration/        # Integration tests (compile pipeline / interop / performance)
-│   └── benchmarks/         # Benchmark tests (micro / macro)
-│   └── benchmarks/         # Performance benchmarks
+│   ├── unit/               # Unit tests (Catch2 framework) — 734 test cases
+│   │   └── frontends/ploy/ #   ploy_test.cpp (207 test cases)
+│   ├── samples/            # Sample programs (16 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
+│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 50 test cases
+│   └── benchmarks/         # Benchmark tests (micro / macro) — 18 test cases
 └── docs/                   # Documentation
-    ├── realization/        # Implementation docs (6 topics × 2 languages = 12 files)
+    ├── api/                # API reference (bilingual)
+    ├── specs/              # Language & IR specifications
+    ├── realization/        # Implementation docs (8 topics × 2 languages = 16 files)
+    ├── tutorial/           # Tutorials (ploy language + project, bilingual)
     ├── demand/             # Requirements
     ├── USER_GUIDE.md       # This document (English)
     └── USER_GUIDE_zh.md    # Complete guide (Chinese)
@@ -306,8 +312,8 @@ Each frontend follows a unified 4-stage pipeline:
 Source Code
     │
     ▼
-┌─────────┐    Token Stream    ┌─────────┐    AST    ┌─────────┐    Annotated AST    ┌──────────┐    IR Module
-│  Lexer  │──────────────────▶│ Parser  │────────▶│  Sema   │───────────────────▶│ Lowering │──────────▶
+┌─────────┐    Token Stream    ┌─────────┐    AST   ┌─────────┐   Annotated AST    ┌──────────┐ IR Module
+│  Lexer  │──────────────────▶ │ Parser  │────────▶ │  Sema   │───────────────────▶│ Lowering │──────────▶
 └─────────┘                    └─────────┘          └─────────┘                    └──────────┘
 ```
 
@@ -984,32 +990,39 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 > **Core Idea: PolyglotCompiler itself compiles all languages; `.ploy` describes the cross-language connection relationships.**
 
 ```
-┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│  C++ Source  │   │Python Source │   │  Rust Source │
-└──────┬──────┘   └──────┬──────┘   └──────┬──────┘
-       │                 │                 │
-       ▼                 ▼                 ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ C++ Frontend │  │Python Frontend│  │ Rust Frontend│
-│ (polyglot)   │  │ (polyglot)   │  │ (polyglot)   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                 │                 │
-       └────────────┬────┴────────────┬────┘
-                    │   Shared IR     │
-                    ▼                 ▼
-              ┌───────────┐    ┌───────────┐
-              │  .ploy    │    │  Polyglot │
-              │  Frontend │───▶│  Linker   │
-              └───────────┘    └─────┬─────┘
-                                     │
-                                     ▼
-                              ┌───────────┐
-                              │  Unified  │
-                              │  Binary   │
-                              └───────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│  C++ Source  │  │Python Source│  │ Rust Source  │  │ Java Source  │  │  C# Source   │
+└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
+       │                │                │                │                │
+       ▼                ▼                ▼                ▼                ▼
+┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
+│C++ Frontend│  │  Python    │  │   Rust     │  │   Java     │  │  .NET      │
+│ (polyglot) │  │  Frontend  │  │  Frontend  │  │  Frontend  │  │  Frontend  │
+└─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
+      │               │               │               │               │
+      └───────┬───────┴───────┬───────┴───────┬───────┴───────┬───────┘
+              │               │               │               │
+              ▼           Shared IR           ▼               │
+        ┌───────────┐                   ┌───────────┐         │
+        │  .ploy    │                   │  Polyglot │         │
+        │  Frontend │──────────────────▶│  Linker   │◄────────┘
+        └───────────┘                   └─────┬─────┘
+                                              │
+                                    ┌─────────┼─────────┐
+                                    ▼         ▼         ▼
+                               ┌────────┐┌────────┐┌────────┐
+                               │ x86_64 ││ ARM64  ││  WASM  │
+                               │Backend ││Backend ││Backend │
+                               └───┬────┘└───┬────┘└───┬────┘
+                                   └─────────┼─────────┘
+                                             ▼
+                                       ┌───────────┐
+                                       │  Unified  │
+                                       │  Binary   │
+                                       └───────────┘
 ```
 
-**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`) to compile all language source code to a unified IR, then generates target code through the backend. It does **NOT depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver (`driver.cpp`) may optionally invoke a system linker (`polyld` or `clang`) only for the final link step to produce an executable.
+**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **NOT depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver (`driver.cpp`) may optionally invoke a system linker (`polyld` or `clang`) only for the final link step to produce an executable.
 
 ### Capability Matrix
 
@@ -1018,19 +1031,26 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 | C++ ↔ Python function call | ✅ | Via FFI glue code + type marshalling |
 | C++ ↔ Rust function call | ✅ | Via C ABI extern functions |
 | Python ↔ Rust function call | ✅ | Via FFI bridge |
+| Java ↔ C++ function call | ✅ | Via JNI bridge + `__ploy_java_*` runtime |
+| Java ↔ Python function call | ✅ | Via JNI ↔ CPython C API bridge |
+| .NET ↔ C++ function call | ✅ | Via CoreCLR hosting + `__ploy_dotnet_*` runtime |
+| .NET ↔ Python function call | ✅ | Via CoreCLR ↔ CPython C API bridge |
+| Java ↔ .NET interop | ✅ | Via IR-level unification + bidirectional runtime bridge |
 | Primitive type marshalling | ✅ | int, float, bool, string, void |
 | Container type marshalling | ✅ | list, tuple, dict, optional |
 | Struct mapping | ✅ | Cross-language struct field conversion |
 | Package import + version constraint | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
 | Selective import | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
-| Multi-package-manager support | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config |
+| Multi-package-manager support | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
 | Multi-stage pipelines | ✅ | PIPELINE + cross-language CALL |
 | Control flow orchestration | ✅ | IF/WHILE/FOR/MATCH |
 | Cross-language class instantiation | ✅ | `NEW(python, torch::nn::Linear, 784, 10)` |
-| Cross-language method call | ✅ | `METHOD(python, model, forward, data)` |
-| Cross-language attribute access | ✅ | `GET(python, model, weight)` |
+| Cross-language method call | ✅ | `METHOD(java, service, processRequest, data)` |
+| Cross-language attribute access | ✅ | `GET(dotnet, config, ConnectionString)` |
 | Cross-language attribute assignment | ✅ | `SET(python, model, training, FALSE)` |
 | Automatic resource management | ✅ | `WITH(python, f) AS handle { ... }` |
+| Class inheritance extension | ✅ | `EXTEND(java, BaseService) { ... }` |
+| Object destruction | ✅ | `DELETE(dotnet, dbConnection)` |
 | Type annotations | ✅ | `LET model: python::nn::Module = NEW(...)` |
 | Interface mapping | ✅ | `MAP_TYPE(python::nn::Module, cpp::NeuralNet)` |
 
@@ -1228,7 +1248,7 @@ polyc [options] <input_file>
 | Option | Description |
 |--------|-------------|
 | `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | Source language (auto-detected from extension if omitted) |
-| `--arch=<x86_64\|arm64>` | Target architecture (default: x86_64) |
+| `--arch=<x86_64\|arm64\|wasm>` | Target architecture (default: x86_64) |
 | `-O<0\|1\|2\|3>` | Optimisation level |
 | `--emit-ir=<file>` | Output IR text |
 | `--emit-asm=<file>` | Output assembly |
@@ -1258,7 +1278,7 @@ By default, `polyc` prints detailed progress to stderr:
 
 ```
 ========================================
- PolyglotCompiler v4.3  (polyc)
+ PolyglotCompiler v5.0  (polyc)
 ========================================
 [polyc] Source: basic_linking.ploy
 [polyc] Language: ploy (auto-detected)
@@ -1477,7 +1497,7 @@ add, sub, mul, sdiv/udiv, srem/urem     # Integer arithmetic
 and, or, xor, shl, lshr, ashr           # Bitwise operations
 icmp (eq, ne, slt, sle, sgt, sge,       # Integer comparison
       ult, ule, ugt, uge)
-fadd, fsub, fmul, fdiv                  # Floating-point arithmetic
+fadd, fsub, fmul, fdiv, frem             # Floating-point arithmetic
 fcmp (foe, fne, flt, fle, fgt, fge)     # Floating-point comparison
 ```
 
@@ -1654,10 +1674,16 @@ GC strategy selection: `gc_strategy.cpp`
 ## 9.5 Debug Information
 
 - Full DWARF 5 support (`common/src/debug/dwarf5.cpp`)
+- Unified DWARF builder (`backends/common/src/dwarf_builder.cpp`)
 - Debug info emitter (`backends/common/src/debug_info.cpp`, `debug_emitter.cpp`)
+- PDB support with MSF block layout, TPI type records, and RFC 4122 v4 GUID generation
+- CFA (Call Frame Address) with register save rules and alignment
+- ELF object files with SHT_RELA relocation sections
+- Mach-O object files with LC_SEGMENT_64, LC_SYMTAB, nlist_64 symbol table
 - Variable location tracking (debuggable after optimisation)
 - Inline function debugging
 - Separate debug info support
+- JSON source map emission
 
 ---
 
@@ -1669,23 +1695,34 @@ The project uses the **Catch2** testing framework. There are three test executab
 
 | Executable | Source Directory | Tags | Description |
 |-----------|-----------------|------|-------------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules |
-| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress |
-| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **734 cases** |
+| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **50 cases** |
+| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks — **18 cases** |
 
 ### Test Suite Summary
 
 | Test Suite | Tag | Test Cases | Coverage |
 |-----------|-----|-----------|----------|
-| .ploy Frontend | `[ploy]` | 207 (598 assertions) | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
-| Integration Tests | `[integration]` | 45 (142 assertions) | Full pipeline / Cross-language interop / Performance stress |
-| Benchmark Tests | `[benchmark]` | 18 (129 assertions) | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
-| GC Algorithms | `[gc]` | 40+ | 4 GC algorithms |
-| Optimisation Passes | `[opt]` | 50+ | 25+ optimisation passes |
-| Python Features | `[python]` | 25+ | 25+ Python advanced features |
-| Rust Features | `[rust]` | 28+ | 28+ Rust advanced features |
-| Backend Optimisations | `[backend]` | 40+ | Scheduler, fusion, etc. |
-| Threading Services | `[threading]` | 30+ | Concurrency, synchronisation primitives |
+| .ploy Frontend | `[ploy]` | 207 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
+| Python Frontend | `[python]` | 127 | 25+ advanced features, type annotations, async, comprehensions |
+| Rust Frontend | `[rust]` | 46 | Borrow checking, lifetimes, closures, traits |
+| Linker | `[linker]` | 36 | Symbol resolution, ELF/MachO/COFF, cross-language glue |
+| FFI / Interop | `[ffi]` | 39 | FFI bindings, marshalling, type mapping, ownership tracking |
+| E2E Pipeline | `[e2e]` | 29 | Full pipeline from source → object code |
+| Java Frontend | `[java]` | 22 | Java 8/17/21/23 features |
+| .NET Frontend | `[dotnet]` | 24 | .NET 6/7/8/9 features |
+| GC Algorithms | `[gc]` | 20 | 4 GC algorithms (mark-sweep, generational, copying, incremental) |
+| Preprocessor | `[preprocessor]` | 18 | Object/function-like macros, directives, token pool |
+| Optimisation Passes | `[opt]` | 17 | Constant fold, DCE, CSE, GVN, inlining, devirtualisation |
+| Threading Services | `[threading]` | 16 | Thread pool, synchronisation primitives, coroutines |
+| LTO | `[lto]` | 14 | Link-time optimisation, cross-module opt |
+| PGO | `[pgo]` | 13 | Profile-guided optimisation |
+| Backend | `[backend]` | 12 | Instruction selection, register allocation, scheduler |
+| C++ Frontend | `[cpp]` | 10 | OOP, templates, RTTI, exceptions, constexpr |
+| DWARF5 Debug | `[dwarf5]` | 7 | DWARF 5 debug info generation |
+| Debug Info | `[debug]` | 4 | PDB, source map, debug emitter |
+| Integration Tests | `[integration]` | 50 | Full pipeline / Cross-language interop / Performance stress |
+| Benchmark Tests | `[benchmark]` | 18 | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
 
 ## 10.2 .ploy Test Details
 
@@ -1739,7 +1776,7 @@ benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
 
 ## 10.4 Sample Programs
 
-The `tests/samples/` directory contains 10 categorised sample directories, each with `.ploy`, `.cpp`, `.py`, and `.rs` source files:
+The `tests/samples/` directory contains 16 categorised sample directories, each with `.ploy`, `.cpp`, `.py`, `.rs`, `.java`, and/or `.cs` source files:
 
 ```
 tests/samples/
@@ -1749,20 +1786,26 @@ tests/samples/
 │   ├── math_bridge.cpp
 │   ├── math_bridge.py
 │   └── math_bridge.rs
-├── 02_advanced_pipeline/               # Multi-stage PIPELINE
-├── 03_package_import/                  # IMPORT with version constraints
-├── 04_complex_types/                   # STRUCT, ARRAY, MAP_TYPE
-├── 05_pipeline_control_flow/           # IF/ELSE/WHILE/FOR/MATCH in PIPELINE
-├── 06_error_handling/                  # Error handling patterns
-├── 07_mixed_compilation/               # Combined LINK + PIPELINE + STRUCT
-├── 08_container_marshalling/           # Cross-language container conversion
-├── 09_multi_language_pipeline/         # Three-language (C++/Python/Rust) pipeline
-└── 10_cross_lang_oop/                  # NEW/METHOD/GET/SET/WITH/DELETE/EXTEND
+├── 02_type_mapping/                    # Structs, container type mapping
+├── 03_pipeline/                        # Multi-stage PIPELINE
+├── 04_package_import/                  # IMPORT with version constraints + CONFIG
+├── 05_class_instantiation/             # NEW/METHOD cross-language OOP
+├── 06_attribute_access/                # GET/SET attribute access
+├── 07_resource_management/             # WITH resource management
+├── 08_delete_extend/                   # DELETE/EXTEND object lifecycle
+├── 09_mixed_pipeline/                  # Combined ML pipeline (C++/Python/Rust)
+├── 10_error_handling/                  # Error scenarios and diagnostics
+├── 11_java_interop/                    # Java interop (NEW/METHOD)
+├── 12_dotnet_interop/                  # .NET interop (NEW/METHOD)
+├── 13_generic_containers/              # Generic container interop
+├── 14_async_pipeline/                  # Async multi-stage signal processing
+├── 15_full_stack/                      # Five-language full-stack
+└── 16_config_and_venv/                 # Environment config, package versions
 ```
 
 ## 10.5 Integration Tests
 
-The `tests/integration/` directory contains 45 integration tests across 3 categories:
+The `tests/integration/` directory contains 50 integration tests across 3 categories:
 
 ```
 tests/integration/
@@ -1825,7 +1868,7 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 
 | Target | Type | Main Dependencies |
 |--------|------|-------------------|
-| `polyglot_common` | Static library | fmt, nlohmann_json |
+| `polyglot_common` | Static library | fmt, nlohmann_json (7 compilation units, incl. dwarf_builder) |
 | `frontend_common` | Static library | polyglot_common |
 | `frontend_cpp` | Static library | frontend_common (5 compilation units: lexer/parser/sema/lowering/constexpr) |
 | `frontend_python` | Static library | frontend_common (4 compilation units) |
@@ -1836,7 +1879,8 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 | `middle_ir` | Static library | polyglot_common (15 compilation units) |
 | `backend_x86_64` | Static library | polyglot_common (7 compilation units) |
 | `backend_arm64` | Static library | polyglot_common (6 compilation units) |
-| `runtime` | Static library | — (20 compilation units, incl. java_rt/dotnet_rt) |
+| `backend_wasm` | Static library | polyglot_common, middle_ir (1 compilation unit) |
+| `runtime` | Static library | — (23 compilation units, incl. java_rt/dotnet_rt/object_lifecycle) |
 | `linker_lib` | Object library | polyglot_common, frontend_ploy |
 | `polyc` | Executable | All frontends + backends + IR + runtime |
 | `polyld` | Executable | polyglot_common, frontend_ploy |
@@ -1981,6 +2025,28 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 ## 13.5 Changelog
 
+### v5.0 (2026-02-22)
+- ✅ Full project documentation update — all docs refreshed to reflect current state
+- ✅ WebAssembly (WASM) backend added (`backends/wasm/`)
+- ✅ Unified DWARF builder compiled into `polyglot_common` library
+- ✅ PDB emission: MSF block layout, TPI type records (LF_ARGLIST/LF_PROCEDURE), RFC 4122 v4 GUID
+- ✅ CFA initialisation with register save rules and NOP alignment
+- ✅ ELF: e_machine architecture switching (x86_64/ARM64), full SHT_RELA relocation sections
+- ✅ Mach-O: complete LC_SEGMENT_64, LC_SYMTAB, nlist_64 symbol table, section mapping
+- ✅ IR parser/printer symmetry: `fadd/fsub/fmul/fdiv/frem` parsing + global/const declarations
+- ✅ Preprocessor test coverage: 18 dedicated test cases for macros, directives, token pool
+- ✅ Debug tests Windows-compatible: `TmpPath()` via `std::filesystem::temp_directory_path()`
+- ✅ Cross-language link chain fully connected: polyc → PolyglotLinker → glue code → binary
+- ✅ Real IR lowering for all 6 frontends (no fallback stubs)
+- ✅ E2E tests enabled: 29 end-to-end test cases
+- ✅ Linker completeness: COFF/PE, ELF, Mach-O all implemented
+- ✅ polyopt: reads IR files and runs optimisation pipeline
+- ✅ polybench: full benchmark suite (compilation + E2E)
+- ✅ polyrt: FFI subcommand, real GC/thread statistics
+- ✅ Tutorial documentation added (`docs/tutorial/`)
+- ✅ 16 sample programs (was 12)
+- ✅ Total: 802 test cases across 3 suites (734 unit + 50 integration + 18 benchmark)
+
 ### v4.3 (2026-02-20)
 - ✅ Added cross-language object destruction `DELETE` keyword
 - ✅ Added cross-language class extension `EXTEND` keyword
@@ -2032,5 +2098,5 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 ---
 
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-02-20*  
-*Document Version: v4.3*
+*Last Updated: 2026-02-22*  
+*Document Version: v5.0*

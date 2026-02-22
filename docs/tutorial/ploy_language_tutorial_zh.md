@@ -1,7 +1,7 @@
 # .ploy 语言教程
 
-> **版本**: 1.0.0  
-> **最后更新**: 2026-02-21  
+> **版本**: 2.0.0
+> **最后更新**: 2026-02-22
 > **项目**: PolyglotCompiler  
 
 ---
@@ -67,7 +67,7 @@ my_project.ploy
 pipeline.ploy
 config_and_venv.ploy
 ```
-
+-
 ---
 
 # 2. 快速入门

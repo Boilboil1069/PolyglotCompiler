@@ -27,7 +27,7 @@
 
 ### 3.1 关键字
 
-`.ploy` 语言共有 **49 个保留关键字**：
+`.ploy` 语言共有 **54 个保留关键字**：
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
@@ -39,7 +39,8 @@ NOT         CALL        VOID        INT         FLOAT
 STRING      BOOL        ARRAY       STRUCT      PACKAGE
 LIST        TUPLE       DICT        OPTION      MAP_FUNC
 CONVERT     CONFIG      VENV        CONDA       UV
-PIPENV      POETRY      NEW         METHOD
+PIPENV      POETRY      NEW         METHOD      GET
+SET         WITH        DELETE      EXTEND
 ```
 
 > **关键字分类：**
@@ -50,7 +51,8 @@ PIPENV      POETRY      NEW         METHOD
 > - **运算符关键字**：`AND`、`OR`、`NOT`、`AS` — 逻辑运算和类型别名
 > - **字面量关键字**：`TRUE`、`FALSE`、`NULL` — 布尔值和空值
 > - **类型关键字**：`VOID`、`INT`、`FLOAT`、`STRING`、`BOOL`、`ARRAY`、`LIST`、`TUPLE`、`DICT`、`OPTION` — 内置类型名称
-> - **操作关键字**：`CALL`、`CONVERT`、`NEW`、`METHOD` — 跨语言调用、类型转换、类实例化和方法调用
+> - **操作关键字**：`CALL`、`CONVERT`、`NEW`、`METHOD`、`GET`、`SET`、`DELETE` — 跨语言调用、类型转换、类实例化、方法调用、属性访问、对象销毁
+> - **OOP 扩展**：`WITH`、`EXTEND` — 资源管理和类继承扩展
 > - **包管理器**：`CONFIG`、`VENV`、`CONDA`、`UV`、`PIPENV`、`POETRY` — 包管理器环境配置
 
 ### 3.2 标识符
@@ -508,7 +510,7 @@ primary         ::= identifier | literal | '(' expression ')'
     │
     ▼
 ┌──────────┐
-│  词法器   │  → Token 流（41 个关键字 + 运算符 + 字面量）
+│  词法器   │  → Token 流（54 个关键字 + 运算符 + 字面量）
 │  Lexer   │     识别关键字、标识符、数字、字符串、符号、注释
 └──────────┘
     │

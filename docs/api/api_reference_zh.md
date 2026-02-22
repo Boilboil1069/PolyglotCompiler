@@ -1,7 +1,7 @@
 # PolyglotCompiler API 参考手册
 
-> **版本**: 2.0.0  
-> **最后更新**: 2026-02-20  
+> **版本**: 3.0.0  
+> **最后更新**: 2026-02-22  
 
 ---
 
@@ -116,7 +116,7 @@ bool operator!=(const Type& other) const;
 
 ```cpp
 // 将特定语言的类型名称映射为统一的 Type 表示
-// 支持的语言: "python", "cpp", "rust"
+// 支持的语言: "python", "cpp", "rust", "java", "dotnet", "ploy"
 Type MapFromLanguage(const std::string& lang, const std::string& type_name) const;
 
 // 检查 from 类型是否可以隐式转换为 to 类型

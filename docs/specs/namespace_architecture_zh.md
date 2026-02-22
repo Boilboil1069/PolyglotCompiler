@@ -1,7 +1,7 @@
-# PolyglotCompiler — 命名空间架构、接口与调用分析
+# PolyglotCompiler — 命名空间架构、接口与依赖分析
 
-> 文档生成日期：2026-02-08  
-> 分析范围：全部头文件（98 个）与源文件（80 个），排除 `build/`、`deps/`、`_deps/` 目录
+> 文档生成日期：2026-02-22  
+> 分析范围：全部头文件与源文件，排除 `build/`、`deps/`、`_deps/` 目录
 
 ---
 
@@ -9,16 +9,15 @@
 
 1. [命名空间总览](#1-命名空间总览)
 2. [命名空间层级架构图](#2-命名空间层级架构图)
-3. [模块间调用关系图](#3-模块间调用关系图)
+3. [模块间依赖关系图](#3-模块间依赖关系图)
 4. [各命名空间详细接口清单](#4-各命名空间详细接口清单)
 5. [未使用代码分析](#5-未使用代码分析)
-6. [解决方案建议](#6-解决方案建议)
 
 ---
 
 ## 1. 命名空间总览
 
-项目共包含 **19 个命名空间**（含子命名空间），覆盖 **~120 个类/结构体**、**~40 个枚举**、**~80 个自由函数**。
+项目共包含 **23 个命名空间**（含子命名空间），覆盖 **~150 个类/结构体**、**~50 个枚举**、**~100 个自由函数**。
 
 | 命名空间 | 职责 | 主要头文件目录 |
 |----------|------|---------------|
@@ -27,8 +26,9 @@
 | `polyglot::debug` | DWARF5 调试信息、调试信息构建器 | `common/include/debug/` |
 | `polyglot::ir` | 中间表示（IR 节点、CFG、SSA） | `middle/include/ir/` |
 | `polyglot::ir::passes` | IR 层优化 pass | `middle/include/ir/passes/` |
-| `polyglot::passes::analysis` | 分析 pass（CFG、别名分析） | `middle/include/passes/` |
-| `polyglot::passes::transform` | 变换 pass（常量折叠、DCE、GVN、循环优化等） | `middle/include/passes/` |
+| `polyglot::ir::dialects` | 语言方言扩展（预留） | `middle/include/ir/dialects/` |
+| `polyglot::passes::analysis` | 分析 pass（CFG、别名分析） | `middle/include/passes/analysis/` |
+| `polyglot::passes::transform` | 变换 pass（常量折叠、DCE、GVN、循环优化等） | `middle/include/passes/transform/` |
 | `polyglot::passes` | 去虚拟化 pass | `middle/include/passes/` |
 | `polyglot::pgo` | Profile-Guided Optimization | `middle/include/pgo/` |
 | `polyglot::lto` | Link-Time Optimization | `middle/include/lto/` |
@@ -36,12 +36,16 @@
 | `polyglot::cpp` | C++ 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/cpp/` |
 | `polyglot::python` | Python 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/python/` |
 | `polyglot::rust` | Rust 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/rust/` |
+| `polyglot::java` | Java 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/java/` |
+| `polyglot::dotnet` | .NET/C# 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/dotnet/` |
+| `polyglot::ploy` | .ploy 前端（AST、Lexer、Parser、Sema、Lowering） | `frontends/ploy/` |
 | `polyglot::backends` | 后端公共（目标文件、调试发射） | `backends/common/include/` |
 | `polyglot::backends::x86_64` | x86-64 后端（ISel、RegAlloc、指令调度） | `backends/x86_64/include/` |
 | `polyglot::backends::arm64` | ARM64 后端（ISel、RegAlloc） | `backends/arm64/include/` |
-| `polyglot::runtime` (C linkage) | 运行时（GC、内存管理） | `runtime/include/` |
+| `polyglot::backends::wasm` | WebAssembly 后端（WASM 代码生成） | `backends/wasm/include/` |
+| `polyglot::runtime::gc` | 运行时（GC、内存管理） | `runtime/include/gc/` |
 | `polyglot::runtime::interop` | FFI 互操作（类型映射、调用约定、内存） | `runtime/include/interop/` |
-| `polyglot::runtime::services` | 线程、异常、反射 | `runtime/include/services/` |
+| `polyglot::runtime::services` | 线程、异常处理、反射 | `runtime/include/services/` |
 | `polyglot::linker` | 链接器（ELF/Mach-O/COFF 解析、符号解析） | `tools/polyld/include/` |
 
 ---
@@ -63,7 +67,7 @@ polyglot
 │   ├── StringPool                 # 字符串池（去重）
 │   ├── Logger                     # 日志工具
 │   ├── Arena                      # 内存 Arena 分配器
-│   └── ScopeGuard [不存在]        # 文档提及但未实现
+│   └── Hash                       # 哈希工具
 │
 ├── debug                          # 调试信息
 │   ├── dwarf (子空间)             # DWARF5 常量 & Tag/Attribute 枚举
@@ -85,6 +89,11 @@ polyglot
 │   ├── AnalysisCache              # 分析缓存
 │   ├── TemplateInstantiator       # 模板实例化
 │   ├── ClassLayout                # 类布局 & VTable
+│   ├── IRVisitor                  # IR 访问者基类
+│   ├── IRPrinter                  # IR 打印器
+│   ├── IRParser                   # IR 解析器
+│   ├── SSAConstructor             # SSA 构造
+│   ├── IRVerifier                 # IR 验证器
 │   ├── passes/                    # IR 优化 pass
 │   │   ├── ConstantFold
 │   │   ├── DeadCodeElim
@@ -94,30 +103,31 @@ polyglot
 │   │   ├── GVN
 │   │   ├── LICM
 │   │   └── Vectorize
-│   └── dialects [未实现]          # 语言方言扩展
+│   └── dialects/                  # 语言方言扩展
+│       ├── high_level
+│       ├── mid_level
+│       └── low_level
 │
 ├── passes
 │   ├── analysis/                  # 分析
-│   │   ├── CFG 分析
+│   │   ├── 支配树分析
 │   │   └── 别名分析
-│   └── transform/                 # 变换
-│       ├── ConstantFolding
-│       ├── DeadCodeElimination
-│       ├── CommonSubexprElimination
-│       ├── Inlining
-│       ├── GVNPass / PREPass / AliasAnalysisPass
-│       ├── LoopAnalysis / LoopUnrolling / LICM / LoopFusion
-│       ├── LoopStrengthReduction
-│       ├── DevirtualizationPass
-│       └── Advanced (Tail Call, Tiling, AutoVec 等)
+│   ├── transform/                 # 变换
+│   │   ├── ConstantFolding
+│   │   ├── DeadCodeElimination
+│   │   ├── CommonSubexprElimination
+│   │   ├── Inlining
+│   │   ├── GVNPass / PREPass / AliasAnalysisPass
+│   │   ├── LoopAnalysis / LoopUnrolling / LICM / LoopFusion
+│   │   ├── LoopStrengthReduction
+│   │   ├── DevirtualizationPass
+│   │   └── Advanced (Tail Call, Tiling, AutoVec 等)
+│   └── DevirtualizationPass      # 顶层去虚拟化
 │
 ├── pgo                            # Profile-Guided Optimization
 │   ├── FunctionProfile
 │   ├── ProfileData
-│   ├── RuntimeProfiler
-│   ├── ProfileGuidedOptimizer [未实现]
-│   ├── PGOInstrumenter [未实现]
-│   └── PGOPipeline [未实现]
+│   └── RuntimeProfiler
 │
 ├── lto                            # Link-Time Optimization
 │   ├── LTOModule / ModuleIndex
@@ -127,9 +137,7 @@ polyglot
 │   ├── CrossModuleDevirtualizer
 │   ├── CrossModuleGVN
 │   ├── LTOOptimizer
-│   ├── LTOLinker
-│   ├── ThinLTOProcessor [未实现]
-│   └── LTOPipeline [未实现]
+│   └── LTOLinker
 │
 ├── frontends                      # 前端公共
 │   ├── TokenKind / Token          # 词法单元
@@ -164,12 +172,34 @@ polyglot
 │   ├── RunRustSema()
 │   └── LowerRustToIR()
 │
+├── java                           # Java 前端
+│   ├── AST
+│   ├── JavaLexer
+│   ├── JavaParser
+│   ├── RunJavaSema()
+│   └── LowerJavaToIR()
+│
+├── dotnet                         # .NET/C# 前端
+│   ├── AST
+│   ├── DotnetLexer
+│   ├── DotnetParser
+│   ├── RunDotnetSema()
+│   └── LowerDotnetToIR()
+│
+├── ploy                           # .ploy 前端
+│   ├── AST (~60 节点类型)
+│   ├── PloyLexer
+│   ├── PloyParser
+│   ├── PloySema
+│   └── PloyLowering
+│
 ├── backends                       # 后端公共
 │   ├── TargetMachine (abstract)
 │   ├── ObjectFileBuilder / ELFBuilder / MachOBuilder
 │   ├── DebugInfoBuilder (backends版)
 │   ├── DebugEmitter
 │   ├── DWARF5Generator (backends版)
+│   ├── Relocation
 │   ├── x86_64/                    # x86-64 后端
 │   │   ├── X86Target (: TargetMachine)
 │   │   ├── Register / MachineInstr / MachineBlock
@@ -178,20 +208,26 @@ polyglot
 │   │   ├── MicroArchOptimizer / RegisterRenamer
 │   │   ├── CacheOptimizer / BranchOptimizer
 │   │   └── CallingConvention [匿名namespace, 内部]
-│   └── arm64/                     # ARM64 后端
-│       ├── ARM64Target (: TargetMachine)
-│       ├── Register / MachineInstr / MachineBlock
-│       ├── ISel / RegAlloc
-│       └── CallingConvention [匿名namespace, 内部]
+│   ├── arm64/                     # ARM64 后端
+│   │   ├── ARM64Target (: TargetMachine)
+│   │   ├── Register / MachineInstr / MachineBlock
+│   │   ├── ISel / RegAlloc
+│   │   └── CallingConvention [匿名namespace, 内部]
+│   └── wasm/                      # WebAssembly 后端
+│       └── WASMTarget (: TargetMachine)
 │
 ├── runtime                        # 运行时
-│   ├── GarbageCollector (abstract)
-│   ├── Heap / RootHandle
-│   ├── C linkage API (poly_alloc, poly_gc 等)
+│   ├── gc/                        # 垃圾收集
+│   │   ├── GarbageCollector (abstract)
+│   │   ├── Heap / RootHandle
+│   │   ├── GC 策略 (MarkSweep/Generational/Copying/Incremental)
+│   │   └── C linkage API (poly_alloc, poly_gc 等)
 │   ├── interop/                   # FFI 互操作
 │   │   ├── TypeMapping / Marshalling
 │   │   ├── CallingConvention (runtime层)
 │   │   ├── ManagedBuffer / Memory
+│   │   ├── ObjectLifecycle / OwnershipTracker
+│   │   ├── ContainerMarshal
 │   │   └── FFI (HandleTable, DynamicLibrary, FFIRegistry)
 │   └── services/                  # 运行时服务
 │       ├── ThreadLocal / Thread / ThreadPool
@@ -216,7 +252,7 @@ polyglot
 
 ---
 
-## 3. 模块间调用关系图
+## 3. 模块间依赖关系图
 
 ```
                             ┌──────────────────┐
@@ -224,64 +260,69 @@ polyglot
                             │    (driver.cpp)  │
                             └────────┬─────────┘
                                      │ 调用
-                 ┌───────────────────┼───────────────────┐
-                 │                   │                   │
-        ┌────────▼────────┐ ┌───────▼────────┐ ┌───────▼────────┐
-        │  frontends/cpp  │ │frontends/python│ │ frontends/rust │
-        │  CppLexer       │ │  PythonLexer   │ │  RustLexer     │
-        │  CppParser      │ │  PythonParser  │ │  RustParser    │
-        │  RunCppSema()   │ │RunPythonSema() │ │ RunRustSema()  │
-        │  LowerCppToIR() │ │LowerPyToIR()  │ │LowerRustToIR() │
-        └────────┬────────┘ └───────┬────────┘ └───────┬────────┘
-                 │ 依赖              │                   │
-                 ▼                   ▼                   ▼
-        ┌──────────────────────────────────────────────────────┐
-        │              frontends/common                        │
-        │  LexerBase, ParserBase, Diagnostics, Preprocessor    │
-        └──────────────────────┬───────────────────────────────┘
-                               │ 依赖
-                               ▼
-        ┌──────────────────────────────────────────────────────┐
-        │                 polyglot_common                       │
-        │  core: Type, TypeSystem, SymbolTable                 │
-        │  utils: StringPool, Logger, Arena                    │
-        │  debug: DWARF5, DebugInfoBuilder                     │
-        │  backends/common: DebugEmitter, ObjectFile           │
-        └──────────────────────┬───────────────────────────────┘
-                               │
-               ┌───────────────┼───────────────┐
-               ▼               ▼               ▼
-        ┌─────────────┐ ┌───────────┐ ┌──────────────┐
-        │  middle_ir   │ │ middle_ir │ │   middle_ir  │
-        │  IRBuilder   │ │ Passes    │ │  PGO / LTO   │
-        │  IRContext   │ │ (opt)     │ │  Template    │
-        │  DataLayout  │ │           │ │  ClassLayout │
-        └──────┬──────┘ └─────┬─────┘ └──────┬───────┘
-               │              │               │
-               └──────────────┼───────────────┘
-                              ▼
-               ┌──────────────┴──────────────┐
-               │                             │
-        ┌──────▼──────┐             ┌───────▼───────┐
-        │ backend_x86 │             │ backend_arm64 │
-        │ X86Target   │             │ ARM64Target   │
-        │ ISel/RegAll │             │ ISel/RegAlloc │
-        │ Scheduler   │             │               │
-        └──────┬──────┘             └───────┬───────┘
-               │                            │
-               └────────────┬───────────────┘
-                            ▼
-                    ┌───────────────┐
-                    │    runtime    │
-                    │  GC / FFI    │
-                    │  Threading   │
-                    │  Reflection  │
-                    └───────────────┘
+          ┌──────────┬───────────────┼───────────────┬──────────┐
+          │          │               │               │          │
+ ┌────────▼────┐ ┌───▼──────┐ ┌─────▼─────┐ ┌──────▼───┐ ┌────▼───────┐
+ │frontend_cpp │ │frontend_ │ │frontend_  │ │frontend_ │ │frontend_   │
+ │ CppLexer    │ │python    │ │rust       │ │java      │ │dotnet      │
+ │ CppParser   │ │PythonLex │ │RustLexer  │ │JavaLexer │ │DotnetLexer │
+ │ RunCppSema()│ │PythonPar │ │RustParser │ │JavaParse │ │DotnetParse │
+ │LowerCppTo   │ │RunPython │ │RunRustSe  │ │RunJavaSe │ │RunDotnetSe │
+ │  IR()       │ │ Sema()   │ │  ma()     │ │  ma()    │ │  ma()      │
+ └────────┬────┘ └───┬──────┘ └──────┬────┘ └────────┬─┘ └──────┬─────┘
+          │          │               │               │          │
+          └──────────┴───────┬───────┴───────┬───────┴──────────┘
+                             │               │
+                    ┌────────▼────────┐  ┌───▼────────────┐
+                    │frontend_common  │  │ frontend_ploy  │
+                    │LexerBase,Parser │  │ PloyLexer      │
+                    │Base,Diagnostics │  │ PloyParser     │
+                    │Preprocessor     │  │ PloySema       │
+                    └────────┬────────┘  │ PloyLowering   │
+                             │           └───┬────────────┘
+                             │ 依赖           │
+                             ▼               │
+        ┌────────────────────────────────────┼─────────────────┐
+        │            polyglot_common         │                 │
+        │  core: Type, TypeSystem, SymTable  │                 │
+        │  utils: StringPool, Logger, Arena  │                 │
+        │  debug: DWARF5, DebugInfoBuilder   │                 │
+        │  backends/common: DebugEmitter     │                 │
+        └──────────────────┬─────────────────┘                 │
+                           │                                   │
+               ┌───────────┼───────────┐                       │
+               ▼           ▼           ▼                       │
+        ┌──────────┐ ┌──────────┐ ┌──────────┐                 │
+        │middle_ir │ │ middle   │ │middle_ir │                 │
+        │IRBuilder │ │ passes   │ │PGO / LTO │                 │
+        │IRContext │ │(优化)     │ │Template  │                │
+        │DataLayout│ │          │ │ClassLay  │                 │
+        └────┬─────┘ └─────┬────┘ └─────┬────┘                 │
+             │             │            │                      │
+             └─────────────┼────────────┘                      │
+                           ▼                                   │
+               ┌───────────┴──────────────┬────────────────────┘
+               │                          │
+        ┌──────▼──────┐  ┌───────▼───────┐ ┌──────────────┐
+        │backend_x86  │  │backend_arm64  │ │ backend_wasm │
+        │ X86Target   │  │ ARM64Target   │ │ WASMTarget   │
+        │ ISel/RegAll │  │ ISel/RegAlloc │ │              │
+        │ Scheduler   │  │               │ │              │
+        └──────┬──────┘  └───────┬───────┘ └──────┬───────┘
+               │                 │                │
+               └─────────────┬──┴────────────────┘
+                             ▼
+                     ┌───────────────┐
+                     │    runtime    │
+                     │  GC / FFI     │
+                     │  Threading    │
+                     │  Reflection   │
+                     └───────────────┘
 
         ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐
         │ tools/     │  │ tools/     │  │ tools/     │  │ tools/       │
         │ polyasm    │  │ polyld     │  │ polyopt    │  │ polybench    │
-        │ (汇编器)  │  │ (链接器)   │  │ (优化器)   │  │ (基准测试)  │
+        │ (汇编器)    │  │ (链接器)    │  │ (优化器)    │  │ (基准测试)    │
         └────────────┘  └────────────┘  └────────────┘  └──────────────┘
 ```
 
@@ -291,15 +332,19 @@ polyglot
 polyglot_common ◄──── frontend_common ◄──── frontend_python
        ▲                    ▲                frontend_cpp
        │                    │                frontend_rust
-       │                    │
+       │                    │                frontend_java
+       │                    │                frontend_dotnet
+       │                    │                frontend_ploy
        ├── middle_ir        │
        ├── backend_x86_64   │
        ├── backend_arm64    │
-       │                    │
+       ├── backend_wasm     │
        └── linker_lib       │
                             │
 polyc ──────► frontend_python, frontend_cpp, frontend_rust,
-              backend_x86_64, backend_arm64, middle_ir, runtime
+              frontend_java, frontend_dotnet, frontend_ploy,
+              backend_x86_64, backend_arm64, backend_wasm,
+              middle_ir, runtime
 
 unit_tests ──► 全部库 + Catch2::Catch2WithMain
 ```
@@ -353,7 +398,7 @@ unit_tests ──► 全部库 + Catch2::Catch2WithMain
 | `LandingPadInstruction` | (异常处理指令) | C++ lowering |
 | `ResumeInstruction` | (异常处理指令) | 声明存在，⚠️ 仅 C++ lowering 间接 |
 | `VectorInstruction` | (SIMD 向量指令) | advanced_optimizations, x86 isel |
-| `ASTVisitor` | `Visit()` | ❌ 仅声明 (middle/include/ir/visitor.h) |
+| `IRVisitor` | `Visit()` | ❌ 仅声明 (`common/include/ir/ir_visitor.h`) |
 
 ### 4.5 `polyglot::passes::transform`
 
@@ -401,20 +446,20 @@ unit_tests ──► 全部库 + Catch2::Catch2WithMain
 
 | 类 | 被调用位置 |
 |----|-----------|
-| `TargetMachine` (abstract) | x86_64/arm64 target 实现 |
+| `TargetMachine` (abstract) | x86_64/arm64/wasm target 实现 |
 | `ObjectFileBuilder` / `ELFBuilder` / `MachOBuilder` | ❌ 仅自身定义文件 |
 | `DebugInfoBuilder` (backends版) | debug_emitter.cpp，测试 |
 | `DebugEmitter` | ⚠️ 仅测试 |
 | `DWARF5Generator` (backends版) | debug_emitter.cpp 内部 |
-| `X86Target` / `ARM64Target` | polyc driver, polyasm |
+| `X86Target` / `ARM64Target` / `WASMTarget` | polyc driver, polyasm |
 | `InstructionScheduler` | ⚠️ 仅测试 |
 | `SoftwarePipeliner` | ⚠️ 仅测试 |
 | `MicroArchOptimizer` | ⚠️ 仅测试 |
 | `RegisterRenamer` | ⚠️ 仅测试 |
 | `CacheOptimizer` | ⚠️ 仅测试 |
 | `BranchOptimizer` | ⚠️ 仅测试 |
-| calling_convention (x86_64) | ❌ 匿名 namespace，无外部调用 |
-| calling_convention (arm64) | ❌ 匿名 namespace，无外部调用 |
+| `calling_convention (x86_64)` | ❌ 匿名 namespace，无外部调用 |
+| `calling_convention (arm64)` | ❌ 匿名 namespace，无外部调用 |
 
 ### 4.9 `polyglot::runtime`
 
@@ -426,6 +471,8 @@ unit_tests ──► 全部库 + Catch2::Catch2WithMain
 | `FFIRegistry` | ⚠️ 仅测试 |
 | `DynamicLibrary` | ⚠️ 仅测试 |
 | `HandleTable` | ⚠️ 仅测试 |
+| `ObjectLifecycle` / `OwnershipTracker` | ⚠️ 仅测试 |
+| `ContainerMarshal` | ⚠️ 仅测试 |
 | `TaskScheduler` | ⚠️ 仅测试 |
 | `WorkStealingScheduler` | ⚠️ 仅测试 |
 | `CoroutineScheduler` | ⚠️ 仅测试 |
@@ -456,12 +503,12 @@ unit_tests ──► 全部库 + Catch2::Catch2WithMain
 | 4 | `Arena` | `common/include/utils/arena.h` | 声明但零引用 |
 | 5 | `DebugInfoValidator` | `common/include/debug/debug_info_builder.h` | 声明但零引用 |
 | 6 | `DebugInfoPrinter` | `common/include/debug/debug_info_builder.h` | 声明但零引用 |
-| 7 | `ASTVisitor` | `middle/include/ir/visitor.h` | 抽象基类，无子类实现 |
+| 7 | `IRVisitor` | `common/include/ir/ir_visitor.h` | 抽象基类，无子类实现 |
 | 8 | `TokenPool` | `frontends/common/include/token_pool.h` | 声明但 cpp 为空桩，零引用 |
 | 9 | `ThreadProfiler` | `runtime/include/services/threading.h` | 仅静态方法声明，无实现 |
 | 10 | `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder` | `backends/common/include/object_file.h` | 声明+定义但无外部调用 |
-| 11 | calling_convention (x86_64) | `backends/x86_64/src/calling_convention.cpp` | 匿名 namespace 内全部代码无外部调用 |
-| 12 | calling_convention (arm64) | `backends/arm64/src/calling_convention.cpp` | 匿名 namespace 内全部代码无外部调用 |
+| 11 | `calling_convention (x86_64)` | `backends/x86_64/src/calling_convention.cpp` | 匿名 namespace 内全部代码无外部调用 |
+| 12 | `calling_convention (arm64)` | `backends/arm64/src/calling_convention.cpp` | 匿名 namespace 内全部代码无外部调用 |
 
 ### 5.2 🟡 仅测试使用（有完整实现和测试，但未集成到编译流水线）
 
@@ -492,81 +539,4 @@ unit_tests ──► 全部库 + Catch2::Catch2WithMain
 
 ---
 
-## 6. 解决方案建议
-
-### 6.1 完全未使用的代码 — 建议优先处理
-
-#### 🔴 方案 A：移除死代码（推荐）
-
-如果确认不再需要，直接删除以减少维护负担：
-
-| 项目 | 操作 |
-|------|------|
-| `CompilerConfig` | 删除 `common/include/core/config.h`，或集成到编译器驱动 `polyc` 中使其生效 |
-| `StringPool` | 删除 `common/include/utils/string_pool.h`，或在 Lexer 中引入字符串去重 |
-| `Logger` | 删除 `common/include/utils/logging.h`，或在全项目统一使用 Logger 替代 `std::cerr` |
-| `Arena` | 删除 `common/include/utils/arena.h`，或在 AST 节点分配中使用 Arena |
-| `ASTVisitor` | 删除 `middle/include/ir/visitor.h`，或为各前端 AST 实现 Visitor 模式 |
-| `TokenPool` | 删除 `frontends/common/include/token_pool.h` 和空桩 `.cpp` |
-| `DebugInfoValidator` / `DebugInfoPrinter` | 删除或集成到 `DebugEmitter` 工作流中 |
-| `ThreadProfiler` | 删除空声明或补全实现 |
-
-#### 🔴 方案 B：集成到编译流水线（推荐用于有价值的工具类）
-
-| 项目 | 建议集成方式 |
-|------|-------------|
-| `CompilerConfig` | 在 `polyc/driver.cpp` 中使用，将命令行参数存入 CompilerConfig，各模块读取 |
-| `StringPool` | 在 `LexerBase` 中使用，将所有 identifier lexeme 通过 StringPool 去重 |
-| `Logger` | 在 `Diagnostics` 或编译流水线中使用，统一日志输出 |
-| `Arena` | 在前端 AST 节点分配中引入 Arena 分配器，减少 `shared_ptr` 开销 |
-| `ASTVisitor` | 在前端 Sema/Lowering 中使用 Visitor 模式替代大量 `dynamic_cast` |
-| `DebugInfoValidator` | 在 `DebugEmitter::EmitDWARF()` 前调用验证 |
-
-### 6.2 ObjectFileBuilder / CallingConvention — 补全集成
-
-| 项目 | 建议 |
-|------|------|
-| `ELFBuilder` / `MachOBuilder` | 在 `X86Target::EmitObjectCode()` 和 `ARM64Target::EmitObjectCode()` 中使用 ObjectFileBuilder 来生成目标文件 |
-| `CallingConvention` (x86_64/arm64) | 将匿名 namespace 中的 `CallingConvention` struct 提取到头文件中，在 `emit.cpp` 中的汇编发射过程中调用 `EmitPrologue/EmitEpilogue/EmitCallSetup` |
-
-### 6.3 仅测试使用的优化 Pass — 集成到优化流水线
-
-这些 Pass 已有完整实现和测试，但未被编译器主流程使用。
-
-**建议：在 `polyopt` 工具或 `polyc` 的优化阶段中集成 PassManager**
-
-```
-推荐集成顺序:
-1. polyc -O1: ConstantFolding → DeadCodeElimination → CommonSubexprElimination
-2. polyc -O2: + Inlining → GVN → LICM → LoopUnrolling
-3. polyc -O3: + LoopFusion → LoopStrengthReduction → Devirtualization → TailCallOpt
-4. polyc -Ofast: + AutoVectorize → LoopTiling → SoftwarePipeliner
-5. polyc -flto: + LTO pipeline (CrossModuleInliner → DeadSymbolEliminator → IPCP)
-6. polyc -fprofile-use: + PGO (RuntimeProfiler → ProfileGuidedOptimizer)
-```
-
-**具体操作**：在 `tools/polyc/src/driver.cpp` 中添加优化阶段选项，根据 `-O` 级别调用对应 Pass。
-
-### 6.4 运行时服务集成
-
-| 项目 | 建议 |
-|------|------|
-| GC (`Heap`) | 在 `polyrt` 工具中集成，或在运行时 C linkage API 中实际使用 `Heap` 类 |
-| FFI (`FFIRegistry`) | 在 `polyrt` 工具中集成 FFI 加载/调用功能 |
-| Threading | 在 `polyrt` 或运行时库中提供线程 API 入口 |
-| Reflection | 在运行时库中自动注册编译后的类型信息 |
-
-### 6.5 优先级排序
-
-| 优先级 | 行动 | 影响范围 |
-|--------|------|---------|
-| **P0 - 立即处理** | 删除 6 个完全死代码工具类（StringPool/Logger/Arena/CompilerConfig/TokenPool/ThreadProfiler） | 减少 ~500 行无效代码 |
-| **P1 - 短期** | 集成 CallingConvention 到后端 emit 流程；集成 ObjectFileBuilder | 完成后端目标文件生成链路 |
-| **P2 - 中期** | 在 polyc 中集成 optimization passes（按 -O 级别） | 编译器优化能力可用 |
-| **P3 - 中期** | 集成 PGO/LTO 到 polyc 编译流水线 | 高级优化能力可用 |
-| **P4 - 长期** | 集成运行时服务到 polyrt | 运行时功能完整 |
-| **P5 - 可选** | 将 DebugInfoValidator/Printer 集成到调试信息 pipeline | 调试信息质量保证 |
-
----
-
-*本文档基于对 98 个头文件和 80 个源文件的静态分析生成。"仅测试使用"的组件本身是完整可用的，只是尚未集成到编译器的主编译流水线中。*
+*本文档基于对 98 个头文件和 80 个源文件的静态分析生成。标记为"仅测试使用"的组件本身是完整可用的，拥有完整实现和测试覆盖——它们只是尚未集成到编译器的主编译流水线中。*

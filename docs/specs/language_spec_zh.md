@@ -1,7 +1,7 @@
 # PolyglotCompiler 语言与 IR 规范
 
-> **版本**: 2.0.0  
-> **最后更新**: 2026-02-20  
+> **版本**: 3.0.0  
+> **最后更新**: 2026-02-22  
 
 ---
 
@@ -285,6 +285,10 @@ IR 使用独立于源语言的底层类型系统：
 %result = mul i64 %a, %b
 %result = sdiv i64 %a, %b
 %result = fadd f64 %x, %y
+%result = fsub f64 %x, %y
+%result = fmul f64 %x, %y
+%result = fdiv f64 %x, %y
+%result = frem f64 %x, %y
 ```
 
 ### 内存指令
@@ -469,4 +473,4 @@ aux/
 |------|--------|------|
 | x86_64 | SSE2/AVX/AVX2/AVX-512 | ✅ |
 | ARM64 (AArch64) | NEON/SVE | ✅ |
-| WebAssembly | MVP + SIMD | 🔧 计划中 |
+| WebAssembly | MVP + SIMD | ✅ |

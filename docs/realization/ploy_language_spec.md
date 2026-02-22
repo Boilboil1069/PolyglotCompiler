@@ -33,10 +33,11 @@ NOT         CALL        VOID        INT         FLOAT
 STRING      BOOL        ARRAY       STRUCT      PACKAGE
 LIST        TUPLE       DICT        OPTION      MAP_FUNC
 CONVERT     CONFIG      VENV        CONDA       UV
-PIPENV      POETRY      NEW         METHOD
+PIPENV      POETRY      NEW         METHOD      GET
+SET         WITH        DELETE      EXTEND
 ```
 
-Total: 49 keywords.
+Total: 54 keywords.
 
 ### 3.2 Identifiers
 
@@ -380,7 +381,7 @@ The compiler generates marshalling code based on `MAP_TYPE` directives and the b
     │
     ▼
 ┌──────────┐
-│  Lexer   │  → Token stream (41 keywords + operators + literals)
+│  Lexer   │  → Token stream (54 keywords + operators + literals)
 └──────────┘
     │
     ▼

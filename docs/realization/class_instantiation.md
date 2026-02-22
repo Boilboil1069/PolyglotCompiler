@@ -36,8 +36,13 @@ Without class instantiation support, developers cannot use these object-oriented
 |----------|----------------------------------|-------------|
 | `NEW`    | Cross-language class instantiation | Calls the constructor of a target language class, returns an object handle |
 | `METHOD` | Cross-language method invocation   | Invokes a method on a target language object |
+| `GET`    | Cross-language property access     | Reads a property/field from a target language object |
+| `SET`    | Cross-language property mutation   | Writes a property/field on a target language object |
+| `WITH`   | Cross-language resource management | Context-managed scope with automatic cleanup |
+| `DELETE` | Cross-language object destruction  | Explicitly destroys/releases a target language object |
+| `EXTEND` | Cross-language class extension     | Extends a target language class with new methods |
 
-With these additions, the `.ploy` language has **49 reserved keywords** in total.
+With these additions, the `.ploy` language has **54 reserved keywords** in total.
 
 ### 2.2 Syntax Definition
 
@@ -49,7 +54,7 @@ NEW(language, class_name [, arg1, arg2, ...])
 
 | Parameter | Description | Examples |
 |-----------|-------------|----------|
-| `language` | Target language identifier | `python`, `rust`, `cpp` |
+| `language` | Target language identifier | `python`, `rust`, `cpp`, `java`, `dotnet` |
 | `class_name` | Class name (may use `::` qualification) | `MyClass`, `torch::nn::Linear` |
 | `arg1, arg2, ...` | Constructor arguments (optional) | `784, 10` |
 
@@ -77,7 +82,7 @@ METHOD(language, object, method_name [, arg1, arg2, ...])
 
 | Parameter | Description | Examples |
 |-----------|-------------|----------|
-| `language` | Target language identifier | `python`, `rust` |
+| `language` | Target language identifier | `python`, `rust`, `cpp`, `java`, `dotnet` |
 | `object` | Object expression (typically a variable) | `model`, `scaler` |
 | `method_name` | Method name (may use `::` qualification) | `forward`, `fit_transform` |
 | `arg1, arg2, ...` | Method arguments (optional) | `data, 42` |
@@ -255,7 +260,7 @@ PIPELINE training_pipeline {
 ```
 ┌────────┐   ┌────────┐   ┌────────┐   ┌─────────┐   ┌──────────┐
 │ Lexer  │ → │ Parser │ → │  Sema  │ → │Lowering │ → │   IR     │
-│  (49   │   │ NEW    │   │Language │   │ctor stub│   │ bridge   │
+│  (54   │   │ NEW    │   │Language │   │ctor stub│   │ bridge   │
 │  kws)  │   │ METHOD │   │validate│   │meth stub│   │  calls   │
 └────────┘   └────────┘   └────────┘   └─────────┘   └──────────┘
 ```
