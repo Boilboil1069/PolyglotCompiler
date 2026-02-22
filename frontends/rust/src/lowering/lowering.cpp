@@ -153,6 +153,7 @@ bool IsFloatLiteral(const std::string &text, double *out) {
 // Forward declarations
 EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc);
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc);
+bool LowerFunction(const FunctionItem &fn, LoweringContext &lc);
 
 // Create an integer literal
 EvalResult MakeLiteral(long long v, LoweringContext &lc) {
@@ -771,9 +772,63 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
         return {exit_block->name, ir::IRType::Void()};
     }
     
-    // Macro call - skip for now
+    // Macro call — expand well-known macros into IR.
+    // For user-defined macros we emit a call to a runtime helper that
+    // evaluates the macro body; for std macros like println!/format! we
+    // expand them inline.
     if (auto macro = std::dynamic_pointer_cast<MacroCallExpression>(expr)) {
-        return {"", ir::IRType::Void()};
+        // Construct the full macro path (e.g. "std::println", "vec")
+        std::string macro_name;
+        for (const auto &seg : macro->path.segments) {
+            if (!macro_name.empty()) macro_name += "::";
+            macro_name += seg;
+        }
+
+        if (macro_name == "println" || macro_name == "std::println") {
+            // println!("...") → call __rs_println with the string body
+            std::string body_str = macro->body;
+            std::string sym = lc.builder.MakeStringLiteral(body_str, "fmt");
+            auto inst = lc.builder.MakeCall("__rs_println", {sym}, ir::IRType::Void(), "");
+            return {inst->name, ir::IRType::Void()};
+        }
+        if (macro_name == "eprintln" || macro_name == "std::eprintln") {
+            std::string body_str = macro->body;
+            std::string sym = lc.builder.MakeStringLiteral(body_str, "fmt");
+            auto inst = lc.builder.MakeCall("__rs_eprintln", {sym}, ir::IRType::Void(), "");
+            return {inst->name, ir::IRType::Void()};
+        }
+        if (macro_name == "format" || macro_name == "std::format") {
+            std::string body_str = macro->body;
+            std::string sym = lc.builder.MakeStringLiteral(body_str, "fmt");
+            auto inst = lc.builder.MakeCall("__rs_format", {sym},
+                                            ir::IRType::Pointer(ir::IRType::I8()), "");
+            return {inst->name, ir::IRType::Pointer(ir::IRType::I8())};
+        }
+        if (macro_name == "vec" || macro_name == "std::vec") {
+            // vec![...] → allocate a runtime vector from the body tokens
+            std::string body_str = macro->body;
+            std::string sym = lc.builder.MakeStringLiteral(body_str, "vec_init");
+            auto inst = lc.builder.MakeCall("__rs_vec_from_literal", {sym},
+                                            ir::IRType::Pointer(ir::IRType::I8()), "");
+            return {inst->name, ir::IRType::Pointer(ir::IRType::I8())};
+        }
+        if (macro_name == "panic" || macro_name == "std::panic") {
+            std::string body_str = macro->body;
+            std::string sym = lc.builder.MakeStringLiteral(body_str, "panic_msg");
+            lc.builder.MakeCall("__rs_panic", {sym}, ir::IRType::Void(), "");
+            lc.builder.MakeUnreachable();
+            lc.terminated = true;
+            return {"", ir::IRType::Void()};
+        }
+
+        // Generic macro: emit a runtime call with the macro body as a string
+        std::string sym = lc.builder.MakeStringLiteral(macro->body, "macro_body");
+        std::string func = "__rs_macro_" + macro_name;
+        for (char &c : func) {
+            if (c == ':') c = '_';
+        }
+        auto inst = lc.builder.MakeCall(func, {sym}, ir::IRType::I64(true), "");
+        return {inst->name, ir::IRType::I64(true)};
     }
     
     // Try expression
@@ -822,9 +877,35 @@ bool LowerLet(const std::shared_ptr<LetStatement> &let, LoweringContext &lc) {
     }
     
     if (auto tup = std::dynamic_pointer_cast<TuplePattern>(let->pattern)) {
-        // Destructuring tuple pattern
-        // For now, only handle simple cases
-        lc.diags.Report(let->loc, "tuple pattern destructuring not fully supported");
+        // Destructuring tuple pattern: let (a, b, c) = expr;
+        // Extract each element from the tuple value using GEP.
+        if (result.type.kind == ir::IRTypeKind::kStruct &&
+            !result.type.subtypes.empty()) {
+            // The result is a struct type representing the tuple.
+            for (size_t i = 0; i < tup->elements.size() && i < result.type.subtypes.size(); ++i) {
+                auto elem_pat = std::dynamic_pointer_cast<IdentifierPattern>(tup->elements[i]);
+                if (elem_pat) {
+                    auto gep = lc.builder.MakeGEP(result.value, result.type, {i});
+                    auto load = lc.builder.MakeLoad(gep->name, result.type.subtypes[i]);
+                    lc.env[elem_pat->name] = {load->name, result.type.subtypes[i]};
+                }
+                // Wildcard patterns are silently ignored.
+            }
+        } else {
+            // Non-struct tuple value: extract elements using offset arithmetic.
+            for (size_t i = 0; i < tup->elements.size(); ++i) {
+                auto elem_pat = std::dynamic_pointer_cast<IdentifierPattern>(tup->elements[i]);
+                if (elem_pat) {
+                    // Use a runtime helper to extract element i from the tuple
+                    std::string idx_str = std::to_string(i);
+                    auto extract = lc.builder.MakeCall(
+                        "__rs_tuple_extract",
+                        {result.value, idx_str},
+                        ir::IRType::I64(true), "");
+                    lc.env[elem_pat->name] = {extract->name, ir::IRType::I64(true)};
+                }
+            }
+        }
         return true;
     }
     
@@ -1203,6 +1284,41 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     // Match expression as statement
     if (auto match = std::dynamic_pointer_cast<MatchExpression>(stmt)) {
         EvalMatch(match, lc);
+        return true;
+    }
+
+    // Function item declaration — lower as a standalone function
+    if (auto fn_item = std::dynamic_pointer_cast<FunctionItem>(stmt)) {
+        return LowerFunction(*fn_item, lc);
+    }
+
+    // Impl block — lower each method inside it
+    if (auto impl = std::dynamic_pointer_cast<ImplItem>(stmt)) {
+        for (const auto &m : impl->items) {
+            if (auto fn_item = std::dynamic_pointer_cast<FunctionItem>(m)) {
+                if (!LowerFunction(*fn_item, lc)) return false;
+            }
+        }
+        return true;
+    }
+
+    // Const item — evaluate the initialiser and bind the result
+    if (auto cst = std::dynamic_pointer_cast<ConstItem>(stmt)) {
+        if (cst->value) {
+            auto val = EvalExpr(cst->value, lc);
+            lc.env[cst->name] = {val.value, val.type};
+        }
+        return true;
+    }
+
+    // Type alias, trait, mod, struct, enum, macro_rules — metadata only,
+    // no IR is generated directly for these declarations.
+    if (std::dynamic_pointer_cast<TypeAliasItem>(stmt) ||
+        std::dynamic_pointer_cast<TraitItem>(stmt) ||
+        std::dynamic_pointer_cast<ModItem>(stmt) ||
+        std::dynamic_pointer_cast<StructItem>(stmt) ||
+        std::dynamic_pointer_cast<EnumItem>(stmt) ||
+        std::dynamic_pointer_cast<MacroRulesItem>(stmt)) {
         return true;
     }
     

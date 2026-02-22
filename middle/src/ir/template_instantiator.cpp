@@ -442,9 +442,22 @@ SubstitutionResult TemplateInstantiator::SubstituteAst(
     return SubstitutionResult::Failure("Null AST provided for substitution");
   }
   
-  // This is a placeholder - actual implementation would cast and visit the AST
-  // The visitor pattern allows frontend-specific AST handling
-  return SubstitutionResult::Success(nullptr);
+  // Perform the AST substitution through the frontend-specific visitor.
+  // Wrap the raw pointer in a non-owning shared_ptr so we can pass it
+  // through the GenericAstNode-based visitor interface without taking
+  // ownership of memory we do not own.
+  auto non_owning = std::shared_ptr<GenericAstNode>(
+      static_cast<GenericAstNode *>(ast),
+      [](GenericAstNode *) { /* intentional no-op deleter */ });
+
+  // Let the visitor perform the type substitution across the AST tree
+  auto result_node = visitor->SubstituteType(non_owning, substitutions);
+  if (!result_node) {
+    return SubstitutionResult::Failure(
+        "AST visitor returned null after substitution for node type '"
+        + non_owning->NodeType() + "'");
+  }
+  return SubstitutionResult::Success(result_node);
 }
 
 // -------------------------------------------------------------------------

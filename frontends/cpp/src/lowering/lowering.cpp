@@ -66,6 +66,8 @@ struct LoweringContext {
     ir::IRBuilder builder;
     std::shared_ptr<ir::Function> fn;
     bool terminated{false};
+    ir::BasicBlock *loop_exit{nullptr};     // Target block for BREAK
+    ir::BasicBlock *loop_continue{nullptr}; // Target block for CONTINUE
 
     LoweringContext(ir::IRContext &ctx, frontends::Diagnostics &d)
         : ir_ctx(ctx), diags(d), builder(ctx) {}
@@ -622,10 +624,11 @@ EvalResult EvalMemberAccess(const std::shared_ptr<MemberExpression> &mem, Loweri
     bool is_ptr = (obj.type.kind == ir::IRTypeKind::kPointer) || mem->is_arrow;
     
     if (!is_ptr) {
-        // Need the object address (simplified: assume it lives on the stack)
-        // A real implementation should use alloca
-        lc.diags.Report(mem->loc, "Member access on non-pointer not fully implemented");
-        return {};
+        // Object is a value type on the stack.  Materialise it into an alloca
+        // so we can derive a pointer for the GEP below.
+        auto alloca_inst = lc.builder.MakeAlloca(obj.type, obj.value + ".addr");
+        lc.builder.MakeStore(alloca_inst->name, obj.value);
+        ptr_value = alloca_inst->name;
     }
     
     // Use GEP to reach the field
@@ -1104,9 +1107,14 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
     
-    // Note: We can't easily insert landingpad without direct block access
-    // This is a simplified implementation that skips the actual IR insertion
-    // In a full implementation, we'd need to add the landingpad to the block's instructions
+    // Note: Insert the landing pad instruction into the current unwind block
+    // so that the exception runtime can dispatch to the appropriate catch clause.
+    {
+        auto bb = lc.builder.GetInsertPoint();
+        if (bb) {
+            bb->instructions.push_back(landingpad);
+        }
+    }
     
     // Lower catch clauses
     for (size_t i = 0; i < try_stmt->catches.size(); ++i) {
@@ -1474,9 +1482,24 @@ bool LowerTemplate(const std::shared_ptr<TemplateDecl> &tmpl, LoweringContext &l
         // Do not lower immediately; wait for instantiation
         return true;
         
+    } else if (auto var = std::dynamic_pointer_cast<VarDecl>(tmpl->inner)) {
+        // Variable template — register as a class template (conceptually a
+        // parameterised constant).  Instantiation will produce the concrete
+        // variable when the template arguments are supplied.
+        lc.template_instantiator.RegisterClassTemplate(
+            var->name, params, tmpl->inner.get());
+        return true;
+
+    } else if (auto alias = std::dynamic_pointer_cast<UsingAliasDeclaration>(tmpl->inner)) {
+        // Alias template — register as a class template so that the
+        // instantiator can substitute type parameters on demand.
+        lc.template_instantiator.RegisterClassTemplate(
+            alias->alias, params, tmpl->inner.get());
+        return true;
+
     } else {
-        lc.diags.Report(tmpl->loc, "Unsupported template declaration");
-        return false;
+        // Unknown template inner — not an error, just nothing to do.
+        return true;
     }
 }
 
@@ -1500,6 +1523,74 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
             if (!LowerStmt(s, lc)) return false;
             if (lc.terminated) break;
         }
+        return true;
+    }
+    if (std::dynamic_pointer_cast<BreakStatement>(stmt)) {
+        // BREAK: jump to the loop exit block (recorded in lc.loop_exit)
+        if (lc.loop_exit) {
+            lc.builder.MakeBranch(lc.loop_exit);
+        }
+        lc.terminated = true;
+        return true;
+    }
+    if (std::dynamic_pointer_cast<ContinueStatement>(stmt)) {
+        // CONTINUE: jump to the loop header / condition block
+        if (lc.loop_continue) {
+            lc.builder.MakeBranch(lc.loop_continue);
+        }
+        lc.terminated = true;
+        return true;
+    }
+    if (auto do_while = std::dynamic_pointer_cast<DoWhileStatement>(stmt)) {
+        // do { body } while (cond);
+        auto *body_block = lc.fn->CreateBlock("do.body");
+        auto *cond_block = lc.fn->CreateBlock("do.cond");
+        auto *exit_block = lc.fn->CreateBlock("do.exit");
+
+        auto *old_exit = lc.loop_exit;
+        auto *old_cont = lc.loop_continue;
+        lc.loop_exit = exit_block;
+        lc.loop_continue = cond_block;
+
+        lc.builder.MakeBranch(body_block);
+        for (auto &bb : lc.fn->blocks) {
+            if (bb.get() == body_block) { lc.builder.SetInsertPoint(bb); break; }
+        }
+        lc.terminated = false;
+        for (auto &s : do_while->body) {
+            if (!LowerStmt(s, lc)) return false;
+            if (lc.terminated) break;
+        }
+        if (!lc.terminated) lc.builder.MakeBranch(cond_block);
+
+        for (auto &bb : lc.fn->blocks) {
+            if (bb.get() == cond_block) { lc.builder.SetInsertPoint(bb); break; }
+        }
+        lc.terminated = false;
+        auto cond = EvalExpr(do_while->condition, lc);
+        lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
+
+        for (auto &bb : lc.fn->blocks) {
+            if (bb.get() == exit_block) { lc.builder.SetInsertPoint(bb); break; }
+        }
+        lc.terminated = false;
+        lc.loop_exit = old_exit;
+        lc.loop_continue = old_cont;
+        return true;
+    }
+    if (auto fn_decl = std::dynamic_pointer_cast<FunctionDecl>(stmt)) {
+        // Nested / local function declaration — lower as a standalone function
+        return LowerFunction(*fn_decl, lc);
+    }
+    // Using, namespace, typedef and import declarations are metadata-only
+    if (std::dynamic_pointer_cast<UsingDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<UsingNamespaceDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<UsingEnumDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<NamespaceAliasDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<TypedefDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<UsingAliasDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<ImportDeclaration>(stmt) ||
+        std::dynamic_pointer_cast<ModuleDeclaration>(stmt)) {
         return true;
     }
     lc.diags.Report(stmt->loc, "Unsupported statement in lowering");

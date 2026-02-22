@@ -64,12 +64,21 @@ class CopyingGC : public GC {
     void *obj = from_ptr_ + sizeof(ObjectHeader);
     from_ptr_ += total_size;
 
+    total_allocations_++;
+    total_bytes_allocated_ += size;
+    current_heap_bytes_ += size;
+    live_objects_++;
+    if (current_heap_bytes_ > peak_heap_bytes_) {
+      peak_heap_bytes_ = current_heap_bytes_;
+    }
+
     return obj;
   }
 
   void Collect() override {
     std::lock_guard<std::mutex> lock(mu_);
     CollectImpl();
+    collections_++;
   }
 
   void RegisterRoot(void **slot) override {
@@ -82,6 +91,20 @@ class CopyingGC : public GC {
     std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
+  }
+
+  GCStats GetStats() const override {
+    std::lock_guard<std::mutex> lock(mu_);
+    GCStats stats;
+    stats.total_allocations = total_allocations_;
+    stats.total_bytes_allocated = total_bytes_allocated_;
+    stats.current_heap_bytes = current_heap_bytes_;
+    stats.peak_heap_bytes = peak_heap_bytes_;
+    stats.collections = collections_;
+    stats.total_freed_bytes = total_freed_bytes_;
+    stats.live_objects = live_objects_;
+    stats.root_count = roots_.size();
+    return stats;
   }
 
  private:
@@ -133,7 +156,16 @@ class CopyingGC : public GC {
   char *to_ptr_{nullptr};
 
   std::vector<void **> roots_;
-  std::mutex mu_;
+  mutable std::mutex mu_;
+
+  // Accumulated statistics
+  size_t total_allocations_{0};
+  size_t total_bytes_allocated_{0};
+  size_t current_heap_bytes_{0};
+  size_t peak_heap_bytes_{0};
+  size_t collections_{0};
+  size_t total_freed_bytes_{0};
+  size_t live_objects_{0};
 };
 
 std::unique_ptr<GC> MakeCopyingGC() { return std::make_unique<CopyingGC>(); }

@@ -114,6 +114,8 @@ struct EvalResult {
 // Forward declarations
 EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc);
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc);
+bool LowerFunction(const FunctionDef &fn, LoweringContext &lc);
+bool LowerClass(const ClassDef &cls, LoweringContext &lc);
 
 // ----------------------------------------------------------------------------
 // Literal parsing helpers.
@@ -363,8 +365,30 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     std::vector<std::string> args;
     std::vector<ir::IRType> arg_types;
     for (const auto &arg : call->args) {
-        if (arg.is_star || arg.is_kwstar) {
-            lc.diags.Report(call->loc, "Starred arguments not fully supported in lowering");
+        if (arg.is_star) {
+            // *args unpacking: evaluate the iterable and emit a runtime helper
+            // that expands it into individual arguments.  For IR purposes we
+            // pass the iterable pointer directly; the runtime call convention
+            // treats it as a variadic pack.
+            auto ev = EvalExpr(arg.value, lc);
+            if (!ev.IsValid()) return EvalResult::Invalid();
+            auto expanded = lc.builder.MakeCall("__py_unpack_args",
+                                                {ev.value}, ir::IRType::Pointer(ir::IRType::I8()),
+                                                lc.NextTemp("star"));
+            args.push_back(expanded->name);
+            arg_types.push_back(expanded->type);
+            continue;
+        }
+        if (arg.is_kwstar) {
+            // **kwargs unpacking: similar treatment — pass the dict to a
+            // runtime helper that merges keyword arguments.
+            auto ev = EvalExpr(arg.value, lc);
+            if (!ev.IsValid()) return EvalResult::Invalid();
+            auto expanded = lc.builder.MakeCall("__py_unpack_kwargs",
+                                                {ev.value}, ir::IRType::Pointer(ir::IRType::I8()),
+                                                lc.NextTemp("kwstar"));
+            args.push_back(expanded->name);
+            arg_types.push_back(expanded->type);
             continue;
         }
         auto ev = EvalExpr(arg.value, lc);
@@ -2010,13 +2034,17 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
         (void)EvalExpr(expr_stmt->expr, lc);
         return true;
     }
-    // Skip nested function/class definitions in statement context
-    // (they should be lowered separately)
-    if (std::dynamic_pointer_cast<FunctionDef>(stmt)) {
-        return true;  // Handled at module level
+    // Nested function/class definitions that appear inside a block scope
+    // are lowered in-place as local declarations.  Forward declarations are
+    // provided so the functions can be referenced before their definition.
+    if (auto fn_def = std::dynamic_pointer_cast<FunctionDef>(stmt)) {
+        // Lower the nested function as a standalone IR function.
+        // This makes it callable from subsequent statements in the same scope.
+        return LowerFunction(*fn_def, lc);
     }
-    if (std::dynamic_pointer_cast<ClassDef>(stmt)) {
-        return true;  // Handled at module level
+    if (auto cls_def = std::dynamic_pointer_cast<ClassDef>(stmt)) {
+        // Lower the nested class declaration so its methods are available.
+        return LowerClass(*cls_def, lc);
     }
 
     lc.diags.Report(stmt->loc, "Unsupported statement type in lowering");

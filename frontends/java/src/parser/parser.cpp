@@ -1271,19 +1271,103 @@ std::shared_ptr<Expression> JavaParser::ParseLambda() {
     return node;
 }
 
-// Unused ParseMethodDecl and ParseFieldDecl (parsing happens inline in class body)
+// Standalone ParseMethodDecl — parses a method declaration outside a class
+// body context.  Used by external tools that need to parse method signatures.
 std::shared_ptr<MethodDecl> JavaParser::ParseMethodDecl(
     const std::string &access, const std::vector<Annotation> &annotations) {
-    (void)access;
-    (void)annotations;
-    return nullptr;
+    // Parse optional modifiers
+    bool is_static = false, is_final = false, is_abstract = false;
+    bool is_synchronized = false, is_native = false, is_default = false;
+    while (current_.kind == frontends::TokenKind::kKeyword) {
+        auto &kw = current_.lexeme;
+        if (kw == "static") { is_static = true; Consume(); }
+        else if (kw == "final") { is_final = true; Consume(); }
+        else if (kw == "abstract") { is_abstract = true; Consume(); }
+        else if (kw == "synchronized") { is_synchronized = true; Consume(); }
+        else if (kw == "native") { is_native = true; Consume(); }
+        else if (kw == "default") { is_default = true; Consume(); }
+        else break;
+    }
+
+    auto type_params = ParseTypeParameters();
+    auto return_type = ParseType();
+    if (!return_type) return nullptr;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) return nullptr;
+    std::string name = current_.lexeme;
+    Consume();
+
+    if (!IsSymbol("(")) return nullptr;
+
+    auto method = std::make_shared<MethodDecl>();
+    method->loc = return_type->loc;
+    method->name = name;
+    method->return_type = return_type;
+    method->access = access;
+    method->is_static = is_static;
+    method->is_final = is_final;
+    method->is_abstract = is_abstract;
+    method->is_synchronized = is_synchronized;
+    method->is_native = is_native;
+    method->is_default = is_default;
+    method->annotations = annotations;
+    method->type_params = type_params;
+    method->params = ParseParameters();
+
+    if (MatchKeyword("throws")) {
+        do {
+            method->throws_types.push_back(ParseType());
+        } while (MatchSymbol(","));
+    }
+
+    if (IsSymbol("{")) {
+        auto block = ParseBlock();
+        method->body = block->statements;
+    } else {
+        ExpectSymbol(";", "expected ';' after method declaration");
+    }
+
+    return method;
 }
 
+// Standalone ParseFieldDecl — parses a field declaration outside a class body.
 std::shared_ptr<FieldDecl> JavaParser::ParseFieldDecl(
     const std::string &access, const std::vector<Annotation> &annotations) {
-    (void)access;
-    (void)annotations;
-    return nullptr;
+    bool is_static = false, is_final = false;
+    bool is_volatile = false, is_transient = false;
+    while (current_.kind == frontends::TokenKind::kKeyword) {
+        auto &kw = current_.lexeme;
+        if (kw == "static") { is_static = true; Consume(); }
+        else if (kw == "final") { is_final = true; Consume(); }
+        else if (kw == "volatile") { is_volatile = true; Consume(); }
+        else if (kw == "transient") { is_transient = true; Consume(); }
+        else break;
+    }
+
+    auto type = ParseType();
+    if (!type) return nullptr;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) return nullptr;
+    std::string name = current_.lexeme;
+    Consume();
+
+    auto field = std::make_shared<FieldDecl>();
+    field->loc = type->loc;
+    field->name = name;
+    field->type = type;
+    field->access = access;
+    field->is_static = is_static;
+    field->is_final = is_final;
+    field->is_volatile = is_volatile;
+    field->is_transient = is_transient;
+    field->annotations = annotations;
+
+    if (MatchSymbol("=")) {
+        field->init = ParseExpression();
+    }
+    ExpectSymbol(";", "expected ';' after field declaration");
+
+    return field;
 }
 
 } // namespace polyglot::java

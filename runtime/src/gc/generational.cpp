@@ -30,6 +30,12 @@ class GenerationalGC : public GC {
     if (!mem) return nullptr;
     young_.push_back({mem, size, false, 0});
     young_index_[mem] = young_.size() - 1;
+    total_allocations_++;
+    total_bytes_allocated_ += size;
+    current_heap_bytes_ += size;
+    if (current_heap_bytes_ > peak_heap_bytes_) {
+      peak_heap_bytes_ = current_heap_bytes_;
+    }
     return mem;
   }
 
@@ -43,6 +49,7 @@ class GenerationalGC : public GC {
     PromoteSurvivors();
     SweepGeneration(young_, young_index_);
     if (cycle_ % kOldCycle == 0) SweepGeneration(old_, old_index_);
+    collections_++;
   }
 
   void RegisterRoot(void **slot) override {
@@ -55,6 +62,20 @@ class GenerationalGC : public GC {
     std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
+  }
+
+  GCStats GetStats() const override {
+    std::lock_guard<std::mutex> lock(mu_);
+    GCStats stats;
+    stats.total_allocations = total_allocations_;
+    stats.total_bytes_allocated = total_bytes_allocated_;
+    stats.current_heap_bytes = current_heap_bytes_;
+    stats.peak_heap_bytes = peak_heap_bytes_;
+    stats.collections = collections_;
+    stats.total_freed_bytes = total_freed_bytes_;
+    stats.live_objects = young_.size() + old_.size();
+    stats.root_count = roots_.size();
+    return stats;
   }
 
  private:
@@ -94,6 +115,8 @@ class GenerationalGC : public GC {
         ++i;
         continue;
       }
+      current_heap_bytes_ -= gen[i].size;
+      total_freed_bytes_ += gen[i].size;
       std::free(gen[i].ptr);
       index.erase(gen[i].ptr);
       if (i + 1 != gen.size()) {
@@ -110,7 +133,15 @@ class GenerationalGC : public GC {
   std::unordered_map<void *, std::size_t> old_index_;
   std::vector<void **> roots_;
   unsigned cycle_{0};
-  std::mutex mu_;
+  mutable std::mutex mu_;
+
+  // Accumulated statistics
+  size_t total_allocations_{0};
+  size_t total_bytes_allocated_{0};
+  size_t current_heap_bytes_{0};
+  size_t peak_heap_bytes_{0};
+  size_t collections_{0};
+  size_t total_freed_bytes_{0};
 };
 
 std::unique_ptr<GC> MakeGenerationalGC() { return std::make_unique<GenerationalGC>(); }

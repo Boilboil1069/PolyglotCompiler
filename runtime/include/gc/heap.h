@@ -54,6 +54,9 @@ class Heap {
   RootHandle Track(void **slot) { return RootHandle(gc_.get(), slot); }
   GC *Raw() { return gc_.get(); }
 
+  // Query runtime statistics from the underlying collector.
+  GCStats GetStats() const { return gc_ ? gc_->GetStats() : GCStats{}; }
+
  private:
   std::unique_ptr<GC> gc_;
 };

@@ -24,6 +24,7 @@ typedef HMODULE clr_lib_t;
 #define CLR_UNLOAD(lib)      FreeLibrary(lib)
 #else
 #include <dlfcn.h>
+#include <dirent.h>
 typedef void *clr_lib_t;
 #define CLR_LOAD(path)       dlopen(path, RTLD_LAZY)
 #define CLR_SYM(lib, name)   dlsym(lib, name)
@@ -64,25 +65,52 @@ int polyglot_dotnet_init(int version_hint) {
     char clr_path[1024] = {0};
 
     if (dotnet_root && dotnet_root[0]) {
+        // Try the exact version first, then probe common LTS versions.
+        int versions_to_try[] = {
+            version_hint ? version_hint : 8,
+            9, 8, 7, 6, 0  // Sentinel
+        };
+        for (int i = 0; versions_to_try[i] != 0; ++i) {
+            int ver = versions_to_try[i];
+            // Probe multiple patch versions (e.g. 8.0.0, 8.0.1, ...)
+            // We start with x.0.0 as the most common layout.
 #ifdef _WIN32
-        snprintf(clr_path, sizeof(clr_path), "%s\\shared\\Microsoft.NETCore.App\\%d.0.0\\coreclr.dll",
-                 dotnet_root, version_hint ? version_hint : 8);
+            snprintf(clr_path, sizeof(clr_path),
+                     "%s\\shared\\Microsoft.NETCore.App\\%d.0.0\\coreclr.dll",
+                     dotnet_root, ver);
 #elif defined(__APPLE__)
-        snprintf(clr_path, sizeof(clr_path), "%s/shared/Microsoft.NETCore.App/%d.0.0/libcoreclr.dylib",
-                 dotnet_root, version_hint ? version_hint : 8);
+            snprintf(clr_path, sizeof(clr_path),
+                     "%s/shared/Microsoft.NETCore.App/%d.0.0/libcoreclr.dylib",
+                     dotnet_root, ver);
 #else
-        snprintf(clr_path, sizeof(clr_path), "%s/shared/Microsoft.NETCore.App/%d.0.0/libcoreclr.so",
-                 dotnet_root, version_hint ? version_hint : 8);
+            snprintf(clr_path, sizeof(clr_path),
+                     "%s/shared/Microsoft.NETCore.App/%d.0.0/libcoreclr.so",
+                     dotnet_root, ver);
 #endif
-    }
-
-    if (clr_path[0]) {
-        clr_lib_ = CLR_LOAD(clr_path);
+            clr_lib_ = CLR_LOAD(clr_path);
+            if (clr_lib_) break;
+        }
+    } else {
+        fprintf(stderr, "[polyglot-dotnet] warning: DOTNET_ROOT is not set; "
+                        "CoreCLR cannot be loaded.  Set DOTNET_ROOT to your .NET SDK installation.\n");
     }
 
     if (!clr_lib_) {
-        // CoreCLR not found — runtime operations will gracefully return
-        // NULL but the toolchain can still generate and validate code.
+        // Try loading from the default system search path as a last resort.
+#ifdef _WIN32
+        clr_lib_ = CLR_LOAD("coreclr.dll");
+#elif defined(__APPLE__)
+        clr_lib_ = CLR_LOAD("libcoreclr.dylib");
+#else
+        clr_lib_ = CLR_LOAD("libcoreclr.so");
+#endif
+    }
+
+    if (!clr_lib_) {
+        fprintf(stderr, "[polyglot-dotnet] error: CoreCLR library not found at '%s'. "
+                        "Ensure DOTNET_ROOT points to a valid .NET SDK installation "
+                        "(e.g. C:\\Program Files\\dotnet).\n",
+                clr_path[0] ? clr_path : "(default search path)");
         return -1;
     }
 
@@ -92,19 +120,89 @@ int polyglot_dotnet_init(int version_hint) {
     clr_delegate_fn_ = (coreclr_create_delegate_fn)CLR_SYM(clr_lib_, "coreclr_create_delegate");
 
     if (!clr_init_fn_ || !clr_shutdown_fn_ || !clr_delegate_fn_) {
+        fprintf(stderr, "[polyglot-dotnet] error: CoreCLR library loaded but "
+                        "hosting API symbols not found.  The library may be corrupt "
+                        "or an unsupported version.\n");
         CLR_UNLOAD(clr_lib_);
         clr_lib_ = NULL;
         return -1;
     }
 
-    // Initialize CoreCLR with minimal properties.
+    // Build TRUSTED_PLATFORM_ASSEMBLIES by scanning the runtime directory.
+    // CoreCLR requires a semicolon(Win)/colon(Unix)-separated list of managed
+    // assembly paths for the default load context.
+    char tpa_list[32768] = {0};  // Large buffer for assembly paths
+    size_t tpa_len = 0;
+
+    // Extract the runtime directory from clr_path (the directory containing coreclr).
+    char runtime_dir[1024] = {0};
+    {
+        // Copy clr_path and strip the filename to get the directory.
+        strncpy(runtime_dir, clr_path, sizeof(runtime_dir) - 1);
+        char *last_sep = NULL;
+        for (char *p = runtime_dir; *p; ++p) {
+            if (*p == '/' || *p == '\\') last_sep = p;
+        }
+        if (last_sep) *last_sep = '\0';
+    }
+
+    // Scan the runtime directory for .dll files to populate TPA.
+    if (runtime_dir[0]) {
+#ifdef _WIN32
+        char search_pattern[1100];
+        snprintf(search_pattern, sizeof(search_pattern), "%s\\*.dll", runtime_dir);
+        WIN32_FIND_DATAA find_data;
+        HANDLE hFind = FindFirstFileA(search_pattern, &find_data);
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                char full_path[1200];
+                snprintf(full_path, sizeof(full_path), "%s\\%s",
+                         runtime_dir, find_data.cFileName);
+                size_t fp_len = strlen(full_path);
+                if (tpa_len + fp_len + 2 < sizeof(tpa_list)) {
+                    if (tpa_len > 0) tpa_list[tpa_len++] = ';';
+                    memcpy(tpa_list + tpa_len, full_path, fp_len);
+                    tpa_len += fp_len;
+                }
+            } while (FindNextFileA(hFind, &find_data));
+            FindClose(hFind);
+        }
+#else
+        // On Unix, use opendir/readdir to scan for .dll managed assemblies.
+        DIR *dir = opendir(runtime_dir);
+        if (dir) {
+            struct dirent *entry;
+            while ((entry = readdir(dir)) != NULL) {
+                size_t name_len = strlen(entry->d_name);
+                if (name_len > 4 && strcmp(entry->d_name + name_len - 4, ".dll") == 0) {
+                    char full_path[1200];
+                    snprintf(full_path, sizeof(full_path), "%s/%s",
+                             runtime_dir, entry->d_name);
+                    size_t fp_len = strlen(full_path);
+                    if (tpa_len + fp_len + 2 < sizeof(tpa_list)) {
+                        if (tpa_len > 0) tpa_list[tpa_len++] = ':';
+                        memcpy(tpa_list + tpa_len, full_path, fp_len);
+                        tpa_len += fp_len;
+                    }
+                }
+            }
+            closedir(dir);
+        }
+#endif
+    }
+    tpa_list[tpa_len] = '\0';
+
+    // Initialize CoreCLR with the real TPA list.
     const char *property_keys[]   = {"TRUSTED_PLATFORM_ASSEMBLIES"};
-    const char *property_values[] = {""};
+    const char *property_values[] = {tpa_list};
 
     int rc = clr_init_fn_("polyglot", "PolyglotCompiler", 1,
                            property_keys, property_values,
                            &clr_host_, &clr_domain_);
     if (rc != 0) {
+        fprintf(stderr, "[polyglot-dotnet] error: coreclr_initialize failed with "
+                        "error code 0x%08x.  Check .NET SDK installation and "
+                        "TRUSTED_PLATFORM_ASSEMBLIES configuration.\n", rc);
         clr_host_ = NULL;
         CLR_UNLOAD(clr_lib_);
         clr_lib_ = NULL;
@@ -301,4 +399,72 @@ void polyglot_dotnet_release_object(void *object) {
     if (rc == 0 && release) {
         release(object);
     }
+}
+
+// ============================================================================
+// __ploy_dotnet_* aliases
+//
+// The ploy frontend emits calls to __ploy_dotnet_* symbols.  These thin
+// forwarding functions align the frontend names with the runtime's
+// polyglot_dotnet_* ABI so that linking succeeds without special renaming.
+// ============================================================================
+
+int __ploy_dotnet_init(int version_hint) {
+    return polyglot_dotnet_init(version_hint);
+}
+
+void __ploy_dotnet_shutdown(void) {
+    polyglot_dotnet_shutdown();
+}
+
+void __ploy_dotnet_print(const char *message) {
+    polyglot_dotnet_print(message);
+}
+
+char *__ploy_dotnet_strdup_gc(const char *message, void ***root_handle_out) {
+    return polyglot_dotnet_strdup_gc(message, root_handle_out);
+}
+
+void __ploy_dotnet_release(char **ptr, void ***root_handle) {
+    polyglot_dotnet_release(ptr, root_handle);
+}
+
+void *__ploy_dotnet_call_static(const char *assembly_name,
+                                const char *type_name,
+                                const char *method_name,
+                                const void *const *args,
+                                int arg_count) {
+    return polyglot_dotnet_call_static(assembly_name, type_name, method_name, args, arg_count);
+}
+
+void *__ploy_dotnet_new_object(const char *assembly_name,
+                               const char *type_name,
+                               const void *const *args,
+                               int arg_count) {
+    return polyglot_dotnet_new_object(assembly_name, type_name, args, arg_count);
+}
+
+void *__ploy_dotnet_call_method(void *object,
+                                const char *method_name,
+                                const void *const *args,
+                                int arg_count) {
+    return polyglot_dotnet_call_method(object, method_name, args, arg_count);
+}
+
+void *__ploy_dotnet_get_property(void *object, const char *property_name) {
+    return polyglot_dotnet_get_property(object, property_name);
+}
+
+void __ploy_dotnet_set_property(void *object,
+                                const char *property_name,
+                                const void *value) {
+    polyglot_dotnet_set_property(object, property_name, value);
+}
+
+void __ploy_dotnet_dispose(void *object) {
+    polyglot_dotnet_dispose(object);
+}
+
+void __ploy_dotnet_release_object(void *object) {
+    polyglot_dotnet_release_object(object);
 }

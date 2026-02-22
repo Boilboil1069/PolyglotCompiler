@@ -32,7 +32,7 @@ bool DevirtualizationPass::OptimizeFunction(ir::Function *func) {
             
             // Look for CallInstruction
             if (auto *call = dynamic_cast<ir::CallInstruction*>(inst.get())) {
-                if (TryDevirtualize(call, block.get())) {
+                if (TryDevirtualize(call, block.get(), func)) {
                     modified = true;
                     devirtualized_count_++;
                 }
@@ -44,7 +44,8 @@ bool DevirtualizationPass::OptimizeFunction(ir::Function *func) {
 }
 
 bool DevirtualizationPass::TryDevirtualize(ir::CallInstruction *call, 
-                                          ir::BasicBlock *block) {
+                                          ir::BasicBlock *block,
+                                          ir::Function *func) {
     if (!call) return false;
     
     // Check whether this is a virtual call
@@ -103,7 +104,7 @@ bool DevirtualizationPass::TryDevirtualize(ir::CallInstruction *call,
     // Strategy 4: attempt type propagation
     if (!call->operands.empty()) {
         std::string obj_name = call->operands[0];
-        std::string obj_type = InferObjectType(obj_name, nullptr);
+        std::string obj_type = InferObjectType(obj_name, func);
         if (!obj_type.empty() && obj_type != class_name) {
             // A more specific type was identified
             auto *derived_methods = class_metadata_.GetMethods(obj_type);
@@ -147,20 +148,52 @@ bool DevirtualizationPass::IsFinalMethod(const std::string &class_name,
 const ir::MethodInfo* DevirtualizationPass::GetUniqueImplementation(
     const std::string &class_name, const std::string &method_name) {
     
-    // Find all possible implementations
+    // Find all possible implementations across the class hierarchy
     std::vector<const ir::MethodInfo*> implementations;
     
-    // Check base classes
+    // Check the base class itself
     const ir::MethodInfo *base_impl = class_metadata_.FindVirtualMethod(
         class_name, method_name);
     if (base_impl) {
         implementations.push_back(base_impl);
     }
     
-    // Check all derived classes
-    // Note: requires maintaining a class hierarchy graph
-    // Simplified: only checks the current class
-    
+    // Collect known classes from functions whose name contains "::" (member
+    // functions reveal class names) and from final_classes_.
+    std::unordered_set<std::string> candidate_classes;
+    for (auto &fn : ir_ctx_.Functions()) {
+        auto sep = fn->name.find("::");
+        if (sep != std::string::npos) {
+            candidate_classes.insert(fn->name.substr(0, sep));
+        }
+    }
+    for (const auto &fc : final_classes_) {
+        candidate_classes.insert(fc);
+    }
+
+    // Check each candidate: if it derives from class_name and overrides the
+    // method, count it as a separate implementation.
+    for (const auto &cand : candidate_classes) {
+        if (cand == class_name) continue;
+        if (!class_metadata_.IsBaseOf(class_name, cand)) continue;
+
+        const ir::MethodInfo *derived_impl =
+            class_metadata_.FindVirtualMethod(cand, method_name);
+        if (derived_impl) {
+            // Only count it if it is a genuinely different override
+            bool duplicate = false;
+            for (const auto *existing : implementations) {
+                if (existing->mangled_name == derived_impl->mangled_name) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                implementations.push_back(derived_impl);
+            }
+        }
+    }
+
     if (implementations.size() == 1) {
         return implementations[0];
     }

@@ -175,4 +175,61 @@ void CoroutineScheduler::Run() {
 	}
 }
 
+// ---------------------- ThreadProfiler ----------------------
+
+namespace {
+
+// Global profiling state.
+static std::mutex profiler_mutex_;
+static bool profiler_active_ = false;
+static std::unordered_map<size_t, ThreadStats> profiler_stats_;
+
+} // anonymous namespace
+
+void ThreadProfiler::StartProfiling() {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	profiler_active_ = true;
+}
+
+void ThreadProfiler::StopProfiling() {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	profiler_active_ = false;
+}
+
+ThreadStats ThreadProfiler::GetStats(size_t thread_id) {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	auto it = profiler_stats_.find(thread_id);
+	if (it != profiler_stats_.end()) {
+		return it->second;
+	}
+	return ThreadStats{};
+}
+
+void ThreadProfiler::ResetStats() {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	profiler_stats_.clear();
+}
+
+// Internal function used by the runtime to record task execution metrics.
+// Called from thread pool workers when profiling is active.
+void RecordTaskExecution(size_t thread_id, size_t exec_time_us) {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	if (!profiler_active_) return;
+	auto &stats = profiler_stats_[thread_id];
+	stats.num_tasks_executed++;
+	stats.total_exec_time_us += exec_time_us;
+}
+
+void RecordSteal(size_t thread_id) {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	if (!profiler_active_) return;
+	profiler_stats_[thread_id].num_steals++;
+}
+
+void RecordIdleTime(size_t thread_id, size_t idle_time_us) {
+	std::lock_guard<std::mutex> lock(profiler_mutex_);
+	if (!profiler_active_) return;
+	profiler_stats_[thread_id].idle_time_us += idle_time_us;
+}
+
 }  // namespace polyglot::runtime::services

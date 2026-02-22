@@ -369,13 +369,34 @@ void PREPass::ComputeAnticipation() {
 }
 
 bool PREPass::InsertCompensationCode(BasicBlock* bb, const Expression& expr) {
-    // Insert computation of expression at the beginning of bb
-    // This is a simplified version - real implementation would be more sophisticated
+    // Insert computation of the expression at the beginning of bb.
+    // Infer the result type from the original instruction that matches this
+    // expression anywhere in the function.
     
+    IRType result_type = IRType::I64();  // sensible default for integer expressions
+
+    // Scan function blocks to find the instruction that produced this expression
+    // and adopt its type.
+    for (const auto &blk : func_.blocks) {
+        if (!blk) continue;
+        for (const auto &inst : blk->instructions) {
+            if (!inst || !IsPure(inst.get())) continue;
+            Expression existing = CreateExpression(inst.get());
+            if (existing == expr) {
+                result_type = inst->type;
+                goto found;
+            }
+        }
+    }
+found:
+
     // Create new instruction for the expression
     auto new_inst = std::make_shared<Instruction>();
     new_inst->name = "_pre_temp_" + std::to_string(next_temp_id_++);
-    new_inst->type = IRType::I32();  // Simplified type for placeholder
+    new_inst->type = result_type;
+
+    // Copy operand names into the new instruction so it is self-contained
+    new_inst->operands = expr.operands;
     
     // Add to beginning of block
     bb->instructions.insert(bb->instructions.begin(), new_inst);

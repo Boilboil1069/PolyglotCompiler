@@ -531,10 +531,14 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
         return LowerDeleteExpression(del_expr);
     }
     if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
-        // Named arguments are lowered by evaluating the value expression.
-        // The name is metadata used for argument matching at the call site
-        // and does not affect the IR representation.
-        return LowerExpression(named_arg->value);
+        // Lower the value expression.  Attach the argument name as IR metadata
+        // so that the linker / call-site can reorder arguments to match the
+        // target function's parameter order.
+        EvalResult val = LowerExpression(named_arg->value);
+        // Record the mapping from this SSA value to the named-arg label.
+        // The name is stored in a side table keyed by SSA value name.
+        named_arg_labels_[val.value] = named_arg->name;
+        return val;
     }
 
     return {"", ir::IRType::Invalid()};
@@ -712,6 +716,44 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
     } else {
         EvalResult callee = LowerExpression(call->callee);
         callee_name = callee.value;
+    }
+
+    // Reorder arguments based on named-argument labels when the target
+    // function's signature is known.  Positional arguments keep their
+    // original order; named arguments are placed at the position matching
+    // the parameter name in the signature.
+    auto sig_it = sema_.KnownSignatures().find(callee_name);
+    if (sig_it != sema_.KnownSignatures().end() &&
+        !sig_it->second.param_names.empty()) {
+        const auto &param_names = sig_it->second.param_names;
+        std::vector<std::string> reordered(arg_names.size());
+        // First pass: place named args in their correct positions.
+        std::vector<bool> placed(arg_names.size(), false);
+        for (size_t i = 0; i < arg_names.size(); ++i) {
+            auto lbl_it = named_arg_labels_.find(arg_names[i]);
+            if (lbl_it != named_arg_labels_.end()) {
+                for (size_t j = 0; j < param_names.size(); ++j) {
+                    if (param_names[j] == lbl_it->second && j < reordered.size()) {
+                        reordered[j] = arg_names[i];
+                        placed[j] = true;
+                        break;
+                    }
+                }
+            }
+        }
+        // Second pass: fill remaining slots with positional args in order.
+        size_t pos = 0;
+        for (size_t i = 0; i < arg_names.size(); ++i) {
+            auto lbl_it = named_arg_labels_.find(arg_names[i]);
+            if (lbl_it == named_arg_labels_.end()) {
+                while (pos < reordered.size() && placed[pos]) ++pos;
+                if (pos < reordered.size()) {
+                    reordered[pos] = arg_names[i];
+                    ++pos;
+                }
+            }
+        }
+        arg_names = reordered;
     }
 
     auto inst = builder_.MakeCall(callee_name, arg_names, ir::IRType::I64(true), "");
@@ -1238,16 +1280,55 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
     // The stub marshals arguments from target calling convention to source,
     // calls the source function, and marshals the return value back.
 
-    ir::IRType ret_type = ir::IRType::I64(true); // Default return type
+    // Resolve the return type from the known function signature registered
+    // during semantic analysis.  If no signature is known, fall back to i64.
+    ir::IRType ret_type = ir::IRType::I64(true);
+    // Look up the function signature from the sema public accessor.
+    const FunctionSignature *sig = nullptr;
+    {
+        auto it = sema_.KnownSignatures().find(link.target_symbol);
+        if (it != sema_.KnownSignatures().end()) {
+            sig = &it->second;
+        }
+    }
+    if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kInvalid) {
+        ret_type = CoreTypeToIR(sig->return_type);
+    }
 
     // For function links, create a wrapper function
     if (link.kind == LinkDecl::LinkKind::kFunction) {
-        // Create a stub function that calls the source function
-        // Parameters match the target function's signature
+        // Build the parameter list from the function signature registered
+        // during semantic analysis.  Each parameter gets its resolved type
+        // so the stub faithfully mirrors the real calling convention.
         std::vector<std::pair<std::string, ir::IRType>> params;
-        params.emplace_back("arg0", ir::IRType::I64(true)); // Placeholder
-        // In a full implementation, parameter types would come from the target function's
-        // resolved signature. For now we use generic i64 parameters.
+        if (sig && sig->param_count_known && sig->param_count > 0) {
+            for (size_t i = 0; i < sig->param_count; ++i) {
+                ir::IRType pt = ir::IRType::I64(true);
+                if (i < sig->param_types.size()) {
+                    pt = CoreTypeToIR(sig->param_types[i]);
+                }
+                params.emplace_back("arg" + std::to_string(i), pt);
+            }
+        } else if (!link.param_mappings.empty()) {
+            // Fall back to MAP_TYPE entries when no explicit signature is available.
+            for (size_t i = 0; i < link.param_mappings.size(); ++i) {
+                ir::IRType pt = ir::IRType::I64(true);
+                if (!link.param_mappings[i].target_type.empty()) {
+                    core::Type ct = core::TypeSystem().MapFromLanguage(
+                        link.param_mappings[i].target_language.empty()
+                            ? link.target_language
+                            : link.param_mappings[i].target_language,
+                        link.param_mappings[i].target_type);
+                    pt = CoreTypeToIR(ct);
+                }
+                params.emplace_back("arg" + std::to_string(i), pt);
+            }
+        } else {
+            // No signature information at all — generate a single i64 parameter
+            // as a last-resort fallback.
+            params.emplace_back("arg0", ir::IRType::I64(true));
+        }
 
         auto fn = ir_ctx_.CreateFunction(stub_name, ret_type, params);
         auto saved_fn = current_function_;

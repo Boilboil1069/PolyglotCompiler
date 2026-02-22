@@ -121,4 +121,20 @@ void *__ploy_rt_convert_vec_to_list(void *vec, std::size_t elem_size);
 /// Convert a RuntimeList into a Rust Vec.
 void *__ploy_rt_convert_list_to_vec(void *list, std::size_t elem_size);
 
+/// Convert a C++ std::vector into a RuntimeList.
+/// The source pointer is expected to point to the contiguous data buffer
+/// of a C++ vector, together with the element count.
+/// @param vec_data     Pointer to the contiguous element data.
+/// @param count        Number of elements.
+/// @param elem_size    Size of each element in bytes.
+void *__ploy_rt_convert_cppvec_to_list(void *vec_data, std::size_t count, std::size_t elem_size);
+
+/// Generic list conversion: copies from a source contiguous buffer to a
+/// RuntimeList.  This fallback is used when no specialized conversion
+/// exists for the source container type.
+/// @param src_data     Pointer to the source element data.
+/// @param count        Number of elements.
+/// @param elem_size    Size of each element in bytes.
+void *__ploy_rt_convert_list_generic(void *src_data, std::size_t count, std::size_t elem_size);
+
 }  // namespace polyglot::runtime::interop

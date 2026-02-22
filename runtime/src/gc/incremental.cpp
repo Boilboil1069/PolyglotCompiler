@@ -36,6 +36,13 @@ class IncrementalGC : public GC {
     blocks_.push_back({mem, size, IBlock::WHITE});
     index_[mem] = blocks_.size() - 1;
 
+    total_allocations_++;
+    total_bytes_allocated_ += size;
+    current_heap_bytes_ += size;
+    if (current_heap_bytes_ > peak_heap_bytes_) {
+      peak_heap_bytes_ = current_heap_bytes_;
+    }
+
     // Perform a small incremental GC step after each allocation
     if (!gc_running_) {
       StartGC();
@@ -52,6 +59,7 @@ class IncrementalGC : public GC {
     while (gc_running_) {
       IncrementalStep();
     }
+    collections_++;
   }
 
   void RegisterRoot(void **slot) override {
@@ -64,6 +72,20 @@ class IncrementalGC : public GC {
     std::lock_guard<std::mutex> lock(mu_);
     if (!slot) return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
+  }
+
+  GCStats GetStats() const override {
+    std::lock_guard<std::mutex> lock(mu_);
+    GCStats stats;
+    stats.total_allocations = total_allocations_;
+    stats.total_bytes_allocated = total_bytes_allocated_;
+    stats.current_heap_bytes = current_heap_bytes_;
+    stats.peak_heap_bytes = peak_heap_bytes_;
+    stats.collections = collections_;
+    stats.total_freed_bytes = total_freed_bytes_;
+    stats.live_objects = blocks_.size();
+    stats.root_count = roots_.size();
+    return stats;
   }
 
  private:
@@ -127,6 +149,8 @@ class IncrementalGC : public GC {
       }
 
       // Free white and any stray gray objects (gray should not remain)
+      current_heap_bytes_ -= blocks_[i].size;
+      total_freed_bytes_ += blocks_[i].size;
       std::free(blocks_[i].ptr);
       index_.erase(blocks_[i].ptr);
 
@@ -149,7 +173,15 @@ class IncrementalGC : public GC {
   std::vector<void **> roots_;
   std::unordered_set<size_t> gray_set_;
   bool gc_running_{false};
-  std::mutex mu_;
+  mutable std::mutex mu_;
+
+  // Accumulated statistics
+  size_t total_allocations_{0};
+  size_t total_bytes_allocated_{0};
+  size_t current_heap_bytes_{0};
+  size_t peak_heap_bytes_{0};
+  size_t collections_{0};
+  size_t total_freed_bytes_{0};
 };
 
 std::unique_ptr<GC> MakeIncrementalGC() { return std::make_unique<IncrementalGC>(); }

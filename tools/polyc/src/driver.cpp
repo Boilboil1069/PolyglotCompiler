@@ -142,6 +142,8 @@ struct Elf64_Rela {
 #include "common/include/ir/ir_printer.h"
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
+#include "middle/include/ir/passes/opt.h"
+#include "middle/include/passes/transform/advanced_optimizations.h"
 #include "runtime/include/libs/base.h"
 
 namespace {
@@ -1519,6 +1521,63 @@ int main(int argc, char **argv) {
             if (!settings.force) return 1;
         }
         t.Stop();
+    }
+
+    // ---- Phase 5b: Middle-end optimization pipeline ----
+    if (settings.opt_level > 0) {
+        StageTimer t("Middle-end optimizations (O" + std::to_string(settings.opt_level) + ")", V);
+        for (auto &fn : ir_module.Functions()) {
+            // -O1: basic scalar optimizations
+            polyglot::ir::passes::ConstantFold(*fn);
+            polyglot::ir::passes::CopyProp(*fn);
+            polyglot::ir::passes::DeadCodeEliminate(*fn);
+            polyglot::ir::passes::CanonicalizeCFG(*fn);
+            polyglot::ir::passes::EliminateRedundantPhis(*fn);
+            polyglot::ir::passes::CSE(*fn);
+
+            if (settings.opt_level >= 2) {
+                // -O2: loop & advanced optimizations
+                polyglot::passes::transform::StrengthReduction(*fn);
+                polyglot::passes::transform::LoopInvariantCodeMotion(*fn);
+                polyglot::passes::transform::LoopUnrolling(*fn, 4);
+                polyglot::passes::transform::DeadStoreElimination(*fn);
+                polyglot::passes::transform::InductionVariableElimination(*fn);
+                polyglot::passes::transform::SCCP(*fn);
+                polyglot::passes::transform::GVN(*fn);
+                polyglot::passes::transform::JumpThreading(*fn);
+
+                // Second round of cleanup after loop opts
+                polyglot::ir::passes::DeadCodeEliminate(*fn);
+                polyglot::ir::passes::CanonicalizeCFG(*fn);
+            }
+
+            if (settings.opt_level >= 3) {
+                // -O3: aggressive optimizations
+                polyglot::passes::transform::TailCallOptimization(*fn);
+                polyglot::passes::transform::EscapeAnalysis(*fn);
+                polyglot::passes::transform::ScalarReplacement(*fn);
+                polyglot::passes::transform::AutoVectorization(*fn);
+                polyglot::passes::transform::LoopFusion(*fn);
+                polyglot::passes::transform::CodeSinking(*fn);
+                polyglot::passes::transform::CodeHoisting(*fn);
+                polyglot::passes::transform::LoopTiling(*fn, 64);
+
+                // Final cleanup
+                polyglot::ir::passes::DeadCodeEliminate(*fn);
+            }
+        }
+        t.Stop();
+
+        // Re-verify after optimization
+        {
+            std::string verify_msg;
+            if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
+                if (V) {
+                    std::cerr << "[warn] IR verification failed after optimization: "
+                              << verify_msg << "\n";
+                }
+            }
+        }
     }
 
     // Allocate a GC-managed scratch buffer and keep it rooted while emitting.

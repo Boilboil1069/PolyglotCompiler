@@ -33,7 +33,8 @@ private:
     bool OptimizeFunction(ir::Function *func);
     
     // Attempt to devirtualize a single call instruction
-    bool TryDevirtualize(ir::CallInstruction *call, ir::BasicBlock *block);
+    bool TryDevirtualize(ir::CallInstruction *call, ir::BasicBlock *block,
+                         ir::Function *func);
     
     // Check if a class is final (non-inheritable)
     bool IsFinalClass(const std::string &class_name);

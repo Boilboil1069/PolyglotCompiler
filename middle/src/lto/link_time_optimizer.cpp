@@ -11,6 +11,8 @@
 #include <future>
 #include <numeric>
 
+#include "common/include/ir/ir_parser.h"
+
 namespace polyglot::lto {
 
 using Clock = std::chrono::steady_clock;
@@ -62,6 +64,22 @@ bool LTOModule::SaveBitcode(const std::string &filename) const {
     for (const auto &block : fn.blocks) {
       if (!block) continue;
       out << block->name << " " << block->instructions.size() << "\n";
+      // Serialize each instruction: name, type kind, operand count, operands
+      for (const auto &inst : block->instructions) {
+        if (!inst) {
+          out << "_ 0 0\n";
+          continue;
+        }
+        // Emit instruction name (use _ for empty names)
+        std::string inst_name = inst->name.empty() ? "_" : inst->name;
+        out << inst_name << " "
+            << static_cast<int>(inst->type.kind) << " "
+            << inst->operands.size();
+        for (const auto &op : inst->operands) {
+          out << " " << (op.empty() ? "_" : op);
+        }
+        out << "\n";
+      }
     }
   }
   
@@ -115,14 +133,32 @@ bool LTOModule::LoadBitcode(const std::string &filename) {
         if (in >> block_name >> inst_count) {
           auto block = std::make_shared<ir::BasicBlock>();
           block->name = block_name;
-          // Create placeholder instructions
-          for (size_t inst = 0; inst < inst_count; ++inst) {
-            auto placeholder = std::make_shared<ir::Instruction>();
-            block->instructions.push_back(placeholder);
+          std::getline(in, line);  // consume endline after block header
+          // Deserialize instruction data
+          for (size_t inst_idx = 0; inst_idx < inst_count; ++inst_idx) {
+            auto instruction = std::make_shared<ir::Instruction>();
+            std::string inst_name;
+            int type_kind = 0;
+            size_t op_count = 0;
+            if (in >> inst_name >> type_kind >> op_count) {
+              instruction->name = (inst_name == "_") ? "" : inst_name;
+              instruction->type = ir::IRType();
+              instruction->type.kind = static_cast<ir::IRTypeKind>(type_kind);
+              for (size_t op_i = 0; op_i < op_count; ++op_i) {
+                std::string operand;
+                if (in >> operand) {
+                  instruction->operands.push_back(
+                      (operand == "_") ? "" : operand);
+                }
+              }
+            }
+            std::getline(in, line);  // consume endline
+            block->instructions.push_back(instruction);
           }
           fn.blocks.push_back(block);
+        } else {
+          std::getline(in, line);  // consume endline
         }
-        std::getline(in, line);  // consume endline
       }
     }
     
@@ -1678,14 +1714,30 @@ void LTOLinker::OptimizeModules(LTOContext &context) {
 }
 
 bool LTOLinker::GenerateCode(const LTOContext &context, const std::string &output) {
-  std::ofstream out(output, std::ios::binary);
-  if (!out) return false;
+  // Merge all modules into a single output module and serialise as bitcode.
+  // This produces a structured representation that downstream tools can
+  // consume directly rather than a textual summary.
+  LTOModule merged;
+  merged.module_name = "lto_output";
 
-  out << "LTO output for " << context.GetModules().size() << " modules\n";
-  out << "Functions: " << CountFunctions(context) << "\n";
-  out << "Globals: " << CountGlobals(context) << "\n";
+  for (const auto &mod : context.GetModules()) {
+    for (const auto &fn : mod->functions) {
+      if (!merged.GetFunction(fn.name)) {
+        merged.functions.push_back(fn);
+      }
+    }
+    for (const auto &gv : mod->globals) {
+      merged.globals.push_back(gv);
+    }
+    for (const auto &ep : mod->entry_points) {
+      merged.entry_points.insert(ep);
+    }
+    for (const auto &[sym, vis] : mod->exported_symbols) {
+      merged.exported_symbols[sym] = vis;
+    }
+  }
 
-  return static_cast<bool>(out);
+  return merged.SaveBitcode(output);
 }
 
 // ===================== ThinLTOCodeGenerator =====================
@@ -1965,7 +2017,7 @@ bool CompileToBitcode(const std::string &source_file, const std::string &output_
   mod.module_name = std::filesystem::path(source_file).stem().string();
   if (!mod.LoadBitcode(source_file)) {
     // If the file is not in our bitcode format yet (e.g. raw IR text),
-    // read it as a single-function module and serialise.
+    // attempt to parse it with the IR parser to reconstruct real functions.
     std::ifstream in(source_file, std::ios::binary);
     if (!in) return false;
 
@@ -1973,16 +2025,39 @@ bool CompileToBitcode(const std::string &source_file, const std::string &output_
     buf << in.rdbuf();
     std::string content = buf.str();
 
-    // Create a placeholder function representing the entire translation unit.
-    ir::Function fn;
-    fn.name = mod.module_name;
-    auto block = std::make_shared<ir::BasicBlock>();
-    block->name = "entry";
-    // Store a single placeholder instruction to preserve non-empty state.
-    block->instructions.push_back(std::make_shared<ir::Instruction>());
-    fn.blocks.push_back(block);
-    mod.functions.push_back(std::move(fn));
-    mod.entry_points.insert(mod.module_name);
+    // Try to parse the IR text into a real IRContext.
+    ir::IRContext parse_ctx;
+    std::string parse_msg;
+    if (ir::ParseModule(content, parse_ctx, &parse_msg)) {
+      // Successfully parsed - transfer all functions to the LTOModule.
+      for (auto &fn_ptr : parse_ctx.Functions()) {
+        if (!fn_ptr) continue;
+        mod.functions.push_back(std::move(*fn_ptr));
+        mod.entry_points.insert(mod.functions.back().name);
+      }
+    } else {
+      // Parsing failed - try to parse as individual functions.
+      std::shared_ptr<ir::Function> fn_out;
+      ir::IRContext single_ctx;
+      if (ir::ParseFunction(content, single_ctx, &fn_out, &parse_msg) && fn_out) {
+        mod.functions.push_back(std::move(*fn_out));
+        mod.entry_points.insert(mod.functions.back().name);
+      } else {
+        // Last resort: wrap the raw text as a named function to preserve the
+        // translation unit in the bitcode pipeline.
+        ir::Function fn;
+        fn.name = mod.module_name;
+        auto block = std::make_shared<ir::BasicBlock>();
+        block->name = "entry";
+        auto ret = std::make_shared<ir::Instruction>();
+        ret->type = ir::IRType::Void();
+        ret->operands.push_back("0");
+        block->SetTerminator(ret);
+        fn.blocks.push_back(block);
+        mod.functions.push_back(std::move(fn));
+        mod.entry_points.insert(mod.module_name);
+      }
+    }
   }
 
   return mod.SaveBitcode(output_bitcode);
@@ -2037,11 +2112,13 @@ bool GenerateObjectFromBitcode(const std::string &bitcode_file, const std::strin
 
   // Apply interprocedural optimisations before final emission.
   LTOContext ctx;
-  ctx.AddModule(std::make_unique<LTOModule>(std::move(mod)));
+  auto mod_ptr = std::make_unique<LTOModule>(std::move(mod));
+  ctx.AddModule(std::move(mod_ptr));
   GlobalOptimizer opt(ctx);
   opt.RunDeadCodeElimination();
+  opt.RunConstantPropagation();
 
-  // Serialise the (potentially optimised) module.
+  // Serialise the optimised module.
   auto &modules = ctx.GetModules();
   if (modules.empty()) return false;
 

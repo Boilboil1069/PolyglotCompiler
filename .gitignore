@@ -16,3 +16,4 @@ tests/samples/env/
 
 # Auxiliary compilation output
 **/aux/
+.fake

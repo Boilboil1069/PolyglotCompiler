@@ -144,27 +144,42 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 
     links_.push_back(entry);
 
-    // Register the linked function as a known symbol so CALL can reference it
+    // Register the linked function as a known symbol so CALL can reference it.
+    // Build a proper function type from the MAP_TYPE entries so that downstream
+    // type checking can reason about the linked function precisely.
     PloySymbol link_sym;
     link_sym.kind = PloySymbol::Kind::kLinkTarget;
     link_sym.name = link->target_symbol;
     link_sym.language = link->target_language;
-    link_sym.type = core::Type::Any();
+
+    // Derive parameter types from MAP_TYPE entries and build a function type.
+    std::vector<core::Type> link_param_types;
+    for (const auto &mapping : entry.param_mappings) {
+        core::Type param_type = type_system_.MapFromLanguage(
+            mapping.target_language.empty() ? link->target_language : mapping.target_language,
+            mapping.target_type);
+        link_param_types.push_back(param_type);
+    }
+    if (!link_param_types.empty()) {
+        // Synthesize a function type: (param_types...) -> Any
+        link_sym.type = type_system_.FunctionType(
+            link->target_symbol, core::Type::Any(), link_param_types);
+    } else {
+        link_sym.type = core::Type::Any();
+    }
     link_sym.defined_at = link->loc;
     // Do not report redefinition for link targets — they may overlap with imports
     symbols_.try_emplace(link->target_symbol, link_sym);
 
     // Register the LINK target as a known function signature so that the
     // checker can validate types at call sites.  MAP_TYPE entries describe
-    // cross-language type conversions (e.g. cpp::int <-> python::int) and
-    // do NOT constrain the parameter count — the actual function arity is
-    // defined in the external language, not in the .ploy LINK block.
+    // the parameter types and implicitly define the parameter count.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = 0;
-        sig.param_count_known = false;  // MAP_TYPE ≠ param count
+        sig.param_count = entry.param_mappings.size();
+        sig.param_count_known = true;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -407,6 +422,9 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     sig.param_count = func->params.size();
     sig.param_count_known = true;
     sig.defined_at = func->loc;
+    for (const auto &param : func->params) {
+        sig.param_names.push_back(param.name);
+    }
     RegisterFunctionSignature(func->name, sig);
 
     // Save the entire symbol table before entering the function body scope.
@@ -687,8 +705,14 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
 
     if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
         // Named arguments are transparent for type analysis — the type is
-        // determined by the value expression.
-        return AnalyzeExpression(named_arg->value);
+        // determined by the value expression.  However we validate that the
+        // name corresponds to a known parameter so typos are caught early.
+        core::Type val_type = AnalyzeExpression(named_arg->value);
+
+        // The actual name validation happens at the call-site level inside
+        // AnalyzeCallExpression / AnalyzeCrossLangCall where the signature
+        // is available.  Here we just return the value type.
+        return val_type;
     }
 
     return core::Type::Any();
@@ -717,6 +741,23 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
         const FunctionSignature *sig = LookupSignature(func_name);
         ValidateCallArgCount(call->loc, func_name, call->args.size(), sig);
         ValidateCallArgTypes(call->loc, func_name, arg_types, sig);
+
+        // Validate named arguments against the known parameter names.
+        if (sig && !sig->param_names.empty()) {
+            for (const auto &arg : call->args) {
+                if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(arg)) {
+                    bool found = false;
+                    for (const auto &pn : sig->param_names) {
+                        if (pn == named_arg->name) { found = true; break; }
+                    }
+                    if (!found) {
+                        ReportError(named_arg->loc, frontends::ErrorCode::kTypeMismatch,
+                                    "unknown named argument '" + named_arg->name +
+                                    "' in call to '" + func_name + "'");
+                    }
+                }
+            }
+        }
     }
 
     // If the callee is a function type, validate against function type signature
@@ -780,8 +821,17 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
         return sig->return_type;
     }
 
-    // Cross-language calls return Any since we cannot statically resolve the return type
-    // without full module information from the target language
+    // Check the symbol table for a function type registered by LINK.
+    // If the symbol has a function type, extract the return type from it.
+    auto sym_it = symbols_.find(call->function);
+    if (sym_it != symbols_.end() &&
+        sym_it->second.type.kind == core::TypeKind::kFunction &&
+        !sym_it->second.type.type_args.empty()) {
+        return sym_it->second.type.type_args[0]; // First type_arg is return type
+    }
+
+    // Cross-language calls whose target has no registered signature or symbol
+    // type are conservatively typed as Any.
     return core::Type::Any();
 }
 
@@ -822,9 +872,15 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
                              arg_types, sig);
     }
 
-    // NEW returns an opaque object handle — typed as Any since we cannot statically
-    // resolve the foreign class type without full module information
-    return core::Type::Any();
+    // NEW returns an opaque object handle.  If the class is known from a LINK
+    // declaration, return a struct-typed reference; otherwise fall back to Any.
+    auto sym_it = symbols_.find(new_expr->class_name);
+    if (sym_it != symbols_.end() &&
+        sym_it->second.type.kind != core::TypeKind::kAny &&
+        sym_it->second.type.kind != core::TypeKind::kInvalid) {
+        return sym_it->second.type;
+    }
+    return core::Type::Struct(new_expr->class_name);
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(

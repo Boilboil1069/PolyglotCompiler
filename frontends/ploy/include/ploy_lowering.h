@@ -127,6 +127,8 @@ class PloyLowering {
 
     std::unordered_map<std::string, EnvEntry> env_{};
     std::vector<CrossLangCallDescriptor> call_descriptors_{};
+    // Map from SSA value name to named-argument label for argument reordering.
+    std::unordered_map<std::string, std::string> named_arg_labels_{};
     std::shared_ptr<ir::Function> current_function_{};
     bool terminated_{false};
 };

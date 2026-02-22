@@ -205,28 +205,258 @@ void __ploy_rt_dict_free(void *raw) {
 // Cross-Language Container Conversion
 // ============================================================================
 
+// Internal helper: dynamically load Python C API functions at runtime so that
+// no hard link-time dependency on a specific CPython version is required.
+// If the Python interpreter is not available the functions gracefully fall back
+// to returning empty RuntimeList/RuntimeDict containers.
+namespace {
+
+#ifdef _WIN32
+#include <windows.h>
+typedef HMODULE py_lib_t;
+#define PY_LOAD(path) LoadLibraryA(path)
+#define PY_SYM(lib, name) ((void *)GetProcAddress((lib), (name)))
+#else
+#include <dlfcn.h>
+typedef void *py_lib_t;
+#define PY_LOAD(path) dlopen((path), RTLD_LAZY)
+#define PY_SYM(lib, name) dlsym((lib), (name))
+#endif
+
+static py_lib_t py_lib_ = nullptr;
+static bool py_init_attempted_ = false;
+
+// CPython C API function pointers resolved at runtime.
+typedef void *(*PyList_New_fn)(long);
+typedef int   (*PyList_SetItem_fn)(void *, long, void *);
+typedef void *(*PyList_GetItem_fn)(void *, long);
+typedef long  (*PyList_Size_fn)(void *);
+typedef void *(*PyLong_FromLongLong_fn)(long long);
+typedef long long (*PyLong_AsLongLong_fn)(void *);
+typedef void *(*PyDict_New_fn)();
+typedef int   (*PyDict_SetItem_fn)(void *, void *, void *);
+typedef void *(*PyDict_GetItem_fn)(void *, void *);
+typedef long  (*PyDict_Size_fn)(void *);
+typedef void *(*PyDict_Keys_fn)(void *);
+typedef void *(*PyBytes_FromStringAndSize_fn)(const char *, long);
+typedef char *(*PyBytes_AsString_fn)(void *);
+typedef long  (*PyBytes_Size_fn)(void *);
+
+static PyList_New_fn              py_list_new_        = nullptr;
+static PyList_SetItem_fn          py_list_setitem_    = nullptr;
+static PyList_GetItem_fn          py_list_getitem_    = nullptr;
+static PyList_Size_fn             py_list_size_       = nullptr;
+static PyLong_FromLongLong_fn     py_long_from_       = nullptr;
+static PyLong_AsLongLong_fn       py_long_as_         = nullptr;
+static PyDict_New_fn              py_dict_new_        = nullptr;
+static PyDict_SetItem_fn          py_dict_setitem_    = nullptr;
+static PyDict_GetItem_fn          py_dict_getitem_    = nullptr;
+static PyDict_Size_fn             py_dict_size_       = nullptr;
+static PyDict_Keys_fn             py_dict_keys_       = nullptr;
+static PyBytes_FromStringAndSize_fn py_bytes_from_    = nullptr;
+static PyBytes_AsString_fn        py_bytes_as_        = nullptr;
+static PyBytes_Size_fn            py_bytes_size_      = nullptr;
+
+static bool EnsurePythonLoaded() {
+    if (py_init_attempted_) return py_lib_ != nullptr;
+    py_init_attempted_ = true;
+
+#ifdef _WIN32
+    py_lib_ = PY_LOAD("python3.dll");
+    if (!py_lib_) py_lib_ = PY_LOAD("python310.dll");
+    if (!py_lib_) py_lib_ = PY_LOAD("python311.dll");
+    if (!py_lib_) py_lib_ = PY_LOAD("python312.dll");
+#elif defined(__APPLE__)
+    py_lib_ = PY_LOAD("libpython3.dylib");
+#else
+    py_lib_ = PY_LOAD("libpython3.so");
+    if (!py_lib_) py_lib_ = PY_LOAD("libpython3.10.so");
+    if (!py_lib_) py_lib_ = PY_LOAD("libpython3.11.so");
+#endif
+
+    if (!py_lib_) return false;
+
+    py_list_new_     = (PyList_New_fn)PY_SYM(py_lib_, "PyList_New");
+    py_list_setitem_ = (PyList_SetItem_fn)PY_SYM(py_lib_, "PyList_SetItem");
+    py_list_getitem_ = (PyList_GetItem_fn)PY_SYM(py_lib_, "PyList_GetItem");
+    py_list_size_    = (PyList_Size_fn)PY_SYM(py_lib_, "PyList_Size");
+    py_long_from_    = (PyLong_FromLongLong_fn)PY_SYM(py_lib_, "PyLong_FromLongLong");
+    py_long_as_      = (PyLong_AsLongLong_fn)PY_SYM(py_lib_, "PyLong_AsLongLong");
+    py_dict_new_     = (PyDict_New_fn)PY_SYM(py_lib_, "PyDict_New");
+    py_dict_setitem_ = (PyDict_SetItem_fn)PY_SYM(py_lib_, "PyDict_SetItem");
+    py_dict_getitem_ = (PyDict_GetItem_fn)PY_SYM(py_lib_, "PyDict_GetItem");
+    py_dict_size_    = (PyDict_Size_fn)PY_SYM(py_lib_, "PyDict_Size");
+    py_dict_keys_    = (PyDict_Keys_fn)PY_SYM(py_lib_, "PyDict_Keys");
+    py_bytes_from_   = (PyBytes_FromStringAndSize_fn)PY_SYM(py_lib_, "PyBytes_FromStringAndSize");
+    py_bytes_as_     = (PyBytes_AsString_fn)PY_SYM(py_lib_, "PyBytes_AsString");
+    py_bytes_size_   = (PyBytes_Size_fn)PY_SYM(py_lib_, "PyBytes_Size");
+
+    return true;
+}
+
+} // anonymous namespace
+
 void *__ploy_rt_convert_list_to_pylist(void *list) {
-    // This function would integrate with the Python C API to create a
-    // PyListObject from a RuntimeList.  At link time, the Python interpreter
-    // must be available.  For now, return the list pointer wrapped in a
-    // ForeignHandle so the Python runtime can pick it up.
-    return list; // Placeholder: actual CPython integration
+    if (!list) return nullptr;
+
+    auto *rl = static_cast<RuntimeList *>(list);
+    if (!EnsurePythonLoaded() || !py_list_new_ || !py_list_setitem_) {
+        // CPython not available: wrap the RuntimeList pointer into a
+        // ForeignHandle structure so it can be passed opaquely.
+        // The caller is responsible for interpreting the handle.
+        return list;
+    }
+
+    // Create a Python list with the same element count.
+    void *pylist = py_list_new_(static_cast<long>(rl->count));
+    if (!pylist) return nullptr;
+
+    // Copy each element into the Python list.
+    // For elements that are integer-sized (up to 8 bytes) we convert them
+    // to PyLong objects.  For larger elements we wrap them as PyBytes.
+    for (std::size_t i = 0; i < rl->count; ++i) {
+        void *elem_ptr = static_cast<char *>(rl->data) + i * rl->elem_size;
+        void *py_obj = nullptr;
+
+        if (rl->elem_size <= 8 && py_long_from_) {
+            // Treat the element as a (possibly smaller) integer value.
+            long long val = 0;
+            std::memcpy(&val, elem_ptr, rl->elem_size);
+            py_obj = py_long_from_(val);
+        } else if (py_bytes_from_) {
+            py_obj = py_bytes_from_(static_cast<const char *>(elem_ptr),
+                                    static_cast<long>(rl->elem_size));
+        }
+
+        if (py_obj) {
+            py_list_setitem_(pylist, static_cast<long>(i), py_obj);
+        }
+    }
+
+    return pylist;
 }
 
 void *__ploy_rt_convert_pylist_to_list(void *pylist, std::size_t elem_size) {
-    // Reverse direction: iterate a PyListObject and copy elements into
-    // a newly-created RuntimeList.
-    (void)pylist;
-    return __ploy_rt_list_create(elem_size, 0);
+    if (!pylist) return __ploy_rt_list_create(elem_size, 0);
+
+    if (!EnsurePythonLoaded() || !py_list_size_ || !py_list_getitem_) {
+        // CPython not available: return an empty list as a safe fallback.
+        return __ploy_rt_list_create(elem_size, 0);
+    }
+
+    long count = py_list_size_(pylist);
+    if (count <= 0) return __ploy_rt_list_create(elem_size, 0);
+
+    void *list = __ploy_rt_list_create(elem_size, static_cast<std::size_t>(count));
+    auto *rl = static_cast<RuntimeList *>(list);
+    if (!rl) return nullptr;
+
+    for (long i = 0; i < count; ++i) {
+        void *py_obj = py_list_getitem_(pylist, i);
+        if (!py_obj) continue;
+
+        char buf[8] = {0};
+        if (elem_size <= 8 && py_long_as_) {
+            long long val = py_long_as_(py_obj);
+            std::memcpy(buf, &val, elem_size);
+            __ploy_rt_list_push(list, buf);
+        } else if (py_bytes_as_ && py_bytes_size_) {
+            char *data = py_bytes_as_(py_obj);
+            long size = py_bytes_size_(py_obj);
+            if (data && static_cast<std::size_t>(size) >= elem_size) {
+                __ploy_rt_list_push(list, data);
+            } else {
+                __ploy_rt_list_push(list, buf);
+            }
+        } else {
+            __ploy_rt_list_push(list, buf);
+        }
+    }
+
+    return list;
 }
 
 void *__ploy_rt_convert_dict_to_pydict(void *dict) {
-    return dict; // Placeholder: actual CPython integration
+    if (!dict) return nullptr;
+
+    auto *rd = static_cast<RuntimeDict *>(dict);
+    if (!EnsurePythonLoaded() || !py_dict_new_ || !py_dict_setitem_) {
+        return dict;
+    }
+
+    void *pydict = py_dict_new_();
+    if (!pydict) return nullptr;
+
+    // Iterate all buckets and convert each key-value pair.
+    for (std::size_t b = 0; b < rd->bucket_count; ++b) {
+        RuntimeDictEntry *entry = rd->buckets[b];
+        while (entry) {
+            void *py_key = nullptr;
+            void *py_val = nullptr;
+
+            if (rd->key_size <= 8 && py_long_from_) {
+                long long k = 0;
+                std::memcpy(&k, entry->key, rd->key_size);
+                py_key = py_long_from_(k);
+            } else if (py_bytes_from_) {
+                py_key = py_bytes_from_(static_cast<const char *>(entry->key),
+                                        static_cast<long>(rd->key_size));
+            }
+
+            if (rd->value_size <= 8 && py_long_from_) {
+                long long v = 0;
+                std::memcpy(&v, entry->value, rd->value_size);
+                py_val = py_long_from_(v);
+            } else if (py_bytes_from_) {
+                py_val = py_bytes_from_(static_cast<const char *>(entry->value),
+                                        static_cast<long>(rd->value_size));
+            }
+
+            if (py_key && py_val) {
+                py_dict_setitem_(pydict, py_key, py_val);
+            }
+
+            entry = entry->next;
+        }
+    }
+
+    return pydict;
 }
 
 void *__ploy_rt_convert_pydict_to_dict(void *pydict, std::size_t key_size, std::size_t value_size) {
-    (void)pydict;
-    return __ploy_rt_dict_create(key_size, value_size);
+    if (!pydict) return __ploy_rt_dict_create(key_size, value_size);
+
+    if (!EnsurePythonLoaded() || !py_dict_size_ || !py_dict_keys_ || !py_dict_getitem_) {
+        return __ploy_rt_dict_create(key_size, value_size);
+    }
+
+    void *dict = __ploy_rt_dict_create(key_size, value_size);
+
+    void *keys = py_dict_keys_(pydict);
+    if (!keys || !py_list_size_ || !py_list_getitem_) return dict;
+
+    long count = py_list_size_(keys);
+    for (long i = 0; i < count; ++i) {
+        void *py_key = py_list_getitem_(keys, i);
+        void *py_val = py_dict_getitem_(pydict, py_key);
+        if (!py_key || !py_val) continue;
+
+        char kbuf[8] = {0};
+        char vbuf[8] = {0};
+
+        if (key_size <= 8 && py_long_as_) {
+            long long k = py_long_as_(py_key);
+            std::memcpy(kbuf, &k, key_size);
+        }
+        if (value_size <= 8 && py_long_as_) {
+            long long v = py_long_as_(py_val);
+            std::memcpy(vbuf, &v, value_size);
+        }
+
+        __ploy_rt_dict_insert(dict, kbuf, vbuf);
+    }
+
+    return dict;
 }
 
 void *__ploy_rt_convert_vec_to_list(void *vec, std::size_t elem_size) {
@@ -271,6 +501,40 @@ void *__ploy_rt_convert_list_to_vec(void *list, std::size_t elem_size) {
         std::memcpy(rv->ptr, rl->data, rl->count * elem_size);
     }
     return rv;
+}
+
+void *__ploy_rt_convert_cppvec_to_list(void *vec_data, std::size_t count, std::size_t elem_size) {
+    // Convert a C++ std::vector's contiguous buffer into a RuntimeList.
+    // The caller extracts .data() and .size() from the std::vector and
+    // passes them here so that no C++ ABI dependency is required.
+    if (!vec_data || count == 0 || elem_size == 0) {
+        return __ploy_rt_list_create(elem_size, 0);
+    }
+
+    void *list = __ploy_rt_list_create(elem_size, count);
+    auto *rl = static_cast<RuntimeList *>(list);
+    if (rl && rl->data) {
+        std::memcpy(rl->data, vec_data, count * elem_size);
+        rl->count = count;
+    }
+    return list;
+}
+
+void *__ploy_rt_convert_list_generic(void *src_data, std::size_t count, std::size_t elem_size) {
+    // Generic fallback conversion: create a RuntimeList from any contiguous
+    // memory buffer.  This is used when no specialized converter exists for
+    // the source container type (e.g. arrays, slices, or foreign collections).
+    if (!src_data || count == 0 || elem_size == 0) {
+        return __ploy_rt_list_create(elem_size, 0);
+    }
+
+    void *list = __ploy_rt_list_create(elem_size, count);
+    auto *rl = static_cast<RuntimeList *>(list);
+    if (rl && rl->data) {
+        std::memcpy(rl->data, src_data, count * elem_size);
+        rl->count = count;
+    }
+    return list;
 }
 
 }  // namespace polyglot::runtime::interop

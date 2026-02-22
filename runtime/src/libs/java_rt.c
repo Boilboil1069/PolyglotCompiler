@@ -105,6 +105,9 @@ int polyglot_java_init(int version_hint) {
 #else
         snprintf(jvm_path, sizeof(jvm_path), "%s/lib/server/libjvm.so", java_home);
 #endif
+    } else {
+        fprintf(stderr, "[polyglot-java] warning: JAVA_HOME is not set; "
+                        "JVM cannot be loaded.  Set JAVA_HOME to your JDK installation.\n");
     }
 
     if (jvm_path[0]) {
@@ -112,8 +115,20 @@ int polyglot_java_init(int version_hint) {
     }
 
     if (!jvm_lib_) {
-        // JVM library not found — runtime operations will gracefully return
-        // NULL but the toolchain can still generate and validate code.
+        // Try common fallback paths on each platform.
+#ifdef _WIN32
+        jvm_lib_ = JVM_LOAD("jvm.dll");
+#elif defined(__APPLE__)
+        jvm_lib_ = JVM_LOAD("/usr/libexec/java_home/../lib/server/libjvm.dylib");
+#else
+        jvm_lib_ = JVM_LOAD("libjvm.so");
+#endif
+    }
+
+    if (!jvm_lib_) {
+        fprintf(stderr, "[polyglot-java] error: JVM library not found at '%s'. "
+                        "Ensure JAVA_HOME points to a valid JDK installation.\n",
+                jvm_path[0] ? jvm_path : "(default search path)");
         return -1;
     }
 
@@ -121,6 +136,8 @@ int polyglot_java_init(int version_hint) {
     JNI_CreateJavaVM_t create_vm =
         (JNI_CreateJavaVM_t)JVM_SYM(jvm_lib_, "JNI_CreateJavaVM");
     if (!create_vm) {
+        fprintf(stderr, "[polyglot-java] error: JVM library loaded but "
+                        "JNI_CreateJavaVM symbol not found.  The library may be corrupt.\n");
         JVM_UNLOAD(jvm_lib_);
         jvm_lib_ = NULL;
         return -1;
@@ -150,6 +167,9 @@ int polyglot_java_init(int version_hint) {
 
     jint rc = create_vm(&jvm_instance_, (void **)&jni_env_, &vm_args);
     if (rc != 0) {
+        fprintf(stderr, "[polyglot-java] error: JNI_CreateJavaVM failed with "
+                        "error code %d.  Check JVM compatibility and available memory.\n",
+                (int)rc);
         jvm_instance_ = NULL;
         jni_env_ = NULL;
         JVM_UNLOAD(jvm_lib_);
@@ -383,4 +403,63 @@ void polyglot_java_release_object(void *object) {
     if (del_ref) {
         del_ref(jni_env_, (jobject)object);
     }
+}
+
+// ============================================================================
+// __ploy_java_* aliases
+//
+// The ploy frontend emits calls to __ploy_java_* symbols.  These thin
+// forwarding functions align the frontend names with the runtime's
+// polyglot_java_* ABI so that linking succeeds without special renaming.
+// ============================================================================
+
+int __ploy_java_init(int version_hint) {
+    return polyglot_java_init(version_hint);
+}
+
+void __ploy_java_shutdown(void) {
+    polyglot_java_shutdown();
+}
+
+void __ploy_java_print(const char *message) {
+    polyglot_java_print(message);
+}
+
+char *__ploy_java_strdup_gc(const char *message, void ***root_handle_out) {
+    return polyglot_java_strdup_gc(message, root_handle_out);
+}
+
+void __ploy_java_release(void *object) {
+    polyglot_java_release_object(object);
+}
+
+void *__ploy_java_call_static(const char *class_name, const char *method_name,
+                              const char *signature, const void *const *args,
+                              int arg_count) {
+    return polyglot_java_call_static(class_name, method_name, signature, args, arg_count);
+}
+
+void *__ploy_java_new_object(const char *class_name, const char *ctor_signature,
+                             const void *const *args, int arg_count) {
+    return polyglot_java_new_object(class_name, ctor_signature, args, arg_count);
+}
+
+void *__ploy_java_call_method(void *object, const char *method_name,
+                              const char *signature, const void *const *args,
+                              int arg_count) {
+    return polyglot_java_call_method(object, method_name, signature, args, arg_count);
+}
+
+void *__ploy_java_get_field(void *object, const char *field_name,
+                            const char *field_type) {
+    return polyglot_java_get_field(object, field_name, field_type);
+}
+
+void __ploy_java_set_field(void *object, const char *field_name,
+                           const char *field_type, const void *value) {
+    polyglot_java_set_field(object, field_name, field_type, value);
+}
+
+void __ploy_java_release_object(void *object) {
+    polyglot_java_release_object(object);
 }

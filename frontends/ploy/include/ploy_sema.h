@@ -87,6 +87,7 @@ struct FunctionSignature {
     std::string name;                         // Qualified function name
     std::string language;                     // Source language
     std::vector<core::Type> param_types;      // Parameter types (empty if unknown)
+    std::vector<std::string> param_names;     // Parameter names (for named-arg matching)
     core::Type return_type{core::Type::Any()};// Return type
     size_t param_count{0};                    // Number of parameters
     bool param_count_known{false};            // Whether param count is statically known

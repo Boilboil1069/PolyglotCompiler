@@ -1474,12 +1474,193 @@ std::shared_ptr<Expression> DotnetParser::ParsePrimary() {
     return lit;
 }
 
-// Unused standalone method/field/property parsers (parsing happens inline)
+// Standalone ParseMethodDecl — parses a method declaration outside a class body.
 std::shared_ptr<MethodDecl> DotnetParser::ParseMethodDecl(
-    const std::string &, const std::vector<Attribute> &) { return nullptr; }
+    const std::string &access, const std::vector<Attribute> &attrs) {
+    bool is_static = false, is_virtual = false, is_override = false;
+    bool is_abstract = false, is_sealed = false, is_async = false;
+    bool is_partial = false, is_extern = false, is_new = false;
+    while (current_.kind == frontends::TokenKind::kKeyword) {
+        auto &kw = current_.lexeme;
+        if (kw == "static") { is_static = true; Consume(); }
+        else if (kw == "virtual") { is_virtual = true; Consume(); }
+        else if (kw == "override") { is_override = true; Consume(); }
+        else if (kw == "abstract") { is_abstract = true; Consume(); }
+        else if (kw == "sealed") { is_sealed = true; Consume(); }
+        else if (kw == "async") { is_async = true; Consume(); }
+        else if (kw == "partial") { is_partial = true; Consume(); }
+        else if (kw == "extern") { is_extern = true; Consume(); }
+        else if (kw == "new") { is_new = true; Consume(); }
+        else break;
+    }
+
+    auto return_type = ParseType();
+    if (!return_type) return nullptr;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) return nullptr;
+    std::string name = current_.lexeme;
+    Consume();
+
+    auto type_params = ParseTypeParameters();
+
+    if (!IsSymbol("(")) return nullptr;
+
+    auto method = std::make_shared<MethodDecl>();
+    method->loc = return_type->loc;
+    method->name = name;
+    method->return_type = return_type;
+    method->access = access;
+    method->attributes = attrs;
+    method->type_params = type_params;
+    method->is_static = is_static;
+    method->is_virtual = is_virtual;
+    method->is_override = is_override;
+    method->is_abstract = is_abstract;
+    method->is_sealed = is_sealed;
+    method->is_async = is_async;
+    method->is_partial = is_partial;
+    method->is_extern = is_extern;
+    method->is_new = is_new;
+    method->params = ParseParameters();
+
+    // Expression-bodied method: => expr;
+    if (MatchSymbol("=>")) {
+        method->expression_body = ParseExpression();
+        ExpectSymbol(";", "expected ';' after expression body");
+    } else if (IsSymbol("{")) {
+        auto block = ParseBlock();
+        method->body = block->statements;
+    } else {
+        ExpectSymbol(";", "expected ';' after method declaration");
+    }
+
+    return method;
+}
+
+// Standalone ParseFieldDecl — parses a field declaration outside a class body.
 std::shared_ptr<FieldDecl> DotnetParser::ParseFieldDecl(
-    const std::string &, const std::vector<Attribute> &) { return nullptr; }
+    const std::string &access, const std::vector<Attribute> &attrs) {
+    bool is_static = false, is_readonly = false, is_const = false;
+    bool is_volatile = false, is_required = false;
+    while (current_.kind == frontends::TokenKind::kKeyword) {
+        auto &kw = current_.lexeme;
+        if (kw == "static") { is_static = true; Consume(); }
+        else if (kw == "readonly") { is_readonly = true; Consume(); }
+        else if (kw == "const") { is_const = true; Consume(); }
+        else if (kw == "volatile") { is_volatile = true; Consume(); }
+        else if (kw == "required") { is_required = true; Consume(); }
+        else break;
+    }
+
+    auto type = ParseType();
+    if (!type) return nullptr;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) return nullptr;
+    std::string name = current_.lexeme;
+    Consume();
+
+    auto field = std::make_shared<FieldDecl>();
+    field->loc = type->loc;
+    field->name = name;
+    field->type = type;
+    field->access = access;
+    field->attributes = attrs;
+    field->is_static = is_static;
+    field->is_readonly = is_readonly;
+    field->is_const = is_const;
+    field->is_volatile = is_volatile;
+    field->is_required = is_required;
+
+    if (MatchSymbol("=")) {
+        field->init = ParseExpression();
+    }
+    ExpectSymbol(";", "expected ';' after field declaration");
+
+    return field;
+}
+
+// Standalone ParsePropertyDecl — parses a property declaration outside a class body.
 std::shared_ptr<PropertyDecl> DotnetParser::ParsePropertyDecl(
-    const std::string &, const std::vector<Attribute> &) { return nullptr; }
+    const std::string &access, const std::vector<Attribute> &attrs) {
+    bool is_static = false, is_virtual = false, is_override = false;
+    bool is_abstract = false, is_required = false;
+    while (current_.kind == frontends::TokenKind::kKeyword) {
+        auto &kw = current_.lexeme;
+        if (kw == "static") { is_static = true; Consume(); }
+        else if (kw == "virtual") { is_virtual = true; Consume(); }
+        else if (kw == "override") { is_override = true; Consume(); }
+        else if (kw == "abstract") { is_abstract = true; Consume(); }
+        else if (kw == "required") { is_required = true; Consume(); }
+        else break;
+    }
+
+    auto type = ParseType();
+    if (!type) return nullptr;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) return nullptr;
+    std::string name = current_.lexeme;
+    Consume();
+
+    auto prop = std::make_shared<PropertyDecl>();
+    prop->loc = type->loc;
+    prop->name = name;
+    prop->type = type;
+    prop->access = access;
+    prop->attributes = attrs;
+    prop->is_static = is_static;
+    prop->is_virtual = is_virtual;
+    prop->is_override = is_override;
+    prop->is_abstract = is_abstract;
+    prop->is_required = is_required;
+
+    // Property accessor block: { get; set; } or { get { ... } set { ... } }
+    if (IsSymbol("{")) {
+        Consume();
+        while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+            if (MatchKeyword("get")) {
+                prop->has_getter = true;
+                if (IsSymbol("{")) {
+                    ParseBlock();  // discard block for now
+                } else {
+                    ExpectSymbol(";", "expected ';' after 'get'");
+                }
+            } else if (MatchKeyword("set")) {
+                prop->has_setter = true;
+                if (IsSymbol("{")) {
+                    ParseBlock();
+                } else {
+                    ExpectSymbol(";", "expected ';' after 'set'");
+                }
+            } else if (MatchKeyword("init")) {
+                prop->is_init_only = true;
+                prop->has_setter = true;
+                if (IsSymbol("{")) {
+                    ParseBlock();
+                } else {
+                    ExpectSymbol(";", "expected ';' after 'init'");
+                }
+            } else {
+                Sync();
+                if (IsSymbol(";")) Consume();
+            }
+        }
+        ExpectSymbol("}", "expected '}' after property accessors");
+    }
+
+    // Expression-bodied property: => expr;
+    if (MatchSymbol("=>")) {
+        prop->expression_body = ParseExpression();
+        prop->has_getter = true;
+        ExpectSymbol(";", "expected ';' after expression body");
+    }
+
+    // Property initializer: = value;
+    if (MatchSymbol("=")) {
+        prop->init = ParseExpression();
+        ExpectSymbol(";", "expected ';' after property initializer");
+    }
+
+    return prop;
+}
 
 } // namespace polyglot::dotnet
