@@ -23,9 +23,9 @@ constexpr uint8_t EV_CURRENT_ELF = 1;
 constexpr uint16_t ET_REL = 1;
 constexpr uint16_t EM_X86_64 = 62;
 
-constexpr uint32_t SHT_NULL = 0;
+constexpr uint32_t SHT_NULL [[maybe_unused]] = 0;
 constexpr uint32_t SHT_PROGBITS = 1;
-constexpr uint32_t SHT_SYMTAB = 2;
+constexpr uint32_t SHT_SYMTAB [[maybe_unused]] = 2;
 constexpr uint32_t SHT_STRTAB = 3;
 
 // Section data structure for internal use

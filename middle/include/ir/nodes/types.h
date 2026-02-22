@@ -28,7 +28,7 @@ enum class IRTypeKind {
 struct IRType {
   IRTypeKind kind{IRTypeKind::kInvalid};
   std::string name;
-  std::vector<IRType> subtypes;  // pointee/element/fields/params+ret (ret first for function)
+  std::vector<IRType> subtypes{};  // pointee/element/fields/params+ret (ret first for function)
   size_t count{0};               // array length or vector lanes
   bool is_signed{true};          // only meaningful for integers
 

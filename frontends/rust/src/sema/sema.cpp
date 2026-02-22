@@ -18,7 +18,7 @@ namespace {
 // Scope state for tracking context during analysis
 struct ScopeState {
     ScopeKind kind{ScopeKind::kBlock};
-    std::string name;  // Name of the scope for error messages
+    std::string name{};  // Name of the scope for error messages
 };
 
 // Extended borrow information for comprehensive borrow checking

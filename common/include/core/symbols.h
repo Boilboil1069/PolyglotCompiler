@@ -17,21 +17,21 @@ enum class SymbolKind { kVariable, kFunction, kTypeName, kModule, kParameter, kF
 enum class ScopeKind { kGlobal, kModule, kFunction, kClass, kBlock, kComprehension };
 
 struct Symbol {
-  std::string name;
+  std::string name{};
   Type type{Type::Invalid()};
   SourceLoc loc{};
   SymbolKind kind{SymbolKind::kVariable};
-  std::string language;
+  std::string language{};
   int scope_id{-1};
   bool captured{false};
-  std::string access;  // "public"/"protected"/"private" (empty = default)
+  std::string access{};  // "public"/"protected"/"private" (empty = default)
 };
 
 struct ScopeInfo {
   int id{-1};
   int parent{-1};
   ScopeKind kind{ScopeKind::kBlock};
-  std::string name;
+  std::string name{};
 };
 
 class SymbolTable {

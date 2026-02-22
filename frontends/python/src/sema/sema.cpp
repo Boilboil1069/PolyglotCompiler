@@ -18,8 +18,8 @@ namespace {
 
 struct ScopeState {
     ScopeKind kind{ScopeKind::kBlock};
-    std::unordered_set<std::string> globals;
-    std::unordered_set<std::string> nonlocals;
+    std::unordered_set<std::string> globals{};
+    std::unordered_set<std::string> nonlocals{};
 };
 
 class Analyzer {

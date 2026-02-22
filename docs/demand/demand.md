@@ -487,3 +487,27 @@ runtime_tests.cpp (line 188)、runtime_tests.cpp (line 220)、runtime_tests.cpp 
 2.编译其他平台上失败，编译要在LINUX与MACOS平台通过
 
 --end -done
+
+2026-02-22-7
+
+修复在wsl上编译的错误：
+
+1.先修复阻塞编译错误（唯一 error）
+class_metadata.h (line 87) 的 std::find(...) 报错，核心修改是补齐算法头（通常是 #include <algorithm>，位置在 class_metadata.h (line 1) 附近）。
+
+2.统一修复 Type 的缺省初始化（最高频 warning）
+types.h 大量 -Wmissing-field-initializers，集中在 Type::language、Type::type_args、Type::lifetime（日志中重复最多）。
+
+3.修复 IRType::subtypes 未初始化
+types.h 多处构造触发 IRType::subtypes 缺失初始化告警。
+
+4.修复 Symbol::access 与作用域状态结构体的初始化缺失
+主要在 sema.cpp、sema.cpp、sema.cpp、sema.cpp。
+
+5.Rust 词法器字符常量问题
+lexer.cpp (line 240) 的字符比较触发 -Wmultichar 和 -Wtype-limits，同文件还有 byte_prefix 未使用告警（lexer.cpp (line 178)）。
+
+6.清理低优先级未使用变量/函数
+分布在 lowering.cpp、object_file.cpp、cpp_constexpr.cpp、debug_emitter.cpp 等文件。
+
+--end

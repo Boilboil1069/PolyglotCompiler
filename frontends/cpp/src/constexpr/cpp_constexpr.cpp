@@ -739,7 +739,7 @@ bool ConstexprChecker::IsConstexprExpr(Expression* expr) const {
     }
     
     // Sizeof/alignof expressions are always constant
-    if (auto* sizeof_expr = dynamic_cast<SizeofExpression*>(expr)) {
+    if (dynamic_cast<SizeofExpression*>(expr)) {
         return true;
     }
     

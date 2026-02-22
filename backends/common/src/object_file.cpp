@@ -15,7 +15,7 @@ constexpr std::uint16_t ET_REL = 1;
 constexpr std::uint16_t EM_X86_64 = 62;
 constexpr std::uint16_t EM_AARCH64 = 183;
 
-constexpr std::uint32_t SHT_NULL = 0;
+constexpr std::uint32_t SHT_NULL [[maybe_unused]] = 0;
 constexpr std::uint32_t SHT_PROGBITS = 1;
 constexpr std::uint32_t SHT_SYMTAB = 2;
 constexpr std::uint32_t SHT_STRTAB = 3;

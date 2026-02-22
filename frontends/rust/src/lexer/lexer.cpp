@@ -175,7 +175,7 @@ frontends::Token RustLexer::LexNumber() {
 frontends::Token RustLexer::LexString() {
     core::SourceLoc loc = CurrentLoc();
     std::string lexeme;
-    bool byte_prefix = false;
+    [[maybe_unused]] bool byte_prefix = false;
     if (Peek() == 'b' && (PeekNext() == '"' || PeekNext() == 'r')) {
         byte_prefix = true;
         lexeme.push_back(Get());
@@ -237,7 +237,7 @@ frontends::Token RustLexer::LexChar() {
     while (Peek() != '\0') {
         char c = Get();
         lexeme.push_back(c);
-        if (c == '\\\\') {
+        if (c == '\\') {
             if (Peek() != '\0') {
                 lexeme.push_back(Get());
             }

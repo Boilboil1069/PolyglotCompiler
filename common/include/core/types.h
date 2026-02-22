@@ -71,9 +71,9 @@ enum class TypeKind {
 struct Type {
   TypeKind kind{TypeKind::kInvalid};
   std::string name;
-  std::string language;          ///< Optional language tag for cross-language mapping.
-  std::vector<Type> type_args;   ///< For generics, tuples, and compound types.
-  std::string lifetime;          ///< For borrow tracking (Rust-style).
+  std::string language{};        ///< Optional language tag for cross-language mapping.
+  std::vector<Type> type_args{}; ///< For generics, tuples, and compound types.
+  std::string lifetime{};        ///< For borrow tracking (Rust-style).
 
   bool is_const{false};
   bool is_volatile{false};
