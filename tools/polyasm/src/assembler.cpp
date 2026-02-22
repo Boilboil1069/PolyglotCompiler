@@ -5,6 +5,11 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#if defined(__APPLE__)
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
+#include <mach-o/reloc.h>
+#endif
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -526,7 +531,104 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
 
 #if defined(__APPLE__)
 std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> &obj_sections,
-                         const std::vector<ObjSymbol> &obj_symbols, const std::string &arch);
+                         const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
+  auto text_it = std::find_if(obj_sections.begin(), obj_sections.end(),
+                              [](const ObjSection &s) { return s.name == ".text"; });
+  bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
+  std::size_t text_size = text_it != obj_sections.end() ? text_it->data.size() : 0;
+
+  mach_header_64 mh{};
+  mh.magic = MH_MAGIC_64;
+  mh.cputype = is_arm64 ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64;
+  mh.cpusubtype = is_arm64 ? CPU_SUBTYPE_ARM64_ALL : CPU_SUBTYPE_X86_64_ALL;
+  mh.filetype = MH_OBJECT;
+  mh.ncmds = 2;
+  mh.sizeofcmds = sizeof(segment_command_64) + sizeof(section_64) + sizeof(symtab_command);
+  mh.flags = MH_SUBSECTIONS_VIA_SYMBOLS;
+
+  segment_command_64 seg{};
+  seg.cmd = LC_SEGMENT_64;
+  seg.cmdsize = sizeof(segment_command_64) + sizeof(section_64);
+  std::memcpy(seg.segname, "__TEXT", 6);
+  seg.vmsize = text_size;
+  seg.filesize = text_size;
+  seg.maxprot = VM_PROT_READ | VM_PROT_EXECUTE;
+  seg.initprot = VM_PROT_READ | VM_PROT_EXECUTE;
+  seg.nsects = 1;
+
+  section_64 sec{};
+  std::memcpy(sec.sectname, "__text", 6);
+  std::memcpy(sec.segname, "__TEXT", 6);
+  sec.size = text_size;
+  sec.align = 4;
+  sec.flags = S_REGULAR | S_ATTR_SOME_INSTRUCTIONS;
+  sec.offset = sizeof(mach_header_64) + seg.cmdsize + sizeof(symtab_command);
+
+  std::string strtab(1, '\0');
+  std::vector<nlist_64> nlists;
+  std::unordered_map<std::string, std::uint32_t> sym_index;
+
+  auto add_sym = [&](const ObjSymbol &sym) {
+    if (sym_index.count(sym.name)) return sym_index[sym.name];
+    std::uint32_t name_off = static_cast<std::uint32_t>(strtab.size());
+    strtab.append(sym.name);
+    strtab.push_back('\0');
+    nlist_64 nl{};
+    nl.n_un.n_strx = name_off;
+    bool defined = sym.defined && sym.section_index != 0xFFFFFFFF;
+    nl.n_type = (defined ? (N_EXT | N_SECT) : (N_EXT | N_UNDF));
+    nl.n_sect = defined ? 1 : 0;
+    nl.n_desc = 0;
+    nl.n_value = defined ? sym.value : 0;
+    sym_index[sym.name] = static_cast<std::uint32_t>(nlists.size());
+    nlists.push_back(nl);
+    return sym_index[sym.name];
+  };
+
+  for (const auto &sym : obj_symbols) {
+    add_sym(sym);
+  }
+
+  std::size_t reloc_bytes = text_it != obj_sections.end() ? text_it->relocs.size() * sizeof(relocation_info) : 0;
+  sec.reloff = static_cast<std::uint32_t>(sec.offset + text_size);
+  sec.nreloc = static_cast<std::uint32_t>(text_it != obj_sections.end() ? text_it->relocs.size() : 0);
+
+  symtab_command st{};
+  st.cmd = LC_SYMTAB;
+  st.cmdsize = sizeof(symtab_command);
+  st.symoff = static_cast<std::uint32_t>(sec.reloff + reloc_bytes);
+  st.nsyms = static_cast<std::uint32_t>(nlists.size());
+  st.stroff = st.symoff + static_cast<std::uint32_t>(nlists.size() * sizeof(nlist_64));
+  st.strsize = static_cast<std::uint32_t>(strtab.size());
+
+  std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+  if (!ofs.is_open()) return {};
+
+  ofs.write(reinterpret_cast<const char *>(&mh), sizeof(mh));
+  ofs.write(reinterpret_cast<const char *>(&seg), sizeof(seg));
+  ofs.write(reinterpret_cast<const char *>(&sec), sizeof(sec));
+  ofs.write(reinterpret_cast<const char *>(&st), sizeof(st));
+  if (text_it != obj_sections.end()) {
+    ofs.write(reinterpret_cast<const char *>(text_it->data.data()),
+              static_cast<std::streamsize>(text_it->data.size()));
+    for (const auto &r : text_it->relocs) {
+      relocation_info ri{};
+      ri.r_address = static_cast<std::int32_t>(r.offset);
+      ri.r_symbolnum = static_cast<std::int32_t>(r.symbol_index);
+      ri.r_pcrel = (r.type == 1);
+      ri.r_length = 2;
+      ri.r_extern = 1;
+      ri.r_type = is_arm64 ? 2 : 0;
+      ofs.write(reinterpret_cast<const char *>(&ri), sizeof(ri));
+    }
+  }
+
+  for (const auto &n : nlists) {
+    ofs.write(reinterpret_cast<const char *>(&n), sizeof(n));
+  }
+  ofs.write(strtab.data(), static_cast<std::streamsize>(strtab.size()));
+  return ofs.good() ? path : std::string{};
+}
 #else
 std::string BuildMachO64(const std::string &, const std::vector<ObjSection> &,
                          const std::vector<ObjSymbol> &, const std::string &) {
