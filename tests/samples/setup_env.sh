@@ -9,6 +9,7 @@
 #   cd tests/samples
 #   chmod +x setup_env.sh
 #   ./setup_env.sh
+#   ./setup_env.sh --mirror tsinghua --python-version 3.11 --rust-toolchain stable --java-version 21 --dotnet-channel 9.0
 #
 # The env/ folder is git-ignored and not committed to the repository.
 # ============================================================================
@@ -18,9 +19,141 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_DIR="$SCRIPT_DIR/env"
 
+MIRROR="tsinghua"
+PYTHON_VERSION=""
+RUST_TOOLCHAIN="stable"
+JAVA_VERSION="21"
+DOTNET_CHANNEL="9.0"
+
+PIP_INDEX_URL=""
+RUSTUP_DIST_SERVER=""
+RUSTUP_UPDATE_ROOT=""
+CARGO_REGISTRY_INDEX=""
+DOTNET_AZURE_FEED=""
+
+print_usage() {
+    echo "Usage:"
+    echo "  ./setup_env.sh [options]"
+    echo ""
+    echo "Options:"
+    echo "  --mirror <tsinghua|official|custom>"
+    echo "  --python-version <version-prefix>   (e.g. 3.11)"
+    echo "  --rust-toolchain <toolchain>        (e.g. stable, 1.84.0)"
+    echo "  --java-version <major>              (e.g. 21)"
+    echo "  --dotnet-channel <channel>          (e.g. 9.0, 8.0)"
+    echo "  --pypi-url <url>"
+    echo "  --rustup-dist-server <url>"
+    echo "  --rustup-update-root <url>"
+    echo "  --cargo-index <url>"
+    echo "  --dotnet-azure-feed <url>"
+    echo "  -h, --help"
+}
+
+version_matches_prefix() {
+    local raw="$1"
+    local expected_prefix="$2"
+    local actual
+    actual=$(echo "$raw" | grep -Eo '[0-9]+(\.[0-9]+){1,2}' | head -1)
+    if [ -z "$expected_prefix" ]; then
+        return 0
+    fi
+    if [ -z "$actual" ]; then
+        return 1
+    fi
+    [[ "$actual" == "$expected_prefix"* ]]
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mirror)
+            MIRROR="$2"
+            shift 2
+            ;;
+        --python-version)
+            PYTHON_VERSION="$2"
+            shift 2
+            ;;
+        --rust-toolchain)
+            RUST_TOOLCHAIN="$2"
+            shift 2
+            ;;
+        --java-version)
+            JAVA_VERSION="$2"
+            shift 2
+            ;;
+        --dotnet-channel)
+            DOTNET_CHANNEL="$2"
+            shift 2
+            ;;
+        --pypi-url)
+            PIP_INDEX_URL="$2"
+            shift 2
+            ;;
+        --rustup-dist-server)
+            RUSTUP_DIST_SERVER="$2"
+            shift 2
+            ;;
+        --rustup-update-root)
+            RUSTUP_UPDATE_ROOT="$2"
+            shift 2
+            ;;
+        --cargo-index)
+            CARGO_REGISTRY_INDEX="$2"
+            shift 2
+            ;;
+        --dotnet-azure-feed)
+            DOTNET_AZURE_FEED="$2"
+            shift 2
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "[ERR] Unknown option: $1"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
+case "$MIRROR" in
+    tsinghua)
+        [ -z "$PIP_INDEX_URL" ] && PIP_INDEX_URL="https://pypi.tuna.tsinghua.edu.cn/simple"
+        [ -z "$RUSTUP_DIST_SERVER" ] && RUSTUP_DIST_SERVER="https://mirrors.tuna.tsinghua.edu.cn/rustup"
+        [ -z "$RUSTUP_UPDATE_ROOT" ] && RUSTUP_UPDATE_ROOT="https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup"
+        [ -z "$CARGO_REGISTRY_INDEX" ] && CARGO_REGISTRY_INDEX="sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"
+        [ -z "$DOTNET_AZURE_FEED" ] && DOTNET_AZURE_FEED="https://mirrors.tuna.tsinghua.edu.cn/dotnet"
+        ;;
+    official)
+        [ -z "$PIP_INDEX_URL" ] && PIP_INDEX_URL="https://pypi.org/simple"
+        [ -z "$RUSTUP_DIST_SERVER" ] && RUSTUP_DIST_SERVER="https://static.rust-lang.org"
+        [ -z "$RUSTUP_UPDATE_ROOT" ] && RUSTUP_UPDATE_ROOT="https://static.rust-lang.org/rustup"
+        [ -z "$CARGO_REGISTRY_INDEX" ] && CARGO_REGISTRY_INDEX="sparse+https://index.crates.io/"
+        ;;
+    custom)
+        [ -z "$PIP_INDEX_URL" ] && PIP_INDEX_URL="https://pypi.org/simple"
+        [ -z "$RUSTUP_DIST_SERVER" ] && RUSTUP_DIST_SERVER="https://static.rust-lang.org"
+        [ -z "$RUSTUP_UPDATE_ROOT" ] && RUSTUP_UPDATE_ROOT="https://static.rust-lang.org/rustup"
+        [ -z "$CARGO_REGISTRY_INDEX" ] && CARGO_REGISTRY_INDEX="sparse+https://index.crates.io/"
+        ;;
+    *)
+        echo "[ERR] Invalid --mirror value: $MIRROR (allowed: tsinghua, official, custom)"
+        exit 1
+        ;;
+esac
+
 echo "============================================"
 echo " PolyglotCompiler Sample Environment Setup"
 echo "============================================"
+echo ""
+echo "Mirror profile:   $MIRROR"
+echo "Python version:   ${PYTHON_VERSION:-auto}"
+echo "Rust toolchain:   $RUST_TOOLCHAIN"
+echo "Java version:     $JAVA_VERSION"
+echo ".NET channel:     $DOTNET_CHANNEL"
+echo "PyPI index:       $PIP_INDEX_URL"
+echo "Cargo index:      $CARGO_REGISTRY_INDEX"
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -47,14 +180,18 @@ if [ ! -d "$PYTHON_ENV_DIR" ]; then
     for cmd in python3 python; do
         if command -v "$cmd" &>/dev/null; then
             ver=$($cmd --version 2>&1)
-            echo "[OK] Found Python: $ver"
-            PYTHON_CMD="$cmd"
-            break
+            if version_matches_prefix "$ver" "$PYTHON_VERSION"; then
+                echo "[OK] Found Python: $ver"
+                PYTHON_CMD="$cmd"
+                break
+            else
+                echo "[..] Skip Python ($ver), expected prefix: $PYTHON_VERSION"
+            fi
         fi
     done
 
     if [ -z "$PYTHON_CMD" ]; then
-        echo "[ERR] Python not found. Please install Python 3.8+."
+        echo "[ERR] Python not found or version mismatch. Please install Python ${PYTHON_VERSION:-3.8+}."
         echo "      Ubuntu/Debian: sudo apt install python3 python3-venv"
         echo "      macOS: brew install python3"
     else
@@ -66,8 +203,8 @@ if [ ! -d "$PYTHON_ENV_DIR" ]; then
         VENV_PYTHON="$PYTHON_ENV_DIR/bin/python"
 
         echo "[..] Installing sample dependencies..."
-        "$VENV_PYTHON" -m pip install --upgrade pip >/dev/null 2>&1 || true
-        "$VENV_PYTHON" -m pip install numpy typing-extensions 2>&1 || true
+        "$VENV_PYTHON" -m pip install --upgrade pip -i "$PIP_INDEX_URL" >/dev/null 2>&1 || true
+        "$VENV_PYTHON" -m pip install -i "$PIP_INDEX_URL" numpy typing-extensions 2>&1 || true
 
         echo "[OK] Python packages installed"
     fi
@@ -97,7 +234,9 @@ if [ ! -d "$RUST_ENV_DIR" ]; then
         echo "[..] rustup not found. Downloading and installing..."
         export RUSTUP_HOME="$RUST_ENV_DIR/rustup"
         export CARGO_HOME="$RUST_ENV_DIR/cargo"
-        if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable 2>&1; then
+        export RUSTUP_DIST_SERVER="$RUSTUP_DIST_SERVER"
+        export RUSTUP_UPDATE_ROOT="$RUSTUP_UPDATE_ROOT"
+        if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain "$RUST_TOOLCHAIN" 2>&1; then
             RUSTUP_AVAILABLE=true
             echo "[OK] rustup installed successfully"
             export PATH="$CARGO_HOME/bin:$PATH"
@@ -106,16 +245,23 @@ if [ ! -d "$RUST_ENV_DIR" ]; then
         fi
         unset RUSTUP_HOME
         unset CARGO_HOME
+        unset RUSTUP_DIST_SERVER
+        unset RUSTUP_UPDATE_ROOT
     fi
 
     if [ "$RUSTUP_AVAILABLE" = true ]; then
         # Set isolated env vars
         export RUSTUP_HOME="$RUST_ENV_DIR/rustup"
         export CARGO_HOME="$RUST_ENV_DIR/cargo"
+        export RUSTUP_DIST_SERVER="$RUSTUP_DIST_SERVER"
+        export RUSTUP_UPDATE_ROOT="$RUSTUP_UPDATE_ROOT"
 
-        echo "[..] Installing Rust stable toolchain (isolated)..."
-        rustup install stable 2>&1
-        rustup default stable 2>&1
+        mkdir -p "$CARGO_HOME"
+        printf '[registries.crates-io]\nindex = "%s"\n' "$CARGO_REGISTRY_INDEX" > "$CARGO_HOME/config.toml"
+
+        echo "[..] Installing Rust toolchain '$RUST_TOOLCHAIN' (isolated)..."
+        rustup install "$RUST_TOOLCHAIN" 2>&1
+        rustup default "$RUST_TOOLCHAIN" 2>&1
 
         echo "[OK] Rust toolchain installed at: $RUST_ENV_DIR"
 
@@ -135,6 +281,8 @@ ACTIVATE_EOF
         # Reset env vars
         unset RUSTUP_HOME
         unset CARGO_HOME
+        unset RUSTUP_DIST_SERVER
+        unset RUSTUP_UPDATE_ROOT
     fi
 else
     echo "[OK] Rust environment already exists at: $RUST_ENV_DIR"
@@ -167,7 +315,7 @@ if [ ! -d "$JAVA_ENV_DIR" ]; then
     fi
 
     if [ "$JAVA_AVAILABLE" = false ]; then
-        echo "[..] Java not found. Downloading Adoptium JDK 21 (LTS)..."
+        echo "[..] Java not found. Downloading Adoptium JDK $JAVA_VERSION ..."
         # Detect OS and architecture
         OS_NAME="linux"
         ARCH="x64"
@@ -179,11 +327,11 @@ if [ ! -d "$JAVA_ENV_DIR" ]; then
             fi
         fi
 
-        JDK_URL="https://api.adoptium.net/v3/binary/latest/21/ga/${OS_NAME}/${ARCH}/jdk/hotspot/normal/eclipse?project=jdk"
+        JDK_URL="https://api.adoptium.net/v3/binary/latest/${JAVA_VERSION}/ga/${OS_NAME}/${ARCH}/jdk/hotspot/normal/eclipse?project=jdk"
         JDK_ARCHIVE="$ENV_DIR/jdk.$EXT"
 
         if curl -L -o "$JDK_ARCHIVE" "$JDK_URL" 2>/dev/null; then
-            echo "[OK] Downloaded Adoptium JDK 21"
+            echo "[OK] Downloaded Adoptium JDK $JAVA_VERSION"
             echo "[..] Extracting JDK..."
             tar xzf "$JDK_ARCHIVE" -C "$JAVA_ENV_DIR" 2>/dev/null || true
             rm -f "$JDK_ARCHIVE"
@@ -246,14 +394,18 @@ if [ ! -d "$DOTNET_ENV_DIR" ]; then
     fi
 
     if [ "$DOTNET_AVAILABLE" = false ]; then
-        echo "[..] .NET SDK not found. Downloading .NET 9 SDK..."
+        echo "[..] .NET SDK not found. Downloading .NET SDK channel $DOTNET_CHANNEL ..."
         DOTNET_INSTALL_SCRIPT="$ENV_DIR/dotnet-install.sh"
         if curl -sSL https://dot.net/v1/dotnet-install.sh -o "$DOTNET_INSTALL_SCRIPT" 2>/dev/null; then
             chmod +x "$DOTNET_INSTALL_SCRIPT"
             echo "[OK] Downloaded dotnet-install.sh"
 
-            echo "[..] Installing .NET 9 SDK to isolated directory..."
-            "$DOTNET_INSTALL_SCRIPT" --channel 9.0 --install-dir "$DOTNET_ENV_DIR" --no-path 2>&1 || true
+            echo "[..] Installing .NET SDK (channel $DOTNET_CHANNEL) to isolated directory..."
+            if [ -n "$DOTNET_AZURE_FEED" ]; then
+                "$DOTNET_INSTALL_SCRIPT" --channel "$DOTNET_CHANNEL" --install-dir "$DOTNET_ENV_DIR" --no-path --azure-feed "$DOTNET_AZURE_FEED" 2>&1 || true
+            else
+                "$DOTNET_INSTALL_SCRIPT" --channel "$DOTNET_CHANNEL" --install-dir "$DOTNET_ENV_DIR" --no-path 2>&1 || true
+            fi
 
             if [ -f "$DOTNET_ENV_DIR/dotnet" ]; then
                 DOTNET_AVAILABLE=true

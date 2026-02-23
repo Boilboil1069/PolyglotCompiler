@@ -7,11 +7,66 @@
 # Usage:
 #   cd tests/samples
 #   .\setup_env.ps1
+#   .\setup_env.ps1 -Mirror tsinghua -PythonVersion 3.11 -RustToolchain stable -JavaVersion 21 -DotnetChannel 9.0
 #
 # The env/ folder is git-ignored and not committed to the repository.
 # ============================================================================
 
+param(
+    [ValidateSet("tsinghua", "official", "custom")]
+    [string]$Mirror = "tsinghua",
+    [string]$PythonVersion = "",
+    [string]$RustToolchain = "stable",
+    [string]$JavaVersion = "21",
+    [string]$DotnetChannel = "9.0",
+    [string]$PypiUrl = "",
+    [string]$RustupDistServer = "",
+    [string]$RustupUpdateRoot = "",
+    [string]$CargoIndex = "",
+    [string]$DotnetAzureFeed = ""
+)
+
 $ErrorActionPreference = "Stop"
+
+function Test-VersionPrefix {
+    param(
+        [string]$RawVersion,
+        [string]$ExpectedPrefix
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ExpectedPrefix)) {
+        return $true
+    }
+
+    $m = [regex]::Match($RawVersion, "\d+(\.\d+){1,2}")
+    if (-not $m.Success) {
+        return $false
+    }
+
+    return $m.Value.StartsWith($ExpectedPrefix)
+}
+
+switch ($Mirror) {
+    "tsinghua" {
+        if ([string]::IsNullOrWhiteSpace($PypiUrl)) { $PypiUrl = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+        if ([string]::IsNullOrWhiteSpace($RustupDistServer)) { $RustupDistServer = "https://mirrors.tuna.tsinghua.edu.cn/rustup" }
+        if ([string]::IsNullOrWhiteSpace($RustupUpdateRoot)) { $RustupUpdateRoot = "https://mirrors.tuna.tsinghua.edu.cn/rustup/rustup" }
+        if ([string]::IsNullOrWhiteSpace($CargoIndex)) { $CargoIndex = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/" }
+        if ([string]::IsNullOrWhiteSpace($DotnetAzureFeed)) { $DotnetAzureFeed = "https://mirrors.tuna.tsinghua.edu.cn/dotnet" }
+    }
+    "official" {
+        if ([string]::IsNullOrWhiteSpace($PypiUrl)) { $PypiUrl = "https://pypi.org/simple" }
+        if ([string]::IsNullOrWhiteSpace($RustupDistServer)) { $RustupDistServer = "https://static.rust-lang.org" }
+        if ([string]::IsNullOrWhiteSpace($RustupUpdateRoot)) { $RustupUpdateRoot = "https://static.rust-lang.org/rustup" }
+        if ([string]::IsNullOrWhiteSpace($CargoIndex)) { $CargoIndex = "sparse+https://index.crates.io/" }
+    }
+    "custom" {
+        if ([string]::IsNullOrWhiteSpace($PypiUrl)) { $PypiUrl = "https://pypi.org/simple" }
+        if ([string]::IsNullOrWhiteSpace($RustupDistServer)) { $RustupDistServer = "https://static.rust-lang.org" }
+        if ([string]::IsNullOrWhiteSpace($RustupUpdateRoot)) { $RustupUpdateRoot = "https://static.rust-lang.org/rustup" }
+        if ([string]::IsNullOrWhiteSpace($CargoIndex)) { $CargoIndex = "sparse+https://index.crates.io/" }
+    }
+}
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $EnvDir = Join-Path $ScriptDir "env"
@@ -19,6 +74,14 @@ $EnvDir = Join-Path $ScriptDir "env"
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host " PolyglotCompiler Sample Environment Setup" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Mirror profile:   $Mirror"
+Write-Host "Python version:   $(if ($PythonVersion) { $PythonVersion } else { 'auto' })"
+Write-Host "Rust toolchain:   $RustToolchain"
+Write-Host "Java version:     $JavaVersion"
+Write-Host ".NET channel:     $DotnetChannel"
+Write-Host "PyPI index:       $PypiUrl"
+Write-Host "Cargo index:      $CargoIndex"
 Write-Host ""
 
 # ---------------------------------------------------------------------------
@@ -48,9 +111,13 @@ if (!(Test-Path $PythonEnvDir)) {
         try {
             $ver = & $cmd --version 2>&1
             if ($LASTEXITCODE -eq 0) {
-                $PythonCmd = $cmd
-                Write-Host "[OK] Found Python: $ver" -ForegroundColor Green
-                break
+                if (Test-VersionPrefix -RawVersion "$ver" -ExpectedPrefix $PythonVersion) {
+                    $PythonCmd = $cmd
+                    Write-Host "[OK] Found Python: $ver" -ForegroundColor Green
+                    break
+                } else {
+                    Write-Host "[..] Skip Python ($ver), expected prefix: $PythonVersion" -ForegroundColor DarkGray
+                }
             }
         } catch {
             continue
@@ -58,7 +125,7 @@ if (!(Test-Path $PythonEnvDir)) {
     }
 
     if ($null -eq $PythonCmd) {
-        Write-Host "[ERR] Python not found. Please install Python 3.8+ and add to PATH." -ForegroundColor Red
+        Write-Host "[ERR] Python not found or version mismatch. Please install Python $(if ($PythonVersion) { $PythonVersion } else { '3.8+' }) and add to PATH." -ForegroundColor Red
         Write-Host "      Download: https://www.python.org/downloads/" -ForegroundColor Red
     } else {
         & $PythonCmd -m venv $PythonEnvDir 2>&1 | Out-Null
@@ -70,8 +137,8 @@ if (!(Test-Path $PythonEnvDir)) {
 
             Write-Host "[..] Installing sample dependencies..."
             # Upgrade pip using the venv's python -m pip (avoids "To modify pip" error)
-            & $VenvPython -m pip install --upgrade pip 2>&1 | Out-Null
-            & $VenvPython -m pip install numpy typing-extensions 2>&1 | Out-Null
+            & $VenvPython -m pip install --upgrade pip -i $PypiUrl 2>&1 | Out-Null
+            & $VenvPython -m pip install -i $PypiUrl numpy typing-extensions 2>&1 | Out-Null
 
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "[OK] Python packages installed" -ForegroundColor Green
@@ -109,7 +176,7 @@ if (!(Test-Path $RustEnvDir)) {
 
     if (!$RustupAvailable) {
         Write-Host "[..] rustup not found. Downloading and installing rustup-init..." -ForegroundColor Yellow
-        $RustupInitUrl = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
+        $RustupInitUrl = "$RustupDistServer/dist/x86_64-pc-windows-msvc/rustup-init.exe"
         $RustupInitPath = Join-Path $EnvDir "rustup-init.exe"
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -119,7 +186,9 @@ if (!(Test-Path $RustEnvDir)) {
             # Install rustup with default options, no modification to system PATH
             $env:RUSTUP_HOME = Join-Path $RustEnvDir "rustup"
             $env:CARGO_HOME = Join-Path $RustEnvDir "cargo"
-            & $RustupInitPath -y --no-modify-path --default-toolchain stable 2>&1
+            $env:RUSTUP_DIST_SERVER = $RustupDistServer
+            $env:RUSTUP_UPDATE_ROOT = $RustupUpdateRoot
+            & $RustupInitPath -y --no-modify-path --default-toolchain $RustToolchain 2>&1
             if ($LASTEXITCODE -eq 0) {
                 $RustupAvailable = $true
                 Write-Host "[OK] rustup installed successfully" -ForegroundColor Green
@@ -133,6 +202,8 @@ if (!(Test-Path $RustEnvDir)) {
             # Reset env vars for the isolated install block below
             Remove-Item Env:\RUSTUP_HOME -ErrorAction SilentlyContinue
             Remove-Item Env:\CARGO_HOME -ErrorAction SilentlyContinue
+            Remove-Item Env:\RUSTUP_DIST_SERVER -ErrorAction SilentlyContinue
+            Remove-Item Env:\RUSTUP_UPDATE_ROOT -ErrorAction SilentlyContinue
         } catch {
             Write-Host "[ERR] Failed to download rustup-init: $($_.Exception.Message)" -ForegroundColor Red
             Write-Host "      Manual install: https://rustup.rs/" -ForegroundColor Red
@@ -143,6 +214,14 @@ if (!(Test-Path $RustEnvDir)) {
         # Set RUSTUP_HOME and CARGO_HOME to isolate toolchain
         $env:RUSTUP_HOME = Join-Path $RustEnvDir "rustup"
         $env:CARGO_HOME = Join-Path $RustEnvDir "cargo"
+        $env:RUSTUP_DIST_SERVER = $RustupDistServer
+        $env:RUSTUP_UPDATE_ROOT = $RustupUpdateRoot
+
+        New-Item -ItemType Directory -Path $env:CARGO_HOME -Force | Out-Null
+        @"
+    [registries.crates-io]
+    index = "$CargoIndex"
+    "@ | Out-File -Encoding utf8 (Join-Path $env:CARGO_HOME "config.toml")
 
         # Add cargo bin to PATH so rustup can find itself
         $CargoBin = Join-Path $RustEnvDir "cargo\bin"
@@ -150,9 +229,9 @@ if (!(Test-Path $RustEnvDir)) {
             $env:PATH = "$CargoBin;$env:PATH"
         }
 
-        Write-Host "[..] Installing Rust stable toolchain (isolated)..."
-        & rustup install stable 2>&1
-        & rustup default stable 2>&1
+        Write-Host "[..] Installing Rust toolchain '$RustToolchain' (isolated)..."
+        & rustup install $RustToolchain 2>&1
+        & rustup default $RustToolchain 2>&1
 
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[OK] Rust toolchain installed at: $RustEnvDir" -ForegroundColor Green
@@ -175,6 +254,8 @@ Write-Host "[Rust] Environment activated" -ForegroundColor Green
         # Reset env vars
         Remove-Item Env:\RUSTUP_HOME -ErrorAction SilentlyContinue
         Remove-Item Env:\CARGO_HOME -ErrorAction SilentlyContinue
+        Remove-Item Env:\RUSTUP_DIST_SERVER -ErrorAction SilentlyContinue
+        Remove-Item Env:\RUSTUP_UPDATE_ROOT -ErrorAction SilentlyContinue
     }
 } else {
     Write-Host "[OK] Rust environment already exists at: $RustEnvDir" -ForegroundColor Yellow
@@ -203,8 +284,8 @@ if (!(Test-Path $JavaEnvDir)) {
     } catch {}
 
     if (!$JavaAvailable) {
-        Write-Host "[..] Java not found. Downloading Adoptium JDK 21 (LTS)..." -ForegroundColor Yellow
-        $JdkVersion = "21"
+        Write-Host "[..] Java not found. Downloading Adoptium JDK $JavaVersion ..." -ForegroundColor Yellow
+        $JdkVersion = $JavaVersion
         $JdkUrl = "https://api.adoptium.net/v3/binary/latest/$JdkVersion/ga/windows/x64/jdk/hotspot/normal/eclipse?project=jdk"
         $JdkZipPath = Join-Path $EnvDir "jdk.zip"
         try {
@@ -290,7 +371,7 @@ if (!(Test-Path $DotnetEnvDir)) {
     } catch {}
 
     if (!$DotnetAvailable) {
-        Write-Host "[..] .NET SDK not found. Downloading .NET 9 SDK..." -ForegroundColor Yellow
+        Write-Host "[..] .NET SDK not found. Downloading .NET SDK channel $DotnetChannel ..." -ForegroundColor Yellow
         $DotnetInstallUrl = "https://dot.net/v1/dotnet-install.ps1"
         $DotnetInstallScript = Join-Path $EnvDir "dotnet-install.ps1"
         try {
@@ -298,8 +379,12 @@ if (!(Test-Path $DotnetEnvDir)) {
             Invoke-WebRequest -Uri $DotnetInstallUrl -OutFile $DotnetInstallScript -UseBasicParsing
             Write-Host "[OK] Downloaded dotnet-install.ps1" -ForegroundColor Green
 
-            Write-Host "[..] Installing .NET 9 SDK to isolated directory..."
-            & $DotnetInstallScript -Channel 9.0 -InstallDir $DotnetEnvDir -NoPath 2>&1
+            Write-Host "[..] Installing .NET SDK to isolated directory..."
+            if ([string]::IsNullOrWhiteSpace($DotnetAzureFeed)) {
+                & $DotnetInstallScript -Channel $DotnetChannel -InstallDir $DotnetEnvDir -NoPath 2>&1
+            } else {
+                & $DotnetInstallScript -Channel $DotnetChannel -InstallDir $DotnetEnvDir -NoPath -AzureFeed $DotnetAzureFeed 2>&1
+            }
             if ($LASTEXITCODE -eq 0 -or (Test-Path (Join-Path $DotnetEnvDir "dotnet.exe"))) {
                 $DotnetAvailable = $true
                 Write-Host "[OK] .NET SDK installed at: $DotnetEnvDir" -ForegroundColor Green
