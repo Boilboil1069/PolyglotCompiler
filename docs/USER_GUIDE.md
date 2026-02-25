@@ -1802,6 +1802,7 @@ ctest -L benchmark              # Default tier (3 warmup, moderate iterations)
 
 > **Recommended build type for benchmarks**: `Release` or `RelWithDebInfo`.  Debug builds include assertions and sanitiser overhead that distort measurements.
 
+```bash
 # Verbose output
 ./unit_tests [ploy] -r compact
 

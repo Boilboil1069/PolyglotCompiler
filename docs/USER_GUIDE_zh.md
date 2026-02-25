@@ -1792,6 +1792,7 @@ ctest -L benchmark              # 默认档位（3 次预热，适量迭代）
 
 > **基准测试推荐构建类型**：`Release` 或 `RelWithDebInfo`。Debug 构建包含断言和 sanitiser 开销，会扭曲测量结果。
 
+```bash
 # 详细输出
 ./unit_tests [ploy] -r compact
 
