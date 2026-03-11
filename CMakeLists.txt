@@ -334,6 +334,69 @@ target_link_libraries(polybench
     nlohmann_json::nlohmann_json
 )
 
+# PolyglotCompiler IDE (Qt-based desktop UI)
+# Try Qt6 first, fall back to Qt5.  polyui is only built when either is found.
+find_package(Qt6 QUIET COMPONENTS Widgets)
+if(NOT Qt6_FOUND)
+    find_package(Qt5 QUIET COMPONENTS Widgets)
+endif()
+
+if(Qt6_FOUND OR Qt5_FOUND)
+    set(CMAKE_AUTOMOC ON)
+
+    add_executable(polyui
+        tools/ui/src/main.cpp
+        tools/ui/src/main_window.cpp
+        tools/ui/src/code_editor.cpp
+        tools/ui/src/syntax_highlighter.cpp
+        tools/ui/src/file_browser.cpp
+        tools/ui/src/output_panel.cpp
+        tools/ui/src/compiler_service.cpp
+        # Headers with Q_OBJECT must be listed for AUTOMOC
+        tools/ui/include/main_window.h
+        tools/ui/include/code_editor.h
+        tools/ui/include/syntax_highlighter.h
+        tools/ui/include/file_browser.h
+        tools/ui/include/output_panel.h
+    )
+
+    target_include_directories(polyui PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+
+    if(Qt6_FOUND)
+        set(QT_LIB Qt6::Widgets)
+        message(STATUS "Qt6 found — building polyui (IDE)")
+    else()
+        set(QT_LIB Qt5::Widgets)
+        message(STATUS "Qt5 found — building polyui (IDE)")
+    endif()
+
+    target_link_libraries(polyui
+        ${QT_LIB}
+        frontend_python
+        frontend_cpp
+        frontend_rust
+        frontend_ploy
+        frontend_java
+        frontend_dotnet
+        middle_ir
+        backend_x86_64
+        backend_arm64
+        backend_wasm
+        runtime
+        polyglot_common
+        nlohmann_json::nlohmann_json
+    )
+
+    # On Windows, mark as a GUI application
+    if(WIN32)
+        set_target_properties(polyui PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
+else()
+    message(STATUS "Qt NOT found — skipping polyui (IDE). Install Qt5 or Qt6 to build the IDE.")
+endif()
+
 file(GLOB_RECURSE UNIT_TEST_SOURCES tests/unit/*.cpp)
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 target_link_libraries(unit_tests PRIVATE

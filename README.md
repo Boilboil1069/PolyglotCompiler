@@ -89,6 +89,9 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 
 All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched automatically via CMake `FetchContent`.
 
+**Optional (for IDE):**
+- **Qt** 5.15+ or Qt 6 (for the `polyui` desktop IDE). If Qt is not found, the IDE target is skipped.
+
 ### Build / 构建
 
 ```bash
@@ -236,6 +239,7 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 | Optimiser | `polyopt` | IR optimisation passes |
 | Runtime Tool | `polyrt` | GC / FFI / Thread management |
 | Benchmark | `polybench` | Performance evaluation suite |
+| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, and compilation |
 
 ---
 
@@ -260,7 +264,7 @@ PolyglotCompiler/
 ├── runtime/            # Runtime: GC (4 algorithms), FFI, marshalling, threading
 │   └── src/libs/       # Language runtimes: python_rt, cpp_rt, rust_rt, java_rt, dotnet_rt
 ├── common/             # Common utilities: type system, symbol table, DWARF5
-├── tools/              # Compiler driver (polyc), linker (polyld), assembler, etc.
+├── tools/              # Compiler driver (polyc), linker (polyld), assembler, IDE (polyui), etc.
 ├── tests/
 │   ├── unit/           # Unit tests — 734 cases (Catch2)
 │   ├── integration/    # Integration tests — 50 cases
@@ -350,6 +354,12 @@ Managed automatically via CMake `FetchContent`:
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
 | [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
 | [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator |
+
+**Optional (not fetched by CMake — must be pre-installed):**
+
+| Dependency | Purpose |
+|-----------|---------|
+| [Qt 5.15+ / Qt 6](https://www.qt.io/) | Desktop IDE (`polyui`). Skipped if not found |
 
 ---
 

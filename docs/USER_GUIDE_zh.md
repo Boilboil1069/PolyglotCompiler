@@ -37,7 +37,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 
 - ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#) 的完整编译前端
 - ✅ **三重后端架构**: x86_64 (SSE/AVX)、ARM64 (NEON)、WebAssembly 后端
-- ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）
+- ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）、IDE（polyui）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
 - ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 关键字支持类实例化、方法调用、属性访问、资源管理、对象销毁和类继承扩展
 - ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
@@ -74,6 +74,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | 优化器 | IR 优化 Pass | `polyopt` |
 | 运行时工具 | GC/FFI/线程管理 | `polyrt` |
 | 基准测试 | 性能评估套件 | `polybench` |
+| IDE | 基于 Qt 的桌面集成开发环境，支持语法高亮、诊断、文件浏览 | `polyui` |
 
 ---
 
@@ -279,14 +280,14 @@ PolyglotCompiler/
 │   └── src/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
-├── tools/                  # 工具链（6 个可执行文件）
+├── tools/                  # 工具链（7 个可执行文件）
 │   ├── polyc/              # 编译器驱动 (driver.cpp ~1412 行)
 │   ├── polyld/             # 链接器 (linker.cpp + polyglot_linker.cpp ~522 行)
 │   ├── polyasm/            # 汇编器 (assembler.cpp)
 │   ├── polyopt/            # 优化器 (optimizer.cpp)
 │   ├── polyrt/             # 运行时工具 (polyrt.cpp)
 │   ├── polybench/          # 基准测试 (benchmark_suite.cpp)
-│   └── ui/                 # UI 工具
+│   └── ui/                 # IDE 工具 (polyui) — 基于 Qt 的桌面 IDE，支持语法高亮、诊断、文件浏览
 ├── tests/                  # 测试
 │   ├── unit/               # 单元测试（Catch2 框架）— 734 个测试用例
 │   │   └── frontends/ploy/ #   ploy_test.cpp（207 测试用例）
@@ -1474,6 +1475,76 @@ chmod +x setup_env.sh
 
 `env/` 目录通过 `.gitignore` 自动排除，不会被 git 同步。
 
+## 6.7 IDE (`polyui`)
+
+`polyui` 是 PolyglotCompiler 的基于 Qt 的桌面集成开发环境（IDE）。它提供了语法高亮、实时诊断和项目文件浏览等功能。
+
+### 前置条件
+
+- **Qt 5.15+** 或 **Qt 6.x**（需要 Widgets 模块）
+- CMake 通过 `find_package` 自动发现 Qt；支持 Anaconda 自带的 Qt5
+
+### 构建
+
+```bash
+cmake --build build --target polyui
+```
+
+如果未找到 Qt，`polyui` 目标将被静默跳过，不影响其他目标的构建。
+
+### 启动
+
+```bash
+# 打开 IDE
+./build/polyui
+
+# 直接打开项目文件夹
+./build/polyui --folder /path/to/project
+```
+
+### 功能特性
+
+| 功能 | 说明 |
+|------|------|
+| **语法高亮** | 使用编译器前端分词器实现精确的、语言感知的高亮，支持全部 6 种语言 |
+| **实时诊断** | 调用完整编译管道（词法 → 语法 → 语义）实时报告错误和警告 |
+| **文件浏览器** | 树形项目导航器，按支持的源文件扩展名过滤 |
+| **多标签编辑器** | 支持多文件编辑，含新建、打开、保存、关闭标签功能 |
+| **输出面板** | 三标签输出区域：编译输出、错误表格（点击跳转源码）、日志 |
+| **代码导航** | 双击诊断表格中的错误行，跳转到对应源码位置 |
+| **括号匹配** | 高亮光标处的匹配括号 / 圆括号 / 花括号 |
+| **自动缩进** | 新行自动保持当前缩进级别 |
+| **缩放** | `Ctrl+加号` / `Ctrl+减号` 调整编辑器字体大小 |
+| **暗色主题** | 通过 QPalette 内置暗色配色方案 |
+
+### 快捷键
+
+| 快捷键 | 操作 |
+|--------|------|
+| `Ctrl+N` | 新建文件 |
+| `Ctrl+O` | 打开文件 |
+| `Ctrl+S` | 保存文件 |
+| `Ctrl+Shift+S` | 另存为 |
+| `Ctrl+W` | 关闭当前标签 |
+| `Ctrl+Z` | 撤销 |
+| `Ctrl+Y` | 重做 |
+| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | 剪切 / 复制 / 粘贴 |
+| `Ctrl+F` | 查找 |
+| `Ctrl+B` | 编译当前文件 |
+| `Ctrl+Shift+B` | 分析当前文件（仅诊断） |
+| `Ctrl+加号` / `Ctrl+减号` | 放大 / 缩小 |
+
+### 支持的语言
+
+IDE 使用与 `polyc` 相同的前端分词器，确保以下语言的精确高亮和诊断：
+
+- C++（`.cpp`、`.h`、`.hpp`、`.cxx`）
+- Python（`.py`）
+- Rust（`.rs`）
+- Java（`.java`）
+- C# / .NET（`.cs`）
+- Ploy（`.ploy`）
+
 ---
 
 # 7. IR 设计规范
@@ -1912,6 +1983,7 @@ tests/benchmarks/
 | `polyopt` | 可执行文件 | middle_ir + 后端 |
 | `polyrt` | 可执行文件 | runtime |
 | `polybench` | 可执行文件 | 全部 |
+| `polyui` | 可执行文件 | 全部前端 + Qt5::Widgets（可选，需要 Qt） |
 | `unit_tests` | 可执行文件 | 全部 + Catch2 |
 | `integration_tests` | 可执行文件 | 全部 + Catch2 |
 | `benchmark_tests` | 可执行文件 | 全部 + Catch2 |

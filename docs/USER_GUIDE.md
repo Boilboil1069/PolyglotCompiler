@@ -37,7 +37,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 
 - ✅ **Multi-Language Support**: Complete compilation frontends for C++, Python, Rust, Java, and .NET (C#)
 - ✅ **Multi-Target Platforms**: x86_64 and ARM64 architecture backends
-- ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`)
+- ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`), IDE (`polyui`)
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
 - ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
 - ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
@@ -74,6 +74,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 | Optimiser | IR optimisation passes | `polyopt` |
 | Runtime tool | GC / FFI / Thread management | `polyrt` |
 | Benchmark | Performance evaluation suite | `polybench` |
+| IDE | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, and compilation | `polyui` |
 
 ---
 
@@ -280,14 +281,14 @@ PolyglotCompiler/
 │   └── src/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
-├── tools/                  # Toolchain (6 executables)
+├── tools/                  # Toolchain (7 executables)
 │   ├── polyc/              # Compiler driver (driver.cpp ~1412 lines)
 │   ├── polyld/             # Linker (linker.cpp + polyglot_linker.cpp ~522 lines)
 │   ├── polyasm/            # Assembler (assembler.cpp)
 │   ├── polyopt/            # Optimiser (optimizer.cpp)
 │   ├── polyrt/             # Runtime tool (polyrt.cpp)
 │   ├── polybench/          # Benchmark (benchmark_suite.cpp)
-│   └── ui/                 # UI tool
+│   └── ui/                 # Qt-based desktop IDE (polyui) — main_window, code_editor, syntax_highlighter, file_browser, output_panel
 ├── tests/                  # Tests
 │   ├── unit/               # Unit tests (Catch2 framework) — 734 test cases
 │   │   └── frontends/ploy/ #   ploy_test.cpp (207 test cases)
@@ -1484,6 +1485,76 @@ The scripts create:
 
 The `env/` directory is excluded from git via `.gitignore`.
 
+## 6.7 IDE (`polyui`)
+
+`polyui` is a Qt-based desktop IDE for PolyglotCompiler. It provides an integrated development environment with syntax highlighting, real-time diagnostics, and a project file browser.
+
+### Prerequisites
+
+- **Qt 5.15+** or **Qt 6.x** (Widgets module required)
+- CMake automatically discovers Qt via `find_package`; Anaconda-bundled Qt5 is supported
+
+### Building
+
+```bash
+cmake --build build --target polyui
+```
+
+If Qt is not found, the `polyui` target is silently skipped without affecting other targets.
+
+### Launching
+
+```bash
+# Open the IDE
+./build/polyui
+
+# Open a project folder directly
+./build/polyui --folder /path/to/project
+```
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Syntax Highlighting** | Uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages |
+| **Real-time Diagnostics** | Invokes the full compiler pipeline (lexer → parser → sema) to report errors and warnings as you type |
+| **File Browser** | Tree-view project navigator with filters for supported source file extensions |
+| **Tabbed Editor** | Multi-file editing with tab management (new, open, save, close) |
+| **Output Panel** | Three-tab output area: compiler output, error table (clickable to jump to source), and log |
+| **Code Navigation** | Double-click errors in the diagnostics table to jump to the corresponding source location |
+| **Bracket Matching** | Highlights matching brackets / parentheses / braces at the cursor position |
+| **Auto-indent** | Maintains indentation level on new lines |
+| **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
+| **Dark Theme** | Built-in dark color scheme via QPalette |
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+N` | New file |
+| `Ctrl+O` | Open file |
+| `Ctrl+S` | Save file |
+| `Ctrl+Shift+S` | Save as |
+| `Ctrl+W` | Close current tab |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
+| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | Cut / Copy / Paste |
+| `Ctrl+F` | Find |
+| `Ctrl+B` | Compile current file |
+| `Ctrl+Shift+B` | Analyze current file (diagnostics only) |
+| `Ctrl+Plus` / `Ctrl+Minus` | Zoom in / Zoom out |
+
+### Supported Languages
+
+The IDE leverages the same frontend tokenizers used by `polyc`, ensuring accurate highlighting and diagnostics for:
+
+- C++ (`.cpp`, `.h`, `.hpp`, `.cxx`)
+- Python (`.py`)
+- Rust (`.rs`)
+- Java (`.java`)
+- C# / .NET (`.cs`)
+- Ploy (`.ploy`)
+
 ---
 
 # 7. IR Design Specification
@@ -1926,6 +1997,7 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 | `polyopt` | Executable | middle_ir + backends |
 | `polyrt` | Executable | runtime |
 | `polybench` | Executable | All |
+| `polyui` | Executable | All frontends + Qt5::Widgets (optional, requires Qt) |
 | `unit_tests` | Executable | All + Catch2 |
 | `integration_tests` | Executable | All + Catch2 |
 | `benchmark_tests` | Executable | All + Catch2 |
