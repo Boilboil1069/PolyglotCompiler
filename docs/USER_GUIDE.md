@@ -288,7 +288,11 @@ PolyglotCompiler/
 │   ├── polyopt/            # Optimiser (optimizer.cpp)
 │   ├── polyrt/             # Runtime tool (polyrt.cpp)
 │   ├── polybench/          # Benchmark (benchmark_suite.cpp)
-│   └── ui/                 # Qt-based desktop IDE (polyui) — main_window, code_editor, syntax_highlighter, file_browser, output_panel
+│   └── ui/                 # Qt-based desktop IDE (polyui) — platform-separated source layout
+│       ├── common/         #   Cross-platform shared code (mainwindow, code_editor, syntax_highlighter, file_browser, output_panel, compiler_service, terminal_widget)
+│       ├── windows/        #   Windows-specific entry point (main.cpp)
+│       ├── linux/          #   Linux-specific entry point (main.cpp)
+│       └── macos/          #   macOS-specific entry point (main.cpp)
 ├── tests/                  # Tests
 │   ├── unit/               # Unit tests (Catch2 framework) — 743 test cases
 │   │   └── frontends/ploy/ #   ploy_test.cpp (216 test cases)
@@ -1491,8 +1495,8 @@ The `env/` directory is excluded from git via `.gitignore`.
 
 ### Prerequisites
 
-- **Qt 5.15+** or **Qt 6.x** (Widgets module required)
-- CMake automatically discovers Qt via `find_package`; Anaconda-bundled Qt5 is supported
+- **Qt 6** (recommended) or **Qt 5.15+** (Widgets module required)
+- CMake automatically discovers Qt under `D:\Qt` (or system path); pass `-DQT_ROOT=<path>` to override
 
 ### Building
 
@@ -1501,6 +1505,29 @@ cmake --build build --target polyui
 ```
 
 If Qt is not found, the `polyui` target is silently skipped without affecting other targets.
+
+On **Windows**, `windeployqt` is automatically invoked after linking to copy the required Qt DLLs (e.g. `Qt6Cored.dll`, `Qt6Guid.dll`, `Qt6Widgetsd.dll`) and platform plugins into the build directory. This means `polyui.exe` can be double-clicked directly from the build folder without manual DLL setup.
+
+On **macOS**, `macdeployqt` is automatically invoked to bundle Qt frameworks inside the `.app` directory. The application is built as a native macOS bundle with Retina display support.
+
+On **Linux**, the build produces a standard ELF executable. Ensure the Qt runtime libraries are available on the target system (typically via the distribution's package manager).
+
+### Platform-Separated Source Layout
+
+The `polyui` source code is organized by platform:
+
+```
+tools/ui/
+├── common/          # Shared cross-platform code (compiled on all platforms)
+│   ├── src/         #   mainwindow.cpp, code_editor.cpp, syntax_highlighter.cpp,
+│   │                #   file_browser.cpp, output_panel.cpp, compiler_service.cpp
+│   └── include/     #   Corresponding header files
+├── windows/         # Windows-specific entry point (main.cpp)
+├── linux/           # Linux-specific entry point (main.cpp)
+└── macos/           # macOS-specific entry point (main.cpp)
+```
+
+CMake automatically selects the correct platform-specific `main.cpp` based on the host OS. Each platform entry point may contain OS-specific initialization (e.g. `windeployqt` on Windows, `xcb` platform default on Linux, `MACOSX_BUNDLE` on macOS).
 
 ### Launching
 
@@ -1521,6 +1548,7 @@ If Qt is not found, the `polyui` target is silently skipped without affecting ot
 | **File Browser** | Tree-view project navigator with filters for supported source file extensions |
 | **Tabbed Editor** | Multi-file editing with tab management (new, open, save, close) |
 | **Output Panel** | Three-tab output area: compiler output, error table (clickable to jump to source), and log |
+| **Integrated Terminal** | Embedded shell (PowerShell on Windows, bash/zsh on Linux/macOS) with ANSI colour support, command history, and multiple instances |
 | **Code Navigation** | Double-click errors in the diagnostics table to jump to the corresponding source location |
 | **Bracket Matching** | Highlights matching brackets / parentheses / braces at the cursor position |
 | **Auto-indent** | Maintains indentation level on new lines |
@@ -1542,6 +1570,8 @@ If Qt is not found, the `polyui` target is silently skipped without affecting ot
 | `Ctrl+F` | Find |
 | `Ctrl+B` | Compile current file |
 | `Ctrl+Shift+B` | Analyze current file (diagnostics only) |
+| `` Ctrl+` `` | Toggle integrated terminal |
+| `` Ctrl+Shift+` `` | Open new terminal instance |
 | `Ctrl+Plus` / `Ctrl+Minus` | Zoom in / Zoom out |
 
 ### Supported Languages
@@ -1554,6 +1584,24 @@ The IDE leverages the same frontend tokenizers used by `polyc`, ensuring accurat
 - Java (`.java`)
 - C# / .NET (`.cs`)
 - Ploy (`.ploy`)
+
+### Integrated Terminal
+
+The IDE includes a built-in terminal panel that provides interactive shell access without leaving the editor.
+
+**Features:**
+- **Platform-aware shell detection**: automatically launches PowerShell on Windows, zsh on macOS, and bash (or `$SHELL`) on Linux
+- **Multiple terminal instances**: create any number of independent terminal sessions; each runs in its own tab
+- **ANSI colour support**: basic SGR escape codes are parsed and rendered with appropriate colours
+- **Command history**: navigate previous commands with Up/Down arrows (up to 500 entries)
+- **Keyboard shortcuts**: `Ctrl+C` sends interrupt, `Ctrl+L` clears the screen, `Ctrl+`\` toggles the panel
+- **Working directory sync**: new terminals open in the project root shown in the file browser
+
+**Usage:**
+1. Press `` Ctrl+` `` to toggle the terminal panel, or use the **Terminal → Toggle Terminal** menu
+2. Press `` Ctrl+Shift+` `` to open an additional terminal instance
+3. Use the **Terminal** menu for Clear, Restart, and New Terminal actions
+4. Close individual terminals via the tab close button
 
 ---
 
@@ -1997,7 +2045,7 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 | `polyopt` | Executable | middle_ir + backends |
 | `polyrt` | Executable | runtime |
 | `polybench` | Executable | All |
-| `polyui` | Executable | All frontends + Qt5::Widgets (optional, requires Qt) |
+| `polyui` | Executable | All frontends + Qt6::Widgets (optional, requires Qt) |
 | `unit_tests` | Executable | All + Catch2 |
 | `integration_tests` | Executable | All + Catch2 |
 | `benchmark_tests` | Executable | All + Catch2 |
@@ -2139,7 +2187,12 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Qt-based desktop IDE (`polyui`): syntax highlighting, real-time diagnostics, file browser, tabbed editor, output panel, bracket matching, dark theme
 - ✅ IDE uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages
 - ✅ IDE keyboard shortcuts: Ctrl+B compile, Ctrl+Shift+B analyze, Ctrl+N/O/S/W file management
-- ✅ CMake Qt5/Qt6 auto-discovery with graceful fallback (polyui skipped when Qt not found)
+- ✅ CMake Qt6/Qt5 auto-discovery: prefers standalone Qt installation at `D:\Qt` over bundled copies; pass `-DQT_ROOT=<path>` to override
+- ✅ Default `ninja` build now generates all executables (polyc, polyld, polyasm, polyopt, polyrt, polybench, polyui)
+- ✅ Platform-separated `polyui` source layout: shared code in `tools/ui/common/`, platform-specific entry points in `tools/ui/windows/`, `tools/ui/linux/`, `tools/ui/macos/`; CMake auto-selects the correct `main.cpp` per OS
+- ✅ macOS support: `MACOSX_BUNDLE` with `macdeployqt` post-build; Linux support: `xcb` platform default, `.desktop` integration
+- ✅ Integrated terminal in the IDE: embedded shell (PowerShell/bash/zsh), ANSI colour parsing, command history, multiple instances, `Ctrl+\`` toggle
+- ✅ Cleaned up legacy `tools/ui/ployui_windows/`, `tools/ui/src/`, and `tools/ui/include/` directories
 - ✅ Full documentation audit and statistics refresh — 293 source files, 91,457 lines of code
 - ✅ Test growth: 743 unit (was 734) + 52 integration (was 50) + 18 benchmark = **813 total** (was 802)
 - ✅ Ploy frontend expanded to 6 compilation units (added `command_runner.cpp`, `package_discovery_cache.cpp`)

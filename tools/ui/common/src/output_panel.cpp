@@ -3,8 +3,8 @@
 // Contains three tabs: Output (general text), Errors (diagnostic table),
 // and Log (raw compiler output).
 
-#include "tools/ui/include/output_panel.h"
-#include "tools/ui/include/compiler_service.h"
+#include "tools/ui/common/include/output_panel.h"
+#include "tools/ui/common/include/compiler_service.h"
 
 #include <QFont>
 #include <QFontDatabase>

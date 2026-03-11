@@ -3,8 +3,8 @@
 // Uses the PolyglotCompiler frontend tokenizers (via CompilerService) to
 // tokenize each block of text and apply the appropriate formatting.
 
-#include "tools/ui/include/syntax_highlighter.h"
-#include "tools/ui/include/compiler_service.h"
+#include "tools/ui/common/include/syntax_highlighter.h"
+#include "tools/ui/common/include/compiler_service.h"
 
 #include <QColor>
 #include <QFont>

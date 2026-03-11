@@ -90,7 +90,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched automatically via CMake `FetchContent`.
 
 **Optional (for IDE):**
-- **Qt** 5.15+ or Qt 6 (for the `polyui` desktop IDE). If Qt is not found, the IDE target is skipped.
+- **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE). CMake auto-discovers Qt under `D:\Qt` or the system path; pass `-DQT_ROOT=<path>` to override. If Qt is not found, the IDE target is skipped.
 
 ### Build / 构建
 
@@ -359,7 +359,7 @@ Managed automatically via CMake `FetchContent`:
 
 | Dependency | Purpose |
 |-----------|---------|
-| [Qt 5.15+ / Qt 6](https://www.qt.io/) | Desktop IDE (`polyui`). Skipped if not found |
+| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt`; skipped if not found |
 
 ---
 

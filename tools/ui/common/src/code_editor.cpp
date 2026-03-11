@@ -3,7 +3,7 @@
 // Provides line numbering, current-line highlighting, bracket matching,
 // auto-indent, and zoom support.
 
-#include "tools/ui/include/code_editor.h"
+#include "tools/ui/common/include/code_editor.h"
 
 #include <QFontDatabase>
 #include <QKeyEvent>

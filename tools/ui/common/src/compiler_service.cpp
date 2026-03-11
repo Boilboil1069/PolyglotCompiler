@@ -4,7 +4,7 @@
 // parser, semantic analysis, and lowering.  Each public method creates a
 // fresh pipeline so that the service is stateless and thread-safe.
 
-#include "tools/ui/include/compiler_service.h"
+#include "tools/ui/common/include/compiler_service.h"
 
 #include <algorithm>
 #include <chrono>

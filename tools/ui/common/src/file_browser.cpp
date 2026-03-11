@@ -3,7 +3,7 @@
 // Uses QFileSystemModel and QTreeView to display the project directory tree
 // with filtering support.
 
-#include "tools/ui/include/file_browser.h"
+#include "tools/ui/common/include/file_browser.h"
 
 #include <QDir>
 

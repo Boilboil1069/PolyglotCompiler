@@ -11,8 +11,8 @@
 #include <iostream>
 #include <string>
 
-#include "tools/ui/include/main_window.h"
-#include "tools/ui/include/file_browser.h"
+#include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/file_browser.h"
 
 namespace {
 

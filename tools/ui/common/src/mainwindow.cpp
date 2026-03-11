@@ -4,12 +4,13 @@
 // output panel, and status bar.  Integrates with CompilerService for
 // real-time analysis, compilation, and auto-completion.
 
-#include "tools/ui/include/main_window.h"
-#include "tools/ui/include/code_editor.h"
-#include "tools/ui/include/compiler_service.h"
-#include "tools/ui/include/file_browser.h"
-#include "tools/ui/include/output_panel.h"
-#include "tools/ui/include/syntax_highlighter.h"
+#include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/code_editor.h"
+#include "tools/ui/common/include/compiler_service.h"
+#include "tools/ui/common/include/file_browser.h"
+#include "tools/ui/common/include/output_panel.h"
+#include "tools/ui/common/include/syntax_highlighter.h"
+#include "tools/ui/common/include/terminal_widget.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -58,10 +59,10 @@ MainWindow::~MainWindow() {
 // ============================================================================
 
 void MainWindow::SetupCentralWidget() {
-    // Main layout: file browser | (editor / output)
+    // Main layout: file browser | (editor / bottom panels)
     main_splitter_ = new QSplitter(Qt::Horizontal, this);
 
-    // Right side: editor on top, output on bottom
+    // Right side: editor on top, bottom panels (output + terminal) on bottom
     vertical_splitter_ = new QSplitter(Qt::Vertical);
 
     editor_tabs_ = new QTabWidget();
@@ -78,10 +79,34 @@ void MainWindow::SetupCentralWidget() {
 
     vertical_splitter_->addWidget(editor_tabs_);
 
-    // Output panel will be added in SetupDockWidgets
-    main_splitter_->addWidget(vertical_splitter_);
+    // Bottom tab container: holds Output panel and Terminal tabs
+    bottom_tabs_ = new QTabWidget();
+    bottom_tabs_->setTabPosition(QTabWidget::South);
+    bottom_tabs_->setStyleSheet(
+        "QTabWidget::pane { border: none; background: #1e1e1e; }"
+        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 4px 12px; "
+        "border: none; min-width: 80px; font-size: 11px; }"
+        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; "
+        "border-bottom: 2px solid #007acc; }"
+        "QTabBar::tab:hover { background: #383838; }");
 
-    // Set initial sizes (file browser : editor area)
+    // Terminal tabs widget (supports multiple terminal instances)
+    terminal_tabs_ = new QTabWidget();
+    terminal_tabs_->setTabsClosable(true);
+    terminal_tabs_->setMovable(true);
+    terminal_tabs_->setStyleSheet(
+        "QTabWidget::pane { border: none; background: #1e1e1e; }"
+        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 3px 10px; "
+        "border: none; min-width: 60px; font-size: 11px; }"
+        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; }"
+        "QTabBar::tab:hover { background: #383838; }");
+    connect(terminal_tabs_, &QTabWidget::tabCloseRequested,
+            this, &MainWindow::CloseTerminalTab);
+
+    vertical_splitter_->addWidget(bottom_tabs_);
+
+    // Set initial sizes — will be adjusted in SetupDockWidgets
+    main_splitter_->addWidget(vertical_splitter_);
     main_splitter_->setSizes({250, 1150});
 
     setCentralWidget(main_splitter_);
@@ -96,11 +121,17 @@ void MainWindow::SetupDockWidgets() {
     file_browser_ = new FileBrowser();
     main_splitter_->insertWidget(0, file_browser_);
 
-    // Output panel at the bottom
+    // Output panel as a tab in the bottom panel
     output_panel_ = new OutputPanel();
-    vertical_splitter_->addWidget(output_panel_);
+    bottom_tabs_->addTab(output_panel_, "Output");
 
-    // Set initial vertical sizes (editor : output)
+    // Terminal tabs as a tab in the bottom panel
+    bottom_tabs_->addTab(terminal_tabs_, "Terminal");
+
+    // Create the first terminal instance
+    NewTerminal();
+
+    // Set initial vertical sizes (editor : bottom panels)
     vertical_splitter_->setSizes({650, 250});
 }
 
@@ -246,6 +277,23 @@ void MainWindow::SetupMenuBar() {
     action_stop_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
     action_stop_->setEnabled(false);
 
+    // ── Terminal Menu ─────────────────────────────────────────────────
+    terminal_menu_ = mb->addMenu("&Terminal");
+
+    action_new_terminal_ = terminal_menu_->addAction("&New Terminal");
+    action_new_terminal_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_QuoteLeft));
+
+    action_toggle_terminal_ = terminal_menu_->addAction("&Toggle Terminal");
+    action_toggle_terminal_->setCheckable(true);
+    action_toggle_terminal_->setChecked(true);
+    action_toggle_terminal_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_QuoteLeft));
+
+    terminal_menu_->addSeparator();
+
+    action_clear_terminal_ = terminal_menu_->addAction("&Clear Terminal");
+
+    action_restart_terminal_ = terminal_menu_->addAction("&Restart Terminal");
+
     // ── Help Menu ─────────────────────────────────────────────────────
     help_menu_ = mb->addMenu("&Help");
     help_menu_->addAction("&About PolyglotCompiler IDE", this, &MainWindow::ShowAbout);
@@ -388,6 +436,12 @@ void MainWindow::SetupConnections() {
     connect(action_zoom_in_, &QAction::triggered, this, &MainWindow::ZoomIn);
     connect(action_zoom_out_, &QAction::triggered, this, &MainWindow::ZoomOut);
     connect(action_zoom_reset_, &QAction::triggered, this, &MainWindow::ZoomReset);
+
+    // Terminal actions
+    connect(action_new_terminal_, &QAction::triggered, this, &MainWindow::NewTerminal);
+    connect(action_toggle_terminal_, &QAction::triggered, this, &MainWindow::ToggleTerminal);
+    connect(action_clear_terminal_, &QAction::triggered, this, &MainWindow::ClearTerminal);
+    connect(action_restart_terminal_, &QAction::triggered, this, &MainWindow::RestartTerminal);
 
     // Tab management
     connect(editor_tabs_, &QTabWidget::currentChanged, this, &MainWindow::OnTabChanged);
@@ -835,8 +889,47 @@ void MainWindow::ToggleFileBrowser() {
 }
 
 void MainWindow::ToggleOutputPanel() {
-    output_panel_->setVisible(!output_panel_->isVisible());
-    action_toggle_output_->setChecked(output_panel_->isVisible());
+    // Toggle the bottom panel visibility; if showing, switch to Output tab.
+    bool visible = bottom_tabs_->isVisible();
+    if (visible) {
+        // If Output tab is already active, hide the whole bottom panel.
+        if (bottom_tabs_->currentWidget() == output_panel_) {
+            bottom_tabs_->setVisible(false);
+        } else {
+            // Switch to the Output tab.
+            bottom_tabs_->setCurrentWidget(output_panel_);
+        }
+    } else {
+        bottom_tabs_->setVisible(true);
+        bottom_tabs_->setCurrentWidget(output_panel_);
+    }
+    action_toggle_output_->setChecked(bottom_tabs_->isVisible() &&
+                                       bottom_tabs_->currentWidget() == output_panel_);
+}
+
+void MainWindow::ToggleTerminal() {
+    // Toggle the bottom panel visibility; if showing, switch to Terminal tab.
+    bool visible = bottom_tabs_->isVisible();
+    if (visible) {
+        if (bottom_tabs_->currentWidget() == terminal_tabs_) {
+            bottom_tabs_->setVisible(false);
+        } else {
+            bottom_tabs_->setCurrentWidget(terminal_tabs_);
+        }
+    } else {
+        bottom_tabs_->setVisible(true);
+        bottom_tabs_->setCurrentWidget(terminal_tabs_);
+    }
+    action_toggle_terminal_->setChecked(bottom_tabs_->isVisible() &&
+                                         bottom_tabs_->currentWidget() == terminal_tabs_);
+
+    // Focus the active terminal.
+    if (bottom_tabs_->isVisible() && terminal_tabs_->count() > 0) {
+        auto *terminal = qobject_cast<TerminalWidget *>(terminal_tabs_->currentWidget());
+        if (terminal) {
+            terminal->setFocus();
+        }
+    }
 }
 
 void MainWindow::ToggleToolBar() {
@@ -880,6 +973,75 @@ void MainWindow::ZoomReset() {
 }
 
 // ============================================================================
+// Terminal Actions
+// ============================================================================
+
+void MainWindow::NewTerminal() {
+    auto *terminal = new TerminalWidget(terminal_tabs_);
+    QString title = QString("Terminal %1").arg(next_terminal_id_++);
+
+    // Set working directory to the file browser root if available.
+    if (file_browser_) {
+        QString root = file_browser_->RootPath();
+        if (!root.isEmpty()) {
+            terminal->SetWorkingDirectory(root);
+        }
+    }
+
+    int idx = terminal_tabs_->addTab(terminal, title);
+    terminal_tabs_->setCurrentIndex(idx);
+
+    // Update tab title when the terminal reports a title change.
+    connect(terminal, &TerminalWidget::TitleChanged,
+            this, [this, terminal](const QString &new_title) {
+        int i = terminal_tabs_->indexOf(terminal);
+        if (i >= 0) {
+            terminal_tabs_->setTabText(i, new_title);
+        }
+    });
+
+    // When the shell finishes, mark the tab.
+    connect(terminal, &TerminalWidget::ShellFinished,
+            this, [this, terminal](int exit_code) {
+        int i = terminal_tabs_->indexOf(terminal);
+        if (i >= 0) {
+            terminal_tabs_->setTabText(
+                i, terminal_tabs_->tabText(i) + QString(" [exited %1]").arg(exit_code));
+        }
+    });
+
+    // Ensure bottom panel is visible and showing the terminal.
+    bottom_tabs_->setVisible(true);
+    bottom_tabs_->setCurrentWidget(terminal_tabs_);
+    terminal->setFocus();
+}
+
+void MainWindow::ClearTerminal() {
+    auto *terminal = qobject_cast<TerminalWidget *>(terminal_tabs_->currentWidget());
+    if (terminal) {
+        terminal->ClearOutput();
+    }
+}
+
+void MainWindow::RestartTerminal() {
+    auto *terminal = qobject_cast<TerminalWidget *>(terminal_tabs_->currentWidget());
+    if (terminal) {
+        terminal->RestartShell();
+    }
+}
+
+void MainWindow::CloseTerminalTab(int index) {
+    auto *terminal = qobject_cast<TerminalWidget *>(terminal_tabs_->widget(index));
+    if (terminal) {
+        terminal->StopShell();
+    }
+    terminal_tabs_->removeTab(index);
+    if (terminal) {
+        terminal->deleteLater();
+    }
+}
+
+// ============================================================================
 // Help Actions
 // ============================================================================
 
@@ -915,6 +1077,8 @@ void MainWindow::ShowShortcuts() {
         "<tr><td><b>Ctrl+Shift+A</b></td><td>Analyze</td></tr>"
         "<tr><td><b>Ctrl+B</b></td><td>Toggle Explorer</td></tr>"
         "<tr><td><b>Ctrl+J</b></td><td>Toggle Output</td></tr>"
+        "<tr><td><b>Ctrl+`</b></td><td>Toggle Terminal</td></tr>"
+        "<tr><td><b>Ctrl+Shift+`</b></td><td>New Terminal</td></tr>"
         "<tr><td><b>Ctrl++</b></td><td>Zoom In</td></tr>"
         "<tr><td><b>Ctrl+-</b></td><td>Zoom Out</td></tr>"
         "<tr><td><b>Ctrl+0</b></td><td>Zoom Reset</td></tr>"

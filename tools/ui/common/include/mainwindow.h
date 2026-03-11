@@ -29,6 +29,7 @@ class FileBrowser;
 class OutputPanel;
 class CompilerService;
 class SyntaxHighlighter;
+class TerminalWidget;
 
 // ============================================================================
 // MainWindow — top-level IDE window
@@ -74,6 +75,7 @@ class MainWindow : public QMainWindow {
     // View menu actions
     void ToggleFileBrowser();
     void ToggleOutputPanel();
+    void ToggleTerminal();
     void ToggleToolBar();
     void ToggleStatusBar();
     void ToggleLineNumbers();
@@ -86,6 +88,12 @@ class MainWindow : public QMainWindow {
     void ShowAbout();
     void ShowAboutQt();
     void ShowShortcuts();
+
+    // Terminal actions
+    void NewTerminal();
+    void ClearTerminal();
+    void RestartTerminal();
+    void CloseTerminalTab(int index);
 
     // Editor tab management
     void OnTabChanged(int index);
@@ -140,6 +148,8 @@ class MainWindow : public QMainWindow {
     QTabWidget *editor_tabs_{nullptr};
     FileBrowser *file_browser_{nullptr};
     OutputPanel *output_panel_{nullptr};
+    QTabWidget *bottom_tabs_{nullptr};       // container for output + terminal tabs
+    QTabWidget *terminal_tabs_{nullptr};     // multiple terminal instances
 
     QSplitter *main_splitter_{nullptr};
     QSplitter *vertical_splitter_{nullptr};
@@ -198,6 +208,13 @@ class MainWindow : public QMainWindow {
     QAction *action_zoom_out_{nullptr};
     QAction *action_zoom_reset_{nullptr};
 
+    QAction *action_toggle_terminal_{nullptr};
+    QAction *action_new_terminal_{nullptr};
+    QAction *action_clear_terminal_{nullptr};
+    QAction *action_restart_terminal_{nullptr};
+
+    QMenu *terminal_menu_{nullptr};
+
     // ── Compiler Service ─────────────────────────────────────────────────
     std::unique_ptr<CompilerService> compiler_service_;
 
@@ -212,6 +229,7 @@ class MainWindow : public QMainWindow {
     };
     std::unordered_map<int, TabInfo> tab_info_;
     int next_untitled_id_{1};
+    int next_terminal_id_{1};
 };
 
 } // namespace polyglot::tools::ui

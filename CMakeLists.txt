@@ -336,6 +336,35 @@ target_link_libraries(polybench
 
 # PolyglotCompiler IDE (Qt-based desktop UI)
 # Try Qt6 first, fall back to Qt5.  polyui is only built when either is found.
+# Prefer the standalone Qt installation at D:/Qt over any bundled (e.g. Anaconda)
+# copies.  The user may also pass -DQT_ROOT=<path> to override.
+if(NOT DEFINED QT_ROOT)
+    if(EXISTS "D:/Qt")
+        set(QT_ROOT "D:/Qt")
+    endif()
+endif()
+if(QT_ROOT)
+    # Collect all Qt6 cmake dirs under QT_ROOT (e.g. D:/Qt/6.10.2/msvc2022_64)
+    file(GLOB _qt6_candidates "${QT_ROOT}/*/msvc*_64/lib/cmake/Qt6")
+    if(_qt6_candidates)
+        list(SORT _qt6_candidates)
+        list(GET _qt6_candidates -1 _qt6_best)          # pick the newest
+        # PREFIX_PATH should point at the kit root (e.g. .../msvc2022_64)
+        get_filename_component(_qt6_prefix "${_qt6_best}/../../.." ABSOLUTE)
+        list(PREPEND CMAKE_PREFIX_PATH "${_qt6_prefix}")
+        message(STATUS "Qt hint: ${_qt6_prefix}")
+    endif()
+    # Also try mingw_64 in case MSVC variant is absent
+    file(GLOB _qt6_mingw "${QT_ROOT}/*/mingw_64/lib/cmake/Qt6")
+    if(_qt6_mingw AND NOT _qt6_candidates)
+        list(SORT _qt6_mingw)
+        list(GET _qt6_mingw -1 _qt6_mg_best)
+        get_filename_component(_qt6_mg_prefix "${_qt6_mg_best}/../../.." ABSOLUTE)
+        list(PREPEND CMAKE_PREFIX_PATH "${_qt6_mg_prefix}")
+        message(STATUS "Qt hint (MinGW): ${_qt6_mg_prefix}")
+    endif()
+endif()
+
 find_package(Qt6 QUIET COMPONENTS Widgets)
 if(NOT Qt6_FOUND)
     find_package(Qt5 QUIET COMPONENTS Widgets)
@@ -344,20 +373,40 @@ endif()
 if(Qt6_FOUND OR Qt5_FOUND)
     set(CMAKE_AUTOMOC ON)
 
+    # -- Platform-specific entry point -------------------------------------------
+    if(WIN32)
+        set(POLYUI_PLATFORM_MAIN tools/ui/windows/main.cpp)
+    elseif(APPLE)
+        set(POLYUI_PLATFORM_MAIN tools/ui/macos/main.cpp)
+    else()
+        set(POLYUI_PLATFORM_MAIN tools/ui/linux/main.cpp)
+    endif()
+
+    # -- Common (cross-platform) sources ----------------------------------------
+    set(POLYUI_COMMON_SOURCES
+        tools/ui/common/src/mainwindow.cpp
+        tools/ui/common/src/code_editor.cpp
+        tools/ui/common/src/syntax_highlighter.cpp
+        tools/ui/common/src/file_browser.cpp
+        tools/ui/common/src/output_panel.cpp
+        tools/ui/common/src/compiler_service.cpp
+        tools/ui/common/src/terminal_widget.cpp
+    )
+
+    # Headers with Q_OBJECT must be listed for AUTOMOC
+    set(POLYUI_COMMON_HEADERS
+        tools/ui/common/include/mainwindow.h
+        tools/ui/common/include/code_editor.h
+        tools/ui/common/include/syntax_highlighter.h
+        tools/ui/common/include/file_browser.h
+        tools/ui/common/include/output_panel.h
+        tools/ui/common/include/terminal_widget.h
+    )
+
     add_executable(polyui
-        tools/ui/src/main.cpp
-        tools/ui/src/main_window.cpp
-        tools/ui/src/code_editor.cpp
-        tools/ui/src/syntax_highlighter.cpp
-        tools/ui/src/file_browser.cpp
-        tools/ui/src/output_panel.cpp
-        tools/ui/src/compiler_service.cpp
-        # Headers with Q_OBJECT must be listed for AUTOMOC
-        tools/ui/include/main_window.h
-        tools/ui/include/code_editor.h
-        tools/ui/include/syntax_highlighter.h
-        tools/ui/include/file_browser.h
-        tools/ui/include/output_panel.h
+        ${POLYUI_PLATFORM_MAIN}
+        ${POLYUI_COMMON_SOURCES}
+        ${POLYUI_COMMON_HEADERS}
     )
 
     target_include_directories(polyui PRIVATE
@@ -366,10 +415,10 @@ if(Qt6_FOUND OR Qt5_FOUND)
 
     if(Qt6_FOUND)
         set(QT_LIB Qt6::Widgets)
-        message(STATUS "Qt6 found — building polyui (IDE)")
+        message(STATUS "Qt6 found — building polyui (IDE) [platform main: ${POLYUI_PLATFORM_MAIN}]")
     else()
         set(QT_LIB Qt5::Widgets)
-        message(STATUS "Qt5 found — building polyui (IDE)")
+        message(STATUS "Qt5 found — building polyui (IDE) [platform main: ${POLYUI_PLATFORM_MAIN}]")
     endif()
 
     target_link_libraries(polyui
@@ -389,9 +438,71 @@ if(Qt6_FOUND OR Qt5_FOUND)
         nlohmann_json::nlohmann_json
     )
 
-    # On Windows, mark as a GUI application
+    # On Windows, mark as a GUI application and deploy Qt DLLs next to the
+    # executable so that polyui.exe can be launched directly (double-click).
     if(WIN32)
         set_target_properties(polyui PROPERTIES WIN32_EXECUTABLE TRUE)
+
+        # Locate windeployqt — works for both Qt5 and Qt6.
+        if(Qt6_FOUND)
+            get_target_property(_qt_qmake Qt6::qmake IMPORTED_LOCATION)
+        else()
+            get_target_property(_qt_qmake Qt5::qmake IMPORTED_LOCATION)
+        endif()
+        get_filename_component(_qt_bin_dir "${_qt_qmake}" DIRECTORY)
+
+        find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${_qt_bin_dir}" NO_DEFAULT_PATH)
+        if(WINDEPLOYQT_EXECUTABLE)
+            # Run windeployqt after every polyui link to copy the required
+            # Qt DLLs, platform plugins, styles, etc. into the build directory.
+            add_custom_command(TARGET polyui POST_BUILD
+                COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+                    --no-translations
+                    --no-system-d3d-compiler
+                    --no-opengl-sw
+                    --no-compiler-runtime
+                    "$<TARGET_FILE:polyui>"
+                COMMENT "Running windeployqt to deploy Qt runtime DLLs..."
+                VERBATIM
+            )
+            message(STATUS "windeployqt found at ${WINDEPLOYQT_EXECUTABLE} — DLLs will be auto-deployed")
+        else()
+            message(WARNING "windeployqt not found — Qt DLLs must be manually copied next to polyui.exe")
+        endif()
+    endif()
+
+    # On macOS, build as a proper .app bundle with Retina support.
+    if(APPLE)
+        set_target_properties(polyui PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_BUNDLE_NAME "PolyglotCompiler IDE"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "org.polyglotcompiler.polyui"
+            MACOSX_BUNDLE_BUNDLE_VERSION "5.4"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "5.4"
+        )
+
+        # Run macdeployqt to bundle Qt frameworks inside the .app directory.
+        if(Qt6_FOUND)
+            get_target_property(_qt_qmake_mac Qt6::qmake IMPORTED_LOCATION)
+        else()
+            get_target_property(_qt_qmake_mac Qt5::qmake IMPORTED_LOCATION)
+        endif()
+        get_filename_component(_qt_bin_dir_mac "${_qt_qmake_mac}" DIRECTORY)
+
+        find_program(MACDEPLOYQT_EXECUTABLE macdeployqt HINTS "${_qt_bin_dir_mac}" NO_DEFAULT_PATH)
+        if(MACDEPLOYQT_EXECUTABLE)
+            add_custom_command(TARGET polyui POST_BUILD
+                COMMAND "${MACDEPLOYQT_EXECUTABLE}" "$<TARGET_BUNDLE_DIR:polyui>"
+                COMMENT "Running macdeployqt to bundle Qt frameworks..."
+                VERBATIM
+            )
+            message(STATUS "macdeployqt found at ${MACDEPLOYQT_EXECUTABLE}")
+        endif()
+    endif()
+
+    # On Linux, log the platform and provide a message about runtime deps.
+    if(UNIX AND NOT APPLE)
+        message(STATUS "Building polyui for Linux — ensure Qt runtime libraries are available on the target system")
     endif()
 else()
     message(STATUS "Qt NOT found — skipping polyui (IDE). Install Qt5 or Qt6 to build the IDE.")
