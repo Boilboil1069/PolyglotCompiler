@@ -35,7 +35,7 @@ PolyglotCompiler is a modern multi-language compiler project built in **C++20**.
 
 - **6 language frontends**: C++, Python, Rust, Java, C# (.NET), .ploy
 - **3 architecture backends**: x86_64, ARM64, WebAssembly
-- **6 toolchain executables**: `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`
+- **7 toolchain executables**: `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`, `polyui` (IDE, requires Qt)
 - **Complete compilation pipeline**: Lexer → Parser → Sema → IR Lowering → Optimisation → Code Generation
 - **Cross-language OOP**: Full interoperability via `.ploy` (NEW, METHOD, GET, SET, WITH, DELETE, EXTEND)
 - **Package manager integration**: pip, conda, uv, pipenv, poetry, cargo, NuGet
@@ -174,6 +174,7 @@ make -j$(nproc)
 | `polyopt` | Optimiser | `polyopt` / `polyopt.exe` |
 | `polyrt` | Runtime tool | `polyrt` / `polyrt.exe` |
 | `polybench` | Benchmark suite | `polybench` / `polybench.exe` |
+| `polyui` | Desktop IDE (requires Qt) | `polyui` / `polyui.exe` |
 | `unit_tests` | Test executable | `unit_tests` / `unit_tests.exe` |
 
 ### Building Specific Targets
@@ -261,14 +262,14 @@ PolyglotCompiler/
 │   │   ├── debug/          #   DWARF5 debug info
 │   │   └── utils/          #   Utilities
 │   └── src/
-├── tools/                  # Toolchain executables (6 tools)
+├── tools/                  # Toolchain executables (7 tools)
 │   ├── polyc/              #   Compiler driver
 │   ├── polyld/             #   Linker
 │   ├── polyasm/            #   Assembler
 │   ├── polyopt/            #   Optimiser
 │   ├── polyrt/             #   Runtime tool
 │   ├── polybench/          #   Benchmark suite
-│   └── ui/                 #   UI tool
+│   └── ui/                 #   Desktop IDE (polyui) — Qt-based, syntax highlighting, diagnostics
 ├── tests/                  # Tests
 │   ├── unit/               #   Catch2 unit tests
 │   ├── samples/            #   16 sample programs

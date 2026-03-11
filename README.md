@@ -9,7 +9,7 @@
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-802_cases_|_3_suites-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-813_cases_|_3_suites-brightgreen.svg"/>
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -32,7 +32,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
 - **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
-- **802 Test Cases** — Unit (734), Integration (50), Benchmark (18) across 3 test suites
+- **813 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
 
 ---
 
@@ -266,8 +266,8 @@ PolyglotCompiler/
 ├── common/             # Common utilities: type system, symbol table, DWARF5
 ├── tools/              # Compiler driver (polyc), linker (polyld), assembler, IDE (polyui), etc.
 ├── tests/
-│   ├── unit/           # Unit tests — 734 cases (Catch2)
-│   ├── integration/    # Integration tests — 50 cases
+│   ├── unit/           # Unit tests — 743 cases (Catch2)
+│   ├── integration/    # Integration tests — 52 cases
 │   ├── benchmarks/     # Benchmark tests — 18 cases
 │   └── samples/        # 16 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs)
 └── docs/               # Documentation (bilingual: Chinese + English)
@@ -281,7 +281,7 @@ PolyglotCompiler/
 
 ## Testing / 测试
 
-The project uses **Catch2** as the testing framework with three test suites, totalling **802 test cases**.
+The project uses **Catch2** as the testing framework with three test suites, totalling **813 test cases**.
 
 ```bash
 # Run all tests via CTest
@@ -314,16 +314,16 @@ cd build && ctest
 
 | Suite | Cases | Tags | Coverage |
 |-------|-------|------|----------|
-| **Unit Tests** | **734** | 229 tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E |
-| **Integration Tests** | **50** | `[integration]` | Full pipeline, cross-language interop, performance stress |
+| **Unit Tests** | **743** | 231 tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E |
+| **Integration Tests** | **52** | `[integration]` | Full pipeline, cross-language interop, performance stress |
 | **Benchmark Tests** | **18** | `[benchmark]` | Micro (lexer/parser/sema/lowering) + Macro (scaling/OOP/pipeline) |
-| **Total** | **802** | — | — |
+| **Total** | **813** | — | — |
 
 ### Unit Test Breakdown / 单元测试明细
 
 | Category | Tag | Cases |
 |----------|-----|-------|
-| .ploy Frontend | `[ploy]` | 207 |
+| .ploy Frontend | `[ploy]` | 216 |
 | Python Frontend | `[python]` | 127 |
 | Rust Frontend | `[rust]` | 46 |
 | Java Frontend | `[java]` | 22 |
@@ -385,4 +385,4 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 ---
 
 *Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-02-22 (v5.3)*
+*Last updated / 最后更新: 2026-03-11 (v5.4)*

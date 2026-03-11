@@ -1,87 +1,111 @@
-// main.cpp — PolyglotCompiler IDE entry point.
+﻿// main.cpp - Entry point for the PolyglotCompiler desktop IDE (polyui).
 //
-// Initializes the Qt application, applies the dark theme, and shows the
-// main window.  Usage:
-//
-//   polyui [--folder PATH]
-//
+// Sets up a dark theme, parses command-line arguments, and launches the
+// main window.  Accepts --folder <path> to open a project directory on
+// startup, --version to print the version, and --help for usage info.
 
 #include <QApplication>
-#include <QDir>
 #include <QPalette>
 #include <QStyleFactory>
+
+#include <iostream>
+#include <string>
 
 #include "tools/ui/include/main_window.h"
 #include "tools/ui/include/file_browser.h"
 
 namespace {
 
-// Apply a VS-Code-inspired dark theme to the entire application
+// Apply a dark colour palette suitable for an IDE.
 void ApplyDarkTheme(QApplication &app) {
     app.setStyle(QStyleFactory::create("Fusion"));
 
-    QPalette dark_palette;
-    dark_palette.setColor(QPalette::Window,          QColor(30, 30, 30));
-    dark_palette.setColor(QPalette::WindowText,      QColor(204, 204, 204));
-    dark_palette.setColor(QPalette::Base,             QColor(30, 30, 30));
-    dark_palette.setColor(QPalette::AlternateBase,    QColor(45, 45, 45));
-    dark_palette.setColor(QPalette::ToolTipBase,      QColor(45, 45, 45));
-    dark_palette.setColor(QPalette::ToolTipText,      QColor(204, 204, 204));
-    dark_palette.setColor(QPalette::Text,             QColor(212, 212, 212));
-    dark_palette.setColor(QPalette::Button,           QColor(51, 51, 51));
-    dark_palette.setColor(QPalette::ButtonText,       QColor(204, 204, 204));
-    dark_palette.setColor(QPalette::BrightText,       QColor(255, 255, 255));
-    dark_palette.setColor(QPalette::Link,             QColor(0, 122, 204));
-    dark_palette.setColor(QPalette::Highlight,        QColor(38, 79, 120));
-    dark_palette.setColor(QPalette::HighlightedText,  QColor(255, 255, 255));
-    dark_palette.setColor(QPalette::PlaceholderText,  QColor(128, 128, 128));
+    QPalette p;
+    p.setColor(QPalette::Window,          QColor(45, 45, 48));
+    p.setColor(QPalette::WindowText,      QColor(212, 212, 212));
+    p.setColor(QPalette::Base,            QColor(30, 30, 30));
+    p.setColor(QPalette::AlternateBase,   QColor(45, 45, 48));
+    p.setColor(QPalette::ToolTipBase,     QColor(50, 50, 52));
+    p.setColor(QPalette::ToolTipText,     QColor(212, 212, 212));
+    p.setColor(QPalette::Text,            QColor(212, 212, 212));
+    p.setColor(QPalette::Button,          QColor(55, 55, 58));
+    p.setColor(QPalette::ButtonText,      QColor(212, 212, 212));
+    p.setColor(QPalette::BrightText,      QColor(255, 51, 51));
+    p.setColor(QPalette::Link,            QColor(86, 156, 214));
+    p.setColor(QPalette::Highlight,       QColor(38, 79, 120));
+    p.setColor(QPalette::HighlightedText, QColor(255, 255, 255));
 
-    // Disabled palette
-    dark_palette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(100, 100, 100));
-    dark_palette.setColor(QPalette::Disabled, QPalette::Text,       QColor(100, 100, 100));
-    dark_palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(100, 100, 100));
+    p.setColor(QPalette::Disabled, QPalette::Text,       QColor(128, 128, 128));
+    p.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(128, 128, 128));
 
-    app.setPalette(dark_palette);
+    app.setPalette(p);
 
-    // Global stylesheet for scrollbars and tooltips
     app.setStyleSheet(
-        "QToolTip { color: #cccccc; background: #2d2d2d; border: 1px solid #555; "
-        "padding: 4px; font-size: 12px; }"
-        "QScrollBar:vertical { background: #1e1e1e; width: 12px; margin: 0; }"
-        "QScrollBar::handle:vertical { background: #424242; min-height: 20px; "
-        "border-radius: 6px; }"
-        "QScrollBar::handle:vertical:hover { background: #555555; }"
-        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-        "QScrollBar:horizontal { background: #1e1e1e; height: 12px; margin: 0; }"
-        "QScrollBar::handle:horizontal { background: #424242; min-width: 20px; "
-        "border-radius: 6px; }"
-        "QScrollBar::handle:horizontal:hover { background: #555555; }"
-        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }");
+        "QToolTip { color: #d4d4d4; background-color: #2d2d30; "
+        "border: 1px solid #3f3f46; }"
+        "QMenu { background-color: #2d2d30; color: #d4d4d4; "
+        "border: 1px solid #3f3f46; }"
+        "QMenu::item:selected { background-color: #094771; }"
+        "QMenuBar { background-color: #2d2d30; color: #d4d4d4; }"
+        "QMenuBar::item:selected { background-color: #094771; }"
+        "QTabBar::tab { background: #2d2d30; color: #d4d4d4; "
+        "padding: 6px 12px; }"
+        "QTabBar::tab:selected { background: #1e1e1e; "
+        "border-bottom: 2px solid #569cd6; }"
+        "QStatusBar { background-color: #007acc; color: white; }");
 }
 
-} // anonymous namespace
+void PrintUsage() {
+    std::cout << "Usage: polyui [options]\n"
+              << "\nOptions:\n"
+              << "  --folder <path>    Open a project folder on startup\n"
+              << "  --version          Print version information and exit\n"
+              << "  --help             Show this help message and exit\n";
+}
+
+void PrintVersion() {
+    std::cout << "polyui (PolyglotCompiler IDE) v5.4\n"
+              << "Built with Qt " << QT_VERSION_STR << "\n";
+}
+
+}  // anonymous namespace
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setApplicationName("PolyglotCompiler IDE");
+    app.setApplicationVersion("5.4");
     app.setOrganizationName("PolyglotCompiler");
-    app.setApplicationVersion("1.0.0");
+
+    // Parse command-line arguments manually so we avoid pulling in
+    // QCommandLineParser (keeps the translation-unit dependency set small).
+    std::string initial_folder;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--help" || arg == "-h") {
+            PrintUsage();
+            return 0;
+        }
+        if (arg == "--version" || arg == "-v") {
+            PrintVersion();
+            return 0;
+        }
+        if ((arg == "--folder" || arg == "-d") && i + 1 < argc) {
+            initial_folder = argv[++i];
+        }
+    }
 
     ApplyDarkTheme(app);
 
     polyglot::tools::ui::MainWindow window;
+    window.setWindowTitle("PolyglotCompiler IDE");
+    window.resize(1400, 900);
 
-    // Handle --folder argument to open a project directory on startup
-    for (int i = 1; i < argc; ++i) {
-        if ((QString(argv[i]) == "--folder" || QString(argv[i]) == "-f") &&
-            i + 1 < argc) {
-            QString folder = argv[++i];
-            if (QDir(folder).exists()) {
-                window.findChild<polyglot::tools::ui::FileBrowser *>()
-                    ? window.findChild<polyglot::tools::ui::FileBrowser *>()
-                          ->SetRootPath(folder)
-                    : void();
-            }
+    // If a folder was given on the command line, open it in the file browser.
+    if (!initial_folder.empty()) {
+        auto *browser =
+            window.findChild<polyglot::tools::ui::FileBrowser *>();
+        if (browser) {
+            browser->SetRootPath(QString::fromStdString(initial_folder));
         }
     }
 

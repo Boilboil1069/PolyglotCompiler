@@ -4,8 +4,8 @@
 > 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v5.3  
-**最后更新**: 2026-02-22
+**版本**: v5.4  
+**最后更新**: 2026-03-11
 
 ---
 
@@ -281,18 +281,18 @@ PolyglotCompiler/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
 ├── tools/                  # 工具链（7 个可执行文件）
-│   ├── polyc/              # 编译器驱动 (driver.cpp ~1412 行)
-│   ├── polyld/             # 链接器 (linker.cpp + polyglot_linker.cpp ~522 行)
+│   ├── polyc/              # 编译器驱动 (driver.cpp ~1773 行)
+│   ├── polyld/             # 链接器 (linker.cpp + polyglot_linker.cpp ~3790 行)
 │   ├── polyasm/            # 汇编器 (assembler.cpp)
 │   ├── polyopt/            # 优化器 (optimizer.cpp)
 │   ├── polyrt/             # 运行时工具 (polyrt.cpp)
 │   ├── polybench/          # 基准测试 (benchmark_suite.cpp)
 │   └── ui/                 # IDE 工具 (polyui) — 基于 Qt 的桌面 IDE，支持语法高亮、诊断、文件浏览
 ├── tests/                  # 测试
-│   ├── unit/               # 单元测试（Catch2 框架）— 734 个测试用例
-│   │   └── frontends/ploy/ #   ploy_test.cpp（207 测试用例）
+│   ├── unit/               # 单元测试（Catch2 框架）— 743 个测试用例
+│   │   └── frontends/ploy/ #   ploy_test.cpp（216 测试用例）
 │   ├── samples/            # 示例程序（16 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
-│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 50 个测试用例
+│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 52 个测试用例
 │   └── benchmarks/         # 基准测试（微基准/宏基准）— 18 个测试用例
 └── docs/                   # 文档
     ├── api/                # API 参考（中英双语）
@@ -326,7 +326,7 @@ Source Code
 | Rust | `frontends/rust/` (4 编译单元) | 借用检查、生命周期、闭包、28+高级特性 |
 | Java | `frontends/java/` (4 编译单元) | Java 8/17/21/23、记录类、密封类、模式匹配、Switch表达式、文本块 |
 | .NET (C#) | `frontends/dotnet/` (4 编译单元) | .NET 6/7/8/9、记录类、顶级语句、主构造器、可空引用类型 |
-| .ploy | `frontends/ploy/` (4 编译单元) | LINK、IMPORT、PIPELINE、CONFIG、包管理 |
+| .ploy | `frontends/ploy/` (6 编译单元) | LINK、IMPORT、PIPELINE、CONFIG、包管理、OOP 互操作 |
 
 ---
 
@@ -1785,15 +1785,15 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 可执行文件 | 源码目录 | 标签 | 说明 |
 |-----------|---------|------|------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **734 个用例** |
-| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **50 个用例** |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **743 个用例** |
+| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **52 个用例** |
 | `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 — **18 个用例** |
 
 ### 测试套件汇总
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 207 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
+| .ploy 前端 | `[ploy]` | 216 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
 | Python 前端 | `[python]` | 127 | 25+ 高级特性，类型注解，async，推导式 |
 | Rust 前端 | `[rust]` | 46 | 借用检查、生命周期、闭包、Traits |
 | 链接器 | `[linker]` | 36 | 符号解析、ELF/MachO/COFF、跨语言粘合 |
@@ -1811,7 +1811,7 @@ GC 策略选择: `gc_strategy.cpp`
 | C++ 前端 | `[cpp]` | 10 | OOP、模板、RTTI、异常、constexpr |
 | DWARF5 调试 | `[dwarf5]` | 7 | DWARF 5 调试信息生成 |
 | 调试信息 | `[debug]` | 4 | PDB、源码映射、调试发射器 |
-| 集成测试 | `[integration]` | 50 | 完整管道/跨语言互操作/性能压力 |
+| 集成测试 | `[integration]` | 52 | 完整管道/跨语言互操作/性能压力 |
 | 基准测试 | `[benchmark]` | 18 | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
 
 ## 10.2 .ploy 测试详细分类
@@ -1900,7 +1900,7 @@ tests/samples/
 
 ## 10.5 集成测试
 
-`tests/integration/` 目录包含 50 个集成测试，分为 3 个类别：
+`tests/integration/` 目录包含 52 个集成测试，分为 3 个类别：
 
 ```
 tests/integration/
@@ -1970,7 +1970,7 @@ tests/benchmarks/
 | `frontend_rust` | 静态库 | frontend_common (4 编译单元) |
 | `frontend_java` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
 | `frontend_dotnet` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
-| `frontend_ploy` | 静态库 | frontend_common, middle_ir (4 编译单元) |
+| `frontend_ploy` | 静态库 | frontend_common, middle_ir (6 编译单元) |
 | `middle_ir` | 静态库 | polyglot_common (15 编译单元) |
 | `backend_x86_64` | 静态库 | polyglot_common (7 编译单元) |
 | `backend_arm64` | 静态库 | polyglot_common (6 编译单元) |
@@ -2121,6 +2121,16 @@ tests/benchmarks/
 
 ## 13.5 更新日志
 
+### v5.4 (2026-03-11)
+- ✅ 基于 Qt 的桌面 IDE（`polyui`）：语法高亮、实时诊断、文件浏览器、多标签编辑器、输出面板、括号匹配、暗色主题
+- ✅ IDE 使用编译器前端分词器实现精确的、语言感知的高亮，支持全部 6 种语言
+- ✅ IDE 快捷键：Ctrl+B 编译、Ctrl+Shift+B 分析、Ctrl+N/O/S/W 文件管理
+- ✅ CMake 自动发现 Qt5/Qt6，优雅回退（未找到 Qt 时跳过 polyui）
+- ✅ 全项目文档审查与统计数据刷新 — 293 个源文件，91,457 行代码
+- ✅ 测试增长：743 单元（原 734）+ 52 集成（原 50）+ 18 基准 = **813 总计**（原 802）
+- ✅ Ploy 前端扩展至 6 个编译单元（新增 `command_runner.cpp`、`package_discovery_cache.cpp`）
+- ✅ 更新所有文档（README、USER_GUIDE 中英文、教程）至最新统计数据
+
 ### v5.2 (2026-02-22)
 - ✅ 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关
 - ✅ `PloySema` 构造函数接收 options，保持默认行为向后兼容
@@ -2169,7 +2179,7 @@ tests/benchmarks/
 - ✅ polyrt：FFI 子命令、真实 GC/线程统计
 - ✅ 教程文档新增 (`docs/tutorial/`)
 - ✅ 16 个示例程序（原 12 个）
-- ✅ 总计：802 个测试用例，3 个测试套件（734 单元 + 50 集成 + 18 基准）
+- ✅ 总计：813 个测试用例，3 个测试套件（743 单元 + 52 集成 + 18 基准）
 
 ### v4.3 (2026-02-20)
 - ✅ 新增跨语言对象销毁 `DELETE` 关键字
@@ -2230,5 +2240,5 @@ tests/benchmarks/
 ---
 
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-02-22*  
-*文档版本: v5.3*
+*最后更新: 2026-03-11*  
+*文档版本: v5.4*

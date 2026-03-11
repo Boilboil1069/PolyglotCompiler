@@ -4,8 +4,8 @@
 > Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v5.3  
-**Last Updated**: 2026-02-22
+**Version**: v5.4  
+**Last Updated**: 2026-03-11
 
 ---
 
@@ -36,7 +36,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 **Core Goals:**
 
 - ✅ **Multi-Language Support**: Complete compilation frontends for C++, Python, Rust, Java, and .NET (C#)
-- ✅ **Multi-Target Platforms**: x86_64 and ARM64 architecture backends
+- ✅ **Triple Backend Architecture**: x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly backends
 - ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`), IDE (`polyui`)
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
 - ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
@@ -282,18 +282,18 @@ PolyglotCompiler/
 │       ├── core/           #   type_system.cpp, symbol_table.cpp
 │       └── debug/          #   dwarf5.cpp
 ├── tools/                  # Toolchain (7 executables)
-│   ├── polyc/              # Compiler driver (driver.cpp ~1412 lines)
-│   ├── polyld/             # Linker (linker.cpp + polyglot_linker.cpp ~522 lines)
+│   ├── polyc/              # Compiler driver (driver.cpp ~1773 lines)
+│   ├── polyld/             # Linker (linker.cpp + polyglot_linker.cpp ~3790 lines)
 │   ├── polyasm/            # Assembler (assembler.cpp)
 │   ├── polyopt/            # Optimiser (optimizer.cpp)
 │   ├── polyrt/             # Runtime tool (polyrt.cpp)
 │   ├── polybench/          # Benchmark (benchmark_suite.cpp)
 │   └── ui/                 # Qt-based desktop IDE (polyui) — main_window, code_editor, syntax_highlighter, file_browser, output_panel
 ├── tests/                  # Tests
-│   ├── unit/               # Unit tests (Catch2 framework) — 734 test cases
-│   │   └── frontends/ploy/ #   ploy_test.cpp (207 test cases)
+│   ├── unit/               # Unit tests (Catch2 framework) — 743 test cases
+│   │   └── frontends/ploy/ #   ploy_test.cpp (216 test cases)
 │   ├── samples/            # Sample programs (16 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
-│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 50 test cases
+│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 52 test cases
 │   └── benchmarks/         # Benchmark tests (micro / macro) — 18 test cases
 └── docs/                   # Documentation
     ├── api/                # API reference (bilingual)
@@ -327,7 +327,7 @@ Source Code
 | Rust | `frontends/rust/` (4 compilation units) | Borrow checking, Lifetimes, Closures, 28+ advanced features |
 | Java | `frontends/java/` (4 compilation units) | Java 8/17/21/23, Records, Sealed classes, Pattern matching, Switch expressions, Text blocks |
 | .NET (C#) | `frontends/dotnet/` (4 compilation units) | .NET 6/7/8/9, Records, Top-level statements, Primary constructors, Nullable reference types |
-| .ploy | `frontends/ploy/` (4 compilation units) | LINK, IMPORT, PIPELINE, CONFIG, Package management, OOP interop |
+| .ploy | `frontends/ploy/` (6 compilation units) | LINK, IMPORT, PIPELINE, CONFIG, Package management, OOP interop |
 
 ---
 
@@ -1795,15 +1795,15 @@ The project uses the **Catch2** testing framework. There are three test executab
 
 | Executable | Source Directory | Tags | Description |
 |-----------|-----------------|------|-------------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **734 cases** |
-| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **50 cases** |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **743 cases** |
+| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **52 cases** |
 | `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks — **18 cases** |
 
 ### Test Suite Summary
 
 | Test Suite | Tag | Test Cases | Coverage |
 |-----------|-----|-----------|----------|
-| .ploy Frontend | `[ploy]` | 207 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
+| .ploy Frontend | `[ploy]` | 216 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
 | Python Frontend | `[python]` | 127 | 25+ advanced features, type annotations, async, comprehensions |
 | Rust Frontend | `[rust]` | 46 | Borrow checking, lifetimes, closures, traits |
 | Linker | `[linker]` | 36 | Symbol resolution, ELF/MachO/COFF, cross-language glue |
@@ -1821,7 +1821,7 @@ The project uses the **Catch2** testing framework. There are three test executab
 | C++ Frontend | `[cpp]` | 10 | OOP, templates, RTTI, exceptions, constexpr |
 | DWARF5 Debug | `[dwarf5]` | 7 | DWARF 5 debug info generation |
 | Debug Info | `[debug]` | 4 | PDB, source map, debug emitter |
-| Integration Tests | `[integration]` | 50 | Full pipeline / Cross-language interop / Performance stress |
+| Integration Tests | `[integration]` | 52 | Full pipeline / Cross-language interop / Performance stress |
 | Benchmark Tests | `[benchmark]` | 18 | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
 
 ## 10.2 .ploy Test Details
@@ -1914,7 +1914,7 @@ tests/samples/
 
 ## 10.5 Integration Tests
 
-The `tests/integration/` directory contains 50 integration tests across 3 categories:
+The `tests/integration/` directory contains 52 integration tests across 3 categories:
 
 ```
 tests/integration/
@@ -1984,7 +1984,7 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 | `frontend_rust` | Static library | frontend_common (4 compilation units) |
 | `frontend_java` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
 | `frontend_dotnet` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
-| `frontend_ploy` | Static library | frontend_common, middle_ir (4 compilation units) |
+| `frontend_ploy` | Static library | frontend_common, middle_ir (6 compilation units) |
 | `middle_ir` | Static library | polyglot_common (15 compilation units) |
 | `backend_x86_64` | Static library | polyglot_common (7 compilation units) |
 | `backend_arm64` | Static library | polyglot_common (6 compilation units) |
@@ -2135,6 +2135,16 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 ## 13.5 Changelog
 
+### v5.4 (2026-03-11)
+- ✅ Qt-based desktop IDE (`polyui`): syntax highlighting, real-time diagnostics, file browser, tabbed editor, output panel, bracket matching, dark theme
+- ✅ IDE uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages
+- ✅ IDE keyboard shortcuts: Ctrl+B compile, Ctrl+Shift+B analyze, Ctrl+N/O/S/W file management
+- ✅ CMake Qt5/Qt6 auto-discovery with graceful fallback (polyui skipped when Qt not found)
+- ✅ Full documentation audit and statistics refresh — 293 source files, 91,457 lines of code
+- ✅ Test growth: 743 unit (was 734) + 52 integration (was 50) + 18 benchmark = **813 total** (was 802)
+- ✅ Ploy frontend expanded to 6 compilation units (added `command_runner.cpp`, `package_discovery_cache.cpp`)
+- ✅ Updated all documentation (README, USER_GUIDE EN/ZH, tutorials) with current statistics
+
 ### v5.2 (2026-02-22)
 - ✅ New `PloySemaOptions` configuration struct with `enable_package_discovery` switch
 - ✅ `PloySema` constructor accepts options; backward-compatible default constructor preserved
@@ -2183,7 +2193,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ polyrt: FFI subcommand, real GC/thread statistics
 - ✅ Tutorial documentation added (`docs/tutorial/`)
 - ✅ 16 sample programs (was 12)
-- ✅ Total: 802 test cases across 3 suites (734 unit + 50 integration + 18 benchmark)
+- ✅ Total: 813 test cases across 3 suites (743 unit + 52 integration + 18 benchmark)
 
 ### v4.3 (2026-02-20)
 - ✅ Added cross-language object destruction `DELETE` keyword
@@ -2244,5 +2254,5 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 ---
 
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-02-22*  
-*Document Version: v5.3*
+*Last Updated: 2026-03-11*  
+*Document Version: v5.4*
