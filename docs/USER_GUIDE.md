@@ -1496,7 +1496,23 @@ The `env/` directory is excluded from git via `.gitignore`.
 ### Prerequisites
 
 - **Qt 6** (recommended) or **Qt 5.15+** (Widgets module required)
-- CMake automatically discovers Qt under `D:\Qt` (or system path); pass `-DQT_ROOT=<path>` to override
+- CMake automatically discovers Qt under:
+  - `D:\Qt` (Windows)
+  - `deps/qt/` (project-local, all platforms — installed via `aqtinstall`)
+  - System path (e.g. Homebrew, apt)
+- Pass `-DQT_ROOT=<path>` to override
+
+**Quick setup (no Qt installed):**
+
+```bash
+# macOS / Linux
+./scripts/setup_qt.sh
+
+# Windows (PowerShell)
+.\scripts\setup_qt.ps1
+```
+
+This downloads pre-built Qt 6.10.2 binaries into `deps/qt/` (ignored by git).
 
 ### Building
 

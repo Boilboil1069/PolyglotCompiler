@@ -1486,7 +1486,23 @@ chmod +x setup_env.sh
 ### 前置条件
 
 - **Qt 6**（推荐）或 **Qt 5.15+**（需要 Widgets 模块）
-- CMake 自动在 `D:\Qt` 目录（或系统路径）下发现 Qt；可通过 `-DQT_ROOT=<path>` 覆盖
+- CMake 自动在以下路径发现 Qt：
+  - `D:\Qt`（Windows）
+  - `deps/qt/`（项目本地，所有平台 — 通过 `aqtinstall` 安装）
+  - 系统路径（如 Homebrew、apt）
+- 可通过 `-DQT_ROOT=<path>` 覆盖
+
+**快速安装（未安装 Qt 时）：**
+
+```bash
+# macOS / Linux
+./scripts/setup_qt.sh
+
+# Windows (PowerShell)
+.\scripts\setup_qt.ps1
+```
+
+此命令将预编译的 Qt 6.10.2 二进制文件下载到 `deps/qt/` 目录（已被 git 忽略）。
 
 ### 构建
 

@@ -90,7 +90,11 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched automatically via CMake `FetchContent`.
 
 **Optional (for IDE):**
-- **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE). CMake auto-discovers Qt under `D:\Qt` or the system path; pass `-DQT_ROOT=<path>` to override. If Qt is not found, the IDE target is skipped.
+- **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE).
+  - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
+  - Pass `-DQT_ROOT=<path>` to override.
+  - If Qt is not installed, run `./scripts/setup_qt.sh` (macOS/Linux) or `.\scripts\setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
+  - If Qt is not found, the IDE target is silently skipped.
 
 ### Build / 构建
 
@@ -359,7 +363,7 @@ Managed automatically via CMake `FetchContent`:
 
 | Dependency | Purpose |
 |-----------|---------|
-| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt`; skipped if not found |
+| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt` (Windows), `deps/qt/` (all platforms), or system path. Run `scripts/setup_qt.sh` / `setup_qt.ps1` to install automatically. Skipped if not found |
 
 ---
 

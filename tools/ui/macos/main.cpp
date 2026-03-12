@@ -72,8 +72,7 @@ void PrintVersion() {
 }  // anonymous namespace
 
 int main(int argc, char *argv[]) {
-    // On macOS, enable high-DPI retina scaling.
-    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+    // AA_UseHighDpiPixmaps is always enabled in Qt6 — no need to set it.
 
     QApplication app(argc, argv);
     app.setApplicationName("PolyglotCompiler IDE");

@@ -19,3 +19,4 @@ tests/samples/env/
 .fake
 /Release/
 /Debug/
+*.log
