@@ -1536,7 +1536,8 @@ The `polyui` source code is organized by platform:
 tools/ui/
 ├── common/          # Shared cross-platform code (compiled on all platforms)
 │   ├── src/         #   mainwindow.cpp, code_editor.cpp, syntax_highlighter.cpp,
-│   │                #   file_browser.cpp, output_panel.cpp, compiler_service.cpp
+│   │                #   file_browser.cpp, output_panel.cpp, compiler_service.cpp,
+│   │                #   settings_dialog.cpp, git_panel.cpp, build_panel.cpp, debug_panel.cpp
 │   └── include/     #   Corresponding header files
 ├── windows/         # Windows-specific entry point (main.cpp)
 ├── linux/           # Linux-specific entry point (main.cpp)
@@ -1570,6 +1571,10 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | **Auto-indent** | Maintains indentation level on new lines |
 | **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
 | **Dark Theme** | Built-in dark color scheme via QPalette |
+| **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage |
+| **Git Integration** | Built-in Git panel with status, staging, commit, branch management, push/pull/fetch, diff viewer, log history, and stash support |
+| **Build System** | CMake integration panel with configure/build/clean, generator and build-type selection, target discovery, and error parsing |
+| **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, call stack, variable inspection, watch expressions, and debug console |
 
 ### Keyboard Shortcuts
 
@@ -1589,6 +1594,11 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | `` Ctrl+` `` | Toggle integrated terminal |
 | `` Ctrl+Shift+` `` | Open new terminal instance |
 | `Ctrl+Plus` / `Ctrl+Minus` | Zoom in / Zoom out |
+| `Ctrl+,` | Open Settings dialog |
+| `F9` | Start debugging |
+| `F10` | Step over |
+| `F11` | Step into |
+| `Shift+F11` | Step out |
 
 ### Supported Languages
 
@@ -1618,6 +1628,76 @@ The IDE includes a built-in terminal panel that provides interactive shell acces
 2. Press `` Ctrl+Shift+` `` to open an additional terminal instance
 3. Use the **Terminal** menu for Clear, Restart, and New Terminal actions
 4. Close individual terminals via the tab close button
+
+### Settings
+
+Open the Settings dialog via **File → Settings** or `Ctrl+,`. Preferences are organized into 7 categories:
+
+| Category | Options |
+|----------|--------|
+| **Appearance** | Theme, UI font family and size |
+| **Editor** | Font family, size, tab width, word wrap, show whitespace, line numbers |
+| **Compiler** | Default optimization level, target architecture, C++ standard, extra flags |
+| **Environment** | Project root, CMake path, debugger path, PATH overrides |
+| **Build** | Default generator, build type, parallel jobs, CMake extra arguments |
+| **Debug** | Preferred debugger (lldb/gdb/auto), stop on entry, break on exceptions |
+| **Key Bindings** | View and reference all keyboard shortcuts |
+
+All settings are persisted via `QSettings` ("PolyglotCompiler"/"IDE") and applied immediately upon clicking **Apply** or **OK**.
+
+### Git Integration
+
+The Git panel (toggle via **View → Git Panel**) provides version control without leaving the IDE.
+
+**Capabilities:**
+- **Status view**: color-coded tree showing staged, unstaged, and untracked files (green/yellow/grey icons)
+- **Staging**: stage/unstage individual files or all files via toolbar buttons and context menu
+- **Commit**: enter commit messages with optional amend support; commit from the toolbar
+- **Branch management**: create, delete, merge, and checkout branches from the branch selector
+- **Remote operations**: push, pull, and fetch run asynchronously with progress feedback in the output area
+- **Diff viewer**: view file diffs in the output text area; double-click a file to show its diff
+- **Log history**: browse commit history with hash, author, date, and message
+- **Stash**: stash and pop working directory changes via toolbar actions
+
+### Build System
+
+The Build panel (toggle via **View → Build Panel**) integrates CMake-based project building.
+
+**Capabilities:**
+- **Configure**: run `cmake` with the selected generator (Makefiles, Ninja, Xcode, etc.) and build type (Debug, Release, RelWithDebInfo, MinSizeRel)
+- **Build / Rebuild**: build the entire project or individual targets discovered from `cmake --build --target help`
+- **Clean**: remove all build artifacts
+- **Error parsing**: compiler output is parsed for GCC/Clang-style and MSVC-style error messages; matched errors appear in the error tree and emit `BuildErrorFound` to open the source location
+- **Progress**: a progress bar tracks CMake's percentage-based build output
+- **Path discovery**: automatically searches `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, and `$PATH` for the `cmake` executable
+
+**Usage:**
+1. Set the source and build directories via the browse buttons or type paths directly
+2. Choose a generator and build type, then click **Configure**
+3. Select a build target (or "all") and click **Build**
+4. Errors appear in the tree below; double-click to navigate to the source location
+
+### Debugging
+
+The Debug panel (toggle via **View → Debug Panel**) provides interactive debugging via lldb or gdb.
+
+**Capabilities:**
+- **Debugger auto-detection**: prefers lldb on macOS, gdb on Linux; configurable in Settings
+- **Breakpoints**: toggle breakpoints by file and line, add conditional breakpoints, remove all; breakpoints are listed in a dedicated tree
+- **Execution control**: Start (`F9`), Stop, Pause, Continue, Step Over (`F10`), Step Into (`F11`), Step Out (`Shift+F11`), Run to Cursor
+- **Call stack**: view the current call stack with frame number, function name, file, and line
+- **Variables**: inspect local variables with name, value, and type
+- **Watch expressions**: add arbitrary expressions to evaluate in the current debug context
+- **Debug console**: send raw debugger commands and view responses
+- **Source navigation**: when the debugger stops, the IDE opens the corresponding source file and highlights the current line via the `DebugLocationChanged` signal
+
+**Usage:**
+1. Set the executable path and optional program arguments at the top of the panel
+2. Toggle breakpoints from the breakpoint tree (Add / Remove All)
+3. Click **Start** or press `F9` to begin debugging
+4. Use the toolbar buttons or keyboard shortcuts to step through code
+5. Inspect variables and call stack in the side panels; add watch expressions as needed
+6. Use the console tab to send raw debugger commands
 
 ---
 

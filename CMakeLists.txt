@@ -417,6 +417,10 @@ if(Qt6_FOUND OR Qt5_FOUND)
         tools/ui/common/src/output_panel.cpp
         tools/ui/common/src/compiler_service.cpp
         tools/ui/common/src/terminal_widget.cpp
+        tools/ui/common/src/settings_dialog.cpp
+        tools/ui/common/src/git_panel.cpp
+        tools/ui/common/src/build_panel.cpp
+        tools/ui/common/src/debug_panel.cpp
     )
 
     # Headers with Q_OBJECT must be listed for AUTOMOC
@@ -427,6 +431,10 @@ if(Qt6_FOUND OR Qt5_FOUND)
         tools/ui/common/include/file_browser.h
         tools/ui/common/include/output_panel.h
         tools/ui/common/include/terminal_widget.h
+        tools/ui/common/include/settings_dialog.h
+        tools/ui/common/include/git_panel.h
+        tools/ui/common/include/build_panel.h
+        tools/ui/common/include/debug_panel.h
     )
 
     add_executable(polyui

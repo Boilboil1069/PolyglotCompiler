@@ -24,10 +24,14 @@
 
 namespace polyglot::tools::ui {
 
+class BuildPanel;
 class CodeEditor;
-class FileBrowser;
-class OutputPanel;
 class CompilerService;
+class DebugPanel;
+class FileBrowser;
+class GitPanel;
+class OutputPanel;
+class SettingsDialog;
 class SyntaxHighlighter;
 class TerminalWidget;
 
@@ -83,6 +87,25 @@ class MainWindow : public QMainWindow {
     void ZoomIn();
     void ZoomOut();
     void ZoomReset();
+
+    // Settings
+    void OpenSettings();
+
+    // Git panel
+    void ToggleGitPanel();
+
+    // Build panel (CMake)
+    void ToggleBuildPanel();
+    void CmakeConfigure();
+    void CmakeBuild();
+
+    // Debug panel
+    void ToggleDebugPanel();
+    void DebugStart();
+    void DebugStop();
+    void DebugStepOver();
+    void DebugStepInto();
+    void DebugStepOut();
 
     // Help menu actions
     void ShowAbout();
@@ -159,6 +182,7 @@ class MainWindow : public QMainWindow {
     QMenu *edit_menu_{nullptr};
     QMenu *view_menu_{nullptr};
     QMenu *build_menu_{nullptr};
+    QMenu *debug_menu_{nullptr};
     QMenu *help_menu_{nullptr};
 
     // ── Tool Bar ─────────────────────────────────────────────────────────
@@ -213,11 +237,28 @@ class MainWindow : public QMainWindow {
     QAction *action_clear_terminal_{nullptr};
     QAction *action_restart_terminal_{nullptr};
 
+    // Settings / Git / Build / Debug actions
+    QAction *action_settings_{nullptr};
+    QAction *action_toggle_git_{nullptr};
+    QAction *action_toggle_build_{nullptr};
+    QAction *action_toggle_debug_{nullptr};
+    QAction *action_cmake_configure_{nullptr};
+    QAction *action_cmake_build_{nullptr};
+    QAction *action_debug_start_{nullptr};
+    QAction *action_debug_stop_{nullptr};
+    QAction *action_debug_step_over_{nullptr};
+    QAction *action_debug_step_into_{nullptr};
+    QAction *action_debug_step_out_{nullptr};
+
     QMenu *terminal_menu_{nullptr};
 
     // ── Compiler Service ─────────────────────────────────────────────────
     std::unique_ptr<CompilerService> compiler_service_;
-
+    // ── Panels ──────────────────────────────────────────────────────
+    SettingsDialog *settings_dialog_{nullptr};
+    GitPanel *git_panel_{nullptr};
+    BuildPanel *build_panel_{nullptr};
+    DebugPanel *debug_panel_{nullptr};
     // ── Analysis timer (real-time error checking) ────────────────────────
     QTimer *analysis_timer_{nullptr};
 

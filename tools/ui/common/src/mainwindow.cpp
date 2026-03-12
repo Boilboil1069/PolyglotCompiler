@@ -5,10 +5,14 @@
 // real-time analysis, compilation, and auto-completion.
 
 #include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/build_panel.h"
 #include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/compiler_service.h"
+#include "tools/ui/common/include/debug_panel.h"
 #include "tools/ui/common/include/file_browser.h"
+#include "tools/ui/common/include/git_panel.h"
 #include "tools/ui/common/include/output_panel.h"
+#include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
 
@@ -128,6 +132,21 @@ void MainWindow::SetupDockWidgets() {
     // Terminal tabs as a tab in the bottom panel
     bottom_tabs_->addTab(terminal_tabs_, "Terminal");
 
+    // Git panel as a tab in the bottom panel
+    git_panel_ = new GitPanel();
+    bottom_tabs_->addTab(git_panel_, "Git");
+
+    // Build panel as a tab in the bottom panel
+    build_panel_ = new BuildPanel();
+    bottom_tabs_->addTab(build_panel_, "Build");
+
+    // Debug panel as a tab in the bottom panel
+    debug_panel_ = new DebugPanel();
+    bottom_tabs_->addTab(debug_panel_, "Debug");
+
+    // Settings dialog (lazily shown, but create now for signal wiring)
+    settings_dialog_ = new SettingsDialog(this);
+
     // Create the first terminal instance
     NewTerminal();
 
@@ -177,6 +196,11 @@ void MainWindow::SetupMenuBar() {
 
     action_close_tab_ = file_menu_->addAction("&Close Tab");
     action_close_tab_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
+
+    file_menu_->addSeparator();
+
+    action_settings_ = file_menu_->addAction("&Settings...");
+    action_settings_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
 
     file_menu_->addSeparator();
 
@@ -259,6 +283,21 @@ void MainWindow::SetupMenuBar() {
     action_zoom_reset_ = view_menu_->addAction("Zoom &Reset");
     action_zoom_reset_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
 
+    view_menu_->addSeparator();
+
+    action_toggle_git_ = view_menu_->addAction("Toggle &Git Panel");
+    action_toggle_git_->setCheckable(true);
+    action_toggle_git_->setChecked(false);
+    action_toggle_git_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G));
+
+    action_toggle_build_ = view_menu_->addAction("Toggle B&uild Panel");
+    action_toggle_build_->setCheckable(true);
+    action_toggle_build_->setChecked(false);
+
+    action_toggle_debug_ = view_menu_->addAction("Toggle &Debug Panel");
+    action_toggle_debug_->setCheckable(true);
+    action_toggle_debug_->setChecked(false);
+
     // ── Build Menu ────────────────────────────────────────────────────
     build_menu_ = mb->addMenu("&Build");
 
@@ -276,6 +315,30 @@ void MainWindow::SetupMenuBar() {
     action_stop_ = build_menu_->addAction("&Stop");
     action_stop_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F5));
     action_stop_->setEnabled(false);
+
+    build_menu_->addSeparator();
+
+    action_cmake_configure_ = build_menu_->addAction("CMake: Co&nfigure");
+    action_cmake_build_ = build_menu_->addAction("CMake: &Build");
+
+    // ── Debug Menu ────────────────────────────────────────────────────
+    debug_menu_ = mb->addMenu("&Debug");
+
+    action_debug_start_ = debug_menu_->addAction("Start &Debugging");
+    action_debug_start_->setShortcut(QKeySequence(Qt::Key_F9));
+
+    action_debug_stop_ = debug_menu_->addAction("S&top Debugging");
+
+    debug_menu_->addSeparator();
+
+    action_debug_step_over_ = debug_menu_->addAction("Step &Over");
+    action_debug_step_over_->setShortcut(QKeySequence(Qt::Key_F10));
+
+    action_debug_step_into_ = debug_menu_->addAction("Step &Into");
+    action_debug_step_into_->setShortcut(QKeySequence(Qt::Key_F11));
+
+    action_debug_step_out_ = debug_menu_->addAction("Step Ou&t");
+    action_debug_step_out_->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F11));
 
     // ── Terminal Menu ─────────────────────────────────────────────────
     terminal_menu_ = mb->addMenu("&Terminal");
@@ -442,6 +505,59 @@ void MainWindow::SetupConnections() {
     connect(action_toggle_terminal_, &QAction::triggered, this, &MainWindow::ToggleTerminal);
     connect(action_clear_terminal_, &QAction::triggered, this, &MainWindow::ClearTerminal);
     connect(action_restart_terminal_, &QAction::triggered, this, &MainWindow::RestartTerminal);
+
+    // Settings
+    connect(action_settings_, &QAction::triggered, this, &MainWindow::OpenSettings);
+
+    // Panel toggles
+    connect(action_toggle_git_, &QAction::triggered, this, &MainWindow::ToggleGitPanel);
+    connect(action_toggle_build_, &QAction::triggered, this, &MainWindow::ToggleBuildPanel);
+    connect(action_toggle_debug_, &QAction::triggered, this, &MainWindow::ToggleDebugPanel);
+
+    // CMake build actions
+    connect(action_cmake_configure_, &QAction::triggered, this, &MainWindow::CmakeConfigure);
+    connect(action_cmake_build_, &QAction::triggered, this, &MainWindow::CmakeBuild);
+
+    // Debug actions
+    connect(action_debug_start_, &QAction::triggered, this, &MainWindow::DebugStart);
+    connect(action_debug_stop_, &QAction::triggered, this, &MainWindow::DebugStop);
+    connect(action_debug_step_over_, &QAction::triggered, this, &MainWindow::DebugStepOver);
+    connect(action_debug_step_into_, &QAction::triggered, this, &MainWindow::DebugStepInto);
+    connect(action_debug_step_out_, &QAction::triggered, this, &MainWindow::DebugStepOut);
+
+    // Git panel signals
+    connect(git_panel_, &GitPanel::OperationCompleted,
+            this, [this](const QString &msg) { status_message_->setText(msg); });
+    connect(git_panel_, &GitPanel::OperationFailed,
+            this, [this](const QString &msg) { status_message_->setText(msg); });
+    connect(git_panel_, &GitPanel::FileOpenRequested,
+            this, &MainWindow::OnFileActivated);
+
+    // Build panel signals
+    connect(build_panel_, &BuildPanel::StatusMessage,
+            this, [this](const QString &msg) { status_message_->setText(msg); });
+    connect(build_panel_, &BuildPanel::BuildErrorFound,
+            this, [this](const QString &file, int line, const QString &msg) {
+        output_panel_->AppendOutput(
+            QString("%1:%2: error: %3").arg(file).arg(line).arg(msg));
+    });
+
+    // Debug panel signals
+    connect(debug_panel_, &DebugPanel::StatusMessage,
+            this, [this](const QString &msg) { status_message_->setText(msg); });
+    connect(debug_panel_, &DebugPanel::DebugLocationChanged,
+            this, [this](const QString &file, int line) {
+        int idx = OpenFileInTab(file);
+        if (idx >= 0) {
+            CodeEditor *editor = EditorAt(idx);
+            if (editor) {
+                QTextCursor cursor(editor->document()->findBlockByLineNumber(line - 1));
+                editor->setTextCursor(cursor);
+                editor->centerCursor();
+                editor->setFocus();
+            }
+        }
+    });
 
     // Tab management
     connect(editor_tabs_, &QTabWidget::currentChanged, this, &MainWindow::OnTabChanged);
@@ -1042,6 +1158,108 @@ void MainWindow::CloseTerminalTab(int index) {
 }
 
 // ============================================================================
+// Settings
+// ============================================================================
+
+void MainWindow::OpenSettings() {
+    if (!settings_dialog_) {
+        settings_dialog_ = new SettingsDialog(this);
+    }
+    settings_dialog_->exec();
+}
+
+// ============================================================================
+// Git Panel
+// ============================================================================
+
+void MainWindow::ToggleGitPanel() {
+    bottom_tabs_->setVisible(true);
+    if (bottom_tabs_->currentWidget() == git_panel_) {
+        bottom_tabs_->setVisible(false);
+    } else {
+        bottom_tabs_->setCurrentWidget(git_panel_);
+    }
+    action_toggle_git_->setChecked(
+        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == git_panel_);
+
+    // Set repo path from file browser if available
+    if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
+        git_panel_->SetRepoPath(file_browser_->RootPath());
+    }
+}
+
+// ============================================================================
+// Build Panel (CMake)
+// ============================================================================
+
+void MainWindow::ToggleBuildPanel() {
+    bottom_tabs_->setVisible(true);
+    if (bottom_tabs_->currentWidget() == build_panel_) {
+        bottom_tabs_->setVisible(false);
+    } else {
+        bottom_tabs_->setCurrentWidget(build_panel_);
+    }
+    action_toggle_build_->setChecked(
+        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == build_panel_);
+}
+
+void MainWindow::CmakeConfigure() {
+    // Set project path from file browser
+    if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
+        build_panel_->SetProjectPath(file_browser_->RootPath());
+    }
+    bottom_tabs_->setVisible(true);
+    bottom_tabs_->setCurrentWidget(build_panel_);
+    build_panel_->OnConfigure();
+}
+
+void MainWindow::CmakeBuild() {
+    if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
+        build_panel_->SetProjectPath(file_browser_->RootPath());
+    }
+    bottom_tabs_->setVisible(true);
+    bottom_tabs_->setCurrentWidget(build_panel_);
+    build_panel_->OnBuild();
+}
+
+// ============================================================================
+// Debug Panel
+// ============================================================================
+
+void MainWindow::ToggleDebugPanel() {
+    bottom_tabs_->setVisible(true);
+    if (bottom_tabs_->currentWidget() == debug_panel_) {
+        bottom_tabs_->setVisible(false);
+    } else {
+        bottom_tabs_->setCurrentWidget(debug_panel_);
+    }
+    action_toggle_debug_->setChecked(
+        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == debug_panel_);
+}
+
+void MainWindow::DebugStart() {
+    bottom_tabs_->setVisible(true);
+    bottom_tabs_->setCurrentWidget(debug_panel_);
+    debug_panel_->StartDebug();
+}
+
+void MainWindow::DebugStop() {
+    debug_panel_->StopDebug();
+}
+
+void MainWindow::DebugStepOver() {
+    debug_panel_->StepOver();
+}
+
+void MainWindow::DebugStepInto() {
+    debug_panel_->StepInto();
+}
+
+void MainWindow::DebugStepOut() {
+    debug_panel_->StepOut();
+}
+
+// ============================================================================
 // Help Actions
 // ============================================================================
 
@@ -1082,6 +1300,12 @@ void MainWindow::ShowShortcuts() {
         "<tr><td><b>Ctrl++</b></td><td>Zoom In</td></tr>"
         "<tr><td><b>Ctrl+-</b></td><td>Zoom Out</td></tr>"
         "<tr><td><b>Ctrl+0</b></td><td>Zoom Reset</td></tr>"
+        "<tr><td><b>Ctrl+,</b></td><td>Settings</td></tr>"
+        "<tr><td><b>Ctrl+Shift+G</b></td><td>Toggle Git Panel</td></tr>"
+        "<tr><td><b>F9</b></td><td>Start Debugging</td></tr>"
+        "<tr><td><b>F10</b></td><td>Step Over</td></tr>"
+        "<tr><td><b>F11</b></td><td>Step Into</td></tr>"
+        "<tr><td><b>Shift+F11</b></td><td>Step Out</td></tr>"
         "</table>");
 }
 
