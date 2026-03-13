@@ -929,6 +929,7 @@ TEST_CASE("SymbolTable - Symbol declaration and lookup", "[symtab][declare]") {
 TEST_CASE("SymbolTable - DeclareInScope", "[symtab][scope-declare]") {
   SymbolTable st;
   int func_id = st.EnterScope("fn", ScopeKind::kFunction);
+  (void)func_id;  // Suppress unused variable warning
 
   // Declare a symbol directly in the global scope from inside a function scope
   Symbol sym;

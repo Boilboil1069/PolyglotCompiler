@@ -616,10 +616,8 @@ class Analyzer {
             return;
         }
         if (auto tup = std::dynamic_pointer_cast<TuplePattern>(pat)) {
-            size_t i = 0;
             for (auto &elem : tup->elements) {
                 DeclarePattern(elem, Type::Any(), loc);
-                ++i;
             }
             return;
         }

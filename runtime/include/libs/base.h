@@ -20,7 +20,7 @@ int polyglot_strncmp(const char *lhs, const char *rhs, size_t n);
 // GC-backed allocation helpers exposed with C linkage for runtimes.
 
 void *polyglot_alloc(size_t size);
-void polyglot_gc_collect();
+void polyglot_gc_collect(void);
 void polyglot_gc_register_root(void **slot);
 void polyglot_gc_unregister_root(void **slot);
 

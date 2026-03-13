@@ -219,7 +219,8 @@ TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
 // Scenario 10: GC performance benchmark
 TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     const int NUM_ALLOCATIONS = 10000;
-    
+    (void)NUM_ALLOCATIONS;  // Suppress unused variable warning (benchmarks commented out)
+
     // BENCHMARK("MarkSweep GC") {
     //     Heap heap(Strategy::kMarkSweep);
     //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {

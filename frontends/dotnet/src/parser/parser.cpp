@@ -1193,7 +1193,7 @@ std::shared_ptr<Expression> DotnetParser::ParseTernary() {
         auto &op = current_.lexeme;
         if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" ||
             op == "%=" || op == "&=" || op == "|=" || op == "^=" ||
-            op == "<<=" || op == ">>=" || op == "??=") {
+            op == "<<=" || op == ">>=" || op == "\?\?=") {
             auto bin = std::make_shared<BinaryExpression>();
             bin->loc = expr->loc;
             bin->op = op;
@@ -1328,7 +1328,7 @@ std::shared_ptr<Expression> DotnetParser::ParsePostfix() {
         } else if (IsSymbol("!")) {
             // Null-forgiving operator
             Consume();
-            expr = expr; // keep same, null-forgiving is compile-time only
+            // Null-forgiving is compile-time only; no transformation needed.
         } else {
             break;
         }

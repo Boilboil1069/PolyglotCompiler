@@ -4,28 +4,12 @@
 #include <string>
 #include <unordered_map>
 
-#include "common/include/core/types.h"
 #include "middle/include/ir/ir_builder.h"
 
 namespace polyglot::dotnet {
 namespace {
 
 using Name = std::string;
-
-ir::IRType ToIRType(const core::Type &t) {
-    using Kind = core::TypeKind;
-    switch (t.kind) {
-        case Kind::kInt:   return ir::IRType::I64(true);
-        case Kind::kFloat: return ir::IRType::F64();
-        case Kind::kBool:  return ir::IRType::I1();
-        case Kind::kVoid:  return ir::IRType::Void();
-        case Kind::kString:
-        case Kind::kPointer:
-            return ir::IRType::Pointer(ir::IRType::I8());
-        default:
-            return ir::IRType::Invalid();
-    }
-}
 
 ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
     if (!node) return ir::IRType::I64(true);

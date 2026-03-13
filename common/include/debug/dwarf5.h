@@ -222,11 +222,6 @@ private:
     std::vector<FileEntry> files_;
     std::vector<LineEntry> lines_;
     
-    // Line number program state
-    uint32_t current_file_;
-    uint32_t current_line_;
-    uint32_t current_column_;
-    
     // Lookup file index by filepath (returns 1-based index, or default if not found)
     uint32_t LookupFileIndex(const std::string& filepath) const;
     

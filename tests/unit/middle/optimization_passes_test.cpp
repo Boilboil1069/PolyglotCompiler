@@ -542,6 +542,7 @@ TEST_CASE("Optimization - Dead Store Elimination", "[opt][dse]") {
         DeadStoreElimination(func);
         // The first store should be eliminated or marked dead
         size_t stores_after = CountInstructions<StoreInstruction>(func);
+        (void)stores_after;  // Suppress unused variable warning
         size_t live_after = CountLiveInstructions(func);
         // At minimum the pass should not crash; ideally stores_after < stores_before
         REQUIRE(live_after <= stores_before + 3);

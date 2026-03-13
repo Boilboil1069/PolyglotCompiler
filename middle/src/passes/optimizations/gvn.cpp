@@ -131,7 +131,6 @@ void GVNPass::EliminateRedundancies() {
 
 size_t GVNPass::GetValueNumber(const std::string& operand) {
     // Check if it's a constant
-    long long dummy;
     try {
         size_t idx = 0;
         std::stoll(operand, &idx, 0);

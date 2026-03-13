@@ -143,8 +143,7 @@ std::vector<uint8_t> DIE::Encode() const {
 // LineNumberProgram Implementation
 // ============================================================================
 
-LineNumberProgram::LineNumberProgram()
-    : current_file_(1), current_line_(1), current_column_(0) {}
+LineNumberProgram::LineNumberProgram() = default;
 
 void LineNumberProgram::AddFile(const std::string& filename,
                                const std::string& directory) {
@@ -289,8 +288,7 @@ void LineNumberProgram::EncodeULEB128(std::vector<uint8_t>& out, uint64_t value)
 
 void LineNumberProgram::EncodeSLEB128(std::vector<uint8_t>& out, int64_t value) const {
     bool more = true;
-    bool negative = value < 0;
-    
+
     while (more) {
         uint8_t byte = value & 0x7F;
         value >>= 7;

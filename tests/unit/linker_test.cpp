@@ -89,7 +89,7 @@ std::vector<std::uint8_t> CreateMinimalArchive() {
 }
 
 // Create a test object file in temp directory
-std::string CreateTestObjectFile(const std::string& prefix) {
+[[maybe_unused]] std::string CreateTestObjectFile(const std::string& prefix) {
     std::string path = "/tmp/" + prefix + "_test.o";
     auto elf = CreateMinimalELF64Header();
     
@@ -101,7 +101,7 @@ std::string CreateTestObjectFile(const std::string& prefix) {
 }
 
 // Clean up test file
-void RemoveTestFile(const std::string& path) {
+[[maybe_unused]] void RemoveTestFile(const std::string& path) {
     std::remove(path.c_str());
 }
 

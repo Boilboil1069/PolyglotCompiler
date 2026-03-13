@@ -828,6 +828,7 @@ TEST_CASE("LTO edge cases", "[lto][edge]") {
         break;
       }
     }
+    (void)found_cycle;  // Suppress unused variable warning
     // Note: depending on implementation, might be 3 separate SCCs with is_recursive flag
     REQUIRE(true);  // Just verify no crash
   }

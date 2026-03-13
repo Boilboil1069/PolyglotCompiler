@@ -211,6 +211,7 @@ TEST_CASE("Micro: lexer throughput — small program", "[benchmark][micro]") {
         PloyLexer lexer(kSmallProgram, "<bench>");
         int tokens = 0;
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) { ++tokens; }
+        (void)tokens;  // Suppress unused variable warning
         auto end = std::chrono::high_resolution_clock::now();
         samples.push_back(std::chrono::duration<double, std::milli>(end - start).count());
     }
@@ -256,6 +257,7 @@ TEST_CASE("Micro: lexer throughput — large program (100 funcs)", "[benchmark][
         PloyLexer lexer(code, "<bench>");
         int tokens = 0;
         while (lexer.NextToken().kind != TokenKind::kEndOfFile) { ++tokens; }
+        (void)tokens;
         auto end = std::chrono::high_resolution_clock::now();
         samples.push_back(std::chrono::duration<double, std::milli>(end - start).count());
     }

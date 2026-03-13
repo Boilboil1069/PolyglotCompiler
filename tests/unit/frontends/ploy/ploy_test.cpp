@@ -2692,7 +2692,7 @@ FUNC cleanup() {
 TEST_CASE("Ploy sema: DELETE invalid language", "[ploy][sema]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC cleanup() {
     LET obj = NEW(python, MyClass);
     DELETE(cobol, obj);
@@ -2811,7 +2811,7 @@ EXTEND(python, Animal) AS Dog {
 TEST_CASE("Ploy sema: EXTEND invalid language error", "[ploy][sema]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 EXTEND(cobol, Base) AS Derived {
     FUNC foo() { }
 }
@@ -2859,7 +2859,7 @@ EXTEND(python, Animal) AS Dog {
 TEST_CASE("Ploy sema: param count mismatch in local function call", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC add(a: INT, b: INT) -> INT {
     RETURN a;
 }
@@ -2874,7 +2874,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: param count mismatch too many args", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC greet(name: STRING) -> STRING {
     RETURN name;
 }
@@ -2908,7 +2908,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: type mismatch in function call", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC process(value: INT) -> INT {
     RETURN value;
 }
@@ -2923,7 +2923,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: type mismatch multiple params", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC compute(x: FLOAT, y: INT) -> FLOAT {
     RETURN x;
 }
@@ -2957,7 +2957,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: undefined variable produces error", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = undefined_var;
 }
@@ -2969,7 +2969,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: redefined symbol produces error", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = 10;
     LET x = 20;
@@ -2981,7 +2981,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: BREAK outside loop error", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC main() {
     BREAK;
 }
@@ -2992,7 +2992,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: CONTINUE outside loop error", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC main() {
     CONTINUE;
 }
@@ -3003,7 +3003,7 @@ FUNC main() {
 TEST_CASE("Ploy sema: immutable assignment error", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
-    bool ok = AnalyzeCode(R"(
+    (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = 10;
     x = 20;

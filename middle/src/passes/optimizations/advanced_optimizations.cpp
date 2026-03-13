@@ -41,7 +41,7 @@ namespace {
 /**
  * Check if an instruction defines a value used outside the loop
  */
-bool HasUsesOutsideLoop(const ir::Instruction* inst,
+[[maybe_unused]] bool HasUsesOutsideLoop(const ir::Instruction* inst,
                         const std::unordered_set<ir::BasicBlock*>& loop_blocks,
                         const ir::Function& func) {
     if (!inst->HasResult()) return false;
@@ -158,7 +158,7 @@ bool HasSideEffects(const std::shared_ptr<ir::Instruction>& inst) {
 /**
  * Check if two basic blocks are adjacent in the CFG
  */
-bool AreAdjacent(const ir::BasicBlock* bb1, const ir::BasicBlock* bb2) {
+[[maybe_unused]] bool AreAdjacent(const ir::BasicBlock* bb1, const ir::BasicBlock* bb2) {
     for (auto* succ : bb1->successors) {
         if (succ == bb2) return true;
     }
@@ -1865,6 +1865,7 @@ void CodeHoisting(ir::Function& func) {
     // basic-block boundaries.
     ir::AnalysisCache cache(func);
     const auto& dom = cache.GetDomTree();
+    (void)dom;
 
     for (auto& bb : func.blocks) {
         // Only consider blocks with exactly two successors (conditional branch)
@@ -1888,7 +1889,9 @@ void CodeHoisting(ir::Function& func) {
                     std::dynamic_pointer_cast<ir::CallInstruction>(b)) continue;
 
                 // Compare instruction kind and operands
-                if (typeid(*a) == typeid(*b) && a->operands == b->operands) {
+                const auto& a_ref = *a;
+                const auto& b_ref = *b;
+                if (typeid(a_ref) == typeid(b_ref) && a->operands == b->operands) {
                     common_pairs.push_back({i, j});
                 }
             }

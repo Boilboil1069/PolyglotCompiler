@@ -359,6 +359,7 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     std::vector<std::uint32_t> sec_reloff(sections_.size(), 0);
     std::vector<std::uint32_t> sec_nreloc(sections_.size(), 0);
     std::uint32_t reloc_area_offset = current_offset;
+    (void)reloc_area_offset;  // Retained for layout documentation; not yet referenced.
     for (std::size_t i = 0; i < sections_.size(); ++i) {
         if (!sections_[i].relocations.empty()) {
             sec_reloff[i] = current_offset;
@@ -387,7 +388,8 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     std::uint32_t symtab_offset = strtab_offset + ((strtab_size + 7) & ~7u);
     // Each nlist_64 entry is 16 bytes
     std::uint32_t symtab_size = static_cast<std::uint32_t>(symbols_.size()) * 16;
-    
+    (void)symtab_size;  // Retained for layout documentation; not yet referenced.
+
     // --- Write Mach-O header (mach_header_64) ---
     WriteValue<std::uint32_t>(result, MH_MAGIC_64);
     WriteValue<std::uint32_t>(result, is_arm64_ ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64);

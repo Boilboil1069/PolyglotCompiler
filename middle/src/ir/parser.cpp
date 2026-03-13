@@ -162,7 +162,7 @@ BinaryInstruction::Op ParseBinOp(const std::string &s) {
   return BinaryInstruction::Op::kAdd;
 }
 
-CastInstruction::CastKind ParseCast(const std::string &s) {
+[[maybe_unused]] CastInstruction::CastKind ParseCast(const std::string &s) {
   if (s == "zext") return CastInstruction::CastKind::kZExt;
   if (s == "sext") return CastInstruction::CastKind::kSExt;
   if (s == "trunc") return CastInstruction::CastKind::kTrunc;

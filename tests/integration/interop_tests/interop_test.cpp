@@ -87,7 +87,7 @@ size_t CountDescriptorsForLang(const std::vector<CrossLangCallDescriptor> &descs
 }
 
 // Check if any descriptor has a specific function name
-bool HasDescriptorForFunc(const std::vector<CrossLangCallDescriptor> &descs,
+[[maybe_unused]] bool HasDescriptorForFunc(const std::vector<CrossLangCallDescriptor> &descs,
                            const std::string &func_name) {
     return std::any_of(descs.begin(), descs.end(),
         [&](const CrossLangCallDescriptor &d) {

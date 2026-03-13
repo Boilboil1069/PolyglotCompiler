@@ -161,12 +161,6 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
     return {lit->name, ir::IRType::F64()};
 }
 
-EvalResult MakeBoolLiteral(bool v, LoweringContext &lc) {
-    auto lit = lc.builder.MakeLiteral(v ? 1LL : 0LL, lc.NextTemp("bool"));
-    lit->type = ir::IRType::I1();
-    return {lit->name, ir::IRType::I1()};
-}
-
 // ----------------------------------------------------------------------------
 // Name evaluation.
 // ----------------------------------------------------------------------------
@@ -672,7 +666,6 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
 
         // Evaluate filter conditions (ifs)
         if (!clause.ifs.empty()) {
-            auto *current_block = filter_block;
             for (size_t i = 0; i < clause.ifs.size(); ++i) {
                 auto cond = EvalExpr(clause.ifs[i], lc);
                 if (!cond.IsValid()) return EvalResult::Invalid();
@@ -1876,9 +1869,7 @@ bool LowerImport(const std::shared_ptr<ImportStatement> &import_stmt, LoweringCo
             if (is_builtin && IsBuiltinFunction(modname, export_name)) {
                 // Static linking: create global reference to built-in function
                 std::string rt_name = GetBuiltinRuntimeName(modname, export_name);
-                auto &funcs = builtin_modules[modname];
-                auto &info = funcs[export_name];
-                
+
                 // Create a global function pointer
                 auto global = lc.ir_ctx.CreateGlobal(
                     "@__mod_" + modname + "_" + export_name,
@@ -2119,7 +2110,6 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
             auto *use_default_block = lc.fn->CreateBlock("default.use_default." + arg.name);
             auto *merge_block = lc.fn->CreateBlock("default.merge." + arg.name);
             
-            auto *check_block = lc.builder.GetInsertPoint().get();
             lc.builder.MakeCondBranch(sentinel_check->name, use_arg_block, use_default_block);
             
             // Branch 1: Use the provided argument value

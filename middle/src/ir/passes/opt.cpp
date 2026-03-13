@@ -638,7 +638,7 @@ void SCCP(Function &func) {
         } else {
           mark_over(bin->name);
         }
-      } else if (auto *phi = dynamic_cast<PhiInstruction *>(inst.get())) {
+      } else if ([[maybe_unused]] auto *phi = dynamic_cast<PhiInstruction *>(inst.get())) {
         // already handled above
       } else {
         mark_over(inst->name);

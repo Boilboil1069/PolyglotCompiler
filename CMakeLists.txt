@@ -9,6 +9,10 @@ if(MSVC)
     add_compile_options(/W3 /utf-8)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    # Suppress macOS linker warnings about duplicate libraries from transitive deps
+    if(APPLE)
+        add_link_options("LINKER:-no_warn_duplicate_libraries")
+    endif()
 endif()
 
 # Required for runtime dynamic loading (dlopen/dlsym) and threading
@@ -249,7 +253,6 @@ target_link_libraries(polyc
     backend_x86_64
     backend_arm64
     backend_wasm
-    middle_ir
     runtime
     linker_lib
 )
@@ -263,7 +266,6 @@ target_link_libraries(polyasm
     backend_arm64
     backend_wasm
     middle_ir
-    polyglot_common
 )
 
 # Linker library (for unit tests)
@@ -289,7 +291,6 @@ add_executable(polyld
 )
 
 target_link_libraries(polyld
-    polyglot_common
     frontend_ploy
 )
 
@@ -302,7 +303,6 @@ target_link_libraries(polyopt
     backend_x86_64
     backend_arm64
     backend_wasm
-    polyglot_common
 )
 
 add_executable(polyrt
@@ -319,14 +319,12 @@ add_executable(polybench
 )
 
 target_link_libraries(polybench
-    polyglot_common
     frontend_python
     frontend_cpp
     frontend_rust
     frontend_ploy
     frontend_java
     frontend_dotnet
-    middle_ir
     backend_x86_64
     backend_arm64
     backend_wasm
@@ -463,12 +461,10 @@ if(Qt6_FOUND OR Qt5_FOUND)
         frontend_ploy
         frontend_java
         frontend_dotnet
-        middle_ir
         backend_x86_64
         backend_arm64
         backend_wasm
         runtime
-        polyglot_common
         nlohmann_json::nlohmann_json
     )
 
@@ -545,14 +541,12 @@ endif()
 file(GLOB_RECURSE UNIT_TEST_SOURCES tests/unit/*.cpp)
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 target_link_libraries(unit_tests PRIVATE
-    polyglot_common
     frontend_python
     frontend_cpp
     frontend_rust
     frontend_ploy
     frontend_java
     frontend_dotnet
-    middle_ir
     backend_x86_64
     backend_arm64
     backend_wasm
@@ -566,14 +560,12 @@ target_link_libraries(unit_tests PRIVATE
 file(GLOB_RECURSE INTEGRATION_TEST_SOURCES tests/integration/*.cpp)
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE
-    polyglot_common
     frontend_python
     frontend_cpp
     frontend_rust
     frontend_ploy
     frontend_java
     frontend_dotnet
-    middle_ir
     backend_x86_64
     backend_arm64
     backend_wasm
@@ -587,14 +579,12 @@ target_link_libraries(integration_tests PRIVATE
 file(GLOB_RECURSE BENCHMARK_TEST_SOURCES tests/benchmarks/*.cpp)
 add_executable(benchmark_tests ${BENCHMARK_TEST_SOURCES})
 target_link_libraries(benchmark_tests PRIVATE
-    polyglot_common
     frontend_python
     frontend_cpp
     frontend_rust
     frontend_ploy
     frontend_java
     frontend_dotnet
-    middle_ir
     backend_x86_64
     backend_arm64
     backend_wasm

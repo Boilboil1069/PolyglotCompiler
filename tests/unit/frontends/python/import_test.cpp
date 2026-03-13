@@ -254,7 +254,7 @@ def test():
 )";
         Diagnostics diags;
         IRContext ctx;
-        bool ok = ParseAnalyzeLower(code, diags, ctx);
+        (void)ParseAnalyzeLower(code, diags, ctx);
         INFO("Diagnostics:");
         for (const auto &d : diags.All()) {
             INFO("  " << d.message);
@@ -263,7 +263,7 @@ def test():
         bool has_result = !ctx.Functions().empty() || !ctx.Globals().empty();
         REQUIRE(has_result);
     }
-    
+
     SECTION("From import") {
         std::string code = R"(
 from math import sin
@@ -272,7 +272,7 @@ def test():
 )";
         Diagnostics diags;
         IRContext ctx;
-        bool ok = ParseAnalyzeLower(code, diags, ctx);
+        (void)ParseAnalyzeLower(code, diags, ctx);
         INFO("Diagnostics:");
         for (const auto &d : diags.All()) {
             INFO("  " << d.message);
@@ -332,6 +332,7 @@ def test():
             }
         }
         INFO("Globals count: " << ctx.Globals().size());
+        (void)found_module_global;
         // This test verifies we can query globals
         REQUIRE(ctx.Globals().size() >= 0);
     }

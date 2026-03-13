@@ -401,7 +401,7 @@ frontends::Token DotnetLexer::NextToken() {
         // Check for ??= (null-coalescing assignment)
         if (two_char == "??" && !Eof() && Peek() == '=') {
             Get();
-            return frontends::Token{frontends::TokenKind::kSymbol, "??=", loc};
+            return frontends::Token{frontends::TokenKind::kSymbol, "\?\?=", loc};
         }
         return frontends::Token{frontends::TokenKind::kSymbol, two_char, loc};
     }

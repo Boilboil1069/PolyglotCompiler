@@ -160,23 +160,23 @@ std::vector<uint8_t> BuildELFObject(const std::vector<DebugSection>& sections) {
 
 // DWARF 5 standard opcodes
 constexpr uint8_t kDwLnsCopy = 0x01;
-constexpr uint8_t kDwLnsAdvancePc = 0x02;
+[[maybe_unused]] constexpr uint8_t kDwLnsAdvancePc = 0x02;
 constexpr uint8_t kDwLnsAdvanceLine = 0x03;
 constexpr uint8_t kDwLnsSetFile = 0x04;
 constexpr uint8_t kDwLnsSetColumn = 0x05;
-constexpr uint8_t kDwLnsNegateStmt = 0x06;
-constexpr uint8_t kDwLnsSetBasicBlock = 0x07;
-constexpr uint8_t kDwLnsConstAddPc = 0x08;
-constexpr uint8_t kDwLnsFixedAdvancePc = 0x09;
-constexpr uint8_t kDwLnsSetPrologueEnd = 0x0a;
-constexpr uint8_t kDwLnsSetEpilogueBegin = 0x0b;
-constexpr uint8_t kDwLnsSetIsa = 0x0c;
+[[maybe_unused]] constexpr uint8_t kDwLnsNegateStmt = 0x06;
+[[maybe_unused]] constexpr uint8_t kDwLnsSetBasicBlock = 0x07;
+[[maybe_unused]] constexpr uint8_t kDwLnsConstAddPc = 0x08;
+[[maybe_unused]] constexpr uint8_t kDwLnsFixedAdvancePc = 0x09;
+[[maybe_unused]] constexpr uint8_t kDwLnsSetPrologueEnd = 0x0a;
+[[maybe_unused]] constexpr uint8_t kDwLnsSetEpilogueBegin = 0x0b;
+[[maybe_unused]] constexpr uint8_t kDwLnsSetIsa = 0x0c;
 
 // DWARF 5 extended opcodes
 constexpr uint8_t kDwLneEndSequence = 0x01;
 constexpr uint8_t kDwLneSetAddress = 0x02;
-constexpr uint8_t kDwLneDefineFile = 0x03;
-constexpr uint8_t kDwLneSetDiscriminator = 0x04;
+[[maybe_unused]] constexpr uint8_t kDwLneDefineFile = 0x03;
+[[maybe_unused]] constexpr uint8_t kDwLneSetDiscriminator = 0x04;
 
 // DWARF tags
 constexpr uint16_t kDwTagCompileUnit = 0x11;
@@ -210,12 +210,12 @@ constexpr uint8_t kDwFormAddr = 0x01;
 constexpr uint8_t kDwFormData1 = 0x0b;
 constexpr uint8_t kDwFormData2 = 0x05;
 constexpr uint8_t kDwFormData4 = 0x06;
-constexpr uint8_t kDwFormData8 = 0x07;
+[[maybe_unused]] constexpr uint8_t kDwFormData8 = 0x07;
 constexpr uint8_t kDwFormString = 0x08;
 constexpr uint8_t kDwFormStrp = 0x0e;
 constexpr uint8_t kDwFormSecOffset = 0x17;
 constexpr uint8_t kDwFormExprloc = 0x18;
-constexpr uint8_t kDwFormFlag = 0x0c;
+[[maybe_unused]] constexpr uint8_t kDwFormFlag = 0x0c;
 constexpr uint8_t kDwFormFlagPresent = 0x19;
 constexpr uint8_t kDwFormRef4 = 0x13;
 
@@ -228,11 +228,11 @@ constexpr uint8_t kDwAteSignedChar = 0x06;
 constexpr uint8_t kDwAteUnsignedChar = 0x08;
 
 // DWARF languages
-constexpr uint16_t kDwLangC = 0x0c;
-constexpr uint16_t kDwLangCpp = 0x04;
+[[maybe_unused]] constexpr uint16_t kDwLangC = 0x0c;
+[[maybe_unused]] constexpr uint16_t kDwLangCpp = 0x04;
 constexpr uint16_t kDwLangCpp14 = 0x21;
-constexpr uint16_t kDwLangPython = 0x14;
-constexpr uint16_t kDwLangRust = 0x1c;
+[[maybe_unused]] constexpr uint16_t kDwLangPython = 0x14;
+[[maybe_unused]] constexpr uint16_t kDwLangRust = 0x1c;
 
 // ============================================================================
 // Helper Functions
@@ -773,6 +773,7 @@ void DwarfSectionBuilder::EncodeLineStatements(
     int32_t line = 1;
     uint32_t column = 0;
     bool is_stmt = true;
+    (void)is_stmt;  // Part of DWARF line number state machine; reserved for future use
     
     for (const auto &entry : lines) {
         uint32_t entry_file = GetOrAddFile(entry.file);
@@ -1009,11 +1010,11 @@ public:
     
 private:
     // PDB stream types
-    static constexpr uint32_t kPdbStreamRoot = 0;
-    static constexpr uint32_t kPdbStreamPdb = 1;
-    static constexpr uint32_t kPdbStreamTpi = 2;
-    static constexpr uint32_t kPdbStreamDbi = 3;
-    static constexpr uint32_t kPdbStreamIpi = 4;
+    [[maybe_unused]] static constexpr uint32_t kPdbStreamRoot = 0;
+    [[maybe_unused]] static constexpr uint32_t kPdbStreamPdb = 1;
+    [[maybe_unused]] static constexpr uint32_t kPdbStreamTpi = 2;
+    [[maybe_unused]] static constexpr uint32_t kPdbStreamDbi = 3;
+    [[maybe_unused]] static constexpr uint32_t kPdbStreamIpi = 4;
     
     // Build individual streams
     std::vector<uint8_t> BuildPdbInfoStream();

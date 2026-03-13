@@ -84,7 +84,7 @@ Register Resolve(const Operand &op, const AllocationResult &alloc) {
 
 int StackOffsetBytes(int slot) { return (slot + 1) * 16; }
 
-std::string FormatOperand(const Operand &op, const AllocationResult &alloc) {
+[[maybe_unused]] std::string FormatOperand(const Operand &op, const AllocationResult &alloc) {
   switch (op.kind) {
     case Operand::Kind::kPhysReg:
       return RegisterName(op.phys);

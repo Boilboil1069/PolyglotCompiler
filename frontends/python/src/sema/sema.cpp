@@ -440,7 +440,7 @@ class Analyzer {
 
     void DeclareFunction(const FunctionDef &fn) {
         std::vector<Type> params;
-        for (const auto &p : fn.params) {
+        for (size_t i = 0; i < fn.params.size(); ++i) {
             params.push_back(Type::Any());
         }
         Type ret = fn.return_annotation ? AnalyzeExpr(fn.return_annotation) : Type::Any();

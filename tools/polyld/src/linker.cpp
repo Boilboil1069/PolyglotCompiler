@@ -169,43 +169,43 @@ constexpr std::uint32_t FAT_CIGAM = 0xbebafeca;
 
 // CPU types
 constexpr std::uint32_t CPU_TYPE_X86 = 7;
-constexpr std::uint32_t CPU_TYPE_X86_64 = CPU_TYPE_X86 | 0x01000000;
+[[maybe_unused]] constexpr std::uint32_t CPU_TYPE_X86_64 = CPU_TYPE_X86 | 0x01000000;
 constexpr std::uint32_t CPU_TYPE_ARM = 12;
-constexpr std::uint32_t CPU_TYPE_ARM64 = CPU_TYPE_ARM | 0x01000000;
+[[maybe_unused]] constexpr std::uint32_t CPU_TYPE_ARM64 = CPU_TYPE_ARM | 0x01000000;
 
 // File types
 constexpr std::uint32_t MH_OBJECT = 1;
-constexpr std::uint32_t MH_EXECUTE = 2;
-constexpr std::uint32_t MH_DYLIB = 6;
-constexpr std::uint32_t MH_BUNDLE = 8;
-constexpr std::uint32_t MH_DSYM = 10;
+[[maybe_unused]] constexpr std::uint32_t MH_EXECUTE = 2;
+[[maybe_unused]] constexpr std::uint32_t MH_DYLIB = 6;
+[[maybe_unused]] constexpr std::uint32_t MH_BUNDLE = 8;
+[[maybe_unused]] constexpr std::uint32_t MH_DSYM = 10;
 
 // Load command types
-constexpr std::uint32_t LC_SEGMENT = 0x1;
+[[maybe_unused]] constexpr std::uint32_t LC_SEGMENT = 0x1;
 constexpr std::uint32_t LC_SYMTAB = 0x2;
-constexpr std::uint32_t LC_DYSYMTAB = 0xb;
+[[maybe_unused]] constexpr std::uint32_t LC_DYSYMTAB = 0xb;
 constexpr std::uint32_t LC_SEGMENT_64 = 0x19;
-constexpr std::uint32_t LC_UUID = 0x1b;
-constexpr std::uint32_t LC_BUILD_VERSION = 0x32;
+[[maybe_unused]] constexpr std::uint32_t LC_UUID = 0x1b;
+[[maybe_unused]] constexpr std::uint32_t LC_BUILD_VERSION = 0x32;
 
 // Section flags
-constexpr std::uint32_t S_REGULAR = 0x0;
+[[maybe_unused]] constexpr std::uint32_t S_REGULAR = 0x0;
 constexpr std::uint32_t S_ZEROFILL = 0x1;
-constexpr std::uint32_t S_CSTRING_LITERALS = 0x2;
-constexpr std::uint32_t S_SYMBOL_STUBS = 0x8;
-constexpr std::uint32_t S_NON_LAZY_SYMBOL_POINTERS = 0x6;
-constexpr std::uint32_t S_LAZY_SYMBOL_POINTERS = 0x7;
-constexpr std::uint32_t S_ATTR_PURE_INSTRUCTIONS = 0x80000000;
-constexpr std::uint32_t S_ATTR_SOME_INSTRUCTIONS = 0x00000400;
+[[maybe_unused]] constexpr std::uint32_t S_CSTRING_LITERALS = 0x2;
+[[maybe_unused]] constexpr std::uint32_t S_SYMBOL_STUBS = 0x8;
+[[maybe_unused]] constexpr std::uint32_t S_NON_LAZY_SYMBOL_POINTERS = 0x6;
+[[maybe_unused]] constexpr std::uint32_t S_LAZY_SYMBOL_POINTERS = 0x7;
+[[maybe_unused]] constexpr std::uint32_t S_ATTR_PURE_INSTRUCTIONS = 0x80000000;
+[[maybe_unused]] constexpr std::uint32_t S_ATTR_SOME_INSTRUCTIONS = 0x00000400;
 
 // N_TYPE values for nlist
 constexpr std::uint8_t N_UNDF = 0x0;
 constexpr std::uint8_t N_ABS = 0x2;
 constexpr std::uint8_t N_SECT = 0xe;
-constexpr std::uint8_t N_PBUD = 0xc;
+[[maybe_unused]] constexpr std::uint8_t N_PBUD = 0xc;
 constexpr std::uint8_t N_INDR = 0xa;
 constexpr std::uint8_t N_EXT = 0x01;
-constexpr std::uint8_t N_PEXT = 0x10;
+[[maybe_unused]] constexpr std::uint8_t N_PEXT = 0x10;
 
 #pragma pack(push, 1)
 
@@ -1243,10 +1243,10 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
 
         // Flags
         constexpr std::uint32_t IMAGE_SCN_CNT_CODE = 0x00000020;
-        constexpr std::uint32_t IMAGE_SCN_CNT_INITIALIZED_DATA = 0x00000040;
+        [[maybe_unused]] constexpr std::uint32_t IMAGE_SCN_CNT_INITIALIZED_DATA = 0x00000040;
         constexpr std::uint32_t IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080;
         constexpr std::uint32_t IMAGE_SCN_MEM_EXECUTE = 0x20000000;
-        constexpr std::uint32_t IMAGE_SCN_MEM_READ = 0x40000000;
+        [[maybe_unused]] constexpr std::uint32_t IMAGE_SCN_MEM_READ = 0x40000000;
         constexpr std::uint32_t IMAGE_SCN_MEM_WRITE = 0x80000000;
 
         SectionFlags flags = SectionFlags::kAlloc;
@@ -1334,8 +1334,8 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
 
             // Storage class mapping
             constexpr std::uint8_t IMAGE_SYM_CLASS_EXTERNAL = 2;
-            constexpr std::uint8_t IMAGE_SYM_CLASS_STATIC = 3;
-            constexpr std::uint8_t IMAGE_SYM_CLASS_LABEL = 6;
+            [[maybe_unused]] constexpr std::uint8_t IMAGE_SYM_CLASS_STATIC = 3;
+            [[maybe_unused]] constexpr std::uint8_t IMAGE_SYM_CLASS_LABEL = 6;
             constexpr std::uint8_t IMAGE_SYM_CLASS_WEAK_EXTERNAL = 105;
 
             if (cs.storage_class == IMAGE_SYM_CLASS_EXTERNAL) {
@@ -2774,7 +2774,7 @@ bool Linker::GenerateMachOExecutable() {
 
     // Compute sizes (page-aligned)
     constexpr std::uint64_t page = 4096;
-    auto align_page = [page](std::uint64_t v) {
+    auto align_page = [](std::uint64_t v) {
         return (v + page - 1) & ~(page - 1);
     };
 

@@ -1162,7 +1162,7 @@ static std::string SourceStem(const Settings &settings) {
 }
 
 // Helper: write string content to an aux file (plaintext or binary)
-static void WriteAuxFile(const std::string &aux_dir, const std::string &filename,
+[[maybe_unused]] static void WriteAuxFile(const std::string &aux_dir, const std::string &filename,
                          const std::string &content, bool verbose) {
     if (aux_dir.empty()) return;
     fs::path path = fs::path(aux_dir) / filename;

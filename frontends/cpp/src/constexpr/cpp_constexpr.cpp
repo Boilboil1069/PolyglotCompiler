@@ -282,8 +282,7 @@ ConstexprValue ConstexprEvaluator::EvaluateCallExpr(CallExpression* expr) {
     // Check if callee is a constexpr function
     // Simplified - would need symbol table lookup
     if (auto* id = dynamic_cast<Identifier*>(expr->callee.get())) {
-        // Look up function in function cache or symbol table
-        // For now, just return undefined
+        (void)id;  // Not yet used; will be needed for symbol table lookup
         return ConstexprValue();
     }
     
