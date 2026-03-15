@@ -183,6 +183,12 @@ if (-not $SkipBuild) {
     Write-Step "Configuring CMake (Release)"
     Push-Location $ProjectRoot
 
+    # Temporarily lower ErrorActionPreference so that stderr output from
+    # cmake / ninja (progress info, warnings) is not treated as a
+    # terminating error.  We check $LASTEXITCODE explicitly instead.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+
     if ($Generator) {
         & cmake -S . -B $BuildDir -G $Generator `
             -DCMAKE_BUILD_TYPE=Release `
@@ -196,11 +202,13 @@ if (-not $SkipBuild) {
             "-DCMAKE_PREFIX_PATH=$QtPrefixPath" `
             "-DQT_ROOT=$QtRoot"
     }
-    if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEAP; Pop-Location; exit 1 }
 
     Write-Step "Building project"
-    cmake --build $BuildDir --config Release
-    if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
+    & cmake --build $BuildDir --config Release
+    if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEAP; Pop-Location; exit 1 }
+
+    $ErrorActionPreference = $prevEAP
     Pop-Location
 } else {
     Write-Host "[SKIP] Build step skipped (--SkipBuild)"
