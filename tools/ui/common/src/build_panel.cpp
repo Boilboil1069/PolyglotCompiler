@@ -5,6 +5,7 @@
 // for multiple generators (Makefiles, Ninja).
 
 #include "tools/ui/common/include/build_panel.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QDir>
 #include <QFileDialog>
@@ -57,12 +58,7 @@ void BuildPanel::SetupUi() {
 
     tabs_ = new QTabWidget();
     tabs_->setTabPosition(QTabWidget::North);
-    tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 4px 12px; "
-        "border: none; min-width: 60px; font-size: 11px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; }"
-        "QTabBar::tab:hover { background: #383838; }");
+    tabs_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(false));
 
     SetupConfigSection();
     SetupTargetTree();
@@ -76,15 +72,17 @@ void BuildPanel::SetupUi() {
     build_progress_->setVisible(false);
     build_progress_->setMaximumHeight(4);
     build_progress_->setTextVisible(false);
-    build_progress_->setStyleSheet(
-        "QProgressBar { background: #1e1e1e; border: none; }"
-        "QProgressBar::chunk { background: #0e639c; }");
+    build_progress_->setStyleSheet(ThemeManager::Instance().ProgressBarStylesheet());
     layout_->addWidget(build_progress_);
 
     // Status label
     build_status_label_ = new QLabel("Ready");
-    build_status_label_->setStyleSheet(
-        "QLabel { color: #969696; font-size: 11px; padding: 2px 8px; background: #252526; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        build_status_label_->setStyleSheet(
+            QString("QLabel { color: %1; font-size: 11px; padding: 2px 8px; background: %2; }")
+                .arg(tc.text_secondary.name(), tc.surface_alt.name()));
+    }
     layout_->addWidget(build_status_label_);
 }
 
@@ -92,12 +90,7 @@ void BuildPanel::SetupToolBar() {
     toolbar_ = new QToolBar();
     toolbar_->setMovable(false);
     toolbar_->setIconSize(QSize(16, 16));
-    toolbar_->setStyleSheet(
-        "QToolBar { background: #333333; border: none; spacing: 2px; padding: 2px; }"
-        "QToolButton { background: transparent; color: #cccccc; padding: 3px 6px; "
-        "border-radius: 3px; font-size: 11px; }"
-        "QToolButton:hover { background: #505050; }"
-        "QToolButton:pressed { background: #094771; }");
+    toolbar_->setStyleSheet(ThemeManager::Instance().ToolBarStylesheet());
 
     action_configure_ = toolbar_->addAction("Configure");
     connect(action_configure_, &QAction::triggered, this, &BuildPanel::OnConfigure);
@@ -126,27 +119,20 @@ void BuildPanel::SetupConfigSection() {
     form_layout->setContentsMargins(8, 8, 8, 8);
     form_layout->setSpacing(8);
 
-    const QString label_style = "QLabel { color: #cccccc; font-size: 12px; }";
-    const QString input_style =
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px; font-size: 12px; }";
-    const QString combo_style =
-        "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px; min-width: 120px; }"
-        "QComboBox QAbstractItemView { background: #252526; color: #cccccc; "
-        "selection-background-color: #094771; }";
-    const QString button_style =
-        "QPushButton { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px 12px; }"
-        "QPushButton:hover { background: #505050; }"
-        "QPushButton:pressed { background: #094771; }";
+    const auto &tm = ThemeManager::Instance();
+    const auto &tc = tm.Active();
+    const QString label_style = tm.LabelStylesheet() +
+        " QLabel { font-size: 12px; }";
+    const QString input_style = tm.LineEditStylesheet() +
+        " QLineEdit { font-size: 12px; }";
+    const QString combo_style = tm.ComboBoxStylesheet() +
+        " QComboBox { min-width: 120px; }";
+    const QString button_style = tm.PushButtonStylesheet();
+    const QString group_style = tm.GroupBoxStylesheet();
 
     // CMake path
     auto *cmake_group = new QGroupBox("CMake");
-    cmake_group->setStyleSheet(
-        "QGroupBox { color: #cccccc; border: 1px solid #444; border-radius: 4px; "
-        "margin-top: 10px; padding-top: 14px; font-weight: bold; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }");
+    cmake_group->setStyleSheet(group_style);
     auto *cmake_layout = new QFormLayout(cmake_group);
 
     cmake_path_edit_ = new QLineEdit();
@@ -181,7 +167,7 @@ void BuildPanel::SetupConfigSection() {
 
     // Generator and Build Type
     auto *build_group = new QGroupBox("Build Settings");
-    build_group->setStyleSheet(cmake_group->styleSheet());
+    build_group->setStyleSheet(group_style);
     auto *build_settings_layout = new QFormLayout(build_group);
 
     generator_combo_ = new QComboBox();
@@ -214,11 +200,7 @@ void BuildPanel::SetupConfigSection() {
     // Action buttons
     auto *button_row = new QHBoxLayout();
     configure_button_ = new QPushButton("Configure");
-    configure_button_->setStyleSheet(
-        "QPushButton { background: #0e639c; color: #ffffff; border: none; "
-        "border-radius: 3px; padding: 6px 16px; font-weight: bold; }"
-        "QPushButton:hover { background: #1177bb; }"
-        "QPushButton:pressed { background: #094771; }");
+    configure_button_->setStyleSheet(tm.PushButtonPrimaryStylesheet());
     connect(configure_button_, &QPushButton::clicked, this, &BuildPanel::OnConfigure);
 
     reconfigure_button_ = new QPushButton("Reconfigure");
@@ -249,13 +231,9 @@ void BuildPanel::SetupTargetTree() {
     target_tree_ = new QTreeWidget();
     target_tree_->setHeaderLabels({"Target", "Type"});
     target_tree_->setRootIsDecorated(false);
-    target_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "alternate-background-color: #252526; }"
-        "QTreeWidget::item { padding: 3px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+    target_tree_->setStyleSheet(ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { alternate-background-color: " +
+        ThemeManager::Instance().Active().surface_alt.name() + "; }");
     target_tree_->header()->setStretchLastSection(false);
     target_tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     target_tree_->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -267,10 +245,7 @@ void BuildPanel::SetupTargetTree() {
     auto *btn_row = new QHBoxLayout();
     btn_row->setContentsMargins(4, 4, 4, 4);
     refresh_targets_button_ = new QPushButton("Refresh Targets");
-    refresh_targets_button_->setStyleSheet(
-        "QPushButton { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px 12px; }"
-        "QPushButton:hover { background: #505050; }");
+    refresh_targets_button_->setStyleSheet(ThemeManager::Instance().PushButtonStylesheet());
     connect(refresh_targets_button_, &QPushButton::clicked, this, &BuildPanel::OnRefreshTargets);
     btn_row->addStretch();
     btn_row->addWidget(refresh_targets_button_);
@@ -283,9 +258,7 @@ void BuildPanel::SetupOutputView() {
     build_output_ = new QPlainTextEdit();
     build_output_->setReadOnly(true);
     build_output_->setMaximumBlockCount(10000);
-    build_output_->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }");
+    build_output_->setStyleSheet(ThemeManager::Instance().PlainTextEditStylesheet());
 
     tabs_->addTab(build_output_, "Output");
 }
@@ -312,6 +285,13 @@ void BuildPanel::SetBuildDir(const QString &path) {
         } else {
             build_dir_edit_->setText(path);
         }
+    }
+}
+
+void BuildPanel::SetCmakePath(const QString &path) {
+    cmake_path_ = path;
+    if (cmake_path_edit_) {
+        cmake_path_edit_->setText(path);
     }
 }
 

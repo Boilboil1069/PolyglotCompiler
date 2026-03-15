@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <QFont>
 #include <QPlainTextEdit>
 #include <QWidget>
 
@@ -44,6 +45,17 @@ class CodeEditor : public QPlainTextEdit {
 
     // Tab width
     void SetTabWidth(int spaces);
+    int TabWidth() const { return tab_width_spaces_; }
+
+    // Behaviour and style
+    void SetInsertSpaces(bool enabled) { insert_spaces_ = enabled; }
+    void SetAutoIndentEnabled(bool enabled) { auto_indent_enabled_ = enabled; }
+    void SetBracketMatchingEnabled(bool enabled) { bracket_matching_enabled_ = enabled; }
+    void SetHighlightCurrentLineEnabled(bool enabled) {
+        highlight_current_line_enabled_ = enabled;
+        HighlightCurrentLine();
+    }
+    void SetEditorFont(const QFont &font);
 
   protected:
     void resizeEvent(QResizeEvent *event) override;
@@ -62,6 +74,11 @@ class CodeEditor : public QPlainTextEdit {
     bool line_numbers_visible_{true};
     int base_font_size_{11};
     int current_zoom_{0};
+    int tab_width_spaces_{4};
+    bool insert_spaces_{true};
+    bool auto_indent_enabled_{true};
+    bool bracket_matching_enabled_{true};
+    bool highlight_current_line_enabled_{true};
     QString file_path_;
 };
 

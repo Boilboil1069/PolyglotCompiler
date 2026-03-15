@@ -1245,7 +1245,7 @@ int main(int argc, char **argv) {
     // Print header
     if (V) {
         std::cerr << "========================================\n";
-        std::cerr << " PolyglotCompiler v4.3  (polyc)\n";
+        std::cerr << " PolyglotCompiler v1.0.0  (polyc)\n";
         std::cerr << "========================================\n";
         if (!settings.source_path.empty()) {
             std::cerr << "[polyc] Source: " << settings.source_path << "\n";

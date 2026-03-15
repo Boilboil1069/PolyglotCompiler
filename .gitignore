@@ -1,7 +1,9 @@
 /build/
+/build-release/
 /install/
 /obj/
 /bin/
+/dist/
 /.vs/
 /.vscode/
 /.idea/

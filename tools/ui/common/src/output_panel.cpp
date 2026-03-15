@@ -104,7 +104,8 @@ void OutputPanel::ClearOutput() {
 // Diagnostics Table
 // ============================================================================
 
-void OutputPanel::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics) {
+void OutputPanel::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
+                                  const QString &file) {
     error_table_->setRowCount(0);
 
     int error_count = 0;
@@ -116,6 +117,7 @@ void OutputPanel::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics
 
         // Severity with color-coded icon
         auto *severity_item = new QTableWidgetItem(QString::fromStdString(d.severity));
+        severity_item->setData(Qt::UserRole, file);
         if (d.severity == "error") {
             severity_item->setForeground(QColor(244, 71, 71));
             ++error_count;
@@ -197,13 +199,16 @@ void OutputPanel::ShowLogTab() {
 // ============================================================================
 
 void OutputPanel::OnErrorRowDoubleClicked(int row, int /*column*/) {
+    auto *severity_item = error_table_->item(row, 0);
     auto *line_item = error_table_->item(row, 2);
     auto *col_item = error_table_->item(row, 3);
+    QString file = severity_item ? severity_item->data(Qt::UserRole).toString()
+                                 : QString();
 
     if (line_item && col_item) {
         int line = line_item->text().toInt();
         int col = col_item->text().toInt();
-        emit ErrorClicked(line, col, QString());
+        emit ErrorClicked(line, col, file);
     }
 }
 

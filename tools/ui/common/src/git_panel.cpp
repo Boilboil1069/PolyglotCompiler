@@ -5,6 +5,7 @@
 // All git commands are executed via QProcess using the system's git binary.
 
 #include "tools/ui/common/include/git_panel.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -47,15 +48,13 @@ void GitPanel::SetupUi() {
     auto *branch_row = new QHBoxLayout();
     branch_row->setContentsMargins(8, 4, 8, 4);
     branch_label_ = new QLabel("Branch:");
-    branch_label_->setStyleSheet("QLabel { color: #cccccc; font-size: 12px; }");
+    branch_label_->setStyleSheet(ThemeManager::Instance().LabelStylesheet() +
+        " QLabel { font-size: 12px; }");
     branch_row->addWidget(branch_label_);
 
     branch_combo_ = new QComboBox();
-    branch_combo_->setStyleSheet(
-        "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 2px 8px; min-width: 120px; }"
-        "QComboBox QAbstractItemView { background: #252526; color: #cccccc; "
-        "selection-background-color: #094771; }");
+    branch_combo_->setStyleSheet(ThemeManager::Instance().ComboBoxStylesheet() +
+        " QComboBox { min-width: 120px; }");
     connect(branch_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &GitPanel::OnBranchChanged);
     branch_row->addWidget(branch_combo_, 1);
@@ -63,8 +62,7 @@ void GitPanel::SetupUi() {
 
     // Main splitter
     splitter_ = new QSplitter(Qt::Vertical);
-    splitter_->setStyleSheet(
-        "QSplitter::handle { background: #3f3f46; height: 2px; }");
+    splitter_->setStyleSheet(ThemeManager::Instance().SplitterStylesheet());
 
     SetupStatusView();
     SetupCommitArea();
@@ -72,12 +70,7 @@ void GitPanel::SetupUi() {
     // Bottom tabs: Log and Diff
     bottom_tabs_ = new QTabWidget();
     bottom_tabs_->setTabPosition(QTabWidget::South);
-    bottom_tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 3px 10px; "
-        "border: none; min-width: 60px; font-size: 11px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; }"
-        "QTabBar::tab:hover { background: #383838; }");
+    bottom_tabs_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(true));
 
     SetupLogView();
     SetupDiffView();
@@ -92,12 +85,7 @@ void GitPanel::SetupToolBar() {
     toolbar_ = new QToolBar();
     toolbar_->setMovable(false);
     toolbar_->setIconSize(QSize(16, 16));
-    toolbar_->setStyleSheet(
-        "QToolBar { background: #333333; border: none; spacing: 2px; padding: 2px; }"
-        "QToolButton { background: transparent; color: #cccccc; padding: 3px 6px; "
-        "border-radius: 3px; font-size: 11px; }"
-        "QToolButton:hover { background: #505050; }"
-        "QToolButton:pressed { background: #094771; }");
+    toolbar_->setStyleSheet(ThemeManager::Instance().ToolBarStylesheet());
 
     action_refresh_ = toolbar_->addAction("Refresh");
     connect(action_refresh_, &QAction::triggered, this, &GitPanel::OnRefreshClicked);
@@ -142,13 +130,9 @@ void GitPanel::SetupStatusView() {
     status_tree_->setHeaderLabels({"File", "Status"});
     status_tree_->setRootIsDecorated(true);
     status_tree_->setContextMenuPolicy(Qt::CustomContextMenu);
-    status_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "alternate-background-color: #252526; }"
-        "QTreeWidget::item { padding: 2px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+    status_tree_->setStyleSheet(ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { alternate-background-color: " +
+        ThemeManager::Instance().Active().surface_alt.name() + "; }");
 
     staged_root_ = new QTreeWidgetItem(status_tree_, {"Staged Changes", ""});
     staged_root_->setExpanded(true);
@@ -182,31 +166,30 @@ void GitPanel::SetupCommitArea() {
 
     commit_message_edit_ = new QLineEdit();
     commit_message_edit_->setPlaceholderText("Commit message (required)");
-    commit_message_edit_->setStyleSheet(
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 6px; }");
+    commit_message_edit_->setStyleSheet(ThemeManager::Instance().LineEditStylesheet() +
+        " QLineEdit { padding: 6px; }");
     commit_layout->addWidget(commit_message_edit_);
 
     commit_body_edit_ = new QPlainTextEdit();
     commit_body_edit_->setPlaceholderText("Extended description (optional)");
     commit_body_edit_->setMaximumHeight(80);
-    commit_body_edit_->setStyleSheet(
-        "QPlainTextEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        commit_body_edit_->setStyleSheet(
+            QString("QPlainTextEdit { background: %1; color: %2; border: 1px solid %3; "
+                    "border-radius: 3px; padding: 4px; }")
+                .arg(tc.input_background.name(), tc.input_text.name(),
+                     tc.input_border.name()));
+    }
     commit_layout->addWidget(commit_body_edit_);
 
     auto *commit_row = new QHBoxLayout();
     amend_check_ = new QCheckBox("Amend");
-    amend_check_->setStyleSheet("QCheckBox { color: #cccccc; }");
+    amend_check_->setStyleSheet(ThemeManager::Instance().CheckBoxStylesheet());
     commit_row->addWidget(amend_check_);
 
     commit_button_ = new QPushButton("Commit");
-    commit_button_->setStyleSheet(
-        "QPushButton { background: #0e639c; color: #ffffff; border: none; "
-        "border-radius: 3px; padding: 6px 20px; font-weight: bold; }"
-        "QPushButton:hover { background: #1177bb; }"
-        "QPushButton:pressed { background: #094771; }"
-        "QPushButton:disabled { background: #555; color: #999; }");
+    commit_button_->setStyleSheet(ThemeManager::Instance().PushButtonPrimaryStylesheet());
     connect(commit_button_, &QPushButton::clicked, this, &GitPanel::OnCommit);
     commit_row->addStretch();
     commit_row->addWidget(commit_button_);
@@ -218,10 +201,9 @@ void GitPanel::SetupCommitArea() {
 void GitPanel::SetupLogView() {
     log_list_ = new QListWidget();
     log_list_->setStyleSheet(
-        "QListWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }"
-        "QListWidget::item { padding: 3px; }"
-        "QListWidget::item:selected { background: #094771; }");
+        ThemeManager::Instance().ListWidgetStylesheet() +
+        " QListWidget { font-family: Menlo, Consolas, monospace; font-size: 11px; }"
+        " QListWidget::item { padding: 3px; }");
     connect(log_list_, &QListWidget::itemClicked, this, &GitPanel::OnLogEntryClicked);
     bottom_tabs_->addTab(log_list_, "Log");
 }
@@ -229,9 +211,7 @@ void GitPanel::SetupLogView() {
 void GitPanel::SetupDiffView() {
     diff_view_ = new QPlainTextEdit();
     diff_view_->setReadOnly(true);
-    diff_view_->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }");
+    diff_view_->setStyleSheet(ThemeManager::Instance().PlainTextEditStylesheet());
     bottom_tabs_->addTab(diff_view_, "Diff");
 }
 
@@ -769,10 +749,15 @@ void GitPanel::OnStatusContextMenu(const QPoint &pos) {
     QString path = item->data(0, Qt::UserRole).toString();
 
     QMenu menu(this);
-    menu.setStyleSheet(
-        "QMenu { background: #252526; color: #cccccc; border: 1px solid #454545; }"
-        "QMenu::item { padding: 5px 30px 5px 20px; }"
-        "QMenu::item:selected { background: #094771; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        menu.setStyleSheet(
+            QString("QMenu { background: %1; color: %2; border: 1px solid %3; }"
+                    "QMenu::item { padding: 5px 30px 5px 20px; }"
+                    "QMenu::item:selected { background: %4; }")
+                .arg(tc.menu_background.name(), tc.menu_text.name(),
+                     tc.border.name(), tc.menu_hover.name()));
+    }
 
     if (is_staged) {
         menu.addAction("Unstage", this, &GitPanel::OnUnstageFile);

@@ -11,6 +11,7 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
+#include <QProcess>
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
@@ -131,6 +132,7 @@ class MainWindow : public QMainWindow {
 
     // Language combo changed
     void OnLanguageChanged(int index);
+    void OnEditorTabMoved(int from, int to);
 
   private:
     // UI construction helpers
@@ -161,7 +163,17 @@ class MainWindow : public QMainWindow {
 
     // Output helpers
     void AppendOutput(const QString &text);
-    void ShowDiagnostics(const std::vector<struct DiagnosticInfo> &diagnostics);
+    void ShowDiagnostics(const std::vector<struct DiagnosticInfo> &diagnostics,
+                         const QString &file = QString());
+
+    // Settings helpers
+    void ApplySettings();
+    void ApplyEditorSettings(CodeEditor *editor);
+    void ApplyTheme();
+    void ApplyCustomKeybindings();
+    void UpdateViewActionChecks();
+    void AutoSaveModifiedFiles();
+    QString LanguageToExtension(const QString &language) const;
 
     // Restore/save window state
     void RestoreState();
@@ -254,6 +266,9 @@ class MainWindow : public QMainWindow {
 
     // ── Compiler Service ─────────────────────────────────────────────────
     std::unique_ptr<CompilerService> compiler_service_;
+    // ── Run Process (for Compile & Run) ──────────────────────────────────
+    QProcess *run_process_{nullptr};
+    QString last_compiled_binary_;
     // ── Panels ──────────────────────────────────────────────────────
     SettingsDialog *settings_dialog_{nullptr};
     GitPanel *git_panel_{nullptr};
@@ -261,6 +276,8 @@ class MainWindow : public QMainWindow {
     DebugPanel *debug_panel_{nullptr};
     // ── Analysis timer (real-time error checking) ────────────────────────
     QTimer *analysis_timer_{nullptr};
+    QTimer *auto_save_timer_{nullptr};
+    bool realtime_analysis_enabled_{true};
 
     // ── Per-tab state ────────────────────────────────────────────────────
     struct TabInfo {

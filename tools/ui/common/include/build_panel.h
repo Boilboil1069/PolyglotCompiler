@@ -53,6 +53,9 @@ class BuildPanel : public QWidget {
     void SetBuildDir(const QString &path);
     QString BuildDir() const { return build_dir_; }
 
+    // Set cmake executable path (from settings).
+    void SetCmakePath(const QString &path);
+
     // Return true if a build is currently in progress.
     bool IsBuilding() const { return build_process_ && build_process_->state() != QProcess::NotRunning; }
 
