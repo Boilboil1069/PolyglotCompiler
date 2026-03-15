@@ -143,6 +143,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
 
     cmake -S . -B "$BUILD_DIR" -G "$GENERATOR" \
         -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
         $QT_CMAKE_ARGS
 
     step "Building project"
@@ -162,6 +163,7 @@ step "Staging portable distribution"
 STAGE_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}/stage/${ARCHIVE_BASE}"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/bin"
+mkdir -p "$STAGE_DIR/lib"
 
 # Copy tool executables
 for exe in "${TOOL_EXES[@]}"; do
@@ -172,6 +174,20 @@ for exe in "${TOOL_EXES[@]}"; do
         echo "  [+] bin/$exe"
     else
         echo "  [!] $exe not found in build — skipping"
+    fi
+done
+
+# Copy project shared libraries (.dylib) produced by the build.
+# These are the non-Qt libraries that our executables depend on.
+for dylib in "$BUILD_PATH"/lib*.dylib; do
+    if [[ -f "$dylib" ]]; then
+        libname="$(basename "$dylib")"
+        # Skip Qt/system libraries — they are handled by macdeployqt
+        if [[ "$libname" =~ ^libQt|^libicu ]]; then
+            continue
+        fi
+        cp "$dylib" "$STAGE_DIR/lib/"
+        echo "  [+] lib/$libname"
     fi
 done
 

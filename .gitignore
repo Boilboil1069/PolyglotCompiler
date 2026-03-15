@@ -1,5 +1,4 @@
 /build/
-/build-release/
 /install/
 /obj/
 /bin/
@@ -11,6 +10,7 @@
 /._DS_Store/
 ._*
 /Testing/
+/build-*/
 /deps/
 
 # Sample environments (created by setup_env scripts)

@@ -113,6 +113,69 @@ if (-not (Test-Path $WinDeployQt)) {
 Write-Host "[OK] Qt prefix : $QtPrefixPath"
 Write-Host "[OK] windeployqt: $WinDeployQt"
 
+# Ensure MSVC build environment is available (cl.exe, nmake, link, etc.).
+# If not already in a Developer Command Prompt we load vcvarsall.bat.
+if (-not (Get-Command "cl" -ErrorAction SilentlyContinue)) {
+    Write-Host "[..] MSVC environment not detected — searching for vcvarsall.bat ..."
+    $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $VsWhere)) {
+        $VsWhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"
+    }
+
+    $VcVarsAll = $null
+    if (Test-Path $VsWhere) {
+        # Try stable releases first, then include pre-release / insider builds
+        $VsInstallPath = & $VsWhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if (-not $VsInstallPath) {
+            $VsInstallPath = & $VsWhere -latest -products * -prerelease -property installationPath 2>$null
+        }
+        if ($VsInstallPath) {
+            $candidate = Join-Path (Join-Path $VsInstallPath "VC") "Auxiliary\Build\vcvarsall.bat"
+            if (Test-Path $candidate) { $VcVarsAll = $candidate }
+        }
+    }
+    # Fallback: search common installation paths (including non-standard drives)
+    if (-not $VcVarsAll) {
+        $searchRoots = @($env:ProgramFiles, ${env:ProgramFiles(x86)})
+        # Also try the drive where the project lives and other common drives
+        $projectDrive = (Split-Path -Qualifier $ProjectRoot)
+        if ($projectDrive -and "$projectDrive\" -notin @("$env:SystemDrive\")) {
+            $searchRoots += "$projectDrive\Program Files"
+        }
+        foreach ($root in $searchRoots) {
+            $pattern = Join-Path $root "Microsoft Visual Studio\*\*\VC\Auxiliary\Build\vcvarsall.bat"
+            $found = Get-ChildItem -Path $pattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) { $VcVarsAll = $found.FullName; break }
+        }
+    }
+
+    if (-not $VcVarsAll) {
+        Write-Error "vcvarsall.bat not found. Please run this script from a Developer Command Prompt or install the Visual Studio C++ workload."
+        exit 1
+    }
+
+    Write-Host "[OK] vcvarsall : $VcVarsAll"
+    # Import environment variables set by vcvarsall into the current process
+    cmd /c "`"$VcVarsAll`" amd64 >nul 2>&1 && set" | ForEach-Object {
+        if ($_ -match '^([^=]+)=(.*)$') {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+    if (-not (Get-Command "cl" -ErrorAction SilentlyContinue)) {
+        Write-Error "Failed to initialize MSVC environment from vcvarsall.bat"
+        exit 1
+    }
+    Write-Host "[OK] MSVC environment loaded (cl.exe is now available)"
+
+    # Re-check for Ninja now that PATH has been updated
+    if (-not $Generator) {
+        if (Get-Command "ninja" -ErrorAction SilentlyContinue) {
+            $Generator = "Ninja"
+            Write-Host "[OK] Generator : Ninja (found after env init)"
+        }
+    }
+}
+
 # ============================================================================
 # Step 1 — Build in Release mode
 # ============================================================================
@@ -120,17 +183,19 @@ if (-not $SkipBuild) {
     Write-Step "Configuring CMake (Release)"
     Push-Location $ProjectRoot
 
-    $cmakeArgs = @("-S", ".", "-B", $BuildDir,
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_PREFIX_PATH=$QtPrefixPath",
-        "-DQT_ROOT=$QtRoot")
     if ($Generator) {
-        $cmakeArgs = @("-S", ".", "-B", $BuildDir, "-G", $Generator,
-            "-DCMAKE_BUILD_TYPE=Release",
-            "-DCMAKE_PREFIX_PATH=$QtPrefixPath",
-            "-DQT_ROOT=$QtRoot")
+        & cmake -S . -B $BuildDir -G $Generator `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            "-DCMAKE_PREFIX_PATH=$QtPrefixPath" `
+            "-DQT_ROOT=$QtRoot"
+    } else {
+        & cmake -S . -B $BuildDir `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_SHARED_LIBS=ON `
+            "-DCMAKE_PREFIX_PATH=$QtPrefixPath" `
+            "-DQT_ROOT=$QtRoot"
     }
-    & cmake @cmakeArgs
     if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
 
     Write-Step "Building project"
@@ -172,6 +237,15 @@ if (Test-Path $PolyuiExe) {
     Write-Host "  [+] bin/polyui.exe"
 } else {
     Write-Warning "  [!] polyui.exe not found — Qt may not have been available during build"
+}
+
+# Copy project shared libraries (DLLs) produced by the build.
+# These are the non-Qt, non-system DLLs that our executables depend on.
+$ProjectDlls = Get-ChildItem -Path $BuildPath -Filter "*.dll" |
+    Where-Object { $_.Name -notmatch '^(Qt[56]|icu|dx|q[a-z]|D3D|opengl)' }
+foreach ($dll in $ProjectDlls) {
+    Copy-Item $dll.FullName (Join-Path (Join-Path $StageDir "bin") $dll.Name)
+    Write-Host "  [+] bin/$($dll.Name)"
 }
 
 # Copy top-level files (README and LICENSE only, docs excluded)

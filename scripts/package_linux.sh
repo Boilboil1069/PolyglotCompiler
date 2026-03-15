@@ -130,6 +130,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
 
     cmake -S . -B "$BUILD_DIR" -G "$GENERATOR" \
         -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
         $QT_CMAKE_ARGS
 
     step "Building project"
@@ -159,6 +160,20 @@ for exe in "${TOOL_EXES[@]}"; do
         echo "  [+] bin/$exe"
     else
         echo "  [!] $exe not found in build — skipping"
+    fi
+done
+
+# Copy project shared libraries (.so) produced by the build.
+# These are the non-Qt libraries that our executables depend on.
+for so in "$BUILD_PATH"/lib*.so*; do
+    if [[ -f "$so" ]]; then
+        soname="$(basename "$so")"
+        # Skip Qt/system libraries — they are handled separately
+        if [[ "$soname" =~ ^libQt|^libicu ]]; then
+            continue
+        fi
+        cp "$so" "$STAGE_DIR/lib/"
+        echo "  [+] lib/$soname"
     fi
 done
 

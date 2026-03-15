@@ -214,7 +214,7 @@ target_include_directories(backend_arm64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(backend_arm64 PUBLIC polyglot_common)
+target_link_libraries(backend_arm64 PUBLIC polyglot_common middle_ir)
 
 add_library(backend_wasm
     backends/wasm/src/wasm_target.cpp
