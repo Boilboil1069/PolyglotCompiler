@@ -5,6 +5,7 @@
 // Linux) is driven via a QProcess pipe using MI-style or CLI commands.
 
 #include "tools/ui/common/include/debug_panel.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QCheckBox>
 #include <QFileInfo>
@@ -47,12 +48,7 @@ void DebugPanel::SetupUi() {
 
     tabs_ = new QTabWidget();
     tabs_->setTabPosition(QTabWidget::North);
-    tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 4px 10px; "
-        "border: none; min-width: 60px; font-size: 11px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; }"
-        "QTabBar::tab:hover { background: #383838; }");
+    tabs_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(false));
 
     SetupBreakpointsView();
     SetupCallStackView();
@@ -67,13 +63,7 @@ void DebugPanel::SetupToolBar() {
     toolbar_ = new QToolBar();
     toolbar_->setMovable(false);
     toolbar_->setIconSize(QSize(16, 16));
-    toolbar_->setStyleSheet(
-        "QToolBar { background: #333333; border: none; spacing: 2px; padding: 2px; }"
-        "QToolButton { background: transparent; color: #cccccc; padding: 3px 6px; "
-        "border-radius: 3px; font-size: 11px; }"
-        "QToolButton:hover { background: #505050; }"
-        "QToolButton:pressed { background: #094771; }"
-        "QToolButton:disabled { color: #666666; }");
+    toolbar_->setStyleSheet(ThemeManager::Instance().ToolBarStylesheet());
 
     action_start_ = toolbar_->addAction("Start");
     action_start_->setToolTip("Start debugging (F5)");
@@ -121,12 +111,7 @@ void DebugPanel::SetupBreakpointsView() {
     breakpoint_tree_->setHeaderLabels({"", "File", "Line", "Condition", "Hits"});
     breakpoint_tree_->setRootIsDecorated(false);
     breakpoint_tree_->setContextMenuPolicy(Qt::CustomContextMenu);
-    breakpoint_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; }"
-        "QTreeWidget::item { padding: 2px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+    breakpoint_tree_->setStyleSheet(ThemeManager::Instance().TreeWidgetStylesheet());
 
     // Checkbox column (enabled state)
     breakpoint_tree_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
@@ -148,10 +133,7 @@ void DebugPanel::SetupBreakpointsView() {
     auto *bp_btn_row = new QHBoxLayout();
     bp_btn_row->setContentsMargins(4, 4, 4, 4);
     remove_all_bp_button_ = new QPushButton("Remove All");
-    remove_all_bp_button_->setStyleSheet(
-        "QPushButton { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 3px 10px; font-size: 11px; }"
-        "QPushButton:hover { background: #505050; }");
+    remove_all_bp_button_->setStyleSheet(ThemeManager::Instance().PushButtonStylesheet());
     connect(remove_all_bp_button_, &QPushButton::clicked, this, &DebugPanel::RemoveAllBreakpoints);
     bp_btn_row->addStretch();
     bp_btn_row->addWidget(remove_all_bp_button_);
@@ -165,12 +147,8 @@ void DebugPanel::SetupCallStackView() {
     callstack_tree_->setHeaderLabels({"#", "Function", "File", "Line"});
     callstack_tree_->setRootIsDecorated(false);
     callstack_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }"
-        "QTreeWidget::item { padding: 2px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+        ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { font-family: Menlo, Consolas, monospace; font-size: 11px; }");
     callstack_tree_->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     callstack_tree_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
     callstack_tree_->header()->setSectionResizeMode(2, QHeaderView::Stretch);
@@ -192,15 +170,12 @@ void DebugPanel::SetupVariablesView() {
     auto *scope_row = new QHBoxLayout();
     scope_row->setContentsMargins(4, 4, 4, 0);
     auto *scope_label = new QLabel("Scope:");
-    scope_label->setStyleSheet("QLabel { color: #cccccc; font-size: 11px; }");
+    scope_label->setStyleSheet(ThemeManager::Instance().LabelStylesheet() +
+        " QLabel { font-size: 11px; }");
     scope_row->addWidget(scope_label);
     scope_combo_ = new QComboBox();
     scope_combo_->addItems({"Locals", "Arguments", "Globals"});
-    scope_combo_->setStyleSheet(
-        "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 2px 6px; min-width: 80px; }"
-        "QComboBox QAbstractItemView { background: #252526; color: #cccccc; "
-        "selection-background-color: #094771; }");
+    scope_combo_->setStyleSheet(ThemeManager::Instance().ComboBoxStylesheet());
     connect(scope_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, [this](int) { UpdateVariables(); });
     scope_row->addWidget(scope_combo_, 1);
@@ -210,12 +185,8 @@ void DebugPanel::SetupVariablesView() {
     variables_tree_->setHeaderLabels({"Name", "Value", "Type"});
     variables_tree_->setRootIsDecorated(true);
     variables_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }"
-        "QTreeWidget::item { padding: 2px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+        ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { font-family: Menlo, Consolas, monospace; font-size: 11px; }");
     variables_tree_->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     variables_tree_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
     variables_tree_->header()->setSectionResizeMode(2, QHeaderView::Interactive);
@@ -237,16 +208,37 @@ void DebugPanel::SetupWatchView() {
     watch_tree_ = new QTreeWidget();
     watch_tree_->setHeaderLabels({"Expression", "Value", "Type"});
     watch_tree_->setRootIsDecorated(false);
+    watch_tree_->setContextMenuPolicy(Qt::CustomContextMenu);
     watch_tree_->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }"
-        "QTreeWidget::item { padding: 2px; }"
-        "QTreeWidget::item:selected { background: #094771; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; border: none; "
-        "padding: 4px; font-size: 11px; }");
+        ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { font-family: Menlo, Consolas, monospace; font-size: 11px; }");
     watch_tree_->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     watch_tree_->header()->setSectionResizeMode(1, QHeaderView::Stretch);
     watch_tree_->header()->setSectionResizeMode(2, QHeaderView::Interactive);
+
+    // Context menu for watch expressions (remove, edit, evaluate)
+    connect(watch_tree_, &QTreeWidget::customContextMenuRequested,
+            this, [this](const QPoint &pos) {
+        auto *item = watch_tree_->itemAt(pos);
+        if (!item) return;
+
+        QMenu menu(this);
+        menu.setStyleSheet(
+            "QMenu { background: #252526; color: #cccccc; border: 1px solid #454545; }"
+            "QMenu::item { padding: 5px 30px 5px 20px; }"
+            "QMenu::item:selected { background: #094771; }");
+
+        menu.addAction("Evaluate", this, &DebugPanel::OnEvaluateWatch);
+        menu.addSeparator();
+        menu.addAction("Remove", this, &DebugPanel::OnRemoveWatch);
+        menu.addAction("Remove All", [this]() {
+            watch_expressions_.clear();
+            watch_tree_->clear();
+        });
+
+        menu.exec(watch_tree_->viewport()->mapToGlobal(pos));
+    });
+
     watch_layout->addWidget(watch_tree_, 1);
 
     // Input row for adding watch expressions
@@ -255,17 +247,22 @@ void DebugPanel::SetupWatchView() {
     watch_input_ = new QLineEdit();
     watch_input_->setPlaceholderText("Add watch expression...");
     watch_input_->setStyleSheet(
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px; font-family: Menlo, monospace; font-size: 11px; }");
+        ThemeManager::Instance().LineEditStylesheet() +
+        " QLineEdit { font-family: Menlo, Consolas, monospace; font-size: 11px; }");
     connect(watch_input_, &QLineEdit::returnPressed, this, &DebugPanel::OnAddWatch);
     input_row->addWidget(watch_input_, 1);
 
     add_watch_button_ = new QPushButton("+");
     add_watch_button_->setFixedWidth(28);
-    add_watch_button_->setStyleSheet(
-        "QPushButton { background: #0e639c; color: #ffffff; border: none; "
-        "border-radius: 3px; padding: 4px; font-weight: bold; }"
-        "QPushButton:hover { background: #1177bb; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        add_watch_button_->setStyleSheet(
+            QString("QPushButton { background: %1; color: %2; border: none; "
+                    "border-radius: 3px; padding: 4px; font-weight: bold; }"
+                    "QPushButton:hover { background: %3; }")
+                .arg(tc.accent.name(), tc.button_primary_text.name(),
+                     tc.accent_hover.name()));
+    }
     connect(add_watch_button_, &QPushButton::clicked, this, &DebugPanel::OnAddWatch);
     input_row->addWidget(add_watch_button_);
 
@@ -283,17 +280,20 @@ void DebugPanel::SetupConsoleView() {
     console_output_ = new QPlainTextEdit();
     console_output_->setReadOnly(true);
     console_output_->setMaximumBlockCount(5000);
-    console_output_->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #cccccc; border: none; "
-        "font-family: Menlo, monospace; font-size: 11px; }");
+    console_output_->setStyleSheet(ThemeManager::Instance().PlainTextEditStylesheet());
     console_layout->addWidget(console_output_, 1);
 
     console_input_ = new QLineEdit();
     console_input_->setPlaceholderText("Debug command...");
-    console_input_->setStyleSheet(
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: none; "
-        "border-top: 1px solid #555; padding: 6px; "
-        "font-family: Menlo, monospace; font-size: 11px; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        console_input_->setStyleSheet(
+            QString("QLineEdit { background: %1; color: %2; border: none; "
+                    "border-top: 1px solid %3; padding: 6px; "
+                    "font-family: Menlo, Consolas, monospace; font-size: 11px; }")
+                .arg(tc.input_background.name(), tc.input_text.name(),
+                     tc.input_border.name()));
+    }
     connect(console_input_, &QLineEdit::returnPressed, this, &DebugPanel::OnConsoleInput);
     console_layout->addWidget(console_input_);
 
@@ -314,6 +314,16 @@ void DebugPanel::SetArguments(const QStringList &args) {
 
 void DebugPanel::SetWorkingDirectory(const QString &path) {
     working_directory_ = path;
+}
+
+void DebugPanel::SetDebuggerPath(const QString &path) {
+    if (!path.isEmpty()) {
+        debugger_path_ = path;
+    }
+}
+
+void DebugPanel::SetBreakOnEntry(bool enabled) {
+    break_on_entry_ = enabled;
 }
 
 // ============================================================================
@@ -482,6 +492,16 @@ void DebugPanel::StartDebug() {
     // Set breakpoints
     SetBreakpointsInDebugger();
 
+    // If break-on-entry is enabled, set a temporary breakpoint at main
+    if (break_on_entry_) {
+        bool is_lldb_dbg = debugger_path_.contains("lldb");
+        if (is_lldb_dbg) {
+            SendDebuggerCommand("breakpoint set --one-shot true --name main");
+        } else {
+            SendDebuggerCommand("-break-insert -t main");
+        }
+    }
+
     // Run the program
     if (is_lldb) {
         SendDebuggerCommand("run");
@@ -624,12 +644,13 @@ void DebugPanel::SendDebuggerCommand(const QString &command) {
 }
 
 void DebugPanel::ParseDebuggerOutput(const QString &output) {
-    // Detect stopped state (breakpoint hit or step completed)
+    // Accumulate output lines for multi-line parsing
+    pending_output_ += output;
+
     bool is_lldb = debugger_path_.contains("lldb");
 
     if (is_lldb) {
-        // lldb stop pattern: "* thread #N, ..., stop reason = breakpoint N.N"
-        // or "frame #0: ... at file.cpp:42"
+        // ── Detect stopped state ─────────────────────────────────────────
         static const QRegularExpression stop_re(
             R"(stop reason = (?:breakpoint|step|signal))");
         static const QRegularExpression frame_re(
@@ -645,12 +666,96 @@ void DebugPanel::ParseDebuggerOutput(const QString &output) {
                 emit DebugLocationChanged(file, line);
             }
 
-            // Refresh variables and call stack
             UpdateCallStack();
             UpdateVariables();
+            if (!watch_expressions_.empty()) {
+                OnEvaluateWatch();
+            }
         }
+
+        // ── Parse backtrace output ──────────────────────────────────────
+        // lldb bt format: "  * frame #0: 0x... module`func at file.cpp:42"
+        //                 "    frame #1: 0x... module`func + 18 at file.cpp:10"
+        static const QRegularExpression bt_frame_re(
+            R"(frame #(\d+):\s+0x([0-9a-fA-F]+)\s+(\S+)`(.+?)(?:\s+\+\s+\d+)?\s+at\s+(.+?):(\d+))");
+        auto bt_iter = bt_frame_re.globalMatch(output);
+        bool found_frames = false;
+        while (bt_iter.hasNext()) {
+            auto m = bt_iter.next();
+            if (!found_frames) {
+                callstack_tree_->clear();
+                stack_frames_.clear();
+                found_frames = true;
+            }
+            StackFrame sf;
+            sf.index = m.captured(1).toInt();
+            sf.address = "0x" + m.captured(2);
+            sf.module = m.captured(3);
+            sf.function_name = m.captured(4).trimmed();
+            sf.file = m.captured(5);
+            sf.line = m.captured(6).toInt();
+            stack_frames_.push_back(sf);
+
+            auto *item = new QTreeWidgetItem({
+                QString::number(sf.index),
+                sf.function_name,
+                sf.file,
+                QString::number(sf.line)
+            });
+            // Highlight the current frame
+            if (sf.index == 0) {
+                item->setForeground(1, QColor("#dcdcaa"));
+            }
+            callstack_tree_->addTopLevelItem(item);
+        }
+
+        // ── Parse "frame variable" output for variables ─────────────────
+        // Format: "(type) name = value"
+        static const QRegularExpression var_re(
+            R"(\(([^)]+)\)\s+(\w+)\s+=\s+(.+))");
+        auto var_iter = var_re.globalMatch(output);
+        bool found_vars = false;
+        while (var_iter.hasNext()) {
+            auto m = var_iter.next();
+            if (!found_vars) {
+                variables_tree_->clear();
+                local_variables_.clear();
+                found_vars = true;
+            }
+            DebugVariable dv;
+            dv.type = m.captured(1).trimmed();
+            dv.name = m.captured(2).trimmed();
+            dv.value = m.captured(3).trimmed();
+            // Detect composite types that may have children
+            dv.has_children = dv.value.startsWith("{") || dv.value.startsWith("(");
+            local_variables_.push_back(dv);
+
+            auto *item = new QTreeWidgetItem({dv.name, dv.value, dv.type});
+            if (dv.has_children) {
+                // Add a placeholder child so the expand arrow appears
+                item->addChild(new QTreeWidgetItem({"...", "", ""}));
+            }
+            // Color type column
+            item->setForeground(2, QColor("#4ec9b0"));
+            variables_tree_->addTopLevelItem(item);
+        }
+
+        // ── Parse expression evaluation result for watch ────────────────
+        // Format: "(type) $N = value" or "= value"
+        static const QRegularExpression expr_result_re(
+            R"(\(([^)]+)\)\s+\$\d+\s+=\s+(.+))");
+        auto expr_match = expr_result_re.match(output);
+        if (expr_match.hasMatch()) {
+            // Update the most recently evaluated watch expression
+            QString type = expr_match.captured(1).trimmed();
+            QString value = expr_match.captured(2).trimmed();
+            UpdateWatchResult(type, value);
+        }
+
     } else {
-        // GDB/MI pattern: "*stopped,reason=\"breakpoint-hit\"..."
+        // ── GDB/MI output parsing ────────────────────────────────────────
+
+        // Stopped event
         static const QRegularExpression gdb_stop_re(
             R"RE(\*stopped,reason="(breakpoint-hit|end-stepping-range|signal-received)")RE");
         static const QRegularExpression gdb_file_re(
@@ -667,8 +772,86 @@ void DebugPanel::ParseDebuggerOutput(const QString &output) {
 
             UpdateCallStack();
             UpdateVariables();
+            if (!watch_expressions_.empty()) {
+                OnEvaluateWatch();
+            }
+        }
+
+        // ── Parse GDB/MI stack list frames response ─────────────────────
+        // Format: ^done,stack=[frame={level="0",addr="0x...",func="main",
+        //         file="test.cpp",fullname="/path/test.cpp",line="42"}, ...]
+        static const QRegularExpression gdb_frame_re(
+            R"RE(level="(\d+)",addr="(0x[0-9a-fA-F]+)",func="(.+?)".*?fullname="(.+?)",line="(\d+)")RE");
+        auto gdb_frame_iter = gdb_frame_re.globalMatch(output);
+        bool found_gdb_frames = false;
+        while (gdb_frame_iter.hasNext()) {
+            auto m = gdb_frame_iter.next();
+            if (!found_gdb_frames) {
+                callstack_tree_->clear();
+                stack_frames_.clear();
+                found_gdb_frames = true;
+            }
+            StackFrame sf;
+            sf.index = m.captured(1).toInt();
+            sf.address = m.captured(2);
+            sf.function_name = m.captured(3);
+            sf.file = m.captured(4);
+            sf.line = m.captured(5).toInt();
+            stack_frames_.push_back(sf);
+
+            auto *item = new QTreeWidgetItem({
+                QString::number(sf.index),
+                sf.function_name,
+                sf.file,
+                QString::number(sf.line)
+            });
+            if (sf.index == 0) {
+                item->setForeground(1, QColor("#dcdcaa"));
+            }
+            callstack_tree_->addTopLevelItem(item);
+        }
+
+        // ── Parse GDB/MI variable list response ─────────────────────────
+        // Format: ^done,variables=[{name="x",value="42",type="int"}, ...]
+        static const QRegularExpression gdb_var_re(
+            R"RE(name="(.+?)".*?value="(.+?)"(?:.*?type="(.+?)")?)RE");
+        auto gdb_var_iter = gdb_var_re.globalMatch(output);
+        bool found_gdb_vars = false;
+        while (gdb_var_iter.hasNext()) {
+            auto m = gdb_var_iter.next();
+            if (!found_gdb_vars) {
+                variables_tree_->clear();
+                local_variables_.clear();
+                found_gdb_vars = true;
+            }
+            DebugVariable dv;
+            dv.name = m.captured(1);
+            dv.value = m.captured(2);
+            dv.type = m.capturedLength(3) > 0 ? m.captured(3) : "auto";
+            dv.has_children = dv.value.startsWith("{");
+            local_variables_.push_back(dv);
+
+            auto *item = new QTreeWidgetItem({dv.name, dv.value, dv.type});
+            if (dv.has_children) {
+                item->addChild(new QTreeWidgetItem({"...", "", ""}));
+            }
+            item->setForeground(2, QColor("#4ec9b0"));
+            variables_tree_->addTopLevelItem(item);
+        }
+
+        // ── Parse GDB/MI expression evaluation response ─────────────────
+        // Format: ^done,value="42"
+        static const QRegularExpression gdb_eval_re(
+            R"RE(\^done,value="(.+?)")RE");
+        auto gdb_eval_match = gdb_eval_re.match(output);
+        if (gdb_eval_match.hasMatch()) {
+            QString value = gdb_eval_match.captured(1);
+            UpdateWatchResult("", value);
         }
     }
+
+    // Clear accumulated output after processing
+    pending_output_.clear();
 }
 
 void DebugPanel::SetBreakpointsInDebugger() {
@@ -825,10 +1008,15 @@ void DebugPanel::OnBreakpointContextMenu(const QPoint &pos) {
     int bp_id = item->data(0, Qt::UserRole).toInt();
 
     QMenu menu(this);
-    menu.setStyleSheet(
-        "QMenu { background: #252526; color: #cccccc; border: 1px solid #454545; }"
-        "QMenu::item { padding: 5px 30px 5px 20px; }"
-        "QMenu::item:selected { background: #094771; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        menu.setStyleSheet(
+            QString("QMenu { background: %1; color: %2; border: 1px solid %3; }"
+                    "QMenu::item { padding: 5px 30px 5px 20px; }"
+                    "QMenu::item:selected { background: %4; }")
+                .arg(tc.menu_background.name(), tc.menu_text.name(),
+                     tc.border.name(), tc.menu_hover.name()));
+    }
 
     menu.addAction("Go to Location", [this, bp_id]() {
         for (const auto &bp : breakpoints_) {
@@ -894,10 +1082,30 @@ void DebugPanel::OnStackFrameClicked(QTreeWidgetItem *item, int /*column*/) {
     }
 }
 
-void DebugPanel::OnVariableExpanded(QTreeWidgetItem * /*item*/) {
-    // Variables with children would need additional debugger queries
-    // to expand. For composite types, issue "frame variable <name>"
-    // and parse child members. This is a future enhancement.
+void DebugPanel::OnVariableExpanded(QTreeWidgetItem *item) {
+    // If the first child is the placeholder "...", replace it with real data
+    if (item->childCount() == 1 && item->child(0)->text(0) == "...") {
+        // Remove placeholder
+        delete item->takeChild(0);
+
+        // Query the debugger for children of this variable
+        QString var_name = item->text(0);
+        // Walk up the tree to build the full qualified name
+        QTreeWidgetItem *parent = item->parent();
+        while (parent) {
+            var_name = parent->text(0) + "." + var_name;
+            parent = parent->parent();
+        }
+
+        bool is_lldb = debugger_path_.contains("lldb");
+        if (is_lldb) {
+            SendDebuggerCommand("frame variable " + var_name);
+        } else {
+            // GDB MI: create a variable object and list children
+            SendDebuggerCommand("-var-create - * \"" + var_name + "\"");
+            SendDebuggerCommand("-var-list-children --all-values -");
+        }
+    }
 }
 
 void DebugPanel::OnAddWatch() {
@@ -945,13 +1153,24 @@ void DebugPanel::OnEvaluateWatch() {
     bool is_lldb = debugger_path_.contains("lldb");
 
     for (auto &we : watch_expressions_) {
+        // Mark as evaluating so UpdateWatchResult can match results
+        we.value = "<evaluating...>";
+        we.type = "";
+
         if (is_lldb) {
             SendDebuggerCommand("expression -- " + we.expression);
         } else {
             SendDebuggerCommand("-data-evaluate-expression \"" + we.expression + "\"");
         }
     }
-    // Results will arrive via OnDebuggerReadyRead / ParseDebuggerOutput
+
+    // Update tree to show evaluating state
+    for (int i = 0; i < watch_tree_->topLevelItemCount(); ++i) {
+        auto *item = watch_tree_->topLevelItem(i);
+        item->setText(1, "<evaluating...>");
+        item->setText(2, "");
+        item->setForeground(1, QColor("#969696"));
+    }
 }
 
 void DebugPanel::OnConsoleInput() {
@@ -960,6 +1179,41 @@ void DebugPanel::OnConsoleInput() {
 
     console_input_->clear();
     SendDebuggerCommand(cmd);
+}
+
+// ============================================================================
+// Watch Result Update
+// ============================================================================
+
+void DebugPanel::UpdateWatchResult(const QString &type, const QString &value) {
+    // Find the next unevaluated watch expression and update it.
+    // We track evaluation order by marking expressions that have been updated
+    // in the current evaluation cycle.
+    for (int i = 0; i < static_cast<int>(watch_expressions_.size()); ++i) {
+        auto &we = watch_expressions_[i];
+        if (we.value == "<evaluating...>" || we.value == "<not evaluated>") {
+            we.value = value;
+            we.type = type;
+
+            // Update the tree widget item
+            if (i < watch_tree_->topLevelItemCount()) {
+                auto *item = watch_tree_->topLevelItem(i);
+                item->setText(1, value);
+                item->setText(2, type);
+                // Color the value based on content
+                if (value.startsWith("0x") || value.contains("nil") ||
+                    value.contains("null") || value.contains("NULL")) {
+                    item->setForeground(1, QColor("#569cd6"));
+                } else if (value.startsWith("\"")) {
+                    item->setForeground(1, QColor("#ce9178"));
+                } else {
+                    item->setForeground(1, QColor("#b5cea8"));
+                }
+                item->setForeground(2, QColor("#4ec9b0"));
+            }
+            return;
+        }
+    }
 }
 
 } // namespace polyglot::tools::ui

@@ -4,8 +4,8 @@
 > 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v5.4  
-**最后更新**: 2026-03-11
+**版本**: v1.0.0  
+**最后更新**: 2026-03-15
 
 ---
 
@@ -1300,7 +1300,7 @@ polyc [选项] <输入文件>
 
 ```
 ========================================
- PolyglotCompiler v4.3  (polyc)
+ PolyglotCompiler v1.0.0  (polyc)
 ========================================
 [polyc] Source: basic_linking.ploy
 [polyc] Language: ploy (auto-detected)
@@ -1527,8 +1527,9 @@ tools/ui/
 ├── common/          # 跨平台共享代码（所有平台均编译）
 │   ├── src/         #   mainwindow.cpp、code_editor.cpp、syntax_highlighter.cpp、
 │   │                #   file_browser.cpp、output_panel.cpp、compiler_service.cpp、
-│   │                #   settings_dialog.cpp、git_panel.cpp、build_panel.cpp、debug_panel.cpp
-│   └── include/     #   对应的头文件
+│   │                #   settings_dialog.cpp、git_panel.cpp、build_panel.cpp、
+│   │                #   debug_panel.cpp、theme_manager.cpp
+│   └── include/     #   对应的头文件（含 theme_manager.h）
 ├── windows/         # Windows 专用入口点 (main.cpp)
 ├── linux/           # Linux 专用入口点 (main.cpp)
 └── macos/           # macOS 专用入口点 (main.cpp)
@@ -1560,11 +1561,14 @@ CMake 会根据当前操作系统自动选择正确的平台专用 `main.cpp`。
 | **括号匹配** | 高亮光标处的匹配括号 / 圆括号 / 花括号 |
 | **自动缩进** | 新行自动保持当前缩进级别 |
 | **缩放** | `Ctrl+加号` / `Ctrl+减号` 调整编辑器字体大小 |
-| **暗色主题** | 通过 QPalette 内置暗色配色方案 |
+| **暗色主题** | 通过 ThemeManager 统一管理主题，内置 4 套配色方案（暗色、亮色、Monokai、Solarized Dark），所有面板统一切换 |
+| **编译与运行** | 一键编译并运行当前文件（`Ctrl+R`），自动查找输出二进制文件并通过 QProcess 启动，stdout/stderr 实时输出至日志面板；支持停止运行中的进程（`Ctrl+Shift+R`） |
 | **设置对话框** | 7 类偏好设置（外观、编辑器、编译器、环境、构建、调试、键绑定），通过 `QSettings` 持久化存储 |
+| **自定义快捷键** | 在设置对话框的键绑定页中使用 QKeySequenceEdit 编辑快捷键，支持应用、重置，自定义快捷键通过 QSettings 持久化存储并在启动时自动加载 |
+| **设置联动** | 设置中的 CMake 路径、构建目录、调试器路径等配置自动同步至构建面板和调试面板，修改后即时生效 |
 | **Git 集成** | 内置 Git 面板，支持状态查看、暫存、提交、分支管理、推送/拉取、差异查看、日志历史和储藏功能 |
 | **构建系统** | CMake 集成面板，支持配置/构建/清理、生成器和构建类型选择、目标发现和错误解析 |
-| **调试器** | 集成调试面板，支持 lldb 和 gdb，包括断点、单步执行、调用栈、变量检查、监视表达式和调试控制台 |
+| **调试器** | 集成调试面板，支持 lldb 和 gdb，包括断点、单步执行、完整的调用栈帧解析（模块、函数、文件、行号）、变量类型/值解析、监视表达式实时求值与结果更新、监视右键菜单（删除/全部删除/求值）、入口断点选项和调试控制台 |
 
 ### 快捷键
 
@@ -1580,6 +1584,8 @@ CMake 会根据当前操作系统自动选择正确的平台专用 `main.cpp`。
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | 剪切 / 复制 / 粘贴 |
 | `Ctrl+F` | 查找 |
 | `Ctrl+B` | 编译当前文件 |
+| `Ctrl+R` | 编译并运行当前文件 |
+| `Ctrl+Shift+R` | 停止运行中的进程 |
 | `Ctrl+Shift+B` | 分析当前文件（仅诊断） |
 | `` Ctrl+` `` | 切换内置终端 |
 | `` Ctrl+Shift+` `` | 打开新终端实例 |
@@ -2263,9 +2269,52 @@ tests/benchmarks/
 - Rust Compiler: https://github.com/rust-lang/rust
 - PEP 440: https://peps.python.org/pep-0440/
 
-## 13.5 更新日志
+## 13.5 发布打包
 
-### v5.4 (2026-03-11)
+PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
+
+| 平台 | 脚本 | 输出 |
+|------|------|------|
+| Windows | `scripts/package_windows.ps1` | 免安装 `.zip` + NSIS 安装程序 `.exe` |
+| Linux | `scripts/package_linux.sh` | 免安装 `.tar.gz` |
+| macOS | `scripts/package_macos.sh` | 免安装 `.tar.gz`（含 `.app` 包） |
+
+```bash
+# Windows (PowerShell)
+.\scripts\package_windows.ps1
+
+# Linux
+./scripts/package_linux.sh
+
+# macOS
+./scripts/package_macos.sh
+```
+
+详细说明、前置要求和版本管理请参见 `docs/specs/release_packaging_zh.md`。
+
+## 13.6 更新日志
+
+### v1.0.0 (2026-03-15)
+- ✅ 项目版本统一为 **1.0.0**（所有原 v5.x/v4.x 版本号重命名为 v0.5.x/v0.4.x）
+- ✅ 三平台发布打包脚本（`scripts/package_windows.ps1`、`scripts/package_linux.sh`、`scripts/package_macos.sh`）
+- ✅ Windows：免安装 ZIP 压缩包 + NSIS 安装程序（`scripts/installer.nsi`），支持 PATH 注册和开始菜单快捷方式
+- ✅ Linux：免安装 `.tar.gz`，自动打包 Qt 库和启动包装脚本
+- ✅ macOS：免安装 `.tar.gz`，集成 `macdeployqt` 生成 `.app` 包
+- ✅ 打包文档（`docs/specs/release_packaging.md` / `_zh.md`）
+- ✅ 版本号已更新至 CMakeLists.txt、所有工具源文件、README.md 和 USER_GUIDE（中英文）
+
+### v0.5.5 (2026-03-15)
+- ✅ 统一主题系统：通过 `ThemeManager` 单例管理 — 4 套内置配色方案（暗色、亮色、Monokai、Solarized Dark）；所有面板（主窗口、构建、调试、Git、设置）从统一来源应用样式
+- ✅ 编译与运行（`Ctrl+R`）：基于 QProcess 的工作流，编译当前文件、定位输出二进制文件、启动并将 stdout/stderr 实时输出至日志面板
+- ✅ 停止（`Ctrl+Shift+R`）：终止运行中的进程并取消活跃构建
+- ✅ 调试面板：完整的调用栈帧解析，同时支持 lldb 和 GDB/MI 输出（模块、函数、文件、行号）；变量类型/值提取；监视表达式求值并实时更新结果
+- ✅ 调试面板：监视右键菜单（删除 / 全部删除 / 求值）连接至 `OnRemoveWatch` 和 `OnEvaluateWatch`
+- ✅ 调试面板：支持从设置中配置调试器路径和入口断点选项
+- ✅ 自定义快捷键：在设置 → 键绑定页面中通过 `QKeySequenceEdit` 编辑；28 个默认操作；自定义快捷键通过 `QSettings` 持久化并在启动时加载
+- ✅ 设置联动：CMake 路径、构建目录、调试器路径自动同步至 `BuildPanel` 和 `DebugPanel`
+- ✅ 新增源文件 `theme_manager.cpp` / `theme_manager.h` 至 `tools/ui/common/`
+
+### v0.5.4 (2026-03-11)
 - ✅ 基于 Qt 的桌面 IDE（`polyui`）：语法高亮、实时诊断、文件浏览器、多标签编辑器、输出面板、括号匹配、暗色主题
 - ✅ IDE 使用编译器前端分词器实现精确的、语言感知的高亮，支持全部 6 种语言
 - ✅ IDE 快捷键：Ctrl+B 编译、Ctrl+Shift+B 分析、Ctrl+N/O/S/W 文件管理
@@ -2280,7 +2329,7 @@ tests/benchmarks/
 - ✅ Ploy 前端扩展至 6 个编译单元（新增 `command_runner.cpp`、`package_discovery_cache.cpp`）
 - ✅ 更新所有文档（README、USER_GUIDE 中英文、教程）至最新统计数据
 
-### v5.2 (2026-02-22)
+### v0.5.2 (2026-02-22)
 - ✅ 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关
 - ✅ `PloySema` 构造函数接收 options，保持默认行为向后兼容
 - ✅ 会话级 `PackageDiscoveryCache` — 线程安全，键为 `language|manager|env_path`
@@ -2292,7 +2341,7 @@ tests/benchmarks/
 - ✅ CTest: `benchmark_fast` 和 `benchmark_full` 目标及标签
 - ✅ 发现子系统单元测试：禁用无命令、重复分析仅一次、键隔离、缓存往返
 
-### v5.1 (2026-02-22)
+### v0.5.1 (2026-02-22)
 - ✅ 链接器强失败模式 — 未解析符号为硬错误；不再为未解析对生成占位存根
 - ✅ 链接器主流程：存在跨语言条目但解析失败时直接报错终止
 - ✅ `polyc` 和 `polyasm` 现支持 `--arch=wasm` WebAssembly 目标
@@ -2308,7 +2357,7 @@ tests/benchmarks/
 - ✅ Rust advanced_features_test.cpp：所有 `REQUIRE(true)` 替换为行为性解析 + AST 断言
 - ✅ E2E 测试：新增 ARM64 目标代码发射测试和 WASM 多函数二进制 smoke 测试
 
-### v5.0 (2026-02-22)
+### v0.5.0 (2026-02-22)
 - ✅ 全面项目文档更新 — 所有文档刷新以反映当前状态
 - ✅ 新增 WebAssembly (WASM) 后端 (`backends/wasm/`)
 - ✅ 统一 DWARF 构建器编入 `polyglot_common` 库
@@ -2330,7 +2379,7 @@ tests/benchmarks/
 - ✅ 16 个示例程序（原 12 个）
 - ✅ 总计：813 个测试用例，3 个测试套件（743 单元 + 52 集成 + 18 基准）
 
-### v4.3 (2026-02-20)
+### v0.4.3 (2026-02-20)
 - ✅ 新增跨语言对象销毁 `DELETE` 关键字
 - ✅ 新增跨语言类继承扩展 `EXTEND` 关键字
 - ✅ 增强诊断基础设施：严重性级别、错误代码（1xxx-5xxx）、溯源链、建议
@@ -2341,7 +2390,7 @@ tests/benchmarks/
 - ✅ 36 个新测试用例，总计 207 测试用例、598 断言
 - ✅ 关键字数量 52 → 54
 
-### v4.2 (2026-02-20)
+### v0.4.2 (2026-02-20)
 - ✅ 新增跨语言属性访问 `GET` 和属性赋值 `SET` 关键字
 - ✅ 新增自动资源管理 `WITH` 关键字
 - ✅ 新增带限定类型的类型注解支持
@@ -2351,14 +2400,14 @@ tests/benchmarks/
 - ✅ 中英双语用户指南（USER_GUIDE.md / USER_GUIDE_zh.md）
 - ✅ 关键字数量 49 → 52
 
-### v4.1 (2026-02-20)
+### v0.4.1 (2026-02-20)
 - ✅ 新增跨语言类实例化 `NEW` 和方法调用 `METHOD` 关键字
 - ✅ AST / 词法 / 语法 / 语义 / IR Lowering 全链路实现
 - ✅ 22 个新测试用例，总计 140 测试用例、443 断言
 - ✅ 中英双语功能文档 (`class_instantiation.md` / `class_instantiation_zh.md`)
 - ✅ 关键字数量 47 → 49
 
-### v5.3 (2026-02-22)
+### v0.5.3 (2026-02-22)
 - ✅ 解除 `common` ↔ `middle` 循环依赖 — 规范 IR 头文件移至 `middle/include/ir/`；`common/include/ir/` 保留转发垫片保持向后兼容
 - ✅ 新增 CI include-lint 脚本（`scripts/check_include_deps.py`）强制层级约束：`middle/` 不可包含 `common/include/ir/`，后端不可包含前端
 - ✅ 统一调试信息建模 — 新增 `common/include/debug/debug_info_adapter.h`，通过 `ConvertToBackendDebugInfo()` 桥接 `polyglot::debug`（丰富 DWARF 模型）与 `polyglot::backends`（扁平发射模型）
@@ -2366,28 +2415,28 @@ tests/benchmarks/
 - ✅ 新增运行时 C ABI 参考文档（`docs/specs/runtime_abi.md` / `_zh.md`）
 - ✅ 统一工具层命名空间：`polyc` 和 `polybench` 现使用 `namespace polyglot::tools`，与 `polyasm`/`polyopt`/`polyrt` 一致
 
-### v4.0 (2026-02-19)
+### v0.4.0 (2026-02-19)
 - ✅ 新增 .ploy 跨语言链接前端完整章节
 - ✅ 多包管理器支持: CONFIG CONDA / UV / PIPENV / POETRY
 - ✅ 版本约束验证（6 种运算符）
 - ✅ 选择性导入
 - ✅ 117+ 测试用例，361+ 断言
-- ✅ 全面审查并重写完整指南（v3.0 → v4.0）
+- ✅ 全面审查并重写完整指南（v0.3.0 → v0.4.0）
 - ✅ 精确说明编译流程（PolyglotCompiler 自身前端编译，不依赖外部编译器）
 
-### v3.0 (2026-02-01)
+### v0.3.0 (2026-02-01)
 - ✅ 第 11-15 章（实现分析/测试/高级优化/成就总结）
 - ✅ 33+ 优化 passes、4 种 GC 算法
 - ✅ PGO/LTO/DWARF5 支持
 
-### v2.0 (2026-01-29)
+### v0.2.0 (2026-01-29)
 - ✅ 循环优化、GVN、constexpr、DWARF 5
 
-### v1.0 (2026-01-15)
+### v0.1.0 (2026-01-15)
 - ✅ 基础编译链：3 种前端、2 种后端、基础优化
 
 ---
 
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-03-11*  
-*文档版本: v5.4*
+*最后更新: 2026-03-15*  
+*文档版本: v1.0.0*

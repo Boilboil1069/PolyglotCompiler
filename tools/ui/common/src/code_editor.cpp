@@ -133,7 +133,7 @@ void CodeEditor::LineNumberAreaPaintEvent(QPaintEvent *event) {
 void CodeEditor::HighlightCurrentLine() {
     QList<QTextEdit::ExtraSelection> extra_selections;
 
-    if (!isReadOnly()) {
+    if (highlight_current_line_enabled_ && !isReadOnly()) {
         QTextEdit::ExtraSelection selection;
         QColor line_color = QColor(40, 40, 60);
         selection.format.setBackground(line_color);
@@ -143,10 +143,12 @@ void CodeEditor::HighlightCurrentLine() {
         extra_selections.append(selection);
     }
 
-    // Bracket matching highlights
-    HighlightMatchingBrackets();
-
     setExtraSelections(extra_selections);
+
+    // Preserve current-line highlight and add bracket pairs on top.
+    if (bracket_matching_enabled_) {
+        HighlightMatchingBrackets();
+    }
 }
 
 // ============================================================================
@@ -154,11 +156,13 @@ void CodeEditor::HighlightCurrentLine() {
 // ============================================================================
 
 void CodeEditor::HighlightMatchingBrackets() {
+    if (!bracket_matching_enabled_) return;
+
     QTextCursor cursor = textCursor();
     int pos = cursor.position();
     QTextDocument *doc = document();
 
-    if (pos <= 0 && pos >= doc->characterCount()) return;
+    if (pos < 0 || pos >= doc->characterCount()) return;
 
     QChar ch = doc->characterAt(pos);
     QChar prev_ch = (pos > 0) ? doc->characterAt(pos - 1) : QChar();
@@ -248,7 +252,7 @@ void CodeEditor::ZoomIn(int range) {
     QFont f = font();
     f.setPointSize(base_font_size_ + current_zoom_);
     setFont(f);
-    SetTabWidth(4);
+    SetTabWidth(tab_width_spaces_);
 }
 
 void CodeEditor::ZoomOut(int range) {
@@ -259,7 +263,7 @@ void CodeEditor::ZoomOut(int range) {
     QFont f = font();
     f.setPointSize(base_font_size_ + current_zoom_);
     setFont(f);
-    SetTabWidth(4);
+    SetTabWidth(tab_width_spaces_);
 }
 
 void CodeEditor::ZoomReset() {
@@ -267,7 +271,7 @@ void CodeEditor::ZoomReset() {
     QFont f = font();
     f.setPointSize(base_font_size_);
     setFont(f);
-    SetTabWidth(4);
+    SetTabWidth(tab_width_spaces_);
 }
 
 // ============================================================================
@@ -275,9 +279,18 @@ void CodeEditor::ZoomReset() {
 // ============================================================================
 
 void CodeEditor::SetTabWidth(int spaces) {
+    tab_width_spaces_ = qMax(1, spaces);
     QFontMetricsF fm(font());
-    qreal tab_width = fm.horizontalAdvance(' ') * spaces;
+    qreal tab_width = fm.horizontalAdvance(' ') * tab_width_spaces_;
     setTabStopDistance(tab_width);
+}
+
+void CodeEditor::SetEditorFont(const QFont &font) {
+    QFont f = font;
+    setFont(f);
+    base_font_size_ = f.pointSize() > 0 ? f.pointSize() : base_font_size_;
+    current_zoom_ = 0;
+    SetTabWidth(tab_width_spaces_);
 }
 
 // ============================================================================
@@ -286,7 +299,8 @@ void CodeEditor::SetTabWidth(int spaces) {
 
 void CodeEditor::keyPressEvent(QKeyEvent *event) {
     // Auto-indent on Enter
-    if (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) {
+    if (auto_indent_enabled_ &&
+        (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
         QTextCursor cursor = textCursor();
         QString current_line = cursor.block().text();
 
@@ -300,7 +314,9 @@ void CodeEditor::keyPressEvent(QKeyEvent *event) {
         // Increase indent if the line ends with { or :
         QString trimmed = current_line.trimmed();
         if (trimmed.endsWith('{') || trimmed.endsWith(':')) {
-            whitespace += "    ";
+            whitespace += insert_spaces_
+                              ? QString(tab_width_spaces_, QLatin1Char(' '))
+                              : QStringLiteral("\t");
         }
 
         QPlainTextEdit::keyPressEvent(event);
@@ -336,7 +352,11 @@ void CodeEditor::keyPressEvent(QKeyEvent *event) {
 
     // Tab inserts spaces
     if (event->key() == Qt::Key_Tab) {
-        insertPlainText("    ");
+        if (insert_spaces_) {
+            insertPlainText(QString(tab_width_spaces_, QLatin1Char(' ')));
+        } else {
+            QPlainTextEdit::keyPressEvent(event);
+        }
         return;
     }
 

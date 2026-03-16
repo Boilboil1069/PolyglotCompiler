@@ -35,7 +35,8 @@ class OutputPanel : public QWidget {
     void ClearOutput();
 
     // Display diagnostics in the error table
-    void ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics);
+    void ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
+                         const QString &file = QString());
 
     // Clear the error table
     void ClearDiagnostics();

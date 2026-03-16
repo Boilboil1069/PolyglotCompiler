@@ -65,7 +65,7 @@ void PrintUsage() {
 }
 
 void PrintVersion() {
-    std::cout << "polyui (PolyglotCompiler IDE) v5.4\n"
+    std::cout << "polyui (PolyglotCompiler IDE) v1.0.0\n"
               << "Built with Qt " << QT_VERSION_STR << " (macOS)\n";
 }
 
@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     app.setApplicationName("PolyglotCompiler IDE");
-    app.setApplicationVersion("5.4");
+    app.setApplicationVersion("1.0.0");
     app.setOrganizationName("PolyglotCompiler");
     app.setOrganizationDomain("polyglotcompiler.org");
 

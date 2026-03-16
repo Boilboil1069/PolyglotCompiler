@@ -10,11 +10,14 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QFontComboBox>
+#include <QKeySequenceEdit>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPushButton>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
+#include <QTreeWidget>
 
 namespace polyglot::tools::ui {
 
@@ -112,6 +115,25 @@ class SettingsDialog : public QDialog {
     QCheckBox *show_disassembly_check_{nullptr};
     QComboBox *debugger_combo_{nullptr};
     QLineEdit *debugger_path_edit_{nullptr};
+
+    // ── Key bindings ─────────────────────────────────────────────────────
+    QTreeWidget *keybinding_tree_{nullptr};
+    QKeySequenceEdit *shortcut_edit_{nullptr};
+    QPushButton *apply_shortcut_button_{nullptr};
+    QPushButton *reset_shortcut_button_{nullptr};
+
+    // Stores user-customized shortcuts: action_id -> QKeySequence string
+    struct KeyBindingEntry {
+        QString action_id;    // internal identifier
+        QString display_name; // user-visible label
+        QKeySequence default_shortcut;
+        QKeySequence custom_shortcut;
+    };
+    std::vector<KeyBindingEntry> keybinding_entries_;
+
+    void PopulateDefaultKeybindings();
+    void LoadKeybindings();
+    void SaveKeybindings();
 };
 
 } // namespace polyglot::tools::ui

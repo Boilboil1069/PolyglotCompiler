@@ -104,6 +104,12 @@ class DebugPanel : public QWidget {
     void SetArguments(const QStringList &args);
     void SetWorkingDirectory(const QString &path);
 
+    // Set debugger executable path (from settings).
+    void SetDebuggerPath(const QString &path);
+
+    // Set whether to break on program entry (from settings).
+    void SetBreakOnEntry(bool enabled);
+
   signals:
     // Emitted when a breakpoint is added/removed/changed.
     void BreakpointsChanged();
@@ -182,6 +188,9 @@ class DebugPanel : public QWidget {
     // Debugger detection
     QString FindDebugger() const;
 
+    // Watch result parsing helper
+    void UpdateWatchResult(const QString &type, const QString &value);
+
     // ── UI Components ────────────────────────────────────────────────────
     QVBoxLayout *layout_{nullptr};
     QToolBar *toolbar_{nullptr};
@@ -223,6 +232,7 @@ class DebugPanel : public QWidget {
     QStringList program_arguments_;
     QString working_directory_;
     QString debugger_path_;
+    bool break_on_entry_{false};
     std::vector<Breakpoint> breakpoints_;
     int next_breakpoint_id_{1};
     std::vector<StackFrame> stack_frames_;

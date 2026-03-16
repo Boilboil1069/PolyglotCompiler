@@ -15,16 +15,22 @@
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDir>
+#include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFont>
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QSettings>
 #include <QShortcut>
 #include <QStyle>
+#include <QTabBar>
+#include <QTextBlock>
 #include <QTextStream>
 
 namespace polyglot::tools::ui {
@@ -49,9 +55,20 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     SetupAnalysisTimer();
 
     RestoreState();
+    ApplySettings();
 
-    // Create an initial empty tab
-    CreateNewTab("Untitled-1.ploy", "ploy");
+    // Create an initial empty tab using the configured default language.
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
+    if (lang_index < 0 || lang_index >= lang_ids.size()) {
+        lang_index = 0;
+    }
+    const QString initial_language = lang_ids[lang_index];
+    CreateNewTab(
+        QString("Untitled-%1.%2")
+            .arg(next_untitled_id_++)
+            .arg(LanguageToExtension(initial_language)),
+        initial_language);
 }
 
 MainWindow::~MainWindow() {
@@ -508,6 +525,10 @@ void MainWindow::SetupConnections() {
 
     // Settings
     connect(action_settings_, &QAction::triggered, this, &MainWindow::OpenSettings);
+    if (settings_dialog_) {
+        connect(settings_dialog_, &SettingsDialog::SettingsChanged,
+                this, &MainWindow::ApplySettings);
+    }
 
     // Panel toggles
     connect(action_toggle_git_, &QAction::triggered, this, &MainWindow::ToggleGitPanel);
@@ -562,16 +583,32 @@ void MainWindow::SetupConnections() {
     // Tab management
     connect(editor_tabs_, &QTabWidget::currentChanged, this, &MainWindow::OnTabChanged);
     connect(editor_tabs_, &QTabWidget::tabCloseRequested, this, &MainWindow::CloseTab);
+    connect(editor_tabs_->tabBar(), &QTabBar::tabMoved,
+            this, &MainWindow::OnEditorTabMoved);
+    connect(bottom_tabs_, &QTabWidget::currentChanged, this,
+            [this](int) { UpdateViewActionChecks(); });
 
     // File browser
     connect(file_browser_, &FileBrowser::FileActivated, this, &MainWindow::OnFileActivated);
 
     // Output panel error click
     connect(output_panel_, &OutputPanel::ErrorClicked,
-            this, [this](int line, int /*col*/, const QString &/*file*/) {
-        CodeEditor *editor = CurrentEditor();
+            this, [this](int line, int col, const QString &file) {
+        int target_index = editor_tabs_->currentIndex();
+        if (!file.isEmpty()) {
+            target_index = OpenFileInTab(file);
+        }
+        CodeEditor *editor = EditorAt(target_index);
         if (!editor) return;
-        QTextCursor cursor(editor->document()->findBlockByLineNumber(line - 1));
+
+        QTextBlock block = editor->document()->findBlockByLineNumber(qMax(0, line - 1));
+        if (!block.isValid()) return;
+
+        QTextCursor cursor(editor->document());
+        int column_offset = qMax(0, col - 1);
+        int position = qMin(block.position() + column_offset,
+                            block.position() + qMax(0, block.length() - 1));
+        cursor.setPosition(position);
         editor->setTextCursor(cursor);
         editor->centerCursor();
         editor->setFocus();
@@ -600,6 +637,11 @@ void MainWindow::SetupAnalysisTimer() {
     analysis_timer_->setInterval(500); // 500 ms debounce
     connect(analysis_timer_, &QTimer::timeout,
             this, &MainWindow::OnAnalysisTimerTimeout);
+
+    auto_save_timer_ = new QTimer(this);
+    auto_save_timer_->setSingleShot(false);
+    connect(auto_save_timer_, &QTimer::timeout,
+            this, &MainWindow::AutoSaveModifiedFiles);
 }
 
 // ============================================================================
@@ -607,8 +649,16 @@ void MainWindow::SetupAnalysisTimer() {
 // ============================================================================
 
 void MainWindow::NewFile() {
-    QString title = QString("Untitled-%1.ploy").arg(next_untitled_id_++);
-    CreateNewTab(title, "ploy");
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
+    if (lang_index < 0 || lang_index >= lang_ids.size()) {
+        lang_index = 0;
+    }
+    QString language = lang_ids[lang_index];
+    QString title = QString("Untitled-%1.%2")
+                        .arg(next_untitled_id_++)
+                        .arg(LanguageToExtension(language));
+    CreateNewTab(title, language);
 }
 
 void MainWindow::OpenFile() {
@@ -699,6 +749,7 @@ void MainWindow::SaveAs() {
             it->second.language = lang;
             AttachHighlighter(editor, lang);
             UpdateLanguageCombo(lang);
+            status_language_->setText(lang);
         }
 
         editor->SetFilePath(path);
@@ -739,6 +790,10 @@ void MainWindow::CloseTab(int index) {
         new_map[new_key] = std::move(val);
     }
     tab_info_ = std::move(new_map);
+
+    if (editor_tabs_->count() == 0) {
+        NewFile();
+    }
 }
 
 int MainWindow::OpenFileInTab(const QString &path) {
@@ -783,6 +838,7 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
     editor->setStyleSheet(
         "QPlainTextEdit { background: #1e1e1e; color: #d4d4d4; border: none; "
         "selection-background-color: #264f78; }");
+    ApplyEditorSettings(editor);
 
     int index = editor_tabs_->addTab(editor, title);
     editor_tabs_->setCurrentIndex(index);
@@ -797,8 +853,11 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
 
     // Connect modification signal
     connect(editor->document(), &QTextDocument::modificationChanged,
-            this, [this, index](bool modified) {
-        UpdateTabTitle(index, modified);
+            this, [this, editor](bool modified) {
+        int current_index = editor_tabs_->indexOf(editor);
+        if (current_index >= 0) {
+            UpdateTabTitle(current_index, modified);
+        }
     });
 
     // Connect cursor position
@@ -821,6 +880,8 @@ CodeEditor *MainWindow::EditorAt(int index) const {
 }
 
 void MainWindow::UpdateTabTitle(int index, bool modified) {
+    if (index < 0 || index >= editor_tabs_->count()) return;
+
     QString title = editor_tabs_->tabText(index);
     if (modified && !title.startsWith("* ")) {
         editor_tabs_->setTabText(index, "* " + title);
@@ -929,7 +990,13 @@ void MainWindow::Compile() {
 
     std::string source = editor->toPlainText().toStdString();
     std::string language = it->second.language.toStdString();
-    std::string filename = editor_tabs_->tabText(index).toStdString();
+    QString filename_qt = it->second.file_path.isEmpty()
+                              ? editor_tabs_->tabText(index)
+                              : QFileInfo(it->second.file_path).fileName();
+    if (filename_qt.startsWith("* ")) {
+        filename_qt = filename_qt.mid(2);
+    }
+    std::string filename = filename_qt.toStdString();
     std::string target = target_combo_->currentText().toStdString();
     int opt = opt_level_combo_->currentIndex();
 
@@ -946,7 +1013,9 @@ void MainWindow::Compile() {
     output_panel_->AppendOutput(
         QString("Elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
-    output_panel_->ShowDiagnostics(result.diagnostics);
+    output_panel_->ShowDiagnostics(
+        result.diagnostics,
+        it->second.file_path);
 
     if (result.success) {
         status_message_->setText("Compilation successful");
@@ -956,9 +1025,150 @@ void MainWindow::Compile() {
 }
 
 void MainWindow::CompileAndRun() {
-    Compile();
-    // Run step will be extended when the runtime integration is complete
-    output_panel_->AppendOutput("[Note] Run step requires compiled binary output.");
+    CodeEditor *editor = CurrentEditor();
+    if (!editor) return;
+
+    int index = editor_tabs_->currentIndex();
+    auto it = tab_info_.find(index);
+    if (it == tab_info_.end()) return;
+
+    // First, compile
+    output_panel_->ClearAll();
+    output_panel_->ShowOutputTab();
+
+    std::string source = editor->toPlainText().toStdString();
+    std::string language = it->second.language.toStdString();
+    QString filename_qt = it->second.file_path.isEmpty()
+                              ? editor_tabs_->tabText(index)
+                              : QFileInfo(it->second.file_path).fileName();
+    if (filename_qt.startsWith("* ")) {
+        filename_qt = filename_qt.mid(2);
+    }
+    std::string filename = filename_qt.toStdString();
+    std::string target = target_combo_->currentText().toStdString();
+    int opt = opt_level_combo_->currentIndex();
+
+    output_panel_->AppendOutput(
+        QString("Compiling %1 (%2, %3, O%4)...")
+            .arg(filename_qt)
+            .arg(it->second.language)
+            .arg(target_combo_->currentText())
+            .arg(opt));
+
+    auto result = compiler_service_->Compile(source, language, filename, target, opt);
+
+    output_panel_->AppendOutput(QString::fromStdString(result.output));
+    output_panel_->AppendOutput(
+        QString("Compilation elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
+
+    output_panel_->ShowDiagnostics(result.diagnostics, it->second.file_path);
+
+    if (!result.success) {
+        status_message_->setText("Compilation failed — cannot run");
+        return;
+    }
+
+    status_message_->setText("Compilation successful — running...");
+    action_stop_->setEnabled(true);
+    action_compile_run_->setEnabled(false);
+
+    // Determine binary path
+    // Prefer file next to source with no extension (or .exe on Windows)
+    QString source_dir;
+    if (!it->second.file_path.isEmpty()) {
+        source_dir = QFileInfo(it->second.file_path).absolutePath();
+    } else {
+        source_dir = QDir::currentPath();
+    }
+
+    QString base_name = QFileInfo(filename_qt).completeBaseName();
+#ifdef Q_OS_WIN
+    QString binary_path = source_dir + "/aux/" + base_name + ".exe";
+    // Fallback: check same directory
+    if (!QFileInfo::exists(binary_path)) {
+        binary_path = source_dir + "/" + base_name + ".exe";
+    }
+#else
+    QString binary_path = source_dir + "/aux/" + base_name;
+    if (!QFileInfo::exists(binary_path)) {
+        binary_path = source_dir + "/" + base_name;
+    }
+#endif
+
+    if (!QFileInfo::exists(binary_path)) {
+        output_panel_->AppendOutput(
+            "[Warning] Compiled binary not found at: " + binary_path);
+        output_panel_->AppendOutput(
+            "[Note] For interpreted languages, runtime execution is delegated "
+            "to the language runtime.");
+        status_message_->setText("Binary not found — check output");
+        action_stop_->setEnabled(false);
+        action_compile_run_->setEnabled(true);
+        return;
+    }
+
+    last_compiled_binary_ = binary_path;
+
+    // Clean up any previous run process
+    if (run_process_) {
+        run_process_->kill();
+        run_process_->waitForFinished(2000);
+        run_process_->deleteLater();
+        run_process_ = nullptr;
+    }
+
+    run_process_ = new QProcess(this);
+    run_process_->setWorkingDirectory(source_dir);
+    run_process_->setProcessChannelMode(QProcess::MergedChannels);
+
+    connect(run_process_, &QProcess::readyReadStandardOutput,
+            this, [this]() {
+        if (!run_process_) return;
+        QString out = QString::fromUtf8(run_process_->readAllStandardOutput());
+        output_panel_->AppendOutput(out);
+    });
+
+    connect(run_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int exit_code, QProcess::ExitStatus exit_status) {
+        QString status_str = (exit_status == QProcess::CrashExit)
+                                 ? "crashed"
+                                 : QString("exited with code %1").arg(exit_code);
+        output_panel_->AppendOutput(
+            QString("\n--- Program %1 ---").arg(status_str));
+
+        if (exit_code == 0 && exit_status == QProcess::NormalExit) {
+            status_message_->setText("Program finished successfully");
+        } else {
+            status_message_->setText("Program " + status_str);
+        }
+
+        action_stop_->setEnabled(false);
+        action_compile_run_->setEnabled(true);
+        run_process_->deleteLater();
+        run_process_ = nullptr;
+    });
+
+    connect(run_process_, &QProcess::errorOccurred,
+            this, [this](QProcess::ProcessError error) {
+        QString msg;
+        switch (error) {
+        case QProcess::FailedToStart: msg = "Failed to start"; break;
+        case QProcess::Crashed:       msg = "Process crashed"; break;
+        case QProcess::Timedout:      msg = "Timed out"; break;
+        default:                      msg = "Unknown error"; break;
+        }
+        output_panel_->AppendOutput("[Error] " + msg);
+        status_message_->setText("Run error: " + msg);
+        action_stop_->setEnabled(false);
+        action_compile_run_->setEnabled(true);
+    });
+
+    // Also set executable and working dir for the debug panel
+    debug_panel_->SetExecutable(binary_path);
+    debug_panel_->SetWorkingDirectory(source_dir);
+
+    output_panel_->AppendOutput("\n>>> Running: " + binary_path + "\n");
+    run_process_->start(binary_path, QStringList());
 }
 
 void MainWindow::AnalyzeCode() {
@@ -971,11 +1181,19 @@ void MainWindow::AnalyzeCode() {
 
     std::string source = editor->toPlainText().toStdString();
     std::string language = it->second.language.toStdString();
-    std::string filename = editor_tabs_->tabText(index).toStdString();
+    QString filename_qt = it->second.file_path.isEmpty()
+                              ? editor_tabs_->tabText(index)
+                              : QFileInfo(it->second.file_path).fileName();
+    if (filename_qt.startsWith("* ")) {
+        filename_qt = filename_qt.mid(2);
+    }
+    std::string filename = filename_qt.toStdString();
 
     auto diagnostics = compiler_service_->Analyze(source, language, filename);
 
-    output_panel_->ShowDiagnostics(diagnostics);
+    output_panel_->ShowDiagnostics(
+        diagnostics,
+        it->second.file_path);
 
     int errors = 0;
     int warnings = 0;
@@ -990,9 +1208,30 @@ void MainWindow::AnalyzeCode() {
 }
 
 void MainWindow::StopCompilation() {
-    // Placeholder for stopping background compilation
-    status_message_->setText("Compilation stopped");
+    bool stopped_something = false;
+
+    // Stop running program if any
+    if (run_process_ && run_process_->state() != QProcess::NotRunning) {
+        output_panel_->AppendOutput("\n--- Stopping program ---");
+        run_process_->kill();
+        run_process_->waitForFinished(3000);
+        stopped_something = true;
+    }
+
+    // Also stop any active build
+    if (build_panel_ && build_panel_->IsBuilding()) {
+        build_panel_->OnStopBuild();
+        stopped_something = true;
+    }
+
+    if (stopped_something) {
+        status_message_->setText("Stopped");
+    } else {
+        status_message_->setText("Nothing to stop");
+    }
+
     action_stop_->setEnabled(false);
+    action_compile_run_->setEnabled(true);
 }
 
 // ============================================================================
@@ -1001,7 +1240,7 @@ void MainWindow::StopCompilation() {
 
 void MainWindow::ToggleFileBrowser() {
     file_browser_->setVisible(!file_browser_->isVisible());
-    action_toggle_browser_->setChecked(file_browser_->isVisible());
+    UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleOutputPanel() {
@@ -1019,8 +1258,7 @@ void MainWindow::ToggleOutputPanel() {
         bottom_tabs_->setVisible(true);
         bottom_tabs_->setCurrentWidget(output_panel_);
     }
-    action_toggle_output_->setChecked(bottom_tabs_->isVisible() &&
-                                       bottom_tabs_->currentWidget() == output_panel_);
+    UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleTerminal() {
@@ -1036,8 +1274,7 @@ void MainWindow::ToggleTerminal() {
         bottom_tabs_->setVisible(true);
         bottom_tabs_->setCurrentWidget(terminal_tabs_);
     }
-    action_toggle_terminal_->setChecked(bottom_tabs_->isVisible() &&
-                                         bottom_tabs_->currentWidget() == terminal_tabs_);
+    UpdateViewActionChecks();
 
     // Focus the active terminal.
     if (bottom_tabs_->isVisible() && terminal_tabs_->count() > 0) {
@@ -1050,12 +1287,16 @@ void MainWindow::ToggleTerminal() {
 
 void MainWindow::ToggleToolBar() {
     main_toolbar_->setVisible(!main_toolbar_->isVisible());
-    action_toggle_toolbar_->setChecked(main_toolbar_->isVisible());
+    QSettings settings("PolyglotCompiler", "IDE");
+    settings.setValue("appearance/show_toolbar", main_toolbar_->isVisible());
+    UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleStatusBar() {
     statusBar()->setVisible(!statusBar()->isVisible());
-    action_toggle_statusbar_->setChecked(statusBar()->isVisible());
+    QSettings settings("PolyglotCompiler", "IDE");
+    settings.setValue("appearance/show_statusbar", statusBar()->isVisible());
+    UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleLineNumbers() {
@@ -1063,6 +1304,8 @@ void MainWindow::ToggleLineNumbers() {
     if (editor) {
         editor->SetLineNumbersVisible(!editor->LineNumbersVisible());
         action_toggle_linenumbers_->setChecked(editor->LineNumbersVisible());
+        QSettings settings("PolyglotCompiler", "IDE");
+        settings.setValue("editor/show_line_numbers", editor->LineNumbersVisible());
     }
 }
 
@@ -1073,6 +1316,8 @@ void MainWindow::ToggleWordWrap() {
         editor->setLineWrapMode(wrap ? QPlainTextEdit::WidgetWidth
                                      : QPlainTextEdit::NoWrap);
         action_toggle_wordwrap_->setChecked(wrap);
+        QSettings settings("PolyglotCompiler", "IDE");
+        settings.setValue("editor/word_wrap", wrap);
     }
 }
 
@@ -1129,6 +1374,7 @@ void MainWindow::NewTerminal() {
     // Ensure bottom panel is visible and showing the terminal.
     bottom_tabs_->setVisible(true);
     bottom_tabs_->setCurrentWidget(terminal_tabs_);
+    UpdateViewActionChecks();
     terminal->setFocus();
 }
 
@@ -1155,6 +1401,10 @@ void MainWindow::CloseTerminalTab(int index) {
     if (terminal) {
         terminal->deleteLater();
     }
+    if (terminal_tabs_->count() == 0 && bottom_tabs_->currentWidget() == terminal_tabs_) {
+        bottom_tabs_->setVisible(false);
+    }
+    UpdateViewActionChecks();
 }
 
 // ============================================================================
@@ -1164,6 +1414,8 @@ void MainWindow::CloseTerminalTab(int index) {
 void MainWindow::OpenSettings() {
     if (!settings_dialog_) {
         settings_dialog_ = new SettingsDialog(this);
+        connect(settings_dialog_, &SettingsDialog::SettingsChanged,
+                this, &MainWindow::ApplySettings);
     }
     settings_dialog_->exec();
 }
@@ -1179,8 +1431,7 @@ void MainWindow::ToggleGitPanel() {
     } else {
         bottom_tabs_->setCurrentWidget(git_panel_);
     }
-    action_toggle_git_->setChecked(
-        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == git_panel_);
+    UpdateViewActionChecks();
 
     // Set repo path from file browser if available
     if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
@@ -1199,8 +1450,7 @@ void MainWindow::ToggleBuildPanel() {
     } else {
         bottom_tabs_->setCurrentWidget(build_panel_);
     }
-    action_toggle_build_->setChecked(
-        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == build_panel_);
+    UpdateViewActionChecks();
 }
 
 void MainWindow::CmakeConfigure() {
@@ -1210,6 +1460,7 @@ void MainWindow::CmakeConfigure() {
     }
     bottom_tabs_->setVisible(true);
     bottom_tabs_->setCurrentWidget(build_panel_);
+    UpdateViewActionChecks();
     build_panel_->OnConfigure();
 }
 
@@ -1219,6 +1470,7 @@ void MainWindow::CmakeBuild() {
     }
     bottom_tabs_->setVisible(true);
     bottom_tabs_->setCurrentWidget(build_panel_);
+    UpdateViewActionChecks();
     build_panel_->OnBuild();
 }
 
@@ -1233,13 +1485,13 @@ void MainWindow::ToggleDebugPanel() {
     } else {
         bottom_tabs_->setCurrentWidget(debug_panel_);
     }
-    action_toggle_debug_->setChecked(
-        bottom_tabs_->isVisible() && bottom_tabs_->currentWidget() == debug_panel_);
+    UpdateViewActionChecks();
 }
 
 void MainWindow::DebugStart() {
     bottom_tabs_->setVisible(true);
     bottom_tabs_->setCurrentWidget(debug_panel_);
+    UpdateViewActionChecks();
     debug_panel_->StartDebug();
 }
 
@@ -1322,6 +1574,13 @@ void MainWindow::OnTabChanged(int index) {
         status_language_->setText(it->second.language);
     }
 
+    if (auto *editor = EditorAt(index)) {
+        action_toggle_linenumbers_->setChecked(editor->LineNumbersVisible());
+        action_toggle_wordwrap_->setChecked(
+            editor->lineWrapMode() != QPlainTextEdit::NoWrap);
+    }
+
+    UpdateViewActionChecks();
     OnCursorPositionChanged();
 }
 
@@ -1330,7 +1589,9 @@ void MainWindow::OnTabChanged(int index) {
 // ============================================================================
 
 void MainWindow::OnEditorModified() {
-    analysis_timer_->start(); // restarts the timer
+    if (realtime_analysis_enabled_ && analysis_timer_) {
+        analysis_timer_->start(); // restarts the timer
+    }
 }
 
 // ============================================================================
@@ -1360,6 +1621,8 @@ void MainWindow::OnFileActivated(const QString &path) {
 // ============================================================================
 
 void MainWindow::OnAnalysisTimerTimeout() {
+    if (!realtime_analysis_enabled_) return;
+
     CodeEditor *editor = CurrentEditor();
     if (!editor) return;
 
@@ -1369,10 +1632,18 @@ void MainWindow::OnAnalysisTimerTimeout() {
 
     std::string source = editor->toPlainText().toStdString();
     std::string language = it->second.language.toStdString();
-    std::string filename = editor_tabs_->tabText(index).toStdString();
+    QString filename_qt = it->second.file_path.isEmpty()
+                              ? editor_tabs_->tabText(index)
+                              : QFileInfo(it->second.file_path).fileName();
+    if (filename_qt.startsWith("* ")) {
+        filename_qt = filename_qt.mid(2);
+    }
+    std::string filename = filename_qt.toStdString();
 
     auto diagnostics = compiler_service_->Analyze(source, language, filename);
-    output_panel_->ShowDiagnostics(diagnostics);
+    output_panel_->ShowDiagnostics(
+        diagnostics,
+        it->second.file_path);
 }
 
 // ============================================================================
@@ -1396,9 +1667,372 @@ void MainWindow::OnLanguageChanged(int index) {
     }
 }
 
+void MainWindow::OnEditorTabMoved(int from, int to) {
+    if (from == to) return;
+
+    std::unordered_map<int, TabInfo> remapped;
+    remapped.reserve(tab_info_.size());
+
+    for (auto &[old_index, info] : tab_info_) {
+        int new_index = old_index;
+
+        if (old_index == from) {
+            new_index = to;
+        } else if (from < to && old_index > from && old_index <= to) {
+            new_index = old_index - 1;
+        } else if (from > to && old_index >= to && old_index < from) {
+            new_index = old_index + 1;
+        }
+
+        remapped.emplace(new_index, std::move(info));
+    }
+
+    tab_info_ = std::move(remapped);
+}
+
+QString MainWindow::LanguageToExtension(const QString &language) const {
+    if (language == "cpp") return "cpp";
+    if (language == "python") return "py";
+    if (language == "rust") return "rs";
+    if (language == "java") return "java";
+    if (language == "csharp") return "cs";
+    return "ploy";
+}
+
+void MainWindow::ApplyEditorSettings(CodeEditor *editor) {
+    if (!editor) return;
+
+    QSettings settings("PolyglotCompiler", "IDE");
+
+    const int tab_width = qBound(1, settings.value("editor/tab_width", 4).toInt(), 16);
+    const bool insert_spaces = settings.value("editor/insert_spaces", true).toBool();
+    const bool auto_indent = settings.value("editor/auto_indent", true).toBool();
+    const bool show_line_numbers = settings.value("editor/show_line_numbers", true).toBool();
+    const bool highlight_current_line =
+        settings.value("editor/highlight_current_line", true).toBool();
+    const bool bracket_matching = settings.value("editor/bracket_matching", true).toBool();
+    const bool word_wrap = settings.value("editor/word_wrap", false).toBool();
+
+    QFont editor_font = editor->font();
+    editor_font.setFamily(
+        settings.value("appearance/font_family", editor_font.family()).toString());
+    editor_font.setPointSize(
+        qBound(8, settings.value("appearance/font_size", 11).toInt(), 32));
+
+    editor->SetEditorFont(editor_font);
+    editor->SetTabWidth(tab_width);
+    editor->SetInsertSpaces(insert_spaces);
+    editor->SetAutoIndentEnabled(auto_indent);
+    editor->SetLineNumbersVisible(show_line_numbers);
+    editor->SetHighlightCurrentLineEnabled(highlight_current_line);
+    editor->SetBracketMatchingEnabled(bracket_matching);
+    editor->setLineWrapMode(word_wrap ? QPlainTextEdit::WidgetWidth
+                                      : QPlainTextEdit::NoWrap);
+}
+
+void MainWindow::UpdateViewActionChecks() {
+    if (action_toggle_browser_) {
+        action_toggle_browser_->setChecked(file_browser_ && file_browser_->isVisible());
+    }
+    if (action_toggle_toolbar_) {
+        action_toggle_toolbar_->setChecked(main_toolbar_ && main_toolbar_->isVisible());
+    }
+    if (action_toggle_statusbar_) {
+        action_toggle_statusbar_->setChecked(statusBar() && statusBar()->isVisible());
+    }
+
+    const bool bottom_visible = bottom_tabs_ && bottom_tabs_->isVisible();
+    QWidget *bottom_current = bottom_tabs_ ? bottom_tabs_->currentWidget() : nullptr;
+
+    if (action_toggle_output_) {
+        action_toggle_output_->setChecked(bottom_visible && bottom_current == output_panel_);
+    }
+    if (action_toggle_terminal_) {
+        action_toggle_terminal_->setChecked(bottom_visible && bottom_current == terminal_tabs_);
+    }
+    if (action_toggle_git_) {
+        action_toggle_git_->setChecked(bottom_visible && bottom_current == git_panel_);
+    }
+    if (action_toggle_build_) {
+        action_toggle_build_->setChecked(bottom_visible && bottom_current == build_panel_);
+    }
+    if (action_toggle_debug_) {
+        action_toggle_debug_->setChecked(bottom_visible && bottom_current == debug_panel_);
+    }
+}
+
+void MainWindow::AutoSaveModifiedFiles() {
+    int saved_count = 0;
+
+    for (int i = 0; i < editor_tabs_->count(); ++i) {
+        auto info_it = tab_info_.find(i);
+        if (info_it == tab_info_.end() || info_it->second.file_path.isEmpty()) {
+            continue;
+        }
+
+        CodeEditor *editor = EditorAt(i);
+        if (!editor || !editor->document()->isModified()) {
+            continue;
+        }
+
+        QFile file(info_it->second.file_path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            continue;
+        }
+
+        QTextStream stream(&file);
+        stream << editor->toPlainText();
+        file.close();
+
+        editor->document()->setModified(false);
+        UpdateTabTitle(i, false);
+        ++saved_count;
+    }
+
+    if (saved_count > 0) {
+        status_message_->setText(
+            QString("Auto-saved %1 file%2")
+                .arg(saved_count)
+                .arg(saved_count == 1 ? "" : "s"));
+    }
+}
+
+void MainWindow::ApplySettings() {
+    QSettings settings("PolyglotCompiler", "IDE");
+
+    // Global font preferences
+    QFont app_font = QApplication::font();
+    app_font.setFamily(settings.value("appearance/font_family", app_font.family()).toString());
+    app_font.setPointSize(qBound(8, settings.value("appearance/font_size", 11).toInt(), 32));
+    QApplication::setFont(app_font);
+
+    const bool show_toolbar = settings.value("appearance/show_toolbar", true).toBool();
+    const bool show_statusbar = settings.value("appearance/show_statusbar", true).toBool();
+    if (main_toolbar_) {
+        main_toolbar_->setVisible(show_toolbar);
+    }
+    if (statusBar()) {
+        statusBar()->setVisible(show_statusbar);
+    }
+
+    // Theme
+    static const QStringList theme_names = {"Dark", "Light", "Monokai", "Solarized Dark"};
+    int theme_idx = qBound(0, settings.value("appearance/theme", 0).toInt(),
+                           theme_names.size() - 1);
+    ThemeManager::Instance().SetActiveTheme(theme_names[theme_idx]);
+    ApplyTheme();
+
+    // Compiler defaults
+    const int default_target = qBound(
+        0, settings.value("compiler/default_target", 0).toInt(),
+        qMax(0, target_combo_->count() - 1));
+    const int default_opt = qBound(
+        0, settings.value("compiler/default_opt_level", 0).toInt(),
+        qMax(0, opt_level_combo_->count() - 1));
+    target_combo_->setCurrentIndex(default_target);
+    opt_level_combo_->setCurrentIndex(default_opt);
+
+    // Only apply default language directly when there is no open editor yet.
+    if (editor_tabs_->count() == 0) {
+        const int default_lang = qBound(
+            0, settings.value("compiler/default_language", 0).toInt(),
+            qMax(0, language_combo_->count() - 1));
+        language_combo_->setCurrentIndex(default_lang);
+    }
+
+    // Real-time analysis
+    realtime_analysis_enabled_ = settings.value("compiler/realtime_analysis", true).toBool();
+    const int analysis_delay_ms = qBound(
+        100, settings.value("compiler/analysis_delay", 500).toInt(), 5000);
+    if (analysis_timer_) {
+        analysis_timer_->setInterval(analysis_delay_ms);
+        if (!realtime_analysis_enabled_) {
+            analysis_timer_->stop();
+        }
+    }
+
+    // Auto-save
+    const bool auto_save = settings.value("editor/auto_save", false).toBool();
+    const int auto_save_interval_s = qBound(
+        5, settings.value("editor/auto_save_interval", 30).toInt(), 300);
+    if (auto_save_timer_) {
+        if (auto_save) {
+            auto_save_timer_->start(auto_save_interval_s * 1000);
+        } else {
+            auto_save_timer_->stop();
+        }
+    }
+
+    // Encoding indicator
+    static const QStringList encodings = {
+        "UTF-8", "UTF-16", "ASCII", "Latin-1", "Shift-JIS", "GB2312"};
+    const int encoding_idx = qBound(
+        0, settings.value("editor/encoding", 0).toInt(), encodings.size() - 1);
+    status_encoding_->setText(encodings[encoding_idx]);
+
+    for (int i = 0; i < editor_tabs_->count(); ++i) {
+        ApplyEditorSettings(EditorAt(i));
+    }
+
+    if (CodeEditor *editor = CurrentEditor()) {
+        action_toggle_linenumbers_->setChecked(editor->LineNumbersVisible());
+        action_toggle_wordwrap_->setChecked(
+            editor->lineWrapMode() != QPlainTextEdit::NoWrap);
+    }
+
+    // ── Propagate environment/build/debug paths to panels ────────────────
+    // Build panel: set cmake path, build directory, generator, and jobs
+    if (build_panel_) {
+        QString cmake_path = settings.value("environment/cmake_path").toString();
+        if (!cmake_path.isEmpty()) {
+            build_panel_->SetCmakePath(cmake_path);
+        }
+
+        QString build_dir = settings.value("build/build_dir", "build").toString();
+        if (!build_dir.isEmpty() && file_browser_ && !file_browser_->RootPath().isEmpty()) {
+            QString full_build_dir = build_dir;
+            if (QDir::isRelativePath(build_dir)) {
+                full_build_dir = file_browser_->RootPath() + "/" + build_dir;
+            }
+            build_panel_->SetBuildDir(full_build_dir);
+            build_panel_->SetProjectPath(file_browser_->RootPath());
+        }
+    }
+
+    // Debug panel: set debugger path, working directory, break-on-entry
+    if (debug_panel_) {
+        QString debugger_path = settings.value("debug/debugger_path").toString();
+        if (!debugger_path.isEmpty()) {
+            debug_panel_->SetDebuggerPath(debugger_path);
+        }
+
+        if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
+            debug_panel_->SetWorkingDirectory(file_browser_->RootPath());
+        }
+
+        bool break_on_entry = settings.value("debug/break_on_entry", false).toBool();
+        debug_panel_->SetBreakOnEntry(break_on_entry);
+    }
+
+    // Apply custom keybindings
+    ApplyCustomKeybindings();
+
+    UpdateViewActionChecks();
+}
+
 // ============================================================================
 // Language Detection
 // ============================================================================
+
+void MainWindow::ApplyTheme() {
+    const auto &tm = ThemeManager::Instance();
+
+    // Menu bar
+    menuBar()->setStyleSheet(tm.MenuBarStylesheet());
+
+    // Toolbar
+    if (main_toolbar_) {
+        main_toolbar_->setStyleSheet(tm.ToolBarStylesheet());
+    }
+
+    // Status bar
+    statusBar()->setStyleSheet(tm.StatusBarStylesheet());
+
+    // Editor tabs
+    if (editor_tabs_) {
+        editor_tabs_->setStyleSheet(tm.TabWidgetStylesheet(false));
+    }
+
+    // Bottom tabs
+    if (bottom_tabs_) {
+        bottom_tabs_->setStyleSheet(tm.TabWidgetStylesheet(true));
+    }
+
+    // Terminal tabs
+    if (terminal_tabs_) {
+        terminal_tabs_->setStyleSheet(tm.TabWidgetStylesheet(false));
+    }
+
+    // Combo boxes in toolbar
+    QString combo_ss = tm.ComboBoxStylesheet();
+    if (language_combo_) language_combo_->setStyleSheet(combo_ss);
+    if (target_combo_)   target_combo_->setStyleSheet(combo_ss);
+    if (opt_level_combo_) opt_level_combo_->setStyleSheet(combo_ss);
+
+    // Toolbar labels
+    const auto &tc = tm.Active();
+    QString label_ss = QString("QLabel { color: %1; font-size: 12px; }").arg(tc.text.name());
+    for (auto *w : main_toolbar_->findChildren<QLabel *>()) {
+        w->setStyleSheet(label_ss);
+    }
+
+    // Editors
+    QString editor_ss = tm.EditorStylesheet();
+    for (int i = 0; i < editor_tabs_->count(); ++i) {
+        if (auto *ed = EditorAt(i)) {
+            ed->setStyleSheet(editor_ss);
+        }
+    }
+}
+
+void MainWindow::ApplyCustomKeybindings() {
+    QSettings settings("PolyglotCompiler", "IDE");
+
+    // Map of action IDs to QAction pointers
+    struct ActionMapping { const char *id; QAction *action; };
+    ActionMapping mappings[] = {
+        {"new_file",        action_new_},
+        {"open_file",       action_open_},
+        {"save",            action_save_},
+        {"save_all",        action_save_all_},
+        {"close_tab",       action_close_tab_},
+        {"undo",            action_undo_},
+        {"redo",            action_redo_},
+        {"find",            action_find_},
+        {"replace",         action_replace_},
+        {"goto_line",       action_goto_line_},
+        {"compile",         action_compile_},
+        {"compile_run",     action_compile_run_},
+        {"analyze",         action_analyze_},
+        {"stop",            action_stop_},
+        {"toggle_explorer", action_toggle_browser_},
+        {"toggle_output",   action_toggle_output_},
+        {"toggle_terminal", action_toggle_terminal_},
+        {"new_terminal",    action_new_terminal_},
+        {"zoom_in",         action_zoom_in_},
+        {"zoom_out",        action_zoom_out_},
+        {"zoom_reset",      action_zoom_reset_},
+        {"debug_start",     action_debug_start_},
+        {"debug_stop",      action_debug_stop_},
+        {"step_over",       action_debug_step_over_},
+        {"step_into",       action_debug_step_into_},
+        {"step_out",        action_debug_step_out_},
+        {"settings",        action_settings_},
+        {"toggle_git",      action_toggle_git_},
+    };
+
+    // Read custom keybindings
+    int count = settings.beginReadArray("keybindings");
+    QMap<QString, QKeySequence> custom_shortcuts;
+    for (int i = 0; i < count; ++i) {
+        settings.setArrayIndex(i);
+        QString action_id = settings.value("action").toString();
+        QString seq_str = settings.value("shortcut").toString();
+        if (!action_id.isEmpty() && !seq_str.isEmpty()) {
+            custom_shortcuts[action_id] = QKeySequence(seq_str);
+        }
+    }
+    settings.endArray();
+
+    // Apply custom shortcuts
+    for (const auto &m : mappings) {
+        if (!m.action) continue;
+        auto it = custom_shortcuts.find(m.id);
+        if (it != custom_shortcuts.end()) {
+            m.action->setShortcut(it.value());
+        }
+    }
+}
 
 QString MainWindow::DetectLanguage(const QString &filename) const {
     QString ext = QFileInfo(filename).suffix().toLower();
@@ -1451,8 +2085,9 @@ void MainWindow::AppendOutput(const QString &text) {
     output_panel_->AppendOutput(text);
 }
 
-void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics) {
-    output_panel_->ShowDiagnostics(diagnostics);
+void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
+                                 const QString &file) {
+    output_panel_->ShowDiagnostics(diagnostics, file);
 }
 
 // ============================================================================
@@ -1461,12 +2096,50 @@ void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics)
 
 void MainWindow::RestoreState() {
     QSettings settings("PolyglotCompiler", "IDE");
-    restoreGeometry(settings.value("geometry").toByteArray());
+    if (settings.contains("geometry")) {
+        restoreGeometry(settings.value("geometry").toByteArray());
+    }
+    if (settings.contains("window_state")) {
+        QMainWindow::restoreState(settings.value("window_state").toByteArray());
+    }
+    if (settings.contains("layout/main_splitter")) {
+        main_splitter_->restoreState(settings.value("layout/main_splitter").toByteArray());
+    }
+    if (settings.contains("layout/vertical_splitter")) {
+        vertical_splitter_->restoreState(
+            settings.value("layout/vertical_splitter").toByteArray());
+    }
+
+    const QString root_path = settings.value("workspace/root_path").toString();
+    if (!root_path.isEmpty() && QDir(root_path).exists()) {
+        file_browser_->SetRootPath(root_path);
+    }
+
+    const bool show_browser = settings.value("view/show_file_browser", true).toBool();
+    const bool show_bottom = settings.value("view/show_bottom_panel", true).toBool();
+    file_browser_->setVisible(show_browser);
+    bottom_tabs_->setVisible(show_bottom);
+
+    const int bottom_index = settings.value("view/bottom_panel_index", 0).toInt();
+    if (bottom_index >= 0 && bottom_index < bottom_tabs_->count()) {
+        bottom_tabs_->setCurrentIndex(bottom_index);
+    }
+
+    UpdateViewActionChecks();
 }
 
 void MainWindow::SaveState() {
     QSettings settings("PolyglotCompiler", "IDE");
     settings.setValue("geometry", saveGeometry());
+    settings.setValue("window_state", QMainWindow::saveState());
+    settings.setValue("layout/main_splitter", main_splitter_->saveState());
+    settings.setValue("layout/vertical_splitter", vertical_splitter_->saveState());
+    settings.setValue("workspace/root_path", file_browser_->RootPath());
+    settings.setValue("view/show_file_browser", file_browser_->isVisible());
+    settings.setValue("view/show_bottom_panel", bottom_tabs_->isVisible());
+    settings.setValue("view/bottom_panel_index", bottom_tabs_->currentIndex());
+    settings.setValue("appearance/show_toolbar", main_toolbar_->isVisible());
+    settings.setValue("appearance/show_statusbar", statusBar()->isVisible());
 }
 
 // ============================================================================

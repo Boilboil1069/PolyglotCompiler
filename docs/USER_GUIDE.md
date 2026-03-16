@@ -4,8 +4,8 @@
 > Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v5.4  
-**Last Updated**: 2026-03-11
+**Version**: v1.0.0  
+**Last Updated**: 2026-03-15
 
 ---
 
@@ -1312,7 +1312,7 @@ By default, `polyc` prints detailed progress to stderr:
 
 ```
 ========================================
- PolyglotCompiler v5.0  (polyc)
+ PolyglotCompiler v1.0.0  (polyc)
 ========================================
 [polyc] Source: basic_linking.ploy
 [polyc] Language: ploy (auto-detected)
@@ -1537,8 +1537,9 @@ tools/ui/
 ├── common/          # Shared cross-platform code (compiled on all platforms)
 │   ├── src/         #   mainwindow.cpp, code_editor.cpp, syntax_highlighter.cpp,
 │   │                #   file_browser.cpp, output_panel.cpp, compiler_service.cpp,
-│   │                #   settings_dialog.cpp, git_panel.cpp, build_panel.cpp, debug_panel.cpp
-│   └── include/     #   Corresponding header files
+│   │                #   settings_dialog.cpp, git_panel.cpp, build_panel.cpp,
+│   │                #   debug_panel.cpp, theme_manager.cpp
+│   └── include/     #   Corresponding header files (incl. theme_manager.h)
 ├── windows/         # Windows-specific entry point (main.cpp)
 ├── linux/           # Linux-specific entry point (main.cpp)
 └── macos/           # macOS-specific entry point (main.cpp)
@@ -1570,11 +1571,14 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | **Bracket Matching** | Highlights matching brackets / parentheses / braces at the cursor position |
 | **Auto-indent** | Maintains indentation level on new lines |
 | **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
-| **Dark Theme** | Built-in dark color scheme via QPalette |
+| **Dark Theme** | Unified theme management via ThemeManager with 4 built-in colour schemes (Dark, Light, Monokai, Solarized Dark); all panels switch in unison |
+| **Compile & Run** | One-click compile and run (`Ctrl+R`) — automatically locates the output binary and launches it via QProcess with stdout/stderr streamed to the log panel; stop a running process with `Ctrl+Shift+R` |
 | **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage |
+| **Custom Keybindings** | Edit shortcuts in the Key Bindings settings page via QKeySequenceEdit; apply, reset per-action; custom shortcuts are persisted via QSettings and loaded at startup |
+| **Settings Linkage** | CMake path, build directory, debugger path and other settings automatically propagate to the Build and Debug panels; changes take effect immediately |
 | **Git Integration** | Built-in Git panel with status, staging, commit, branch management, push/pull/fetch, diff viewer, log history, and stash support |
 | **Build System** | CMake integration panel with configure/build/clean, generator and build-type selection, target discovery, and error parsing |
-| **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, call stack, variable inspection, watch expressions, and debug console |
+| **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, full call-stack frame parsing (module, function, file, line), variable type/value parsing, live watch-expression evaluation with result updates, watch context menu (Remove / Remove All / Evaluate), break-on-entry option, and debug console |
 
 ### Keyboard Shortcuts
 
@@ -1590,6 +1594,8 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | Cut / Copy / Paste |
 | `Ctrl+F` | Find |
 | `Ctrl+B` | Compile current file |
+| `Ctrl+R` | Compile and run current file |
+| `Ctrl+Shift+R` | Stop running process |
 | `Ctrl+Shift+B` | Analyze current file (diagnostics only) |
 | `` Ctrl+` `` | Toggle integrated terminal |
 | `` Ctrl+Shift+` `` | Open new terminal instance |
@@ -2277,9 +2283,52 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - Rust Compiler: https://github.com/rust-lang/rust
 - PEP 440: https://peps.python.org/pep-0440/
 
-## 13.5 Changelog
+## 13.5 Release Packaging
 
-### v5.4 (2026-03-11)
+PolyglotCompiler provides platform-specific scripts to build release packages:
+
+| Platform | Script | Output |
+|----------|--------|--------|
+| Windows | `scripts/package_windows.ps1` | Portable `.zip` + NSIS installer `.exe` |
+| Linux | `scripts/package_linux.sh` | Portable `.tar.gz` |
+| macOS | `scripts/package_macos.sh` | Portable `.tar.gz` (with `.app` bundle) |
+
+```bash
+# Windows (PowerShell)
+.\scripts\package_windows.ps1
+
+# Linux
+./scripts/package_linux.sh
+
+# macOS
+./scripts/package_macos.sh
+```
+
+See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
+
+## 13.6 Changelog
+
+### v1.0.0 (2026-03-15)
+- ✅ Project version unified to **1.0.0** (all previous v5.x/v4.x versions renumbered to v0.5.x/v0.4.x)
+- ✅ Release packaging scripts for all 3 platforms (`scripts/package_windows.ps1`, `scripts/package_linux.sh`, `scripts/package_macos.sh`)
+- ✅ Windows: portable ZIP archive + NSIS installer (`scripts/installer.nsi`) with PATH registration and Start Menu shortcuts
+- ✅ Linux: portable `.tar.gz` with Qt library bundling and wrapper script
+- ✅ macOS: portable `.tar.gz` with `macdeployqt` integration for `.app` bundle
+- ✅ Packaging documentation (`docs/specs/release_packaging.md` / `_zh.md`)
+- ✅ Version references updated across CMakeLists.txt, all tool source files, README.md, and USER_GUIDE (EN/ZH)
+
+### v0.5.5 (2026-03-15)
+- ✅ Unified theme system via `ThemeManager` singleton — 4 built-in colour schemes (Dark, Light, Monokai, Solarized Dark); all panels (main window, build, debug, git, settings) apply styles from a single source
+- ✅ Compile & Run (`Ctrl+R`): QProcess-based workflow compiles current file, locates output binary, and launches it with stdout/stderr streamed to the log panel
+- ✅ Stop (`Ctrl+Shift+R`): terminates a running process and cancels an active build
+- ✅ Debug panel: full call-stack frame parsing for both lldb and GDB/MI output (module, function, file, line); variable type/value extraction; watch expression evaluation with live result updates
+- ✅ Debug panel: watch context menu (Remove / Remove All / Evaluate) wired to `OnRemoveWatch` and `OnEvaluateWatch`
+- ✅ Debug panel: configurable debugger path and break-on-entry option from Settings
+- ✅ Custom keybindings: editable via `QKeySequenceEdit` in Settings → Key Bindings page; 28 default actions; custom shortcuts persisted in `QSettings` and applied at startup
+- ✅ Settings linkage: CMake path, build directory, and debugger path automatically propagate to `BuildPanel` and `DebugPanel` on apply
+- ✅ New source file `theme_manager.cpp` / `theme_manager.h` added to `tools/ui/common/`
+
+### v0.5.4 (2026-03-11)
 - ✅ Qt-based desktop IDE (`polyui`): syntax highlighting, real-time diagnostics, file browser, tabbed editor, output panel, bracket matching, dark theme
 - ✅ IDE uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages
 - ✅ IDE keyboard shortcuts: Ctrl+B compile, Ctrl+Shift+B analyze, Ctrl+N/O/S/W file management
@@ -2294,7 +2343,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Ploy frontend expanded to 6 compilation units (added `command_runner.cpp`, `package_discovery_cache.cpp`)
 - ✅ Updated all documentation (README, USER_GUIDE EN/ZH, tutorials) with current statistics
 
-### v5.2 (2026-02-22)
+### v0.5.2 (2026-02-22)
 - ✅ New `PloySemaOptions` configuration struct with `enable_package_discovery` switch
 - ✅ `PloySema` constructor accepts options; backward-compatible default constructor preserved
 - ✅ Session-level `PackageDiscoveryCache` — thread-safe, keyed by `language|manager|env_path`
@@ -2306,7 +2355,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ CTest: `benchmark_fast` and `benchmark_full` targets with labels
 - ✅ Discovery unit tests: disabled-no-cmd, repeated-analyze-once, key-isolation, cache-roundtrip
 
-### v5.1 (2026-02-22)
+### v0.5.1 (2026-02-22)
 - ✅ Linker strong failure mode — unresolved symbols are hard errors; placeholder stubs no longer generated
 - ✅ Linker main flow fatal when cross-language entries exist but resolution fails
 - ✅ `polyc` and `polyasm` now accept `--arch=wasm` for WebAssembly target
@@ -2322,7 +2371,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Rust advanced_features_test.cpp: all `REQUIRE(true)` replaced with behavioral parse + AST assertions
 - ✅ E2E tests: added ARM64 object code emission test and WASM multi-function binary smoke test
 
-### v5.0 (2026-02-22)
+### v0.5.0 (2026-02-22)
 - ✅ Full project documentation update — all docs refreshed to reflect current state
 - ✅ WebAssembly (WASM) backend added (`backends/wasm/`)
 - ✅ Unified DWARF builder compiled into `polyglot_common` library
@@ -2344,7 +2393,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ 16 sample programs (was 12)
 - ✅ Total: 813 test cases across 3 suites (743 unit + 52 integration + 18 benchmark)
 
-### v4.3 (2026-02-20)
+### v0.4.3 (2026-02-20)
 - ✅ Added cross-language object destruction `DELETE` keyword
 - ✅ Added cross-language class extension `EXTEND` keyword
 - ✅ Enhanced diagnostics infrastructure: severity levels, error codes (1xxx-5xxx), traceback chains, suggestions
@@ -2355,7 +2404,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ 36 new test cases, total 207 test cases, 598 assertions
 - ✅ Keywords count 52 → 54
 
-### v4.2 (2026-02-20)
+### v0.4.2 (2026-02-20)
 - ✅ Added cross-language attribute access `GET` and assignment `SET` keywords
 - ✅ Added automatic resource management `WITH` keyword
 - ✅ Added type annotations with qualified types
@@ -2365,14 +2414,14 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Bilingual documentation (USER_GUIDE.md / USER_GUIDE_zh.md)
 - ✅ Keywords count 49 → 52
 
-### v4.1 (2026-02-20)
+### v0.4.1 (2026-02-20)
 - ✅ Added cross-language class instantiation `NEW` and method call `METHOD` keywords
 - ✅ AST / Lexer / Parser / Sema / IR Lowering full chain implementation
 - ✅ 22 new test cases, total 140 test cases, 443 assertions
 - ✅ Bilingual feature documentation (`class_instantiation.md` / `class_instantiation_zh.md`)
 - ✅ Keywords count 47 → 49
 
-### v5.3 (2026-02-22)
+### v0.5.3 (2026-02-22)
 - ✅ Broke `common` ↔ `middle` circular dependency — canonical IR headers now live in `middle/include/ir/`; `common/include/ir/` contains forwarding shims for backward compatibility
 - ✅ Added CI include-lint script (`scripts/check_include_deps.py`) enforcing layer constraints: `middle/` must not include `common/include/ir/`, backends must not include frontends
 - ✅ Unified debug-info modelling — added `common/include/debug/debug_info_adapter.h` with `ConvertToBackendDebugInfo()` bridging `polyglot::debug` (rich DWARF model) and `polyglot::backends` (flat emission model)
@@ -2380,28 +2429,28 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - ✅ Added runtime C ABI reference documentation (`docs/specs/runtime_abi.md` / `_zh.md`)
 - ✅ Unified tool-layer namespaces: `polyc` and `polybench` now use `namespace polyglot::tools`, matching `polyasm` / `polyopt` / `polyrt`
 
-### v4.0 (2026-02-19)
+### v0.4.0 (2026-02-19)
 - ✅ Added complete .ploy cross-language linking frontend chapter
 - ✅ Multi-package-manager support: CONFIG CONDA / UV / PIPENV / POETRY
 - ✅ Version constraint verification (6 operators)
 - ✅ Selective import
 - ✅ 117+ test cases, 361+ assertions
-- ✅ Comprehensive review and rewrite of the complete guide (v3.0 → v4.0)
+- ✅ Comprehensive review and rewrite of the complete guide (v0.3.0 → v0.4.0)
 - ✅ Precise description of compilation flow (PolyglotCompiler's own frontends, no external compilers)
 
-### v3.0 (2026-02-01)
+### v0.3.0 (2026-02-01)
 - ✅ Chapters 11-15 (implementation analysis / testing / advanced optimisations / achievements)
 - ✅ 33+ optimisation passes, 4 GC algorithms
 - ✅ PGO/LTO/DWARF5 support
 
-### v2.0 (2026-01-29)
+### v0.2.0 (2026-01-29)
 - ✅ Loop optimisation, GVN, constexpr, DWARF 5
 
-### v1.0 (2026-01-15)
+### v0.1.0 (2026-01-15)
 - ✅ Basic compilation chain: 3 frontends, 2 backends, basic optimisations
 
 ---
 
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-03-11*  
-*Document Version: v5.4*
+*Last Updated: 2026-03-15*  
+*Document Version: v1.0.0*

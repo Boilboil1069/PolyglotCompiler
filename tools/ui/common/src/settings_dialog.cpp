@@ -4,6 +4,7 @@
 // settings via QSettings, and Apply/OK/Cancel workflow.
 
 #include "tools/ui/common/include/settings_dialog.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QDialogButtonBox>
 #include <QFileDialog>
@@ -46,12 +47,7 @@ void SettingsDialog::SetupUi() {
     // Left: category list
     category_list_ = new QListWidget();
     category_list_->setFixedWidth(180);
-    category_list_->setStyleSheet(
-        "QListWidget { background: #252526; color: #cccccc; border: none; "
-        "font-size: 13px; outline: none; }"
-        "QListWidget::item { padding: 10px 15px; }"
-        "QListWidget::item:selected { background: #094771; color: #ffffff; }"
-        "QListWidget::item:hover { background: #383838; }");
+    category_list_->setStyleSheet(ThemeManager::Instance().ListWidgetStylesheet());
 
     category_list_->addItem("Appearance");
     category_list_->addItem("Editor");
@@ -66,26 +62,17 @@ void SettingsDialog::SetupUi() {
 
     // Right: stacked pages
     pages_ = new QStackedWidget();
-    pages_->setStyleSheet(
-        "QGroupBox { color: #cccccc; font-weight: bold; border: 1px solid #555; "
-        "border-radius: 4px; margin-top: 8px; padding-top: 16px; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 10px; "
-        "padding: 0 5px; }"
-        "QLabel { color: #cccccc; }"
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 4px 8px; }"
-        "QSpinBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 2px; }"
-        "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 2px 8px; }"
-        "QComboBox QAbstractItemView { background: #252526; color: #cccccc; "
-        "selection-background-color: #094771; }"
-        "QCheckBox { color: #cccccc; spacing: 6px; }"
-        "QCheckBox::indicator { width: 16px; height: 16px; }"
-        "QPushButton { background: #0e639c; color: #ffffff; border: none; "
-        "border-radius: 3px; padding: 6px 16px; }"
-        "QPushButton:hover { background: #1177bb; }"
-        "QPushButton:pressed { background: #094771; }");
+    {
+        const auto &tm = ThemeManager::Instance();
+        pages_->setStyleSheet(
+            tm.GroupBoxStylesheet() +
+            tm.LabelStylesheet() +
+            tm.LineEditStylesheet() +
+            tm.SpinBoxStylesheet() +
+            tm.ComboBoxStylesheet() +
+            tm.CheckBoxStylesheet() +
+            tm.PushButtonPrimaryStylesheet());
+    }
 
     pages_->addWidget(CreateAppearancePage());
     pages_->addWidget(CreateEditorPage());
@@ -105,11 +92,7 @@ void SettingsDialog::SetupUi() {
     auto *button_box = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply |
         QDialogButtonBox::RestoreDefaults);
-    button_box->setStyleSheet(
-        "QPushButton { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 6px 16px; }"
-        "QPushButton:hover { background: #505050; }"
-        "QPushButton:default { background: #0e639c; color: #ffffff; border: none; }");
+    button_box->setStyleSheet(ThemeManager::Instance().PushButtonStylesheet());
 
     connect(button_box->button(QDialogButtonBox::Ok), &QPushButton::clicked,
             this, &SettingsDialog::OnOk);
@@ -122,7 +105,7 @@ void SettingsDialog::SetupUi() {
 
     outer_layout->addWidget(button_box);
 
-    setStyleSheet("QDialog { background: #2d2d30; }");
+    setStyleSheet(ThemeManager::Instance().DialogStylesheet());
     category_list_->setCurrentRow(0);
 }
 
@@ -403,50 +386,190 @@ QWidget *SettingsDialog::CreateKeybindingsPage() {
     auto *page = new QWidget();
     auto *layout = new QVBoxLayout(page);
 
-    auto *info_label = new QLabel(
-        "Keyboard shortcuts are currently based on the default VS Code-style "
-        "key bindings. Custom key binding support will be available in a "
-        "future release.");
-    info_label->setWordWrap(true);
-    info_label->setStyleSheet("QLabel { color: #999999; padding: 10px; }");
-    layout->addWidget(info_label);
+    PopulateDefaultKeybindings();
+    LoadKeybindings();
 
-    auto *table = new QTreeWidget();
-    table->setHeaderLabels({"Action", "Shortcut"});
-    table->setRootIsDecorated(false);
-    table->setAlternatingRowColors(true);
-    table->setStyleSheet(
-        "QTreeWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "alternate-background-color: #252526; }"
-        "QTreeWidget::item { padding: 4px; }"
-        "QHeaderView::section { background: #333333; color: #cccccc; "
-        "border: none; padding: 4px; }");
+    keybinding_tree_ = new QTreeWidget();
+    keybinding_tree_->setHeaderLabels({"Action", "Shortcut", "Default"});
+    keybinding_tree_->setRootIsDecorated(false);
+    keybinding_tree_->setAlternatingRowColors(true);
+    keybinding_tree_->setStyleSheet(
+        ThemeManager::Instance().TreeWidgetStylesheet() +
+        " QTreeWidget { alternate-background-color: " +
+        ThemeManager::Instance().Active().surface_alt.name() + "; }");
+    keybinding_tree_->setColumnWidth(0, 250);
+    keybinding_tree_->setColumnWidth(1, 180);
+    keybinding_tree_->header()->setStretchLastSection(true);
 
-    struct KeyBinding { const char *action; const char *shortcut; };
-    static const KeyBinding bindings[] = {
-        {"New File", "Ctrl+N"}, {"Open File", "Ctrl+O"},
-        {"Save", "Ctrl+S"}, {"Save All", "Ctrl+Shift+S"},
-        {"Close Tab", "Ctrl+W"}, {"Undo", "Ctrl+Z"},
-        {"Redo", "Ctrl+Y"}, {"Find", "Ctrl+F"},
-        {"Replace", "Ctrl+H"}, {"Go to Line", "Ctrl+G"},
-        {"Compile", "Ctrl+Shift+B"}, {"Compile & Run", "F5"},
-        {"Analyze", "Ctrl+Shift+A"}, {"Toggle Explorer", "Ctrl+B"},
-        {"Toggle Output", "Ctrl+J"}, {"Toggle Terminal", "Ctrl+`"},
-        {"New Terminal", "Ctrl+Shift+`"}, {"Zoom In", "Ctrl++"},
-        {"Zoom Out", "Ctrl+-"}, {"Zoom Reset", "Ctrl+0"},
-        {"Start Debug", "F5"}, {"Stop Debug", "Shift+F5"},
-        {"Step Over", "F10"}, {"Step Into", "F11"},
-        {"Step Out", "Shift+F11"}, {"Toggle Breakpoint", "F9"},
-    };
-    for (const auto &b : bindings) {
-        auto *item = new QTreeWidgetItem({b.action, b.shortcut});
-        table->addTopLevelItem(item);
+    // Populate tree from entries
+    for (const auto &entry : keybinding_entries_) {
+        auto *item = new QTreeWidgetItem({
+            entry.display_name,
+            entry.custom_shortcut.isEmpty()
+                ? entry.default_shortcut.toString(QKeySequence::NativeText)
+                : entry.custom_shortcut.toString(QKeySequence::NativeText),
+            entry.default_shortcut.toString(QKeySequence::NativeText)
+        });
+        item->setData(0, Qt::UserRole, entry.action_id);
+        // Mark customized entries
+        if (!entry.custom_shortcut.isEmpty() &&
+            entry.custom_shortcut != entry.default_shortcut) {
+            item->setForeground(1, ThemeManager::Instance().Active().accent);
+        }
+        keybinding_tree_->addTopLevelItem(item);
     }
-    table->header()->setStretchLastSection(true);
-    table->setColumnWidth(0, 300);
-    layout->addWidget(table, 1);
+    layout->addWidget(keybinding_tree_, 1);
+
+    // Editing row
+    auto *edit_row = new QHBoxLayout();
+    edit_row->setContentsMargins(4, 8, 4, 4);
+
+    auto *edit_label = new QLabel("New shortcut:");
+    edit_label->setStyleSheet(ThemeManager::Instance().LabelStylesheet());
+    edit_row->addWidget(edit_label);
+
+    shortcut_edit_ = new QKeySequenceEdit();
+    shortcut_edit_->setStyleSheet(ThemeManager::Instance().LineEditStylesheet());
+    edit_row->addWidget(shortcut_edit_, 1);
+
+    apply_shortcut_button_ = new QPushButton("Apply");
+    apply_shortcut_button_->setStyleSheet(ThemeManager::Instance().PushButtonPrimaryStylesheet());
+    connect(apply_shortcut_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = keybinding_tree_->currentItem();
+        if (!item) return;
+
+        QKeySequence seq = shortcut_edit_->keySequence();
+        QString action_id = item->data(0, Qt::UserRole).toString();
+
+        for (auto &entry : keybinding_entries_) {
+            if (entry.action_id == action_id) {
+                entry.custom_shortcut = seq;
+                item->setText(1, seq.toString(QKeySequence::NativeText));
+                if (seq != entry.default_shortcut) {
+                    item->setForeground(1, ThemeManager::Instance().Active().accent);
+                } else {
+                    item->setForeground(1, ThemeManager::Instance().Active().text);
+                }
+                break;
+            }
+        }
+    });
+    edit_row->addWidget(apply_shortcut_button_);
+
+    reset_shortcut_button_ = new QPushButton("Reset");
+    reset_shortcut_button_->setStyleSheet(ThemeManager::Instance().PushButtonStylesheet());
+    connect(reset_shortcut_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = keybinding_tree_->currentItem();
+        if (!item) return;
+
+        QString action_id = item->data(0, Qt::UserRole).toString();
+        for (auto &entry : keybinding_entries_) {
+            if (entry.action_id == action_id) {
+                entry.custom_shortcut = QKeySequence();
+                item->setText(1, entry.default_shortcut.toString(QKeySequence::NativeText));
+                item->setForeground(1, ThemeManager::Instance().Active().text);
+                shortcut_edit_->setKeySequence(entry.default_shortcut);
+                break;
+            }
+        }
+    });
+    edit_row->addWidget(reset_shortcut_button_);
+
+    layout->addLayout(edit_row);
+
+    // When selecting an item, load its current shortcut into the editor
+    connect(keybinding_tree_, &QTreeWidget::currentItemChanged,
+            this, [this](QTreeWidgetItem *current, QTreeWidgetItem *) {
+        if (!current) return;
+        QString action_id = current->data(0, Qt::UserRole).toString();
+        for (const auto &entry : keybinding_entries_) {
+            if (entry.action_id == action_id) {
+                QKeySequence seq = entry.custom_shortcut.isEmpty()
+                                       ? entry.default_shortcut
+                                       : entry.custom_shortcut;
+                shortcut_edit_->setKeySequence(seq);
+                break;
+            }
+        }
+    });
 
     return page;
+}
+
+void SettingsDialog::PopulateDefaultKeybindings() {
+    keybinding_entries_.clear();
+
+    struct Def { const char *id; const char *name; QKeySequence shortcut; };
+    static const Def defs[] = {
+        {"new_file",        "New File",          QKeySequence::New},
+        {"open_file",       "Open File",         QKeySequence::Open},
+        {"save",            "Save",              QKeySequence::Save},
+        {"save_all",        "Save All",          QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S)},
+        {"close_tab",       "Close Tab",         QKeySequence(Qt::CTRL | Qt::Key_W)},
+        {"undo",            "Undo",              QKeySequence::Undo},
+        {"redo",            "Redo",              QKeySequence::Redo},
+        {"find",            "Find",              QKeySequence::Find},
+        {"replace",         "Replace",           QKeySequence::Replace},
+        {"goto_line",       "Go to Line",        QKeySequence(Qt::CTRL | Qt::Key_G)},
+        {"compile",         "Compile",           QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_B)},
+        {"compile_run",     "Compile & Run",     QKeySequence(Qt::Key_F5)},
+        {"analyze",         "Analyze",           QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A)},
+        {"stop",            "Stop",              QKeySequence(Qt::SHIFT | Qt::Key_F5)},
+        {"toggle_explorer", "Toggle Explorer",   QKeySequence(Qt::CTRL | Qt::Key_B)},
+        {"toggle_output",   "Toggle Output",     QKeySequence(Qt::CTRL | Qt::Key_J)},
+        {"toggle_terminal", "Toggle Terminal",   QKeySequence(Qt::CTRL | Qt::Key_QuoteLeft)},
+        {"new_terminal",    "New Terminal",      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_QuoteLeft)},
+        {"zoom_in",         "Zoom In",           QKeySequence::ZoomIn},
+        {"zoom_out",        "Zoom Out",          QKeySequence::ZoomOut},
+        {"zoom_reset",      "Zoom Reset",        QKeySequence(Qt::CTRL | Qt::Key_0)},
+        {"debug_start",     "Start Debugging",   QKeySequence(Qt::Key_F9)},
+        {"debug_stop",      "Stop Debugging",    QKeySequence(Qt::SHIFT | Qt::Key_F5)},
+        {"step_over",       "Step Over",         QKeySequence(Qt::Key_F10)},
+        {"step_into",       "Step Into",         QKeySequence(Qt::Key_F11)},
+        {"step_out",        "Step Out",          QKeySequence(Qt::SHIFT | Qt::Key_F11)},
+        {"settings",        "Settings",          QKeySequence(Qt::CTRL | Qt::Key_Comma)},
+        {"toggle_git",      "Toggle Git Panel",  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_G)},
+    };
+
+    for (const auto &d : defs) {
+        KeyBindingEntry entry;
+        entry.action_id = d.id;
+        entry.display_name = d.name;
+        entry.default_shortcut = d.shortcut;
+        keybinding_entries_.push_back(entry);
+    }
+}
+
+void SettingsDialog::LoadKeybindings() {
+    QSettings s("PolyglotCompiler", "IDE");
+    int count = s.beginReadArray("keybindings");
+    for (int i = 0; i < count; ++i) {
+        s.setArrayIndex(i);
+        QString action_id = s.value("action").toString();
+        QString seq_str = s.value("shortcut").toString();
+        for (auto &entry : keybinding_entries_) {
+            if (entry.action_id == action_id) {
+                entry.custom_shortcut = QKeySequence(seq_str);
+                break;
+            }
+        }
+    }
+    s.endArray();
+}
+
+void SettingsDialog::SaveKeybindings() {
+    QSettings s("PolyglotCompiler", "IDE");
+    s.beginWriteArray("keybindings");
+    int idx = 0;
+    for (const auto &entry : keybinding_entries_) {
+        if (!entry.custom_shortcut.isEmpty() &&
+            entry.custom_shortcut != entry.default_shortcut) {
+            s.setArrayIndex(idx++);
+            s.setValue("action", entry.action_id);
+            s.setValue("shortcut", entry.custom_shortcut.toString());
+        }
+    }
+    s.endArray();
 }
 
 // ============================================================================
@@ -573,11 +696,13 @@ void SettingsDialog::OnCategoryChanged(int row) {
 
 void SettingsDialog::OnApply() {
     SaveSettings();
+    SaveKeybindings();
     emit SettingsChanged();
 }
 
 void SettingsDialog::OnOk() {
     SaveSettings();
+    SaveKeybindings();
     emit SettingsChanged();
     accept();
 }

@@ -382,6 +382,26 @@ All documentation is provided in **bilingual** format (Chinese + English) under 
 
 ---
 
+## Release Packaging / 发布打包
+
+Pre-built release packages can be created with the provided scripts:
+
+```bash
+# Windows (PowerShell) — portable zip + NSIS installer
+.\scripts\package_windows.ps1
+
+# Linux — portable tar.gz
+./scripts/package_linux.sh
+
+# macOS — portable tar.gz with .app bundle
+./scripts/package_macos.sh
+```
+
+See [`docs/specs/release_packaging.md`](docs/specs/release_packaging.md) for full details.  
+详细说明见 [`docs/specs/release_packaging_zh.md`](docs/specs/release_packaging_zh.md)。
+
+---
+
 ## License / 许可证
 
 This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
@@ -389,4 +409,4 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 ---
 
 *Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-03-11 (v5.4)*
+*Last updated / 最后更新: 2026-03-15 (v1.0.0)*

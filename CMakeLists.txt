@@ -1,8 +1,31 @@
 cmake_minimum_required(VERSION 3.20)
-project(PolyglotCompiler LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.0.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Build shared libraries by default so common code is compiled once as
+# DLLs / .so / .dylib instead of being duplicated in every executable.
+option(BUILD_SHARED_LIBS "Build shared libraries instead of static" ON)
+
+if(BUILD_SHARED_LIBS)
+    # On Windows (MSVC) automatically export all symbols from DLLs so we
+    # do not need __declspec(dllexport/dllimport) macros on every function.
+    set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+    # Ensure DLLs are placed next to executables so they can be found at
+    # runtime without modifying PATH.
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
+    # Set RPATH so executables find shared libraries in the same directory
+    # or in ../lib on Linux/macOS without needing LD_LIBRARY_PATH.
+    if(NOT WIN32)
+        set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
+        set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+    endif()
+endif()
 
 # Platform-portable compile options
 if(MSVC)
@@ -62,7 +85,7 @@ target_include_directories(frontend_python PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(frontend_python PUBLIC frontend_common polyglot_common)
+target_link_libraries(frontend_python PUBLIC frontend_common polyglot_common middle_ir)
 
 add_library(frontend_cpp
     frontends/cpp/src/lexer/lexer.cpp
@@ -76,7 +99,7 @@ target_include_directories(frontend_cpp PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(frontend_cpp PUBLIC frontend_common polyglot_common)
+target_link_libraries(frontend_cpp PUBLIC frontend_common polyglot_common middle_ir)
 
 add_library(frontend_rust
     frontends/rust/src/lexer/lexer.cpp
@@ -89,7 +112,7 @@ target_include_directories(frontend_rust PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(frontend_rust PUBLIC frontend_common polyglot_common)
+target_link_libraries(frontend_rust PUBLIC frontend_common polyglot_common middle_ir)
 
 add_library(frontend_ploy
     frontends/ploy/src/lexer/lexer.cpp
@@ -177,7 +200,7 @@ target_include_directories(backend_x86_64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(backend_x86_64 PUBLIC polyglot_common)
+target_link_libraries(backend_x86_64 PUBLIC polyglot_common middle_ir)
 
 add_library(backend_arm64
     backends/arm64/src/asm_printer/emit.cpp
@@ -192,7 +215,7 @@ target_include_directories(backend_arm64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(backend_arm64 PUBLIC polyglot_common)
+target_link_libraries(backend_arm64 PUBLIC polyglot_common middle_ir)
 
 add_library(backend_wasm
     backends/wasm/src/wasm_target.cpp
@@ -268,8 +291,8 @@ target_link_libraries(polyasm
     middle_ir
 )
 
-# Linker library (for unit tests)
-add_library(linker_lib OBJECT
+# Linker library (shared between polyld and unit tests)
+add_library(linker_lib
     tools/polyld/src/linker.cpp
     tools/polyld/src/polyglot_linker.cpp
 )
@@ -286,11 +309,11 @@ target_link_libraries(linker_lib PUBLIC
 target_compile_definitions(linker_lib PRIVATE LINKER_LIBRARY)
 
 add_executable(polyld
-    tools/polyld/src/linker.cpp
-    tools/polyld/src/polyglot_linker.cpp
+    tools/polyld/src/main.cpp
 )
 
 target_link_libraries(polyld
+    polyglot_common
     frontend_ploy
 )
 
@@ -419,6 +442,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         tools/ui/common/src/git_panel.cpp
         tools/ui/common/src/build_panel.cpp
         tools/ui/common/src/debug_panel.cpp
+        tools/ui/common/src/theme_manager.cpp
     )
 
     # Headers with Q_OBJECT must be listed for AUTOMOC
@@ -507,8 +531,8 @@ if(Qt6_FOUND OR Qt5_FOUND)
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_BUNDLE_NAME "PolyglotCompiler IDE"
             MACOSX_BUNDLE_GUI_IDENTIFIER "org.polyglotcompiler.polyui"
-            MACOSX_BUNDLE_BUNDLE_VERSION "5.4"
-            MACOSX_BUNDLE_SHORT_VERSION_STRING "5.4"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         )
 
         # Run macdeployqt to bundle Qt frameworks inside the .app directory.
