@@ -22,8 +22,24 @@ if(BUILD_SHARED_LIBS)
     # Set RPATH so executables find shared libraries in the same directory
     # or in ../lib on Linux/macOS without needing LD_LIBRARY_PATH.
     if(NOT WIN32)
-        set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
-        set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+        if(APPLE)
+            # macOS uses @executable_path / @loader_path (not $ORIGIN).
+            # - @executable_path/../Frameworks : Qt frameworks + custom dylibs
+            #   inside the .app bundle (Contents/Frameworks/).
+            # - @executable_path/../../..      : build-tree fallback — the
+            #   binary lives at <build>/polyui.app/Contents/MacOS/polyui, and
+            #   dylibs are produced directly in <build>/.
+            set(CMAKE_MACOSX_RPATH TRUE)
+            set(CMAKE_INSTALL_RPATH
+                "@executable_path/../Frameworks"
+                "@executable_path/../lib"
+                "@executable_path/../../.."
+            )
+            set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+        else()
+            set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
+            set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+        endif()
     endif()
 endif()
 
@@ -537,7 +553,31 @@ if(Qt6_FOUND OR Qt5_FOUND)
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         )
 
-        # Run macdeployqt to bundle Qt frameworks inside the .app directory.
+        # ── Copy project shared libraries into the .app bundle ──────────
+        # polyui links several project-internal dylibs.  They must live
+        # inside Contents/Frameworks/ so that @executable_path/../Frameworks
+        # resolves at runtime and macdeployqt can rewrite their load paths.
+        set(_POLYUI_DYLIB_TARGETS
+            frontend_python frontend_cpp frontend_rust frontend_ploy
+            frontend_java frontend_dotnet frontend_common
+            backend_x86_64 backend_arm64 backend_wasm
+            middle_ir runtime polyglot_common linker_lib
+        )
+        foreach(_tgt IN LISTS _POLYUI_DYLIB_TARGETS)
+            if(TARGET ${_tgt})
+                add_custom_command(TARGET polyui POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E make_directory
+                        "$<TARGET_BUNDLE_DIR:polyui>/Contents/Frameworks"
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "$<TARGET_FILE:${_tgt}>"
+                        "$<TARGET_BUNDLE_DIR:polyui>/Contents/Frameworks/$<TARGET_FILE_NAME:${_tgt}>"
+                    COMMENT "Copying ${_tgt} into polyui.app/Contents/Frameworks/..."
+                    VERBATIM
+                )
+            endif()
+        endforeach()
+
+        # ── Run macdeployqt to bundle Qt frameworks ─────────────────────
         if(Qt6_FOUND)
             get_target_property(_qt_qmake_mac Qt6::qmake IMPORTED_LOCATION)
         else()

@@ -51,6 +51,15 @@ TerminalWidget::TerminalWidget(QWidget *parent) : QWidget(parent) {
 }
 
 TerminalWidget::~TerminalWidget() {
+    // Disconnect all signals before stopping the shell.  StopShell() calls
+    // waitForFinished() which pumps the event loop.  Without disconnecting,
+    // the QProcess::finished signal fires OnProcessFinished → ShellFinished,
+    // whose connected slots in MainWindow may access already-destroyed parent
+    // widgets (e.g. QTabWidget::indexOf on a deleted QStackedWidget),
+    // causing a use-after-free crash.
+    if (process_) {
+        process_->disconnect(this);
+    }
     StopShell();
 }
 
