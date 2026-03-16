@@ -826,8 +826,12 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             call_ret_type = CoreTypeToIR(sig_it->second.return_type);
         } else {
-            Report(call->loc, "cross-language call to '" + call->function +
-                   "' has unknown return type; defaulting to i64");
+            // Cross-language targets often lack explicit return type info;
+            // this is not an error — just default to i64 and warn.
+            diagnostics_.ReportWarning(call->loc,
+                frontends::ErrorCode::kGenericWarning,
+                "cross-language call to '" + call->function +
+                "' has unknown return type; defaulting to i64");
         }
     }
 
@@ -1411,13 +1415,10 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                 params.emplace_back("arg" + std::to_string(i), pt);
             }
         } else {
-            // No signature information at all — this is a compile error.
-            // The LINK declaration must provide MAP_TYPE entries or the
-            // target function must have a known signature.
-            Report(link.defined_at, "LINK stub '" + link.target_symbol +
-                   "' has no signature information; cannot generate bridge function. "
-                   "Add MAP_TYPE entries to the LINK declaration.");
-            // Generate a minimal stub to avoid cascading errors
+            // No signature information — generate a variadic-style stub with
+            // a single opaque argument.  This is not an error: LINK without
+            // MAP_TYPE is valid when the callee's signature is not needed for
+            // type checking (e.g. the arguments are forwarded as-is).
             params.emplace_back("arg0", ir::IRType::I64(true));
         }
 
@@ -1570,19 +1571,34 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
     if (!type_node) return ir::IRType::I64(true);
 
     if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
-        if (st->name == "INT") return ir::IRType::I64(true);
-        if (st->name == "FLOAT") return ir::IRType::F64();
-        if (st->name == "BOOL") return ir::IRType::I1();
-        if (st->name == "STRING") return ir::IRType::Pointer(ir::IRType::I8());
-        if (st->name == "VOID") return ir::IRType::Void();
+        // Support both upper-case Ploy keywords and lower-case C-style aliases
+        if (st->name == "INT"    || st->name == "i32" || st->name == "i64" ||
+            st->name == "int"    || st->name == "int32" || st->name == "int64")
+            return ir::IRType::I64(true);
+        if (st->name == "FLOAT"  || st->name == "f32" || st->name == "f64" ||
+            st->name == "float"  || st->name == "float32" || st->name == "float64" ||
+            st->name == "double")
+            return ir::IRType::F64();
+        if (st->name == "BOOL"   || st->name == "bool")
+            return ir::IRType::I1();
+        if (st->name == "STRING" || st->name == "string" || st->name == "str")
+            return ir::IRType::Pointer(ir::IRType::I8());
+        if (st->name == "VOID"   || st->name == "void")
+            return ir::IRType::Void();
+        if (st->name == "u8"     || st->name == "byte")
+            return ir::IRType::I8();
+        if (st->name == "u32"    || st->name == "u64")
+            return ir::IRType::I64(false);
         // Check if it is a known struct name in the environment
         auto it = env_.find(st->name);
         if (it != env_.end() && it->second.type.kind == ir::IRTypeKind::kStruct) {
             return it->second.type;
         }
         // Unknown type name — log a diagnostic and fall back to I64
-        diagnostics_.Report(core::SourceLoc{}, "unknown type '" + st->name +
-                            "' in PloyTypeToIR; falling back to i64");
+        diagnostics_.ReportWarning(core::SourceLoc{},
+            frontends::ErrorCode::kGenericWarning,
+            "unknown type '" + st->name +
+            "' in PloyTypeToIR; falling back to i64");
         return ir::IRType::I64(true);
     }
 
@@ -1619,7 +1635,9 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
         return CoreTypeToIR(ct);
     }
 
-    diagnostics_.Report(core::SourceLoc{}, "unrecognized type node in PloyTypeToIR; falling back to i64");
+    diagnostics_.ReportWarning(core::SourceLoc{},
+        frontends::ErrorCode::kGenericWarning,
+        "unrecognized type node in PloyTypeToIR; falling back to i64");
     return ir::IRType::I64(true);
 }
 
@@ -1663,7 +1681,8 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
             // Function types are pointers to function descriptors
             return ir::IRType::Pointer(ir::IRType::I8());
         default:
-            diagnostics_.Report(core::SourceLoc{},
+            diagnostics_.ReportWarning(core::SourceLoc{},
+                                frontends::ErrorCode::kGenericWarning,
                                 "unknown core type kind " +
                                 std::to_string(static_cast<int>(ct.kind)) +
                                 " in CoreTypeToIR; falling back to i64");

@@ -191,14 +191,16 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 
     // Register the LINK target as a known function signature so that the
     // checker can validate types and parameter counts at call sites.
-    // When MAP_TYPE entries are present, they define the parameter list:
-    // the count is known and types are inferred from the mappings.
+    // MAP_TYPE entries describe cross-language type mappings, NOT parameter
+    // signatures.  We register the types for type checking but do NOT
+    // constrain the parameter count — the actual signature is defined in
+    // the foreign language, not in .ploy.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
         sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = true;
+        sig.param_count_known = false;  // MAP_TYPE does not define param count
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
