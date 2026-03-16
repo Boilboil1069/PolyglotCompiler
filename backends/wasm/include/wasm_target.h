@@ -149,6 +149,11 @@ class WasmTarget : public polyglot::backends::TargetMachine {
     std::uint32_t shadow_stack_global_{0};
     bool has_shadow_stack_{false};
 
+    // Block depth tracking for structured control flow (br/br_if).
+    // Maps IR basic block name → WASM block nesting depth.
+    std::unordered_map<std::string, std::uint32_t> block_depth_map_;
+    std::uint32_t current_block_depth_{0};
+
     // Diagnostic errors collected during lowering
     std::vector<std::string> lowering_errors_;
 };

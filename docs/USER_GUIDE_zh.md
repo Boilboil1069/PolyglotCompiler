@@ -23,6 +23,7 @@
 10. [测试体系](#10-测试体系)
 11. [构建与集成](#11-构建与集成)
 12. [开发指南](#12-开发指南)
+13. [插件系统](#13-插件系统)
 14. [附录](#14-附录)
 
 ---
@@ -41,7 +42,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
 - ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 关键字支持类实例化、方法调用、属性访问、资源管理、对象销毁和类继承扩展
 - ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
-- ✅ **生产级质量**: 完整实现而非最小原型
+- ✅ **功能完整实现**: 全面实现，所有前端均可运行；Java 和 .NET 测试覆盖仍在持续扩展
 
 ## 1.2 核心特性一览
 
@@ -52,8 +53,8 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | **C++** | ✅ | ✅ | OOP/模板/RTTI/异常/constexpr/SIMD | **完整** |
 | **Python** | ✅ | ✅ | 类型注解/推导/装饰器/生成器/async/25+高级特性 | **完整** |
 | **Rust** | ✅ | ✅ | 借用检查/闭包/生命周期/Traits/28+高级特性 | **完整** |
-| **Java** | ✅ | ✅ | Java 8/17/21/23/记录类/密封类/模式匹配/文本块/Switch表达式 | **完整** |
-| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9/记录类/顶级语句/主构造器/文件范围命名空间/可空引用类型 | **完整** |
+| **Java** | ✅ | ✅ | Java 8/17/21/23/记录类/密封类/模式匹配/文本块/Switch表达式 | **核心完整** |
+| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9/记录类/顶级语句/主构造器/文件范围命名空间/可空引用类型 | **核心完整** |
 | **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理/对象销毁/类继承 | **完整** |
 
 ### 平台支持
@@ -1036,12 +1037,12 @@ language + "|" + manager_kind + "|" + env_path
                                    └─────────┼─────────┘
                                              ▼
                                        ┌───────────┐
-                                       │  统一      │
-                                       │  二进制    │
+                                       │  目标文件  │
+                                       │ / 可执行   │
                                        └───────────┘
 ```
 
-**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 中仅在最终链接阶段可选择调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
+**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。编译阶段**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 在最终链接阶段会调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
 
 ### 能力矩阵
 
@@ -1056,8 +1057,8 @@ language + "|" + manager_kind + "|" + env_path
 | .NET ↔ Python 函数调用 | ✅ | 通过 CoreCLR ↔ CPython C API 桥接 |
 | Java ↔ .NET 互操作 | ✅ | 通过 IR 层统一 + 双向运行时桥接 |
 | 原始类型编组 | ✅ | int, float, bool, string, void |
-| 容器类型编组 | ✅ | list, tuple, dict, optional |
-| 结构体映射 | ✅ | 跨语言结构体字段转换 |
+| 容器类型编组 | ✅ | list, tuple, dict, optional（基本类型） |
+| 结构体映射 | ✅ | 跨语言结构体字段转换（扁平结构体） |
 | 包导入 + 版本约束 | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
 | 选择性导入 | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
 | 多包管理器支持 | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
@@ -1165,7 +1166,7 @@ language + "|" + manager_kind + "|" + env_path
 
 ## 5.5 Java 前端 (`frontend_java`) ✅
 
-完整的 Java 前端，支持 Java 8、17、21 和 23 的特性：
+Java 前端，支持 Java 8、17、21 和 23 的核心特性（测试覆盖持续扩展中）：
 
 ### 词法分析器
 - 完整的 Java 关键字和运算符词法分析
@@ -1206,7 +1207,7 @@ language + "|" + manager_kind + "|" + env_path
 
 ## 5.6 .NET 前端 (`frontend_dotnet`) ✅
 
-完整的 C# (.NET) 前端，支持 .NET 6、7、8 和 9 的特性：
+C# (.NET) 前端，支持 .NET 6、7、8 和 9 的核心特性（测试覆盖持续扩展中）：
 
 ### 词法分析器
 - 完整的 C# 关键字和运算符词法分析（包括 `??`、`?.`、`=>`）
@@ -1293,6 +1294,8 @@ polyc [选项] <输入文件>
 | `.py` | python |
 | `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
 | `.rs` | rust |
+| `.java` | java |
+| `.cs` | dotnet |
 
 ### 进度输出
 
@@ -2200,9 +2203,152 @@ tests/benchmarks/
 
 ---
 
-# 13. 附录
+# 13. 插件系统
 
-## 13.1 术语表
+PolyglotCompiler 支持通过稳定的 **C ABI** 接口实现动态插件扩展。插件为共享库，在加载时向宿主注册自身，可扩展编译器或 IDE 的语言前端、优化 Pass、后端、Linter、格式化器、代码操作、语法主题等功能。
+
+## 13.1 架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│               PolyglotCompiler 宿主                      │
+│  ┌────────────────────┐  ┌────────────────┐  ┌─────────┐│
+│  │ PluginManager      │  │ Host Services  │  │ polyui  ││
+│  │ (发现、加载、卸载) │  │ (日志、诊断、  │  │ (设置   ││
+│  │                    │  │  设置、打开文件)│  │  界面)  ││
+│  └────────┬───────────┘  └───────┬────────┘  └─────────┘│
+│           │                      │                      │
+└───────────┼──────────────────────┼──────────────────────┘
+            │                      │     C ABI 边界
+      ┌─────┴──────────────────────┴─────┐
+      │  插件 (.so/.dll/.dylib)          │
+      │  polyplug_<name>                 │
+      │  polyglot_plugin_info()          │
+      │  polyglot_plugin_init()          │
+      │  polyglot_plugin_shutdown()      │
+      └──────────────────────────────────┘
+```
+
+- **C ABI**：所有导出函数使用 `extern "C"` 链接，确保跨编译器和平台的二进制兼容性。
+- **命名约定**：插件共享库必须命名为 `polyplug_<name>`（如 `polyplug_myformatter.so`）。
+- **发现机制**：`PluginManager` 扫描搜索路径中匹配的文件，通过 `dlopen` / `LoadLibrary` 加载。
+
+## 13.2 能力标志
+
+每个插件在 `PolyglotPluginInfo` 中声明能力位掩码：
+
+| 标志 | 值 | 说明 |
+|------|------|------|
+| `POLYGLOT_CAP_LANGUAGE` | `1 << 0` | 语言前端 |
+| `POLYGLOT_CAP_OPTIMIZER` | `1 << 1` | 优化 Pass |
+| `POLYGLOT_CAP_BACKEND` | `1 << 2` | 代码生成后端 |
+| `POLYGLOT_CAP_TOOL` | `1 << 3` | CLI 工具 / 管道阶段 |
+| `POLYGLOT_CAP_UI_PANEL` | `1 << 4` | IDE 面板 / 停靠窗口 |
+| `POLYGLOT_CAP_SYNTAX_THEME` | `1 << 5` | 语法高亮主题 |
+| `POLYGLOT_CAP_FILE_TYPE` | `1 << 6` | 文件类型注册 |
+| `POLYGLOT_CAP_CODE_ACTION` | `1 << 7` | 快速修复 / 重构操作 |
+| `POLYGLOT_CAP_FORMATTER` | `1 << 8` | 代码格式化器 |
+| `POLYGLOT_CAP_LINTER` | `1 << 9` | 代码检查器 |
+| `POLYGLOT_CAP_DEBUGGER` | `1 << 10` | 调试器集成 |
+
+## 13.3 必须导出的函数
+
+每个插件必须导出以下三个函数：
+
+```c
+// 返回静态插件元数据（名称、版本、作者、能力）。
+PolyglotPluginInfo polyglot_plugin_info(void);
+
+// 初始化插件。宿主传入 PolyglotHostServices 结构体，
+// 包含日志、诊断、设置等函数指针。
+// 返回 0 表示成功，非零表示失败。
+int polyglot_plugin_init(PolyglotHostServices services);
+
+// 卸载前清理资源。
+void polyglot_plugin_shutdown(void);
+```
+
+## 13.4 可选导出函数
+
+插件可根据声明的能力选择性导出提供者函数：
+
+```c
+// 语言前端 — 返回 PolyglotLanguageProvider 结构体。
+PolyglotLanguageProvider polyglot_plugin_get_language(void);
+
+// 优化 Pass — 返回 PolyglotOptimizerPass 结构体。
+PolyglotOptimizerPass polyglot_plugin_get_optimizer(void);
+
+// 代码操作 — 返回 PolyglotCodeAction 结构体。
+PolyglotCodeAction polyglot_plugin_get_code_action(void);
+
+// 格式化器 — 返回 PolyglotFormatter 结构体。
+PolyglotFormatter polyglot_plugin_get_formatter(void);
+
+// 检查器 — 返回 PolyglotLinter 结构体。
+PolyglotLinter polyglot_plugin_get_linter(void);
+```
+
+## 13.5 宿主服务
+
+宿主通过 `PolyglotHostServices` 向插件提供以下服务：
+
+| 服务 | 签名 | 用途 |
+|------|------|------|
+| `log` | `void (*)(void*, int, const char*)` | 按严重级别记录日志 |
+| `emit_diagnostic` | `void (*)(void*, const PolyglotDiagnostic*)` | 发出编译诊断信息 |
+| `get_setting` | `int (*)(void*, const char*, char*, int)` | 按键读取宿主设置 |
+| `set_setting` | `void (*)(void*, const char*, const char*)` | 写入宿主设置 |
+| `open_file` | `void (*)(void*, const char*, int)` | 请求 IDE 打开文件到指定行 |
+
+## 13.6 插件文件位置
+
+插件从以下搜索路径发现：
+
+| 平台 | 系统路径 | 用户路径 |
+|------|---------|----------|
+| **macOS** | `<app>/plugins/` | `~/Library/Application Support/PolyglotCompiler/plugins/` |
+| **Linux** | `<app>/plugins/` | `~/.local/share/PolyglotCompiler/plugins/` |
+| **Windows** | `<app>\plugins\` | `%APPDATA%\PolyglotCompiler\plugins\` |
+
+也可以在 `polyui` 的 **设置 → 插件** 页面手动加载插件。
+
+## 13.7 快速示例（C 语言）
+
+```c
+#include "plugins/plugin_api.h"
+
+static PolyglotHostServices host;
+
+PolyglotPluginInfo polyglot_plugin_info(void) {
+    PolyglotPluginInfo info = {0};
+    info.api_version    = POLYGLOT_PLUGIN_API_VERSION;
+    info.name           = "我的检查器";
+    info.version        = "1.0.0";
+    info.author         = "开发者";
+    info.description    = "一个示例检查器插件";
+    info.capabilities   = POLYGLOT_CAP_LINTER;
+    return info;
+}
+
+int polyglot_plugin_init(PolyglotHostServices services) {
+    host = services;
+    host.log(host.context, 0, "检查器插件已加载");
+    return 0;
+}
+
+void polyglot_plugin_shutdown(void) {
+    host.log(host.context, 0, "检查器插件已卸载");
+}
+```
+
+完整规范请参阅 [`docs/specs/plugin_specification_zh.md`](../specs/plugin_specification_zh.md)。
+
+---
+
+# 14. 附录
+
+## 14.1 术语表
 
 | 术语 | 英文 | 解释 |
 |------|------|------|
@@ -2221,7 +2367,7 @@ tests/benchmarks/
 | DSL | Domain-Specific Language | 领域特定语言 |
 | POBJ | Polyglot Object | PolyglotCompiler 自定义目标文件格式 |
 
-## 13.2 .ploy 关键字速查表
+## 14.2 .ploy 关键字速查表
 
 | 关键字 | 用途 | 示例 |
 |--------|------|------|
@@ -2250,7 +2396,7 @@ tests/benchmarks/
 | `PIPENV` | Pipenv 项目 | `CONFIG PIPENV "project_path";` |
 | `POETRY` | Poetry 项目 | `CONFIG POETRY "project_path";` |
 
-## 13.3 版本运算符
+## 14.3 版本运算符
 
 | 运算符 | 含义 | 示例 |
 |--------|------|------|
@@ -2261,7 +2407,7 @@ tests/benchmarks/
 | `<` | 严格小于 | `< 3.0` |
 | `~=` | 兼容版本 (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
 
-## 13.4 参考资料
+## 14.4 参考资料
 
 - "Compilers: Principles, Techniques, and Tools" (龙书)
 - "Engineering a Compiler" (鲸书)
@@ -2269,7 +2415,7 @@ tests/benchmarks/
 - Rust Compiler: https://github.com/rust-lang/rust
 - PEP 440: https://peps.python.org/pep-0440/
 
-## 13.5 发布打包
+## 14.5 发布打包
 
 PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
@@ -2292,7 +2438,7 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 详细说明、前置要求和版本管理请参见 `docs/specs/release_packaging_zh.md`。
 
-## 13.6 更新日志
+## 14.6 更新日志
 
 ### v1.0.0 (2026-03-15)
 - ✅ 项目版本统一为 **1.0.0**（所有原 v5.x/v4.x 版本号重命名为 v0.5.x/v0.4.x）

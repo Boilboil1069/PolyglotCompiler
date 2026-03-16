@@ -6,6 +6,8 @@
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/theme_manager.h"
 
+#include "common/include/plugins/plugin_manager.h"
+
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -56,6 +58,7 @@ void SettingsDialog::SetupUi() {
     category_list_->addItem("Build");
     category_list_->addItem("Debug");
     category_list_->addItem("Key Bindings");
+    category_list_->addItem("Plugins");
 
     connect(category_list_, &QListWidget::currentRowChanged,
             this, &SettingsDialog::OnCategoryChanged);
@@ -81,6 +84,7 @@ void SettingsDialog::SetupUi() {
     pages_->addWidget(CreateBuildPage());
     pages_->addWidget(CreateDebugPage());
     pages_->addWidget(CreateKeybindingsPage());
+    pages_->addWidget(CreatePluginsPage());
 
     main_layout->addWidget(category_list_);
     main_layout->addWidget(pages_, 1);
@@ -747,6 +751,195 @@ void SettingsDialog::OnBrowseJavaPath() {
 void SettingsDialog::OnBrowseDotnetPath() {
     QString dir = QFileDialog::getExistingDirectory(this, "Select .NET SDK Directory");
     if (!dir.isEmpty()) dotnet_path_edit_->setText(dir);
+}
+
+// ============================================================================
+// Plugins Page
+// ============================================================================
+
+QWidget *SettingsDialog::CreatePluginsPage() {
+    auto *page = new QWidget();
+    auto *layout = new QVBoxLayout(page);
+
+    // -- Plugin directory configuration --
+    auto *dir_group = new QGroupBox("Plugin Directories");
+    auto *dir_layout = new QFormLayout(dir_group);
+
+    plugin_dir_edit_ = new QLineEdit();
+    plugin_dir_edit_->setPlaceholderText("Additional plugin search directory...");
+    auto *dir_row = new QHBoxLayout();
+    dir_row->addWidget(plugin_dir_edit_, 1);
+    plugin_browse_button_ = new QPushButton("Browse...");
+    dir_row->addWidget(plugin_browse_button_);
+    dir_layout->addRow("Extra Path:", dir_row);
+
+    connect(plugin_browse_button_, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(
+            this, "Select Plugin Directory");
+        if (!dir.isEmpty()) plugin_dir_edit_->setText(dir);
+    });
+
+    layout->addWidget(dir_group);
+
+    // -- Installed plugins list --
+    auto *list_group = new QGroupBox("Installed Plugins");
+    auto *list_layout = new QVBoxLayout(list_group);
+
+    plugin_tree_ = new QTreeWidget();
+    plugin_tree_->setHeaderLabels({"Name", "Version", "Author", "Status", "Capabilities"});
+    plugin_tree_->setRootIsDecorated(false);
+    plugin_tree_->setAlternatingRowColors(true);
+    plugin_tree_->header()->setStretchLastSection(true);
+    plugin_tree_->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    list_layout->addWidget(plugin_tree_);
+
+    // Button row
+    auto *btn_row = new QHBoxLayout();
+    plugin_enable_button_ = new QPushButton("Enable");
+    plugin_disable_button_ = new QPushButton("Disable");
+    auto *refresh_button = new QPushButton("Refresh");
+    auto *load_button = new QPushButton("Load from File...");
+    btn_row->addWidget(plugin_enable_button_);
+    btn_row->addWidget(plugin_disable_button_);
+    btn_row->addWidget(refresh_button);
+    btn_row->addWidget(load_button);
+    btn_row->addStretch();
+    list_layout->addLayout(btn_row);
+
+    layout->addWidget(list_group, 1);
+
+    // -- Description area --
+    auto *desc_group = new QGroupBox("Details");
+    auto *desc_layout = new QVBoxLayout(desc_group);
+    auto *desc_label = new QLabel("Select a plugin to view details.");
+    desc_label->setWordWrap(true);
+    desc_label->setObjectName("plugin_desc_label");
+    desc_layout->addWidget(desc_label);
+    layout->addWidget(desc_group);
+
+    // -- Signals --
+    connect(plugin_tree_, &QTreeWidget::currentItemChanged,
+            this, [desc_label](QTreeWidgetItem *current, QTreeWidgetItem *) {
+        if (!current) {
+            desc_label->setText("Select a plugin to view details.");
+            return;
+        }
+        QString id = current->data(0, Qt::UserRole).toString();
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        const auto *handle = pm.GetPlugin(id.toStdString());
+        if (!handle || !handle->info) return;
+        const auto *info = handle->info;
+
+        QString desc = QString("<b>%1</b> v%2<br>"
+                               "Author: %3<br>"
+                               "License: %4<br>"
+                               "ID: %5<br><br>%6")
+                           .arg(info->name ? info->name : "?")
+                           .arg(info->version ? info->version : "?")
+                           .arg(info->author ? info->author : "?")
+                           .arg(info->license ? info->license : "?")
+                           .arg(info->id ? info->id : "?")
+                           .arg(info->description ? info->description : "");
+        if (info->homepage)
+            desc += QString("<br>Homepage: <a href=\"%1\">%1</a>")
+                        .arg(info->homepage);
+        desc_label->setText(desc);
+    });
+
+    // Refresh button: re-scan plugin directories
+    connect(refresh_button, &QPushButton::clicked, this, [this]() {
+        // Add any user-configured extra directory
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        QString extra = plugin_dir_edit_->text().trimmed();
+        if (!extra.isEmpty()) {
+            pm.AddSearchPath(extra.toStdString());
+        }
+        pm.DiscoverPlugins();
+        // Rebuild the plugin list
+        RefreshPluginList();
+    });
+
+    // Load from file
+    connect(load_button, &QPushButton::clicked, this, [this]() {
+        QString filter;
+#if defined(Q_OS_WIN)
+        filter = "Plugin Libraries (*.dll)";
+#elif defined(Q_OS_MACOS)
+        filter = "Plugin Libraries (*.dylib)";
+#else
+        filter = "Plugin Libraries (*.so)";
+#endif
+        QString file = QFileDialog::getOpenFileName(
+            this, "Load Plugin", QString(), filter);
+        if (file.isEmpty()) return;
+
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        std::string id = pm.LoadPlugin(file.toStdString());
+        if (!id.empty()) {
+            pm.ActivatePlugin(id);
+        }
+        RefreshPluginList();
+    });
+
+    // Enable / disable buttons
+    connect(plugin_enable_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = plugin_tree_->currentItem();
+        if (!item) return;
+        QString id = item->data(0, Qt::UserRole).toString();
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        pm.ActivatePlugin(id.toStdString());
+        RefreshPluginList();
+    });
+
+    connect(plugin_disable_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = plugin_tree_->currentItem();
+        if (!item) return;
+        QString id = item->data(0, Qt::UserRole).toString();
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        pm.DeactivatePlugin(id.toStdString());
+        RefreshPluginList();
+    });
+
+    // Populate the list on creation
+    RefreshPluginList();
+
+    return page;
+}
+
+void SettingsDialog::RefreshPluginList() {
+    if (!plugin_tree_) return;
+    plugin_tree_->clear();
+
+    auto &pm = polyglot::plugins::PluginManager::Instance();
+    for (const auto *info : pm.ListPlugins()) {
+        if (!info || !info->id) continue;
+
+        auto *item = new QTreeWidgetItem(plugin_tree_);
+        item->setText(0, info->name ? info->name : info->id);
+        item->setText(1, info->version ? info->version : "?");
+        item->setText(2, info->author ? info->author : "?");
+
+        bool active = pm.IsActive(info->id);
+        item->setText(3, active ? "Active" : "Loaded");
+
+        // Build capabilities string
+        QStringList caps;
+        uint32_t c = info->capabilities;
+        if (c & POLYGLOT_CAP_LANGUAGE)     caps << "Language";
+        if (c & POLYGLOT_CAP_OPTIMIZER)    caps << "Optimizer";
+        if (c & POLYGLOT_CAP_BACKEND)      caps << "Backend";
+        if (c & POLYGLOT_CAP_TOOL)         caps << "Tool";
+        if (c & POLYGLOT_CAP_UI_PANEL)     caps << "UI Panel";
+        if (c & POLYGLOT_CAP_SYNTAX_THEME) caps << "Theme";
+        if (c & POLYGLOT_CAP_FILE_TYPE)    caps << "File Type";
+        if (c & POLYGLOT_CAP_CODE_ACTION)  caps << "Code Action";
+        if (c & POLYGLOT_CAP_FORMATTER)    caps << "Formatter";
+        if (c & POLYGLOT_CAP_LINTER)       caps << "Linter";
+        if (c & POLYGLOT_CAP_DEBUGGER)     caps << "Debugger";
+        item->setText(4, caps.join(", "));
+
+        item->setData(0, Qt::UserRole, QString::fromUtf8(info->id));
+    }
 }
 
 } // namespace polyglot::tools::ui

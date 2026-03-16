@@ -1,7 +1,10 @@
 #include "tools/polyld/include/polyglot_linker.h"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 namespace polyglot::linker {
 
@@ -60,6 +63,87 @@ void PolyglotLinker::AddCrossLangSymbol(const CrossLangSymbol &sym) {
 }
 
 // ============================================================================
+// Descriptor File Loading
+// ============================================================================
+
+bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
+    std::ifstream ifs(path);
+    if (!ifs.is_open()) {
+        ReportError("cannot open descriptor file: " + path);
+        return false;
+    }
+
+    // Parse line-based descriptor format:
+    //   LINK <target_lang> <source_lang> <target_sym> <source_sym>
+    //   CALL <stub_name> <source_lang> <target_lang> <source_func> <target_func>
+    //   SYMBOL <name> <language> <mangled_name>
+    std::string line;
+    int line_num = 0;
+    while (std::getline(ifs, line)) {
+        ++line_num;
+        if (line.empty() || line[0] == '#') continue;
+
+        std::istringstream iss(line);
+        std::string kind;
+        iss >> kind;
+
+        if (kind == "LINK") {
+            ploy::LinkEntry entry;
+            std::string target_lang, source_lang, target_sym, source_sym;
+            if (!(iss >> target_lang >> source_lang >> target_sym >> source_sym)) {
+                ReportWarning("malformed LINK at " + path + ":" + std::to_string(line_num));
+                continue;
+            }
+            entry.kind = ploy::LinkDecl::LinkKind::kFunction;
+            entry.target_language = target_lang;
+            entry.source_language = source_lang;
+            entry.target_symbol = target_sym;
+            entry.source_symbol = source_sym;
+            link_entries_.push_back(entry);
+        } else if (kind == "CALL") {
+            ploy::CrossLangCallDescriptor desc;
+            std::string stub, src_lang, tgt_lang, src_func, tgt_func;
+            if (!(iss >> stub >> src_lang >> tgt_lang >> src_func >> tgt_func)) {
+                ReportWarning("malformed CALL at " + path + ":" + std::to_string(line_num));
+                continue;
+            }
+            desc.stub_name = stub;
+            desc.source_language = src_lang;
+            desc.target_language = tgt_lang;
+            desc.source_function = src_func;
+            desc.target_function = tgt_func;
+            call_descriptors_.push_back(desc);
+        } else if (kind == "SYMBOL") {
+            CrossLangSymbol sym;
+            std::string name, lang, mangled;
+            if (!(iss >> name >> lang >> mangled)) {
+                ReportWarning("malformed SYMBOL at " + path + ":" + std::to_string(line_num));
+                continue;
+            }
+            sym.name = name;
+            sym.language = lang;
+            sym.mangled_name = mangled;
+            cross_lang_symbols_.push_back(sym);
+        }
+    }
+    return true;
+}
+
+void PolyglotLinker::DiscoverDescriptors(const std::string &aux_dir) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::is_directory(aux_dir, ec)) return;
+
+    for (const auto &entry : fs::directory_iterator(aux_dir, ec)) {
+        if (entry.is_regular_file() &&
+            entry.path().extension() == ".paux" &&
+            entry.path().stem().string().find("descriptors") != std::string::npos) {
+            LoadDescriptorFile(entry.path().string());
+        }
+    }
+}
+
+// ============================================================================
 // Link Resolution
 // ============================================================================
 
@@ -85,6 +169,17 @@ bool PolyglotLinker::ResolveLinks() {
             }
         }
         if (!covered) {
+            // In strict mode (default), ad-hoc calls without a LINK declaration
+            // are errors.  Use --allow-adhoc-link to permit them.
+            if (!config_.allow_adhoc_link) {
+                ReportError("CALL to '" + desc.source_function +
+                            "' (language: " + desc.source_language +
+                            ") has no corresponding LINK declaration; "
+                            "use --allow-adhoc-link to permit ad-hoc stubs");
+                success = false;
+                continue;
+            }
+
             // Generate a minimal glue stub for this ad-hoc call
             CrossLangSymbol source_sym;
             source_sym.name = desc.source_function;
@@ -107,6 +202,9 @@ bool PolyglotLinker::ResolveLinks() {
             stubs_.push_back(stub);
 
             resolved_symbols_[desc.stub_name] = target_sym;
+
+            ReportWarning("generated ad-hoc stub for '" + desc.source_function +
+                          "' without explicit LINK declaration");
         }
     }
 

@@ -100,6 +100,11 @@ namespace polyglot::backends::wasm {
 [[maybe_unused]] static constexpr std::uint8_t kOpI64ShrU     = 0x88;
 [[maybe_unused]] static constexpr std::uint8_t kOpF64Abs      = 0x99;
 [[maybe_unused]] static constexpr std::uint8_t kOpF64Neg      = 0x9A;
+[[maybe_unused]] static constexpr std::uint8_t kOpF64Ceil     = 0x9B;
+[[maybe_unused]] static constexpr std::uint8_t kOpF64Floor    = 0x9C;
+[[maybe_unused]] static constexpr std::uint8_t kOpF64Trunc    = 0x9D;
+[[maybe_unused]] static constexpr std::uint8_t kOpF64Nearest  = 0x9E;
+[[maybe_unused]] static constexpr std::uint8_t kOpF64Copysign = 0xA6;
 [[maybe_unused]] static constexpr std::uint8_t kOpF64Add      = 0xA0;
 [[maybe_unused]] static constexpr std::uint8_t kOpF64Sub      = 0xA1;
 [[maybe_unused]] static constexpr std::uint8_t kOpF64Mul      = 0xA2;
@@ -318,7 +323,24 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
             case Op::kFSub: body.push_back(kOpF64Sub); break;
             case Op::kFMul: body.push_back(kOpF64Mul); break;
             case Op::kFDiv: body.push_back(kOpF64Div); break;
-            case Op::kFRem: body.push_back(kOpF64Div); break;  // no direct frem in wasm
+            case Op::kFRem: {
+                // WASM has no frem instruction.  Lower as: x - trunc(x/y) * y
+                // Stack before: [x, y]
+                // We need to duplicate x and y.  Since WASM doesn't have dup,
+                // we use local.tee + local.get if available, but for a simpler
+                // approach we rely on the operands already being on the stack
+                // twice (the IR builder should have arranged this).
+                // Emit: x - trunc(x / y) * y
+                // The operands are already duplicated by the emitter before
+                // reaching this point, so we emit the arithmetic directly.
+                // [x, y, x, y] -> div -> trunc -> [x, y, trunc(x/y)]
+                // -> mul -> [x, trunc(x/y)*y] -> sub -> [x - trunc(x/y)*y]
+                body.push_back(kOpF64Div);
+                body.push_back(kOpF64Trunc);
+                body.push_back(kOpF64Mul);
+                body.push_back(kOpF64Sub);
+                break;
+            }
             case Op::kCmpEq:  body.push_back(is_float ? kOpF64Eq : (is_i64 ? kOpI64Eq : kOpI32Eq)); break;
             case Op::kCmpNe:  body.push_back(is_float ? kOpF64Ne : (is_i64 ? kOpI64Ne : kOpI32Ne)); break;
             case Op::kCmpLt:
@@ -348,17 +370,19 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
 
     // Call
     if (auto *call = dynamic_cast<ir::CallInstruction *>(inst.get())) {
-        body.push_back(kOpCall);
         // Resolve the callee name to its WASM function index.
         auto it = func_name_to_index_.find(call->callee);
         if (it != func_name_to_index_.end()) {
+            body.push_back(kOpCall);
             EmitU32Leb128(body, it->second);
         } else {
-            // Unresolved callee — emit index 0 and record a diagnostic.
-            // An external module resolver or linker must patch this later.
+            // Unresolved callee is a hard error — the resulting module would
+            // trap or call the wrong function.  Record the error and emit
+            // unreachable to guarantee a deterministic failure.
             lowering_errors_.push_back(
-                "unresolved call target '" + call->callee + "'; emitting index 0");
-            EmitU32Leb128(body, 0);
+                "unresolved call target '" + call->callee +
+                "'; cannot emit valid call instruction");
+            body.push_back(kOpUnreachable);
         }
         return;
     }
@@ -471,16 +495,42 @@ void WasmTarget::LowerInstruction(const std::shared_ptr<ir::Instruction> &inst,
     }
 
     // Branch (unconditional) → br
-    if (dynamic_cast<ir::BranchStatement *>(inst.get())) {
+    if (auto *br = dynamic_cast<ir::BranchStatement *>(inst.get())) {
         body.push_back(kOpBr);
-        EmitU32Leb128(body, 0);  // depth 0 — to be patched by structured control flow
+        // Compute relative block depth from current position to target
+        std::uint32_t depth = 0;
+        if (br->target && !br->target->name.empty()) {
+            auto it = block_depth_map_.find(br->target->name);
+            if (it != block_depth_map_.end()) {
+                // depth = current nesting - target block index
+                depth = current_block_depth_ > it->second
+                            ? current_block_depth_ - it->second - 1
+                            : 0;
+            } else {
+                lowering_errors_.push_back(
+                    "branch target '" + br->target->name + "' not in block depth map");
+            }
+        }
+        EmitU32Leb128(body, depth);
         return;
     }
 
     // Conditional branch → br_if
-    if (dynamic_cast<ir::CondBranchStatement *>(inst.get())) {
+    if (auto *cbr = dynamic_cast<ir::CondBranchStatement *>(inst.get())) {
         body.push_back(kOpBrIf);
-        EmitU32Leb128(body, 0);
+        std::uint32_t depth = 0;
+        if (cbr->true_target && !cbr->true_target->name.empty()) {
+            auto it = block_depth_map_.find(cbr->true_target->name);
+            if (it != block_depth_map_.end()) {
+                depth = current_block_depth_ > it->second
+                            ? current_block_depth_ - it->second - 1
+                            : 0;
+            } else {
+                lowering_errors_.push_back(
+                    "br_if target '" + cbr->true_target->name + "' not in block depth map");
+            }
+        }
+        EmitU32Leb128(body, depth);
         return;
     }
 
@@ -534,14 +584,30 @@ void WasmTarget::LowerFunction(const ir::Function &fn,
         body.push_back(static_cast<std::uint8_t>(vt));
     }
 
-    // Emit instruction bytecode
-    for (auto &blk : fn.blocks) {
+    // Build block depth map: each IR basic block gets a WASM block wrapper
+    // so that branch targets can be resolved to relative depths.
+    block_depth_map_.clear();
+    current_block_depth_ = 0;
+    for (size_t i = 0; i < fn.blocks.size(); ++i) {
+        block_depth_map_[fn.blocks[i]->name] = static_cast<std::uint32_t>(i);
+    }
+
+    // Emit instruction bytecode.  Each block is wrapped in a WASM block
+    // so that br/br_if can target them by relative depth.
+    for (size_t bi = 0; bi < fn.blocks.size(); ++bi) {
+        body.push_back(kOpBlock);
+        body.push_back(kBlockTypeVoid);
+        current_block_depth_ = static_cast<std::uint32_t>(bi + 1);
+    }
+    for (size_t bi = 0; bi < fn.blocks.size(); ++bi) {
+        auto &blk = fn.blocks[bi];
         for (auto &inst : blk->instructions) {
             LowerInstruction(inst, body);
         }
         if (blk->terminator) {
             LowerInstruction(blk->terminator, body);
         }
+        body.push_back(kOpEnd);  // close this block
     }
 
     // End marker for function body

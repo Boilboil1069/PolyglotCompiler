@@ -23,6 +23,7 @@
 10. [Testing Framework](#10-testing-framework)
 11. [Build & Integration](#11-build--integration)
 12. [Developer Guide](#12-developer-guide)
+13. [Plugin System](#13-plugin-system)
 14. [Appendix](#14-appendix)
 
 ---
@@ -41,7 +42,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
 - ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
 - ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
-- ✅ **Production Quality**: Complete implementation, not a minimal prototype
+- ✅ **Feature-Complete Implementation**: Comprehensive implementation with all frontends operational; Java and .NET test coverage is still expanding
 
 ## 1.2 Feature Overview
 
@@ -52,8 +53,8 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 | **C++** | ✅ | ✅ | OOP / Templates / RTTI / Exceptions / constexpr / SIMD | **Complete** |
 | **Python** | ✅ | ✅ | Type annotations / Inference / Decorators / Generators / async / 25+ advanced | **Complete** |
 | **Rust** | ✅ | ✅ | Borrow checking / Closures / Lifetimes / Traits / 28+ advanced | **Complete** |
-| **Java** | ✅ | ✅ | Java 8/17/21/23 / Records / Sealed classes / Pattern matching / Text blocks / Switch expressions | **Complete** |
-| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9 / Records / Top-level statements / Primary constructors / File-scoped namespaces / Nullable ref types | **Complete** |
+| **Java** | ✅ | ✅ | Java 8/17/21/23 / Records / Sealed classes / Pattern matching / Text blocks / Switch expressions | **Core Complete** |
+| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9 / Records / Top-level statements / Primary constructors / File-scoped namespaces / Nullable ref types | **Core Complete** |
 | **.ploy** | ✅ | ✅ | Cross-language linking / Pipelines / Package mgmt / OOP interop (NEW/METHOD/GET/SET/WITH) | **Complete** |
 
 ### Platform Support
@@ -1048,12 +1049,12 @@ All external command execution is routed through the `ICommandRunner` interface 
                                    └─────────┼─────────┘
                                              ▼
                                        ┌───────────┐
-                                       │  Unified  │
-                                       │  Binary   │
+                                       │  Object   │
+                                       │File / Exe │
                                        └───────────┘
 ```
 
-**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **NOT depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver (`driver.cpp`) may optionally invoke a system linker (`polyld` or `clang`) only for the final link step to produce an executable.
+**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **not depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet) for the compilation stage. The `polyc` driver (`driver.cpp`) may invoke a system linker (`polyld` or `clang`) for the final link step to produce an executable.
 
 ### Capability Matrix
 
@@ -1068,8 +1069,8 @@ All external command execution is routed through the `ICommandRunner` interface 
 | .NET ↔ Python function call | ✅ | Via CoreCLR ↔ CPython C API bridge |
 | Java ↔ .NET interop | ✅ | Via IR-level unification + bidirectional runtime bridge |
 | Primitive type marshalling | ✅ | int, float, bool, string, void |
-| Container type marshalling | ✅ | list, tuple, dict, optional |
-| Struct mapping | ✅ | Cross-language struct field conversion |
+| Container type marshalling | ✅ | list, tuple, dict, optional (basic types) |
+| Struct mapping | ✅ | Cross-language struct field conversion (flat structs) |
 | Package import + version constraint | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
 | Selective import | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
 | Multi-package-manager support | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
@@ -1177,7 +1178,7 @@ See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Compl
 
 ## 5.5 Java Frontend (`frontend_java`) ✅
 
-Complete Java frontend supporting Java 8, 17, 21, and 23 features:
+Java frontend supporting Java 8, 17, 21, and 23 core features (test coverage expanding):
 
 ### Lexer
 - Full Java keyword and operator tokenization
@@ -1218,7 +1219,7 @@ Complete Java frontend supporting Java 8, 17, 21, and 23 features:
 
 ## 5.6 .NET Frontend (`frontend_dotnet`) ✅
 
-Complete C# (.NET) frontend supporting .NET 6, 7, 8, and 9 features:
+C# (.NET) frontend supporting .NET 6, 7, 8, and 9 core features (test coverage expanding):
 
 ### Lexer
 - Full C# keyword and operator tokenization (including `??`, `?.`, `=>`)
@@ -1305,6 +1306,8 @@ polyc [options] <input_file>
 | `.py` | python |
 | `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
 | `.rs` | rust |
+| `.java` | java |
+| `.cs` | dotnet |
 
 ### Progress Output
 
@@ -2214,9 +2217,152 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 
 ---
 
-# 13. Appendix
+# 13. Plugin System
 
-## 13.1 Glossary
+PolyglotCompiler supports dynamic plugins via a stable **C ABI** interface. Plugins are shared libraries that register themselves with the host at load time and can extend the compiler or IDE with new languages, optimisation passes, backends, linters, formatters, code actions, syntax themes, and more.
+
+## 13.1 Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│               PolyglotCompiler Host                    │
+│  ┌────────────────┐  ┌──────────────┐  ┌───────────┐  │
+│  │ PluginManager  │  │ Host Services│  │ polyui   │  │
+│  │ (discover,     │  │ (log, diag,  │  │ (settings│  │
+│  │  load, unload) │  │  settings,  │  │  dialog) │  │
+│  └────────┬───────┘  │  open_file) │  └───────────┘  │
+│           │          └──────┬───────┘                │
+└───────────┼────────────┼─────────────────────┘
+           │            │        C ABI boundary
+     ┌─────┴──────────┴─────┐
+     │  Plugin (.so/.dll/.dylib) │
+     │  polyplug_<name>          │
+     │  polyglot_plugin_info()   │
+     │  polyglot_plugin_init()   │
+     │  polyglot_plugin_shutdown │
+     └──────────────────────────┘
+```
+
+- **C ABI**: All exported functions use `extern "C"` linkage for binary compatibility across compilers and platforms.
+- **Naming convention**: Plugin shared libraries must be named `polyplug_<name>` (e.g. `polyplug_myformatter.so`).
+- **Discovery**: `PluginManager` scans search paths for matching files and loads them via `dlopen` / `LoadLibrary`.
+
+## 13.2 Capability Flags
+
+Each plugin declares a bitmask of capabilities in its `PolyglotPluginInfo`:
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `POLYGLOT_CAP_LANGUAGE` | `1 << 0` | Language frontend |
+| `POLYGLOT_CAP_OPTIMIZER` | `1 << 1` | Optimisation pass |
+| `POLYGLOT_CAP_BACKEND` | `1 << 2` | Code-generation backend |
+| `POLYGLOT_CAP_TOOL` | `1 << 3` | CLI tool / pipeline stage |
+| `POLYGLOT_CAP_UI_PANEL` | `1 << 4` | IDE panel / dock widget |
+| `POLYGLOT_CAP_SYNTAX_THEME` | `1 << 5` | Syntax highlighting theme |
+| `POLYGLOT_CAP_FILE_TYPE` | `1 << 6` | File type registration |
+| `POLYGLOT_CAP_CODE_ACTION` | `1 << 7` | Quick-fix / refactoring |
+| `POLYGLOT_CAP_FORMATTER` | `1 << 8` | Code formatter |
+| `POLYGLOT_CAP_LINTER` | `1 << 9` | Code linter |
+| `POLYGLOT_CAP_DEBUGGER` | `1 << 10` | Debugger integration |
+
+## 13.3 Mandatory Plugin Exports
+
+Every plugin must export these three functions:
+
+```c
+// Return static plugin metadata (name, version, author, capabilities).
+PolyglotPluginInfo polyglot_plugin_info(void);
+
+// Initialise the plugin. The host passes a PolyglotHostServices struct
+// containing function pointers for logging, diagnostics, settings, etc.
+// Return 0 on success, non-zero on failure.
+int polyglot_plugin_init(PolyglotHostServices services);
+
+// Clean up resources before unload.
+void polyglot_plugin_shutdown(void);
+```
+
+## 13.4 Optional Plugin Exports
+
+Plugins may optionally export provider functions depending on their declared capabilities:
+
+```c
+// Language frontend — return a PolyglotLanguageProvider struct.
+PolyglotLanguageProvider polyglot_plugin_get_language(void);
+
+// Optimiser pass — return a PolyglotOptimizerPass struct.
+PolyglotOptimizerPass polyglot_plugin_get_optimizer(void);
+
+// Code action — return a PolyglotCodeAction struct.
+PolyglotCodeAction polyglot_plugin_get_code_action(void);
+
+// Formatter — return a PolyglotFormatter struct.
+PolyglotFormatter polyglot_plugin_get_formatter(void);
+
+// Linter — return a PolyglotLinter struct.
+PolyglotLinter polyglot_plugin_get_linter(void);
+```
+
+## 13.5 Host Services
+
+The host provides the following services to plugins through `PolyglotHostServices`:
+
+| Service | Signature | Purpose |
+|---------|-----------|----------|
+| `log` | `void (*)(void*, int, const char*)` | Log a message at a given severity level |
+| `emit_diagnostic` | `void (*)(void*, const PolyglotDiagnostic*)` | Emit a compiler diagnostic |
+| `get_setting` | `int (*)(void*, const char*, char*, int)` | Read a host setting by key |
+| `set_setting` | `void (*)(void*, const char*, const char*)` | Write a host setting |
+| `open_file` | `void (*)(void*, const char*, int)` | Request the IDE to open a file at a line |
+
+## 13.6 Plugin File Locations
+
+Plugins are discovered from the following search paths:
+
+| Platform | System Path | User Path |
+|----------|------------|------------|
+| **macOS** | `<app>/plugins/` | `~/Library/Application Support/PolyglotCompiler/plugins/` |
+| **Linux** | `<app>/plugins/` | `~/.local/share/PolyglotCompiler/plugins/` |
+| **Windows** | `<app>\plugins\` | `%APPDATA%\PolyglotCompiler\plugins\` |
+
+Plugins can also be loaded manually from the **Settings → Plugins** page in `polyui`.
+
+## 13.7 Quick Example (C)
+
+```c
+#include "plugins/plugin_api.h"
+
+static PolyglotHostServices host;
+
+PolyglotPluginInfo polyglot_plugin_info(void) {
+    PolyglotPluginInfo info = {0};
+    info.api_version    = POLYGLOT_PLUGIN_API_VERSION;
+    info.name           = "My Linter";
+    info.version        = "1.0.0";
+    info.author         = "Your Name";
+    info.description    = "A sample linter plugin";
+    info.capabilities   = POLYGLOT_CAP_LINTER;
+    return info;
+}
+
+int polyglot_plugin_init(PolyglotHostServices services) {
+    host = services;
+    host.log(host.context, 0, "My Linter plugin loaded");
+    return 0;
+}
+
+void polyglot_plugin_shutdown(void) {
+    host.log(host.context, 0, "My Linter plugin unloaded");
+}
+```
+
+For the complete specification, see [`docs/specs/plugin_specification.md`](../specs/plugin_specification.md).
+
+---
+
+# 14. Appendix
+
+## 14.1 Glossary
 
 | Term | Full Name | Explanation |
 |------|-----------|-------------|
@@ -2235,7 +2381,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 | DSL | Domain-Specific Language | Language for a specific domain |
 | POBJ | Polyglot Object | PolyglotCompiler custom object file format |
 
-## 13.2 .ploy Keyword Quick Reference
+## 14.2 .ploy Keyword Quick Reference
 
 | Keyword | Purpose | Example |
 |---------|---------|---------|
@@ -2264,7 +2410,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 | `PIPENV` | Pipenv project | `CONFIG PIPENV "project_path";` |
 | `POETRY` | Poetry project | `CONFIG POETRY "project_path";` |
 
-## 13.3 Version Operators
+## 14.3 Version Operators
 
 | Operator | Meaning | Example |
 |----------|---------|---------|
@@ -2275,7 +2421,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 | `<` | Strictly less | `< 3.0` |
 | `~=` | Compatible version (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
 
-## 13.4 References
+## 14.4 References
 
 - "Compilers: Principles, Techniques, and Tools" (Dragon Book)
 - "Engineering a Compiler" (Whale Book)
@@ -2283,7 +2429,7 @@ Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
 - Rust Compiler: https://github.com/rust-lang/rust
 - PEP 440: https://peps.python.org/pep-0440/
 
-## 13.5 Release Packaging
+## 14.5 Release Packaging
 
 PolyglotCompiler provides platform-specific scripts to build release packages:
 
@@ -2306,7 +2452,7 @@ PolyglotCompiler provides platform-specific scripts to build release packages:
 
 See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
 
-## 13.6 Changelog
+## 14.6 Changelog
 
 ### v1.0.0 (2026-03-15)
 - ✅ Project version unified to **1.0.0** (all previous v5.x/v4.x versions renumbered to v0.5.x/v0.4.x)

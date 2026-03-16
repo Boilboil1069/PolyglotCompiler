@@ -119,8 +119,9 @@ TEST_CASE("ThreadProfiler - Start and stop without crash", "[runtime][threading]
     ThreadProfiler::ResetStats();
     ThreadProfiler::StartProfiling();
     ThreadProfiler::StopProfiling();
-    // No crash is the success condition.
-    REQUIRE(true);
+    // After stop, stats should still be queryable with zeroed initial values
+    ThreadStats stats = ThreadProfiler::GetStats(0);
+    REQUIRE(stats.num_tasks_executed == 0);
 }
 
 TEST_CASE("ThreadProfiler - Reset clears statistics", "[runtime][threading][profiler]") {

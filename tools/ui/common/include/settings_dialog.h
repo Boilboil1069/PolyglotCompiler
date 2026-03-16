@@ -57,6 +57,7 @@ class SettingsDialog : public QDialog {
     QWidget *CreateBuildPage();
     QWidget *CreateDebugPage();
     QWidget *CreateKeybindingsPage();
+    QWidget *CreatePluginsPage();
 
     void LoadSettings();
     void SaveSettings();
@@ -131,9 +132,17 @@ class SettingsDialog : public QDialog {
     };
     std::vector<KeyBindingEntry> keybinding_entries_;
 
+    // ── Plugin settings ──────────────────────────────────────────────────
+    QTreeWidget *plugin_tree_{nullptr};
+    QPushButton *plugin_enable_button_{nullptr};
+    QPushButton *plugin_disable_button_{nullptr};
+    QPushButton *plugin_browse_button_{nullptr};
+    QLineEdit   *plugin_dir_edit_{nullptr};
+
     void PopulateDefaultKeybindings();
     void LoadKeybindings();
     void SaveKeybindings();
+    void RefreshPluginList();
 };
 
 } // namespace polyglot::tools::ui

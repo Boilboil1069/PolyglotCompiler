@@ -190,14 +190,15 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     symbols_.try_emplace(link->target_symbol, link_sym);
 
     // Register the LINK target as a known function signature so that the
-    // checker can validate types at call sites.  MAP_TYPE entries describe
-    // cross-language type conversions; they do NOT define parameter count.
+    // checker can validate types and parameter counts at call sites.
+    // When MAP_TYPE entries are present, they define the parameter list:
+    // the count is known and types are inferred from the mappings.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = 0;
-        sig.param_count_known = false;
+        sig.param_count = entry.param_mappings.size();
+        sig.param_count_known = true;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -205,8 +206,15 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
                 mapping.target_language.empty() ? link->target_language : mapping.target_language,
                 mapping.target_type);
             sig.param_types.push_back(param_type);
+            sig.param_names.push_back(mapping.source_type);
         }
         RegisterFunctionSignature(link->target_symbol, sig);
+    } else if (strict_mode_) {
+        // In strict mode, LINK without MAP_TYPE entries is a warning:
+        // the parameter count and types cannot be validated at call sites.
+        ReportWarning(link->loc, frontends::ErrorCode::kTypeMismatch,
+                      "LINK '" + link->target_symbol +
+                      "' has no MAP_TYPE entries; parameter validation disabled (strict mode)");
     }
 }
 

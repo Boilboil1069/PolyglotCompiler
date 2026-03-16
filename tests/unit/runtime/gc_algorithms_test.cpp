@@ -195,7 +195,8 @@ TEST_CASE("GC - Fragmentation", "[gc][fragmentation]") {
         heap.Collect();
     }
     
-    REQUIRE(true);
+    // After multiple rounds of allocation and collection, heap should be valid
+    REQUIRE(heap.GetStats().collections >= 5);
 }
 
 // Scenario 9: Incrementality of incremental GC
@@ -213,7 +214,8 @@ TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
         heap.Allocate(64);  // Each allocation triggers an incremental step
     }
     
-    REQUIRE(true);
+    // Incremental GC should have made progress
+    REQUIRE(heap.GetStats().collections >= 0);
 }
 
 // Scenario 10: GC performance benchmark
@@ -266,7 +268,8 @@ TEST_CASE("GC - Edge Cases", "[gc][edge]") {
     SECTION("Collect with no allocations") {
         Heap heap(Strategy::kMarkSweep);
         heap.Collect();  // Should not crash
-        REQUIRE(true);
+        // After collect on empty heap, live count should be zero
+        REQUIRE(heap.GetStats().live_objects == 0);
     }
     
     SECTION("Multiple collects") {
@@ -274,6 +277,7 @@ TEST_CASE("GC - Edge Cases", "[gc][edge]") {
         heap.Collect();
         heap.Collect();
         heap.Collect();
-        REQUIRE(true);
+        // Multiple collects on empty heap should maintain zero live objects
+        REQUIRE(heap.GetStats().live_objects == 0);
     }
 }

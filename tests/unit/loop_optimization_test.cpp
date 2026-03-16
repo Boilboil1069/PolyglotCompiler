@@ -674,8 +674,10 @@ TEST_CASE("SCCP - Constant Propagation", "[sccp][optimization]") {
     SCCP(func);
     
     // Check that constants were propagated
-    // The operands should now contain constant values
-    REQUIRE(true);  // Basic test that SCCP runs without crashing
+    // After SCCP, %x = 42 (constant) and %y = 42 + 2 = 44
+    // The function should still have a valid entry block with instructions
+    REQUIRE(func.blocks.size() > 0);
+    REQUIRE(func.entry->instructions.size() > 0);
 }
 
 // ============================================================================

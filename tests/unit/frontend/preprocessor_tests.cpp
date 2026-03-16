@@ -153,8 +153,9 @@ TEST_CASE("Preprocessor detects max include depth", "[frontend][preprocessor]") 
     pp.AddIncludePath(".");
     // Should not hang: the depth limit prevents infinite recursion.
     std::string result = pp.Process("#include \"self.h\"\n", "main.cpp");
-    // Just check it returns without crashing; errors may be emitted.
-    REQUIRE(true);
+    // The preprocessor should return a result (even if empty due to depth limit)
+    // and not hang in an infinite recursion loop.
+    REQUIRE(result.size() < 10000);  // Bounded output from depth-limited recursion
 }
 
 // ============================================================================

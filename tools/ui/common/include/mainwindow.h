@@ -179,6 +179,9 @@ class MainWindow : public QMainWindow {
     void RestoreState();
     void SaveState();
 
+    // Plugin system initialization and cleanup
+    void InitializePlugins();
+
     // ── UI Components ────────────────────────────────────────────────────
     QTabWidget *editor_tabs_{nullptr};
     FileBrowser *file_browser_{nullptr};

@@ -31,6 +31,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly (shadow stack, WAT/binary)
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
 - **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
+- **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
 - **813 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
 
@@ -219,8 +220,6 @@ VENV    CONDA     UV        PIPENV     POETRY
 | Resource Management | `WITH(python, resource) AS r { ... }` | Auto `__enter__`/`__exit__` |
 | Object Destruction | `DELETE(python, obj)` | Destroy foreign object |
 | Class Extension | `EXTEND(python, Base) AS Derived { ... }` | Cross-language class inheritance |
-| Class Extension | `EXTEND(python, Base) AS Derived { ... }` | Cross-language class inheritance |
-| Object Destruction | `DELETE(python, obj)` | Destroy foreign object |
 | Type Conversion | `CONVERT(value, FLOAT)` | Explicit type conversion |
 | Type Mapping | `MAP_TYPE(cpp::int, python::int);` | Cross-language type mapping |
 | Pipeline | `PIPELINE name { ... }` | Multi-stage processing pipeline |
@@ -229,7 +228,7 @@ VENV    CONDA     UV        PIPENV     POETRY
 
 ### Compilation Model / 编译模型
 
-PolyglotCompiler uses its own frontends to compile **all** languages (C++, Python, Rust) to a shared SSA-form IR. The `.ploy` frontend produces cross-language call descriptors consumed by the **PolyglotLinker**, which generates FFI glue code, type marshalling, and ownership tracking. The resulting IR is lowered through the backend to produce a **unified native binary** — no external compilers or interpreters are invoked at compile time.
+PolyglotCompiler uses its own frontends to compile **all** languages (C++, Python, Rust, Java, C#/.NET) to a shared SSA-form IR. The `.ploy` frontend produces cross-language call descriptors consumed by the **PolyglotLinker**, which generates FFI glue code, type marshalling, and ownership tracking. The resulting IR is lowered through the backend to produce native code — a system linker may be invoked in the final link stage to assemble the executable.
 
 ---
 
@@ -244,6 +243,31 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 | Runtime Tool | `polyrt` | GC / FFI / Thread management |
 | Benchmark | `polybench` | Performance evaluation suite |
 | IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, and compilation |
+
+---
+
+## Plugin System / 插件系统
+
+PolyglotCompiler supports a C ABI plugin interface for extending the compiler and IDE. Plugins are shared libraries (`polyplug_*.so` / `polyplug_*.dylib` / `polyplug_*.dll`) discovered automatically from search paths or loaded manually.
+
+PolyglotCompiler 支持 C ABI 插件接口，用于扩展编译器和 IDE。插件为共享库（`polyplug_*.so` / `polyplug_*.dylib` / `polyplug_*.dll`），可从搜索路径自动发现或手动加载。
+
+| Capability | Description |
+|-----------|-------------|
+| Language | Add new language frontends |
+| Optimiser | Add custom optimisation passes |
+| Backend | Add new code-generation targets |
+| Tool | Add CLI tools or pipeline stages |
+| UI Panel | Add IDE panels / dock widgets |
+| Syntax Theme | Add syntax highlighting themes |
+| File Type | Register new file types |
+| Code Action | Add quick-fix / refactoring actions |
+| Formatter | Add code formatters |
+| Linter | Add code linters |
+| Debugger | Add debugger integrations |
+
+See [`docs/specs/plugin_specification.md`](docs/specs/plugin_specification.md) for the full specification.  
+详细说明见 [`docs/specs/plugin_specification_zh.md`](docs/specs/plugin_specification_zh.md)。
 
 ---
 
@@ -376,7 +400,7 @@ All documentation is provided in **bilingual** format (Chinese + English) under 
 | [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete user guide (English) |
 | [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide (Chinese / 完整用户指南) |
 | [`docs/api/`](docs/api/) | API reference (bilingual) |
-| [`docs/specs/`](docs/specs/) | Language & IR specifications, optimisation pipeline, runtime ABI |
+| [`docs/specs/`](docs/specs/) | Language & IR specifications, optimisation pipeline, runtime ABI, plugin specification |
 | [`docs/realization/`](docs/realization/) | Implementation details (bilingual, 8 topics) |
 | [`docs/tutorial/`](docs/tutorial/) | Tutorials: ploy language + project (bilingual) |
 

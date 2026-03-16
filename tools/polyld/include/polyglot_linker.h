@@ -66,6 +66,12 @@ class PolyglotLinker {
     // Register symbols discovered from language-specific object files
     void AddCrossLangSymbol(const CrossLangSymbol &sym);
 
+    // Load cross-language descriptors from a serialized file (--ploy-desc)
+    bool LoadDescriptorFile(const std::string &path);
+
+    // Auto-discover descriptor files from an aux directory
+    void DiscoverDescriptors(const std::string &aux_dir);
+
     // Resolve all cross-language links:
     // 1. Match target/source symbols across language boundaries
     // 2. Generate glue stubs with marshalling code
@@ -93,37 +99,24 @@ class PolyglotLinker {
     CrossLangSymbol *FindSymbolByName(const std::string &name, const std::string &language);
 
     // Glue code generation
-    GlueStub GenerateGlueStub(const ploy::LinkEntry &entry,
-                               const CrossLangSymbol &target_sym,
-                               const CrossLangSymbol &source_sym);
+    GlueStub GenerateGlueStub(const ploy::LinkEntry &entry, const CrossLangSymbol &target_sym, const CrossLangSymbol &source_sym);
 
     // Architecture-specific stub generation
-    void GenerateX86_64Stub(GlueStub &stub, const ploy::LinkEntry &entry,
-                            const CrossLangSymbol &target_sym,
-                            const CrossLangSymbol &source_sym);
-    void GenerateAArch64Stub(GlueStub &stub, const ploy::LinkEntry &entry,
-                             const CrossLangSymbol &target_sym,
-                             const CrossLangSymbol &source_sym);
+    void GenerateX86_64Stub(GlueStub &stub, const ploy::LinkEntry &entry, const CrossLangSymbol &target_sym, const CrossLangSymbol &source_sym);
+    void GenerateAArch64Stub(GlueStub &stub, const ploy::LinkEntry &entry, const CrossLangSymbol &target_sym, const CrossLangSymbol &source_sym);
 
     // Marshalling code generation for different type pairs
     void EmitIntToFloatMarshal(std::vector<std::uint8_t> &code, size_t param_idx);
     void EmitFloatToIntMarshal(std::vector<std::uint8_t> &code, size_t param_idx);
-    void EmitStringMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang,
-                           const std::string &to_lang);
+    void EmitStringMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang);
     void EmitDirectCopy(std::vector<std::uint8_t> &code, size_t size);
-    void EmitCallingConventionAdaptor(std::vector<std::uint8_t> &code,
-                                      const std::string &from_lang,
-                                      const std::string &to_lang);
+    void EmitCallingConventionAdaptor(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang);
 
     // Container type marshalling for complex parameter types
-    void EmitListMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang,
-                         const std::string &to_lang, size_t param_idx);
-    void EmitTupleMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang,
-                          const std::string &to_lang, size_t param_idx);
-    void EmitDictMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang,
-                         const std::string &to_lang, size_t param_idx);
-    void EmitStructMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang,
-                           const std::string &to_lang, size_t param_idx);
+    void EmitListMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
+    void EmitTupleMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
+    void EmitDictMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
+    void EmitStructMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
 
     // Detect whether a type name refers to a container type
     static bool IsContainerType(const std::string &type_name);

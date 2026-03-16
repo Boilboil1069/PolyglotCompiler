@@ -232,8 +232,8 @@ TEST_CASE("Rust Borrow Checker - Lifetime Validation", "[rust][lifetime]") {
         SemaContext ctx(diags);
         AnalyzeModule(mod, ctx);
         
-        // With explicit lifetime annotation, should compile
-        REQUIRE(true);  // Test passes if no crash
+        // With explicit lifetime annotation, should compile without errors
+        REQUIRE(diags.ErrorCount() == 0);
     }
     
     SECTION("Return reference without lifetime annotation warns") {

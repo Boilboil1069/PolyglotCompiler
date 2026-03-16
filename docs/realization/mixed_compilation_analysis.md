@@ -25,7 +25,7 @@ Our approach is **unified IR + function-level linking with automated marshalling
 
 ```
 ┌─────────────┐   ┌─────────────┐   ┌─────────────┐
-│  C++ Source  │   │ Python Source│   │  Rust Source │
+│  C++ Source │   │Python Source│   │ Rust Source │
 └──────┬──────┘   └──────┬──────┘   └──────┬──────┘
        │                 │                 │
        ▼                 ▼                 ▼
@@ -90,12 +90,14 @@ PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, 
 
 | Capability | Status | Description |
 |-----------|--------|-------------|
-| C++ ↔ Python function calls | ✅ Implemented | Via Python C API embedding |
+| C++ ↔ Python function calls | ✅ Implemented | Via cross-language glue stubs with sema signature validation |
 | C++ ↔ Rust function calls | ✅ Implemented | Via C ABI extern functions |
 | Python ↔ Rust function calls | ✅ Implemented | Via Python C API + C ABI bridge |
+| Java ↔ other language calls | ⚠️ Partial | JNI bridge stubs generated; runtime bridge is degradable |
+| .NET ↔ other language calls | ⚠️ Partial | hostfxr integration; runtime bridge is degradable |
 | Primitive type marshalling | ✅ Implemented | int, float, bool, string, void |
-| Container type marshalling | ✅ Implemented | list, tuple, dict, optional |
-| Struct mapping | ✅ Implemented | Cross-language struct field conversion |
+| Container type marshalling | ⚠️ Partial | list/tuple/dict descriptors generated; Python runtime conversion is placeholder |
+| Struct mapping | ⚠️ Partial | Cross-language struct field conversion via MAP_TYPE; opaque pointer fallback |
 | Package imports | ✅ Implemented | IMPORT python PACKAGE numpy AS np |
 | Multi-stage pipelines | ✅ Implemented | PIPELINE with CALL across languages |
 | Control flow orchestration | ✅ Implemented | IF/WHILE/FOR/MATCH in .ploy |

@@ -3415,6 +3415,12 @@ int main(int argc, char **argv) {
             config.build_id = true;
         } else if (arg == "--icf") {
             config.icf = true;
+        } else if (arg == "--ploy-desc" && i + 1 < argc) {
+            config.ploy_descriptor_files.push_back(argv[++i]);
+        } else if (arg == "--aux-dir" && i + 1 < argc) {
+            config.aux_dir = argv[++i];
+        } else if (arg == "--allow-adhoc-link") {
+            config.allow_adhoc_link = true;
         } else if (arg == "-v" || arg == "--verbose") {
             config.verbose = true;
         } else if (arg == "--trace") {
@@ -3442,6 +3448,9 @@ int main(int argc, char **argv) {
                       << "  --gc-sections    Garbage collect unused sections\n"
                       << "  --no-undefined   Report undefined symbols as errors\n"
                       << "  --pie            Create position-independent executable\n"
+                      << "  --ploy-desc <f>  Load cross-language descriptors from file\n"
+                      << "  --aux-dir <dir>  Auto-discover descriptors from aux directory\n"
+                      << "  --allow-adhoc-link  Allow ad-hoc cross-language stubs\n"
                       << "  -v, --verbose    Verbose output\n"
                       << "  --trace          Trace file loading\n"
                       << "  -h, --help       Show this help\n";
@@ -3463,9 +3472,29 @@ int main(int argc, char **argv) {
     // Create and run linker
     Linker linker(config);
 
-    // Run cross-language link resolution before the main link so that
-    // glue stubs and resolved symbols are available for relocation.
+    // Load cross-language descriptors from --ploy-desc files and --aux-dir
     PolyglotLinker poly_linker(config);
+
+    // Load descriptors from explicit --ploy-desc files
+    for (const auto &desc_file : config.ploy_descriptor_files) {
+        if (!poly_linker.LoadDescriptorFile(desc_file)) {
+            std::cerr << "polyld: failed to load descriptor file: " << desc_file << "\n";
+            return 1;
+        }
+        if (config.verbose) {
+            std::cerr << "polyld: loaded descriptors from " << desc_file << "\n";
+        }
+    }
+
+    // Auto-discover descriptors from --aux-dir
+    if (!config.aux_dir.empty()) {
+        poly_linker.DiscoverDescriptors(config.aux_dir);
+        if (config.verbose) {
+            std::cerr << "polyld: discovered descriptors from " << config.aux_dir << "\n";
+        }
+    }
+
+    // Run cross-language link resolution
     if (!poly_linker.ResolveLinks()) {
         // When cross-language link entries are registered, resolution
         // failures are fatal — unresolved symbols must not be silently

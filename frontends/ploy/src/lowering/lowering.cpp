@@ -816,6 +816,21 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     // Generate the stub name for the cross-language call
     std::string stub_name = MangleStubName("ploy", call->language, call->function);
 
+    // Resolve the return type from sema's known signatures.
+    // If no signature is found, fall back to I64 with a diagnostic.
+    ir::IRType call_ret_type = ir::IRType::I64(true);
+    {
+        auto sig_it = sema_.KnownSignatures().find(call->function);
+        if (sig_it != sema_.KnownSignatures().end() &&
+            sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
+            call_ret_type = CoreTypeToIR(sig_it->second.return_type);
+        } else {
+            Report(call->loc, "cross-language call to '" + call->function +
+                   "' has unknown return type; defaulting to i64");
+        }
+    }
+
     // Record the cross-language call descriptor
     CrossLangCallDescriptor desc;
     desc.stub_name = stub_name;
@@ -824,8 +839,8 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     desc.source_function = call->function;
     desc.target_function = stub_name;
     desc.source_param_types = arg_types;
-    desc.source_return_type = ir::IRType::I64(true); // Default; refined by sema
-    desc.target_return_type = ir::IRType::I64(true);
+    desc.source_return_type = call_ret_type;
+    desc.target_return_type = call_ret_type;
 
     // Generate marshalling descriptors for each argument
     for (const auto &at : arg_types) {
@@ -836,13 +851,13 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
         desc.param_marshal.push_back(marshal);
     }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    desc.return_marshal.from = ir::IRType::I64(true);
-    desc.return_marshal.to = ir::IRType::I64(true);
+    desc.return_marshal.from = call_ret_type;
+    desc.return_marshal.to = call_ret_type;
 
     call_descriptors_.push_back(desc);
 
     // Emit the call instruction to the stub
-    auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
+    auto inst = builder_.MakeCall(stub_name, arg_names, call_ret_type, "");
     return {inst->name, inst->type};
 }
 
@@ -913,6 +928,17 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     std::string stub_name = MangleStubName("ploy", method_call->language,
                                            method_call->method_name);
 
+    // Resolve return type from sema known signatures
+    ir::IRType method_ret_type = ir::IRType::I64(true);
+    {
+        auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
+        if (sig_it != sema_.KnownSignatures().end() &&
+            sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
+            method_ret_type = CoreTypeToIR(sig_it->second.return_type);
+        }
+    }
+
     // Record the cross-language call descriptor for the method
     CrossLangCallDescriptor desc;
     desc.stub_name = stub_name;
@@ -921,8 +947,8 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     desc.source_function = method_call->method_name;
     desc.target_function = stub_name;
     desc.source_param_types = arg_types;
-    desc.source_return_type = ir::IRType::I64(true);
-    desc.target_return_type = ir::IRType::I64(true);
+    desc.source_return_type = method_ret_type;
+    desc.target_return_type = method_ret_type;
 
     // Generate marshalling descriptors for each argument (including object)
     for (const auto &at : arg_types) {
@@ -933,13 +959,13 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
         desc.param_marshal.push_back(marshal);
     }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    desc.return_marshal.from = ir::IRType::I64(true);
-    desc.return_marshal.to = ir::IRType::I64(true);
+    desc.return_marshal.from = method_ret_type;
+    desc.return_marshal.to = method_ret_type;
 
     call_descriptors_.push_back(desc);
 
     // Emit the call instruction to the method stub
-    auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
+    auto inst = builder_.MakeCall(stub_name, arg_names, method_ret_type, "");
     return {inst->name, inst->type};
 }
 
@@ -959,6 +985,11 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     std::string stub_name = MangleStubName("ploy", get_attr->language,
                                            "__getattr__" + get_attr->attr_name);
 
+    // Attribute access returns an opaque pointer by default — the exact
+    // type depends on the foreign object's schema which is unknown at
+    // compile time.  Use Pointer(I8) as a generic handle.
+    ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
+
     // Record the cross-language call descriptor
     CrossLangCallDescriptor desc;
     desc.stub_name = stub_name;
@@ -967,8 +998,8 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     desc.source_function = "__getattr__::" + get_attr->attr_name;
     desc.target_function = stub_name;
     desc.source_param_types = arg_types;
-    desc.source_return_type = ir::IRType::I64(true);
-    desc.target_return_type = ir::IRType::I64(true);
+    desc.source_return_type = attr_ret_type;
+    desc.target_return_type = attr_ret_type;
 
     // Generate marshalling descriptors
     for (const auto &at : arg_types) {
@@ -979,13 +1010,13 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
         desc.param_marshal.push_back(marshal);
     }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    desc.return_marshal.from = ir::IRType::I64(true);
-    desc.return_marshal.to = ir::IRType::I64(true);
+    desc.return_marshal.from = attr_ret_type;
+    desc.return_marshal.to = attr_ret_type;
 
     call_descriptors_.push_back(desc);
 
     // Emit the call
-    auto inst = builder_.MakeCall(stub_name, arg_names, ir::IRType::I64(true), "");
+    auto inst = builder_.MakeCall(stub_name, arg_names, attr_ret_type, "");
     return {inst->name, inst->type};
 }
 
@@ -1380,8 +1411,13 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                 params.emplace_back("arg" + std::to_string(i), pt);
             }
         } else {
-            // No signature information at all — generate a single i64 parameter
-            // as a last-resort fallback.
+            // No signature information at all — this is a compile error.
+            // The LINK declaration must provide MAP_TYPE entries or the
+            // target function must have a known signature.
+            Report(link.defined_at, "LINK stub '" + link.target_symbol +
+                   "' has no signature information; cannot generate bridge function. "
+                   "Add MAP_TYPE entries to the LINK declaration.");
+            // Generate a minimal stub to avoid cascading errors
             params.emplace_back("arg0", ir::IRType::I64(true));
         }
 
@@ -1544,7 +1580,10 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
         if (it != env_.end() && it->second.type.kind == ir::IRTypeKind::kStruct) {
             return it->second.type;
         }
-        return ir::IRType::I64(true); // Default for unknown types
+        // Unknown type name — log a diagnostic and fall back to I64
+        diagnostics_.Report(core::SourceLoc{}, "unknown type '" + st->name +
+                            "' in PloyTypeToIR; falling back to i64");
+        return ir::IRType::I64(true);
     }
 
     if (auto pt = std::dynamic_pointer_cast<ParameterizedType>(type_node)) {
@@ -1580,6 +1619,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
         return CoreTypeToIR(ct);
     }
 
+    diagnostics_.Report(core::SourceLoc{}, "unrecognized type node in PloyTypeToIR; falling back to i64");
     return ir::IRType::I64(true);
 }
 
@@ -1616,7 +1656,17 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
         case core::TypeKind::kGenericInstance:
             // Generic containers (e.g. dict) are opaque pointers
             return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kAny:
+            // Any type maps to opaque pointer (i8*) — more accurate than I64
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kFunction:
+            // Function types are pointers to function descriptors
+            return ir::IRType::Pointer(ir::IRType::I8());
         default:
+            diagnostics_.Report(core::SourceLoc{},
+                                "unknown core type kind " +
+                                std::to_string(static_cast<int>(ct.kind)) +
+                                " in CoreTypeToIR; falling back to i64");
             return ir::IRType::I64(true);
     }
 }

@@ -47,6 +47,7 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.cmake)
 add_library(polyglot_common
     common/src/core/type_system.cpp
     common/src/core/symbol_table.cpp
+    common/src/plugins/plugin_manager.cpp
     backends/common/src/debug_info.cpp
     backends/common/src/debug_emitter.cpp
     backends/common/src/dwarf_builder.cpp
@@ -313,6 +314,7 @@ add_executable(polyld
 )
 
 target_link_libraries(polyld
+    linker_lib
     polyglot_common
     frontend_ploy
 )

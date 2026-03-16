@@ -785,4 +785,32 @@ bool Verify(const IRContext &ctx, std::string *msg) {
 	return true;
 }
 
+bool Verify(const IRContext &ctx, const VerifyOptions &opts, std::string *msg) {
+	// Standard verification first
+	if (!Verify(ctx, msg)) return false;
+
+	// In strict mode, reject placeholder patterns that indicate incomplete
+	// type information or unresolved cross-language bridges.
+	if (opts.strict) {
+		for (auto &fn : ctx.Functions()) {
+			// Skip bridge stubs — they are pre-compiled and bypass type checks
+			if (fn->is_bridge_stub) continue;
+			if (fn->blocks.empty()) continue;
+
+			for (auto &bb : fn->blocks) {
+				for (auto &inst : bb->instructions) {
+					// Reject "undef" operands in strict mode
+					for (const auto &op : inst->operands) {
+						if (op == "undef") {
+							return Fail("strict: placeholder 'undef' operand in function '" +
+							            fn->name + "' block '" + bb->name + "'", msg);
+						}
+					}
+				}
+			}
+		}
+	}
+	return true;
+}
+
 }  // namespace polyglot::ir

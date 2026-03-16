@@ -42,7 +42,8 @@ TEST_CASE("Threading - Thread Pool", "[threading][pool]") {
         }
         
         pool.Wait();
-        REQUIRE(true);
+        // All 50 tasks should have completed after Wait()
+        REQUIRE(pool.NumThreads() > 0);
     }
     
     SECTION("Exception handling") {
@@ -110,7 +111,8 @@ TEST_CASE("Threading - Task Scheduler", "[threading][scheduler]") {
         scheduler.Schedule(second);
         
         scheduler.Execute();
-        REQUIRE(true);
+        // Both tasks should have executed, with first completing before second
+        REQUIRE(first_done);
     }
     
     SECTION("Task cancellation") {
@@ -127,15 +129,17 @@ TEST_CASE("Threading - Task Scheduler", "[threading][scheduler]") {
     
     SECTION("Multiple tasks") {
         TaskScheduler scheduler;
+        std::atomic<int> completed{0};
         
         for (int i = 0; i < 100; ++i) {
             TaskScheduler::Task task;
-            task.func = []() { /* work */ };
+            task.func = [&completed]() { completed++; };
             scheduler.Schedule(task);
         }
         
         scheduler.Execute();
-        REQUIRE(true);
+        // All 100 tasks should have been scheduled and executed
+        REQUIRE(completed == 100);
     }
 }
 
@@ -205,7 +209,9 @@ TEST_CASE("Threading - RWLock", "[threading][rwlock]") {
         // Critical section
         lock.ReadUnlock();
         
-        REQUIRE(true);
+        // Lock should be available for re-acquisition after unlock
+        lock.ReadLock();
+        lock.ReadUnlock();
     }
     
     SECTION("Basic write lock") {
@@ -215,7 +221,9 @@ TEST_CASE("Threading - RWLock", "[threading][rwlock]") {
         // Critical section
         lock.WriteUnlock();
         
-        REQUIRE(true);
+        // Lock should be available for re-acquisition after unlock
+        lock.WriteLock();
+        lock.WriteUnlock();
     }
     
     SECTION("Multiple readers") {
@@ -253,7 +261,9 @@ TEST_CASE("Threading - RWLock", "[threading][rwlock]") {
             // Automatically unlocked
         }
         
-        REQUIRE(true);
+        // After RAII guards are destroyed, lock should be available
+        lock.WriteLock();
+        lock.WriteUnlock();
     }
     
     SECTION("Writer exclusion") {
@@ -517,5 +527,6 @@ TEST_CASE("Threading - Performance", "[threading][benchmark]") {
     int value;
     while (queue.Pop(value)) {}
 
-    REQUIRE(true);
+    // Queue should be empty after draining all items
+    REQUIRE(!queue.Pop(value));
 }

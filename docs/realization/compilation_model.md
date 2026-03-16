@@ -12,7 +12,7 @@
 
 **Yes — the final binary is a unified native binary produced entirely by PolyglotCompiler's own frontends.**
 
-PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSVC, GCC, rustc, CPython) during compilation. Instead, the following process takes place:
+PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSVC, GCC, rustc, CPython) during the **frontend compilation stages**. Each language is parsed, type-checked, and lowered to IR by the project's own frontends. During the **link stage**, the system linker (e.g., `clang`, `link.exe`, or `lld-link`) may be invoked to produce the final executable when the built-in linker cannot handle the target format. Instead, the following process takes place:
 
 ### Compilation Flow / 编译流程
 
@@ -105,7 +105,7 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
 
 | Aspect | Description |
 |--------|-------------|
-| **No external compilers** | PolyglotCompiler does NOT call `g++`, `msvc`, `rustc`, or `python` during compilation. All languages are compiled by the project's own frontends. |
+| **No external compilers for frontends** | PolyglotCompiler does NOT call `g++`, `msvc`, `rustc`, or `python` for compilation. All languages are compiled by the project's own frontends. The link stage may invoke a system linker (e.g., `clang`, `lld-link`) when needed. |
 | **No interpreters at runtime** | The Python code is compiled to native machine code, not interpreted by CPython. The resulting binary does not require a Python installation to run. |
 | **Single binary output** | The output is a single native executable (or library) that contains compiled code from all source languages, unified through a shared IR. |
 | **Type safety across languages** | Type marshalling is done at compile time via the PolyglotLinker's glue code generation, not at runtime via dynamic dispatch. |

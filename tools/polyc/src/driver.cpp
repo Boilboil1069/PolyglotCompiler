@@ -1443,14 +1443,42 @@ int main(int argc, char **argv) {
             }
 
             bool link_ok = poly_linker.ResolveLinks();
-            if (!link_ok && V) {
-                std::cerr << "[polyc] Cross-language link warnings:\n";
+            if (!link_ok) {
+                std::cerr << "[error] Cross-language link resolution failed:\n";
                 for (const auto &e : poly_linker.GetErrors()) {
                     std::cerr << "  " << e << "\n";
                 }
+                if (!settings.force) {
+                    return false;
+                }
+                std::cerr << "[warn] continuing in --force mode despite link errors\n";
             }
-            // Glue stubs are available via poly_linker.GetStubs() for
-            // downstream object emission.
+
+            // Inject resolved glue stubs into the IR module as stub functions
+            // so that the backend can emit them alongside user code.
+            for (const auto &stub : poly_linker.GetStubs()) {
+                // Create a stub function in the IR module with the stub's
+                // machine code attached as a pre-lowered body.
+                auto fn = ir_module.CreateFunction(stub.stub_name);
+                fn->is_external = false;
+                fn->is_bridge_stub = true;
+                fn->precompiled_code = stub.code;
+                // Convert linker Relocation to IR StubRelocation
+                for (const auto &r : stub.relocations) {
+                    polyglot::ir::StubRelocation sr;
+                    sr.offset = static_cast<size_t>(r.offset);
+                    sr.symbol = r.symbol;
+                    sr.type = r.type;
+                    sr.addend = r.addend;
+                    sr.is_pc_relative = r.is_pc_relative;
+                    sr.size = static_cast<std::uint8_t>(r.size);
+                    fn->precompiled_relocs.push_back(sr);
+                }
+                if (V) {
+                    std::cerr << "[polyc]   stub: " << stub.stub_name
+                              << " (" << stub.code.size() << " bytes)\n";
+                }
+            }
             t.Stop();
         }
 
@@ -1667,7 +1695,10 @@ int main(int argc, char **argv) {
                 return;
             }
             // In force mode, emit a minimal stub so the pipeline can continue
-            // with a clear warning about the stub origin.
+            // with a clear warning about the stub origin.  The output is
+            // marked as a degraded build and must not be shipped.
+            std::cerr << "[warn] DEGRADED BUILD: generating minimal stub in --force mode\n";
+            std::cerr << "[warn] The resulting binary is NOT suitable for release\n";
             SectionT text;
             text.name = ".text";
             if constexpr (std::is_same_v<std::decay_t<decltype(backend)>, polyglot::backends::x86_64::X86Target>) {
@@ -1679,7 +1710,8 @@ int main(int argc, char **argv) {
             }
             mc.sections.push_back(text);
             mc.symbols.push_back({"_start", ".text", 0, static_cast<std::uint64_t>(text.data.size()), true, true});
-            std::cerr << "[warn] generated minimal stub in --force mode\n";
+            // Add a marker symbol so downstream tools can detect degraded builds
+            mc.symbols.push_back({"__ploy_degraded_build", ".text", 0, 0, true, false});
         }
 
         // Map sections

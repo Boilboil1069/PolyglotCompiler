@@ -17,6 +17,8 @@
 #include "tools/ui/common/include/terminal_widget.h"
 #include "tools/ui/common/include/theme_manager.h"
 
+#include "common/include/plugins/plugin_manager.h"
+
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDir>
@@ -56,6 +58,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     RestoreState();
     ApplySettings();
+
+    // Initialize the plugin system: set default search paths and discover
+    // plugins from the application's "plugins" directory.
+    InitializePlugins();
 
     // Create an initial empty tab using the configured default language.
     static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
@@ -2149,9 +2155,83 @@ void MainWindow::SaveState() {
 void MainWindow::closeEvent(QCloseEvent *event) {
     if (MaybeSaveAll()) {
         SaveState();
+        // Shut down plugins before closing
+        polyglot::plugins::PluginManager::Instance().UnloadAll();
         event->accept();
     } else {
         event->ignore();
+    }
+}
+
+// ============================================================================
+// Plugin System
+// ============================================================================
+
+void MainWindow::InitializePlugins() {
+    auto &pm = polyglot::plugins::PluginManager::Instance();
+
+    // Default plugin search paths:
+    //   1. <app_dir>/plugins/
+    //   2. <workspace>/plugins/  (if a folder is open)
+    QString app_dir = QCoreApplication::applicationDirPath();
+    pm.AddSearchPath((app_dir + "/plugins").toStdString());
+
+#ifdef Q_OS_LINUX
+    // XDG-compliant user plugin directory
+    QString xdg_data = qEnvironmentVariable("XDG_DATA_HOME",
+                           QDir::homePath() + "/.local/share");
+    pm.AddSearchPath((xdg_data + "/polyglot/plugins").toStdString());
+#elif defined(Q_OS_MACOS)
+    pm.AddSearchPath(
+        (QDir::homePath() + "/Library/Application Support/PolyglotCompiler/plugins")
+            .toStdString());
+#elif defined(Q_OS_WIN)
+    QString appdata = qEnvironmentVariable("APPDATA");
+    if (!appdata.isEmpty())
+        pm.AddSearchPath((appdata + "/PolyglotCompiler/plugins").toStdString());
+#endif
+
+    // Set up log forwarding to the output panel
+    pm.SetLogCallback([this](const std::string &plugin_id,
+                             PolyglotLogLevel level,
+                             const std::string &msg) {
+        const char *prefix = "[INFO]";
+        switch (level) {
+            case POLYGLOT_LOG_DEBUG:   prefix = "[DEBUG]"; break;
+            case POLYGLOT_LOG_INFO:    prefix = "[INFO]";  break;
+            case POLYGLOT_LOG_WARNING: prefix = "[WARN]";  break;
+            case POLYGLOT_LOG_ERROR:   prefix = "[ERROR]"; break;
+        }
+        QString text = QString("[plugin:%1] %2 %3")
+                           .arg(QString::fromStdString(plugin_id))
+                           .arg(prefix)
+                           .arg(QString::fromStdString(msg));
+        AppendOutput(text);
+    });
+
+    // Set up file-open forwarding
+    pm.SetOpenFileCallback([this](const std::string &path, uint32_t line) {
+        int tab = OpenFileInTab(QString::fromStdString(path));
+        if (tab >= 0 && line > 0) {
+            auto *editor = EditorAt(tab);
+            if (editor) {
+                QTextCursor cursor = editor->textCursor();
+                cursor.movePosition(QTextCursor::Start);
+                cursor.movePosition(QTextCursor::Down,
+                                    QTextCursor::MoveAnchor,
+                                    static_cast<int>(line) - 1);
+                editor->setTextCursor(cursor);
+            }
+        }
+    });
+
+    // Discover and activate all plugins
+    pm.DiscoverPlugins();
+
+    for (const auto *info : pm.ListPlugins()) {
+        if (info && info->id) {
+            pm.ActivatePlugin(info->id);
+        }
     }
 }
 

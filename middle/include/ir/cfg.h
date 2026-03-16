@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -9,6 +10,18 @@
 #include "middle/include/ir/nodes/statements.h"
 
 namespace polyglot::ir {
+
+// Lightweight relocation record for precompiled bridge stubs.
+// Mirrors the essential fields of linker-level Relocation without
+// introducing a dependency on the linker headers.
+struct StubRelocation {
+  size_t offset{0};
+  std::string symbol;
+  std::uint32_t type{0};
+  std::int64_t addend{0};
+  bool is_pc_relative{false};
+  std::uint8_t size{4};
+};
 
 struct BasicBlock {
   std::string name;
@@ -31,6 +44,14 @@ struct Function {
   std::vector<IRType> param_types{};
   IRType ret_type{IRType::Invalid()};
   IRType function_type{IRType::Invalid()};
+
+  // Bridge stub support: when is_bridge_stub is true, the function body
+  // is precompiled machine code rather than IR.  The backend should emit
+  // precompiled_code directly and apply precompiled_relocs.
+  bool is_external{false};
+  bool is_bridge_stub{false};
+  std::vector<std::uint8_t> precompiled_code;
+  std::vector<StubRelocation> precompiled_relocs;
 
   BasicBlock *CreateBlock(const std::string &block_name);
 };

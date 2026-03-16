@@ -179,11 +179,10 @@ TEST_CASE("Devirtualization - Final method detection", "[devirt][optimization]")
     
     DevirtualizationPass pass(ctx, metadata);
     
-    // Run the pass
-    pass.Run();
-    
-    // The pass should complete without errors
-    REQUIRE(true);
+    // Run the pass — should process at least one call site
+    bool modified = pass.Run();
+    // Circle::draw is final, so the pass should devirtualize it
+    REQUIRE(modified);
 }
 
 TEST_CASE("Devirtualization - Non-final method remains virtual", "[devirt][optimization]") {
@@ -248,7 +247,6 @@ TEST_CASE("Devirtualization - Full pass execution", "[devirt][integration]") {
     
     // The pass should complete successfully
     // For Circle::draw, it should be devirtualized since it's final
-    REQUIRE(true);  // Basic success check
-    (void)modified;
+    REQUIRE(modified);
 }
 
