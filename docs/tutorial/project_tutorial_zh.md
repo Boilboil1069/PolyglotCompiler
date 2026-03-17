@@ -881,7 +881,7 @@ backends/<架构>/
 
 3. **实现 4 个阶段**：词法分析 → 语法分析 → 语义分析 → IR 生成。
 
-4. **注册到 polyc 驱动程序**：在 `tools/polyc/driver.cpp` 中添加新语言的检测和分发逻辑。
+4. **注册到 polyc 驱动程序**：在 `tools/polyc/src/driver.cpp` 中添加新语言的检测和分发逻辑。
 
 5. **添加测试**：在 `tests/unit/frontends/new_lang/` 中创建测试用例。
 

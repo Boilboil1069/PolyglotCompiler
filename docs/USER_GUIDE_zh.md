@@ -2514,7 +2514,7 @@ void polyglot_plugin_shutdown(void) {
 }
 ```
 
-完整规范请参阅 [`docs/specs/plugin_specification_zh.md`](../specs/plugin_specification_zh.md)。
+完整规范请参阅 [`docs/specs/plugin_specification_zh.md`](specs/plugin_specification_zh.md)。
 
 ---
 
@@ -2611,6 +2611,45 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 详细说明、前置要求和版本管理请参见 `docs/specs/release_packaging_zh.md`。
 
 ## 14.6 更新日志
+
+### v1.0.5 (2026-03-17)
+
+**文档单源化与自动校验（2026-03-17-7）**
+- ✅ 修复路径引用：README.md、USER_GUIDE.md、USER_GUIDE_zh.md、`setup_qt.sh`、`setup_qt.ps1` 现在正确引用 `tools/ui/setup_qt.*`（原为 `scripts/setup_qt.*`）
+- ✅ 修复死链接：USER_GUIDE 中 `plugin_specification.md` / `plugin_specification_zh.md` 链接现在正确解析
+- ✅ 修复 `language_spec.md` / `language_spec_zh.md`：运行时桥接头文件路径更新为 `runtime/include/libs/*.h`
+- ✅ 修复 `project_tutorial.md` / `project_tutorial_zh.md`：驱动程序路径更新为 `tools/polyc/src/driver.cpp`
+- ✅ 新增 `scripts/docs_lint.py`：全面的文档校验工具，包含 9 类检查：
+  - DL001：路径引用验证（反引号引用的路径必须存在于仓库中）
+  - DL002/DL003：双语配对 — 每个 `*.md` 必须有 `*_zh.md` 对应文件
+  - DL004：标题结构同步 — 中英文标题各级数量必须一致
+  - DL005：死链接检测 — 相对 Markdown 链接必须可解析
+  - DL006：版本一致性 — 各文档中的版本字符串必须一致
+  - DL007：孤立文档检测 — 未被 README 或 USER_GUIDE 引用的文档
+  - DL008：已发布文档中的 TODO/FIXME 标记
+  - DL009：占位文本检测
+- ✅ 新增 `scripts/docs_generate.py`：单源文档生成器，使用模板标记（`<!-- BEGIN:section_name -->` / `<!-- END:section_name -->`）；支持 `--apply` / `--check` 模式；从 `docs/_variables.json` 更新测试徽章、Qt 路径、依赖表、版本页脚
+- ✅ 新增 `scripts/docs_sync_check.py`：双语同步检查器，比较中英文文档的标题结构和内容长度差异
+- ✅ 新增 `scripts/check_include_deps.py`：头文件依赖层级约束检查器（middle→common/ir、backends→frontends、frontends→backends）
+- ✅ 新增 `docs/_variables.json`：文档变量单一数据源，包含版本号、测试计数、路径、依赖信息、工具名称 — 消除手动多文件更新
+- ✅ 在 README.md 中插入模板标记（`test_badge`、`qt_setup_en`、`dependencies_table`、`version_footer_en`）和 USER_GUIDE 页脚（`version_footer_en`、`version_footer_zh`）
+- ✅ CI 集成：在 `.github/workflows/ci.yml` 中添加 `docs-lint` 作业，在每次 push/PR 时运行 `docs_lint.py --ci`、`docs_sync_check.py --ci` 和 `docs_generate.py --check`
+- ✅ 测试徽章从 813 → 808 更新（准确计数）；版本页脚更新为 v1.0.4 / 2026-03-17
+- ✅ 808 单元测试全部通过（34085 断言）；51/52 集成测试通过
+
+### v1.0.4 (2026-03-17)
+
+**插件系统与 UI 可扩展性（2026-03-17-6）**
+- ✅ 插件宿主回调完整实现：`emit_diagnostic` 将诊断转发到 IDE 输出面板并触发 `DIAGNOSTIC` 事件；`open_file` 委托给已注册的 `OpenFileCallback`（连接到 IDE 标签管理器）；`register_file_type` 填充中央文件类型注册表
+- ✅ 事件订阅系统：插件可通过 `subscribe_event` / `unsubscribe_event` 宿主服务订阅 8 种事件类型（`FILE_OPENED`、`FILE_SAVED`、`FILE_CLOSED`、`BUILD_STARTED`、`BUILD_FINISHED`、`DIAGNOSTIC`、`WORKSPACE_CHANGED`、`THEME_CHANGED`）
+- ✅ `PluginManager::FireEvent()`：线程安全分发 — 在锁内快照订阅者，在锁外投递事件以避免重入死锁
+- ✅ 文件类型注册表：`RegisterFileType()` / `GetLanguageForExtension()` / `GetRegisteredFileTypes()`
+- ✅ 菜单贡献系统：`RegisterMenuItem()` / `UnregisterMenuItem()` / `GetMenuContributions()` / `ExecuteMenuAction()`
+- ✅ 新增 `ActionManager` 类：从 MainWindow 提取的集中化动作/快捷键管理
+- ✅ 新增 `PanelManager` 类：管理底部面板标签页，支持插件贡献面板
+- ✅ MainWindow 重构：面板切换/显示逻辑委托给 `PanelManager`；快捷键管理委托给 `ActionManager`
+- ✅ 12 个新单元测试：事件订阅/取消/分发、文件类型注册、菜单贡献等
+- ✅ 测试计数：796 → 808 测试用例；断言：34056 → 34085 — 全部通过
 
 ### v1.0.3 (2026-03-17)
 

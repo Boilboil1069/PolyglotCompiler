@@ -388,12 +388,12 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 | Bridge | Header | Description |
 |--------|--------|-------------|
-| `__ploy_python_call` | `runtime/include/python_bridge.h` | Invoke Python function |
-| `__ploy_python_new` | `runtime/include/python_bridge.h` | Instantiate Python class |
-| `__ploy_java_call` | `runtime/include/java_rt.h` | Invoke Java method via JNI |
-| `__ploy_java_init` | `runtime/include/java_rt.h` | Initialize JVM |
-| `__ploy_dotnet_call` | `runtime/include/dotnet_rt.h` | Invoke .NET method via CoreCLR |
-| `__ploy_dotnet_init` | `runtime/include/dotnet_rt.h` | Initialize .NET runtime |
+| `__ploy_python_call` | `runtime/include/libs/python_rt.h` | Invoke Python function |
+| `__ploy_python_new` | `runtime/include/libs/python_rt.h` | Instantiate Python class |
+| `__ploy_java_call` | `runtime/include/libs/java_rt.h` | Invoke Java method via JNI |
+| `__ploy_java_init` | `runtime/include/libs/java_rt.h` | Initialize JVM |
+| `__ploy_dotnet_call` | `runtime/include/libs/dotnet_rt.h` | Invoke .NET method via CoreCLR |
+| `__ploy_dotnet_init` | `runtime/include/libs/dotnet_rt.h` | Initialize .NET runtime |
 
 ---
 

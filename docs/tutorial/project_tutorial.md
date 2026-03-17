@@ -880,7 +880,7 @@ backends/<arch>/
 
 3. **Implement the 4 stages**: Lexer → Parser → Sema → Lowering.
 
-4. **Register with polyc driver**: Add the new language to the driver's language detection and dispatch logic in `tools/polyc/driver.cpp`.
+4. **Register with polyc driver**: Add the new language to the driver's language detection and dispatch logic in `tools/polyc/src/driver.cpp`.
 
 5. **Add tests**: Create test cases in `tests/unit/frontends/new_lang/`.
 

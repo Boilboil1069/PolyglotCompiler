@@ -2528,7 +2528,7 @@ void polyglot_plugin_shutdown(void) {
 }
 ```
 
-For the complete specification, see [`docs/specs/plugin_specification.md`](../specs/plugin_specification.md).
+For the complete specification, see [`docs/specs/plugin_specification.md`](specs/plugin_specification.md).
 
 ---
 
@@ -2625,6 +2625,31 @@ PolyglotCompiler provides platform-specific scripts to build release packages:
 See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
 
 ## 14.6 Changelog
+
+### v1.0.5 (2026-03-17)
+
+**Documentation Single-Sourcing & Auto-Verification (2026-03-17-7)**
+- ✅ Fixed path references: README.md, USER_GUIDE.md, USER_GUIDE_zh.md, `setup_qt.sh`, `setup_qt.ps1` all now reference correct `tools/ui/setup_qt.*` paths (was `scripts/setup_qt.*`)
+- ✅ Fixed dead links: `plugin_specification.md` / `plugin_specification_zh.md` links in USER_GUIDE now resolve correctly
+- ✅ Fixed `language_spec.md` / `language_spec_zh.md`: runtime bridge header paths updated to `runtime/include/libs/*.h`
+- ✅ Fixed `project_tutorial.md` / `project_tutorial_zh.md`: driver path updated to `tools/polyc/src/driver.cpp`
+- ✅ New `scripts/docs_lint.py`: comprehensive documentation linter with 9 check categories:
+  - DL001: Path reference validation (backtick-quoted paths must exist in repo)
+  - DL002/DL003: Bilingual pairing — every `*.md` must have `*_zh.md` counterpart
+  - DL004: Heading structure sync — EN/ZH heading counts per level must match
+  - DL005: Dead link detection — relative Markdown links must resolve
+  - DL006: Version consistency — version strings across docs must agree
+  - DL007: Orphan detection — docs not referenced from README or USER_GUIDE
+  - DL008: TODO/FIXME markers in published docs
+  - DL009: Placeholder text detection
+- ✅ New `scripts/docs_generate.py`: single-source documentation generator with template markers (`<!-- BEGIN:section_name -->` / `<!-- END:section_name -->`); supports `--apply` / `--check` modes; patches test badges, Qt paths, dependency tables, version footers from `docs/_variables.json`
+- ✅ New `scripts/docs_sync_check.py`: bilingual synchronisation checker comparing heading structures and content length divergence between EN/ZH pairs
+- ✅ New `scripts/check_include_deps.py`: include dependency layer constraint enforcer (middle→common/ir, backends→frontends, frontends→backends)
+- ✅ New `docs/_variables.json`: single source of truth for version numbers, test counts, paths, dependency info, tool names — eliminates manual multi-file updates
+- ✅ Template markers inserted in README.md (`test_badge`, `qt_setup_en`, `dependencies_table`, `version_footer_en`) and USER_GUIDE footers (`version_footer_en`, `version_footer_zh`)
+- ✅ CI integration: added `docs-lint` job to `.github/workflows/ci.yml` running `docs_lint.py --ci`, `docs_sync_check.py --ci`, and `docs_generate.py --check` on every push/PR
+- ✅ Updated test badge from 813 → 808 (accurate count); version footer updated to v1.0.4 / 2026-03-17
+- ✅ All 808 unit tests passing (34085 assertions); 51/52 integration tests passing
 
 ### v1.0.4 (2026-03-17)
 

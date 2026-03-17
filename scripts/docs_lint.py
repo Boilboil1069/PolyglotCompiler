@@ -228,6 +228,22 @@ def check_path_references(root: Path, md_file: Path, lines: List[str],
                                  "frontends", "backends", "middle")
                            for s in segments):
                     continue
+            # Only validate paths that look like project-root-relative paths.
+            # A path is considered root-relative if:
+            #   1. It starts with ./ or .\
+            #   2. Its first segment is a known top-level directory
+            #   3. It starts with scripts/ or tools/
+            # Short relative paths like `interop/ffi.cpp` inside a section
+            # discussing runtime internals are acceptable.
+            known_roots = {"frontends", "backends", "middle", "runtime",
+                           "common", "tools", "tests", "docs", "scripts",
+                           ".github", "build"}
+            first_seg = segments[0] if segments else ""
+            is_root_path = (raw_path.startswith("./") or
+                            raw_path.startswith(".\\") or
+                            first_seg in known_roots)
+            if not is_root_path:
+                continue
             # Try from project root
             candidate = root / normalized
             if not candidate.exists():
