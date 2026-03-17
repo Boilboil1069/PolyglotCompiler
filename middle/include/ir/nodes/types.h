@@ -31,6 +31,7 @@ struct IRType {
   std::vector<IRType> subtypes{};  // pointee/element/fields/params+ret (ret first for function)
   size_t count{0};               // array length or vector lanes
   bool is_signed{true};          // only meaningful for integers
+  bool is_placeholder{false};    // true when i64 is used as unresolved type fallback
 
   static IRType Invalid() { return IRType{IRTypeKind::kInvalid, "invalid"}; }
   static IRType I1() { IRType t{IRTypeKind::kI1, "i1"}; t.is_signed = false; return t; }

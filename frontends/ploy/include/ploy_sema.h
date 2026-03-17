@@ -253,6 +253,12 @@ class PloySema {
                        const std::string &message);
     void ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
                        const std::string &message, const std::string &suggestion);
+
+    // Report a diagnostic whose severity depends on strict mode:
+    // strict → error (fails compilation), permissive → warning.
+    void ReportStrictDiag(const core::SourceLoc &loc, frontends::ErrorCode code,
+                          const std::string &message);
+
     bool DeclareSymbol(const PloySymbol &symbol);
 
     // Function signature validation helpers

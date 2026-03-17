@@ -211,12 +211,11 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             sig.param_names.push_back(mapping.source_type);
         }
         RegisterFunctionSignature(link->target_symbol, sig);
-    } else if (strict_mode_) {
-        // In strict mode, LINK without MAP_TYPE entries is a warning:
-        // the parameter count and types cannot be validated at call sites.
-        ReportWarning(link->loc, frontends::ErrorCode::kTypeMismatch,
-                      "LINK '" + link->target_symbol +
-                      "' has no MAP_TYPE entries; parameter validation disabled (strict mode)");
+    } else {
+        // LINK without MAP_TYPE entries means parameter validation is disabled.
+        ReportStrictDiag(link->loc, frontends::ErrorCode::kTypeMismatch,
+                         "LINK '" + link->target_symbol +
+                         "' has no MAP_TYPE entries; parameter validation disabled");
     }
 }
 
@@ -449,10 +448,10 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     std::vector<core::Type> param_types;
     for (const auto &param : func->params) {
         core::Type pt = param.type ? ResolveType(param.type) : core::Type::Any();
-        if (!param.type && strict_mode_) {
-            ReportWarning(func->loc, frontends::ErrorCode::kTypeMismatch,
-                          "parameter '" + param.name + "' has no type annotation; "
-                          "defaults to Any (strict mode)");
+        if (!param.type) {
+            ReportStrictDiag(func->loc, frontends::ErrorCode::kTypeMismatch,
+                             "parameter '" + param.name + "' has no type annotation; "
+                             "defaults to Any");
         }
         param_types.push_back(pt);
     }
@@ -556,10 +555,10 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
     sym.is_mutable = var->is_mutable;
     sym.defined_at = var->loc;
 
-    if (var_type.kind == core::TypeKind::kAny && strict_mode_) {
-        ReportWarning(var->loc, frontends::ErrorCode::kTypeMismatch,
-                      "variable '" + var->name + "' resolved to type Any "
-                      "(strict mode); consider adding explicit type annotation");
+    if (var_type.kind == core::TypeKind::kAny) {
+        ReportStrictDiag(var->loc, frontends::ErrorCode::kTypeMismatch,
+                         "variable '" + var->name + "' resolved to type Any; "
+                         "consider adding explicit type annotation");
     }
 
     DeclareSymbol(sym);
@@ -603,11 +602,9 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
         sym.type = iter_type.type_args[0];
     } else {
         sym.type = core::Type::Any();
-        if (strict_mode_) {
-            ReportWarning(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
-                          "FOR iterator '" + for_stmt->iterator_name +
-                          "' type could not be inferred from iterable; defaults to Any (strict mode)");
-        }
+        ReportStrictDiag(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                         "FOR iterator '" + for_stmt->iterator_name +
+                         "' type could not be inferred from iterable; defaults to Any");
     }
     DeclareSymbol(sym);
 
@@ -671,22 +668,17 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         }
         ReportError(id->loc, frontends::ErrorCode::kUndefinedSymbol,
                     "undefined identifier '" + id->name + "'");
-        if (strict_mode_) {
-            ReportWarning(id->loc, frontends::ErrorCode::kTypeMismatch,
-                          "unresolved identifier '" + id->name +
-                          "' falls back to Any (strict mode)");
-        }
+        ReportStrictDiag(id->loc, frontends::ErrorCode::kTypeMismatch,
+                         "unresolved identifier '" + id->name +
+                         "' falls back to Any");
         return core::Type::Any();
     }
 
     if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
         // Qualified identifiers refer to imported module symbols.
-        // In strict mode, warn that cross-module types are not resolved.
-        if (strict_mode_) {
-            ReportWarning(qid->loc, frontends::ErrorCode::kTypeMismatch,
-                          "qualified identifier type cannot be resolved; "
-                          "defaults to Any (strict mode)");
-        }
+        ReportStrictDiag(qid->loc, frontends::ErrorCode::kTypeMismatch,
+                         "qualified identifier type cannot be resolved; "
+                         "defaults to Any");
         return core::Type::Any();
     }
 
@@ -1266,10 +1258,10 @@ void PloySema::AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl)
             continue;
         }
         core::Type field_type = field.type ? ResolveType(field.type) : core::Type::Any();
-        if (!field.type && strict_mode_) {
-            ReportWarning(struct_decl->loc, frontends::ErrorCode::kTypeMismatch,
-                          "struct field '" + field.name + "' has no type annotation; "
-                          "defaults to Any (strict mode)");
+        if (!field.type) {
+            ReportStrictDiag(struct_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                             "struct field '" + field.name + "' has no type annotation; "
+                             "defaults to Any");
         }
         resolved_fields.emplace_back(field.name, field_type);
     }
@@ -1444,6 +1436,15 @@ void PloySema::ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode co
 void PloySema::ReportWarning(const core::SourceLoc &loc, frontends::ErrorCode code,
                              const std::string &message, const std::string &suggestion) {
     diagnostics_.ReportWarning(loc, code, message, suggestion);
+}
+
+void PloySema::ReportStrictDiag(const core::SourceLoc &loc, frontends::ErrorCode code,
+                                const std::string &message) {
+    if (strict_mode_) {
+        diagnostics_.ReportError(loc, code, message);
+    } else {
+        diagnostics_.ReportWarning(loc, code, message);
+    }
 }
 
 bool PloySema::DeclareSymbol(const PloySymbol &symbol) {

@@ -797,6 +797,14 @@ bool Verify(const IRContext &ctx, const VerifyOptions &opts, std::string *msg) {
 			if (fn->is_bridge_stub) continue;
 			if (fn->blocks.empty()) continue;
 
+			// Reject I64 placeholder return type on non-bridge functions.
+			// A genuine I64 return is fine, but I64 with the placeholder flag
+			// indicates the type was not properly resolved.
+			if (fn->ret_type.kind == IRTypeKind::kI64 && fn->ret_type.is_placeholder) {
+				return Fail("strict: function '" + fn->name +
+				            "' has unresolved placeholder return type I64", msg);
+			}
+
 			for (auto &bb : fn->blocks) {
 				for (auto &inst : bb->instructions) {
 					// Reject "undef" operands in strict mode

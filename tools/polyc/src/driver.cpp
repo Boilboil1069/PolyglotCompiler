@@ -165,6 +165,8 @@ struct Settings {
     bool pp_rust{false};
     bool pp_python{false};
     bool force{false};
+    bool strict{false};                   // strict mode: reject placeholders, disable --force stubs
+    bool permissive{false};               // explicit permissive mode override
     bool verbose{true};                   // progress output (default on)
     bool emit_aux{true};                  // emit aux/ intermediate files (default on)
     std::vector<std::string> include_paths{"."};
@@ -256,7 +258,9 @@ Settings ParseArgs(int argc, char **argv) {
                       << "  --obj-format=<fmt>  pobj|coff|elf|macho (auto-detected per OS)\n"
                       << "  --quiet             Suppress progress output\n"
                       << "  --no-aux            Do not emit auxiliary files\n"
-                      << "  --force             Continue despite errors\n"
+                      << "  --force             Continue despite errors (disabled in strict mode)\n"
+                      << "  --strict            Strict mode: reject placeholder types, disable degraded stubs\n"
+                      << "  --permissive        Permissive mode: allow placeholder fallbacks (default for Debug)\n"
                       << "  -j<N>               Parallelism hint\n"
                       << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
                       << "\n"
@@ -321,6 +325,8 @@ Settings ParseArgs(int argc, char **argv) {
             continue;
         }
         if (arg == "--force" || arg == "--ignore-diagnostics") { s.force = true; continue; }
+        if (arg == "--strict") { s.strict = true; continue; }
+        if (arg == "--permissive") { s.permissive = true; continue; }
         if (arg.rfind("-j", 0) == 0) {
             if (arg == "-j" && i + 1 < argc) {
                 s.jobs = std::atoi(argv[++i]);
@@ -1240,6 +1246,24 @@ int main(int argc, char **argv) {
     auto total_start = std::chrono::high_resolution_clock::now();
 
     Settings settings = ParseArgs(argc, argv);
+
+    // ── Resolve strict / permissive / force mode ────────────────────────
+    // Default: strict in Release builds, permissive otherwise.
+    // Explicit flags override the default.  --strict + --force is an error.
+#ifdef POLYC_DEFAULT_STRICT
+    if (!settings.permissive && !settings.strict) {
+        settings.strict = true;
+    }
+#endif
+    if (settings.strict && settings.permissive) {
+        std::cerr << "[error] --strict and --permissive are mutually exclusive\\n";
+        return 1;
+    }
+    if (settings.strict && settings.force) {
+        std::cerr << "[error] --force is not allowed in strict mode\\n";
+        return 1;
+    }
+
     bool V = settings.verbose;
 
     // Print header
@@ -1255,6 +1279,7 @@ int main(int argc, char **argv) {
         std::cerr << "[polyc] Arch: " << settings.arch << "\n";
         std::cerr << "[polyc] Opt level: O" << settings.opt_level << "\n";
         std::cerr << "[polyc] Output: " << settings.output << "\n";
+        std::cerr << "[polyc] Mode: " << (settings.strict ? "strict" : "permissive") << "\n";
         std::cerr << "----------------------------------------\n";
     }
 
@@ -1359,7 +1384,9 @@ int main(int argc, char **argv) {
         }
 
         // Phase 3: Semantic analysis
-        polyglot::ploy::PloySema sema(diagnostics);
+        polyglot::ploy::PloySemaOptions sema_opts;
+        sema_opts.strict_mode = settings.strict;
+        polyglot::ploy::PloySema sema(diagnostics, sema_opts);
         bool sema_ok = false;
         {
             StageTimer t("Semantic analysis (.ploy)", V);
@@ -1449,7 +1476,7 @@ int main(int argc, char **argv) {
                     std::cerr << "  " << e << "\n";
                 }
                 if (!settings.force) {
-                    return false;
+                    return 1;
                 }
                 std::cerr << "[warn] continuing in --force mode despite link errors\n";
             }
@@ -1579,7 +1606,9 @@ int main(int argc, char **argv) {
             polyglot::ir::ConvertToSSA(*fn);
         }
         std::string verify_msg;
-        if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
+        polyglot::ir::VerifyOptions verify_opts;
+        verify_opts.strict = settings.strict;
+        if (!polyglot::ir::Verify(ir_module, verify_opts, &verify_msg)) {
             std::cerr << "[error] IR verification failed: " << verify_msg << "\n";
             if (!settings.force) return 1;
         }
@@ -1634,7 +1663,9 @@ int main(int argc, char **argv) {
         // Re-verify after optimization
         {
             std::string verify_msg;
-            if (!polyglot::ir::Verify(ir_module, &verify_msg)) {
+            polyglot::ir::VerifyOptions post_opt_vopts;
+            post_opt_vopts.strict = settings.strict;
+            if (!polyglot::ir::Verify(ir_module, post_opt_vopts, &verify_msg)) {
                 if (V) {
                     std::cerr << "[warn] IR verification failed after optimization: "
                               << verify_msg << "\n";
@@ -1690,6 +1721,14 @@ int main(int argc, char **argv) {
             std::cerr << "[error] backend produced no code sections for target '"
                       << backend.TargetTriple() << "'\n";
             if (!settings.force) {
+                backend_failed = true;
+                t2.Stop();
+                return;
+            }
+            // In strict mode, degraded stubs are never acceptable
+            if (settings.strict) {
+                std::cerr << "[error] backend produced no code and strict mode "
+                             "prohibits degraded stubs\n";
                 backend_failed = true;
                 t2.Stop();
                 return;

@@ -1294,7 +1294,33 @@ polyc [options] <input_file>
 | `--quiet` / `-q` | Suppress progress output |
 | `--no-aux` | Disable auxiliary file generation |
 | `--force` | Continue compilation despite errors |
+| `--strict` | Strict mode: reject placeholder types, disable degraded stubs |
+| `--permissive` | Permissive mode: allow placeholder types (override Release default) |
 | `-h` / `--help` | Show usage information |
+
+> **Note:** Release builds default to strict mode (via `POLYC_DEFAULT_STRICT`).
+> Use `--permissive` to override.  `--strict` and `--force` are mutually exclusive.
+
+### Compilation Modes
+
+`polyc` supports two compilation modes that control how aggressively placeholder types and unresolved cross-language type information are treated:
+
+| Mode | Placeholder types | `--force` stubs | Default in |
+|------|-------------------|-----------------|------------|
+| **Strict** | Error | Blocked | Release builds |
+| **Permissive** | Warning | Allowed | Debug builds |
+
+**Strict mode** (`--strict` or Release default):
+- Semantic analysis reports placeholder-type fallbacks (e.g., `Any` for untyped parameters) as **errors**
+- IR verifier rejects functions with unresolved placeholder `I64` return types
+- Lowering rejects cross-language calls whose return type cannot be resolved
+- Degraded stub generation via `--force` is prohibited
+- `--strict` and `--force` are mutually exclusive
+
+**Permissive mode** (`--permissive` or Debug default):
+- Placeholder-type fallbacks are reported as **warnings**
+- I64 placeholder return types are accepted by the verifier
+- `--force` can generate degraded stubs for incomplete compilations
 
 ### Language Auto-Detection
 
@@ -2453,6 +2479,17 @@ PolyglotCompiler provides platform-specific scripts to build release packages:
 See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
 
 ## 14.6 Changelog
+
+### v1.0.1 (2026-03-17)
+- ✅ Two explicit compilation modes: **strict** and **permissive** (`--strict` / `--permissive` CLI flags)
+- ✅ Release builds default to strict mode via `POLYC_DEFAULT_STRICT` compile definition
+- ✅ Strict mode: semantic analysis reports placeholder-type fallbacks as errors instead of warnings
+- ✅ Strict mode: IR verifier rejects functions with unresolved placeholder I64 return types
+- ✅ Strict mode: lowering rejects cross-language calls with unknown return types
+- ✅ Strict mode: degraded stubs via `--force` are blocked; `--strict` and `--force` are mutually exclusive
+- ✅ Permissive mode: all placeholder-type fallbacks visible as warnings (previously silent)
+- ✅ `ReportStrictDiag()` helper: routes diagnostics to error (strict) or warning (permissive)
+- ✅ `IRType::is_placeholder` flag distinguishes genuine I64 from unresolved fallback I64
 
 ### v1.0.0 (2026-03-15)
 - ✅ Project version unified to **1.0.0** (all previous v5.x/v4.x versions renumbered to v0.5.x/v0.4.x)

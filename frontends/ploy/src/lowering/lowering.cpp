@@ -819,19 +819,28 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     // Resolve the return type from sema's known signatures.
     // If no signature is found, fall back to I64 with a diagnostic.
     ir::IRType call_ret_type = ir::IRType::I64(true);
+    call_ret_type.is_placeholder = true;  // assume placeholder until resolved
     {
         auto sig_it = sema_.KnownSignatures().find(call->function);
         if (sig_it != sema_.KnownSignatures().end() &&
             sig_it->second.return_type.kind != core::TypeKind::kAny &&
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             call_ret_type = CoreTypeToIR(sig_it->second.return_type);
+            call_ret_type.is_placeholder = false;  // resolved successfully
         } else {
-            // Cross-language targets often lack explicit return type info;
-            // this is not an error — just default to i64 and warn.
-            diagnostics_.ReportWarning(call->loc,
-                frontends::ErrorCode::kGenericWarning,
-                "cross-language call to '" + call->function +
-                "' has unknown return type; defaulting to i64");
+            // Cross-language targets often lack explicit return type info.
+            // In strict mode this is an error; in permissive mode a warning.
+            if (sema_.IsStrictMode()) {
+                diagnostics_.ReportError(call->loc,
+                    frontends::ErrorCode::kTypeMismatch,
+                    "cross-language call to '" + call->function +
+                    "' has unknown return type (strict mode rejects placeholder i64)");
+            } else {
+                diagnostics_.ReportWarning(call->loc,
+                    frontends::ErrorCode::kGenericWarning,
+                    "cross-language call to '" + call->function +
+                    "' has unknown return type; defaulting to i64");
+            }
         }
     }
 

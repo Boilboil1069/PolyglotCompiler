@@ -297,6 +297,11 @@ target_link_libraries(polyc
     linker_lib
 )
 
+# Enable strict mode by default for Release builds
+target_compile_definitions(polyc PRIVATE
+    $<$<CONFIG:Release>:POLYC_DEFAULT_STRICT>
+)
+
 add_executable(polyasm
     tools/polyasm/src/assembler.cpp
 )
