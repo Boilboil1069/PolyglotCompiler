@@ -764,6 +764,31 @@ FUNC run(n: i64) -> i64 {
         linker.AddCallDescriptor(desc);
     }
 
+    // Add the LINK entry that corresponds to the .ploy LINK declaration
+    polyglot::ploy::LinkEntry link_entry;
+    link_entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
+    link_entry.target_language = "cpp";
+    link_entry.source_language = "python";
+    link_entry.target_symbol = "math::square";
+    link_entry.source_symbol = "util::display";
+    linker.AddLinkEntry(link_entry);
+
+    // Register cross-language symbols so ResolveSymbolPair can find them
+    polyglot::linker::CrossLangSymbol cpp_sym;
+    cpp_sym.name = "math::square";
+    cpp_sym.mangled_name = "math::square";
+    cpp_sym.language = "cpp";
+    cpp_sym.type = polyglot::linker::SymbolType::kFunction;
+
+    polyglot::linker::CrossLangSymbol py_sym;
+    py_sym.name = "util::display";
+    py_sym.mangled_name = "util::display";
+    py_sym.language = "python";
+    py_sym.type = polyglot::linker::SymbolType::kFunction;
+
+    linker.AddCrossLangSymbol(cpp_sym);
+    linker.AddCrossLangSymbol(py_sym);
+
     REQUIRE(linker.ResolveLinks());
     // After resolution, glue stubs should have been generated
     auto &stubs = linker.GetStubs();
