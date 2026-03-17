@@ -162,7 +162,12 @@ bool PolyglotLinker::ResolveLinks() {
         // Check if already covered by a LINK entry
         bool covered = false;
         for (const auto &entry : link_entries_) {
+            // A descriptor is covered if its source function matches either
+            // the source or target symbol of a LINK entry.  The CALL directive
+            // always stores the callee name in source_function regardless of
+            // which side of the LINK declaration it appears on.
             if (desc.source_function == entry.source_symbol ||
+                desc.source_function == entry.target_symbol ||
                 desc.target_function == entry.target_symbol) {
                 covered = true;
                 break;

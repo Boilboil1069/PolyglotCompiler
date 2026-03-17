@@ -35,7 +35,7 @@ $ProjectRoot   = Split-Path -Parent $PSScriptRoot
 $Version       = "1.0.0"
 $ProductName   = "PolyglotCompiler"
 $ArchiveBase   = "${ProductName}-${Version}-windows-x64"
-$StageDir      = Join-Path (Join-Path $OutputDir "stage") $ArchiveBase
+$StageDir      = Join-Path $OutputDir $ArchiveBase
 $NsisScript    = Join-Path $PSScriptRoot "installer.nsi"
 
 # List of tool executables produced by the build
