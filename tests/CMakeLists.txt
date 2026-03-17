@@ -137,6 +137,7 @@ set(UNIT_TEST_LINKER
 # End-to-end tests
 set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
+    unit/e2e/compilation_behavior_test.cpp
 )
 
 # Combine all unit test sources

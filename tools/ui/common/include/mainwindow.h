@@ -25,6 +25,7 @@
 
 namespace polyglot::tools::ui {
 
+class ActionManager;
 class BuildPanel;
 class CodeEditor;
 class CompilerService;
@@ -32,6 +33,7 @@ class DebugPanel;
 class FileBrowser;
 class GitPanel;
 class OutputPanel;
+class PanelManager;
 class SettingsDialog;
 class SyntaxHighlighter;
 class TerminalWidget;
@@ -277,6 +279,10 @@ class MainWindow : public QMainWindow {
     GitPanel *git_panel_{nullptr};
     BuildPanel *build_panel_{nullptr};
     DebugPanel *debug_panel_{nullptr};
+    // ── Panel Manager ────────────────────────────────────────────────────
+    PanelManager *panel_manager_{nullptr};
+    // ── Action Manager ───────────────────────────────────────────────────
+    ActionManager *action_manager_{nullptr};
     // ── Analysis timer (real-time error checking) ────────────────────────
     QTimer *analysis_timer_{nullptr};
     QTimer *auto_save_timer_{nullptr};

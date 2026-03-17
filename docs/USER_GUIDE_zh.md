@@ -1654,10 +1654,10 @@ chmod +x setup_env.sh
 
 ```bash
 # macOS / Linux
-./scripts/setup_qt.sh
+./tools/ui/setup_qt.sh
 
 # Windows (PowerShell)
-.\scripts\setup_qt.ps1
+.\tools\ui\setup_qt.ps1
 ```
 
 此命令将预编译的 Qt 6.10.2 二进制文件下载到 `deps/qt/` 目录（已被 git 忽略）。
@@ -2612,6 +2612,48 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 ## 14.6 更新日志
 
+### v1.0.3 (2026-03-17)
+
+**测试质量提升（2026-03-17-5）**
+- ✅ 将 `lto_test.cpp` 中的 `REQUIRE(true)` 替换为优化器统计行为断言（空模块所有统计为 0，模块经历所有优化阶段后仍存在）
+- ✅ 将 `gc_algorithms_test.cpp` 中的 `REQUIRE(true)` 替换为 GC 统计验证：多周期测试 `collections >= 10`、`total_allocations >= 500`；增量回收 `total_allocations >= 200`
+- ✅ 将注释掉的性能基准测试替换为真实吞吐量断言（`total_allocations >= 10000`、`collections >= 1`）
+- ✅ 将 `java_test.cpp` 和 `dotnet_test.cpp` 中的 `SUCCEED()` 替换为语义分析行为检查（验证诊断信息为类型映射相关，而非崩溃）
+- ✅ 将 `threading_services_test.cpp` 中的 `REQUIRE(true)` 替换为基于原子变量的屏障阶段跟踪和大工作负载精确求和验证
+- ✅ 增强 Java/DotNet 枚举和结构体降级测试，添加正向诊断状态断言
+- ✅ 新增 `compilation_behavior_test.cpp`：15 个行为级和失败路径测试用例：
+  - C++ 单函数/多函数 IR 输出正确性
+  - C++ 条件语句产生多个基本块
+  - x86_64 汇编包含函数标签和 `ret` 指令
+  - x86_64 目标代码包含 `.text` 节且有非零字节和函数符号
+  - ARM64 汇编输出包含函数标签
+  - IR 验证通过格式正确的 IR；检测到格式错误（空函数）的 IR
+  - Ploy `LINK` 产生正确的跨语言调用描述符
+  - Ploy `FUNC` 产生具名 IR 函数
+  - 失败路径：解析错误诊断、未定义变量语义错误、降级无效代码返回失败
+- ✅ 测试用例数：781 → 796；断言数：3985 → 34056 — 全部通过
+
+### v1.0.2 (2026-03-17)
+
+**包发现重构**
+- ✅ 新增 `CommandResult` 结构体，提供结构化的命令执行结果（标准输出、退出码、超时标志）
+- ✅ `ICommandRunner` 新增 `RunWithResult()` 接口，`Run()` 保留并委托至 `RunWithResult()`
+- ✅ `DefaultCommandRunner` 构造函数支持可配置默认超时（基于 `std::async` + `std::future::wait_for`）
+- ✅ 新增 `PackageIndexer` 类——在语义分析之前运行的显式包索引阶段
+- ✅ `PackageIndexer` 支持超时、重试、进度回调和统计信息收集
+- ✅ `polyc` 驱动程序新增 Phase 2.5：根据 AST 导入声明扫描所需语言并运行包索引
+- ✅ 新增 CLI 标志：`--no-package-index`（跳过索引）、`--pkg-timeout=<ms>`（设置超时）
+- ✅ `PloySemaOptions::enable_package_discovery` 默认值改为 `false`，由预阶段缓存替代
+- ✅ 新增 10+ 个测试用例覆盖 `CommandResult`、`PackageIndexer`、超时模拟及预阶段→语义分析流程
+
+**构建系统模块化**
+- ✅ 顶层 `CMakeLists.txt` 从约 690 行精简为约 80 行
+- ✅ 新增 7 个子目录 `CMakeLists.txt`：`common/`、`frontends/`、`middle/`、`backends/`、`runtime/`、`tools/`、`tests/`
+- ✅ 单元测试采用显式逐模块源文件列表（不再使用 `GLOB_RECURSE`）
+- ✅ 集成测试和基准测试保留 `GLOB_RECURSE` 以便快速添加
+- ✅ Qt6 检测与部署逻辑迁移至 `tools/CMakeLists.txt`
+- ✅ 全部 781 个测试用例 / 3985 条断言通过
+
 ### v1.0.1 (2026-03-17)
 - ✅ 两种显式编译模式：**严格**和**宽松**（`--strict` / `--permissive` CLI 标志）
 - ✅ Release 构建默认启用严格模式（通过 `POLYC_DEFAULT_STRICT` 编译定义）
@@ -2766,6 +2808,8 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 ---
 
+<!-- BEGIN:version_footer_zh -->
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-03-15*  
-*文档版本: v1.0.0*
+*最后更新: 2026-03-17*  
+*文档版本: v1.0.4*
+<!-- END:version_footer_zh -->

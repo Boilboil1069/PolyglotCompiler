@@ -1,8 +1,8 @@
 # setup_qt.ps1 — Download pre-built Qt 6 binaries for Windows using aqtinstall.
 #
 # Usage:
-#   .\scripts\setup_qt.ps1             # default Qt 6.10.2
-#   .\scripts\setup_qt.ps1 -QtVersion 6.10.2
+#   .\tools\ui\setup_qt.ps1             # default Qt 6.10.2
+#   .\tools\ui\setup_qt.ps1 -QtVersion 6.10.2
 #
 # Qt is installed into deps\qt\ under the project root.
 

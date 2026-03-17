@@ -196,7 +196,8 @@ TEST_CASE("Threading - Work Stealing Scheduler", "[threading][worksteal]") {
             sum += i;
         });
         
-        REQUIRE(sum > 0);
+        // 0 + 1 + ... + 99999 = 4999950000
+        REQUIRE(sum == 4999950000LL);
     }
 }
 
@@ -318,10 +319,12 @@ TEST_CASE("Threading - Barrier", "[threading][barrier]") {
     
     SECTION("Barrier reset") {
         Barrier barrier(3);
+        std::atomic<int> phase1_count{0};
         
         std::vector<std::thread> threads;
         for (int i = 0; i < 3; ++i) {
-            threads.emplace_back([&barrier]() {
+            threads.emplace_back([&barrier, &phase1_count]() {
+                phase1_count++;
                 barrier.Wait();
             });
         }
@@ -329,12 +332,17 @@ TEST_CASE("Threading - Barrier", "[threading][barrier]") {
         for (auto& t : threads) {
             t.join();
         }
+        
+        // All three threads in phase 1 must have reached the barrier
+        REQUIRE(phase1_count == 3);
         
         barrier.Reset(3);
         
+        std::atomic<int> phase2_count{0};
         threads.clear();
         for (int i = 0; i < 3; ++i) {
-            threads.emplace_back([&barrier]() {
+            threads.emplace_back([&barrier, &phase2_count]() {
+                phase2_count++;
                 barrier.Wait();
             });
         }
@@ -343,7 +351,8 @@ TEST_CASE("Threading - Barrier", "[threading][barrier]") {
             t.join();
         }
         
-        REQUIRE(true);
+        // All three threads in phase 2 must have reached the reset barrier
+        REQUIRE(phase2_count == 3);
     }
     
     SECTION("Synchronization point") {

@@ -117,8 +117,31 @@ void HostLog(const PolyglotHostContext *ctx,
 void HostEmitDiag(const PolyglotHostContext *ctx,
                   const PolyglotDiagnostic *diag) {
     if (!ctx || !ctx->manager || !diag) return;
+
+    // Forward to the diagnostic callback so the UI / compiler can display it
     PolyglotDiagnostic d = *diag;
-    (void)d;
+    std::string plugin_id = ctx->current_plugin_id;
+
+    // Log the diagnostic to stderr for CLI visibility
+    const char *sev_str = "note";
+    switch (d.severity) {
+        case POLYGLOT_DIAG_WARNING: sev_str = "warning"; break;
+        case POLYGLOT_DIAG_ERROR:   sev_str = "error";   break;
+        default: break;
+    }
+    std::cerr << "[plugin:" << plugin_id << "] "
+              << (d.file ? d.file : "<unknown>") << ":"
+              << d.line << ":" << d.column << ": "
+              << sev_str << ": " << (d.message ? d.message : "") << "\n";
+
+    // Fire event to other subscribed plugins
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_DIAGNOSTIC;
+    event.file = d.file;
+    event.line = d.line;
+    event.data = d.message;
+    event.result_code = static_cast<int>(d.severity);
+    ctx->manager->FireEvent(event);
 }
 
 const char *HostGetSetting(const PolyglotHostContext *ctx,
@@ -142,19 +165,50 @@ void HostOpenFile(const PolyglotHostContext *ctx,
                   const char *path,
                   uint32_t line) {
     if (!ctx || !ctx->manager || !path) return;
-    (void)line;
+    // Delegate to the PluginManager which dispatches to the UI layer
+    // via SetOpenFileCallback().
+    ctx->manager->DispatchOpenFile(std::string(path), line);
 }
 
 void HostRegisterFileType(const PolyglotHostContext *ctx,
                           const char *extension,
                           const char *language) {
     if (!ctx || !ctx->manager || !extension || !language) return;
+    // Register the file type in the PluginManager's central registry
+    ctx->manager->RegisterFileType(ctx->current_plugin_id,
+                                   std::string(extension),
+                                   std::string(language));
 }
 
 const char *HostGetWorkspaceRoot(const PolyglotHostContext *ctx) {
     if (!ctx || !ctx->manager) return nullptr;
     const auto &root = ctx->manager->GetWorkspaceRoot();
     return root.empty() ? nullptr : root.c_str();
+}
+
+void HostSubscribeEvent(const PolyglotHostContext *ctx,
+                        PolyglotEventType event_type) {
+    if (!ctx || !ctx->manager) return;
+    ctx->manager->SubscribeEvent(ctx->current_plugin_id, event_type);
+}
+
+void HostUnsubscribeEvent(const PolyglotHostContext *ctx,
+                          PolyglotEventType event_type) {
+    if (!ctx || !ctx->manager) return;
+    ctx->manager->UnsubscribeEvent(ctx->current_plugin_id, event_type);
+}
+
+void HostRegisterMenuItem(const PolyglotHostContext *ctx,
+                          const PolyglotMenuContribution *item) {
+    if (!ctx || !ctx->manager || !item) return;
+    ctx->manager->RegisterMenuItem(ctx->current_plugin_id, *item);
+}
+
+void HostUnregisterMenuItem(const PolyglotHostContext *ctx,
+                            const char *action_id) {
+    if (!ctx || !ctx->manager || !action_id) return;
+    ctx->manager->UnregisterMenuItem(ctx->current_plugin_id,
+                                     std::string(action_id));
 }
 
 }  // anonymous namespace
@@ -576,6 +630,237 @@ void PluginManager::SetOpenFileCallback(OpenFileCallback cb) {
     open_file_cb_ = std::move(cb);
 }
 
+void PluginManager::DispatchOpenFile(const std::string &path, uint32_t line) {
+    OpenFileCallback cb;
+    {
+        std::lock_guard lock(mu_);
+        cb = open_file_cb_;
+    }
+    // Call outside lock to avoid deadlock if callback re-enters plugin system
+    if (cb) {
+        cb(path, line);
+    }
+}
+
+void PluginManager::SetMenuItemRegisteredCallback(MenuItemCallback cb) {
+    std::lock_guard lock(mu_);
+    menu_item_cb_ = std::move(cb);
+}
+
+void PluginManager::SetFileTypeRegisteredCallback(FileTypeCallback cb) {
+    std::lock_guard lock(mu_);
+    file_type_cb_ = std::move(cb);
+}
+
+// ============================================================================
+// Event System
+// ============================================================================
+
+void PluginManager::SubscribeEvent(const std::string &plugin_id,
+                                   PolyglotEventType type) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it != plugins_.end()) {
+        it->second->subscribed_events.insert(type);
+    }
+}
+
+void PluginManager::UnsubscribeEvent(const std::string &plugin_id,
+                                     PolyglotEventType type) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it != plugins_.end()) {
+        it->second->subscribed_events.erase(type);
+    }
+}
+
+void PluginManager::FireEvent(const PolyglotEvent &event) {
+    // Snapshot the list of subscribers under lock, then dispatch outside
+    // the lock to avoid deadlocks when handlers re-enter the manager.
+    struct Subscriber {
+        PolyglotPlugin               *instance;
+        PFN_polyglot_plugin_on_event  handler;
+    };
+    std::vector<Subscriber> subscribers;
+
+    {
+        std::lock_guard lock(mu_);
+        for (auto &[id, ph] : plugins_) {
+            if (!ph->active || !ph->fn_on_event) continue;
+            if (ph->subscribed_events.count(event.type) > 0) {
+                subscribers.push_back({ph->instance, ph->fn_on_event});
+            }
+        }
+    }
+
+    for (auto &sub : subscribers) {
+        sub.handler(sub.instance, &event);
+    }
+}
+
+void PluginManager::FireFileOpened(const std::string &path) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_FILE_OPENED;
+    event.file = path.c_str();
+    FireEvent(event);
+}
+
+void PluginManager::FireFileSaved(const std::string &path) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_FILE_SAVED;
+    event.file = path.c_str();
+    FireEvent(event);
+}
+
+void PluginManager::FireFileClosed(const std::string &path) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_FILE_CLOSED;
+    event.file = path.c_str();
+    FireEvent(event);
+}
+
+void PluginManager::FireBuildStarted() {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_BUILD_STARTED;
+    FireEvent(event);
+}
+
+void PluginManager::FireBuildFinished(int result_code) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_BUILD_FINISHED;
+    event.result_code = result_code;
+    FireEvent(event);
+}
+
+void PluginManager::FireWorkspaceChanged(const std::string &root) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_WORKSPACE_CHANGED;
+    event.data = root.c_str();
+    FireEvent(event);
+}
+
+void PluginManager::FireThemeChanged(const std::string &theme_name) {
+    PolyglotEvent event{};
+    event.type = POLYGLOT_EVENT_THEME_CHANGED;
+    event.data = theme_name.c_str();
+    FireEvent(event);
+}
+
+// ============================================================================
+// File Type Registry
+// ============================================================================
+
+void PluginManager::RegisterFileType(const std::string &plugin_id,
+                                     const std::string &extension,
+                                     const std::string &language) {
+    FileTypeCallback cb;
+    {
+        std::lock_guard lock(mu_);
+        file_type_registry_[extension] = language;
+        cb = file_type_cb_;
+    }
+    std::cerr << "[plugin-manager] Registered file type: ." << extension
+              << " -> " << language << " (from " << plugin_id << ")\n";
+    if (cb) {
+        cb(extension, language);
+    }
+}
+
+std::string PluginManager::GetLanguageForExtension(
+    const std::string &extension) const {
+    std::lock_guard lock(mu_);
+    auto it = file_type_registry_.find(extension);
+    return it != file_type_registry_.end() ? it->second : std::string{};
+}
+
+std::vector<std::pair<std::string, std::string>>
+PluginManager::GetRegisteredFileTypes() const {
+    std::lock_guard lock(mu_);
+    std::vector<std::pair<std::string, std::string>> result;
+    result.reserve(file_type_registry_.size());
+    for (const auto &[ext, lang] : file_type_registry_) {
+        result.emplace_back(ext, lang);
+    }
+    return result;
+}
+
+// ============================================================================
+// Menu Contributions
+// ============================================================================
+
+void PluginManager::RegisterMenuItem(const std::string &plugin_id,
+                                     const PolyglotMenuContribution &item) {
+    MenuItemCallback cb;
+    {
+        std::lock_guard lock(mu_);
+        auto it = plugins_.find(plugin_id);
+        if (it != plugins_.end()) {
+            it->second->menu_contributions.push_back(item);
+        }
+        cb = menu_item_cb_;
+    }
+    std::cerr << "[plugin-manager] Registered menu item: "
+              << (item.menu_path ? item.menu_path : "") << " / "
+              << (item.action_id ? item.action_id : "") << "\n";
+    if (cb) {
+        cb(plugin_id, item);
+    }
+}
+
+void PluginManager::UnregisterMenuItem(const std::string &plugin_id,
+                                       const std::string &action_id) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it == plugins_.end()) return;
+
+    auto &contribs = it->second->menu_contributions;
+    contribs.erase(
+        std::remove_if(contribs.begin(), contribs.end(),
+                       [&action_id](const PolyglotMenuContribution &c) {
+                           return c.action_id && action_id == c.action_id;
+                       }),
+        contribs.end());
+}
+
+std::vector<std::pair<std::string, PolyglotMenuContribution>>
+PluginManager::GetMenuContributions() const {
+    std::lock_guard lock(mu_);
+    std::vector<std::pair<std::string, PolyglotMenuContribution>> result;
+    for (const auto &[id, ph] : plugins_) {
+        if (!ph->active) continue;
+        for (const auto &item : ph->menu_contributions) {
+            result.emplace_back(id, item);
+        }
+    }
+    return result;
+}
+
+bool PluginManager::ExecuteMenuAction(const std::string &action_id) {
+    PolyglotMenuContribution found{};
+    bool matched = false;
+
+    {
+        std::lock_guard lock(mu_);
+        for (const auto &[id, ph] : plugins_) {
+            if (!ph->active) continue;
+            for (const auto &item : ph->menu_contributions) {
+                if (item.action_id && action_id == item.action_id) {
+                    found = item;
+                    matched = true;
+                    break;
+                }
+            }
+            if (matched) break;
+        }
+    }
+
+    if (matched && found.callback) {
+        found.callback(host_ctx_);
+        return true;
+    }
+    return false;
+}
+
 // ============================================================================
 // Cleanup
 // ============================================================================
@@ -633,6 +918,11 @@ void PluginManager::ResolveCapabilitySymbols(PluginHandle &handle) {
             reinterpret_cast<PFN_polyglot_plugin_get_linter>(
                 DlSym(handle.dl_handle, "polyglot_plugin_get_linter"));
     }
+
+    // Always try to resolve the event handler — any plugin can subscribe
+    handle.fn_on_event =
+        reinterpret_cast<PFN_polyglot_plugin_on_event>(
+            DlSym(handle.dl_handle, "polyglot_plugin_on_event"));
 }
 
 void PluginManager::CacheProviders(PluginHandle &handle) {
@@ -680,6 +970,10 @@ void PluginManager::BuildHostServices() {
     host_services_.open_file          = HostOpenFile;
     host_services_.register_file_type = HostRegisterFileType;
     host_services_.get_workspace_root = HostGetWorkspaceRoot;
+    host_services_.subscribe_event    = HostSubscribeEvent;
+    host_services_.unsubscribe_event  = HostUnsubscribeEvent;
+    host_services_.register_menu_item = HostRegisterMenuItem;
+    host_services_.unregister_menu_item = HostUnregisterMenuItem;
 }
 
 }  // namespace polyglot::plugins

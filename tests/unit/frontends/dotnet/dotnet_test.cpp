@@ -284,8 +284,14 @@ class Calculator {
     REQUIRE(!diags.HasErrors());
     polyglot::frontends::SemaContext sema(diags);
     AnalyzeModule(*mod, sema);
-    // Some type mapping diagnostics are acceptable for .NET primitives
-    SUCCEED();
+    // Sema completes without fatal failure; type-mapping diagnostics for
+    // .NET primitives are acceptable and do not indicate a bug.
+    // The class declaration must have been visited (module has 1 declaration).
+    REQUIRE(mod->declarations.size() == 1);
+    auto cls = std::dynamic_pointer_cast<ClassDecl>(mod->declarations[0]);
+    REQUIRE(cls);
+    CHECK(cls->name == "Calculator");
+    CHECK(cls->members.size() >= 1);
 }
 
 TEST_CASE("DotNet sema analyzes enum", "[dotnet][sema]") {
@@ -350,7 +356,9 @@ struct Vec2 {
     float Y;
 }
 )", diags);
+    // Struct lowering should not produce errors
     CHECK(!diags.HasErrors());
+    // Struct-only source may not emit standalone IR functions
 }
 
 TEST_CASE("DotNet lowering handles enum ordinals", "[dotnet][lowering]") {
@@ -358,5 +366,7 @@ TEST_CASE("DotNet lowering handles enum ordinals", "[dotnet][lowering]") {
     std::string ir = LowerAndGetIR(R"(
 enum Priority { Low, Medium, High }
 )", diags);
+    // Enum lowering should not produce errors
     CHECK(!diags.HasErrors());
+    // Enum-only source may not emit standalone IR functions
 }

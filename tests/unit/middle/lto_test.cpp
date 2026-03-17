@@ -567,8 +567,10 @@ TEST_CASE("GlobalOptimizer full pipeline", "[lto][optimizer]") {
     
     auto stats = optimizer.GetStatistics();
     
-    // Should have done something
-    REQUIRE((stats.functions_inlined > 0 || stats.functions_removed > 0 || true));
+    // With one reachable function calling another reachable one, plus an unused function:
+    // - Inlining may have inlined "helper" into "main"
+    // - DCE may have removed "unused" since it is not reachable from entry
+    REQUIRE(stats.functions_removed >= 1);  // "unused" should be removed by DCE
   }
   
   SECTION("Individual stages") {
@@ -587,13 +589,16 @@ TEST_CASE("GlobalOptimizer full pipeline", "[lto][optimizer]") {
     optimizer.RunDevirtualization();
     optimizer.RunGlobalValueNumbering();
     
-    // All optimization stages should complete and process the module
+    // All optimization stages should produce valid statistics
     auto stats = optimizer.GetStatistics();
-    // Verify that at least the optimizer ran (all 5 stages invoked)
-    // Since each stage ran, the aggregate counts are valid
-    REQUIRE((stats.functions_inlined + stats.functions_removed +
-             stats.globals_removed + stats.virtual_calls_devirtualized +
-             stats.constants_propagated + stats.redundant_exprs_eliminated) >= 0);
+    // Single leaf function with no calls, no dead code, no virtual calls:
+    // all counters should remain at zero
+    REQUIRE(stats.functions_inlined == 0);
+    REQUIRE(stats.functions_removed == 0);
+    REQUIRE(stats.virtual_calls_devirtualized == 0);
+    // The module's single function should still be present
+    REQUIRE(context.GetModules().size() == 1);
+    REQUIRE(context.GetModules()[0]->functions.size() == 1);
   }
 }
 
@@ -805,9 +810,18 @@ TEST_CASE("LTO edge cases", "[lto][edge]") {
     context.AddModule(std::move(module));
     
     GlobalOptimizer optimizer(context);
-    optimizer.Optimize();  // Should not crash
+    optimizer.Optimize();
     
-    REQUIRE(true);
+    // After optimizing an empty module, all statistics should remain zero
+    auto stats = optimizer.GetStatistics();
+    REQUIRE(stats.functions_inlined == 0);
+    REQUIRE(stats.functions_removed == 0);
+    REQUIRE(stats.globals_removed == 0);
+    REQUIRE(stats.virtual_calls_devirtualized == 0);
+    REQUIRE(stats.constants_propagated == 0);
+    REQUIRE(stats.redundant_exprs_eliminated == 0);
+    // The module should still be present in the context
+    REQUIRE(context.GetModules().size() == 1);
   }
   
   SECTION("Circular call graph") {

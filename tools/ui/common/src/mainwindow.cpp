@@ -5,6 +5,7 @@
 // real-time analysis, compilation, and auto-completion.
 
 #include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/action_manager.h"
 #include "tools/ui/common/include/build_panel.h"
 #include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/compiler_service.h"
@@ -12,6 +13,7 @@
 #include "tools/ui/common/include/file_browser.h"
 #include "tools/ui/common/include/git_panel.h"
 #include "tools/ui/common/include/output_panel.h"
+#include "tools/ui/common/include/panel_manager.h"
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
@@ -46,6 +48,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     resize(1400, 900);
 
     compiler_service_ = std::make_unique<CompilerService>();
+    action_manager_ = new ActionManager(this);
 
     SetupCentralWidget();
     SetupDockWidgets();
@@ -150,22 +153,26 @@ void MainWindow::SetupDockWidgets() {
 
     // Output panel as a tab in the bottom panel
     output_panel_ = new OutputPanel();
-    bottom_tabs_->addTab(output_panel_, "Output");
 
     // Terminal tabs as a tab in the bottom panel
-    bottom_tabs_->addTab(terminal_tabs_, "Terminal");
+    // (terminal_tabs_ is already created in SetupCentralWidget)
 
-    // Git panel as a tab in the bottom panel
+    // Git panel
     git_panel_ = new GitPanel();
-    bottom_tabs_->addTab(git_panel_, "Git");
 
-    // Build panel as a tab in the bottom panel
+    // Build panel
     build_panel_ = new BuildPanel();
-    bottom_tabs_->addTab(build_panel_, "Build");
 
-    // Debug panel as a tab in the bottom panel
+    // Debug panel
     debug_panel_ = new DebugPanel();
-    bottom_tabs_->addTab(debug_panel_, "Debug");
+
+    // Create PanelManager to manage bottom panel tabs
+    panel_manager_ = new PanelManager(bottom_tabs_, this);
+    panel_manager_->RegisterPanel("output",   output_panel_,  "Output");
+    panel_manager_->RegisterPanel("terminal", terminal_tabs_,  "Terminal");
+    panel_manager_->RegisterPanel("git",      git_panel_,      "Git");
+    panel_manager_->RegisterPanel("build",    build_panel_,    "Build");
+    panel_manager_->RegisterPanel("debug",    debug_panel_,    "Debug");
 
     // Settings dialog (lazily shown, but create now for signal wiring)
     settings_dialog_ = new SettingsDialog(this);
@@ -691,6 +698,11 @@ void MainWindow::OpenFolder() {
 
     if (!dir.isEmpty()) {
         file_browser_->SetRootPath(dir);
+
+        // Notify plugins about workspace change
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        pm.SetWorkspaceRoot(dir.toStdString());
+        pm.FireWorkspaceChanged(dir.toStdString());
     }
 }
 
@@ -717,6 +729,10 @@ void MainWindow::Save() {
         editor->document()->setModified(false);
         UpdateTabTitle(index, false);
         status_message_->setText("Saved: " + it->second.file_path);
+
+        // Notify plugins about the file save
+        polyglot::plugins::PluginManager::Instance().FireFileSaved(
+            it->second.file_path.toStdString());
     } else {
         QMessageBox::warning(this, "Save Error",
                              "Could not save file: " + it->second.file_path);
@@ -835,6 +851,10 @@ int MainWindow::OpenFileInTab(const QString &path) {
     if (it != tab_info_.end()) {
         it->second.file_path = path;
     }
+
+    // Notify plugins about the file open
+    polyglot::plugins::PluginManager::Instance().FireFileOpened(
+        path.toStdString());
 
     return index;
 }
@@ -1013,6 +1033,9 @@ void MainWindow::Compile() {
             .arg(target_combo_->currentText())
             .arg(opt));
 
+    // Notify plugins that a build is starting
+    polyglot::plugins::PluginManager::Instance().FireBuildStarted();
+
     auto result = compiler_service_->Compile(source, language, filename, target, opt);
 
     output_panel_->AppendOutput(QString::fromStdString(result.output));
@@ -1028,6 +1051,10 @@ void MainWindow::Compile() {
     } else {
         status_message_->setText("Compilation failed");
     }
+
+    // Notify plugins that the build finished
+    polyglot::plugins::PluginManager::Instance().FireBuildFinished(
+        result.success ? 0 : 1);
 }
 
 void MainWindow::CompileAndRun() {
@@ -1250,40 +1277,16 @@ void MainWindow::ToggleFileBrowser() {
 }
 
 void MainWindow::ToggleOutputPanel() {
-    // Toggle the bottom panel visibility; if showing, switch to Output tab.
-    bool visible = bottom_tabs_->isVisible();
-    if (visible) {
-        // If Output tab is already active, hide the whole bottom panel.
-        if (bottom_tabs_->currentWidget() == output_panel_) {
-            bottom_tabs_->setVisible(false);
-        } else {
-            // Switch to the Output tab.
-            bottom_tabs_->setCurrentWidget(output_panel_);
-        }
-    } else {
-        bottom_tabs_->setVisible(true);
-        bottom_tabs_->setCurrentWidget(output_panel_);
-    }
+    panel_manager_->TogglePanel("output");
     UpdateViewActionChecks();
 }
 
 void MainWindow::ToggleTerminal() {
-    // Toggle the bottom panel visibility; if showing, switch to Terminal tab.
-    bool visible = bottom_tabs_->isVisible();
-    if (visible) {
-        if (bottom_tabs_->currentWidget() == terminal_tabs_) {
-            bottom_tabs_->setVisible(false);
-        } else {
-            bottom_tabs_->setCurrentWidget(terminal_tabs_);
-        }
-    } else {
-        bottom_tabs_->setVisible(true);
-        bottom_tabs_->setCurrentWidget(terminal_tabs_);
-    }
+    panel_manager_->TogglePanel("terminal");
     UpdateViewActionChecks();
 
     // Focus the active terminal.
-    if (bottom_tabs_->isVisible() && terminal_tabs_->count() > 0) {
+    if (panel_manager_->IsPanelActive("terminal") && terminal_tabs_->count() > 0) {
         auto *terminal = qobject_cast<TerminalWidget *>(terminal_tabs_->currentWidget());
         if (terminal) {
             terminal->setFocus();
@@ -1378,8 +1381,7 @@ void MainWindow::NewTerminal() {
     });
 
     // Ensure bottom panel is visible and showing the terminal.
-    bottom_tabs_->setVisible(true);
-    bottom_tabs_->setCurrentWidget(terminal_tabs_);
+    panel_manager_->ShowPanel("terminal");
     UpdateViewActionChecks();
     terminal->setFocus();
 }
@@ -1431,16 +1433,12 @@ void MainWindow::OpenSettings() {
 // ============================================================================
 
 void MainWindow::ToggleGitPanel() {
-    bottom_tabs_->setVisible(true);
-    if (bottom_tabs_->currentWidget() == git_panel_) {
-        bottom_tabs_->setVisible(false);
-    } else {
-        bottom_tabs_->setCurrentWidget(git_panel_);
-    }
+    panel_manager_->TogglePanel("git");
     UpdateViewActionChecks();
 
     // Set repo path from file browser if available
-    if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
+    if (panel_manager_->IsPanelActive("git") &&
+        file_browser_ && !file_browser_->RootPath().isEmpty()) {
         git_panel_->SetRepoPath(file_browser_->RootPath());
     }
 }
@@ -1450,12 +1448,7 @@ void MainWindow::ToggleGitPanel() {
 // ============================================================================
 
 void MainWindow::ToggleBuildPanel() {
-    bottom_tabs_->setVisible(true);
-    if (bottom_tabs_->currentWidget() == build_panel_) {
-        bottom_tabs_->setVisible(false);
-    } else {
-        bottom_tabs_->setCurrentWidget(build_panel_);
-    }
+    panel_manager_->TogglePanel("build");
     UpdateViewActionChecks();
 }
 
@@ -1464,8 +1457,7 @@ void MainWindow::CmakeConfigure() {
     if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
         build_panel_->SetProjectPath(file_browser_->RootPath());
     }
-    bottom_tabs_->setVisible(true);
-    bottom_tabs_->setCurrentWidget(build_panel_);
+    panel_manager_->ShowPanel("build");
     UpdateViewActionChecks();
     build_panel_->OnConfigure();
 }
@@ -1474,8 +1466,7 @@ void MainWindow::CmakeBuild() {
     if (file_browser_ && !file_browser_->RootPath().isEmpty()) {
         build_panel_->SetProjectPath(file_browser_->RootPath());
     }
-    bottom_tabs_->setVisible(true);
-    bottom_tabs_->setCurrentWidget(build_panel_);
+    panel_manager_->ShowPanel("build");
     UpdateViewActionChecks();
     build_panel_->OnBuild();
 }
@@ -1485,18 +1476,12 @@ void MainWindow::CmakeBuild() {
 // ============================================================================
 
 void MainWindow::ToggleDebugPanel() {
-    bottom_tabs_->setVisible(true);
-    if (bottom_tabs_->currentWidget() == debug_panel_) {
-        bottom_tabs_->setVisible(false);
-    } else {
-        bottom_tabs_->setCurrentWidget(debug_panel_);
-    }
+    panel_manager_->TogglePanel("debug");
     UpdateViewActionChecks();
 }
 
 void MainWindow::DebugStart() {
-    bottom_tabs_->setVisible(true);
-    bottom_tabs_->setCurrentWidget(debug_panel_);
+    panel_manager_->ShowPanel("debug");
     UpdateViewActionChecks();
     debug_panel_->StartDebug();
 }
@@ -1747,23 +1732,21 @@ void MainWindow::UpdateViewActionChecks() {
         action_toggle_statusbar_->setChecked(statusBar() && statusBar()->isVisible());
     }
 
-    const bool bottom_visible = bottom_tabs_ && bottom_tabs_->isVisible();
-    QWidget *bottom_current = bottom_tabs_ ? bottom_tabs_->currentWidget() : nullptr;
-
+    // Use PanelManager for bottom panel state queries
     if (action_toggle_output_) {
-        action_toggle_output_->setChecked(bottom_visible && bottom_current == output_panel_);
+        action_toggle_output_->setChecked(panel_manager_->IsPanelActive("output"));
     }
     if (action_toggle_terminal_) {
-        action_toggle_terminal_->setChecked(bottom_visible && bottom_current == terminal_tabs_);
+        action_toggle_terminal_->setChecked(panel_manager_->IsPanelActive("terminal"));
     }
     if (action_toggle_git_) {
-        action_toggle_git_->setChecked(bottom_visible && bottom_current == git_panel_);
+        action_toggle_git_->setChecked(panel_manager_->IsPanelActive("git"));
     }
     if (action_toggle_build_) {
-        action_toggle_build_->setChecked(bottom_visible && bottom_current == build_panel_);
+        action_toggle_build_->setChecked(panel_manager_->IsPanelActive("build"));
     }
     if (action_toggle_debug_) {
-        action_toggle_debug_->setChecked(bottom_visible && bottom_current == debug_panel_);
+        action_toggle_debug_->setChecked(panel_manager_->IsPanelActive("debug"));
     }
 }
 
@@ -1827,6 +1810,10 @@ void MainWindow::ApplySettings() {
                            theme_names.size() - 1);
     ThemeManager::Instance().SetActiveTheme(theme_names[theme_idx]);
     ApplyTheme();
+
+    // Notify plugins about the theme change
+    polyglot::plugins::PluginManager::Instance().FireThemeChanged(
+        theme_names[theme_idx].toStdString());
 
     // Compiler defaults
     const int default_target = qBound(
@@ -1982,61 +1969,9 @@ void MainWindow::ApplyTheme() {
 }
 
 void MainWindow::ApplyCustomKeybindings() {
-    QSettings settings("PolyglotCompiler", "IDE");
-
-    // Map of action IDs to QAction pointers
-    struct ActionMapping { const char *id; QAction *action; };
-    ActionMapping mappings[] = {
-        {"new_file",        action_new_},
-        {"open_file",       action_open_},
-        {"save",            action_save_},
-        {"save_all",        action_save_all_},
-        {"close_tab",       action_close_tab_},
-        {"undo",            action_undo_},
-        {"redo",            action_redo_},
-        {"find",            action_find_},
-        {"replace",         action_replace_},
-        {"goto_line",       action_goto_line_},
-        {"compile",         action_compile_},
-        {"compile_run",     action_compile_run_},
-        {"analyze",         action_analyze_},
-        {"stop",            action_stop_},
-        {"toggle_explorer", action_toggle_browser_},
-        {"toggle_output",   action_toggle_output_},
-        {"toggle_terminal", action_toggle_terminal_},
-        {"new_terminal",    action_new_terminal_},
-        {"zoom_in",         action_zoom_in_},
-        {"zoom_out",        action_zoom_out_},
-        {"zoom_reset",      action_zoom_reset_},
-        {"debug_start",     action_debug_start_},
-        {"debug_stop",      action_debug_stop_},
-        {"step_over",       action_debug_step_over_},
-        {"step_into",       action_debug_step_into_},
-        {"step_out",        action_debug_step_out_},
-        {"settings",        action_settings_},
-        {"toggle_git",      action_toggle_git_},
-    };
-
-    // Read custom keybindings
-    int count = settings.beginReadArray("keybindings");
-    QMap<QString, QKeySequence> custom_shortcuts;
-    for (int i = 0; i < count; ++i) {
-        settings.setArrayIndex(i);
-        QString action_id = settings.value("action").toString();
-        QString seq_str = settings.value("shortcut").toString();
-        if (!action_id.isEmpty() && !seq_str.isEmpty()) {
-            custom_shortcuts[action_id] = QKeySequence(seq_str);
-        }
-    }
-    settings.endArray();
-
-    // Apply custom shortcuts
-    for (const auto &m : mappings) {
-        if (!m.action) continue;
-        auto it = custom_shortcuts.find(m.id);
-        if (it != custom_shortcuts.end()) {
-            m.action->setShortcut(it.value());
-        }
+    // Delegate keybinding management to ActionManager
+    if (action_manager_) {
+        action_manager_->LoadKeybindings();
     }
 }
 
@@ -2209,6 +2144,25 @@ void MainWindow::InitializePlugins() {
         AppendOutput(text);
     });
 
+    // Set up diagnostic forwarding to the output panel
+    pm.SetDiagnosticCallback([this](const std::string &plugin_id,
+                                    const PolyglotDiagnostic &diag) {
+        const char *sev = "note";
+        switch (diag.severity) {
+            case POLYGLOT_DIAG_WARNING: sev = "warning"; break;
+            case POLYGLOT_DIAG_ERROR:   sev = "error";   break;
+            default: break;
+        }
+        QString text = QString("[plugin:%1] %2:%3:%4: %5: %6")
+                           .arg(QString::fromStdString(plugin_id))
+                           .arg(diag.file ? diag.file : "<unknown>")
+                           .arg(diag.line)
+                           .arg(diag.column)
+                           .arg(sev)
+                           .arg(diag.message ? diag.message : "");
+        AppendOutput(text);
+    });
+
     // Set up file-open forwarding
     pm.SetOpenFileCallback([this](const std::string &path, uint32_t line) {
         int tab = OpenFileInTab(QString::fromStdString(path));
@@ -2223,6 +2177,40 @@ void MainWindow::InitializePlugins() {
                 editor->setTextCursor(cursor);
             }
         }
+    });
+
+    // Set up file-type registration forwarding to update language detection
+    pm.SetFileTypeRegisteredCallback([this](const std::string &extension,
+                                            const std::string &language) {
+        AppendOutput(QString("[plugin] Registered file type: .%1 -> %2")
+                         .arg(QString::fromStdString(extension))
+                         .arg(QString::fromStdString(language)));
+    });
+
+    // Set up menu-item registration forwarding
+    pm.SetMenuItemRegisteredCallback(
+        [this](const std::string &plugin_id,
+               const PolyglotMenuContribution &item) {
+        if (!item.action_id || !item.label) return;
+
+        // Register the plugin action through ActionManager
+        QString action_id = QString::fromStdString(
+            std::string(item.action_id));
+        QString label = QString::fromStdString(std::string(item.label));
+        QKeySequence shortcut;
+        if (item.shortcut) {
+            shortcut = QKeySequence(QString::fromStdString(
+                std::string(item.shortcut)));
+        }
+
+        auto callback_fn = item.callback;
+        auto &pm_ref = polyglot::plugins::PluginManager::Instance();
+        action_manager_->RegisterPluginAction(
+            QString::fromStdString(plugin_id),
+            action_id, label, shortcut,
+            [action_id, &pm_ref]() {
+                pm_ref.ExecuteMenuAction(action_id.toStdString());
+            });
     });
 
     // Discover and activate all plugins

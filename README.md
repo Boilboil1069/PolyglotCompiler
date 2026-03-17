@@ -9,7 +9,9 @@
   <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-813_cases_|_3_suites-brightgreen.svg"/>
+<!-- BEGIN:test_badge -->
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-808_cases_|_3_suites-brightgreen.svg"/>
+<!-- END:test_badge -->
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -33,7 +35,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
-- **813 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
+- **808 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
 
 ---
 
@@ -94,7 +96,9 @@ All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched auto
 - **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE).
   - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
   - Pass `-DQT_ROOT=<path>` to override.
-  - If Qt is not installed, run `./scripts/setup_qt.sh` (macOS/Linux) or `.\scripts\setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
+<!-- BEGIN:qt_setup_en -->
+  - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools\ui\setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
+<!-- END:qt_setup_en -->
   - If Qt is not found, the IDE target is silently skipped.
 
 ### Build / 构建
@@ -309,7 +313,7 @@ PolyglotCompiler/
 
 ## Testing / 测试
 
-The project uses **Catch2** as the testing framework with three test suites, totalling **813 test cases**.
+The project uses **Catch2** as the testing framework with three test suites, totalling **808 test cases**.
 
 ```bash
 # Run all tests via CTest
@@ -345,7 +349,7 @@ cd build && ctest
 | **Unit Tests** | **743** | 231 tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E |
 | **Integration Tests** | **52** | `[integration]` | Full pipeline, cross-language interop, performance stress |
 | **Benchmark Tests** | **18** | `[benchmark]` | Micro (lexer/parser/sema/lowering) + Macro (scaling/OOP/pipeline) |
-| **Total** | **813** | — | — |
+| **Total** | **808** | — | — |
 
 ### Unit Test Breakdown / 单元测试明细
 
@@ -376,18 +380,20 @@ cd build && ctest
 
 Managed automatically via CMake `FetchContent`:
 
+<!-- BEGIN:dependencies_table -->
 | Dependency | Purpose |
 |-----------|---------|
 | [fmt](https://github.com/fmtlib/fmt) | Formatted output |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
 | [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
 | [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator |
+<!-- END:dependencies_table -->
 
 **Optional (not fetched by CMake — must be pre-installed):**
 
 | Dependency | Purpose |
 |-----------|---------|
-| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt` (Windows), `deps/qt/` (all platforms), or system path. Run `scripts/setup_qt.sh` / `setup_qt.ps1` to install automatically. Skipped if not found |
+| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt` (Windows), `deps/qt/` (all platforms), or system path. Run `tools/ui/setup_qt.sh` / `tools/ui/setup_qt.ps1` to install automatically. Skipped if not found |
 
 ---
 
@@ -432,5 +438,7 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 
 ---
 
+<!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-03-15 (v1.0.0)*
+*Last updated / 最后更新: 2026-03-17 (v1.0.4)*
+<!-- END:version_footer_en -->

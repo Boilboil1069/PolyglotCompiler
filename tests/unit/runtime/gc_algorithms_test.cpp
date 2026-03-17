@@ -136,8 +136,12 @@ TEST_CASE("GC - Multiple Collection Cycles", "[gc][collection]") {
         heap.Collect();
     }
     
-    // All cycles should complete successfully
-    REQUIRE(true);
+    // After 10 collection cycles, stats should reflect all cycles
+    GCStats stats = heap.GetStats();
+    REQUIRE(stats.collections >= 10);
+    // We allocated 10 * 50 = 500 objects total
+    REQUIRE(stats.total_allocations >= 500);
+    REQUIRE(stats.total_bytes_allocated >= 500 * 128);
 }
 
 // Scenario 6: Object survival
@@ -215,45 +219,50 @@ TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
     }
     
     // Incremental GC should have made progress
-    REQUIRE(heap.GetStats().collections >= 0);
+    GCStats stats = heap.GetStats();
+    // After 200 + 50 = 250 allocations, the collector should have recorded them
+    REQUIRE(stats.total_allocations >= 250);
+    REQUIRE(stats.total_bytes_allocated >= 250 * 64);
 }
 
 // Scenario 10: GC performance benchmark
 TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
     const int NUM_ALLOCATIONS = 10000;
-    (void)NUM_ALLOCATIONS;  // Suppress unused variable warning (benchmarks commented out)
 
-    // BENCHMARK("MarkSweep GC") {
-    //     Heap heap(Strategy::kMarkSweep);
-    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-    //         heap.Allocate(64);
-    //         if (i % 1000 == 0) heap.Collect();
-    //     }
-    // };
-    
-    // BENCHMARK("Generational GC") {
-    //     Heap heap(Strategy::kGenerational);
-    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-    //         heap.Allocate(64);
-    //         if (i % 1000 == 0) heap.Collect();
-    //     }
-    // };
-    
-    // BENCHMARK("Copying GC") {
-    //     Heap heap(Strategy::kCopying);
-    //     for (int i = 0; i < NUM_ALLOCATIONS / 10; ++i) {  // fewer allocations
-    //         heap.Allocate(64);
-    //         if (i % 100 == 0) heap.Collect();
-    //     }
-    // };
-    
-    // BENCHMARK("Incremental GC") {
-    //     Heap heap(Strategy::kIncremental);
-    //     for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-    //         heap.Allocate(64);
-    //         if (i % 1000 == 0) heap.Collect();
-    //     }
-    // };
+    SECTION("MarkSweep GC allocations and collections") {
+        Heap heap(Strategy::kMarkSweep);
+        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+            void* p = heap.Allocate(64);
+            REQUIRE(p != nullptr);
+            if (i % 1000 == 0) heap.Collect();
+        }
+        GCStats stats = heap.GetStats();
+        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+        REQUIRE(stats.collections >= 10);
+    }
+
+    SECTION("Generational GC allocations and collections") {
+        Heap heap(Strategy::kGenerational);
+        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+            void* p = heap.Allocate(64);
+            REQUIRE(p != nullptr);
+            if (i % 1000 == 0) heap.Collect();
+        }
+        GCStats stats = heap.GetStats();
+        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+        REQUIRE(stats.collections >= 10);
+    }
+
+    SECTION("Incremental GC allocations and collections") {
+        Heap heap(Strategy::kIncremental);
+        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+            void* p = heap.Allocate(64);
+            REQUIRE(p != nullptr);
+            if (i % 1000 == 0) heap.Collect();
+        }
+        GCStats stats = heap.GetStats();
+        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+    }
 }
 
 // Additional tests: edge cases
@@ -261,8 +270,10 @@ TEST_CASE("GC - Edge Cases", "[gc][edge]") {
     SECTION("Zero-size allocation") {
         Heap heap(Strategy::kMarkSweep);
         void* ptr = heap.Allocate(0);
-        // Implementation may return nullptr or a small sentinel value
-        (void)ptr;
+        // Zero-size allocation should either succeed or return nullptr;
+        // either way the allocator must track it consistently
+        GCStats stats = heap.GetStats();
+        REQUIRE(stats.total_allocations >= 1);
     }
     
     SECTION("Collect with no allocations") {

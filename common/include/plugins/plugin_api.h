@@ -102,6 +102,36 @@ typedef struct PolyglotToken {
     const char *lexeme;    // The raw text — UTF-8 encoded
 } PolyglotToken;
 
+// ============================================================================
+// Event system types — declared before PolyglotHostServices so they can
+// be referenced in the function-pointer table.
+// ============================================================================
+
+typedef enum PolyglotEventType {
+    POLYGLOT_EVENT_FILE_OPENED      = 0,
+    POLYGLOT_EVENT_FILE_SAVED       = 1,
+    POLYGLOT_EVENT_FILE_CLOSED      = 2,
+    POLYGLOT_EVENT_BUILD_STARTED    = 3,
+    POLYGLOT_EVENT_BUILD_FINISHED   = 4,
+    POLYGLOT_EVENT_DIAGNOSTIC       = 5,
+    POLYGLOT_EVENT_WORKSPACE_CHANGED= 6,
+    POLYGLOT_EVENT_THEME_CHANGED    = 7,
+    POLYGLOT_EVENT_CUSTOM           = 100,
+} PolyglotEventType;
+
+// ============================================================================
+// Extension-point types — declared before PolyglotHostServices
+// ============================================================================
+
+// Register a menu item contribution.
+typedef struct PolyglotMenuContribution {
+    const char *menu_path;      // e.g. "Tools/My Plugin Action"
+    const char *action_id;      // unique action id
+    const char *label;          // display text
+    const char *shortcut;       // keyboard shortcut string (may be NULL)
+    void (*callback)(const PolyglotHostContext *ctx);
+} PolyglotMenuContribution;
+
 // Host-provided function table — the plugin calls these to interact with
 // the compiler / IDE.
 typedef struct PolyglotHostServices {
@@ -135,6 +165,23 @@ typedef struct PolyglotHostServices {
 
     // Query the current workspace root (may be NULL if none is open).
     const char *(*get_workspace_root)(const PolyglotHostContext *ctx);
+
+    // Subscribe to a host event type.  The plugin's on_event export will
+    // be called when the event fires.
+    void (*subscribe_event)(const PolyglotHostContext *ctx,
+                            PolyglotEventType event_type);
+
+    // Unsubscribe from a previously subscribed event type.
+    void (*unsubscribe_event)(const PolyglotHostContext *ctx,
+                              PolyglotEventType event_type);
+
+    // Register a menu item contribution in the host IDE.
+    void (*register_menu_item)(const PolyglotHostContext *ctx,
+                               const PolyglotMenuContribution *item);
+
+    // Unregister a previously registered menu item by action_id.
+    void (*unregister_menu_item)(const PolyglotHostContext *ctx,
+                                 const char *action_id);
 } PolyglotHostServices;
 
 // ============================================================================
@@ -274,6 +321,24 @@ typedef const PolyglotLinter *(*PFN_polyglot_plugin_get_linter)(
 // Lifecycle hooks (always called if exported)
 typedef int  (*PFN_polyglot_plugin_activate)(PolyglotPlugin *plugin);
 typedef void (*PFN_polyglot_plugin_deactivate)(PolyglotPlugin *plugin);
+
+// ============================================================================
+// Event handler — plugins export this to receive subscribed events
+// ============================================================================
+
+// Generic event payload delivered to plugin subscribers.
+typedef struct PolyglotEvent {
+    PolyglotEventType  type;
+    const char        *file;          // Associated file path (may be NULL)
+    uint32_t           line;          // Associated line (0 if N/A)
+    const char        *data;          // Extra data string (JSON or plain, may be NULL)
+    int                result_code;   // For BUILD_FINISHED: 0 = success, nonzero = failure
+} PolyglotEvent;
+
+// Plugin event handler callback.  Plugins export this to receive events
+// they have registered interest in.
+typedef void (*PFN_polyglot_plugin_on_event)(PolyglotPlugin *plugin,
+                                             const PolyglotEvent *event);
 
 // ============================================================================
 // Convenience macros for plugin authors

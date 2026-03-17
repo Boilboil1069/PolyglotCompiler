@@ -1664,10 +1664,10 @@ The `env/` directory is excluded from git via `.gitignore`.
 
 ```bash
 # macOS / Linux
-./scripts/setup_qt.sh
+./tools/ui/setup_qt.sh
 
 # Windows (PowerShell)
-.\scripts\setup_qt.ps1
+.\tools\ui\setup_qt.ps1
 ```
 
 This downloads pre-built Qt 6.10.2 binaries into `deps/qt/` (ignored by git).
@@ -2626,6 +2626,48 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 
 ## 14.6 Changelog
 
+### v1.0.4 (2026-03-17)
+
+**Plugin System & UI Extensibility (2026-03-17-6)**
+- ✅ Plugin host callbacks fully implemented: `emit_diagnostic` forwards diagnostics to IDE output panel and fires `DIAGNOSTIC` event to subscribers; `open_file` delegates to registered `OpenFileCallback` (wired to IDE tab manager); `register_file_type` populates central file-type registry
+- ✅ Event subscription system: plugins can subscribe to 8 event types (`FILE_OPENED`, `FILE_SAVED`, `FILE_CLOSED`, `BUILD_STARTED`, `BUILD_FINISHED`, `DIAGNOSTIC`, `WORKSPACE_CHANGED`, `THEME_CHANGED`) via `subscribe_event` / `unsubscribe_event` host services
+- ✅ `PluginManager::FireEvent()`: thread-safe dispatch — snapshots subscribers under lock, delivers events outside lock to avoid re-entry deadlocks
+- ✅ Convenience fire helpers: `FireFileOpened()`, `FireFileSaved()`, `FireBuildStarted()`, `FireBuildFinished()`, `FireWorkspaceChanged()`, `FireThemeChanged()`
+- ✅ File type registry: `RegisterFileType()` / `GetLanguageForExtension()` / `GetRegisteredFileTypes()` — plugins can add new file-type associations at runtime
+- ✅ Menu contribution system: `RegisterMenuItem()` / `UnregisterMenuItem()` / `GetMenuContributions()` / `ExecuteMenuAction()` — plugins can add IDE menu items with callbacks
+- ✅ `PolyglotEvent` struct and `PFN_polyglot_plugin_on_event` export — plugins implement a single event handler for all subscribed events
+- ✅ `PolyglotMenuContribution` struct with `menu_path`, `action_id`, `label`, `shortcut`, and `callback`
+- ✅ Extended `PolyglotHostServices` with 4 new function pointers: `subscribe_event`, `unsubscribe_event`, `register_menu_item`, `unregister_menu_item`
+- ✅ New `ActionManager` class: centralized action/keybinding management extracted from MainWindow; supports plugin-contributed actions with `RegisterPluginAction()` / `RemovePluginActions()`; keybinding persistence via `LoadKeybindings()` / `SaveKeybindings()`
+- ✅ New `PanelManager` class: manages bottom panel tabs; supports plugin-contributed panels via `RegisterPluginPanel()` / `RemovePluginPanels()`; unified `TogglePanel()` / `ShowPanel()` / `IsPanelActive()` API replacing scattered toggle logic
+- ✅ MainWindow refactored: panel toggle/show logic delegates to `PanelManager`; keybinding management delegates to `ActionManager`; plugin lifecycle events wired to file open/save/compile/workspace/theme changes
+- ✅ Plugin diagnostic forwarding: `SetDiagnosticCallback()` wired to IDE output panel
+- ✅ Plugin menu item forwarding: `SetMenuItemRegisteredCallback()` wired to `ActionManager`
+- ✅ Plugin file-type forwarding: `SetFileTypeRegisteredCallback()` wired to IDE output log
+- ✅ 12 new unit tests: event type distinctness, event struct zero-init, menu contribution struct, subscribe/unsubscribe safety, fire-event-no-subscribers, file type registry CRUD, menu contributions empty, ExecuteMenuAction unknown, DispatchOpenFile with/without callback, FileType registered callback, diagnostic callback
+- ✅ Test count: 796 → 808 test cases; assertions: 34056 → 34085 — all passing
+
+### v1.0.3 (2026-03-17)
+
+**Test Quality Improvements (2026-03-17-5)**
+- ✅ Replaced `REQUIRE(true)` in `lto_test.cpp` with optimizer statistics behavior assertions (all stats == 0 for empty module, module survives all optimization stages)
+- ✅ Replaced `REQUIRE(true)` in `gc_algorithms_test.cpp` with GC stats verification: `collections >= 10`, `total_allocations >= 500` for multi-cycle test; `total_allocations >= 200` for incremental collection
+- ✅ Replaced commented-out performance benchmarks with real throughput assertions (`total_allocations >= 10000`, `collections >= 1`)
+- ✅ Replaced `SUCCEED()` in `java_test.cpp` and `dotnet_test.cpp` with semantic analysis behavior checks (verifying diagnostics are type-mapping related, not crashes)
+- ✅ Replaced `REQUIRE(true)` in `threading_services_test.cpp` with phase-tracking atomics for barrier reset and exact-sum verification for large workloads
+- ✅ Strengthened Java/DotNet enum and struct lowering tests with positive diagnostic-state assertions
+- ✅ New `compilation_behavior_test.cpp`: 15 new behavior-level and failure-path test cases:
+  - C++ single/multiple function IR output correctness
+  - C++ conditional produces multiple basic blocks
+  - x86_64 assembly contains function label and `ret` instruction
+  - x86_64 object code has `.text` section with non-zero bytes and function symbol
+  - ARM64 assembly output contains function label
+  - IR verification passes on well-formed IR; catches malformed (empty function) IR
+  - Ploy `LINK` produces correct cross-language call descriptors
+  - Ploy `FUNC` produces named IR function
+  - Failure paths: parse error diagnostics, sema error on undefined variable, lowering invalid code returns failure
+- ✅ Test count: 781 → 796 test cases; assertions: 3985 → 34056 — all passing
+
 ### v1.0.2 (2026-03-17)
 
 **Package Discovery Refactoring (2026-03-17-3)**
@@ -2806,6 +2848,8 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 
 ---
 
+<!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-03-15*  
-*Document Version: v1.0.0*
+*Last Updated: 2026-03-17*  
+*Document Version: v1.0.4*
+<!-- END:version_footer_en -->

@@ -1,0 +1,71 @@
+{
+    "_comment": "Single source of truth for documentation variables. Update values here; then run `python scripts/docs_generate.py` to propagate changes.",
+
+    "project_name": "PolyglotCompiler",
+    "version": "1.0.4",
+    "doc_version": "1.0.0",
+    "last_updated": "2026-03-17",
+    "license": "GPLv3",
+
+    "cpp_standard": "C++20",
+    "cmake_minimum": "3.20",
+    "qt_version": "6.10.2",
+    "catch2_version": "3.5.4",
+
+    "test_total": 808,
+    "test_unit": 743,
+    "test_integration": 52,
+    "test_benchmark": 18,
+    "test_suites": 3,
+
+    "compilers": "MSVC 2022+, GCC 12+, Clang 15+",
+    "platforms": "Windows | Linux | macOS",
+
+    "keywords_count": 54,
+
+    "qt_setup_sh": "tools/ui/setup_qt.sh",
+    "qt_setup_ps1": "tools/ui/setup_qt.ps1",
+    "package_windows": "scripts/package_windows.ps1",
+    "package_linux": "scripts/package_linux.sh",
+    "package_macos": "scripts/package_macos.sh",
+    "installer_nsi": "scripts/installer.nsi",
+
+    "frontends": [
+        {"lang": "C++",       "dir": "frontends/cpp/",    "features": "lexer, parser, sema, lowering, constexpr"},
+        {"lang": "Python",    "dir": "frontends/python/",  "features": "lexer, parser, sema, lowering"},
+        {"lang": "Rust",      "dir": "frontends/rust/",    "features": "lexer, parser, sema, lowering"},
+        {"lang": "Java",      "dir": "frontends/java/",    "features": "lexer, parser, sema, lowering — Java 8/17/21/23"},
+        {"lang": "C# (.NET)", "dir": "frontends/dotnet/",  "features": "lexer, parser, sema, lowering — .NET 6/7/8/9"},
+        {"lang": ".ploy",     "dir": "frontends/ploy/",    "features": "lexer, parser, sema, lowering"}
+    ],
+
+    "backends": [
+        {"arch": "x86_64",      "dir": "backends/x86_64/", "features": "isel, regalloc, asm_printer, scheduler"},
+        {"arch": "ARM64",       "dir": "backends/arm64/",   "features": "isel, regalloc, asm_printer"},
+        {"arch": "WebAssembly", "dir": "backends/wasm/",    "features": "wasm_target"}
+    ],
+
+    "tools": [
+        {"name": "polyc",     "purpose": "Compiler Driver: Source → IR → Target code"},
+        {"name": "polyld",    "purpose": "Linker: Object file linking + cross-language glue"},
+        {"name": "polyasm",   "purpose": "Assembler: Assembly → Object file"},
+        {"name": "polyopt",   "purpose": "Optimiser: IR optimisation passes"},
+        {"name": "polyrt",    "purpose": "Runtime Tool: GC / FFI / Thread management"},
+        {"name": "polybench", "purpose": "Benchmark: Performance evaluation suite"},
+        {"name": "polyui",    "purpose": "IDE: Qt-based desktop IDE"}
+    ],
+
+    "dependencies": [
+        {"name": "fmt",            "url": "https://github.com/fmtlib/fmt",              "purpose": "Formatted output"},
+        {"name": "nlohmann/json",  "url": "https://github.com/nlohmann/json",           "purpose": "JSON processing"},
+        {"name": "Catch2",         "url": "https://github.com/catchorg/Catch2",          "purpose": "Unit testing framework"},
+        {"name": "mimalloc",       "url": "https://github.com/microsoft/mimalloc",       "purpose": "High-performance memory allocator"}
+    ],
+
+    "docs_structure": {
+        "api":         "API reference (bilingual)",
+        "specs":       "Language & IR specifications, optimisation pipeline, runtime ABI, plugin specification",
+        "realization": "Implementation details (bilingual, 8 topics)",
+        "tutorial":    "Tutorials: ploy language + project (bilingual)"
+    }
+}

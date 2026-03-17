@@ -7,6 +7,26 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  docs-lint:
+    name: Documentation Lint & Sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run docs lint
+        run: python scripts/docs_lint.py --ci
+
+      - name: Check bilingual sync
+        run: python scripts/docs_sync_check.py --ci
+
+      - name: Check single-source freshness
+        run: python scripts/docs_generate.py --check
+
   build-windows:
     name: Build & Test (Windows)
     runs-on: windows-latest

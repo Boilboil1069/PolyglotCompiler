@@ -2,8 +2,8 @@
 # setup_qt.sh — Download pre-built Qt 6 binaries for macOS/Linux using aqtinstall.
 #
 # Usage:
-#   ./scripts/setup_qt.sh            # auto-detect platform
-#   ./scripts/setup_qt.sh 6.10.2     # specify Qt version
+#   ./tools/ui/setup_qt.sh            # auto-detect platform
+#   ./tools/ui/setup_qt.sh 6.10.2     # specify Qt version
 #
 # Qt is installed into deps/qt/ under the project root.
 # This directory is already in .gitignore.
