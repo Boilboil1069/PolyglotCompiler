@@ -12,6 +12,7 @@
 /Testing/
 /build-*/
 /deps/
+/.cache/
 
 # Sample environments (created by setup_env scripts)
 tests/samples/env/
