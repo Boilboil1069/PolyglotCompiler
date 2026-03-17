@@ -27,9 +27,11 @@ class ICommandRunner;
 struct PloySemaOptions {
     // When true, PloySema runs external package-manager commands on the first
     // IMPORT PACKAGE for each language to discover installed packages and their
-    // versions.  Set to false in benchmarks or when the caller knows that no
-    // packages need discovery (avoids fork/exec overhead).
-    bool enable_package_discovery{true};
+    // versions.  Defaults to false — callers should use PackageIndexer to run
+    // discovery as an explicit pre-compilation phase and pass the populated
+    // cache via discovery_cache.  Set to true only for backward-compatible
+    // scenarios where inline discovery is acceptable.
+    bool enable_package_discovery{false};
 
     // Enable strict type-checking mode.  When enabled, the sema emits warnings
     // for every site where core::Type::Any() is used as a fallback that the

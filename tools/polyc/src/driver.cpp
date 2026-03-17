@@ -105,6 +105,7 @@ struct Elf64_Rela {
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "backends/x86_64/include/x86_target.h"
@@ -114,6 +115,25 @@ struct Elf64_Rela {
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/preprocessor.h"
 #include "frontends/common/include/sema_context.h"
+#include "frontends/common/include/frontend_registry.h"
+#include "frontends/common/include/language_frontend.h"
+#include "frontends/ploy/include/ploy_frontend.h"
+#include "frontends/cpp/include/cpp_frontend.h"
+#include "frontends/python/include/python_frontend.h"
+#include "frontends/rust/include/rust_frontend.h"
+#include "frontends/java/include/java_frontend.h"
+#include "frontends/dotnet/include/dotnet_frontend.h"
+
+// Individual frontend headers still needed for ploy aux output details
+#include "frontends/ploy/include/ploy_lexer.h"
+#include "frontends/ploy/include/ploy_parser.h"
+#include "frontends/ploy/include/ploy_sema.h"
+#include "frontends/ploy/include/ploy_lowering.h"
+#include "frontends/ploy/include/package_indexer.h"
+#include "frontends/ploy/include/command_runner.h"
+#include "frontends/ploy/include/package_discovery_cache.h"
+
+// Legacy includes kept for backward compatibility with existing code paths
 #include "frontends/cpp/include/cpp_lexer.h"
 #include "frontends/cpp/include/cpp_parser.h"
 #include "frontends/cpp/include/cpp_lowering.h"
@@ -126,10 +146,6 @@ struct Elf64_Rela {
 #include "frontends/rust/include/rust_lexer.h"
 #include "frontends/rust/include/rust_parser.h"
 #include "frontends/rust/include/rust_lowering.h"
-#include "frontends/ploy/include/ploy_lexer.h"
-#include "frontends/ploy/include/ploy_parser.h"
-#include "frontends/ploy/include/ploy_sema.h"
-#include "frontends/ploy/include/ploy_lowering.h"
 #include "frontends/java/include/java_lexer.h"
 #include "frontends/java/include/java_parser.h"
 #include "frontends/java/include/java_sema.h"
@@ -161,9 +177,14 @@ struct Settings {
     std::string language{"ploy"};
     bool language_explicit{false};        // true if --lang= was specified
     std::string arch{"x86_64"};
-    bool pp_cpp{true};
-    bool pp_rust{false};
-    bool pp_python{false};
+    // Per-language preprocessing overrides.  The key is the canonical
+    // language name; missing entries fall back to the frontend's
+    // NeedsPreprocessing() default.
+    std::unordered_map<std::string, bool> pp_overrides{
+        {"cpp", true},
+        {"rust", false},
+        {"python", false},
+    };
     bool force{false};
     bool strict{false};                   // strict mode: reject placeholders, disable --force stubs
     bool permissive{false};               // explicit permissive mode override
@@ -186,21 +207,13 @@ struct Settings {
     int opt_level{0};  // 0-3
     int jobs{1};  // parallelism hint
     RegAllocChoice regalloc{RegAllocChoice::kLinearScan};
+    bool package_index{true};             // run explicit package-index phase for .ploy
+    int package_index_timeout_ms{10000};  // per-command timeout in milliseconds
 };
 
-// Detect language from file extension
+// Detect language from file extension via the FrontendRegistry.
 std::string DetectLanguage(const std::string &path) {
-    auto ext = fs::path(path).extension().string();
-    // Convert to lowercase
-    std::transform(ext.begin(), ext.end(), ext.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (ext == ".ploy" || ext == ".poly") return "ploy";
-    if (ext == ".py") return "python";
-    if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".c" || ext == ".hpp" || ext == ".h") return "cpp";
-    if (ext == ".rs") return "rust";
-    if (ext == ".java") return "java";
-    if (ext == ".cs" || ext == ".vb") return "dotnet";
-    return "";
+    return polyglot::frontends::FrontendRegistry::Instance().DetectLanguage(path);
 }
 
 // Read entire file content into string
@@ -261,6 +274,9 @@ Settings ParseArgs(int argc, char **argv) {
                       << "  --force             Continue despite errors (disabled in strict mode)\n"
                       << "  --strict            Strict mode: reject placeholder types, disable degraded stubs\n"
                       << "  --permissive        Permissive mode: allow placeholder fallbacks (default for Debug)\n"
+                      << "  --package-index     Run explicit package-index phase before sema (default)\n"
+                      << "  --no-package-index  Skip package-index phase (faster compile, no env probing)\n"
+                      << "  --pkg-timeout=<ms>  Per-command timeout for package indexing (default 10000)\n"
                       << "  -j<N>               Parallelism hint\n"
                       << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
                       << "\n"
@@ -327,6 +343,13 @@ Settings ParseArgs(int argc, char **argv) {
         if (arg == "--force" || arg == "--ignore-diagnostics") { s.force = true; continue; }
         if (arg == "--strict") { s.strict = true; continue; }
         if (arg == "--permissive") { s.permissive = true; continue; }
+        if (arg == "--package-index") { s.package_index = true; continue; }
+        if (arg == "--no-package-index") { s.package_index = false; continue; }
+        if (arg.rfind("--pkg-timeout=", 0) == 0) {
+            s.package_index_timeout_ms = std::atoi(arg.substr(14).c_str());
+            if (s.package_index_timeout_ms < 0) s.package_index_timeout_ms = 0;
+            continue;
+        }
         if (arg.rfind("-j", 0) == 0) {
             if (arg == "-j" && i + 1 < argc) {
                 s.jobs = std::atoi(argv[++i]);
@@ -345,12 +368,12 @@ Settings ParseArgs(int argc, char **argv) {
             }
             continue;
         }
-        if (arg == "--pp-cpp") { s.pp_cpp = true; continue; }
-        if (arg == "--no-pp-cpp") { s.pp_cpp = false; continue; }
-        if (arg == "--pp-rust") { s.pp_rust = true; continue; }
-        if (arg == "--no-pp-rust") { s.pp_rust = false; continue; }
-        if (arg == "--pp-python") { s.pp_python = true; continue; }
-        if (arg == "--no-pp-python") { s.pp_python = false; continue; }
+        if (arg == "--pp-cpp") { s.pp_overrides["cpp"] = true; continue; }
+        if (arg == "--no-pp-cpp") { s.pp_overrides["cpp"] = false; continue; }
+        if (arg == "--pp-rust") { s.pp_overrides["rust"] = true; continue; }
+        if (arg == "--no-pp-rust") { s.pp_overrides["rust"] = false; continue; }
+        if (arg == "--pp-python") { s.pp_overrides["python"] = true; continue; }
+        if (arg == "--no-pp-python") { s.pp_overrides["python"] = false; continue; }
         if (arg.rfind("--I=", 0) == 0) {
             s.include_paths.push_back(arg.substr(4));
             continue;
@@ -1315,12 +1338,24 @@ int main(int argc, char **argv) {
         return result;
     };
 
-    if (settings.language == "cpp") {
-        processed = run_pp(settings.pp_cpp);
-    } else if (settings.language == "rust") {
-        processed = run_pp(settings.pp_rust || std::getenv("POLYC_PREPROCESS_RUST"));
-    } else if (settings.language == "python") {
-        processed = run_pp(settings.pp_python);
+    // Run preprocessing for languages that need it.
+    // The FrontendRegistry determines whether a language requires preprocessing;
+    // the per-language pp_overrides map allows CLI-level override (e.g. --no-pp-cpp).
+    auto *frontend = polyglot::frontends::FrontendRegistry::Instance()
+                         .GetFrontend(settings.language);
+    if (frontend && frontend->NeedsPreprocessing()) {
+        // Look up the override flag for this language; default to true if the
+        // frontend declares NeedsPreprocessing() but no override is set.
+        bool pp_enabled = true;
+        auto it = settings.pp_overrides.find(settings.language);
+        if (it != settings.pp_overrides.end()) {
+            pp_enabled = it->second;
+        }
+        // Rust also honours the POLYC_PREPROCESS_RUST environment variable.
+        if (settings.language == "rust" && std::getenv("POLYC_PREPROCESS_RUST")) {
+            pp_enabled = true;
+        }
+        processed = run_pp(pp_enabled);
     }
     // .ploy does not use preprocessing
 
@@ -1383,9 +1418,59 @@ int main(int argc, char **argv) {
             WriteAuxBinarySingle(aux_dir, stem + ".ast.paux", "ast", ast_oss.str(), V);
         }
 
+        // Phase 2.5: Package index (optional, runs before sema)
+        // The indexer probes external package managers (pip, cargo, pkg-config,
+        // maven, dotnet) with per-command timeouts and stores the results in a
+        // shared cache.  Sema itself never shells out — it reads from the cache.
+        auto pkg_cache = std::make_shared<polyglot::ploy::PackageDiscoveryCache>();
+        if (settings.package_index) {
+            using namespace std::chrono;
+            auto pkg_runner = std::make_shared<polyglot::ploy::DefaultCommandRunner>(
+                milliseconds{settings.package_index_timeout_ms});
+
+            polyglot::ploy::PackageIndexerOptions idx_opts;
+            idx_opts.command_timeout = milliseconds{settings.package_index_timeout_ms};
+            idx_opts.verbose = V;
+
+            polyglot::ploy::PackageIndexer indexer(pkg_cache, pkg_runner, idx_opts);
+            if (V) {
+                indexer.SetProgressCallback([](const std::string &lang, const std::string &msg) {
+                    std::cerr << "  [pkg-index:" << lang << "] " << msg << "\n";
+                });
+            }
+
+            // Determine which languages are referenced in the AST
+            std::vector<std::string> referenced_languages;
+            std::unordered_set<std::string> seen_langs;
+            for (const auto &decl : ploy_module->declarations) {
+                auto import = std::dynamic_pointer_cast<polyglot::ploy::ImportDecl>(decl);
+                if (import && !import->language.empty() && !import->package_name.empty()) {
+                    if (seen_langs.insert(import->language).second) {
+                        referenced_languages.push_back(import->language);
+                    }
+                }
+            }
+
+            if (!referenced_languages.empty()) {
+                StageTimer t("Package index", V);
+                indexer.BuildIndex(referenced_languages);
+                t.Stop();
+
+                auto stats = indexer.LastStats();
+                if (V) {
+                    std::cerr << "  [pkg-index] " << stats.packages_found << " package(s) indexed, "
+                              << stats.commands_executed << " command(s), "
+                              << stats.commands_timed_out << " timed out, "
+                              << stats.total_duration.count() << "ms\n";
+                }
+            }
+        }
+
         // Phase 3: Semantic analysis
         polyglot::ploy::PloySemaOptions sema_opts;
         sema_opts.strict_mode = settings.strict;
+        sema_opts.enable_package_discovery = false; // sema never shells out
+        sema_opts.discovery_cache = pkg_cache;      // pre-populated by indexer
         polyglot::ploy::PloySema sema(diagnostics, sema_opts);
         bool sema_ok = false;
         {
@@ -1511,66 +1596,26 @@ int main(int argc, char **argv) {
 
         lowered = true;
 
-    } else if (settings.language == "python") {
-        StageTimer t("Frontend (python)", V);
-        polyglot::python::PythonLexer lexer(processed, source_label, &diagnostics);
-        polyglot::python::PythonParser parser(lexer, diagnostics);
-        parser.ParseModule();
-        auto python_mod = parser.TakeModule();
-        polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::python::AnalyzeModule(*python_mod, sema);
-        // Lower Python AST to IR
-        polyglot::python::LowerToIR(*python_mod, ir_module, diagnostics);
-        lowered = true;
-        t.Stop();
-    } else if (settings.language == "cpp") {
-        StageTimer t("Frontend (cpp)", V);
-        polyglot::cpp::CppLexer lexer(processed, source_label);
-        polyglot::cpp::CppParser parser(lexer, diagnostics);
-        parser.ParseModule();
-        auto cpp_mod = parser.TakeModule();
-        polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::cpp::AnalyzeModule(*cpp_mod, sema);
-        polyglot::cpp::LowerToIR(*cpp_mod, ir_module, diagnostics);
-        lowered = true;
-        t.Stop();
-    } else if (settings.language == "rust") {
-        StageTimer t("Frontend (rust)", V);
-        polyglot::rust::RustLexer lexer(processed, source_label);
-        polyglot::rust::RustParser parser(lexer, diagnostics);
-        parser.ParseModule();
-        auto rust_mod = parser.TakeModule();
-        polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::rust::AnalyzeModule(*rust_mod, sema);
-        // Lower Rust AST to IR
-        polyglot::rust::LowerToIR(*rust_mod, ir_module, diagnostics);
-        lowered = true;
-        t.Stop();
-    } else if (settings.language == "java") {
-        StageTimer t("Frontend (java)", V);
-        polyglot::java::JavaLexer lexer(processed, source_label);
-        polyglot::java::JavaParser parser(lexer, diagnostics);
-        parser.ParseModule();
-        auto java_mod = parser.TakeModule();
-        polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::java::AnalyzeModule(*java_mod, sema);
-        polyglot::java::LowerToIR(*java_mod, ir_module, diagnostics);
-        lowered = true;
-        t.Stop();
-    } else if (settings.language == "dotnet" || settings.language == "csharp") {
-        StageTimer t("Frontend (dotnet)", V);
-        polyglot::dotnet::DotnetLexer lexer(processed, source_label);
-        polyglot::dotnet::DotnetParser parser(lexer, diagnostics);
-        parser.ParseModule();
-        auto dotnet_mod = parser.TakeModule();
-        polyglot::frontends::SemaContext sema(diagnostics);
-        polyglot::dotnet::AnalyzeModule(*dotnet_mod, sema);
-        polyglot::dotnet::LowerToIR(*dotnet_mod, ir_module, diagnostics);
-        lowered = true;
-        t.Stop();
     } else {
-        diagnostics.Report(polyglot::core::SourceLoc{source_label, 1, 1},
-                           "Unknown language: " + settings.language);
+        // ---- Generic frontend dispatch via FrontendRegistry ----
+        auto *lang_frontend = polyglot::frontends::FrontendRegistry::Instance()
+                                  .GetFrontend(settings.language);
+        if (lang_frontend) {
+            StageTimer t("Frontend (" + lang_frontend->DisplayName() + ")", V);
+            polyglot::frontends::FrontendOptions fe_opts;
+            fe_opts.verbose = V;
+            fe_opts.strict = settings.strict;
+            fe_opts.force = settings.force;
+            fe_opts.include_paths = settings.include_paths;
+
+            auto fe_result = lang_frontend->Lower(processed, source_label,
+                                                  ir_module, diagnostics, fe_opts);
+            lowered = fe_result.lowered;
+            t.Stop();
+        } else {
+            diagnostics.Report(polyglot::core::SourceLoc{source_label, 1, 1},
+                               "Unknown language: " + settings.language);
+        }
     }
 
     if (!settings.force && diagnostics.HasErrors()) {

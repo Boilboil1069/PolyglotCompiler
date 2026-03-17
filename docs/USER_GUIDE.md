@@ -214,6 +214,7 @@ EXPORT inference AS "run_inference";
 **Key Design Principles:**
 - All languages share a unified IR intermediate representation
 - Each frontend independently implements the complete Lexer → Parser → Sema → Lowering pipeline
+- All frontends are registered with a central **FrontendRegistry** using the `ILanguageFrontend` interface, enabling unified dispatch from CLI, IDE, tests, and plugins
 - The `.ploy` frontend is unique in that its IR is consumed by the PolyglotLinker, generating cross-language glue code
 - Six frontends: C++, Python, Rust, Java, .NET (C#), and .ploy
 
@@ -222,26 +223,29 @@ EXPORT inference AS "run_inference";
 ```
 PolyglotCompiler/
 ├── frontends/              # Frontends (6 language frontends)
-│   ├── common/             # Shared frontend facilities (Token, Diagnostics, Preprocessor)
-│   │   └── src/            #   token_pool.cpp, preprocessor.cpp
+│   ├── common/             # Shared frontend facilities (Token, Diagnostics, Preprocessor, Registry)
+│   │   ├── include/        #   language_frontend.h (ILanguageFrontend interface)
+│   │   │                   #   frontend_registry.h (FrontendRegistry singleton)
+│   │   │                   #   diagnostics.h, lexer_base.h, sema_context.h
+│   │   └── src/            #   frontend_registry.cpp, token_pool.cpp, preprocessor.cpp
 │   ├── cpp/                # C++ frontend
-│   │   ├── include/        #   cpp_lexer.h, cpp_parser.h, cpp_sema.h, cpp_lowering.h
-│   │   └── src/            #   lexer/, parser/, sema/, lowering/, constexpr/
+│   │   ├── include/        #   cpp_frontend.h, cpp_lexer.h, cpp_parser.h, cpp_sema.h, cpp_lowering.h
+│   │   └── src/            #   cpp_frontend.cpp, lexer/, parser/, sema/, lowering/, constexpr/
 │   ├── python/             # Python frontend
-│   │   ├── include/        #   python_lexer.h, python_parser.h, python_sema.h, python_lowering.h
-│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   │   ├── include/        #   python_frontend.h, python_lexer.h, python_parser.h, python_sema.h, python_lowering.h
+│   │   └── src/            #   python_frontend.cpp, lexer/, parser/, sema/, lowering/
 │   ├── rust/               # Rust frontend
-│   │   ├── include/        #   rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
-│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   │   ├── include/        #   rust_frontend.h, rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
+│   │   └── src/            #   rust_frontend.cpp, lexer/, parser/, sema/, lowering/
 │   ├── java/               # Java frontend (Java 8/17/21/23)
-│   │   ├── include/        #   java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
-│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   │   ├── include/        #   java_frontend.h, java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
+│   │   └── src/            #   java_frontend.cpp, lexer/, parser/, sema/, lowering/
 │   ├── dotnet/             # .NET frontend (C# .NET 6/7/8/9)
-│   │   ├── include/        #   dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
-│   │   └── src/            #   lexer/, parser/, sema/, lowering/
+│   │   ├── include/        #   dotnet_frontend.h, dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
+│   │   └── src/            #   dotnet_frontend.cpp, lexer/, parser/, sema/, lowering/
 │   └── ploy/               # .ploy cross-language linking frontend
-│       ├── include/        #   ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
-│       └── src/            #   lexer/, parser/, sema/, lowering/
+│       ├── include/        #   ploy_frontend.h, ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
+│       └── src/            #   ploy_frontend.cpp, lexer/, parser/, sema/, lowering/
 ├── middle/                 # Middle layer
 │   ├── include/
 │   │   ├── ir/             #   IR definitions (cfg.h, ssa.h, verifier.h, analysis.h, data_layout.h, etc.)
@@ -322,6 +326,81 @@ Source Code
 │  Lexer  │──────────────────▶ │ Parser  │────────▶ │  Sema   │───────────────────▶│ Lowering │──────────▶
 └─────────┘                    └─────────┘          └─────────┘                    └──────────┘
 ```
+
+### 3.3.1 Unified Frontend Registry
+
+All language frontends are managed through a **FrontendRegistry** — a singleton registration center that replaces hard-coded if/else dispatch chains. The CLI (`polyc`), the IDE (`polyui`), tests, and plugins all share this single dispatch mechanism.
+
+**Architecture:**
+
+```
+                    ┌──────────────────────────┐
+                    │    FrontendRegistry       │
+                    │    (Singleton)            │
+                    ├──────────────────────────┤
+                    │  Register(frontend)       │
+                    │  GetFrontend(name/alias)  │
+                    │  GetFrontendByExtension() │
+                    │  DetectLanguage(path)     │
+                    │  SupportedLanguages()     │
+                    │  AllFrontends()           │
+                    └───────────┬──────────────┘
+                                │
+         ┌──────────┬───────────┼───────────┬──────────┬──────────┐
+         │          │           │           │          │          │
+         ▼          ▼           ▼           ▼          ▼          ▼
+     ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
+     │  Ploy  │ │  C++   │ │ Python │ │  Rust  │ │  Java  │ │ .NET   │
+     │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│
+     └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
+         │          │           │           │          │          │
+         └──────────┴───────────┴───────────┴──────────┴──────────┘
+                                │
+                    ┌───────────────────────┐
+                    │  ILanguageFrontend     │
+                    │  (Abstract Interface)  │
+                    ├───────────────────────┤
+                    │  Name() -> string      │
+                    │  DisplayName() -> string│
+                    │  Extensions() -> [...]  │
+                    │  Aliases() -> [...]     │
+                    │  Tokenize(source)       │
+                    │  Analyze(source, diags) │
+                    │  Lower(source, ir_ctx)  │
+                    │  NeedsPreprocessing()   │
+                    └───────────────────────┘
+```
+
+**Key features:**
+
+- **Auto-registration**: Each frontend adapter uses the `REGISTER_FRONTEND()` macro to automatically register itself at static initialization time. No manual wiring is needed.
+- **Multi-key lookup**: Frontends can be looked up by canonical name (e.g. `"cpp"`), alias (e.g. `"c"`, `"c++"`, `"csharp"`), or file extension (e.g. `".py"`, `".rs"`).
+- **Language detection**: `DetectLanguage(file_path)` infers the language from a file's extension.
+- **Thread-safe**: All registry operations are mutex-protected.
+- **Extensible**: Third-party plugins can register new language frontends at runtime via the same interface.
+
+**Supported identifiers:**
+
+| Frontend | Canonical Name | Aliases | Extensions |
+|----------|---------------|---------|------------|
+| C++ | `cpp` | `c`, `c++` | `.cpp`, `.cc`, `.cxx`, `.c`, `.hpp`, `.h` |
+| Python | `python` | `py` | `.py` |
+| Rust | `rust` | `rs` | `.rs` |
+| Java | `java` | — | `.java` |
+| .NET/C# | `dotnet` | `csharp`, `c#` | `.cs`, `.vb` |
+| .ploy | `ploy` | — | `.ploy`, `.poly` |
+
+**Source files:**
+
+| File | Description |
+|------|-------------|
+| `frontends/common/include/language_frontend.h` | `ILanguageFrontend` abstract interface and `FrontendOptions`/`FrontendResult` types |
+| `frontends/common/include/frontend_registry.h` | `FrontendRegistry` singleton and `REGISTER_FRONTEND()` macro |
+| `frontends/common/src/frontend_registry.cpp` | Registry implementation (lookup, enumeration, clear) |
+| `frontends/<lang>/include/<lang>_frontend.h` | Per-language adapter header |
+| `frontends/<lang>/src/<lang>_frontend.cpp` | Per-language adapter implementation with auto-registration |
+
+### 3.3.2 Frontend Pipeline Stages
 
 **Frontend scale overview:**
 
@@ -981,10 +1060,60 @@ The `.ploy` frontend automatically discovers installed packages during semantic 
 ### Workflow
 
 1. **Parse CONFIG** — Determine package manager type and environment path
-2. **Trigger Discovery** — Execute the discovery command when `IMPORT PACKAGE` is encountered (once per language per compilation unit)
+2. **Package Index Phase** — Before semantic analysis, the `PackageIndexer` class runs package-manager commands (`pip list`, `cargo install --list`, `pkg-config`, `mvn`, `dotnet`) as an explicit pre-compilation phase with per-command timeouts (default 10s) and retry logic
 3. **Cache Results** — Discovered packages and versions are cached in a session-level `PackageDiscoveryCache` (keyed by `language|manager|env_path`); a shared cache can be reused across multiple `PloySema` compilations to avoid redundant external-command invocations
-4. **Version Verification** — Verify version constraints using 6 operators
-5. **Symbol Verification** — Verify selective imports have no duplicates
+4. **Sema reads from cache** — `PloySema` reads pre-populated cache entries but never shells out on its own (`enable_package_discovery` defaults to `false`)
+5. **Version Verification** — Verify version constraints using 6 operators
+6. **Symbol Verification** — Verify selective imports have no duplicates
+
+### Package Index Phase
+
+The `PackageIndexer` class decouples slow, side-effecting environment probing from the fast, deterministic semantic analysis pass:
+
+```cpp
+#include "frontends/ploy/include/package_indexer.h"
+
+auto cache  = std::make_shared<PackageDiscoveryCache>();
+auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
+
+PackageIndexerOptions idx_opts;
+idx_opts.command_timeout = std::chrono::seconds{10};
+idx_opts.verbose = true;
+
+PackageIndexer indexer(cache, runner, idx_opts);
+indexer.BuildIndex({"python", "rust", "java"});
+
+// Pass the pre-populated cache to sema
+PloySemaOptions sema_opts;
+sema_opts.enable_package_discovery = false;   // sema never shells out
+sema_opts.discovery_cache = cache;            // pre-populated by indexer
+PloySema sema(diagnostics, sema_opts);
+```
+
+The CLI (`polyc`) exposes this via:
+
+| Flag | Description |
+|------|-------------|
+| `--package-index` | Run the explicit package-index phase before sema (default) |
+| `--no-package-index` | Skip the package-index phase for faster compilation |
+| `--pkg-timeout=<ms>` | Per-command timeout for package indexing (default 10000) |
+
+### Command Runner with Timeout
+
+The `DefaultCommandRunner` now supports configurable per-command timeouts:
+
+```cpp
+auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
+CommandResult result = runner->RunWithResult("pip list --format=freeze");
+
+if (result.Ok()) {
+    // result.stdout_output contains the command output
+} else if (result.timed_out) {
+    // Command exceeded the timeout
+} else {
+    // result.exit_code indicates the failure reason
+}
+```
 
 ### Discovery Switch
 
@@ -992,11 +1121,11 @@ Discovery can be toggled via `PloySemaOptions::enable_package_discovery`:
 
 ```cpp
 PloySemaOptions opts;
-opts.enable_package_discovery = false;   // skip all external commands
+opts.enable_package_discovery = false;   // default — sema never shells out
 PloySema sema(diagnostics, opts);
 ```
 
-When disabled, `IMPORT PACKAGE` statements are still recorded, but no `_popen`/`popen` calls are executed.  This is recommended for benchmarks and CI environments where package resolution is not needed.
+When disabled (the default), `IMPORT PACKAGE` statements are still recorded, but no `_popen`/`popen` calls are executed.  Callers should use `PackageIndexer` as a pre-phase instead.
 
 ### Cache Strategy
 
@@ -1697,6 +1826,23 @@ The Git panel (toggle via **View → Git Panel**) provides version control witho
 ### Build System
 
 The Build panel (toggle via **View → Build Panel**) integrates CMake-based project building.
+
+#### Modular CMake Structure
+
+The project uses a modular `add_subdirectory()` layout that splits the monolithic top-level `CMakeLists.txt` into per-directory build files:
+
+```
+CMakeLists.txt          ← project setup, compiler flags, dependencies, add_subdirectory() calls
+├── common/CMakeLists.txt      ← polyglot_common library
+├── middle/CMakeLists.txt      ← middle_ir (IR, optimization passes, PGO, LTO)
+├── frontends/CMakeLists.txt   ← frontend_common + all language frontends
+├── backends/CMakeLists.txt    ← backend_x86_64, backend_arm64, backend_wasm
+├── runtime/CMakeLists.txt     ← runtime library (GC, FFI, interop, services)
+├── tools/CMakeLists.txt       ← polyc, polyasm, polyld, polyopt, polyrt, polybench, polyui
+└── tests/CMakeLists.txt       ← unit_tests, integration_tests, benchmark_tests
+```
+
+Unit test sources are listed explicitly per module (not via `GLOB_RECURSE`), enabling precise rebuild granularity.
 
 **Capabilities:**
 - **Configure**: run `cmake` with the selected generator (Makefiles, Ninja, Xcode, etc.) and build type (Debug, Release, RelWithDebInfo, MinSizeRel)
@@ -2479,6 +2625,32 @@ PolyglotCompiler provides platform-specific scripts to build release packages:
 See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
 
 ## 14.6 Changelog
+
+### v1.0.2 (2026-03-17)
+
+**Package Discovery Refactoring (2026-03-17-3)**
+- ✅ `CommandResult` struct: structured output with `stdout_output`, `exit_code`, `timed_out`, `failed`, `Ok()` convenience method
+- ✅ `ICommandRunner::RunWithResult()`: new primary interface with configurable per-command timeout; `Run()` kept for backward compatibility and delegates to `RunWithResult()`
+- ✅ `DefaultCommandRunner`: timeout support via `std::async` + `std::future::wait_for()`; configurable default timeout (10s)
+- ✅ `PackageIndexer` class: explicit pre-compilation package-index phase, decoupled from sema; runs discovery commands with timeouts and retries, populates shared `PackageDiscoveryCache`
+- ✅ `PackageIndexerOptions`: configurable `command_timeout`, `max_retries`, `verbose` flag
+- ✅ `PackageIndexer::Stats`: tracks `languages_indexed`, `commands_executed`, `commands_timed_out`, `commands_failed`, `packages_found`, `total_duration`
+- ✅ `PackageIndexer::SetProgressCallback()`: optional per-language progress reporting during indexing
+- ✅ `PloySemaOptions::enable_package_discovery` default changed from `true` to `false` — sema never shells out; callers use `PackageIndexer` as pre-phase
+- ✅ `polyc` driver: PackageIndexer wired as Phase 2.5 before sema; scans AST for referenced languages and indexes only those
+- ✅ CLI flags: `--package-index` (default), `--no-package-index`, `--pkg-timeout=<ms>`
+- ✅ 10 new test cases: `CommandResult::Ok()`, `MockCommandRunner` structured result, timeout simulation, `PackageIndexer` cache population, cache skip, timeout handling, multi-language indexing, pre-phase → sema cache flow, progress callback, defaults verification
+
+**Build System Modularization (2026-03-17-4)**
+- ✅ Top-level `CMakeLists.txt` reduced from ~690 lines to ~80 lines — project setup, compiler flags, dependencies, and `add_subdirectory()` calls only
+- ✅ `common/CMakeLists.txt`: `polyglot_common` library (type system, symbol table, plugins, debug info)
+- ✅ `middle/CMakeLists.txt`: `middle_ir` library (IR, optimization passes, PGO, LTO)
+- ✅ `frontends/CMakeLists.txt`: `frontend_common` + 6 language frontend libraries
+- ✅ `backends/CMakeLists.txt`: `backend_x86_64`, `backend_arm64`, `backend_wasm`
+- ✅ `runtime/CMakeLists.txt`: `runtime` library (GC, FFI, interop, services)
+- ✅ `tools/CMakeLists.txt`: `polyc`, `polyasm`, `polyld`, `polyopt`, `polyrt`, `polybench`, `polyui` (with full Qt detection logic)
+- ✅ `tests/CMakeLists.txt`: explicit per-module source lists replacing `GLOB_RECURSE` for unit tests; `integration_tests` and `benchmark_tests` retained with scoped globs
+- ✅ Test count: 781 test cases / 3985 assertions — all passing
 
 ### v1.0.1 (2026-03-17)
 - ✅ Two explicit compilation modes: **strict** and **permissive** (`--strict` / `--permissive` CLI flags)

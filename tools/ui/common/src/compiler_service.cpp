@@ -3,6 +3,9 @@
 // Bridges the web UI layer to the compiler's frontend pipeline: lexer,
 // parser, semantic analysis, and lowering.  Each public method creates a
 // fresh pipeline so that the service is stateless and thread-safe.
+//
+// Uses FrontendRegistry for unified language dispatch instead of per-language
+// if/else chains.
 
 #include "tools/ui/common/include/compiler_service.h"
 
@@ -11,40 +14,30 @@
 #include <sstream>
 #include <unordered_set>
 
-// Ploy frontend
+#include "frontends/common/include/frontend_registry.h"
+#include "frontends/common/include/language_frontend.h"
+
+// Ploy frontend (needed for completion provider)
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 
-// C++ frontend
-#include "frontends/cpp/include/cpp_lexer.h"
-#include "frontends/cpp/include/cpp_parser.h"
-#include "frontends/cpp/include/cpp_sema.h"
-
-// Python frontend
-#include "frontends/python/include/python_lexer.h"
-#include "frontends/python/include/python_parser.h"
-#include "frontends/python/include/python_sema.h"
-
-// Rust frontend
-#include "frontends/rust/include/rust_lexer.h"
-#include "frontends/rust/include/rust_parser.h"
-#include "frontends/rust/include/rust_sema.h"
-
-// Java frontend
-#include "frontends/java/include/java_lexer.h"
-#include "frontends/java/include/java_parser.h"
-#include "frontends/java/include/java_sema.h"
-
-// .NET frontend
-#include "frontends/dotnet/include/dotnet_lexer.h"
-#include "frontends/dotnet/include/dotnet_parser.h"
-#include "frontends/dotnet/include/dotnet_sema.h"
+// Individual frontend headers for auto-registration side-effects.
+// Including these ensures that the static REGISTER_FRONTEND() calls
+// in each *_frontend.cpp are linked into the executable.
+#include "frontends/ploy/include/ploy_frontend.h"
+#include "frontends/cpp/include/cpp_frontend.h"
+#include "frontends/python/include/python_frontend.h"
+#include "frontends/rust/include/rust_frontend.h"
+#include "frontends/java/include/java_frontend.h"
+#include "frontends/dotnet/include/dotnet_frontend.h"
 
 // Common sema context for non-ploy frontends
 #include "frontends/common/include/sema_context.h"
 
 namespace polyglot::tools::ui {
+
+using polyglot::frontends::FrontendRegistry;
 
 // ============================================================================
 // Construction / Destruction
@@ -58,7 +51,7 @@ CompilerService::~CompilerService() = default;
 // ============================================================================
 
 std::vector<std::string> CompilerService::SupportedLanguages() const {
-    return {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    return FrontendRegistry::Instance().SupportedLanguages();
 }
 
 // ============================================================================
@@ -106,19 +99,22 @@ static std::string ClassifyToken(frontends::TokenKind kind, const std::string &l
 }
 
 // ============================================================================
-// Generic tokenizer using a LexerBase-derived frontend lexer
+// Tokenize
 // ============================================================================
 
-template <typename LexerType>
-static std::vector<TokenInfo> TokenizeGeneric(const std::string &source,
-                                              const std::string &filename) {
+std::vector<TokenInfo> CompilerService::Tokenize(const std::string &source,
+                                                  const std::string &language) const {
+    // Use FrontendRegistry to dispatch tokenization
+    auto *fe = FrontendRegistry::Instance().GetFrontend(language);
+    if (!fe) return {};
+
+    std::string filename = "editor." + fe->Name();
+    auto raw_tokens = fe->Tokenize(source, filename);
+
+    // Convert raw Token to UI-friendly TokenInfo
     std::vector<TokenInfo> result;
-    LexerType lexer(source, filename);
-
-    while (true) {
-        auto tok = lexer.NextToken();
-        if (tok.kind == frontends::TokenKind::kEndOfFile) break;
-
+    result.reserve(raw_tokens.size());
+    for (const auto &tok : raw_tokens) {
         TokenInfo info;
         info.line = tok.loc.line;
         info.column = tok.loc.column;
@@ -127,47 +123,7 @@ static std::vector<TokenInfo> TokenizeGeneric(const std::string &source,
         info.lexeme = tok.lexeme;
         result.push_back(std::move(info));
     }
-
     return result;
-}
-
-// ============================================================================
-// Tokenize
-// ============================================================================
-
-std::vector<TokenInfo> CompilerService::Tokenize(const std::string &source,
-                                                  const std::string &language) const {
-    if (language == "ploy")    return TokenizePloy(source);
-    if (language == "cpp")     return TokenizeCpp(source);
-    if (language == "python")  return TokenizePython(source);
-    if (language == "rust")    return TokenizeRust(source);
-    if (language == "java")    return TokenizeJava(source);
-    if (language == "csharp")  return TokenizeCSharp(source);
-    return {};
-}
-
-std::vector<TokenInfo> CompilerService::TokenizePloy(const std::string &source) const {
-    return TokenizeGeneric<ploy::PloyLexer>(source, "editor.ploy");
-}
-
-std::vector<TokenInfo> CompilerService::TokenizeCpp(const std::string &source) const {
-    return TokenizeGeneric<cpp::CppLexer>(source, "editor.cpp");
-}
-
-std::vector<TokenInfo> CompilerService::TokenizePython(const std::string &source) const {
-    return TokenizeGeneric<python::PythonLexer>(source, "editor.py");
-}
-
-std::vector<TokenInfo> CompilerService::TokenizeRust(const std::string &source) const {
-    return TokenizeGeneric<rust::RustLexer>(source, "editor.rs");
-}
-
-std::vector<TokenInfo> CompilerService::TokenizeJava(const std::string &source) const {
-    return TokenizeGeneric<java::JavaLexer>(source, "editor.java");
-}
-
-std::vector<TokenInfo> CompilerService::TokenizeCSharp(const std::string &source) const {
-    return TokenizeGeneric<dotnet::DotnetLexer>(source, "editor.cs");
 }
 
 // ============================================================================
@@ -219,75 +175,12 @@ std::vector<DiagnosticInfo> CompilerService::Analyze(
 
     frontends::Diagnostics diags;
 
-    if (language == "ploy") {
-        ploy::PloyLexer lexer(source, filename);
-        ploy::PloyParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                ploy::PloySemaOptions opts;
-                opts.enable_package_discovery = false;
-                opts.strict_mode = true;
-                ploy::PloySema sema(diags, opts);
-                sema.Analyze(module);
-            }
-        }
-    } else if (language == "cpp") {
-        cpp::CppLexer lexer(source, filename);
-        cpp::CppParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                frontends::SemaContext ctx(diags);
-                cpp::AnalyzeModule(*module, ctx);
-            }
-        }
-    } else if (language == "python") {
-        python::PythonLexer lexer(source, filename);
-        python::PythonParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                frontends::SemaContext ctx(diags);
-                python::AnalyzeModule(*module, ctx);
-            }
-        }
-    } else if (language == "rust") {
-        rust::RustLexer lexer(source, filename);
-        rust::RustParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                frontends::SemaContext ctx(diags);
-                rust::AnalyzeModule(*module, ctx);
-            }
-        }
-    } else if (language == "java") {
-        java::JavaLexer lexer(source, filename);
-        java::JavaParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                frontends::SemaContext ctx(diags);
-                java::AnalyzeModule(*module, ctx);
-            }
-        }
-    } else if (language == "csharp") {
-        dotnet::DotnetLexer lexer(source, filename);
-        dotnet::DotnetParser parser(lexer, diags);
-        parser.ParseModule();
-        if (!diags.HasErrors()) {
-            auto module = parser.TakeModule();
-            if (module) {
-                frontends::SemaContext ctx(diags);
-                dotnet::AnalyzeModule(*module, ctx);
-            }
-        }
+    // Use FrontendRegistry for unified dispatch
+    auto *fe = FrontendRegistry::Instance().GetFrontend(language);
+    if (fe) {
+        frontends::FrontendOptions opts;
+        opts.strict = true;
+        fe->Analyze(source, filename, diags, opts);
     }
 
     return ConvertDiagnostics(diags);

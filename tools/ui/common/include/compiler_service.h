@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/lexer_base.h"
 
 namespace polyglot::tools::ui {
@@ -107,13 +108,6 @@ class CompilerService {
 
   private:
     // Internal helpers
-    std::vector<TokenInfo> TokenizePloy(const std::string &source) const;
-    std::vector<TokenInfo> TokenizeCpp(const std::string &source) const;
-    std::vector<TokenInfo> TokenizePython(const std::string &source) const;
-    std::vector<TokenInfo> TokenizeRust(const std::string &source) const;
-    std::vector<TokenInfo> TokenizeJava(const std::string &source) const;
-    std::vector<TokenInfo> TokenizeCSharp(const std::string &source) const;
-
     std::vector<DiagnosticInfo> ConvertDiagnostics(
         const frontends::Diagnostics &diags) const;
 

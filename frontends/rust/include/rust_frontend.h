@@ -1,0 +1,37 @@
+// rust_frontend.h — Rust language frontend adapter.
+
+#pragma once
+
+#include "frontends/common/include/language_frontend.h"
+
+namespace polyglot::rust {
+
+class RustLanguageFrontend : public frontends::ILanguageFrontend {
+  public:
+    std::string Name() const override { return "rust"; }
+    std::string DisplayName() const override { return "Rust"; }
+
+    std::vector<std::string> Extensions() const override {
+        return {".rs"};
+    }
+
+    std::vector<std::string> Aliases() const override {
+        return {"rs"};
+    }
+
+    std::vector<frontends::Token> Tokenize(const std::string &source,
+                                           const std::string &filename) const override;
+
+    bool Analyze(const std::string &source,
+                 const std::string &filename,
+                 frontends::Diagnostics &diagnostics,
+                 const frontends::FrontendOptions &options) const override;
+
+    frontends::FrontendResult Lower(const std::string &source,
+                                    const std::string &filename,
+                                    ir::IRContext &ir_ctx,
+                                    frontends::Diagnostics &diagnostics,
+                                    const frontends::FrontendOptions &options) const override;
+};
+
+}  // namespace polyglot::rust
