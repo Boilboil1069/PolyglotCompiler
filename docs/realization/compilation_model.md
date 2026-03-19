@@ -77,9 +77,10 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
    - `LINK`, `IMPORT`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH` — declare how functions/classes/attributes from different languages interact
    - The `.ploy` frontend produces **cross-language call descriptors** (`CrossLangCallDescriptor`)
 
-3. **The PolyglotLinker generates glue code**  
+3. **The PolyglotLinker generates glue code**
    PolyglotLinker 生成粘合代码：
    - Reads the cross-language call descriptors from the `.ploy` frontend
+   - Automatically synthesizes cross-language symbol entries from LINK declarations and known function signatures — no manual symbol registration required
    - Generates **FFI bridge stubs** (e.g., `__ploy_bridge_ploy_python___init__`, `__ploy_bridge_ploy_python___getattr__weight`)
    - Generates **type marshalling code** (converting between language-specific representations)
    - Generates **ownership tracking code** (managing cross-language object lifetimes)

@@ -97,7 +97,7 @@ All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched auto
   - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
   - Pass `-DQT_ROOT=<path>` to override.
 <!-- BEGIN:qt_setup_en -->
-  - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools\ui\setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
+  - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools/ui/setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
 <!-- END:qt_setup_en -->
   - If Qt is not found, the IDE target is silently skipped.
 
@@ -374,6 +374,46 @@ cd build && ctest
 | DWARF5 | `[dwarf5]` | 7 |
 | Debug | `[debug]` | 4 |
 
+### CI Quality Gates / CI 质量闸门
+
+The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gates on every push and PR:
+
+| Gate | Tool | Description |
+|------|------|-------------|
+| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py` | Path references, bilingual sync, heading structure, version consistency |
+| **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
+| **Static Analysis** | `clang-tidy-17` | Bug-prone patterns, modernize, performance, readability (see `.clang-tidy`) |
+| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on full test suite |
+| **Code Coverage** | lcov / gcov | Collects line coverage; report uploaded as CI artifact |
+| **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
+
+To run quality checks locally:
+
+```bash
+# Format check (dry-run)
+find common middle frontends backends runtime tools \
+  -name '*.cpp' -o -name '*.h' -o -name '*.c' \
+  | xargs clang-format --dry-run --Werror --style=file
+
+# Sanitizer build
+cmake -B build-san -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_ASAN=ON \
+  -DPOLYGLOT_ENABLE_UBSAN=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-san
+cd build-san && ctest --output-on-failure
+
+# Coverage build
+cmake -B build-cov -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_COVERAGE=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-cov
+cd build-cov && ctest --output-on-failure
+lcov --capture --directory . --output-file coverage.info
+```
+
 ---
 
 ## Dependencies / 依赖
@@ -439,6 +479,7 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 ---
 
 <!-- BEGIN:version_footer_en -->
-*Maintained by PolyglotCompiler Team / PolyglotCompiler 团队维护*  
-*Last updated / 最后更新: 2026-03-17 (v1.0.4)*
+*Maintained by PolyglotCompiler Team*  
+*Last Updated: 2026-03-19*  
+*Document Version: v1.0.0*
 <!-- END:version_footer_en -->

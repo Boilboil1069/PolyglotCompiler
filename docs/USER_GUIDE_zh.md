@@ -2282,6 +2282,56 @@ tests/benchmarks/
 
 ---
 
+## 10.7 CI 质量闸门
+
+CI 流水线（`.github/workflows/ci.yml`）在每次 push 和 PR 时强制执行以下质量闸门：
+
+| 闸门 | 工具 | 说明 |
+|------|------|------|
+| **文档检查** | `docs_lint.py` / `docs_sync_check.py` | 路径引用、中英双语同步、标题结构、版本一致性 |
+| **格式检查** | `clang-format-17` | 强制所有 C/C++ 源文件遵循 `.clang-format` 风格 |
+| **静态分析** | `clang-tidy-17` | 常见 bug 模式、现代化、性能、可读性（见 `.clang-tidy`） |
+| **消毒器** | ASan + UBSan | 对完整测试套件运行 AddressSanitizer 和 UndefinedBehaviorSanitizer |
+| **代码覆盖率** | lcov / gcov | 收集行覆盖率；报告作为 CI 产物上传 |
+| **基准冒烟测试** | Catch2 `[fast]` | 以 fast 模式运行基准测试，捕获性能回退 |
+
+### CMake 质量选项
+
+| 选项 | 默认值 | 说明 |
+|------|--------|------|
+| `POLYGLOT_ENABLE_ASAN` | `OFF` | 启用 AddressSanitizer（仅 GCC/Clang） |
+| `POLYGLOT_ENABLE_UBSAN` | `OFF` | 启用 UndefinedBehaviorSanitizer（仅 GCC/Clang） |
+| `POLYGLOT_ENABLE_COVERAGE` | `OFF` | 启用代码覆盖率（gcov/llvm-cov，仅 GCC/Clang） |
+
+### 本地运行质量检查
+
+```bash
+# 格式检查（dry-run，需要 clang-format 17+）
+find common middle frontends backends runtime tools \
+  -name '*.cpp' -o -name '*.h' -o -name '*.c' \
+  | xargs clang-format --dry-run --Werror --style=file
+
+# 消毒器构建
+cmake -B build-san -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_ASAN=ON \
+  -DPOLYGLOT_ENABLE_UBSAN=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-san
+cd build-san && ctest --output-on-failure
+
+# 覆盖率构建
+cmake -B build-cov -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_COVERAGE=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-cov
+cd build-cov && ctest --output-on-failure
+lcov --capture --directory . --output-file coverage.info
+```
+
+---
+
 # 11. 构建与集成
 
 ## 11.1 CMake 构建目标
@@ -2612,6 +2662,31 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 ## 14.6 更新日志
 
+### v1.0.6 (2026-03-19)
+
+**CI 质量闸门（2026-03-17-8）**
+- ✅ 新增 `.clang-tidy` 配置：bugprone、cppcoreguidelines、modernize、performance、readability 检查，含项目特定排除项
+- ✅ 新增 CMake 选项：`POLYGLOT_ENABLE_ASAN`、`POLYGLOT_ENABLE_UBSAN`、`POLYGLOT_ENABLE_COVERAGE`，用于消毒器和覆盖率构建
+- ✅ CI `format-check` 任务：通过 `clang-format-17` 强制所有 C/C++ 源文件遵循 `.clang-format` 风格
+- ✅ CI `clang-tidy` 任务：使用 `clang-tidy-17` 对项目源码进行静态分析（排除 tests/deps）
+- ✅ CI `sanitizers` 任务：在 ASan + UBSan 下运行完整测试套件（Linux，静态构建）
+- ✅ CI `coverage` 任务：通过 lcov/gcov 收集行覆盖率，上传过滤后的报告作为产物
+- ✅ CI `benchmark-smoke` 任务：以 fast 模式运行基准测试，捕获性能回退
+- ✅ CI 并发控制：取消同一分支/PR 的进行中运行
+- ✅ 平台构建现在依赖 `format-check` 闸门先通过
+- ✅ 文档更新：README、USER_GUIDE（中英文）添加质量闸门表格和本地使用说明
+
+**跨语言链接闭环（2026-03-19-2）**
+- ✅ `polyc` 现在在调用 `ResolveLinks()` 之前自动从 LINK 声明和 CALL 描述符合成 `CrossLangSymbol` 条目，解决了链接器有描述符但无符号表可解析的问题
+- ✅ 当 sema 已知函数签名可用时，自动填充参数描述符
+- ✅ 编译模型文档已更新，反映自动化符号注册流程
+
+**收紧降级路径（2026-03-19-3）**
+- ✅ `lowering.cpp`：无签名信息的 LINK 桩函数在严格模式（默认）下现在报错，而非静默回退到单个 opaque i64 参数
+- ✅ `driver.cpp`：最小 main 合成在严格模式下被阻止；仅在宽松模式 + `--force` 下允许，并输出明确的 DEGRADED BUILD 警告
+- ✅ `driver.cpp`：优化后 IR 验证失败在严格模式下现在是硬错误；之前仅在 verbose 模式下静默记录
+- ✅ 后端空 section 桩注入已限制在 `--force` + 非严格模式下；添加了一致的 DEGRADED BUILD 消息
+
 ### v1.0.5 (2026-03-17)
 
 **文档单源化与自动校验（2026-03-17-7）**
@@ -2849,6 +2924,6 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 <!-- BEGIN:version_footer_zh -->
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-03-17*  
-*文档版本: v1.0.4*
+*最后更新: 2026-03-19*  
+*文档版本: v1.0.0*
 <!-- END:version_footer_zh -->

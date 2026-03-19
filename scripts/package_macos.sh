@@ -160,7 +160,7 @@ BUILD_PATH="${PROJECT_ROOT}/${BUILD_DIR}"
 # ============================================================================
 step "Staging portable distribution"
 
-STAGE_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}/stage/${ARCHIVE_BASE}"
+STAGE_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}/${ARCHIVE_BASE}"/${VERSION}
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/bin"
 mkdir -p "$STAGE_DIR/lib"
@@ -213,7 +213,7 @@ else
 fi
 
 # Copy top-level files (README and LICENSE only, docs excluded)
-for f in README.md LICENSE; do
+for f in LICENSE; do
     src="${PROJECT_ROOT}/${f}"
     if [[ -f "$src" ]]; then
         cp "$src" "$STAGE_DIR/"
@@ -228,7 +228,7 @@ step "Creating portable tar.gz archive"
 TARBALL="${PROJECT_ROOT}/${OUTPUT_DIR}/${ARCHIVE_BASE}-portable.tar.gz"
 rm -f "$TARBALL"
 
-cd "${PROJECT_ROOT}/${OUTPUT_DIR}/stage"
+cd "${PROJECT_ROOT}/${OUTPUT_DIR}"
 tar czf "$TARBALL" "$ARCHIVE_BASE"
 
 echo "[OK] Portable archive: $TARBALL"

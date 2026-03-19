@@ -1424,10 +1424,21 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                 params.emplace_back("arg" + std::to_string(i), pt);
             }
         } else {
-            // No signature information — generate a variadic-style stub with
-            // a single opaque argument.  This is not an error: LINK without
-            // MAP_TYPE is valid when the callee's signature is not needed for
-            // type checking (e.g. the arguments are forwarded as-is).
+            // No signature information — in strict mode this is an error because
+            // the generated stub will have an incorrect calling convention.
+            // In permissive mode, fall back to a single opaque i64 argument
+            // with a warning so the pipeline can continue.
+            if (sema_.IsStrictMode()) {
+                diagnostics_.ReportError(link.defined_at,
+                    frontends::ErrorCode::kTypeMismatch,
+                    "LINK stub for '" + link.target_symbol +
+                    "' has no signature information (strict mode rejects opaque fallback)");
+            } else {
+                diagnostics_.ReportWarning(link.defined_at,
+                    frontends::ErrorCode::kGenericWarning,
+                    "LINK stub for '" + link.target_symbol +
+                    "' has no signature information; defaulting to single opaque i64 argument");
+            }
             params.emplace_back("arg0", ir::IRType::I64(true));
         }
 

@@ -2,9 +2,9 @@
     "_comment": "Single source of truth for documentation variables. Update values here; then run `python scripts/docs_generate.py` to propagate changes.",
 
     "project_name": "PolyglotCompiler",
-    "version": "1.0.4",
+    "version": "1.0.6",
     "doc_version": "1.0.0",
-    "last_updated": "2026-03-17",
+    "last_updated": "2026-03-19",
     "license": "GPLv3",
 
     "cpp_standard": "C++20",

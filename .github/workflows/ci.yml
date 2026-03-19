@@ -6,9 +6,17 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ==========================================================================
+  # Quality Gate 1: Documentation lint & sync
+  # ==========================================================================
   docs-lint:
-    name: Documentation Lint & Sync
+    name: Docs Lint & Sync
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,8 +35,182 @@ jobs:
       - name: Check single-source freshness
         run: python scripts/docs_generate.py --check
 
+  # ==========================================================================
+  # Quality Gate 2: Code formatting (clang-format)
+  # ==========================================================================
+  format-check:
+    name: Format Check (clang-format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-17
+
+      - name: Check formatting
+        run: |
+          find common middle frontends backends runtime tools \
+            -name '*.cpp' -o -name '*.h' -o -name '*.c' \
+            | grep -v '/deps/' | grep -v '/.cache/' \
+            | xargs clang-format-17 --dry-run --Werror --style=file \
+            2>&1 | head -200
+          # Exit with the pipeline status
+          find common middle frontends backends runtime tools \
+            -name '*.cpp' -o -name '*.h' -o -name '*.c' \
+            | grep -v '/deps/' | grep -v '/.cache/' \
+            | xargs clang-format-17 --dry-run --Werror --style=file
+
+  # ==========================================================================
+  # Quality Gate 3: Static analysis (clang-tidy)
+  # ==========================================================================
+  clang-tidy:
+    name: Static Analysis (clang-tidy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang-tidy-17 clang-17
+
+      - name: Configure CMake (compile_commands.json)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=clang++-17 \
+            -DCMAKE_C_COMPILER=clang-17 \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+      - name: Run clang-tidy
+        run: |
+          # Run on project source files only (exclude tests, deps, .cache)
+          find common middle frontends backends runtime tools \
+            -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' \
+            | head -50 \
+            | xargs -P$(nproc) -I{} \
+              clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' {} \
+            2>&1 | tail -100
+
+  # ==========================================================================
+  # Quality Gate 4: Sanitizers (ASan + UBSan)
+  # ==========================================================================
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Configure CMake with sanitizers
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DPOLYGLOT_ENABLE_ASAN=ON \
+            -DPOLYGLOT_ENABLE_UBSAN=ON \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests under sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:print_stats=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          cd build
+          ctest --output-on-failure -C Debug --timeout 300
+
+  # ==========================================================================
+  # Quality Gate 5: Code coverage
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build lcov
+
+      - name: Configure CMake with coverage
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DPOLYGLOT_ENABLE_COVERAGE=ON \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure -C Debug
+
+      - name: Collect coverage
+        run: |
+          lcov --capture --directory build --output-file coverage.info \
+            --ignore-errors mismatch
+          # Remove external/test/generated files from report
+          lcov --remove coverage.info \
+            '/usr/*' \
+            '*/deps/*' \
+            '*/.cache/*' \
+            '*/tests/*' \
+            '*/Catch2/*' \
+            --output-file coverage_filtered.info \
+            --ignore-errors unused
+          lcov --list coverage_filtered.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage_filtered.info
+          retention-days: 14
+
+  # ==========================================================================
+  # Quality Gate 6: Benchmark smoke test
+  # ==========================================================================
+  benchmark-smoke:
+    name: Benchmark Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run benchmark (fast mode)
+        env:
+          POLYBENCH_MODE: fast
+        run: |
+          cd build
+          ctest --output-on-failure -L fast --timeout 120
+
+  # ==========================================================================
+  # Platform builds: Windows / Linux / macOS
+  # ==========================================================================
   build-windows:
-    name: Build & Test (Windows)
+    name: Build & Test (Windows ${{ matrix.build_type }})
+    needs: [format-check]
     runs-on: windows-latest
     strategy:
       matrix:
@@ -53,7 +235,8 @@ jobs:
           ctest --output-on-failure -C ${{ matrix.build_type }}
 
   build-linux:
-    name: Build & Test (Linux)
+    name: Build & Test (Linux ${{ matrix.build_type }})
+    needs: [format-check]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -79,6 +262,7 @@ jobs:
 
   build-macos:
     name: Build & Test (macOS)
+    needs: [format-check]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

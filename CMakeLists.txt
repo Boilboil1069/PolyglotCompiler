@@ -31,6 +31,7 @@ if(BUILD_SHARED_LIBS)
             #   dylibs are produced directly in <build>/.
             set(CMAKE_MACOSX_RPATH TRUE)
             set(CMAKE_INSTALL_RPATH
+                "@executable_path"
                 "@executable_path/../Frameworks"
                 "@executable_path/../lib"
                 "@executable_path/../../.."
@@ -52,6 +53,35 @@ else()
     if(APPLE)
         add_link_options("LINKER:-no_warn_duplicate_libraries")
     endif()
+endif()
+
+# ============================================================================
+# Quality gate options: sanitizers, coverage, clang-tidy
+# ============================================================================
+
+option(POLYGLOT_ENABLE_ASAN   "Enable AddressSanitizer (GCC/Clang)"   OFF)
+option(POLYGLOT_ENABLE_UBSAN  "Enable UndefinedBehaviorSanitizer"     OFF)
+option(POLYGLOT_ENABLE_COVERAGE "Enable code coverage (gcov/llvm-cov)" OFF)
+
+# -- Sanitizers (not supported on MSVC) --------------------------------------
+if(NOT MSVC)
+    set(_SANITIZER_FLAGS "")
+    if(POLYGLOT_ENABLE_ASAN)
+        list(APPEND _SANITIZER_FLAGS "-fsanitize=address" "-fno-omit-frame-pointer")
+    endif()
+    if(POLYGLOT_ENABLE_UBSAN)
+        list(APPEND _SANITIZER_FLAGS "-fsanitize=undefined" "-fno-sanitize-recover=all")
+    endif()
+    if(_SANITIZER_FLAGS)
+        add_compile_options(${_SANITIZER_FLAGS})
+        add_link_options(${_SANITIZER_FLAGS})
+    endif()
+endif()
+
+# -- Code coverage (GCC/Clang only) ------------------------------------------
+if(POLYGLOT_ENABLE_COVERAGE AND NOT MSVC)
+    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
+    add_link_options(--coverage)
 endif()
 
 # Required for runtime dynamic loading (dlopen/dlsym) and threading

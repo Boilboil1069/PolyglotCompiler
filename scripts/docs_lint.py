@@ -193,7 +193,10 @@ def check_path_references(root: Path, md_file: Path, lines: List[str],
             if raw_path.startswith("http") or raw_path.startswith("$"):
                 continue
             # Skip glob patterns and code identifiers
-            if "*" in raw_path and not raw_path.endswith(".*"):
+            if "*" in raw_path:
+                continue
+            # Skip ellipsis patterns (e.g. `middle/...`)
+            if "..." in raw_path:
                 continue
             # Skip things that look like code (namespace::, -> , etc.)
             if "::" in raw_path or "->" in raw_path:

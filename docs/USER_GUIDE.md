@@ -2296,6 +2296,56 @@ Measure full pipeline (lex → parse → sema → lower → IR print) performanc
 
 ---
 
+## 10.7 CI Quality Gates
+
+The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gates on every push and PR:
+
+| Gate | Tool | Description |
+|------|------|-------------|
+| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py` | Path references, bilingual sync, heading structure, version consistency |
+| **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
+| **Static Analysis** | `clang-tidy-17` | Bug-prone patterns, modernize, performance, readability (see `.clang-tidy`) |
+| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on full test suite |
+| **Code Coverage** | lcov / gcov | Collects line coverage; report uploaded as CI artifact |
+| **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
+
+### CMake Quality Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `POLYGLOT_ENABLE_ASAN` | `OFF` | Enable AddressSanitizer (GCC/Clang only) |
+| `POLYGLOT_ENABLE_UBSAN` | `OFF` | Enable UndefinedBehaviorSanitizer (GCC/Clang only) |
+| `POLYGLOT_ENABLE_COVERAGE` | `OFF` | Enable code coverage via gcov/llvm-cov (GCC/Clang only) |
+
+### Running Quality Checks Locally
+
+```bash
+# Format check (dry-run, requires clang-format 17+)
+find common middle frontends backends runtime tools \
+  -name '*.cpp' -o -name '*.h' -o -name '*.c' \
+  | xargs clang-format --dry-run --Werror --style=file
+
+# Sanitizer build
+cmake -B build-san -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_ASAN=ON \
+  -DPOLYGLOT_ENABLE_UBSAN=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-san
+cd build-san && ctest --output-on-failure
+
+# Coverage build
+cmake -B build-cov -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DPOLYGLOT_ENABLE_COVERAGE=ON \
+  -DBUILD_SHARED_LIBS=OFF
+cmake --build build-cov
+cd build-cov && ctest --output-on-failure
+lcov --capture --directory . --output-file coverage.info
+```
+
+---
+
 # 11. Build & Integration
 
 ## 11.1 CMake Build Targets
@@ -2626,6 +2676,31 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 
 ## 14.6 Changelog
 
+### v1.0.6 (2026-03-19)
+
+**CI Quality Gates (2026-03-17-8)**
+- ✅ New `.clang-tidy` configuration: bugprone, cppcoreguidelines, modernize, performance, readability checks with project-specific exclusions
+- ✅ New CMake options: `POLYGLOT_ENABLE_ASAN`, `POLYGLOT_ENABLE_UBSAN`, `POLYGLOT_ENABLE_COVERAGE` for sanitizer and coverage builds
+- ✅ CI `format-check` job: enforces `.clang-format` style on all C/C++ source files via `clang-format-17`
+- ✅ CI `clang-tidy` job: static analysis with `clang-tidy-17` on project sources (excluding tests/deps)
+- ✅ CI `sanitizers` job: full test suite under ASan + UBSan (Linux, static build)
+- ✅ CI `coverage` job: collects line coverage via lcov/gcov, uploads filtered report as artifact
+- ✅ CI `benchmark-smoke` job: runs benchmarks in fast mode to catch performance regressions
+- ✅ CI concurrency control: cancels in-progress runs for the same branch/PR
+- ✅ Platform builds now depend on `format-check` gate passing first
+- ✅ Documentation updated: README, USER_GUIDE (EN/ZH) with quality gate tables and local usage instructions
+
+**Cross-Language Linking Closure (2026-03-19-2)**
+- ✅ `polyc` now automatically synthesizes `CrossLangSymbol` entries from LINK declarations and CALL descriptors before invoking `ResolveLinks()`, closing the gap where the linker had descriptors but no symbol table to resolve against
+- ✅ Parameter descriptors are populated from sema's known function signatures when available
+- ✅ Compilation model documentation updated to reflect the automated symbol registration flow
+
+**Tighten Degradation Paths (2026-03-19-3)**
+- ✅ `lowering.cpp`: LINK stub with no signature info now emits an error in strict mode (default) instead of silently falling back to a single opaque i64 argument
+- ✅ `driver.cpp`: minimal main synthesis is now blocked in strict mode; only allowed with `--force` in permissive mode, with clear DEGRADED BUILD warnings
+- ✅ `driver.cpp`: post-optimization IR verification failure is now a hard error in strict mode; previously it was silently swallowed (only logged in verbose mode)
+- ✅ Backend empty-section stub injection already gated behind `--force` + non-strict; added consistent DEGRADED BUILD messaging
+
 ### v1.0.5 (2026-03-17)
 
 **Documentation Single-Sourcing & Auto-Verification (2026-03-17-7)**
@@ -2875,6 +2950,6 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-03-17*  
-*Document Version: v1.0.4*
+*Last Updated: 2026-03-19*  
+*Document Version: v1.0.0*
 <!-- END:version_footer_en -->

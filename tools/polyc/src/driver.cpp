@@ -160,6 +160,7 @@ struct Elf64_Rela {
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
 #include "middle/include/ir/passes/opt.h"
+#include "middle/include/passes/pass_manager.h"
 #include "middle/include/passes/transform/advanced_optimizations.h"
 #include "tools/polyld/include/polyglot_linker.h"
 #include "runtime/include/libs/base.h"
@@ -1554,6 +1555,63 @@ int main(int argc, char **argv) {
                 poly_linker.AddLinkEntry(entry);
             }
 
+            // Synthesize CrossLangSymbol entries from LINK declarations and
+            // known function signatures so that ResolveLinks() can find them.
+            // This closes the gap where the linker had descriptors and entries
+            // but no symbol table to resolve against.
+            {
+                std::unordered_set<std::string> registered;
+                const auto &known_sigs = sema.KnownSignatures();
+                auto register_sym = [&](const std::string &name,
+                                        const std::string &language) {
+                    std::string key = language + "::" + name;
+                    if (registered.count(key)) return;
+                    registered.insert(key);
+
+                    polyglot::linker::CrossLangSymbol sym;
+                    sym.name = name;
+                    sym.mangled_name = name;
+                    sym.language = language;
+                    sym.type = polyglot::linker::SymbolType::kFunction;
+
+                    // Populate parameter descriptors from sema signatures
+                    auto it = known_sigs.find(name);
+                    if (it != known_sigs.end() && it->second.param_count_known) {
+                        const auto &sig = it->second;
+                        for (size_t i = 0; i < sig.param_types.size(); ++i) {
+                            polyglot::linker::CrossLangSymbol::ParamDesc pd;
+                            pd.type_name = sig.param_types[i].ToString();
+                            pd.size = 8;
+                            pd.is_pointer = sig.param_types[i].IsPointer();
+                            sym.params.push_back(pd);
+                        }
+                        polyglot::linker::CrossLangSymbol::ParamDesc rd;
+                        rd.type_name = sig.return_type.ToString();
+                        rd.size = 8;
+                        rd.is_pointer = sig.return_type.IsPointer();
+                        sym.return_desc = rd;
+                    }
+
+                    poly_linker.AddCrossLangSymbol(sym);
+                    if (V) {
+                        std::cerr << "[polyc]   registered symbol: "
+                                  << language << "::" << name << "\n";
+                    }
+                };
+
+                // Register symbols from LINK entries
+                for (const auto &entry : sema.Links()) {
+                    register_sym(entry.target_symbol, entry.target_language);
+                    register_sym(entry.source_symbol, entry.source_language);
+                }
+
+                // Register symbols from CALL descriptors
+                for (const auto &desc : lowering_engine.CallDescriptors()) {
+                    register_sym(desc.target_function, desc.target_language);
+                    register_sym(desc.source_function, desc.source_language);
+                }
+            }
+
             bool link_ok = poly_linker.ResolveLinks();
             if (!link_ok) {
                 std::cerr << "[error] Cross-language link resolution failed:\n";
@@ -1635,7 +1693,14 @@ int main(int argc, char **argv) {
         std::cerr << "[error] IR lowering not available for language '"
                   << settings.language << "'\n";
         if (!settings.force) return 1;
+        // In strict mode, never synthesize a fake main
+        if (settings.strict) {
+            std::cerr << "[error] strict mode prohibits degraded stub synthesis\n";
+            return 1;
+        }
         // In force mode, synthesize a minimal main so the pipeline can continue.
+        std::cerr << "[warn] DEGRADED BUILD: synthesizing minimal main in --force mode\n";
+        std::cerr << "[warn] The resulting binary is NOT suitable for release\n";
         auto fn = ir_module.CreateFunction("main");
         auto *entry = fn->CreateBlock("entry");
         auto ret = std::make_shared<polyglot::ir::ReturnStatement>();
@@ -1663,45 +1728,12 @@ int main(int argc, char **argv) {
     // ---- Phase 5b: Middle-end optimization pipeline ----
     if (settings.opt_level > 0) {
         StageTimer t("Middle-end optimizations (O" + std::to_string(settings.opt_level) + ")", V);
-        for (auto &fn : ir_module.Functions()) {
-            // -O1: basic scalar optimizations
-            polyglot::ir::passes::ConstantFold(*fn);
-            polyglot::ir::passes::CopyProp(*fn);
-            polyglot::ir::passes::DeadCodeEliminate(*fn);
-            polyglot::ir::passes::CanonicalizeCFG(*fn);
-            polyglot::ir::passes::EliminateRedundantPhis(*fn);
-            polyglot::ir::passes::CSE(*fn);
-
-            if (settings.opt_level >= 2) {
-                // -O2: loop & advanced optimizations
-                polyglot::passes::transform::StrengthReduction(*fn);
-                polyglot::passes::transform::LoopInvariantCodeMotion(*fn);
-                polyglot::passes::transform::LoopUnrolling(*fn, 4);
-                polyglot::passes::transform::DeadStoreElimination(*fn);
-                polyglot::passes::transform::InductionVariableElimination(*fn);
-                polyglot::passes::transform::SCCP(*fn);
-                polyglot::passes::transform::GVN(*fn);
-                polyglot::passes::transform::JumpThreading(*fn);
-
-                // Second round of cleanup after loop opts
-                polyglot::ir::passes::DeadCodeEliminate(*fn);
-                polyglot::ir::passes::CanonicalizeCFG(*fn);
-            }
-
-            if (settings.opt_level >= 3) {
-                // -O3: aggressive optimizations
-                polyglot::passes::transform::TailCallOptimization(*fn);
-                polyglot::passes::transform::EscapeAnalysis(*fn);
-                polyglot::passes::transform::ScalarReplacement(*fn);
-                polyglot::passes::transform::AutoVectorization(*fn);
-                polyglot::passes::transform::LoopFusion(*fn);
-                polyglot::passes::transform::CodeSinking(*fn);
-                polyglot::passes::transform::CodeHoisting(*fn);
-                polyglot::passes::transform::LoopTiling(*fn, 64);
-
-                // Final cleanup
-                polyglot::ir::passes::DeadCodeEliminate(*fn);
-            }
+        polyglot::passes::PassManager pm(
+            static_cast<polyglot::passes::PassManager::OptLevel>(settings.opt_level));
+        pm.Build();
+        size_t n = pm.RunOnModule(ir_module, V);
+        if (V) {
+            std::cerr << "[polyc] Ran " << n << " optimization passes per function\n";
         }
         t.Stop();
 
@@ -1711,10 +1743,14 @@ int main(int argc, char **argv) {
             polyglot::ir::VerifyOptions post_opt_vopts;
             post_opt_vopts.strict = settings.strict;
             if (!polyglot::ir::Verify(ir_module, post_opt_vopts, &verify_msg)) {
-                if (V) {
-                    std::cerr << "[warn] IR verification failed after optimization: "
-                              << verify_msg << "\n";
+                std::cerr << "[error] IR verification failed after optimization: "
+                          << verify_msg << "\n";
+                if (settings.strict) {
+                    std::cerr << "[error] strict mode prohibits continuing with invalid IR\n";
+                    return 1;
                 }
+                if (!settings.force) return 1;
+                std::cerr << "[warn] continuing in --force mode despite post-opt verification failure\n";
             }
         }
     }
