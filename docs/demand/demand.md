@@ -699,7 +699,7 @@ CI 还停留在”能编译+跑 ctest”。当前 workflow 基本只有 configur
 
 修正模块边界。polyglot_common 现在直接把 backends/common 的实现源码编进来了，common/CMakeLists.txt (line 6)，这已经是明显的层级反转。类似地，polyld 的 CLI 逻辑也出现了漂移，真正的可执行入口在 main.cpp (line 103)，而更完整的命令行支持却散落在 linker.cpp (line 3440)。这类问题现在不处理，后面会越来越难拆。
 
---end
+--end -done
 
 2026-03-19-7
 

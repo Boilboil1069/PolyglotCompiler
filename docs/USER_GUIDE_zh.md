@@ -2700,6 +2700,12 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 - ✅ 保留合并 `unit_tests` 目标以保持向后兼容
 - ✅ 顶层 `CMakeLists.txt` 添加 `enable_testing()` 使按模块测试可从构建根目录发现
 
+**模块边界修正（2026-03-19-6）**
+- ✅ 将 `backends/common/` 源码（debug_info、debug_emitter、dwarf_builder、object_file）从 `polyglot_common` 移出，创建独立的 `backend_common` 库
+- ✅ `backend_x86_64`、`backend_arm64`、`backend_wasm` 现在依赖 `backend_common` 而非直接依赖 `polyglot_common` 编入的后端源码
+- ✅ 消除了 common → backends 的层级反转（正确方向：backends → common）
+- ✅ `polyld` CLI 逻辑合并：将 `linker.cpp` 中 170 行重复的 `main` 函数（含 `--ploy-desc`、`--aux-dir`、`--allow-adhoc-link` 等选项）合并到 `main.cpp`，删除 `linker.cpp` 中的重复入口
+
 ### v1.0.5 (2026-03-17)
 
 **文档单源化与自动校验（2026-03-17-7）**

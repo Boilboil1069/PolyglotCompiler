@@ -2714,6 +2714,12 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 - ✅ Combined `unit_tests` target preserved for backward compatibility
 - ✅ Top-level `enable_testing()` added to `CMakeLists.txt` so per-module tests are discoverable from the build root
 
+**Module Boundary Fixes (2026-03-19-6)**
+- ✅ Extracted `backends/common/` sources (debug_info, debug_emitter, dwarf_builder, object_file) from `polyglot_common` into a new `backend_common` library
+- ✅ `backend_x86_64`, `backend_arm64`, `backend_wasm` now depend on `backend_common` instead of backend sources compiled into `polyglot_common`
+- ✅ Eliminated the common → backends layer inversion (correct direction: backends → common)
+- ✅ `polyld` CLI consolidation: merged the 170-line duplicate `main` from `linker.cpp` (with `--ploy-desc`, `--aux-dir`, `--allow-adhoc-link` options) into `main.cpp`, removed the duplicate entry point from `linker.cpp`
+
 ### v1.0.5 (2026-03-17)
 
 **Documentation Single-Sourcing & Auto-Verification (2026-03-17-7)**
