@@ -97,6 +97,10 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/Dependencies.cmake)
 #   common → middle → frontends → backends → runtime → tools → tests
 # ============================================================================
 
+# Enable CTest at the top level so that tests registered in subdirectories
+# are discoverable by `ctest` from the build root.
+enable_testing()
+
 add_subdirectory(common)
 add_subdirectory(middle)
 add_subdirectory(frontends)

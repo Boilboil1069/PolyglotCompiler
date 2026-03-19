@@ -7,10 +7,6 @@ add_library(polyglot_common
     src/core/type_system.cpp
     src/core/symbol_table.cpp
     src/plugins/plugin_manager.cpp
-    ${CMAKE_SOURCE_DIR}/backends/common/src/debug_info.cpp
-    ${CMAKE_SOURCE_DIR}/backends/common/src/debug_emitter.cpp
-    ${CMAKE_SOURCE_DIR}/backends/common/src/dwarf_builder.cpp
-    ${CMAKE_SOURCE_DIR}/backends/common/src/object_file.cpp
     src/debug/dwarf5.cpp
 )
 

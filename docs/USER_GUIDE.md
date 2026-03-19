@@ -2701,6 +2701,19 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 - ✅ `driver.cpp`: post-optimization IR verification failure is now a hard error in strict mode; previously it was silently swallowed (only logged in verbose mode)
 - ✅ Backend empty-section stub injection already gated behind `--force` + non-strict; added consistent DEGRADED BUILD messaging
 
+**Pipeline Refactoring (2026-03-19-4)**
+- ✅ Extracted `PassManager` from internal `.cpp` class to public header `middle/include/passes/pass_manager.h`
+- ✅ `PassManager` supports O0/O1/O2/O3 levels with named `PassEntry` stages, custom pass injection, and verbose per-function logging
+- ✅ `driver.cpp` optimization pipeline (~40 lines of inline pass calls) replaced with `PassManager::Build()` + `RunOnModule()` — a single 5-line invocation
+- ✅ Pass pipeline is now inspectable, extensible, and reusable by CLI, UI, tests, and plugins
+
+**Test Decoupling (2026-03-19-5)**
+- ✅ Split monolithic `unit_tests` into 14 per-module test binaries (`test_core`, `test_plugins`, `test_frontend_python`, `test_frontend_cpp`, `test_frontend_rust`, `test_frontend_ploy`, `test_frontend_java`, `test_frontend_dotnet`, `test_frontend_common`, `test_middle`, `test_backends`, `test_runtime`, `test_linker`, `test_e2e`)
+- ✅ Each module binary links only the libraries it actually needs, reducing link overhead and isolating dylib failures
+- ✅ CTest now has 19 test entries (14 per-module + combined `unit_tests` + `integration_tests` + 3 benchmark targets) with labels (`unit`, `frontend`, `middle`, `backend`, `runtime`, `linker`, `e2e`, `benchmark`)
+- ✅ Combined `unit_tests` target preserved for backward compatibility
+- ✅ Top-level `enable_testing()` added to `CMakeLists.txt` so per-module tests are discoverable from the build root
+
 ### v1.0.5 (2026-03-17)
 
 **Documentation Single-Sourcing & Auto-Verification (2026-03-17-7)**

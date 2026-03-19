@@ -2687,6 +2687,19 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 - ✅ `driver.cpp`：优化后 IR 验证失败在严格模式下现在是硬错误；之前仅在 verbose 模式下静默记录
 - ✅ 后端空 section 桩注入已限制在 `--force` + 非严格模式下；添加了一致的 DEGRADED BUILD 消息
 
+**管线重构（2026-03-19-4）**
+- ✅ 将 `PassManager` 从内部 `.cpp` 类提升为公共头文件 `middle/include/passes/pass_manager.h`
+- ✅ `PassManager` 支持 O0/O1/O2/O3 级别，具有命名 `PassEntry` 阶段、自定义 pass 注入和逐函数 verbose 日志
+- ✅ `driver.cpp` 优化管线（约 40 行内联 pass 调用）替换为 `PassManager::Build()` + `RunOnModule()` — 仅 5 行调用
+- ✅ Pass 管线现在可检查、可扩展，CLI、UI、测试和插件均可复用
+
+**测试解耦（2026-03-19-5）**
+- ✅ 将单体 `unit_tests` 拆分为 14 个按模块的测试二进制（`test_core`、`test_plugins`、`test_frontend_python`、`test_frontend_cpp`、`test_frontend_rust`、`test_frontend_ploy`、`test_frontend_java`、`test_frontend_dotnet`、`test_frontend_common`、`test_middle`、`test_backends`、`test_runtime`、`test_linker`、`test_e2e`）
+- ✅ 每个模块二进制仅链接实际需要的库，减少链接开销并隔离 dylib 故障
+- ✅ CTest 现有 19 个测试入口（14 个按模块 + 合并 `unit_tests` + `integration_tests` + 3 个基准目标），带标签（`unit`、`frontend`、`middle`、`backend`、`runtime`、`linker`、`e2e`、`benchmark`）
+- ✅ 保留合并 `unit_tests` 目标以保持向后兼容
+- ✅ 顶层 `CMakeLists.txt` 添加 `enable_testing()` 使按模块测试可从构建根目录发现
+
 ### v1.0.5 (2026-03-17)
 
 **文档单源化与自动校验（2026-03-17-7）**

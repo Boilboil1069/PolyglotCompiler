@@ -3,6 +3,18 @@
 # x86-64, ARM64, and WebAssembly targets.
 # ============================================================================
 
+# -- Backend common (debug info, object file, DWARF) -------------------------
+
+add_library(backend_common
+    common/src/debug_info.cpp
+    common/src/debug_emitter.cpp
+    common/src/dwarf_builder.cpp
+    common/src/object_file.cpp
+)
+
+target_include_directories(backend_common PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(backend_common PUBLIC polyglot_common middle_ir)
+
 # -- x86-64 backend ------------------------------------------------------------
 
 add_library(backend_x86_64
@@ -16,7 +28,7 @@ add_library(backend_x86_64
 )
 
 target_include_directories(backend_x86_64 PUBLIC ${CMAKE_SOURCE_DIR})
-target_link_libraries(backend_x86_64 PUBLIC polyglot_common middle_ir)
+target_link_libraries(backend_x86_64 PUBLIC backend_common middle_ir)
 
 # -- ARM64 backend -------------------------------------------------------------
 
@@ -30,7 +42,7 @@ add_library(backend_arm64
 )
 
 target_include_directories(backend_arm64 PUBLIC ${CMAKE_SOURCE_DIR})
-target_link_libraries(backend_arm64 PUBLIC polyglot_common middle_ir)
+target_link_libraries(backend_arm64 PUBLIC backend_common middle_ir)
 
 # -- WebAssembly backend -------------------------------------------------------
 
@@ -39,4 +51,4 @@ add_library(backend_wasm
 )
 
 target_include_directories(backend_wasm PUBLIC ${CMAKE_SOURCE_DIR})
-target_link_libraries(backend_wasm PUBLIC polyglot_common middle_ir)
+target_link_libraries(backend_wasm PUBLIC backend_common middle_ir)

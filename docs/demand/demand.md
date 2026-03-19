@@ -685,15 +685,15 @@ CI 还停留在”能编译+跑 ctest”。当前 workflow 基本只有 configur
 
 2026-03-19-4
 
-把编译管线从“大型 driver”重构成真正的阶段化 pipeline。现在 driver.cpp 已经 2000+ 行，SSA、verify、O1/O2/O3 顺序全写死在 driver 里，driver.cpp (line 1647) driver.cpp (line 1663)。与此同时仓库里其实有一个 PassManager 抽象，但它只定义在 .cpp 内部、没有真正接入主链，pass_manager.cpp (line 13)。这会让后续所有优化、诊断、缓存都继续堆在 driver 上。
+把编译管线从”大型 driver”重构成真正的阶段化 pipeline。现在 driver.cpp 已经 2000+ 行，SSA、verify、O1/O2/O3 顺序全写死在 driver 里，driver.cpp (line 1647) driver.cpp (line 1663)。与此同时仓库里其实有一个 PassManager 抽象，但它只定义在 .cpp 内部、没有真正接入主链，pass_manager.cpp (line 13)。这会让后续所有优化、诊断、缓存都继续堆在 driver 上。
 
---end
+--end -done
 
 2026-03-19-5
 
 拆掉过度链接和测试耦合。测试配置把所有前端、所有后端、runtime、linker 全部链接进每个测试目标，tests/CMakeLists.txt (line 10) tests/CMakeLists.txt (line 161)。ctest -N 也只有 5 个顶层测试入口，意味着一处动态库加载问题就能让整套 800+ case 全部不可用。我本地执行 ctest --output-on-failure -R unit_tests 已经复现了这个问题，dyld 找不到 libfrontend_python.dylib；而当前 macOS RPATH 的 build-tree fallback 也确实不对，CMakeLists.txt (line 32)。建议改成按模块拆分测试二进制，并把测试默认做成静态或正确的 build-rpath。
 
---end
+--end -done
 
 2026-03-19-6
 
