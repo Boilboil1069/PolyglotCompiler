@@ -86,13 +86,18 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          # Run on project source files only (exclude tests, deps, .cache)
+          # Run on all project source files (exclude tests, deps, .cache)
           find common middle frontends backends runtime tools \
             -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' \
-            | head -50 \
             | xargs -P$(nproc) -I{} \
               clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' {} \
-            2>&1 | tail -100
+            2>&1 | tee /tmp/clang-tidy.log
+
+          # Fail if any errors found
+          if grep -q "error:" /tmp/clang-tidy.log; then
+            echo "::error::clang-tidy found errors"
+            exit 1
+          fi
 
   # ==========================================================================
   # Quality Gate 4: Sanitizers (ASan + UBSan)

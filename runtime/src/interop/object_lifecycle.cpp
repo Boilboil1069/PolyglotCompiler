@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 #include "runtime/include/interop/container_marshal.h"
 #include "runtime/include/interop/memory.h"
@@ -78,8 +80,10 @@ void __ploy_dotnet_dispose(void *object) {
 // Cross-language class extension / vtable registration
 // ============================================================================
 
-// Maximum number of registered extensions tracked at runtime.
-static constexpr std::size_t kMaxExtensions = 256;
+// Thread-safe, dynamically-sized extension registry.
+// Uses a mutex rather than RWLock to avoid pulling in the full threading
+// services header into this translation unit (the lock is uncontended in
+// practice since registrations only happen at module-init time).
 
 struct ExtensionEntry {
     const char *language{nullptr};
@@ -87,13 +91,35 @@ struct ExtensionEntry {
     const char *derived{nullptr};
 };
 
-static ExtensionEntry g_extensions[kMaxExtensions];
-static std::size_t g_extension_count = 0;
+namespace {
+
+struct ExtensionRegistry {
+    std::vector<ExtensionEntry> entries;
+    std::mutex mu;
+};
+
+static ExtensionRegistry &GetRegistry() {
+    static ExtensionRegistry reg;
+    return reg;
+}
+
+} // anonymous namespace
 
 void __ploy_extend_register(const char *language, const char *base_class,
                              const char *derived) {
     if (!language || !base_class || !derived) return;
-    if (g_extension_count >= kMaxExtensions) return;
+
+    ExtensionRegistry &reg = GetRegistry();
+    std::lock_guard<std::mutex> guard(reg.mu);
+
+    // Check for duplicates to avoid redundant registrations.
+    for (const auto &entry : reg.entries) {
+        if (std::strcmp(entry.language, language) == 0 &&
+            std::strcmp(entry.base_class, base_class) == 0 &&
+            std::strcmp(entry.derived, derived) == 0) {
+            return;
+        }
+    }
 
     // Duplicate the strings into GC-managed memory so they survive module unload.
     auto dup = [](const char *s) -> const char * {
@@ -103,10 +129,16 @@ void __ploy_extend_register(const char *language, const char *base_class,
         return buf;
     };
 
-    ExtensionEntry &entry = g_extensions[g_extension_count++];
-    entry.language   = dup(language);
-    entry.base_class = dup(base_class);
-    entry.derived    = dup(derived);
+    const char *dup_lang = dup(language);
+    const char *dup_base = dup(base_class);
+    const char *dup_der = dup(derived);
+
+    if (!dup_lang || !dup_base || !dup_der) {
+        // GC-managed memory; no manual free needed — collector will reclaim.
+        return;
+    }
+
+    reg.entries.push_back({dup_lang, dup_base, dup_der});
 }
 
 // ============================================================================

@@ -239,6 +239,16 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
         return false;
     }
 
+    // Validate ABI compatibility between source and target symbols.
+    // Mismatches in parameter count, type sizes, or pointer/value disagreements
+    // produce diagnostics.  Hard mismatches cause the link to fail.
+    if (!ValidateABICompatibility(*target_sym, *source_sym)) {
+        ReportError("ABI incompatibility between '" + entry.target_symbol +
+                    "' (" + entry.target_language + ") and '" +
+                    entry.source_symbol + "' (" + entry.source_language + ")");
+        return false;
+    }
+
     // Generate the glue stub
     GlueStub stub = GenerateGlueStub(entry, *target_sym, *source_sym);
     stubs_.push_back(stub);
@@ -679,6 +689,96 @@ void PolyglotLinker::EmitStructMarshal(std::vector<std::uint8_t> &code,
         r.size = 4;
         pending_marshal_relocs_.push_back(r);
     }
+}
+
+// ============================================================================
+// ABI Validation
+// ============================================================================
+
+ABIDescriptor PolyglotLinker::GetABIDescriptor(const std::string &language) {
+    ABIDescriptor abi;
+    abi.pointer_size = 8;  // 64-bit targets
+    abi.stack_alignment = 16;
+
+    // Most languages use the platform-native calling convention.
+    // On Linux/macOS (SysV ABI): 6 integer registers, 8 XMM registers.
+    // On Windows (Win64 ABI): 4 integer registers, 4 XMM registers + shadow space.
+    std::string cc = GetCallingConvention(language);
+    abi.calling_convention = cc;
+
+    if (cc == "win64") {
+        abi.int_reg_count = 4;
+        abi.float_reg_count = 4;
+        abi.requires_shadow_space = true;
+    } else if (cc == "aapcs64") {
+        abi.int_reg_count = 8;
+        abi.float_reg_count = 8;
+        abi.requires_shadow_space = false;
+    } else {
+        // Default: SysV AMD64
+        abi.int_reg_count = 6;
+        abi.float_reg_count = 8;
+        abi.requires_shadow_space = false;
+    }
+
+    return abi;
+}
+
+bool PolyglotLinker::ValidateABICompatibility(const CrossLangSymbol &target,
+                                              const CrossLangSymbol &source) {
+    // Validate parameter count match.
+    if (target.params.size() != source.params.size()) {
+        ReportError("ABI mismatch: '" + target.name + "' (" + target.language +
+                    ") expects " + std::to_string(target.params.size()) +
+                    " parameter(s) but '" + source.name + "' (" + source.language +
+                    ") provides " + std::to_string(source.params.size()));
+        return false;
+    }
+
+    bool compatible = true;
+
+    // Validate each parameter: size and pointer compatibility.
+    for (size_t i = 0; i < target.params.size(); ++i) {
+        const auto &tp = target.params[i];
+        const auto &sp = source.params[i];
+
+        // Size mismatch (e.g. i32 vs i64) can cause data truncation.
+        if (tp.size != 0 && sp.size != 0 && tp.size != sp.size) {
+            ReportWarning("ABI warning: parameter " + std::to_string(i + 1) +
+                          " of '" + target.name + "' has size " +
+                          std::to_string(tp.size) + " but source provides size " +
+                          std::to_string(sp.size));
+        }
+
+        // Pointer vs non-pointer mismatch.
+        if (tp.is_pointer != sp.is_pointer) {
+            ReportError("ABI mismatch: parameter " + std::to_string(i + 1) +
+                        " of '" + target.name + "' is " +
+                        (tp.is_pointer ? "a pointer" : "not a pointer") +
+                        " but source '" + source.name + "' provides " +
+                        (sp.is_pointer ? "a pointer" : "a value"));
+            compatible = false;
+        }
+    }
+
+    // Validate return type compatibility.
+    if (target.return_desc.size != 0 && source.return_desc.size != 0 &&
+        target.return_desc.size != source.return_desc.size) {
+        ReportWarning("ABI warning: return type of '" + target.name +
+                      "' has size " + std::to_string(target.return_desc.size) +
+                      " but source return size is " +
+                      std::to_string(source.return_desc.size));
+    }
+
+    if (target.return_desc.is_pointer != source.return_desc.is_pointer) {
+        ReportError("ABI mismatch: '" + target.name + "' returns " +
+                    (target.return_desc.is_pointer ? "a pointer" : "a value") +
+                    " but source '" + source.name + "' returns " +
+                    (source.return_desc.is_pointer ? "a pointer" : "a value"));
+        compatible = false;
+    }
+
+    return compatible;
 }
 
 } // namespace polyglot::linker

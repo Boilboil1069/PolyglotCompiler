@@ -200,7 +200,10 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
         sig.name = link->target_symbol;
         sig.language = link->target_language;
         sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = false;  // MAP_TYPE does not define param count
+        // When MAP_TYPE entries are present, they describe the complete parameter
+        // list.  Mark the count as known to enable strict argument checking.
+        sig.param_count_known = true;
+        sig.validated = true;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // Resolve the target type from the mapping
@@ -938,15 +941,35 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
                              arg_types, sig);
     }
 
-    // NEW returns an opaque object handle.  If the class is known from a LINK
-    // declaration, return a struct-typed reference; otherwise fall back to Any
-    // because in cross-language contexts the class hierarchy is not available.
+    // NEW returns an opaque object handle.  If a class schema is registered
+    // (from LINK declarations or package discovery), use its constructor
+    // signature for validation and return a typed reference.  Otherwise fall
+    // back to the symbol table, and lastly to Any.
+    const ForeignClassSchema *schema = LookupClassSchema(new_expr->class_name);
+    if (schema) {
+        // Validate constructor arguments against schema if available.
+        if (schema->has_constructor) {
+            ValidateCallArgCount(new_expr->loc, new_expr->class_name + " constructor",
+                                 new_expr->args.size(), &schema->constructor_sig);
+            ValidateCallArgTypes(new_expr->loc, new_expr->class_name + " constructor",
+                                 arg_types, &schema->constructor_sig);
+        }
+        // Return a typed pointer to the foreign class.
+        core::Type ptr_type{core::TypeKind::kPointer, new_expr->class_name + "*"};
+        ptr_type.language = new_expr->language;
+        return ptr_type;
+    }
+
     auto sym_it = symbols_.find(new_expr->class_name);
     if (sym_it != symbols_.end() &&
         sym_it->second.type.kind != core::TypeKind::kAny &&
         sym_it->second.type.kind != core::TypeKind::kInvalid) {
         return sym_it->second.type;
     }
+
+    ReportStrictDiag(new_expr->loc, frontends::ErrorCode::kTypeMismatch,
+                     "NEW '" + new_expr->class_name +
+                     "' has no registered class schema; return type is Any");
     return core::Type::Any();
 }
 
@@ -965,8 +988,9 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     }
 
     // Analyze the receiver object
+    core::Type receiver_type = core::Type::Any();
     if (method_call->object) {
-        AnalyzeExpression(method_call->object);
+        receiver_type = AnalyzeExpression(method_call->object);
     } else {
         ReportError(method_call->loc, frontends::ErrorCode::kMissingExpression,
                     "METHOD requires an object expression");
@@ -993,7 +1017,38 @@ core::Type PloySema::AnalyzeMethodCallExpression(
         return sig->return_type;
     }
 
+    // Try to resolve via class schema.  Examine the receiver object's type
+    // to find a matching class schema, then look up the method.
+    // If the receiver was produced by NEW, it may carry a class name in its
+    // pointer target type string.  Try to look up a class schema.
+    if (receiver_type.kind == core::TypeKind::kPointer &&
+        !receiver_type.name.empty()) {
+        // Strip trailing '*' from type name to get the class name.
+        std::string class_name = receiver_type.name;
+        if (!class_name.empty() && class_name.back() == '*') {
+            class_name.pop_back();
+        }
+        const ForeignClassSchema *schema = LookupClassSchema(class_name);
+        if (schema) {
+            auto method_it = schema->methods.find(method_call->method_name);
+            if (method_it != schema->methods.end()) {
+                const FunctionSignature &msig = method_it->second;
+                ValidateCallArgCount(method_call->loc, method_call->method_name,
+                                     method_call->args.size(), &msig);
+                ValidateCallArgTypes(method_call->loc, method_call->method_name,
+                                     arg_types, &msig);
+                if (msig.return_type.kind != core::TypeKind::kAny &&
+                    msig.return_type.kind != core::TypeKind::kInvalid) {
+                    return msig.return_type;
+                }
+            }
+        }
+    }
+
     // Method calls return Any since we cannot statically resolve the return type
+    ReportStrictDiag(method_call->loc, frontends::ErrorCode::kTypeMismatch,
+                     "METHOD '" + method_call->method_name +
+                     "' has no known return type; defaulting to Any");
     return core::Type::Any();
 }
 
@@ -1010,15 +1065,36 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
                     "attribute name is empty in GET");
     }
 
-    // Analyze the object expression
+    // Analyze the object expression and try to resolve its type via class schema.
+    core::Type obj_type = core::Type::Any();
     if (get_attr->object) {
-        AnalyzeExpression(get_attr->object);
+        obj_type = AnalyzeExpression(get_attr->object);
     } else {
         ReportError(get_attr->loc, frontends::ErrorCode::kMissingExpression,
                     "GET requires an object expression");
     }
 
-    // Attribute access returns Any since we cannot statically resolve the attribute type
+    // If the receiver type carries a class name (from NEW), look up the
+    // attribute type in the class schema.
+    if (obj_type.kind == core::TypeKind::kPointer && !obj_type.name.empty()) {
+        std::string class_name = obj_type.name;
+        if (!class_name.empty() && class_name.back() == '*') {
+            class_name.pop_back();
+        }
+        const ForeignClassSchema *schema = LookupClassSchema(class_name);
+        if (schema) {
+            auto attr_it = schema->attributes.find(get_attr->attr_name);
+            if (attr_it != schema->attributes.end()) {
+                return attr_it->second;
+            }
+            // Attribute not in schema — report in strict mode.
+            ReportStrictDiag(get_attr->loc, frontends::ErrorCode::kTypeMismatch,
+                             "attribute '" + get_attr->attr_name +
+                             "' not found in schema for class '" + class_name + "'");
+        }
+    }
+
+    // Attribute access returns Any when schema is unavailable.
     return core::Type::Any();
 }
 
@@ -1035,23 +1111,50 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
                     "attribute name is empty in SET");
     }
 
-    // Analyze the object expression
+    // Analyze the object expression and resolve type.
+    core::Type obj_type = core::Type::Any();
     if (set_attr->object) {
-        AnalyzeExpression(set_attr->object);
+        obj_type = AnalyzeExpression(set_attr->object);
     } else {
         ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
                     "SET requires an object expression");
     }
 
     // Analyze the value expression
+    core::Type value_type = core::Type::Any();
     if (set_attr->value) {
-        AnalyzeExpression(set_attr->value);
+        value_type = AnalyzeExpression(set_attr->value);
     } else {
         ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
                     "SET requires a value expression");
     }
 
-    // SET returns the assigned value type (Any since we cannot know the attribute type)
+    // Validate attribute type against class schema if available.
+    if (obj_type.kind == core::TypeKind::kPointer && !obj_type.name.empty()) {
+        std::string class_name = obj_type.name;
+        if (!class_name.empty() && class_name.back() == '*') {
+            class_name.pop_back();
+        }
+        const ForeignClassSchema *schema = LookupClassSchema(class_name);
+        if (schema) {
+            auto attr_it = schema->attributes.find(set_attr->attr_name);
+            if (attr_it != schema->attributes.end()) {
+                // Check that the value type is compatible with the attribute type.
+                if (!AreTypesCompatible(value_type, attr_it->second)) {
+                    ReportError(set_attr->loc, frontends::ErrorCode::kTypeMismatch,
+                                "type mismatch in SET: attribute '" + set_attr->attr_name +
+                                "' expects '" + attr_it->second.ToString() +
+                                "' but got '" + value_type.ToString() + "'");
+                }
+                return attr_it->second;
+            }
+            ReportStrictDiag(set_attr->loc, frontends::ErrorCode::kTypeMismatch,
+                             "attribute '" + set_attr->attr_name +
+                             "' not found in schema for class '" + class_name + "'");
+        }
+    }
+
+    // SET returns the assigned value type (Any when schema unavailable).
     return core::Type::Any();
 }
 
@@ -2316,6 +2419,32 @@ void PloySema::DiscoverDotnetNugetPackages() {
             discovered_packages_[key] = info;
         }
     }
+}
+
+// ============================================================================
+// Class Schema Registry
+// ============================================================================
+
+void PloySema::RegisterClassSchema(const std::string &qualified_name,
+                                   ForeignClassSchema schema) {
+    class_schemas_[qualified_name] = std::move(schema);
+}
+
+const ForeignClassSchema *PloySema::LookupClassSchema(
+    const std::string &qualified_name) const {
+    auto it = class_schemas_.find(qualified_name);
+    if (it != class_schemas_.end()) {
+        return &it->second;
+    }
+    // Try stripping module qualifier: "module::ClassName" -> "ClassName"
+    auto pos = qualified_name.rfind("::");
+    if (pos != std::string::npos) {
+        auto short_it = class_schemas_.find(qualified_name.substr(pos + 2));
+        if (short_it != class_schemas_.end()) {
+            return &short_it->second;
+        }
+    }
+    return nullptr;
 }
 
 } // namespace polyglot::ploy

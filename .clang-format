@@ -1,6 +1,6 @@
 # Custom PolyglotCompiler C++ style
 Language: Cpp
-Standard: c++17
+Standard: c++20
 
 # Indentation
 IndentWidth: 2

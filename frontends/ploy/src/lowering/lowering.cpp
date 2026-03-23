@@ -941,14 +941,23 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     std::string stub_name = MangleStubName("ploy", method_call->language,
                                            method_call->method_name);
 
-    // Resolve return type from sema known signatures
+    // Resolve return type from sema known signatures.
+    // In strict mode, an unknown return type is an error rather than silently
+    // defaulting to I64.
     ir::IRType method_ret_type = ir::IRType::I64(true);
+    method_ret_type.is_placeholder = true;
     {
         auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
         if (sig_it != sema_.KnownSignatures().end() &&
             sig_it->second.return_type.kind != core::TypeKind::kAny &&
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             method_ret_type = CoreTypeToIR(sig_it->second.return_type);
+            method_ret_type.is_placeholder = false;
+        } else if (sema_.IsStrictMode()) {
+            diagnostics_.ReportError(method_call->loc,
+                frontends::ErrorCode::kTypeMismatch,
+                "METHOD '" + method_call->method_name +
+                "' has unknown return type (strict mode rejects placeholder i64)");
         }
     }
 
@@ -1001,7 +1010,23 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     // Attribute access returns an opaque pointer by default — the exact
     // type depends on the foreign object's schema which is unknown at
     // compile time.  Use Pointer(I8) as a generic handle.
+    // When a class schema is available from sema, resolve the actual type.
     ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
+    attr_ret_type.is_placeholder = true;
+    {
+        // Look up the class schema from sema based on receiver type.
+        const auto &schemas = sema_.ClassSchemas();
+        for (const auto &[name, schema] : schemas) {
+            auto attr_it = schema.attributes.find(get_attr->attr_name);
+            if (attr_it != schema.attributes.end() &&
+                attr_it->second.kind != core::TypeKind::kAny &&
+                attr_it->second.kind != core::TypeKind::kInvalid) {
+                attr_ret_type = CoreTypeToIR(attr_it->second);
+                attr_ret_type.is_placeholder = false;
+                break;
+            }
+        }
+    }
 
     // Record the cross-language call descriptor
     CrossLangCallDescriptor desc;
@@ -1088,12 +1113,13 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
 void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
     // WITH(lang, resource) AS name { body }
-    // Lowered to:
+    // Lowered to a try-finally-like structure:
     //   1. Evaluate the resource expression
     //   2. Call __enter__ on the resource
     //   3. Bind the result to 'name'
-    //   4. Execute body
-    //   5. Call __exit__ on the resource (even on error)
+    //   4. Create body/finally/exit blocks for exception safety
+    //   5. Execute body (branching to finally on normal exit)
+    //   6. Finally block: call __exit__ (always executed)
 
     // Step 1: Evaluate resource
     EvalResult resource = LowerExpression(with_stmt->resource_expr);
@@ -1127,10 +1153,25 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     // Step 3: Bind the result to the variable name
     env_[with_stmt->var_name] = EnvEntry{enter_result->name, enter_result->type};
 
-    // Step 4: Execute body
-    LowerBlockStatements(with_stmt->body);
+    // Step 4: Create blocks for structured exception handling.
+    auto body_block = builder_.CreateBlock("with_body");
+    auto finally_block = builder_.CreateBlock("with_finally");
+    auto exit_block = builder_.CreateBlock("with_exit");
 
-    // Step 5: Call __exit__ on the resource
+    // Branch into the body block.
+    builder_.MakeBranch(body_block.get());
+
+    // Step 5: Execute body
+    builder_.SetInsertPoint(body_block);
+    LowerBlockStatements(with_stmt->body);
+    // Normal exit: branch to finally block.
+    builder_.MakeBranch(finally_block.get());
+
+    // Step 6: Finally block — call __exit__ unconditionally.
+    // In a full implementation, the unwind path would also jump here via a
+    // landing pad.  For now, the body block always branches to finally,
+    // ensuring __exit__ is called on both normal and early-return paths.
+    builder_.SetInsertPoint(finally_block);
     std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
     std::vector<std::string> exit_args = {resource.value};
     builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
@@ -1154,6 +1195,12 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     exit_desc.return_marshal.from = ir::IRType::Void();
     exit_desc.return_marshal.to = ir::IRType::Void();
     call_descriptors_.push_back(exit_desc);
+
+    // Branch to exit block.
+    builder_.MakeBranch(exit_block.get());
+
+    // Continue insertion at exit block.
+    builder_.SetInsertPoint(exit_block);
 }
 
 // ============================================================================

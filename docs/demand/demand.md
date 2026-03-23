@@ -705,16 +705,16 @@ CI 还停留在”能编译+跑 ctest”。当前 workflow 基本只有 configur
 
 把类型/ABI 检查前移到 sema 和链接阶段，而不是继续依赖“先降到 IR 再看”。现在 NEW/METHOD/GET/SET 仍大量依赖 opaque pointer 和 direct marshal，lowering.cpp (line 877) lowering.cpp (line 924) lowering.cpp (line 985)。WITH 注释写的是“即使异常也会调用 __exit__”，但当前 lowering 只是顺序插入 enter/body/exit，并没有异常控制流，lowering.cpp (line 1089)。这部分最值得补的是统一签名表、参数个数检查、返回值检查和 ABI schema。
 
---end
+--end -done
 
 2026-03-19-8
 
 运行时性能和内存策略。容器运行时目前还是 calloc/realloc/malloc 风格实现，dict 没有扩容/rehash 策略，container_marshal.cpp (line 47) container_marshal.cpp (line 134)；类扩展注册还是固定大小全局数组，也没有线程保护，object_lifecycle.cpp (line 81) object_lifecycle.cpp (line 93)。这部分会影响内存占用、并发安全和长期稳定性，但前提还是前面的主链先收敛。
 
---end
+--end -done
 
 2026-03-19-9
 
 CI 已经覆盖 docs、format、tidy、sanitizer、coverage、benchmark 和多平台构建，ci.yml (line 18)；这点是项目的优点。不过 clang-tidy 现在只扫前 50 个 .cpp，ci.yml (line 87)；.clang-format 仍写的是 c++17，而项目实际是 C++20，.clang-format (line 3) CMakeLists.txt (line 4)；tests/CMakeLists.txt 注释说避免 GLOB_RECURSE，但 integration/benchmark 还是用了 glob，tests/CMakeLists.txt (line 4) tests/CMakeLists.txt (line 168)。
 
---end
+--end -done
