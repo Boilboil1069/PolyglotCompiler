@@ -12,17 +12,17 @@ frontends/ploy/
 │   ├── ploy_lexer.h          # Lexer (inherits LexerBase)
 │   ├── ploy_ast.h             # AST node definitions
 │   ├── ploy_parser.h          # Parser (inherits ParserBase)
-│   ├── ploy_sema.h            # Semantic analyzer
+│   ├── ploy_sema.h            # Semantic analyzer (ForeignClassSchema, class_schemas_)
 │   └── ploy_lowering.h        # IR lowering
 └── src/
     ├── lexer/
-    │   └── lexer.cpp          # Lexer: 41 keywords, operators, literals, comments
+    │   └── lexer.cpp          # Lexer: 54 keywords, operators, literals, comments
     ├── parser/
     │   └── parser.cpp         # Parser: recursive-descent, ~1380 lines
     ├── sema/
-    │   └── sema.cpp           # Semantic analysis: ~860 lines
+    │   └── sema.cpp           # Semantic analysis: param-count, return-type, ABI schema validation
     └── lowering/
-        └── lowering.cpp       # Lowering: ~1109 lines
+        └── lowering.cpp       # Lowering: structured exception safety for WITH
 
 runtime/
 └── include/interop/
@@ -44,6 +44,7 @@ linker (extended):
 - **`frontend_common`**: Inherits `LexerBase`, `ParserBase`, uses `Diagnostics` and `Token`.
 - **`middle_ir`**: Generates `ir::IRContext`, `ir::Function`, uses `ir::IRBuilder`.
 - **`runtime::interop`**: Leverages `FFIRegistry`, `TypeMapping`, `Marshalling`, `CallingConvention`, `ContainerMarshal` for runtime cross-language calls.
+- **`tools/polyld`**: `PolyglotLinker` now validates ABI compatibility at link time via `ABIDescriptor` and `ValidateABICompatibility()` in `ResolveSymbolPair()`.
 
 ## 2. Lexer Design
 
@@ -128,12 +129,13 @@ The Sema pass performs:
 1. **Symbol Resolution**: Resolve all identifiers to their declarations, including cross-module references.
 2. **Language Validation**: Verify that LINK and IMPORT directives reference valid languages (`cpp`, `python`, `rust`, `c`, `ploy`).
 3. **Type Checking**: Validate that linked functions have compatible signatures after type mapping.
-4. **Link Validation**: Ensure that LINK directives reference valid target/source functions.
+4. **Link Validation**: Ensure that LINK directives reference valid target/source functions. When `MAP_TYPE` entries are present, `param_count_known` and `validated` flags are set on the `FunctionSignature`.
 5. **Type Mapping Validation**: Verify that MAP_TYPE declarations define valid conversions.
 6. **Control Flow Validation**: Ensure BREAK/CONTINUE are inside loops, all paths return a value, etc.
 7. **Struct Validation**: Verify no duplicate field names, all field types valid.
 8. **MAP_FUNC Validation**: Verify parameter and return types.
 9. **Package Import Validation**: Verify the language is valid for PACKAGE imports.
+10. **Class Schema Validation**: `NEW`/`METHOD`/`GET`/`SET` now resolve types from the `ForeignClassSchema` registry (`class_schemas_` map). When a matching schema is found, argument count, field types, and return types are checked at sema time rather than deferred to IR lowering. Strict mode emits errors for unresolved types; non-strict mode emits warnings.
 
 ## 6. Lowering Design
 
@@ -156,6 +158,8 @@ The lowering phase converts the type-checked AST into polyglot IR:
 8. **Container literals** are lowered to runtime allocation and element store sequences.
 
 9. **CONVERT expressions** generate calls to `__ploy_convert_<type>`.
+
+10. **WITH statements** are lowered with structured exception safety: the lowering emits three distinct blocks — `body`, `finally`, and `exit` — ensuring the foreign `__exit__` method is always called even when an exception propagates through the body. This matches Python's `with` statement semantics.
 
 ## 7. Cross-Language Link Resolution
 
@@ -188,6 +192,19 @@ The linker resolves cross-language symbols by:
 1. Loading object files from all source languages
 2. Demangling symbols to find the target functions
 3. Generating bridge symbols that connect the calling conventions
+
+### 7.4 ABI Compatibility Validation
+
+Added in the link phase: `ResolveSymbolPair()` calls `ValidateABICompatibility()` before emitting glue code. The check covers:
+
+| Check | Details |
+|-------|---------|
+| **Parameter count** | Source and target must declare the same number of parameters |
+| **Pointer compatibility** | Both sides must agree on pointer vs. value for each argument position |
+| **Calling convention** | `ABIDescriptor` resolves SysV AMD64 / Win64 / AAPCS64 per platform and language |
+| **Return size** | Non-void returns are validated for size compatibility before marshalling |
+
+`ABIDescriptor` is returned by `GetABIDescriptor(language, symbol)` and carries the convention tag, argument classes, and shadow-space requirements for the target platform.
 
 ## 8. Runtime Support
 

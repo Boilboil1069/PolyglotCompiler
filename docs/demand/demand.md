@@ -718,3 +718,15 @@ CI 还停留在”能编译+跑 ctest”。当前 workflow 基本只有 configur
 CI 已经覆盖 docs、format、tidy、sanitizer、coverage、benchmark 和多平台构建，ci.yml (line 18)；这点是项目的优点。不过 clang-tidy 现在只扫前 50 个 .cpp，ci.yml (line 87)；.clang-format 仍写的是 c++17，而项目实际是 C++20，.clang-format (line 3) CMakeLists.txt (line 4)；tests/CMakeLists.txt 注释说避免 GLOB_RECURSE，但 integration/benchmark 还是用了 glob，tests/CMakeLists.txt (line 4) tests/CMakeLists.txt (line 168)。
 
 --end -done
+
+2026-03-23-1
+
+更新所有文档。
+
+--end -done
+
+2026-03-23-2
+
+把编译主链拆成明确 stage。现在 driver.cpp 过大，解析、包索引、sema、lowering、link resolution、backend、aux 输出都耦合在一起；polyglot_linker.cpp 和 .ploy sema/lowering 也承担过多职责。建议拆成 frontend -> semantic db -> marshal plan -> bridge generation -> backend -> packaging 六段，每段只产出一个清晰的数据结构。
+
+--end

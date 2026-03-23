@@ -103,7 +103,13 @@ polyglot 链接器所消费的*契约*层。
 |------|------|------|
 | `RuntimeList` | `count`、`capacity`、`elem_size`、`data` | 动态列表 (`LIST[T]`) |
 | `RuntimeTuple` | `num_elements`、`offsets`、`data` | 异构元组 |
-| `RuntimeDict` | `count`、`bucket_count`、`key_size`、`value_size`、`buckets` | 哈希映射 (`DICT[K,V]`) |
+| `RuntimeDict` | `count`、`bucket_count`、`key_size`、`value_size`、`buckets` | 哈希映射 (`DICT[K,V]`)，在负载因子 0.75 时自动重哈希 |
+
+**RuntimeDict 实现细节：**
+- 当 `count / bucket_count >= 0.75` 时触发重哈希
+- 桶数量指数增长（翻倍），从初始 `kMinBucketCount=16` 到最大 `kMaxBucketCount=1<<30`
+- 哈希函数：字符串键使用 FNV-1a；数值键使用恒等哈希
+- 重哈希时重新计算所有键的哈希值并重新分配到新桶
 
 ### 5.2 List API
 
@@ -132,6 +138,55 @@ polyglot 链接器所消费的*契约*层。
 | `__ploy_rt_dict_lookup` | `void*(void*,const void*)` |
 | `__ploy_rt_dict_len` | `size_t(void*)` |
 | `__ploy_rt_dict_free` | `void(void*)` |
+
+---
+
+## 5.5 扩展注册表 (`runtime/include/interop/object_lifecycle.h`)
+
+扩展注册表通过线程安全单例管理跨语言类扩展。
+
+### 实现
+
+- **模式**：Meyer's 单例 (`static ExtensionRegistry &GetRegistry()`)
+- **存储**：`std::vector<ExtensionEntry>` 替代固定大小全局数组
+- **线程安全**：受 `std::mutex` 保护
+- **重复检测**：注册时检查已存在的 `(language, base_class, extension_name)` 三元组
+
+### C++ API
+
+```cpp
+namespace polyglot::runtime::interop {
+
+struct ExtensionEntry {
+    std::string language;
+    std::string base_class;
+    std::string extension_name;
+    void* extension_data;
+};
+
+class ExtensionRegistry {
+public:
+    static ExtensionRegistry &GetRegistry();
+    bool Register(const std::string& lang,
+                  const std::string& base,
+                  const std::string& name,
+                  void* data);
+    std::optional<ExtensionEntry> Lookup(
+        const std::string& lang,
+        const std::string& base) const;
+private:
+    std::vector<ExtensionEntry> entries_;
+    mutable std::mutex mutex_;
+};
+
+} // namespace polyglot::runtime::interop
+```
+
+### C ABI
+
+| 符号 | 签名 | 描述 |
+|--------|-----------|-------------|
+| `__ploy_extend_register` | `void(const char*,const char*,const char*)` | 注册跨语言类扩展 |
 
 ---
 
