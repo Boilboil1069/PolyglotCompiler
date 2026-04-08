@@ -390,6 +390,10 @@ class PloySema {
     std::unordered_map<std::string, core::Type> map_funcs_{};
     // Known function signatures for parameter validation
     std::unordered_map<std::string, FunctionSignature> known_signatures_{};
+    // ABI signatures for cross-language link validation
+    std::unordered_map<std::string, std::shared_ptr<ABISignature>> abi_signatures_{};
+    // Foreign class schemas for NEW/METHOD/GET/SET validation
+    std::unordered_map<std::string, ForeignClassSchema> class_schemas_{};
     int loop_depth_{0};
     core::Type current_return_type_{core::Type::Invalid()};
     // Track whether code is unreachable (after RETURN, BREAK, CONTINUE)

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "common/include/core/types.h"
+#include "frontends/common/include/lexer_base.h"
 #include "frontends/ploy/include/ploy_ast.h"
 #include "frontends/ploy/include/ploy_sema.h"
 #include "middle/include/ir/ir_context.h"
@@ -73,6 +74,9 @@ struct SemanticDatabase {
 
     // Semantic diagnostics
     std::vector<frontends::Diagnostic> sema_diagnostics;
+
+    // Live sema instance used by lowering and downstream validation.
+    std::shared_ptr<ploy::PloySema> sema_instance;
 
     // Success flag
     bool success{false};
@@ -232,6 +236,12 @@ struct BackendOutput {
     // Backend diagnostics
     std::vector<frontends::Diagnostic> backend_diagnostics;
 
+    // Optional textual assembly emitted by backend.
+    std::string assembly_text;
+
+    // Target triple reported by backend.
+    std::string target_triple;
+
     // Success flag
     bool success{false};
 };
@@ -291,15 +301,25 @@ struct CompilationContext {
     // Configuration
     struct Config {
         std::string source_file;
+        std::string source_text;
+        std::string source_language{"ploy"};
         std::string output_file;
         std::string target_arch{"x86_64"};
         std::string target_os;
+        std::string mode{"link"};               // compile | assemble | link
+        std::string object_format{"pobj"};      // pobj | coff | elf | macho
+        std::string polyld_path{"polyld"};
+        std::string source_label;
         int opt_level{0};
         bool verbose{false};
         bool strict_mode{false};
+        bool force{false};
         std::string aux_dir;
         bool package_index{false};
         int package_index_timeout_ms{30000};
+        std::string emit_ir_path;
+        std::string emit_asm_path;
+        std::string emit_obj_path;
         std::vector<std::string> additional_libs;
     } config;
 

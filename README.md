@@ -52,9 +52,9 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 │ C++ Frontend │ │Python Frontend│ │ Rust Frontend│ │ Java Frontend│ │ .NET Frontend│ │ Ploy Frontend│
 └──────┬───────┘ └──────┬────────┘ └──────┬───────┘ └───────┬──────┘ └──────┬───────┘ └──────┬───────┘
        │                │                 │                 │               │                │
-       └────────────────┴────────┬────────┴─────────────────┘               │                │
-                                 │                                          │                │ 
-                                 ▼                                          ▼                │
+       └────────────────┴────────┬────────┴─────────────────┴───────────────┘                │
+                                 │                                                           │ 
+                                 ▼                                                           │
                           ┌───────────┐                             ┌─────────────┐          │
                           │ Shared IR │                             │  Polyglot   │◄─────────┘
                           │   (SSA)   │                             │   Linker    │
@@ -97,6 +97,7 @@ All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched auto
 - **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE).
   - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
   - Pass `-DQT_ROOT=<path>` to override.
+  - On Windows, `polyui.exe` now embeds the project icon from `icon/icon.ico` during build.
 <!-- BEGIN:qt_setup_en -->
   - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools/ui/setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
 <!-- END:qt_setup_en -->

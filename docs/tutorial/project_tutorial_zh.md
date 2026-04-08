@@ -659,7 +659,8 @@ ninja
 cmake .. -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 ```
 
-此文件通常位于 `build/compile_commands.json`。
+此文件通常位于当前使用的构建目录中（例如你运行带有
+`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON` 的 CMake 命令所在目录）。
 
 ---
 

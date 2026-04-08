@@ -2892,6 +2892,16 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 - ✅ Ploy 前端扩展至 6 个编译单元（新增 `command_runner.cpp`、`package_discovery_cache.cpp`）
 - ✅ 更新所有文档（README、USER_GUIDE 中英文、教程）至最新统计数据
 
+### v1.0.1 (2026-04-09)
+- ✅ 在 `tools/polyc/src/compilation_pipeline.cpp` 落地 `.ploy` 六阶段编译主链实现
+- ✅ 阶段拆分明确并以结构化数据传递：`frontend -> semantic db -> marshal plan -> bridge generation -> backend -> packaging`
+- ✅ 新增管道编排执行器（`CompilationPipeline::RunAll()` 及逐阶段运行函数），并记录阶段耗时
+- ✅ `polyc` 驱动已将 `.ploy` 主路径切换为 staged pipeline 执行
+- ✅ staged 语义阶段接入 `PackageIndexer` + 共享 `PackageDiscoveryCache` 的包索引流程
+- ✅ bridge generation 阶段接入 `PolyglotLinker`，并在后端发射前注入已解析桥接桩
+- ✅ packaging 阶段支持确定性 `.pobj` 输出，并在 `link` 模式可选调用 `polyld` 完成链接
+- ✅ `polyui` 的 Windows 可执行文件现通过 CMake 资源脚本（`tools/ui/windows/polyui.rc.in`）嵌入 `icon/icon.ico`，生成的 `polyui.exe` 默认带项目图标
+
 ### v0.5.2 (2026-02-22)
 - ✅ 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关
 - ✅ `PloySema` 构造函数接收 options，保持默认行为向后兼容

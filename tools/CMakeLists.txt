@@ -7,6 +7,7 @@
 
 add_executable(polyc
     polyc/src/driver.cpp
+    polyc/src/compilation_pipeline.cpp
 )
 
 target_link_libraries(polyc
@@ -178,6 +179,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
     # Platform-specific entry point
     if(WIN32)
         set(POLYUI_PLATFORM_MAIN ui/windows/main.cpp)
+        set(POLYUI_PLATFORM_RESOURCES ui/windows/polyui.rc)
     elseif(APPLE)
         set(POLYUI_PLATFORM_MAIN ui/macos/main.cpp)
     else()
@@ -220,6 +222,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
 
     add_executable(polyui
         ${POLYUI_PLATFORM_MAIN}
+        ${POLYUI_PLATFORM_RESOURCES}
         ${POLYUI_COMMON_SOURCES}
         ${POLYUI_COMMON_HEADERS}
     )

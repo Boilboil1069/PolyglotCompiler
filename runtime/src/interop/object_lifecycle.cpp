@@ -4,8 +4,6 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
-#include <mutex>
-#include <vector>
 
 #include "runtime/include/interop/container_marshal.h"
 #include "runtime/include/interop/memory.h"
@@ -82,22 +80,20 @@ void __ploy_dotnet_dispose(void *object) {
 // Cross-language class extension / vtable registration
 // ============================================================================
 
-// Maximum number of registered extensions tracked at runtime.
-static constexpr std::size_t kMaxExtensions = 256;
-
 struct ExtensionEntry {
     const char *language{nullptr};
     const char *base_class{nullptr};
     const char *derived{nullptr};
 };
 
-static ExtensionEntry g_extensions[kMaxExtensions];
-static std::size_t g_extension_count = 0;
+static std::vector<ExtensionEntry> g_extensions;
+static std::mutex g_extension_mutex;
 
 void __ploy_extend_register(const char *language, const char *base_class,
                              const char *derived) {
     if (!language || !base_class || !derived) return;
-    if (g_extension_count >= kMaxExtensions) return;
+
+    std::lock_guard<std::mutex> lock(g_extension_mutex);
 
     // Duplicate the strings into GC-managed memory so they survive module unload.
     auto dup = [](const char *s) -> const char * {
@@ -107,10 +103,36 @@ void __ploy_extend_register(const char *language, const char *base_class,
         return buf;
     };
 
-    ExtensionEntry &entry = g_extensions[g_extension_count++];
-    entry.language   = dup(language);
-    entry.base_class = dup(base_class);
-    entry.derived    = dup(derived);
+    g_extensions.push_back(ExtensionEntry{
+        dup(language),
+        dup(base_class),
+        dup(derived),
+    });
+}
+
+std::size_t __ploy_extend_registry_count() {
+    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    return g_extensions.size();
+}
+
+const char *__ploy_extend_find_derived(const char *language,
+                                       const char *base_class) {
+    if (!language || !base_class) return nullptr;
+
+    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    for (const ExtensionEntry &entry : g_extensions) {
+        if (!entry.language || !entry.base_class || !entry.derived) continue;
+        if (std::strcmp(entry.language, language) == 0 &&
+            std::strcmp(entry.base_class, base_class) == 0) {
+            return entry.derived;
+        }
+    }
+    return nullptr;
+}
+
+void __ploy_extend_reset_registry_for_tests() {
+    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    g_extensions.clear();
 }
 
 // ============================================================================

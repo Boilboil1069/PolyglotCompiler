@@ -2930,6 +2930,16 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 - ✅ CTest: `benchmark_fast` and `benchmark_full` targets with labels
 - ✅ Discovery unit tests: disabled-no-cmd, repeated-analyze-once, key-isolation, cache-roundtrip
 
+### v1.0.1 (2026-04-09)
+- ✅ Implemented a concrete 6-stage compilation pipeline for `.ploy` in `tools/polyc/src/compilation_pipeline.cpp`
+- ✅ Stage breakdown is now explicit and data-structured: `frontend -> semantic db -> marshal plan -> bridge generation -> backend -> packaging`
+- ✅ Added runtime pipeline orchestration (`CompilationPipeline::RunAll()` and per-stage runners) with stage timing capture
+- ✅ Wired `polyc` driver to execute the staged pipeline for `.ploy` as the primary path
+- ✅ Added package-index integration in the staged semantic flow via `PackageIndexer` + shared `PackageDiscoveryCache`
+- ✅ Added bridge generation stage integration with `PolyglotLinker` and resolved stub injection before backend emission
+- ✅ Added packaging stage output for deterministic `.pobj` emission and optional `polyld` link invocation in `link` mode
+- ✅ `polyui` Windows executable now embeds `icon/icon.ico` via CMake resource script (`tools/ui/windows/polyui.rc.in`), so generated `polyui.exe` ships with the project icon
+
 ### v0.5.1 (2026-02-22)
 - ✅ Linker strong failure mode — unresolved symbols are hard errors; placeholder stubs no longer generated
 - ✅ Linker main flow fatal when cross-language entries exist but resolution fails

@@ -1032,6 +1032,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     }
 
     // Analyze the receiver object
+    core::Type receiver_type = core::Type::Any();
     if (method_call->object) {
         receiver_type = AnalyzeExpression(method_call->object);
     } else {
@@ -1097,6 +1098,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     }
 
     // Analyze the object expression
+    core::Type obj_type = core::Type::Any();
     if (get_attr->object) {
         obj_type = AnalyzeExpression(get_attr->object);
     } else {
@@ -1159,6 +1161,7 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
     }
 
     // Analyze the object expression
+    core::Type obj_type = core::Type::Any();
     if (set_attr->object) {
         obj_type = AnalyzeExpression(set_attr->object);
     } else {
@@ -1868,6 +1871,93 @@ std::shared_ptr<ABISignature> PloySema::BuildABISignature(const FunctionSignatur
 
     abi->is_complete = all_resolved;
     return abi;
+}
+
+void PloySema::ValidateObjCallABI(const core::SourceLoc &loc,
+                                  const std::string &callee_name,
+                                  const std::string &language,
+                                  const std::vector<core::Type> &arg_types,
+                                  const core::Type &return_type) {
+    FunctionSignature sig;
+    sig.name = callee_name;
+    sig.language = language;
+    sig.param_count = arg_types.size();
+    sig.param_count_known = true;
+    sig.param_types = arg_types;
+    sig.return_type = return_type;
+    sig.defined_at = loc;
+
+    auto current_abi = BuildABISignature(sig, language);
+    if (!current_abi) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kABIIncompatible,
+                         "failed to build ABI signature for '" + callee_name + "'");
+        return;
+    }
+
+    auto it = abi_signatures_.find(callee_name);
+    if (it == abi_signatures_.end() || !it->second) {
+        abi_signatures_[callee_name] = current_abi;
+        return;
+    }
+
+    // Compare against the previously observed ABI shape for this symbol.
+    std::string compat_err = it->second->ValidateCompatibility(*current_abi);
+    if (!compat_err.empty()) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kABIIncompatible,
+                         "ABI mismatch for '" + callee_name + "': " + compat_err);
+        return;
+    }
+
+    // Keep the freshest source location/signature info.
+    abi_signatures_[callee_name] = current_abi;
+}
+
+void PloySema::ValidateContextManagerProtocol(const core::SourceLoc &loc,
+                                              const std::string &language,
+                                              const core::Type &resource_type) {
+    (void)language;
+
+    if (resource_type.kind == core::TypeKind::kInvalid) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kSignatureMissing,
+                         "WITH resource has invalid type");
+        return;
+    }
+
+    std::string type_name = resource_type.name.empty()
+                                ? resource_type.ToString()
+                                : resource_type.name;
+    if (type_name.empty()) {
+        type_name = "<resource>";
+    }
+
+    std::string enter_name = type_name + "::__enter__";
+    std::string exit_name = type_name + "::__exit__";
+
+    const FunctionSignature *enter_sig = LookupSignature(enter_name);
+    if (!enter_sig) {
+        enter_sig = LookupSignature("__enter__");
+    }
+
+    const FunctionSignature *exit_sig = LookupSignature(exit_name);
+    if (!exit_sig) {
+        exit_sig = LookupSignature("__exit__");
+    }
+
+    if (!enter_sig) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kSignatureMissing,
+                         "WITH resource '" + type_name +
+                             "' does not provide __enter__ signature");
+    }
+    if (!exit_sig) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kSignatureMissing,
+                         "WITH resource '" + type_name +
+                             "' does not provide __exit__ signature");
+    } else if (exit_sig->param_count_known && exit_sig->param_count != 4) {
+        ReportStrictDiag(loc, frontends::ErrorCode::kParamCountMismatch,
+                         "__exit__ for '" + type_name +
+                             "' must accept 4 parameters (self, exc_type, exc_val, exc_tb), got " +
+                             std::to_string(exit_sig->param_count));
+    }
 }
 
 void PloySema::AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config) {

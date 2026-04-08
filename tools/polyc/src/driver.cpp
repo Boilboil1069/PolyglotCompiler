@@ -162,6 +162,7 @@ struct Elf64_Rela {
 #include "middle/include/ir/passes/opt.h"
 #include "middle/include/passes/pass_manager.h"
 #include "middle/include/passes/transform/advanced_optimizations.h"
+#include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyld/include/polyglot_linker.h"
 #include "runtime/include/libs/base.h"
 
@@ -226,6 +227,25 @@ std::string ReadFileContent(const std::string &path) {
     std::string content(static_cast<size_t>(size), '\0');
     ifs.read(content.data(), size);
     return content;
+}
+
+bool HasEnvironmentVariable(const char *name) {
+#if defined(_WIN32)
+    char *value = nullptr;
+    std::size_t len = 0;
+    errno_t rc = _dupenv_s(&value, &len, name);
+    if (rc != 0 || value == nullptr) {
+        if (value != nullptr) {
+            std::free(value);
+        }
+        return false;
+    }
+    const bool present = (len > 1 && value[0] != '\0');
+    std::free(value);
+    return present;
+#else
+    return std::getenv(name) != nullptr;
+#endif
 }
 
 // Timer helper for progress output
@@ -1353,7 +1373,7 @@ int main(int argc, char **argv) {
             pp_enabled = it->second;
         }
         // Rust also honours the POLYC_PREPROCESS_RUST environment variable.
-        if (settings.language == "rust" && std::getenv("POLYC_PREPROCESS_RUST")) {
+        if (settings.language == "rust" && HasEnvironmentVariable("POLYC_PREPROCESS_RUST")) {
             pp_enabled = true;
         }
         processed = run_pp(pp_enabled);
@@ -1363,6 +1383,63 @@ int main(int argc, char **argv) {
     polyglot::ir::IRContext ir_module;
     bool lowered = false;
     std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
+
+    // ---- Staged pipeline entry (frontend -> semantic db -> marshal plan ->
+    //      bridge generation -> backend -> packaging) ----
+    if (settings.language == "ploy") {
+        polyglot::compilation::CompilationContext::Config cfg;
+        cfg.source_file = settings.source_path;
+        cfg.source_text = processed;
+        cfg.source_language = settings.language;
+        cfg.output_file = settings.output;
+        cfg.target_arch = settings.arch;
+        cfg.mode = settings.mode;
+        cfg.object_format = settings.obj_format;
+        cfg.polyld_path = settings.polyld_path;
+        cfg.source_label = source_label;
+        cfg.opt_level = settings.opt_level;
+        cfg.verbose = settings.verbose;
+        cfg.strict_mode = settings.strict;
+        cfg.force = settings.force;
+        cfg.aux_dir = aux_dir;
+        cfg.package_index = settings.package_index;
+        cfg.package_index_timeout_ms = settings.package_index_timeout_ms;
+        cfg.emit_ir_path = settings.emit_ir_path;
+        cfg.emit_asm_path = settings.emit_asm_path;
+        cfg.emit_obj_path = settings.emit_obj_path;
+
+        polyglot::compilation::CompilationPipeline pipeline(std::move(cfg));
+        bool ok = false;
+        {
+            StageTimer t("Staged compilation pipeline (.ploy)", V);
+            ok = pipeline.RunAll();
+            t.Stop();
+        }
+
+        const auto &ctx = pipeline.GetContext();
+        const auto &diag = ctx.diagnostics->All();
+        if (!ok) {
+            std::cerr << "[error] staged pipeline failed.\n";
+            for (const auto &d : diag) {
+                std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+            }
+            return 1;
+        }
+
+        if (V) {
+            std::cerr << "[polyc] Staged pipeline timings:\n";
+            for (const auto &tm : ctx.timings) {
+                std::cerr << "  - " << tm.name << ": "
+                          << std::fixed << std::setprecision(1)
+                          << tm.elapsed_ms << "ms\n";
+            }
+            if (ctx.packaging_output.has_value()) {
+                std::cerr << "[polyc] Output: " << ctx.packaging_output->output_path << "\n";
+            }
+            std::cerr << "[polyc] Compilation successful (staged pipeline).\n";
+        }
+        return 0;
+    }
 
     // ---- Phase 1-3: Frontend (Lex + Parse + Sema + Lower) ----
     if (settings.language == "ploy") {

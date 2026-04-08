@@ -658,7 +658,8 @@ For IDE integration (IntelliSense, clangd, etc.), `compile_commands.json` is gen
 cmake .. -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 ```
 
-This file is typically located at `build/compile_commands.json`.
+This file is typically located in your active build directory (for example, the
+directory where you ran CMake with `-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`).
 
 ---
 

@@ -1067,13 +1067,13 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     desc.target_return_type = attr_ret_type;
 
     // Generate marshalling descriptors
-    CrossLangCallDescriptor::MarshalOp obj_marshal;
-    obj_marshal.kind = (obj.type.kind == expected_obj_type.kind)
-                       ? CrossLangCallDescriptor::MarshalOp::Kind::kDirect
-                       : CrossLangCallDescriptor::MarshalOp::Kind::kCast;
-    obj_marshal.from = obj.type;
-    obj_marshal.to = expected_obj_type;
-    desc.param_marshal.push_back(obj_marshal);
+    for (const auto &at : arg_types) {
+        CrossLangCallDescriptor::MarshalOp marshal;
+        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        marshal.from = at;
+        marshal.to = at;
+        desc.param_marshal.push_back(marshal);
+    }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     desc.return_marshal.from = attr_ret_type;
     desc.return_marshal.to = attr_ret_type;
@@ -1237,23 +1237,11 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
 
     // Step 4: Execute body
     LowerBlockStatements(with_stmt->body);
-    // Normal exit: branch to finally block.
-    builder_.MakeBranch(finally_block.get());
 
     // Step 5: Call __exit__ on the resource
     std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
-    if (!terminated_) {
-        auto null_val = builder_.MakeLiteral(0LL, "with.null");
-        std::vector<std::string> normal_exit_args = {resource.value, null_val->name,
-                                                      null_val->name, null_val->name};
-        builder_.MakeInvoke(exit_stub, normal_exit_args, ir::IRType::Void(),
-                            normal_exit_bb.get(), unwind_bb.get(), "");
-    }
-    terminated_ = false;
-
-    // --- with.normal_exit ---
-    // Normal path: __exit__ already called via invoke above, just branch to end.
-    builder_.SetInsertPoint(normal_exit_bb);
+    std::vector<std::string> exit_args = {resource.value};
+    builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
 
     // Record __exit__ call descriptor (shared by normal and unwind paths)
     CrossLangCallDescriptor exit_desc;
@@ -1262,18 +1250,14 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     exit_desc.target_language = "ploy";
     exit_desc.source_function = "__exit__";
     exit_desc.target_function = exit_stub;
-    exit_desc.source_param_types = {resource.type, ir::IRType::Pointer(ir::IRType::Void()),
-                                     ir::IRType::Pointer(ir::IRType::Void()),
-                                     ir::IRType::Pointer(ir::IRType::Void())};
+    exit_desc.source_param_types = {resource.type};
     exit_desc.source_return_type = ir::IRType::Void();
     exit_desc.target_return_type = ir::IRType::Void();
-    for (const auto &at : exit_desc.source_param_types) {
-        CrossLangCallDescriptor::MarshalOp m;
-        m.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-        m.from = at;
-        m.to = at;
-        exit_desc.param_marshal.push_back(m);
-    }
+    CrossLangCallDescriptor::MarshalOp exit_marshal;
+    exit_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    exit_marshal.from = resource.type;
+    exit_marshal.to = resource.type;
+    exit_desc.param_marshal.push_back(exit_marshal);
     exit_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     exit_desc.return_marshal.from = ir::IRType::Void();
     exit_desc.return_marshal.to = ir::IRType::Void();
