@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <unordered_set>
 
 namespace polyglot::linker {
 
@@ -73,12 +74,26 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
         return false;
     }
 
+    // Set of known languages for validation
+    static const std::unordered_set<std::string> known_languages = {
+        "cpp", "c", "python", "rust", "java", "dotnet", "csharp", "ploy"
+    };
+
+    auto is_valid_language = [&](const std::string &lang) {
+        return known_languages.count(lang) > 0;
+    };
+
+    // Track seen symbols and links for duplicate detection
+    std::unordered_set<std::string> seen_link_keys;
+    std::unordered_set<std::string> seen_symbol_keys;
+
     // Parse line-based descriptor format:
     //   LINK <target_lang> <source_lang> <target_sym> <source_sym>
     //   CALL <stub_name> <source_lang> <target_lang> <source_func> <target_func>
     //   SYMBOL <name> <language> <mangled_name>
     std::string line;
     int line_num = 0;
+    bool has_errors = false;
     while (std::getline(ifs, line)) {
         ++line_num;
         if (line.empty() || line[0] == '#') continue;
@@ -91,9 +106,40 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
             ploy::LinkEntry entry;
             std::string target_lang, source_lang, target_sym, source_sym;
             if (!(iss >> target_lang >> source_lang >> target_sym >> source_sym)) {
-                ReportWarning("malformed LINK at " + path + ":" + std::to_string(line_num));
+                ReportError("malformed LINK at " + path + ":" + std::to_string(line_num) +
+                            " — expected: LINK <target_lang> <source_lang> <target_sym> <source_sym>");
+                has_errors = true;
                 continue;
             }
+
+            // Validate languages
+            if (!is_valid_language(target_lang)) {
+                ReportError("unknown target language '" + target_lang +
+                            "' in LINK at " + path + ":" + std::to_string(line_num));
+                has_errors = true;
+            }
+            if (!is_valid_language(source_lang)) {
+                ReportError("unknown source language '" + source_lang +
+                            "' in LINK at " + path + ":" + std::to_string(line_num));
+                has_errors = true;
+            }
+
+            // Validate symbol names are non-empty
+            if (target_sym.empty() || source_sym.empty()) {
+                ReportError("empty symbol name in LINK at " + path + ":" +
+                            std::to_string(line_num));
+                has_errors = true;
+                continue;
+            }
+
+            // Check for duplicate LINK entries
+            std::string link_key = target_lang + "::" + target_sym + "<->" +
+                                   source_lang + "::" + source_sym;
+            if (!seen_link_keys.insert(link_key).second) {
+                ReportWarning("duplicate LINK entry at " + path + ":" +
+                              std::to_string(line_num) + " for " + link_key);
+            }
+
             entry.kind = ploy::LinkDecl::LinkKind::kFunction;
             entry.target_language = target_lang;
             entry.source_language = source_lang;
@@ -104,9 +150,24 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
             ploy::CrossLangCallDescriptor desc;
             std::string stub, src_lang, tgt_lang, src_func, tgt_func;
             if (!(iss >> stub >> src_lang >> tgt_lang >> src_func >> tgt_func)) {
-                ReportWarning("malformed CALL at " + path + ":" + std::to_string(line_num));
+                ReportError("malformed CALL at " + path + ":" + std::to_string(line_num) +
+                            " — expected: CALL <stub> <source_lang> <target_lang> <source_func> <target_func>");
+                has_errors = true;
                 continue;
             }
+
+            // Validate languages
+            if (!is_valid_language(src_lang)) {
+                ReportError("unknown source language '" + src_lang +
+                            "' in CALL at " + path + ":" + std::to_string(line_num));
+                has_errors = true;
+            }
+            if (!is_valid_language(tgt_lang)) {
+                ReportError("unknown target language '" + tgt_lang +
+                            "' in CALL at " + path + ":" + std::to_string(line_num));
+                has_errors = true;
+            }
+
             desc.stub_name = stub;
             desc.source_language = src_lang;
             desc.target_language = tgt_lang;
@@ -117,16 +178,36 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
             CrossLangSymbol sym;
             std::string name, lang, mangled;
             if (!(iss >> name >> lang >> mangled)) {
-                ReportWarning("malformed SYMBOL at " + path + ":" + std::to_string(line_num));
+                ReportError("malformed SYMBOL at " + path + ":" + std::to_string(line_num) +
+                            " — expected: SYMBOL <name> <language> <mangled_name>");
+                has_errors = true;
                 continue;
             }
+
+            // Validate language
+            if (!is_valid_language(lang)) {
+                ReportError("unknown language '" + lang +
+                            "' in SYMBOL at " + path + ":" + std::to_string(line_num));
+                has_errors = true;
+            }
+
+            // Check for duplicate symbols (same name + language)
+            std::string sym_key = lang + "::" + name;
+            if (!seen_symbol_keys.insert(sym_key).second) {
+                ReportWarning("duplicate SYMBOL entry at " + path + ":" +
+                              std::to_string(line_num) + " for " + sym_key);
+            }
+
             sym.name = name;
             sym.language = lang;
             sym.mangled_name = mangled;
             cross_lang_symbols_.push_back(sym);
+        } else {
+            ReportWarning("unknown descriptor kind '" + kind + "' at " +
+                          path + ":" + std::to_string(line_num));
         }
     }
-    return true;
+    return !has_errors;
 }
 
 void PolyglotLinker::DiscoverDescriptors(const std::string &aux_dir) {
@@ -149,6 +230,51 @@ void PolyglotLinker::DiscoverDescriptors(const std::string &aux_dir) {
 
 bool PolyglotLinker::ResolveLinks() {
     bool success = true;
+
+    // Cross-module signature consistency check: when multiple call descriptors
+    // reference the same source function, verify that their parameter counts
+    // and types agree.  Mismatches indicate that different .ploy modules have
+    // conflicting views of the same foreign function.
+    {
+        std::unordered_map<std::string, const ploy::CrossLangCallDescriptor *> seen_sigs;
+        for (const auto &desc : call_descriptors_) {
+            auto it = seen_sigs.find(desc.source_function);
+            if (it == seen_sigs.end()) {
+                seen_sigs[desc.source_function] = &desc;
+                continue;
+            }
+            const auto &prev = *it->second;
+
+            // Check parameter count consistency
+            if (prev.source_param_types.size() != desc.source_param_types.size()) {
+                ReportError("cross-module signature mismatch for '" +
+                            desc.source_function + "': one module declares " +
+                            std::to_string(prev.source_param_types.size()) +
+                            " parameter(s) but another declares " +
+                            std::to_string(desc.source_param_types.size()));
+                success = false;
+                continue;
+            }
+
+            // Check parameter type consistency
+            for (size_t i = 0; i < desc.source_param_types.size(); ++i) {
+                if (prev.source_param_types[i].kind != desc.source_param_types[i].kind) {
+                    ReportError("cross-module parameter type mismatch for '" +
+                                desc.source_function + "' parameter " +
+                                std::to_string(i + 1) + ": conflicting IR types across modules");
+                    success = false;
+                    break;
+                }
+            }
+
+            // Check return type consistency
+            if (prev.source_return_type.kind != desc.source_return_type.kind) {
+                ReportError("cross-module return type mismatch for '" +
+                            desc.source_function + "': conflicting return types across modules");
+                success = false;
+            }
+        }
+    }
 
     for (const auto &entry : link_entries_) {
         if (!ResolveSymbolPair(entry)) {
@@ -237,6 +363,138 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     if (!source_sym || !target_sym) {
         // Hard failure: do not generate a glue stub for incomplete links.
         return false;
+    }
+
+    // ---- ABI Validation ----
+    // Validate parameter count compatibility between source and target.
+    // Parameter descriptors are required for strict cross-language ABI checks.
+    if (source_sym->params.empty() || target_sym->params.empty()) {
+        ReportError("missing ABI parameter schema in LINK '" + entry.target_symbol +
+                    "' <-> '" + entry.source_symbol +
+                    "': both source and target symbols must declare parameter descriptors");
+        return false;
+    }
+
+    {
+        if (source_sym->params.size() != target_sym->params.size()) {
+            ReportError("parameter count mismatch in LINK '" + entry.target_symbol +
+                        "' <-> '" + entry.source_symbol + "': target has " +
+                        std::to_string(target_sym->params.size()) +
+                        " parameter(s) but source has " +
+                        std::to_string(source_sym->params.size()));
+            return false;
+        }
+
+        // Validate individual parameter ABI compatibility
+        for (size_t i = 0; i < source_sym->params.size(); ++i) {
+            const auto &tp = target_sym->params[i];
+            const auto &sp = source_sym->params[i];
+
+            // Size mismatch without explicit marshalling is a hard error
+            if (tp.size != 0 && sp.size != 0 && tp.size != sp.size) {
+                // Check if there's a MAP_TYPE entry that covers this conversion
+                bool has_mapping = false;
+                if (i < entry.param_mappings.size() &&
+                    !entry.param_mappings[i].source_type.empty() &&
+                    !entry.param_mappings[i].target_type.empty()) {
+                    has_mapping = true;
+                }
+                if (!has_mapping) {
+                    ReportError("parameter " + std::to_string(i + 1) +
+                                " size mismatch in LINK '" + entry.target_symbol +
+                                "' <-> '" + entry.source_symbol + "': target expects " +
+                                std::to_string(tp.size) + " bytes (" + tp.type_name +
+                                ") but source provides " + std::to_string(sp.size) +
+                                " bytes (" + sp.type_name + ") with no MAP_TYPE conversion");
+                    return false;
+                }
+            }
+
+            // Pointer vs value passing mismatch
+            if (tp.is_pointer != sp.is_pointer) {
+                bool has_mapping = false;
+                if (i < entry.param_mappings.size() &&
+                    !entry.param_mappings[i].source_type.empty()) {
+                    has_mapping = true;
+                }
+                if (!has_mapping) {
+                    ReportError("parameter " + std::to_string(i + 1) +
+                                " passing convention mismatch in LINK '" +
+                                entry.target_symbol + "' <-> '" + entry.source_symbol +
+                                "': " + (tp.is_pointer ? "target is pointer" : "target is value") +
+                                " vs " + (sp.is_pointer ? "source is pointer" : "source is value"));
+                    return false;
+                }
+            }
+
+            // Type-name mismatch without explicit mapping is also a hard error
+            // because it indicates semantic ABI drift across language boundaries.
+            if (!tp.type_name.empty() && !sp.type_name.empty() &&
+                tp.type_name != sp.type_name) {
+                bool has_mapping = false;
+                if (i < entry.param_mappings.size() &&
+                    !entry.param_mappings[i].source_type.empty() &&
+                    !entry.param_mappings[i].target_type.empty()) {
+                    has_mapping = true;
+                }
+                if (!has_mapping) {
+                    ReportError("parameter " + std::to_string(i + 1) +
+                                " type mismatch in LINK '" + entry.target_symbol +
+                                "' <-> '" + entry.source_symbol + "': target type '" +
+                                tp.type_name + "' vs source type '" + sp.type_name + "'");
+                    return false;
+                }
+            }
+        }
+
+        // Validate return type compatibility
+        if (source_sym->return_desc.size == 0 || target_sym->return_desc.size == 0) {
+            ReportError("missing return ABI schema in LINK '" + entry.target_symbol +
+                        "' <-> '" + entry.source_symbol + "'");
+            return false;
+        }
+
+        if (source_sym->return_desc.size != target_sym->return_desc.size) {
+            ReportError("return type size mismatch in LINK '" + entry.target_symbol +
+                        "' <-> '" + entry.source_symbol + "': target returns " +
+                        std::to_string(target_sym->return_desc.size) + " bytes (" +
+                        target_sym->return_desc.type_name + ") but source returns " +
+                        std::to_string(source_sym->return_desc.size) + " bytes (" +
+                        source_sym->return_desc.type_name + ")");
+            return false;
+        }
+
+        if (!source_sym->return_desc.type_name.empty() &&
+            !target_sym->return_desc.type_name.empty() &&
+            source_sym->return_desc.type_name != target_sym->return_desc.type_name) {
+            ReportError("return type mismatch in LINK '" + entry.target_symbol +
+                        "' <-> '" + entry.source_symbol + "': target type '" +
+                        target_sym->return_desc.type_name + "' vs source type '" +
+                        source_sym->return_desc.type_name + "'");
+            return false;
+        }
+    }
+
+    // Also validate against MAP_TYPE entry count if present
+    if (!entry.param_mappings.empty()) {
+        if (!target_sym->params.empty() &&
+            entry.param_mappings.size() != target_sym->params.size()) {
+            ReportError("MAP_TYPE entry count (" +
+                        std::to_string(entry.param_mappings.size()) +
+                        ") does not match target symbol '" + entry.target_symbol +
+                        "' parameter count (" +
+                        std::to_string(target_sym->params.size()) + ")");
+            return false;
+        }
+        if (!source_sym->params.empty() &&
+            entry.param_mappings.size() != source_sym->params.size()) {
+            ReportError("MAP_TYPE entry count (" +
+                        std::to_string(entry.param_mappings.size()) +
+                        ") does not match source symbol '" + entry.source_symbol +
+                        "' parameter count (" +
+                        std::to_string(source_sym->params.size()) + ")");
+            return false;
+        }
     }
 
     // Generate the glue stub

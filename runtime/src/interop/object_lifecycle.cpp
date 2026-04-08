@@ -2,6 +2,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 #include "runtime/include/interop/container_marshal.h"
 #include "runtime/include/interop/memory.h"
@@ -78,35 +80,68 @@ void __ploy_dotnet_dispose(void *object) {
 // Cross-language class extension / vtable registration
 // ============================================================================
 
-// Maximum number of registered extensions tracked at runtime.
-static constexpr std::size_t kMaxExtensions = 256;
-
 struct ExtensionEntry {
     const char *language{nullptr};
     const char *base_class{nullptr};
     const char *derived{nullptr};
 };
 
-static ExtensionEntry g_extensions[kMaxExtensions];
-static std::size_t g_extension_count = 0;
+static std::vector<ExtensionEntry> g_extensions;
+static std::mutex g_extensions_mutex;
+
+static const char *DupStableString(const char *s) {
+    if (!s) return nullptr;
+    std::size_t len = std::strlen(s) + 1;
+    char *buf = static_cast<char *>(polyglot_alloc(len));
+    if (!buf) return nullptr;
+    std::memcpy(buf, s, len);
+    return buf;
+}
 
 void __ploy_extend_register(const char *language, const char *base_class,
                              const char *derived) {
     if (!language || !base_class || !derived) return;
-    if (g_extension_count >= kMaxExtensions) return;
 
-    // Duplicate the strings into GC-managed memory so they survive module unload.
-    auto dup = [](const char *s) -> const char * {
-        std::size_t len = std::strlen(s) + 1;
-        char *buf = static_cast<char *>(polyglot_alloc(len));
-        if (buf) std::memcpy(buf, s, len);
-        return buf;
-    };
+    const char *stable_language = DupStableString(language);
+    const char *stable_base = DupStableString(base_class);
+    const char *stable_derived = DupStableString(derived);
+    if (!stable_language || !stable_base || !stable_derived) return;
 
-    ExtensionEntry &entry = g_extensions[g_extension_count++];
-    entry.language   = dup(language);
-    entry.base_class = dup(base_class);
-    entry.derived    = dup(derived);
+    std::lock_guard<std::mutex> lock(g_extensions_mutex);
+
+    for (const auto &entry : g_extensions) {
+        if (std::strcmp(entry.language, stable_language) == 0 &&
+            std::strcmp(entry.base_class, stable_base) == 0 &&
+            std::strcmp(entry.derived, stable_derived) == 0) {
+            return;
+        }
+    }
+
+    g_extensions.push_back({stable_language, stable_base, stable_derived});
+}
+
+std::size_t __ploy_extend_registry_count() {
+    std::lock_guard<std::mutex> lock(g_extensions_mutex);
+    return g_extensions.size();
+}
+
+const char *__ploy_extend_find_derived(const char *language,
+                                       const char *base_class) {
+    if (!language || !base_class) return nullptr;
+
+    std::lock_guard<std::mutex> lock(g_extensions_mutex);
+    for (const auto &entry : g_extensions) {
+        if (std::strcmp(entry.language, language) == 0 &&
+            std::strcmp(entry.base_class, base_class) == 0) {
+            return entry.derived;
+        }
+    }
+    return nullptr;
+}
+
+void __ploy_extend_reset_registry_for_tests() {
+    std::lock_guard<std::mutex> lock(g_extensions_mutex);
+    g_extensions.clear();
 }
 
 // ============================================================================

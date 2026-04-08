@@ -779,12 +779,16 @@ FUNC run(n: i64) -> i64 {
     cpp_sym.mangled_name = "math::square";
     cpp_sym.language = "cpp";
     cpp_sym.type = polyglot::linker::SymbolType::kFunction;
+    cpp_sym.params.push_back({"i64", 8, false});
+    cpp_sym.return_desc = {"i64", 8, false};
 
     polyglot::linker::CrossLangSymbol py_sym;
     py_sym.name = "util::display";
     py_sym.mangled_name = "util::display";
     py_sym.language = "python";
     py_sym.type = polyglot::linker::SymbolType::kFunction;
+    py_sym.params.push_back({"i64", 8, false});
+    py_sym.return_desc = {"i64", 8, false};
 
     linker.AddCrossLangSymbol(cpp_sym);
     linker.AddCrossLangSymbol(py_sym);
@@ -798,6 +802,43 @@ FUNC run(n: i64) -> i64 {
         REQUIRE_FALSE(stub.stub_name.empty());
         REQUIRE_FALSE(stub.code.empty());
     }
+}
+
+TEST_CASE("E2E: PolyglotLinker hard-fails on ABI schema mismatch",
+          "[integration][e2e][linker][abi]") {
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+
+    polyglot::ploy::LinkEntry link_entry;
+    link_entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
+    link_entry.target_language = "cpp";
+    link_entry.source_language = "python";
+    link_entry.target_symbol = "math::scale";
+    link_entry.source_symbol = "py::scale";
+    linker.AddLinkEntry(link_entry);
+
+    polyglot::linker::CrossLangSymbol target_sym;
+    target_sym.name = "math::scale";
+    target_sym.mangled_name = "math::scale";
+    target_sym.language = "cpp";
+    target_sym.type = polyglot::linker::SymbolType::kFunction;
+    target_sym.params.push_back({"i64", 8, false});
+    target_sym.params.push_back({"i64", 8, false});
+    target_sym.return_desc = {"i64", 8, false};
+
+    polyglot::linker::CrossLangSymbol source_sym;
+    source_sym.name = "py::scale";
+    source_sym.mangled_name = "py::scale";
+    source_sym.language = "python";
+    source_sym.type = polyglot::linker::SymbolType::kFunction;
+    source_sym.params.push_back({"i64", 8, false});
+    source_sym.return_desc = {"i64", 8, false};
+
+    linker.AddCrossLangSymbol(target_sym);
+    linker.AddCrossLangSymbol(source_sym);
+
+    CHECK_FALSE(linker.ResolveLinks());
+    CHECK_FALSE(linker.GetErrors().empty());
 }
 
 // ============================================================================

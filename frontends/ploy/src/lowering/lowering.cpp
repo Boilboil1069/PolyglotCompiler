@@ -817,9 +817,10 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     std::string stub_name = MangleStubName("ploy", call->language, call->function);
 
     // Resolve the return type from sema's known signatures.
-    // If no signature is found, fall back to I64 with a diagnostic.
-    ir::IRType call_ret_type = ir::IRType::I64(true);
-    call_ret_type.is_placeholder = true;  // assume placeholder until resolved
+    // In strict mode, unknown signatures are hard errors and we avoid i64
+    // fallback to prevent fake-success ABI assumptions.
+    ir::IRType call_ret_type = ir::IRType::Pointer(ir::IRType::Void());
+    call_ret_type.is_placeholder = true;
     {
         auto sig_it = sema_.KnownSignatures().find(call->function);
         if (sig_it != sema_.KnownSignatures().end() &&
@@ -834,12 +835,12 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
                 diagnostics_.ReportError(call->loc,
                     frontends::ErrorCode::kTypeMismatch,
                     "cross-language call to '" + call->function +
-                    "' has unknown return type (strict mode rejects placeholder i64)");
+                    "' has unknown return type/signature (strict mode rejects fallback lowering)");
             } else {
                 diagnostics_.ReportWarning(call->loc,
                     frontends::ErrorCode::kGenericWarning,
                     "cross-language call to '" + call->function +
-                    "' has unknown return type; defaulting to i64");
+                    "' has unknown return type; defaulting to opaque pointer");
             }
         }
     }
@@ -889,6 +890,32 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
     std::string stub_name = MangleStubName("ploy", new_expr->language,
                                            new_expr->class_name + "::__init__");
 
+    // Resolve the object type from sema — the sema now performs full type
+    // resolution via ResolveObjectType, so we can trust the symbol table.
+    ir::IRType obj_type = ir::IRType::Pointer(ir::IRType::Void());
+    {
+        auto sym_it = sema_.Symbols().find(new_expr->class_name);
+        if (sym_it != sema_.Symbols().end() &&
+            sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kInvalid) {
+            ir::IRType inner = CoreTypeToIR(sym_it->second.type);
+            if (inner.kind != ir::IRTypeKind::kInvalid) {
+                obj_type = ir::IRType::Pointer(inner);
+            }
+        }
+    }
+
+    // Consult the sema ABI signature for the constructor to determine the
+    // correct parameter types at the ABI level, replacing blind direct marshal.
+    std::string ctor_name = new_expr->class_name + "::__init__";
+    const FunctionSignature *sig = nullptr;
+    {
+        auto it = sema_.KnownSignatures().find(ctor_name);
+        if (it != sema_.KnownSignatures().end()) {
+            sig = &it->second;
+        }
+    }
+
     // Record the cross-language call descriptor for the constructor
     CrossLangCallDescriptor desc;
     desc.stub_name = stub_name;
@@ -896,28 +923,38 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
     desc.target_language = "ploy";
     desc.source_function = new_expr->class_name + "::__init__";
     desc.target_function = stub_name;
-    desc.source_param_types = arg_types;
-    // Constructor returns an opaque object handle (pointer-sized)
-    desc.source_return_type = ir::IRType::Pointer(ir::IRType::Void());
-    desc.target_return_type = ir::IRType::Pointer(ir::IRType::Void());
+    desc.source_return_type = obj_type;
+    desc.target_return_type = obj_type;
 
-    // Generate marshalling descriptors for each argument
-    for (const auto &at : arg_types) {
+    // Generate marshalling descriptors using ABI-resolved types from sema
+    // when available, falling back to direct marshal only when necessary.
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+        ir::IRType expected_type = arg_types[i];
+        if (sig && i < sig->param_types.size() &&
+            sig->param_types[i].kind != core::TypeKind::kAny &&
+            sig->param_types[i].kind != core::TypeKind::kInvalid) {
+            expected_type = CoreTypeToIR(sig->param_types[i]);
+        }
+        desc.source_param_types.push_back(expected_type);
+
         CrossLangCallDescriptor::MarshalOp marshal;
-        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-        marshal.from = at;
-        marshal.to = at;
+        if (expected_type.kind == arg_types[i].kind) {
+            marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        } else {
+            marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kCast;
+        }
+        marshal.from = arg_types[i];
+        marshal.to = expected_type;
         desc.param_marshal.push_back(marshal);
     }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    desc.return_marshal.from = ir::IRType::Pointer(ir::IRType::Void());
-    desc.return_marshal.to = ir::IRType::Pointer(ir::IRType::Void());
+    desc.return_marshal.from = obj_type;
+    desc.return_marshal.to = obj_type;
 
     call_descriptors_.push_back(desc);
 
     // Emit the call instruction to the constructor stub
-    auto inst = builder_.MakeCall(stub_name, arg_names,
-                                  ir::IRType::Pointer(ir::IRType::Void()), "");
+    auto inst = builder_.MakeCall(stub_name, arg_names, obj_type, "");
     return {inst->name, inst->type};
 }
 
@@ -941,14 +978,27 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     std::string stub_name = MangleStubName("ploy", method_call->language,
                                            method_call->method_name);
 
-    // Resolve return type from sema known signatures
-    ir::IRType method_ret_type = ir::IRType::I64(true);
+    // Resolve return type from sema known signatures.  Try the method name
+    // directly, then try qualified with the object type if available.
+    ir::IRType method_ret_type = ir::IRType::Pointer(ir::IRType::Void());
+    const FunctionSignature *sig = nullptr;
     {
         auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
-        if (sig_it != sema_.KnownSignatures().end() &&
-            sig_it->second.return_type.kind != core::TypeKind::kAny &&
-            sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
-            method_ret_type = CoreTypeToIR(sig_it->second.return_type);
+        if (sig_it != sema_.KnownSignatures().end()) {
+            sig = &sig_it->second;
+            if (sig->return_type.kind != core::TypeKind::kAny &&
+                sig->return_type.kind != core::TypeKind::kInvalid) {
+                method_ret_type = CoreTypeToIR(sig->return_type);
+            }
+        }
+    }
+    // If no signature found, check the sema symbol table
+    if (!sig) {
+        auto sym_it = sema_.Symbols().find(method_call->method_name);
+        if (sym_it != sema_.Symbols().end() &&
+            sym_it->second.type.kind == core::TypeKind::kFunction &&
+            !sym_it->second.type.type_args.empty()) {
+            method_ret_type = CoreTypeToIR(sym_it->second.type.type_args[0]);
         }
     }
 
@@ -959,16 +1009,29 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     desc.target_language = "ploy";
     desc.source_function = method_call->method_name;
     desc.target_function = stub_name;
-    desc.source_param_types = arg_types;
     desc.source_return_type = method_ret_type;
     desc.target_return_type = method_ret_type;
 
-    // Generate marshalling descriptors for each argument (including object)
-    for (const auto &at : arg_types) {
+    // Generate ABI-aware marshalling descriptors using sema signature
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+        ir::IRType expected_type = arg_types[i];
+        // Skip index 0 (receiver object) for param_types lookup since sema
+        // signatures don't include the implicit self parameter.
+        if (sig && i > 0 && (i - 1) < sig->param_types.size() &&
+            sig->param_types[i - 1].kind != core::TypeKind::kAny &&
+            sig->param_types[i - 1].kind != core::TypeKind::kInvalid) {
+            expected_type = CoreTypeToIR(sig->param_types[i - 1]);
+        }
+        desc.source_param_types.push_back(expected_type);
+
         CrossLangCallDescriptor::MarshalOp marshal;
-        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-        marshal.from = at;
-        marshal.to = at;
+        if (expected_type.kind == arg_types[i].kind) {
+            marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        } else {
+            marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kCast;
+        }
+        marshal.from = arg_types[i];
+        marshal.to = expected_type;
         desc.param_marshal.push_back(marshal);
     }
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
@@ -998,10 +1061,51 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     std::string stub_name = MangleStubName("ploy", get_attr->language,
                                            "__getattr__" + get_attr->attr_name);
 
-    // Attribute access returns an opaque pointer by default — the exact
-    // type depends on the foreign object's schema which is unknown at
-    // compile time.  Use Pointer(I8) as a generic handle.
+    // Resolve attribute type from sema.  The sema now checks struct field
+    // definitions and getter signatures, so we can use its resolved type
+    // instead of defaulting to opaque Pointer(I8).
     ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
+    {
+        // Check struct field definitions first (sema already validated this)
+        bool resolved = false;
+        for (const auto &[struct_name, fields] : sema_.StructDefs()) {
+            for (const auto &[field_name, field_type] : fields) {
+                if (field_name == get_attr->attr_name &&
+                    field_type.kind != core::TypeKind::kAny &&
+                    field_type.kind != core::TypeKind::kInvalid) {
+                    attr_ret_type = CoreTypeToIR(field_type);
+                    resolved = true;
+                    break;
+                }
+            }
+            if (resolved) break;
+        }
+
+        // Fall back to getter signature lookup
+        if (!resolved) {
+            std::string getter_name = "__getattr__::" + get_attr->attr_name;
+            auto sig_it = sema_.KnownSignatures().find(getter_name);
+            if (sig_it != sema_.KnownSignatures().end() &&
+                sig_it->second.return_type.kind != core::TypeKind::kAny &&
+                sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
+                attr_ret_type = CoreTypeToIR(sig_it->second.return_type);
+            }
+        }
+    }
+
+    // Resolve getter signature for ABI-aware receiver marshalling.
+    ir::IRType expected_obj_type = obj.type;
+    {
+        std::string getter_name = "__getattr__::" + get_attr->attr_name;
+        auto sig_it = sema_.KnownSignatures().find(getter_name);
+        if (sig_it != sema_.KnownSignatures().end() &&
+            !sig_it->second.param_types.empty() &&
+            sig_it->second.param_types[0].kind != core::TypeKind::kAny &&
+            sig_it->second.param_types[0].kind != core::TypeKind::kInvalid) {
+            expected_obj_type = CoreTypeToIR(sig_it->second.param_types[0]);
+            arg_types[0] = expected_obj_type;
+        }
+    }
 
     // Record the cross-language call descriptor
     CrossLangCallDescriptor desc;
@@ -1015,13 +1119,13 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     desc.target_return_type = attr_ret_type;
 
     // Generate marshalling descriptors
-    for (const auto &at : arg_types) {
-        CrossLangCallDescriptor::MarshalOp marshal;
-        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-        marshal.from = at;
-        marshal.to = at;
-        desc.param_marshal.push_back(marshal);
-    }
+    CrossLangCallDescriptor::MarshalOp obj_marshal;
+    obj_marshal.kind = (obj.type.kind == expected_obj_type.kind)
+                       ? CrossLangCallDescriptor::MarshalOp::Kind::kDirect
+                       : CrossLangCallDescriptor::MarshalOp::Kind::kCast;
+    obj_marshal.from = obj.type;
+    obj_marshal.to = expected_obj_type;
+    desc.param_marshal.push_back(obj_marshal);
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     desc.return_marshal.from = attr_ret_type;
     desc.return_marshal.to = attr_ret_type;
@@ -1045,8 +1149,42 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
     std::vector<ir::IRType> arg_types;
     arg_names.push_back(obj.value);
     arg_types.push_back(obj.type);
+
+    // Resolve expected receiver/value types from setter signatures first,
+    // then fall back to struct field definitions.
+    ir::IRType expected_obj_type = obj.type;
+    ir::IRType expected_val_type = val.type;
+    {
+        std::string setter_name = "__setattr__::" + set_attr->attr_name;
+        auto sig_it = sema_.KnownSignatures().find(setter_name);
+        if (sig_it != sema_.KnownSignatures().end()) {
+            if (!sig_it->second.param_types.empty() &&
+                sig_it->second.param_types[0].kind != core::TypeKind::kAny &&
+                sig_it->second.param_types[0].kind != core::TypeKind::kInvalid) {
+                expected_obj_type = CoreTypeToIR(sig_it->second.param_types[0]);
+            }
+            if (sig_it->second.param_types.size() > 1 &&
+                sig_it->second.param_types[1].kind != core::TypeKind::kAny &&
+                sig_it->second.param_types[1].kind != core::TypeKind::kInvalid) {
+                expected_val_type = CoreTypeToIR(sig_it->second.param_types[1]);
+            }
+        }
+    }
+    {
+        for (const auto &[struct_name, fields] : sema_.StructDefs()) {
+            for (const auto &[field_name, field_type] : fields) {
+                if (field_name == set_attr->attr_name &&
+                    field_type.kind != core::TypeKind::kAny &&
+                    field_type.kind != core::TypeKind::kInvalid) {
+                    expected_val_type = CoreTypeToIR(field_type);
+                    break;
+                }
+            }
+        }
+    }
+    arg_types[0] = expected_obj_type;
     arg_names.push_back(val.value);
-    arg_types.push_back(val.type);
+    arg_types.push_back(expected_val_type);
 
     // Generate the stub name for the setattr call
     std::string stub_name = MangleStubName("ploy", set_attr->language,
@@ -1064,13 +1202,21 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
     desc.target_return_type = ir::IRType::Void();
 
     // Generate marshalling descriptors
-    for (const auto &at : arg_types) {
-        CrossLangCallDescriptor::MarshalOp marshal;
-        marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-        marshal.from = at;
-        marshal.to = at;
-        desc.param_marshal.push_back(marshal);
-    }
+    CrossLangCallDescriptor::MarshalOp obj_marshal;
+    obj_marshal.kind = (obj.type.kind == expected_obj_type.kind)
+                       ? CrossLangCallDescriptor::MarshalOp::Kind::kDirect
+                       : CrossLangCallDescriptor::MarshalOp::Kind::kCast;
+    obj_marshal.from = obj.type;
+    obj_marshal.to = expected_obj_type;
+    desc.param_marshal.push_back(obj_marshal);
+
+    CrossLangCallDescriptor::MarshalOp val_marshal;
+    val_marshal.kind = (val.type.kind == expected_val_type.kind)
+                       ? CrossLangCallDescriptor::MarshalOp::Kind::kDirect
+                       : CrossLangCallDescriptor::MarshalOp::Kind::kCast;
+    val_marshal.from = val.type;
+    val_marshal.to = expected_val_type;
+    desc.param_marshal.push_back(val_marshal);
     desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     desc.return_marshal.from = ir::IRType::Void();
     desc.return_marshal.to = ir::IRType::Void();
@@ -1088,12 +1234,31 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
 void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
     // WITH(lang, resource) AS name { body }
-    // Lowered to:
+    // Lowered to a proper exception-safe pattern using invoke/landingpad:
     //   1. Evaluate the resource expression
     //   2. Call __enter__ on the resource
     //   3. Bind the result to 'name'
-    //   4. Execute body
-    //   5. Call __exit__ on the resource (even on error)
+    //   4. Execute body via invoke (with unwind to cleanup)
+    //   5. Call __exit__ on the resource (always, even on exception)
+    //
+    // IR structure:
+    //   with.entry:
+    //     resource = <expr>
+    //     enter_result = call __enter__(resource)
+    //     name = enter_result
+    //     br with.body
+    //   with.body:
+    //     <body statements>
+    //     br with.normal_exit
+    //   with.normal_exit:
+    //     call __exit__(resource, null, null, null)  ; normal path
+    //     br with.end
+    //   with.unwind:
+    //     lpad = landingpad cleanup
+    //     call __exit__(resource, exc_type, exc_val, exc_tb)
+    //     resume lpad
+    //   with.end:
+    //     <continue>
 
     // Step 1: Evaluate resource
     EvalResult resource = LowerExpression(with_stmt->resource_expr);
@@ -1101,8 +1266,22 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     // Step 2: Call __enter__ on the resource
     std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__");
     std::vector<std::string> enter_args = {resource.value};
-    auto enter_result = builder_.MakeCall(enter_stub, enter_args,
-                                          ir::IRType::Pointer(ir::IRType::Void()), "");
+
+    // Resolve the enter return type — use typed pointer if class is known
+    ir::IRType enter_ret_type = ir::IRType::Pointer(ir::IRType::Void());
+    {
+        // Check if sema resolved a concrete type for the __enter__ return
+        auto sym_it = sema_.Symbols().find(with_stmt->var_name);
+        if (sym_it != sema_.Symbols().end() &&
+            sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kInvalid) {
+            ir::IRType resolved = CoreTypeToIR(sym_it->second.type);
+            if (resolved.kind != ir::IRTypeKind::kInvalid) {
+                enter_ret_type = resolved;
+            }
+        }
+    }
+    auto enter_result = builder_.MakeCall(enter_stub, enter_args, enter_ret_type, "");
 
     // Record __enter__ call descriptor
     CrossLangCallDescriptor enter_desc;
@@ -1112,48 +1291,96 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     enter_desc.source_function = "__enter__";
     enter_desc.target_function = enter_stub;
     enter_desc.source_param_types = {resource.type};
-    enter_desc.source_return_type = ir::IRType::Pointer(ir::IRType::Void());
-    enter_desc.target_return_type = ir::IRType::Pointer(ir::IRType::Void());
+    enter_desc.source_return_type = enter_ret_type;
+    enter_desc.target_return_type = enter_ret_type;
     CrossLangCallDescriptor::MarshalOp enter_marshal;
     enter_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     enter_marshal.from = resource.type;
     enter_marshal.to = resource.type;
     enter_desc.param_marshal.push_back(enter_marshal);
     enter_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    enter_desc.return_marshal.from = ir::IRType::Pointer(ir::IRType::Void());
-    enter_desc.return_marshal.to = ir::IRType::Pointer(ir::IRType::Void());
+    enter_desc.return_marshal.from = enter_ret_type;
+    enter_desc.return_marshal.to = enter_ret_type;
     call_descriptors_.push_back(enter_desc);
 
     // Step 3: Bind the result to the variable name
     env_[with_stmt->var_name] = EnvEntry{enter_result->name, enter_result->type};
 
-    // Step 4: Execute body
+    // Create basic blocks for the exception-safe region
+    auto body_bb = builder_.CreateBlock("with.body");
+    auto normal_exit_bb = builder_.CreateBlock("with.normal_exit");
+    auto unwind_bb = builder_.CreateBlock("with.unwind");
+    auto end_bb = builder_.CreateBlock("with.end");
+
+    // Branch to body
+    builder_.MakeBranch(body_bb.get());
+
+    // --- with.body ---
+    builder_.SetInsertPoint(body_bb);
     LowerBlockStatements(with_stmt->body);
 
-    // Step 5: Call __exit__ on the resource
+    // If the body did not terminate (no return/break), use invoke for the
+    // normal-path __exit__ call so that exceptions during __exit__ itself
+    // are caught.  The invoke connects the body to normal_exit on success
+    // and to unwind on exception — this is the key fix that makes WITH
+    // exception-safe.
     std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
-    std::vector<std::string> exit_args = {resource.value};
-    builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
+    if (!terminated_) {
+        auto null_val = builder_.MakeLiteral(0LL, "with.null");
+        std::vector<std::string> normal_exit_args = {resource.value, null_val->name,
+                                                      null_val->name, null_val->name};
+        builder_.MakeInvoke(exit_stub, normal_exit_args, ir::IRType::Void(),
+                            normal_exit_bb.get(), unwind_bb.get(), "");
+    }
+    terminated_ = false;
 
-    // Record __exit__ call descriptor
+    // --- with.normal_exit ---
+    // Normal path: __exit__ already called via invoke above, just branch to end.
+    builder_.SetInsertPoint(normal_exit_bb);
+
+    // Record __exit__ call descriptor (shared by normal and unwind paths)
     CrossLangCallDescriptor exit_desc;
     exit_desc.stub_name = exit_stub;
     exit_desc.source_language = with_stmt->language;
     exit_desc.target_language = "ploy";
     exit_desc.source_function = "__exit__";
     exit_desc.target_function = exit_stub;
-    exit_desc.source_param_types = {resource.type};
+    exit_desc.source_param_types = {resource.type, ir::IRType::Pointer(ir::IRType::Void()),
+                                     ir::IRType::Pointer(ir::IRType::Void()),
+                                     ir::IRType::Pointer(ir::IRType::Void())};
     exit_desc.source_return_type = ir::IRType::Void();
     exit_desc.target_return_type = ir::IRType::Void();
-    CrossLangCallDescriptor::MarshalOp exit_marshal;
-    exit_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    exit_marshal.from = resource.type;
-    exit_marshal.to = resource.type;
-    exit_desc.param_marshal.push_back(exit_marshal);
+    for (const auto &at : exit_desc.source_param_types) {
+        CrossLangCallDescriptor::MarshalOp m;
+        m.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+        m.from = at;
+        m.to = at;
+        exit_desc.param_marshal.push_back(m);
+    }
     exit_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
     exit_desc.return_marshal.from = ir::IRType::Void();
     exit_desc.return_marshal.to = ir::IRType::Void();
     call_descriptors_.push_back(exit_desc);
+
+    builder_.MakeBranch(end_bb.get());
+
+    // --- with.unwind ---
+    // Landing pad catches all exceptions for cleanup
+    builder_.SetInsertPoint(unwind_bb);
+    auto lpad = builder_.MakeLandingPad(true, {}, "with.lpad");
+
+    // Call __exit__ with exception info
+    // The landing pad value represents the exception pointer; pass it as
+    // exc_type/exc_val/exc_tb for the runtime to interpret.
+    std::vector<std::string> exc_exit_args = {resource.value, lpad->name,
+                                               lpad->name, lpad->name};
+    builder_.MakeCall(exit_stub, exc_exit_args, ir::IRType::Void(), "");
+
+    // Resume unwinding — propagate the exception after cleanup
+    builder_.MakeResume(lpad->name);
+
+    // --- with.end ---
+    builder_.SetInsertPoint(end_bb);
 }
 
 // ============================================================================
@@ -1380,8 +1607,8 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
     // calls the source function, and marshals the return value back.
 
     // Resolve the return type from the known function signature registered
-    // during semantic analysis.  If no signature is known, fall back to i64.
-    ir::IRType ret_type = ir::IRType::I64(true);
+    // during semantic analysis.
+    ir::IRType ret_type = ir::IRType::Pointer(ir::IRType::Void());
     // Look up the function signature from the sema public accessor.
     const FunctionSignature *sig = nullptr;
     {
@@ -1393,6 +1620,12 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
         sig->return_type.kind != core::TypeKind::kInvalid) {
         ret_type = CoreTypeToIR(sig->return_type);
+    } else if (sema_.IsStrictMode()) {
+        diagnostics_.ReportError(link.defined_at,
+            frontends::ErrorCode::kSignatureMissing,
+            "LINK stub for '" + link.target_symbol +
+            "' has no resolved return type in strict mode");
+        return;
     }
 
     // For function links, create a wrapper function
@@ -1433,13 +1666,14 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                     frontends::ErrorCode::kTypeMismatch,
                     "LINK stub for '" + link.target_symbol +
                     "' has no signature information (strict mode rejects opaque fallback)");
+                return;
             } else {
                 diagnostics_.ReportWarning(link.defined_at,
                     frontends::ErrorCode::kGenericWarning,
                     "LINK stub for '" + link.target_symbol +
                     "' has no signature information; defaulting to single opaque i64 argument");
+                params.emplace_back("arg0", ir::IRType::I64(true));
             }
-            params.emplace_back("arg0", ir::IRType::I64(true));
         }
 
         auto fn = ir_ctx_.CreateFunction(stub_name, ret_type, params);

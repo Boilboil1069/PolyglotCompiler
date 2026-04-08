@@ -119,6 +119,37 @@ struct VenvConfig {
 };
 
 // ============================================================================
+// ABI Signature — unified calling convention and type layout descriptor
+// ============================================================================
+
+// Describes the ABI-level contract for a cross-language function call.
+// Used by sema for pre-lowering validation and by the linker for stub
+// generation correctness checks.
+struct ABIParamDesc {
+    core::Type semantic_type{core::Type::Invalid()};  // High-level type
+    std::string abi_type_name;                        // ABI-level type name (e.g. "i64", "f64", "ptr")
+    size_t size_bytes{0};                             // Size in bytes (0 = unknown)
+    size_t alignment{0};                              // Alignment in bytes (0 = natural)
+    bool is_pointer{false};                           // Whether passed as pointer
+    bool is_by_value{false};                          // Whether passed by value (struct copy)
+};
+
+struct ABISignature {
+    std::string function_name;                        // Qualified function name
+    std::string language;                             // Source language
+    std::string calling_convention;                   // "sysv", "win64", "cdecl", "python_c", etc.
+    std::vector<ABIParamDesc> params;                 // Parameter ABI descriptors
+    ABIParamDesc return_desc;                         // Return value ABI descriptor
+    bool is_variadic{false};                          // Whether the function is variadic
+    bool is_complete{false};                          // Whether all param/return types are resolved
+    core::SourceLoc defined_at{};                     // Where the signature was declared
+
+    // Validate compatibility with another ABI signature (e.g. source vs target)
+    // Returns empty string on success, or a diagnostic message on failure.
+    std::string ValidateCompatibility(const ABISignature &other) const;
+};
+
+// ============================================================================
 // Function Signature Registry (for parameter count/type validation)
 // ============================================================================
 
@@ -131,6 +162,10 @@ struct FunctionSignature {
     size_t param_count{0};                    // Number of parameters
     bool param_count_known{false};            // Whether param count is statically known
     core::SourceLoc defined_at{};             // Where the function was declared
+
+    // Optional ABI-level descriptor for cross-language validation.
+    // Populated when the signature comes from a LINK declaration with MAP_TYPE.
+    std::shared_ptr<ABISignature> abi{nullptr};
 };
 
 // ============================================================================
@@ -168,6 +203,12 @@ class PloySema {
     }
     const std::unordered_map<std::string, FunctionSignature> &KnownSignatures() const {
         return known_signatures_;
+    }
+    const std::unordered_map<std::string, std::shared_ptr<ABISignature>> &ABISignatures() const {
+        return abi_signatures_;
+    }
+    const std::unordered_map<std::string, std::vector<std::pair<std::string, core::Type>>> &StructDefs() const {
+        return struct_defs_;
     }
 
   private:
@@ -275,6 +316,41 @@ class PloySema {
                               const std::string &func_name,
                               const std::vector<core::Type> &actual_types,
                               const FunctionSignature *sig);
+    // Validate that the return value of a call is used in a type-compatible context.
+    void ValidateReturnType(const core::SourceLoc &call_loc,
+                            const std::string &func_name,
+                            const core::Type &expected_type,
+                            const FunctionSignature *sig);
+
+    // Build an ABISignature from a FunctionSignature and language info.
+    std::shared_ptr<ABISignature> BuildABISignature(const FunctionSignature &sig,
+                                                     const std::string &language) const;
+
+    // Determine the calling convention string for a given language.
+    static std::string CallingConventionForLanguage(const std::string &language);
+
+    // Build an ABIParamDesc from a core::Type.
+    ABIParamDesc TypeToABIParam(const core::Type &type) const;
+
+    // Resolve the concrete type for an object expression used in
+    // NEW/METHOD/GET/SET, replacing opaque Any() with the class type
+    // registered via LINK/EXTEND when available.
+    core::Type ResolveObjectType(const std::string &class_name,
+                                 const std::string &language,
+                                 const core::SourceLoc &loc);
+
+    // Build and validate an ABI signature for a cross-language method/ctor
+    // call.  Reports diagnostics when the resolved types are incompatible.
+    void ValidateObjCallABI(const core::SourceLoc &loc,
+                            const std::string &callee_name,
+                            const std::string &language,
+                            const std::vector<core::Type> &arg_types,
+                            const core::Type &return_type);
+
+    // Validate that a WITH resource type supports __enter__/__exit__ protocol.
+    void ValidateContextManagerProtocol(const core::SourceLoc &loc,
+                                        const std::string &language,
+                                        const core::Type &resource_type);
 
     frontends::Diagnostics &diagnostics_;
     bool strict_mode_{false};
@@ -289,6 +365,8 @@ class PloySema {
     std::unordered_map<std::string, core::Type> map_funcs_{};
     // Known function signatures for parameter validation
     std::unordered_map<std::string, FunctionSignature> known_signatures_{};
+    // ABI signatures for cross-language link validation
+    std::unordered_map<std::string, std::shared_ptr<ABISignature>> abi_signatures_{};
     int loop_depth_{0};
     core::Type current_return_type_{core::Type::Invalid()};
     // Track whether code is unreachable (after RETURN, BREAK, CONTINUE)

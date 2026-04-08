@@ -57,6 +57,9 @@ enum class ErrorCode {
     kUnusedVariable        = 3018,
     kUnusedCallResult      = 3019,
     kUnreachableCode       = 3020,
+    kABIIncompatible       = 3021,
+    kOpaqueTypeFallback    = 3022,
+    kSignatureMissing      = 3023,
     kGenericWarning        = 3099,
 
     // Lowering errors (4xxx)
@@ -65,7 +68,9 @@ enum class ErrorCode {
 
     // Linker errors (5xxx)
     kUnresolvedSymbol      = 5001,
-    kDuplicateExport       = 5002
+    kDuplicateExport       = 5002,
+    kSignatureMismatch     = 5003,
+    kABICrossModuleMismatch = 5004
 };
 
 // ============================================================================

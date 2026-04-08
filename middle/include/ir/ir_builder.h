@@ -48,6 +48,24 @@ const std::vector<std::string> &args,
   std::shared_ptr<MemcpyInstruction> MakeMemcpy(const std::string &dst, const std::string &src, const std::string &size_name, size_t align = 0);
   std::shared_ptr<MemsetInstruction> MakeMemset(const std::string &dst, const std::string &value, const std::string &size_name, size_t align = 0);
   std::shared_ptr<UnreachableStatement> MakeUnreachable();
+
+  // Exception handling: invoke a callee with normal and unwind destinations.
+  // Unlike MakeCall, this terminates the current block.
+  std::shared_ptr<InvokeInstruction> MakeInvoke(const std::string &callee,
+                                                 const std::vector<std::string> &args,
+                                                 const IRType &ret_type,
+                                                 BasicBlock *normal_dest,
+                                                 BasicBlock *unwind_dest,
+                                                 const std::string &name = "");
+
+  // Create a landing pad instruction at the start of an unwind destination block.
+  std::shared_ptr<LandingPadInstruction> MakeLandingPad(bool is_cleanup,
+                                                         const std::vector<IRType> &catch_types = {},
+                                                         const std::string &name = "");
+
+  // Resume unwinding after a cleanup landing pad.
+  std::shared_ptr<ResumeInstruction> MakeResume(const std::string &value = "");
+
   std::shared_ptr<Function> CreateFunction(const std::string &name, const IRType &ret,
                                            const std::vector<std::pair<std::string, IRType>> &params);
   // Intern a string literal as a global and return the pointer-valued symbol name.

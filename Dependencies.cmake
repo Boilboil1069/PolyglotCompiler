@@ -1,40 +1,16 @@
 # Third-party dependency setup for PolyglotCompiler
-# Uses FetchContent to download sources into ${FETCHCONTENT_BASE_DIR}
-# (defaults to project-local .cache/fetchcontent/).
+# Uses FetchContent to download sources into ${FETCHCONTENT_BASE_DIR} (defaults to dependencies/).
 
 cmake_minimum_required(VERSION 3.20)
 include_guard(GLOBAL)
 
 include(FetchContent)
 
-# Allow overriding dependency cache in three ways (highest to lowest priority):
-# 1) -DFETCHCONTENT_BASE_DIR=... at configure time
-# 2) POLYGLOT_FETCHCONTENT_CACHE environment variable
-# 3) repo-local fallback: <source>/.cache/fetchcontent
-#
-# Recommended project-local cache (default):
-#   <repo>/.cache/fetchcontent
-# Optional override example on Windows:
-#   $env:POLYGLOT_FETCHCONTENT_CACHE = "D:/cache/polyglot-deps"
+# Allow the user to override where dependencies are stored; default to the repo's dependencies/ folder.
 if(NOT DEFINED FETCHCONTENT_BASE_DIR)
-    if(DEFINED ENV{POLYGLOT_FETCHCONTENT_CACHE} AND NOT "$ENV{POLYGLOT_FETCHCONTENT_CACHE}" STREQUAL "")
-        set(_polyglot_fetchcontent_base_dir "$ENV{POLYGLOT_FETCHCONTENT_CACHE}")
-    else()
-        set(_polyglot_fetchcontent_base_dir "${CMAKE_CURRENT_SOURCE_DIR}/.cache/fetchcontent")
-    endif()
-
-    set(
-        FETCHCONTENT_BASE_DIR
-        "${_polyglot_fetchcontent_base_dir}"
-        CACHE PATH "Base directory for fetched dependency sources (shared cache supported)"
-    )
-    unset(_polyglot_fetchcontent_base_dir)
+    set(FETCHCONTENT_BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dependencies" CACHE PATH "Base directory for fetched dependencies sources")
 endif()
-
-# Normalize to an absolute path to avoid duplicate caches from relative paths.
-get_filename_component(FETCHCONTENT_BASE_DIR "${FETCHCONTENT_BASE_DIR}" ABSOLUTE)
 file(MAKE_DIRECTORY "${FETCHCONTENT_BASE_DIR}")
-message(STATUS "FetchContent base dir: ${FETCHCONTENT_BASE_DIR}")
 
 # fmt
 set(FMT_DOC OFF CACHE BOOL "" FORCE)

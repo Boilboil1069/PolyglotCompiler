@@ -53,6 +53,17 @@ void __ploy_dotnet_dispose(void *object);
 void __ploy_extend_register(const char *language, const char *base_class,
                              const char *derived);
 
+/// Return the number of registered cross-language extension mappings.
+std::size_t __ploy_extend_registry_count();
+
+/// Find a registered derived class by language + base class.
+/// @return Derived class name pointer, or nullptr when not found.
+const char *__ploy_extend_find_derived(const char *language,
+                                       const char *base_class);
+
+/// Test-only helper that clears the in-memory registry.
+void __ploy_extend_reset_registry_for_tests();
+
 // ============================================================================
 // Cross-language string / container conversion helpers
 // ============================================================================

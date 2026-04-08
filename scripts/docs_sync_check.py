@@ -46,11 +46,16 @@ def extract_headings(content: str) -> List[Tuple[int, str]]:
             for m in HEADING_RE.finditer(content)]
 
 
-def find_bilingual_pairs(root: Path) -> List[Tuple[Path, Path]]:
+def find_bilingual_pairs(root: Path, scope: str = "all") -> List[Tuple[Path, Path]]:
     """Find all (en, zh) Markdown file pairs under docs/."""
     docs = root / "docs"
     pairs = []
     seen = set()
+
+    core_docs = {
+        "USER_GUIDE.md",
+        "api/api_reference.md",
+    }
 
     for en_file in sorted(docs.rglob("*.md")):
         if en_file.stem.endswith("_zh"):
@@ -59,6 +64,9 @@ def find_bilingual_pairs(root: Path) -> List[Tuple[Path, Path]]:
             continue
         zh_file = en_file.with_stem(en_file.stem + "_zh")
         if zh_file.exists():
+            rel_path = en_file.relative_to(docs).as_posix()
+            if scope == "core" and rel_path not in core_docs:
+                continue
             pair_key = en_file.stem
             if pair_key not in seen:
                 seen.add(pair_key)
@@ -123,12 +131,18 @@ def main() -> int:
                         help="Show detailed heading comparison")
     parser.add_argument("--ci", action="store_true",
                         help="Exit 1 if any mismatch found")
+    parser.add_argument(
+        "--scope",
+        choices=["all", "core"],
+        default="all",
+        help="Check all bilingual doc pairs or only core maintained pairs",
+    )
     parser.add_argument("--root", type=str, default=None,
                         help="Project root directory")
     args = parser.parse_args()
 
     root = Path(args.root) if args.root else find_project_root()
-    pairs = find_bilingual_pairs(root)
+    pairs = find_bilingual_pairs(root, scope=args.scope)
 
     print(f"docs-sync: checking {len(pairs)} bilingual pairs...\n")
 

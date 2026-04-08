@@ -29,10 +29,11 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Shared IR** — All languages compile to a common SSA-form intermediate representation
 - **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
 - **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND` keywords for cross-language class instantiation, method calls, attribute access, and resource management
+- **Early ABI Validation** — Signature/arity/type checks are enforced in `.ploy` semantic analysis and hardened again in `polyld` as link-time hard failures
 - **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/NuGet/Maven/Gradle/pkg-config
 - **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly (shadow stack, WAT/binary)
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
-- **Runtime System** — 4 GC algorithms, FFI bindings, container marshalling, threading
+- **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
 - **808 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
@@ -380,11 +381,11 @@ The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gate
 
 | Gate | Tool | Description |
 |------|------|-------------|
-| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py` | Path references, bilingual sync, heading structure, version consistency |
+| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py --scope core` | Path references, core bilingual docs sync (`USER_GUIDE` / API), heading structure, version consistency |
 | **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
-| **Static Analysis** | `clang-tidy-17` | Bug-prone patterns, modernize, performance, readability (see `.clang-tidy`) |
-| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on full test suite |
-| **Code Coverage** | lcov / gcov | Collects line coverage; report uploaded as CI artifact |
+| **Static Analysis** | `clang-tidy-17` | Runs across all project `.cpp` sources under `common/middle/frontends/backends/runtime/tools` (no 50-file cap) |
+| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on non-benchmark test suites (`-LE benchmark`) |
+| **Code Coverage** | lcov / gcov | Collects line coverage from non-benchmark tests; report uploaded as CI artifact |
 | **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
 
 To run quality checks locally:
@@ -392,8 +393,12 @@ To run quality checks locally:
 ```bash
 # Format check (dry-run)
 find common middle frontends backends runtime tools \
-  -name '*.cpp' -o -name '*.h' -o -name '*.c' \
-  | xargs clang-format --dry-run --Werror --style=file
+  -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+  -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+  | xargs -0 clang-format --dry-run --Werror --style=file
+
+# Docs sync gate (core bilingual docs)
+python scripts/docs_sync_check.py --ci --scope core
 
 # Sanitizer build
 cmake -B build-san -G Ninja \
@@ -402,7 +407,7 @@ cmake -B build-san -G Ninja \
   -DPOLYGLOT_ENABLE_UBSAN=ON \
   -DBUILD_SHARED_LIBS=OFF
 cmake --build build-san
-cd build-san && ctest --output-on-failure
+cd build-san && ctest --output-on-failure -LE benchmark
 
 # Coverage build
 cmake -B build-cov -G Ninja \
@@ -410,7 +415,7 @@ cmake -B build-cov -G Ninja \
   -DPOLYGLOT_ENABLE_COVERAGE=ON \
   -DBUILD_SHARED_LIBS=OFF
 cmake --build build-cov
-cd build-cov && ctest --output-on-failure
+cd build-cov && ctest --output-on-failure -LE benchmark
 lcov --capture --directory . --output-file coverage.info
 ```
 

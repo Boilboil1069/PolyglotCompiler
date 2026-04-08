@@ -42,6 +42,7 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 - ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
 - ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
 - ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
+- ✅ **Runtime Memory Strategy**: `DICT` runtime now uses load-factor-based growth + rehash, and extension registration uses a thread-safe dynamic registry
 - ✅ **Feature-Complete Implementation**: Comprehensive implementation with all frontends operational; Java and .NET test coverage is still expanding
 
 ## 1.2 Feature Overview
@@ -611,6 +612,20 @@ EXPORT compute;                                // Use original name
 | Function | Function signature | `(INT, FLOAT) -> BOOL` |
 | Qualified | Language-specific type | `cpp::int`, `python::str`, `rust::Vec`, `java::String`, `dotnet::int` |
 
+**Cross-language type checking:**
+
+When a `LINK` declaration includes `MAP_TYPE` entries, the compiler enables full parameter count and type validation at call sites:
+
+- **Parameter count:** `CALL`, `METHOD`, and `NEW` expressions are validated against the registered signature. Mismatched argument counts produce compile-time errors with traceback to the declaration site.
+- **Parameter types:** Each argument type is checked against the expected parameter type. Incompatible types produce errors.
+- **Return types:** When a cross-language call result is assigned to a typed variable (`LET x: INT = CALL(...)`), the return type is validated against the declared type.
+- **Strict mode:** In strict mode (`--strict`), missing callable signatures/ABI schema and unresolved `Any` fallbacks are treated as hard errors at semantic-analysis time.
+- **Link-stage ABI gate:** `polyld` now treats parameter/return ABI mismatches (count, size, passing convention, type name, MAP_TYPE arity drift) as hard failures instead of warnings.
+
+**Typed object handles:**
+
+`NEW` expressions return typed pointer handles when the class is known (e.g. via `LINK` or `EXTEND`), rather than opaque `void*`. This enables downstream type checking for `METHOD`, `GET`, and `SET` operations on the object.
+
 ### 4.2.7 Control Flow
 
 ```ploy
@@ -867,13 +882,18 @@ WITH(python, resource2) AS r2 {
 - The body is a block of statements enclosed in `{ }`
 - The bound variable is available within the body scope
 - Returns `Any` type
+- Context-manager ABI contract is enforced: `__enter__(self)` and `__exit__(self, exc_type, exc_val, exc_tb)`.
 
-**IR generation:**
+**IR generation (exception-safe):**
 1. Evaluate the resource expression
 2. Call the `__enter__` bridge stub → bind result to the variable name
-3. Execute the body statements
-4. Call the `__exit__` bridge stub for cleanup
-5. Two cross-language descriptors are recorded: one for `__enter__` and one for `__exit__`
+3. Execute the body in a guarded region with unwind edge
+4. On normal edge: call `__exit__(resource, null, null, null)`
+5. On unwind edge: call `__exit__(resource, exc_type, exc_val, exc_tb)`
+6. Resume exception propagation after cleanup
+7. Two cross-language descriptors are recorded: one for `__enter__` and one for `__exit__`
+
+This ensures `__exit__` is always called even if the body encounters an error or early return, similar to Python's `with` statement or C++'s RAII pattern.
 
 **Complete example — PyTorch training loop:**
 
@@ -1970,7 +1990,42 @@ bitcast                     # Bit cast
 | x86_64 SysV | RDI, RSI, RDX, RCX, R8, R9 | XMM0-7 | RAX/XMM0 | 16 bytes |
 | ARM64 AAPCS64 | X0-X7 | V0-V7 | X0/V0 | 16 bytes |
 
+### Cross-Language ABI Validation
+
+The compiler performs ABI compatibility checks at multiple stages:
+
+1. **Sema stage (compile time):** When a `LINK` declaration includes `MAP_TYPE` entries, the semantic analyzer builds `ABISignature` descriptors for both the target and source functions. These are cross-validated for:
+   - Parameter count match
+   - Parameter size compatibility (byte-level)
+   - Pointer vs value passing convention match
+   - Return type size compatibility
+
+2. **Linker stage (link time):** The polyglot linker (`polyld`) validates `CrossLangSymbol` descriptors before generating glue stubs:
+   - Parameter count between source and target symbols
+   - Per-parameter size and passing convention
+   - Return type size compatibility
+   - MAP_TYPE entry count vs actual symbol parameter count
+
+3. **Descriptor file validation:** When loading `.paux` descriptor files, the linker validates:
+   - Language identifiers against the known set
+   - Symbol name non-emptiness
+   - Duplicate entry detection
+   - Descriptor format correctness
+
+### Language-to-Convention Mapping
+
+| Language | Convention (Linux/macOS) | Convention (Windows) |
+|----------|------------------------|---------------------|
+| C/C++/Rust | System V AMD64 | Microsoft x64 |
+| Python | Python C API (System V / x64) | Python C API (x64) |
+| Java | JNI (System V / x64) | JNI (x64) |
+| .NET/C# | P/Invoke (System V / x64) | P/Invoke (x64) |
+| .ploy | System V AMD64 | Microsoft x64 |
+
 Implementation:
+- `frontends/ploy/include/ploy_sema.h` (ABISignature, ABIParamDesc)
+- `frontends/ploy/src/sema/sema.cpp` (BuildABISignature, ValidateCompatibility)
+- `tools/polyld/src/polyglot_linker.cpp` (linker-level ABI validation)
 - `backends/x86_64/src/calling_convention.cpp`
 - `backends/arm64/src/calling_convention.cpp`
 - `runtime/src/interop/calling_convention.cpp` (cross-language calling convention adaptation)
@@ -2302,11 +2357,11 @@ The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gate
 
 | Gate | Tool | Description |
 |------|------|-------------|
-| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py` | Path references, bilingual sync, heading structure, version consistency |
+| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py --scope core` | Path references, core bilingual docs sync (`USER_GUIDE` / API), heading structure, version consistency |
 | **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
-| **Static Analysis** | `clang-tidy-17` | Bug-prone patterns, modernize, performance, readability (see `.clang-tidy`) |
-| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on full test suite |
-| **Code Coverage** | lcov / gcov | Collects line coverage; report uploaded as CI artifact |
+| **Static Analysis** | `clang-tidy-17` | Runs across all project `.cpp` sources under `common/middle/frontends/backends/runtime/tools` (no 50-file cap) |
+| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on non-benchmark test suites (`-LE benchmark`) |
+| **Code Coverage** | lcov / gcov | Collects line coverage from non-benchmark tests; report uploaded as CI artifact |
 | **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
 
 ### CMake Quality Options
@@ -2322,8 +2377,12 @@ The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gate
 ```bash
 # Format check (dry-run, requires clang-format 17+)
 find common middle frontends backends runtime tools \
-  -name '*.cpp' -o -name '*.h' -o -name '*.c' \
-  | xargs clang-format --dry-run --Werror --style=file
+    -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+    -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+    | xargs -0 clang-format --dry-run --Werror --style=file
+
+# Docs sync gate (core bilingual docs)
+python scripts/docs_sync_check.py --ci --scope core
 
 # Sanitizer build
 cmake -B build-san -G Ninja \
@@ -2332,7 +2391,7 @@ cmake -B build-san -G Ninja \
   -DPOLYGLOT_ENABLE_UBSAN=ON \
   -DBUILD_SHARED_LIBS=OFF
 cmake --build build-san
-cd build-san && ctest --output-on-failure
+cd build-san && ctest --output-on-failure -LE benchmark
 
 # Coverage build
 cmake -B build-cov -G Ninja \
@@ -2340,7 +2399,7 @@ cmake -B build-cov -G Ninja \
   -DPOLYGLOT_ENABLE_COVERAGE=ON \
   -DBUILD_SHARED_LIBS=OFF
 cmake --build build-cov
-cd build-cov && ctest --output-on-failure
+cd build-cov && ctest --output-on-failure -LE benchmark
 lcov --capture --directory . --output-file coverage.info
 ```
 
@@ -2682,9 +2741,9 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 - ✅ New `.clang-tidy` configuration: bugprone, cppcoreguidelines, modernize, performance, readability checks with project-specific exclusions
 - ✅ New CMake options: `POLYGLOT_ENABLE_ASAN`, `POLYGLOT_ENABLE_UBSAN`, `POLYGLOT_ENABLE_COVERAGE` for sanitizer and coverage builds
 - ✅ CI `format-check` job: enforces `.clang-format` style on all C/C++ source files via `clang-format-17`
-- ✅ CI `clang-tidy` job: static analysis with `clang-tidy-17` on project sources (excluding tests/deps)
-- ✅ CI `sanitizers` job: full test suite under ASan + UBSan (Linux, static build)
-- ✅ CI `coverage` job: collects line coverage via lcov/gcov, uploads filtered report as artifact
+- ✅ CI `clang-tidy` job: static analysis with `clang-tidy-17` on all project `.cpp` sources (no 50-file cap)
+- ✅ CI `sanitizers` job: ASan + UBSan run on non-benchmark suites (`ctest -LE benchmark`) for stable signal
+- ✅ CI `coverage` job: collects line coverage via lcov/gcov from non-benchmark suites and uploads filtered report
 - ✅ CI `benchmark-smoke` job: runs benchmarks in fast mode to catch performance regressions
 - ✅ CI concurrency control: cancels in-progress runs for the same branch/PR
 - ✅ Platform builds now depend on `format-check` gate passing first

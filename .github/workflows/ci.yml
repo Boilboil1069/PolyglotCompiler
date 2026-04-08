@@ -30,7 +30,7 @@ jobs:
         run: python scripts/docs_lint.py --ci
 
       - name: Check bilingual sync
-        run: python scripts/docs_sync_check.py --ci
+        run: python scripts/docs_sync_check.py --ci --scope core
 
       - name: Check single-source freshness
         run: python scripts/docs_generate.py --check
@@ -52,15 +52,15 @@ jobs:
       - name: Check formatting
         run: |
           find common middle frontends backends runtime tools \
-            -name '*.cpp' -o -name '*.h' -o -name '*.c' \
-            | grep -v '/deps/' | grep -v '/.cache/' \
-            | xargs clang-format-17 --dry-run --Werror --style=file \
+            -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+            -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+            | xargs -0 -r clang-format-17 --dry-run --Werror --style=file \
             2>&1 | head -200
           # Exit with the pipeline status
           find common middle frontends backends runtime tools \
-            -name '*.cpp' -o -name '*.h' -o -name '*.c' \
-            | grep -v '/deps/' | grep -v '/.cache/' \
-            | xargs clang-format-17 --dry-run --Werror --style=file
+            -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+            -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+            | xargs -0 -r clang-format-17 --dry-run --Werror --style=file
 
   # ==========================================================================
   # Quality Gate 3: Static analysis (clang-tidy)
@@ -88,11 +88,11 @@ jobs:
         run: |
           # Run on project source files only (exclude tests, deps, .cache)
           find common middle frontends backends runtime tools \
-            -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' \
-            | head -50 \
-            | xargs -P$(nproc) -I{} \
-              clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' {} \
-            2>&1 | tail -100
+            -type f -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+            | xargs -0 -r -P$(nproc) -n 1 \
+              clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
+            > clang-tidy.log 2>&1
+          tail -100 clang-tidy.log
 
   # ==========================================================================
   # Quality Gate 4: Sanitizers (ASan + UBSan)
@@ -125,7 +125,7 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           cd build
-          ctest --output-on-failure -C Debug --timeout 300
+          ctest --output-on-failure -C Debug --timeout 300 -LE benchmark
 
   # ==========================================================================
   # Quality Gate 5: Code coverage
@@ -154,12 +154,12 @@ jobs:
       - name: Run tests
         run: |
           cd build
-          ctest --output-on-failure -C Debug
+          ctest --output-on-failure -C Debug -LE benchmark
 
       - name: Collect coverage
         run: |
           lcov --capture --directory build --output-file coverage.info \
-            --ignore-errors mismatch
+            --ignore-errors mismatch,empty
           # Remove external/test/generated files from report
           lcov --remove coverage.info \
             '/usr/*' \

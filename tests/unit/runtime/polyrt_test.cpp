@@ -2,12 +2,15 @@
 #include <catch2/catch_approx.hpp>
 
 #include <cstring>
+#include <string>
+#include <thread>
 #include <vector>
 
 #include "runtime/include/gc/heap.h"
 #include "runtime/include/gc/gc_api.h"
 #include "runtime/include/services/threading.h"
 #include "runtime/include/interop/container_marshal.h"
+#include "runtime/include/interop/object_lifecycle.h"
 
 using namespace polyglot::runtime;
 using namespace polyglot::runtime::gc;
@@ -205,4 +208,56 @@ TEST_CASE("Container marshal - list_generic with single element", "[runtime][int
     REQUIRE(rt_list->count == 1);
     REQUIRE(rt_list->elem_size == sizeof(char));
     REQUIRE(static_cast<const char *>(rt_list->data)[0] == 'Z');
+}
+
+TEST_CASE("Container marshal - dict grows and preserves entries", "[runtime][interop][container][dict]") {
+    void *raw = __ploy_rt_dict_create(sizeof(std::uint64_t), sizeof(std::uint64_t));
+    REQUIRE(raw != nullptr);
+    auto *dict = static_cast<RuntimeDict *>(raw);
+
+    const std::uint64_t total = 2048;
+    for (std::uint64_t i = 0; i < total; ++i) {
+        std::uint64_t value = i * 3;
+        __ploy_rt_dict_insert(dict, &i, &value);
+    }
+
+    REQUIRE(__ploy_rt_dict_len(dict) == total);
+    REQUIRE(dict->bucket_count > 16);
+
+    for (std::uint64_t i = 0; i < total; ++i) {
+        auto *value_ptr = static_cast<std::uint64_t *>(__ploy_rt_dict_lookup(dict, &i));
+        REQUIRE(value_ptr != nullptr);
+        REQUIRE(*value_ptr == i * 3);
+    }
+
+    __ploy_rt_dict_free(dict);
+}
+
+TEST_CASE("Object lifecycle - extension registry is thread-safe", "[runtime][interop][lifecycle]") {
+    __ploy_extend_reset_registry_for_tests();
+
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 40;
+    std::vector<std::thread> workers;
+    workers.reserve(kThreads);
+
+    for (int t = 0; t < kThreads; ++t) {
+        workers.emplace_back([t]() {
+            for (int i = 0; i < kPerThread; ++i) {
+                std::string base = "Base" + std::to_string(t) + "_" + std::to_string(i);
+                std::string derived = "Derived" + std::to_string(t) + "_" + std::to_string(i);
+                __ploy_extend_register("python", base.c_str(), derived.c_str());
+            }
+        });
+    }
+
+    for (auto &worker : workers) {
+        worker.join();
+    }
+
+    REQUIRE(__ploy_extend_registry_count() == static_cast<std::size_t>(kThreads * kPerThread));
+
+    const char *resolved = __ploy_extend_find_derived("python", "Base3_7");
+    REQUIRE(resolved != nullptr);
+    REQUIRE(std::string(resolved) == "Derived3_7");
 }

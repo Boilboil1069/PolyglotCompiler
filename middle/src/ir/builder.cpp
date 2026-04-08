@@ -195,6 +195,50 @@ std::shared_ptr<UnreachableStatement> IRBuilder::MakeUnreachable() {
   return ur;
 }
 
+std::shared_ptr<InvokeInstruction> IRBuilder::MakeInvoke(const std::string &callee,
+                                                          const std::vector<std::string> &args,
+                                                          const IRType &ret_type,
+                                                          BasicBlock *normal_dest,
+                                                          BasicBlock *unwind_dest,
+                                                          const std::string &name) {
+  auto bb = CurrentBlock();
+  auto inst = std::make_shared<InvokeInstruction>();
+  inst->callee = callee;
+  inst->operands = args;
+  inst->type = ret_type;
+  inst->normal_dest = normal_dest;
+  inst->unwind_dest = unwind_dest;
+  inst->name = ret_type.kind == IRTypeKind::kVoid ? "" : (name.empty() ? NextTempName("invoke") : name);
+  inst->parent = bb.get();
+  bb->SetTerminator(inst);
+  return inst;
+}
+
+std::shared_ptr<LandingPadInstruction> IRBuilder::MakeLandingPad(bool is_cleanup,
+                                                                   const std::vector<IRType> &catch_types,
+                                                                   const std::string &name) {
+  auto bb = CurrentBlock();
+  auto inst = std::make_shared<LandingPadInstruction>();
+  inst->is_cleanup = is_cleanup;
+  inst->catch_types = catch_types;
+  inst->type = IRType::Pointer(IRType::Void());  // Exception pointer
+  inst->name = name.empty() ? NextTempName("lpad") : name;
+  inst->parent = bb.get();
+  bb->AddInstruction(inst);
+  return inst;
+}
+
+std::shared_ptr<ResumeInstruction> IRBuilder::MakeResume(const std::string &value) {
+  auto bb = CurrentBlock();
+  auto inst = std::make_shared<ResumeInstruction>();
+  if (!value.empty()) {
+    inst->operands = {value};
+  }
+  inst->parent = bb.get();
+  bb->SetTerminator(inst);
+  return inst;
+}
+
 std::shared_ptr<Function> IRBuilder::CreateFunction(const std::string &name, const IRType &ret,
                                                     const std::vector<std::pair<std::string, IRType>> &params) {
   insert_block_.reset();  // reset insertion point for new function

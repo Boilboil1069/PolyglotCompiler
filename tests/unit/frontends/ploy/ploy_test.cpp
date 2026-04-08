@@ -3104,7 +3104,7 @@ TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics
 // Cross-language param count validation tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: LINK MAP_TYPE entries do not constrain CALL arg count", "[ploy][sema][error-check]") {
+TEST_CASE("Ploy sema: LINK MAP_TYPE entries define CALL arity contract", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags);
     bool ok = AnalyzeCode(R"(
@@ -3117,11 +3117,10 @@ FUNC main() {
     LET result = CALL(cpp, math::add, 1);
 }
 )", diags, sema);
-    // MAP_TYPE entries describe cross-language type mappings, not parameter count.
-    // CALL to a LINK target with any arg count should be accepted since the
-    // actual function signature is defined in the external language, not in .ploy.
-    CHECK(ok);
-    CHECK(!diags.HasErrors());
+    // MAP_TYPE entries now define the cross-language call arity contract.
+    // Calling with fewer/more args must fail in sema before lowering.
+    CHECK_FALSE(ok);
+    CHECK(diags.HasErrors());
 }
 
 TEST_CASE("Ploy sema: LINK function correct arg count passes", "[ploy][sema][error-check]") {
@@ -3139,6 +3138,68 @@ FUNC main() {
 )", diags, sema);
     CHECK(ok);
     CHECK(!diags.HasErrors());
+}
+
+TEST_CASE("Ploy sema strict: METHOD requires declared signature", "[ploy][sema][strict][abi]") {
+    Diagnostics diags;
+    PloySemaOptions options;
+    options.strict_mode = true;
+    PloySema sema(diags, options);
+
+    bool ok = AnalyzeCode(R"(
+FUNC main(model: python::Model) -> INT {
+    LET output = METHOD(python, model, forward, 1);
+    RETURN 0;
+}
+)", diags, sema);
+
+    CHECK_FALSE(ok);
+    CHECK(diags.HasErrors());
+
+    bool found_missing_signature = false;
+    for (const auto &d : diags.All()) {
+        if (d.message.find("signature") != std::string::npos &&
+            d.message.find("forward") != std::string::npos) {
+            found_missing_signature = true;
+            break;
+        }
+    }
+    CHECK(found_missing_signature);
+}
+
+TEST_CASE("Ploy sema strict: WITH requires 4-arg __exit__", "[ploy][sema][strict][with]") {
+    Diagnostics diags;
+    PloySemaOptions options;
+    options.strict_mode = true;
+    PloySema sema(diags, options);
+
+    bool ok = AnalyzeCode(R"(
+FUNC __enter__(self: python::Ctx) -> python::Ctx {
+    RETURN self;
+}
+
+FUNC __exit__(self: python::Ctx) -> VOID {
+    RETURN;
+}
+
+FUNC main(cm: python::Ctx) {
+    WITH(python, cm) AS handle {
+    }
+}
+)", diags, sema);
+
+    CHECK_FALSE(ok);
+    CHECK(diags.HasErrors());
+
+    bool found_exit_arity_error = false;
+    for (const auto &d : diags.All()) {
+        if (d.message.find("__exit__") != std::string::npos &&
+            d.message.find("4 parameter") != std::string::npos) {
+            found_exit_arity_error = true;
+            break;
+        }
+    }
+    CHECK(found_exit_arity_error);
 }
 
 // ============================================================================
