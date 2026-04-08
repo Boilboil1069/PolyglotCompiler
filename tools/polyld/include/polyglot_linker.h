@@ -49,6 +49,21 @@ struct GlueStub {
 };
 
 // ============================================================================
+// ABI Descriptor (for cross-language ABI validation)
+// ============================================================================
+
+// Describes the ABI (Application Binary Interface) characteristics of a
+// language's calling convention on a specific target architecture.
+struct ABIDescriptor {
+    std::string calling_convention;   // "sysv64", "win64", "aapcs64"
+    size_t pointer_size{8};           // Size of a pointer in bytes
+    size_t stack_alignment{16};       // Required stack alignment in bytes
+    bool requires_shadow_space{false};// Win64 shadow space requirement
+    size_t int_reg_count{6};          // Number of integer parameter registers
+    size_t float_reg_count{8};        // Number of floating-point parameter registers
+};
+
+// ============================================================================
 // Cross-Language Link Resolver
 // ============================================================================
 
@@ -127,6 +142,15 @@ class PolyglotLinker {
 
     // Helper: determine the calling convention for a language
     static std::string GetCallingConvention(const std::string &language);
+
+    // ABI validation between source and target symbol descriptors.
+    // Returns true if the ABIs are compatible; otherwise reports an error
+    // and returns false.
+    bool ValidateABICompatibility(const CrossLangSymbol &target,
+                                  const CrossLangSymbol &source);
+
+    // Get the ABI descriptor for a given language on the current target.
+    static ABIDescriptor GetABIDescriptor(const std::string &language);
 
     // Error reporting
     void ReportError(const std::string &msg);

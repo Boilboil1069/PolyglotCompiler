@@ -1009,3 +1009,30 @@ FetchContent_Declare(mimalloc ...)
 | `docs/demand/` | 需求和任务跟踪 |
 | `docs/USER_GUIDE.md` | 完整用户指南（英文）|
 | `docs/USER_GUIDE_zh.md` | 完整用户指南（中文）|
+
+## 14.5 CI 质量门禁
+
+项目使用 GitHub Actions (`.github/workflows/ci.yml`)，包含五项质量门禁：
+
+### 文档检查与同步
+- 检查路径引用、双语同步、标题结构
+- 验证文档间的版本一致性
+
+### 格式检查
+- 使用 `clang-format-17`，C++20 标准（从 C++17 更新）
+- 配置在 `.clang-format` 中：`Standard: c++20`
+
+### 静态分析
+- `clang-tidy-17`，包含 bugprone 检查
+- **注意**：之前限制为前 50 个 `.cpp` 文件；现在扫描所有文件
+- 输出通过 tee 记录，并使用 grep 检查错误
+
+### Sanitizer
+- ASan（Address Sanitizer）+ UBSan（Undefined Behavior Sanitizer）
+- 在完整测试套件上运行
+
+### 代码覆盖率
+- 使用 `lcov`/`gcov` 收集覆盖率
+
+### 测试配置
+- `tests/CMakeLists.txt`：集成测试和基准测试使用显式文件列表，而非 `GLOB_RECURSE`

@@ -161,11 +161,26 @@ struct FunctionSignature {
     core::Type return_type{core::Type::Any()};// Return type
     size_t param_count{0};                    // Number of parameters
     bool param_count_known{false};            // Whether param count is statically known
+    bool validated{false};                    // Whether the signature has been ABI-validated
     core::SourceLoc defined_at{};             // Where the function was declared
 
     // Optional ABI-level descriptor for cross-language validation.
     // Populated when the signature comes from a LINK declaration with MAP_TYPE.
     std::shared_ptr<ABISignature> abi{nullptr};
+};
+
+// ============================================================================
+// Foreign Class Schema (for cross-language NEW/METHOD/GET/SET validation)
+// ============================================================================
+
+struct ForeignClassSchema {
+    std::string class_name;                   // Fully qualified class name
+    std::string language;                     // Source language (e.g. "python", "cpp")
+    std::unordered_map<std::string, core::Type> attributes;    // Attribute types
+    std::unordered_map<std::string, FunctionSignature> methods; // Method signatures
+    bool has_constructor{false};              // Whether a constructor is registered
+    FunctionSignature constructor_sig;        // Constructor signature
+    core::SourceLoc defined_at{};
 };
 
 // ============================================================================
@@ -204,6 +219,16 @@ class PloySema {
     const std::unordered_map<std::string, FunctionSignature> &KnownSignatures() const {
         return known_signatures_;
     }
+    const std::unordered_map<std::string, ForeignClassSchema> &ClassSchemas() const {
+        return class_schemas_;
+    }
+
+    // Register a class schema for foreign class validation.
+    void RegisterClassSchema(const std::string &qualified_name,
+                             ForeignClassSchema schema);
+
+    // Look up a class schema by qualified name (e.g. "python::torch.nn.Linear").
+    const ForeignClassSchema *LookupClassSchema(const std::string &qualified_name) const;
     const std::unordered_map<std::string, std::shared_ptr<ABISignature>> &ABISignatures() const {
         return abi_signatures_;
     }
@@ -365,8 +390,6 @@ class PloySema {
     std::unordered_map<std::string, core::Type> map_funcs_{};
     // Known function signatures for parameter validation
     std::unordered_map<std::string, FunctionSignature> known_signatures_{};
-    // ABI signatures for cross-language link validation
-    std::unordered_map<std::string, std::shared_ptr<ABISignature>> abi_signatures_{};
     int loop_depth_{0};
     core::Type current_return_type_{core::Type::Invalid()};
     // Track whether code is unreachable (after RETURN, BREAK, CONTINUE)

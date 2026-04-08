@@ -238,6 +238,11 @@ set(INTEGRATION_TEST_SOURCES
     integration/interop_tests/interop_test.cpp
     integration/performance/perf_test.cpp
 )
+set(INTEGRATION_TEST_SOURCES
+    integration/compile_tests/compile_pipeline_test.cpp
+    integration/interop_tests/interop_test.cpp
+    integration/performance/perf_test.cpp
+)
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
 
@@ -245,10 +250,7 @@ target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
 # Benchmark Tests
 # ============================================================================
 
-set(BENCHMARK_TEST_SOURCES
-    benchmarks/macro/macro_bench.cpp
-    benchmarks/micro/micro_bench.cpp
-)
+file(GLOB_RECURSE BENCHMARK_TEST_SOURCES benchmarks/*.cpp)
 add_executable(benchmark_tests ${BENCHMARK_TEST_SOURCES})
 target_link_libraries(benchmark_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
 

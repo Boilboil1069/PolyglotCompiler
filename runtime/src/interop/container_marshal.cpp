@@ -17,6 +17,11 @@ namespace polyglot::runtime::interop {
 
 namespace {
 
+// Dict rehash configuration constants.
+static constexpr double kDefaultLoadFactor = 0.75;
+static constexpr std::size_t kMinBucketCount = 16;
+static constexpr std::size_t kMaxBucketCount = (1ULL << 30);
+
 /// FNV-1a hash for arbitrary bytes (used by the dict implementation).
 static std::size_t HashBytes(const void *data, std::size_t size) {
     const auto *bytes = static_cast<const std::uint8_t *>(data);
@@ -85,6 +90,37 @@ static void DictEnsureCapacityForInsert(RuntimeDict *dict) {
         if (new_bucket_count < kDictMinBuckets) new_bucket_count = kDictMinBuckets;
         DictRehash(dict, new_bucket_count);
     }
+}
+
+/// Rehash a RuntimeDict into a new bucket array of the given size.
+/// All existing entries are redistributed into the new buckets.
+static void DictRehash(RuntimeDict *dict, std::size_t new_bucket_count) {
+    if (new_bucket_count > kMaxBucketCount) return;
+    if (new_bucket_count < kMinBucketCount) new_bucket_count = kMinBucketCount;
+
+    RuntimeDictEntry **new_buckets = static_cast<RuntimeDictEntry **>(
+        std::calloc(new_bucket_count, sizeof(RuntimeDictEntry *)));
+    if (!new_buckets) return;  // Keep existing table on allocation failure.
+
+    RuntimeDictEntry **old_buckets = dict->buckets;
+    std::size_t old_count = dict->bucket_count;
+
+    // Redistribute all existing entries into the new bucket array.
+    for (std::size_t i = 0; i < old_count; ++i) {
+        RuntimeDictEntry *entry = old_buckets[i];
+        while (entry) {
+            RuntimeDictEntry *next = entry->next;
+            std::size_t hash = HashBytes(entry->key, dict->key_size);
+            std::size_t bucket = hash % new_bucket_count;
+            entry->next = new_buckets[bucket];
+            new_buckets[bucket] = entry;
+            entry = next;
+        }
+    }
+
+    dict->buckets = new_buckets;
+    dict->bucket_count = new_bucket_count;
+    std::free(old_buckets);
 }
 
 } // anonymous namespace
@@ -215,24 +251,28 @@ void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
         }
     }
 
-    // Insert new entry
+    // Insert new entry with cascading error handling.
     auto *entry = static_cast<RuntimeDictEntry *>(std::calloc(1, sizeof(RuntimeDictEntry)));
     if (!entry) return;
 
     entry->key = std::malloc(dict->key_size);
-    entry->value = std::malloc(dict->value_size);
-    if (!entry->key || !entry->value) {
-        std::free(entry->key);
-        std::free(entry->value);
+    if (!entry->key) {
         std::free(entry);
         return;
     }
 
+    entry->value = std::malloc(dict->value_size);
     std::memcpy(entry->key, key, dict->key_size);
     std::memcpy(entry->value, value, dict->value_size);
     entry->next = dict->buckets[bucket];
     dict->buckets[bucket] = entry;
     ++dict->count;
+
+    // Rehash when load factor exceeds threshold.
+    double load = static_cast<double>(dict->count) / dict->bucket_count;
+    if (load > kDefaultLoadFactor) {
+        DictRehash(dict, dict->bucket_count * 2);
+    }
 }
 
 void *__ploy_rt_dict_lookup(void *raw, const void *key) {

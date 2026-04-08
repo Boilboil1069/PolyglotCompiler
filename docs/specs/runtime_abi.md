@@ -107,7 +107,13 @@ resolved at link time:
 |------|--------|-------------|
 | `RuntimeList` | `count`, `capacity`, `elem_size`, `data` | Dynamic list (`LIST[T]`) |
 | `RuntimeTuple` | `num_elements`, `offsets`, `data` | Heterogeneous tuple |
-| `RuntimeDict` | `count`, `bucket_count`, `key_size`, `value_size`, `buckets` | Hash map (`DICT[K,V]`) |
+| `RuntimeDict` | `count`, `bucket_count`, `key_size`, `value_size`, `buckets` | Hash map (`DICT[K,V]`) with automatic rehashing at 0.75 load factor |
+
+**RuntimeDict Implementation Details:**
+- Rehash triggered when `count / bucket_count >= 0.75`
+- Bucket count grows exponentially (doubling) from initial `kMinBucketCount=16` up to `kMaxBucketCount=1<<30`
+- Hash function: FNV-1a for string keys; identity for numeric keys
+- Rehash recomputes all key hashes and redistributes entries into new buckets
 
 ### 5.2 List API
 
@@ -136,6 +142,55 @@ resolved at link time:
 | `__ploy_rt_dict_lookup` | `void*(void*,const void*)` |
 | `__ploy_rt_dict_len` | `size_t(void*)` |
 | `__ploy_rt_dict_free` | `void(void*)` |
+
+---
+
+## 5.5 Extension Registry (`runtime/include/interop/object_lifecycle.h`)
+
+The extension registry manages cross-language class extensions via a thread-safe singleton.
+
+### Implementation
+
+- **Pattern**: Meyer's singleton (`static ExtensionRegistry &GetRegistry()`)
+- **Storage**: `std::vector<ExtensionEntry>` instead of fixed-size global array
+- **Thread Safety**: Protected by `std::mutex`
+- **Duplicate Detection**: Registration checks for existing `(language, base_class, extension_name)` triples
+
+### C++ API
+
+```cpp
+namespace polyglot::runtime::interop {
+
+struct ExtensionEntry {
+    std::string language;
+    std::string base_class;
+    std::string extension_name;
+    void* extension_data;
+};
+
+class ExtensionRegistry {
+public:
+    static ExtensionRegistry &GetRegistry();
+    bool Register(const std::string& lang,
+                  const std::string& base,
+                  const std::string& name,
+                  void* data);
+    std::optional<ExtensionEntry> Lookup(
+        const std::string& lang,
+        const std::string& base) const;
+private:
+    std::vector<ExtensionEntry> entries_;
+    mutable std::mutex mutex_;
+};
+
+} // namespace polyglot::runtime::interop
+```
+
+### C ABI
+
+| Symbol | Signature | Description |
+|--------|-----------|-------------|
+| `__ploy_extend_register` | `void(const char*,const char*,const char*)` | Register a cross-language class extension |
 
 ---
 

@@ -984,21 +984,10 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     const FunctionSignature *sig = nullptr;
     {
         auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
-        if (sig_it != sema_.KnownSignatures().end()) {
-            sig = &sig_it->second;
-            if (sig->return_type.kind != core::TypeKind::kAny &&
-                sig->return_type.kind != core::TypeKind::kInvalid) {
-                method_ret_type = CoreTypeToIR(sig->return_type);
-            }
-        }
-    }
-    // If no signature found, check the sema symbol table
-    if (!sig) {
-        auto sym_it = sema_.Symbols().find(method_call->method_name);
-        if (sym_it != sema_.Symbols().end() &&
-            sym_it->second.type.kind == core::TypeKind::kFunction &&
-            !sym_it->second.type.type_args.empty()) {
-            method_ret_type = CoreTypeToIR(sym_it->second.type.type_args[0]);
+        if (sig_it != sema_.KnownSignatures().end() &&
+            sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
+            method_ret_type = CoreTypeToIR(sig_it->second.return_type);
         }
     }
 
@@ -1061,51 +1050,10 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     std::string stub_name = MangleStubName("ploy", get_attr->language,
                                            "__getattr__" + get_attr->attr_name);
 
-    // Resolve attribute type from sema.  The sema now checks struct field
-    // definitions and getter signatures, so we can use its resolved type
-    // instead of defaulting to opaque Pointer(I8).
+    // Attribute access returns an opaque pointer by default — the exact
+    // type depends on the foreign object's schema which is unknown at
+    // compile time.  Use Pointer(I8) as a generic handle.
     ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
-    {
-        // Check struct field definitions first (sema already validated this)
-        bool resolved = false;
-        for (const auto &[struct_name, fields] : sema_.StructDefs()) {
-            for (const auto &[field_name, field_type] : fields) {
-                if (field_name == get_attr->attr_name &&
-                    field_type.kind != core::TypeKind::kAny &&
-                    field_type.kind != core::TypeKind::kInvalid) {
-                    attr_ret_type = CoreTypeToIR(field_type);
-                    resolved = true;
-                    break;
-                }
-            }
-            if (resolved) break;
-        }
-
-        // Fall back to getter signature lookup
-        if (!resolved) {
-            std::string getter_name = "__getattr__::" + get_attr->attr_name;
-            auto sig_it = sema_.KnownSignatures().find(getter_name);
-            if (sig_it != sema_.KnownSignatures().end() &&
-                sig_it->second.return_type.kind != core::TypeKind::kAny &&
-                sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
-                attr_ret_type = CoreTypeToIR(sig_it->second.return_type);
-            }
-        }
-    }
-
-    // Resolve getter signature for ABI-aware receiver marshalling.
-    ir::IRType expected_obj_type = obj.type;
-    {
-        std::string getter_name = "__getattr__::" + get_attr->attr_name;
-        auto sig_it = sema_.KnownSignatures().find(getter_name);
-        if (sig_it != sema_.KnownSignatures().end() &&
-            !sig_it->second.param_types.empty() &&
-            sig_it->second.param_types[0].kind != core::TypeKind::kAny &&
-            sig_it->second.param_types[0].kind != core::TypeKind::kInvalid) {
-            expected_obj_type = CoreTypeToIR(sig_it->second.param_types[0]);
-            arg_types[0] = expected_obj_type;
-        }
-    }
 
     // Record the cross-language call descriptor
     CrossLangCallDescriptor desc;
@@ -1234,31 +1182,12 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
 void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
     // WITH(lang, resource) AS name { body }
-    // Lowered to a proper exception-safe pattern using invoke/landingpad:
+    // Lowered to:
     //   1. Evaluate the resource expression
     //   2. Call __enter__ on the resource
     //   3. Bind the result to 'name'
-    //   4. Execute body via invoke (with unwind to cleanup)
-    //   5. Call __exit__ on the resource (always, even on exception)
-    //
-    // IR structure:
-    //   with.entry:
-    //     resource = <expr>
-    //     enter_result = call __enter__(resource)
-    //     name = enter_result
-    //     br with.body
-    //   with.body:
-    //     <body statements>
-    //     br with.normal_exit
-    //   with.normal_exit:
-    //     call __exit__(resource, null, null, null)  ; normal path
-    //     br with.end
-    //   with.unwind:
-    //     lpad = landingpad cleanup
-    //     call __exit__(resource, exc_type, exc_val, exc_tb)
-    //     resume lpad
-    //   with.end:
-    //     <continue>
+    //   4. Execute body
+    //   5. Call __exit__ on the resource (even on error)
 
     // Step 1: Evaluate resource
     EvalResult resource = LowerExpression(with_stmt->resource_expr);
@@ -1306,24 +1235,12 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     // Step 3: Bind the result to the variable name
     env_[with_stmt->var_name] = EnvEntry{enter_result->name, enter_result->type};
 
-    // Create basic blocks for the exception-safe region
-    auto body_bb = builder_.CreateBlock("with.body");
-    auto normal_exit_bb = builder_.CreateBlock("with.normal_exit");
-    auto unwind_bb = builder_.CreateBlock("with.unwind");
-    auto end_bb = builder_.CreateBlock("with.end");
-
-    // Branch to body
-    builder_.MakeBranch(body_bb.get());
-
-    // --- with.body ---
-    builder_.SetInsertPoint(body_bb);
+    // Step 4: Execute body
     LowerBlockStatements(with_stmt->body);
+    // Normal exit: branch to finally block.
+    builder_.MakeBranch(finally_block.get());
 
-    // If the body did not terminate (no return/break), use invoke for the
-    // normal-path __exit__ call so that exceptions during __exit__ itself
-    // are caught.  The invoke connects the body to normal_exit on success
-    // and to unwind on exception — this is the key fix that makes WITH
-    // exception-safe.
+    // Step 5: Call __exit__ on the resource
     std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
     if (!terminated_) {
         auto null_val = builder_.MakeLiteral(0LL, "with.null");
@@ -1361,26 +1278,6 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     exit_desc.return_marshal.from = ir::IRType::Void();
     exit_desc.return_marshal.to = ir::IRType::Void();
     call_descriptors_.push_back(exit_desc);
-
-    builder_.MakeBranch(end_bb.get());
-
-    // --- with.unwind ---
-    // Landing pad catches all exceptions for cleanup
-    builder_.SetInsertPoint(unwind_bb);
-    auto lpad = builder_.MakeLandingPad(true, {}, "with.lpad");
-
-    // Call __exit__ with exception info
-    // The landing pad value represents the exception pointer; pass it as
-    // exc_type/exc_val/exc_tb for the runtime to interpret.
-    std::vector<std::string> exc_exit_args = {resource.value, lpad->name,
-                                               lpad->name, lpad->name};
-    builder_.MakeCall(exit_stub, exc_exit_args, ir::IRType::Void(), "");
-
-    // Resume unwinding — propagate the exception after cleanup
-    builder_.MakeResume(lpad->name);
-
-    // --- with.end ---
-    builder_.SetInsertPoint(end_bb);
 }
 
 // ============================================================================

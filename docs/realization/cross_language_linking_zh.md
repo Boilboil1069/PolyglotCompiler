@@ -14,17 +14,17 @@ frontends/ploy/
 │   ├── ploy_lexer.h          # 词法器（继承 LexerBase）
 │   ├── ploy_ast.h             # AST 节点定义
 │   ├── ploy_parser.h          # 解析器（继承 ParserBase）
-│   ├── ploy_sema.h            # 语义分析器
+│   ├── ploy_sema.h            # 语义分析器（含 ForeignClassSchema、class_schemas_）
 │   └── ploy_lowering.h        # IR 降级器
 └── src/
     ├── lexer/
-    │   └── lexer.cpp          # 词法器实现：41 个关键字、运算符、字面量、注释
+    │   └── lexer.cpp          # 词法器实现：54 个关键字、运算符、字面量、注释
     ├── parser/
     │   └── parser.cpp         # 解析器实现：递归下降，约 1380 行
     ├── sema/
-    │   └── sema.cpp           # 语义分析实现：约 860 行
+    │   └── sema.cpp           # 语义分析：参数数量、返回类型、ABI schema 验证
     └── lowering/
-        └── lowering.cpp       # 降级实现：约 1109 行
+        └── lowering.cpp       # 降级实现：WITH 语句结构化异常安全
 
 runtime/                        # 运行时支持
 └── include/interop/
@@ -35,7 +35,7 @@ runtime/                        # 运行时支持
 linker（扩展）:                  # 链接器扩展
 └── tools/polyld/
     ├── include/
-    │   └── polyglot_linker.h  # 跨语言链接解析器
+    │   └── polyglot_linker.h  # 跨语言链接解析器（ABIDescriptor、ValidateABICompatibility）
     └── src/
         └── polyglot_linker.cpp # 链接解析与粘合代码生成
 ```
@@ -54,6 +54,7 @@ linker（扩展）:                  # 链接器扩展
 | `frontend_common` | `LexerBase`、`ParserBase`、`Diagnostics`、`Token` | 前端基础设施，提供 Token 定义和错误报告 |
 | `middle_ir` | `ir::IRContext`、`ir::Function`、`ir::IRBuilder` | IR 构建工具，生成函数、基本块和指令 |
 | `runtime::interop` | `FFIRegistry`、`TypeMapping`、`ContainerMarshal` | 运行时跨语言调用支持 |
+| `tools/polyld` | `ABIDescriptor`、`ValidateABICompatibility()` | 链接阶段 ABI 兼容性验证，在 `ResolveSymbolPair()` 中调用 |
 
 ## 2. 词法器设计
 
@@ -158,12 +159,13 @@ MAP_TYPE '(' qualified_type ',' qualified_type ')' ';'
 | 1. 符号解析 | 解析所有标识符到其声明 | 包括跨模块引用和包引用 |
 | 2. 语言验证 | 验证 LINK/IMPORT 的语言标识符 | 支持：`cpp`、`python`、`rust`、`c`、`ploy` |
 | 3. 类型检查 | 验证链接函数签名兼容性 | 考虑 MAP_TYPE 定义的转换 |
-| 4. 链接验证 | 验证 LINK 目标/源的有效性 | 检查引用的模块和函数存在 |
+| 4. 链接验证 | 验证 LINK 目标/源的有效性 | 存在 MAP_TYPE 时设置 `param_count_known` 和 `validated` 标志 |
 | 5. 类型映射验证 | 验证 MAP_TYPE 转换的有效性 | 确保类型可以安全转换 |
 | 6. 控制流验证 | 验证 BREAK/CONTINUE 在循环内 | 检查所有路径返回值 |
 | 7. 结构体验证 | 验证字段不重复、类型有效 | 注册到符号表作为类型 |
 | 8. MAP_FUNC 验证 | 验证参数和返回类型 | 注册到转换函数表 |
 | 9. 包导入验证 | 验证 PACKAGE 的语言有效 | 确保语言标识符合法 |
+| 10. 类模式验证 | `NEW`/`METHOD`/`GET`/`SET` 从 `ForeignClassSchema` 解析类型 | 匹配时检查参数数量、字段类型、返回类型；严格模式对未解析类型报错 |
 
 ## 6. 降级设计
 
@@ -180,6 +182,7 @@ MAP_TYPE '(' qualified_type ',' qualified_type ')' ';'
 | `MAP_FUNC` 声明 | `__ploy_mapfunc_<name>` IR 函数 | 包含转换逻辑的完整函数 |
 | 容器字面量 | 运行时分配 + 元素存储 | 调用 `__ploy_rt_list_create` 等 |
 | `CONVERT` 表达式 | `__ploy_convert_<type>` 调用 | 运行时类型转换 |
+| `WITH` 语句 | body/finally/exit 三区块结构 | 结构化异常安全：确保即使异常传播也调用 `__exit__` |
 
 ## 7. 跨语言链接解析
 
@@ -219,6 +222,19 @@ MAP_TYPE '(' qualified_type ',' qualified_type ')' ';'
 1. 从所有源语言加载目标文件
 2. 解混淆（demangle）符号以找到目标函数
 3. 生成连接不同调用约定的桥接符号
+
+### 7.4 ABI 兼容性验证
+
+链接阶段新增：`ResolveSymbolPair()` 在生成粘合代码前调用 `ValidateABICompatibility()`。验证内容包括：
+
+| 检查项 | 说明 |
+|-------|------|
+| **参数数量** | 源函数和目标函数必须声明相同数量的参数 |
+| **指针兼容性** | 双方在每个参数位置上必须一致（指针 vs 值类型） |
+| **调用约定** | `ABIDescriptor` 根据平台和语言解析 SysV AMD64 / Win64 / AAPCS64 |
+| **返回大小** | 非 void 返回值在编组前验证大小兼容性 |
+
+`ABIDescriptor` 由 `GetABIDescriptor(language, symbol)` 返回，包含约定标签、参数类别和目标平台的 shadow-space 需求。
 
 ## 8. 运行时支持
 

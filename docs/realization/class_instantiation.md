@@ -267,16 +267,24 @@ PIPELINE training_pipeline {
 
 ## 6. Limitations
 
-| Limitation | Description |
-|-----------|-------------|
-| **Static type unknown** | `NEW` and `METHOD` return `Any` type; full type checking is not possible at compile time |
-| **No destructors** | Automatic destructor / `__del__` invocation is not supported; use `METHOD(lang, obj, close)` manually |
-| **No inheritance** | `.ploy` does not support defining subclasses in the target language |
-| **No property assignment** | Currently only method calls are supported; direct `obj.attr = value` is not available |
+| Limitation | Description | Status |
+|-----------|-------------|--------|
+| **Static type unknown** | `NEW` and `METHOD` return `Any` type; full type checking is not possible at compile time without class schemas | Partially resolved via `ForeignClassSchema` |
+| **No destructors** | Automatic destructor / `__del__` invocation is not supported; use `METHOD(lang, obj, close)` manually | Still applies |
+| **No inheritance** | `.ploy` does not support defining subclasses in the target language | Still applies |
+| **No property assignment** | Previously only method calls were supported; direct `obj.attr = value` was not available. **Now resolved:** `GET` and `SET` resolve types from class schemas registered via `RegisterClassSchema()` | **Resolved** |
 
-## 7. Future Extension Directions
+## 7. Implementation Details (Updated)
 
-- **Property access sugar**: `GET(lang, obj, attr)` / `SET(lang, obj, attr, value)`
-- **Automatic resource management**: Similar to Python's `with` statement, auto-calling `__enter__`/`__exit__`
-- **Type annotations**: `LET model: python::nn::Module = NEW(python, torch::nn::Linear, 10, 5);`
-- **Interface mapping**: Map foreign classes to `.ploy` structs via `MAP_TYPE`
+### 7.1 Class Schema Resolution
+
+The semantic analyzer maintains a `class_schemas_` map (`std::map<std::string, ForeignClassSchema>`) that registers known foreign class layouts. When processing `NEW`, `METHOD`, `GET`, or `SET`:
+
+1. The analyzer looks up the class name in `class_schemas_`
+2. If found, it validates:
+   - Constructor parameter count and types for `NEW`
+   - Method signature (param count, return type) for `METHOD`
+   - Field existence and type for `GET`/`SET`
+3. If not found and strict mode is enabled, an error is emitted; otherwise a warning is emitted and the expression defaults to `Any`
+
+This moves type checking for cross-language OOP from IR lowering time to semantic analysis time.

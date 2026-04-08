@@ -696,6 +696,102 @@ public:
 
 ---
 
+# 9. 链接器 ABI 验证
+
+**头文件**: `tools/polyld/include/polyglot_linker.h`
+**命名空间**: `polyglot::linker`
+
+## 9.1 ABIDescriptor
+
+描述跨语言符号的调用约定和参数布局。
+
+```cpp
+struct ABIDescriptor {
+    enum class Convention {
+        kSysV_AMD64,    // Linux/macOS x86_64
+        kWin64,         // Windows x86_64
+        kAAPCS64,       // ARM64
+        kWasm           // WebAssembly
+    };
+
+    Convention convention;
+    std::vector<ArgClass> arg_classes;  // 每个参数的类别（整数、SSE、内存）
+    size_t shadow_space;                // Win64 shadow space（字节）
+    size_t stack_alignment;             // 要求的栈对齐
+};
+```
+
+## 9.2 ABI 验证
+
+```cpp
+// 验证源符号和目标符号是否具有兼容的 ABI
+bool ValidateABICompatibility(const ABIDescriptor& source,
+                               const ABIDescriptor& target);
+
+// 获取给定语言中符号的 ABI 描述符
+ABIDescriptor GetABIDescriptor(const std::string& language,
+                                const std::string& symbol);
+```
+
+---
+
+# 10. 语义分析类模式
+
+**头文件**: `frontends/ploy/include/ploy_sema.h`
+**命名空间**: `polyglot::ploy`
+
+## 10.1 ForeignClassSchema
+
+描述外部类的布局，用于编译时类型检查。
+
+```cpp
+struct ForeignClassSchema {
+    std::string language;
+    std::string class_name;
+    std::vector<Field> fields;           // 字段名 + 类型
+    std::vector<Method> methods;         // 方法名 + 签名
+    std::vector<Constructor> constructors; // 可用构造器
+    bool has_destructor;
+    bool has_context_manager;            // __enter__/__exit__
+};
+
+struct Field {
+    std::string name;
+    core::Type type;
+    Access access;  // public/protected/private
+};
+
+struct Method {
+    std::string name;
+    std::vector<core::Type> param_types;
+    core::Type return_type;
+    bool is_static;
+};
+```
+
+## 10.2 PloySema 模式 API
+
+```cpp
+class PloySema {
+public:
+    // 注册从外部源发现的类模式
+    void RegisterClassSchema(const ForeignClassSchema& schema);
+
+    // 按完全限定名查找类模式
+    std::optional<ForeignClassSchema> LookupClassSchema(
+        const std::string& language,
+        const std::string& class_name) const;
+
+    // 将函数签名标记为已验证
+    void MarkValidated(FunctionSignature& sig);
+
+private:
+    std::unordered_map<std::string, ForeignClassSchema> class_schemas_;
+};
+```
+
+---
+
 # SourceLoc
 
 **头文件**: `common/include/core/source_loc.h`  

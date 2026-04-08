@@ -1008,3 +1008,30 @@ FetchContent_Declare(mimalloc ...)
 | `docs/demand/` | Requirements and task tracking |
 | `docs/USER_GUIDE.md` | Complete user guide (EN) |
 | `docs/USER_GUIDE_zh.md` | Complete user guide (ZH) |
+
+## 14.5 CI Quality Gates
+
+The project uses GitHub Actions (`.github/workflows/ci.yml`) with five quality gates:
+
+### Docs Lint & Sync
+- Checks path references, bilingual sync, heading structure
+- Validates version consistency across documentation
+
+### Format Check
+- Uses `clang-format-17` with C++20 standard (updated from C++17)
+- Configuration in `.clang-format`: `Standard: c++20`
+
+### Static Analysis
+- `clang-tidy-17` with bugprone checks
+- **Note**: Previously limited to first 50 `.cpp` files; now scans all files
+- Output logged and checked for errors via grep
+
+### Sanitizers
+- ASan (Address Sanitizer) + UBSan (Undefined Behavior Sanitizer)
+- Runs on full test suite
+
+### Code Coverage
+- Uses `lcov`/`gcov` for coverage collection
+
+### Test Configuration
+- `tests/CMakeLists.txt`: Uses explicit file lists instead of `GLOB_RECURSE` for integration and benchmark tests

@@ -690,6 +690,102 @@ public:
 
 ---
 
+# 9. Linker ABI Validation
+
+**Header**: `tools/polyld/include/polyglot_linker.h`
+**Namespace**: `polyglot::linker`
+
+## 9.1 ABIDescriptor
+
+Describes the calling convention and parameter layout for a cross-language symbol.
+
+```cpp
+struct ABIDescriptor {
+    enum class Convention {
+        kSysV_AMD64,    // Linux/macOS x86_64
+        kWin64,         // Windows x86_64
+        kAAPCS64,       // ARM64
+        kWasm           // WebAssembly
+    };
+
+    Convention convention;
+    std::vector<ArgClass> arg_classes;  // Integer, SSE, Memory per argument
+    size_t shadow_space;                // Win64 shadow space in bytes
+    size_t stack_alignment;             // Required stack alignment
+};
+```
+
+## 9.2 ABI Validation
+
+```cpp
+// Validate that source and target symbols have compatible ABIs
+bool ValidateABICompatibility(const ABIDescriptor& source,
+                               const ABIDescriptor& target);
+
+// Get the ABI descriptor for a symbol in a given language
+ABIDescriptor GetABIDescriptor(const std::string& language,
+                                const std::string& symbol);
+```
+
+---
+
+# 10. Semantic Analysis Class Schema
+
+**Header**: `frontends/ploy/include/ploy_sema.h`
+**Namespace**: `polyglot::ploy`
+
+## 10.1 ForeignClassSchema
+
+Describes the layout of a foreign class for compile-time type checking.
+
+```cpp
+struct ForeignClassSchema {
+    std::string language;
+    std::string class_name;
+    std::vector<Field> fields;           // Field name + type
+    std::vector<Method> methods;         // Method name + signature
+    std::vector<Constructor> constructors; // Available constructors
+    bool has_destructor;
+    bool has_context_manager;            // __enter__/__exit__
+};
+
+struct Field {
+    std::string name;
+    core::Type type;
+    Access access;  // public/protected/private
+};
+
+struct Method {
+    std::string name;
+    std::vector<core::Type> param_types;
+    core::Type return_type;
+    bool is_static;
+};
+```
+
+## 10.2 PloySema Schema API
+
+```cpp
+class PloySema {
+public:
+    // Register a class schema discovered from external source
+    void RegisterClassSchema(const ForeignClassSchema& schema);
+
+    // Look up a class schema by fully qualified name
+    std::optional<ForeignClassSchema> LookupClassSchema(
+        const std::string& language,
+        const std::string& class_name) const;
+
+    // Mark a function signature as validated
+    void MarkValidated(FunctionSignature& sig);
+
+private:
+    std::unordered_map<std::string, ForeignClassSchema> class_schemas_;
+};
+```
+
+---
+
 # SourceLoc
 
 **Header**: `common/include/core/source_loc.h`  

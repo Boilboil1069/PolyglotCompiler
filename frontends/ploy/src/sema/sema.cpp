@@ -1003,27 +1003,18 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
                              new_expr->args.size(), sig);
         ValidateCallArgTypes(new_expr->loc, new_expr->class_name + " constructor",
                              arg_types, sig);
-    } else {
-        // No constructor signature registered — report so the user knows
-        // parameter validation is skipped for this NEW call.
-        ReportStrictDiag(new_expr->loc, frontends::ErrorCode::kSignatureMissing,
-                         "NEW '" + new_expr->class_name + "' (language: " +
-                         new_expr->language +
-                         ") has no constructor signature registered; "
-                         "parameter validation skipped");
     }
 
-    // Resolve the object type through the unified signature table instead of
-    // falling back to opaque Any().  This enables downstream lowering to emit
-    // typed pointers rather than Pointer(Void).
-    core::Type obj_type = ResolveObjectType(new_expr->class_name,
-                                            new_expr->language, new_expr->loc);
-
-    // Validate ABI compatibility for the constructor call
-    ValidateObjCallABI(new_expr->loc, ctor_name, new_expr->language,
-                       arg_types, obj_type);
-
-    return obj_type;
+    // NEW returns an opaque object handle.  If the class is known from a LINK
+    // declaration, return a struct-typed reference; otherwise fall back to Any
+    // because in cross-language contexts the class hierarchy is not available.
+    auto sym_it = symbols_.find(new_expr->class_name);
+    if (sym_it != symbols_.end() &&
+        sym_it->second.type.kind != core::TypeKind::kAny &&
+        sym_it->second.type.kind != core::TypeKind::kInvalid) {
+        return sym_it->second.type;
+    }
+    return core::Type::Any();
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(
@@ -1040,8 +1031,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
                     "method name is empty in METHOD");
     }
 
-    // Analyze the receiver object and resolve its type
-    core::Type receiver_type = core::Type::Any();
+    // Analyze the receiver object
     if (method_call->object) {
         receiver_type = AnalyzeExpression(method_call->object);
     } else {
@@ -1086,18 +1076,11 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     core::Type ret_type = core::Type::Any();
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
         sig->return_type.kind != core::TypeKind::kInvalid) {
-        ret_type = sig->return_type;
-    } else {
-        ReportStrictDiag(method_call->loc, frontends::ErrorCode::kOpaqueTypeFallback,
-                         "METHOD '" + method_call->method_name + "' (language: " +
-                         method_call->language + ") has no known return type; defaults to Any");
+        return sig->return_type;
     }
 
-    // Validate ABI compatibility for the method call
-    ValidateObjCallABI(method_call->loc, qualified_method, method_call->language,
-                       arg_types, ret_type);
-
-    return ret_type;
+    // Method calls return Any since we cannot statically resolve the return type
+    return core::Type::Any();
 }
 
 core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr) {
@@ -1113,8 +1096,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
                     "attribute name is empty in GET");
     }
 
-    // Analyze the object expression and resolve its type
-    core::Type obj_type = core::Type::Any();
+    // Analyze the object expression
     if (get_attr->object) {
         obj_type = AnalyzeExpression(get_attr->object);
     } else {
@@ -1160,9 +1142,6 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     }
 
     // Attribute access returns Any since we cannot statically resolve the attribute type
-    ReportStrictDiag(get_attr->loc, frontends::ErrorCode::kOpaqueTypeFallback,
-                     "GET attribute '" + get_attr->attr_name + "' (language: " +
-                     get_attr->language + ") has no known type; defaults to Any");
     return core::Type::Any();
 }
 
@@ -1179,8 +1158,7 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
                     "attribute name is empty in SET");
     }
 
-    // Analyze the object expression and resolve its type
-    core::Type obj_type = core::Type::Any();
+    // Analyze the object expression
     if (set_attr->object) {
         obj_type = AnalyzeExpression(set_attr->object);
     } else {
@@ -1189,60 +1167,15 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
     }
 
     // Analyze the value expression
-    core::Type val_type = core::Type::Any();
     if (set_attr->value) {
-        val_type = AnalyzeExpression(set_attr->value);
+        AnalyzeExpression(set_attr->value);
     } else {
         ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
                     "SET requires a value expression");
     }
 
-    // If the object type is a known struct, validate the field exists and
-    // check type compatibility of the assigned value.
-    if (obj_type.kind == core::TypeKind::kStruct && !obj_type.name.empty()) {
-        auto struct_it = struct_defs_.find(obj_type.name);
-        if (struct_it != struct_defs_.end()) {
-            bool found = false;
-            for (const auto &[field_name, field_type] : struct_it->second) {
-                if (field_name == set_attr->attr_name) {
-                    found = true;
-                    if (!AreTypesCompatible(val_type, field_type)) {
-                        ReportError(set_attr->loc, frontends::ErrorCode::kTypeMismatch,
-                                    "SET attribute '" + set_attr->attr_name +
-                                    "': expected type '" + field_type.ToString() +
-                                    "' but got '" + val_type.ToString() + "'");
-                    }
-                    return val_type;
-                }
-            }
-            if (!found) {
-                ReportError(set_attr->loc, frontends::ErrorCode::kUnknownField,
-                            "struct '" + obj_type.name + "' has no field '" +
-                            set_attr->attr_name + "'");
-            }
-        }
-    }
-
-    // SET returns the assigned value type
-    if (obj_type.kind == core::TypeKind::kAny) {
-        ReportStrictDiag(set_attr->loc, frontends::ErrorCode::kOpaqueTypeFallback,
-                         "SET attribute '" + set_attr->attr_name + "' (language: " +
-                         set_attr->language + ") on opaque object; type checking skipped");
-    }
-
-    // Validate ABI for the setter call (receiver + value are arguments)
-    std::string setter_name;
-    if (obj_type.kind != core::TypeKind::kAny &&
-        obj_type.kind != core::TypeKind::kInvalid &&
-        !obj_type.name.empty()) {
-        setter_name = obj_type.name + "::__setattr__::" + set_attr->attr_name;
-    } else {
-        setter_name = "__setattr__::" + set_attr->attr_name;
-    }
-    ValidateObjCallABI(set_attr->loc, setter_name, set_attr->language,
-                       {obj_type, val_type}, core::Type::Void());
-
-    return val_type;
+    // SET returns the assigned value type (Any since we cannot know the attribute type)
+    return core::Type::Any();
 }
 
 void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
@@ -2734,170 +2667,6 @@ void PloySema::DiscoverDotnetNugetPackages() {
             std::string key = "dotnet::" + pkg_name;
             discovered_packages_[key] = info;
         }
-    }
-}
-
-// ============================================================================
-// Object Type Resolution — replaces opaque Any() with concrete class types
-// ============================================================================
-
-core::Type PloySema::ResolveObjectType(const std::string &class_name,
-                                       const std::string &language,
-                                       const core::SourceLoc &loc) {
-    // Look up the class in the symbol table (registered via LINK/EXTEND/IMPORT)
-    auto sym_it = symbols_.find(class_name);
-    if (sym_it != symbols_.end() &&
-        sym_it->second.type.kind != core::TypeKind::kAny &&
-        sym_it->second.type.kind != core::TypeKind::kInvalid) {
-        return sym_it->second.type;
-    }
-
-    // Try qualified lookup: language::class_name
-    std::string qualified = language + "::" + class_name;
-    sym_it = symbols_.find(qualified);
-    if (sym_it != symbols_.end() &&
-        sym_it->second.type.kind != core::TypeKind::kAny &&
-        sym_it->second.type.kind != core::TypeKind::kInvalid) {
-        return sym_it->second.type;
-    }
-
-    // Check struct definitions
-    auto struct_it = struct_defs_.find(class_name);
-    if (struct_it != struct_defs_.end()) {
-        return core::Type::Struct(class_name);
-    }
-
-    // In strict mode, warn about unresolved object types that will fall back
-    // to opaque pointers at the IR level.
-    ReportStrictDiag(loc, frontends::ErrorCode::kOpaqueTypeFallback,
-                     "class '" + class_name + "' from language '" + language +
-                     "' has no type information; will use opaque pointer — "
-                     "add a LINK or EXTEND declaration to enable type checking");
-
-    return core::Type::Any();
-}
-
-// ============================================================================
-// ABI Validation for Object Calls (NEW/METHOD/GET/SET)
-// ============================================================================
-
-void PloySema::ValidateObjCallABI(const core::SourceLoc &loc,
-                                   const std::string &callee_name,
-                                   const std::string &language,
-                                   const std::vector<core::Type> &arg_types,
-                                   const core::Type &return_type) {
-    // Resolve the declared semantic signature first.  This moves argument and
-    // return-type validation to sema instead of relying on lowering fallbacks.
-    const FunctionSignature *decl_sig = LookupSignature(callee_name);
-    if (!decl_sig) {
-        auto pos = callee_name.rfind("::");
-        if (pos != std::string::npos) {
-            decl_sig = LookupSignature(callee_name.substr(pos + 2));
-        }
-    }
-
-    if (!decl_sig) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kSignatureMissing,
-                         "missing signature for cross-language callable '" +
-                         callee_name + "' (" + language +
-                         ") — register it via LINK/MAP_TYPE or EXTEND before use");
-        return;
-    }
-
-    ValidateCallArgCount(loc, callee_name, arg_types.size(), decl_sig);
-    ValidateCallArgTypes(loc, callee_name, arg_types, decl_sig);
-    ValidateReturnType(loc, callee_name, return_type, decl_sig);
-
-    if (!decl_sig->abi || !decl_sig->abi->is_complete) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kABIIncompatible,
-                         "incomplete ABI schema for '" + callee_name +
-                         "' — cannot verify cross-language calling convention");
-        return;
-    }
-
-    // Build a transient signature for the call site
-    FunctionSignature call_sig;
-    call_sig.name = callee_name;
-    call_sig.language = language;
-    call_sig.param_types = arg_types;
-    call_sig.param_count = arg_types.size();
-    call_sig.param_count_known = true;
-    call_sig.return_type = return_type;
-    call_sig.defined_at = loc;
-
-    auto call_abi = BuildABISignature(call_sig, language);
-
-    if (!call_abi->is_complete) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kABIIncompatible,
-                         "incomplete call-site ABI for '" + callee_name +
-                         "' — add explicit type annotations to all arguments/return values");
-        return;
-    }
-
-    std::string compat_err = decl_sig->abi->ValidateCompatibility(*call_abi);
-    if (!compat_err.empty()) {
-        ReportError(loc, frontends::ErrorCode::kABIIncompatible,
-                    "ABI mismatch in call to '" + callee_name + "': " + compat_err,
-                    "check parameter and return types match the declared signature");
-    }
-}
-
-// ============================================================================
-// Context Manager Protocol Validation (WITH statement)
-// ============================================================================
-
-void PloySema::ValidateContextManagerProtocol(const core::SourceLoc &loc,
-                                               const std::string &language,
-                                               const core::Type &resource_type) {
-    // If the resource type is known (not Any), verify that __enter__ and
-    // __exit__ signatures are registered for it.
-    if (resource_type.kind == core::TypeKind::kAny ||
-        resource_type.kind == core::TypeKind::kInvalid) {
-        return;
-    }
-
-    std::string type_name = resource_type.name.empty()
-                                ? resource_type.ToString()
-                                : resource_type.name;
-
-    // Check for __enter__ signature
-    std::string enter_name = type_name + "::__enter__";
-    const FunctionSignature *enter_sig = LookupSignature(enter_name);
-    if (!enter_sig) {
-        enter_sig = LookupSignature("__enter__");
-    }
-
-    // Check for __exit__ signature
-    std::string exit_name = type_name + "::__exit__";
-    const FunctionSignature *exit_sig = LookupSignature(exit_name);
-    if (!exit_sig) {
-        exit_sig = LookupSignature("__exit__");
-    }
-
-    // In strict mode, require both __enter__ and __exit__ to be declared
-    if (!enter_sig || !exit_sig) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kSignatureMissing,
-                         "WITH resource of type '" + type_name + "' from language '" +
-                         language + "' has no " +
-                         (!enter_sig && !exit_sig ? "__enter__/__exit__"
-                          : !enter_sig ? "__enter__" : "__exit__") +
-                         " signature registered — context manager protocol cannot be verified");
-    }
-
-    // If both are known, validate that __enter__ takes exactly 1 param (self)
-    // and __exit__ takes exactly 4 params (self, exc_type, exc_val, exc_tb).
-    // Lowering always emits the 4-argument __exit__ form for exception-safe WITH.
-    if (enter_sig && enter_sig->param_count_known && enter_sig->param_count != 1) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kParamCountMismatch,
-                         "__enter__ for '" + type_name +
-                         "' must declare 1 parameter (self), but got " +
-                         std::to_string(enter_sig->param_count));
-    }
-    if (exit_sig && exit_sig->param_count_known && exit_sig->param_count != 4) {
-        ReportStrictDiag(loc, frontends::ErrorCode::kParamCountMismatch,
-                         "__exit__ for '" + type_name +
-                         "' must declare 4 parameters (self, exc_type, exc_val, exc_tb), but got " +
-                         std::to_string(exit_sig->param_count));
     }
 }
 
