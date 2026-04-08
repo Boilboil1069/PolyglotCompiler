@@ -2938,7 +2938,8 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 - ✅ Added package-index integration in the staged semantic flow via `PackageIndexer` + shared `PackageDiscoveryCache`
 - ✅ Added bridge generation stage integration with `PolyglotLinker` and resolved stub injection before backend emission
 - ✅ Added packaging stage output for deterministic `.pobj` emission and optional `polyld` link invocation in `link` mode
-- ✅ `polyui` Windows executable now embeds `icon/icon.ico` via CMake resource script (`tools/ui/windows/polyui.rc.in`), so generated `polyui.exe` ships with the project icon
+- ✅ `polyui` Windows executable now embeds `tools/ui/common/resources/icon.ico` via CMake resource script (`tools/ui/windows/polyui.rc`), so generated `polyui.exe` ships with the project icon
+- ✅ `polyui` now explicitly sets runtime title-bar/window icons: Windows uses embedded `:/icons/icon.ico`, Linux/macOS use embedded `:/icons/icon.png`
 
 ### v0.5.1 (2026-02-22)
 - ✅ Linker strong failure mode — unresolved symbols are hard errors; placeholder stubs no longer generated

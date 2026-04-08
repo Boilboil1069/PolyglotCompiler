@@ -5,6 +5,7 @@
 // startup, --version to print the version, and --help for usage info.
 
 #include <QApplication>
+#include <QIcon>
 #include <QPalette>
 #include <QStyleFactory>
 
@@ -96,7 +97,15 @@ int main(int argc, char *argv[]) {
 
     ApplyDarkTheme(app);
 
+    const QIcon app_icon(":/icons/icon.ico");
+    if (!app_icon.isNull()) {
+        app.setWindowIcon(app_icon);
+    }
+
     polyglot::tools::ui::MainWindow window;
+    if (!app_icon.isNull()) {
+        window.setWindowIcon(app_icon);
+    }
     window.setWindowTitle("PolyglotCompiler IDE");
     window.resize(1400, 900);
 

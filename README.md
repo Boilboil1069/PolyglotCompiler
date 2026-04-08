@@ -97,7 +97,8 @@ All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched auto
 - **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE).
   - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
   - Pass `-DQT_ROOT=<path>` to override.
-  - On Windows, `polyui.exe` now embeds the project icon from `icon/icon.ico` during build.
+  - On Windows, `polyui.exe` now embeds the project icon from `tools/ui/common/resources/icon.ico` during build.
+  - At runtime, `polyui` explicitly sets the title-bar/window icon from embedded resources (`icon.ico` on Windows, `icon.png` on Linux/macOS).
 <!-- BEGIN:qt_setup_en -->
   - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools/ui/setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
 <!-- END:qt_setup_en -->

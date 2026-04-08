@@ -2900,7 +2900,8 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 - ✅ staged 语义阶段接入 `PackageIndexer` + 共享 `PackageDiscoveryCache` 的包索引流程
 - ✅ bridge generation 阶段接入 `PolyglotLinker`，并在后端发射前注入已解析桥接桩
 - ✅ packaging 阶段支持确定性 `.pobj` 输出，并在 `link` 模式可选调用 `polyld` 完成链接
-- ✅ `polyui` 的 Windows 可执行文件现通过 CMake 资源脚本（`tools/ui/windows/polyui.rc.in`）嵌入 `icon/icon.ico`，生成的 `polyui.exe` 默认带项目图标
+- ✅ `polyui` 的 Windows 可执行文件现通过 CMake 资源脚本（`tools/ui/windows/polyui.rc`）嵌入 `tools/ui/common/resources/icon.ico`，生成的 `polyui.exe` 默认带项目图标
+- ✅ `polyui` 现已显式设置运行时标题栏/窗口图标：Windows 使用内嵌 `:/icons/icon.ico`，Linux/macOS 使用内嵌 `:/icons/icon.png`
 
 ### v0.5.2 (2026-02-22)
 - ✅ 新增 `PloySemaOptions` 配置结构，支持 `enable_package_discovery` 开关

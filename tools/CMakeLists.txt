@@ -175,6 +175,7 @@ endif()
 
 if(Qt6_FOUND OR Qt5_FOUND)
     set(CMAKE_AUTOMOC ON)
+    set(CMAKE_AUTORCC ON)
 
     # Platform-specific entry point
     if(WIN32)
@@ -188,6 +189,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
 
     # Common (cross-platform) sources
     set(POLYUI_COMMON_SOURCES
+        ui/common/resources/polyui_icons.qrc
         ui/common/src/mainwindow.cpp
         ui/common/src/code_editor.cpp
         ui/common/src/syntax_highlighter.cpp
