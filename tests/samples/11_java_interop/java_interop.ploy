@@ -83,7 +83,7 @@ FUNC cross_language_pipeline() -> STRING {
 // Example 4: Resource management with Java objects
 // ============================================================================
 FUNC managed_java_ops() -> INT {
-    WITH java processor = NEW(java, StringProcessor, "SAFE") {
+    WITH(java, NEW(java, StringProcessor, "SAFE")) AS processor {
         LET r1 = METHOD(java, processor, format, "message 1");
         LET r2 = METHOD(java, processor, format, "message 2");
         LET total = METHOD(java, processor, getProcessCount);
@@ -95,7 +95,7 @@ FUNC managed_java_ops() -> INT {
 // ============================================================================
 // Example 5: Conditional logic mixing Java and Python
 // ============================================================================
-FUNC conditional_interop(LET text: STRING) -> STRING {
+FUNC conditional_interop(text: STRING) -> STRING {
     LET length = CALL(python, text_analyzer::word_count, text);
 
     IF length > 10 {

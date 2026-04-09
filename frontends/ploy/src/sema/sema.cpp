@@ -666,7 +666,22 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
 
 void PloySema::AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt) {
     core::Type cond_type = AnalyzeExpression(if_stmt->condition);
-    if (cond_type.kind != core::TypeKind::kBool && cond_type.kind != core::TypeKind::kAny) {
+    // Allow Bool, Any, Unknown, Int (truthy conversion), and Pointer/Class
+    // types as IF conditions.  Cross-language calls often return Unknown or
+    // Any when the return type cannot be statically inferred; these should
+    // be treated as implicitly convertible to bool (zero/null = false,
+    // non-zero/non-null = true).  Only types that are clearly non-boolean
+    // (e.g. String, Array, Struct, Void) produce an error.
+    bool is_truthy = (cond_type.kind == core::TypeKind::kBool ||
+                      cond_type.kind == core::TypeKind::kAny ||
+                      cond_type.kind == core::TypeKind::kUnknown ||
+                      cond_type.kind == core::TypeKind::kInt ||
+                      cond_type.kind == core::TypeKind::kFloat ||
+                      cond_type.kind == core::TypeKind::kPointer ||
+                      cond_type.kind == core::TypeKind::kClass ||
+                      cond_type.kind == core::TypeKind::kReference ||
+                      cond_type.kind == core::TypeKind::kOptional);
+    if (!is_truthy) {
         Report(if_stmt->loc, "IF condition must be a boolean expression");
     }
     AnalyzeBlockStatements(if_stmt->then_body);
@@ -675,7 +690,18 @@ void PloySema::AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt) {
 
 void PloySema::AnalyzeWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt) {
     core::Type cond_type = AnalyzeExpression(while_stmt->condition);
-    if (cond_type.kind != core::TypeKind::kBool && cond_type.kind != core::TypeKind::kAny) {
+    // Same truthy-conversion rules as IF: allow Bool, Any, Unknown, Int,
+    // Float, Pointer, etc.
+    bool is_truthy = (cond_type.kind == core::TypeKind::kBool ||
+                      cond_type.kind == core::TypeKind::kAny ||
+                      cond_type.kind == core::TypeKind::kUnknown ||
+                      cond_type.kind == core::TypeKind::kInt ||
+                      cond_type.kind == core::TypeKind::kFloat ||
+                      cond_type.kind == core::TypeKind::kPointer ||
+                      cond_type.kind == core::TypeKind::kClass ||
+                      cond_type.kind == core::TypeKind::kReference ||
+                      cond_type.kind == core::TypeKind::kOptional);
+    if (!is_truthy) {
         Report(while_stmt->loc, "WHILE condition must be a boolean expression");
     }
     loop_depth_++;

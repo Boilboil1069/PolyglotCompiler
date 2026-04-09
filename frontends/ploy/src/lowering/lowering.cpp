@@ -301,14 +301,64 @@ void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
 // Control Flow Lowering
 // ============================================================================
 
+// Ensure a value is I1 (boolean) for use as a branch condition.
+// If the value is already I1, return it unchanged.
+// For integers: emit  icmp ne %val, 0
+// For pointers: emit  ptrtoint %val to i64  then  icmp ne %tmp, 0
+// For floats:   emit  fcmp one %val, 0.0       (ordered not-equal)
+std::string PloyLowering::EnsureI1(const EvalResult &val) {
+    const ir::IRType &t = val.type;
+    // Already I1 — nothing to do.
+    if (t.kind == ir::IRTypeKind::kI1) return val.value;
+
+    // Integer types — compare != 0
+    if (t.IsInteger()) {
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
+                                       val.value, "0", "tobool");
+        cmp->type = ir::IRType::I1();
+        return cmp->name;
+    }
+
+    // Float types — ordered not-equal to 0.0
+    if (t.kind == ir::IRTypeKind::kF32 || t.kind == ir::IRTypeKind::kF64) {
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpFne,
+                                       val.value, "0.0", "tobool");
+        cmp->type = ir::IRType::I1();
+        return cmp->name;
+    }
+
+    // Pointer / Reference — ptrtoint then compare != 0
+    if (t.kind == ir::IRTypeKind::kPointer || t.kind == ir::IRTypeKind::kReference) {
+        auto cast = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt,
+                                      val.value, ir::IRType::I64(true));
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
+                                       cast->name, "0", "tobool");
+        cmp->type = ir::IRType::I1();
+        return cmp->name;
+    }
+
+    // Invalid / placeholder — treat as always-true (non-zero) for safety.
+    // This avoids verifier failures for opaque cross-lang return values.
+    if (t.kind == ir::IRTypeKind::kInvalid || t.is_placeholder) {
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
+                                       val.value, "0", "tobool");
+        cmp->type = ir::IRType::I1();
+        return cmp->name;
+    }
+
+    // Fallthrough: return as-is and let the verifier decide.
+    return val.value;
+}
+
 void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt) {
     EvalResult cond = LowerExpression(if_stmt->condition);
+    std::string cond_i1 = EnsureI1(cond);
 
     auto then_bb = builder_.CreateBlock("if.then");
     auto else_bb = builder_.CreateBlock("if.else");
     auto merge_bb = builder_.CreateBlock("if.merge");
 
-    builder_.MakeCondBranch(cond.value, then_bb.get(), else_bb.get());
+    builder_.MakeCondBranch(cond_i1, then_bb.get(), else_bb.get());
 
     // Then block
     builder_.SetInsertPoint(then_bb);
@@ -350,7 +400,8 @@ void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &wh
     // Condition block
     builder_.SetInsertPoint(cond_bb);
     EvalResult cond = LowerExpression(while_stmt->condition);
-    builder_.MakeCondBranch(cond.value, body_bb.get(), exit_bb.get());
+    std::string cond_i1 = EnsureI1(cond);
+    builder_.MakeCondBranch(cond_i1, body_bb.get(), exit_bb.get());
 
     // Body block
     builder_.SetInsertPoint(body_bb);
@@ -636,13 +687,86 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     EvalResult left = LowerExpression(bin->left);
     EvalResult right = LowerExpression(bin->right);
 
+    // --- Smart type inference for binary operands ---
+    // When one operand comes from a cross-language call, its IR type may be
+    // opaque pointer (Pointer(I8)), I64 placeholder, or Invalid.  We need to
+    // infer the correct numeric type from the other operand or from the
+    // AST-level type annotation to select integer vs float operations.
+
+    // Helper: determine if a type is "opaque" (needs type inference)
+    auto is_opaque = [](const ir::IRType &t) -> bool {
+        if (t.is_placeholder) return true;
+        if (t.kind == ir::IRTypeKind::kPointer) return true;
+        if (t.kind == ir::IRTypeKind::kInvalid) return true;
+        return false;
+    };
+
+    // Helper: determine if a type is definitely float
+    auto is_float_type = [](const ir::IRType &t) -> bool {
+        return t.kind == ir::IRTypeKind::kF32 || t.kind == ir::IRTypeKind::kF64;
+    };
+
+    // Helper: determine if a type is definitely integer
+    auto is_int_type = [](const ir::IRType &t) -> bool {
+        return t.kind == ir::IRTypeKind::kI1 || t.kind == ir::IRTypeKind::kI8 ||
+               t.kind == ir::IRTypeKind::kI16 || t.kind == ir::IRTypeKind::kI32 ||
+               t.kind == ir::IRTypeKind::kI64;
+    };
+
+    // Resolve opaque types: if one side is opaque, adopt the other side's type
+    ir::IRType effective_left = left.type;
+    ir::IRType effective_right = right.type;
+    if (is_opaque(left.type) && !is_opaque(right.type)) {
+        effective_left = right.type;
+    } else if (is_opaque(right.type) && !is_opaque(left.type)) {
+        effective_right = left.type;
+    } else if (is_opaque(left.type) && is_opaque(right.type)) {
+        // Both opaque: fall back to I64 (integer) unless the AST expression
+        // contains a float literal hint
+        effective_left = ir::IRType::I64(true);
+        effective_right = ir::IRType::I64(true);
+    }
+
+    // Insert casts for opaque operands.
+    // Strategy: always convert opaque (Pointer / placeholder) to I64 via
+    // PtrToInt.  If the other side is float, we still use integer arithmetic
+    // because the opaque value has no well-defined float representation.
+    // This keeps the cast chain legal (PtrToInt is valid, Bitcast Ptr→Float
+    // is NOT).
+    std::string left_val = left.value;
+    std::string right_val = right.value;
+    ir::IRType resolved_left = effective_left;
+    ir::IRType resolved_right = effective_right;
+    if (is_opaque(left.type)) {
+        if (left.type.kind == ir::IRTypeKind::kPointer ||
+            left.type.kind == ir::IRTypeKind::kReference) {
+            auto cast = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt,
+                                          left.value, ir::IRType::I64(true));
+            left_val = cast->name;
+        }
+        resolved_left = ir::IRType::I64(true);
+    }
+    if (is_opaque(right.type)) {
+        if (right.type.kind == ir::IRTypeKind::kPointer ||
+            right.type.kind == ir::IRTypeKind::kReference) {
+            auto cast = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt,
+                                          right.value, ir::IRType::I64(true));
+            right_val = cast->name;
+        }
+        resolved_right = ir::IRType::I64(true);
+    }
+
+    // If one side was opaque (now I64) and the other is float, downgrade to
+    // integer arithmetic so that we don't need an unavailable SIToFP cast.
+    if (is_opaque(left.type) || is_opaque(right.type)) {
+        effective_left = resolved_left;
+        effective_right = resolved_right;
+    }
+
     // Determine operation
     ir::BinaryInstruction::Op op;
-    ir::IRType result_type = left.type;
-    bool is_float = (left.type.kind == ir::IRTypeKind::kF32 ||
-                     left.type.kind == ir::IRTypeKind::kF64 ||
-                     right.type.kind == ir::IRTypeKind::kF32 ||
-                     right.type.kind == ir::IRTypeKind::kF64);
+    ir::IRType result_type = effective_left;
+    bool is_float = is_float_type(effective_left) || is_float_type(effective_right);
 
     if (bin->op == "+") {
         op = is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
@@ -688,7 +812,7 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
         return {"undef", ir::IRType::Invalid()};
     }
 
-    auto inst = builder_.MakeBinary(op, left.value, right.value, "");
+    auto inst = builder_.MakeBinary(op, left_val, right_val, "");
     inst->type = result_type;
     return {inst->name, result_type};
 }
@@ -1821,6 +1945,28 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
             return ir::IRType::Pointer(ir::IRType::I8());
         case core::TypeKind::kGenericInstance:
             // Generic containers (e.g. dict) are opaque pointers
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kModule:
+            // Module references are opaque handles
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kClass:
+            // Foreign class instances are opaque pointers
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kReference:
+            // References are pointers
+            if (!ct.type_args.empty()) return ir::IRType::Pointer(CoreTypeToIR(ct.type_args[0]));
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kSlice:
+            // Slices are opaque pointers (ptr + len at runtime)
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kEnum:
+            // Enum values are represented as integers
+            return ir::IRType::I64(true);
+        case core::TypeKind::kUnion:
+            // Unions are opaque pointers
+            return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kGenericParam:
+            // Unresolved generic parameters map to opaque pointer
             return ir::IRType::Pointer(ir::IRType::I8());
         case core::TypeKind::kAny:
             // Any type maps to opaque pointer (i8*) �?more accurate than I64

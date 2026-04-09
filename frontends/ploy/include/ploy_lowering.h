@@ -108,6 +108,9 @@ class PloyLowering {
     EvalResult LowerStructLiteral(const std::shared_ptr<StructLiteral> &struct_lit);
     EvalResult LowerDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr);
 
+    // Condition truthiness: ensure a value is I1 for branch conditions.
+    std::string EnsureI1(const EvalResult &val);
+
     // Type conversion
     ir::IRType PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node);
     ir::IRType CoreTypeToIR(const core::Type &ct);

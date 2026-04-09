@@ -95,7 +95,7 @@ FUNC cross_language_pipeline() -> STRING {
 // Example 4: Resource management with .NET objects
 // ============================================================================
 FUNC managed_dotnet_ops() -> INT {
-    WITH dotnet svc = NEW(dotnet, DataService, "Managed") {
+    WITH(dotnet, NEW(dotnet, DataService, "Managed")) AS svc {
         METHOD(dotnet, svc, AddValue, 1.0);
         METHOD(dotnet, svc, AddValue, 2.0);
         METHOD(dotnet, svc, AddValue, 3.0);
@@ -110,17 +110,17 @@ FUNC managed_dotnet_ops() -> INT {
 // ============================================================================
 FUNC batch_processing() -> FLOAT {
     LET svc = NEW(dotnet, DataService, "Batch");
-    LET i = 0;
+    VAR i = 0;
 
     WHILE i < 5 {
         LET val = CALL(dotnet, DataService::Clamp, i * 3.5, 0.0, 15.0);
         METHOD(dotnet, svc, AddValue, val);
-        SET i = i + 1;
+        i = i + 1;
     }
 
     LET avg = METHOD(dotnet, svc, Average);
     LET values = [0.0, 3.5, 7.0, 10.5, 14.0];
-    LET std = CALL(python, stats_utils::standard_deviation, values);
+    LET std_val = CALL(python, stats_utils::standard_deviation, values);
 
     RETURN avg;
 }

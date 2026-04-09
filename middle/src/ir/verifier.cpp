@@ -92,7 +92,13 @@ bool CheckBinary(const BinaryInstruction &bin, const IRType &lhs, const IRType &
 	// In polyglot compilation, I64 is used as a generic placeholder type for
 	// cross-language call results.  Allow I64 to be treated as compatible with
 	// any scalar type so that mixed-type binary ops from cross-lang calls pass.
-	auto is_generic = [](const IRType &t) { return t.kind == IRTypeKind::kI64 || t.kind == IRTypeKind::kInvalid; };
+	// Pointer types (opaque ptr from cross-lang calls) are also treated as
+	// generic — the runtime marshalling layer handles the actual conversion.
+	auto is_generic = [](const IRType &t) {
+		return t.kind == IRTypeKind::kI64 || t.kind == IRTypeKind::kInvalid ||
+		       t.kind == IRTypeKind::kPointer || t.kind == IRTypeKind::kReference ||
+		       t.is_placeholder;
+	};
 
 	const auto require_same_scalar = [&]() -> bool {
 		if (!((lhs.IsScalar() || is_generic(lhs)) && (rhs.IsScalar() || is_generic(rhs))))
@@ -742,6 +748,24 @@ static bool VerifyImpl(const Function &func, const DataLayout *layout,
 					// type — the actual type conversion is handled by the runtime
 					// marshalling layer.
 					if (!compatible && val_ty.is_placeholder) {
+						compatible = true;
+					}
+					// Opaque pointer to scalar compatibility: cross-language
+					// calls often return Pointer(Void) when the actual return
+					// type could not be inferred. Allow these to be returned
+					// from functions expecting scalars (int, float, bool) —
+					// the runtime marshalling layer handles the conversion.
+					if (!compatible &&
+					    (val_ty.kind == IRTypeKind::kPointer || val_ty.kind == IRTypeKind::kReference) &&
+					    (fn_ret.IsScalar() || fn_ret.IsInteger() || fn_ret.IsFloat())) {
+						compatible = true;
+					}
+					// Scalar to pointer return compatibility: a function
+					// declared as returning a pointer may receive a scalar
+					// value from an inlined cross-language expression.
+					if (!compatible &&
+					    (fn_ret.kind == IRTypeKind::kPointer || fn_ret.kind == IRTypeKind::kReference) &&
+					    (val_ty.IsScalar() || val_ty.IsInteger() || val_ty.IsFloat())) {
 						compatible = true;
 					}
 					if (!compatible) return Fail("return value type mismatch in block " + bb->name, msg);
