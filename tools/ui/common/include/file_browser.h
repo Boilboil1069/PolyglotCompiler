@@ -31,6 +31,9 @@ class FileBrowser : public QWidget {
     void SetRootPath(const QString &path);
     QString RootPath() const;
 
+    // Re-apply theme colors to all child widgets
+    void ApplyTheme();
+
   signals:
     // Emitted when the user double-clicks a file
     void FileActivated(const QString &path);

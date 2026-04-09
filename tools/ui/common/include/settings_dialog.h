@@ -72,6 +72,7 @@ class SettingsDialog : public QDialog {
     QSpinBox *font_size_spin_{nullptr};
     QCheckBox *show_toolbar_check_{nullptr};
     QCheckBox *show_statusbar_check_{nullptr};
+    QCheckBox *show_explorer_check_{nullptr};
 
     // ── Editor settings ──────────────────────────────────────────────────
     QSpinBox *tab_width_spin_{nullptr};

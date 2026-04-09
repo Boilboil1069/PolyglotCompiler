@@ -57,6 +57,9 @@ class CodeEditor : public QPlainTextEdit {
     }
     void SetEditorFont(const QFont &font);
 
+    // Re-apply theme colors
+    void ApplyTheme();
+
   protected:
     void resizeEvent(QResizeEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;

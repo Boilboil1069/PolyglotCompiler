@@ -31,6 +31,7 @@
 #include <QFont>
 #include <QInputDialog>
 #include <QMessageBox>
+#include <QPalette>
 #include <QSettings>
 #include <QShortcut>
 #include <QStyle>
@@ -102,12 +103,7 @@ void MainWindow::SetupCentralWidget() {
     editor_tabs_->setMovable(true);
     editor_tabs_->setDocumentMode(true);
     editor_tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 6px 12px; "
-        "border: none; min-width: 100px; font-size: 12px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; "
-        "border-top: 2px solid #007acc; }"
-        "QTabBar::tab:hover { background: #383838; }");
+        ThemeManager::Instance().TabWidgetStylesheet(false));
 
     vertical_splitter_->addWidget(editor_tabs_);
 
@@ -115,23 +111,14 @@ void MainWindow::SetupCentralWidget() {
     bottom_tabs_ = new QTabWidget();
     bottom_tabs_->setTabPosition(QTabWidget::South);
     bottom_tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 4px 12px; "
-        "border: none; min-width: 80px; font-size: 11px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; "
-        "border-bottom: 2px solid #007acc; }"
-        "QTabBar::tab:hover { background: #383838; }");
+        ThemeManager::Instance().TabWidgetStylesheet(true));
 
     // Terminal tabs widget (supports multiple terminal instances)
     terminal_tabs_ = new QTabWidget();
     terminal_tabs_->setTabsClosable(true);
     terminal_tabs_->setMovable(true);
     terminal_tabs_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #969696; padding: 3px 10px; "
-        "border: none; min-width: 60px; font-size: 11px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; }"
-        "QTabBar::tab:hover { background: #383838; }");
+        ThemeManager::Instance().TabWidgetStylesheet(false));
     connect(terminal_tabs_, &QTabWidget::tabCloseRequested,
             this, &MainWindow::CloseTerminalTab);
 
@@ -196,20 +183,16 @@ void MainWindow::SetupDockWidgets() {
 
 void MainWindow::SetupMenuBar() {
     QMenuBar *mb = menuBar();
-    mb->setStyleSheet(
-        "QMenuBar { background: #333333; color: #cccccc; padding: 2px; }"
-        "QMenuBar::item { padding: 4px 10px; }"
-        "QMenuBar::item:selected { background: #505050; }"
-        "QMenu { background: #252526; color: #cccccc; border: 1px solid #454545; }"
-        "QMenu::item { padding: 5px 30px 5px 20px; }"
-        "QMenu::item:selected { background: #094771; }"
-        "QMenu::separator { height: 1px; background: #454545; margin: 2px 10px; }");
+    mb->setStyleSheet(ThemeManager::Instance().MenuBarStylesheet());
 
     // ── File Menu ─────────────────────────────────────────────────────
     file_menu_ = mb->addMenu("&File");
 
     action_new_ = file_menu_->addAction("&New File");
     action_new_->setShortcut(QKeySequence::New);
+
+    action_new_from_template_ = file_menu_->addAction("New From &Template...");
+    action_new_from_template_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
 
     action_open_ = file_menu_->addAction("&Open File...");
     action_open_->setShortcut(QKeySequence::Open);
@@ -414,54 +397,49 @@ void MainWindow::SetupToolBar() {
     main_toolbar_ = addToolBar("Main");
     main_toolbar_->setMovable(false);
     main_toolbar_->setIconSize(QSize(20, 20));
-    main_toolbar_->setStyleSheet(
-        "QToolBar { background: #333333; border: none; spacing: 4px; padding: 2px; }"
-        "QToolButton { background: transparent; color: #cccccc; padding: 4px 8px; "
-        "border-radius: 3px; font-size: 12px; }"
-        "QToolButton:hover { background: #505050; }"
-        "QToolButton:pressed { background: #094771; }");
+    main_toolbar_->setStyleSheet(ThemeManager::Instance().ToolBarStylesheet());
 
     main_toolbar_->addAction(action_new_);
     main_toolbar_->addAction(action_open_);
     main_toolbar_->addAction(action_save_);
     main_toolbar_->addSeparator();
 
+    const auto &tm = ThemeManager::Instance();
+    QString label_init_ss = QString("QLabel { color: %1; font-size: 12px; }")
+                                .arg(tm.Active().text.name());
+    QString combo_init_ss = tm.ComboBoxStylesheet();
+
     // Language selector
     auto *lang_label = new QLabel("  Language: ", main_toolbar_);
-    lang_label->setStyleSheet("QLabel { color: #cccccc; font-size: 12px; }");
+    lang_label->setStyleSheet(label_init_ss);
     main_toolbar_->addWidget(lang_label);
 
     language_combo_ = new QComboBox(main_toolbar_);
     language_combo_->addItems({"Ploy", "C++", "Python", "Rust", "Java", "C#"});
     language_combo_->setCurrentIndex(0);
-    language_combo_->setStyleSheet(
-        "QComboBox { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 2px 8px; min-width: 80px; }"
-        "QComboBox::drop-down { border: none; }"
-        "QComboBox QAbstractItemView { background: #252526; color: #cccccc; "
-        "selection-background-color: #094771; }");
+    language_combo_->setStyleSheet(combo_init_ss);
     main_toolbar_->addWidget(language_combo_);
 
     main_toolbar_->addSeparator();
 
     // Target architecture
     auto *target_label = new QLabel("  Target: ", main_toolbar_);
-    target_label->setStyleSheet("QLabel { color: #cccccc; font-size: 12px; }");
+    target_label->setStyleSheet(label_init_ss);
     main_toolbar_->addWidget(target_label);
 
     target_combo_ = new QComboBox(main_toolbar_);
     target_combo_->addItems({"x86_64", "arm64", "wasm"});
-    target_combo_->setStyleSheet(language_combo_->styleSheet());
+    target_combo_->setStyleSheet(combo_init_ss);
     main_toolbar_->addWidget(target_combo_);
 
     // Optimization level
     auto *opt_label = new QLabel("  Opt: ", main_toolbar_);
-    opt_label->setStyleSheet("QLabel { color: #cccccc; font-size: 12px; }");
+    opt_label->setStyleSheet(label_init_ss);
     main_toolbar_->addWidget(opt_label);
 
     opt_level_combo_ = new QComboBox(main_toolbar_);
     opt_level_combo_->addItems({"O0", "O1", "O2", "O3"});
-    opt_level_combo_->setStyleSheet(language_combo_->styleSheet());
+    opt_level_combo_->setStyleSheet(combo_init_ss);
     main_toolbar_->addWidget(opt_level_combo_);
 
     main_toolbar_->addSeparator();
@@ -478,10 +456,7 @@ void MainWindow::SetupToolBar() {
 
 void MainWindow::SetupStatusBar() {
     QStatusBar *sb = statusBar();
-    sb->setStyleSheet(
-        "QStatusBar { background: #007acc; color: #ffffff; font-size: 12px; }"
-        "QStatusBar::item { border: none; }"
-        "QLabel { color: #ffffff; padding: 0px 8px; }");
+    sb->setStyleSheet(ThemeManager::Instance().StatusBarStylesheet());
 
     status_message_ = new QLabel("Ready");
     sb->addWidget(status_message_, 1);
@@ -503,6 +478,7 @@ void MainWindow::SetupStatusBar() {
 void MainWindow::SetupConnections() {
     // File actions
     connect(action_new_, &QAction::triggered, this, &MainWindow::NewFile);
+    connect(action_new_from_template_, &QAction::triggered, this, &MainWindow::NewFromTemplate);
     connect(action_open_, &QAction::triggered, this, &MainWindow::OpenFile);
     connect(action_open_folder_, &QAction::triggered, this, &MainWindow::OpenFolder);
     connect(action_save_, &QAction::triggered, this, &MainWindow::Save);
@@ -823,6 +799,230 @@ void MainWindow::NewFile() {
     CreateNewTab(title, language);
 }
 
+// ============================================================================
+// NewFromTemplate — create a new file pre-filled with a language template
+// ============================================================================
+
+void MainWindow::NewFromTemplate() {
+    // Templates for each supported language.  Each entry contains a display
+    // name, language id, file extension, and multi-line boilerplate source.
+    struct Template {
+        QString display_name;
+        QString language;
+        QString extension;
+        QString content;
+    };
+
+    static const std::vector<Template> templates = {
+        {"Ploy — Cross-language linker script", "ploy", "ploy",
+         "// Cross-language linker script\n"
+         "// Link functions from different languages\n"
+         "\n"
+         "// Import packages\n"
+         "IMPORT python PACKAGE numpy;\n"
+         "\n"
+         "// Link external functions\n"
+         "LINK cpp::math::add AS FUNC(INT, INT) -> INT;\n"
+         "LINK python::utils::process AS FUNC(STRING) -> STRING;\n"
+         "\n"
+         "// Define a pipeline\n"
+         "FUNC main() -> INT {\n"
+         "    LET result = CALL(cpp, math::add, 1, 2);\n"
+         "    RETURN result;\n"
+         "}\n"},
+
+        {"C++ — Hello World", "cpp", "cpp",
+         "#include <iostream>\n"
+         "\n"
+         "int main() {\n"
+         "    std::cout << \"Hello, World!\" << std::endl;\n"
+         "    return 0;\n"
+         "}\n"},
+
+        {"C++ — Class template", "cpp", "hpp",
+         "#pragma once\n"
+         "\n"
+         "#include <string>\n"
+         "\n"
+         "class MyClass {\n"
+         "  public:\n"
+         "    MyClass() = default;\n"
+         "    ~MyClass() = default;\n"
+         "\n"
+         "    void DoSomething();\n"
+         "\n"
+         "  private:\n"
+         "    std::string name_;\n"
+         "    int value_{0};\n"
+         "};\n"},
+
+        {"Python — Script", "python", "py",
+         "#!/usr/bin/env python3\n"
+         "\"\"\"Module docstring.\"\"\"\n"
+         "\n"
+         "\n"
+         "def main() -> None:\n"
+         "    \"\"\"Entry point.\"\"\"\n"
+         "    print(\"Hello, World!\")\n"
+         "\n"
+         "\n"
+         "if __name__ == \"__main__\":\n"
+         "    main()\n"},
+
+        {"Python — Class", "python", "py",
+         "#!/usr/bin/env python3\n"
+         "\"\"\"Module with a sample class.\"\"\"\n"
+         "\n"
+         "from dataclasses import dataclass\n"
+         "\n"
+         "\n"
+         "@dataclass\n"
+         "class MyClass:\n"
+         "    \"\"\"A sample data class.\"\"\"\n"
+         "\n"
+         "    name: str\n"
+         "    value: int = 0\n"
+         "\n"
+         "    def process(self) -> str:\n"
+         "        \"\"\"Process the data.\"\"\"\n"
+         "        return f\"{self.name}: {self.value}\"\n"},
+
+        {"Rust — Hello World", "rust", "rs",
+         "fn main() {\n"
+         "    println!(\"Hello, World!\");\n"
+         "}\n"},
+
+        {"Rust — Struct with impl", "rust", "rs",
+         "/// A sample struct.\n"
+         "pub struct MyStruct {\n"
+         "    name: String,\n"
+         "    value: i32,\n"
+         "}\n"
+         "\n"
+         "impl MyStruct {\n"
+         "    pub fn new(name: &str, value: i32) -> Self {\n"
+         "        Self {\n"
+         "            name: name.to_string(),\n"
+         "            value,\n"
+         "        }\n"
+         "    }\n"
+         "\n"
+         "    pub fn display(&self) {\n"
+         "        println!(\"{}: {}\", self.name, self.value);\n"
+         "    }\n"
+         "}\n"
+         "\n"
+         "fn main() {\n"
+         "    let s = MyStruct::new(\"example\", 42);\n"
+         "    s.display();\n"
+         "}\n"},
+
+        {"Java — Hello World", "java", "java",
+         "public class Main {\n"
+         "    public static void main(String[] args) {\n"
+         "        System.out.println(\"Hello, World!\");\n"
+         "    }\n"
+         "}\n"},
+
+        {"Java — Class template", "java", "java",
+         "/**\n"
+         " * A sample Java class.\n"
+         " */\n"
+         "public class MyClass {\n"
+         "    private String name;\n"
+         "    private int value;\n"
+         "\n"
+         "    public MyClass(String name, int value) {\n"
+         "        this.name = name;\n"
+         "        this.value = value;\n"
+         "    }\n"
+         "\n"
+         "    public String getName() {\n"
+         "        return name;\n"
+         "    }\n"
+         "\n"
+         "    public int getValue() {\n"
+         "        return value;\n"
+         "    }\n"
+         "\n"
+         "    @Override\n"
+         "    public String toString() {\n"
+         "        return name + \": \" + value;\n"
+         "    }\n"
+         "}\n"},
+
+        {"C# — Hello World", "csharp", "cs",
+         "using System;\n"
+         "\n"
+         "namespace MyApp\n"
+         "{\n"
+         "    class Program\n"
+         "    {\n"
+         "        static void Main(string[] args)\n"
+         "        {\n"
+         "            Console.WriteLine(\"Hello, World!\");\n"
+         "        }\n"
+         "    }\n"
+         "}\n"},
+
+        {"C# — Class template", "csharp", "cs",
+         "using System;\n"
+         "\n"
+         "namespace MyApp\n"
+         "{\n"
+         "    /// <summary>\n"
+         "    /// A sample C# class.\n"
+         "    /// </summary>\n"
+         "    public class MyClass\n"
+         "    {\n"
+         "        public string Name { get; set; }\n"
+         "        public int Value { get; set; }\n"
+         "\n"
+         "        public MyClass(string name, int value)\n"
+         "        {\n"
+         "            Name = name;\n"
+         "            Value = value;\n"
+         "        }\n"
+         "\n"
+         "        public override string ToString()\n"
+         "        {\n"
+         "            return $\"{Name}: {Value}\";\n"
+         "        }\n"
+         "    }\n"
+         "}\n"},
+    };
+
+    // Build the list of display names
+    QStringList names;
+    names.reserve(static_cast<int>(templates.size()));
+    for (const auto &t : templates) {
+        names << t.display_name;
+    }
+
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(
+        this, "New From Template", "Select a template:", names, 0, false, &ok);
+    if (!ok || chosen.isEmpty()) return;
+
+    // Find the chosen template
+    int idx = names.indexOf(chosen);
+    if (idx < 0 || idx >= static_cast<int>(templates.size())) return;
+
+    const Template &tmpl = templates[static_cast<size_t>(idx)];
+    QString title = QString("Untitled-%1.%2")
+                        .arg(next_untitled_id_++)
+                        .arg(tmpl.extension);
+    int tab_index = CreateNewTab(title, tmpl.language);
+
+    CodeEditor *editor = EditorAt(tab_index);
+    if (editor) {
+        editor->setPlainText(tmpl.content);
+        editor->document()->setModified(false);
+    }
+
+    status_message_->setText(QString("Created from template: %1").arg(tmpl.display_name));
+}
+
 void MainWindow::OpenFile() {
     QStringList paths = QFileDialog::getOpenFileNames(
         this, "Open File", QString(),
@@ -1010,9 +1210,23 @@ int MainWindow::OpenFileInTab(const QString &path) {
 
 int MainWindow::CreateNewTab(const QString &title, const QString &language) {
     auto *editor = new CodeEditor();
+
+    // Apply editor theme.  Use the current theme's editor colors.
+    // NOTE: Do not set the `color` property via stylesheet — that overrides
+    // QSyntaxHighlighter character formats on many Qt builds.  Instead, set
+    // the text foreground via QPalette so that the highlighter's per-token
+    // setFormat() calls take precedence.
+    const auto &tc = ThemeManager::Instance().Active();
     editor->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #d4d4d4; border: none; "
-        "selection-background-color: #264f78; }");
+        QString("QPlainTextEdit { background: %1; border: none; "
+                "selection-background-color: %2; }")
+            .arg(tc.editor_background.name(), tc.editor_selection.name()));
+    {
+        QPalette pal = editor->palette();
+        pal.setColor(QPalette::Text, tc.editor_text);
+        pal.setColor(QPalette::Base, tc.editor_background);
+        editor->setPalette(pal);
+    }
     ApplyEditorSettings(editor);
 
     int index = editor_tabs_->addTab(editor, title);
@@ -1977,11 +2191,15 @@ void MainWindow::ApplySettings() {
 
     const bool show_toolbar = settings.value("appearance/show_toolbar", true).toBool();
     const bool show_statusbar = settings.value("appearance/show_statusbar", true).toBool();
+    const bool show_explorer = settings.value("view/show_file_browser", true).toBool();
     if (main_toolbar_) {
         main_toolbar_->setVisible(show_toolbar);
     }
     if (statusBar()) {
         statusBar()->setVisible(show_statusbar);
+    }
+    if (file_browser_) {
+        file_browser_->setVisible(show_explorer);
     }
 
     // Theme
@@ -2099,6 +2317,10 @@ void MainWindow::ApplySettings() {
 
 void MainWindow::ApplyTheme() {
     const auto &tm = ThemeManager::Instance();
+    const auto &tc = tm.Active();
+
+    // Main window background
+    setStyleSheet(QString("QMainWindow { background: %1; }").arg(tc.background.name()));
 
     // Menu bar
     menuBar()->setStyleSheet(tm.MenuBarStylesheet());
@@ -2133,17 +2355,37 @@ void MainWindow::ApplyTheme() {
     if (opt_level_combo_) opt_level_combo_->setStyleSheet(combo_ss);
 
     // Toolbar labels
-    const auto &tc = tm.Active();
     QString label_ss = QString("QLabel { color: %1; font-size: 12px; }").arg(tc.text.name());
     for (auto *w : main_toolbar_->findChildren<QLabel *>()) {
         w->setStyleSheet(label_ss);
     }
 
-    // Editors
-    QString editor_ss = tm.EditorStylesheet();
+    // File browser
+    if (file_browser_) {
+        file_browser_->ApplyTheme();
+    }
+
+    // Output panel
+    if (output_panel_) {
+        output_panel_->ApplyTheme();
+    }
+
+    // Splitters
+    QString splitter_ss = tm.SplitterStylesheet();
+    if (main_splitter_) main_splitter_->setStyleSheet(splitter_ss);
+    if (vertical_splitter_) vertical_splitter_->setStyleSheet(splitter_ss);
+
+    // Editors — apply background and selection via stylesheet, text color
+    // via QPalette so that QSyntaxHighlighter formats take precedence.
     for (int i = 0; i < editor_tabs_->count(); ++i) {
         if (auto *ed = EditorAt(i)) {
-            ed->setStyleSheet(editor_ss);
+            ed->ApplyTheme();
+
+            // Re-trigger syntax highlighting so colors update immediately
+            auto it = tab_info_.find(i);
+            if (it != tab_info_.end() && it->second.highlighter) {
+                it->second.highlighter->rehighlight();
+            }
         }
     }
 }

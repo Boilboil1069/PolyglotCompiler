@@ -5,6 +5,7 @@
 
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/compiler_service.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QFont>
 #include <QFontDatabase>
@@ -31,12 +32,7 @@ void OutputPanel::SetupUi() {
 
     tab_widget_ = new QTabWidget(this);
     tab_widget_->setTabPosition(QTabWidget::South);
-    tab_widget_->setStyleSheet(
-        "QTabWidget::pane { border: none; background: #1e1e1e; }"
-        "QTabBar::tab { background: #2d2d2d; color: #aaaaaa; padding: 5px 15px; "
-        "border: none; min-width: 80px; }"
-        "QTabBar::tab:selected { background: #1e1e1e; color: #ffffff; "
-        "border-bottom: 2px solid #007acc; }");
+    tab_widget_->setStyleSheet(ThemeManager::Instance().TabWidgetStylesheet(true));
 
     // Output console
     QFont mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
@@ -45,8 +41,7 @@ void OutputPanel::SetupUi() {
     output_console_ = new QPlainTextEdit(this);
     output_console_->setReadOnly(true);
     output_console_->setFont(mono);
-    output_console_->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #cccccc; border: none; }");
+    output_console_->setStyleSheet(ThemeManager::Instance().PlainTextEditStylesheet());
     output_console_->setLineWrapMode(QPlainTextEdit::NoWrap);
     tab_widget_->addTab(output_console_, "Output");
 
@@ -65,12 +60,17 @@ void OutputPanel::SetupUi() {
     error_table_->setColumnWidth(2, 50);
     error_table_->setColumnWidth(3, 60);
     error_table_->verticalHeader()->setVisible(false);
-    error_table_->setStyleSheet(
-        "QTableWidget { background: #1e1e1e; color: #cccccc; border: none; "
-        "gridline-color: #333333; font-size: 12px; }"
-        "QHeaderView::section { background: #2d2d2d; color: #cccccc; "
-        "border: none; padding: 4px; font-weight: bold; }"
-        "QTableWidget::item:selected { background: #264f78; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        error_table_->setStyleSheet(
+            QString("QTableWidget { background: %1; color: %2; border: none; "
+                    "gridline-color: %3; font-size: 12px; }"
+                    "QHeaderView::section { background: %4; color: %5; "
+                    "border: none; padding: 4px; font-weight: bold; }"
+                    "QTableWidget::item:selected { background: %6; }")
+                .arg(tc.background.name(), tc.text.name(), tc.border.name(),
+                     tc.surface.name(), tc.text.name(), tc.selection.name()));
+    }
     tab_widget_->addTab(error_table_, "Errors (0)");
 
     connect(error_table_, &QTableWidget::cellDoubleClicked,
@@ -80,8 +80,7 @@ void OutputPanel::SetupUi() {
     compiler_log_ = new QPlainTextEdit(this);
     compiler_log_->setReadOnly(true);
     compiler_log_->setFont(mono);
-    compiler_log_->setStyleSheet(
-        "QPlainTextEdit { background: #1e1e1e; color: #999999; border: none; }");
+    compiler_log_->setStyleSheet(ThemeManager::Instance().PlainTextEditStylesheet());
     compiler_log_->setLineWrapMode(QPlainTextEdit::NoWrap);
     tab_widget_->addTab(compiler_log_, "Compiler Log");
 
@@ -176,6 +175,28 @@ void OutputPanel::ClearAll() {
     ClearOutput();
     ClearDiagnostics();
     ClearLog();
+}
+
+// ============================================================================
+// Theme
+// ============================================================================
+
+void OutputPanel::ApplyTheme() {
+    const auto &tm = ThemeManager::Instance();
+    const auto &tc = tm.Active();
+
+    tab_widget_->setStyleSheet(tm.TabWidgetStylesheet(true));
+    output_console_->setStyleSheet(tm.PlainTextEditStylesheet());
+    compiler_log_->setStyleSheet(tm.PlainTextEditStylesheet());
+
+    error_table_->setStyleSheet(
+        QString("QTableWidget { background: %1; color: %2; border: none; "
+                "gridline-color: %3; font-size: 12px; }"
+                "QHeaderView::section { background: %4; color: %5; "
+                "border: none; padding: 4px; font-weight: bold; }"
+                "QTableWidget::item:selected { background: %6; }")
+            .arg(tc.background.name(), tc.text.name(), tc.border.name(),
+                 tc.surface.name(), tc.text.name(), tc.selection.name()));
 }
 
 // ============================================================================

@@ -155,6 +155,9 @@ QWidget *SettingsDialog::CreateAppearancePage() {
     show_statusbar_check_ = new QCheckBox("Show Status Bar");
     show_statusbar_check_->setChecked(true);
     ui_layout->addWidget(show_statusbar_check_);
+    show_explorer_check_ = new QCheckBox("Show Explorer");
+    show_explorer_check_->setChecked(true);
+    ui_layout->addWidget(show_explorer_check_);
     layout->addWidget(ui_group);
 
     layout->addStretch();
@@ -589,6 +592,7 @@ void SettingsDialog::LoadSettings() {
     font_size_spin_->setValue(s.value("appearance/font_size", 13).toInt());
     show_toolbar_check_->setChecked(s.value("appearance/show_toolbar", true).toBool());
     show_statusbar_check_->setChecked(s.value("appearance/show_statusbar", true).toBool());
+    show_explorer_check_->setChecked(s.value("view/show_file_browser", true).toBool());
 
     // Editor
     tab_width_spin_->setValue(s.value("editor/tab_width", 4).toInt());
@@ -644,6 +648,7 @@ void SettingsDialog::SaveSettings() {
     s.setValue("appearance/font_size", font_size_spin_->value());
     s.setValue("appearance/show_toolbar", show_toolbar_check_->isChecked());
     s.setValue("appearance/show_statusbar", show_statusbar_check_->isChecked());
+    s.setValue("view/show_file_browser", show_explorer_check_->isChecked());
 
     // Editor
     s.setValue("editor/tab_width", tab_width_spin_->value());

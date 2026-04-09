@@ -252,6 +252,9 @@ class TopologyPanel : public QWidget {
     // Called by edge context menu
     void RemoveEdge(TopoEdgeItem *edge);
 
+    // Called by TopoNodeItem::itemChange to update edges when a node moves
+    void RefreshEdgePositions();
+
   signals:
     // Emitted when a node is double-clicked (navigate to source)
     void NodeDoubleClicked(const QString &filename, int line);
@@ -291,7 +294,6 @@ class TopologyPanel : public QWidget {
     void BuildGraphFromFile(const QString &path);
     void LayoutNodes();
     void UpdateDetailsPanel(uint64_t node_id);
-    void RefreshEdgePositions();
 
     // .ploy file synchronization helpers
     void SyncEdgeToFile(TopoEdgeItem *edge);

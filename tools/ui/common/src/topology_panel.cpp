@@ -351,10 +351,16 @@ void TopoNodeItem::SetSourceLocation(const QString &file, int line) {
 QVariant TopoNodeItem::itemChange(GraphicsItemChange change,
                                   const QVariant &value) {
     if (change == ItemPositionHasChanged) {
-        // Notify the scene so that edges can be updated.
-        // The TopologyPanel polls or uses a timer to refresh edges.
+        // Notify the panel so that edges connected to this node are
+        // re-routed to the new port positions in real time.
         if (scene()) {
-            scene()->update();
+            for (auto *v : scene()->views()) {
+                auto *tgv = qobject_cast<TopoGraphicsView *>(v);
+                if (tgv && tgv->Panel()) {
+                    tgv->Panel()->RefreshEdgePositions();
+                    break;
+                }
+            }
         }
     }
     return QGraphicsRectItem::itemChange(change, value);

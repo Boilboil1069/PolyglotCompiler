@@ -56,6 +56,7 @@ class MainWindow : public QMainWindow {
   private slots:
     // File menu actions
     void NewFile();
+    void NewFromTemplate();
     void OpenFile();
     void OpenFolder();
     void Save();
@@ -221,6 +222,7 @@ class MainWindow : public QMainWindow {
 
     // ── Actions ──────────────────────────────────────────────────────────
     QAction *action_new_{nullptr};
+    QAction *action_new_from_template_{nullptr};
     QAction *action_open_{nullptr};
     QAction *action_open_folder_{nullptr};
     QAction *action_save_{nullptr};

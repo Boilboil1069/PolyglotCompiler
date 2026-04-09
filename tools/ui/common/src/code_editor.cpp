@@ -4,6 +4,7 @@
 // auto-indent, and zoom support.
 
 #include "tools/ui/common/include/code_editor.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QFontDatabase>
 #include <QKeyEvent>
@@ -93,7 +94,8 @@ void CodeEditor::LineNumberAreaPaintEvent(QPaintEvent *event) {
     if (!line_numbers_visible_) return;
 
     QPainter painter(line_number_area_);
-    painter.fillRect(event->rect(), QColor(45, 45, 45));
+    const auto &tc = ThemeManager::Instance().Active();
+    painter.fillRect(event->rect(), tc.editor_line_number_bg);
 
     QTextBlock block = firstVisibleBlock();
     int block_number = block.blockNumber();
@@ -110,9 +112,9 @@ void CodeEditor::LineNumberAreaPaintEvent(QPaintEvent *event) {
             QString number = QString::number(block_number + 1);
 
             if (block_number == current_line) {
-                painter.setPen(QColor(255, 255, 255));
+                painter.setPen(tc.text);
             } else {
-                painter.setPen(QColor(130, 130, 130));
+                painter.setPen(tc.editor_line_number);
             }
             painter.drawText(0, top, line_number_area_->width() - 5,
                              fontMetrics().height(),
@@ -135,7 +137,7 @@ void CodeEditor::HighlightCurrentLine() {
 
     if (highlight_current_line_enabled_ && !isReadOnly()) {
         QTextEdit::ExtraSelection selection;
-        QColor line_color = QColor(40, 40, 60);
+        QColor line_color = ThemeManager::Instance().Active().editor_current_line;
         selection.format.setBackground(line_color);
         selection.format.setProperty(QTextFormat::FullWidthSelection, true);
         selection.cursor = textCursor();
@@ -183,18 +185,22 @@ void CodeEditor::HighlightMatchingBrackets() {
 
     if (bracket_pos >= 0 && match_pos >= 0) {
         QList<QTextEdit::ExtraSelection> selections = extraSelections();
+        const auto &tc = ThemeManager::Instance().Active();
+        // Use selection color for bracket background, accent for foreground
+        QColor bracket_bg = tc.selection;
+        QColor bracket_fg = tc.accent;
 
         QTextEdit::ExtraSelection sel1;
-        sel1.format.setBackground(QColor(80, 80, 120));
-        sel1.format.setForeground(QColor(255, 215, 0));
+        sel1.format.setBackground(bracket_bg);
+        sel1.format.setForeground(bracket_fg);
         sel1.cursor = QTextCursor(doc);
         sel1.cursor.setPosition(bracket_pos);
         sel1.cursor.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor);
         selections.append(sel1);
 
         QTextEdit::ExtraSelection sel2;
-        sel2.format.setBackground(QColor(80, 80, 120));
-        sel2.format.setForeground(QColor(255, 215, 0));
+        sel2.format.setBackground(bracket_bg);
+        sel2.format.setForeground(bracket_fg);
         sel2.cursor = QTextCursor(doc);
         sel2.cursor.setPosition(match_pos);
         sel2.cursor.movePosition(QTextCursor::Right, QTextCursor::KeepAnchor);
@@ -291,6 +297,21 @@ void CodeEditor::SetEditorFont(const QFont &font) {
     base_font_size_ = f.pointSize() > 0 ? f.pointSize() : base_font_size_;
     current_zoom_ = 0;
     SetTabWidth(tab_width_spaces_);
+}
+
+void CodeEditor::ApplyTheme() {
+    const auto &tc = ThemeManager::Instance().Active();
+    setStyleSheet(QString(
+        "QPlainTextEdit { background: %1; border: none; "
+        "selection-background-color: %2; }")
+        .arg(tc.editor_background.name(), tc.editor_selection.name()));
+    QPalette pal = palette();
+    pal.setColor(QPalette::Text, tc.editor_text);
+    pal.setColor(QPalette::Base, tc.editor_background);
+    setPalette(pal);
+    // Repaint the gutter and current line
+    HighlightCurrentLine();
+    line_number_area_->update();
 }
 
 // ============================================================================

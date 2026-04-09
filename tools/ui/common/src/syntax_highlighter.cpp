@@ -2,12 +2,26 @@
 //
 // Uses the PolyglotCompiler frontend tokenizers (via CompilerService) to
 // tokenize each block of text and apply the appropriate formatting.
+//
+// Ploy-specific notes:
+//   • Cross-language directive keywords (LINK, IMPORT, EXPORT, MAP_TYPE,
+//     PIPELINE, EXTEND, CALL, NEW, METHOD, GET, SET, WITH, DELETE, CONVERT,
+//     MAP_FUNC, CONFIG) are displayed in a distinct "link" purple/magenta
+//     color so they visually stand out from control-flow keywords.
+//   • Primitive type keywords (INT, FLOAT, STRING, …) are shown in teal
+//     via the "type" format, matching the convention used for type names in
+//     other supported languages.
+//   • Language qualifier identifiers (cpp, python, rust, …) are shown in
+//     yellow via the "builtin" format because they name external runtimes.
 
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/compiler_service.h"
 
 #include <QColor>
 #include <QFont>
+
+#include <string>
+#include <unordered_set>
 
 namespace polyglot::tools::ui {
 
@@ -91,6 +105,14 @@ void SyntaxHighlighter::InitDefaultFormats() {
     QTextCharFormat plain_fmt;
     plain_fmt.setForeground(QColor(212, 212, 212));
     formats_["plain"] = plain_fmt;
+
+    // Ploy cross-language directive keywords (LINK, IMPORT, EXPORT, …)
+    // Displayed in a vivid magenta/purple to distinguish them from ordinary
+    // control-flow keywords.
+    QTextCharFormat link_fmt;
+    link_fmt.setForeground(QColor(197, 134, 192)); // Purple-magenta
+    link_fmt.setFontWeight(QFont::Bold);
+    formats_["link"] = link_fmt;
 }
 
 // ============================================================================
@@ -104,6 +126,18 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
     std::string source = text.toStdString();
     auto tokens = compiler_service_->Tokenize(source, language_);
 
+    // For Ploy files, cross-language directive keywords get their own "link"
+    // color format so they stand out from control-flow keywords (IF/WHILE/…).
+    // This set mirrors the directive keywords defined in the Ploy lexer.
+    static const std::unordered_set<std::string> ploy_link_keywords = {
+        "LINK", "IMPORT", "EXPORT", "MAP_TYPE", "PIPELINE",
+        "CALL", "NEW",    "METHOD", "GET",       "SET",
+        "WITH", "DELETE", "EXTEND", "CONVERT",   "MAP_FUNC",
+        "CONFIG"
+    };
+
+    const bool is_ploy = (language_ == "ploy");
+
     for (const auto &tok : tokens) {
         int start = static_cast<int>(tok.column) - 1; // 1-based to 0-based
         if (start < 0) start = 0;
@@ -114,7 +148,13 @@ void SyntaxHighlighter::highlightBlock(const QString &text) {
         }
         if (length <= 0) continue;
 
-        auto it = formats_.find(tok.kind);
+        // For Ploy: override keyword format for cross-language directive keywords
+        std::string kind = tok.kind;
+        if (is_ploy && kind == "keyword" && ploy_link_keywords.count(tok.lexeme)) {
+            kind = "link";
+        }
+
+        auto it = formats_.find(kind);
         if (it != formats_.end()) {
             setFormat(start, length, it->second);
         }

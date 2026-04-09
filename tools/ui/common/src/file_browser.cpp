@@ -4,6 +4,7 @@
 // with filtering support and a rich right-click context menu.
 
 #include "tools/ui/common/include/file_browser.h"
+#include "tools/ui/common/include/theme_manager.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -39,18 +40,19 @@ void FileBrowser::SetupUi() {
 
     // Title
     title_label_ = new QLabel("  EXPLORER", this);
-    title_label_->setStyleSheet(
-        "QLabel { color: #bbbbbb; font-size: 11px; font-weight: bold; "
-        "padding: 4px 0px; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        title_label_->setStyleSheet(
+            QString("QLabel { color: %1; font-size: 11px; font-weight: bold; "
+                    "padding: 4px 0px; }").arg(tc.text_secondary.name()));
+    }
     layout_->addWidget(title_label_);
 
     // Filter input
     filter_edit_ = new QLineEdit(this);
     filter_edit_->setPlaceholderText("Filter files...");
     filter_edit_->setClearButtonEnabled(true);
-    filter_edit_->setStyleSheet(
-        "QLineEdit { background: #3c3c3c; color: #cccccc; border: 1px solid #555; "
-        "border-radius: 3px; padding: 3px 6px; font-size: 12px; }");
+    filter_edit_->setStyleSheet(ThemeManager::Instance().LineEditStylesheet());
     layout_->addWidget(filter_edit_);
 
     connect(filter_edit_, &QLineEdit::textChanged,
@@ -85,12 +87,18 @@ void FileBrowser::SetupUi() {
     tree_view_->hideColumn(2);
     tree_view_->hideColumn(3);
 
-    tree_view_->setStyleSheet(
-        "QTreeView { background: #252526; color: #cccccc; border: none; "
-        "font-size: 13px; }"
-        "QTreeView::item { padding: 2px 0px; }"
-        "QTreeView::item:hover { background: #2a2d2e; }"
-        "QTreeView::item:selected { background: #37373d; color: #ffffff; }");
+    {
+        const auto &tc = ThemeManager::Instance().Active();
+        tree_view_->setStyleSheet(
+            QString("QTreeView { background: %1; color: %2; border: none; "
+                    "font-size: 13px; }"
+                    "QTreeView::item { padding: 2px 0px; }"
+                    "QTreeView::item:hover { background: %3; }"
+                    "QTreeView::item:selected { background: %4; color: %5; }")
+                .arg(tc.background.name(), tc.text.name(),
+                     tc.surface_alt.name(), tc.selection.name(),
+                     tc.selection_text.name()));
+    }
 
     // Enable custom context menu
     tree_view_->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -156,6 +164,30 @@ void FileBrowser::SetRootPath(const QString &path) {
 
 QString FileBrowser::RootPath() const {
     return model_->rootPath();
+}
+
+// ============================================================================
+// Theme
+// ============================================================================
+
+void FileBrowser::ApplyTheme() {
+    const auto &tc = ThemeManager::Instance().Active();
+
+    title_label_->setStyleSheet(
+        QString("QLabel { color: %1; font-size: 11px; font-weight: bold; "
+                "padding: 4px 0px; }").arg(tc.text_secondary.name()));
+
+    filter_edit_->setStyleSheet(ThemeManager::Instance().LineEditStylesheet());
+
+    tree_view_->setStyleSheet(
+        QString("QTreeView { background: %1; color: %2; border: none; "
+                "font-size: 13px; }"
+                "QTreeView::item { padding: 2px 0px; }"
+                "QTreeView::item:hover { background: %3; }"
+                "QTreeView::item:selected { background: %4; color: %5; }")
+            .arg(tc.background.name(), tc.text.name(),
+                 tc.surface_alt.name(), tc.selection.name(),
+                 tc.selection_text.name()));
 }
 
 // ============================================================================

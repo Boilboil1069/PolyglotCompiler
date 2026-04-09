@@ -50,6 +50,9 @@ class OutputPanel : public QWidget {
     // Clear everything
     void ClearAll();
 
+    // Re-apply theme colors to all child widgets
+    void ApplyTheme();
+
     // Switch to a specific tab
     void ShowOutputTab();
     void ShowErrorsTab();

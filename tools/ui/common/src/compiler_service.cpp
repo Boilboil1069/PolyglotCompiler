@@ -22,9 +22,12 @@
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 
-// Individual frontend headers for auto-registration side-effects.
-// Including these ensures that the static REGISTER_FRONTEND() calls
-// in each *_frontend.cpp are linked into the executable.
+// Individual frontend headers — we pull in the concrete adapter classes so
+// that the linker is forced to keep the translation units containing the
+// static REGISTER_FRONTEND() auto-registrars.  Without an explicit reference
+// to a symbol defined in each *_frontend.cpp, the MSVC linker may discard
+// those object files from the static libraries and the FrontendRegistry ends
+// up empty (no languages available for tokenization / analysis).
 #include "frontends/ploy/include/ploy_frontend.h"
 #include "frontends/cpp/include/cpp_frontend.h"
 #include "frontends/python/include/python_frontend.h"
@@ -35,6 +38,20 @@
 // Common sema context for non-ploy frontends
 #include "frontends/common/include/sema_context.h"
 
+// ---------------------------------------------------------------------------
+// Ensure every concrete frontend is registered in FrontendRegistry.
+//
+// The REGISTER_FRONTEND() macro places a static-storage-duration registrar in
+// each *_frontend.cpp translation unit.  When those TUs live in a static
+// library (.lib / .a) and the final executable never references any other
+// symbol from the same .obj, the linker is free to discard the .obj — and
+// with it, the auto-registrar.
+//
+// We guard against that by explicitly instantiating each concrete class in
+// the CompilerService constructor.  This creates an unconditional dependency
+// on the constructors defined in those .obj files, preventing dead-stripping.
+// ---------------------------------------------------------------------------
+
 namespace polyglot::tools::ui {
 
 using polyglot::frontends::FrontendRegistry;
@@ -43,7 +60,19 @@ using polyglot::frontends::FrontendRegistry;
 // Construction / Destruction
 // ============================================================================
 
-CompilerService::CompilerService() = default;
+CompilerService::CompilerService() {
+    // Ensure all language frontends are registered.  When static libraries are
+    // involved the linker may have discarded the auto-registration TUs.
+    // Calling Register() with an already-registered frontend is a safe no-op
+    // (FrontendRegistry stores by name, so duplicates simply overwrite).
+    auto &reg = FrontendRegistry::Instance();
+    reg.Register(std::make_shared<polyglot::ploy::PloyLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::cpp::CppLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::python::PythonLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::rust::RustLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::java::JavaLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::dotnet::DotnetLanguageFrontend>());
+}
 CompilerService::~CompilerService() = default;
 
 // ============================================================================
@@ -60,23 +89,39 @@ std::vector<std::string> CompilerService::SupportedLanguages() const {
 
 static std::string ClassifyToken(frontends::TokenKind kind, const std::string &lexeme) {
     switch (kind) {
-        case frontends::TokenKind::kKeyword:
+        case frontends::TokenKind::kKeyword: {
+            // Ploy primitive type keywords — shown as types (teal)
+            static const std::unordered_set<std::string> ploy_type_keywords = {
+                "INT", "FLOAT", "STRING", "BOOL", "VOID",
+                "ARRAY", "LIST", "TUPLE", "DICT", "OPTION", "STRUCT"
+            };
+            // Ploy literal keywords — shown as builtins (yellow-ish)
+            static const std::unordered_set<std::string> ploy_literal_keywords = {
+                "TRUE", "FALSE", "NULL"
+            };
+            if (ploy_type_keywords.count(lexeme)) return "type";
+            if (ploy_literal_keywords.count(lexeme)) return "builtin";
             return "keyword";
+        }
         case frontends::TokenKind::kIdentifier: {
             // Classify well-known type names as "type"
             static const std::unordered_set<std::string> type_names = {
-                "INT", "FLOAT", "STRING", "BOOL", "VOID", "ARRAY",
-                "LIST", "TUPLE", "DICT", "OPTION", "STRUCT",
                 "int", "float", "double", "char", "bool", "void",
                 "string", "String", "str", "i32", "i64", "u32", "u64",
                 "f32", "f64", "usize", "isize"
             };
-            // Classify built-in functions / special identifiers
+            // Classify built-in functions / special identifiers, and Ploy
+            // language qualifier identifiers (cpp, python, rust, etc.)
             static const std::unordered_set<std::string> builtins = {
+                // Python builtins
                 "print", "println", "len", "range", "enumerate",
                 "zip", "map", "filter", "sorted", "type",
                 "isinstance", "hasattr", "getattr", "setattr",
-                "Vec", "Box", "Option", "Result", "Some", "None", "Ok", "Err"
+                // Rust builtins
+                "Vec", "Box", "Option", "Result", "Some", "None", "Ok", "Err",
+                // Ploy language qualifiers — the language names that appear
+                // as namespace prefixes in LINK / IMPORT / CALL expressions
+                "cpp", "python", "rust", "java", "csharp", "dotnet"
             };
             if (type_names.count(lexeme)) return "type";
             if (builtins.count(lexeme)) return "builtin";

@@ -1740,7 +1740,7 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 
 | Feature | Description |
 |---------|-------------|
-| **Syntax Highlighting** | Uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages |
+| **Syntax Highlighting** | Uses compiler frontend tokenizers for accurate, language-aware highlighting across all supported languages and all themes. Text colouring is applied via `QPalette` so that `QSyntaxHighlighter` character formats always take precedence; theme switches trigger an automatic `rehighlight()`. Ploy files receive a three-tier colour scheme: cross-language directive keywords (`LINK`, `IMPORT`, `EXPORT`, `MAP_TYPE`, `PIPELINE`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND`, `CONVERT`, `MAP_FUNC`, `CONFIG`) appear in **purple/magenta**; primitive type keywords (`INT`, `FLOAT`, `STRING`, `BOOL`, `VOID`, `ARRAY`, `LIST`, `TUPLE`, `DICT`, `OPTION`, `STRUCT`) appear in **teal**; language qualifier identifiers (`cpp`, `python`, `rust`, `java`, `csharp`, `dotnet`) appear in **yellow**; control-flow keywords (`IF`, `WHILE`, `FOR`, `MATCH`, `RETURN`, …) appear in **blue** |
 | **Real-time Diagnostics** | Invokes the full compiler pipeline (lexer → parser → sema) to report errors and warnings as you type |
 | **File Browser** | Tree-view project navigator with filters for supported source file extensions and a rich right-click context menu |
 | **Tabbed Editor** | Multi-file editing with tab management (new, open, save, close) |
@@ -1752,18 +1752,21 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
 | **Dark Theme** | Unified theme management via ThemeManager with 4 built-in colour schemes (Dark, Light, Monokai, Solarized Dark); all panels switch in unison |
 | **Compile & Run** | One-click compile and run (`Ctrl+R`) — automatically locates the output binary and launches it via QProcess with stdout/stderr streamed to the log panel; stop a running process with `Ctrl+Shift+R` |
-| **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage |
+| **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage. Appearance page includes *Show Toolbar*, *Show Status Bar*, and *Show Explorer* toggles (all default to **on**) |
 | **Custom Keybindings** | Edit shortcuts in the Key Bindings settings page via QKeySequenceEdit; apply, reset per-action; custom shortcuts are persisted via QSettings and loaded at startup |
 | **Settings Linkage** | CMake path, build directory, debugger path and other settings automatically propagate to the Build and Debug panels; changes take effect immediately |
 | **Git Integration** | Built-in Git panel with status, staging, commit, branch management, push/pull/fetch, diff viewer, log history, and stash support |
 | **Build System** | CMake integration panel with configure/build/clean, generator and build-type selection, target discovery, and error parsing |
 | **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, full call-stack frame parsing (module, function, file, line), variable type/value parsing, live watch-expression evaluation with result updates, watch context menu (Remove / Remove All / Evaluate), break-on-entry option, and debug console |
+| **Template Creation** | Create new files from built-in language templates via *File → New From Template* (`Ctrl+Shift+N`). Templates include: Ploy linker, C++ hello-world / class skeleton, Python script / class, Rust hello-world / struct, Java hello-world / class, and C# hello-world / class |
+| **Dynamic Topology Edges** | Topology panel edges automatically follow node movement in real time — dragging a node recalculates all connected Bézier edge paths instantly |
 
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+N` | New file |
+| `Ctrl+Shift+N` | New file from template |
 | `Ctrl+O` | Open file |
 | `Ctrl+S` | Save file |
 | `Ctrl+Shift+S` | Save as |
