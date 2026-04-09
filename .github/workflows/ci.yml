@@ -47,20 +47,20 @@ jobs:
       - name: Install clang-format
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-format-17
+          sudo apt-get install -y clang-format-20
 
       - name: Check formatting
         run: |
           find common middle frontends backends runtime tools \
             -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
             -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
-            | xargs -0 -r clang-format-17 --dry-run --Werror --style=file \
+            | xargs -0 -r clang-format-20 --dry-run --Werror --style=file \
             2>&1 | head -200
           # Exit with the pipeline status
           find common middle frontends backends runtime tools \
             -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
             -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
-            | xargs -0 -r clang-format-17 --dry-run --Werror --style=file
+            | xargs -0 -r clang-format-20 --dry-run --Werror --style=file
 
   # ==========================================================================
   # Quality Gate 3: Static analysis (clang-tidy)
@@ -74,14 +74,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build clang-tidy-17 clang-17
+          sudo apt-get install -y ninja-build clang-tidy-20 clang-20
 
       - name: Configure CMake (compile_commands.json)
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DCMAKE_CXX_COMPILER=clang++-17 \
-            -DCMAKE_C_COMPILER=clang-17 \
+            -DCMAKE_CXX_COMPILER=clang++-20 \
+            -DCMAKE_C_COMPILER=clang-20 \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
       - name: Run clang-tidy

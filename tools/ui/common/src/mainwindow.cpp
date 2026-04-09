@@ -602,6 +602,17 @@ void MainWindow::SetupConnections() {
                 editor->setFocus();
             }
         }
+        // Highlight the corresponding topology node during debugging
+        if (topology_panel_) {
+            topology_panel_->HighlightDebugNode(file, line);
+        }
+    });
+    connect(debug_panel_, &DebugPanel::DebugStopped,
+            this, [this]() {
+        // Clear topology debug highlights when the debug session ends
+        if (topology_panel_) {
+            topology_panel_->ClearDebugHighlights();
+        }
     });
 
     // Topology panel signals
@@ -637,6 +648,49 @@ void MainWindow::SetupConnections() {
 
     // File browser
     connect(file_browser_, &FileBrowser::FileActivated, this, &MainWindow::OnFileActivated);
+
+    // File browser — open file from context menu
+    connect(file_browser_, &FileBrowser::OpenFileRequested,
+            this, &MainWindow::OnFileActivated);
+
+    // File browser — open terminal at a directory
+    connect(file_browser_, &FileBrowser::OpenTerminalRequested,
+            this, [this](const QString &dir) {
+        // Create a new terminal tab rooted at the requested directory.
+        auto *terminal = new TerminalWidget(terminal_tabs_);
+        terminal->SetWorkingDirectory(dir);
+        QString title = QString("Terminal %1").arg(next_terminal_id_++);
+        int idx = terminal_tabs_->addTab(terminal, title);
+        terminal_tabs_->setCurrentIndex(idx);
+
+        connect(terminal, &TerminalWidget::TitleChanged,
+                this, [this, terminal](const QString &new_title) {
+            int i = terminal_tabs_->indexOf(terminal);
+            if (i >= 0) terminal_tabs_->setTabText(i, new_title);
+        });
+        connect(terminal, &TerminalWidget::ShellFinished,
+                this, [this, terminal](int exit_code) {
+            int i = terminal_tabs_->indexOf(terminal);
+            if (i >= 0) {
+                terminal_tabs_->setTabText(
+                    i, terminal_tabs_->tabText(i) +
+                           QString(" [exited %1]").arg(exit_code));
+            }
+        });
+
+        // Ensure bottom panel is visible and showing the terminal.
+        bottom_tabs_->setCurrentWidget(terminal_tabs_);
+        vertical_splitter_->setSizes({vertical_splitter_->height() * 2 / 3,
+                                      vertical_splitter_->height() / 3});
+    });
+
+    // File browser — generate topology for a .ploy file
+    connect(file_browser_, &FileBrowser::GenerateTopologyRequested,
+            this, [this](const QString &ploy_path) {
+        panel_manager_->ShowPanel("topology");
+        UpdateViewActionChecks();
+        topology_panel_->LoadFromFile(ploy_path);
+    });
 
     // Output panel error click
     connect(output_panel_, &OutputPanel::ErrorClicked,

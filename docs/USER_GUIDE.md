@@ -1742,7 +1742,7 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 |---------|-------------|
 | **Syntax Highlighting** | Uses compiler frontend tokenizers for accurate, language-aware highlighting across all 6 supported languages |
 | **Real-time Diagnostics** | Invokes the full compiler pipeline (lexer → parser → sema) to report errors and warnings as you type |
-| **File Browser** | Tree-view project navigator with filters for supported source file extensions |
+| **File Browser** | Tree-view project navigator with filters for supported source file extensions and a rich right-click context menu |
 | **Tabbed Editor** | Multi-file editing with tab management (new, open, save, close) |
 | **Output Panel** | Three-tab output area: compiler output, error table (clickable to jump to source), and log |
 | **Integrated Terminal** | Embedded shell (PowerShell on Windows, bash/zsh on Linux/macOS) with ANSI colour support, command history, and multiple instances |
@@ -1785,6 +1785,25 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | `F11` | Step into |
 | `Shift+F11` | Step out |
 
+### Explorer Context Menu
+
+Right-click any item in the File Browser to access a context-sensitive menu with the following actions:
+
+| Action | Description |
+|--------|-------------|
+| **Open** | Open the selected file in the editor (files only) |
+| **New File...** | Create a new file in the selected directory and open it |
+| **New Folder...** | Create a new sub-folder in the selected directory |
+| **Rename...** | Rename the selected file or folder (F2) |
+| **Delete** | Delete the selected file or folder (with confirmation) |
+| **Copy Path** | Copy the absolute native path to the clipboard |
+| **Copy Relative Path** | Copy the path relative to the project root to the clipboard |
+| **Reveal in File Explorer** | Open the containing folder in the OS file manager |
+| **Open in Terminal** | Open a new integrated terminal session rooted at the selected directory |
+| **Generate Topology Graph** | Generate and display the function-I/O topology graph for the selected `.ploy` file (`.ploy` files only) |
+
+> **Note:** The *Generate Topology Graph* action only appears for `.ploy` files. It opens the Topology Panel (or brings it to the foreground) and builds the full topology visualization using the topology analysis pipeline (lexer → parser → sema → topology analyzer).
+
 ### Supported Languages
 
 The IDE leverages the same frontend tokenizers used by `polyc`, ensuring accurate highlighting and diagnostics for:
@@ -1813,6 +1832,30 @@ The IDE includes a built-in terminal panel that provides interactive shell acces
 2. Press `` Ctrl+Shift+` `` to open an additional terminal instance
 3. Use the **Terminal** menu for Clear, Restart, and New Terminal actions
 4. Close individual terminals via the tab close button
+
+### Topology Panel
+
+The IDE includes an interactive topology visualization panel for `.ploy` files, similar to Simulink's block diagram view.
+
+**Features:**
+
+| Feature | Description |
+|---------|-------------|
+| **Force-Directed Layout** | Automatic graph layout using a Fruchterman–Reingold-style force simulation with repulsion between nodes and attraction along edges; includes simulated annealing for smooth convergence. Grid layouts (Top-Down, Left-Right) are also available via the layout selector. |
+| **Interactive Edge Creation** | Drag from an output port to an input port (or vice versa) to create a new edge. Self-loops and duplicate edges are rejected with diagnostics. |
+| **Interactive Edge Deletion** | Right-click an edge to delete it from the graph. |
+| **Live File Reload** | A `QFileSystemWatcher` monitors the loaded `.ploy` file; when it changes on disk the topology is automatically rebuilt after a 500 ms debounce. |
+| **Debug Breakpoint Highlighting** | When the debugger pauses at a source location, the corresponding topology node is highlighted with a yellow glow border and the view auto-scrolls to center on it. Highlights clear when the debug session ends. |
+| **Port Hover Tooltips** | Hover over any input or output port dot to see a rich tooltip with the port name, type, direction, and parent node name. The port visually enlarges on hover. |
+| **Validation Overlay** | Click **Validate** to run the topology validator; error nodes are highlighted in red and diagnostics are shown in the panel. |
+| **Export** | Export the current topology as DOT, JSON, or PNG via the toolbar buttons. |
+
+**Usage:**
+1. Right-click a `.ploy` file in the Explorer and select **Generate Topology Graph**, or press `Ctrl+Shift+T` with a `.ploy` file open.
+2. Use the layout selector to switch between *Force-Directed*, *Top-Down Grid*, and *Left-Right Grid*.
+3. Drag between port dots to interactively create edges; right-click an edge to delete it.
+4. Click **Validate** to run type-compatibility validation on all edges.
+5. Start a debug session — the topology panel will automatically highlight the active node.
 
 ### Settings
 
