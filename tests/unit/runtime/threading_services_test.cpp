@@ -150,7 +150,7 @@ TEST_CASE("Threading - Work Stealing Scheduler", "[threading][worksteal]") {
         std::atomic<int> sum{0};
         
         scheduler.ParallelFor(0, 1000, [&sum](size_t i) {
-            sum += i;
+            sum += static_cast<int>(i);
         });
         
         REQUIRE(sum == 499500);  // 0 + 1 + ... + 999

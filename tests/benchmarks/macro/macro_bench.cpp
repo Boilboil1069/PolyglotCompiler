@@ -214,6 +214,7 @@ constexpr int kFullRuns      = 20;
 
 // Read POLYBENCH_MODE environment variable and return (warmup, runs).
 static std::pair<int,int> GetBenchConfig() {
+#pragma warning(suppress: 4996)
     const char *mode = std::getenv("POLYBENCH_MODE");
     if (mode) {
         std::string m(mode);
