@@ -200,10 +200,132 @@ Unit tests are in `tests/unit/tools/topology_test.cpp` and registered as the `te
 | `[topology][printer]`  | Text/DOT/JSON/summary output format verification       |
 | `[topology][analyzer]` | FUNC, LINK, PIPELINE, CALL end-to-end from .ploy source|
 
-## 7. Future Work
+## 7. Code Generation — `GeneratePloySrc`
 
-- Force-directed automatic layout (replacing the simple grid).
-- Interactive edge creation/deletion via drag-and-drop.
-- Live reloading when the source `.ploy` file changes.
-- Breakpoint integration: highlight the currently executing node during debug sessions.
-- Tooltip-based type detail inspection on hover over ports.
+The `topology_codegen.h`/`.cpp` module (shared between the polyui IDE and the polytopo CLI) converts a `TopologyGraph` into valid `.ploy` source code.
+
+### 7.1 Component Location
+
+```
+tools/polytopo/
+├── include/
+│   └── topology_codegen.h     # GeneratePloySrc() and ParseJsonToGraph() declarations
+└── src/
+    └── topology_codegen.cpp   # Full implementation of graph-to-source and JSON-to-graph
+```
+
+### 7.2 Code Generation Rules
+
+| Node Kind       | Generated .ploy Construct                                   |
+|-----------------|-------------------------------------------------------------|
+| `kFunction`     | `FUNC name(inputs) -> output_type { body }`                |
+| `kConstructor`  | `LET v = NEW(language, class, args);` inside caller body   |
+| `kMethod`       | `LET v = METHOD(language, object, method, args);`          |
+| `kPipeline`     | `PIPELINE name { FUNC run(...) { ... } }`                  |
+| `kMapFunc`      | `MAP_FUNC name(inputs) -> output_type { body }`            |
+| `kExternalCall` | Skipped (represented as CALL targets within function bodies)|
+
+| Edge Scenario                        | Generated Construct                                    |
+|--------------------------------------|--------------------------------------------------------|
+| Different-language nodes             | `LINK(src_lang, tgt_lang, src_name, tgt_name) { ... }` |
+| Type mismatch across languages       | `MAP_TYPE(lang::SrcType, lang::TgtType);`              |
+| Same-language call                   | `LET v = CALL(language, target, args);` in body        |
+
+Additional directives:
+- `IMPORT lang::module;` — emitted for each distinct foreign-language module.
+- `EXPORT name;` — emitted for all non-external, non-map ploy-native functions.
+
+### 7.3 Verification
+
+The generated code is always verified by running `PloyParser` + `PloySema` before saving. Parse or semantic errors are reported in the diagnostics panel (GUI) or stderr (CLI).
+
+### 7.4 Shared Usage
+
+- **polyui IDE**: Click **Generate .ploy** in the toolbar → `OnGeneratePloy()` → writes `<basename>_generated.ploy` and opens in editor.
+- **polytopo CLI**: `polytopo generate <topo.json> -o <output.ploy>` → `ParseJsonToGraph()` → `GeneratePloySrc()`.
+
+Both paths use the same `GeneratePloySrc()` function from `topo_lib`, ensuring consistent output.
+
+## 8. Bidirectional Sync Protocol
+
+The topology panel and the code editor maintain a bidirectional live-sync relationship:
+
+### 8.1 Editor → Topology (File Watcher)
+
+```
+Editor saves .ploy file
+    → QFileSystemWatcher detects change
+    → 200 ms debounce timer fires
+    → TopologyPanel::BuildGraphFromFile() rebuilds graph
+    → Status bar shows "Reloaded"
+```
+
+This is a complete re-parse and rebuild — the topology graph is reconstructed from scratch each time. The file watcher is temporarily removed during panel-initiated writes to prevent reload loops.
+
+### 8.2 Topology → Editor (Edge Sync)
+
+```
+User drags to create an edge
+    → TopologyPanel::TryCreateEdge()
+    → TopologyPanel::SyncEdgeToFile()
+        - Appends "LINK src.port -> tgt.port" to .ploy file
+        - Emits FileContentChanged(file, line)
+    → MainWindow handler:
+        - Reloads file content in editor
+        - Moves cursor to the new line
+        - Applies yellow highlight (fades after 2 seconds)
+
+User right-clicks to delete an edge
+    → TopologyPanel::RemoveEdge()
+    → TopologyPanel::RemoveEdgeFromFile()
+        - Removes matching LINK/CALL line from .ploy file
+        - Emits FileContentChanged(file, removed_line)
+    → MainWindow handler (same highlight flow)
+```
+
+### 8.3 Current Capability Boundaries
+
+| Capability                                | Status      |
+|-------------------------------------------|-------------|
+| Parse `.ploy` → build topology graph      | ✅ Full     |
+| Generate `.ploy` from topology graph      | ✅ Full     |
+| Live reload on file change                | ✅ 200 ms   |
+| Edge creation syncs LINK to file          | ✅ Append   |
+| Edge deletion syncs removal from file     | ✅ Line-match removal |
+| Node creation/deletion from topology panel| ❌ Not yet  |
+| Rename refactoring from topology panel    | ❌ Not yet  |
+| Undo/redo for edge operations             | ❌ Not yet  |
+| Incremental re-parse (partial rebuild)    | ❌ Full rebuild only |
+
+## 9. Advanced Interaction Features
+
+### 9.1 Force-Directed Layout
+
+The topology panel uses a Fruchterman–Reingold-style simulation:
+
+- **Repulsion**: Coulomb's law between all node pairs (`kRepulsionStrength = 50000`).
+- **Attraction**: Hooke's law along edges (`kAttractionStrength = 0.005`, `kIdealEdgeLength = 250`).
+- **Damping**: Simulated annealing with `kDamping = 0.85`, decaying over 300 iterations.
+- **Early termination**: Stops when maximum movement per tick < `kMinMovement = 0.5`.
+- **Edge refresh**: `RefreshEdgePositions()` recalculates all Bezier paths each tick.
+
+### 9.2 Interactive Edge Creation/Deletion
+
+- **Create**: Drag from an output `TopoPortItem` to an input port. A temporary `QGraphicsLineItem` previews the connection. On release, validation checks (no self-loops, no duplicates, output→input directionality) are performed. The new `LINK` statement is appended to the `.ploy` file.
+- **Delete**: Right-click an edge → "Delete Edge". The panel removes the edge from `edge_items_`, syncs the removal to the `.ploy` file, and emits `GraphModified()`.
+
+### 9.3 Debug Execution Highlighting
+
+- `HighlightDebugNode(file, line)` — matches by source file and line number, sets `debug_active_` on the nearest node.
+- `HighlightExecutingNode(uint64_t node_id)` — direct node-id-based highlighting.
+- **Pulse animation**: When `debug_active_` is set, a `QTimer` oscillates the border opacity between 40% and 100% at 20 fps, creating a bright yellow pulsing effect.
+- `ClearExecutionHighlight()` — stops the animation and resets the highlight.
+
+### 9.4 Port Hover Tooltips
+
+Hovering over a `TopoPortItem` displays:
+- Port name and direction (Input/Output)
+- Type name
+- Parent node name
+- Language
+- Connection status: `✔ Valid`, `⚠ Implicit Convert`, `✘ Incompatible`, `? Unknown`, or `Not connected`

@@ -29,6 +29,7 @@
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 #include "tools/polytopo/include/topology_analyzer.h"
+#include "tools/polytopo/include/topology_codegen.h"
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
 #include "tools/polytopo/include/topology_validator.h"
@@ -50,6 +51,7 @@ struct TopoOptions {
     std::string input_file;
     std::string output_file;       // empty = stdout
     std::string format{"text"};    // text, dot, json, summary
+    std::string subcommand;        // empty = default analysis, "generate" = code gen
     bool validate{false};
     bool strict{false};
     bool use_color{true};
@@ -69,7 +71,11 @@ static void PrintHelp() {
     std::cout
         << "polytopo — Polyglot Topology Analysis Tool v" << kTopoVersion << "\n\n"
         << "Usage:\n"
-        << "  polytopo <file.ploy> [options]\n\n"
+        << "  polytopo <file.ploy> [options]\n"
+        << "  polytopo generate <topo.json> -o <output.ploy>\n\n"
+        << "Subcommands:\n"
+        << "  generate <topo.json>              Generate .ploy source from a JSON\n"
+        << "                                    topology graph (produced by --format json)\n\n"
         << "Options:\n"
         << "  --format <text|dot|json|summary>  Output format (default: text)\n"
         << "  --validate                        Run validation checks and report\n"
@@ -79,14 +85,15 @@ static void PrintHelp() {
         << "  --compact                         Compact output\n"
         << "  --allow-cycles                    Do not error on cycles\n"
         << "  --dot-horizontal                  DOT: use left-to-right layout\n"
-        << "  --output <file>                   Write output to file\n"
+        << "  --output, -o <file>               Write output to file\n"
         << "  --help                            Show this help message\n"
         << "  --version                         Show version\n\n"
         << "Examples:\n"
         << "  polytopo my_project.ploy\n"
         << "  polytopo my_project.ploy --format dot --output graph.dot\n"
         << "  polytopo my_project.ploy --validate --strict\n"
-        << "  polytopo my_project.ploy --format json --output graph.json\n";
+        << "  polytopo my_project.ploy --format json --output graph.json\n"
+        << "  polytopo generate graph.json -o generated.ploy\n";
 }
 
 static void PrintVersion() {
@@ -105,6 +112,9 @@ static TopoOptions ParseArgs(int argc, char *argv[]) {
             opts.show_help = true;
         } else if (arg == "--version" || arg == "-v") {
             opts.show_version = true;
+        } else if (arg == "generate" && opts.subcommand.empty() &&
+                   opts.input_file.empty()) {
+            opts.subcommand = "generate";
         } else if (arg == "--format" && i + 1 < argc) {
             opts.format = argv[++i];
         } else if (arg == "--output" || arg == "-o") {
@@ -131,6 +141,88 @@ static TopoOptions ParseArgs(int argc, char *argv[]) {
         }
     }
     return opts;
+}
+
+// ============================================================================
+// Generate subcommand — converts JSON topology graph to .ploy source
+// ============================================================================
+
+static int RunGenerate(const TopoOptions &opts) {
+    if (opts.input_file.empty()) {
+        std::cerr << "Error: No input JSON file specified.\n"
+                  << "Usage: polytopo generate <topo.json> -o <output.ploy>\n";
+        return 1;
+    }
+
+    if (!std::filesystem::exists(opts.input_file)) {
+        std::cerr << "Error: File not found: " << opts.input_file << "\n";
+        return 1;
+    }
+
+    // Read input JSON
+    std::ifstream ifs(opts.input_file);
+    if (!ifs.is_open()) {
+        std::cerr << "Error: Cannot open file: " << opts.input_file << "\n";
+        return 1;
+    }
+    std::string json_str((std::istreambuf_iterator<char>(ifs)),
+                          std::istreambuf_iterator<char>());
+    ifs.close();
+
+    std::cerr << "[1/3] Parsing JSON topology graph...\n";
+
+    // Parse JSON into TopologyGraph
+    topo::TopologyGraph graph;
+    if (!topo::ParseJsonToGraph(json_str, graph)) {
+        std::cerr << "Error: Failed to parse JSON topology graph.\n";
+        return 1;
+    }
+
+    std::cerr << "[2/3] Generating .ploy source ("
+              << graph.NodeCount() << " nodes, "
+              << graph.EdgeCount() << " edges)...\n";
+
+    // Generate .ploy source
+    std::string ploy_src = topo::GeneratePloySrc(graph);
+
+    // Verify generated source is parseable
+    std::cerr << "[3/3] Verifying generated source...\n";
+    {
+        frontends::Diagnostics verify_diags;
+        ploy::PloyLexer vlex(ploy_src, "<generated>");
+        ploy::PloyParser vparser(vlex, verify_diags);
+        vparser.ParseModule();
+        auto vmod = vparser.TakeModule();
+        if (!vmod) {
+            std::cerr << "Warning: generated code has parse errors:\n";
+            for (const auto &d : verify_diags.All()) {
+                std::cerr << "  " << d.message << "\n";
+            }
+        } else {
+            ploy::PloySemaOptions sema_opts;
+            sema_opts.enable_package_discovery = false;
+            sema_opts.strict_mode = false;
+            ploy::PloySema sema(verify_diags, sema_opts);
+            sema.Analyze(vmod);
+        }
+    }
+
+    // Write output
+    if (opts.output_file.empty()) {
+        std::cout << ploy_src;
+    } else {
+        std::ofstream ofs(opts.output_file);
+        if (!ofs.is_open()) {
+            std::cerr << "Error: Cannot open output file: "
+                      << opts.output_file << "\n";
+            return 1;
+        }
+        ofs << ploy_src;
+        ofs.close();
+        std::cerr << "Generated: " << opts.output_file << "\n";
+    }
+
+    return 0;
 }
 
 // ============================================================================
@@ -313,6 +405,10 @@ int main(int argc, char *argv[]) {
     if (opts.show_version) {
         polyglot::tools::PrintVersion();
         return 0;
+    }
+
+    if (opts.subcommand == "generate") {
+        return polyglot::tools::RunGenerate(opts);
     }
 
     return polyglot::tools::Run(opts);

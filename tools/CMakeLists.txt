@@ -121,6 +121,7 @@ add_library(topo_lib
     polytopo/src/topology_analyzer.cpp
     polytopo/src/topology_validator.cpp
     polytopo/src/topology_printer.cpp
+    polytopo/src/topology_codegen.cpp
 )
 
 target_include_directories(topo_lib PUBLIC ${CMAKE_SOURCE_DIR})

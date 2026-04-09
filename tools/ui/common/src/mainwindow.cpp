@@ -37,6 +37,7 @@
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextStream>
+#include <QTimer>
 
 namespace polyglot::tools::ui {
 
@@ -612,6 +613,15 @@ void MainWindow::SetupConnections() {
         // Clear topology debug highlights when the debug session ends
         if (topology_panel_) {
             topology_panel_->ClearDebugHighlights();
+            topology_panel_->ClearExecutionHighlight();
+        }
+    });
+    connect(debug_panel_, &DebugPanel::DebugStarted,
+            this, [this]() {
+        // Clear previous execution highlights when a new debug session starts
+        if (topology_panel_) {
+            topology_panel_->ClearDebugHighlights();
+            topology_panel_->ClearExecutionHighlight();
         }
     });
 
@@ -633,6 +643,57 @@ void MainWindow::SetupConnections() {
                     editor->setTextCursor(cursor);
                     editor->centerCursor();
                     editor->setFocus();
+                }
+            }
+        }
+    });
+
+    // Topology panel: open generated .ploy file in editor
+    connect(topology_panel_, &TopologyPanel::OpenFileRequested,
+            this, [this](const QString &file_path) {
+        if (!file_path.isEmpty()) {
+            OpenFileInTab(file_path);
+        }
+    });
+
+    // Topology panel: bidirectional sync — when edge sync modifies the .ploy
+    // file, reload and highlight the affected line in the editor.
+    connect(topology_panel_, &TopologyPanel::FileContentChanged,
+            this, [this](const QString &file_path, int line) {
+        if (file_path.isEmpty() || line <= 0) return;
+        int idx = OpenFileInTab(file_path);
+        if (idx >= 0) {
+            CodeEditor *editor = EditorAt(idx);
+            if (editor) {
+                // Reload the file content from disk to reflect the change
+                QFile file(file_path);
+                if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QTextStream in(&file);
+                    QString content = in.readAll();
+                    file.close();
+                    // Block signals to avoid triggering modification tracking
+                    editor->blockSignals(true);
+                    editor->setPlainText(content);
+                    editor->blockSignals(false);
+                }
+                // Move cursor to the changed line and briefly highlight it
+                QTextBlock block = editor->document()->findBlockByLineNumber(line - 1);
+                if (block.isValid()) {
+                    QTextCursor cursor(block);
+                    editor->setTextCursor(cursor);
+                    editor->centerCursor();
+                    // Apply a temporary highlight via extra selections
+                    QTextEdit::ExtraSelection sel;
+                    sel.format.setBackground(QColor(255, 255, 0, 60));
+                    sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+                    sel.cursor = cursor;
+                    QList<QTextEdit::ExtraSelection> extras = editor->extraSelections();
+                    extras.append(sel);
+                    editor->setExtraSelections(extras);
+                    // Clear the highlight after 2 seconds
+                    QTimer::singleShot(2000, editor, [editor]() {
+                        editor->setExtraSelections({});
+                    });
                 }
             }
         }

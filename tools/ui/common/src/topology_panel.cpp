@@ -11,6 +11,7 @@
 #include "tools/ui/common/include/topology_panel.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QFileDialog>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsSceneContextMenuEvent>
@@ -25,11 +26,13 @@
 #include <QPen>
 #include <QProcess>
 #include <QScrollBar>
+#include <QTextStream>
 #include <QToolTip>
 #include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <random>
 #include <sstream>
@@ -39,6 +42,7 @@
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 #include "tools/polytopo/include/topology_analyzer.h"
+#include "tools/polytopo/include/topology_codegen.h"
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
 #include "tools/polytopo/include/topology_validator.h"
@@ -101,15 +105,63 @@ TopoPortItem::TopoPortItem(uint64_t port_id, Direction direction,
 }
 
 void TopoPortItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event) {
-    // Show tooltip with type information
+    // Show tooltip with type, language, and connection status information
     QString tip = QString("<b>%1</b> %2<br>"
                           "<i>Type:</i> <code>%3</code><br>"
                           "<i>Direction:</i> %4<br>"
-                          "<i>Node:</i> %5")
+                          "<i>Node:</i> %5<br>"
+                          "<i>Language:</i> %6")
                       .arg(direction_ == Direction::kInput ? "Input" : "Output",
                            name_, type_name_,
                            direction_ == Direction::kInput ? "→ In" : "Out →",
-                           parent_node_->NodeName());
+                           parent_node_->NodeName(),
+                           parent_node_->Language());
+
+    // Look up connection status from edges touching this port
+    auto *gv = qobject_cast<TopoGraphicsView *>(scene()->views().value(0));
+    if (gv && gv->Panel()) {
+        // Access edge items to find connections to this port
+        bool found_connection = false;
+        const auto &edges = gv->scene()->items();
+        for (auto *item : edges) {
+            auto *edge = dynamic_cast<TopoEdgeItem *>(item);
+            if (!edge) continue;
+            bool matches = false;
+            if (direction_ == Direction::kOutput &&
+                edge->SourceNodeId() == parent_node_->NodeId() &&
+                edge->SourcePortId() == port_id_) {
+                matches = true;
+            } else if (direction_ == Direction::kInput &&
+                       edge->TargetNodeId() == parent_node_->NodeId() &&
+                       edge->TargetPortId() == port_id_) {
+                matches = true;
+            }
+            if (matches) {
+                if (!found_connection) {
+                    tip += "<br><i>Connections:</i>";
+                    found_connection = true;
+                }
+                // Describe the edge status
+                QString status_desc;
+                const QString &s = edge->Status();
+                if (s == "valid")
+                    status_desc = "✔ Valid";
+                else if (s == "implicit_convert")
+                    status_desc = "⚠ Implicit Convert";
+                else if (s == "explicit_convert")
+                    status_desc = "⚠ Explicit Convert";
+                else if (s == "incompatible")
+                    status_desc = "✘ Incompatible";
+                else
+                    status_desc = "? Unknown";
+                tip += "<br>&nbsp;&nbsp;" + status_desc;
+            }
+        }
+        if (!found_connection) {
+            tip += "<br><i>Connection:</i> Not connected";
+        }
+    }
+
     QToolTip::showText(event->screenPos(), tip);
 
     // Visual feedback: enlarge on hover
@@ -249,7 +301,46 @@ void TopoNodeItem::SetHighlight(bool error) {
 
 void TopoNodeItem::SetDebugHighlight(bool active) {
     debug_active_ = active;
+    if (active) {
+        StartPulseAnimation();
+    } else {
+        StopPulseAnimation();
+    }
     update();
+}
+
+void TopoNodeItem::StartPulseAnimation() {
+    if (!pulse_timer_) {
+        pulse_timer_ = new QTimer();
+        QObject::connect(pulse_timer_, &QTimer::timeout, [this]() {
+            // Oscillate pulse_opacity_ between 0.4 and 1.0
+            constexpr qreal kStep = 0.06;
+            if (pulse_rising_) {
+                pulse_opacity_ += kStep;
+                if (pulse_opacity_ >= 1.0) {
+                    pulse_opacity_ = 1.0;
+                    pulse_rising_ = false;
+                }
+            } else {
+                pulse_opacity_ -= kStep;
+                if (pulse_opacity_ <= 0.4) {
+                    pulse_opacity_ = 0.4;
+                    pulse_rising_ = true;
+                }
+            }
+            update();
+        });
+    }
+    pulse_opacity_ = 1.0;
+    pulse_rising_ = false;
+    pulse_timer_->start(50);  // ~20 fps pulse
+}
+
+void TopoNodeItem::StopPulseAnimation() {
+    if (pulse_timer_) {
+        pulse_timer_->stop();
+    }
+    pulse_opacity_ = 1.0;
 }
 
 void TopoNodeItem::SetSourceLocation(const QString &file, int line) {
@@ -314,8 +405,9 @@ void TopoNodeItem::paint(QPainter *painter,
     // Determine border style
     QPen border_pen(base_color, 2);
     if (debug_active_) {
-        // Bright yellow glow for active-debug node
-        border_pen.setColor(QColor("#FFEB3B"));
+        // Bright yellow glow with pulse animation for active-debug node
+        QColor pulse_yellow(255, 235, 59, static_cast<int>(255 * pulse_opacity_));
+        border_pen.setColor(pulse_yellow);
         border_pen.setWidth(4);
     } else if (highlight_error_) {
         border_pen.setColor(QColor("#F44336"));
@@ -328,9 +420,9 @@ void TopoNodeItem::paint(QPainter *painter,
     painter->setPen(border_pen);
     painter->drawRoundedRect(r, 6, 6);
 
-    // Debug-active overlay: translucent yellow tint
+    // Debug-active overlay: translucent yellow tint with pulse
     if (debug_active_) {
-        QColor overlay(255, 235, 59, 30);
+        QColor overlay(255, 235, 59, static_cast<int>(30 * pulse_opacity_));
         painter->setBrush(QBrush(overlay));
         painter->setPen(Qt::NoPen);
         painter->drawRoundedRect(r, 6, 6);
@@ -419,24 +511,16 @@ void TopoEdgeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
     QAction *remove_action = menu.addAction("Delete Edge");
     QAction *chosen = menu.exec(event->screenPos());
     if (chosen == remove_action) {
-        // Ask the panel to remove this edge
-        auto *gv = qobject_cast<TopoGraphicsView *>(scene()->views().value(0));
-        if (gv) {
-            auto *panel = gv->property("panel").value<TopologyPanel *>();
-            // Fallback: iterate views
-        }
-        // Direct removal via scene parent approach: store panel pointer
-        // We use the view → panel link
+        // Find the panel through the TopoGraphicsView and request proper removal
+        // which also syncs the .ploy file and updates the edge_items_ vector.
         for (auto *v : scene()->views()) {
             auto *tgv = qobject_cast<TopoGraphicsView *>(v);
-            if (tgv) {
-                // Access panel via the getter
-                // The panel pointer is stored in the view
-                break;
+            if (tgv && tgv->Panel()) {
+                tgv->Panel()->RemoveEdge(this);
+                return;
             }
         }
-        // Simplest approach: remove from scene directly.  The panel
-        // connects to GraphModified for bookkeeping.
+        // Fallback: direct removal (should not normally reach here)
         scene()->removeItem(this);
         delete this;
     }
@@ -540,10 +624,11 @@ TopologyPanel::TopologyPanel(QWidget *parent)
     // Debounce timer for file reload (avoids rapid successive reloads)
     reload_debounce_ = new QTimer(this);
     reload_debounce_->setSingleShot(true);
-    reload_debounce_->setInterval(500);  // 500 ms debounce
+    reload_debounce_->setInterval(200);  // 200 ms debounce
     connect(reload_debounce_, &QTimer::timeout, this, [this]() {
         if (!current_file_.isEmpty()) {
             BuildGraphFromFile(current_file_);
+            status_label_->setText("Reloaded");
             diagnostics_output_->appendPlainText(
                 "[LiveReload] Reloaded due to file change");
         }
@@ -659,6 +744,12 @@ void TopologyPanel::SetupToolbar() {
     auto *export_png = new QPushButton("Export PNG", toolbar_);
     connect(export_png, &QPushButton::clicked, this, &TopologyPanel::OnExportPng);
     toolbar_->addWidget(export_png);
+
+    toolbar_->addSeparator();
+
+    auto *gen_ploy = new QPushButton("Generate .ploy", toolbar_);
+    connect(gen_ploy, &QPushButton::clicked, this, &TopologyPanel::OnGeneratePloy);
+    toolbar_->addWidget(gen_ploy);
 }
 
 void TopologyPanel::SetupScene() {
@@ -732,6 +823,28 @@ void TopologyPanel::ClearDebugHighlights() {
     }
 }
 
+void TopologyPanel::HighlightExecutingNode(uint64_t node_id) {
+    // Clear previous execution highlight
+    ClearExecutionHighlight();
+
+    auto it = node_items_.find(node_id);
+    if (it != node_items_.end()) {
+        execution_highlight_id_ = node_id;
+        it->second->SetDebugHighlight(true);
+        view_->centerOn(it->second);
+    }
+}
+
+void TopologyPanel::ClearExecutionHighlight() {
+    if (execution_highlight_id_ != 0) {
+        auto it = node_items_.find(execution_highlight_id_);
+        if (it != node_items_.end()) {
+            it->second->SetDebugHighlight(false);
+        }
+        execution_highlight_id_ = 0;
+    }
+}
+
 void TopologyPanel::TryCreateEdge(TopoPortItem *source, TopoPortItem *target) {
     if (!source || !target) return;
 
@@ -793,11 +906,18 @@ void TopologyPanel::TryCreateEdge(TopoPortItem *source, TopoPortItem *target) {
             .arg(from->ParentNode()->NodeName(), from->PortName(),
                  to->ParentNode()->NodeName(), to->PortName()));
 
+    // Sync the new edge back to the .ploy file as a LINK declaration
+    SyncEdgeToFile(edge);
+
     emit GraphModified();
 }
 
 void TopologyPanel::RemoveEdge(TopoEdgeItem *edge) {
     if (!edge) return;
+
+    // Sync-remove the corresponding LINK/CALL line from the .ploy file
+    RemoveEdgeFromFile(edge);
+
     auto it = std::find(edge_items_.begin(), edge_items_.end(), edge);
     if (it != edge_items_.end()) {
         edge_items_.erase(it);
@@ -807,6 +927,143 @@ void TopologyPanel::RemoveEdge(TopoEdgeItem *edge) {
     scene_->removeItem(edge);
     delete edge;
     emit GraphModified();
+}
+
+void TopologyPanel::SyncEdgeToFile(TopoEdgeItem *edge) {
+    if (current_file_.isEmpty() || !edge) return;
+
+    // Resolve node names for the LINK statement
+    QString src_name, tgt_name, src_port, tgt_port;
+    auto src_it = node_items_.find(edge->SourceNodeId());
+    auto tgt_it = node_items_.find(edge->TargetNodeId());
+    if (src_it != node_items_.end()) {
+        src_name = src_it->second->NodeName();
+        for (auto *p : src_it->second->OutputPorts()) {
+            if (p->PortId() == edge->SourcePortId()) {
+                src_port = p->PortName();
+                break;
+            }
+        }
+    }
+    if (tgt_it != node_items_.end()) {
+        tgt_name = tgt_it->second->NodeName();
+        for (auto *p : tgt_it->second->InputPorts()) {
+            if (p->PortId() == edge->TargetPortId()) {
+                tgt_port = p->PortName();
+                break;
+            }
+        }
+    }
+
+    if (src_name.isEmpty() || tgt_name.isEmpty()) return;
+
+    // Build the LINK statement: LINK src_name.src_port -> tgt_name.tgt_port
+    QString link_stmt = QString("\nLINK %1.%2 -> %3.%4\n")
+                            .arg(src_name, src_port, tgt_name, tgt_port);
+
+    // Temporarily remove the file watcher to avoid triggering a reload loop
+    file_watcher_->removePath(current_file_);
+
+    // Append the LINK statement to the .ploy file
+    QFile file(current_file_);
+    if (file.open(QIODevice::ReadWrite | QIODevice::Text)) {
+        // Count existing lines to determine the appended line number
+        QString existing = QTextStream(&file).readAll();
+        int line_count = existing.count('\n') + 1;
+        file.seek(file.size());
+        QTextStream stream(&file);
+        stream << link_stmt;
+        file.close();
+        diagnostics_output_->appendPlainText(
+            "[Sync] Appended LINK statement to " + current_file_);
+        // Notify the editor to highlight the newly appended line
+        emit FileContentChanged(current_file_, line_count + 1);
+    } else {
+        diagnostics_output_->appendPlainText(
+            "[Sync] Failed to write to " + current_file_);
+    }
+
+    // Re-add the file watcher
+    file_watcher_->addPath(current_file_);
+}
+
+void TopologyPanel::RemoveEdgeFromFile(TopoEdgeItem *edge) {
+    if (current_file_.isEmpty() || !edge) return;
+
+    // Resolve node names to find the matching LINK line
+    QString src_name, tgt_name, src_port, tgt_port;
+    auto src_it = node_items_.find(edge->SourceNodeId());
+    auto tgt_it = node_items_.find(edge->TargetNodeId());
+    if (src_it != node_items_.end()) {
+        src_name = src_it->second->NodeName();
+        for (auto *p : src_it->second->OutputPorts()) {
+            if (p->PortId() == edge->SourcePortId()) {
+                src_port = p->PortName();
+                break;
+            }
+        }
+    }
+    if (tgt_it != node_items_.end()) {
+        tgt_name = tgt_it->second->NodeName();
+        for (auto *p : tgt_it->second->InputPorts()) {
+            if (p->PortId() == edge->TargetPortId()) {
+                tgt_port = p->PortName();
+                break;
+            }
+        }
+    }
+
+    if (src_name.isEmpty() || tgt_name.isEmpty()) return;
+
+    // Build the pattern to match: "LINK src_name.src_port -> tgt_name.tgt_port"
+    // Also match "CALL" variant for cross-language calls
+    QString link_pattern = QString("%1.%2 -> %3.%4")
+                               .arg(src_name, src_port, tgt_name, tgt_port);
+
+    // Temporarily remove the file watcher to avoid triggering a reload loop
+    file_watcher_->removePath(current_file_);
+
+    // Read the file, remove matching LINK/CALL line, write back
+    QFile file(current_file_);
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&file);
+        QString content = in.readAll();
+        file.close();
+
+        // Remove lines containing the link pattern (LINK or CALL prefix)
+        QStringList lines = content.split('\n');
+        QStringList filtered;
+        bool removed = false;
+        int removed_line = -1;
+        for (int i = 0; i < lines.size(); ++i) {
+            QString trimmed = lines[i].trimmed();
+            if (!removed &&
+                (trimmed.startsWith("LINK") || trimmed.startsWith("CALL")) &&
+                trimmed.contains(link_pattern)) {
+                removed = true;  // Remove only the first matching line
+                removed_line = i + 1;  // 1-based line number
+                continue;
+            }
+            filtered.append(lines[i]);
+        }
+
+        if (removed) {
+            QFile out_file(current_file_);
+            if (out_file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&out_file);
+                out << filtered.join('\n');
+                out_file.close();
+                diagnostics_output_->appendPlainText(
+                    "[Sync] Removed LINK/CALL statement from " + current_file_);
+                // Notify the editor to highlight the area around the removed line
+                emit FileContentChanged(current_file_,
+                                        std::max(1, removed_line - 1));
+            }
+        }
+    }
+
+    // Re-add the file watcher
+    file_watcher_->addPath(current_file_);
 }
 
 void TopologyPanel::BuildGraphFromFile(const QString &path) {
@@ -1297,6 +1554,101 @@ void TopologyPanel::OnExportPng() {
     image.save(path);
 
     diagnostics_output_->appendPlainText("Exported PNG to " + path);
+}
+
+void TopologyPanel::OnGeneratePloy() {
+    if (current_file_.isEmpty()) {
+        diagnostics_output_->appendPlainText(
+            "[Generate] No topology loaded — open a .ploy file first.");
+        return;
+    }
+
+    // Re-parse the current file to obtain a fresh TopologyGraph
+    std::ifstream ifs(current_file_.toStdString());
+    if (!ifs.is_open()) {
+        diagnostics_output_->appendPlainText(
+            "[Generate] Cannot open " + current_file_);
+        return;
+    }
+    std::string source((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    ifs.close();
+
+    frontends::Diagnostics diagnostics;
+    ploy::PloyLexer lexer(source, current_file_.toStdString());
+    ploy::PloyParser parser(lexer, diagnostics);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    if (!module) {
+        diagnostics_output_->appendPlainText("[Generate] Parse failed.");
+        return;
+    }
+
+    ploy::PloySemaOptions sema_opts;
+    sema_opts.enable_package_discovery = false;
+    ploy::PloySema sema(diagnostics, sema_opts);
+    sema.Analyze(module);
+
+    topo::TopologyAnalyzer analyzer(sema);
+    if (!analyzer.Build(module)) {
+        diagnostics_output_->appendPlainText(
+            "[Generate] Topology analysis failed.");
+        return;
+    }
+
+    auto &graph = analyzer.MutableGraph();
+    graph.source_file = current_file_.toStdString();
+
+    // Generate .ploy source
+    std::string generated = topo::GeneratePloySrc(graph);
+
+    // Verify the generated source is parseable
+    {
+        frontends::Diagnostics verify_diags;
+        ploy::PloyLexer vlex(generated, "<generated>");
+        ploy::PloyParser vparser(vlex, verify_diags);
+        vparser.ParseModule();
+        auto vmod = vparser.TakeModule();
+        if (!vmod) {
+            diagnostics_output_->appendPlainText(
+                "[Generate] Warning: generated code has parse errors:");
+            for (const auto &d : verify_diags.All()) {
+                diagnostics_output_->appendPlainText(
+                    "  " + QString::fromStdString(d.message));
+            }
+        }
+
+        ploy::PloySemaOptions vsema_opts;
+        vsema_opts.enable_package_discovery = false;
+        vsema_opts.strict_mode = false;
+        ploy::PloySema vsema(verify_diags, vsema_opts);
+        if (vmod) {
+            vsema.Analyze(vmod);
+        }
+    }
+
+    // Write to <basename>_generated.ploy in the same directory
+    namespace fs = std::filesystem;
+    fs::path src_path(current_file_.toStdString());
+    std::string stem = src_path.stem().string();
+    fs::path gen_path = src_path.parent_path() / (stem + "_generated.ploy");
+
+    std::ofstream ofs(gen_path.string());
+    if (!ofs.is_open()) {
+        diagnostics_output_->appendPlainText(
+            "[Generate] Cannot write to " +
+            QString::fromStdString(gen_path.string()));
+        return;
+    }
+    ofs << generated;
+    ofs.close();
+
+    QString gen_path_q = QString::fromStdString(gen_path.string());
+    diagnostics_output_->appendPlainText(
+        "[Generate] Generated .ploy source: " + gen_path_q);
+
+    // Request the editor to open the generated file
+    emit OpenFileRequested(gen_path_q);
 }
 
 void TopologyPanel::OnZoomIn() {

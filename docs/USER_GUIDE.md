@@ -1841,14 +1841,15 @@ The IDE includes an interactive topology visualization panel for `.ploy` files, 
 
 | Feature | Description |
 |---------|-------------|
-| **Force-Directed Layout** | Automatic graph layout using a Fruchterman–Reingold-style force simulation with repulsion between nodes and attraction along edges; includes simulated annealing for smooth convergence. Grid layouts (Top-Down, Left-Right) are also available via the layout selector. |
-| **Interactive Edge Creation** | Drag from an output port to an input port (or vice versa) to create a new edge. Self-loops and duplicate edges are rejected with diagnostics. |
-| **Interactive Edge Deletion** | Right-click an edge to delete it from the graph. |
-| **Live File Reload** | A `QFileSystemWatcher` monitors the loaded `.ploy` file; when it changes on disk the topology is automatically rebuilt after a 500 ms debounce. |
-| **Debug Breakpoint Highlighting** | When the debugger pauses at a source location, the corresponding topology node is highlighted with a yellow glow border and the view auto-scrolls to center on it. Highlights clear when the debug session ends. |
-| **Port Hover Tooltips** | Hover over any input or output port dot to see a rich tooltip with the port name, type, direction, and parent node name. The port visually enlarges on hover. |
+| **Force-Directed Layout** | Automatic graph layout using a Fruchterman–Reingold-style force simulation with repulsion between nodes and attraction along edges; includes simulated annealing for smooth convergence. Grid layouts (Top-Down, Left-Right) are also available via the layout selector. All `TopoEdgeItem` bezier paths are synchronously updated after layout computation. |
+| **Interactive Edge Creation** | Drag from an output port to an input port (or vice versa) to create a new edge. Self-loops and duplicate edges are rejected with diagnostics. New edges are automatically written back to the current `.ploy` file as `LINK` declarations. |
+| **Interactive Edge Deletion** | Right-click an edge to delete it from the graph. The corresponding `LINK`/`CALL` statement is automatically removed from the `.ploy` source file. |
+| **Live File Reload** | A `QFileSystemWatcher` monitors the loaded `.ploy` file; when it changes on disk the topology is automatically rebuilt after a 200 ms debounce. The status bar displays "Reloaded" upon successful refresh. |
+| **Debug Execution Highlighting** | When the debugger pauses at a source location, the corresponding topology node is highlighted with a bright yellow pulsing animation (border opacity oscillates between 40% and 100%) and the view auto-scrolls to center on it. Call `HighlightExecutingNode(uint64_t node_id)` for direct node-id-based highlighting. Highlights clear when the debug session ends or a new session starts via `ClearExecutionHighlight()`. |
+| **Port Hover Tooltips** | Hover over any input or output port dot to see a rich tooltip with the port name, type, direction, parent node name, language, and connection status (`✔ Valid`, `⚠ Implicit Convert`, `✘ Incompatible`, `? Unknown`, or `Not connected`). The port visually enlarges on hover. |
 | **Validation Overlay** | Click **Validate** to run the topology validator; error nodes are highlighted in red and diagnostics are shown in the panel. |
 | **Export** | Export the current topology as DOT, JSON, or PNG via the toolbar buttons. |
+| **Generate .ploy** | Click **Generate .ploy** in the toolbar to auto-generate valid `.ploy` source code from the current topology graph. The generated file is written to `<basename>_generated.ploy` in the same directory and opened in the editor. The generated code is verified for parse/sema correctness before saving. |
 
 **Usage:**
 1. Right-click a `.ploy` file in the Explorer and select **Generate Topology Graph**, or press `Ctrl+Shift+T` with a `.ploy` file open.
@@ -1856,6 +1857,30 @@ The IDE includes an interactive topology visualization panel for `.ploy` files, 
 3. Drag between port dots to interactively create edges; right-click an edge to delete it.
 4. Click **Validate** to run type-compatibility validation on all edges.
 5. Start a debug session — the topology panel will automatically highlight the active node.
+6. Click **Generate .ploy** to auto-generate `.ploy` source code from the topology graph (bidirectional interop).
+
+**CLI Code Generation:**
+
+The `polytopo` command-line tool also supports code generation via the `generate` subcommand:
+
+```bash
+# First, export the topology graph as JSON:
+polytopo my_project.ploy --format json --output graph.json
+
+# Then, generate .ploy source from the JSON graph:
+polytopo generate graph.json -o generated.ploy
+```
+
+The CLI and UI share the same `GeneratePloySrc` logic, ensuring consistent output.
+
+**Bidirectional Sync:**
+
+The topology panel maintains a live bidirectional synchronization with the code editor:
+
+- **Editor → Topology**: When you save a `.ploy` file in the editor, the topology panel automatically re-parses and rebuilds the graph within 200 ms (debounced). The status bar shows "Reloaded".
+- **Topology → Editor**: When you create or delete an edge via drag/right-click in the topology panel, the corresponding `LINK`/`CALL` statement is automatically written to (or removed from) the `.ploy` source file. The editor reloads the file and briefly highlights the affected line in yellow for 2 seconds.
+
+This bidirectional protocol ensures the visual topology graph and the textual `.ploy` source always remain in sync. For implementation details, see `docs/realization/topology_tool.md`.
 
 ### Settings
 

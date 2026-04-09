@@ -109,6 +109,11 @@ class TopoNodeItem : public QGraphicsRectItem {
     void SetHighlight(bool error);
     void SetDebugHighlight(bool active);
 
+    // Pulse animation for execution highlighting
+    void StartPulseAnimation();
+    void StopPulseAnimation();
+    qreal PulseOpacity() const { return pulse_opacity_; }
+
     // Source location for debug mapping
     void SetSourceLocation(const QString &file, int line);
     const QString &SourceFile() const { return source_file_; }
@@ -139,6 +144,11 @@ class TopoNodeItem : public QGraphicsRectItem {
     bool highlight_error_{false};
     bool debug_active_{false};
 
+    // Pulse animation state for execution highlighting
+    QTimer *pulse_timer_{nullptr};
+    qreal pulse_opacity_{1.0};
+    bool pulse_rising_{false};
+
     QString source_file_;
     int source_line_{0};
 };
@@ -155,6 +165,7 @@ class TopoEdgeItem : public QGraphicsPathItem {
                  QGraphicsItem *parent = nullptr);
 
     uint64_t EdgeId() const { return edge_id_; }
+    const QString &Status() const { return status_; }
     void SetStatus(const QString &status);
     void UpdateEndpoints(const QPointF &start, const QPointF &end);
 
@@ -191,6 +202,7 @@ class TopoGraphicsView : public QGraphicsView {
     explicit TopoGraphicsView(QGraphicsScene *scene, QWidget *parent = nullptr);
 
     void SetPanel(TopologyPanel *panel) { panel_ = panel; }
+    TopologyPanel *Panel() const { return panel_; }
 
     // Called by TopoPortItem when a drag starts / moves / ends
     void BeginPortDrag(TopoPortItem *source_port, const QPointF &scene_pos);
@@ -230,6 +242,10 @@ class TopologyPanel : public QWidget {
     void HighlightDebugNode(const QString &file, int line);
     void ClearDebugHighlights();
 
+    // Execution highlighting by node id with pulse animation
+    void HighlightExecutingNode(uint64_t node_id);
+    void ClearExecutionHighlight();
+
     // Called by TopoGraphicsView when a port-to-port drag completes
     void TryCreateEdge(TopoPortItem *source, TopoPortItem *target);
 
@@ -246,12 +262,20 @@ class TopologyPanel : public QWidget {
     // Emitted when the graph is modified interactively (edge add/remove)
     void GraphModified();
 
+    // Emitted when the .ploy source file is modified by edge sync operations.
+    // The editor should highlight the affected line to show the change.
+    void FileContentChanged(const QString &file_path, int line);
+
+    // Emitted when a .ploy file is generated and should be opened in editor
+    void OpenFileRequested(const QString &file_path);
+
   private slots:
     void OnRefresh();
     void OnValidate();
     void OnExportDot();
     void OnExportJson();
     void OnExportPng();
+    void OnGeneratePloy();
     void OnZoomIn();
     void OnZoomOut();
     void OnZoomFit();
@@ -268,6 +292,10 @@ class TopologyPanel : public QWidget {
     void LayoutNodes();
     void UpdateDetailsPanel(uint64_t node_id);
     void RefreshEdgePositions();
+
+    // .ploy file synchronization helpers
+    void SyncEdgeToFile(TopoEdgeItem *edge);
+    void RemoveEdgeFromFile(TopoEdgeItem *edge);
 
     // Force-directed layout helpers
     void StartForceLayout();
@@ -306,6 +334,9 @@ class TopologyPanel : public QWidget {
 
     // Interactive edge id counter (for user-created edges)
     uint64_t next_interactive_edge_id_{100000};
+
+    // Currently execution-highlighted node id (0 = none)
+    uint64_t execution_highlight_id_{0};
 };
 
 } // namespace polyglot::tools::ui
