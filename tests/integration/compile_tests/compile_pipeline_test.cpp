@@ -1,8 +1,8 @@
 // ============================================================================
-// Integration Tests â€?Compile Pipeline Tests
+// Integration Tests  -- Compile Pipeline Tests
 //
 // These tests verify complete end-to-end compilation pipelines:
-// lexer â†?parser â†?sema â†?lowering â†?IR output, for realistic
+// lexer ->parser ->sema ->lowering ->IR output, for realistic
 // multi-feature .ploy programs.
 // ============================================================================
 
@@ -42,7 +42,7 @@ using namespace polyglot::ploy;
 
 namespace {
 
-// Full pipeline: lex â†?parse â†?sema â†?lower, return IR text
+// Full pipeline: lex ->parse ->sema ->lower, return IR text
 std::string CompileFull(const std::string &code, Diagnostics &diags) {
     PloyLexer lexer(code, "<integration>");
     PloyParser parser(lexer, diags);
@@ -616,7 +616,7 @@ EXPORT game_pipeline AS "game";
 }
 
 // ============================================================================
-// E2E: Frontend â†?Backend x86_64 Assembly Emission
+// E2E: Frontend ->Backend x86_64 Assembly Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to x86_64 assembly", "[integration][e2e][x86]") {
@@ -653,7 +653,7 @@ FUNC compute(x: i64) -> i64 {
 }
 
 // ============================================================================
-// E2E: Frontend â†?Backend ARM64 Assembly Emission
+// E2E: Frontend ->Backend ARM64 Assembly Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to arm64 assembly", "[integration][e2e][arm64]") {
@@ -685,7 +685,7 @@ FUNC engine_main() -> i64 {
 }
 
 // ============================================================================
-// E2E: Frontend â†?Backend WASM Assembly (WAT) Emission
+// E2E: Frontend ->Backend WASM Assembly (WAT) Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to wasm WAT", "[integration][e2e][wasm]") {
@@ -736,7 +736,7 @@ FUNC wasm_entry(a: i64, b: i64) -> i64 {
 }
 
 // ============================================================================
-// E2E: PolyglotLinker â€?Cross-language Link Resolution
+// E2E: PolyglotLinker  -- Cross-language Link Resolution
 // ============================================================================
 
 TEST_CASE("E2E: PolyglotLinker resolves cross-lang descriptors",
@@ -844,7 +844,7 @@ TEST_CASE("E2E: PolyglotLinker hard-fails on ABI schema mismatch",
 }
 
 // ============================================================================
-// E2E: LoadDescriptorFile â€?real polycâ†’auxâ†’polyld flow
+// E2E: LoadDescriptorFile  -- real polyc->aux->polyld flow
 // ============================================================================
 
 TEST_CASE("E2E: LoadDescriptorFile feeds real descriptors into PolyglotLinker",

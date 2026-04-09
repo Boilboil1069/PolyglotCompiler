@@ -103,13 +103,28 @@ polyglot 链接器所消费的*契约*层。
 |------|------|------|
 | `RuntimeList` | `count`、`capacity`、`elem_size`、`data` | 动态列表 (`LIST[T]`) |
 | `RuntimeTuple` | `num_elements`、`offsets`、`data` | 异构元组 |
-| `RuntimeDict` | `count`、`bucket_count`、`key_size`、`value_size`、`buckets` | 哈希映射 (`DICT[K,V]`)，在负载因子 0.75 时自动重哈希 |
+| `RuntimeDict` | `count`、`capacity`、`key_size`、`value_size`、`slot_stride`、`slots` | 开放寻址哈希映射 (`DICT[K,V]`)，在负载因子 0.75 时自动重哈希 |
 
 **RuntimeDict 实现细节：**
-- 当 `count / bucket_count >= 0.75` 时触发重哈希
-- 桶数量指数增长（翻倍），从初始 `kMinBucketCount=16` 到最大 `kMaxBucketCount=1<<30`
-- 哈希函数：字符串键使用 FNV-1a；数值键使用恒等哈希
-- 重哈希时重新计算所有键的哈希值并重新分配到新桶
+
+`RuntimeDict` 使用**扁平开放寻址哈希表**，采用线性探测法。`slots` 扁平字节数组中每个槽的布局为：
+
+```
+[SlotState : 1 字节][key : key_size 字节][value : value_size 字节]
+```
+
+`SlotState` 取值：
+- `kEmpty (0)` — 槽从未被使用过；终止探测链。
+- `kOccupied (1)` — 槽持有一个有效的键值对。
+- `kTombstone (2)` — 槽持有的条目已被逻辑删除；探测必须跳过它。
+
+关键特性：
+- **负载因子不变量**：当 `(count + 1) / capacity > 0.75` 时触发重哈希。
+- **重哈希**：分配容量翻倍的新扁平槽数组，重新插入所有有效条目；旧数组被释放。
+- **初始容量**：16 个槽（通过 `calloc` 全部初始化为 `kEmpty`）。
+- **无逐条目堆分配**：键和值字节内联存储在槽数组中。
+- **哈希函数**：对原始键字节使用 FNV-1a。
+- **所有权**：`__ploy_rt_dict_free` 仅释放单一的扁平 `slots` 分配加上 `RuntimeDict` 头部；无需递归遍历。
 
 ### 5.2 List API
 
@@ -143,50 +158,23 @@ polyglot 链接器所消费的*契约*层。
 
 ## 5.5 扩展注册表 (`runtime/include/interop/object_lifecycle.h`)
 
-扩展注册表通过线程安全单例管理跨语言类扩展。
+扩展注册表通过线程安全全局存储管理跨语言类扩展。
 
 ### 实现
 
-- **模式**：Meyer's 单例 (`static ExtensionRegistry &GetRegistry()`)
-- **存储**：`std::vector<ExtensionEntry>` 替代固定大小全局数组
-- **线程安全**：受 `std::mutex` 保护
-- **重复检测**：注册时检查已存在的 `(language, base_class, extension_name)` 三元组
-
-### C++ API
-
-```cpp
-namespace polyglot::runtime::interop {
-
-struct ExtensionEntry {
-    std::string language;
-    std::string base_class;
-    std::string extension_name;
-    void* extension_data;
-};
-
-class ExtensionRegistry {
-public:
-    static ExtensionRegistry &GetRegistry();
-    bool Register(const std::string& lang,
-                  const std::string& base,
-                  const std::string& name,
-                  void* data);
-    std::optional<ExtensionEntry> Lookup(
-        const std::string& lang,
-        const std::string& base) const;
-private:
-    std::vector<ExtensionEntry> entries_;
-    mutable std::mutex mutex_;
-};
-
-} // namespace polyglot::runtime::interop
-```
+- **存储**：`std::vector<ExtensionEntry>`（无界，堆分配）
+- **线程安全**：受 `std::shared_mutex` 保护
+  - *读操作*（`__ploy_extend_find_derived`、`__ploy_extend_registry_count`）获取**共享锁**（`std::shared_lock`）——允许多个并发读取者。
+  - *写操作*（`__ploy_extend_register`、`__ploy_extend_reset_registry_for_tests`）获取**独占锁**（`std::unique_lock`）——与所有读取者及其他写入者串行化。
+- **字符串所有权**：注册时将所有名称字符串复制到 `polyglot_alloc` 管理的内存中，以便在模块卸载后依然有效。
 
 ### C ABI
 
 | 符号 | 签名 | 描述 |
-|--------|-----------|-------------|
-| `__ploy_extend_register` | `void(const char*,const char*,const char*)` | 注册跨语言类扩展 |
+|------|------|------|
+| `__ploy_extend_register` | `void(const char*, const char*, const char*)` | 注册跨语言类扩展（独占写） |
+| `__ploy_extend_find_derived` | `const char*(const char*, const char*)` | 查找 `(language, base_class)` 对应的派生名称（共享读） |
+| `__ploy_extend_registry_count` | `size_t()` | 返回已注册扩展的总数（共享读） |
 
 ---
 

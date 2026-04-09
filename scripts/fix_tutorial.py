@@ -1,4 +1,8 @@
-# .ploy 语言教程
+import pathlib
+
+path = pathlib.Path(r'd:\Others\PolyglotCompiler\docs\tutorial\ploy_language_tutorial_zh.md')
+
+content = r"""# .ploy 语言教程
 
 > **版本**: 2.0.0
 > **最后更新**: 2026-04-09
@@ -1471,3 +1475,7 @@ EXPORT（对外暴露）
 | [14_async_pipeline](../../tests/samples/14_async_pipeline/) | 多阶段信号处理管道 |
 | [15_full_stack](../../tests/samples/15_full_stack/) | 五语言全栈演示 |
 | [16_config_and_venv](../../tests/samples/16_config_and_venv/) | CONFIG + IMPORT PACKAGE + CONVERT |
+"""
+
+path.write_text(content, encoding='utf-8')
+print(f"Done. Lines: {content.count(chr(10))}, Replacement chars: {content.count(chr(0xFFFD))}")

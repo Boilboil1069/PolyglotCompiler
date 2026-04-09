@@ -30,19 +30,40 @@ struct RuntimeTuple {
     void *data{nullptr};
 };
 
-/// Hash-map descriptor for DICT[K,V] values at runtime.
-struct RuntimeDictEntry {
-    void *key{nullptr};
-    void *value{nullptr};
-    RuntimeDictEntry *next{nullptr};
+/// Open-addressing slot for DICT[K,V] at runtime.
+///
+/// Each slot in the flat slot array is in one of three states:
+///   - Empty    : `state == kEmpty`   — slot has never been used.
+///   - Occupied : `state == kOccupied` — slot holds a live key/value pair.
+///   - Tombstone: `state == kTombstone` — slot held an entry that was logically
+///                                         deleted; probing must skip past it.
+///
+/// The key and value bytes are stored inline after the SlotState field so
+/// that a single allocation covers the entire flat array.  Accessors in
+/// container_marshal.cpp compute byte offsets from `slot_stride`.
+enum class SlotState : std::uint8_t {
+    kEmpty     = 0,
+    kOccupied  = 1,
+    kTombstone = 2,
 };
 
+/// Open-addressing hash-map descriptor for DICT[K,V] at runtime.
+///
+/// Layout of the `slots` array:
+///   slot i starts at offset i * slot_stride
+///   bytes [0]         : SlotState (1 byte)
+///   bytes [1, key_size]           : key  (key_size bytes)
+///   bytes [1+key_size, value_size]: value (value_size bytes)
+///
+/// Load factor invariant: count / capacity <= 0.75.
+/// Rehash doubles capacity when the invariant would be violated.
 struct RuntimeDict {
-    std::size_t count{0};
-    std::size_t bucket_count{0};
-    std::size_t key_size{0};
-    std::size_t value_size{0};
-    RuntimeDictEntry **buckets{nullptr};
+    std::size_t count{0};       ///< Number of live (Occupied) entries.
+    std::size_t capacity{0};    ///< Total number of slots allocated.
+    std::size_t key_size{0};    ///< Size of each key in bytes.
+    std::size_t value_size{0};  ///< Size of each value in bytes.
+    std::size_t slot_stride{0}; ///< Bytes per slot = 1 + key_size + value_size.
+    void       *slots{nullptr}; ///< Flat slot array (capacity * slot_stride bytes).
 };
 
 // ============================================================================

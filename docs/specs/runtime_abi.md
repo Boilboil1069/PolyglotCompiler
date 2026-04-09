@@ -107,13 +107,29 @@ resolved at link time:
 |------|--------|-------------|
 | `RuntimeList` | `count`, `capacity`, `elem_size`, `data` | Dynamic list (`LIST[T]`) |
 | `RuntimeTuple` | `num_elements`, `offsets`, `data` | Heterogeneous tuple |
-| `RuntimeDict` | `count`, `bucket_count`, `key_size`, `value_size`, `buckets` | Hash map (`DICT[K,V]`) with automatic rehashing at 0.75 load factor |
+| `RuntimeDict` | `count`, `capacity`, `key_size`, `value_size`, `slot_stride`, `slots` | Open-addressing hash map (`DICT[K,V]`) with automatic rehashing at 0.75 load factor |
 
 **RuntimeDict Implementation Details:**
-- Rehash triggered when `count / bucket_count >= 0.75`
-- Bucket count grows exponentially (doubling) from initial `kMinBucketCount=16` up to `kMaxBucketCount=1<<30`
-- Hash function: FNV-1a for string keys; identity for numeric keys
-- Rehash recomputes all key hashes and redistributes entries into new buckets
+
+`RuntimeDict` uses a **flat open-addressing hash table** with linear probing.
+Each slot in the `slots` flat byte array has the layout:
+
+```
+[SlotState : 1 byte][key : key_size bytes][value : value_size bytes]
+```
+
+`SlotState` is one of:
+- `kEmpty (0)` — slot has never been used; terminates a probe chain.
+- `kOccupied (1)` — slot holds a live key/value pair.
+- `kTombstone (2)` — slot held a deleted entry; probe must skip past it.
+
+Key properties:
+- **Load factor invariant**: rehash triggered when `(count + 1) / capacity > 0.75`.
+- **Rehash**: allocates a new flat slot array of double the capacity, re-inserts all live entries; old array is freed.
+- **Initial capacity**: 16 slots (all `kEmpty` via `calloc`).
+- **No per-entry heap allocation**: key and value bytes are stored inline in the slot array.
+- **Hash function**: FNV-1a over raw key bytes.
+- **Ownership**: `__ploy_rt_dict_free` releases only the single flat `slots` allocation plus the `RuntimeDict` header; no recursive traversal needed.
 
 ### 5.2 List API
 
@@ -147,50 +163,23 @@ resolved at link time:
 
 ## 5.5 Extension Registry (`runtime/include/interop/object_lifecycle.h`)
 
-The extension registry manages cross-language class extensions via a thread-safe singleton.
+The extension registry manages cross-language class extensions via a thread-safe global store.
 
 ### Implementation
 
-- **Pattern**: Meyer's singleton (`static ExtensionRegistry &GetRegistry()`)
-- **Storage**: `std::vector<ExtensionEntry>` instead of fixed-size global array
-- **Thread Safety**: Protected by `std::mutex`
-- **Duplicate Detection**: Registration checks for existing `(language, base_class, extension_name)` triples
-
-### C++ API
-
-```cpp
-namespace polyglot::runtime::interop {
-
-struct ExtensionEntry {
-    std::string language;
-    std::string base_class;
-    std::string extension_name;
-    void* extension_data;
-};
-
-class ExtensionRegistry {
-public:
-    static ExtensionRegistry &GetRegistry();
-    bool Register(const std::string& lang,
-                  const std::string& base,
-                  const std::string& name,
-                  void* data);
-    std::optional<ExtensionEntry> Lookup(
-        const std::string& lang,
-        const std::string& base) const;
-private:
-    std::vector<ExtensionEntry> entries_;
-    mutable std::mutex mutex_;
-};
-
-} // namespace polyglot::runtime::interop
-```
+- **Storage**: `std::vector<ExtensionEntry>` (unbounded, heap-allocated)
+- **Thread Safety**: Protected by `std::shared_mutex`
+  - *Reads* (`__ploy_extend_find_derived`, `__ploy_extend_registry_count`) acquire a **shared lock** (`std::shared_lock`) — multiple concurrent readers are allowed.
+  - *Writes* (`__ploy_extend_register`, `__ploy_extend_reset_registry_for_tests`) acquire an **exclusive lock** (`std::unique_lock`) — serialised with respect to all readers and other writers.
+- **String ownership**: Registration duplicates all name strings into `polyglot_alloc`-managed memory so they survive module unload.
 
 ### C ABI
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `__ploy_extend_register` | `void(const char*,const char*,const char*)` | Register a cross-language class extension |
+| `__ploy_extend_register` | `void(const char*, const char*, const char*)` | Register a cross-language class extension (exclusive write) |
+| `__ploy_extend_find_derived` | `const char*(const char*, const char*)` | Look up derived name for `(language, base_class)` (shared read) |
+| `__ploy_extend_registry_count` | `size_t()` | Return total number of registered extensions (shared read) |
 
 ---
 

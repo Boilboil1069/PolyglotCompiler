@@ -18,7 +18,6 @@ namespace polyglot::runtime::interop {
 namespace {
 
 // Dict rehash configuration constants.
-static constexpr double kDefaultLoadFactor = 0.75;
 
 /// FNV-1a hash for arbitrary bytes (used by the dict implementation).
 static std::size_t HashBytes(const void *data, std::size_t size) {
@@ -41,53 +40,72 @@ static void ListGrow(RuntimeList *list) {
     }
 }
 
-constexpr std::size_t kDictInitialBuckets = 16;
-constexpr std::size_t kDictMinBuckets = 16;
-constexpr double kDictMaxLoadFactor = 0.75;
+constexpr std::size_t kDictInitialCapacity = 16;
+constexpr double      kDictMaxLoadFactor   = 0.75;
 
-/// Rehash RuntimeDict entries into a new bucket array.
-static bool DictRehash(RuntimeDict *dict, std::size_t new_bucket_count) {
-    if (!dict || new_bucket_count < kDictMinBuckets) return false;
-
-    auto **new_buckets = static_cast<RuntimeDictEntry **>(
-        std::calloc(new_bucket_count, sizeof(RuntimeDictEntry *)));
-    if (!new_buckets) return false;
-
-    for (std::size_t i = 0; i < dict->bucket_count; ++i) {
-        RuntimeDictEntry *entry = dict->buckets[i];
-        while (entry) {
-            RuntimeDictEntry *next = entry->next;
-            std::size_t hash = HashBytes(entry->key, dict->key_size);
-            std::size_t new_bucket = hash % new_bucket_count;
-            entry->next = new_buckets[new_bucket];
-            new_buckets[new_bucket] = entry;
-            entry = next;
-        }
-    }
-
-    std::free(dict->buckets);
-    dict->buckets = new_buckets;
-    dict->bucket_count = new_bucket_count;
-    return true;
+/// Return the byte offset of slot `idx` within `dict->slots`.
+static inline std::size_t SlotOffset(const RuntimeDict *dict, std::size_t idx) {
+    return idx * dict->slot_stride;
 }
 
-/// Ensure RuntimeDict has enough capacity before insertion.
-static void DictEnsureCapacityForInsert(RuntimeDict *dict) {
-    if (!dict) return;
-    if (dict->bucket_count == 0) {
-        dict->bucket_count = kDictInitialBuckets;
-        dict->buckets = static_cast<RuntimeDictEntry **>(
-            std::calloc(dict->bucket_count, sizeof(RuntimeDictEntry *)));
-        return;
+/// Return a pointer to the SlotState byte of slot `idx`.
+static inline SlotState *SlotStatePtr(const RuntimeDict *dict, std::size_t idx) {
+    return reinterpret_cast<SlotState *>(
+        static_cast<char *>(dict->slots) + SlotOffset(dict, idx));
+}
+
+/// Return a pointer to the key bytes of slot `idx`.
+static inline void *SlotKeyPtr(const RuntimeDict *dict, std::size_t idx) {
+    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + 1;
+}
+
+/// Return a pointer to the value bytes of slot `idx`.
+static inline void *SlotValuePtr(const RuntimeDict *dict, std::size_t idx) {
+    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + 1 + dict->key_size;
+}
+
+/// Rehash `dict` into a fresh flat slot array of `new_cap` slots.
+/// Returns true on success; leaves dict unchanged on allocation failure.
+static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
+    if (!dict || new_cap == 0) return false;
+
+    std::size_t stride = 1 + dict->key_size + dict->value_size;
+    void *new_slots = std::calloc(new_cap, stride); // calloc → all bytes 0 → all kEmpty
+    if (!new_slots) return false;
+
+    // Re-insert every live entry from the old slot array.
+    if (dict->slots) {
+        for (std::size_t i = 0; i < dict->capacity; ++i) {
+            SlotState *st = SlotStatePtr(dict, i);
+            if (*st != SlotState::kOccupied) continue;
+
+            void *old_key = SlotKeyPtr(dict, i);
+            void *old_val = SlotValuePtr(dict, i);
+
+            std::size_t hash  = HashBytes(old_key, dict->key_size);
+            std::size_t probe = hash % new_cap;
+            for (std::size_t step = 0; step < new_cap; ++step) {
+                std::size_t pos = (probe + step) % new_cap;
+                // In the new array every slot starts as kEmpty (calloc'd to 0).
+                SlotState *nst = reinterpret_cast<SlotState *>(
+                    static_cast<char *>(new_slots) + pos * stride);
+                if (*nst == SlotState::kEmpty) {
+                    *nst = SlotState::kOccupied;
+                    std::memcpy(reinterpret_cast<char *>(nst) + 1,
+                                old_key, dict->key_size);
+                    std::memcpy(reinterpret_cast<char *>(nst) + 1 + dict->key_size,
+                                old_val, dict->value_size);
+                    break;
+                }
+            }
+        }
+        std::free(dict->slots);
     }
 
-    double projected_load = static_cast<double>(dict->count + 1) /
-                            static_cast<double>(dict->bucket_count);
-    if (projected_load > kDictMaxLoadFactor) {
-        std::size_t new_bucket_count = dict->bucket_count * 2;
-        if (new_bucket_count < kDictMinBuckets) new_bucket_count = kDictMinBuckets;
-        DictRehash(dict, new_bucket_count);
-    }
+    dict->slots    = new_slots;
+    dict->capacity = new_cap;
+    dict->slot_stride = stride;
+    return true;
 }
 
 } // anonymous namespace
@@ -188,12 +206,13 @@ void *__ploy_rt_dict_create(std::size_t key_size, std::size_t value_size) {
 
     auto *dict = static_cast<RuntimeDict *>(std::calloc(1, sizeof(RuntimeDict)));
     if (!dict) return nullptr;
-    dict->key_size = key_size;
-    dict->value_size = value_size;
-    dict->bucket_count = kDictInitialBuckets;
-    dict->buckets = static_cast<RuntimeDictEntry **>(
-        std::calloc(dict->bucket_count, sizeof(RuntimeDictEntry *)));
-    if (!dict->buckets) {
+    dict->key_size    = key_size;
+    dict->value_size  = value_size;
+    dict->slot_stride = 1 + key_size + value_size;
+    dict->capacity    = kDictInitialCapacity;
+    // calloc zeros all bytes → all SlotState fields start as kEmpty (== 0).
+    dict->slots = std::calloc(kDictInitialCapacity, dict->slot_stride);
+    if (!dict->slots) {
         std::free(dict);
         return nullptr;
     }
@@ -203,55 +222,66 @@ void *__ploy_rt_dict_create(std::size_t key_size, std::size_t value_size) {
 void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
     if (!raw || !key || !value) return;
     auto *dict = static_cast<RuntimeDict *>(raw);
+    if (!dict->slots || dict->capacity == 0) return;
 
-    DictEnsureCapacityForInsert(dict);
-    if (!dict->buckets || dict->bucket_count == 0) return;
-
-    std::size_t hash = HashBytes(key, dict->key_size);
-    std::size_t bucket = hash % dict->bucket_count;
-
-    // Check for existing key and update
-    for (RuntimeDictEntry *entry = dict->buckets[bucket]; entry; entry = entry->next) {
-        if (std::memcmp(entry->key, key, dict->key_size) == 0) {
-            std::memcpy(entry->value, value, dict->value_size);
-            return;
-        }
+    // Trigger rehash when inserting would exceed 75% load factor.
+    if ((dict->count + 1) * 4 > dict->capacity * 3) {
+        DictRehash(dict, dict->capacity * 2);
+        if (!dict->slots) return; // allocation failed
     }
 
-    // Insert new entry with cascading error handling.
-    auto *entry = static_cast<RuntimeDictEntry *>(std::calloc(1, sizeof(RuntimeDictEntry)));
-    if (!entry) return;
+    std::size_t hash       = HashBytes(key, dict->key_size);
+    std::size_t first_tomb = dict->capacity; // index of first tombstone seen
+    bool        found_tomb = false;
 
-    entry->key = std::malloc(dict->key_size);
-    if (!entry->key) {
-        std::free(entry);
+    for (std::size_t step = 0; step < dict->capacity; ++step) {
+        std::size_t idx = (hash + step) % dict->capacity;
+        SlotState  *st  = SlotStatePtr(dict, idx);
+
+        if (*st == SlotState::kOccupied) {
+            // Update value if key matches.
+            if (std::memcmp(SlotKeyPtr(dict, idx), key, dict->key_size) == 0) {
+                std::memcpy(SlotValuePtr(dict, idx), value, dict->value_size);
+                return;
+            }
+            continue;
+        }
+        if (*st == SlotState::kTombstone) {
+            if (!found_tomb) {
+                first_tomb = idx;
+                found_tomb = true;
+            }
+            continue;
+        }
+        // kEmpty — key not present; use tombstone slot if one was seen, else use this slot.
+        std::size_t dest = found_tomb ? first_tomb : idx;
+        *SlotStatePtr(dict, dest) = SlotState::kOccupied;
+        std::memcpy(SlotKeyPtr(dict, dest),   key,   dict->key_size);
+        std::memcpy(SlotValuePtr(dict, dest), value, dict->value_size);
+        ++dict->count;
         return;
     }
 
-    entry->value = std::malloc(dict->value_size);
-    std::memcpy(entry->key, key, dict->key_size);
-    std::memcpy(entry->value, value, dict->value_size);
-    entry->next = dict->buckets[bucket];
-    dict->buckets[bucket] = entry;
-    ++dict->count;
-
-    // Rehash when load factor exceeds threshold.
-    double load = static_cast<double>(dict->count) / dict->bucket_count;
-    if (load > kDefaultLoadFactor) {
-        DictRehash(dict, dict->bucket_count * 2);
-    }
+    // Table is full of tombstones + occupied — shouldn't happen with proper
+    // rehashing, but handle gracefully by rehashing and retrying once.
+    DictRehash(dict, dict->capacity * 2);
+    __ploy_rt_dict_insert(raw, key, value);
 }
 
 void *__ploy_rt_dict_lookup(void *raw, const void *key) {
     if (!raw || !key) return nullptr;
     auto *dict = static_cast<RuntimeDict *>(raw);
+    if (!dict->slots || dict->capacity == 0) return nullptr;
 
     std::size_t hash = HashBytes(key, dict->key_size);
-    std::size_t bucket = hash % dict->bucket_count;
+    for (std::size_t step = 0; step < dict->capacity; ++step) {
+        std::size_t idx = (hash + step) % dict->capacity;
+        SlotState  *st  = SlotStatePtr(dict, idx);
 
-    for (RuntimeDictEntry *entry = dict->buckets[bucket]; entry; entry = entry->next) {
-        if (std::memcmp(entry->key, key, dict->key_size) == 0) {
-            return entry->value;
+        if (*st == SlotState::kEmpty) return nullptr; // probe chain broken
+        if (*st == SlotState::kTombstone) continue;   // skip deleted slot
+        if (std::memcmp(SlotKeyPtr(dict, idx), key, dict->key_size) == 0) {
+            return SlotValuePtr(dict, idx);
         }
     }
     return nullptr;
@@ -265,19 +295,7 @@ std::size_t __ploy_rt_dict_len(void *raw) {
 void __ploy_rt_dict_free(void *raw) {
     if (!raw) return;
     auto *dict = static_cast<RuntimeDict *>(raw);
-
-    for (std::size_t i = 0; i < dict->bucket_count; ++i) {
-        RuntimeDictEntry *entry = dict->buckets[i];
-        while (entry) {
-            RuntimeDictEntry *next = entry->next;
-            std::free(entry->key);
-            std::free(entry->value);
-            std::free(entry);
-            entry = next;
-        }
-    }
-
-    std::free(dict->buckets);
+    std::free(dict->slots);
     std::free(dict);
 }
 
@@ -465,36 +483,37 @@ void *__ploy_rt_convert_dict_to_pydict(void *dict) {
     void *pydict = py_dict_new_();
     if (!pydict) return nullptr;
 
-    // Iterate all buckets and convert each key-value pair.
-    for (std::size_t b = 0; b < rd->bucket_count; ++b) {
-        RuntimeDictEntry *entry = rd->buckets[b];
-        while (entry) {
-            void *py_key = nullptr;
-            void *py_val = nullptr;
+    // Iterate all occupied slots and convert each key-value pair.
+    for (std::size_t i = 0; i < rd->capacity; ++i) {
+        SlotState *st = SlotStatePtr(rd, i);
+        if (*st != SlotState::kOccupied) continue;
 
-            if (rd->key_size <= 8 && py_long_from_) {
-                long long k = 0;
-                std::memcpy(&k, entry->key, rd->key_size);
-                py_key = py_long_from_(k);
-            } else if (py_bytes_from_) {
-                py_key = py_bytes_from_(static_cast<const char *>(entry->key),
-                                        static_cast<long>(rd->key_size));
-            }
+        void *kptr = SlotKeyPtr(rd, i);
+        void *vptr = SlotValuePtr(rd, i);
 
-            if (rd->value_size <= 8 && py_long_from_) {
-                long long v = 0;
-                std::memcpy(&v, entry->value, rd->value_size);
-                py_val = py_long_from_(v);
-            } else if (py_bytes_from_) {
-                py_val = py_bytes_from_(static_cast<const char *>(entry->value),
-                                        static_cast<long>(rd->value_size));
-            }
+        void *py_key = nullptr;
+        void *py_val = nullptr;
 
-            if (py_key && py_val) {
-                py_dict_setitem_(pydict, py_key, py_val);
-            }
+        if (rd->key_size <= 8 && py_long_from_) {
+            long long k = 0;
+            std::memcpy(&k, kptr, rd->key_size);
+            py_key = py_long_from_(k);
+        } else if (py_bytes_from_) {
+            py_key = py_bytes_from_(static_cast<const char *>(kptr),
+                                    static_cast<long>(rd->key_size));
+        }
 
-            entry = entry->next;
+        if (rd->value_size <= 8 && py_long_from_) {
+            long long v = 0;
+            std::memcpy(&v, vptr, rd->value_size);
+            py_val = py_long_from_(v);
+        } else if (py_bytes_from_) {
+            py_val = py_bytes_from_(static_cast<const char *>(vptr),
+                                    static_cast<long>(rd->value_size));
+        }
+
+        if (py_key && py_val) {
+            py_dict_setitem_(pydict, py_key, py_val);
         }
     }
 

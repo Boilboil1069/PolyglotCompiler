@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <shared_mutex>
 #include <vector>
 
 #include "runtime/include/interop/container_marshal.h"
@@ -87,13 +88,13 @@ struct ExtensionEntry {
 };
 
 static std::vector<ExtensionEntry> g_extensions;
-static std::mutex g_extension_mutex;
+static std::shared_mutex           g_extension_mutex;
 
 void __ploy_extend_register(const char *language, const char *base_class,
                              const char *derived) {
     if (!language || !base_class || !derived) return;
 
-    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    std::unique_lock<std::shared_mutex> lock(g_extension_mutex);
 
     // Duplicate the strings into GC-managed memory so they survive module unload.
     auto dup = [](const char *s) -> const char * {
@@ -111,7 +112,7 @@ void __ploy_extend_register(const char *language, const char *base_class,
 }
 
 std::size_t __ploy_extend_registry_count() {
-    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    std::shared_lock<std::shared_mutex> lock(g_extension_mutex);
     return g_extensions.size();
 }
 
@@ -119,7 +120,7 @@ const char *__ploy_extend_find_derived(const char *language,
                                        const char *base_class) {
     if (!language || !base_class) return nullptr;
 
-    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    std::shared_lock<std::shared_mutex> lock(g_extension_mutex);
     for (const ExtensionEntry &entry : g_extensions) {
         if (!entry.language || !entry.base_class || !entry.derived) continue;
         if (std::strcmp(entry.language, language) == 0 &&
@@ -131,7 +132,7 @@ const char *__ploy_extend_find_derived(const char *language,
 }
 
 void __ploy_extend_reset_registry_for_tests() {
-    std::lock_guard<std::mutex> lock(g_extension_mutex);
+    std::unique_lock<std::shared_mutex> lock(g_extension_mutex);
     g_extensions.clear();
 }
 
@@ -218,11 +219,16 @@ void *__ploy_rt_dict_convert(void *dict) {
     void *dst = __ploy_rt_dict_create(src->key_size, src->value_size);
     if (!dst) return nullptr;
 
-    // Iterate all buckets and re-insert entries.
-    for (std::size_t b = 0; b < src->bucket_count; ++b) {
-        for (RuntimeDictEntry *entry = src->buckets[b]; entry; entry = entry->next) {
-            __ploy_rt_dict_insert(dst, entry->key, entry->value);
-        }
+    // Iterate all occupied slots and re-insert entries.
+    for (std::size_t i = 0; i < src->capacity; ++i) {
+        // SlotState is the first byte of each slot.
+        const auto *st = reinterpret_cast<const std::uint8_t *>(
+            static_cast<const char *>(src->slots) + i * src->slot_stride);
+        if (*st != static_cast<std::uint8_t>(SlotState::kOccupied)) continue;
+
+        const void *kptr = st + 1;
+        const void *vptr = reinterpret_cast<const std::uint8_t *>(kptr) + src->key_size;
+        __ploy_rt_dict_insert(dst, kptr, vptr);
     }
 
     return dst;

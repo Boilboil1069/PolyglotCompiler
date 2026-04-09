@@ -222,7 +222,7 @@ TEST_CASE("Container marshal - dict grows and preserves entries", "[runtime][int
     }
 
     REQUIRE(__ploy_rt_dict_len(dict) == total);
-    REQUIRE(dict->bucket_count > 16);
+    REQUIRE(dict->capacity > 16);
 
     for (std::uint64_t i = 0; i < total; ++i) {
         auto *value_ptr = static_cast<std::uint64_t *>(__ploy_rt_dict_lookup(dict, &i));

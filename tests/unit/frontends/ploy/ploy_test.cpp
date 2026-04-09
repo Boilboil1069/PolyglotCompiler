@@ -3246,10 +3246,10 @@ FUNC main() {
 namespace {
 
 struct E2EFailureResult {
-    bool sema_ok{false};
-    bool has_errors{false};
-    int  error_count{0};
-    bool found_message{false}; // true when a specific message was searched for
+    bool   sema_ok{false};
+    bool   has_errors{false};
+    size_t error_count{0};
+    bool   found_message{false}; // true when a specific message was searched for
 };
 
 E2EFailureResult RunAndExpectFailure(const std::string &code,

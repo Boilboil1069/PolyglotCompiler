@@ -1,5 +1,5 @@
 // ============================================================================
-// Integration Tests â€?Cross-Language Interop Tests
+// Integration Tests  -- Cross-Language Interop Tests
 //
 // These tests verify cross-language interoperability features:
 // LINK chains, NEW/METHOD/DELETE lifecycles, EXTEND dispatch,
@@ -184,7 +184,7 @@ FUNC method_chain() -> INT {
     }
 }
 
-TEST_CASE("Interop: full object lifecycle NEW â†?METHOD â†?DELETE", "[integration][interop]") {
+TEST_CASE("Interop: full object lifecycle NEW ->METHOD ->DELETE", "[integration][interop]") {
     Diagnostics diags;
     std::string code = R"(
 FUNC db_lifecycle() -> INT {

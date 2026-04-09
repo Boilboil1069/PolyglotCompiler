@@ -1,5 +1,5 @@
 // ============================================================================
-// Integration Tests â€?Performance / Stress Tests
+// Integration Tests  -- Performance / Stress Tests
 //
 // These tests verify that the compiler handles larger or more complex
 // programs without crashing, and that performance remains acceptable.
