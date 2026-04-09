@@ -51,6 +51,9 @@ enum class TypeKind {
   kClass,
   kModule,
   kAny,
+  kUnknown,  ///< Unknown/unresolved type — emitted at cross-language boundaries
+             ///< when no annotation is present. Triggers a compile error in
+             ///< strict mode if it reaches a lowering boundary unchanged.
   kStruct,
   kUnion,
   kEnum,
@@ -91,6 +94,10 @@ struct Type {
   static Type Float() { return Type{TypeKind::kFloat, "float"}; }
   static Type String() { return Type{TypeKind::kString, "string"}; }
   static Type Any() { return Type{TypeKind::kAny, "any"}; }
+  /// Unknown type: used at cross-language/function boundaries where the type
+  /// has not been annotated.  Unlike Any (which silently succeeds), Unknown
+  /// is a hard error in strict mode when it reaches a lowering boundary.
+  static Type Unknown() { return Type{TypeKind::kUnknown, "<unknown>"}; }
 
   /// Create an integer type with specified bit width and signedness.
   static Type Int(int bits, bool sign) {
@@ -184,7 +191,8 @@ struct Type {
   bool IsAggregate() const { return kind == TypeKind::kStruct || kind == TypeKind::kClass || kind == TypeKind::kUnion || kind == TypeKind::kArray || kind == TypeKind::kTuple; }
   bool HasTypeArgs() const { return !type_args.empty(); }
   bool IsConcrete() const {
-    if (kind == TypeKind::kAny || kind == TypeKind::kGenericParam) return false;
+    if (kind == TypeKind::kAny || kind == TypeKind::kUnknown ||
+        kind == TypeKind::kGenericParam) return false;
     for (const auto &arg : type_args) {
       if (!arg.IsConcrete()) return false;
     }

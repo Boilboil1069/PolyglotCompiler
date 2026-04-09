@@ -155,7 +155,7 @@ void PloyLowering::LowerExportDecl(const std::shared_ptr<ExportDecl> &export_dec
     // Find the function in the IR context and set its linkage
     for (const auto &fn : ir_ctx_.Functions()) {
         if (fn->name == export_decl->symbol_name) {
-            // The function is already created — mark it for export
+            // The function is already created �?mark it for export
             // We record this via a global symbol alias
             std::string ext_name = export_decl->external_name.empty()
                                        ? export_decl->symbol_name
@@ -202,7 +202,7 @@ void PloyLowering::LowerPipelineDecl(const std::shared_ptr<PipelineDecl> &pipeli
 // ============================================================================
 
 void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
-    // Save outer context — nested functions (e.g. inside PIPELINE) must not
+    // Save outer context �?nested functions (e.g. inside PIPELINE) must not
     // clobber the enclosing function's state.
     auto saved_fn = current_function_;
     auto saved_insert = builder_.GetInsertPoint();
@@ -269,6 +269,7 @@ void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
         auto sym_it = sema_.Symbols().find(var->name);
         if (sym_it != sema_.Symbols().end() &&
             sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kUnknown &&
             sym_it->second.type.kind != core::TypeKind::kInvalid) {
             var_type = CoreTypeToIR(sym_it->second.type);
         }
@@ -523,13 +524,14 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
         auto sym_it = sema_.Symbols().find(qid->qualifier + "::" + qid->name);
         if (sym_it != sema_.Symbols().end() &&
             sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kUnknown &&
             sym_it->second.type.kind != core::TypeKind::kInvalid) {
             qid_type = CoreTypeToIR(sym_it->second.type);
         }
         return {sym, qid_type};
     }
     if (auto range = std::dynamic_pointer_cast<RangeExpression>(expr)) {
-        // Range expression — lower the end value as the iteration bound
+        // Range expression �?lower the end value as the iteration bound
         return LowerExpression(range->end);
     }
 
@@ -784,6 +786,7 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
         auto sig_it = sema_.KnownSignatures().find(callee_name);
         if (sig_it != sema_.KnownSignatures().end() &&
             sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kUnknown &&
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             call_ret_type = CoreTypeToIR(sig_it->second.return_type);
         } else {
@@ -825,6 +828,7 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
         auto sig_it = sema_.KnownSignatures().find(call->function);
         if (sig_it != sema_.KnownSignatures().end() &&
             sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kUnknown &&
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             call_ret_type = CoreTypeToIR(sig_it->second.return_type);
             call_ret_type.is_placeholder = false;  // resolved successfully
@@ -890,13 +894,14 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
     std::string stub_name = MangleStubName("ploy", new_expr->language,
                                            new_expr->class_name + "::__init__");
 
-    // Resolve the object type from sema — the sema now performs full type
+    // Resolve the object type from sema �?the sema now performs full type
     // resolution via ResolveObjectType, so we can trust the symbol table.
     ir::IRType obj_type = ir::IRType::Pointer(ir::IRType::Void());
     {
         auto sym_it = sema_.Symbols().find(new_expr->class_name);
         if (sym_it != sema_.Symbols().end() &&
             sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kUnknown &&
             sym_it->second.type.kind != core::TypeKind::kInvalid) {
             ir::IRType inner = CoreTypeToIR(sym_it->second.type);
             if (inner.kind != ir::IRTypeKind::kInvalid) {
@@ -932,6 +937,7 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
         ir::IRType expected_type = arg_types[i];
         if (sig && i < sig->param_types.size() &&
             sig->param_types[i].kind != core::TypeKind::kAny &&
+            sig->param_types[i].kind != core::TypeKind::kUnknown &&
             sig->param_types[i].kind != core::TypeKind::kInvalid) {
             expected_type = CoreTypeToIR(sig->param_types[i]);
         }
@@ -963,7 +969,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
     // Lower the receiver object
     EvalResult obj = LowerExpression(method_call->object);
 
-    // Lower method arguments — the object is passed as the first argument
+    // Lower method arguments �?the object is passed as the first argument
     std::vector<std::string> arg_names;
     std::vector<ir::IRType> arg_types;
     arg_names.push_back(obj.value);
@@ -986,6 +992,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
         auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
         if (sig_it != sema_.KnownSignatures().end() &&
             sig_it->second.return_type.kind != core::TypeKind::kAny &&
+            sig_it->second.return_type.kind != core::TypeKind::kUnknown &&
             sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
             method_ret_type = CoreTypeToIR(sig_it->second.return_type);
         }
@@ -1008,6 +1015,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
         // signatures don't include the implicit self parameter.
         if (sig && i > 0 && (i - 1) < sig->param_types.size() &&
             sig->param_types[i - 1].kind != core::TypeKind::kAny &&
+            sig->param_types[i - 1].kind != core::TypeKind::kUnknown &&
             sig->param_types[i - 1].kind != core::TypeKind::kInvalid) {
             expected_type = CoreTypeToIR(sig->param_types[i - 1]);
         }
@@ -1050,7 +1058,7 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
     std::string stub_name = MangleStubName("ploy", get_attr->language,
                                            "__getattr__" + get_attr->attr_name);
 
-    // Attribute access returns an opaque pointer by default — the exact
+    // Attribute access returns an opaque pointer by default �?the exact
     // type depends on the foreign object's schema which is unknown at
     // compile time.  Use Pointer(I8) as a generic handle.
     ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
@@ -1108,11 +1116,13 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
         if (sig_it != sema_.KnownSignatures().end()) {
             if (!sig_it->second.param_types.empty() &&
                 sig_it->second.param_types[0].kind != core::TypeKind::kAny &&
+                sig_it->second.param_types[0].kind != core::TypeKind::kUnknown &&
                 sig_it->second.param_types[0].kind != core::TypeKind::kInvalid) {
                 expected_obj_type = CoreTypeToIR(sig_it->second.param_types[0]);
             }
             if (sig_it->second.param_types.size() > 1 &&
                 sig_it->second.param_types[1].kind != core::TypeKind::kAny &&
+                sig_it->second.param_types[1].kind != core::TypeKind::kUnknown &&
                 sig_it->second.param_types[1].kind != core::TypeKind::kInvalid) {
                 expected_val_type = CoreTypeToIR(sig_it->second.param_types[1]);
             }
@@ -1123,6 +1133,7 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
             for (const auto &[field_name, field_type] : fields) {
                 if (field_name == set_attr->attr_name &&
                     field_type.kind != core::TypeKind::kAny &&
+                    field_type.kind != core::TypeKind::kUnknown &&
                     field_type.kind != core::TypeKind::kInvalid) {
                     expected_val_type = CoreTypeToIR(field_type);
                     break;
@@ -1171,7 +1182,7 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
     call_descriptors_.push_back(desc);
 
-    // Emit the call — returns void but we return the value for expression chaining
+    // Emit the call �?returns void but we return the value for expression chaining
     builder_.MakeCall(stub_name, arg_names, ir::IRType::Void(), "");
     return {val.value, val.type};
 }
@@ -1196,13 +1207,14 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
     std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__");
     std::vector<std::string> enter_args = {resource.value};
 
-    // Resolve the enter return type — use typed pointer if class is known
+    // Resolve the enter return type �?use typed pointer if class is known
     ir::IRType enter_ret_type = ir::IRType::Pointer(ir::IRType::Void());
     {
         // Check if sema resolved a concrete type for the __enter__ return
         auto sym_it = sema_.Symbols().find(with_stmt->var_name);
         if (sym_it != sema_.Symbols().end() &&
             sym_it->second.type.kind != core::TypeKind::kAny &&
+            sym_it->second.type.kind != core::TypeKind::kUnknown &&
             sym_it->second.type.kind != core::TypeKind::kInvalid) {
             ir::IRType resolved = CoreTypeToIR(sym_it->second.type);
             if (resolved.kind != ir::IRTypeKind::kInvalid) {
@@ -1499,6 +1511,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
         }
     }
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kUnknown &&
         sig->return_type.kind != core::TypeKind::kInvalid) {
         ret_type = CoreTypeToIR(sig->return_type);
     } else if (sema_.IsStrictMode()) {
@@ -1538,7 +1551,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
                 params.emplace_back("arg" + std::to_string(i), pt);
             }
         } else {
-            // No signature information — in strict mode this is an error because
+            // No signature information �?in strict mode this is an error because
             // the generated stub will have an incorrect calling convention.
             // In permissive mode, fall back to a single opaque i64 argument
             // with a warning so the pipeline can continue.
@@ -1640,7 +1653,7 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
                                         const ir::IRType &dst_type, const std::string &dst_name) {
     // Determine marshalling strategy based on source and destination types
     if (src_type.kind == dst_type.kind) {
-        // Same type kind — direct copy (assign instruction or move)
+        // Same type kind �?direct copy (assign instruction or move)
         auto assign = std::make_shared<ir::AssignInstruction>();
         assign->name = dst_name;
         assign->type = dst_type;
@@ -1729,7 +1742,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
         if (it != env_.end() && it->second.type.kind == ir::IRTypeKind::kStruct) {
             return it->second.type;
         }
-        // Unknown type name — log a diagnostic and fall back to I64
+        // Unknown type name �?log a diagnostic and fall back to I64
         diagnostics_.ReportWarning(core::SourceLoc{},
             frontends::ErrorCode::kGenericWarning,
             "unknown type '" + st->name +
@@ -1810,18 +1823,27 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
             // Generic containers (e.g. dict) are opaque pointers
             return ir::IRType::Pointer(ir::IRType::I8());
         case core::TypeKind::kAny:
-            // Any type maps to opaque pointer (i8*) — more accurate than I64
+            // Any type maps to opaque pointer (i8*) �?more accurate than I64
             return ir::IRType::Pointer(ir::IRType::I8());
+        case core::TypeKind::kUnknown:
+            // Unknown type reached lowering without being resolved �?this is a
+            // hard error: the programmer must add an explicit type annotation or
+            // LINK declaration with MAP_TYPE.
+            diagnostics_.ReportError(core::SourceLoc{},
+                            frontends::ErrorCode::kTypeMismatch,
+                            "type '<unknown>' reached IR lowering unresolved �?"
+                            "add an explicit type annotation or LINK with MAP_TYPE");
+            return ir::IRType::Invalid();
         case core::TypeKind::kFunction:
             // Function types are pointers to function descriptors
             return ir::IRType::Pointer(ir::IRType::I8());
         default:
-            diagnostics_.ReportWarning(core::SourceLoc{},
-                                frontends::ErrorCode::kGenericWarning,
-                                "unknown core type kind " +
-                                std::to_string(static_cast<int>(ct.kind)) +
-                                " in CoreTypeToIR; falling back to i64");
-            return ir::IRType::I64(true);
+            diagnostics_.ReportError(core::SourceLoc{},
+                            frontends::ErrorCode::kTypeMismatch,
+                            "unrecognized core type kind " +
+                            std::to_string(static_cast<int>(ct.kind)) +
+                            " in CoreTypeToIR �?add explicit type annotation or MAP_TYPE");
+            return ir::IRType::Invalid();
     }
 }
 
@@ -1835,7 +1857,7 @@ void PloyLowering::Report(const core::SourceLoc &loc, const std::string &message
 
 PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
     const std::shared_ptr<DeleteExpression> &del_expr) {
-    // DELETE(language, object) — generate a destructor / cleanup call
+    // DELETE(language, object) �?generate a destructor / cleanup call
     // For Python objects: calls __del__ / del
     // For C++ objects: calls destructor
     // For Rust objects: calls drop

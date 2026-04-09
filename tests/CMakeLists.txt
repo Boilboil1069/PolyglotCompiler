@@ -30,6 +30,7 @@ set(POLYGLOT_TEST_ALL_LIBS
     runtime
     linker_lib
     topo_lib
+    polyc_lib
     ${CATCH2_LIBS}
 )
 
@@ -85,6 +86,8 @@ set(UNIT_TEST_FRONTEND_RUST
 set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/ploy_test.cpp
     unit/frontends/ploy/sema_discovery_test.cpp
+    unit/frontends/ploy/devirtualization_test.cpp
+    unit/frontends/ploy/loop_optimization_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -248,11 +251,13 @@ set(INTEGRATION_TEST_SOURCES
     integration/compile_tests/compile_pipeline_test.cpp
     integration/interop_tests/interop_test.cpp
     integration/performance/perf_test.cpp
+    integration/e2e/polyc_e2e_test.cpp
 )
 set(INTEGRATION_TEST_SOURCES
     integration/compile_tests/compile_pipeline_test.cpp
     integration/interop_tests/interop_test.cpp
     integration/performance/perf_test.cpp
+    integration/e2e/polyc_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})

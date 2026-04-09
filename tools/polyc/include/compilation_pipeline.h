@@ -321,6 +321,9 @@ struct CompilationContext {
         std::string emit_asm_path;
         std::string emit_obj_path;
         std::vector<std::string> additional_libs;
+        // Path to the serialized cross-language descriptor file written after
+        // bridge generation (passed as --ploy-desc to polyld in link mode).
+        std::string ploy_desc_file;
     } config;
 
     // Stage outputs (populated as pipeline progresses)

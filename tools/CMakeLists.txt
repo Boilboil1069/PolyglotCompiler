@@ -3,14 +3,21 @@
 # polyc, polyasm, polyld, polyopt, polyrt, polybench, and polyui (Qt IDE).
 # ============================================================================
 
-# -- polyc (compiler driver) ---------------------------------------------------
+# -- polyc_lib (shared pipeline library — used by polyc and integration tests) -
 
-add_executable(polyc
-    polyc/src/driver.cpp
+add_library(polyc_lib STATIC
     polyc/src/compilation_pipeline.cpp
+    polyc/src/stage_frontend.cpp
+    polyc/src/stage_semantic.cpp
+    polyc/src/stage_marshal.cpp
+    polyc/src/stage_bridge.cpp
+    polyc/src/stage_backend.cpp
+    polyc/src/stage_packaging.cpp
 )
 
-target_link_libraries(polyc
+target_include_directories(polyc_lib PUBLIC ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(polyc_lib PUBLIC
     frontend_python
     frontend_cpp
     frontend_rust
@@ -22,6 +29,16 @@ target_link_libraries(polyc
     backend_wasm
     runtime
     linker_lib
+)
+
+# -- polyc (compiler driver) ---------------------------------------------------
+
+add_executable(polyc
+    polyc/src/driver.cpp
+)
+
+target_link_libraries(polyc
+    polyc_lib
 )
 
 # Enable strict mode by default for Release builds

@@ -503,7 +503,52 @@ primary         ::= identifier | literal | '(' expression ')'
 | 字典 | 遍历条目 + 键值转换 |
 | 指针/句柄 | ForeignHandle 包装 + 所有权追踪 |
 
-## 6. 编译管道
+### 5.4 严格类型注解要求（自 2026-04-09-12 起）
+
+**跨语言边界处的所有参数和返回值都必须携带显式类型注解。**
+
+当语义分析阶段处理 `LINK` 声明时，任何没有显式类型注解的参数或返回值都会在内部被赋予 `Type::Unknown()`。该类型在管道中传播，并在 IR lowering 阶段产生 `IRTypeKind::kInvalid` 类型。IR 验证器随后以以下错误拒绝编译：
+
+```
+strict: function '<name>' has unresolved Invalid return type —
+    add an explicit type annotation or LINK with MAP_TYPE
+```
+
+或者：
+
+```
+strict: function '<name>' parameter N has unresolved Invalid type —
+    add an explicit type annotation
+```
+
+**这种严格行为默认启用**（即 `PloySemaOptions::strict_mode` 默认为 `true`，且驱动程序在 `--dev` 未激活时启用 IR 验证器严格模式）。
+
+#### 修复方法
+
+在 `LINK` 声明的所有参数和返回值上添加显式类型注解：
+
+```ploy
+// ✗ 缺少注解 — 在严格模式下编译报错
+LINK(cpp, python, f, g);
+
+// ✓ 带有显式注解
+LINK(cpp, python, f, g) {
+    MAP_TYPE(cpp::int, python::int);
+}
+```
+
+或直接在函数签名上标注类型：
+
+```ploy
+// ✓ 内联类型注解
+LINK(cpp, python, process(x: f64) -> f64, np::process);
+```
+
+#### 退出严格模式（不推荐）
+
+暂时无法添加注解的遗留代码可在构造 `PloySema` 时传入 `PloySemaOptions{.strict_mode = false}`。这将抑制 `Type::Unknown()` 错误，但允许产生 I64 占位符 IR，可能导致运行时的错误代码生成。
+
+
 
 ```
 .ploy 源代码

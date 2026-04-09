@@ -797,12 +797,27 @@ bool Verify(const IRContext &ctx, const VerifyOptions &opts, std::string *msg) {
 			if (fn->is_bridge_stub) continue;
 			if (fn->blocks.empty()) continue;
 
+			// Reject Invalid return type — produced when CoreTypeToIR encounters an
+			// unresolved kUnknown type (e.g. missing annotation or MAP_TYPE).
+			if (fn->ret_type.kind == IRTypeKind::kInvalid) {
+				return Fail("strict: function '" + fn->name +
+				            "' has unresolved Invalid return type — add an explicit "
+				            "type annotation or LINK with MAP_TYPE", msg);
+			}
 			// Reject I64 placeholder return type on non-bridge functions.
 			// A genuine I64 return is fine, but I64 with the placeholder flag
 			// indicates the type was not properly resolved.
 			if (fn->ret_type.kind == IRTypeKind::kI64 && fn->ret_type.is_placeholder) {
 				return Fail("strict: function '" + fn->name +
 				            "' has unresolved placeholder return type I64", msg);
+			}
+			// Reject Invalid parameter types
+			for (std::size_t pi = 0; pi < fn->param_types.size(); ++pi) {
+				if (fn->param_types[pi].kind == IRTypeKind::kInvalid) {
+					return Fail("strict: function '" + fn->name +
+					            "' parameter " + std::to_string(pi) +
+					            " has unresolved Invalid type — add an explicit type annotation", msg);
+				}
 			}
 
 			for (auto &bb : fn->blocks) {

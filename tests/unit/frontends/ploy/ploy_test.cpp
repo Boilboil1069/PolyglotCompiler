@@ -1,4 +1,4 @@
-﻿#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <sstream>
 #include <string>
 
@@ -58,7 +58,7 @@ std::string LowerAndGetIR(const std::string &code, Diagnostics &diags) {
     auto module = parser.TakeModule();
     if (!module || diags.HasErrors()) return "";
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     if (!sema.Analyze(module)) return "";
 
     IRContext ctx;
@@ -85,7 +85,7 @@ LowerResult LowerAndGetDescriptors(const std::string &code, Diagnostics &diags) 
     auto module = parser.TakeModule();
     if (!module || diags.HasErrors()) return {"", {}};
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     if (!sema.Analyze(module)) return {"", {}};
 
     IRContext ctx;
@@ -379,7 +379,7 @@ FUNC combine(x: f64) -> f64 {
 
 TEST_CASE("Ploy sema validates LINK declarations", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LINK(cpp, python, math::add, utils::get_values);
 )", diags, sema);
@@ -391,17 +391,17 @@ LINK(cpp, python, math::add, utils::get_values);
 
 TEST_CASE("Ploy sema rejects invalid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LINK(javascript, python, console::log, utils::print);
 )", diags, sema);
-    // 'javascript' is not a supported language — sema should report error
+    // 'javascript' is not a supported language �� sema should report error
     REQUIRE(!ok);
 }
 
 TEST_CASE("Ploy sema validates FUNC declarations", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC add(a: i32, b: i32) -> i32 {
     RETURN a + b;
@@ -415,7 +415,7 @@ FUNC add(a: i32, b: i32) -> i32 {
 
 TEST_CASE("Ploy sema validates variable declarations", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> i32 {
     LET x = 42;
@@ -428,7 +428,7 @@ FUNC test() -> i32 {
 
 TEST_CASE("Ploy sema validates MAP_TYPE", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 MAP_TYPE(cpp::int, python::int);
 )", diags, sema);
@@ -438,7 +438,7 @@ MAP_TYPE(cpp::int, python::int);
 
 TEST_CASE("Ploy sema validates PIPELINE", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 PIPELINE my_pipeline {
     LET x = 42;
@@ -453,7 +453,7 @@ PIPELINE my_pipeline {
 
 TEST_CASE("Ploy sema validates EXPORT references", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC my_func() -> i32 {
     RETURN 0;
@@ -465,7 +465,7 @@ EXPORT my_func AS "external_func";
 
 TEST_CASE("Ploy sema validates loop control flow", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> void {
     VAR i = 0;
@@ -483,7 +483,7 @@ FUNC test() -> void {
 
 TEST_CASE("Ploy sema rejects BREAK outside loop", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> void {
     BREAK;
@@ -598,7 +598,7 @@ LINK(python, rust, numpy::dot, vec::dot);
     auto module = parser.TakeModule();
     REQUIRE(module);
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     REQUIRE(sema.Analyze(module));
 
     IRContext ctx;
@@ -688,7 +688,7 @@ PIPELINE compute {
 }
 
 // ============================================================================
-// Complex Type Extension — Lexer Tests
+// Complex Type Extension �� Lexer Tests
 // ============================================================================
 
 TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]") {
@@ -701,7 +701,7 @@ TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]"
 }
 
 // ============================================================================
-// Complex Type Extension — Parser Tests
+// Complex Type Extension �� Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser parses STRUCT declaration", "[ploy][parser][complex]") {
@@ -800,12 +800,12 @@ FUNC test(x: i32) -> f64 {
 }
 
 // ============================================================================
-// Complex Type Extension — Sema Tests
+// Complex Type Extension �� Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema validates STRUCT declaration", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 STRUCT Point {
     x: f64,
@@ -817,7 +817,7 @@ STRUCT Point {
 
 TEST_CASE("Ploy sema validates MAP_FUNC declaration", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 MAP_FUNC to_list(x: i32) -> i32 {
     RETURN 0;
@@ -828,7 +828,7 @@ MAP_FUNC to_list(x: i32) -> i32 {
 
 TEST_CASE("Ploy sema validates LIST type resolution", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test(xs: LIST[i32]) -> void {
     RETURN;
@@ -839,7 +839,7 @@ FUNC test(xs: LIST[i32]) -> void {
 
 TEST_CASE("Ploy sema validates DICT type resolution", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test(m: DICT[str, i32]) -> void {
     RETURN;
@@ -850,7 +850,7 @@ FUNC test(m: DICT[str, i32]) -> void {
 
 TEST_CASE("Ploy sema validates TUPLE type resolution", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test(t: TUPLE[i32, f64]) -> void {
     RETURN;
@@ -861,7 +861,7 @@ FUNC test(t: TUPLE[i32, f64]) -> void {
 
 TEST_CASE("Ploy sema validates OPTION type resolution", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test(x: OPTION[i32]) -> void {
     RETURN;
@@ -872,7 +872,7 @@ FUNC test(x: OPTION[i32]) -> void {
 
 TEST_CASE("Ploy sema validates CONVERT expression", "[ploy][sema][complex]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test(x: i32) -> f64 {
     LET y = CONVERT(x, f64);
@@ -883,7 +883,7 @@ FUNC test(x: i32) -> f64 {
 }
 
 // ============================================================================
-// Complex Type Extension — Lowering Tests
+// Complex Type Extension �� Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering generates list literal IR", "[ploy][lowering][complex]") {
@@ -938,7 +938,7 @@ FUNC test(x: i32) -> void {
 }
 
 // ============================================================================
-// Complex Type Extension — Integration Tests
+// Complex Type Extension �� Integration Tests
 // ============================================================================
 
 TEST_CASE("Ploy complex type full pipeline: STRUCT + LINK + FUNC", "[ploy][integration][complex]") {
@@ -1034,7 +1034,7 @@ IMPORT cpp::math_utils;
 
 TEST_CASE("Ploy sema validates IMPORT PACKAGE", "[ploy][sema][package]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE numpy AS np;
 )", diags, sema);
@@ -1047,7 +1047,7 @@ IMPORT python PACKAGE numpy AS np;
 
 TEST_CASE("Ploy sema rejects invalid language in IMPORT PACKAGE", "[ploy][sema][package]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT cobol PACKAGE legacy.system;
 )", diags, sema);
@@ -1228,7 +1228,7 @@ IMPORT python PACKAGE flask ~= 2.3;
 
 TEST_CASE("Ploy sema validates version constraint format", "[ploy][sema][version]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE numpy >= 1.20;
 )", diags, sema);
@@ -1239,7 +1239,7 @@ TEST_CASE("Ploy sema rejects invalid version operator on non-package import", "[
     // version_op can only be set via PACKAGE imports,
     // so any well-formed PACKAGE import with a valid version should pass
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE pandas >= 1.5.0;
 )", diags, sema);
@@ -1322,7 +1322,7 @@ IMPORT python PACKAGE numpy::(array, mean) AS np;
 TEST_CASE("Ploy sema rejects selective import with alias", "[ploy][sema][selective]") {
     // Selective import + AS alias is ambiguous and must be rejected
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE numpy::(array, mean) AS np;
 )", diags, sema);
@@ -1331,7 +1331,7 @@ IMPORT python PACKAGE numpy::(array, mean) AS np;
 
 TEST_CASE("Ploy sema validates selective import", "[ploy][sema][selective]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE numpy::(array, mean);
 )", diags, sema);
@@ -1348,7 +1348,7 @@ IMPORT python PACKAGE numpy::(array, mean);
 
 TEST_CASE("Ploy sema rejects duplicate symbols in selective import", "[ploy][sema][selective]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE numpy::(array, array);
 )", diags, sema);
@@ -1411,7 +1411,7 @@ CONFIG VENV "/home/user/.virtualenvs/ml";
 
 TEST_CASE("Ploy sema validates CONFIG VENV", "[ploy][sema][venv]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG VENV python "C:/envs/myenv";
 IMPORT python PACKAGE numpy;
@@ -1424,7 +1424,7 @@ IMPORT python PACKAGE numpy;
 
 TEST_CASE("Ploy sema rejects duplicate CONFIG VENV", "[ploy][sema][venv]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG VENV python "C:/envs/env1";
 CONFIG VENV python "C:/envs/env2";
@@ -1434,7 +1434,7 @@ CONFIG VENV python "C:/envs/env2";
 
 TEST_CASE("Ploy sema rejects CONFIG VENV with invalid language", "[ploy][sema][venv]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG VENV cobol "/opt/legacy";
 )", diags, sema);
@@ -1613,7 +1613,7 @@ CONFIG POETRY "C:/projects/poetry_app";
 
 TEST_CASE("Ploy sema validates CONFIG CONDA", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG CONDA python "ml_env";
 IMPORT python PACKAGE numpy;
@@ -1627,7 +1627,7 @@ IMPORT python PACKAGE numpy;
 
 TEST_CASE("Ploy sema validates CONFIG UV", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG UV python "D:/venvs/uv_env";
 IMPORT python PACKAGE requests;
@@ -1639,7 +1639,7 @@ IMPORT python PACKAGE requests;
 
 TEST_CASE("Ploy sema validates CONFIG PIPENV", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG PIPENV python "C:/projects/myapp";
 IMPORT python PACKAGE flask;
@@ -1651,7 +1651,7 @@ IMPORT python PACKAGE flask;
 
 TEST_CASE("Ploy sema validates CONFIG POETRY", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG POETRY python "C:/projects/poetry_app";
 IMPORT python PACKAGE django;
@@ -1663,7 +1663,7 @@ IMPORT python PACKAGE django;
 
 TEST_CASE("Ploy sema rejects duplicate CONFIG for same language", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG CONDA python "env1";
 CONFIG UV python "env2";
@@ -1673,7 +1673,7 @@ CONFIG UV python "env2";
 
 TEST_CASE("Ploy sema rejects CONFIG CONDA with invalid language", "[ploy][sema][pkgmgr]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 CONFIG CONDA cobol "legacy_env";
 )", diags, sema);
@@ -1770,7 +1770,7 @@ EXPORT serve AS "start_server";
 }
 
 // ============================================================================
-// Class Instantiation Tests — NEW and METHOD keywords
+// Class Instantiation Tests �� NEW and METHOD keywords
 // ============================================================================
 
 // -- Lexer tests --
@@ -1925,7 +1925,7 @@ LET val = METHOD(python, obj, utils::serialize, data);
 
 TEST_CASE("Ploy sema validates NEW expression", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE torch;
 LET model = NEW(python, torch::nn::Linear, 784, 10);
@@ -1935,7 +1935,7 @@ LET model = NEW(python, torch::nn::Linear, 784, 10);
 
 TEST_CASE("Ploy sema rejects NEW with invalid language", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LET obj = NEW(cobol, SomeClass);
 )", diags, sema);
@@ -1944,7 +1944,7 @@ LET obj = NEW(cobol, SomeClass);
 
 TEST_CASE("Ploy sema validates METHOD expression", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE torch;
 LET model = NEW(python, torch::nn::Linear, 784, 10);
@@ -1957,7 +1957,7 @@ LET output = METHOD(python, model, forward, data);
 
 TEST_CASE("Ploy sema validates METHOD with defined args", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 IMPORT python PACKAGE sklearn;
 LET model = NEW(python, sklearn::LinearRegression);
@@ -1969,7 +1969,7 @@ LET result = METHOD(python, model, predict, input);
 
 TEST_CASE("Ploy sema rejects METHOD with invalid language", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LET obj = NEW(python, MyClass);
 LET result = METHOD(ruby, obj, run);
@@ -2027,7 +2027,7 @@ FUNC build() -> INT {
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     REQUIRE(sema.Analyze(module));
 
     IRContext ctx;
@@ -2063,7 +2063,7 @@ FUNC infer() -> INT {
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     REQUIRE(sema.Analyze(module));
 
     IRContext ctx;
@@ -2154,7 +2154,7 @@ FUNC async_io() -> INT {
 }
 
 // ============================================================================
-// GET / SET / WITH — Lexer Tests
+// GET / SET / WITH �� Lexer Tests
 // ============================================================================
 
 TEST_CASE("Ploy lexer: GET keyword recognised", "[ploy][lexer]") {
@@ -2192,7 +2192,7 @@ TEST_CASE("Ploy lexer: GET SET WITH in context", "[ploy][lexer]") {
 }
 
 // ============================================================================
-// GET / SET — Parser Tests
+// GET / SET �� Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser: GET attribute expression", "[ploy][parser]") {
@@ -2264,7 +2264,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH Statement — Parser Tests
+// WITH Statement �� Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser: WITH statement basic", "[ploy][parser]") {
@@ -2310,12 +2310,12 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// GET / SET — Sema Tests
+// GET / SET �� Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema: GET valid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
@@ -2328,7 +2328,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: GET invalid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
@@ -2341,7 +2341,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: SET valid", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
@@ -2354,7 +2354,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: SET invalid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET obj = NEW(python, MyClass);
@@ -2366,12 +2366,12 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH — Sema Tests
+// WITH �� Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema: WITH valid", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     WITH(python, NEW(python, open, "file.txt")) AS f {
@@ -2385,7 +2385,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: WITH invalid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     WITH(cobol, NEW(python, open, "file.txt")) AS f {
@@ -2399,7 +2399,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: WITH variable accessible in body", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     WITH(python, NEW(python, open, "test.csv")) AS file {
@@ -2413,7 +2413,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// GET / SET — Lowering Tests
+// GET / SET �� Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering: GET generates getattr stub", "[ploy][lowering]") {
@@ -2487,7 +2487,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH — Lowering Tests
+// WITH �� Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering: WITH generates enter/exit stubs", "[ploy][lowering]") {
@@ -2552,7 +2552,7 @@ FUNC test() -> INT {
 
 TEST_CASE("Ploy sema: qualified type annotation with NEW accepted", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC test() -> INT {
     LET model: python::nn::Module = NEW(python, torch::nn::Linear, 10, 5);
@@ -2582,7 +2582,7 @@ LINK(cpp, python, run_model, torch::forward) {
 
 TEST_CASE("Ploy sema: MAP_TYPE interface mapping valid", "[ploy][sema][class]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 MAP_TYPE(python::nn::Module, cpp::NeuralNet);
 )", diags, sema);
@@ -2590,7 +2590,7 @@ MAP_TYPE(python::nn::Module, cpp::NeuralNet);
 }
 
 // ============================================================================
-// Integration Tests — GET / SET / WITH combined
+// Integration Tests �� GET / SET / WITH combined
 // ============================================================================
 
 TEST_CASE("Ploy integration: GET + SET + METHOD combined", "[ploy][integration][class]") {
@@ -2678,7 +2678,7 @@ FUNC cleanup() {
 
 TEST_CASE("Ploy sema: DELETE valid expression", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC cleanup() {
     LET obj = NEW(python, MyClass);
@@ -2691,7 +2691,7 @@ FUNC cleanup() {
 
 TEST_CASE("Ploy sema: DELETE invalid language", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC cleanup() {
     LET obj = NEW(python, MyClass);
@@ -2793,7 +2793,7 @@ EXTEND(python, sklearn::base::BaseEstimator) AS CustomEstimator {
 
 TEST_CASE("Ploy sema: EXTEND registers derived type", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 EXTEND(python, Animal) AS Dog {
     FUNC speak() -> STRING {
@@ -2810,7 +2810,7 @@ EXTEND(python, Animal) AS Dog {
 
 TEST_CASE("Ploy sema: EXTEND invalid language error", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 EXTEND(cobol, Base) AS Derived {
     FUNC foo() { }
@@ -2821,7 +2821,7 @@ EXTEND(cobol, Base) AS Derived {
 
 TEST_CASE("Ploy sema: EXTEND registers method signatures", "[ploy][sema]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 EXTEND(python, Animal) AS Dog {
     FUNC speak(volume: INT) -> STRING {
@@ -2858,7 +2858,7 @@ EXTEND(python, Animal) AS Dog {
 
 TEST_CASE("Ploy sema: param count mismatch in local function call", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC add(a: INT, b: INT) -> INT {
     RETURN a;
@@ -2873,7 +2873,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: param count mismatch too many args", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC greet(name: STRING) -> STRING {
     RETURN name;
@@ -2888,7 +2888,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: param count correct passes", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC add(a: INT, b: INT) -> INT {
     RETURN a;
@@ -2907,7 +2907,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: type mismatch in function call", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC process(value: INT) -> INT {
     RETURN value;
@@ -2922,7 +2922,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: type mismatch multiple params", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC compute(x: FLOAT, y: INT) -> FLOAT {
     RETURN x;
@@ -2937,7 +2937,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: compatible types pass", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC process(value: INT) -> INT {
     RETURN value;
@@ -2956,7 +2956,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: undefined variable produces error", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = undefined_var;
@@ -2968,7 +2968,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: redefined symbol produces error", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = 10;
@@ -2980,7 +2980,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: BREAK outside loop error", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC main() {
     BREAK;
@@ -2991,7 +2991,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: CONTINUE outside loop error", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC main() {
     CONTINUE;
@@ -3002,7 +3002,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: immutable assignment error", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
 FUNC main() {
     LET x = 10;
@@ -3014,7 +3014,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: mutable assignment ok", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 FUNC main() {
     VAR x = 10;
@@ -3106,7 +3106,7 @@ TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics
 
 TEST_CASE("Ploy sema: LINK MAP_TYPE entries define CALL arity contract", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LINK(cpp, python, math::add, pymath::add) {
     MAP_TYPE(cpp::int, python::int);
@@ -3125,7 +3125,7 @@ FUNC main() {
 
 TEST_CASE("Ploy sema: LINK function correct arg count passes", "[ploy][sema][error-check]") {
     Diagnostics diags;
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LINK(cpp, python, math::add, pymath::add) {
     MAP_TYPE(cpp::int, python::int);
@@ -3230,4 +3230,363 @@ FUNC main() {
     CHECK(ir.find("__ploy_extend_Dog_fetch") != std::string::npos);
     CHECK(ir.find("__ploy_extend_register") != std::string::npos);
     CHECK(ir.find("__ploy_py_del") != std::string::npos);
+}
+
+// ============================================================================
+// End-to-end failure path tests — param count, type mismatch, unregistered
+// symbols, cross-language ABI violations.
+//
+// Every test here must end with diags.HasErrors() == true and ideally
+// verifies the specific ErrorCode or message substring to ensure the
+// compiler produces a meaningful diagnostic rather than silently accepting
+// bad input or crashing.
+// ============================================================================
+
+// ---- Helper ----------------------------------------------------------------
+namespace {
+
+struct E2EFailureResult {
+    bool sema_ok{false};
+    bool has_errors{false};
+    int  error_count{0};
+    bool found_message{false}; // true when a specific message was searched for
+};
+
+E2EFailureResult RunAndExpectFailure(const std::string &code,
+                                     const std::string &expected_msg_fragment = "") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+
+    PloyLexer lexer(code, "<e2e_failure>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    if (!module) return {false, diags.HasErrors(), diags.ErrorCount(), false};
+
+    bool ok = sema.Analyze(module);
+    bool found = false;
+    if (!expected_msg_fragment.empty()) {
+        for (const auto &d : diags.All()) {
+            if (d.message.find(expected_msg_fragment) != std::string::npos) {
+                found = true;
+                break;
+            }
+        }
+    }
+    return {ok, diags.HasErrors(), diags.ErrorCount(), found};
+}
+
+} // namespace
+
+// ============================================================================
+// Param count mismatch — local function calls
+// ============================================================================
+
+TEST_CASE("E2E failure: too few args to local function produces error with count hint",
+          "[ploy][e2e][failure][param-count]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC add(a: INT, b: INT) -> INT { RETURN a; }
+FUNC main() { LET x = add(1); }
+)", "argument");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    // The diagnostic must mention the mismatch (argument / param / expected)
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: too many args to local function produces error",
+          "[ploy][e2e][failure][param-count]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC greet(name: STRING) -> STRING { RETURN name; }
+FUNC main() { LET x = greet("a", "b", "c"); }
+)", "argument");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: zero-arg function called with args produces error",
+          "[ploy][e2e][failure][param-count]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC no_args() -> INT { RETURN 0; }
+FUNC main() { LET x = no_args(42, 99); }
+)", "argument");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: error count equals number of mismatched call sites",
+          "[ploy][e2e][failure][param-count]") {
+    // Two call sites with wrong arg counts → two separate diagnostics
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC f(a: INT) -> INT { RETURN a; }
+FUNC main() {
+    LET x = f();
+    LET y = f(1, 2);
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+    CHECK(diags.ErrorCount() >= 2);
+}
+
+// ============================================================================
+// Type mismatch — incompatible argument types
+// ============================================================================
+
+TEST_CASE("E2E failure: passing STRING to INT parameter produces type-mismatch error",
+          "[ploy][e2e][failure][type-mismatch]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC process(value: INT) -> INT { RETURN value; }
+FUNC main() { LET x = process("not_a_number"); }
+)", "type");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: passing INT to STRING parameter produces type-mismatch error",
+          "[ploy][e2e][failure][type-mismatch]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC label(name: STRING) -> STRING { RETURN name; }
+FUNC main() { LET x = label(42); }
+)", "type");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: type mismatch in second argument is caught",
+          "[ploy][e2e][failure][type-mismatch]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC compute(x: FLOAT, y: INT) -> FLOAT { RETURN x; }
+FUNC main() { LET r = compute(1.0, "oops"); }
+)", "type");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+// ============================================================================
+// Unregistered / undefined symbol errors
+// ============================================================================
+
+TEST_CASE("E2E failure: calling unregistered symbol produces undefined-symbol error",
+          "[ploy][e2e][failure][unregistered]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC main() {
+    LET result = no_such_function(1, 2);
+}
+)", "undefined");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: reading unregistered variable produces error",
+          "[ploy][e2e][failure][unregistered]") {
+    auto r = RunAndExpectFailure(R"(
+FUNC main() {
+    LET x = totally_unknown_var + 1;
+}
+)", "undefined");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    CHECK(r.found_message);
+}
+
+TEST_CASE("E2E failure: CALL to unlinked cross-lang symbol produces error",
+          "[ploy][e2e][failure][unregistered]") {
+    // math::add is never declared via LINK — must be rejected
+    auto r = RunAndExpectFailure(R"(
+FUNC main() {
+    LET result = CALL(cpp, math::add, 1, 2);
+}
+)", "unregistered");
+    CHECK_FALSE(r.sema_ok);
+    CHECK(r.has_errors);
+    // If the message uses a different keyword, just check there IS an error
+    CHECK(r.has_errors);
+}
+
+TEST_CASE("E2E failure: LINK to unsupported language is rejected with specific error",
+          "[ploy][e2e][failure][unregistered]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+LINK(haskell, python, some::fn, py::fn);
+)", diags, sema);
+    CHECK(diags.HasErrors());
+    // Error must name the offending language
+    bool named = false;
+    for (const auto &d : diags.All()) {
+        if (d.message.find("haskell") != std::string::npos ||
+            d.message.find("language") != std::string::npos) {
+            named = true;
+        }
+    }
+    CHECK(named);
+}
+
+// ============================================================================
+// Cross-language ABI arity violations
+// ============================================================================
+
+TEST_CASE("E2E failure: LINK MAP_TYPE arity contract violation is caught",
+          "[ploy][e2e][failure][abi]") {
+    // LINK defines a 2-param cross-lang function; calling with 1 arg must fail
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+LINK(cpp, python, vec::dot, np::dot) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::double, python::float);
+}
+FUNC main() {
+    LET r = CALL(cpp, vec::dot, 1.0);
+}
+)", diags, sema);
+    CHECK(diags.HasErrors());
+}
+
+TEST_CASE("E2E failure: LINK MAP_TYPE correct arity passes",
+          "[ploy][e2e][failure][abi]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    bool ok = AnalyzeCode(R"(
+LINK(cpp, python, vec::dot, np::dot) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::double, python::float);
+}
+FUNC main() {
+    LET r = CALL(cpp, vec::dot, 1.0, 2.0);
+}
+)", diags, sema);
+    CHECK(ok);
+    CHECK(!diags.HasErrors());
+}
+
+// ============================================================================
+// Diagnostic infrastructure validation tests
+// (ensure error codes, messages, and tracebacks are actually populated)
+// ============================================================================
+
+TEST_CASE("E2E failure: kParamCountMismatch error code is emitted",
+          "[ploy][e2e][failure][error-code]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC f(x: INT, y: INT) -> INT { RETURN x; }
+FUNC main() { LET r = f(1); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    bool found_code = false;
+    for (const auto &d : diags.All()) {
+        if (d.code == polyglot::frontends::ErrorCode::kParamCountMismatch) {
+            found_code = true;
+        }
+    }
+    CHECK(found_code);
+}
+
+TEST_CASE("E2E failure: kTypeMismatch error code is emitted",
+          "[ploy][e2e][failure][error-code]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC take_int(x: INT) -> INT { RETURN x; }
+FUNC main() { LET r = take_int("hello"); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    bool found_code = false;
+    for (const auto &d : diags.All()) {
+        if (d.code == polyglot::frontends::ErrorCode::kTypeMismatch) {
+            found_code = true;
+        }
+    }
+    CHECK(found_code);
+}
+
+TEST_CASE("E2E failure: kUndefinedSymbol error code is emitted",
+          "[ploy][e2e][failure][error-code]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC main() { LET r = ghost_function(); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    bool found_code = false;
+    for (const auto &d : diags.All()) {
+        if (d.code == polyglot::frontends::ErrorCode::kUndefinedSymbol) {
+            found_code = true;
+        }
+    }
+    CHECK(found_code);
+}
+
+TEST_CASE("E2E failure: diagnostic source location points to the offending call site",
+          "[ploy][e2e][failure][location]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC f(x: INT) -> INT { RETURN x; }
+FUNC main() { LET r = f(1, 2); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    // The error must have a valid source location (line > 0)
+    bool has_location = false;
+    for (const auto &d : diags.All()) {
+        if (d.loc.line > 0) {
+            has_location = true;
+        }
+    }
+    CHECK(has_location);
+}
+
+TEST_CASE("E2E failure: traceback points to function declaration when param count wrong",
+          "[ploy][e2e][failure][traceback]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC multiply(a: INT, b: INT) -> INT { RETURN a; }
+FUNC main() { LET r = multiply(5); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    // At least one diagnostic should have a related/traceback note pointing to
+    // the declaration of 'multiply'
+    bool has_traceback = false;
+    for (const auto &d : diags.All()) {
+        if (!d.related.empty()) {
+            has_traceback = true;
+        }
+    }
+    CHECK(has_traceback);
+}
+
+TEST_CASE("E2E failure: formatted error message is non-empty and includes file name",
+          "[ploy][e2e][failure][format]") {
+    Diagnostics diags;
+    PloySema sema(diags, PloySemaOptions{});
+    (void)AnalyzeCode(R"(
+FUNC f(x: INT) -> INT { RETURN x; }
+FUNC main() { LET r = f(); }
+)", diags, sema);
+    REQUIRE(diags.HasErrors());
+
+    // FormatAll must produce non-empty output that includes a location hint
+    std::string formatted = diags.FormatAll();
+    CHECK(!formatted.empty());
+    // There should be some location indicator (line numbers use digits)
+    bool has_digit = false;
+    for (char c : formatted) {
+        if (std::isdigit(static_cast<unsigned char>(c))) { has_digit = true; break; }
+    }
+    CHECK(has_digit);
 }

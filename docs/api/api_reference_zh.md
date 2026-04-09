@@ -1,7 +1,7 @@
 # PolyglotCompiler API 参考手册
 
 > **版本**: 3.0.0  
-> **最后更新**: 2026-02-22  
+> **最后更新**: 2026-04-09  
 
 ---
 
@@ -40,7 +40,9 @@ enum class TypeKind {
   kReference,      // 引用类型（C++ / Rust）
   kClass,          // 类类型
   kModule,         // 模块类型
-  kAny,            // 动态 / any 类型
+  kAny,            // 动态 / any 类型（显式声明的通配符类型）
+  kUnknown,        // 跨语言边界处的未解析类型 — 在严格模式下触发编译错误；
+                   // 需要显式类型注解或 MAP_TYPE（需求 2026-04-09-12）
   kStruct,         // 结构体类型
   kUnion,          // 联合体类型
   kEnum,           // 枚举类型
@@ -82,7 +84,9 @@ static Type Bool();             // 创建布尔类型
 static Type Int();              // 创建默认整数类型
 static Type Float();            // 创建默认浮点类型
 static Type String();           // 创建字符串类型
-static Type Any();              // 创建动态/any 类型
+static Type Any();              // 创建动态/any 类型（显式声明的通配符类型）
+static Type Unknown();          // 创建未解析边界类型 — 当跨语言边界无注解时产生；
+                                // 在 lowering 阶段被拒绝（严格模式）
 
 static Type Int(int bits, bool sign);    // 指定位宽和符号的整数
 static Type Float(int bits);             // 指定位宽的浮点数（32 或 64）
@@ -740,7 +744,49 @@ ABIDescriptor GetABIDescriptor(const std::string& language,
 **头文件**: `frontends/ploy/include/ploy_sema.h`
 **命名空间**: `polyglot::ploy`
 
-## 10.1 ForeignClassSchema
+## 10.2 PloySemaOptions
+
+`.ploy` 语义分析阶段的配置选项。
+
+```cpp
+struct PloySemaOptions {
+    // 为 true（默认值）时，语义分析阶段以严格模式运行：
+    //   - 无显式类型注解的函数参数或返回值将被赋予 Type::Unknown()，
+    //     并在 lowering 阶段触发编译错误。
+    //   - 无 MAP_TYPE 的 LINK 声明将产生错误，而不是回退到 I64。
+    // 仅在明确需要兼容旧版行为时才设置为 false。
+    bool strict_mode{true};
+
+    // 启用自动包发现（调用 pip/cargo 等）。
+    // 驱动程序中默认禁用；包索引器在阶段 1 运行。
+    bool enable_package_discovery{false};
+
+    // 可选的预构建包发现缓存（从阶段 1 共享）。
+    std::shared_ptr<PackageDiscoveryCache> discovery_cache;
+};
+```
+
+> **破坏性变更（2026-04-09-12）**：`strict_mode` 默认值从 `false` 改为 `true`。
+> 所有调用点现在必须显式传入 `PloySemaOptions{}`。
+
+## 10.3 PloySema 构造
+
+```cpp
+class PloySema {
+public:
+    // 主构造函数 — 始终显式传入 PloySemaOptions{}。
+    explicit PloySema(frontends::Diagnostics& diagnostics,
+                      const PloySemaOptions& options);
+
+    // 已弃用：隐式使用 PloySemaOptions{}（strict_mode = true）。
+    // 仅为向后兼容保留 — 优先使用双参数形式。
+    [[deprecated("Pass PloySemaOptions{} explicitly to declare strict-mode intent")]]
+    explicit PloySema(frontends::Diagnostics& diagnostics);
+    // ...
+};
+```
+
+## 10.4 ForeignClassSchema
 
 描述外部类的布局，用于编译时类型检查。
 
@@ -769,7 +815,7 @@ struct Method {
 };
 ```
 
-## 10.2 PloySema 模式 API
+## 10.5 PloySema 模式 API
 
 ```cpp
 class PloySema {
@@ -788,6 +834,38 @@ public:
 private:
     std::unordered_map<std::string, ForeignClassSchema> class_schemas_;
 };
+```
+
+---
+
+# 11. IR 验证器
+
+**头文件**: `middle/include/ir/verifier.h`  
+**命名空间**: `polyglot::ir`
+
+## 11.1 VerifyOptions
+
+```cpp
+struct VerifyOptions {
+    // 为 true 时，验证器拒绝宽松模式下被静默容忍的占位符 IR 模式：
+    //   - 返回类型或参数类型为 IRTypeKind::kInvalid 的函数
+    //     （由 Type::Unknown() 到达 lowering 阶段时产生）。
+    //   - 返回类型为 I64 占位符（is_placeholder 标志）的函数。
+    //   - 非桥接存根函数中的 "undef" 操作数。
+    // 在驱动程序中，只要 --dev 未激活，该标志就会被设置为 true
+    // （需求 2026-04-09-12：非开发模式下强制执行 -Werror-placeholder-ir）。
+    bool strict{false};
+};
+```
+
+## 11.2 Verify 函数
+
+```cpp
+// 标准完整性检查（始终运行）。
+bool Verify(const IRContext& ctx, std::string* msg = nullptr);
+
+// 标准检查 + 可选的严格占位符检查。
+bool Verify(const IRContext& ctx, const VerifyOptions& opts, std::string* msg = nullptr);
 ```
 
 ---

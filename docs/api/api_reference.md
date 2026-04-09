@@ -40,7 +40,9 @@ enum class TypeKind {
   kReference,      // Reference type (C++ / Rust)
   kClass,          // Class type
   kModule,         // Module type
-  kAny,            // Dynamic / any type
+  kAny,            // Dynamic / any type (explicitly declared as wildcard)
+  kUnknown,        // Unresolved type at cross-language boundary — triggers a compile
+                   // error in strict mode; requires an explicit annotation or MAP_TYPE
   kStruct,         // Structure type
   kUnion,          // Union type
   kEnum,           // Enumeration type
@@ -82,7 +84,9 @@ static Type Bool();             // Creates a boolean type
 static Type Int();              // Creates a default integer type
 static Type Float();            // Creates a default float type
 static Type String();           // Creates a string type
-static Type Any();              // Creates a dynamic/any type
+static Type Any();              // Creates a dynamic/any type (explicit wildcard)
+static Type Unknown();          // Creates an unresolved boundary type — emitted when
+                                // no annotation is present; rejected by the lowering stage
 
 static Type Int(int bits, bool sign);    // Int with bit-width and signedness
 static Type Float(int bits);             // Float with bit-width (32 or 64)
@@ -763,7 +767,78 @@ struct Method {
 };
 ```
 
-## 10.2 PloySema Schema API
+## 10.2 PloySemaOptions
+
+Configuration options for the `.ploy` semantic analysis pass.
+
+```cpp
+struct PloySemaOptions {
+    // When true (default), the sema pass operates in strict mode:
+    //   - Function parameters and return values without explicit type annotations
+    //     are assigned Type::Unknown() and trigger a compile error during lowering.
+    //   - LINK declarations without MAP_TYPE produce an error rather than an I64 fallback.
+    // Set to false only to explicitly opt in to permissive/legacy behaviour.
+    bool strict_mode{true};
+
+    // Enable automatic package discovery (shells out to pip/cargo/etc.).
+    // Disabled by default in the driver; the package indexer runs in stage 1.
+    bool enable_package_discovery{false};
+
+    // Optional pre-built package discovery cache (shared from stage 1).
+    std::shared_ptr<PackageDiscoveryCache> discovery_cache;
+};
+```
+
+> **Breaking change (2026-04-09-12)**: `strict_mode` was changed from `false` to `true`.
+> All call sites must now pass `PloySemaOptions{}` explicitly.
+
+## 10.3 PloySema Construction
+
+```cpp
+class PloySema {
+public:
+    // Primary constructor — always pass PloySemaOptions{} explicitly.
+    explicit PloySema(frontends::Diagnostics& diagnostics,
+                      const PloySemaOptions& options);
+
+    // Deprecated: uses PloySemaOptions{} implicitly (strict_mode = true).
+    // Kept for backward compatibility only — prefer the two-argument form.
+    [[deprecated("Pass PloySemaOptions{} explicitly to declare strict-mode intent")]]
+    explicit PloySema(frontends::Diagnostics& diagnostics);
+    // ...
+};
+```
+
+## 10.4 ForeignClassSchema
+
+Describes the layout of a foreign class for compile-time type checking.
+
+```cpp
+struct ForeignClassSchema {
+    std::string language;
+    std::string class_name;
+    std::vector<Field> fields;           // Field name + type
+    std::vector<Method> methods;         // Method name + signature
+    std::vector<Constructor> constructors; // Available constructors
+    bool has_destructor;
+    bool has_context_manager;            // __enter__/__exit__
+};
+
+struct Field {
+    std::string name;
+    core::Type type;
+    Access access;  // public/protected/private
+};
+
+struct Method {
+    std::string name;
+    std::vector<core::Type> param_types;
+    core::Type return_type;
+    bool is_static;
+};
+```
+
+## 10.5 PloySema Schema API
 
 ```cpp
 class PloySema {
@@ -782,6 +857,39 @@ public:
 private:
     std::unordered_map<std::string, ForeignClassSchema> class_schemas_;
 };
+```
+
+---
+
+# 11. IR Verifier
+
+**Header**: `middle/include/ir/verifier.h`  
+**Namespace**: `polyglot::ir`
+
+## 11.1 VerifyOptions
+
+```cpp
+struct VerifyOptions {
+    // When true, the verifier rejects placeholder IR patterns that are
+    // silently tolerated in permissive mode:
+    //   - Functions with IRTypeKind::kInvalid return or parameter types
+    //     (produced when Type::Unknown() reaches the lowering stage).
+    //   - Functions with I64 placeholder return types (is_placeholder flag).
+    //   - "undef" operands in non-bridge-stub functions.
+    // In the driver, this flag is set to true whenever --dev is NOT active
+    // (demand 2026-04-09-12: non-dev mode enforces -Werror-placeholder-ir).
+    bool strict{false};
+};
+```
+
+## 11.2 Verify Functions
+
+```cpp
+// Standard well-formedness check (always runs).
+bool Verify(const IRContext& ctx, std::string* msg = nullptr);
+
+// Standard check + optional strict placeholder check.
+bool Verify(const IRContext& ctx, const VerifyOptions& opts, std::string* msg = nullptr);
 ```
 
 ---

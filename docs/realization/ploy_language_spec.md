@@ -374,6 +374,51 @@ primary         ::= identifier | literal | '(' expression ')'
 
 The compiler generates marshalling code based on `MAP_TYPE` directives and the built-in type conversion table. Numeric promotions, string encoding conversions, and collection adaptors are generated automatically where safe.
 
+### 5.4 Strict Type Annotation Requirement (since 2026-04-09-12)
+
+**All parameters and return values at cross-language boundaries must carry explicit type annotations.**
+
+When the semantic analysis pass processes a `LINK` declaration, any parameter or return value without an explicit type annotation is assigned `Type::Unknown()` internally. This type propagates through the pipeline and, during IR lowering, produces an `IRTypeKind::kInvalid` IR type. The IR verifier then rejects the compilation with the error:
+
+```
+strict: function '<name>' has unresolved Invalid return type —
+    add an explicit type annotation or LINK with MAP_TYPE
+```
+
+or:
+
+```
+strict: function '<name>' parameter N has unresolved Invalid type —
+    add an explicit type annotation
+```
+
+**This strict behaviour is active by default** (i.e., `PloySemaOptions::strict_mode` defaults to `true`, and the driver enables IR verifier strict mode whenever `--dev` is not active).
+
+#### How to Fix
+
+Add explicit type annotations on all parameters and return values in `LINK` declarations:
+
+```ploy
+// ✗ Missing annotations — compile error in strict mode
+LINK(cpp, python, f, g);
+
+// ✓ With explicit annotations
+LINK(cpp, python, f, g) {
+    MAP_TYPE(cpp::int, python::int);
+}
+```
+
+Or annotate the function signature directly:
+
+```ploy
+// ✓ Inline type annotation
+LINK(cpp, python, process(x: f64) -> f64, np::process);
+```
+
+#### Opting Out (Not Recommended)
+
+Legacy code that cannot be annotated immediately may pass `PloySemaOptions{.strict_mode = false}` when constructing `PloySema`. This suppresses the `Type::Unknown()` error but permits I64 placeholder IR, which may cause incorrect codegen at runtime.
+
 ## 6. Compilation Pipeline
 
 ```

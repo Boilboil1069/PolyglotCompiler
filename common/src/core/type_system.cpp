@@ -173,6 +173,10 @@ std::string Type::ToString() const {
       os << "any";
       break;
 
+    case TypeKind::kUnknown:
+      os << "<unknown>";
+      break;
+
     case TypeKind::kTuple: {
       os << "(";
       for (size_t i = 0; i < type_args.size(); ++i) {
@@ -529,6 +533,9 @@ bool TypeSystem::CanImplicitlyConvert(const Type &from, const Type &to) const {
   // Any type is universally compatible.
   if (from.kind == TypeKind::kAny || to.kind == TypeKind::kAny) return true;
 
+  // Unknown is compatible in the same way as Any during sema (checked later at boundaries).
+  if (from.kind == TypeKind::kUnknown || to.kind == TypeKind::kUnknown) return true;
+
   // Numeric widening: int -> int (wider), int -> float, float -> float (wider).
   if (from.IsNumeric() && to.IsNumeric()) {
     // int -> float is always allowed
@@ -596,6 +603,9 @@ bool TypeSystem::IsCompatible(const Type &lhs, const Type &rhs) const {
 
   // Any is compatible with everything.
   if (lhs.kind == TypeKind::kAny || rhs.kind == TypeKind::kAny) return true;
+
+  // Unknown is treated as compatible during sema (boundary check is deferred to lowering).
+  if (lhs.kind == TypeKind::kUnknown || rhs.kind == TypeKind::kUnknown) return true;
 
   // Both numeric types are broadly compatible (for binary ops, etc.)
   if (lhs.IsNumeric() && rhs.IsNumeric()) return true;

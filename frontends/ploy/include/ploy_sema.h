@@ -36,7 +36,7 @@ struct PloySemaOptions {
     // Enable strict type-checking mode.  When enabled, the sema emits warnings
     // for every site where core::Type::Any() is used as a fallback that the
     // programmer could have resolved by adding explicit type annotations.
-    bool strict_mode{false};
+    bool strict_mode{true};
 
     // Optional shared cache for package discovery results.  When nullptr a
     // fresh per-instance cache is used (backward-compatible default).  Callers
@@ -158,7 +158,7 @@ struct FunctionSignature {
     std::string language;                     // Source language
     std::vector<core::Type> param_types;      // Parameter types (empty if unknown)
     std::vector<std::string> param_names;     // Parameter names (for named-arg matching)
-    core::Type return_type{core::Type::Any()};// Return type
+    core::Type return_type{core::Type::Unknown()};// Return type (Unknown until resolved)
     size_t param_count{0};                    // Number of parameters
     bool param_count_known{false};            // Whether param count is statically known
     bool validated{false};                    // Whether the signature has been ABI-validated
@@ -190,6 +190,9 @@ struct ForeignClassSchema {
 class PloySema {
   public:
     // Backward-compatible constructor — uses default options.
+    // DEPRECATED: All new call-sites should explicitly pass PloySemaOptions{}
+    // so that the intent (strict or permissive) is visible at the call-site.
+    [[deprecated("Pass PloySemaOptions{} explicitly to declare strict-mode intent")]]
     explicit PloySema(frontends::Diagnostics &diagnostics)
         : PloySema(diagnostics, PloySemaOptions{}) {}
 

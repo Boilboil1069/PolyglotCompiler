@@ -1,5 +1,5 @@
 // ============================================================================
-// Integration Tests â€” Performance / Stress Tests
+// Integration Tests â€?Performance / Stress Tests
 //
 // These tests verify that the compiler handles larger or more complex
 // programs without crashing, and that performance remains acceptable.
@@ -54,7 +54,7 @@ PerfResult CompileTimed(const std::string &code) {
         return {false, "", 0.0};
     }
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     if (!sema.Analyze(module)) {
         for (const auto &d : diags.All()) std::cerr << "[PERF-DIAG] " << d.message << "\n";
         return {false, "", 0.0};

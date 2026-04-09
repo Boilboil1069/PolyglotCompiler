@@ -1,12 +1,14 @@
 // ============================================================================
-// Integration Tests â€” Compile Pipeline Tests
+// Integration Tests â€?Compile Pipeline Tests
 //
 // These tests verify complete end-to-end compilation pipelines:
-// lexer â†’ parser â†’ sema â†’ lowering â†’ IR output, for realistic
+// lexer â†?parser â†?sema â†?lowering â†?IR output, for realistic
 // multi-feature .ploy programs.
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <iostream>
@@ -40,7 +42,7 @@ using namespace polyglot::ploy;
 
 namespace {
 
-// Full pipeline: lex â†’ parse â†’ sema â†’ lower, return IR text
+// Full pipeline: lex â†?parse â†?sema â†?lower, return IR text
 std::string CompileFull(const std::string &code, Diagnostics &diags) {
     PloyLexer lexer(code, "<integration>");
     PloyParser parser(lexer, diags);
@@ -53,7 +55,7 @@ std::string CompileFull(const std::string &code, Diagnostics &diags) {
         return "";
     }
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     if (!sema.Analyze(module)) {
         for (const auto &d : diags.All()) {
             std::cerr << "[DIAG] " << d.message << "\n";
@@ -96,7 +98,7 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
         return {"", {}, false};
     }
 
-    PloySema sema(diags);
+    PloySema sema(diags, PloySemaOptions{});
     if (!sema.Analyze(module)) {
         for (const auto &d : diags.All()) {
             std::cerr << "[DIAG] " << d.message << "\n";
@@ -614,7 +616,7 @@ EXPORT game_pipeline AS "game";
 }
 
 // ============================================================================
-// E2E: Frontend â†’ Backend x86_64 Assembly Emission
+// E2E: Frontend â†?Backend x86_64 Assembly Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to x86_64 assembly", "[integration][e2e][x86]") {
@@ -651,7 +653,7 @@ FUNC compute(x: i64) -> i64 {
 }
 
 // ============================================================================
-// E2E: Frontend â†’ Backend ARM64 Assembly Emission
+// E2E: Frontend â†?Backend ARM64 Assembly Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to arm64 assembly", "[integration][e2e][arm64]") {
@@ -683,7 +685,7 @@ FUNC engine_main() -> i64 {
 }
 
 // ============================================================================
-// E2E: Frontend â†’ Backend WASM Assembly (WAT) Emission
+// E2E: Frontend â†?Backend WASM Assembly (WAT) Emission
 // ============================================================================
 
 TEST_CASE("E2E: ploy compile to wasm WAT", "[integration][e2e][wasm]") {
@@ -734,7 +736,7 @@ FUNC wasm_entry(a: i64, b: i64) -> i64 {
 }
 
 // ============================================================================
-// E2E: PolyglotLinker â€” Cross-language Link Resolution
+// E2E: PolyglotLinker â€?Cross-language Link Resolution
 // ============================================================================
 
 TEST_CASE("E2E: PolyglotLinker resolves cross-lang descriptors",
@@ -839,6 +841,94 @@ TEST_CASE("E2E: PolyglotLinker hard-fails on ABI schema mismatch",
 
     CHECK_FALSE(linker.ResolveLinks());
     CHECK_FALSE(linker.GetErrors().empty());
+}
+
+// ============================================================================
+// E2E: LoadDescriptorFile â€?real polycâ†’auxâ†’polyld flow
+// ============================================================================
+
+TEST_CASE("E2E: LoadDescriptorFile feeds real descriptors into PolyglotLinker",
+          "[integration][e2e][linker][descriptor-file]") {
+    // This test exercises the real cross-language link pipeline closure:
+    //   1. Write a text-format descriptor file (as polyc bridge stage does)
+    //   2. Call LoadDescriptorFile() instead of AddCrossLangSymbol manually
+    //   3. Verify ResolveLinks() succeeds and stubs are generated
+    //
+    // The descriptor file format mirrors what CompilationPipeline::RunBridgeGeneration()
+    // writes to aux/<stem>_link_descriptors.paux and passes as --ploy-desc to polyld.
+
+    // Build a minimal descriptor file in a temp buffer
+    std::string desc_content =
+        "# PolyglotCompiler cross-language descriptor file\n"
+        "LINK cpp python math::square util::display\n"
+        "CALL __ploy_bridge_cpp_python_math_square python cpp util::display math::square\n"
+        "SYMBOL math::square cpp math::square\n"
+        "SYMBOL util::display python util::display\n";
+
+    // Write it to a temporary file
+    namespace fs = std::filesystem;
+    fs::path tmp_dir = fs::temp_directory_path() / "polyglot_test_descriptors";
+    std::error_code ec;
+    fs::create_directories(tmp_dir, ec);
+    REQUIRE_FALSE(ec);
+
+    fs::path desc_file = tmp_dir / "test_link_descriptors.paux";
+    {
+        std::ofstream ofs(desc_file);
+        REQUIRE(ofs.is_open());
+        ofs << desc_content;
+    }
+
+    // Create PolyglotLinker and load descriptors from the file
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+    REQUIRE(linker.LoadDescriptorFile(desc_file.string()));
+
+    // ResolveLinks() must succeed (symbols were registered via SYMBOL lines)
+    REQUIRE(linker.ResolveLinks());
+
+    // Glue stubs must be generated
+    auto &stubs = linker.GetStubs();
+    REQUIRE_FALSE(stubs.empty());
+    for (auto &stub : stubs) {
+        REQUIRE_FALSE(stub.stub_name.empty());
+        REQUIRE_FALSE(stub.code.empty());
+    }
+
+    // Clean up
+    fs::remove_all(tmp_dir, ec);
+}
+
+TEST_CASE("E2E: DiscoverDescriptors picks up _link_descriptors.paux from aux dir",
+          "[integration][e2e][linker][descriptor-discover]") {
+    // Verify that PolyglotLinker::DiscoverDescriptors() automatically discovers
+    // the text-format descriptor file written by the bridge stage.
+
+    namespace fs = std::filesystem;
+    fs::path aux_dir = fs::temp_directory_path() / "polyglot_test_discover_aux";
+    std::error_code ec;
+    fs::create_directories(aux_dir, ec);
+    REQUIRE_FALSE(ec);
+
+    // Write a descriptor file whose stem contains "descriptors" (matching filter)
+    fs::path desc_file = aux_dir / "mymodule_link_descriptors.paux";
+    {
+        std::ofstream ofs(desc_file);
+        REQUIRE(ofs.is_open());
+        ofs << "LINK cpp python math::add pymath::add\n";
+        ofs << "SYMBOL math::add cpp math::add\n";
+        ofs << "SYMBOL pymath::add python pymath::add\n";
+    }
+
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+    linker.DiscoverDescriptors(aux_dir.string());
+
+    // ResolveLinks() should succeed with the discovered descriptors
+    REQUIRE(linker.ResolveLinks());
+    REQUIRE_FALSE(linker.GetStubs().empty());
+
+    fs::remove_all(aux_dir, ec);
 }
 
 // ============================================================================

@@ -82,7 +82,7 @@ PloyCompileResult CompilePloy(const std::string &code, frontends::Diagnostics &d
         return result;
     }
 
-    ploy::PloySema sema(diags);
+    ploy::PloySema sema(diags, ploy::PloySemaOptions{});
     if (!sema.Analyze(module)) {
         result.error_count = diags.ErrorCount();
         result.warning_count = diags.WarningCount();

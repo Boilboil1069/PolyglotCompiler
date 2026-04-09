@@ -179,11 +179,11 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
         link_param_types.push_back(param_type);
     }
     if (!link_param_types.empty()) {
-        // Synthesize a function type: (param_types...) -> Any
+        // Synthesize a function type: (param_types...) -> Unknown until return type resolved
         link_sym.type = type_system_.FunctionType(
-            link->target_symbol, core::Type::Any(), link_param_types);
+            link->target_symbol, core::Type::Unknown(), link_param_types);
     } else {
-        link_sym.type = core::Type::Any();
+        link_sym.type = core::Type::Unknown();
     }
     link_sym.defined_at = link->loc;
     // Do not report redefinition for link targets — they may overlap with imports
@@ -397,7 +397,7 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         sel_sym.kind = PloySymbol::Kind::kImport;
         sel_sym.name = selected;
         sel_sym.language = import->language;
-        sel_sym.type = core::Type::Any();
+        sel_sym.type = core::Type::Unknown();  // type unknown until call-site resolves it
         sel_sym.defined_at = import->loc;
         DeclareSymbol(sel_sym);
     }
@@ -483,11 +483,11 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     // Build function type with parameter types
     std::vector<core::Type> param_types;
     for (const auto &param : func->params) {
-        core::Type pt = param.type ? ResolveType(param.type) : core::Type::Any();
+        core::Type pt = param.type ? ResolveType(param.type) : core::Type::Unknown();
         if (!param.type) {
             ReportStrictDiag(func->loc, frontends::ErrorCode::kTypeMismatch,
                              "parameter '" + param.name + "' has no type annotation; "
-                             "defaults to Any");
+                             "defaults to Unknown — add explicit type annotation");
         }
         param_types.push_back(pt);
     }
@@ -554,7 +554,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
 // ============================================================================
 
 void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
-    core::Type var_type = core::Type::Any();
+    core::Type var_type = core::Type::Unknown();
 
     // Resolve explicit type if given
     if (var->type) {
@@ -618,9 +618,10 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
     sym.is_mutable = var->is_mutable;
     sym.defined_at = var->loc;
 
-    if (var_type.kind == core::TypeKind::kAny) {
+    if (var_type.kind == core::TypeKind::kAny ||
+        var_type.kind == core::TypeKind::kUnknown) {
         ReportStrictDiag(var->loc, frontends::ErrorCode::kTypeMismatch,
-                         "variable '" + var->name + "' resolved to type Any; "
+                         "variable '" + var->name + "' resolved to type Any/Unknown; "
                          "consider adding explicit type annotation");
     }
 
@@ -664,10 +665,11 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
     if (iter_type.kind == core::TypeKind::kArray && !iter_type.type_args.empty()) {
         sym.type = iter_type.type_args[0];
     } else {
-        sym.type = core::Type::Any();
+        sym.type = core::Type::Unknown();
         ReportStrictDiag(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
                          "FOR iterator '" + for_stmt->iterator_name +
-                         "' type could not be inferred from iterable; defaults to Any");
+                         "' type could not be inferred from iterable; defaults to Unknown — "
+                         "add explicit type annotation or ensure iterable is typed");
     }
     DeclareSymbol(sym);
 
@@ -700,7 +702,8 @@ void PloySema::AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &re
     if (ret->value) {
         core::Type ret_type = AnalyzeExpression(ret->value);
         if (current_return_type_.kind != core::TypeKind::kInvalid &&
-            current_return_type_.kind != core::TypeKind::kAny) {
+            current_return_type_.kind != core::TypeKind::kAny &&
+            current_return_type_.kind != core::TypeKind::kUnknown) {
             if (!AreTypesCompatible(ret_type, current_return_type_)) {
                 ReportError(ret->loc, frontends::ErrorCode::kReturnTypeMismatch,
                             "return type mismatch: function expects '" +
@@ -733,16 +736,16 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
                     "undefined identifier '" + id->name + "'");
         ReportStrictDiag(id->loc, frontends::ErrorCode::kTypeMismatch,
                          "unresolved identifier '" + id->name +
-                         "' falls back to Any");
-        return core::Type::Any();
+                         "' falls back to Unknown");
+        return core::Type::Unknown();
     }
 
     if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
         // Qualified identifiers refer to imported module symbols.
         ReportStrictDiag(qid->loc, frontends::ErrorCode::kTypeMismatch,
                          "qualified identifier type cannot be resolved; "
-                         "defaults to Any");
-        return core::Type::Any();
+                         "defaults to Unknown — add a LINK or IMPORT with type mapping");
+        return core::Type::Unknown();
     }
 
     if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
@@ -753,7 +756,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
             case Literal::Kind::kBool:    return core::Type::Bool();
             case Literal::Kind::kNull:    return core::Type::Any();
         }
-        return core::Type::Any();
+        return core::Type::Unknown();  // unrecognized literal kind
     }
 
     if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
@@ -790,7 +793,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
 
     if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
         AnalyzeExpression(member->object);
-        return core::Type::Any(); // Member type resolution requires full module info
+        return core::Type::Unknown(); // Member type resolution requires full module info
     }
 
     if (auto index = std::dynamic_pointer_cast<IndexExpression>(expr)) {
@@ -799,7 +802,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         if (obj_type.kind == core::TypeKind::kArray && !obj_type.type_args.empty()) {
             return obj_type.type_args[0];
         }
-        return core::Type::Any();
+        return core::Type::Unknown();  // index type could not be resolved
     }
 
     if (auto range = std::dynamic_pointer_cast<RangeExpression>(expr)) {
@@ -844,7 +847,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
         return val_type;
     }
 
-    return core::Type::Any();
+    return core::Type::Unknown();  // unrecognized expression kind — type cannot be determined
 }
 
 core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call) {
@@ -915,7 +918,7 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
         return callee_type.type_args[0]; // First type_arg is return type
     }
 
-    return core::Type::Any();
+    return core::Type::Unknown();  // return type unknown — no function type or signature found
 }
 
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
@@ -946,7 +949,8 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
 
     // If we have a known return type from the signature, use it
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
-        sig->return_type.kind != core::TypeKind::kInvalid) {
+        sig->return_type.kind != core::TypeKind::kInvalid &&
+        sig->return_type.kind != core::TypeKind::kUnknown) {
         return sig->return_type;
     }
 
@@ -960,12 +964,12 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
     }
 
     // Cross-language calls whose target has no registered signature or symbol
-    // type are conservatively typed as Any.
+    // type are Unknown at this point — lowering will emit an error.
     ReportStrictDiag(call->loc, frontends::ErrorCode::kTypeMismatch,
                      "CALL to '" + call->function + "' (language: " + call->language +
-                     ") has no known return type; defaults to Any — "
+                     ") has no known return type; defaults to Unknown — "
                      "add a LINK declaration with MAP_TYPE to enable type checking");
-    return core::Type::Any();
+    return core::Type::Unknown();
 }
 
 core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr) {
@@ -1006,15 +1010,16 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
     }
 
     // NEW returns an opaque object handle.  If the class is known from a LINK
-    // declaration, return a struct-typed reference; otherwise fall back to Any
+    // declaration, return a struct-typed reference; otherwise Unknown
     // because in cross-language contexts the class hierarchy is not available.
     auto sym_it = symbols_.find(new_expr->class_name);
     if (sym_it != symbols_.end() &&
         sym_it->second.type.kind != core::TypeKind::kAny &&
+        sym_it->second.type.kind != core::TypeKind::kUnknown &&
         sym_it->second.type.kind != core::TypeKind::kInvalid) {
         return sym_it->second.type;
     }
-    return core::Type::Any();
+    return core::Type::Unknown();  // class type not resolved — add LINK declaration
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(
@@ -1032,7 +1037,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     }
 
     // Analyze the receiver object
-    core::Type receiver_type = core::Type::Any();
+    core::Type receiver_type = core::Type::Unknown();
     if (method_call->object) {
         receiver_type = AnalyzeExpression(method_call->object);
     } else {
@@ -1074,14 +1079,15 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     }
 
     // Determine return type from signature
-    core::Type ret_type = core::Type::Any();
+    core::Type ret_type = core::Type::Unknown();
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kUnknown &&
         sig->return_type.kind != core::TypeKind::kInvalid) {
         return sig->return_type;
     }
 
-    // Method calls return Any since we cannot statically resolve the return type
-    return core::Type::Any();
+    // Method calls return Unknown since we cannot statically resolve the return type
+    return core::Type::Unknown();
 }
 
 core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr) {
@@ -1098,7 +1104,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     }
 
     // Analyze the object expression
-    core::Type obj_type = core::Type::Any();
+    core::Type obj_type = core::Type::Unknown();
     if (get_attr->object) {
         obj_type = AnalyzeExpression(get_attr->object);
     } else {
@@ -1126,6 +1132,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     std::string getter_name;
     const FunctionSignature *sig = nullptr;
     if (obj_type.kind != core::TypeKind::kAny &&
+        obj_type.kind != core::TypeKind::kUnknown &&
         obj_type.kind != core::TypeKind::kInvalid &&
         !obj_type.name.empty()) {
         getter_name = obj_type.name + "::__getattr__::" + get_attr->attr_name;
@@ -1136,6 +1143,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
         sig = LookupSignature(getter_name);
     }
     if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kUnknown &&
         sig->return_type.kind != core::TypeKind::kInvalid) {
         // Validate ABI for the getter call (receiver is the only argument)
         ValidateObjCallABI(get_attr->loc, getter_name, get_attr->language,
@@ -1143,8 +1151,8 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
         return sig->return_type;
     }
 
-    // Attribute access returns Any since we cannot statically resolve the attribute type
-    return core::Type::Any();
+    // Attribute access returns Unknown since we cannot statically resolve the attribute type
+    return core::Type::Unknown();
 }
 
 core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr) {
@@ -1161,7 +1169,7 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
     }
 
     // Analyze the object expression
-    core::Type obj_type = core::Type::Any();
+    core::Type obj_type = core::Type::Unknown();
     if (set_attr->object) {
         obj_type = AnalyzeExpression(set_attr->object);
     } else {
@@ -1177,8 +1185,8 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
                     "SET requires a value expression");
     }
 
-    // SET returns the assigned value type (Any since we cannot know the attribute type)
-    return core::Type::Any();
+    // SET returns the assigned value type (Unknown since we cannot know the attribute type)
+    return core::Type::Unknown();
 }
 
 void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
@@ -1195,7 +1203,7 @@ void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_s
     }
 
     // Analyze the resource expression and resolve its type
-    core::Type resource_type = core::Type::Any();
+    core::Type resource_type = core::Type::Unknown();
     if (with_stmt->resource_expr) {
         resource_type = AnalyzeExpression(with_stmt->resource_expr);
     } else {
@@ -1208,8 +1216,8 @@ void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_s
     ValidateContextManagerProtocol(with_stmt->loc, with_stmt->language, resource_type);
 
     // Declare the bound variable in scope with the resolved type from
-    // __enter__ if available, instead of defaulting to opaque Any.
-    core::Type bound_type = core::Type::Any();
+    // __enter__ if available, instead of defaulting to opaque Unknown.
+    core::Type bound_type = core::Type::Unknown();
     std::string type_name = resource_type.name.empty()
                                 ? resource_type.ToString()
                                 : resource_type.name;
@@ -1304,10 +1312,10 @@ core::Type PloySema::AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpress
                                right.kind == core::TypeKind::kString)) {
             return core::Type::String();
         }
-        return core::Type::Any();
+        return core::Type::Unknown();  // arithmetic result type could not be resolved
     }
 
-    return core::Type::Any();
+    return core::Type::Unknown();  // unrecognized binary operator
 }
 
 core::Type PloySema::AnalyzeUnaryExpression(const std::shared_ptr<UnaryExpression> &unary) {
@@ -1396,6 +1404,10 @@ bool PloySema::AreTypesCompatible(const core::Type &from, const core::Type &to) 
     if (from.kind == core::TypeKind::kAny || to.kind == core::TypeKind::kAny) {
         return true;
     }
+    // Unknown is treated as compatible during sema; boundary checking happens in lowering.
+    if (from.kind == core::TypeKind::kUnknown || to.kind == core::TypeKind::kUnknown) {
+        return true;
+    }
     return type_system_.IsCompatible(from, to);
 }
 
@@ -1428,11 +1440,11 @@ void PloySema::AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl)
                                      "' in struct '" + struct_decl->name + "'");
             continue;
         }
-        core::Type field_type = field.type ? ResolveType(field.type) : core::Type::Any();
+        core::Type field_type = field.type ? ResolveType(field.type) : core::Type::Unknown();
         if (!field.type) {
             ReportStrictDiag(struct_decl->loc, frontends::ErrorCode::kTypeMismatch,
                              "struct field '" + field.name + "' has no type annotation; "
-                             "defaults to Any");
+                             "defaults to Unknown");
         }
         resolved_fields.emplace_back(field.name, field_type);
     }
@@ -1459,7 +1471,7 @@ void PloySema::AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func) 
     }
 
     // Resolve return type
-    core::Type ret_type = map_func->return_type ? ResolveType(map_func->return_type) : core::Type::Any();
+    core::Type ret_type = map_func->return_type ? ResolveType(map_func->return_type) : core::Type::Unknown();
 
     // Declare function symbol
     PloySymbol sym;
@@ -1477,7 +1489,7 @@ void PloySema::AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func) 
     current_return_type_ = ret_type;
 
     for (const auto &param : map_func->params) {
-        core::Type pt = param.type ? ResolveType(param.type) : core::Type::Any();
+        core::Type pt = param.type ? ResolveType(param.type) : core::Type::Unknown();
         PloySymbol param_sym;
         param_sym.kind = PloySymbol::Kind::kVariable;
         param_sym.name = param.name;
@@ -1501,19 +1513,20 @@ core::Type PloySema::AnalyzeConvertExpression(const std::shared_ptr<ConvertExpre
     (void)src_type;
 
     // Resolve the target type
-    core::Type target = conv->target_type ? ResolveType(conv->target_type) : core::Type::Any();
+    core::Type target = conv->target_type ? ResolveType(conv->target_type) : core::Type::Unknown();
     return target;
 }
 
 core::Type PloySema::AnalyzeListLiteral(const std::shared_ptr<ListLiteral> &list) {
-    core::Type elem_type = core::Type::Any();
+    core::Type elem_type = core::Type::Unknown();
     for (const auto &elem : list->elements) {
         core::Type t = AnalyzeExpression(elem);
-        if (elem_type.kind == core::TypeKind::kAny) {
+        if (elem_type.kind == core::TypeKind::kUnknown) {
             elem_type = t;
         }
         // All elements should have compatible types (allow coercion)
     }
+    // If still Unknown (empty list), use Unknown element type
     return core::Type::Array(elem_type);
 }
 
@@ -1526,13 +1539,13 @@ core::Type PloySema::AnalyzeTupleLiteral(const std::shared_ptr<TupleLiteral> &tu
 }
 
 core::Type PloySema::AnalyzeDictLiteral(const std::shared_ptr<DictLiteral> &dict) {
-    core::Type key_type = core::Type::Any();
-    core::Type value_type = core::Type::Any();
+    core::Type key_type = core::Type::Unknown();
+    core::Type value_type = core::Type::Unknown();
     for (const auto &entry : dict->entries) {
         core::Type kt = AnalyzeExpression(entry.key);
         core::Type vt = AnalyzeExpression(entry.value);
-        if (key_type.kind == core::TypeKind::kAny) key_type = kt;
-        if (value_type.kind == core::TypeKind::kAny) value_type = vt;
+        if (key_type.kind == core::TypeKind::kUnknown) key_type = kt;
+        if (value_type.kind == core::TypeKind::kUnknown) value_type = vt;
     }
     return core::Type::GenericInstance("dict", {key_type, value_type});
 }
@@ -1542,7 +1555,7 @@ core::Type PloySema::AnalyzeStructLiteral(const std::shared_ptr<StructLiteral> &
     auto it = struct_defs_.find(struct_lit->struct_name);
     if (it == struct_defs_.end()) {
         Report(struct_lit->loc, "unknown struct type '" + struct_lit->struct_name + "'");
-        return core::Type::Any();
+        return core::Type::Unknown();
     }
 
     const auto &defined_fields = it->second;
