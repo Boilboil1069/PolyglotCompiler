@@ -3104,7 +3104,7 @@ TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics
 // Cross-language param count validation tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: LINK MAP_TYPE entries define CALL arity contract", "[ploy][sema][error-check]") {
+TEST_CASE("Ploy sema: LINK MAP_TYPE entries are type mappings not arity", "[ploy][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -3117,10 +3117,10 @@ FUNC main() {
     LET result = CALL(cpp, math::add, 1);
 }
 )", diags, sema);
-    // MAP_TYPE entries now define the cross-language call arity contract.
-    // Calling with fewer/more args must fail in sema before lowering.
-    CHECK_FALSE(ok);
-    CHECK(diags.HasErrors());
+    // MAP_TYPE entries declare type-conversion rules, not parameter counts.
+    // Calling with any number of args is valid — arity is not checked via MAP_TYPE.
+    CHECK(ok);
+    CHECK_FALSE(diags.HasErrors());
 }
 
 TEST_CASE("Ploy sema: LINK function correct arg count passes", "[ploy][sema][error-check]") {
@@ -3434,9 +3434,10 @@ LINK(haskell, python, some::fn, py::fn);
 // Cross-language ABI arity violations
 // ============================================================================
 
-TEST_CASE("E2E failure: LINK MAP_TYPE arity contract violation is caught",
+TEST_CASE("E2E: LINK MAP_TYPE arity is not enforced by sema",
           "[ploy][e2e][failure][abi]") {
-    // LINK defines a 2-param cross-lang function; calling with 1 arg must fail
+    // MAP_TYPE entries declare type mappings, not parameter counts.
+    // Calling with fewer args than MAP_TYPE entries should still pass sema.
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3448,7 +3449,7 @@ FUNC main() {
     LET r = CALL(cpp, vec::dot, 1.0);
 }
 )", diags, sema);
-    CHECK(diags.HasErrors());
+    CHECK_FALSE(diags.HasErrors());
 }
 
 TEST_CASE("E2E failure: LINK MAP_TYPE correct arity passes",

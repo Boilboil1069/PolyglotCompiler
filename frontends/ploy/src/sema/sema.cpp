@@ -194,14 +194,16 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 
     // Register the LINK target as a known function signature so that the
     // checker can validate types and parameter counts at call sites.
-    // When MAP_TYPE entries are present, they define the parameter signature
-    // for the cross-language boundary — enable full validation.
+    // When MAP_TYPE entries are present, they define the type-conversion table
+    // for the cross-language boundary but do NOT define parameter counts.
+    // Parameter counts are only known when an explicit parameter list is
+    // provided (future syntax), so param_count_known stays false here.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = entry.param_mappings.size();
-        sig.param_count_known = true;  // MAP_TYPE defines the cross-language param contract
+        sig.param_count = 0;
+        sig.param_count_known = false;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
             // The first arg of MAP_TYPE (parser's source_*) is the target
@@ -226,8 +228,8 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             FunctionSignature source_sig;
             source_sig.name = link->source_symbol;
             source_sig.language = link->source_language;
-            source_sig.param_count = entry.param_mappings.size();
-            source_sig.param_count_known = true;
+            source_sig.param_count = 0;
+            source_sig.param_count_known = false;
             source_sig.defined_at = link->loc;
             for (const auto &mapping : entry.param_mappings) {
                 // The second arg of MAP_TYPE (parser's target_*) is the source
@@ -262,8 +264,8 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             FunctionSignature src_reg_sig;
             src_reg_sig.name = link->source_symbol;
             src_reg_sig.language = link->source_language;
-            src_reg_sig.param_count = entry.param_mappings.size();
-            src_reg_sig.param_count_known = true;
+            src_reg_sig.param_count = 0;
+            src_reg_sig.param_count_known = false;
             src_reg_sig.defined_at = link->loc;
             for (const auto &mapping : entry.param_mappings) {
                 core::Type st = type_system_.MapFromLanguage(
@@ -2580,6 +2582,22 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
                                   ? ResolveType(func->return_type)
                                   : core::Type::Void();
             RegisterFunctionSignature(qualified, sig);
+
+            // Also register the short method name so that METHOD(lang, obj, name, ...)
+            // calls can find the signature during lowering.
+            RegisterFunctionSignature(func->name, sig);
+
+            // Create a LinkEntry for each EXTEND method so that the marshal
+            // plan and bridge generation stages can produce bridge stubs.
+            // Convention: target = foreign language method, source = ploy impl.
+            LinkEntry method_link;
+            method_link.kind = LinkDecl::LinkKind::kFunction;
+            method_link.target_language = extend->language;
+            method_link.source_language = "ploy";
+            method_link.target_symbol = func->name;
+            method_link.source_symbol = qualified;
+            method_link.defined_at = func->loc;
+            links_.push_back(method_link);
         } else {
             ReportError(method_stmt->loc, frontends::ErrorCode::kTypeMismatch,
                         "only FUNC declarations are allowed inside EXTEND body");

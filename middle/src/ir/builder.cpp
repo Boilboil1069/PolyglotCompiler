@@ -336,15 +336,10 @@ std::shared_ptr<BasicBlock> IRBuilder::CreateBlock(const std::string &name) {
 }
 
 std::string IRBuilder::MakeStringLiteral(const std::string &text, const std::string &hint) {
-  struct Interned {
-    std::string data_name;
-    std::string addr_name;
-  };
-  static std::unordered_map<std::string, Interned> interned;
-  auto it = interned.find(text);
-  if (it != interned.end()) return it->second.addr_name;
+  auto it = interned_strings_.find(text);
+  if (it != interned_strings_.end()) return it->second.addr_name;
 
-  std::string data_name = hint + std::to_string(interned.size());
+  std::string data_name = hint + std::to_string(interned_strings_.size());
   auto cs = std::make_shared<ConstantString>(text);
   auto data_gv = context_.CreateGlobal(data_name, cs->type, true, text, cs);
 
@@ -353,7 +348,7 @@ std::string IRBuilder::MakeStringLiteral(const std::string &text, const std::str
   auto gep_init = std::make_shared<ConstantGEP>(data_gv, idx);
   context_.CreateGlobal(addr_name, gep_init->type, true, "", gep_init);
 
-  interned[text] = {data_name, addr_name};
+  interned_strings_[text] = {data_name, addr_name};
   return addr_name;
 }
 

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "middle/include/ir/ir_context.h"
@@ -105,6 +106,13 @@ const std::vector<std::string> &args,
   size_t temp_index_{0};
   std::shared_ptr<BasicBlock> insert_block_{};
   std::shared_ptr<Function> active_function_{};
+
+  // String literal interning map (per-builder, NOT global).
+  struct InternedString {
+    std::string data_name;
+    std::string addr_name;
+  };
+  std::unordered_map<std::string, InternedString> interned_strings_;
 };
 
 }  // namespace polyglot::ir
