@@ -75,8 +75,9 @@ PolyglotCompiler is a modern multi-language compiler project that uses a multi-f
 | Assembler | Assembly → Object file | `polyasm` |
 | Optimiser | IR optimisation passes | `polyopt` |
 | Runtime tool | GC / FFI / Thread management | `polyrt` |
+| Topology analyser | Function I/O topology visualisation, link validation, and graph export | `polytopo` |
 | Benchmark | Performance evaluation suite | `polybench` |
-| IDE | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, and compilation | `polyui` |
+| IDE | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel, and compilation | `polyui` |
 
 ---
 

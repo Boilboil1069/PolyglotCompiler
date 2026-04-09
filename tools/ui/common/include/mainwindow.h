@@ -37,6 +37,7 @@ class PanelManager;
 class SettingsDialog;
 class SyntaxHighlighter;
 class TerminalWidget;
+class TopologyPanel;
 
 // ============================================================================
 // MainWindow — top-level IDE window
@@ -109,6 +110,10 @@ class MainWindow : public QMainWindow {
     void DebugStepOver();
     void DebugStepInto();
     void DebugStepOut();
+
+    // Topology panel
+    void ToggleTopologyPanel();
+    void OpenTopologyForCurrentFile();
 
     // Help menu actions
     void ShowAbout();
@@ -267,6 +272,9 @@ class MainWindow : public QMainWindow {
     QAction *action_debug_step_into_{nullptr};
     QAction *action_debug_step_out_{nullptr};
 
+    QAction *action_toggle_topology_{nullptr};
+    QAction *action_open_topology_{nullptr};
+
     QMenu *terminal_menu_{nullptr};
 
     // ── Compiler Service ─────────────────────────────────────────────────
@@ -279,6 +287,7 @@ class MainWindow : public QMainWindow {
     GitPanel *git_panel_{nullptr};
     BuildPanel *build_panel_{nullptr};
     DebugPanel *debug_panel_{nullptr};
+    TopologyPanel *topology_panel_{nullptr};
     // ── Panel Manager ────────────────────────────────────────────────────
     PanelManager *panel_manager_{nullptr};
     // ── Action Manager ───────────────────────────────────────────────────

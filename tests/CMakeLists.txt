@@ -29,6 +29,7 @@ set(POLYGLOT_TEST_ALL_LIBS
     ${POLYGLOT_ALL_BACKENDS}
     runtime
     linker_lib
+    topo_lib
     ${CATCH2_LIBS}
 )
 
@@ -122,6 +123,10 @@ set(UNIT_TEST_LINKER
     unit/linker_test.cpp
 )
 
+set(UNIT_TEST_TOPOLOGY
+    unit/tools/topology_test.cpp
+)
+
 set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
     unit/e2e/compilation_behavior_test.cpp
@@ -201,6 +206,11 @@ add_executable(test_linker ${UNIT_TEST_LINKER})
 target_link_libraries(test_linker PRIVATE
     linker_lib frontend_ploy ${CATCH2_LIBS})
 
+# -- Topology ----------------------------------------------------------------
+add_executable(test_topology ${UNIT_TEST_TOPOLOGY})
+target_link_libraries(test_topology PRIVATE
+    topo_lib frontend_ploy ${CATCH2_LIBS})
+
 # -- E2E ---------------------------------------------------------------------
 add_executable(test_e2e ${UNIT_TEST_E2E})
 target_link_libraries(test_e2e PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
@@ -223,6 +233,7 @@ set(ALL_UNIT_TEST_SOURCES
     ${UNIT_TEST_BACKENDS}
     ${UNIT_TEST_RUNTIME}
     ${UNIT_TEST_LINKER}
+    ${UNIT_TEST_TOPOLOGY}
     ${UNIT_TEST_E2E}
 )
 
@@ -274,6 +285,7 @@ add_test(NAME test_middle            COMMAND test_middle)
 add_test(NAME test_backends          COMMAND test_backends)
 add_test(NAME test_runtime           COMMAND test_runtime)
 add_test(NAME test_linker            COMMAND test_linker)
+add_test(NAME test_topology          COMMAND test_topology)
 add_test(NAME test_e2e               COMMAND test_e2e)
 
 # Labels for per-module tests
@@ -285,6 +297,7 @@ set_tests_properties(test_middle PROPERTIES LABELS "unit;middle")
 set_tests_properties(test_backends PROPERTIES LABELS "unit;backend")
 set_tests_properties(test_runtime PROPERTIES LABELS "unit;runtime")
 set_tests_properties(test_linker PROPERTIES LABELS "unit;linker")
+set_tests_properties(test_topology PROPERTIES LABELS "unit;topology")
 set_tests_properties(test_e2e PROPERTIES LABELS "unit;e2e")
 
 # Combined targets (backward compatibility)

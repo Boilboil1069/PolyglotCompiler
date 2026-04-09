@@ -18,6 +18,7 @@
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
 #include "tools/ui/common/include/theme_manager.h"
+#include "tools/ui/common/include/topology_panel.h"
 
 #include "common/include/plugins/plugin_manager.h"
 
@@ -166,6 +167,9 @@ void MainWindow::SetupDockWidgets() {
     // Debug panel
     debug_panel_ = new DebugPanel();
 
+    // Topology panel
+    topology_panel_ = new TopologyPanel();
+
     // Create PanelManager to manage bottom panel tabs
     panel_manager_ = new PanelManager(bottom_tabs_, this);
     panel_manager_->RegisterPanel("output",   output_panel_,  "Output");
@@ -173,6 +177,7 @@ void MainWindow::SetupDockWidgets() {
     panel_manager_->RegisterPanel("git",      git_panel_,      "Git");
     panel_manager_->RegisterPanel("build",    build_panel_,    "Build");
     panel_manager_->RegisterPanel("debug",    debug_panel_,    "Debug");
+    panel_manager_->RegisterPanel("topology", topology_panel_, "Topology");
 
     // Settings dialog (lazily shown, but create now for signal wiring)
     settings_dialog_ = new SettingsDialog(this);
@@ -327,6 +332,11 @@ void MainWindow::SetupMenuBar() {
     action_toggle_debug_ = view_menu_->addAction("Toggle &Debug Panel");
     action_toggle_debug_->setCheckable(true);
     action_toggle_debug_->setChecked(false);
+
+    action_toggle_topology_ = view_menu_->addAction("Toggle &Topology Panel");
+    action_toggle_topology_->setCheckable(true);
+    action_toggle_topology_->setChecked(false);
+    action_toggle_topology_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
 
     // ── Build Menu ────────────────────────────────────────────────────
     build_menu_ = mb->addMenu("&Build");
@@ -547,6 +557,7 @@ void MainWindow::SetupConnections() {
     connect(action_toggle_git_, &QAction::triggered, this, &MainWindow::ToggleGitPanel);
     connect(action_toggle_build_, &QAction::triggered, this, &MainWindow::ToggleBuildPanel);
     connect(action_toggle_debug_, &QAction::triggered, this, &MainWindow::ToggleDebugPanel);
+    connect(action_toggle_topology_, &QAction::triggered, this, &MainWindow::ToggleTopologyPanel);
 
     // CMake build actions
     connect(action_cmake_configure_, &QAction::triggered, this, &MainWindow::CmakeConfigure);
@@ -589,6 +600,29 @@ void MainWindow::SetupConnections() {
                 editor->setTextCursor(cursor);
                 editor->centerCursor();
                 editor->setFocus();
+            }
+        }
+    });
+
+    // Topology panel signals
+    connect(topology_panel_, &TopologyPanel::ValidationComplete,
+            this, [this](int errors, int warnings) {
+        status_message_->setText(
+            QString("Topology validation: %1 error(s), %2 warning(s)")
+                .arg(errors).arg(warnings));
+    });
+    connect(topology_panel_, &TopologyPanel::NodeDoubleClicked,
+            this, [this](const QString &file, int line) {
+        if (!file.isEmpty() && line > 0) {
+            int idx = OpenFileInTab(file);
+            if (idx >= 0) {
+                CodeEditor *editor = EditorAt(idx);
+                if (editor) {
+                    QTextCursor cursor(editor->document()->findBlockByLineNumber(line - 1));
+                    editor->setTextCursor(cursor);
+                    editor->centerCursor();
+                    editor->setFocus();
+                }
             }
         }
     });
@@ -1503,6 +1537,34 @@ void MainWindow::DebugStepOut() {
 }
 
 // ============================================================================
+// Topology Panel
+// ============================================================================
+
+void MainWindow::ToggleTopologyPanel() {
+    panel_manager_->TogglePanel("topology");
+    UpdateViewActionChecks();
+}
+
+void MainWindow::OpenTopologyForCurrentFile() {
+    CodeEditor *editor = CurrentEditor();
+    if (!editor) return;
+
+    int idx = editor_tabs_->currentIndex();
+    auto it = tab_info_.find(idx);
+    if (it == tab_info_.end() || it->second.file_path.isEmpty()) return;
+
+    // Only .ploy files are supported
+    if (!it->second.file_path.endsWith(".ploy", Qt::CaseInsensitive)) {
+        status_message_->setText("Topology view only supports .ploy files");
+        return;
+    }
+
+    panel_manager_->ShowPanel("topology");
+    UpdateViewActionChecks();
+    topology_panel_->LoadFromFile(it->second.file_path);
+}
+
+// ============================================================================
 // Help Actions
 // ============================================================================
 
@@ -1747,6 +1809,9 @@ void MainWindow::UpdateViewActionChecks() {
     }
     if (action_toggle_debug_) {
         action_toggle_debug_->setChecked(panel_manager_->IsPanelActive("debug"));
+    }
+    if (action_toggle_topology_) {
+        action_toggle_topology_->setChecked(panel_manager_->IsPanelActive("topology"));
     }
 }
 

@@ -114,6 +114,36 @@ target_link_libraries(polybench
     nlohmann_json::nlohmann_json
 )
 
+# -- topo_lib (topology analysis library) --------------------------------------
+
+add_library(topo_lib
+    polytopo/src/topology_graph.cpp
+    polytopo/src/topology_analyzer.cpp
+    polytopo/src/topology_validator.cpp
+    polytopo/src/topology_printer.cpp
+)
+
+target_include_directories(topo_lib PUBLIC ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(topo_lib PUBLIC
+    polyglot_common
+    frontend_ploy
+)
+
+target_compile_definitions(topo_lib PRIVATE TOPO_LIBRARY)
+
+# -- polytopo (topology visualization CLI) -------------------------------------
+
+add_executable(polytopo
+    polytopo/src/polytopo.cpp
+)
+
+target_link_libraries(polytopo
+    topo_lib
+    polyglot_common
+    frontend_ploy
+)
+
 # -- polyui (Qt-based desktop IDE) ---------------------------------------------
 
 # Try Qt6 first, fall back to Qt5.  polyui is only built when either is found.
@@ -204,6 +234,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/theme_manager.cpp
         ui/common/src/action_manager.cpp
         ui/common/src/panel_manager.cpp
+        ui/common/src/topology_panel.cpp
     )
 
     # Headers with Q_OBJECT must be listed for AUTOMOC
@@ -220,6 +251,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/include/debug_panel.h
         ui/common/include/action_manager.h
         ui/common/include/panel_manager.h
+        ui/common/include/topology_panel.h
     )
 
     add_executable(polyui
@@ -251,6 +283,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         backend_arm64
         backend_wasm
         runtime
+        topo_lib
         nlohmann_json::nlohmann_json
     )
 

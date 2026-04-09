@@ -75,8 +75,9 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 | 汇编器 | 汇编 → 目标文件 | `polyasm` |
 | 优化器 | IR 优化 Pass | `polyopt` |
 | 运行时工具 | GC/FFI/线程管理 | `polyrt` |
+| 拓扑分析器 | 函数 I/O 拓扑可视化、链接验证、图导出（文本/DOT/JSON） | `polytopo` |
 | 基准测试 | 性能评估套件 | `polybench` |
-| IDE | 基于 Qt 的桌面集成开发环境，支持语法高亮、诊断、文件浏览 | `polyui` |
+| IDE | 基于 Qt 的桌面集成开发环境，支持语法高亮、诊断、拓扑面板、文件浏览 | `polyui` |
 
 ---
 

@@ -248,8 +248,9 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 | Assembler | `polyasm` | Assembly → Object file |
 | Optimiser | `polyopt` | IR optimisation passes |
 | Runtime Tool | `polyrt` | GC / FFI / Thread management |
+| Topology Analyser | `polytopo` | Function I/O topology visualisation, link validation, and graph export (text / DOT / JSON) |
 | Benchmark | `polybench` | Performance evaluation suite |
-| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, and compilation |
+| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel, and compilation |
 
 ---
 
