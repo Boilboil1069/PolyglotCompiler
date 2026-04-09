@@ -986,19 +986,44 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
 
     // Check the symbol table for a function type registered by LINK.
     // If the symbol has a function type, extract the return type from it.
+    // Try both the full name, the short name (e.g. "numpy::mean" -> "mean"),
+    // and the module prefix (e.g. "numpy::mean" -> "numpy") to handle
+    // cross-language calls targeting imported modules.
     auto sym_it = symbols_.find(call->function);
+    if (sym_it == symbols_.end()) {
+        auto pos = call->function.rfind("::");
+        if (pos != std::string::npos) {
+            // Try short name
+            sym_it = symbols_.find(call->function.substr(pos + 2));
+            if (sym_it == symbols_.end()) {
+                // Try module prefix (handles IMPORT cpp::module_name)
+                sym_it = symbols_.find(call->function.substr(0, pos));
+            }
+        }
+    }
     if (sym_it != symbols_.end() &&
         sym_it->second.type.kind == core::TypeKind::kFunction &&
         !sym_it->second.type.type_args.empty()) {
         return sym_it->second.type.type_args[0]; // First type_arg is return type
     }
 
-    // Cross-language calls whose target has no registered signature or symbol
-    // type are Unknown at this point — lowering will emit an error.
+    // If the symbol is completely unregistered (no LINK, no IMPORT), this is
+    // an unconditional error regardless of strict mode — the function simply
+    // does not exist in the current compilation context.
+    if (!sig && sym_it == symbols_.end()) {
+        ReportError(call->loc, frontends::ErrorCode::kTypeMismatch,
+                    "CALL to '" + call->function + "' (language: " + call->language +
+                    ") references an unregistered cross-language symbol — "
+                    "add a LINK declaration to connect it");
+        return core::Type::Unknown();
+    }
+
+    // Cross-language calls whose target is registered but has no precise return
+    // type — in strict mode this is an error, in permissive mode a warning.
     ReportStrictDiag(call->loc, frontends::ErrorCode::kTypeMismatch,
                      "CALL to '" + call->function + "' (language: " + call->language +
                      ") has no known return type; defaults to Unknown — "
-                     "add a LINK declaration with MAP_TYPE to enable type checking");
+                     "add MAP_TYPE to enable type checking");
     return core::Type::Unknown();
 }
 

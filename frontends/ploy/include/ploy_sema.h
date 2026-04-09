@@ -36,7 +36,7 @@ struct PloySemaOptions {
     // Enable strict type-checking mode.  When enabled, the sema emits warnings
     // for every site where core::Type::Any() is used as a fallback that the
     // programmer could have resolved by adding explicit type annotations.
-    bool strict_mode{true};
+    bool strict_mode{false};
 
     // Optional shared cache for package discovery results.  When nullptr a
     // fresh per-instance cache is used (backward-compatible default).  Callers

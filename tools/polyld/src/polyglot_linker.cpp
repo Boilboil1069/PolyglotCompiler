@@ -399,15 +399,15 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
     // Validate parameter count compatibility between source and target.
     // When MAP_TYPE entries are present, they declare explicit marshalling, so
     // missing native parameter descriptors can be synthesized from the MAP_TYPE
-    // information.  Only report an error if there are NO MAP_TYPE entries AND
-    // the symbols lack parameter descriptors.
+    // information.  When neither params nor MAP_TYPE are available, emit a
+    // warning and proceed with an opaque zero-parameter stub so the link
+    // pipeline does not fail for simple declarations.
     if ((source_sym->params.empty() || target_sym->params.empty()) &&
         entry.param_mappings.empty()) {
-        ReportError("missing ABI parameter schema in LINK '" + entry.target_symbol +
-                    "' <-> '" + entry.source_symbol +
-                    "': both source and target symbols must declare parameter descriptors"
-                    " (or provide MAP_TYPE entries)");
-        return false;
+        ReportWarning("LINK '" + entry.target_symbol +
+                      "' <-> '" + entry.source_symbol +
+                      "' has no ABI parameter schema and no MAP_TYPE entries; "
+                      "generating opaque bridge stub");
     }
 
     // If symbols lack parameter descriptors but MAP_TYPE entries exist,
@@ -517,10 +517,16 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
             source_sym->return_desc.type_name = "any";
         }
 
-        if (source_sym->return_desc.size == 0 || target_sym->return_desc.size == 0) {
-            ReportError("missing return ABI schema in LINK '" + entry.target_symbol +
-                        "' <-> '" + entry.source_symbol + "'");
-            return false;
+        // If return descriptors are still missing (no MAP_TYPE, no explicit
+        // param descriptors), synthesize opaque defaults so the stub can be
+        // generated.
+        if (target_sym->return_desc.size == 0) {
+            target_sym->return_desc.size = 8;
+            target_sym->return_desc.type_name = "any";
+        }
+        if (source_sym->return_desc.size == 0) {
+            source_sym->return_desc.size = 8;
+            source_sym->return_desc.type_name = "any";
         }
 
         if (source_sym->return_desc.size != target_sym->return_desc.size) {
