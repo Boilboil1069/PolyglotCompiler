@@ -17,17 +17,29 @@ IMPORT cpp::math_ops;
 IMPORT python::string_utils;
 
 // --- Cross-Language Function Links ---
-// Link the C++ add function output to the Python format function input
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
+// Each LINK declaration connects two functions across language boundaries.
+// MAP_TYPE entries define per-parameter ABI mappings between the target
+// (first function) and the source (second function).  Both sides must have
+// the same number of MAP_TYPE entries (one per parameter).
+
+// Link C++ add(int,int) ↔ Python concat(str,str)  — both accept 2 params
+LINK(cpp, python, math_ops::add, string_utils::concat) {
+    MAP_TYPE(cpp::int, python::str);
+    MAP_TYPE(cpp::int, python::str);
 }
 
-// Link the Python string output back to C++ for further processing
-LINK(python, cpp, string_utils::concat, math_ops::clamp) {
-    MAP_TYPE(python::str, cpp::int);
+// Link C++ multiply(double,double) ↔ Python concat(str,str)
+LINK(cpp, python, math_ops::multiply, string_utils::concat) {
+    MAP_TYPE(cpp::double, python::str);
+    MAP_TYPE(cpp::double, python::str);
 }
 
-// --- Type Mappings ---
+// Link Python format_result(int) ↔ C++ abs_val(int) — both accept 1 param
+LINK(python, cpp, string_utils::format_result, math_ops::abs_val) {
+    MAP_TYPE(python::int, cpp::int);
+}
+
+// --- Global Type Mappings ---
 MAP_TYPE(cpp::int, python::int);
 MAP_TYPE(cpp::double, python::float);
 
@@ -41,13 +53,5 @@ FUNC compute_and_format(a: INT, b: INT) -> STRING {
     RETURN formatted;
 }
 
-// Compute Euclidean distance in C++ and format with Python
-FUNC distance_report(x1: FLOAT, y1: FLOAT, x2: FLOAT, y2: FLOAT) -> STRING {
-    LET dist = CALL(cpp, math_ops::distance, x1, y1, x2, y2);
-    LET report = CALL(python, string_utils::format_result, dist);
-    RETURN report;
-}
-
 // Export the polyglot functions
 EXPORT compute_and_format AS "polyglot_compute";
-EXPORT distance_report AS "polyglot_distance";

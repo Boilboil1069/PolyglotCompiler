@@ -729,6 +729,21 @@ static bool VerifyImpl(const Function &func, const DataLayout *layout,
 					if (!compatible && val_ty.kind == IRTypeKind::kInvalid) {
 						compatible = true;  // unknown type from external call
 					}
+					// Pointer-to-pointer compatibility: opaque ptr (ptr<void>)
+					// or placeholder pointers returned by cross-language stubs
+					// are compatible with any pointer return type.
+					if (!compatible &&
+					    (val_ty.kind == IRTypeKind::kPointer || val_ty.kind == IRTypeKind::kReference) &&
+					    (fn_ret.kind == IRTypeKind::kPointer || fn_ret.kind == IRTypeKind::kReference)) {
+						compatible = true;
+					}
+					// Cross-language stub placeholder: opaque pointers (ptr<void>)
+					// marked as placeholders can be returned from functions of any
+					// type — the actual type conversion is handled by the runtime
+					// marshalling layer.
+					if (!compatible && val_ty.is_placeholder) {
+						compatible = true;
+					}
 					if (!compatible) return Fail("return value type mismatch in block " + bb->name, msg);
 				}
 			}

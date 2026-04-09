@@ -17,11 +17,12 @@ IMPORT cpp::data_converter;
 IMPORT python::data_processor;
 
 // --- Cross-Language Function Links ---
+// scale_vector(vector<double>) in C++ ↔ normalize(list) in Python — both 1 param
 LINK(cpp, python, data_converter::scale_vector, data_processor::normalize) {
     MAP_TYPE(cpp::std::vector_double, python::list);
-    MAP_TYPE(cpp::double, python::float);
 }
 
+// stats(dict) in Python ↔ average(double) in C++ — both 1 param
 LINK(python, cpp, data_processor::stats, data_converter::average) {
     MAP_TYPE(python::dict, cpp::double);
 }
@@ -49,10 +50,10 @@ MAP_TYPE(cpp::Point, python::tuple);
 
 // Process data through both C++ and Python using mapped container types
 FUNC process_data(values: LIST(FLOAT), factor: FLOAT) -> LIST(FLOAT) {
-    // Scale in C++ (vector<double> → list mapping)
-    LET scaled = CALL(cpp, data_converter::scale_vector, values, factor);
+    // Scale in C++ (vector<double> → list mapping) — single list param
+    LET scaled = CALL(cpp, data_converter::scale_vector, values);
 
-    // Normalize in Python (list → list)
+    // Normalize in Python (list → list) — single list param
     LET normalized = CALL(python, data_processor::normalize, scaled);
 
     RETURN normalized;

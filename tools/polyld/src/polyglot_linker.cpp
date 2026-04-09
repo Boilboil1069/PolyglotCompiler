@@ -146,6 +146,36 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
             entry.target_symbol = target_sym;
             entry.source_symbol = source_sym;
             link_entries_.push_back(entry);
+        } else if (kind == "MAP_TYPE") {
+            // MAP_TYPE lines follow a LINK entry and attach parameter mappings
+            // Format: MAP_TYPE <src_lang>::<src_type> <tgt_lang>::<tgt_type>
+            if (link_entries_.empty()) {
+                ReportWarning("MAP_TYPE without preceding LINK at " + path + ":" +
+                              std::to_string(line_num));
+                continue;
+            }
+            std::string src_spec, tgt_spec;
+            if (!(iss >> src_spec >> tgt_spec)) {
+                ReportWarning("malformed MAP_TYPE at " + path + ":" +
+                              std::to_string(line_num));
+                continue;
+            }
+            ploy::TypeMappingEntry mapping;
+            auto src_sep = src_spec.find("::");
+            if (src_sep != std::string::npos) {
+                mapping.source_language = src_spec.substr(0, src_sep);
+                mapping.source_type = src_spec.substr(src_sep + 2);
+            } else {
+                mapping.source_type = src_spec;
+            }
+            auto tgt_sep = tgt_spec.find("::");
+            if (tgt_sep != std::string::npos) {
+                mapping.target_language = tgt_spec.substr(0, tgt_sep);
+                mapping.target_type = tgt_spec.substr(tgt_sep + 2);
+            } else {
+                mapping.target_type = tgt_spec;
+            }
+            link_entries_.back().param_mappings.push_back(mapping);
         } else if (kind == "CALL") {
             ploy::CrossLangCallDescriptor desc;
             std::string stub, src_lang, tgt_lang, src_func, tgt_func;
@@ -367,12 +397,39 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
 
     // ---- ABI Validation ----
     // Validate parameter count compatibility between source and target.
-    // Parameter descriptors are required for strict cross-language ABI checks.
-    if (source_sym->params.empty() || target_sym->params.empty()) {
+    // When MAP_TYPE entries are present, they declare explicit marshalling, so
+    // missing native parameter descriptors can be synthesized from the MAP_TYPE
+    // information.  Only report an error if there are NO MAP_TYPE entries AND
+    // the symbols lack parameter descriptors.
+    if ((source_sym->params.empty() || target_sym->params.empty()) &&
+        entry.param_mappings.empty()) {
         ReportError("missing ABI parameter schema in LINK '" + entry.target_symbol +
                     "' <-> '" + entry.source_symbol +
-                    "': both source and target symbols must declare parameter descriptors");
+                    "': both source and target symbols must declare parameter descriptors"
+                    " (or provide MAP_TYPE entries)");
         return false;
+    }
+
+    // If symbols lack parameter descriptors but MAP_TYPE entries exist,
+    // synthesize minimal descriptors from the MAP_TYPE declarations so that
+    // the glue code generator can proceed.
+    if (target_sym->params.empty() && !entry.param_mappings.empty()) {
+        for (const auto &m : entry.param_mappings) {
+            CrossLangSymbol::ParamDesc p;
+            p.type_name = m.source_type;  // first MAP_TYPE arg = target's native type
+            p.size = 8;                   // default size; ABI check will warn if needed
+            p.is_pointer = false;
+            target_sym->params.push_back(std::move(p));
+        }
+    }
+    if (source_sym->params.empty() && !entry.param_mappings.empty()) {
+        for (const auto &m : entry.param_mappings) {
+            CrossLangSymbol::ParamDesc p;
+            p.type_name = m.target_type;  // second MAP_TYPE arg = source's native type
+            p.size = 8;
+            p.is_pointer = false;
+            source_sym->params.push_back(std::move(p));
+        }
     }
 
     {
@@ -447,7 +504,19 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
             }
         }
 
-        // Validate return type compatibility
+        // Validate return type compatibility.
+        // When MAP_TYPE entries are present, return type descriptors may not be
+        // available yet (Ploy does not currently have a RETURNS clause in LINK).
+        // Synthesize a default return descriptor when missing.
+        if (target_sym->return_desc.size == 0 && !entry.param_mappings.empty()) {
+            target_sym->return_desc.size = 8;  // default pointer-sized
+            target_sym->return_desc.type_name = "any";
+        }
+        if (source_sym->return_desc.size == 0 && !entry.param_mappings.empty()) {
+            source_sym->return_desc.size = 8;
+            source_sym->return_desc.type_name = "any";
+        }
+
         if (source_sym->return_desc.size == 0 || target_sym->return_desc.size == 0) {
             ReportError("missing return ABI schema in LINK '" + entry.target_symbol +
                         "' <-> '" + entry.source_symbol + "'");

@@ -24,3 +24,6 @@ tests/samples/env/
 /Debug/
 *.log
 /.claude/
+
+*.obj
+*.exe

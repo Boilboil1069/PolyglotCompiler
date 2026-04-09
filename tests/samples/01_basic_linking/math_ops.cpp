@@ -28,3 +28,8 @@ int clamp(int value, int lo, int hi) {
     if (value > hi) return hi;
     return value;
 }
+
+// Absolute value of an integer
+int abs_val(int x) {
+    return x < 0 ? -x : x;
+}

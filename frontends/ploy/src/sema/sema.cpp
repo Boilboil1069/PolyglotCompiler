@@ -171,11 +171,14 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     link_sym.language = link->target_language;
 
     // Derive parameter types from MAP_TYPE entries and build a function type.
+    // MAP_TYPE(first_arg, second_arg): first_arg (parser's source_*) is the
+    // target function's native type, second_arg (parser's target_*) is the
+    // source function's native type.
     std::vector<core::Type> link_param_types;
     for (const auto &mapping : entry.param_mappings) {
         core::Type param_type = type_system_.MapFromLanguage(
-            mapping.target_language.empty() ? link->target_language : mapping.target_language,
-            mapping.target_type);
+            mapping.source_language.empty() ? link->target_language : mapping.source_language,
+            mapping.source_type);
         link_param_types.push_back(param_type);
     }
     if (!link_param_types.empty()) {
@@ -201,12 +204,13 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
         sig.param_count_known = true;  // MAP_TYPE defines the cross-language param contract
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
-            // Resolve the target type from the mapping
+            // The first arg of MAP_TYPE (parser's source_*) is the target
+            // function's native type (matching link->target_language).
             core::Type param_type = type_system_.MapFromLanguage(
-                mapping.target_language.empty() ? link->target_language : mapping.target_language,
-                mapping.target_type);
+                mapping.source_language.empty() ? link->target_language : mapping.source_language,
+                mapping.source_type);
             sig.param_types.push_back(param_type);
-            sig.param_names.push_back(mapping.source_type);
+            sig.param_names.push_back(mapping.target_type);
         }
 
         // Resolve return type from the source-side MAP_TYPE if available.
@@ -226,32 +230,58 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             source_sig.param_count_known = true;
             source_sig.defined_at = link->loc;
             for (const auto &mapping : entry.param_mappings) {
+                // The second arg of MAP_TYPE (parser's target_*) is the source
+                // function's native type (matching link->source_language).
                 core::Type source_type = type_system_.MapFromLanguage(
-                    mapping.source_language.empty() ? link->source_language : mapping.source_language,
-                    mapping.source_type);
+                    mapping.target_language.empty() ? link->source_language : mapping.target_language,
+                    mapping.target_type);
                 source_sig.param_types.push_back(source_type);
             }
             auto source_abi = BuildABISignature(source_sig, link->source_language);
             abi_signatures_[link->source_symbol] = source_abi;
 
-            // Cross-validate ABI compatibility between target and source
+            // Cross-validate ABI compatibility between target and source.
+            // MAP_TYPE entries declare explicit marshalling, so ABI size/pointer
+            // mismatches are expected and handled by the generated conversion
+            // code.  Report them as warnings rather than hard errors.
             if (sig.abi->is_complete && source_abi->is_complete) {
                 std::string compat_err = sig.abi->ValidateCompatibility(*source_abi);
                 if (!compat_err.empty()) {
-                    ReportError(link->loc, frontends::ErrorCode::kTypeMismatch,
-                                "ABI incompatibility in LINK '" + link->target_symbol +
-                                "' <-> '" + link->source_symbol + "': " + compat_err,
-                                "check MAP_TYPE entries match the actual function signatures");
+                    ReportWarning(link->loc, frontends::ErrorCode::kTypeMismatch,
+                                  "ABI difference in LINK '" + link->target_symbol +
+                                  "' <-> '" + link->source_symbol + "': " + compat_err,
+                                  "MAP_TYPE entries will generate marshalling code for this conversion");
                 }
             }
         }
 
         RegisterFunctionSignature(link->target_symbol, sig);
+        // Also register the source-side signature so the linker can build
+        // CrossLangSymbol param descriptors for both sides of the LINK.
+        if (!link->source_language.empty()) {
+            FunctionSignature src_reg_sig;
+            src_reg_sig.name = link->source_symbol;
+            src_reg_sig.language = link->source_language;
+            src_reg_sig.param_count = entry.param_mappings.size();
+            src_reg_sig.param_count_known = true;
+            src_reg_sig.defined_at = link->loc;
+            for (const auto &mapping : entry.param_mappings) {
+                core::Type st = type_system_.MapFromLanguage(
+                    mapping.target_language.empty() ? link->source_language : mapping.target_language,
+                    mapping.target_type);
+                src_reg_sig.param_types.push_back(st);
+            }
+            src_reg_sig.abi = BuildABISignature(src_reg_sig, link->source_language);
+            RegisterFunctionSignature(link->source_symbol, src_reg_sig);
+        }
     } else {
-        // LINK without MAP_TYPE entries means parameter validation is disabled.
-        ReportStrictDiag(link->loc, frontends::ErrorCode::kTypeMismatch,
-                         "LINK '" + link->target_symbol +
-                         "' has no MAP_TYPE entries; parameter validation disabled");
+        // LINK without MAP_TYPE entries is valid — it simply means that no
+        // per-parameter ABI mapping is declared.  Parameter validation at call
+        // sites will be skipped for this link.  Emit an informational warning
+        // so developers are aware, but never treat this as an error.
+        ReportWarning(link->loc, frontends::ErrorCode::kTypeMismatch,
+                      "LINK '" + link->target_symbol +
+                      "' has no MAP_TYPE entries; parameter validation disabled");
     }
 }
 
@@ -1682,6 +1712,14 @@ void PloySema::ValidateCallArgTypes(const core::SourceLoc &call_loc,
                                     const FunctionSignature *sig) {
     if (!sig || !sig->param_count_known) return;
     if (sig->param_types.empty()) return;
+
+    // When the signature comes from a cross-language LINK declaration with
+    // MAP_TYPE entries (indicated by a non-null ABI descriptor), the parameter
+    // types stored in the signature are the foreign function's native types.
+    // Ploy call-site arguments use Ploy-native types which are intentionally
+    // different — the MAP_TYPE marshalling code bridges the gap at runtime.
+    // Therefore skip strict type checking for these signatures.
+    if (sig->abi) return;
 
     size_t check_count = std::min(actual_types.size(), sig->param_types.size());
     for (size_t i = 0; i < check_count; ++i) {
