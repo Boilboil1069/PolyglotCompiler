@@ -17,6 +17,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/include/version.h"
 #include "runtime/include/gc/gc_api.h"
 #include "runtime/include/gc/gc_strategy.h"
 #include "runtime/include/gc/heap.h"
@@ -32,8 +33,8 @@ namespace polyglot::tools {
 // Constants and Version Info
 // ============================================================================
 
-constexpr const char *kVersion = "1.0.0";
-constexpr const char *kToolName = "polyrt";
+constexpr const char *kVersion = POLYGLOT_VERSION_STRING;
+constexpr const char *kToolName = POLYGLOT_POLYRT_NAME;
 
 // ============================================================================
 // Utility Functions

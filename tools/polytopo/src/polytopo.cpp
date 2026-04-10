@@ -32,6 +32,7 @@
 #include "tools/polytopo/include/topology_codegen.h"
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
+#include "common/include/version.h"
 #include "tools/polytopo/include/topology_validator.h"
 
 namespace polyglot::tools {
@@ -40,8 +41,8 @@ namespace polyglot::tools {
 // Constants
 // ============================================================================
 
-constexpr const char *kTopoVersion = "1.0.0";
-constexpr const char *kTopoName = "polytopo";
+constexpr const char *kTopoVersion = POLYGLOT_VERSION_STRING;
+constexpr const char *kTopoName = POLYGLOT_POLYTOPO_NAME;
 
 // ============================================================================
 // CLI Options

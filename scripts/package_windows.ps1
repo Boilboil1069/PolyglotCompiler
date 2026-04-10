@@ -32,8 +32,9 @@ $ErrorActionPreference = "Stop"
 # Constants
 # ============================================================================
 $ProjectRoot   = Split-Path -Parent $PSScriptRoot
-$Version       = "1.0.0"
-$ProductName   = "PolyglotCompiler"
+$VersionLines = Get-Content (Join-Path $ProjectRoot "VERSION.txt")
+$Version       = $VersionLines[0].Trim()
+$ProductName   = $VersionLines[1].Trim()
 $ArchiveBase   = "${ProductName}-${Version}-windows-x64"
 $StageDir      = Join-Path $OutputDir $ArchiveBase
 $NsisScript    = Join-Path $PSScriptRoot "installer.nsi"

@@ -338,7 +338,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
     if(APPLE)
         set_target_properties(polyui PROPERTIES
             MACOSX_BUNDLE TRUE
-            MACOSX_BUNDLE_BUNDLE_NAME "PolyglotCompiler IDE"
+            MACOSX_BUNDLE_BUNDLE_NAME "${PROJECT_NAME} IDE"
             MACOSX_BUNDLE_GUI_IDENTIFIER "org.polyglotcompiler.polyui"
             MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"

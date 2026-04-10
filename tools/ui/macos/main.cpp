@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 
+#include "common/include/version.h"
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/file_browser.h"
 
@@ -66,7 +67,7 @@ void PrintUsage() {
 }
 
 void PrintVersion() {
-    std::cout << "polyui (PolyglotCompiler IDE) v1.0.0\n"
+    std::cout << POLYGLOT_IDE_BANNER << "\n"
               << "Built with Qt " << QT_VERSION_STR << " (macOS)\n";
 }
 
@@ -76,10 +77,10 @@ int main(int argc, char *argv[]) {
     // AA_UseHighDpiPixmaps is always enabled in Qt6 — no need to set it.
 
     QApplication app(argc, argv);
-    app.setApplicationName("PolyglotCompiler IDE");
-    app.setApplicationVersion("1.0.0");
-    app.setOrganizationName("PolyglotCompiler");
-    app.setOrganizationDomain("polyglotcompiler.org");
+    app.setApplicationName(POLYGLOT_IDE_NAME);
+    app.setApplicationVersion(POLYGLOT_VERSION_STRING);
+    app.setOrganizationName(POLYGLOT_ORGANIZATION_NAME);
+    app.setOrganizationDomain(POLYGLOT_ORGANIZATION_DOMAIN);
 
     // Parse command-line arguments.
     std::string initial_folder;
@@ -109,7 +110,7 @@ int main(int argc, char *argv[]) {
     if (!app_icon.isNull()) {
         window.setWindowIcon(app_icon);
     }
-    window.setWindowTitle("PolyglotCompiler IDE");
+    window.setWindowTitle(POLYGLOT_IDE_NAME);
     window.resize(1400, 900);
 
     // If a folder was given on the command line, open it in the file browser.

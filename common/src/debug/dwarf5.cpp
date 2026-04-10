@@ -1,4 +1,5 @@
 #include "common/include/debug/dwarf5.h"
+#include "common/include/version.h"
 #include <algorithm>
 #include <cstring>
 
@@ -738,7 +739,7 @@ std::vector<uint8_t> DwarfBuilder::EncodeDebugLine() {
 
 DebugInfoGenerator::DebugInfoGenerator()
     : language_(dwarf::Language::kCpp20),
-      producer_("PolyglotCompiler v2.0"),
+      producer_(POLYGLOT_VERSION_BANNER),
       current_function_(nullptr) {}
 
 void DebugInfoGenerator::RegisterType(const std::string& name,

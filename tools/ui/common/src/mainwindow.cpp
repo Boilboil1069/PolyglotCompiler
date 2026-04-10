@@ -21,6 +21,7 @@
 #include "tools/ui/common/include/topology_panel.h"
 
 #include "common/include/plugins/plugin_manager.h"
+#include "common/include/version.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -47,7 +48,7 @@ namespace polyglot::tools::ui {
 // ============================================================================
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("PolyglotCompiler IDE");
+    setWindowTitle(POLYGLOT_IDE_NAME);
     resize(1400, 900);
 
     compiler_service_ = std::make_unique<CompilerService>();
@@ -383,7 +384,7 @@ void MainWindow::SetupMenuBar() {
 
     // ── Help Menu ─────────────────────────────────────────────────────
     help_menu_ = mb->addMenu("&Help");
-    help_menu_->addAction("&About PolyglotCompiler IDE", this, &MainWindow::ShowAbout);
+    help_menu_->addAction("&About " POLYGLOT_IDE_NAME, this, &MainWindow::ShowAbout);
     help_menu_->addAction("About &Qt", this, &MainWindow::ShowAboutQt);
     help_menu_->addSeparator();
     help_menu_->addAction("Keyboard &Shortcuts", this, &MainWindow::ShowShortcuts);
@@ -1898,13 +1899,13 @@ void MainWindow::OpenTopologyForCurrentFile() {
 // ============================================================================
 
 void MainWindow::ShowAbout() {
-    QMessageBox::about(this, "About PolyglotCompiler IDE",
-        "<h2>PolyglotCompiler IDE</h2>"
-        "<p>Version 1.0.0</p>"
+    QMessageBox::about(this, "About " POLYGLOT_IDE_NAME,
+        "<h2>" POLYGLOT_IDE_NAME "</h2>"
+        "<p>Version " POLYGLOT_VERSION_STRING "</p>"
         "<p>A cross-language compiler IDE supporting Ploy, C++, Python, "
         "Rust, Java, and C#.</p>"
-        "<p>Built with Qt " QT_VERSION_STR " and the PolyglotCompiler toolchain.</p>"
-        "<p>&copy; 2026 PolyglotCompiler Project</p>");
+        "<p>Built with Qt " QT_VERSION_STR " and the " POLYGLOT_PROJECT_NAME " toolchain.</p>"
+        "<p>&copy; 2026 " POLYGLOT_PROJECT_NAME " Project</p>");
 }
 
 void MainWindow::ShowAboutQt() {

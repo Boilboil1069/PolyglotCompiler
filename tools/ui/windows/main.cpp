@@ -12,6 +12,7 @@
 #include <iostream>
 #include <string>
 
+#include "common/include/version.h"
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/file_browser.h"
 
@@ -65,7 +66,7 @@ void PrintUsage() {
 }
 
 void PrintVersion() {
-    std::cout << "polyui (PolyglotCompiler IDE) v1.0.0\n"
+    std::cout << POLYGLOT_IDE_BANNER << "\n"
               << "Built with Qt " << QT_VERSION_STR << "\n";
 }
 
@@ -73,9 +74,9 @@ void PrintVersion() {
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
-    app.setApplicationName("PolyglotCompiler IDE");
-    app.setApplicationVersion("1.0.0");
-    app.setOrganizationName("PolyglotCompiler");
+    app.setApplicationName(POLYGLOT_IDE_NAME);
+    app.setApplicationVersion(POLYGLOT_VERSION_STRING);
+    app.setOrganizationName(POLYGLOT_ORGANIZATION_NAME);
 
     // Parse command-line arguments manually so we avoid pulling in
     // QCommandLineParser (keeps the translation-unit dependency set small).
@@ -106,7 +107,7 @@ int main(int argc, char *argv[]) {
     if (!app_icon.isNull()) {
         window.setWindowIcon(app_icon);
     }
-    window.setWindowTitle("PolyglotCompiler IDE");
+    window.setWindowTitle(POLYGLOT_IDE_NAME);
     window.resize(1400, 900);
 
     // If a folder was given on the command line, open it in the file browser.

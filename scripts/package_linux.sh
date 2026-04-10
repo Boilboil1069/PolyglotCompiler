@@ -24,8 +24,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-VERSION="1.0.0"
-PRODUCT_NAME="PolyglotCompiler"
+VERSION="$(sed -n '1p' "$PROJECT_ROOT/VERSION.txt")"
+PRODUCT_NAME="$(sed -n '2p' "$PROJECT_ROOT/VERSION.txt")"
 ARCH="$(uname -m)"
 ARCHIVE_BASE="${PRODUCT_NAME}-${VERSION}-linux-${ARCH}"
 BUILD_DIR="build-release"

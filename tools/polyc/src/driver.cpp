@@ -15,6 +15,7 @@
 #include <iostream>
 #include <string>
 
+#include "common/include/version.h"
 #include "frontends/common/include/frontend_registry.h"
 #include "runtime/include/libs/base.h"
 #include "tools/polyc/include/compilation_pipeline.h"
@@ -261,7 +262,7 @@ int main(int argc, char **argv) {
     // ── Banner ───────────────────────────────────────────────────────────
     if (V) {
         std::cerr << "========================================\n";
-        std::cerr << " PolyglotCompiler v1.0.0  (polyc)\n";
+        std::cerr << " " << POLYGLOT_VERSION_BANNER << "  (" << POLYGLOT_POLYC_NAME << ")\n";
         std::cerr << "========================================\n";
         if (!settings.source_path.empty())
             std::cerr << "[polyc] Source: " << settings.source_path << "\n";

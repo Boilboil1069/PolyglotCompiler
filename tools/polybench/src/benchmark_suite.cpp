@@ -17,6 +17,8 @@
 #include <map>
 #include <nlohmann/json.hpp>
 
+#include "common/include/version.h"
+
 #include "runtime/include/gc/gc_strategy.h"
 #include "runtime/include/gc/heap.h"
 #include "middle/include/passes/transform/advanced_optimizations.h"
@@ -446,7 +448,7 @@ int main(int argc, char* argv[]) {
     using namespace polyglot::tools;
 
     std::cout << "╔════════════════════════════════════════════════╗\n";
-    std::cout << "║   PolyglotCompiler Benchmark Suite v3.0        ║\n";
+    std::cout << "║   " << POLYGLOT_PROJECT_NAME << " Benchmark Suite v" << POLYGLOT_VERSION_STRING << "        ║\n";
     std::cout << "║   Comprehensive Performance Testing            ║\n";
     std::cout << "╚════════════════════════════════════════════════╝\n\n";
     

@@ -1,6 +1,22 @@
 cmake_minimum_required(VERSION 3.20)
 project(PolyglotCompiler VERSION 1.0.0 LANGUAGES C CXX)
 
+# ============================================================================
+# Central version header — generated from common/include/version.h.in
+# All C++ sources should #include "common/include/version.h" instead of
+# hard-coding version strings.
+# ============================================================================
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/common/include/version.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/common/include/version.h"
+    @ONLY
+)
+# Also emit a plain-text version file for packaging scripts.
+# NOTE: named VERSION.txt (not VERSION) to avoid collision with the C++
+# standard library <version> header when CMAKE_SOURCE_DIR is on -I.
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt"
+    "${PROJECT_VERSION}\n${PROJECT_NAME}\n")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
