@@ -1,3 +1,11 @@
+/**
+ * @file     parser.cpp
+ * @brief    C++ language frontend implementation
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/cpp/include/cpp_parser.h"
 
 namespace polyglot::cpp {
@@ -126,7 +134,8 @@ std::string CppParser::ParseQualifiedName() {
     return name;
 }
 
-// --- Types ----------------------------------------------------
+/** @name Types */
+/** @{ */
 std::shared_ptr<TypeNode> CppParser::ParseType() {
     auto parse_cv = [&]() -> std::pair<bool, bool> {
         bool c = false, v = false;
@@ -367,7 +376,10 @@ std::string CppParser::ParseRequiresClause() {
     return clause;
 }
 
-// --- Expressions ----------------------------------------------------
+/** @} */
+
+/** @name Expressions */
+/** @{ */
 std::shared_ptr<Expression> CppParser::ParsePrimary() {
     if (current_.kind == frontends::TokenKind::kIdentifier) {
         auto ident = std::make_shared<Identifier>();
@@ -892,7 +904,10 @@ std::shared_ptr<Expression> CppParser::ParseComma() {
 
 std::shared_ptr<Expression> CppParser::ParseExpression() { return ParseComma(); }
 
-// --- Statements ----------------------------------------------------
+/** @} */
+
+/** @name Statements */
+/** @{ */
 std::shared_ptr<Statement> CppParser::ParseImport() {
     auto stmt = std::make_shared<ImportDeclaration>();
     stmt->loc = current_.loc;
@@ -2025,3 +2040,5 @@ void CppParser::ParseModule() {
 std::shared_ptr<Module> CppParser::TakeModule() { return module_; }
 
 } // namespace polyglot::cpp
+
+/** @} */

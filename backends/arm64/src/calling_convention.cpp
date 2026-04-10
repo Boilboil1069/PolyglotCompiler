@@ -1,3 +1,11 @@
+/**
+ * @file     calling_convention.cpp
+ * @brief    AArch64 code generation implementation
+ *
+ * @ingroup  Backend / ARM64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/arm64/include/arm64_target.h"
 #include "backends/arm64/include/machine_ir.h"
 

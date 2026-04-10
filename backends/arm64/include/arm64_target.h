@@ -1,3 +1,11 @@
+/**
+ * @file     arm64_target.h
+ * @brief    AArch64 code generation
+ *
+ * @ingroup  Backend / ARM64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -10,6 +18,7 @@
 
 namespace polyglot::backends::arm64 {
 
+/** @brief Arm64Target class. */
 class Arm64Target : public polyglot::backends::TargetMachine {
  public:
   explicit Arm64Target(const polyglot::ir::IRContext *module = nullptr) : module_(module) {}
@@ -20,6 +29,7 @@ class Arm64Target : public polyglot::backends::TargetMachine {
   std::string TargetTriple() const override { return "aarch64-unknown-elf"; }
   std::string EmitAssembly() override;
 
+  /** @brief MCReloc data structure. */
   struct MCReloc {
     std::string section;
     std::uint32_t offset{0};
@@ -28,6 +38,7 @@ class Arm64Target : public polyglot::backends::TargetMachine {
     std::int64_t addend{0};
   };
 
+  /** @brief MCSymbol data structure. */
   struct MCSymbol {
     std::string name;
     std::string section;
@@ -37,12 +48,14 @@ class Arm64Target : public polyglot::backends::TargetMachine {
     bool defined{false};
   };
 
+  /** @brief MCSection data structure. */
   struct MCSection {
     std::string name;
     std::vector<std::uint8_t> data;
     bool bss{false};
   };
 
+  /** @brief MCResult data structure. */
   struct MCResult {
     std::vector<MCSection> sections;
     std::vector<MCReloc> relocs;

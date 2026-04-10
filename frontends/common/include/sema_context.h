@@ -1,3 +1,11 @@
+/**
+ * @file     sema_context.h
+ * @brief    Shared frontend infrastructure
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "common/include/core/symbols.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::frontends {
 
+/** @brief SemaContext class. */
 class SemaContext {
  public:
   explicit SemaContext(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}

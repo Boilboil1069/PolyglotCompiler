@@ -1,3 +1,11 @@
+/**
+ * @file     foreign_signature_extractor.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // foreign_signature_extractor.cpp — Implementation
 // ============================================================================

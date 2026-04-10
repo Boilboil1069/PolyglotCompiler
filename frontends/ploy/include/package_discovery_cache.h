@@ -1,3 +1,11 @@
+/**
+ * @file     package_discovery_cache.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <mutex>
@@ -22,6 +30,7 @@ namespace polyglot::ploy {
 //     language + "|" + manager_kind_string + "|" + env_path
 // ============================================================================
 
+/** @brief PackageDiscoveryCache class. */
 class PackageDiscoveryCache {
   public:
     // Build the canonical cache key from the three discovery parameters.

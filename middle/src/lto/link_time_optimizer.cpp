@@ -1,3 +1,11 @@
+/**
+ * @file     link_time_optimizer.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "middle/include/lto/link_time_optimizer.h"
 
 #include <algorithm>
@@ -17,7 +25,8 @@ namespace polyglot::lto {
 
 using Clock = std::chrono::steady_clock;
 
-// ===================== LatticeValue =====================
+/** @name LatticeValue */
+/** @{ */
 
 LatticeValue LatticeValue::Meet(const LatticeValue& other) const {
   // Top ⊓ x = x
@@ -46,7 +55,10 @@ bool LatticeValue::operator==(const LatticeValue& other) const {
   return is_float ? (float_value == other.float_value) : (int_value == other.int_value);
 }
 
-// ===================== LTOModule =====================
+/** @} */
+
+/** @name LTOModule */
+/** @{ */
 
 bool LTOModule::SaveBitcode(const std::string &filename) const {
   std::ofstream out(filename, std::ios::binary);
@@ -219,7 +231,10 @@ size_t LTOModule::GetTotalInstructionCount() const {
   return total;
 }
 
-// ===================== LTOContext =====================
+/** @} */
+
+/** @name LTOContext */
+/** @{ */
 
 void LTOContext::AddModule(std::unique_ptr<LTOModule> module) {
   modules_.push_back(std::move(module));
@@ -505,7 +520,10 @@ bool LTOContext::CallGraph::IsReachable(const std::string& from, const std::stri
   return false;
 }
 
-// ===================== CrossModuleInliner =====================
+/** @} */
+
+/** @name CrossModuleInliner */
+/** @{ */
 
 void CrossModuleInliner::Run() {
   auto candidates = FindInlineCandidates();
@@ -780,7 +798,10 @@ void CrossModuleInliner::CloneInstructions(ir::BasicBlock& target,
   }
 }
 
-// ===================== GlobalDeadCodeElimination =====================
+/** @} */
+
+/** @name GlobalDeadCodeElimination */
+/** @{ */
 
 void GlobalDeadCodeElimination::Run() {
   auto reachable = MarkReachableSymbols();
@@ -879,7 +900,10 @@ void GlobalDeadCodeElimination::MarkReachable(const std::string& symbol,
   }
 }
 
-// ===================== InterproceduralConstantPropagation =====================
+/** @} */
+
+/** @name InterproceduralConstantPropagation */
+/** @{ */
 
 void InterproceduralConstantPropagation::Run() {
   // Phase 1: Analyze which function arguments are always constant
@@ -1218,7 +1242,10 @@ void InterproceduralConstantPropagation::ReplaceConstantUses(ir::Function& func)
   }
 }
 
-// ===================== CrossModuleDevirtualization =====================
+/** @} */
+
+/** @name CrossModuleDevirtualization */
+/** @{ */
 
 void CrossModuleDevirtualization::Run() {
   // Build class hierarchy first
@@ -1375,7 +1402,10 @@ std::optional<std::string> CrossModuleDevirtualization::GetUniqueImplementation(
   return std::nullopt;
 }
 
-// ===================== CrossModuleGVN =====================
+/** @} */
+
+/** @name CrossModuleGVN */
+/** @{ */
 
 size_t CrossModuleGVN::ExpressionHash::operator()(const Expression& expr) const {
   size_t hash = std::hash<std::string>{}(expr.opcode);
@@ -1565,7 +1595,10 @@ bool CrossModuleGVN::IsPure(const ir::Instruction* inst) const {
   return false;
 }
 
-// ===================== GlobalOptimizer =====================
+/** @} */
+
+/** @name GlobalOptimizer */
+/** @{ */
 namespace {
 size_t CountFunctions(const LTOContext &ctx) {
   size_t total = 0;
@@ -1636,7 +1669,10 @@ void GlobalOptimizer::RunGlobalValueNumbering() {
   stats_.redundant_exprs_eliminated = pass.GetEliminatedCount();
 }
 
-// ===================== LTOLinker =====================
+/** @} */
+
+/** @name LTOLinker */
+/** @{ */
 void LTOLinker::AddInputFile(const std::string &filename) {
   input_files_.push_back(filename);
 }
@@ -1740,7 +1776,10 @@ bool LTOLinker::GenerateCode(const LTOContext &context, const std::string &outpu
   return merged.SaveBitcode(output);
 }
 
-// ===================== ThinLTOCodeGenerator =====================
+/** @} */
+
+/** @name ThinLTOCodeGenerator */
+/** @{ */
 
 void ThinLTOCodeGenerator::AddModule(const std::string &identifier, const std::string &bitcode) {
   modules_[identifier] = bitcode;
@@ -2003,7 +2042,10 @@ void ThinLTOCodeGenerator::OptimizeInParallel(size_t num_threads) {
   }
 }
 
-// ===================== Utility functions =====================
+/** @} */
+
+/** @name Utility functions */
+/** @{ */
 bool CompileToBitcode(const std::string &source_file, const std::string &output_bitcode) {
   auto parent = std::filesystem::path(output_bitcode).parent_path();
   if (!parent.empty()) {
@@ -2203,3 +2245,5 @@ bool LTOWorkflow::ThinLTO(const std::vector<std::string> &sources, const std::st
 }
 
 }  // namespace polyglot::lto
+
+/** @} */

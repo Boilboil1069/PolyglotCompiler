@@ -1,3 +1,11 @@
+/**
+ * @file     python_lexer.h
+ * @brief    Python language frontend
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/diagnostics.h"
@@ -7,6 +15,7 @@
 
 namespace polyglot::python {
 
+/** @brief PythonLexer class. */
 class PythonLexer : public frontends::LexerBase {
   public:
     PythonLexer(std::string source, std::string file)

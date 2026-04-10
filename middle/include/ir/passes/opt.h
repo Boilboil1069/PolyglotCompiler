@@ -1,3 +1,11 @@
+/**
+ * @file     opt.h
+ * @brief    IR optimisation passes
+ *
+ * @ingroup  Middle / Passes
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "middle/include/ir/cfg.h"

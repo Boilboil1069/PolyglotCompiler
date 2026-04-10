@@ -1,8 +1,11 @@
-// code_editor.h — Code editor widget with line numbers and bracket matching.
-//
-// Extends QPlainTextEdit with line-number gutter, current-line highlighting,
-// bracket matching, and zoom support.
-
+/**
+ * @file     code_editor.h
+ * @brief    Code editor widget with line numbers and bracket matching
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QFont>
@@ -18,6 +21,7 @@ class LineNumberArea;
 // CodeEditor — syntax-aware plain text editor
 // ============================================================================
 
+/** @brief CodeEditor class. */
 class CodeEditor : public QPlainTextEdit {
     Q_OBJECT
 
@@ -89,6 +93,7 @@ class CodeEditor : public QPlainTextEdit {
 // LineNumberArea — helper widget drawn in the gutter
 // ============================================================================
 
+/** @brief LineNumberArea class. */
 class LineNumberArea : public QWidget {
   public:
     explicit LineNumberArea(CodeEditor *editor)

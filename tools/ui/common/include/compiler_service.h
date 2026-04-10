@@ -1,8 +1,11 @@
-// compiler_service.h — Compiler integration service for the UI layer.
-//
-// Provides APIs for syntax analysis, diagnostics, compilation, and
-// auto-completion that the HTTP server exposes to the web front-end.
-
+/**
+ * @file     compiler_service.h
+ * @brief    Compiler integration service for the UI layer
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -19,6 +22,7 @@ namespace polyglot::tools::ui {
 // Token Info — lightweight token data transferred to the UI
 // ============================================================================
 
+/** @brief TokenInfo data structure. */
 struct TokenInfo {
     size_t line{0};
     size_t column{0};
@@ -31,6 +35,7 @@ struct TokenInfo {
 // Diagnostic Info — UI-friendly diagnostic representation
 // ============================================================================
 
+/** @brief DiagnosticInfo data structure. */
 struct DiagnosticInfo {
     size_t line{0};
     size_t column{0};
@@ -41,6 +46,7 @@ struct DiagnosticInfo {
     std::string code;       // "E1001", "E3004", etc.
     std::string suggestion;
 
+    /** @brief Related data structure. */
     struct Related {
         size_t line{0};
         size_t column{0};
@@ -53,6 +59,7 @@ struct DiagnosticInfo {
 // Completion Item — auto-completion suggestions
 // ============================================================================
 
+/** @brief CompletionItem data structure. */
 struct CompletionItem {
     std::string label;
     std::string kind;       // "keyword", "function", "variable", "type", "snippet"
@@ -64,6 +71,7 @@ struct CompletionItem {
 // Compile Result
 // ============================================================================
 
+/** @brief CompileResult data structure. */
 struct CompileResult {
     bool success{false};
     std::string output;
@@ -76,6 +84,7 @@ struct CompileResult {
 // CompilerService — main interface consumed by the HTTP server
 // ============================================================================
 
+/** @brief CompilerService class. */
 class CompilerService {
   public:
     CompilerService();

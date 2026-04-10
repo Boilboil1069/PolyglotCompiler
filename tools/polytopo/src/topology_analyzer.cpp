@@ -1,10 +1,11 @@
-// topology_analyzer.cpp — Builds a TopologyGraph from a .ploy AST.
-//
-// Walks the module declarations to create nodes for every function, LINK
-// target, pipeline, and cross-language call site.  Then scans function
-// bodies for data-flow connections (variable assignments chaining one
-// function's output to another's input) and registers edges.
-
+/**
+ * @file     topology_analyzer.cpp
+ * @brief    Builds a TopologyGraph from a .ploy AST
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polytopo/include/topology_analyzer.h"
 
 #include <algorithm>

@@ -1,9 +1,18 @@
+/**
+ * @file     x86_register.h
+ * @brief    x86-64 code generation
+ *
+ * @ingroup  Backend / x86-64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
 
 namespace polyglot::backends::x86_64 {
 
+/** @brief Register enumeration. */
 enum class Register {
   kRax,
   kRbx,

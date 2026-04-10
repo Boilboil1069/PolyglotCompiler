@@ -1,5 +1,11 @@
-// topology_graph.cpp — TopologyGraph implementation.
-
+/**
+ * @file     topology_graph.cpp
+ * @brief    TopologyGraph implementation
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polytopo/include/topology_graph.h"
 
 #include <algorithm>

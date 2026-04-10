@@ -1,3 +1,11 @@
+/**
+ * @file     instruction_scheduler.h
+ * @brief    x86-64 code generation
+ *
+ * @ingroup  Backend / x86-64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -11,6 +19,7 @@ namespace polyglot::backends::x86_64 {
 // Instruction Scheduler
 // Reorders instructions to improve ILP and hide latency.
 
+/** @brief InstructionScheduler class. */
 class InstructionScheduler {
  public:
   explicit InstructionScheduler(const MachineFunction &func) : function_(func) {}
@@ -20,6 +29,7 @@ class InstructionScheduler {
 
  private:
   // Data-dependency graph node
+  /** @brief SchedNode data structure. */
   struct SchedNode {
     MachineInstr *inst;
     std::vector<SchedNode *> predecessors;  // Dependency predecessors
@@ -58,13 +68,16 @@ class InstructionScheduler {
 // Software Pipelining
 // Advanced scheduling for loops.
 
+/** @brief SoftwarePipeliner class. */
 class SoftwarePipeliner {
  public:
+  /** @brief PipelineStage data structure. */
   struct PipelineStage {
     std::vector<MachineInstr> instructions;
     int cycle{0};
   };
 
+  /** @brief PipelineSchedule data structure. */
   struct PipelineSchedule {
     std::vector<PipelineStage> prologue;   // Prologue
     std::vector<PipelineStage> kernel;     // Kernel
@@ -73,6 +86,7 @@ class SoftwarePipeliner {
   };
 
   // Simplified loop info
+  /** @brief LoopInfo data structure. */
   struct LoopInfo {
     int trip_count{-1};  // Trip count (-1 unknown)
     bool has_side_effects{false};
@@ -94,6 +108,7 @@ class SoftwarePipeliner {
 // Instruction Fusion
 // Merge simple instructions into more complex ones.
 
+/** @brief InstructionFusion class. */
 class InstructionFusion {
  public:
   // Detect and fuse instruction patterns
@@ -117,6 +132,7 @@ class InstructionFusion {
 // Micro-op analysis
 // Optimizations for specific CPU microarchitectures.
 
+/** @brief MicroOpInfo data structure. */
 struct MicroOpInfo {
   int num_uops{1};           // Number of micro-ops
   int port_mask{0};          // Executable port mask
@@ -125,9 +141,11 @@ struct MicroOpInfo {
   bool can_dual_issue{false}; // Whether it can dual-issue
 };
 
+/** @brief MicroArchOptimizer class. */
 class MicroArchOptimizer {
  public:
   // Optimize for a specific microarchitecture
+  /** @brief Architecture enumeration. */
   enum Architecture {
     kGeneric,
     kHaswell,
@@ -163,6 +181,7 @@ class MicroArchOptimizer {
 // Register Renaming optimization
 // Eliminate WAR/WAW dependencies.
 
+/** @brief RegisterRenamer class. */
 class RegisterRenamer {
  public:
   // Rename registers to remove false dependencies
@@ -171,6 +190,7 @@ class RegisterRenamer {
 
  private:
   // Analyze live ranges
+  /** @brief LiveRange data structure. */
   struct LiveRange {
     int start;
     int end;
@@ -188,6 +208,7 @@ class RegisterRenamer {
 // Zero-latency instruction optimization
 // Identify and exploit zero-latency instructions (e.g., mov elimination).
 
+/** @brief ZeroLatencyOptimizer class. */
 class ZeroLatencyOptimizer {
  public:
   // Optimize zero-latency moves
@@ -208,6 +229,7 @@ class ZeroLatencyOptimizer {
 // Cache optimizations
 // Improve memory access patterns.
 
+/** @brief CacheOptimizer class. */
 class CacheOptimizer {
  public:
   // Optimize data layout
@@ -222,6 +244,7 @@ class CacheOptimizer {
 
  private:
   // Analyze memory access patterns
+  /** @brief AccessPattern data structure. */
   struct AccessPattern {
     int stride;
     bool is_sequential;
@@ -237,6 +260,7 @@ class CacheOptimizer {
 // Branch optimizations
 // Improve branch instructions.
 
+/** @brief BranchOptimizer class. */
 class BranchOptimizer {
  public:
   // Optimize branches

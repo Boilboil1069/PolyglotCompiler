@@ -1,4 +1,12 @@
-﻿// ============================================================================
+/**
+ * @file     driver.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+// ============================================================================
 // driver.cpp — polyc top-level driver (thin orchestration layer)
 //
 // This file contains only:

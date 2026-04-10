@@ -1,11 +1,18 @@
-// java_frontend.h — Java language frontend adapter.
-
+/**
+ * @file     java_frontend.h
+ * @brief    Java language frontend adapter
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/language_frontend.h"
 
 namespace polyglot::java {
 
+/** @brief JavaLanguageFrontend class. */
 class JavaLanguageFrontend : public frontends::ILanguageFrontend {
   public:
     std::string Name() const override { return "java"; }

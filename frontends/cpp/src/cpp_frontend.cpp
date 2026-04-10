@@ -1,5 +1,11 @@
-// cpp_frontend.cpp — C++ language frontend adapter implementation.
-
+/**
+ * @file     cpp_frontend.cpp
+ * @brief    C++ language frontend adapter implementation
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/cpp/include/cpp_frontend.h"
 
 #include "frontends/common/include/frontend_registry.h"

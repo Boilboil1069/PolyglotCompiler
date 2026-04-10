@@ -1,3 +1,11 @@
+/**
+ * @file     type_mapping.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/interop/type_mapping.h"
 
 #include <unordered_map>

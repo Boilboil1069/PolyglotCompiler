@@ -1,9 +1,11 @@
-// topology_analyzer.h — Builds a TopologyGraph from a .ploy AST.
-//
-// Walks the parsed and semantically-analyzed AST to extract function nodes,
-// their input/output ports (parameters and return types), and the data-flow
-// edges between them (CALL, LINK, PIPELINE, variable assignments).
-
+/**
+ * @file     topology_analyzer.h
+ * @brief    Builds a TopologyGraph from a .ploy AST
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -21,6 +23,7 @@ namespace polyglot::tools::topo {
 // TopologyAnalyzer — AST-to-graph builder
 // ============================================================================
 
+/** @brief TopologyAnalyzer class. */
 class TopologyAnalyzer {
   public:
     // Construct an analyzer with semantic information for type resolution
@@ -54,6 +57,7 @@ class TopologyAnalyzer {
                               uint64_t context_node_id);
 
     // Extract edges from expressions
+    /** @brief ExprResult data structure. */
     struct ExprResult {
         uint64_t producer_node_id{0};
         uint64_t producer_port_id{0};
@@ -89,6 +93,7 @@ class TopologyAnalyzer {
     TopologyGraph graph_;
 
     // Mapping from variable name to the expression result that produced it
+    /** @brief VarBinding data structure. */
     struct VarBinding {
         uint64_t producer_node_id{0};
         uint64_t producer_port_id{0};

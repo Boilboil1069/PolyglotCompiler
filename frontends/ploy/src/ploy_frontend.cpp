@@ -1,5 +1,11 @@
-// ploy_frontend.cpp — Ploy language frontend adapter implementation.
-
+/**
+ * @file     ploy_frontend.cpp
+ * @brief    Ploy language frontend adapter implementation
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/ploy/include/ploy_frontend.h"
 
 #include "frontends/common/include/frontend_registry.h"

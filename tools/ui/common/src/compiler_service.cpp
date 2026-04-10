@@ -1,12 +1,11 @@
-// compiler_service.cpp — CompilerService implementation.
-//
-// Bridges the web UI layer to the compiler's frontend pipeline: lexer,
-// parser, semantic analysis, and lowering.  Each public method creates a
-// fresh pipeline so that the service is stateless and thread-safe.
-//
-// Uses FrontendRegistry for unified language dispatch instead of per-language
-// if/else chains.
-
+/**
+ * @file     compiler_service.cpp
+ * @brief    CompilerService implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/compiler_service.h"
 
 #include <algorithm>
@@ -38,7 +37,8 @@
 // Common sema context for non-ploy frontends
 #include "frontends/common/include/sema_context.h"
 
-// ---------------------------------------------------------------------------
+/** @name - */
+/** @{ */
 // Ensure every concrete frontend is registered in FrontendRegistry.
 //
 // The REGISTER_FRONTEND() macro places a static-storage-duration registrar in
@@ -50,7 +50,10 @@
 // We guard against that by explicitly instantiating each concrete class in
 // the CompilerService constructor.  This creates an unconditional dependency
 // on the constructors defined in those .obj files, preventing dead-stripping.
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 namespace polyglot::tools::ui {
 
@@ -330,3 +333,5 @@ std::vector<CompletionItem> CompilerService::GetPloyCompletions(
 }
 
 } // namespace polyglot::tools::ui
+
+/** @} */

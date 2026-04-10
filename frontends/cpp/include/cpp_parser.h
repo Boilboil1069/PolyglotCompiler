@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_parser.h
+ * @brief    C++ language frontend
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -8,6 +16,7 @@
 
 namespace polyglot::cpp {
 
+/** @brief CppParser class. */
 class CppParser : public frontends::ParserBase {
   public:
     CppParser(CppLexer &lexer, frontends::Diagnostics &diagnostics)

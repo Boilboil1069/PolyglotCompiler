@@ -1,3 +1,11 @@
+/**
+ * @file     template_instantiator.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 // Template Instantiation System
@@ -33,6 +41,7 @@ namespace polyglot::ir {
 // ============================================================================
 
 // Represents a template parameter (typename T, class T, or non-type like int N)
+/** @brief TemplateParameter data structure. */
 struct TemplateParameter {
   std::string name;             // Parameter name (e.g., "T", "N")
   bool is_typename{true};       // true: typename/class, false: non-type parameter
@@ -43,6 +52,7 @@ struct TemplateParameter {
 };
 
 // Represents a template argument (actual type or value passed to instantiation)
+/** @brief TemplateArgument data structure. */
 struct TemplateArgument {
   bool is_type{true};           // true: type argument, false: non-type argument
   IRType type;                  // Type argument value
@@ -82,6 +92,7 @@ struct TemplateArgument {
 // Template Instantiation Key (for caching instantiated templates)
 // ============================================================================
 
+/** @brief TemplateInstantiationKey data structure. */
 struct TemplateInstantiationKey {
   std::string template_name;
   std::vector<TemplateArgument> arguments;
@@ -94,6 +105,7 @@ struct TemplateInstantiationKey {
 // ============================================================================
 
 // Represents a template specialization (partial or explicit)
+/** @brief TemplateSpecialization data structure. */
 struct TemplateSpecialization {
   std::vector<TemplateArgument> pattern;   // The specialization pattern
   std::vector<TemplateParameter> params;   // Parameters for partial specialization
@@ -107,6 +119,7 @@ struct TemplateSpecialization {
 // ============================================================================
 
 // Generic AST node interface for type-erased AST handling
+/** @brief GenericAstNode data structure. */
 struct GenericAstNode {
   virtual ~GenericAstNode() = default;
   virtual std::shared_ptr<GenericAstNode> Clone() const = 0;
@@ -115,6 +128,7 @@ struct GenericAstNode {
 
 // AST visitor interface for template parameter substitution
 // Frontend-specific implementations should inherit from this
+/** @brief TemplateAstVisitor class. */
 class TemplateAstVisitor {
 public:
   virtual ~TemplateAstVisitor() = default;
@@ -138,6 +152,7 @@ public:
 // ============================================================================
 
 // Result of a template substitution operation
+/** @brief SubstitutionResult data structure. */
 struct SubstitutionResult {
   bool success{false};
   std::string error_message;
@@ -171,6 +186,7 @@ struct SubstitutionResult {
 // ============================================================================
 
 // Result of template argument deduction
+/** @brief DeductionResult data structure. */
 struct DeductionResult {
   bool success{false};
   std::string error_message;
@@ -228,14 +244,19 @@ namespace polyglot::ir {
 // Main Template Instantiator Class
 // ============================================================================
 
+/** @brief TemplateInstantiator class. */
 class TemplateInstantiator {
 public:
   TemplateInstantiator();
   ~TemplateInstantiator();
   
-  // -------------------------------------------------------------------------
+  /** @name - */
+  /** @{ */
   // Template Registration
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Register a class template
   void RegisterClassTemplate(const std::string& name,
@@ -260,9 +281,15 @@ public:
                               void* specialized_ast,
                               bool is_partial = true);
 
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Template Instantiation
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Instantiate a class template with given arguments
   // Returns the mangled instantiation name (e.g., "vector<int>")
@@ -280,9 +307,15 @@ public:
   // Get the instantiated AST for a function template
   void* GetInstantiatedFunctionAst(const std::string& instantiated_name);
 
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Template Argument Deduction
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Deduce template arguments from function call argument types
   DeductionResult DeduceTemplateArguments(const std::string& template_name,
@@ -293,9 +326,15 @@ public:
                                  const IRType& argument,
                                  const std::vector<TemplateParameter>& params);
 
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Type Substitution
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Substitute template parameters in a type
   SubstitutionResult SubstituteType(
@@ -308,9 +347,15 @@ public:
       const std::unordered_map<std::string, TemplateArgument>& substitutions,
       TemplateAstVisitor* visitor);
 
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Specialization Matching
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Check if arguments match a specialization pattern
   bool MatchesPattern(const std::vector<TemplateArgument>& arguments,
@@ -322,9 +367,15 @@ public:
       const std::string& template_name,
       const std::vector<TemplateArgument>& arguments);
 
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Utility Functions
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Generate a mangled name for an instantiation
   std::string GenerateInstanceName(const std::string& template_name,
@@ -349,22 +400,26 @@ public:
 
 private:
   // Internal template information storage
+  /** @brief ClassTemplateInfo data structure. */
   struct ClassTemplateInfo {
     std::vector<TemplateParameter> params;
     void* ast{nullptr};
   };
   
+  /** @brief FunctionTemplateInfo data structure. */
   struct FunctionTemplateInfo {
     std::vector<TemplateParameter> params;
     void* ast{nullptr};
     std::vector<IRType> param_types;  // Function parameter types for deduction
   };
   
+  /** @brief AliasTemplateInfo data structure. */
   struct AliasTemplateInfo {
     std::vector<TemplateParameter> params;
     IRType aliased_type;
   };
   
+  /** @brief InstantiatedTemplate data structure. */
   struct InstantiatedTemplate {
     std::string name;
     void* ast{nullptr};
@@ -384,9 +439,15 @@ private:
   // AST visitor for substitution
   std::shared_ptr<TemplateAstVisitor> ast_visitor_;
   
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Internal Helper Functions
-  // -------------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   
   // Calculate the specificity score for a specialization pattern
   int CalculateSpecificity(const std::vector<TemplateArgument>& pattern) const;
@@ -418,3 +479,5 @@ private:
 };
 
 }  // namespace polyglot::ir
+
+/** @} */

@@ -1,13 +1,11 @@
-// topology_panel.cpp — Topology visualization panel implementation.
-//
-// Features implemented:
-//   1. Force-directed automatic layout (replaces simple grid)
-//   2. Interactive edge creation/deletion via port drag and context menu
-//   3. Live reload on .ploy file changes via QFileSystemWatcher
-//   4. Debug breakpoint integration: highlights the node matching the
-//      current debugger location
-//   5. Port-hover tooltips showing detailed type information
-
+/**
+ * @file     topology_panel.cpp
+ * @brief    Topology visualization panel implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/topology_panel.h"
 
 #include <QApplication>
@@ -1318,7 +1316,8 @@ void TopologyPanel::OnForceLayoutTick() {
         forces[id] = {0.0, 0.0};
     }
 
-    // --- Repulsion between all node pairs (Coulomb's law) ---
+    /** @name Repulsion between all node pairs (Coulomb's law) */
+    /** @{ */
     auto ids = std::vector<uint64_t>();
     ids.reserve(node_items_.size());
     for (auto &[id, item] : node_items_) ids.push_back(id);
@@ -1342,7 +1341,10 @@ void TopologyPanel::OnForceLayoutTick() {
         }
     }
 
-    // --- Attraction along edges (Hooke's law) ---
+    /** @} */
+
+    /** @name Attraction along edges (Hooke's law) */
+    /** @{ */
     for (const auto *edge : edge_items_) {
         auto src_it = node_items_.find(edge->SourceNodeId());
         auto tgt_it = node_items_.find(edge->TargetNodeId());
@@ -1364,7 +1366,10 @@ void TopologyPanel::OnForceLayoutTick() {
         forces[tgt_it->first].fy -= fy;
     }
 
-    // --- Apply forces with damping ---
+    /** @} */
+
+    /** @name Apply forces with damping */
+    /** @{ */
     double damping = kDamping;
     // Increase damping as iterations progress (simulated annealing)
     double progress = 1.0 - static_cast<double>(force_iterations_remaining_) /
@@ -1736,3 +1741,5 @@ void TopologyPanel::OnFileChanged(const QString &path) {
 }
 
 } // namespace polyglot::tools::ui
+
+/** @} */

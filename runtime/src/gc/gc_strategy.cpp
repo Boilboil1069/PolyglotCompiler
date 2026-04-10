@@ -1,3 +1,11 @@
+/**
+ * @file     gc_strategy.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/gc/gc_strategy.h"
 
 #include <memory>

@@ -1,10 +1,11 @@
-// topology_codegen.h — Generates .ploy source code from a TopologyGraph.
-//
-// Provides bidirectional interop: given a topology graph (either parsed
-// from .ploy or loaded from JSON), regenerate valid .ploy source text.
-// Shared between the polyui IDE (Generate .ploy button) and the polytopo
-// CLI (generate subcommand).
-
+/**
+ * @file     topology_codegen.h
+ * @brief    Generates .ploy source code from a TopologyGraph
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>

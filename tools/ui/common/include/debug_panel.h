@@ -1,9 +1,11 @@
-// debug_panel.h — Debugger integration panel for the PolyglotCompiler IDE.
-//
-// Provides breakpoint management, variable inspection, call stack display,
-// debug control (step/continue/pause), and watch expressions.
-// Interfaces with lldb/gdb via command-line pipe for native debugging.
-
+/**
+ * @file     debug_panel.h
+ * @brief    Debugger integration panel for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -32,6 +34,7 @@ class CodeEditor;
 // Breakpoint — a single breakpoint definition
 // ============================================================================
 
+/** @brief Breakpoint data structure. */
 struct Breakpoint {
     int id{-1};
     QString file;
@@ -46,6 +49,7 @@ struct Breakpoint {
 // StackFrame — a single call stack frame
 // ============================================================================
 
+/** @brief StackFrame data structure. */
 struct StackFrame {
     int index{0};
     QString function_name;
@@ -59,6 +63,7 @@ struct StackFrame {
 // DebugVariable — variable in scope during debug session
 // ============================================================================
 
+/** @brief DebugVariable data structure. */
 struct DebugVariable {
     QString name;
     QString value;
@@ -71,6 +76,7 @@ struct DebugVariable {
 // WatchExpression — user-defined watch entry
 // ============================================================================
 
+/** @brief WatchExpression data structure. */
 struct WatchExpression {
     QString expression;
     QString value;
@@ -81,6 +87,7 @@ struct WatchExpression {
 // DebugPanel — dock-able debug control and inspection panel
 // ============================================================================
 
+/** @brief DebugPanel class. */
 class DebugPanel : public QWidget {
     Q_OBJECT
 
@@ -173,6 +180,7 @@ class DebugPanel : public QWidget {
     void RefreshBreakpointTree();
 
     // State management
+    /** @brief DebugState enumeration. */
     enum class DebugState {
         Idle,       // no debug session
         Starting,   // launching debugger

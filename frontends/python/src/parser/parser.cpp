@@ -1,3 +1,11 @@
+/**
+ * @file     parser.cpp
+ * @brief    Python language frontend implementation
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/python/include/python_parser.h"
 
 namespace polyglot::python {

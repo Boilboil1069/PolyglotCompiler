@@ -1,8 +1,11 @@
-// output_panel.cpp — Tabbed output panel implementation.
-//
-// Contains three tabs: Output (general text), Errors (diagnostic table),
-// and Log (raw compiler output).
-
+/**
+ * @file     output_panel.cpp
+ * @brief    Tabbed output panel implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/compiler_service.h"
 #include "tools/ui/common/include/theme_manager.h"

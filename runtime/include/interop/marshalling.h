@@ -1,3 +1,11 @@
+/**
+ * @file     marshalling.h
+ * @brief    Cross-language interoperability
+ *
+ * @ingroup  Runtime / Interop
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstddef>
@@ -6,8 +14,10 @@
 
 namespace polyglot::runtime::interop {
 
+/** @brief Endianness enumeration. */
 enum class Endianness { kLittle, kBig };
 
+/** @brief Marshalling data structure. */
 struct Marshalling {
   size_t size{0};
   size_t alignment{1};

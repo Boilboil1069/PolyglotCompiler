@@ -1,11 +1,18 @@
-// rust_frontend.h — Rust language frontend adapter.
-
+/**
+ * @file     rust_frontend.h
+ * @brief    Rust language frontend adapter
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/language_frontend.h"
 
 namespace polyglot::rust {
 
+/** @brief RustLanguageFrontend class. */
 class RustLanguageFrontend : public frontends::ILanguageFrontend {
   public:
     std::string Name() const override { return "rust"; }

@@ -1,3 +1,11 @@
+/**
+ * @file     stage_backend.h
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 // ============================================================================
 // stage_backend.h — Stage 5: IR optimisation + code generation

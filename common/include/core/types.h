@@ -85,7 +85,8 @@ struct Type {
   bool is_signed{true};          ///< Sign flag for integer types.
   size_t array_size{0};          ///< Element count for fixed-size arrays (0 = dynamic).
 
-  // --- Factory methods for common types ---
+  /** @name Factory methods for common types */
+  /** @{ */
 
   static Type Invalid() { return Type{TypeKind::kInvalid, "<invalid>"}; }
   static Type Void() { return Type{TypeKind::kVoid, "void"}; }
@@ -173,7 +174,10 @@ struct Type {
     return t;
   }
 
-  // --- Type query predicates ---
+  /** @} */
+
+  /** @name Type query predicates */
+  /** @{ */
 
   bool IsNumeric() const { return kind == TypeKind::kInt || kind == TypeKind::kFloat; }
   bool IsInteger() const { return kind == TypeKind::kInt; }
@@ -199,7 +203,10 @@ struct Type {
     return true;
   }
 
-  // --- Element access helpers (implemented in type_system.cpp) ---
+  /** @} */
+
+  /** @name Element access helpers (implemented in type_system.cpp) */
+  /** @{ */
 
   /// Get the element/pointee type for pointer, array, optional, slice, or reference types.
   Type GetElementType() const;
@@ -213,7 +220,10 @@ struct Type {
   /// Get parameter count of a function type.
   size_t GetParamCount() const;
 
-  // --- Qualifier helpers (implemented in type_system.cpp) ---
+  /** @} */
+
+  /** @name Qualifier helpers (implemented in type_system.cpp) */
+  /** @{ */
 
   /// Return a copy with the const qualifier set.
   Type WithConst(bool c = true) const;
@@ -224,7 +234,10 @@ struct Type {
   /// Return a copy with all qualifiers stripped.
   Type StripQualifiers() const;
 
-  // --- String representation (implemented in type_system.cpp) ---
+  /** @} */
+
+  /** @name String representation (implemented in type_system.cpp) */
+  /** @{ */
 
   /// Produce a human-readable string for this type.
   std::string ToString() const;
@@ -304,7 +317,10 @@ class TypeSystem {
     return Type::GenericInstance(std::move(name), std::move(args), std::move(lang));
   }
 
-  // --- Size and alignment computation for core types ---
+  /** @} */
+
+  /** @name Size and alignment computation for core types */
+  /** @{ */
 
   /// Compute the size in bytes for a core type on a typical 64-bit platform.
   size_t SizeOf(const Type &t) const;
@@ -312,7 +328,10 @@ class TypeSystem {
   /// Compute the alignment in bytes for a core type on a typical 64-bit platform.
   size_t AlignOf(const Type &t) const;
 
-  // --- Type relationship utilities ---
+  /** @} */
+
+  /** @name Type relationship utilities */
+  /** @{ */
 
   /// Compute the common (promoted) type for a binary operation.
   /// Follows C-like promotion: int widens to float, narrower widens to wider.
@@ -334,7 +353,10 @@ class TypeSystem {
   /// Lower rank = narrower type.
   int ConversionRank(const Type &t) const;
 
-  // --- Alias management ---
+  /** @} */
+
+  /** @name Alias management */
+  /** @{ */
 
   /// Register a type alias (e.g., "size_t" -> Int(64, false)).
   void RegisterAlias(const std::string &alias, Type target);
@@ -345,7 +367,10 @@ class TypeSystem {
   /// Check whether an alias has been registered.
   bool HasAlias(const std::string &name) const;
 
-  // --- String representation ---
+  /** @} */
+
+  /** @name String representation */
+  /** @{ */
 
   /// Return the TypeKind as a human-readable string.
   static std::string KindToString(TypeKind kind);
@@ -360,6 +385,7 @@ class TypeSystem {
 
 /// Simple constraint representation for generics/traits.
 struct TypeConstraint {
+  /** @brief Kind enumeration. */
   enum class Kind { kEquals, kTrait } kind{Kind::kEquals};
   Type lhs;
   Type rhs;
@@ -495,7 +521,10 @@ class TypeRegistry {
   /// Clear all registered types and equivalences.
   void Clear();
 
-  // --- Cross-language equivalence ---
+  /** @} */
+
+  /** @name Cross-language equivalence */
+  /** @{ */
 
   /// Register two types from different languages as equivalent.
   void RegisterEquivalence(const std::string &lang_a, const std::string &type_a,
@@ -509,7 +538,10 @@ class TypeRegistry {
   bool AreEquivalent(const std::string &lang_a, const std::string &type_a,
                      const std::string &lang_b, const std::string &type_b) const;
 
-  // --- Iteration ---
+  /** @} */
+
+  /** @name Iteration */
+  /** @{ */
 
   /// Return all registered (name, type) pairs.
   std::vector<std::pair<std::string, Type>> AllTypes() const;
@@ -529,3 +561,5 @@ inline bool Type::operator==(const Type &other) const {
 }
 
 }  // namespace polyglot::core
+
+/** @} */

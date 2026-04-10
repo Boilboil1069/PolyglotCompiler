@@ -1,3 +1,11 @@
+/**
+ * @file     root_guard.h
+ * @brief    Garbage collection subsystem
+ *
+ * @ingroup  Runtime / GC
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "runtime/include/libs/base.h"

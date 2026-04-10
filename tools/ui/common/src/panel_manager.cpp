@@ -1,7 +1,11 @@
-// panel_manager.cpp — PanelManager implementation.
-//
-// Manages bottom panel tabs and plugin panel contributions.
-
+/**
+ * @file     panel_manager.cpp
+ * @brief    PanelManager implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/panel_manager.h"
 
 #include <algorithm>

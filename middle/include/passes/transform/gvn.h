@@ -1,3 +1,11 @@
+/**
+ * @file     gvn.h
+ * @brief    Transformation passes
+ *
+ * @ingroup  Middle / Transform
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -16,6 +24,7 @@ namespace polyglot::ir {
 namespace polyglot::passes::transform {
 
 // Value numbering for an expression
+/** @brief ValueNumber data structure. */
 struct ValueNumber {
     size_t number;
     std::string canonical_name;  // Canonical representative
@@ -23,6 +32,7 @@ struct ValueNumber {
 
 // Global Value Numbering Pass
 // Eliminates redundant computations across basic blocks
+/** @brief GVNPass class. */
 class GVNPass {
 public:
     explicit GVNPass(ir::Function& func);
@@ -30,6 +40,7 @@ public:
     bool Run();
     
 private:
+    /** @brief Expression data structure. */
     struct Expression {
         std::string opcode;
         std::vector<size_t> operand_numbers;
@@ -39,6 +50,7 @@ private:
         }
     };
     
+    /** @brief ExpressionHash data structure. */
     struct ExpressionHash {
         size_t operator()(const Expression& expr) const;
     };
@@ -68,6 +80,7 @@ private:
 
 // Partial Redundancy Elimination (PRE)
 // More aggressive than GVN, can eliminate partial redundancies
+/** @brief PREPass class. */
 class PREPass {
 public:
     explicit PREPass(ir::Function& func);
@@ -75,6 +88,7 @@ public:
     bool Run();
     
 private:
+    /** @brief Expression data structure. */
     struct Expression {
         std::string opcode;
         std::vector<std::string> operands;
@@ -89,6 +103,7 @@ private:
         }
     };
     
+    /** @brief ExpressionCompare data structure. */
     struct ExpressionCompare {
         bool operator()(const Expression& a, const Expression& b) const {
             return a < b;
@@ -110,10 +125,12 @@ private:
 };
 
 // Alias Analysis Enhancement
+/** @brief AliasAnalysisPass class. */
 class AliasAnalysisPass {
 public:
     explicit AliasAnalysisPass(ir::Function& func);
     
+    /** @brief AliasResult enumeration. */
     enum class AliasResult {
         kNoAlias,      // Definitely don't alias
         kMayAlias,     // Might alias

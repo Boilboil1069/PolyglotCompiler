@@ -1,11 +1,11 @@
-// topology_graph.h — Core data structures for the Polyglot topology graph.
-//
-// Represents function-level I/O topology for cross-language .ploy programs.
-// Each function is modelled as a TopologyNode with typed input/output ports;
-// edges connect an output port on one node to an input port on another.
-// The graph is built from the .ploy AST and can be validated, printed, or
-// exported to various formats (text, DOT, JSON).
-
+/**
+ * @file     topology_graph.h
+ * @brief    Core data structures for the Polyglot topology graph
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -24,7 +24,9 @@ namespace polyglot::tools::topo {
 // Port — a typed input or output slot on a topology node
 // ============================================================================
 
+/** @brief Port data structure. */
 struct Port {
+    /** @brief Direction enumeration. */
     enum class Direction { kInput, kOutput };
 
     std::string name;                          // Parameter or return-value name
@@ -44,7 +46,9 @@ struct Port {
 // TopologyNode — a function / class-ctor / method in the topology graph
 // ============================================================================
 
+/** @brief TopologyNode data structure. */
 struct TopologyNode {
+    /** @brief Kind enumeration. */
     enum class Kind {
         kFunction,      // Standalone function (FUNC / CALL / LINK target)
         kConstructor,   // NEW(...) class constructor
@@ -75,6 +79,7 @@ struct TopologyNode {
 // TopologyEdge — a connection between an output port and an input port
 // ============================================================================
 
+/** @brief TopologyEdge data structure. */
 struct TopologyEdge {
     uint64_t id{0};
 
@@ -85,6 +90,7 @@ struct TopologyEdge {
     uint64_t target_port_id{0};   // Input port on the target node
 
     // Type compatibility status
+    /** @brief Status enumeration. */
     enum class Status {
         kValid,             // Types are directly compatible
         kImplicitConvert,   // Requires implicit type conversion (widening, etc.)
@@ -104,7 +110,9 @@ struct TopologyEdge {
 // ValidationDiagnostic — a diagnostic produced during topology validation
 // ============================================================================
 
+/** @brief ValidationDiagnostic data structure. */
 struct ValidationDiagnostic {
+    /** @brief Severity enumeration. */
     enum class Severity { kError, kWarning, kInfo };
 
     Severity severity{Severity::kError};
@@ -121,6 +129,7 @@ struct ValidationDiagnostic {
 // TopologyGraph — the complete topology graph for a .ploy module
 // ============================================================================
 
+/** @brief TopologyGraph class. */
 class TopologyGraph {
   public:
     TopologyGraph() = default;

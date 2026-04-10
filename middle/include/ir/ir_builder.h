@@ -1,3 +1,11 @@
+/**
+ * @file     ir_builder.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstddef>
@@ -12,6 +20,7 @@
 
 namespace polyglot::ir {
 
+/** @brief IRBuilder class. */
 class IRBuilder {
  public:
   explicit IRBuilder(IRContext &context) : context_(context) {}
@@ -108,6 +117,7 @@ const std::vector<std::string> &args,
   std::shared_ptr<Function> active_function_{};
 
   // String literal interning map (per-builder, NOT global).
+  /** @brief InternedString data structure. */
   struct InternedString {
     std::string data_name;
     std::string addr_name;

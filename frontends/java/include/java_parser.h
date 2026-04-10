@@ -1,3 +1,11 @@
+/**
+ * @file     java_parser.h
+ * @brief    Java language frontend
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -8,6 +16,7 @@
 
 namespace polyglot::java {
 
+/** @brief JavaParser class. */
 class JavaParser : public frontends::ParserBase {
   public:
     JavaParser(JavaLexer &lexer, frontends::Diagnostics &diagnostics)

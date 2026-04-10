@@ -1,3 +1,11 @@
+/**
+ * @file     config.h
+ * @brief    Core type system and common definitions
+ *
+ * @ingroup  Common / Core
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -5,6 +13,7 @@
 
 namespace polyglot::core {
 
+/** @brief Config class. */
 class Config {
  public:
   void SetOption(const std::string &key, const std::string &value) {

@@ -1,3 +1,11 @@
+/**
+ * @file     exception.h
+ * @brief    Runtime service infrastructure
+ *
+ * @ingroup  Runtime / Services
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <stdexcept>
@@ -7,6 +15,7 @@
 
 namespace polyglot::runtime::services {
 
+/** @brief RuntimeError class. */
 class RuntimeError : public std::runtime_error {
  public:
   RuntimeError(const std::string &message, std::vector<std::string> stack)

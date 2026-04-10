@@ -1,3 +1,11 @@
+/**
+ * @file     compilation_pipeline.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polyc/include/compilation_pipeline.h"
 
 #include <chrono>

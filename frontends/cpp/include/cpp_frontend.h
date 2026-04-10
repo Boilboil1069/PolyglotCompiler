@@ -1,11 +1,18 @@
-// cpp_frontend.h — C++ language frontend adapter.
-
+/**
+ * @file     cpp_frontend.h
+ * @brief    C++ language frontend adapter
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/language_frontend.h"
 
 namespace polyglot::cpp {
 
+/** @brief CppLanguageFrontend class. */
 class CppLanguageFrontend : public frontends::ILanguageFrontend {
   public:
     std::string Name() const override { return "cpp"; }

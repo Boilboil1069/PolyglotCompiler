@@ -1,9 +1,11 @@
-// theme_manager.h — Centralized theme management for the PolyglotCompiler IDE.
-//
-// Provides named color palettes and stylesheet generation so that all panels
-// share a single source of truth for visual styling.  Supports multiple
-// built-in themes (Dark, Light, Monokai, Solarized Dark).
-
+/**
+ * @file     theme_manager.h
+ * @brief    Centralized theme management for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QColor>
@@ -16,6 +18,7 @@ namespace polyglot::tools::ui {
 // ThemeColors — the complete set of colors that define a theme
 // ============================================================================
 
+/** @brief ThemeColors data structure. */
 struct ThemeColors {
     // Base surfaces
     QColor background;            // main editor / panel background
@@ -97,6 +100,7 @@ struct ThemeColors {
 // ThemeManager — singleton that manages the current theme
 // ============================================================================
 
+/** @brief ThemeManager class. */
 class ThemeManager {
   public:
     // Get the global instance.

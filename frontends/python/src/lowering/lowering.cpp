@@ -1,3 +1,11 @@
+/**
+ * @file     lowering.cpp
+ * @brief    Python language frontend implementation
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/python/include/python_lowering.h"
 #include "frontends/python/include/python_ast.h"
 
@@ -20,9 +28,13 @@ namespace {
 
 using Name = std::string;
 
-// ----------------------------------------------------------------------------
+/** @name - */
+/** @{ */
 // Type mapping from Python type hints to IR types.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 ir::IRType ToIRType(const std::string &type_hint) {
     if (type_hint == "int") return ir::IRType::I64(true);
     if (type_hint == "float") return ir::IRType::F64();
@@ -37,9 +49,15 @@ ir::IRType ToIRType(const std::string &type_hint) {
     return ir::IRType::I64(true);
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Environment entry for variable tracking.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct EnvEntry {
     Name value;
     ir::IRType type{ir::IRType::Invalid()};
@@ -47,26 +65,44 @@ struct EnvEntry {
     bool is_mutable{false};
 };
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Loop context for break/continue handling.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct LoopContext {
     ir::BasicBlock *continue_target{nullptr};
     ir::BasicBlock *break_target{nullptr};
 };
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Class info for method lowering.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct ClassInfo {
     std::string name;
     std::vector<std::string> methods;
     std::vector<std::string> fields;
 };
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Main lowering context.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct LoweringContext {
     ir::IRContext &ir_ctx;
     frontends::Diagnostics &diags;
@@ -105,9 +141,15 @@ struct LoweringContext {
     }
 };
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Evaluation result.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct EvalResult {
     Name value;
     ir::IRType type{ir::IRType::Invalid()};
@@ -122,9 +164,15 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc);
 bool LowerFunction(const FunctionDef &fn, LoweringContext &lc);
 bool LowerClass(const ClassDef &cls, LoweringContext &lc);
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Literal parsing helpers.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 bool IsIntegerLiteral(const std::string &text, long long *out) {
     if (text.empty()) return false;
     // Handle Python keywords as literals
@@ -148,9 +196,15 @@ bool IsFloatLiteral(const std::string &text, double *out) {
     return true;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Make literals.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult MakeLiteral(long long v, LoweringContext &lc) {
     auto lit = lc.builder.MakeLiteral(v, lc.NextTemp("lit"));
     return {lit->name, ir::IRType::I64(true)};
@@ -161,9 +215,15 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
     return {lit->name, ir::IRType::F64()};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Name evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalName(const std::shared_ptr<Identifier> &name, LoweringContext &lc) {
     auto it = lc.env.find(name->name);
     if (it == lc.env.end()) {
@@ -204,9 +264,15 @@ EvalResult EvalName(const std::shared_ptr<Identifier> &name, LoweringContext &lc
     return {it->second.value, it->second.type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Binary operator mapping.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float = false) {
     if (op == "+") return is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
     if (op == "-") return is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
@@ -253,9 +319,15 @@ bool IsCmpOp(ir::BinaryInstruction::Op op) {
     }
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Binary expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringContext &lc) {
     // Handle logical and/or with short-circuit evaluation and proper PHI nodes
     if (bin->op == "and" || bin->op == "or") {
@@ -318,9 +390,15 @@ EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringConte
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Unary expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringContext &lc) {
     auto operand = EvalExpr(un->operand, lc);
     if (!operand.IsValid()) return EvalResult::Invalid();
@@ -357,9 +435,15 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
     return EvalResult::Invalid();
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Call expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext &lc) {
     std::vector<std::string> args;
     std::vector<ir::IRType> arg_types;
@@ -454,9 +538,15 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Attribute expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalAttribute(const std::shared_ptr<AttributeExpression> &attr, LoweringContext &lc) {
     auto obj = EvalExpr(attr->object, lc);
     if (!obj.IsValid()) return EvalResult::Invalid();
@@ -467,9 +557,15 @@ EvalResult EvalAttribute(const std::shared_ptr<AttributeExpression> &attr, Lower
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Index expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalIndex(const std::shared_ptr<IndexExpression> &idx, LoweringContext &lc) {
     auto obj = EvalExpr(idx->object, lc);
     auto index = EvalExpr(idx->index, lc);
@@ -480,9 +576,15 @@ EvalResult EvalIndex(const std::shared_ptr<IndexExpression> &idx, LoweringContex
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Slice expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalSlice(const std::shared_ptr<SliceExpression> &slice, LoweringContext &lc) {
     auto start = slice->start ? EvalExpr(slice->start, lc) : MakeLiteral(0, lc);
     auto stop = slice->stop ? EvalExpr(slice->stop, lc) : MakeLiteral(-1, lc);
@@ -495,9 +597,15 @@ EvalResult EvalSlice(const std::shared_ptr<SliceExpression> &slice, LoweringCont
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Tuple expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalTuple(const std::shared_ptr<TupleExpression> &tup, LoweringContext &lc) {
     std::vector<std::string> elems;
     for (const auto &e : tup->elements) {
@@ -511,9 +619,15 @@ EvalResult EvalTuple(const std::shared_ptr<TupleExpression> &tup, LoweringContex
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // List expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalList(const std::shared_ptr<ListExpression> &lst, LoweringContext &lc) {
     std::vector<std::string> elems;
     for (const auto &e : lst->elements) {
@@ -526,9 +640,15 @@ EvalResult EvalList(const std::shared_ptr<ListExpression> &lst, LoweringContext 
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Dict expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalDict(const std::shared_ptr<DictExpression> &dict, LoweringContext &lc) {
     std::vector<std::string> args;
     for (const auto &[k, v] : dict->items) {
@@ -543,9 +663,15 @@ EvalResult EvalDict(const std::shared_ptr<DictExpression> &dict, LoweringContext
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Set expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalSet(const std::shared_ptr<SetExpression> &set_expr, LoweringContext &lc) {
     std::vector<std::string> elems;
     for (const auto &e : set_expr->elements) {
@@ -558,11 +684,17 @@ EvalResult EvalSet(const std::shared_ptr<SetExpression> &set_expr, LoweringConte
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Comprehension expression evaluation.
 // Implements full loop unrolling for list/set/dict comprehensions.
 // e.g. [x*2 for x in range(10) if x > 5] generates proper loop IR.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &comp, LoweringContext &lc) {
     // Create a temporary list/set/dict container
     std::string result_name;
@@ -730,9 +862,15 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
     return {container->name, result_type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Lambda expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalLambda(const std::shared_ptr<LambdaExpression> &lambda, LoweringContext &lc) {
     // Create a nested function for the lambda
     std::string lambda_name = lc.NextTemp("lambda");
@@ -777,9 +915,15 @@ EvalResult EvalLambda(const std::shared_ptr<LambdaExpression> &lambda, LoweringC
     return {lambda_name, ir::IRType::I64(true)};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Await expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalAwait(const std::shared_ptr<AwaitExpression> &await, LoweringContext &lc) {
     if (!lc.in_async_function) {
         lc.diags.Report(await->loc, "'await' outside async function");
@@ -795,9 +939,15 @@ EvalResult EvalAwait(const std::shared_ptr<AwaitExpression> &await, LoweringCont
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Yield expression evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalYield(const std::shared_ptr<YieldExpression> &yield, LoweringContext &lc) {
     EvalResult val;
     if (yield->value) {
@@ -812,9 +962,15 @@ EvalResult EvalYield(const std::shared_ptr<YieldExpression> &yield, LoweringCont
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Named expression (walrus operator) evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalNamedExpr(const std::shared_ptr<NamedExpression> &named, LoweringContext &lc) {
     auto val = EvalExpr(named->value, lc);
     if (!val.IsValid()) return EvalResult::Invalid();
@@ -827,9 +983,15 @@ EvalResult EvalNamedExpr(const std::shared_ptr<NamedExpression> &named, Lowering
     return val;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Formatted string evaluation.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalFormattedString(const std::shared_ptr<FormattedString> &fstr, LoweringContext &lc) {
     std::vector<std::string> parts;
     for (const auto &part : fstr->parts) {
@@ -854,9 +1016,15 @@ EvalResult EvalFormattedString(const std::shared_ptr<FormattedString> &fstr, Low
     return {inst->name, inst->type};
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Main expression evaluator.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc) {
     if (!expr) return EvalResult::Invalid();
 
@@ -967,9 +1135,15 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     return EvalResult::Invalid();
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Statement lowering functions.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 bool LowerReturn(const std::shared_ptr<ReturnStatement> &ret, LoweringContext &lc) {
     if (lc.terminated) return true;
@@ -1491,7 +1665,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
     
     lc.builder.MakeCondBranch(is_exception->name, landing_pad, try_block);
     
-    // --- Try block ---
+    /** @} */
+
+    /** @name Try block */
+    /** @{ */
     lc.SetInsertBlock(try_block);
     lc.terminated = false;
 
@@ -1516,7 +1693,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // --- Landing pad block: dispatch to appropriate handler ---
+    /** @} */
+
+    /** @name Landing pad block: dispatch to appropriate handler */
+    /** @{ */
     lc.SetInsertBlock(landing_pad);
     lc.terminated = false;
     
@@ -1561,7 +1741,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         current_check_block = next_check;
     }
 
-    // --- Unwind block: re-raise if no handler matched ---
+    /** @} */
+
+    /** @name Unwind block: re-raise if no handler matched */
+    /** @{ */
     lc.SetInsertBlock(unwind_block);
     lc.terminated = false;
     
@@ -1578,7 +1761,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         lc.terminated = true;
     }
 
-    // --- Exception handlers ---
+    /** @} */
+
+    /** @name Exception handlers */
+    /** @{ */
     for (size_t i = 0; i < try_stmt->handlers.size(); ++i) {
         lc.SetInsertBlock(handler_blocks[i]);
         lc.terminated = false;
@@ -1612,7 +1798,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // --- Else block: executed if no exception occurred ---
+    /** @} */
+
+    /** @name Else block: executed if no exception occurred */
+    /** @{ */
     if (else_block) {
         lc.SetInsertBlock(else_block);
         lc.terminated = false;
@@ -1629,7 +1818,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
         }
     }
 
-    // --- Finally block: always executed ---
+    /** @} */
+
+    /** @name Finally block: always executed */
+    /** @{ */
     if (finally_block) {
         lc.SetInsertBlock(finally_block);
         lc.terminated = false;
@@ -1798,10 +1990,16 @@ bool LowerPass(LoweringContext &lc) {
     return true;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Built-in module function table for static linking.
 // Maps module name to a set of known function signatures.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 struct BuiltinFunctionInfo {
     ir::IRType return_type;
     std::vector<ir::IRType> param_types;
@@ -1972,9 +2170,15 @@ bool LowerNonlocal(const std::shared_ptr<NonlocalStatement> &nonlocal_stmt, Lowe
     return true;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Main statement lowering dispatcher.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     if (!stmt || lc.terminated) return true;
 
@@ -2047,10 +2251,16 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     return false;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Function lowering.
 // Handles parameters with default values using PHI nodes for proper SSA.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
     // Determine return type from type hints
     ir::IRType ret_ty = ir::IRType::I64(true);
@@ -2168,9 +2378,15 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
     return true;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Class lowering.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 bool LowerClass(const ClassDef &cls, LoweringContext &lc) {
     // Register class info
     ClassInfo info;
@@ -2213,9 +2429,15 @@ bool LowerClass(const ClassDef &cls, LoweringContext &lc) {
     return true;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Decorator handling.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 bool ApplyDecorators(const std::vector<std::shared_ptr<Expression>> &decorators,
                      const std::string &func_name, LoweringContext &lc) {
     for (auto it = decorators.rbegin(); it != decorators.rend(); ++it) {
@@ -2243,9 +2465,15 @@ bool ApplyDecorators(const std::vector<std::shared_ptr<Expression>> &decorators,
 
 } // namespace
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Public API: Lower Python module to IR.
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags) {
     LoweringContext lc(ctx, diags);
 
@@ -2310,3 +2538,5 @@ void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics 
 }
 
 } // namespace polyglot::python
+
+/** @} */

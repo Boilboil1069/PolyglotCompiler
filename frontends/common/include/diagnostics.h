@@ -1,3 +1,11 @@
+/**
+ * @file     diagnostics.h
+ * @brief    Shared frontend infrastructure
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -11,6 +19,7 @@ namespace polyglot::frontends {
 // Diagnostic Severity
 // ============================================================================
 
+/** @brief DiagnosticSeverity enumeration. */
 enum class DiagnosticSeverity {
     kError,     // Fatal error — compilation fails
     kWarning,   // Non-fatal issue — compilation continues
@@ -21,6 +30,7 @@ enum class DiagnosticSeverity {
 // Error Code Categories for UI Integration
 // ============================================================================
 
+/** @brief ErrorCode enumeration. */
 enum class ErrorCode {
     kUnknown = 0,
 
@@ -77,6 +87,7 @@ enum class ErrorCode {
 // Diagnostic Structure — UI-Ready
 // ============================================================================
 
+/** @brief Diagnostic data structure. */
 struct Diagnostic {
     core::SourceLoc loc{};
     std::string message;
@@ -94,6 +105,7 @@ struct Diagnostic {
 // Diagnostics Container — Collects all diagnostics during compilation
 // ============================================================================
 
+/** @brief Diagnostics class. */
 class Diagnostics {
   public:
     // Simple error report (backward-compatible)

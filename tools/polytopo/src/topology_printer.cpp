@@ -1,5 +1,11 @@
-// topology_printer.cpp — Renders a TopologyGraph in various text formats.
-
+/**
+ * @file     topology_printer.cpp
+ * @brief    Renders a TopologyGraph in various text formats
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polytopo/include/topology_printer.h"
 
 #include <algorithm>

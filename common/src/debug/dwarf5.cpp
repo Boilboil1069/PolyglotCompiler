@@ -1,3 +1,11 @@
+/**
+ * @file     dwarf5.cpp
+ * @brief    Shared implementation
+ *
+ * @ingroup  Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "common/include/debug/dwarf5.h"
 #include "common/include/version.h"
 #include <algorithm>

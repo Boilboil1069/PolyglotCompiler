@@ -1,5 +1,11 @@
-// topology_validator.cpp — Validates a TopologyGraph for correctness.
-
+/**
+ * @file     topology_validator.cpp
+ * @brief    Validates a TopologyGraph for correctness
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polytopo/include/topology_validator.h"
 
 #include <algorithm>

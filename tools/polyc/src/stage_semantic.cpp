@@ -1,3 +1,11 @@
+/**
+ * @file     stage_semantic.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // stage_semantic.cpp — Stage 2 implementation
 // ============================================================================

@@ -1,10 +1,11 @@
-// topology_printer.h — Renders a TopologyGraph in various text formats.
-//
-// Supported output formats:
-//   - Text: human-readable ASCII art for terminal display
-//   - DOT:  Graphviz DOT language for graphical rendering
-//   - JSON: machine-readable for tooling integration
-
+/**
+ * @file     topology_printer.h
+ * @brief    Renders a TopologyGraph in various text formats
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <ostream>
@@ -18,6 +19,7 @@ namespace polyglot::tools::topo {
 // PrintOptions
 // ============================================================================
 
+/** @brief PrintOptions data structure. */
 struct PrintOptions {
     // Show type annotations on ports
     bool show_types{true};
@@ -43,6 +45,7 @@ struct PrintOptions {
 // TopologyPrinter
 // ============================================================================
 
+/** @brief TopologyPrinter class. */
 class TopologyPrinter {
   public:
     explicit TopologyPrinter(const PrintOptions &opts = {});

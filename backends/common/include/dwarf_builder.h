@@ -1,3 +1,11 @@
+/**
+ * @file     dwarf_builder.h
+ * @brief    Shared backend infrastructure
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -8,6 +16,7 @@
 namespace polyglot::backends {
 
 // DWARF debugging information structures
+/** @brief DwarfLineEntry data structure. */
 struct DwarfLineEntry {
     std::uint64_t address;
     std::uint32_t file_index;
@@ -18,6 +27,7 @@ struct DwarfLineEntry {
     bool end_sequence;
 };
 
+/** @brief DwarfFile data structure. */
 struct DwarfFile {
     std::string name;
     std::uint32_t directory_index;
@@ -25,6 +35,7 @@ struct DwarfFile {
     std::uint64_t file_size;
 };
 
+/** @brief DwarfSubprogram data structure. */
 struct DwarfSubprogram {
     std::string name;
     std::uint64_t low_pc;
@@ -36,6 +47,7 @@ struct DwarfSubprogram {
 };
 
 // DWARF Debug Information Builder
+/** @brief DwarfBuilder class. */
 class DwarfBuilder {
 public:
     DwarfBuilder() = default;

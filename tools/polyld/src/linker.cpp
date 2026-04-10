@@ -1,3 +1,11 @@
+/**
+ * @file     linker.cpp
+ * @brief    Polyglot linker implementation
+ *
+ * @ingroup  Tool / polyld
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/polyglot_linker.h"
 

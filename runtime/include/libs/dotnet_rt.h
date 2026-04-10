@@ -1,3 +1,11 @@
+/**
+ * @file     dotnet_rt.h
+ * @brief    Language-specific runtime libraries
+ *
+ * @ingroup  Runtime / Libs
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <stddef.h>

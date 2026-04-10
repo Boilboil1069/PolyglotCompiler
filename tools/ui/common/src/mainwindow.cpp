@@ -1,9 +1,11 @@
-// main_window.cpp — Main window implementation for the PolyglotCompiler IDE.
-//
-// Assembles the menu bar, tool bar, file browser, tabbed code editor,
-// output panel, and status bar.  Integrates with CompilerService for
-// real-time analysis, compilation, and auto-completion.
-
+/**
+ * @file     mainwindow.cpp
+ * @brief    Main window implementation for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/action_manager.h"
 #include "tools/ui/common/include/build_panel.h"

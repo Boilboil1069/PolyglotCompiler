@@ -1,3 +1,11 @@
+/**
+ * @file     foreign_signature_extractor.h
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // foreign_signature_extractor.h — Extract function signatures from foreign
 // source files referenced by IMPORT declarations in .ploy modules.
@@ -28,6 +36,7 @@ namespace polyglot::tools {
 //   4. Returns a map suitable for injection into PloySema::KnownSignatures().
 // ============================================================================
 
+/** @brief ForeignExtractionOptions data structure. */
 struct ForeignExtractionOptions {
     /// Directory containing the .ploy file (used as base for relative paths).
     std::string base_directory;
@@ -39,6 +48,7 @@ struct ForeignExtractionOptions {
     bool verbose{false};
 };
 
+/** @brief ForeignSignatureExtractor class. */
 class ForeignSignatureExtractor {
   public:
     explicit ForeignSignatureExtractor(const ForeignExtractionOptions &opts);

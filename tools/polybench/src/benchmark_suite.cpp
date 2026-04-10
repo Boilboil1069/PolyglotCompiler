@@ -1,4 +1,12 @@
 /**
+ * @file     benchmark_suite.cpp
+ * @brief    Benchmark driver
+ *
+ * @ingroup  Tool / polybench
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * PolyglotCompiler performance benchmark suite
  * 
  * Provides comprehensive performance benchmarks covering:
@@ -45,7 +53,8 @@ using namespace std::chrono;
 
 namespace polyglot::tools {
 
-// ============ Benchmark framework ============
+/** @name Benchmark framework */
+/** @{ */
 
 class BenchmarkResult {
 public:
@@ -166,7 +175,10 @@ private:
     }
 };
 
-// ============ GC performance benchmarks ============
+/** @} */
+
+/** @name GC performance benchmarks */
+/** @{ */
 
 void BenchmarkGC() {
     BenchmarkRunner runner("GC Performance");
@@ -215,7 +227,10 @@ void BenchmarkGC() {
     runner.SaveResults("benchmark_gc.json");
 }
 
-// ============ Compilation performance benchmarks ============
+/** @} */
+
+/** @name Compilation performance benchmarks */
+/** @{ */
 
 void BenchmarkCompilation() {
     BenchmarkRunner runner("Compilation Performance");
@@ -278,7 +293,10 @@ int fibonacci(int n) {
     runner.SaveResults("benchmark_compilation.json");
 }
 
-// ============ Optimization performance benchmarks ============
+/** @} */
+
+/** @name Optimization performance benchmarks */
+/** @{ */
 
 void BenchmarkOptimizations() {
     BenchmarkRunner runner("Optimization Performance");
@@ -327,7 +345,10 @@ void BenchmarkOptimizations() {
     runner.SaveResults("benchmark_optimizations.json");
 }
 
-// ============ End-to-end performance benchmarks ============
+/** @} */
+
+/** @name End-to-end performance benchmarks */
+/** @{ */
 
 void BenchmarkEndToEnd() {
     BenchmarkRunner runner("End-to-End Performance");
@@ -403,7 +424,10 @@ void BenchmarkEndToEnd() {
     runner.SaveResults("benchmark_e2e.json");
 }
 
-// ============ Comparative benchmarks ============
+/** @} */
+
+/** @name Comparative benchmarks */
+/** @{ */
 
 void BenchmarkComparison() {
     BenchmarkRunner runner("Optimization Level Comparison");
@@ -442,7 +466,10 @@ void BenchmarkComparison() {
 
 }  // namespace polyglot::tools
 
-// ============ Main entrypoint ============
+/** @} */
+
+/** @name Main entrypoint */
+/** @{ */
 
 int main(int argc, char* argv[]) {
     using namespace polyglot::tools;
@@ -491,3 +518,5 @@ int main(int argc, char* argv[]) {
     
     return 0;
 }
+
+/** @} */

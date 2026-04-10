@@ -1,3 +1,11 @@
+/**
+ * @file     compilation_pipeline.h
+ * @brief    Compiler driver
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <filesystem>
@@ -23,6 +31,7 @@ namespace polyglot::compilation {
 // Output: Parsed AST with no semantic analysis
 // Responsibility: Lexing, parsing, building AST
 
+/** @brief FrontendOutput data structure. */
 struct FrontendOutput {
     // The parsed module AST
     std::shared_ptr<ploy::Module> ast;
@@ -51,6 +60,7 @@ struct FrontendOutput {
 // Output: Validated semantic database with resolved symbols and types
 // Responsibility: Type checking, symbol resolution, cross-language validation
 
+/** @brief SemanticDatabase data structure. */
 struct SemanticDatabase {
     // The validated AST (may have annotations added)
     std::shared_ptr<ploy::Module> validated_ast;
@@ -89,6 +99,7 @@ struct SemanticDatabase {
 // Output: Marshalling plan describing how to convert types across boundaries
 // Responsibility: Determine marshalling strategies for each cross-language call
 
+/** @brief MarshalStrategy enumeration. */
 enum class MarshalStrategy {
     kDirectCopy,      // Same representation, no conversion needed
     kIntToFloat,      // Integer to floating-point conversion
@@ -100,6 +111,7 @@ enum class MarshalStrategy {
     kOpaquePtr,       // Opaque pointer pass-through
 };
 
+/** @brief ParamMarshalPlan data structure. */
 struct ParamMarshalPlan {
     size_t param_index{0};
     core::Type source_type;
@@ -110,6 +122,7 @@ struct ParamMarshalPlan {
     bool needs_heap_alloc{false}; // Whether dynamic allocation is needed
 };
 
+/** @brief ReturnMarshalPlan data structure. */
 struct ReturnMarshalPlan {
     core::Type source_type;
     core::Type target_type;
@@ -117,6 +130,7 @@ struct ReturnMarshalPlan {
     size_t size_bytes{0};
 };
 
+/** @brief CallMarshalPlan data structure. */
 struct CallMarshalPlan {
     std::string link_id;         // Unique identifier for this cross-language call
     std::string target_language;
@@ -139,6 +153,7 @@ struct CallMarshalPlan {
     int estimated_cycles{0};
 };
 
+/** @brief MarshalPlan data structure. */
 struct MarshalPlan {
     // One plan per cross-language link
     std::vector<CallMarshalPlan> call_plans;
@@ -160,6 +175,7 @@ struct MarshalPlan {
 // Output: Generated bridge/glue code stubs
 // Responsibility: Generate actual machine code or IR for marshalling
 
+/** @brief GeneratedStub data structure. */
 struct GeneratedStub {
     std::string stub_name;           // Generated symbol name
     std::string link_id;             // References CallMarshalPlan
@@ -178,6 +194,7 @@ struct GeneratedStub {
     std::string source_location;     // File:line for debugging
 };
 
+/** @brief BridgeGenerationOutput data structure. */
 struct BridgeGenerationOutput {
     // Generated stubs for each cross-language call
     std::vector<GeneratedStub> stubs;
@@ -205,6 +222,7 @@ struct BridgeGenerationOutput {
 // Output: Target-specific machine code / object files
 // Responsibility: Instruction selection, register allocation, code emission
 
+/** @brief CompiledObject data structure. */
 struct CompiledObject {
     std::string name;                // Function/object name
     std::vector<std::uint8_t> code;  // Machine code
@@ -223,6 +241,7 @@ struct CompiledObject {
     std::unordered_map<size_t, core::SourceLoc> offset_to_source;
 };
 
+/** @brief BackendOutput data structure. */
 struct BackendOutput {
     // One object per function/translation unit
     std::vector<CompiledObject> objects;
@@ -253,6 +272,7 @@ struct BackendOutput {
 // Output: Final executable or library
 // Responsibility: Linking, section layout, file format emission
 
+/** @brief OutputFormat enumeration. */
 enum class OutputFormat {
     kELF,       // Linux
     kMachO,     // macOS
@@ -262,6 +282,7 @@ enum class OutputFormat {
     kSharedLib, // .so / .dylib / .dll
 };
 
+/** @brief PackagingOutput data structure. */
 struct PackagingOutput {
     // Final binary data
     std::vector<std::uint8_t> binary_data;
@@ -297,8 +318,10 @@ struct PackagingOutput {
 // ============================================================================
 // Holds intermediate results between stages and configuration
 
+/** @brief CompilationContext data structure. */
 struct CompilationContext {
     // Configuration
+    /** @brief Config data structure. */
     struct Config {
         std::string source_file;
         std::string source_text;
@@ -343,6 +366,7 @@ struct CompilationContext {
     std::shared_ptr<ploy::PackageDiscoveryCache> package_cache;
 
     // Timing information per stage
+    /** @brief StageTiming data structure. */
     struct StageTiming {
         std::string name;
         double elapsed_ms{0.0};
@@ -356,6 +380,7 @@ struct CompilationContext {
 // Stage Interfaces
 // ============================================================================
 
+/** @brief FrontendStage class. */
 class FrontendStage {
   public:
     virtual ~FrontendStage() = default;
@@ -363,6 +388,7 @@ class FrontendStage {
                                frontends::Diagnostics& diagnostics) = 0;
 };
 
+/** @brief SemanticStage class. */
 class SemanticStage {
   public:
     virtual ~SemanticStage() = default;
@@ -371,6 +397,7 @@ class SemanticStage {
                                  const std::shared_ptr<ploy::PackageDiscoveryCache>& cache) = 0;
 };
 
+/** @brief MarshalPlanStage class. */
 class MarshalPlanStage {
   public:
     virtual ~MarshalPlanStage() = default;
@@ -378,6 +405,7 @@ class MarshalPlanStage {
                             frontends::Diagnostics& diagnostics) = 0;
 };
 
+/** @brief BridgeGenerationStage class. */
 class BridgeGenerationStage {
   public:
     virtual ~BridgeGenerationStage() = default;
@@ -386,6 +414,7 @@ class BridgeGenerationStage {
                                        frontends::Diagnostics& diagnostics) = 0;
 };
 
+/** @brief BackendStage class. */
 class BackendStage {
   public:
     virtual ~BackendStage() = default;
@@ -395,6 +424,7 @@ class BackendStage {
                               frontends::Diagnostics& diagnostics) = 0;
 };
 
+/** @brief PackagingStage class. */
 class PackagingStage {
   public:
     virtual ~PackagingStage() = default;
@@ -407,6 +437,7 @@ class PackagingStage {
 // Pipeline Orchestrator
 // ============================================================================
 
+/** @brief CompilationPipeline class. */
 class CompilationPipeline {
   public:
     explicit CompilationPipeline(CompilationContext::Config config);

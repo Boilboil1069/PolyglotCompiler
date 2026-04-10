@@ -1,3 +1,11 @@
+/**
+ * @file     java_lexer.h
+ * @brief    Java language frontend
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/lexer_base.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::java {
 
+/** @brief JavaLexer class. */
 class JavaLexer : public frontends::LexerBase {
   public:
     JavaLexer(std::string source, std::string file)

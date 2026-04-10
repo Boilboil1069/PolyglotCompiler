@@ -1,12 +1,11 @@
-// topology_panel.h — Topology visualization panel for the PolyglotCompiler IDE.
-//
-// Provides an interactive visual representation of function-level I/O
-// topology for .ploy files, similar to Simulink's block diagram view.
-// Features: node rendering with ports, edge connections, type validation
-// overlay, zoom/pan, export capabilities, force-directed layout,
-// interactive edge creation/deletion via drag, live file reload,
-// debug breakpoint highlighting, and port-hover type tooltips.
-
+/**
+ * @file     topology_panel.h
+ * @brief    Topology visualization panel for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -43,8 +42,10 @@ class TopologyPanel;
 // TopoPortItem — a port dot that supports hover tooltips and drag-connect
 // ============================================================================
 
+/** @brief TopoPortItem class. */
 class TopoPortItem : public QGraphicsEllipseItem {
   public:
+    /** @brief Direction enumeration. */
     enum class Direction { kInput, kOutput };
 
     TopoPortItem(uint64_t port_id, Direction direction,
@@ -76,6 +77,7 @@ class TopoPortItem : public QGraphicsEllipseItem {
 // TopoNodeItem — a graphical node in the topology scene
 // ============================================================================
 
+/** @brief TopoNodeItem class. */
 class TopoNodeItem : public QGraphicsRectItem {
   public:
     TopoNodeItem(uint64_t node_id, const QString &name,
@@ -135,6 +137,7 @@ class TopoNodeItem : public QGraphicsRectItem {
     std::vector<TopoPortItem *> input_ports_;
     std::vector<TopoPortItem *> output_ports_;
     // Parallel label storage (child text items for port labels)
+    /** @brief PortLabel data structure. */
     struct PortLabel {
         QGraphicsTextItem *label{nullptr};
     };
@@ -157,6 +160,7 @@ class TopoNodeItem : public QGraphicsRectItem {
 // TopoEdgeItem — a graphical connection between two ports
 // ============================================================================
 
+/** @brief TopoEdgeItem class. */
 class TopoEdgeItem : public QGraphicsPathItem {
   public:
     TopoEdgeItem(uint64_t edge_id,
@@ -195,6 +199,7 @@ class TopoEdgeItem : public QGraphicsPathItem {
 // TopoGraphicsView — custom QGraphicsView that manages drag-to-connect
 // ============================================================================
 
+/** @brief TopoGraphicsView class. */
 class TopoGraphicsView : public QGraphicsView {
     Q_OBJECT
 
@@ -225,6 +230,7 @@ class TopoGraphicsView : public QGraphicsView {
 // TopologyPanel — main panel widget
 // ============================================================================
 
+/** @brief TopologyPanel class. */
 class TopologyPanel : public QWidget {
     Q_OBJECT
 

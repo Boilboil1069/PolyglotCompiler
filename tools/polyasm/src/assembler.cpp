@@ -1,3 +1,11 @@
+/**
+ * @file     assembler.cpp
+ * @brief    Assembler tool
+ *
+ * @ingroup  Tool / polyasm
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>

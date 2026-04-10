@@ -1,3 +1,11 @@
+/**
+ * @file     package_indexer.cpp
+ * @brief    Ploy language frontend implementation
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // PackageIndexer — explicit pre-compilation package-index stage
 //

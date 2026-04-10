@@ -1,3 +1,11 @@
+/**
+ * @file     machine_ir.h
+ * @brief    x86-64 code generation
+ *
+ * @ingroup  Backend / x86-64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -9,6 +17,7 @@
 
 namespace polyglot::backends::x86_64 {
 
+/** @brief Opcode enumeration. */
 enum class Opcode {
   kMov,
   kAdd,
@@ -53,7 +62,9 @@ enum class Opcode {
   kJcc
 };
 
+/** @brief Operand data structure. */
 struct Operand {
+  /** @brief Kind enumeration. */
   enum class Kind { kVReg, kPhysReg, kImm, kLabel, kStackSlot, kMemVReg, kMemLabel };
   Kind kind{Kind::kImm};
   int vreg{-1};
@@ -104,6 +115,7 @@ struct Operand {
   }
 };
 
+/** @brief MachineInstr data structure. */
 struct MachineInstr {
   Opcode opcode{Opcode::kMov};
   int def{-1};
@@ -114,21 +126,25 @@ struct MachineInstr {
   bool terminator{false};
 };
 
+/** @brief MachineBasicBlock data structure. */
 struct MachineBasicBlock {
   std::string name;
   std::vector<MachineInstr> instructions;
 };
 
+/** @brief MachineFunction data structure. */
 struct MachineFunction {
   std::string name;
   std::vector<MachineBasicBlock> blocks;
 };
 
+/** @brief CostModel data structure. */
 struct CostModel {
   int Cost(Opcode op) const;
   int Latency(Opcode op) const;
 };
 
+/** @brief LiveInterval data structure. */
 struct LiveInterval {
   int vreg{-1};
   int start{0};
@@ -138,12 +154,14 @@ struct LiveInterval {
   int stack_slot{-1};
 };
 
+/** @brief AllocationResult data structure. */
 struct AllocationResult {
   std::unordered_map<int, Register> vreg_to_phys;
   std::unordered_map<int, int> vreg_to_slot;
   int stack_slots{0};
 };
 
+/** @brief RegAllocStrategy enumeration. */
 enum class RegAllocStrategy { kLinearScan, kGraphColoring };
 
 MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model);

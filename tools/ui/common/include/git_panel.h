@@ -1,8 +1,11 @@
-// git_panel.h — Git integration panel for the PolyglotCompiler IDE.
-//
-// Provides source control features: status view, staging, commit, branch
-// management, diff viewing, log display, push/pull, and blame.
-
+/**
+ * @file     git_panel.h
+ * @brief    Git integration panel for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -32,6 +35,7 @@ namespace polyglot::tools::ui {
 // GitFileStatus — single file status entry
 // ============================================================================
 
+/** @brief GitFileStatus data structure. */
 struct GitFileStatus {
     QString path;
     QString status;       // "M", "A", "D", "?", "R", "C", "U"
@@ -42,6 +46,7 @@ struct GitFileStatus {
 // GitLogEntry — single commit from log
 // ============================================================================
 
+/** @brief GitLogEntry data structure. */
 struct GitLogEntry {
     QString hash;
     QString short_hash;
@@ -54,6 +59,7 @@ struct GitLogEntry {
 // GitPanel — dock-able source control panel
 // ============================================================================
 
+/** @brief GitPanel class. */
 class GitPanel : public QWidget {
     Q_OBJECT
 
@@ -131,6 +137,7 @@ class GitPanel : public QWidget {
     void SetupDiffView();
 
     // Git command execution
+    /** @brief GitResult data structure. */
     struct GitResult {
         bool success{false};
         QString output;

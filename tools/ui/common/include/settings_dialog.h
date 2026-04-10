@@ -1,9 +1,11 @@
-// settings_dialog.h — Settings dialog for the PolyglotCompiler IDE.
-//
-// Provides a full-featured settings page with categories for appearance,
-// editor behaviour, compiler defaults, environment paths, and key bindings.
-// Settings are persisted via QSettings.
-
+/**
+ * @file     settings_dialog.h
+ * @brief    Settings dialog for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QCheckBox>
@@ -25,6 +27,7 @@ namespace polyglot::tools::ui {
 // SettingsDialog — modal preferences window
 // ============================================================================
 
+/** @brief SettingsDialog class. */
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
@@ -125,6 +128,7 @@ class SettingsDialog : public QDialog {
     QPushButton *reset_shortcut_button_{nullptr};
 
     // Stores user-customized shortcuts: action_id -> QKeySequence string
+    /** @brief KeyBindingEntry data structure. */
     struct KeyBindingEntry {
         QString action_id;    // internal identifier
         QString display_name; // user-visible label

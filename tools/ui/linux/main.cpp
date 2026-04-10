@@ -1,8 +1,11 @@
-// main.cpp - Entry point for the PolyglotCompiler desktop IDE (polyui).
-//
-// Linux-specific entry point.  Sets up a dark theme, parses command-line
-// arguments, and launches the main window.
-
+/**
+ * @file     main.cpp
+ * @brief    Entry point for the PolyglotCompiler desktop IDE (polyui)
+ *
+ * @ingroup  Unknown
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <QApplication>
 #include <QIcon>
 #include <QPalette>

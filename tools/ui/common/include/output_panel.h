@@ -1,7 +1,11 @@
-// output_panel.h — Tabbed output panel for compiler messages.
-//
-// Contains tabs for general output, error list, and compiler log.
-
+/**
+ * @file     output_panel.h
+ * @brief    Tabbed output panel for compiler messages
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QHeaderView>
@@ -21,6 +25,7 @@ struct DiagnosticInfo;
 // OutputPanel — tabbed bottom panel
 // ============================================================================
 
+/** @brief OutputPanel class. */
 class OutputPanel : public QWidget {
     Q_OBJECT
 

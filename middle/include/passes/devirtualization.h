@@ -1,3 +1,11 @@
+/**
+ * @file     devirtualization.h
+ * @brief    Pass management
+ *
+ * @ingroup  Middle / Passes
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // Devirtualization optimization pass
 // Converts virtual calls with known types into direct calls
 
@@ -20,6 +28,7 @@ namespace polyglot::passes {
 // 2. Single implementation detection - if a virtual function has only one implementation, devirtualize it
 // 3. Type propagation - when an object's concrete type can be inferred, devirtualize
 // 4. Call-site analysis - analyze possible types at each call site
+/** @brief DevirtualizationPass class. */
 class DevirtualizationPass {
 public:
     explicit DevirtualizationPass(ir::IRContext &ctx, ir::ClassMetadata &metadata)

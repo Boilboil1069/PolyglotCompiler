@@ -1,3 +1,11 @@
+/**
+ * @file     type_mapping.h
+ * @brief    Cross-language interoperability
+ *
+ * @ingroup  Runtime / Interop
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -7,6 +15,7 @@
 
 namespace polyglot::runtime::interop {
 
+/** @brief ABIType data structure. */
 struct ABIType {
   std::string name;
   size_t size{0};
@@ -15,6 +24,7 @@ struct ABIType {
   bool is_pointer{false};
 };
 
+/** @brief TypeMapping data structure. */
 struct TypeMapping {
   std::string source_lang;
   std::string source_type;

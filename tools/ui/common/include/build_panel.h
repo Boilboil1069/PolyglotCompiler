@@ -1,8 +1,11 @@
-// build_panel.h — CMake and build tool integration for the PolyglotCompiler IDE.
-//
-// Provides project configuration, build target management, build execution
-// with live output, and support for CMake, Make, and Ninja generators.
-
+/**
+ * @file     build_panel.h
+ * @brief    CMake and build tool integration for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -28,6 +31,7 @@ namespace polyglot::tools::ui {
 // BuildTarget — a single CMake build target
 // ============================================================================
 
+/** @brief BuildTarget data structure. */
 struct BuildTarget {
     QString name;
     QString type;        // "EXECUTABLE", "STATIC_LIBRARY", "SHARED_LIBRARY", etc.
@@ -38,6 +42,7 @@ struct BuildTarget {
 // BuildPanel — dock-able build management panel
 // ============================================================================
 
+/** @brief BuildPanel class. */
 class BuildPanel : public QWidget {
     Q_OBJECT
 

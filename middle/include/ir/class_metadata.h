@@ -1,3 +1,11 @@
+/**
+ * @file     class_metadata.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <algorithm>
@@ -12,6 +20,7 @@
 namespace polyglot::ir {
 
 // Virtual function table entry
+/** @brief VTableEntry data structure. */
 struct VTableEntry {
     std::string function_name;  // Function name
     size_t offset;              // Offset in the vtable (in pointer-sized units)
@@ -19,6 +28,7 @@ struct VTableEntry {
 };
 
 // Virtual function table
+/** @brief VTable data structure. */
 struct VTable {
     std::string class_name;                    // Owning class name
     std::vector<VTableEntry> entries;          // Vtable entries
@@ -36,6 +46,7 @@ struct VTable {
 };
 
 // Class layout information
+/** @brief ClassLayout data structure. */
 struct ClassLayout {
     std::string class_name;
     IRType struct_type;                         // IR struct type of the class
@@ -91,6 +102,7 @@ struct ClassLayout {
 };
 
 // RTTI (runtime type information)
+/** @brief TypeInfo data structure. */
 struct TypeInfo {
     std::string class_name;
     std::string mangled_name;           // Mangled type name
@@ -105,6 +117,7 @@ struct TypeInfo {
 };
 
 // Method information
+/** @brief MethodInfo data structure. */
 struct MethodInfo {
     std::string name;
     std::string mangled_name;   // Mangled name
@@ -120,6 +133,7 @@ struct MethodInfo {
 };
 
 // Field information
+/** @brief FieldInfo data structure. */
 struct FieldInfo {
     std::string name;
     IRType type;
@@ -130,6 +144,7 @@ struct FieldInfo {
 };
 
 // Class metadata manager
+/** @brief ClassMetadata class. */
 class ClassMetadata {
 public:
     // Register a class layout

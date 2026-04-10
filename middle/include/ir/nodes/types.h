@@ -1,3 +1,11 @@
+/**
+ * @file     types.h
+ * @brief    IR node type definitions
+ *
+ * @ingroup  Middle / IR Nodes
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstddef>
@@ -7,6 +15,7 @@
 
 namespace polyglot::ir {
 
+/** @brief IRTypeKind enumeration. */
 enum class IRTypeKind {
   kInvalid,
   kI1,
@@ -25,6 +34,7 @@ enum class IRTypeKind {
   kFunction
 };
 
+/** @brief IRType data structure. */
 struct IRType {
   IRTypeKind kind{IRTypeKind::kInvalid};
   std::string name;

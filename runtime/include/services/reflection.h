@@ -1,3 +1,11 @@
+/**
+ * @file     reflection.h
+ * @brief    Runtime service infrastructure
+ *
+ * @ingroup  Runtime / Services
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <mutex>
@@ -8,11 +16,13 @@
 
 namespace polyglot::runtime::services {
 
+/** @brief ReflectionInfo data structure. */
 struct ReflectionInfo {
   std::string type_name;
   std::size_t size{0};
 };
 
+/** @brief ReflectionRegistry class. */
 class ReflectionRegistry {
  public:
   static ReflectionRegistry &Instance();

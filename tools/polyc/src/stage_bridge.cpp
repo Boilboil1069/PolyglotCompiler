@@ -1,3 +1,11 @@
+/**
+ * @file     stage_bridge.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // stage_bridge.cpp — Stage 4 implementation
 // ============================================================================

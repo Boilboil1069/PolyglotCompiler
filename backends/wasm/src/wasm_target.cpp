@@ -1,3 +1,11 @@
+/**
+ * @file     wasm_target.cpp
+ * @brief    WebAssembly code generation implementation
+ *
+ * @ingroup  Backend / WASM
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/wasm/include/wasm_target.h"
 
 #include <algorithm>

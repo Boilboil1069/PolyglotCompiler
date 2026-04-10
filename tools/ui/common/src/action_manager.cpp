@@ -1,7 +1,11 @@
-// action_manager.cpp — ActionManager implementation.
-//
-// Centralized action and keybinding management for the IDE.
-
+/**
+ * @file     action_manager.cpp
+ * @brief    ActionManager implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/action_manager.h"
 
 #include <QSettings>

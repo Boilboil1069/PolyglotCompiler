@@ -1,3 +1,11 @@
+/**
+ * @file     container_marshal.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/interop/container_marshal.h"
 
 #include <cstdlib>

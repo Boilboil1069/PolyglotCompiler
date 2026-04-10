@@ -1,9 +1,11 @@
-// action_manager.h — Centralized action and keybinding management.
-//
-// Owns all QAction instances, their default shortcuts, and supports
-// runtime keybinding customization.  Extracted from MainWindow to
-// decouple action lifecycle from the top-level window.
-
+/**
+ * @file     action_manager.h
+ * @brief    Centralized action and keybinding management
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -21,6 +23,7 @@ namespace polyglot::tools::ui {
 // ActionManager — owns and indexes all IDE actions
 // ============================================================================
 
+/** @brief ActionManager class. */
 class ActionManager : public QObject {
     Q_OBJECT
 
@@ -81,6 +84,7 @@ class ActionManager : public QObject {
     void PluginActionRemoved(const QString &action_id);
 
   private:
+    /** @brief ActionEntry data structure. */
     struct ActionEntry {
         QAction      *action{nullptr};
         QKeySequence  default_shortcut;

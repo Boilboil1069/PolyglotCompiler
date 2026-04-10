@@ -1,3 +1,11 @@
+/**
+ * @file     polytopo.cpp
+ * @brief    Topology graph implementation
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // polytopo — Polyglot Topology Analysis Tool
 //
 // Parses .ploy files, builds a function-level I/O topology graph,

@@ -1,3 +1,11 @@
+/**
+ * @file     driver_stages.h
+ * @brief    Compiler driver
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 // ============================================================================
 // driver_stages.h — Shared data structures for the polyc stage pipeline
@@ -37,8 +45,10 @@ namespace polyglot::tools {
 // DriverSettings — parsed CLI flags and source metadata
 // ============================================================================
 
+/** @brief RegAllocChoice enumeration. */
 enum class RegAllocChoice { kLinearScan, kGraphColoring };
 
+/** @brief DriverSettings data structure. */
 struct DriverSettings {
     // Source
     std::string source{};           // source text (may be read from file)
@@ -104,6 +114,7 @@ struct DriverSettings {
 // Object-file primitives shared across backend + packaging
 // ============================================================================
 
+/** @brief ObjReloc data structure. */
 struct ObjReloc {
     std::uint32_t section_index{0};
     std::uint64_t offset{0};
@@ -112,6 +123,7 @@ struct ObjReloc {
     std::int64_t  addend{-4};
 };
 
+/** @brief ObjSection data structure. */
 struct ObjSection {
     std::string name;
     std::vector<std::uint8_t> data;
@@ -119,6 +131,7 @@ struct ObjSection {
     std::vector<ObjReloc> relocs;
 };
 
+/** @brief ObjSymbol data structure. */
 struct ObjSymbol {
     std::string name;
     std::uint32_t section_index{0xFFFFFFFF};
@@ -134,6 +147,7 @@ struct ObjSymbol {
 // Contains: preprocessed source, tokens, AST (for .ploy); raw IR for others
 // ============================================================================
 
+/** @brief FrontendResult data structure. */
 struct FrontendResult {
     // Shared across all languages
     std::string language;
@@ -166,6 +180,7 @@ struct FrontendResult {
 // Contains: validated AST, symbol table, signatures, link entries
 // ============================================================================
 
+/** @brief SemanticResult data structure. */
 struct SemanticResult {
     // Sema instance (kept alive for lowering in bridge/backend stages)
     std::shared_ptr<ploy::PloySema> sema;
@@ -188,6 +203,7 @@ struct SemanticResult {
 // Contains: cross-language parameter conversion plan
 // ============================================================================
 
+/** @brief MarshalCallPlan data structure. */
 struct MarshalCallPlan {
     std::string link_id;
     std::string source_language;
@@ -198,6 +214,7 @@ struct MarshalCallPlan {
     std::size_t param_count{0};
 };
 
+/** @brief MarshalResult data structure. */
 struct MarshalResult {
     std::vector<MarshalCallPlan> call_plans;
     frontends::Diagnostics diagnostics;
@@ -210,12 +227,14 @@ struct MarshalResult {
 // Contains: resolved stub IR functions ready for injection into the IR module
 // ============================================================================
 
+/** @brief BridgeStubEntry data structure. */
 struct BridgeStubEntry {
     std::string stub_name;
     std::vector<std::uint8_t> code;
     std::vector<linker::Relocation> relocations;
 };
 
+/** @brief BridgeResult data structure. */
 struct BridgeResult {
     std::vector<BridgeStubEntry> stubs;
     // Path to the serialized descriptor file (written to aux dir)
@@ -230,6 +249,7 @@ struct BridgeResult {
 // Contains: object sections + symbols ready for packaging
 // ============================================================================
 
+/** @brief BackendResult data structure. */
 struct BackendResult {
     std::vector<ObjSection> sections;
     std::vector<ObjSymbol>  symbols;

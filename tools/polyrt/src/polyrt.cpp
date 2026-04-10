@@ -1,3 +1,11 @@
+/**
+ * @file     polyrt.cpp
+ * @brief    Runtime launcher
+ *
+ * @ingroup  Tool / polyrt
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // polyrt - Polyglot Compiler Runtime Management Tool
 //
 // This tool provides runtime management, diagnostics, and benchmarking
@@ -145,9 +153,13 @@ void PrintVersion() {
   std::cout << "Copyright (c) 2025 Polyglot Project Contributors\n";
 }
 
-// ----------------------------------------------------------------------------
+/** @name - */
+/** @{ */
 // Status Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintStatusHelp() {
   std::cout << "Usage: " << kToolName << " status [options]\n\n";
@@ -263,9 +275,15 @@ int CmdStatus(int argc, char **argv) {
   return 0;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // GC Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintGCHelp() {
   std::cout << "Usage: " << kToolName << " gc [options]\n\n";
@@ -352,9 +370,15 @@ int CmdGC(int argc, char **argv) {
   return 0;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Thread Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintThreadHelp() {
   std::cout << "Usage: " << kToolName << " thread [options]\n\n";
@@ -419,9 +443,15 @@ int CmdThread(int argc, char **argv) {
   return 0;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // FFI Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintFFIHelp() {
   std::cout << "Usage: " << kToolName << " ffi [options]\n\n";
@@ -629,9 +659,15 @@ int CmdFFI(int argc, char **argv) {
   return 0;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Bench Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintBenchHelp() {
   std::cout << "Usage: " << kToolName << " bench <benchmark> [options]\n\n";
@@ -839,9 +875,15 @@ int CmdBench(int argc, char **argv) {
   return 0;
 }
 
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Info Command
-// ----------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void PrintInfoHelp() {
   std::cout << "Usage: " << kToolName << " info [options]\n\n";
@@ -1018,3 +1060,5 @@ int Run(int argc, char **argv) {
 int main(int argc, char **argv) {
   return polyglot::tools::Run(argc, argv);
 }
+
+/** @} */

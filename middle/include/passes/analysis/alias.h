@@ -1,3 +1,11 @@
+/**
+ * @file     alias.h
+ * @brief    Static analysis passes
+ *
+ * @ingroup  Middle / Analysis
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -11,8 +19,10 @@ namespace polyglot::passes::analysis {
 // Public analysis API wrapping the internal ir::AliasInfo.
 // Consumers can query pointer alias relationships without depending on
 // internal IR details.
+/** @brief AliasAnalysisResult data structure. */
 struct AliasAnalysisResult {
   // Alias query between two pointer names
+  /** @brief AliasKind enumeration. */
   enum class AliasKind { kNoAlias, kMayAlias, kMustAlias };
 
   // Populate the result from a function via AnalysisCache

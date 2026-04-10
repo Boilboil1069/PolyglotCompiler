@@ -1,3 +1,11 @@
+/**
+ * @file     dwarf5.h
+ * @brief    Debug information generation utilities
+ *
+ * @ingroup  Common / Debug
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -27,6 +35,7 @@ namespace dwarf {
     constexpr uint16_t kDwarf5Version = 5;
     
     // Tag encoding
+    /** @brief Tag enumeration. */
     enum class Tag : uint16_t {
         kCompileUnit = 0x11,
         kSubprogram = 0x2e,
@@ -55,6 +64,7 @@ namespace dwarf {
     };
     
     // Attribute encoding
+    /** @brief Attribute enumeration. */
     enum class Attribute : uint16_t {
         kName = 0x03,
         kType = 0x49,
@@ -83,6 +93,7 @@ namespace dwarf {
     };
     
     // Form encoding
+    /** @brief Form enumeration. */
     enum class Form : uint8_t {
         kAddr = 0x01,
         kBlock1 = 0x0a,
@@ -104,6 +115,7 @@ namespace dwarf {
     };
     
     // Base type encoding
+    /** @brief BaseTypeEncoding enumeration. */
     enum class BaseTypeEncoding : uint8_t {
         kAddress = 0x01,
         kBoolean = 0x02,
@@ -115,6 +127,7 @@ namespace dwarf {
     };
     
     // Language encoding (DWARF 5)
+    /** @brief Language enumeration. */
     enum class Language : uint16_t {
         kC = 0x0c,
         kCpp14 = 0x21,
@@ -126,6 +139,7 @@ namespace dwarf {
 }
 
 // Source location information
+/** @brief SourceLocation data structure. */
 struct SourceLocation {
     std::string file;
     uint32_t line;
@@ -137,8 +151,10 @@ struct SourceLocation {
 };
 
 // Variable location expression (DWARF expression)
+/** @brief LocationExpr class. */
 class LocationExpr {
 public:
+    /** @brief Op enumeration. */
     enum class Op : uint8_t {
         kReg = 0x50,         // DW_OP_reg0..31
         kBReg = 0x70,        // DW_OP_breg0..31 (base register + offset)
@@ -159,6 +175,7 @@ private:
 };
 
 // Debug Information Entry (DIE)
+/** @brief DIE class. */
 class DIE {
 public:
     explicit DIE(dwarf::Tag tag) : tag_(tag), offset_(0) {}
@@ -178,6 +195,7 @@ public:
     std::vector<uint8_t> Encode() const;
     
 private:
+    /** @brief AttributeValue data structure. */
     struct AttributeValue {
         dwarf::Attribute attr;
         dwarf::Form form;
@@ -193,6 +211,7 @@ private:
 };
 
 // Line number program for .debug_line
+/** @brief LineNumberProgram class. */
 class LineNumberProgram {
 public:
     LineNumberProgram();
@@ -204,11 +223,13 @@ public:
     std::vector<uint8_t> Encode() const;
     
 private:
+    /** @brief FileEntry data structure. */
     struct FileEntry {
         std::string filename;
         uint32_t directory_index;
     };
     
+    /** @brief LineEntry data structure. */
     struct LineEntry {
         uint64_t address;
         uint32_t file_index;
@@ -231,6 +252,7 @@ private:
 };
 
 // DWARF 5 debug information builder
+/** @brief DwarfBuilder class. */
 class DwarfBuilder {
 public:
     DwarfBuilder();
@@ -307,6 +329,7 @@ private:
 };
 
 // High-level debug info generator
+/** @brief DebugInfoGenerator class. */
 class DebugInfoGenerator {
 public:
     DebugInfoGenerator();

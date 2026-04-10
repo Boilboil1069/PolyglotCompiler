@@ -1,5 +1,11 @@
-// python_frontend.cpp — Python language frontend adapter implementation.
-
+/**
+ * @file     python_frontend.cpp
+ * @brief    Python language frontend adapter implementation
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/python/include/python_frontend.h"
 
 #include "frontends/common/include/frontend_registry.h"

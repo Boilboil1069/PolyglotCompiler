@@ -1,19 +1,11 @@
-// syntax_highlighter.cpp — Compiler-driven syntax highlighting implementation.
-//
-// Uses the PolyglotCompiler frontend tokenizers (via CompilerService) to
-// tokenize each block of text and apply the appropriate formatting.
-//
-// Ploy-specific notes:
-//   • Cross-language directive keywords (LINK, IMPORT, EXPORT, MAP_TYPE,
-//     PIPELINE, EXTEND, CALL, NEW, METHOD, GET, SET, WITH, DELETE, CONVERT,
-//     MAP_FUNC, CONFIG) are displayed in a distinct "link" purple/magenta
-//     color so they visually stand out from control-flow keywords.
-//   • Primitive type keywords (INT, FLOAT, STRING, …) are shown in teal
-//     via the "type" format, matching the convention used for type names in
-//     other supported languages.
-//   • Language qualifier identifiers (cpp, python, rust, …) are shown in
-//     yellow via the "builtin" format because they name external runtimes.
-
+/**
+ * @file     syntax_highlighter.cpp
+ * @brief    Compiler-driven syntax highlighting implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/compiler_service.h"
 

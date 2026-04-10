@@ -1,8 +1,11 @@
-// settings_dialog.cpp — Settings dialog implementation.
-//
-// Full-featured preferences dialog with category navigation, persistent
-// settings via QSettings, and Apply/OK/Cancel workflow.
-
+/**
+ * @file     settings_dialog.cpp
+ * @brief    Settings dialog implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/theme_manager.h"
 

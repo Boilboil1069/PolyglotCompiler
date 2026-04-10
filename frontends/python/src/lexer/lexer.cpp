@@ -1,3 +1,11 @@
+/**
+ * @file     lexer.cpp
+ * @brief    Python language frontend implementation
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 
 #include "frontends/python/include/python_lexer.h"
 

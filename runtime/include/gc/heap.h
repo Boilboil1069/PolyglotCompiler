@@ -1,3 +1,11 @@
+/**
+ * @file     heap.h
+ * @brief    Garbage collection subsystem
+ *
+ * @ingroup  Runtime / GC
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -6,6 +14,7 @@
 
 namespace polyglot::runtime::gc {
 
+/** @brief RootHandle class. */
 class RootHandle {
  public:
   RootHandle() = default;
@@ -45,6 +54,7 @@ class RootHandle {
   void **slot_{nullptr};
 };
 
+/** @brief Heap class. */
 class Heap {
  public:
   explicit Heap(Strategy strategy = Strategy::kMarkSweep) : gc_(MakeGC(strategy)) {}

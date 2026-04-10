@@ -1,3 +1,11 @@
+/**
+ * @file     devirtualization.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // Devirtualization pass implementation
 
 #include "middle/include/passes/devirtualization.h"

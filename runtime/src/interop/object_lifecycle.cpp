@@ -1,3 +1,11 @@
+/**
+ * @file     object_lifecycle.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/interop/object_lifecycle.h"
 
 #include <cstdlib>

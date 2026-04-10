@@ -1,5 +1,11 @@
-// dotnet_frontend.cpp — .NET/C# language frontend adapter implementation.
-
+/**
+ * @file     dotnet_frontend.cpp
+ * @brief    .NET/C# language frontend adapter implementation
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/dotnet/include/dotnet_frontend.h"
 
 #include "frontends/common/include/frontend_registry.h"

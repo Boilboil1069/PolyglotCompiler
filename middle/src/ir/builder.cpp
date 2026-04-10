@@ -1,3 +1,11 @@
+/**
+ * @file     builder.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "middle/include/ir/ir_builder.h"
 
 #include <utility>

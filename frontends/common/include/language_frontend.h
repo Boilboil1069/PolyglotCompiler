@@ -1,10 +1,11 @@
-// language_frontend.h — Unified language frontend interface.
-//
-// Defines the ILanguageFrontend abstract base class that every language
-// frontend (ploy, cpp, python, rust, java, dotnet) implements.  This
-// decouples the compilation driver and UI from concrete frontend types,
-// enabling a registry-based dispatch model instead of long if/else chains.
-
+/**
+ * @file     language_frontend.h
+ * @brief    Unified language frontend interface
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -22,6 +23,7 @@ namespace polyglot::frontends {
 // FrontendOptions — common options passed to frontend pipelines
 // ============================================================================
 
+/** @brief FrontendOptions data structure. */
 struct FrontendOptions {
     bool verbose{false};              // emit progress diagnostics
     bool strict{false};               // reject placeholders / Any fallback
@@ -34,6 +36,7 @@ struct FrontendOptions {
 // FrontendResult — outcome of a full frontend pipeline run
 // ============================================================================
 
+/** @brief FrontendResult data structure. */
 struct FrontendResult {
     bool success{false};
     bool lowered{false};  // true if IR was produced
@@ -46,6 +49,7 @@ struct FrontendResult {
 // in its native language.  Used for cross-language type inference in the
 // topology graph and .ploy sema.
 
+/** @brief ForeignFunctionSignature data structure. */
 struct ForeignFunctionSignature {
     std::string name;                            // Function name (unqualified)
     std::string qualified_name;                  // Module-qualified name (e.g. "math_ops::add")
@@ -61,11 +65,13 @@ struct ForeignFunctionSignature {
 // ILanguageFrontend — abstract interface for a language frontend
 // ============================================================================
 
+/** @brief ILanguageFrontend class. */
 class ILanguageFrontend {
   public:
     virtual ~ILanguageFrontend() = default;
 
-    // ---- Identity ----
+    /** @name Identity */
+    /** @{ */
 
     // Canonical language name (e.g. "ploy", "cpp", "python")
     virtual std::string Name() const = 0;
@@ -80,7 +86,10 @@ class ILanguageFrontend {
     // (e.g. "csharp" -> dotnet, "c" -> cpp)
     virtual std::vector<std::string> Aliases() const { return {}; }
 
-    // ---- Pipeline stages ----
+    /** @} */
+
+    /** @name Pipeline stages */
+    /** @{ */
 
     // Tokenize source code and return a flat token list.
     // Used by the UI for syntax highlighting.
@@ -107,7 +116,10 @@ class ILanguageFrontend {
     // Whether this frontend requires preprocessing (e.g. C++ does, Python does not)
     virtual bool NeedsPreprocessing() const { return false; }
 
-    // ---- Cross-language type extraction ----
+    /** @} */
+
+    /** @name Cross-language type extraction */
+    /** @{ */
 
     // Parse source code and extract function/method signatures with their
     // parameter types and return types.  For languages with optional type
@@ -125,3 +137,5 @@ class ILanguageFrontend {
 };
 
 }  // namespace polyglot::frontends
+
+/** @} */

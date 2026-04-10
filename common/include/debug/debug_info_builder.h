@@ -1,4 +1,12 @@
 /**
+ * @file     debug_info_builder.h
+ * @brief    Debug information generation utilities
+ *
+ * @ingroup  Common / Debug
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * 调试信息构建器 - 增强版
  * 
  * 完整支持：
@@ -25,15 +33,19 @@ namespace polyglot::debug {
 // SourceLocation is defined in dwarf5.h — reuse it here.
 // Convenience alias for ranges:
 
+/** @brief SourceRange data structure. */
 struct SourceRange {
     SourceLocation begin;
     SourceLocation end;
 };
 
-// ============ 类型调试信息 ============
+/** @name 类型调试信息 */
+/** @{ */
 
+/** @brief DIType class. */
 class DIType {
 public:
+    /** @brief Kind enumeration. */
     enum class Kind {
         Basic,      // int, float, etc.
         Pointer,
@@ -56,8 +68,10 @@ public:
     virtual std::string GetName() const = 0;
 };
 
+/** @brief DIBasicType class. */
 class DIBasicType : public DIType {
 public:
+    /** @brief Encoding enumeration. */
     enum class Encoding {
         Signed,
         Unsigned,
@@ -82,8 +96,10 @@ private:
     Encoding encoding_;
 };
 
+/** @brief DICompositeType class. */
 class DICompositeType : public DIType {
 public:
+    /** @brief Member data structure. */
     struct Member {
         std::string name;
         DIType* type;
@@ -110,10 +126,15 @@ private:
     std::vector<Member> members_;
 };
 
-// ============ 变量调试信息 ============
+/** @} */
 
+/** @name 变量调试信息 */
+/** @{ */
+
+/** @brief DIVariable class. */
 class DIVariable {
 public:
+    /** @brief Kind enumeration. */
     enum class Kind {
         Local,
         Parameter,
@@ -131,7 +152,9 @@ public:
     const SourceLocation& GetLocation() const { return location_; }
     
     // 变量位置（寄存器、栈偏移等）
+    /** @brief Location data structure. */
     struct Location {
+        /** @brief Kind enumeration. */
         enum class Kind {
             Register,
             Memory,
@@ -162,8 +185,12 @@ private:
     std::vector<Location> locations_;
 };
 
-// ============ 函数调试信息 ============
+/** @} */
 
+/** @name 函数调试信息 */
+/** @{ */
+
+/** @brief DIFunction class. */
 class DIFunction {
 public:
     DIFunction(const std::string& name, const SourceLocation& location,
@@ -185,6 +212,7 @@ public:
     }
     
     // 代码范围
+    /** @brief CodeRange data structure. */
     struct CodeRange {
         uint64_t low_pc;
         uint64_t high_pc;
@@ -193,6 +221,7 @@ public:
     const CodeRange& GetCodeRange() const { return code_range_; }
     
     // 内联实例
+    /** @brief InlineInstance data structure. */
     struct InlineInstance {
         std::string caller_name;
         SourceLocation call_site;
@@ -216,8 +245,12 @@ private:
     std::vector<InlineInstance> inline_instances_;
 };
 
-// ============ 编译单元调试信息 ============
+/** @} */
 
+/** @name 编译单元调试信息 */
+/** @{ */
+
+/** @brief DICompileUnit class. */
 class DICompileUnit {
 public:
     DICompileUnit(const std::string& source_file, const std::string& producer)
@@ -242,10 +275,15 @@ private:
     std::vector<DIType*> types_;
 };
 
-// ============ 行号表 ============
+/** @} */
 
+/** @name 行号表 */
+/** @{ */
+
+/** @brief LineTable class. */
 class LineTable {
 public:
+    /** @brief Entry data structure. */
     struct Entry {
         uint64_t address;
         uint32_t line;
@@ -270,8 +308,12 @@ private:
     std::vector<Entry> entries_;
 };
 
-// ============ 调试信息构建器 ============
+/** @} */
 
+/** @name 调试信息构建器 */
+/** @{ */
+
+/** @brief DebugInfoBuilder class. */
 class DebugInfoBuilder {
 public:
     DebugInfoBuilder() = default;
@@ -327,14 +369,19 @@ private:
     std::string producer_ = "PolyglotCompiler v3.0";
 };
 
-// ============ 调试信息验证器 ============
+/** @} */
 
+/** @name 调试信息验证器 */
+/** @{ */
+
+/** @brief DebugInfoValidator class. */
 class DebugInfoValidator {
 public:
     explicit DebugInfoValidator(const DebugInfoBuilder& builder)
         : builder_(builder) {}
     
     // 验证调试信息完整性
+    /** @brief ValidationResult data structure. */
     struct ValidationResult {
         bool valid;
         std::vector<std::string> errors;
@@ -351,8 +398,12 @@ private:
     void ValidateLineTable(ValidationResult& result) const;
 };
 
-// ============ 调试信息打印器 ============
+/** @} */
 
+/** @name 调试信息打印器 */
+/** @{ */
+
+/** @brief DebugInfoPrinter class. */
 class DebugInfoPrinter {
 public:
     explicit DebugInfoPrinter(const DebugInfoBuilder& builder)
@@ -378,3 +429,5 @@ private:
 };
 
 } // namespace polyglot::debug
+
+/** @} */

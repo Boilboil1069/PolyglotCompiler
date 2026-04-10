@@ -1,4 +1,12 @@
 /**
+ * @file     advanced_optimizations.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * Advanced Optimizations Implementation
  *
  * This file contains implementations of advanced optimization passes including:

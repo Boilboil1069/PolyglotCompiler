@@ -1,3 +1,11 @@
+/**
+ * @file     optimizations.cpp
+ * @brief    x86-64 code generation implementation
+ *
+ * @ingroup  Backend / x86-64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // Backend Optimizations Implementation
 // =====================================
 // This file implements comprehensive backend optimizations for x86_64 code generation:

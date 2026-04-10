@@ -1,3 +1,11 @@
+/**
+ * @file     parser_base.h
+ * @brief    Shared frontend infrastructure
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -6,6 +14,7 @@
 
 namespace polyglot::frontends {
 
+/** @brief ParserBase class. */
 class ParserBase {
  public:
   explicit ParserBase(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}

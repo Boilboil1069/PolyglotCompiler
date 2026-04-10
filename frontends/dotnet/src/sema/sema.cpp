@@ -1,4 +1,12 @@
-﻿#include <string>
+/**
+ * @file     sema.cpp
+ * @brief    .NET/C# language frontend implementation
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+#include <string>
 #include <vector>
 
 #include "frontends/dotnet/include/dotnet_sema.h"
@@ -58,7 +66,8 @@ class Analyzer {
         scope_stack_.pop_back();
     }
 
-    // ---- Type mapping ----
+    /** @name Type mapping */
+    /** @{ */
     Type MapType(const std::shared_ptr<TypeNode> &node) {
         if (!node) return Type::Any();
         if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
@@ -87,14 +96,20 @@ class Analyzer {
         return Type::Any();
     }
 
-    // ---- Using directives ----
+    /** @} */
+
+    /** @name Using directives */
+    /** @{ */
     void AnalyzeUsing(const UsingDirective &u) {
         Symbol sym{u.alias.empty() ? u.ns : u.alias,
                    Type::Module(u.ns, "csharp"), u.loc, SymbolKind::kModule, "csharp"};
         Syms().Declare(sym);
     }
 
-    // ---- Declarations ----
+    /** @} */
+
+    /** @name Declarations */
+    /** @{ */
     void AnalyzeDecl(const std::shared_ptr<Statement> &decl) {
         if (!decl) return;
 
@@ -322,7 +337,10 @@ class Analyzer {
         ExitScope();
     }
 
-    // ---- Statements ----
+    /** @} */
+
+    /** @name Statements */
+    /** @{ */
     void AnalyzeStmt(const std::shared_ptr<Statement> &stmt) {
         if (!stmt) return;
 
@@ -472,7 +490,10 @@ class Analyzer {
         }
     }
 
-    // ---- Expressions ----
+    /** @} */
+
+    /** @name Expressions */
+    /** @{ */
     Type AnalyzeExpr(const std::shared_ptr<Expression> &expr) {
         if (!expr) return Type::Any();
 
@@ -638,3 +659,5 @@ void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
 }
 
 } // namespace polyglot::dotnet
+
+/** @} */

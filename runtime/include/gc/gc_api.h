@@ -1,3 +1,11 @@
+/**
+ * @file     gc_api.h
+ * @brief    Garbage collection subsystem
+ *
+ * @ingroup  Runtime / GC
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstddef>
@@ -5,6 +13,7 @@
 namespace polyglot::runtime::gc {
 
 // GC statistics reported by collectors.
+/** @brief GCStats data structure. */
 struct GCStats {
   size_t total_allocations{0};     // Total number of allocations since start.
   size_t total_bytes_allocated{0}; // Cumulative bytes allocated.
@@ -16,6 +25,7 @@ struct GCStats {
   size_t root_count{0};            // Current number of registered roots.
 };
 
+/** @brief GC class. */
 class GC {
  public:
   virtual ~GC() = default;

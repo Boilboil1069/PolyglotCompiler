@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_constexpr.h
+ * @brief    C++ language frontend
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <unordered_map>
@@ -13,8 +21,10 @@
 namespace polyglot::cpp {
 
 // Compile-time value representation
+/** @brief ConstexprValue class. */
 class ConstexprValue {
 public:
+    /** @brief Type enumeration. */
     enum class Type {
         kInt,
         kFloat,
@@ -75,6 +85,7 @@ private:
 };
 
 // Constexpr evaluator - evaluates constant expressions at compile time
+/** @brief ConstexprEvaluator class. */
 class ConstexprEvaluator {
 public:
     ConstexprEvaluator();
@@ -143,6 +154,7 @@ private:
     ConstexprValue ApplyUnaryOp(const std::string& op, const ConstexprValue& val);
     
     // Scope management
+    /** @brief Scope data structure. */
     struct Scope {
         std::unordered_map<std::string, ConstexprValue> variables;
     };
@@ -164,6 +176,7 @@ private:
 };
 
 // Constexpr checker - validates that expressions/functions can be constexpr
+/** @brief ConstexprChecker class. */
 class ConstexprChecker {
 public:
     ConstexprChecker();

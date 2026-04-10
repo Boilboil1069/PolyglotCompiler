@@ -1,3 +1,11 @@
+/**
+ * @file     ir_printer.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <iosfwd>

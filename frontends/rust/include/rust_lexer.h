@@ -1,9 +1,18 @@
+/**
+ * @file     rust_lexer.h
+ * @brief    Rust language frontend
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/lexer_base.h"
 
 namespace polyglot::rust {
 
+/** @brief RustLexer class. */
 class RustLexer : public frontends::LexerBase {
   public:
     RustLexer(std::string source, std::string file)

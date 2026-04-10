@@ -1,4 +1,12 @@
 /**
+ * @file     link_time_optimizer.h
+ * @brief    Link-time optimisation
+ *
+ * @ingroup  Middle / LTO
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * Link-Time Optimization (LTO) support
  *
  * Perform cross-module optimization at link time including:
@@ -27,11 +35,15 @@
 
 namespace polyglot::lto {
 
-// ============ Forward declarations ============
+/** @name Forward declarations */
+/** @{ */
 class LTOContext;
 class GlobalOptimizer;
 
-// ============ Inlining cost model ============
+/** @} */
+
+/** @name Inlining cost model */
+/** @{ */
 
 /**
  * Cost model for inline decisions
@@ -61,7 +73,10 @@ struct InlineCostModel {
     static constexpr size_t kDefaultInlineThreshold = 225;
 };
 
-// ============ LTO IR representation ============
+/** @} */
+
+/** @name LTO IR representation */
+/** @{ */
 
 /**
  * IR used by LTO
@@ -127,8 +142,10 @@ public:
     std::set<std::string> GetEntryPoints() const;
     
     // Build a call graph
+    /** @brief CallGraph class. */
     class CallGraph {
     public:
+        /** @brief CallSite data structure. */
         struct CallSite {
             std::string caller;
             std::string callee;
@@ -137,6 +154,7 @@ public:
             bool is_hot{false};        // Hot call site from PGO
         };
         
+        /** @brief Node data structure. */
         struct Node {
             std::string function_name;
             std::vector<std::string> callees;
@@ -170,13 +188,17 @@ private:
     std::map<std::string, ir::GlobalValue*> global_map_;
 };
 
-// ============ LTO optimization passes ============
+/** @} */
+
+/** @name LTO optimization passes */
+/** @{ */
 
 /**
  * Lattice value for constant propagation
  * Represents the constant state of a value: top (unknown), constant, or bottom (varying)
  */
 struct LatticeValue {
+    /** @brief Kind enumeration. */
     enum class Kind {
         kTop,       // Unknown (not yet analyzed)
         kConstant,  // Known constant value
@@ -217,6 +239,7 @@ public:
     void Run();
     
     // Inlining decisions
+    /** @brief InlineCandidate data structure. */
     struct InlineCandidate {
         std::string caller;
         std::string callee;
@@ -311,6 +334,7 @@ public:
     size_t GetArgumentsSpecialized() const { return arguments_specialized_; }
     
     // Analyze which function arguments are always called with constants
+    /** @brief ConstantArgInfo data structure. */
     struct ConstantArgInfo {
         std::string function_name;
         size_t arg_index;
@@ -355,6 +379,7 @@ private:
     size_t devirtualized_count_{0};
     
     // Class hierarchy analysis
+    /** @brief ClassInfo data structure. */
     struct ClassInfo {
         std::string name;
         std::string base_class;
@@ -394,6 +419,7 @@ private:
     size_t next_value_number_{1};
     
     // Value numbering tables
+    /** @brief Expression data structure. */
     struct Expression {
         std::string opcode;
         std::vector<size_t> operand_vns;
@@ -403,6 +429,7 @@ private:
         }
     };
     
+    /** @brief ExpressionHash data structure. */
     struct ExpressionHash {
         size_t operator()(const Expression& expr) const;
     };
@@ -439,6 +466,7 @@ public:
     void RunGlobalValueNumbering();
     
     // Optimization statistics
+    /** @brief Statistics data structure. */
     struct Statistics {
         size_t functions_inlined{0};
         size_t functions_removed{0};
@@ -454,7 +482,10 @@ private:
     Statistics stats_{};
 };
 
-// ============ LTO linker integration ============
+/** @} */
+
+/** @name LTO linker integration */
+/** @{ */
 
 /**
  * LTO linker
@@ -474,6 +505,7 @@ public:
     bool Link(const std::string& output_file);
     
     // Configuration options
+    /** @brief Config data structure. */
     struct Config {
         int opt_level = 2;
         bool thin_lto = false;        // Thin LTO mode
@@ -489,6 +521,7 @@ public:
     Config& GetConfig() { return config_; }
     
     // Get link statistics
+    /** @brief LinkStats data structure. */
     struct LinkStats {
         size_t modules_linked{0};
         size_t total_functions{0};
@@ -516,7 +549,10 @@ private:
     bool GenerateCode(const LTOContext& context, const std::string& output);
 };
 
-// ============ Thin LTO support ============
+/** @} */
+
+/** @name Thin LTO support */
+/** @{ */
 
 /**
  * Thin LTO - scalable LTO implementation
@@ -541,6 +577,7 @@ public:
     bool Run();
     
     // Generate a summary index
+    /** @brief FunctionSummary data structure. */
     struct FunctionSummary {
         std::string name;
         size_t instruction_count{0};
@@ -550,6 +587,7 @@ public:
         bool is_hot{false};
     };
     
+    /** @brief GlobalSummary data structure. */
     struct GlobalSummary {
         std::string name;
         size_t size{0};
@@ -557,6 +595,7 @@ public:
         bool is_weak{false};
     };
     
+    /** @brief ModuleSummary data structure. */
     struct ModuleSummary {
         std::string module_id;
         std::vector<std::string> defined_symbols;
@@ -574,6 +613,7 @@ public:
     void OptimizeInParallel(size_t num_threads);
     
     // Get optimization statistics
+    /** @brief ThinLTOStats data structure. */
     struct ThinLTOStats {
         size_t modules_processed{0};
         size_t functions_imported{0};
@@ -593,7 +633,10 @@ private:
     void ComputeImportDecisions();
 };
 
-// ============ Utility functions ============
+/** @} */
+
+/** @name Utility functions */
+/** @{ */
 
 /**
  * Compile to LTO bitcode
@@ -639,3 +682,5 @@ public:
 };
 
 } // namespace polyglot::lto
+
+/** @} */

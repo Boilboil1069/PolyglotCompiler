@@ -1,3 +1,11 @@
+/**
+ * @file     debug_info.cpp
+ * @brief    Shared backend implementation
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/common/include/debug_info.h"
 
 #include <nlohmann/json.hpp>

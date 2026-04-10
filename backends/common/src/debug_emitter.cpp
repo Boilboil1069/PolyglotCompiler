@@ -1,3 +1,11 @@
+/**
+ * @file     debug_emitter.cpp
+ * @brief    Shared backend implementation
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/common/include/debug_emitter.h"
 #include "backends/common/include/dwarf_builder.h"
 #include "common/include/debug/dwarf5.h"

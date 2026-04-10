@@ -1,4 +1,12 @@
-﻿// main.cpp - Entry point for the PolyglotCompiler desktop IDE (polyui).
+/**
+ * @file     main.cpp
+ * @brief    main implementation
+ *
+ * @ingroup  Unknown
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+// main.cpp - Entry point for the PolyglotCompiler desktop IDE (polyui).
 //
 // Sets up a dark theme, parses command-line arguments, and launches the
 // main window.  Accepts --folder <path> to open a project directory on

@@ -1,3 +1,11 @@
+/**
+ * @file     main.cpp
+ * @brief    Polyglot linker implementation
+ *
+ * @ingroup  Tool / polyld
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // polyld standalone entry point
 // Links against linker_lib for core Linker / PolyglotLinker functionality.
 

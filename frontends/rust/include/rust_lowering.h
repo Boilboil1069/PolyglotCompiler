@@ -1,3 +1,11 @@
+/**
+ * @file     rust_lowering.h
+ * @brief    Rust language frontend
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>

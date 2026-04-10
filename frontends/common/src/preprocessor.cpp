@@ -1,3 +1,11 @@
+/**
+ * @file     preprocessor.cpp
+ * @brief    Shared frontend implementation
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/common/include/preprocessor.h"
 
 #include <algorithm>

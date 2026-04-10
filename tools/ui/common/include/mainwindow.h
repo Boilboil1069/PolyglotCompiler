@@ -1,8 +1,11 @@
-// main_window.h — Main application window for the PolyglotCompiler IDE.
-//
-// Composes the code editor, file browser, output panel, and compiler
-// service into a full-featured desktop IDE using Qt Widgets.
-
+/**
+ * @file     mainwindow.h
+ * @brief    Main application window for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QAction>
@@ -43,6 +46,7 @@ class TopologyPanel;
 // MainWindow — top-level IDE window
 // ============================================================================
 
+/** @brief MainWindow class. */
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -300,6 +304,7 @@ class MainWindow : public QMainWindow {
     bool realtime_analysis_enabled_{true};
 
     // ── Per-tab state ────────────────────────────────────────────────────
+    /** @brief TabInfo data structure. */
     struct TabInfo {
         QString file_path;
         QString language;

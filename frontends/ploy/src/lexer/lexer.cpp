@@ -1,3 +1,11 @@
+/**
+ * @file     lexer.cpp
+ * @brief    Ploy language frontend implementation
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/ploy/include/ploy_lexer.h"
 
 #include <cctype>

@@ -1,4 +1,12 @@
 /**
+ * @file     loop_optimization.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * Loop Optimization Passes Implementation
  *
  * This file contains implementations of various loop optimization passes:

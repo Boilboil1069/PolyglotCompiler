@@ -1,3 +1,11 @@
+/**
+ * @file     object_file.cpp
+ * @brief    Shared backend implementation
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/common/include/object_file.h"
 
 #include <algorithm>
@@ -393,7 +401,8 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     std::uint32_t symtab_size = static_cast<std::uint32_t>(symbols_.size()) * 16;
     (void)symtab_size;  // Retained for layout documentation; not yet referenced.
 
-    // --- Write Mach-O header (mach_header_64) ---
+    /** @name Write Mach-O header (mach_header_64) */
+    /** @{ */
     WriteValue<std::uint32_t>(result, MH_MAGIC_64);
     WriteValue<std::uint32_t>(result, is_arm64_ ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64);
     WriteValue<std::uint32_t>(result, is_arm64_ ? CPU_SUBTYPE_ARM64_ALL : CPU_SUBTYPE_X86_64_ALL);
@@ -403,7 +412,10 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     WriteValue<std::uint32_t>(result, 0);  // flags
     WriteValue<std::uint32_t>(result, 0);  // reserved
     
-    // --- LC_SEGMENT_64 ---
+    /** @} */
+
+    /** @name LC_SEGMENT_64 */
+    /** @{ */
     WriteValue<std::uint32_t>(result, LC_SEGMENT_64);
     WriteValue<std::uint32_t>(result, segment_cmd_size);
     
@@ -468,7 +480,10 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
         WriteValue<std::uint32_t>(result, 0);  // reserved3 (padding for 64-bit)
     }
     
-    // --- LC_SYMTAB ---
+    /** @} */
+
+    /** @name LC_SYMTAB */
+    /** @{ */
     WriteValue<std::uint32_t>(result, LC_SYMTAB);
     WriteValue<std::uint32_t>(result, symtab_cmd_size);
     WriteValue<std::uint32_t>(result, symtab_offset);  // symoff
@@ -476,7 +491,10 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     WriteValue<std::uint32_t>(result, strtab_offset);  // stroff
     WriteValue<std::uint32_t>(result, strtab_size);  // strsize
     
-    // --- LC_BUILD_VERSION ---
+    /** @} */
+
+    /** @name LC_BUILD_VERSION */
+    /** @{ */
     // Declares the platform (macOS / Linux) so ld does not warn.
     WriteValue<std::uint32_t>(result, LC_BUILD_VERSION);
     WriteValue<std::uint32_t>(result, build_version_cmd_size);
@@ -485,18 +503,27 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     WriteValue<std::uint32_t>(result, 0);   // sdk: 0 (no specific SDK)
     WriteValue<std::uint32_t>(result, 0);   // ntools: 0
     
-    // --- Pad to data start ---
+    /** @} */
+
+    /** @name Pad to data start */
+    /** @{ */
     while (result.size() < data_start) {
         result.push_back(0);
     }
     
-    // --- Section data ---
+    /** @} */
+
+    /** @name Section data */
+    /** @{ */
     for (std::size_t i = 0; i < sections_.size(); ++i) {
         while (result.size() < sec_offsets[i]) result.push_back(0);
         result.insert(result.end(), sections_[i].data.begin(), sections_[i].data.end());
     }
 
-    // --- Relocation entries (relocation_info, 8 bytes each) ---
+    /** @} */
+
+    /** @name Relocation entries (relocation_info, 8 bytes each) */
+    /** @{ */
     // Build a symbol name → symbol table index map for relocation lookups.
     std::unordered_map<std::string, std::uint32_t> sym_name_index;
     for (std::uint32_t si = 0; si < symbols_.size(); ++si) {
@@ -543,11 +570,17 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
         }
     }
     
-    // --- String table ---
+    /** @} */
+
+    /** @name String table */
+    /** @{ */
     while (result.size() < strtab_offset) result.push_back(0);
     result.insert(result.end(), strtab.begin(), strtab.end());
     
-    // --- Symbol table (nlist_64) ---
+    /** @} */
+
+    /** @name Symbol table (nlist_64) */
+    /** @{ */
     AlignTo(result, 8);
     // Adjust symtab_offset if needed to match actual position
     // (the header already points to the computed position)
@@ -585,3 +618,5 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
 }
 
 } // namespace polyglot::backends
+
+/** @} */

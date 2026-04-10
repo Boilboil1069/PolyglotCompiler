@@ -1,3 +1,11 @@
+/**
+ * @file     dotnet_parser.h
+ * @brief    .NET/C# language frontend
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/parser_base.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::dotnet {
 
+/** @brief DotnetParser class. */
 class DotnetParser : public frontends::ParserBase {
   public:
     DotnetParser(DotnetLexer &lexer, frontends::Diagnostics &diags)

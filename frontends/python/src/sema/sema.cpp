@@ -1,3 +1,11 @@
+/**
+ * @file     sema.cpp
+ * @brief    Python language frontend implementation
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <optional>
 #include <string>
 #include <unordered_map>

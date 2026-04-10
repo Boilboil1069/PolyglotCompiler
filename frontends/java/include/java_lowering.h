@@ -1,3 +1,11 @@
+/**
+ * @file     java_lowering.h
+ * @brief    Java language frontend
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/java/include/java_ast.h"

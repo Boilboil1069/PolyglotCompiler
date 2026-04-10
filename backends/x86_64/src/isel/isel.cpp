@@ -1,3 +1,11 @@
+/**
+ * @file     isel.cpp
+ * @brief    x86-64 code generation implementation
+ *
+ * @ingroup  Backend / x86-64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "backends/x86_64/include/machine_ir.h"
 
 #include <cstdlib>

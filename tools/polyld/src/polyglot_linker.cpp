@@ -1,3 +1,11 @@
+/**
+ * @file     polyglot_linker.cpp
+ * @brief    Polyglot linker implementation
+ *
+ * @ingroup  Tool / polyld
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polyld/include/polyglot_linker.h"
 
 #include <algorithm>
@@ -395,7 +403,8 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
         return false;
     }
 
-    // ---- ABI Validation ----
+    /** @name ABI Validation */
+    /** @{ */
     // Validate parameter count compatibility between source and target.
     // When MAP_TYPE entries are present, they declare explicit marshalling, so
     // missing native parameter descriptors can be synthesized from the MAP_TYPE
@@ -1098,3 +1107,5 @@ bool PolyglotLinker::ValidateABICompatibility(const CrossLangSymbol &target,
 }
 
 } // namespace polyglot::linker
+
+/** @} */

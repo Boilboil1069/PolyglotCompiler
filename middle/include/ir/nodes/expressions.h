@@ -1,3 +1,11 @@
+/**
+ * @file     expressions.h
+ * @brief    IR node type definitions
+ *
+ * @ingroup  Middle / IR Nodes
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -9,6 +17,7 @@
 namespace polyglot::ir {
 
 // Base value in the unified IR. Every SSA value inherits from this.
+/** @brief Value data structure. */
 struct Value {
   virtual ~Value() = default;
   IRType type{IRType::Invalid()};
@@ -16,6 +25,7 @@ struct Value {
 };
 
 // Literal (int or float).
+/** @brief LiteralExpression data structure. */
 struct LiteralExpression : Value {
   bool is_float{false};
   long long i64{0};
@@ -26,17 +36,20 @@ struct LiteralExpression : Value {
 };
 
 // Placeholder for uninitialized/undefined values.
+/** @brief UndefValue data structure. */
 struct UndefValue : Value {
   UndefValue() { type = IRType::Invalid(); name = "undef"; }
 };
 
 // Global or constant data placeholder.
+/** @brief GlobalValue data structure. */
 struct GlobalValue : Value {
   bool is_const{false};
   std::string init;  // textual initializer for now
   std::shared_ptr<Value> initializer;  // structured initializer
 };
 
+/** @brief ConstantString data structure. */
 struct ConstantString : Value {
   std::string data;
   bool null_terminated{true};
@@ -47,6 +60,7 @@ struct ConstantString : Value {
   }
 };
 
+/** @brief ConstantArray data structure. */
 struct ConstantArray : Value {
   std::vector<std::shared_ptr<Value>> elements;
   ConstantArray(std::vector<std::shared_ptr<Value>> elems, IRType elem_type) : elements(std::move(elems)) {
@@ -54,6 +68,7 @@ struct ConstantArray : Value {
   }
 };
 
+/** @brief ConstantStruct data structure. */
 struct ConstantStruct : Value {
   std::vector<std::shared_ptr<Value>> fields;
   explicit ConstantStruct(std::vector<std::shared_ptr<Value>> f, std::string name = "struct")
@@ -85,6 +100,7 @@ inline IRType ResolveGEPResultType(IRType base_ptr_type, const std::vector<size_
   return IRType::Pointer(cur);
 }
 
+/** @brief ConstantGEP data structure. */
 struct ConstantGEP : Value {
   std::shared_ptr<Value> base;
   std::vector<size_t> indices;

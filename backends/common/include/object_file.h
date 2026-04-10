@@ -1,3 +1,11 @@
+/**
+ * @file     object_file.h
+ * @brief    Shared backend infrastructure
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -7,6 +15,7 @@
 namespace polyglot::backends {
 
 // Symbol entry for object files
+/** @brief Symbol data structure. */
 struct Symbol {
     std::string name;
     std::string section;    // Section this symbol belongs to
@@ -17,6 +26,7 @@ struct Symbol {
 };
 
 // Relocation entry
+/** @brief Relocation data structure. */
 struct Relocation {
     std::uint64_t offset;   // Offset within section to apply relocation
     std::string symbol;     // Symbol name to relocate against
@@ -25,6 +35,7 @@ struct Relocation {
 };
 
 // Section data
+/** @brief Section data structure. */
 struct Section {
     std::string name;
     std::vector<std::uint8_t> data;
@@ -34,6 +45,7 @@ struct Section {
 };
 
 // Object file builder
+/** @brief ObjectFileBuilder class. */
 class ObjectFileBuilder {
 public:
     virtual ~ObjectFileBuilder() = default;
@@ -44,6 +56,7 @@ public:
 };
 
 // ELF object file builder
+/** @brief ELFBuilder class. */
 class ELFBuilder : public ObjectFileBuilder {
 public:
     explicit ELFBuilder(bool is_x64 = true) : is_x64_(is_x64) {}
@@ -59,6 +72,7 @@ private:
 };
 
 // Mach-O object file builder
+/** @brief MachOBuilder class. */
 class MachOBuilder : public ObjectFileBuilder {
 public:
     explicit MachOBuilder(bool is_arm64 = false) : is_arm64_(is_arm64) {}

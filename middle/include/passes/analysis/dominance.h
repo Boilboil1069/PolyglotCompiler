@@ -1,3 +1,11 @@
+/**
+ * @file     dominance.h
+ * @brief    Static analysis passes
+ *
+ * @ingroup  Middle / Analysis
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -12,6 +20,7 @@ namespace polyglot::passes::analysis {
 // Public analysis API wrapping ir::DominatorTree / ir::DominanceFrontier.
 // Provides a convenient interface for querying dominance relationships
 // without direct dependency on the internal CFG builder.
+/** @brief DominanceInfo data structure. */
 struct DominanceInfo {
   // Populate from a function
   void ComputeFrom(ir::Function &func) {

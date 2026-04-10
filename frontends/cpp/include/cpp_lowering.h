@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_lowering.h
+ * @brief    C++ language frontend
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/cpp/include/cpp_ast.h"

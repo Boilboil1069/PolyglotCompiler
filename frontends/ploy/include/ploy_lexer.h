@@ -1,3 +1,11 @@
+/**
+ * @file     ploy_lexer.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/lexer_base.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::ploy {
 
+/** @brief PloyLexer class. */
 class PloyLexer : public frontends::LexerBase {
   public:
     PloyLexer(std::string source, std::string file)

@@ -1,3 +1,11 @@
+/**
+ * @file     python_parser.h
+ * @brief    Python language frontend
+ *
+ * @ingroup  Frontend / Python
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -8,6 +16,7 @@
 
 namespace polyglot::python {
 
+/** @brief PythonParser class. */
 class PythonParser : public frontends::ParserBase {
   public:
     PythonParser(PythonLexer &lexer, frontends::Diagnostics &diagnostics)

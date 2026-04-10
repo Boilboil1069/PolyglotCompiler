@@ -1,3 +1,11 @@
+/**
+ * @file     symbols.h
+ * @brief    Core type system and common definitions
+ *
+ * @ingroup  Common / Core
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <deque>
@@ -12,10 +20,13 @@
 
 namespace polyglot::core {
 
+/** @brief SymbolKind enumeration. */
 enum class SymbolKind { kVariable, kFunction, kTypeName, kModule, kParameter, kField };
 
+/** @brief ScopeKind enumeration. */
 enum class ScopeKind { kGlobal, kModule, kFunction, kClass, kBlock, kComprehension };
 
+/** @brief Symbol data structure. */
 struct Symbol {
   std::string name{};
   Type type{Type::Invalid()};
@@ -27,6 +38,7 @@ struct Symbol {
   std::string access{};  // "public"/"protected"/"private" (empty = default)
 };
 
+/** @brief ScopeInfo data structure. */
 struct ScopeInfo {
   int id{-1};
   int parent{-1};
@@ -34,6 +46,7 @@ struct ScopeInfo {
   std::string name{};
 };
 
+/** @brief SymbolTable class. */
 class SymbolTable {
  public:
   SymbolTable() { EnterScope("<global>", ScopeKind::kGlobal); }
@@ -92,6 +105,7 @@ class SymbolTable {
     return ptr;
   }
 
+  /** @brief ResolveResult data structure. */
   struct ResolveResult {
     const Symbol *symbol{nullptr};
     int scope_distance{-1};  // 0 = same scope, 1 = parent, ...

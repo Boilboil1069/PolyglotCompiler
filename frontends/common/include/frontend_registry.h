@@ -1,10 +1,11 @@
-// frontend_registry.h — Unified frontend registration center.
-//
-// Provides a singleton registry that maps language names, aliases, and file
-// extensions to ILanguageFrontend implementations.  CLI, UI, tests, and
-// plugins all share this single dispatch mechanism instead of duplicating
-// if/else chains.
-
+/**
+ * @file     frontend_registry.h
+ * @brief    Unified frontend registration center
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -21,6 +22,7 @@ namespace polyglot::frontends {
 // FrontendRegistry — singleton registration center
 // ============================================================================
 
+/** @brief FrontendRegistry class. */
 class FrontendRegistry {
   public:
     // Access the global singleton instance.
@@ -76,6 +78,7 @@ class FrontendRegistry {
 // FrontendRegistrar — RAII helper for static auto-registration
 // ============================================================================
 
+/** @brief FrontendRegistrar data structure. */
 struct FrontendRegistrar {
     explicit FrontendRegistrar(std::shared_ptr<ILanguageFrontend> frontend) {
         FrontendRegistry::Instance().Register(std::move(frontend));

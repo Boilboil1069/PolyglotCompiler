@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_lexer.h
+ * @brief    C++ language frontend
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/lexer_base.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::cpp {
 
+/** @brief CppLexer class. */
 class CppLexer : public frontends::LexerBase {
   public:
     CppLexer(std::string source, std::string file)

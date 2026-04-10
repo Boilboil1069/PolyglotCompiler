@@ -1,4 +1,12 @@
-﻿#include <string>
+/**
+ * @file     sema.cpp
+ * @brief    Java language frontend implementation
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+#include <string>
 #include <vector>
 
 #include "frontends/java/include/java_sema.h"
@@ -60,7 +68,8 @@ class Analyzer {
         scope_stack_.pop_back();
     }
 
-    // ---- Type mapping ----
+    /** @name Type mapping */
+    /** @{ */
     Type MapType(const std::shared_ptr<TypeNode> &node) {
         if (!node) return Type::Any();
         if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
@@ -83,14 +92,20 @@ class Analyzer {
         return Type::Any();
     }
 
-    // ---- Imports ----
+    /** @} */
+
+    /** @name Imports */
+    /** @{ */
     void AnalyzeImport(const ImportDecl &imp) {
         // Register imported symbol or wildcard
         Symbol sym{imp.path, Type::Module(imp.path, "java"), imp.loc, SymbolKind::kModule, "java"};
         Syms().Declare(sym);
     }
 
-    // ---- Declarations ----
+    /** @} */
+
+    /** @name Declarations */
+    /** @{ */
     void AnalyzeDecl(const std::shared_ptr<Statement> &decl) {
         if (!decl) return;
 
@@ -312,7 +327,10 @@ class Analyzer {
         ExitScope();
     }
 
-    // ---- Statements ----
+    /** @} */
+
+    /** @name Statements */
+    /** @{ */
     void AnalyzeStmt(const std::shared_ptr<Statement> &stmt) {
         if (!stmt) return;
 
@@ -448,7 +466,10 @@ class Analyzer {
         }
     }
 
-    // ---- Expressions ----
+    /** @} */
+
+    /** @name Expressions */
+    /** @{ */
     Type AnalyzeExpr(const std::shared_ptr<Expression> &expr) {
         if (!expr) return Type::Any();
 
@@ -608,3 +629,5 @@ void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
 }
 
 } // namespace polyglot::java
+
+/** @} */

@@ -1,3 +1,11 @@
+/**
+ * @file     ploy_lowering.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -16,6 +24,7 @@ namespace polyglot::ploy {
 // Cross-Language Call Descriptor (emitted into IR metadata)
 // ============================================================================
 
+/** @brief CrossLangCallDescriptor data structure. */
 struct CrossLangCallDescriptor {
     std::string stub_name;          // Generated stub function name
     std::string source_language;
@@ -27,7 +36,9 @@ struct CrossLangCallDescriptor {
     std::vector<ir::IRType> source_param_types;
     std::vector<ir::IRType> target_param_types;
     // Marshalling descriptors per parameter
+    /** @brief MarshalOp data structure. */
     struct MarshalOp {
+        /** @brief Kind enumeration. */
         enum class Kind { kDirect, kCast, kStringConvert, kArrayConvert, kStructConvert,
                           kListConvert, kTupleConvert, kDictConvert, kOptionConvert };
         Kind kind{Kind::kDirect};
@@ -42,6 +53,7 @@ struct CrossLangCallDescriptor {
 // Lowering Engine
 // ============================================================================
 
+/** @brief PloyLowering class. */
 class PloyLowering {
   public:
     PloyLowering(ir::IRContext &ir_context, frontends::Diagnostics &diagnostics,
@@ -59,6 +71,7 @@ class PloyLowering {
 
   private:
     // Environment for name resolution during lowering
+    /** @brief EnvEntry data structure. */
     struct EnvEntry {
         std::string ir_name;
         ir::IRType type{ir::IRType::Invalid()};
@@ -85,6 +98,7 @@ class PloyLowering {
     void LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
 
     // Expression lowering — returns the IR value name and its type
+    /** @brief EvalResult data structure. */
     struct EvalResult {
         std::string value;
         ir::IRType type{ir::IRType::Invalid()};

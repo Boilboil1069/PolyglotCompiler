@@ -1,8 +1,11 @@
-// panel_manager.h — Manages bottom panel tabs and plugin panel contributions.
-//
-// Extracted from MainWindow to decouple panel lifecycle, visibility toggling,
-// and plugin-contributed panels from the top-level window.
-
+/**
+ * @file     panel_manager.h
+ * @brief    Manages bottom panel tabs and plugin panel contributions
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QObject>
@@ -19,6 +22,7 @@ namespace polyglot::tools::ui {
 // PanelManager — manages the bottom panel area
 // ============================================================================
 
+/** @brief PanelManager class. */
 class PanelManager : public QObject {
     Q_OBJECT
 
@@ -68,6 +72,7 @@ class PanelManager : public QObject {
     void ActivePanelChanged(const QString &panel_id);
 
   private:
+    /** @brief PanelEntry data structure. */
     struct PanelEntry {
         QString  id;
         QWidget *widget{nullptr};

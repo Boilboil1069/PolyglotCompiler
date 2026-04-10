@@ -1,3 +1,11 @@
+/**
+ * @file     arm64_register.h
+ * @brief    AArch64 code generation
+ *
+ * @ingroup  Backend / ARM64
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -5,6 +13,7 @@
 namespace polyglot::backends::arm64 {
 
 // General-purpose registers for AArch64 (X0-X30, SP treated specially).
+/** @brief Register enumeration. */
 enum class Register {
   kX0, kX1, kX2, kX3, kX4, kX5, kX6, kX7,
   kX8, kX9, kX10, kX11, kX12, kX13, kX14, kX15,

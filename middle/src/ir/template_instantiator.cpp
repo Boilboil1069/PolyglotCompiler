@@ -1,3 +1,11 @@
+/**
+ * @file     template_instantiator.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // Template Instantiation System - Implementation
 // ===============================================
 // This file implements the complete template instantiation system for PolyglotCompiler.
@@ -71,9 +79,13 @@ bool TemplateInstantiationKey::operator==(const TemplateInstantiationKey& other)
 TemplateInstantiator::TemplateInstantiator() = default;
 TemplateInstantiator::~TemplateInstantiator() = default;
 
-// -------------------------------------------------------------------------
+/** @name - */
+/** @{ */
 // Template Registration
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 void TemplateInstantiator::RegisterClassTemplate(
     const std::string& name,
@@ -130,9 +142,15 @@ void TemplateInstantiator::RegisterSpecialization(
             });
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Template Instantiation
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 std::string TemplateInstantiator::InstantiateClass(
     const std::string& template_name,
@@ -270,9 +288,15 @@ void* TemplateInstantiator::GetInstantiatedFunctionAst(const std::string& instan
   return nullptr;
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Template Argument Deduction
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 DeductionResult TemplateInstantiator::DeduceTemplateArguments(
     const std::string& template_name,
@@ -369,9 +393,15 @@ DeductionResult TemplateInstantiator::DeduceFromType(
   return DeductionResult::Success(deduced_args, deduction_map);
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Type Substitution
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 SubstitutionResult TemplateInstantiator::SubstituteType(
     const IRType& type,
@@ -460,9 +490,15 @@ SubstitutionResult TemplateInstantiator::SubstituteAst(
   return SubstitutionResult::Success(result_node);
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Specialization Matching
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 bool TemplateInstantiator::MatchesPattern(
     const std::vector<TemplateArgument>& arguments,
@@ -556,9 +592,15 @@ const TemplateSpecialization* TemplateInstantiator::FindBestSpecialization(
   return nullptr;
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Utility Functions
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 std::string TemplateInstantiator::GenerateInstanceName(
     const std::string& template_name,
@@ -673,9 +715,15 @@ void TemplateInstantiator::ClearCaches() {
   instantiated_functions_.clear();
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Private Helper Functions
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 int TemplateInstantiator::CalculateSpecificity(
     const std::vector<TemplateArgument>& pattern) const {
@@ -950,9 +998,15 @@ std::unordered_map<std::string, TemplateArgument> TemplateInstantiator::BuildSub
   return map;
 }
 
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Additional Helper Function (used in MatchesPattern)
-// -------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 namespace {
 
@@ -1006,3 +1060,5 @@ bool MatchTypeStructure(const IRType& pattern, const IRType& argument,
 }  // anonymous namespace
 
 }  // namespace polyglot::ir
+
+/** @} */

@@ -1,9 +1,11 @@
-// git_panel.cpp — Git integration panel implementation.
-//
-// Provides full source control: status, staging, commit, branch management,
-// diff viewing, log display, push/pull/fetch, and stash operations.
-// All git commands are executed via QProcess using the system's git binary.
-
+/**
+ * @file     git_panel.cpp
+ * @brief    Git integration panel implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/git_panel.h"
 #include "tools/ui/common/include/theme_manager.h"
 

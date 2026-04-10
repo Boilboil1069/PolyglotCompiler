@@ -1,3 +1,11 @@
+/**
+ * @file     lexer_base.h
+ * @brief    Shared frontend infrastructure
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -6,6 +14,7 @@
 
 namespace polyglot::frontends {
 
+/** @brief TokenKind enumeration. */
 enum class TokenKind {
     kEndOfFile,
     kIdentifier,
@@ -23,6 +32,7 @@ enum class TokenKind {
     kUnknown
 };
 
+/** @brief Token data structure. */
 struct Token {
     TokenKind kind{TokenKind::kUnknown};
     std::string lexeme;
@@ -31,6 +41,7 @@ struct Token {
     bool is_doc{false};
 };
 
+/** @brief LexerBase class. */
 class LexerBase {
   public:
     virtual ~LexerBase() = default;
@@ -70,6 +81,7 @@ class LexerBase {
 
     // Save/restore lexer state for lookahead (public for parser access)
   public:
+    /** @brief LexerState data structure. */
     struct LexerState {
         size_t position;
         size_t line;

@@ -1,3 +1,11 @@
+/**
+ * @file     gc_strategy.h
+ * @brief    Garbage collection subsystem
+ *
+ * @ingroup  Runtime / GC
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -6,6 +14,7 @@
 
 namespace polyglot::runtime::gc {
 
+/** @brief Strategy enumeration. */
 enum class Strategy { 
   kMarkSweep,      // 标记-清除GC
   kGenerational,   // 分代GC

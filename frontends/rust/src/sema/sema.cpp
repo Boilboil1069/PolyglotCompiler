@@ -1,3 +1,11 @@
+/**
+ * @file     sema.cpp
+ * @brief    Rust language frontend implementation
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <optional>
 #include <string>
 #include <unordered_map>

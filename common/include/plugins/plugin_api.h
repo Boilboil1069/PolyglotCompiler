@@ -1,16 +1,11 @@
-// plugin_api.h — Public C API for PolyglotCompiler plugins.
-//
-// Plugins are shared libraries (.so / .dylib / .dll) that export the
-// functions declared here.  The host loads them at runtime via dlopen /
-// LoadLibrary and calls the entry points through this stable C ABI.
-//
-// Every plugin MUST export:
-//   polyglot_plugin_get_info   — return static metadata
-//   polyglot_plugin_create     — allocate and return a plugin instance
-//   polyglot_plugin_destroy    — free the instance
-//
-// The host owns the lifecycle: create → activate → (use) → deactivate → destroy.
-
+/**
+ * @file     plugin_api.h
+ * @brief    Public C API for PolyglotCompiler plugins
+ *
+ * @ingroup  Common / Plugins
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <stddef.h>

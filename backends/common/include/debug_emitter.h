@@ -1,3 +1,11 @@
+/**
+ * @file     debug_emitter.h
+ * @brief    Shared backend infrastructure
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -7,6 +15,7 @@
 namespace polyglot::backends {
 
 // Options for controlling debug information emission
+/** @brief DebugEmitOptions data structure. */
 struct DebugEmitOptions {
     bool emit_dwarf{false};       // Emit DWARF debug info (ELF targets)
     bool emit_pdb{false};         // Emit PDB debug info (Windows targets)
@@ -31,6 +40,7 @@ struct DebugEmitOptions {
 //   DebugEmitter::EmitPDB(builder, "output.pdb");
 //   DebugEmitter::EmitSourceMap(builder, "output.map");
 //
+/** @brief DebugEmitter class. */
 class DebugEmitter {
 public:
     // Write a source map JSON sidecar to the given path.

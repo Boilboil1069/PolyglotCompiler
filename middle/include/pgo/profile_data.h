@@ -1,4 +1,12 @@
 /**
+ * @file     profile_data.h
+ * @brief    Profile-guided optimisation
+ *
+ * @ingroup  Middle / PGO
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * Profile-Guided Optimization (PGO) support
  *
  * Collect and use runtime profiling data to optimize compilation
@@ -19,7 +27,8 @@ class Function;
 
 namespace polyglot::pgo {
 
-// ============ Profiling data structures ============
+/** @name Profiling data structures */
+/** @{ */
 
 /**
  * Basic block execution counts
@@ -220,7 +229,10 @@ private:
     std::string profile_version_ = "1.0";
 };
 
-// ============ Profiling data collection ============
+/** @} */
+
+/** @name Profiling data collection */
+/** @{ */
 
 /**
  * Runtime profiling counters
@@ -259,7 +271,10 @@ private:
     std::map<std::string, FunctionProfile> profiles_;
 };
 
-// ============ PGO optimizer ============
+/** @} */
+
+/** @name PGO optimizer */
+/** @{ */
 
 /**
  * Profile-Guided Optimization (PGO) optimizer
@@ -276,6 +291,7 @@ private:
 class PGOOptimizer {
 public:
     // Configuration options for PGO decisions
+    /** @brief Config data structure. */
     struct Config {
         // Inlining thresholds
         uint64_t hot_call_threshold = 1000;       // Minimum calls to be considered hot
@@ -309,8 +325,12 @@ public:
     void SetConfig(const Config& config) { config_ = config; }
     const Config& GetConfig() const { return config_; }
     
-    // ============ Inlining decisions ============
+    /** @} */
+
+    /** @name Inlining decisions */
+    /** @{ */
     
+    /** @brief InliningDecision data structure. */
     struct InliningDecision {
         std::string caller;           // Caller function name
         size_t call_site_id;          // Call site ID within caller
@@ -323,8 +343,12 @@ public:
     
     std::vector<InliningDecision> MakeInliningDecisions() const;
     
-    // ============ Code layout optimization ============
+    /** @} */
+
+    /** @name Code layout optimization */
+    /** @{ */
     
+    /** @brief CodeLayoutHint data structure. */
     struct CodeLayoutHint {
         std::string function;                 // Function name
         std::vector<size_t> block_order;      // Optimized basic block order
@@ -336,8 +360,12 @@ public:
     
     std::vector<CodeLayoutHint> OptimizeCodeLayout() const;
     
-    // ============ Loop optimization ============
+    /** @} */
+
+    /** @name Loop optimization */
+    /** @{ */
     
+    /** @brief LoopOptimizationHint data structure. */
     struct LoopOptimizationHint {
         std::string function;             // Function containing the loop
         size_t loop_header_block;         // Loop header basic block ID
@@ -350,8 +378,12 @@ public:
     
     std::vector<LoopOptimizationHint> OptimizeLoops() const;
     
-    // ============ Branch prediction ============
+    /** @} */
+
+    /** @name Branch prediction */
+    /** @{ */
     
+    /** @brief BranchPredictionHint data structure. */
     struct BranchPredictionHint {
         std::string function;             // Function containing the branch
         size_t branch_id;                 // Branch ID
@@ -364,8 +396,12 @@ public:
     
     std::vector<BranchPredictionHint> GetBranchPredictions() const;
     
-    // ============ Devirtualization ============
+    /** @} */
+
+    /** @name Devirtualization */
+    /** @{ */
     
+    /** @brief DevirtualizationHint data structure. */
     struct DevirtualizationHint {
         std::string function;             // Function containing the call
         size_t call_site_id;              // Virtual call site ID
@@ -378,8 +414,12 @@ public:
     
     std::vector<DevirtualizationHint> FindDevirtualizationOpportunities() const;
     
-    // ============ Function specialization ============
+    /** @} */
+
+    /** @name Function specialization */
+    /** @{ */
     
+    /** @brief SpecializationHint data structure. */
     struct SpecializationHint {
         std::string function;             // Function to specialize
         size_t call_site_id;              // Call site triggering specialization
@@ -393,8 +433,12 @@ public:
     
     std::vector<SpecializationHint> FindSpecializationOpportunities() const;
     
-    // ============ Memory prefetching ============
+    /** @} */
+
+    /** @name Memory prefetching */
+    /** @{ */
     
+    /** @brief PrefetchHint data structure. */
     struct PrefetchHint {
         std::string function;             // Function containing access
         size_t block_id;                  // Basic block with access
@@ -407,7 +451,10 @@ public:
     
     std::vector<PrefetchHint> GetPrefetchHints() const;
     
-    // ============ Analysis helpers ============
+    /** @} */
+
+    /** @name Analysis helpers */
+    /** @{ */
     
     // Get hottest functions by time spent
     std::vector<std::string> GetHotFunctions(size_t top_n = 10) const;
@@ -415,8 +462,12 @@ public:
     // Get coldest functions (candidates for outline/remove)
     std::vector<std::string> GetColdFunctions() const;
     
-    // ============ Report generation ============
+    /** @} */
+
+    /** @name Report generation */
+    /** @{ */
     
+    /** @brief OptimizationReport data structure. */
     struct OptimizationReport {
         size_t total_functions;
         size_t hot_functions;
@@ -458,7 +509,10 @@ private:
         const BranchProfile& branch) const;
 };
 
-// ============ Instrumentation code generation ============
+/** @} */
+
+/** @name Instrumentation code generation */
+/** @{ */
 
 /**
  * Generate instrumentation code for PGO
@@ -475,7 +529,10 @@ public:
     static void OptimizeInstrumentation(ir::Function& func);
 };
 
-// ============ PGO workflow ============
+/** @} */
+
+/** @name PGO workflow */
+/** @{ */
 
 /**
  * End-to-end PGO workflow
@@ -507,3 +564,5 @@ public:
 };
 
 } // namespace polyglot::pgo
+
+/** @} */

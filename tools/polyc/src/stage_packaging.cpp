@@ -1,3 +1,11 @@
+/**
+ * @file     stage_packaging.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // stage_packaging.cpp — Stage 6 implementation
 // ============================================================================

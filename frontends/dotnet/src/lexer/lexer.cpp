@@ -1,3 +1,11 @@
+/**
+ * @file     lexer.cpp
+ * @brief    .NET/C# language frontend implementation
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/dotnet/include/dotnet_lexer.h"
 
 #include <cctype>

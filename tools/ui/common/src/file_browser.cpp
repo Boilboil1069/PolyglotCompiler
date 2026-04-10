@@ -1,8 +1,11 @@
-// file_browser.cpp — Project file browser implementation.
-//
-// Uses QFileSystemModel and QTreeView to display the project directory tree
-// with filtering support and a rich right-click context menu.
-
+/**
+ * @file     file_browser.cpp
+ * @brief    Project file browser implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/file_browser.h"
 #include "tools/ui/common/include/theme_manager.h"
 

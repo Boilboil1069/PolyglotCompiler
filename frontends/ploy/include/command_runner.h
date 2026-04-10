@@ -1,3 +1,11 @@
+/**
+ * @file     command_runner.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <chrono>
@@ -9,6 +17,7 @@ namespace polyglot::ploy {
 // CommandResult — structured output from an external command execution
 // ============================================================================
 
+/** @brief CommandResult data structure. */
 struct CommandResult {
     std::string stdout_output;   // Captured stdout text
     int exit_code{-1};           // Process exit code (0 = success, -1 = unknown)
@@ -27,6 +36,7 @@ struct CommandResult {
 // real filesystem or spawning processes.
 // ============================================================================
 
+/** @brief ICommandRunner class. */
 class ICommandRunner {
   public:
     virtual ~ICommandRunner() = default;
@@ -50,6 +60,7 @@ class ICommandRunner {
 // expires the child is terminated and the result is marked as timed_out.
 // ============================================================================
 
+/** @brief DefaultCommandRunner class. */
 class DefaultCommandRunner : public ICommandRunner {
   public:
     // Construct with a default timeout applied to every RunWithResult() call

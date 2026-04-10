@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_sema.h
+ * @brief    C++ language frontend
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/sema_context.h"

@@ -1,3 +1,11 @@
+/**
+ * @file     cpp_constexpr.cpp
+ * @brief    C++ language frontend implementation
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/cpp/include/cpp_constexpr.h"
 #include <stdexcept>
 #include <sstream>

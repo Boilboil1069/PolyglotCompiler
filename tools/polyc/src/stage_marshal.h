@@ -1,3 +1,11 @@
+/**
+ * @file     stage_marshal.h
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 // ============================================================================
 // stage_marshal.h — Stage 3: Marshal Plan Generation

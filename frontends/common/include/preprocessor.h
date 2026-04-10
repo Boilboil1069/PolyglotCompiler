@@ -1,3 +1,11 @@
+/**
+ * @file     preprocessor.h
+ * @brief    Shared frontend infrastructure
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <functional>
@@ -11,8 +19,10 @@
 
 namespace polyglot::frontends {
 
+  /** @brief Preprocessor class. */
   class Preprocessor {
   public:
+    /** @brief Macro data structure. */
     struct Macro {
       bool is_function{false};
       std::vector<std::string> params;

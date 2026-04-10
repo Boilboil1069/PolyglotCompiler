@@ -1,3 +1,11 @@
+/**
+ * @file     threading.h
+ * @brief    Runtime service infrastructure
+ *
+ * @ingroup  Runtime / Services
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <atomic>
@@ -22,6 +30,7 @@ namespace polyglot::runtime::services {
 // Each ThreadLocalStorage instance maintains an independent key-value store.
 // Thread safety is guaranteed by an internal mutex so the same instance can be
 // used from multiple threads without external synchronization.
+/** @brief ThreadLocalStorage class. */
 class ThreadLocalStorage {
  public:
   void Set(const std::string &key, void *value) {
@@ -43,6 +52,7 @@ class ThreadLocalStorage {
   std::unordered_map<std::string, void *> storage_;
 };
 
+/** @brief Threading class. */
 class Threading {
  public:
   template <typename Fn>
@@ -64,6 +74,7 @@ using LockGuard = std::lock_guard<Mutex>;
 // Advanced threading services
 
 // 1. Thread pool
+/** @brief ThreadPool class. */
 class ThreadPool {
  public:
   explicit ThreadPool(size_t num_threads = 0);  // 0 = hardware concurrency
@@ -86,10 +97,13 @@ class ThreadPool {
 };
 
 // 2. Task scheduler
+/** @brief TaskScheduler class. */
 class TaskScheduler {
  public:
+  /** @brief Priority enumeration. */
   enum Priority { kLow, kNormal, kHigh, kRealtime };
 
+  /** @brief Task data structure. */
   struct Task {
     std::function<void()> func;
     Priority priority{kNormal};
@@ -109,6 +123,7 @@ class TaskScheduler {
 };
 
 // 3. Work-stealing scheduler
+/** @brief WorkStealingScheduler class. */
 class WorkStealingScheduler {
  public:
   explicit WorkStealingScheduler(size_t num_workers);
@@ -124,6 +139,7 @@ class WorkStealingScheduler {
 };
 
 // 4. Synchronization primitives
+/** @brief RWLock class. */
 class RWLock {
  public:
   void ReadLock();
@@ -131,6 +147,7 @@ class RWLock {
   void WriteLock();
   void WriteUnlock();
 
+  /** @brief ReadGuard class. */
   class ReadGuard {
    public:
     explicit ReadGuard(RWLock &lock) : lock_(lock) { lock_.ReadLock(); }
@@ -140,6 +157,7 @@ class RWLock {
     RWLock &lock_;
   };
 
+  /** @brief WriteGuard class. */
   class WriteGuard {
    public:
     explicit WriteGuard(RWLock &lock) : lock_(lock) { lock_.WriteLock(); }
@@ -156,6 +174,7 @@ class RWLock {
   bool writer_{false};
 };
 
+/** @brief Barrier class. */
 class Barrier {
  public:
   explicit Barrier(size_t num_threads);
@@ -171,6 +190,7 @@ class Barrier {
   size_t generation_{0};
 };
 
+/** @brief Semaphore class. */
 class Semaphore {
  public:
   explicit Semaphore(int initial_count = 0);
@@ -187,6 +207,7 @@ class Semaphore {
 
 // 5. Lock-free data structures
 template <typename T>
+/** @brief LockFreeQueue class. */
 class LockFreeQueue {
  public:
   LockFreeQueue();
@@ -197,6 +218,7 @@ class LockFreeQueue {
   bool Empty() const;
 
  private:
+  /** @brief Node data structure. */
   struct Node {
     T value;
     std::atomic<Node*> next;
@@ -207,6 +229,7 @@ class LockFreeQueue {
 };
 
 template <typename T>
+/** @brief LockFreeStack class. */
 class LockFreeStack {
  public:
   LockFreeStack();
@@ -217,6 +240,7 @@ class LockFreeStack {
   bool Empty() const;
 
  private:
+  /** @brief Node data structure. */
   struct Node {
     T value;
     std::atomic<Node*> next;
@@ -227,6 +251,7 @@ class LockFreeStack {
 
 // 6. Thread-local storage
 template <typename T>
+/** @brief ThreadLocal class. */
 class ThreadLocal {
  public:
   ThreadLocal() = default;
@@ -242,8 +267,10 @@ class ThreadLocal {
 };
 
 // 7. Coroutines
+/** @brief Coroutine class. */
 class Coroutine {
  public:
+  /** @brief State enumeration. */
   enum State { kSuspended, kRunning, kCompleted };
 
   virtual ~Coroutine() = default;
@@ -253,6 +280,7 @@ class Coroutine {
   bool IsCompleted() const { return GetState() == kCompleted; }
 };
 
+/** @brief CoroutineScheduler class. */
 class CoroutineScheduler {
  public:
   template <typename F>
@@ -276,6 +304,7 @@ template <typename T>
 class Promise;
 
 template <typename T>
+/** @brief Future class. */
 class Future {
  public:
   Future();
@@ -290,6 +319,7 @@ class Future {
   friend class Promise<T>;
 
   // Shared state between Promise and Future.
+  /** @brief State data structure. */
   struct State {
     std::mutex mu;
     std::condition_variable cv;
@@ -304,6 +334,7 @@ class Future {
 };
 
 template <typename T>
+/** @brief Promise class. */
 class Promise {
  public:
   Promise();
@@ -317,6 +348,7 @@ class Promise {
 };
 
 // 9. Memory order control
+/** @brief MemoryOrder enumeration. */
 enum class MemoryOrder {
   kRelaxed,
   kAcquire,
@@ -326,6 +358,7 @@ enum class MemoryOrder {
 };
 
 template <typename T>
+/** @brief Atomic class. */
 class Atomic {
  public:
   Atomic() : value_() {}
@@ -346,6 +379,7 @@ class Atomic {
 };
 
 // 10. Thread profiling
+/** @brief ThreadStats data structure. */
 struct ThreadStats {
   size_t num_tasks_executed{0};
   size_t num_steals{0};
@@ -353,6 +387,7 @@ struct ThreadStats {
   size_t idle_time_us{0};
 };
 
+/** @brief ThreadProfiler class. */
 class ThreadProfiler {
  public:
   static void StartProfiling();
@@ -515,6 +550,7 @@ bool LockFreeStack<T>::Empty() const {
 
 template <typename F>
 std::shared_ptr<Coroutine> CoroutineScheduler::Create(F &&func) {
+  /** @brief FuncCoroutine data structure. */
   struct FuncCoroutine : Coroutine {
     using Fn = std::function<void()>;
 

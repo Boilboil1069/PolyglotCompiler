@@ -1,3 +1,11 @@
+/**
+ * @file     ploy_sema.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <functional>
@@ -24,6 +32,7 @@ class ICommandRunner;
 // PloySema(diagnostics) continue to work unchanged.
 // ============================================================================
 
+/** @brief PloySemaOptions data structure. */
 struct PloySemaOptions {
     // When true, PloySema runs external package-manager commands on the first
     // IMPORT PACKAGE for each language to discover installed packages and their
@@ -54,7 +63,9 @@ struct PloySemaOptions {
 // Symbol Table Entry
 // ============================================================================
 
+/** @brief PloySymbol data structure. */
 struct PloySymbol {
+    /** @brief Kind enumeration. */
     enum class Kind { kVariable, kFunction, kImport, kLinkTarget, kPipeline };
     Kind kind{Kind::kVariable};
     std::string name;
@@ -69,6 +80,7 @@ struct PloySymbol {
 // Type Mapping Entry
 // ============================================================================
 
+/** @brief TypeMappingEntry data structure. */
 struct TypeMappingEntry {
     std::string source_language;
     std::string source_type;
@@ -81,6 +93,7 @@ struct TypeMappingEntry {
 // Link Entry (validated cross-language link)
 // ============================================================================
 
+/** @brief LinkEntry data structure. */
 struct LinkEntry {
     LinkDecl::LinkKind kind{LinkDecl::LinkKind::kFunction};
     std::string target_language;
@@ -99,6 +112,7 @@ struct LinkEntry {
 // Package Registry Entry (for auto-discovery)
 // ============================================================================
 
+/** @brief PackageInfo data structure. */
 struct PackageInfo {
     std::string name;                   // Package name (e.g. "numpy")
     std::string version;                // Installed version (e.g. "1.24.3")
@@ -111,6 +125,7 @@ struct PackageInfo {
 // Virtual Environment Configuration
 // ============================================================================
 
+/** @brief VenvConfig data structure. */
 struct VenvConfig {
     VenvConfigDecl::ManagerKind manager{VenvConfigDecl::ManagerKind::kVenv};
     std::string language;       // e.g. "python"
@@ -125,6 +140,7 @@ struct VenvConfig {
 // Describes the ABI-level contract for a cross-language function call.
 // Used by sema for pre-lowering validation and by the linker for stub
 // generation correctness checks.
+/** @brief ABIParamDesc data structure. */
 struct ABIParamDesc {
     core::Type semantic_type{core::Type::Invalid()};  // High-level type
     std::string abi_type_name;                        // ABI-level type name (e.g. "i64", "f64", "ptr")
@@ -134,6 +150,7 @@ struct ABIParamDesc {
     bool is_by_value{false};                          // Whether passed by value (struct copy)
 };
 
+/** @brief ABISignature data structure. */
 struct ABISignature {
     std::string function_name;                        // Qualified function name
     std::string language;                             // Source language
@@ -153,6 +170,7 @@ struct ABISignature {
 // Function Signature Registry (for parameter count/type validation)
 // ============================================================================
 
+/** @brief FunctionSignature data structure. */
 struct FunctionSignature {
     std::string name;                         // Qualified function name
     std::string language;                     // Source language
@@ -173,6 +191,7 @@ struct FunctionSignature {
 // Foreign Class Schema (for cross-language NEW/METHOD/GET/SET validation)
 // ============================================================================
 
+/** @brief ForeignClassSchema data structure. */
 struct ForeignClassSchema {
     std::string class_name;                   // Fully qualified class name
     std::string language;                     // Source language (e.g. "python", "cpp")
@@ -187,6 +206,7 @@ struct ForeignClassSchema {
 // Semantic Analyzer
 // ============================================================================
 
+/** @brief PloySema class. */
 class PloySema {
   public:
     // Backward-compatible constructor — uses default options.

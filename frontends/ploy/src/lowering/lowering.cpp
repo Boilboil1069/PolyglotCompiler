@@ -1,3 +1,11 @@
+/**
+ * @file     lowering.cpp
+ * @brief    Ploy language frontend implementation
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/ploy/include/ploy_lowering.h"
 
 #include <cstdlib>
@@ -687,7 +695,8 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     EvalResult left = LowerExpression(bin->left);
     EvalResult right = LowerExpression(bin->right);
 
-    // --- Smart type inference for binary operands ---
+    /** @name Smart type inference for binary operands */
+    /** @{ */
     // When one operand comes from a cross-language call, its IR type may be
     // opaque pointer (Pointer(I8)), I64 placeholder, or Invalid.  We need to
     // infer the correct numeric type from the other operand or from the
@@ -2159,3 +2168,5 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
 }
 
 } // namespace polyglot::ploy
+
+/** @} */

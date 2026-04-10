@@ -1,8 +1,11 @@
-// topology_validator.h — Validates a TopologyGraph for correctness.
-//
-// Checks type compatibility on every edge, detects unconnected ports,
-// parameter count mismatches, cycles, and unreachable nodes.
-
+/**
+ * @file     topology_validator.h
+ * @brief    Validates a TopologyGraph for correctness
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -16,6 +19,7 @@ namespace polyglot::tools::topo {
 // ValidationOptions
 // ============================================================================
 
+/** @brief ValidationOptions data structure. */
 struct ValidationOptions {
     // Treat Any-typed connections as warnings (default) or errors (strict)
     bool strict_any{false};
@@ -37,6 +41,7 @@ struct ValidationOptions {
 // TopologyValidator
 // ============================================================================
 
+/** @brief TopologyValidator class. */
 class TopologyValidator {
   public:
     explicit TopologyValidator(const ValidationOptions &opts = {});

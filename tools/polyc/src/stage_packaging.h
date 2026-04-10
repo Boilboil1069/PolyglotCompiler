@@ -1,3 +1,11 @@
+/**
+ * @file     stage_packaging.h
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 // ============================================================================
 // stage_packaging.h — Stage 6: aux file writing, object emission, linking
@@ -8,6 +16,7 @@
 namespace polyglot::tools {
 
 // Packaging result
+/** @brief PackagingResult data structure. */
 struct PackagingResult {
     bool success{false};
     std::string output_path;             // final output (exe / obj)

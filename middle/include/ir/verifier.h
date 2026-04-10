@@ -1,3 +1,11 @@
+/**
+ * @file     verifier.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -9,6 +17,7 @@ namespace polyglot::ir {
 
 // Verification options: strict mode rejects placeholder/I64 fallbacks
 // that are silently tolerated in the default (lenient) mode.
+/** @brief VerifyOptions data structure. */
 struct VerifyOptions {
     bool strict{false};  // When true, reject placeholder IR patterns
 };

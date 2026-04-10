@@ -1,3 +1,11 @@
+/**
+ * @file     cfg.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "middle/include/ir/cfg.h"
 
 #include <algorithm>

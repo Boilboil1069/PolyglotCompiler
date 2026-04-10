@@ -1,9 +1,11 @@
-// debug_panel.cpp — Debugger integration panel implementation.
-//
-// Implements breakpoint management, call stack display, variable inspection,
-// watch expressions, and debug console. The debugger (lldb on macOS, gdb on
-// Linux) is driven via a QProcess pipe using MI-style or CLI commands.
-
+/**
+ * @file     debug_panel.cpp
+ * @brief    Debugger integration panel implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/debug_panel.h"
 #include "tools/ui/common/include/theme_manager.h"
 

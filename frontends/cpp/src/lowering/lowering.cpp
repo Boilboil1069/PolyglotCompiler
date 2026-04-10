@@ -1,3 +1,11 @@
+/**
+ * @file     lowering.cpp
+ * @brief    C++ language frontend implementation
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/cpp/include/cpp_lowering.h"
 
 #include <cstdlib>
@@ -106,7 +114,8 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
     return {lit->name, ir::IRType::F64()};
 }
 
-// ==================== Member access and virtual calls ====================
+/** @name Member access and virtual calls */
+/** @{ */
 
 // Handle subscript/operator[] overloads
 EvalResult EvalIndexAccess(const std::shared_ptr<IndexExpression> &idx, LoweringContext &lc) {
@@ -1159,7 +1168,10 @@ bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc
     return true;
 }
 
-// ==================== Class and inheritance lowering ====================
+/** @} */
+
+/** @name Class and inheritance lowering */
+/** @{ */
 
 // Build a class vtable
 std::shared_ptr<ir::VTable> BuildVTable(const std::shared_ptr<RecordDecl> &record, 
@@ -1656,3 +1668,5 @@ void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics 
 }
 
 }  // namespace polyglot::cpp
+
+/** @} */

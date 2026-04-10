@@ -1,5 +1,11 @@
-// java_frontend.cpp — Java language frontend adapter implementation.
-
+/**
+ * @file     java_frontend.cpp
+ * @brief    Java language frontend adapter implementation
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/java/include/java_frontend.h"
 
 #include "frontends/common/include/frontend_registry.h"

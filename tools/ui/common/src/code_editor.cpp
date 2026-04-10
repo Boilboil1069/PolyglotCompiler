@@ -1,8 +1,11 @@
-// code_editor.cpp — Code editor widget implementation.
-//
-// Provides line numbering, current-line highlighting, bracket matching,
-// auto-indent, and zoom support.
-
+/**
+ * @file     code_editor.cpp
+ * @brief    Code editor widget implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/theme_manager.h"
 

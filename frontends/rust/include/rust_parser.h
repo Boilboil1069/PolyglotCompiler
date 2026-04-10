@@ -1,3 +1,11 @@
+/**
+ * @file     rust_parser.h
+ * @brief    Rust language frontend
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -8,6 +16,7 @@
 
 namespace polyglot::rust {
 
+/** @brief RustParser class. */
 class RustParser : public frontends::ParserBase {
   public:
     RustParser(RustLexer &lexer, frontends::Diagnostics &diagnostics)

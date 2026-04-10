@@ -1,14 +1,11 @@
-// terminal_widget.h — Embedded terminal emulator for the PolyglotCompiler IDE.
-//
-// Provides a fully interactive shell session (cmd/powershell on Windows,
-// bash/zsh on Linux/macOS) inside the IDE.  Features include:
-//   - Full PTY-style interaction via QProcess
-//   - Command history with Up/Down arrow navigation
-//   - Colour output with basic ANSI escape-code parsing
-//   - Shell auto-detection per platform
-//   - Multiple terminal instances (managed by the host window)
-//   - Clear / restart shell commands
-
+/**
+ * @file     terminal_widget.h
+ * @brief    Embedded terminal emulator for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QFont>
@@ -27,6 +24,7 @@ namespace polyglot::tools::ui {
 // TerminalWidget — single embedded terminal session
 // ============================================================================
 
+/** @brief TerminalWidget class. */
 class TerminalWidget : public QWidget {
     Q_OBJECT
 
@@ -112,6 +110,7 @@ class TerminalWidget : public QWidget {
 // TerminalInputFilter — event filter for capturing key presses in the text area
 // ============================================================================
 
+/** @brief TerminalInputFilter class. */
 class TerminalInputFilter : public QObject {
     Q_OBJECT
 

@@ -1,3 +1,11 @@
+/**
+ * @file     dotnet_lowering.h
+ * @brief    .NET/C# language frontend
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/dotnet/include/dotnet_ast.h"

@@ -1,3 +1,11 @@
+/**
+ * @file     sema.cpp
+ * @brief    C++ language frontend implementation
+ *
+ * @ingroup  Frontend / C++
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <optional>
 #include <string>
 #include <utility>
@@ -38,7 +46,8 @@ class Analyzer {
     core::TypeSystem &Types() { return ctx_.Types(); }
     core::SymbolTable &Syms() { return ctx_.Symbols(); }
 
-    // ---- Types ----
+    /** @name Types */
+    /** @{ */
     Type MapType(const std::shared_ptr<TypeNode> &node) {
         if (!node) return Type::Any();
         if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
@@ -79,7 +88,10 @@ class Analyzer {
         return res;
     }
 
-    // ---- Declarations ----
+    /** @} */
+
+    /** @name Declarations */
+    /** @{ */
     void AnalyzeDecl(const std::shared_ptr<Statement> &decl) {
         if (!decl) return;
         if (auto fn = std::dynamic_pointer_cast<FunctionDecl>(decl)) {
@@ -442,3 +454,5 @@ void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
 }
 
 }  // namespace polyglot::cpp
+
+/** @} */

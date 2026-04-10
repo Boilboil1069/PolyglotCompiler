@@ -1,3 +1,11 @@
+/**
+ * @file     wasm_target.h
+ * @brief    WebAssembly code generation
+ *
+ * @ingroup  Backend / WASM
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -16,6 +24,7 @@ namespace polyglot::backends::wasm {
 // WebAssembly Section Types
 // ============================================================================
 
+/** @brief WasmSectionId enumeration. */
 enum class WasmSectionId : std::uint8_t {
     kCustom    = 0,
     kType      = 1,
@@ -36,6 +45,7 @@ enum class WasmSectionId : std::uint8_t {
 // WebAssembly Value Types
 // ============================================================================
 
+/** @brief WasmValType enumeration. */
 enum class WasmValType : std::uint8_t {
     kI32       = 0x7F,
     kI64       = 0x7E,
@@ -50,6 +60,7 @@ enum class WasmValType : std::uint8_t {
 // WebAssembly Export Kinds
 // ============================================================================
 
+/** @brief WasmExportKind enumeration. */
 enum class WasmExportKind : std::uint8_t {
     kFunction = 0,
     kTable    = 1,
@@ -61,6 +72,7 @@ enum class WasmExportKind : std::uint8_t {
 // WebAssembly Function Signature
 // ============================================================================
 
+/** @brief WasmFuncType data structure. */
 struct WasmFuncType {
     std::vector<WasmValType> params;
     std::vector<WasmValType> results;
@@ -70,6 +82,7 @@ struct WasmFuncType {
 // WebAssembly Import
 // ============================================================================
 
+/** @brief WasmImport data structure. */
 struct WasmImport {
     std::string module;
     std::string name;
@@ -81,6 +94,7 @@ struct WasmImport {
 // WebAssembly Export
 // ============================================================================
 
+/** @brief WasmExport data structure. */
 struct WasmExport {
     std::string name;
     WasmExportKind kind{WasmExportKind::kFunction};
@@ -91,6 +105,7 @@ struct WasmExport {
 // WebAssembly Module Builder
 // ============================================================================
 
+/** @brief WasmTarget class. */
 class WasmTarget : public polyglot::backends::TargetMachine {
  public:
     explicit WasmTarget(const polyglot::ir::IRContext *module = nullptr)

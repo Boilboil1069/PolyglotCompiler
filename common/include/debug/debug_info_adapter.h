@@ -1,4 +1,12 @@
 /**
+ * @file     debug_info_adapter.h
+ * @brief    Debug information generation utilities
+ *
+ * @ingroup  Common / Debug
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * Debug Information Conversion Adapter
  *
  * Provides a clean conversion boundary between the two debug-info models:
@@ -42,7 +50,8 @@ inline backends::DebugInfoBuilder ConvertToBackendDebugInfo(
     const DebugInfoBuilder& src) {
     backends::DebugInfoBuilder dst;
 
-    // --- Line table -----------------------------------------------------------
+    /** @name Line table */
+    /** @{ */
     const auto& entries = src.GetLineTable().GetEntries();
     for (const auto& e : entries) {
         backends::DebugLineInfo li;
@@ -52,7 +61,10 @@ inline backends::DebugInfoBuilder ConvertToBackendDebugInfo(
         dst.AddLine(std::move(li));
     }
 
-    // --- Types ----------------------------------------------------------------
+    /** @} */
+
+    /** @name Types */
+    /** @{ */
     // The rich model exposes types through compile units.  Walk every CU.
     // (Types are also stored in the builder's internal vector, but the public
     //  API surfaces them per-CU.)
@@ -156,3 +168,5 @@ inline const LineTable& GetLineTable(const DebugInfoBuilder& builder) {
 }
 
 }  // namespace polyglot::debug
+
+/** @} */

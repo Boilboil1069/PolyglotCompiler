@@ -1,11 +1,11 @@
-// topology_codegen.cpp — Generates .ploy source code from a TopologyGraph.
-//
-// Implements two main routines:
-//   1. GeneratePloySrc: Walks the graph nodes and edges to emit valid .ploy
-//      directives (IMPORT, MAP_TYPE, LINK, FUNC, PIPELINE, CALL, etc.)
-//   2. ParseJsonToGraph: Reads the JSON format produced by TopologyPrinter
-//      and reconstructs a TopologyGraph.
-
+/**
+ * @file     topology_codegen.cpp
+ * @brief    Generates .ploy source code from a TopologyGraph
+ *
+ * @ingroup  Tool / polytopo
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/polytopo/include/topology_codegen.h"
 
 #include <algorithm>
@@ -94,7 +94,8 @@ std::string ToPloySrcType(const std::string &type_name) {
 std::string GeneratePloySrc(const TopologyGraph &graph) {
     std::ostringstream out;
 
-    // ---- Header comment ----
+    /** @name Header comment */
+    /** @{ */
     out << "// ============================================================================\n";
     out << "// Auto-generated .ploy source from topology graph\n";
     if (!graph.module_name.empty()) {
@@ -107,7 +108,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         << "  Edges: " << graph.EdgeCount() << "\n";
     out << "// ============================================================================\n\n";
 
-    // ---- Collect distinct languages that appear in nodes ----
+    /** @} */
+
+    /** @name Collect distinct languages that appear in nodes */
+    /** @{ */
     std::set<std::string> languages;
     for (const auto &node : graph.Nodes()) {
         if (!node.language.empty() && node.language != "ploy") {
@@ -115,7 +119,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         }
     }
 
-    // ---- IMPORT directives ----
+    /** @} */
+
+    /** @name IMPORT directives */
+    /** @{ */
     // Group by language.  For each language, collect unique module prefixes
     // from node names (e.g. "cpp::math_ops::add" -> module "math_ops").
     std::set<std::string> emitted_imports;
@@ -139,7 +146,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         out << "\n";
     }
 
-    // ---- Collect type mapping pairs from edges ----
+    /** @} */
+
+    /** @name Collect type mapping pairs from edges */
+    /** @{ */
     // If source and target port types differ and belong to different languages,
     // emit MAP_TYPE directives.
     std::set<std::string> emitted_map_types;
@@ -180,7 +190,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         out << "\n";
     }
 
-    // ---- LINK directives from edges ----
+    /** @} */
+
+    /** @name LINK directives from edges */
+    /** @{ */
     // For edges connecting nodes from different languages, emit LINK statements.
     std::set<std::string> emitted_links;
     for (const auto &edge : graph.Edges()) {
@@ -219,7 +232,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         out << "}\n\n";
     }
 
-    // ---- Pipeline nodes ----
+    /** @} */
+
+    /** @name Pipeline nodes */
+    /** @{ */
     std::unordered_set<uint64_t> pipeline_ids;
     for (const auto &node : graph.Nodes()) {
         if (node.kind != TopologyNode::Kind::kPipeline) continue;
@@ -270,7 +286,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         out << "}\n\n";
     }
 
-    // ---- Function nodes (non-pipeline, non-external) ----
+    /** @} */
+
+    /** @name Function nodes (non-pipeline, non-external) */
+    /** @{ */
     for (const auto &node : graph.Nodes()) {
         if (node.kind == TopologyNode::Kind::kPipeline) continue;
         if (node.kind == TopologyNode::Kind::kExternalCall) continue;
@@ -387,7 +406,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         out << "}\n\n";
     }
 
-    // ---- EXPORT directives ----
+    /** @} */
+
+    /** @name EXPORT directives */
+    /** @{ */
     // Export all non-external, non-map top-level functions
     for (const auto &node : graph.Nodes()) {
         if (node.kind == TopologyNode::Kind::kExternalCall) continue;
@@ -701,3 +723,5 @@ bool ParseJsonToGraph(const std::string &json_str, TopologyGraph &out_graph) {
 }
 
 } // namespace polyglot::tools::topo
+
+/** @} */

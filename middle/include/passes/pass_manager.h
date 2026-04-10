@@ -1,3 +1,11 @@
+/**
+ * @file     pass_manager.h
+ * @brief    Pass management
+ *
+ * @ingroup  Middle / Passes
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <functional>
@@ -14,6 +22,7 @@ namespace polyglot::passes {
 using FunctionPass = std::function<void(ir::Function &)>;
 
 // Named pass entry for diagnostics and logging
+/** @brief PassEntry data structure. */
 struct PassEntry {
     std::string name;
     FunctionPass pass;
@@ -26,8 +35,10 @@ struct PassEntry {
 // The driver calls Build() once, then RunOnModule() to apply all passes to
 // every function in the IR module.
 // ============================================================================
+/** @brief PassManager class. */
 class PassManager {
   public:
+    /** @brief OptLevel enumeration. */
     enum class OptLevel { kO0 = 0, kO1 = 1, kO2 = 2, kO3 = 3 };
 
     PassManager() = default;

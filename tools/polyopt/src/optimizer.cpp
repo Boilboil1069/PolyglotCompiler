@@ -1,3 +1,11 @@
+/**
+ * @file     optimizer.cpp
+ * @brief    Optimisation tool
+ *
+ * @ingroup  Tool / polyopt
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include <iostream>
 #include <fstream>
 #include <sstream>

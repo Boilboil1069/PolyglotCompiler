@@ -1,3 +1,11 @@
+/**
+ * @file     dotnet_lexer.h
+ * @brief    .NET/C# language frontend
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/lexer_base.h"
@@ -6,6 +14,7 @@
 
 namespace polyglot::dotnet {
 
+/** @brief DotnetLexer class. */
 class DotnetLexer : public frontends::LexerBase {
   public:
     DotnetLexer(std::string source, std::string file)

@@ -1,3 +1,11 @@
+/**
+ * @file     cfg.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -14,6 +22,7 @@ namespace polyglot::ir {
 // Lightweight relocation record for precompiled bridge stubs.
 // Mirrors the essential fields of linker-level Relocation without
 // introducing a dependency on the linker headers.
+/** @brief StubRelocation data structure. */
 struct StubRelocation {
   size_t offset{0};
   std::string symbol;
@@ -23,6 +32,7 @@ struct StubRelocation {
   std::uint8_t size{4};
 };
 
+/** @brief BasicBlock data structure. */
 struct BasicBlock {
   std::string name;
   std::vector<std::shared_ptr<PhiInstruction>> phis;       // Phi nodes (dominated by block)
@@ -36,6 +46,7 @@ struct BasicBlock {
   void SetTerminator(const std::shared_ptr<Instruction> &term);
 };
 
+/** @brief Function data structure. */
 struct Function {
   std::string name;
   std::vector<std::shared_ptr<BasicBlock>> blocks{};
@@ -56,11 +67,13 @@ struct Function {
   BasicBlock *CreateBlock(const std::string &block_name);
 };
 
+/** @brief ControlFlowGraph data structure. */
 struct ControlFlowGraph {
   BasicBlock *entry{nullptr};
   std::vector<BasicBlock *> blocks{};  // non-owning
 };
 
+/** @brief DominatorTree data structure. */
 struct DominatorTree {
   std::unordered_map<BasicBlock *, BasicBlock *> idom;  // immediate dominator
   std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> children;

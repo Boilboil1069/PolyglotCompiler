@@ -1,10 +1,11 @@
-// ploy_frontend.h — Ploy language frontend adapter.
-//
-// The ploy frontend has a richer pipeline than generic language frontends
-// because it includes cross-language link resolution.  PloyLanguageFrontend
-// exposes extra accessors for the link descriptors produced during lowering
-// so that the driver can feed them to the PolyglotLinker.
-
+/**
+ * @file     ploy_frontend.h
+ * @brief    Ploy language frontend adapter
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <vector>
@@ -19,6 +20,7 @@ namespace polyglot::ploy {
 // PloyFrontendResult — extended result carrying cross-language metadata
 // ============================================================================
 
+/** @brief PloyFrontendResult data structure. */
 struct PloyFrontendResult : public frontends::FrontendResult {
     // Cross-language call descriptors emitted during lowering
     std::vector<CrossLangCallDescriptor> call_descriptors;
@@ -34,6 +36,7 @@ struct PloyFrontendResult : public frontends::FrontendResult {
 // PloyLanguageFrontend
 // ============================================================================
 
+/** @brief PloyLanguageFrontend class. */
 class PloyLanguageFrontend : public frontends::ILanguageFrontend {
   public:
     std::string Name() const override { return "ploy"; }

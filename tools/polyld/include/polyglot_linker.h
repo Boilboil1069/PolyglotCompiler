@@ -1,3 +1,11 @@
+/**
+ * @file     polyglot_linker.h
+ * @brief    Polyglot linker
+ *
+ * @ingroup  Tool / polyld
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
@@ -15,6 +23,7 @@ namespace polyglot::linker {
 // ============================================================================
 
 // Describes a symbol from a specific language module
+/** @brief CrossLangSymbol data structure. */
 struct CrossLangSymbol {
     std::string name;               // Original unmangled name
     std::string mangled_name;       // Language-specific mangled name
@@ -22,6 +31,7 @@ struct CrossLangSymbol {
     std::string module_name;        // Module/translation unit
     SymbolType type{SymbolType::kFunction};
     // For functions: parameter and return type descriptors
+    /** @brief ParamDesc data structure. */
     struct ParamDesc {
         std::string type_name;
         size_t size{0};
@@ -36,6 +46,7 @@ struct CrossLangSymbol {
 // ============================================================================
 
 // A generated wrapper function that bridges two language calling conventions
+/** @brief GlueStub data structure. */
 struct GlueStub {
     std::string stub_name;          // Generated symbol name
     std::string target_language;
@@ -54,6 +65,7 @@ struct GlueStub {
 
 // Describes the ABI (Application Binary Interface) characteristics of a
 // language's calling convention on a specific target architecture.
+/** @brief ABIDescriptor data structure. */
 struct ABIDescriptor {
     std::string calling_convention;   // "sysv64", "win64", "aapcs64"
     size_t pointer_size{8};           // Size of a pointer in bytes
@@ -67,6 +79,7 @@ struct ABIDescriptor {
 // Cross-Language Link Resolver
 // ============================================================================
 
+/** @brief PolyglotLinker class. */
 class PolyglotLinker {
   public:
     explicit PolyglotLinker(const LinkerConfig &config);

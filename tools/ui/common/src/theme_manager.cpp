@@ -1,10 +1,11 @@
-// theme_manager.cpp — Centralized theme management implementation.
-//
-// Defines built-in color themes and generates Qt stylesheets consumed by
-// every panel in the IDE.  All hard-coded color values are consolidated
-// here so that adding a new theme or adjusting an existing one requires
-// changes in only one place.
-
+/**
+ * @file     theme_manager.cpp
+ * @brief    Centralized theme management implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/theme_manager.h"
 
 namespace polyglot::tools::ui {

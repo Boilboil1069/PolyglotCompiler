@@ -1,3 +1,11 @@
+/**
+ * @file     lowering.cpp
+ * @brief    Java language frontend implementation
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/java/include/java_lowering.h"
 
 #include <cstdlib>
@@ -128,7 +136,8 @@ bool IsCmpOp(ir::BinaryInstruction::Op op) {
     }
 }
 
-// ==================== Expression evaluation ====================
+/** @name Expression evaluation */
+/** @{ */
 
 EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc) {
     if (!expr) return {};
@@ -325,7 +334,10 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     return {};
 }
 
-// ==================== Statement lowering ====================
+/** @} */
+
+/** @name Statement lowering */
+/** @{ */
 
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     if (!stmt || lc.terminated) return true;
@@ -562,7 +574,10 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     return true;
 }
 
-// ==================== Declaration lowering ====================
+/** @} */
+
+/** @name Declaration lowering */
+/** @{ */
 
 bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
     std::string mangled = lc.current_class.empty()
@@ -752,3 +767,5 @@ void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics 
 }
 
 } // namespace polyglot::java
+
+/** @} */

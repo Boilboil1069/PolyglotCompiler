@@ -1,9 +1,11 @@
-// plugin_manager.h — Runtime plugin loader and lifecycle manager.
-//
-// Discovers, loads, and manages plugins from a configurable search path.
-// Provides the host-side implementation of PolyglotHostServices and
-// exposes loaded capabilities to the compiler toolchain and IDE.
-
+/**
+ * @file     plugin_manager.h
+ * @brief    Runtime plugin loader and lifecycle manager
+ *
+ * @ingroup  Common / Plugins
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <functional>
@@ -22,6 +24,7 @@ namespace polyglot::plugins {
 // PluginHandle — RAII wrapper around a single loaded plugin
 // ============================================================================
 
+/** @brief PluginHandle data structure. */
 struct PluginHandle {
     std::string                     library_path;
     void                           *dl_handle{nullptr};    // dlopen / LoadLibrary handle
@@ -62,12 +65,14 @@ struct PluginHandle {
 // PluginManager — singleton managing all loaded plugins
 // ============================================================================
 
+/** @brief PluginManager class. */
 class PluginManager {
   public:
     // Access the global instance.
     static PluginManager &Instance();
 
-    // ----- Discovery & Loading ------------------------------------------------
+    /** @name Discovery & Loading */
+    /** @{ */
 
     // Add a directory to the plugin search path.
     void AddSearchPath(const std::string &dir);
@@ -83,7 +88,10 @@ class PluginManager {
     // Unload a plugin by id.  Deactivates first if needed.
     bool UnloadPlugin(const std::string &id);
 
-    // ----- Activation ---------------------------------------------------------
+    /** @} */
+
+    /** @name Activation */
+    /** @{ */
 
     // Activate a previously loaded plugin.
     bool ActivatePlugin(const std::string &id);
@@ -91,7 +99,10 @@ class PluginManager {
     // Deactivate an active plugin without unloading it.
     bool DeactivatePlugin(const std::string &id);
 
-    // ----- Queries ------------------------------------------------------------
+    /** @} */
+
+    /** @name Queries */
+    /** @{ */
 
     // All currently loaded plugins (active or not).
     std::vector<const PolyglotPluginInfo *> ListPlugins() const;
@@ -103,7 +114,10 @@ class PluginManager {
     // Retrieve a plugin handle by id (nullptr if not found).
     const PluginHandle *GetPlugin(const std::string &id) const;
 
-    // ----- Capability aggregation ---------------------------------------------
+    /** @} */
+
+    /** @name Capability aggregation */
+    /** @{ */
 
     // Collect all active language providers.
     std::vector<const PolyglotLanguageProvider *> GetLanguageProviders() const;
@@ -120,7 +134,10 @@ class PluginManager {
     // Collect all active code actions.
     std::vector<const PolyglotCodeAction *> GetCodeActions() const;
 
-    // ----- Event system -------------------------------------------------------
+    /** @} */
+
+    /** @name Event system */
+    /** @{ */
 
     // Subscribe a plugin to a specific event type.
     void SubscribeEvent(const std::string &plugin_id, PolyglotEventType type);
@@ -141,7 +158,10 @@ class PluginManager {
     void FireWorkspaceChanged(const std::string &root);
     void FireThemeChanged(const std::string &theme_name);
 
-    // ----- File type registry -------------------------------------------------
+    /** @} */
+
+    /** @name File type registry */
+    /** @{ */
 
     // Register a file extension with a language name.  Plugins call this to
     // associate new file types.
@@ -155,7 +175,10 @@ class PluginManager {
     // Return all registered file type mappings.
     std::vector<std::pair<std::string, std::string>> GetRegisteredFileTypes() const;
 
-    // ----- Menu contributions -------------------------------------------------
+    /** @} */
+
+    /** @name Menu contributions */
+    /** @{ */
 
     // Register a menu item contributed by a plugin.
     void RegisterMenuItem(const std::string &plugin_id,
@@ -172,7 +195,10 @@ class PluginManager {
     // Execute a menu action callback by action_id.
     bool ExecuteMenuAction(const std::string &action_id);
 
-    // ----- Settings -----------------------------------------------------------
+    /** @} */
+
+    /** @name Settings */
+    /** @{ */
 
     // Plugin-scoped settings storage.
     std::string GetPluginSetting(const std::string &plugin_id,
@@ -181,25 +207,37 @@ class PluginManager {
                           const std::string &key,
                           const std::string &value);
 
-    // ----- Workspace context --------------------------------------------------
+    /** @} */
+
+    /** @name Workspace context */
+    /** @{ */
 
     void SetWorkspaceRoot(const std::string &root);
     const std::string &GetWorkspaceRoot() const;
 
-    // ----- Logging callback ---------------------------------------------------
+    /** @} */
+
+    /** @name Logging callback */
+    /** @{ */
 
     using LogCallback = std::function<void(const std::string &plugin_id,
                                            PolyglotLogLevel level,
                                            const std::string &message)>;
     void SetLogCallback(LogCallback cb);
 
-    // ----- Diagnostics callback -----------------------------------------------
+    /** @} */
+
+    /** @name Diagnostics callback */
+    /** @{ */
 
     using DiagCallback = std::function<void(const std::string &plugin_id,
                                             const PolyglotDiagnostic &diag)>;
     void SetDiagnosticCallback(DiagCallback cb);
 
-    // ----- File-open callback (UI integration) --------------------------------
+    /** @} */
+
+    /** @name File-open callback (UI integration) */
+    /** @{ */
 
     using OpenFileCallback = std::function<void(const std::string &path,
                                                 uint32_t line)>;
@@ -208,19 +246,28 @@ class PluginManager {
     // Dispatch an open-file request (called from host trampolines).
     void DispatchOpenFile(const std::string &path, uint32_t line);
 
-    // ----- Menu item callback (UI integration) --------------------------------
+    /** @} */
+
+    /** @name Menu item callback (UI integration) */
+    /** @{ */
 
     using MenuItemCallback = std::function<void(const std::string &plugin_id,
                                                 const PolyglotMenuContribution &item)>;
     void SetMenuItemRegisteredCallback(MenuItemCallback cb);
 
-    // ----- File type registered callback (UI integration) ---------------------
+    /** @} */
+
+    /** @name File type registered callback (UI integration) */
+    /** @{ */
 
     using FileTypeCallback = std::function<void(const std::string &extension,
                                                 const std::string &language)>;
     void SetFileTypeRegisteredCallback(FileTypeCallback cb);
 
-    // ----- Cleanup ------------------------------------------------------------
+    /** @} */
+
+    /** @name Cleanup */
+    /** @{ */
 
     // Deactivate and unload all plugins.  Called on application shutdown.
     void UnloadAll();
@@ -268,3 +315,5 @@ class PluginManager {
 };
 
 }  // namespace polyglot::plugins
+
+/** @} */

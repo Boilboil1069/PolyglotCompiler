@@ -1,9 +1,18 @@
+/**
+ * @file     source_loc.h
+ * @brief    Core type system and common definitions
+ *
+ * @ingroup  Common / Core
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <string>
 
 namespace polyglot::core {
 
+/** @brief SourceLoc data structure. */
 struct SourceLoc {
   std::string file;
   size_t line{1};

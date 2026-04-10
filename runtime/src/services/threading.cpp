@@ -1,3 +1,11 @@
+/**
+ * @file     threading.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/services/threading.h"
 
 #include <algorithm>
@@ -7,7 +15,8 @@
 
 namespace polyglot::runtime::services {
 
-// ---------------------- ThreadPool ----------------------
+/** @name ThreadPool */
+/** @{ */
 ThreadPool::ThreadPool(size_t num_threads) {
 	num_threads_ = num_threads == 0 ? std::max<size_t>(1, std::thread::hardware_concurrency()) : num_threads;
 	for (size_t i = 0; i < num_threads_; ++i) {
@@ -48,7 +57,10 @@ void ThreadPool::Wait() {
 	cv_.wait(lock, [this]() { return tasks_.empty() && active_.load(std::memory_order_relaxed) == 0; });
 }
 
-// ---------------------- TaskScheduler ----------------------
+/** @} */
+
+/** @name TaskScheduler */
+/** @{ */
 TaskScheduler::TaskScheduler() = default;
 
 size_t TaskScheduler::Schedule(Task task) {
@@ -84,10 +96,16 @@ void TaskScheduler::Execute() {
 	}
 }
 
-// ---------------------- WorkStealingScheduler ----------------------
+/** @} */
+
+/** @name WorkStealingScheduler */
+/** @{ */
 WorkStealingScheduler::WorkStealingScheduler(size_t num_workers) : num_workers_(num_workers) {}
 
-// ---------------------- RWLock ----------------------
+/** @} */
+
+/** @name RWLock */
+/** @{ */
 void RWLock::ReadLock() {
 	std::unique_lock<std::mutex> lock(mutex_);
 	cv_.wait(lock, [this]() { return !writer_; });
@@ -111,7 +129,10 @@ void RWLock::WriteUnlock() {
 	cv_.notify_all();
 }
 
-// ---------------------- Barrier ----------------------
+/** @} */
+
+/** @name Barrier */
+/** @{ */
 Barrier::Barrier(size_t num_threads) : num_threads_(num_threads) {}
 
 void Barrier::Wait() {
@@ -134,7 +155,10 @@ void Barrier::Reset(size_t num_threads) {
 	cv_.notify_all();
 }
 
-// ---------------------- Semaphore ----------------------
+/** @} */
+
+/** @name Semaphore */
+/** @{ */
 Semaphore::Semaphore(int initial_count) : count_(initial_count) {}
 
 void Semaphore::Wait() {
@@ -158,7 +182,10 @@ void Semaphore::Signal() {
 	cv_.notify_one();
 }
 
-// ---------------------- Coroutine Scheduler ----------------------
+/** @} */
+
+/** @name Coroutine Scheduler */
+/** @{ */
 void CoroutineScheduler::Schedule(std::shared_ptr<Coroutine> coro) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	coroutines_.push_back(std::move(coro));
@@ -175,7 +202,10 @@ void CoroutineScheduler::Run() {
 	}
 }
 
-// ---------------------- ThreadProfiler ----------------------
+/** @} */
+
+/** @name ThreadProfiler */
+/** @{ */
 
 namespace {
 
@@ -233,3 +263,5 @@ void RecordIdleTime(size_t thread_id, size_t idle_time_us) {
 }
 
 }  // namespace polyglot::runtime::services
+
+/** @} */

@@ -1,3 +1,11 @@
+/**
+ * @file     arena.h
+ * @brief    Shared utility classes
+ *
+ * @ingroup  Common / Utils
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstddef>
@@ -6,6 +14,7 @@
 
 namespace polyglot::utils {
 
+/** @brief Arena class. */
 class Arena {
  public:
   explicit Arena(size_t block_size = 4096) : block_size_(block_size) {}

@@ -1,9 +1,11 @@
-// terminal_widget.cpp — Embedded terminal emulator for the PolyglotCompiler IDE.
-//
-// Implementation of the interactive shell widget.  Uses QProcess to spawn
-// a platform-appropriate shell (cmd.exe / powershell on Windows, bash or
-// zsh on Linux/macOS) and relays I/O between the user and the process.
-
+/**
+ * @file     terminal_widget.cpp
+ * @brief    Embedded terminal emulator for the PolyglotCompiler IDE
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/terminal_widget.h"
 
 #include <QApplication>

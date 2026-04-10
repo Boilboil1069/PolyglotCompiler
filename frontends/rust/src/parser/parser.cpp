@@ -1,3 +1,11 @@
+/**
+ * @file     parser.cpp
+ * @brief    Rust language frontend implementation
+ *
+ * @ingroup  Frontend / Rust
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/rust/include/rust_parser.h"
 
 namespace polyglot::rust {

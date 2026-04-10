@@ -33,9 +33,13 @@
 
 namespace polyglot::runtime::interop {
 
-// ---------------------------------------------------------------------------
+/** @name - */
+/** @{ */
 // ForeignFunction
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 /// Describes a foreign callable function with its address, ABI signature,
 /// and ownership tag indicating who is responsible for the symbol lifetime.
@@ -46,14 +50,22 @@ struct ForeignFunction {
   Ownership ownership{Ownership::kBorrowed};
 };
 
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // ForeignHandle
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 /// Unified handle wrapping a foreign resource (function, object, or library)
 /// with full lifecycle and access tracking.
 struct ForeignHandle {
+  /** @brief Kind enumeration. */
   enum class Kind { kFunction, kObject, kLibrary };
+  /** @brief State enumeration. */
   enum class State { kActive, kTransferred, kReleased, kInvalid };
 
   uint64_t id{0};
@@ -76,9 +88,15 @@ struct ForeignHandle {
   bool CanMutate() const { return IsValid() && ownership != Ownership::kBorrowed; }
 };
 
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // OwnershipTracker
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 /// Tracks ownership state for every registered foreign handle and validates
 /// transitions (register, borrow, transfer, release).  Thread-safe.
@@ -131,9 +149,15 @@ class OwnershipTracker {
   std::atomic<uint64_t> next_id_{1};
 };
 
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // DynamicLibrary
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 /// RAII wrapper around dlopen / dlsym (Unix) or LoadLibrary / GetProcAddress (Windows).
 class DynamicLibrary {
@@ -167,9 +191,15 @@ class DynamicLibrary {
   std::string last_error_;
 };
 
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // FFIRegistry
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 /// Central registry for foreign functions, objects, and dynamic libraries.
 /// Coordinates binding, lookup, ownership transfer, and release.  Thread-safe.
@@ -248,9 +278,15 @@ class FFIRegistry {
   std::unordered_map<uint64_t, DynamicLibrary> libraries_;
 };
 
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 // Free-standing convenience helpers (backward-compatible)
-// ---------------------------------------------------------------------------
+/** @} */
+
+/** @name - */
+/** @{ */
 
 ForeignFunction Bind(const std::string &name, void *address);
 ForeignObject *BindBorrowed(const std::string &name, void *address, size_t size);
@@ -265,3 +301,5 @@ ForeignFunction BindWithSignature(const std::string &name, void *address,
                                   Ownership ownership = Ownership::kBorrowed);
 
 }  // namespace polyglot::runtime::interop
+
+/** @} */

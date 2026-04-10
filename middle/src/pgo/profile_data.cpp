@@ -1,4 +1,12 @@
 /**
+ * @file     profile_data.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
+/**
  * PGO profile data implementation
  */
 
@@ -14,7 +22,8 @@ using json = nlohmann::json;
 
 namespace polyglot::pgo {
 
-// ============ FunctionProfile implementation ============
+/** @name FunctionProfile implementation */
+/** @{ */
 
 std::vector<size_t> FunctionProfile::GetHotBlocks() const {
     if (basic_blocks.empty()) return {};
@@ -94,7 +103,10 @@ const CallSiteProfile* FunctionProfile::GetCallSiteProfile(size_t call_site_id) 
     return nullptr;
 }
 
-// ============ ProfileData implementation ============
+/** @} */
+
+/** @name ProfileData implementation */
+/** @{ */
 
 void ProfileData::AddFunctionProfile(const FunctionProfile& profile) {
     functions_[profile.function_name] = profile;
@@ -287,7 +299,10 @@ std::vector<std::string> ProfileData::GetHotFunctions(size_t top_n) const {
     return hot_funcs;
 }
 
-// ============ RuntimeProfiler implementation ============
+/** @} */
+
+/** @name RuntimeProfiler implementation */
+/** @{ */
 
 RuntimeProfiler& RuntimeProfiler::Instance() {
     static RuntimeProfiler instance;
@@ -356,7 +371,10 @@ void RuntimeProfiler::Reset() {
     profiles_.clear();
 }
 
-// ============ PGOOptimizer implementation ============
+/** @} */
+
+/** @name PGOOptimizer implementation */
+/** @{ */
 
 PGOOptimizer::PGOOptimizer(const ProfileData& profile)
     : profile_(profile), config_() {}
@@ -942,3 +960,5 @@ bool PGOOptimizer::ExportReportToJson(const std::string& filename) const {
 }
 
 } // namespace polyglot::pgo
+
+/** @} */

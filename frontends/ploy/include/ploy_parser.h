@@ -1,3 +1,11 @@
+/**
+ * @file     ploy_parser.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <memory>
@@ -8,6 +16,7 @@
 
 namespace polyglot::ploy {
 
+/** @brief PloyParser class. */
 class PloyParser : public frontends::ParserBase {
   public:
     PloyParser(PloyLexer &lexer, frontends::Diagnostics &diagnostics)

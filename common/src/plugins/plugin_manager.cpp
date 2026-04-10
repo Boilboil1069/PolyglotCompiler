@@ -1,8 +1,11 @@
-// plugin_manager.cpp — PluginManager implementation.
-//
-// Handles dynamic loading of plugin shared libraries, lifecycle management,
-// host service dispatch, and capability aggregation.
-
+/**
+ * @file     plugin_manager.cpp
+ * @brief    PluginManager implementation
+ *
+ * @ingroup  Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "common/include/plugins/plugin_manager.h"
 
 #include <algorithm>

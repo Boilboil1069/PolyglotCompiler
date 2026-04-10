@@ -1,3 +1,11 @@
+/**
+ * @file     debug_info.h
+ * @brief    Shared backend infrastructure
+ *
+ * @ingroup  Backend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -7,12 +15,14 @@
 
 namespace polyglot::backends {
 
+/** @brief DebugLineInfo data structure. */
 struct DebugLineInfo {
   std::string file;
   int line{0};
   int column{0};
 };
 
+/** @brief DebugVariable data structure. */
 struct DebugVariable {
   std::string name;
   std::string type;
@@ -21,6 +31,7 @@ struct DebugVariable {
   int scope_depth{0};
 };
 
+/** @brief DebugType data structure. */
 struct DebugType {
   std::string name;
   std::string kind;
@@ -28,6 +39,7 @@ struct DebugType {
   std::size_t alignment{0};
 };
 
+/** @brief DebugSymbol data structure. */
 struct DebugSymbol {
   std::string name;
   std::string section;
@@ -36,6 +48,7 @@ struct DebugSymbol {
   bool is_function{false};
 };
 
+/** @brief DebugInfoBuilder class. */
 class DebugInfoBuilder {
  public:
   void AddVariable(DebugVariable var) { variables_.push_back(std::move(var)); }

@@ -1,9 +1,11 @@
-// build_panel.cpp — CMake build tool integration implementation.
-//
-// Handles CMake configuration, build execution, target discovery,
-// build output parsing with error/warning extraction, and support
-// for multiple generators (Makefiles, Ninja).
-
+/**
+ * @file     build_panel.cpp
+ * @brief    CMake build tool integration implementation
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "tools/ui/common/include/build_panel.h"
 #include "tools/ui/common/include/theme_manager.h"
 

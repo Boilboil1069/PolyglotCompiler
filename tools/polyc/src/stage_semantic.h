@@ -1,3 +1,11 @@
+/**
+ * @file     stage_semantic.h
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 // ============================================================================
 // stage_semantic.h — Stage 2: Semantic Analysis

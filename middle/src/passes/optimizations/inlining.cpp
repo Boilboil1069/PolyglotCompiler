@@ -1,3 +1,11 @@
+/**
+ * @file     inlining.cpp
+ * @brief    Middle-end implementation
+ *
+ * @ingroup  Middle
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "middle/include/passes/transform/inlining.h"
 
 #include <unordered_map>

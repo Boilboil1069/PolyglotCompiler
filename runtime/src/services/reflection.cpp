@@ -1,3 +1,11 @@
+/**
+ * @file     reflection.cpp
+ * @brief    Runtime implementation
+ *
+ * @ingroup  Runtime
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "runtime/include/services/reflection.h"
 
 namespace polyglot::runtime::services {

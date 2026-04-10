@@ -1,3 +1,11 @@
+/**
+ * @file     analysis.h
+ * @brief    Intermediate Representation infrastructure
+ *
+ * @ingroup  Middle / IR
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <unordered_map>
@@ -8,19 +16,23 @@
 
 namespace polyglot::ir {
 
+/** @brief LoopInfo data structure. */
 struct LoopInfo {
   BasicBlock *header{nullptr};
   std::vector<BasicBlock *> blocks;
   std::vector<BasicBlock *> backedges;
 };
 
+/** @brief LivenessInfo data structure. */
 struct LivenessInfo {
   std::unordered_map<BasicBlock *, std::unordered_set<std::string>> live_in;
   std::unordered_map<BasicBlock *, std::unordered_set<std::string>> live_out;
 };
 
+/** @brief AliasClass enumeration. */
 enum class AliasClass { kLocalStack, kGlobalOrArg, kUnknown };
 
+/** @brief AliasInfo data structure. */
 struct AliasInfo {
   std::unordered_map<std::string, AliasClass> classes;
   std::unordered_set<std::string> addr_taken;
@@ -30,6 +42,7 @@ struct AliasInfo {
   bool IsAddrTaken(const std::string &name) const;
 };
 
+/** @brief AnalysisCache class. */
 class AnalysisCache {
  public:
   explicit AnalysisCache(Function &func);

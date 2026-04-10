@@ -1,3 +1,11 @@
+/**
+ * @file     parser.cpp
+ * @brief    Java language frontend implementation
+ *
+ * @ingroup  Frontend / Java
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/java/include/java_parser.h"
 
 namespace polyglot::java {

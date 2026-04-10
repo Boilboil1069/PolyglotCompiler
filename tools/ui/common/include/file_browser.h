@@ -1,9 +1,11 @@
-// file_browser.h — Project file browser panel.
-//
-// Provides a tree view of the filesystem rooted at a user-chosen directory,
-// with file-type icons, double-click-to-open behaviour, and a rich
-// right-click context menu for common file operations.
-
+/**
+ * @file     file_browser.h
+ * @brief    Project file browser panel
+ *
+ * @ingroup  Tool / polyui
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <QFileSystemModel>
@@ -20,6 +22,7 @@ namespace polyglot::tools::ui {
 // FileBrowser — dock-able project file browser
 // ============================================================================
 
+/** @brief FileBrowser class. */
 class FileBrowser : public QWidget {
     Q_OBJECT
 

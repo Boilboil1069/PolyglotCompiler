@@ -253,9 +253,13 @@ static std::string ToLower(const std::string &s) {
 }
 
 TypeSystem::TypeSystem() {
-  // -----------------------------------------------------------------------
+  /** @name - */
+  /** @{ */
   // Python primitive map
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   auto &py = primitive_maps_["python"];
   py["int"]       = Type::Int(64, true);   // Python int is arbitrary precision; map to i64
   py["float"]     = Type::Float(64);       // Python float is always double precision
@@ -268,9 +272,15 @@ TypeSystem::TypeSystem() {
   py["complex"]   = Type::Struct("complex", "python");
   py["object"]    = Type::Any();
 
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // C++ primitive map
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   auto &cpp = primitive_maps_["cpp"];
   // Void
   cpp["void"]     = Type::Void();
@@ -325,9 +335,15 @@ TypeSystem::TypeSystem() {
   cpp["std::string"] = Type::String();
   cpp["string"]      = Type::String();
 
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Rust primitive map
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   auto &rs = primitive_maps_["rust"];
   // Boolean
   rs["bool"]   = Type::Bool();
@@ -357,9 +373,15 @@ TypeSystem::TypeSystem() {
   // Unit type
   rs["()"]     = Type::Void();
 
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   // Default type aliases common across languages
-  // -----------------------------------------------------------------------
+  /** @} */
+
+  /** @name - */
+  /** @{ */
   aliases_["size_t"]    = Type::Int(64, false);
   aliases_["ssize_t"]   = Type::Int(64, true);
   aliases_["ptrdiff_t"] = Type::Int(64, true);
@@ -1162,3 +1184,5 @@ std::vector<std::pair<std::string, Type>> TypeRegistry::AllTypes() const {
 }
 
 }  // namespace polyglot::core
+
+/** @} */

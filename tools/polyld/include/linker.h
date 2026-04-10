@@ -1,3 +1,11 @@
+/**
+ * @file     linker.h
+ * @brief    Polyglot linker
+ *
+ * @ingroup  Tool / polyld
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <cstdint>
@@ -17,6 +25,7 @@ namespace polyglot::linker {
 // ============================================================================
 
 // Supported object file formats
+/** @brief ObjectFormat enumeration. */
 enum class ObjectFormat {
     kUnknown,
     kELF,           // ELF (Linux, BSD, etc.)
@@ -36,6 +45,7 @@ ObjectFormat DetectObjectFormatFromPath(const std::string &path);
 // ============================================================================
 
 // Symbol binding (visibility)
+/** @brief SymbolBinding enumeration. */
 enum class SymbolBinding {
     kLocal,         // Local symbol, not exported
     kGlobal,        // Global symbol, exported
@@ -44,6 +54,7 @@ enum class SymbolBinding {
 };
 
 // Symbol type
+/** @brief SymbolType enumeration. */
 enum class SymbolType {
     kNoType,        // Unspecified type
     kObject,        // Data object (variable)
@@ -56,6 +67,7 @@ enum class SymbolType {
 };
 
 // Symbol visibility
+/** @brief SymbolVisibility enumeration. */
 enum class SymbolVisibility {
     kDefault,       // Normal visibility
     kInternal,      // Internal, same module only
@@ -64,6 +76,7 @@ enum class SymbolVisibility {
 };
 
 // Symbol information
+/** @brief Symbol data structure. */
 struct Symbol {
     std::string name;
     std::string section;
@@ -90,6 +103,7 @@ struct Symbol {
 // ============================================================================
 
 // Relocation type (ELF x86_64)
+/** @brief RelocationType_x86_64 enumeration. */
 enum class RelocationType_x86_64 {
     kNone = 0,
     kR_X86_64_64 = 1,           // Direct 64-bit
@@ -115,6 +129,7 @@ enum class RelocationType_x86_64 {
 };
 
 // Relocation type (ELF AArch64)
+/** @brief RelocationType_ARM64 enumeration. */
 enum class RelocationType_ARM64 {
     kNone = 0,
     kR_AARCH64_ABS64 = 257,     // Direct 64-bit
@@ -131,6 +146,7 @@ enum class RelocationType_ARM64 {
 };
 
 // Relocation type (Mach-O)
+/** @brief RelocationType_MachO enumeration. */
 enum class RelocationType_MachO {
     kX86_64_RELOC_UNSIGNED = 0,     // Absolute address
     kX86_64_RELOC_SIGNED = 1,       // Signed PC-relative
@@ -156,6 +172,7 @@ enum class RelocationType_MachO {
 };
 
 // Unified relocation entry
+/** @brief Relocation data structure. */
 struct Relocation {
     std::uint64_t offset{0};        // Offset within section to apply relocation
     std::string symbol;              // Target symbol name
@@ -176,6 +193,7 @@ struct Relocation {
 // ============================================================================
 
 // Section type
+/** @brief SectionType enumeration. */
 enum class SectionType {
     kNull,          // Inactive section
     kProgbits,      // Program-defined data
@@ -196,6 +214,7 @@ enum class SectionType {
 };
 
 // Section flags (bitfield)
+/** @brief SectionFlags enumeration. */
 enum class SectionFlags : std::uint64_t {
     kNone = 0,
     kWrite = 1 << 0,        // Writable data
@@ -220,6 +239,7 @@ inline SectionFlags operator&(SectionFlags a, SectionFlags b) {
 }
 
 // Section from object file
+/** @brief InputSection data structure. */
 struct InputSection {
     std::string name;
     std::vector<std::uint8_t> data;
@@ -239,6 +259,7 @@ struct InputSection {
 // ============================================================================
 
 // Archive member (object file within .a)
+/** @brief ArchiveMember data structure. */
 struct ArchiveMember {
     std::string name;                     // Member filename
     std::uint64_t offset{0};              // Offset in archive
@@ -247,12 +268,14 @@ struct ArchiveMember {
 };
 
 // Archive symbol table entry
+/** @brief ArchiveSymbol data structure. */
 struct ArchiveSymbol {
     std::string name;                     // Symbol name
     std::uint64_t member_offset{0};       // Offset of containing member
 };
 
 // Static library archive
+/** @brief Archive data structure. */
 struct Archive {
     std::string path;
     std::vector<ArchiveMember> members;
@@ -265,6 +288,7 @@ struct Archive {
 // ============================================================================
 
 // Object file representation
+/** @brief ObjectFile data structure. */
 struct ObjectFile {
     std::string path;
     ObjectFormat format{ObjectFormat::kUnknown};
@@ -301,6 +325,7 @@ struct ObjectFile {
 // ============================================================================
 
 // Output segment (for executables/shared libraries)
+/** @brief OutputSegment data structure. */
 struct OutputSegment {
     std::string name;                     // Segment name (__TEXT, __DATA, etc.)
     std::uint64_t virtual_address{0};
@@ -313,6 +338,7 @@ struct OutputSegment {
 };
 
 // Output section (merged from input sections)
+/** @brief OutputSection data structure. */
 struct OutputSection {
     std::string name;
     std::string segment;                  // Parent segment name
@@ -325,6 +351,7 @@ struct OutputSection {
     std::uint64_t entry_size{0};          // For sections with fixed-size entries
     
     // Section contributions from input files
+    /** @brief Contribution data structure. */
     struct Contribution {
         int object_index{-1};
         int section_index{-1};
@@ -340,6 +367,7 @@ struct OutputSection {
 // ============================================================================
 
 // Global Offset Table entry
+/** @brief GOTEntry data structure. */
 struct GOTEntry {
     std::string symbol;
     std::uint64_t address{0};
@@ -348,6 +376,7 @@ struct GOTEntry {
 };
 
 // Procedure Linkage Table entry
+/** @brief PLTEntry data structure. */
 struct PLTEntry {
     std::string symbol;
     std::uint64_t address{0};
@@ -360,6 +389,7 @@ struct PLTEntry {
 // ============================================================================
 
 // Output format
+/** @brief OutputFormat enumeration. */
 enum class OutputFormat {
     kExecutable,        // Static executable
     kSharedLibrary,     // Dynamic shared object (.so, .dylib)
@@ -368,6 +398,7 @@ enum class OutputFormat {
 };
 
 // Target architecture
+/** @brief TargetArch enumeration. */
 enum class TargetArch {
     kX86_64,
     kAArch64,
@@ -377,6 +408,7 @@ enum class TargetArch {
 };
 
 // Linker configuration
+/** @brief LinkerConfig data structure. */
 struct LinkerConfig {
     // Input/output
     std::vector<std::string> input_files;
@@ -444,6 +476,7 @@ struct LinkerConfig {
 // Linker Statistics
 // ============================================================================
 
+/** @brief LinkerStats data structure. */
 struct LinkerStats {
     int objects_loaded{0};
     int archives_loaded{0};
@@ -464,6 +497,7 @@ struct LinkerStats {
 // Main Linker Class
 // ============================================================================
 
+/** @brief Linker class. */
 class Linker {
 public:
     explicit Linker(const LinkerConfig &config);
@@ -611,7 +645,9 @@ private:
 using ScriptValue = std::variant<std::uint64_t, std::string>;
 
 // Linker script command
+/** @brief ScriptCommand data structure. */
 struct ScriptCommand {
+    /** @brief Type enumeration. */
     enum class Type {
         kEntry,             // ENTRY(symbol)
         kSections,          // SECTIONS { ... }
@@ -628,6 +664,7 @@ struct ScriptCommand {
 };
 
 // Linker script section rule
+/** @brief ScriptSectionRule data structure. */
 struct ScriptSectionRule {
     std::string output_section;           // Output section name
     std::uint64_t address{0};             // Fixed address (0 = auto)
@@ -637,6 +674,7 @@ struct ScriptSectionRule {
 };
 
 // Simple linker script parser
+/** @brief LinkerScriptParser class. */
 class LinkerScriptParser {
 public:
     explicit LinkerScriptParser(const std::string &script);

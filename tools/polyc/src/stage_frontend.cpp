@@ -1,3 +1,11 @@
+/**
+ * @file     stage_frontend.cpp
+ * @brief    Compiler driver implementation
+ *
+ * @ingroup  Tool / polyc
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 // ============================================================================
 // stage_frontend.cpp — Stage 1 implementation
 // ============================================================================

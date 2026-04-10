@@ -1,5 +1,11 @@
-// frontend_registry.cpp — FrontendRegistry singleton implementation.
-
+/**
+ * @file     frontend_registry.cpp
+ * @brief    FrontendRegistry singleton implementation
+ *
+ * @ingroup  Frontend / Common
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #include "frontends/common/include/frontend_registry.h"
 
 #include <algorithm>

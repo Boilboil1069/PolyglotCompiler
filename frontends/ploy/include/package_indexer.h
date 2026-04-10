@@ -1,3 +1,11 @@
+/**
+ * @file     package_indexer.h
+ * @brief    Ploy language frontend
+ *
+ * @ingroup  Frontend / Ploy
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include <chrono>
@@ -17,6 +25,7 @@ namespace polyglot::ploy {
 // PackageIndexerOptions — configuration for the explicit index phase
 // ============================================================================
 
+/** @brief PackageIndexerOptions data structure. */
 struct PackageIndexerOptions {
     // Per-command timeout.  Defaults to 10 seconds — enough for `pip list`
     // but short enough to avoid blocking on slow networks (mvn, nuget).
@@ -54,6 +63,7 @@ struct PackageIndexerOptions {
 //
 // ============================================================================
 
+/** @brief PackageIndexer class. */
 class PackageIndexer {
   public:
     // Optional progress callback: (language, message)
@@ -88,6 +98,7 @@ class PackageIndexer {
     std::shared_ptr<PackageDiscoveryCache> Cache() const { return cache_; }
 
     // Statistics from the most recent BuildIndex() call.
+    /** @brief Stats data structure. */
     struct Stats {
         int languages_indexed{0};
         int commands_executed{0};

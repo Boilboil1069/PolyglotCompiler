@@ -1,11 +1,18 @@
-// dotnet_frontend.h — .NET/C# language frontend adapter.
-
+/**
+ * @file     dotnet_frontend.h
+ * @brief    .NET/C# language frontend adapter
+ *
+ * @ingroup  Frontend / .NET
+ * @author   Manning Cyrus
+ * @date     2026-04-10
+ */
 #pragma once
 
 #include "frontends/common/include/language_frontend.h"
 
 namespace polyglot::dotnet {
 
+/** @brief DotnetLanguageFrontend class. */
 class DotnetLanguageFrontend : public frontends::ILanguageFrontend {
   public:
     std::string Name() const override { return "dotnet"; }
