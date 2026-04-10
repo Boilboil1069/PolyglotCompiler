@@ -35,22 +35,49 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
         AnalyzeStatement(stmt);
     }
 
-    // Second pass: walk function/pipeline bodies to find data-flow edges
+    // Second pass: walk function/pipeline bodies to find data-flow edges.
+    // For each body, register the function's parameters into var_bindings_
+    // so that CALL argument references (e.g. `a`, `b`) can be traced back
+    // to the FUNC node's input ports, producing correct data-flow edges.
     for (const auto &stmt : module->declarations) {
         if (auto func = std::dynamic_pointer_cast<ploy::FuncDecl>(stmt)) {
             auto *node = graph_.FindNodeByName(func->name);
             if (node) {
+                // Save and reset var_bindings_ per function scope
+                auto saved_bindings = std::move(var_bindings_);
+                var_bindings_.clear();
+
+                // Bind each FUNC parameter to the node's input port
+                for (size_t i = 0; i < func->params.size() && i < node->inputs.size(); ++i) {
+                    var_bindings_[func->params[i].name] = {
+                        node->id, node->inputs[i].id, node->inputs[i].type};
+                }
+
                 AnalyzeBody(func->body, node->id);
+
+                var_bindings_ = std::move(saved_bindings);
             }
         } else if (auto pipeline = std::dynamic_pointer_cast<ploy::PipelineDecl>(stmt)) {
             auto *node = graph_.FindNodeByName("pipeline:" + pipeline->name);
             if (node) {
+                auto saved_bindings = std::move(var_bindings_);
+                var_bindings_.clear();
                 AnalyzeBody(pipeline->body, node->id);
+                var_bindings_ = std::move(saved_bindings);
             }
         } else if (auto map_func = std::dynamic_pointer_cast<ploy::MapFuncDecl>(stmt)) {
             auto *node = graph_.FindNodeByName("map:" + map_func->name);
             if (node) {
+                auto saved_bindings = std::move(var_bindings_);
+                var_bindings_.clear();
+
+                for (size_t i = 0; i < map_func->params.size() && i < node->inputs.size(); ++i) {
+                    var_bindings_[map_func->params[i].name] = {
+                        node->id, node->inputs[i].id, node->inputs[i].type};
+                }
+
                 AnalyzeBody(map_func->body, node->id);
+                var_bindings_ = std::move(saved_bindings);
             }
         }
     }
