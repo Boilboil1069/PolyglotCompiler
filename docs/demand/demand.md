@@ -931,3 +931,15 @@ sh: polyld: command not found
 3.拓扑图里面每一块都需要有右键菜单。
 
 --end -done
+
+2026-04-10-06
+
+1.比如sample01的cpp中
+int abs_val(int x) {
+    return x < 0 ? -x : x;
+}
+这样的代码标定了返回值是int，但是在拓扑图中是unknown，请修改这种bug
+
+2.拓扑图的FUNC和PIPLINE的逻辑还是不对，继续修改
+
+--end -done

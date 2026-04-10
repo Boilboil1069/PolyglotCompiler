@@ -1754,11 +1754,23 @@ void PloySema::RegisterFunctionSignature(const std::string &qualified_name,
 void PloySema::InjectForeignSignatures(
     const std::unordered_map<std::string, FunctionSignature> &foreign_sigs) {
     for (const auto &[name, sig] : foreign_sigs) {
-        // Do not overwrite signatures that were already registered by
-        // LINK declarations or explicit FUNC definitions — those take
-        // precedence because the user specified them explicitly.
-        if (known_signatures_.find(name) == known_signatures_.end()) {
+        auto it = known_signatures_.find(name);
+        if (it == known_signatures_.end()) {
+            // No existing signature — insert the foreign one directly.
             known_signatures_[name] = sig;
+        } else if (sig.param_count_known && !it->second.param_count_known) {
+            // The foreign signature is more complete (has real parameter count
+            // and types from source inspection) while the existing one was
+            // registered from a LINK declaration without full info.  Upgrade
+            // the existing signature with the foreign details, but keep any
+            // LINK-specific metadata (ABI, defined_at) that was already set.
+            auto saved_abi = it->second.abi;
+            auto saved_loc = it->second.defined_at;
+            auto saved_lang = it->second.language;
+            it->second = sig;
+            if (saved_abi) it->second.abi = saved_abi;
+            if (!saved_lang.empty()) it->second.language = saved_lang;
+            if (saved_loc.line != 0) it->second.defined_at = saved_loc;
         }
     }
 }

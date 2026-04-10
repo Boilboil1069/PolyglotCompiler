@@ -648,9 +648,34 @@ uint64_t TopologyAnalyzer::FindOrCreateExternalNode(
     node.kind = TopologyNode::Kind::kExternalCall;
     node.loc = loc;
 
-    // Try to resolve signature from sema
+    // Try to resolve signature from sema.
+    // The signature may be registered under different key formats:
+    //   - qualified with language: "cpp::math_ops::add"
+    //   - without language prefix: "math_ops::add"
+    //   - short name only: "add"
+    const ploy::FunctionSignature *sig = nullptr;
     auto ext_sig_it = sema_.KnownSignatures().find(qualified);
-    const ploy::FunctionSignature *sig = (ext_sig_it != sema_.KnownSignatures().end()) ? &ext_sig_it->second : nullptr;
+    if (ext_sig_it != sema_.KnownSignatures().end()) {
+        sig = &ext_sig_it->second;
+    }
+    if (!sig || !sig->param_count_known) {
+        // Try without language prefix: "math_ops::add"
+        ext_sig_it = sema_.KnownSignatures().find(function_name);
+        if (ext_sig_it != sema_.KnownSignatures().end()) {
+            sig = &ext_sig_it->second;
+        }
+    }
+    if (!sig || !sig->param_count_known) {
+        // Try short name: "add" (last component after ::)
+        auto last_sep = function_name.rfind("::");
+        if (last_sep != std::string::npos) {
+            std::string short_name = function_name.substr(last_sep + 2);
+            ext_sig_it = sema_.KnownSignatures().find(short_name);
+            if (ext_sig_it != sema_.KnownSignatures().end()) {
+                sig = &ext_sig_it->second;
+            }
+        }
+    }
     if (sig && sig->param_count_known) {
         for (size_t i = 0; i < sig->param_types.size(); ++i) {
             Port port;
