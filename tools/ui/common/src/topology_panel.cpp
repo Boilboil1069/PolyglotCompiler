@@ -475,6 +475,91 @@ void TopoNodeItem::paint(QPainter *painter,
     }
 }
 
+void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
+    // Find the TopologyPanel through the view hierarchy
+    TopologyPanel *panel = nullptr;
+    for (auto *v : scene()->views()) {
+        auto *tgv = qobject_cast<TopoGraphicsView *>(v);
+        if (tgv && tgv->Panel()) {
+            panel = tgv->Panel();
+            break;
+        }
+    }
+
+    QMenu menu;
+
+    // Go to Source — navigate to the source location for this node
+    QAction *goto_source = menu.addAction("Go to Source");
+    goto_source->setEnabled(!source_file_.isEmpty() && source_line_ > 0);
+
+    // Show Details — select this node and show its details in the side panel
+    QAction *show_details = menu.addAction("Show Details");
+
+    // Highlight Connections — visually emphasise all edges connected to this node
+    QAction *highlight_conn = menu.addAction("Highlight Connections");
+
+    menu.addSeparator();
+
+    // Delete Node — remove this node and all its connected edges
+    QAction *delete_node = menu.addAction("Delete Node");
+    delete_node->setEnabled(panel != nullptr);
+
+    QAction *chosen = menu.exec(event->screenPos());
+    if (!chosen) return;
+
+    if (chosen == goto_source && panel) {
+        emit panel->NodeDoubleClicked(source_file_, source_line_);
+    } else if (chosen == show_details && panel) {
+        // Select this node so the details panel updates
+        scene()->clearSelection();
+        setSelected(true);
+    } else if (chosen == highlight_conn) {
+        // Temporarily highlight all edges connected to this node
+        for (auto *item : scene()->items()) {
+            auto *edge = dynamic_cast<TopoEdgeItem *>(item);
+            if (edge && (edge->SourceNodeId() == node_id_ ||
+                         edge->TargetNodeId() == node_id_)) {
+                // Brighten the edge pen colour
+                QPen p = edge->pen();
+                p.setColor(QColor("#FFC107"));
+                p.setWidth(3);
+                edge->setPen(p);
+            }
+        }
+    } else if (chosen == delete_node && panel) {
+        // Remove all edges connected to this node first
+        std::vector<TopoEdgeItem *> connected;
+        for (auto *item : scene()->items()) {
+            auto *edge = dynamic_cast<TopoEdgeItem *>(item);
+            if (edge && (edge->SourceNodeId() == node_id_ ||
+                         edge->TargetNodeId() == node_id_)) {
+                connected.push_back(edge);
+            }
+        }
+        for (auto *edge : connected) {
+            panel->RemoveEdge(edge);
+        }
+
+        // Remove the node from the scene
+        scene()->removeItem(this);
+        delete this;
+    }
+}
+
+void TopoNodeItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
+    Q_UNUSED(event);
+    if (!source_file_.isEmpty() && source_line_ > 0) {
+        for (auto *v : scene()->views()) {
+            auto *tgv = qobject_cast<TopoGraphicsView *>(v);
+            if (tgv && tgv->Panel()) {
+                emit tgv->Panel()->NodeDoubleClicked(source_file_, source_line_);
+                return;
+            }
+        }
+    }
+    QGraphicsRectItem::mouseDoubleClickEvent(event);
+}
+
 // ============================================================================
 // TopoEdgeItem
 // ============================================================================
@@ -966,34 +1051,63 @@ void TopologyPanel::RemoveEdge(TopoEdgeItem *edge) {
 void TopologyPanel::SyncEdgeToFile(TopoEdgeItem *edge) {
     if (current_file_.isEmpty() || !edge) return;
 
-    // Resolve node names for the LINK statement
-    QString src_name, tgt_name, src_port, tgt_port;
+    // Resolve node info for the LINK statement
     auto src_it = node_items_.find(edge->SourceNodeId());
     auto tgt_it = node_items_.find(edge->TargetNodeId());
-    if (src_it != node_items_.end()) {
-        src_name = src_it->second->NodeName();
-        for (auto *p : src_it->second->OutputPorts()) {
-            if (p->PortId() == edge->SourcePortId()) {
-                src_port = p->PortName();
-                break;
-            }
-        }
-    }
-    if (tgt_it != node_items_.end()) {
-        tgt_name = tgt_it->second->NodeName();
-        for (auto *p : tgt_it->second->InputPorts()) {
-            if (p->PortId() == edge->TargetPortId()) {
-                tgt_port = p->PortName();
-                break;
-            }
-        }
-    }
+    if (src_it == node_items_.end() || tgt_it == node_items_.end()) return;
+
+    TopoNodeItem *src_node = src_it->second;
+    TopoNodeItem *tgt_node = tgt_it->second;
+    QString src_lang = src_node->Language();
+    QString tgt_lang = tgt_node->Language();
+    QString src_name = src_node->NodeName();
+    QString tgt_name = tgt_node->NodeName();
+
+    // Strip language prefix from node names (e.g. "cpp::math_ops::add" → "math_ops::add")
+    if (src_name.startsWith(src_lang + "::"))
+        src_name = src_name.mid(src_lang.length() + 2);
+    if (tgt_name.startsWith(tgt_lang + "::"))
+        tgt_name = tgt_name.mid(tgt_lang.length() + 2);
 
     if (src_name.isEmpty() || tgt_name.isEmpty()) return;
 
-    // Build the LINK statement: LINK src_name.src_port -> tgt_name.tgt_port
-    QString link_stmt = QString("\nLINK %1.%2 -> %3.%4\n")
-                            .arg(src_name, src_port, tgt_name, tgt_port);
+    // Resolve return type from source node's output ports
+    QString returns_clause;
+    for (auto *p : src_node->OutputPorts()) {
+        if (p->PortId() == edge->SourcePortId() &&
+            !p->TypeName().isEmpty() && p->TypeName() != "Any") {
+            returns_clause = QString(" RETURNS %1::%2")
+                                 .arg(src_lang, p->TypeName().toUpper());
+            break;
+        }
+    }
+
+    // Resolve MAP_TYPE entries from port types
+    QStringList map_types;
+    for (auto *sp : src_node->OutputPorts()) {
+        if (sp->PortId() == edge->SourcePortId()) {
+            for (auto *tp : tgt_node->InputPorts()) {
+                if (tp->PortId() == edge->TargetPortId()) {
+                    if (!sp->TypeName().isEmpty() && sp->TypeName() != "Any" &&
+                        !tp->TypeName().isEmpty() && tp->TypeName() != "Any") {
+                        map_types.append(QString("    MAP_TYPE(%1::%2, %3::%4);")
+                                             .arg(src_lang, sp->TypeName(),
+                                                  tgt_lang, tp->TypeName()));
+                    }
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    // Build the LINK statement in correct ploy syntax:
+    // LINK(src_lang, tgt_lang, src_func, tgt_func) RETURNS type { MAP_TYPE(...); }
+    QString link_stmt = QString("\nLINK(%1, %2, %3, %4)%5 {\n%6}\n")
+                            .arg(src_lang, tgt_lang, src_name, tgt_name)
+                            .arg(returns_clause)
+                            .arg(map_types.isEmpty() ? QString()
+                                                     : map_types.join('\n') + "\n");
 
     // Temporarily remove the file watcher to avoid triggering a reload loop
     file_watcher_->removePath(current_file_);
@@ -1024,58 +1138,77 @@ void TopologyPanel::SyncEdgeToFile(TopoEdgeItem *edge) {
 void TopologyPanel::RemoveEdgeFromFile(TopoEdgeItem *edge) {
     if (current_file_.isEmpty() || !edge) return;
 
-    // Resolve node names to find the matching LINK line
-    QString src_name, tgt_name, src_port, tgt_port;
+    // Resolve node info to find the matching LINK block in the file
     auto src_it = node_items_.find(edge->SourceNodeId());
     auto tgt_it = node_items_.find(edge->TargetNodeId());
-    if (src_it != node_items_.end()) {
-        src_name = src_it->second->NodeName();
-        for (auto *p : src_it->second->OutputPorts()) {
-            if (p->PortId() == edge->SourcePortId()) {
-                src_port = p->PortName();
-                break;
-            }
-        }
-    }
-    if (tgt_it != node_items_.end()) {
-        tgt_name = tgt_it->second->NodeName();
-        for (auto *p : tgt_it->second->InputPorts()) {
-            if (p->PortId() == edge->TargetPortId()) {
-                tgt_port = p->PortName();
-                break;
-            }
-        }
-    }
+    if (src_it == node_items_.end() || tgt_it == node_items_.end()) return;
+
+    QString src_lang = src_it->second->Language();
+    QString tgt_lang = tgt_it->second->Language();
+    QString src_name = src_it->second->NodeName();
+    QString tgt_name = tgt_it->second->NodeName();
+
+    // Strip language prefix from node names
+    if (src_name.startsWith(src_lang + "::"))
+        src_name = src_name.mid(src_lang.length() + 2);
+    if (tgt_name.startsWith(tgt_lang + "::"))
+        tgt_name = tgt_name.mid(tgt_lang.length() + 2);
 
     if (src_name.isEmpty() || tgt_name.isEmpty()) return;
 
-    // Build the pattern to match: "LINK src_name.src_port -> tgt_name.tgt_port"
-    // Also match "CALL" variant for cross-language calls
-    QString link_pattern = QString("%1.%2 -> %3.%4")
-                               .arg(src_name, src_port, tgt_name, tgt_port);
+    // Build patterns to match:
+    //   New format: "LINK(src_lang, tgt_lang, src_func, tgt_func)"
+    //   Legacy format: "LINK src_name.port -> tgt_name.port"
+    QString new_pattern = QString("LINK(%1, %2, %3, %4)")
+                              .arg(src_lang, tgt_lang, src_name, tgt_name);
 
     // Temporarily remove the file watcher to avoid triggering a reload loop
     file_watcher_->removePath(current_file_);
 
-    // Read the file, remove matching LINK/CALL line, write back
+    // Read the file, remove matching LINK block (including body { ... }), write back
     QFile file(current_file_);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
         QString content = in.readAll();
         file.close();
 
-        // Remove lines containing the link pattern (LINK or CALL prefix)
         QStringList lines = content.split('\n');
         QStringList filtered;
         bool removed = false;
         int removed_line = -1;
+        bool inside_block = false;
+        int brace_depth = 0;
+
         for (int i = 0; i < lines.size(); ++i) {
             QString trimmed = lines[i].trimmed();
-            if (!removed &&
-                (trimmed.startsWith("LINK") || trimmed.startsWith("CALL")) &&
-                trimmed.contains(link_pattern)) {
-                removed = true;  // Remove only the first matching line
-                removed_line = i + 1;  // 1-based line number
+
+            // If we're inside a block being removed, skip lines until closing brace
+            if (inside_block) {
+                for (QChar ch : lines[i]) {
+                    if (ch == '{') ++brace_depth;
+                    if (ch == '}') --brace_depth;
+                }
+                if (brace_depth <= 0) {
+                    inside_block = false;
+                }
+                continue;  // Skip this line
+            }
+
+            if (!removed && trimmed.startsWith("LINK") &&
+                (trimmed.contains(new_pattern) ||
+                 (trimmed.contains(src_name) && trimmed.contains(tgt_name)))) {
+                removed = true;
+                removed_line = i + 1;
+
+                // Check if this line opens a brace block
+                brace_depth = 0;
+                for (QChar ch : lines[i]) {
+                    if (ch == '{') ++brace_depth;
+                    if (ch == '}') --brace_depth;
+                }
+                if (brace_depth > 0) {
+                    inside_block = true;  // Continue removing lines until closing brace
+                }
                 continue;
             }
             filtered.append(lines[i]);

@@ -923,3 +923,11 @@ sh: polyld: command not found
 按照Doxygen格式给全部模块的代码添加或整理注释。
 
 --end -done
+
+2026-04-10-05
+
+1.这是当在拓扑图里面链接后生成的代码，并不符合poly代码规范：LINK cpp::math_ops::multiply.return -> python::string_utils::format_result.int
+2.拓扑图逻辑有问题，他不仅显示了poly代码中的LINK语句，连接到FUNC上的逻辑很奇怪，请修改。
+3.拓扑图里面每一块都需要有右键菜单。
+
+--end -done

@@ -61,6 +61,16 @@ const TopologyNode *TopologyGraph::FindNodeByName(const std::string &name) const
 // ============================================================================
 
 uint64_t TopologyGraph::AddEdge(TopologyEdge edge) {
+    // Deduplicate: reject if an edge with the same source/target port pair exists
+    for (const auto &existing : edges_) {
+        if (existing.source_node_id == edge.source_node_id &&
+            existing.source_port_id == edge.source_port_id &&
+            existing.target_node_id == edge.target_node_id &&
+            existing.target_port_id == edge.target_port_id) {
+            // If the new edge has a more specific status, upgrade the existing one
+            return existing.id;
+        }
+    }
     edge.id = next_edge_id_++;
     edges_.push_back(std::move(edge));
     return edges_.back().id;

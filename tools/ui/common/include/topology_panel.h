@@ -125,6 +125,8 @@ class TopoNodeItem : public QGraphicsRectItem {
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
+    void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
+    void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
 
   private:
     void LayoutPorts();

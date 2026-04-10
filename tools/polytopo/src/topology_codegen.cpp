@@ -85,6 +85,18 @@ std::string ToPloySrcType(const std::string &type_name) {
     return UpperFirst(type_name);
 }
 
+// Strip the leading "language::" prefix from a node name.
+// "cpp::math_ops::add" → "math_ops::add"
+// "python::string_utils::concat" → "string_utils::concat"
+std::string StripLangPrefix(const std::string &name, const std::string &language) {
+    std::string prefix = language + "::";
+    if (name.size() > prefix.size() &&
+        name.substr(0, prefix.size()) == prefix) {
+        return name.substr(prefix.size());
+    }
+    return name;
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -195,6 +207,8 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
     /** @name LINK directives from edges */
     /** @{ */
     // For edges connecting nodes from different languages, emit LINK statements.
+    // Use the correct ploy LINK syntax:
+    //   LINK(src_lang, tgt_lang, src_func, tgt_func) RETURNS src_lang::type { MAP_TYPE(...); }
     std::set<std::string> emitted_links;
     for (const auto &edge : graph.Edges()) {
         const auto *src_node = graph.GetNode(edge.source_node_id);
@@ -203,13 +217,30 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         if (src_node->language == tgt_node->language) continue;
         if (src_node->language.empty() || tgt_node->language.empty()) continue;
 
-        std::string link_key = src_node->language + "::" + src_node->name +
-                               " -> " + tgt_node->language + "::" + tgt_node->name;
+        // Strip language prefix from node names (e.g. "cpp::math_ops::add" → "math_ops::add")
+        std::string src_func = StripLangPrefix(src_node->name, src_node->language);
+        std::string tgt_func = StripLangPrefix(tgt_node->name, tgt_node->language);
+
+        std::string link_key = src_node->language + "::" + src_func +
+                               " -> " + tgt_node->language + "::" + tgt_func;
         if (emitted_links.count(link_key) > 0) continue;
         emitted_links.insert(link_key);
 
+        // Determine RETURNS type from source node's output port
+        std::string returns_type;
+        if (!src_node->outputs.empty()) {
+            std::string type_name = PortTypeName(src_node->outputs[0]);
+            if (type_name != "Any") {
+                returns_type = src_node->language + "::" + ToPloySrcType(type_name);
+            }
+        }
+
         out << "LINK(" << src_node->language << ", " << tgt_node->language
-            << ", " << src_node->name << ", " << tgt_node->name << ") {\n";
+            << ", " << src_func << ", " << tgt_func << ")";
+        if (!returns_type.empty()) {
+            out << " RETURNS " << returns_type;
+        }
+        out << " {\n";
 
         // Collect per-edge type mappings
         for (const auto &e2 : graph.Edges()) {
@@ -225,8 +256,9 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
                 if (p.id == e2.target_port_id) { tt = PortTypeName(p); break; }
             }
             if (!st.empty() && !tt.empty() && st != "Any" && tt != "Any") {
-                out << "    MAP_TYPE(" << src_node->language << "::" << st
-                    << ", " << tgt_node->language << "::" << tt << ");\n";
+                out << "    MAP_TYPE(" << src_node->language << "::"
+                    << ToPloySrcType(st) << ", "
+                    << tgt_node->language << "::" << ToPloySrcType(tt) << ");\n";
             }
         }
         out << "}\n\n";
