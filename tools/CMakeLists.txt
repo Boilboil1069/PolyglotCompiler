@@ -13,6 +13,7 @@ add_library(polyc_lib STATIC
     polyc/src/stage_bridge.cpp
     polyc/src/stage_backend.cpp
     polyc/src/stage_packaging.cpp
+    polyc/src/foreign_signature_extractor.cpp
 )
 
 target_include_directories(polyc_lib PUBLIC ${CMAKE_SOURCE_DIR})
@@ -253,6 +254,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/action_manager.cpp
         ui/common/src/panel_manager.cpp
         ui/common/src/topology_panel.cpp
+        polyc/src/foreign_signature_extractor.cpp
     )
 
     # Headers with Q_OBJECT must be listed for AUTOMOC

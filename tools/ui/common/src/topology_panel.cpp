@@ -41,6 +41,7 @@
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
+#include "tools/polyc/src/foreign_signature_extractor.h"
 #include "tools/polytopo/include/topology_analyzer.h"
 #include "tools/polytopo/include/topology_codegen.h"
 #include "tools/polytopo/include/topology_graph.h"
@@ -1134,6 +1135,17 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
     sema_opts.strict_mode = false;
     ploy::PloySema sema(diagnostics, sema_opts);
     sema.Analyze(module);
+
+    // Foreign signature extraction — read real types from external source files
+    {
+        tools::ForeignExtractionOptions feopts;
+        feopts.base_directory =
+            std::filesystem::path(filename).parent_path().string();
+        tools::ForeignSignatureExtractor extractor(feopts);
+        auto foreign_sigs = extractor.ExtractAll(*module);
+        if (!foreign_sigs.empty())
+            sema.InjectForeignSignatures(foreign_sigs);
+    }
 
     // Build topology
     topo::TopologyAnalyzer analyzer(sema);

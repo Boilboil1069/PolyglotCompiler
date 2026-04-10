@@ -239,6 +239,11 @@ class PloySema {
         return struct_defs_;
     }
 
+    /// Inject foreign function signatures extracted from external source files.
+    /// Signatures already present (e.g. from LINK declarations) are NOT overwritten.
+    void InjectForeignSignatures(
+        const std::unordered_map<std::string, FunctionSignature> &foreign_sigs);
+
   private:
     // Declaration analysis
     void AnalyzeStatement(const std::shared_ptr<Statement> &stmt);

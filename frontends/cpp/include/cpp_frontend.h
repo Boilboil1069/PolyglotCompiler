@@ -34,6 +34,11 @@ class CppLanguageFrontend : public frontends::ILanguageFrontend {
                                     const frontends::FrontendOptions &options) const override;
 
     bool NeedsPreprocessing() const override { return true; }
+
+    std::vector<frontends::ForeignFunctionSignature> ExtractSignatures(
+        const std::string &source,
+        const std::string &filename,
+        const std::string &module_name) const override;
 };
 
 }  // namespace polyglot::cpp

@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "common/include/core/types.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/lexer_base.h"
 #include "middle/include/ir/ir_context.h"
@@ -36,6 +37,24 @@ struct FrontendOptions {
 struct FrontendResult {
     bool success{false};
     bool lowered{false};  // true if IR was produced
+};
+
+// ============================================================================
+// ForeignFunctionSignature — extracted signature from a foreign source file
+// ============================================================================
+// Represents a function/method signature extracted by parsing a source file
+// in its native language.  Used for cross-language type inference in the
+// topology graph and .ploy sema.
+
+struct ForeignFunctionSignature {
+    std::string name;                            // Function name (unqualified)
+    std::string qualified_name;                  // Module-qualified name (e.g. "math_ops::add")
+    std::vector<core::Type> param_types;         // Parameter types (may contain Any for unresolved)
+    std::vector<std::string> param_names;        // Parameter names
+    core::Type return_type{core::Type::Any()};   // Return type (Any if not determinable)
+    bool is_method{false};                       // True if it's a class method
+    std::string class_name;                      // Owning class (if is_method)
+    bool has_type_annotations{true};             // False if types were inferred rather than declared
 };
 
 // ============================================================================
@@ -87,6 +106,22 @@ class ILanguageFrontend {
 
     // Whether this frontend requires preprocessing (e.g. C++ does, Python does not)
     virtual bool NeedsPreprocessing() const { return false; }
+
+    // ---- Cross-language type extraction ----
+
+    // Parse source code and extract function/method signatures with their
+    // parameter types and return types.  For languages with optional type
+    // annotations (e.g. Python), the frontend should:
+    //   1. Read explicit annotations when present
+    //   2. Attempt basic type inference from function bodies when absent
+    //   3. Fall back to core::Type::Any() for unresolvable types
+    //
+    // `module_name` is the module qualifier (e.g. "math_ops" from IMPORT cpp::math_ops).
+    // The default implementation returns an empty vector (no extraction support).
+    virtual std::vector<ForeignFunctionSignature> ExtractSignatures(
+        const std::string &source,
+        const std::string &filename,
+        const std::string &module_name) const { return {}; }
 };
 
 }  // namespace polyglot::frontends

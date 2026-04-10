@@ -1743,6 +1743,18 @@ void PloySema::RegisterFunctionSignature(const std::string &qualified_name,
     known_signatures_[qualified_name] = sig;
 }
 
+void PloySema::InjectForeignSignatures(
+    const std::unordered_map<std::string, FunctionSignature> &foreign_sigs) {
+    for (const auto &[name, sig] : foreign_sigs) {
+        // Do not overwrite signatures that were already registered by
+        // LINK declarations or explicit FUNC definitions — those take
+        // precedence because the user specified them explicitly.
+        if (known_signatures_.find(name) == known_signatures_.end()) {
+            known_signatures_[name] = sig;
+        }
+    }
+}
+
 const FunctionSignature *PloySema::LookupSignature(const std::string &qualified_name) const {
     auto it = known_signatures_.find(qualified_name);
     if (it != known_signatures_.end()) {

@@ -32,6 +32,11 @@ class RustLanguageFrontend : public frontends::ILanguageFrontend {
                                     ir::IRContext &ir_ctx,
                                     frontends::Diagnostics &diagnostics,
                                     const frontends::FrontendOptions &options) const override;
+
+    std::vector<frontends::ForeignFunctionSignature> ExtractSignatures(
+        const std::string &source,
+        const std::string &filename,
+        const std::string &module_name) const override;
 };
 
 }  // namespace polyglot::rust
