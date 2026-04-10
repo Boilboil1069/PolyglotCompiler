@@ -149,6 +149,7 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         target_node.is_linked = true;
         target_node.link_source_language = link->source_language;
         target_node.link_source_function = link->source_symbol;
+        target_node.origin = TopologyNode::Origin::kLink;
 
         // Try to get signature from sema (registered under target_symbol)
         auto sig_it = sema_.KnownSignatures().find(link->target_symbol);
@@ -201,6 +202,7 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         source_node.language = link->source_language;
         source_node.kind = TopologyNode::Kind::kExternalCall;
         source_node.loc = link->loc;
+        source_node.origin = TopologyNode::Origin::kLink;
 
         auto src_sig_it = sema_.KnownSignatures().find(link->source_symbol);
         const ploy::FunctionSignature *sig = (src_sig_it != sema_.KnownSignatures().end()) ? &src_sig_it->second : nullptr;
@@ -252,6 +254,7 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         edge.source_port_id = src_node->outputs[0].id;
         edge.target_node_id = tgt_node->id;
         edge.target_port_id = tgt_node->inputs[0].id;
+        edge.origin = TopologyEdge::Origin::kLink;
         edge.loc = link->loc;
         // Determine edge status based on available type information
         bool has_map_type = !link->body.empty();
@@ -647,6 +650,7 @@ uint64_t TopologyAnalyzer::FindOrCreateExternalNode(
     node.language = language;
     node.kind = TopologyNode::Kind::kExternalCall;
     node.loc = loc;
+    node.origin = TopologyNode::Origin::kCall;
 
     // Try to resolve signature from sema.
     // The signature may be registered under different key formats:

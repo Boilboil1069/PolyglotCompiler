@@ -292,6 +292,7 @@ class TopologyPanel : public QWidget {
     void OnZoomFit();
     void OnNodeSelected();
     void OnLayoutChanged(int index);
+    void OnViewModeChanged(int index);
     void OnFileChanged(const QString &path);
     void OnForceLayoutTick();
 
@@ -300,6 +301,7 @@ class TopologyPanel : public QWidget {
     void SetupToolbar();
     void SetupScene();
     void BuildGraphFromFile(const QString &path);
+    void ApplyViewModeFilter();
     void LayoutNodes();
     void UpdateDetailsPanel(uint64_t node_id);
 
@@ -328,6 +330,16 @@ class TopologyPanel : public QWidget {
     QFileSystemWatcher *file_watcher_{nullptr};
     QTimer *reload_debounce_{nullptr};
 
+    // View mode: which layer of the topology to display
+    /** @brief ViewMode enumeration. */
+    enum class ViewMode {
+        kAll,       // Show all nodes and edges
+        kLink,      // Show only LINK declaration-level bindings
+        kCall,      // Show only FUNC/PIPELINE call-level data flow
+    };
+    ViewMode view_mode_{ViewMode::kAll};
+    QComboBox *view_mode_combo_{nullptr};
+
     // Force-directed layout engine
     QTimer *force_timer_{nullptr};
     int force_iterations_remaining_{0};
@@ -341,6 +353,10 @@ class TopologyPanel : public QWidget {
     // Scene items indexed by id
     std::unordered_map<uint64_t, TopoNodeItem *> node_items_;
     std::vector<TopoEdgeItem *> edge_items_;
+
+    // Stored origin metadata for nodes and edges (populated by BuildGraphFromFile)
+    std::unordered_map<uint64_t, int> node_origin_;  // node_id -> TopologyNode::Origin
+    std::unordered_map<uint64_t, int> edge_origin_;  // edge_id -> TopologyEdge::Origin
 
     // Interactive edge id counter (for user-created edges)
     uint64_t next_interactive_edge_id_{100000};

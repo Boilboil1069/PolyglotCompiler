@@ -943,3 +943,11 @@ int abs_val(int x) {
 2.拓扑图的FUNC和PIPLINE的逻辑还是不对，继续修改
 
 --end -done
+
+2026-04-10-07
+
+我的意思是那些link的内容不应该是在func或者pipline中的内容吗？为什么他们会显示在同一个层级？
+所以是不是应该把link和func的call分开呢？因为在流程中是func之间的链接或者是pipline中func的链接，之后被func调用pipline等逻辑，现在你都显示在一个层级是不是不合理？
+所以是不是应该出现一个选项是产生link的逻辑还是func之间的逻辑？
+
+--end -done

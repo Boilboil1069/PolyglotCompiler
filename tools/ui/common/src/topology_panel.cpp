@@ -34,6 +34,7 @@
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <unordered_set>
 
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/ploy/include/ploy_lexer.h"
@@ -852,6 +853,17 @@ void TopologyPanel::SetupToolbar() {
 
     toolbar_->addSeparator();
 
+    // View mode selector: choose which topology layer to display
+    view_mode_combo_ = new QComboBox(toolbar_);
+    view_mode_combo_->addItem("All");          // index 0 = kAll
+    view_mode_combo_->addItem("LINK Bindings");  // index 1 = kLink
+    view_mode_combo_->addItem("CALL Data Flow"); // index 2 = kCall
+    connect(view_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TopologyPanel::OnViewModeChanged);
+    toolbar_->addWidget(view_mode_combo_);
+
+    toolbar_->addSeparator();
+
     auto *export_dot = new QPushButton("Export DOT", toolbar_);
     connect(export_dot, &QPushButton::clicked, this, &TopologyPanel::OnExportDot);
     toolbar_->addWidget(export_dot);
@@ -903,6 +915,8 @@ void TopologyPanel::Clear() {
     scene_->clear();
     node_items_.clear();
     edge_items_.clear();
+    node_origin_.clear();
+    edge_origin_.clear();
     details_tree_->clear();
     diagnostics_output_->clear();
     status_label_->setText("No topology loaded");
@@ -1326,6 +1340,7 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
 
         scene_->addItem(item);
         node_items_[node.id] = item;
+        node_origin_[node.id] = static_cast<int>(node.origin);
     }
 
     // Initial layout (grid as starting positions, then force if selected)
@@ -1354,7 +1369,11 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
                                   edge.target_node_id, edge.target_port_id);
         scene_->addItem(edge_item);
         edge_items_.push_back(edge_item);
+        edge_origin_[edge.id] = static_cast<int>(edge.origin);
     }
+
+    // Apply view mode filter (hide/show nodes and edges based on selected mode)
+    ApplyViewModeFilter();
 
     // Re-watch the file (QFileSystemWatcher may drop paths after changes)
     if (!current_file_.isEmpty() &&
@@ -1864,6 +1883,71 @@ void TopologyPanel::OnNodeSelected() {
 void TopologyPanel::OnLayoutChanged(int index) {
     Q_UNUSED(index);
     LayoutNodes();
+}
+
+void TopologyPanel::OnViewModeChanged(int index) {
+    switch (index) {
+    case 0:  view_mode_ = ViewMode::kAll;  break;
+    case 1:  view_mode_ = ViewMode::kLink; break;
+    case 2:  view_mode_ = ViewMode::kCall; break;
+    default: view_mode_ = ViewMode::kAll;  break;
+    }
+    ApplyViewModeFilter();
+}
+
+void TopologyPanel::ApplyViewModeFilter() {
+    // Collect which node ids are "active" under the current view mode.
+    // LINK-only nodes/edges should be hidden in kCall mode, and vice versa.
+    // Declarations (FUNC, PIPELINE, MAP_FUNC, etc.) are always visible.
+
+    using NodeOrigin = topo::TopologyNode::Origin;
+    using EdgeOrigin = topo::TopologyEdge::Origin;
+
+    // First: determine edge visibility and collect which nodes are endpoints
+    // of at least one visible edge.
+    std::unordered_set<uint64_t> edge_referenced_nodes;
+
+    for (auto *edge_item : edge_items_) {
+        bool visible = true;
+        auto eit = edge_origin_.find(edge_item->EdgeId());
+        if (eit != edge_origin_.end()) {
+            auto origin = static_cast<EdgeOrigin>(eit->second);
+            if (view_mode_ == ViewMode::kLink && origin != EdgeOrigin::kLink) {
+                visible = false;
+            } else if (view_mode_ == ViewMode::kCall && origin != EdgeOrigin::kCall) {
+                visible = false;
+            }
+        }
+        edge_item->setVisible(visible);
+        if (visible) {
+            edge_referenced_nodes.insert(edge_item->SourceNodeId());
+            edge_referenced_nodes.insert(edge_item->TargetNodeId());
+        }
+    }
+
+    // Second: determine node visibility.
+    // - Declaration-origin nodes (FUNC, PIPELINE, etc.) are always visible.
+    // - LINK-origin external nodes are visible in kAll and kLink modes.
+    // - CALL-origin external nodes are visible in kAll and kCall modes.
+    // Additionally, a node is visible if it's an endpoint of a visible edge.
+    for (auto &[id, item] : node_items_) {
+        bool visible = true;
+        auto nit = node_origin_.find(id);
+        if (nit != node_origin_.end()) {
+            auto origin = static_cast<NodeOrigin>(nit->second);
+            if (origin == NodeOrigin::kLink) {
+                visible = (view_mode_ != ViewMode::kCall);
+            } else if (origin == NodeOrigin::kCall) {
+                visible = (view_mode_ != ViewMode::kLink);
+            }
+            // kDecl nodes are always visible
+        }
+        // Also show a node if a visible edge references it
+        if (!visible && edge_referenced_nodes.count(id)) {
+            visible = true;
+        }
+        item->setVisible(visible);
+    }
 }
 
 void TopologyPanel::OnFileChanged(const QString &path) {

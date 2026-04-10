@@ -73,6 +73,15 @@ struct TopologyNode {
     bool is_linked{false};                  // True if the node is a LINK target
     std::string link_source_language;       // Source language of linked function
     std::string link_source_function;       // Source function of linked function
+
+    // Origin: where this node was primarily created from
+    /** @brief Origin enumeration. */
+    enum class Origin {
+        kLink,              // Created from a LINK declaration
+        kCall,              // Created from a FUNC/PIPELINE body CALL
+        kDecl,              // Created from a top-level declaration (FUNC, PIPELINE, etc.)
+    };
+    Origin origin{Origin::kDecl};
 };
 
 // ============================================================================
@@ -99,6 +108,14 @@ struct TopologyEdge {
         kUnknown,           // One or both types are Any/unresolved
     };
     Status status{Status::kUnknown};
+
+    // Origin: where this edge was created from
+    /** @brief Origin enumeration. */
+    enum class Origin {
+        kLink,              // Created from a LINK declaration (binding-level)
+        kCall,              // Created from a FUNC/PIPELINE CALL (data-flow-level)
+    };
+    Origin origin{Origin::kCall};
 
     // If conversion is needed, the required marshal operation
     std::string conversion_note;
