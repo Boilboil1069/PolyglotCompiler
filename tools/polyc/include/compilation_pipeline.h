@@ -304,7 +304,11 @@ struct CompilationContext {
         std::string source_text;
         std::string source_language{"ploy"};
         std::string output_file;
+#if defined(__aarch64__) || defined(_M_ARM64)
+        std::string target_arch{"arm64"};
+#else
         std::string target_arch{"x86_64"};
+#endif
         std::string target_os;
         std::string mode{"link"};               // compile | assemble | link
         std::string object_format{"pobj"};      // pobj | coff | elf | macho

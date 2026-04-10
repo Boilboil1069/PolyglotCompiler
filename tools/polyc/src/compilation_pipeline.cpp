@@ -11,6 +11,7 @@
 #include <unordered_set>
 
 #include "backends/arm64/include/arm64_target.h"
+#include "backends/common/include/object_file.h"
 #include "backends/wasm/include/wasm_target.h"
 #include "backends/x86_64/include/x86_target.h"
 #include "frontends/common/include/frontend_registry.h"
@@ -94,6 +95,104 @@ std::string ReadTextFile(const std::string &path) {
     std::ostringstream oss;
     oss << ifs.rdbuf();
     return oss.str();
+}
+
+// Return the default native object format string for the current host.
+std::string HostObjectFormat() {
+#if defined(_WIN32)
+    return "coff";
+#elif defined(__APPLE__)
+    return "macho";
+#else
+    return "elf";
+#endif
+}
+
+// Build a native-format object file (ELF/Mach-O) from internal sections and
+// symbols using the backend ObjectFileBuilder API.  Returns the file content
+// as a byte vector, or an empty vector on failure.
+std::vector<std::uint8_t> BuildNativeObjectBinary(
+        const std::string &format,
+        const std::string &arch,
+        const std::vector<InternalSection> &sections,
+        const std::vector<InternalSymbol>  &symbols) {
+    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
+    std::unique_ptr<backends::ObjectFileBuilder> builder;
+    if (format == "macho") {
+        builder = std::make_unique<backends::MachOBuilder>(is_arm64);
+    } else {
+        // Default to ELF for "elf" or any other format
+        builder = std::make_unique<backends::ELFBuilder>(!is_arm64);
+    }
+
+    for (const auto &sec : sections) {
+        backends::Section bs;
+        bs.name = sec.name;
+        bs.data = sec.data;
+        for (const auto &r : sec.relocs) {
+            backends::Relocation br;
+            br.offset = r.offset;
+            br.symbol = r.symbol;
+            br.type   = r.type;
+            br.addend = r.addend;
+            bs.relocations.push_back(std::move(br));
+        }
+        builder->AddSection(bs);
+    }
+    for (const auto &sym : symbols) {
+        backends::Symbol bs;
+        bs.name        = sym.name;
+        bs.section     = (sym.section_index < sections.size()) ? sections[sym.section_index].name : "";
+        bs.offset      = sym.value;
+        bs.size        = sym.size;
+        bs.is_global   = sym.global;
+        bs.is_function = true;
+        builder->AddSymbol(bs);
+    }
+    return builder->Build();
+}
+
+// Determine object file extension for the given format string.
+std::string ObjectExtension(const std::string &fmt) {
+    if (fmt == "pobj")  return ".pobj";
+    if (fmt == "coff")  return ".obj";
+    return ".o";
+}
+
+// Build the linker command for the given format.  Returns an empty string when
+// no external link step is required (e.g. compile/assemble mode).
+std::string BuildLinkCommand(const std::string &format,
+                             const std::string &polyld_path,
+                             const std::string &obj_path,
+                             const std::string &out_path,
+                             const std::string &ploy_desc_file,
+                             const std::string &aux_dir) {
+    std::string cmd;
+    if (format == "pobj") {
+        cmd = polyld_path + " " + obj_path + " -o " + out_path;
+        if (!ploy_desc_file.empty())
+            cmd += " --ploy-desc " + ploy_desc_file;
+        if (!aux_dir.empty())
+            cmd += " --aux-dir " + aux_dir;
+    } else if (format == "coff") {
+        // Prefer MSVC link.exe, fall back to lld-link
+        cmd = "link /NOLOGO /OUT:" + out_path + " " + obj_path;
+    } else if (format == "macho") {
+        // Use system linker (ld via clang driver) on macOS.
+        // -e __start: entry point is __start (Mach-O adds underscore prefix).
+        // -undefined dynamic_lookup: allow unresolved external symbols from
+        // foreign language modules that will be provided at final link time.
+        cmd = "clang -o " + out_path + " " + obj_path
+            + " -Wl,-e,__start -Wl,-undefined,dynamic_lookup";
+    } else {
+        // ELF / other: use clang as linker driver.
+        // --entry=_start: entry point is _start.
+        // --allow-shlib-undefined / --unresolved-symbols=ignore-all:
+        // foreign symbols resolved at final link time.
+        cmd = "clang -o " + out_path + " " + obj_path
+            + " -Wl,--entry=_start -Wl,--unresolved-symbols=ignore-all -nostdlib";
+    }
+    return cmd;
 }
 
 std::vector<std::uint8_t> BuildPobjBinary(const std::vector<InternalSection> &sections,
@@ -567,8 +666,8 @@ class DefaultBackendStage final : public BackendStage {
                 lr.type = rel.type;
                 lr.symbol = rel.symbol;
                 lr.addend = rel.addend;
-                lr.is_pc_relative = false;
-                lr.size = 4;
+                lr.is_pc_relative = (rel.type == 1);
+                lr.size = (rel.type == 1) ? 4 : 8;
                 for (auto &obj : out.objects) {
                     if (obj.name == rel.section || (rel.section.empty() && obj.name == ".text")) {
                         obj.relocations.push_back(lr);
@@ -700,7 +799,20 @@ class DefaultPackagingStage final : public PackagingStage {
 
         for (const auto &obj : input.objects) {
             for (const auto &sym : obj.symbols) {
-                if (sym_index.count(sym.name) != 0) continue;
+                auto existing = sym_index.find(sym.name);
+                if (existing != sym_index.end()) {
+                    // If the existing entry is undefined but this one is
+                    // defined, upgrade it so the object correctly marks
+                    // the symbol as a local definition.
+                    auto &prev = symbols[existing->second];
+                    if (!prev.defined && sym.is_defined && sec_index.count(sym.section) != 0) {
+                        prev.section_index = sec_index[sym.section];
+                        prev.defined = true;
+                        prev.value = sym.offset;
+                        prev.size = sym.size;
+                    }
+                    continue;
+                }
                 InternalSymbol s;
                 s.name = sym.name;
                 if (sym.is_defined && sec_index.count(sym.section) != 0) {
@@ -738,11 +850,33 @@ class DefaultPackagingStage final : public PackagingStage {
         }
 
         out.binary_data = BuildPobjBinary(sections, symbols);
+
+        // Determine the effective object format.  If the user requested a
+        // native format (elf/macho/coff) we emit that instead of POBJ so
+        // that the platform linker can consume the file directly.  The
+        // default ("pobj") is replaced with the host-native format.
+        std::string effective_fmt = config.object_format;
+        if (effective_fmt.empty() || effective_fmt == "pobj") {
+            effective_fmt = HostObjectFormat();
+        }
+
+        // Build native object binary when a non-POBJ format is selected.
+        std::vector<std::uint8_t> native_obj;
+        if (effective_fmt != "pobj") {
+            native_obj = BuildNativeObjectBinary(effective_fmt, config.target_arch,
+                                                 sections, symbols);
+        }
+        const auto &obj_data = native_obj.empty() ? out.binary_data : native_obj;
+
         out.format = OutputFormat::kStaticLib;
 
         std::string out_path = config.output_file;
         if (out_path.empty()) out_path = "a.out";
-        const std::string obj_out = config.emit_obj_path.empty() ? (out_path + ".pobj") : config.emit_obj_path;
+
+        const std::string ext = ObjectExtension(effective_fmt);
+        const std::string obj_out = config.emit_obj_path.empty()
+                                  ? (out_path + ext)
+                                  : config.emit_obj_path;
         out.output_path = obj_out;
 
         std::ofstream ofs(obj_out, std::ios::binary | std::ios::trunc);
@@ -754,8 +888,8 @@ class DefaultPackagingStage final : public PackagingStage {
             out.success = false;
             return out;
         }
-        ofs.write(reinterpret_cast<const char *>(out.binary_data.data()),
-                  static_cast<std::streamsize>(out.binary_data.size()));
+        ofs.write(reinterpret_cast<const char *>(obj_data.data()),
+                  static_cast<std::streamsize>(obj_data.size()));
         ofs.close();
 
         if (!config.emit_asm_path.empty()) {
@@ -775,21 +909,23 @@ class DefaultPackagingStage final : public PackagingStage {
         }
 
         if (config.mode == "link") {
-            std::string cmd = config.polyld_path + " " + obj_out + " -o " + out_path;
-            // Pass the serialized cross-language descriptor file so that polyld
-            // can call AddCallDescriptor/AddLinkEntry/AddCrossLangSymbol before
-            // ResolveLinks() — closing the cross-language link pipeline gap.
-            if (!config.ploy_desc_file.empty()) {
-                cmd += " --ploy-desc " + config.ploy_desc_file;
-            }
-            if (!config.aux_dir.empty()) {
-                cmd += " --aux-dir " + config.aux_dir;
-            }
+            std::string cmd = BuildLinkCommand(effective_fmt,
+                                               config.polyld_path,
+                                               obj_out, out_path,
+                                               config.ploy_desc_file,
+                                               config.aux_dir);
             int rc = std::system(cmd.c_str());
+            if (rc != 0) {
+                // For COFF, try lld-link as fallback before giving up
+                if (effective_fmt == "coff") {
+                    cmd = "lld-link /OUT:" + out_path + " " + obj_out;
+                    rc = std::system(cmd.c_str());
+                }
+            }
             if (rc != 0) {
                 diagnostics.ReportWarning(core::SourceLoc{"<packaging>", 1, 1},
                                           frontends::ErrorCode::kUnresolvedSymbol,
-                                          "polyld invocation failed (object file was generated): " + cmd);
+                                          "linker invocation failed (object file was generated): " + cmd);
             }
         }
 

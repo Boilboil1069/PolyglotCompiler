@@ -1192,7 +1192,7 @@ language + "|" + manager_kind + "|" + env_path
                                        └───────────┘
 ```
 
-**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。编译阶段**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 在最终链接阶段会调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。
+**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。编译阶段**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 在最终链接阶段会调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。`polyld` 会自动相对于 `polyc` 所在目录解析，无需加入系统 PATH。
 
 ### 能力矩阵
 
@@ -1421,7 +1421,7 @@ polyc [选项] <输入文件>
 | 选项 | 说明 |
 |------|------|
 | `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | 源语言（省略时根据扩展名自动检测） |
-| `--arch=<x86_64\|arm64\|wasm>` | 目标架构（默认：x86_64） |
+| `--arch=<x86_64\|arm64\|wasm>` | 目标架构（默认：宿主检测 — Apple Silicon / AArch64 为 `arm64`，其他为 `x86_64`） |
 | `-O<0\|1\|2\|3>` | 优化级别 |
 | `--emit-ir=<文件>` | 输出 IR 文本 |
 | `--emit-asm=<文件>` | 输出汇编 |
@@ -1582,7 +1582,7 @@ polyld -static -o program main.o -lmylib      # 静态链接
 polyld -shared -o libmylib.so obj1.o obj2.o    # 共享库
 ```
 
-`polyld` 内部包含 `PolyglotLinker`，它消费 `.ploy` 前端的 IR，生成跨语言粘合代码：
+从 `polyc` 调用时，`polyld` 会自动从 `polyc` 同级目录中查找（兄弟路径解析）。`polyld` 内部包含 `PolyglotLinker`，它消费 `.ploy` 前端的 IR，生成跨语言粘合代码：
 
 - `CrossLangCallDescriptor` — 描述跨语言调用的类型映射
 - `LinkEntry` — 描述 LINK 声明中的源/目标函数对

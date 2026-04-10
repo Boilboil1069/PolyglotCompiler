@@ -79,7 +79,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
                               └─────────────┘
 ```
 
-> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step.
+> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step. `polyld` is automatically resolved relative to `polyc`'s binary location.
 
 ---
 

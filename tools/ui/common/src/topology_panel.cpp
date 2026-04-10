@@ -339,6 +339,8 @@ void TopoNodeItem::StartPulseAnimation() {
 void TopoNodeItem::StopPulseAnimation() {
     if (pulse_timer_) {
         pulse_timer_->stop();
+        delete pulse_timer_;
+        pulse_timer_ = nullptr;
     }
     pulse_opacity_ = 1.0;
 }
@@ -649,6 +651,33 @@ TopologyPanel::TopologyPanel(QWidget *parent)
 
 TopologyPanel::~TopologyPanel() {
     StopForceLayout();
+
+    // Sever the view → panel back-pointer so that item callbacks
+    // (TopoNodeItem::itemChange → view→Panel()) do not route back to this
+    // panel during scene teardown.
+    if (view_) {
+        view_->SetPanel(nullptr);
+    }
+
+    // Disconnect all signals from the scene BEFORE Qt's QWidget::~QWidget()
+    // triggers QObjectPrivate::deleteChildren().  Without this, destroying
+    // QGraphicsScene items can fire selectionChanged / itemChange signals
+    // that route back to this panel after the TopologyPanel sub-object has
+    // already been destroyed, causing an assertObjectType crash.
+    if (scene_) {
+        scene_->disconnect(this);
+        scene_->clear();          // remove all items before scene dtor
+    }
+    if (file_watcher_) {
+        file_watcher_->disconnect(this);
+    }
+    if (reload_debounce_) {
+        reload_debounce_->stop();
+    }
+
+    // Clear tracking maps so no stale pointers are used.
+    node_items_.clear();
+    edge_items_.clear();
 }
 
 void TopologyPanel::SetupUI() {

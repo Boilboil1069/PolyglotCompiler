@@ -46,8 +46,12 @@ struct DriverSettings {
     std::string language{"ploy"};
     bool language_explicit{false};
 
-    // Target
+    // Target — default architecture matches the host
+#if defined(__aarch64__) || defined(_M_ARM64)
+    std::string arch{"arm64"};
+#else
     std::string arch{"x86_64"};
+#endif
     std::string mode{"link"};       // compile | assemble | link
 
     // Object format

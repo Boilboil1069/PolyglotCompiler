@@ -209,7 +209,7 @@ EXPORT inference AS "run_inference";
            ┌───────────────┐
            │ Object File   │
            │ (ELF/Mach-O/  │
-           │  POBJ)        │
+           │  COFF/POBJ)   │
            └───────────────┘
 ```
 
@@ -1204,7 +1204,7 @@ All external command execution is routed through the `ICommandRunner` interface 
                                        └───────────┘
 ```
 
-**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **not depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet) for the compilation stage. The `polyc` driver (`driver.cpp`) may invoke a system linker (`polyld` or `clang`) for the final link step to produce an executable.
+**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **not depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet) for the compilation stage. The `polyc` driver (`driver.cpp`) may invoke a system linker (`polyld` or `clang`) for the final link step to produce an executable. `polyld` is automatically resolved relative to `polyc`'s own binary location, so it does not need to be in the system PATH.
 
 ### Capability Matrix
 
@@ -1433,7 +1433,7 @@ polyc [options] <input_file>
 | Option | Description |
 |--------|-------------|
 | `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | Source language (auto-detected from extension if omitted) |
-| `--arch=<x86_64\|arm64\|wasm>` | Target architecture (default: x86_64) |
+| `--arch=<x86_64\|arm64\|wasm>` | Target architecture (default: host-detected — `arm64` on Apple Silicon / AArch64, `x86_64` otherwise) |
 | `-O<0\|1\|2\|3>` | Optimisation level |
 | `--emit-ir=<file>` | Output IR text |
 | `--emit-asm=<file>` | Output assembly |
@@ -1592,7 +1592,7 @@ polyld -static -o program main.o -lmylib      # Static linking
 polyld -shared -o libmylib.so obj1.o obj2.o    # Shared library
 ```
 
-`polyld` internally contains the `PolyglotLinker`, which consumes the `.ploy` frontend's IR to generate cross-language glue code:
+When invoked from `polyc`, `polyld` is automatically located next to the `polyc` binary (sibling resolution). `polyld` internally contains the `PolyglotLinker`, which consumes the `.ploy` frontend's IR to generate cross-language glue code:
 
 - `CrossLangCallDescriptor` — Describes type mapping for cross-language calls
 - `LinkEntry` — Describes source/target function pairs from LINK declarations

@@ -348,7 +348,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
             frontend_python frontend_cpp frontend_rust frontend_ploy
             frontend_java frontend_dotnet frontend_common
             backend_x86_64 backend_arm64 backend_wasm
-            middle_ir runtime polyglot_common linker_lib
+            middle_ir runtime polyglot_common linker_lib topo_lib
         )
         foreach(_tgt IN LISTS _POLYUI_DYLIB_TARGETS)
             if(TARGET ${_tgt})
@@ -363,6 +363,18 @@ if(Qt6_FOUND OR Qt5_FOUND)
                 )
             endif()
         endforeach()
+
+        # Fix install_name paths in copied dylibs so macdeployqt does not
+        # report "ERROR: Unexpected prefix @executable_path".  The script
+        # replaces @rpath references with direct @executable_path/../Frameworks/
+        # paths and strips build-tree-only RPATHs from the bundle copies.
+        add_custom_command(TARGET polyui POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                -D "BUNDLE_DIR=$<TARGET_BUNDLE_DIR:polyui>"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/fixup_macos_bundle.cmake"
+            COMMENT "Fixing up dylib install names in polyui.app bundle..."
+            VERBATIM
+        )
 
         if(Qt6_FOUND)
             get_target_property(_qt_qmake_mac Qt6::qmake IMPORTED_LOCATION)

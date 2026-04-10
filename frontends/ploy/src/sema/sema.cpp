@@ -181,10 +181,19 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             mapping.source_type);
         link_param_types.push_back(param_type);
     }
+    // Resolve the return type from the RETURNS clause if present
+    core::Type link_return_type = core::Type::Unknown();
+    if (link->return_type) {
+        link_return_type = ResolveType(link->return_type);
+    }
+
     if (!link_param_types.empty()) {
-        // Synthesize a function type: (param_types...) -> Unknown until return type resolved
+        // Synthesize a function type: (param_types...) -> return_type
         link_sym.type = type_system_.FunctionType(
-            link->target_symbol, core::Type::Unknown(), link_param_types);
+            link->target_symbol, link_return_type, link_param_types);
+    } else if (link->return_type) {
+        link_sym.type = type_system_.FunctionType(
+            link->target_symbol, link_return_type, {});
     } else {
         link_sym.type = core::Type::Unknown();
     }
@@ -194,15 +203,15 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 
     // Register the LINK target as a known function signature so that the
     // checker can validate types and parameter counts at call sites.
-    // When MAP_TYPE entries are present, they define the type-conversion table
-    // for the cross-language boundary but do NOT define parameter counts.
-    // Parameter counts are only known when an explicit parameter list is
-    // provided (future syntax), so param_count_known stays false here.
+    // MAP_TYPE entries define the type-conversion table for the cross-language
+    // boundary.  However, they do not reliably define parameter counts because
+    // METHOD calls (instance methods) have an implicit receiver that is not
+    // listed in MAP_TYPE.  Keep param_count_known false to avoid false errors.
     if (!entry.param_mappings.empty()) {
         FunctionSignature sig;
         sig.name = link->target_symbol;
         sig.language = link->target_language;
-        sig.param_count = 0;
+        sig.param_count = entry.param_mappings.size();
         sig.param_count_known = false;
         sig.defined_at = link->loc;
         for (const auto &mapping : entry.param_mappings) {
@@ -215,9 +224,10 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             sig.param_names.push_back(mapping.target_type);
         }
 
-        // Resolve return type from the source-side MAP_TYPE if available.
-        // For now, the return type stays Any unless a MAP_TYPE explicitly maps it.
-        // Future: support RETURNS clause in LINK syntax.
+        // Resolve return type from RETURNS clause if available.
+        if (link->return_type) {
+            sig.return_type = link_return_type;
+        }
 
         // Build ABI signature for cross-language validation
         sig.abi = BuildABISignature(sig, link->target_language);
@@ -228,7 +238,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             FunctionSignature source_sig;
             source_sig.name = link->source_symbol;
             source_sig.language = link->source_language;
-            source_sig.param_count = 0;
+            source_sig.param_count = entry.param_mappings.size();
             source_sig.param_count_known = false;
             source_sig.defined_at = link->loc;
             for (const auto &mapping : entry.param_mappings) {
@@ -264,7 +274,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
             FunctionSignature src_reg_sig;
             src_reg_sig.name = link->source_symbol;
             src_reg_sig.language = link->source_language;
-            src_reg_sig.param_count = 0;
+            src_reg_sig.param_count = entry.param_mappings.size();
             src_reg_sig.param_count_known = false;
             src_reg_sig.defined_at = link->loc;
             for (const auto &mapping : entry.param_mappings) {

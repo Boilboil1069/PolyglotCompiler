@@ -22,6 +22,7 @@ enum class ObjectFormat {
     kELF,           // ELF (Linux, BSD, etc.)
     kMachO,         // Mach-O (macOS, iOS)
     kCOFF,          // COFF/PE (Windows)
+    kPOBJ,          // POBJ (PolyglotCompiler portable object)
     kArchive,       // Static library archive (.a, .lib)
     kLLVMBitcode    // LLVM bitcode for LTO
 };
@@ -521,6 +522,7 @@ private:
     bool LoadELF(const std::string &path, ObjectFile &obj);
     bool LoadMachO(const std::string &path, ObjectFile &obj);
     bool LoadCOFF(const std::string &path, ObjectFile &obj);
+    bool LoadPOBJ(const std::string &path, ObjectFile &obj);
     bool LoadArchive(const std::string &path, Archive &archive);
     bool LoadArchiveMember(const Archive &archive, const ArchiveMember &member);
     

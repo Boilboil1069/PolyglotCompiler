@@ -505,23 +505,11 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
         }
 
         // Validate return type compatibility.
-        // When MAP_TYPE entries are present, return type descriptors may not be
-        // available yet (Ploy does not currently have a RETURNS clause in LINK).
-        // Synthesize a default return descriptor when missing.
-        if (target_sym->return_desc.size == 0 && !entry.param_mappings.empty()) {
-            target_sym->return_desc.size = 8;  // default pointer-sized
-            target_sym->return_desc.type_name = "any";
-        }
-        if (source_sym->return_desc.size == 0 && !entry.param_mappings.empty()) {
-            source_sym->return_desc.size = 8;
-            source_sym->return_desc.type_name = "any";
-        }
-
-        // If return descriptors are still missing (no MAP_TYPE, no explicit
-        // param descriptors), synthesize opaque defaults so the stub can be
-        // generated.
+        // When MAP_TYPE entries are present, return type mismatches are expected
+        // because the bridge code handles conversion.  Only validate when no
+        // MAP_TYPE entries exist (same-language linking).
         if (target_sym->return_desc.size == 0) {
-            target_sym->return_desc.size = 8;
+            target_sym->return_desc.size = 8;  // default pointer-sized
             target_sym->return_desc.type_name = "any";
         }
         if (source_sym->return_desc.size == 0) {
@@ -529,25 +517,30 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
             source_sym->return_desc.type_name = "any";
         }
 
-        if (source_sym->return_desc.size != target_sym->return_desc.size) {
-            ReportError("return type size mismatch in LINK '" + entry.target_symbol +
-                        "' <-> '" + entry.source_symbol + "': target returns " +
-                        std::to_string(target_sym->return_desc.size) + " bytes (" +
-                        target_sym->return_desc.type_name + ") but source returns " +
-                        std::to_string(source_sym->return_desc.size) + " bytes (" +
-                        source_sym->return_desc.type_name + ")");
-            return false;
-        }
+        if (entry.param_mappings.empty()) {
+            // Same-language or untyped link — strict return type validation
+            if (source_sym->return_desc.size != target_sym->return_desc.size) {
+                ReportError("return type size mismatch in LINK '" + entry.target_symbol +
+                            "' <-> '" + entry.source_symbol + "': target returns " +
+                            std::to_string(target_sym->return_desc.size) + " bytes (" +
+                            target_sym->return_desc.type_name + ") but source returns " +
+                            std::to_string(source_sym->return_desc.size) + " bytes (" +
+                            source_sym->return_desc.type_name + ")");
+                return false;
+            }
 
-        if (!source_sym->return_desc.type_name.empty() &&
-            !target_sym->return_desc.type_name.empty() &&
-            source_sym->return_desc.type_name != target_sym->return_desc.type_name) {
-            ReportError("return type mismatch in LINK '" + entry.target_symbol +
-                        "' <-> '" + entry.source_symbol + "': target type '" +
-                        target_sym->return_desc.type_name + "' vs source type '" +
-                        source_sym->return_desc.type_name + "'");
-            return false;
+            if (!source_sym->return_desc.type_name.empty() &&
+                !target_sym->return_desc.type_name.empty() &&
+                source_sym->return_desc.type_name != target_sym->return_desc.type_name) {
+                ReportError("return type mismatch in LINK '" + entry.target_symbol +
+                            "' <-> '" + entry.source_symbol + "': target type '" +
+                            target_sym->return_desc.type_name + "' vs source type '" +
+                            source_sym->return_desc.type_name + "'");
+                return false;
+            }
         }
+        // When MAP_TYPE entries are present, cross-language return type
+        // differences are handled by the generated marshalling code — no error.
     }
 
     // Also validate against MAP_TYPE entry count if present

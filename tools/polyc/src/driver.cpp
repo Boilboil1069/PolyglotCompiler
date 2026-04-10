@@ -47,6 +47,26 @@ std::string ReadFileContent(const std::string &path) {
     return content;
 }
 
+// Resolve a sibling tool binary (e.g. "polyld") relative to the directory
+// containing the current executable (argv[0]).  Returns the bare name if
+// no sibling is found so that PATH-based lookup remains the fallback.
+std::string ResolveSiblingTool(const char *argv0, const std::string &tool_name) {
+    if (!argv0 || !*argv0) return tool_name;
+    std::error_code ec;
+    fs::path self = fs::canonical(argv0, ec);
+    if (ec) self = fs::path(argv0);
+    fs::path candidate = self.parent_path() / tool_name;
+    if (fs::exists(candidate, ec))
+        return candidate.string();
+    // On Windows, also try with .exe extension
+#if defined(_WIN32)
+    candidate = self.parent_path() / (tool_name + ".exe");
+    if (fs::exists(candidate, ec))
+        return candidate.string();
+#endif
+    return tool_name;
+}
+
 // ── ParseArgs ────────────────────────────────────────────────────────────────
 
 DriverSettings ParseArgs(int argc, char **argv) {
@@ -208,6 +228,12 @@ int main(int argc, char **argv) {
 
     auto total_start = std::chrono::high_resolution_clock::now();
     DriverSettings settings = ParseArgs(argc, argv);
+
+    // Auto-resolve polyld path relative to the current executable when the
+    // user has not provided an explicit --polyld= override.
+    if (settings.polyld_path == "polyld") {
+        settings.polyld_path = ResolveSiblingTool(argv[0], "polyld");
+    }
 
     // ── Mode validation ──────────────────────────────────────────────────
     if (settings.mode != "compile" && settings.mode != "assemble" && settings.mode != "link") {

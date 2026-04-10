@@ -296,6 +296,12 @@ namespace polyglot::linker {
 
 ObjectFormat DetectObjectFormat(const std::vector<std::uint8_t> &data) {
     if (data.size() < 8) return ObjectFormat::kUnknown;
+
+    // Check POBJ magic ("POBJ" at offset 0)
+    if (data.size() >= 4 &&
+        data[0] == 'P' && data[1] == 'O' && data[2] == 'B' && data[3] == 'J') {
+        return ObjectFormat::kPOBJ;
+    }
     
     // Check ELF magic
     if (data.size() >= 4 && 
@@ -1394,6 +1400,158 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
 }
 
 // ============================================================================
+// POBJ Loading Implementation (PolyglotCompiler portable object format)
+// ============================================================================
+
+bool Linker::LoadPOBJ(const std::string &path, ObjectFile &obj) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        ReportError("Cannot open POBJ file: " + path);
+        return false;
+    }
+    auto total_size = static_cast<std::size_t>(file.tellg());
+    file.seekg(0);
+
+    // Read file header
+#pragma pack(push, 1)
+    struct PobjFileHeader {
+        char magic[4];
+        std::uint16_t version;
+        std::uint16_t section_count;
+        std::uint16_t symbol_count;
+        std::uint16_t reloc_count;
+        std::uint64_t strtab_offset;
+    };
+    struct PobjSectionRecord {
+        std::uint32_t name_offset;
+        std::uint32_t flags;
+        std::uint64_t offset;
+        std::uint64_t size;
+    };
+    struct PobjSymbolRecord {
+        std::uint32_t name_offset;
+        std::uint32_t section_index;
+        std::uint64_t value;
+        std::uint64_t size;
+        std::uint8_t  binding;
+        std::uint8_t  reserved[3];
+    };
+    struct PobjRelocRecord {
+        std::uint32_t section_index;
+        std::uint64_t offset;
+        std::uint32_t type;
+        std::uint32_t symbol_index;
+        std::int64_t  addend;
+    };
+#pragma pack(pop)
+
+    constexpr std::uint32_t kPobjSectionFlagBss = 1u << 1;
+
+    PobjFileHeader hdr{};
+    file.read(reinterpret_cast<char *>(&hdr), sizeof(hdr));
+    if (!file || std::memcmp(hdr.magic, "POBJ", 4) != 0) {
+        ReportError("Not a POBJ file: " + path);
+        return false;
+    }
+    if (hdr.version != 1) {
+        ReportError("Unsupported POBJ version " + std::to_string(hdr.version) + ": " + path);
+        return false;
+    }
+
+    // Read section records
+    std::vector<PobjSectionRecord> sec_recs(hdr.section_count);
+    file.read(reinterpret_cast<char *>(sec_recs.data()),
+              static_cast<std::streamsize>(sec_recs.size() * sizeof(PobjSectionRecord)));
+
+    // Read symbol records
+    std::vector<PobjSymbolRecord> sym_recs(hdr.symbol_count);
+    file.read(reinterpret_cast<char *>(sym_recs.data()),
+              static_cast<std::streamsize>(sym_recs.size() * sizeof(PobjSymbolRecord)));
+
+    // Read relocation records
+    std::vector<PobjRelocRecord> reloc_recs(hdr.reloc_count);
+    file.read(reinterpret_cast<char *>(reloc_recs.data()),
+              static_cast<std::streamsize>(reloc_recs.size() * sizeof(PobjRelocRecord)));
+
+    // Read string table (everything from strtab_offset to the end of the file)
+    std::vector<char> strtab;
+    if (hdr.strtab_offset > 0 && hdr.strtab_offset < total_size) {
+        strtab.resize(total_size - hdr.strtab_offset);
+        file.seekg(static_cast<std::streamoff>(hdr.strtab_offset));
+        file.read(strtab.data(), static_cast<std::streamsize>(strtab.size()));
+    }
+
+    auto get_str = [&](std::uint32_t off) -> std::string {
+        if (off >= strtab.size()) return {};
+        return std::string(&strtab[off]);
+    };
+
+    // Build sections
+    for (const auto &srec : sec_recs) {
+        InputSection sec;
+        sec.name = get_str(srec.name_offset);
+        if (srec.flags & kPobjSectionFlagBss) {
+            sec.type  = SectionType::kNobits;
+            sec.flags = SectionFlags::kWrite | SectionFlags::kAlloc;
+        } else {
+            sec.type  = SectionType::kProgbits;
+            sec.flags = SectionFlags::kAlloc;
+            // Mark .text-like sections as executable
+            if (sec.name == ".text" || sec.name.find(".text") == 0)
+                sec.flags = sec.flags | SectionFlags::kExecInstr;
+        }
+        if (!(srec.flags & kPobjSectionFlagBss) && srec.size > 0 && srec.offset > 0) {
+            sec.data.resize(static_cast<std::size_t>(srec.size));
+            auto saved = file.tellg();
+            file.seekg(static_cast<std::streamoff>(srec.offset));
+            file.read(reinterpret_cast<char *>(sec.data.data()),
+                      static_cast<std::streamsize>(srec.size));
+            file.seekg(saved);
+        }
+        obj.sections.push_back(std::move(sec));
+    }
+
+    // Build symbols
+    for (const auto &sym_rec : sym_recs) {
+        Symbol sym;
+        sym.name = get_str(sym_rec.name_offset);
+        sym.offset = sym_rec.value;
+        sym.size = sym_rec.size;
+        sym.section_index = static_cast<int>(sym_rec.section_index);
+        sym.is_defined = (sym_rec.section_index != 0xFFFFFFFF);
+        sym.binding = (sym_rec.binding == 1) ? SymbolBinding::kGlobal : SymbolBinding::kLocal;
+        sym.type = SymbolType::kFunction;
+        if (sym.is_defined && sym.section_index >= 0 &&
+            sym.section_index < static_cast<int>(obj.sections.size())) {
+            sym.section = obj.sections[sym.section_index].name;
+        }
+        sym.object_file_index = static_cast<int>(objects_.size());
+        obj.symbols.push_back(std::move(sym));
+    }
+
+    // Build relocations and assign to sections
+    for (const auto &rr : reloc_recs) {
+        linker::Relocation reloc;
+        reloc.offset = rr.offset;
+        reloc.type   = static_cast<int>(rr.type);
+        reloc.addend = rr.addend;
+        reloc.symbol_index = static_cast<int>(rr.symbol_index);
+        if (reloc.symbol_index >= 0 &&
+            reloc.symbol_index < static_cast<int>(obj.symbols.size())) {
+            reloc.symbol = obj.symbols[reloc.symbol_index].name;
+        }
+        obj.relocations.push_back(reloc);
+        if (rr.section_index < obj.sections.size()) {
+            obj.sections[rr.section_index].relocations.push_back(reloc);
+        }
+    }
+
+    Trace("POBJ loaded: " + std::to_string(obj.sections.size()) + " sections, " +
+          std::to_string(obj.symbols.size()) + " symbols");
+    return true;
+}
+
+// ============================================================================
 // Archive Loading Implementation
 // ============================================================================
 
@@ -1684,14 +1842,32 @@ bool Linker::LoadObjectFiles() {
                 loaded = LoadMachO(path, obj);
             } else if (format == ObjectFormat::kCOFF) {
                 loaded = LoadCOFF(path, obj);
+            } else if (format == ObjectFormat::kPOBJ) {
+                loaded = LoadPOBJ(path, obj);
             } else {
-                // Try ELF first, then Mach-O
+                // Try platform-native first, then POBJ as last resort
+#if defined(__APPLE__)
+                if (LoadMachO(path, obj)) {
+                    loaded = true;
+                } else {
+                    errors_.clear();
+                    loaded = LoadPOBJ(path, obj);
+                }
+#elif defined(_WIN32)
+                if (LoadCOFF(path, obj)) {
+                    loaded = true;
+                } else {
+                    errors_.clear();
+                    loaded = LoadPOBJ(path, obj);
+                }
+#else
                 if (LoadELF(path, obj)) {
                     loaded = true;
                 } else {
-                    errors_.clear();  // Clear ELF errors
-                    loaded = LoadMachO(path, obj);
+                    errors_.clear();
+                    loaded = LoadPOBJ(path, obj);
                 }
+#endif
             }
             
             if (!loaded) {

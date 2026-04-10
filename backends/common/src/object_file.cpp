@@ -331,15 +331,18 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     constexpr std::uint32_t CPU_SUBTYPE_ARM64_ALL = 0;
     constexpr std::uint32_t LC_SEGMENT_64 = 0x19;
     constexpr std::uint32_t LC_SYMTAB = 0x02;
+    constexpr std::uint32_t LC_BUILD_VERSION = 0x32;
     
     // Compute section data layout
     // Header: 32 bytes
     // LC_SEGMENT_64: 72 bytes + 80 bytes per section
     // LC_SYMTAB: 24 bytes
+    // LC_BUILD_VERSION: 24 bytes (no tool entries)
     std::uint32_t segment_cmd_size = 72 + static_cast<std::uint32_t>(80 * sections_.size());
     std::uint32_t symtab_cmd_size = 24;
-    std::uint32_t ncmds = 2;
-    std::uint32_t sizeofcmds = segment_cmd_size + symtab_cmd_size;
+    std::uint32_t build_version_cmd_size = 24;
+    std::uint32_t ncmds = 3;
+    std::uint32_t sizeofcmds = segment_cmd_size + symtab_cmd_size + build_version_cmd_size;
     std::uint32_t header_size = 32 + sizeofcmds;
     
     // Align section data start to 16 bytes
@@ -473,6 +476,15 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
     WriteValue<std::uint32_t>(result, strtab_offset);  // stroff
     WriteValue<std::uint32_t>(result, strtab_size);  // strsize
     
+    // --- LC_BUILD_VERSION ---
+    // Declares the platform (macOS / Linux) so ld does not warn.
+    WriteValue<std::uint32_t>(result, LC_BUILD_VERSION);
+    WriteValue<std::uint32_t>(result, build_version_cmd_size);
+    WriteValue<std::uint32_t>(result, 1);   // platform: PLATFORM_MACOS = 1
+    WriteValue<std::uint32_t>(result, 0x000E0000);  // minos: 14.0 encoded as 0x000E0000
+    WriteValue<std::uint32_t>(result, 0);   // sdk: 0 (no specific SDK)
+    WriteValue<std::uint32_t>(result, 0);   // ntools: 0
+    
     // --- Pad to data start ---
     while (result.size() < data_start) {
         result.push_back(0);
@@ -502,10 +514,26 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
             if (sit != sym_name_index.end()) {
                 r_symbolnum = sit->second;
             }
-            std::uint32_t r_pcrel = (rel.type == 1) ? 1u : 0u;  // type 1 = PC-relative
-            std::uint32_t r_length = 3;  // 8 bytes (2^3)
+            // Determine relocation encoding from the generic type hint.
+            //   type 1 = branch/PC-relative  →  4-byte instruction fixup
+            //   type 0 = absolute pointer     →  8-byte data fixup
+            std::uint32_t r_pcrel;
+            std::uint32_t r_length;
+            std::uint32_t r_type;
+            if (rel.type == 1) {
+                // PC-relative branch
+                r_pcrel = 1;
+                r_length = 2;  // 2^2 = 4 bytes
+                // ARM64_RELOC_BRANCH26 = 2, X86_64_RELOC_BRANCH = 2
+                r_type = 2;
+            } else {
+                // Absolute pointer
+                r_pcrel = 0;
+                r_length = 3;  // 2^3 = 8 bytes
+                // ARM64_RELOC_UNSIGNED = 0, X86_64_RELOC_UNSIGNED = 0
+                r_type = 0;
+            }
             std::uint32_t r_extern = 1;
-            std::uint32_t r_type = 0;    // GENERIC_RELOC_VANILLA
             std::uint32_t packed = (r_symbolnum & 0x00FFFFFFu)
                                  | (r_pcrel << 24)
                                  | (r_length << 25)
@@ -530,12 +558,7 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
         
         WriteValue<std::uint32_t>(result, sym_str_offsets[i]);  // n_strx
         
-        // n_type: N_EXT (1) for global, N_SECT (0x0e) for defined
-        std::uint8_t n_type = 0x0e;  // N_SECT
-        if (sym.is_global) n_type |= 0x01;  // N_EXT
-        result.push_back(n_type);
-        
-        // n_sect: 1-based section index
+        // n_sect: 1-based section index (0 = NO_SECT for undefined)
         std::uint8_t n_sect = 0;
         for (std::size_t si = 0; si < sections_.size(); ++si) {
             if (sections_[si].name == sym.section) {
@@ -543,6 +566,15 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
                 break;
             }
         }
+        // n_type: N_SECT (0x0e) for defined symbols, N_UNDF (0x00) for undefined
+        std::uint8_t n_type;
+        if (n_sect != 0) {
+            n_type = 0x0e;  // N_SECT
+        } else {
+            n_type = 0x00;  // N_UNDF
+        }
+        if (sym.is_global) n_type |= 0x01;  // N_EXT
+        result.push_back(n_type);
         result.push_back(n_sect);
         
         WriteValue<std::uint16_t>(result, 0);  // n_desc

@@ -219,6 +219,8 @@ struct LinkDecl : Statement {
     std::string source_language;
     std::string target_symbol;
     std::string source_symbol;
+    // Optional RETURNS clause: the return type of the target function
+    std::shared_ptr<TypeNode> return_type;  // nullptr if not specified
     // Optional body containing MAP_TYPE directives
     std::vector<std::shared_ptr<Statement>> body;
 };

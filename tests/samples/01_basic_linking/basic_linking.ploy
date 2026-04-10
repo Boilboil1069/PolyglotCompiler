@@ -23,19 +23,19 @@ IMPORT python::string_utils;
 // the same number of MAP_TYPE entries (one per parameter).
 
 // Link C++ add(int,int) ↔ Python concat(str,str)  — both accept 2 params
-LINK(cpp, python, math_ops::add, string_utils::concat) {
+LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {
     MAP_TYPE(cpp::int, python::str);
     MAP_TYPE(cpp::int, python::str);
 }
 
 // Link C++ multiply(double,double) ↔ Python concat(str,str)
-LINK(cpp, python, math_ops::multiply, string_utils::concat) {
+LINK(cpp, python, math_ops::multiply, string_utils::concat) RETURNS cpp::double {
     MAP_TYPE(cpp::double, python::str);
     MAP_TYPE(cpp::double, python::str);
 }
 
 // Link Python format_result(int) ↔ C++ abs_val(int) — both accept 1 param
-LINK(python, cpp, string_utils::format_result, math_ops::abs_val) {
+LINK(python, cpp, string_utils::format_result, math_ops::abs_val) RETURNS python::str {
     MAP_TYPE(python::int, cpp::int);
 }
 

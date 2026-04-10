@@ -210,6 +210,11 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
 
     ExpectSymbol(")", "expected ')' after LINK arguments");
 
+    // Optional RETURNS clause: LINK(...) RETURNS type { ... }
+    if (MatchKeyword("RETURNS")) {
+        node->return_type = ParseQualifiedOrSimpleType();
+    }
+
     // Optional: AS VAR or AS STRUCT
     if (MatchKeyword("AS")) {
         if (MatchKeyword("VAR")) {

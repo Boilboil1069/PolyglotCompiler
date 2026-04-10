@@ -940,8 +940,27 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
         arg_types.push_back(a.type);
     }
 
-    // Generate the stub name for the cross-language call
-    std::string stub_name = MangleStubName("ploy", call->language, call->function);
+    // Generate the stub name for the cross-language call.
+    // Look up the LINK entry matching the call target to use the correct
+    // language pair for name mangling: __ploy_bridge_<target_lang>_<source_lang>_<sym>.
+    std::string stub_name;
+    {
+        const LinkEntry *link_match = nullptr;
+        for (const auto &le : sema_.Links()) {
+            if (le.target_language == call->language && le.target_symbol == call->function) {
+                link_match = &le;
+                break;
+            }
+        }
+        if (link_match) {
+            stub_name = MangleStubName(link_match->target_language,
+                                       link_match->source_language,
+                                       link_match->target_symbol);
+        } else {
+            // No matching LINK entry — fall back to ploy→<language> naming.
+            stub_name = MangleStubName("ploy", call->language, call->function);
+        }
+    }
 
     // Resolve the return type from sema's known signatures.
     // In strict mode, unknown signatures are hard errors and we avoid i64

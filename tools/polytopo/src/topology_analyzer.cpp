@@ -122,10 +122,10 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         target_node.link_source_language = link->source_language;
         target_node.link_source_function = link->source_symbol;
 
-        // Try to get signature from sema
-        auto sig_it = sema_.KnownSignatures().find(target_qualified);
+        // Try to get signature from sema (registered under target_symbol)
+        auto sig_it = sema_.KnownSignatures().find(link->target_symbol);
         const ploy::FunctionSignature *sig = (sig_it != sema_.KnownSignatures().end()) ? &sig_it->second : nullptr;
-        if (sig && sig->param_count_known) {
+        if (sig && !sig->param_types.empty()) {
             for (size_t i = 0; i < sig->param_types.size(); ++i) {
                 Port port;
                 port.name = i < sig->param_names.size() ? sig->param_names[i]
@@ -174,9 +174,9 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         source_node.kind = TopologyNode::Kind::kExternalCall;
         source_node.loc = link->loc;
 
-        auto src_sig_it = sema_.KnownSignatures().find(source_qualified);
+        auto src_sig_it = sema_.KnownSignatures().find(link->source_symbol);
         const ploy::FunctionSignature *sig = (src_sig_it != sema_.KnownSignatures().end()) ? &src_sig_it->second : nullptr;
-        if (sig && sig->param_count_known) {
+        if (sig && !sig->param_types.empty()) {
             for (size_t i = 0; i < sig->param_types.size(); ++i) {
                 Port port;
                 port.name = i < sig->param_names.size() ? sig->param_names[i]
@@ -225,7 +225,16 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
         edge.target_node_id = tgt_node->id;
         edge.target_port_id = tgt_node->inputs[0].id;
         edge.loc = link->loc;
-        edge.status = TopologyEdge::Status::kUnknown;
+        // Determine edge status based on available type information
+        bool has_map_type = !link->body.empty();
+        if (has_map_type) {
+            edge.status = TopologyEdge::Status::kExplicitConvert;
+            edge.conversion_note = "MAP_TYPE";
+        } else if (link->target_language == link->source_language) {
+            edge.status = TopologyEdge::Status::kValid;
+        } else {
+            edge.status = TopologyEdge::Status::kUnknown;
+        }
         graph_.AddEdge(std::move(edge));
     }
 }

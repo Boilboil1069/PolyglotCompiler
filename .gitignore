@@ -27,3 +27,14 @@ tests/samples/env/
 
 *.obj
 *.exe
+*.dll
+*.pdb
+*.ilk
+*.meta
+*.idb
+*.txt
+tests/samples/*/*.png
+tests/samples/*/*.dot
+tests/samples/*/*.json
+
+*.o
