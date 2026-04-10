@@ -33,6 +33,7 @@ tests/samples/env/
 *.meta
 *.idb
 *.txt
+!VERSION.txt
 tests/samples/*/*.png
 tests/samples/*/*.dot
 tests/samples/*/*.json
