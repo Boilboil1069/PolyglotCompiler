@@ -129,7 +129,9 @@ void MainWindow::SetupCentralWidget() {
 
     // Set initial sizes — will be adjusted in SetupDockWidgets
     main_splitter_->addWidget(vertical_splitter_);
-    main_splitter_->setSizes({250, 1150});
+
+    // NOTE: initial sizes are set in SetupDockWidgets() after file_browser_
+    // is inserted, so that both children exist when setSizes() is called.
 
     setCentralWidget(main_splitter_);
 }
@@ -142,6 +144,11 @@ void MainWindow::SetupDockWidgets() {
     // File browser on the left
     file_browser_ = new FileBrowser();
     main_splitter_->insertWidget(0, file_browser_);
+
+    // Now that both children exist (file_browser_ at 0, vertical_splitter_ at 1),
+    // set the initial sizes so the explorer panel is always visible on first launch.
+    main_splitter_->setSizes({250, 1150});
+    file_browser_->setMinimumWidth(160);
 
     // Output panel as a tab in the bottom panel
     output_panel_ = new OutputPanel();
@@ -2476,15 +2483,31 @@ void MainWindow::RestoreState() {
             settings.value("layout/vertical_splitter").toByteArray());
     }
 
+    // Safeguard: if restored splitter state collapsed the file browser to zero
+    // width, reset to a sensible default so the explorer is always visible.
+    {
+        QList<int> sizes = main_splitter_->sizes();
+        if (sizes.size() >= 2 && sizes[0] < 80) {
+            main_splitter_->setSizes({250, qMax(sizes[1], 800)});
+        }
+    }
+
     const QString root_path = settings.value("workspace/root_path").toString();
     if (!root_path.isEmpty() && QDir(root_path).exists()) {
         file_browser_->SetRootPath(root_path);
     }
 
+    // Restore visibility flags for all major UI panels.
+    // QMainWindow::restoreState() may override toolbar visibility, so we
+    // must re-apply the persisted flags explicitly *after* restoreState().
     const bool show_browser = settings.value("view/show_file_browser", true).toBool();
     const bool show_bottom = settings.value("view/show_bottom_panel", true).toBool();
+    const bool show_toolbar = settings.value("appearance/show_toolbar", true).toBool();
+    const bool show_statusbar = settings.value("appearance/show_statusbar", true).toBool();
     file_browser_->setVisible(show_browser);
     bottom_tabs_->setVisible(show_bottom);
+    if (main_toolbar_)  main_toolbar_->setVisible(show_toolbar);
+    if (statusBar())    statusBar()->setVisible(show_statusbar);
 
     const int bottom_index = settings.value("view/bottom_panel_index", 0).toInt();
     if (bottom_index >= 0 && bottom_index < bottom_tabs_->count()) {

@@ -80,6 +80,7 @@ struct TopologyNode {
         kLink,              // Created from a LINK declaration
         kCall,              // Created from a FUNC/PIPELINE body CALL
         kDecl,              // Created from a top-level declaration (FUNC, PIPELINE, etc.)
+        kPipelineStage,     // Created as a stage inside a PIPELINE body
     };
     Origin origin{Origin::kDecl};
 };
@@ -114,6 +115,7 @@ struct TopologyEdge {
     enum class Origin {
         kLink,              // Created from a LINK declaration (binding-level)
         kCall,              // Created from a FUNC/PIPELINE CALL (data-flow-level)
+        kPipelineStage,     // Created from sequential stage ordering in a PIPELINE
     };
     Origin origin{Origin::kCall};
 

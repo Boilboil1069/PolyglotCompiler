@@ -65,6 +65,26 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
                 AnalyzeBody(pipeline->body, node->id);
                 var_bindings_ = std::move(saved_bindings);
             }
+
+            // Analyze each FUNC stage inside the pipeline body
+            for (const auto &body_stmt : pipeline->body) {
+                auto sub_func = std::dynamic_pointer_cast<ploy::FuncDecl>(body_stmt);
+                if (!sub_func) continue;
+                auto *stage_node = graph_.FindNodeByName(
+                    "pipeline:" + pipeline->name + "::" + sub_func->name);
+                if (!stage_node) continue;
+
+                auto saved_bindings2 = std::move(var_bindings_);
+                var_bindings_.clear();
+                for (size_t i = 0; i < sub_func->params.size()
+                                   && i < stage_node->inputs.size(); ++i) {
+                    var_bindings_[sub_func->params[i].name] = {
+                        stage_node->id, stage_node->inputs[i].id,
+                        stage_node->inputs[i].type};
+                }
+                AnalyzeBody(sub_func->body, stage_node->id);
+                var_bindings_ = std::move(saved_bindings2);
+            }
         } else if (auto map_func = std::dynamic_pointer_cast<ploy::MapFuncDecl>(stmt)) {
             auto *node = graph_.FindNodeByName("map:" + map_func->name);
             if (node) {
@@ -271,6 +291,7 @@ void TopologyAnalyzer::AnalyzeLinkDecl(const std::shared_ptr<ploy::LinkDecl> &li
 }
 
 void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineDecl> &pipeline) {
+    // Create the pipeline container node (declaration-level, origin=kDecl)
     TopologyNode node;
     node.name = "pipeline:" + pipeline->name;
     node.language = "ploy";
@@ -287,6 +308,72 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
     node.outputs.push_back(std::move(out));
 
     graph_.AddNode(std::move(node));
+
+    // --- Stage sub-nodes ---------------------------------------------------
+    // Collect FUNC declarations from the PIPELINE body.  Each FUNC becomes a
+    // stage node (origin=kPipelineStage) so that the PIPELINE view displays
+    // the internal execution order and data-flow direction.
+
+    struct StageInfo {
+        uint64_t node_id{0};
+    };
+    std::vector<StageInfo> stages;
+
+    for (const auto &stmt : pipeline->body) {
+        auto func = std::dynamic_pointer_cast<ploy::FuncDecl>(stmt);
+        if (!func) continue;
+
+        TopologyNode stage;
+        stage.name = "pipeline:" + pipeline->name + "::" + func->name;
+        stage.language = "ploy";
+        stage.kind = TopologyNode::Kind::kFunction;
+        stage.loc = func->loc;
+        stage.origin = TopologyNode::Origin::kPipelineStage;  // visible in PIPELINE view
+
+        // Input ports from parameters
+        for (size_t i = 0; i < func->params.size(); ++i) {
+            Port port;
+            port.name = func->params[i].name;
+            port.direction = Port::Direction::kInput;
+            port.type = ResolveType(func->params[i].type);
+            port.language = "ploy";
+            port.index = static_cast<int>(i);
+            stage.inputs.push_back(std::move(port));
+        }
+
+        // Output port from return type
+        Port ret_port;
+        ret_port.name = "return";
+        ret_port.direction = Port::Direction::kOutput;
+        ret_port.type = func->return_type ? ResolveType(func->return_type)
+                                          : core::Type::Void();
+        ret_port.language = "ploy";
+        ret_port.index = 0;
+        stage.outputs.push_back(std::move(ret_port));
+
+        uint64_t stage_id = graph_.AddNode(std::move(stage));
+        stages.push_back({stage_id});
+    }
+
+    // Create sequential edges between consecutive stages to represent the
+    // pipeline execution order and data-flow direction.
+    // Edge: stage[i].output[0] → stage[i+1].input[0]
+    for (size_t i = 0; i + 1 < stages.size(); ++i) {
+        const auto *src = graph_.GetNode(stages[i].node_id);
+        const auto *tgt = graph_.GetNode(stages[i + 1].node_id);
+        if (!src || !tgt || src->outputs.empty() || tgt->inputs.empty()) continue;
+
+        TopologyEdge edge;
+        edge.source_node_id = src->id;
+        edge.source_port_id = src->outputs[0].id;
+        edge.target_node_id = tgt->id;
+        edge.target_port_id = tgt->inputs[0].id;
+        edge.origin = TopologyEdge::Origin::kPipelineStage;
+        edge.status = TopologyEdge::Status::kValid;
+        edge.loc = tgt->loc;
+        edge.conversion_note = "pipeline_stage_order";
+        graph_.AddEdge(std::move(edge));
+    }
 }
 
 void TopologyAnalyzer::AnalyzeMapFuncDecl(const std::shared_ptr<ploy::MapFuncDecl> &map_func) {

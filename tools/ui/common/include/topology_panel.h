@@ -335,6 +335,7 @@ class TopologyPanel : public QWidget {
     enum class ViewMode {
         kLink,      // Show only LINK declaration-level bindings
         kCall,      // Show only FUNC/PIPELINE call-level data flow
+        kPipeline,  // Show PIPELINE internal stages and their data flow
     };
     ViewMode view_mode_{ViewMode::kLink};
     QComboBox *view_mode_combo_{nullptr};

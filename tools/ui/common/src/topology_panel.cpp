@@ -855,8 +855,9 @@ void TopologyPanel::SetupToolbar() {
 
     // View mode selector: choose which topology layer to display
     view_mode_combo_ = new QComboBox(toolbar_);
-    view_mode_combo_->addItem("LINK Bindings");  // index 0 = kLink
-    view_mode_combo_->addItem("CALL Data Flow"); // index 1 = kCall
+    view_mode_combo_->addItem("LINK Bindings");    // index 0 = kLink
+    view_mode_combo_->addItem("CALL Data Flow");   // index 1 = kCall
+    view_mode_combo_->addItem("PIPELINE Stages");  // index 2 = kPipeline
     connect(view_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TopologyPanel::OnViewModeChanged);
     toolbar_->addWidget(view_mode_combo_);
@@ -1888,9 +1889,10 @@ void TopologyPanel::OnLayoutChanged(int index) {
 
 void TopologyPanel::OnViewModeChanged(int index) {
     switch (index) {
-    case 0:  view_mode_ = ViewMode::kLink; break;
-    case 1:  view_mode_ = ViewMode::kCall; break;
-    default: view_mode_ = ViewMode::kLink; break;
+    case 0:  view_mode_ = ViewMode::kLink;     break;
+    case 1:  view_mode_ = ViewMode::kCall;     break;
+    case 2:  view_mode_ = ViewMode::kPipeline; break;
+    default: view_mode_ = ViewMode::kLink;     break;
     }
     ApplyViewModeFilter();
 }
@@ -1910,6 +1912,16 @@ void TopologyPanel::ApplyViewModeFilter() {
     //           visible edges:  edges from CALL data-flow (origin=kCall)
     //           hidden:         FUNC / PIPELINE declaration nodes (they are just
     //                           containers), LINK edges, LINK-only external nodes
+    //
+    //   kPipeline — show PIPELINE internal stage order and data flow:
+    //           visible nodes:  pipeline stage sub-nodes (origin=kPipelineStage),
+    //                           the pipeline container (kind=kPipeline, origin=kDecl),
+    //                           plus external nodes called from pipeline stages
+    //           visible edges:  stage-order edges (origin=kPipelineStage),
+    //                           plus CALL data-flow edges whose endpoint is a
+    //                           pipeline stage node
+    //           hidden:         top-level FUNC decl nodes, LINK nodes/edges,
+    //                           CALL edges unrelated to pipeline stages
 
     using NodeOrigin = topo::TopologyNode::Origin;
     using NodeKind   = topo::TopologyNode::Kind;
@@ -1918,15 +1930,40 @@ void TopologyPanel::ApplyViewModeFilter() {
     // Step 1: determine edge visibility, collect endpoint node ids of visible edges
     std::unordered_set<uint64_t> visible_edge_nodes;
 
+    // For kPipeline mode, first identify pipeline-stage node ids
+    std::unordered_set<uint64_t> pipeline_stage_ids;
+    if (view_mode_ == ViewMode::kPipeline) {
+        for (auto &[id, item] : node_items_) {
+            auto nit = node_origin_.find(id);
+            if (nit != node_origin_.end() &&
+                static_cast<NodeOrigin>(nit->second) == NodeOrigin::kPipelineStage) {
+                pipeline_stage_ids.insert(id);
+            }
+        }
+    }
+
     for (auto *edge_item : edge_items_) {
         bool visible = true;
         auto eit = edge_origin_.find(edge_item->EdgeId());
         if (eit != edge_origin_.end()) {
             auto origin = static_cast<EdgeOrigin>(eit->second);
-            if (view_mode_ == ViewMode::kLink && origin != EdgeOrigin::kLink) {
-                visible = false;
-            } else if (view_mode_ == ViewMode::kCall && origin != EdgeOrigin::kCall) {
-                visible = false;
+            if (view_mode_ == ViewMode::kLink) {
+                if (origin != EdgeOrigin::kLink) visible = false;
+            } else if (view_mode_ == ViewMode::kCall) {
+                if (origin != EdgeOrigin::kCall) visible = false;
+            } else if (view_mode_ == ViewMode::kPipeline) {
+                // Show pipeline-stage order edges unconditionally.
+                // Show CALL data-flow edges only if at least one endpoint
+                // is a pipeline stage node.
+                if (origin == EdgeOrigin::kPipelineStage) {
+                    visible = true;
+                } else if (origin == EdgeOrigin::kCall) {
+                    bool src_is_stage = pipeline_stage_ids.count(edge_item->SourceNodeId());
+                    bool tgt_is_stage = pipeline_stage_ids.count(edge_item->TargetNodeId());
+                    visible = src_is_stage || tgt_is_stage;
+                } else {
+                    visible = false;
+                }
             }
         }
         edge_item->setVisible(visible);
@@ -1968,6 +2005,18 @@ void TopologyPanel::ApplyViewModeFilter() {
             } else if (origin == NodeOrigin::kCall) {
                 visible = true;
             } else if (visible_edge_nodes.count(id)) {
+                visible = true;
+            }
+        } else if (view_mode_ == ViewMode::kPipeline) {
+            // PIPELINE view: show pipeline stage nodes, the pipeline
+            // container node, and external nodes called from stages.
+            if (origin == NodeOrigin::kPipelineStage) {
+                visible = true;
+            } else if (origin == NodeOrigin::kDecl && kind == NodeKind::kPipeline) {
+                // Show the pipeline container node itself
+                visible = true;
+            } else if (visible_edge_nodes.count(id)) {
+                // Show external nodes that participate in pipeline data-flow
                 visible = true;
             }
         }
