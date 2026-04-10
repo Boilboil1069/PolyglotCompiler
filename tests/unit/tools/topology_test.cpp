@@ -7,13 +7,19 @@
 //   4. TopologyPrinter — text / DOT / JSON / summary output formats.
 
 #include <catch2/catch_test_macros.hpp>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/frontend_registry.h"
+#include "frontends/cpp/include/cpp_frontend.h"
+#include "frontends/python/include/python_frontend.h"
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
+#include "tools/polyc/src/foreign_signature_extractor.h"
 #include "tools/polytopo/include/topology_analyzer.h"
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
@@ -523,4 +529,103 @@ FUNC process() -> Int {
         }
     }
     REQUIRE(found_ext);
+}
+
+TEST_CASE("TopologyAnalyzer: LINK source node return type after foreign injection",
+          "[topology][analyzer][foreign]") {
+    // Ensure frontends are registered
+    auto &reg = polyglot::frontends::FrontendRegistry::Instance();
+    reg.Register(std::make_shared<polyglot::cpp::CppLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::python::PythonLanguageFrontend>());
+
+    // Find the sample file relative to the workspace root
+    // The test binary runs from the build dir; samples are at:
+    //   <workspace>/tests/samples/01_basic_linking/basic_linking.ploy
+    std::string sample_dir;
+    for (auto candidate : {
+        "tests/samples/01_basic_linking",
+        "../tests/samples/01_basic_linking",
+        "../../tests/samples/01_basic_linking",
+    }) {
+        if (std::filesystem::exists(std::string(candidate) + "/basic_linking.ploy")) {
+            sample_dir = candidate;
+            break;
+        }
+    }
+    REQUIRE_FALSE(sample_dir.empty());
+
+    std::string filename = sample_dir + "/basic_linking.ploy";
+    std::ifstream ifs(filename);
+    REQUIRE(ifs.is_open());
+    std::string source((std::istreambuf_iterator<char>(ifs)),
+                        std::istreambuf_iterator<char>());
+    ifs.close();
+
+    // Parse
+    Diagnostics diags;
+    PloyLexer lexer(source, filename);
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module != nullptr);
+
+    // Sema
+    PloySemaOptions sema_opts;
+    sema_opts.enable_package_discovery = false;
+    sema_opts.strict_mode = false;
+    PloySema sema(diags, sema_opts);
+    sema.Analyze(module);
+
+    // Before injection: source-side sig should have Unknown return type
+    {
+        auto it = sema.KnownSignatures().find("math_ops::abs_val");
+        REQUIRE(it != sema.KnownSignatures().end());
+        INFO("Before injection return_type.name = '" << it->second.return_type.name << "'");
+        CHECK(it->second.return_type.kind == polyglot::core::TypeKind::kUnknown);
+        CHECK_FALSE(it->second.param_count_known);
+    }
+
+    // Foreign signature extraction
+    polyglot::tools::ForeignExtractionOptions feopts;
+    feopts.base_directory = std::filesystem::path(filename).parent_path().string();
+    polyglot::tools::ForeignSignatureExtractor extractor(feopts);
+    auto foreign_sigs = extractor.ExtractAll(*module);
+
+    INFO("Foreign sigs extracted: " << foreign_sigs.size());
+    REQUIRE_FALSE(foreign_sigs.empty());
+
+    // Check foreign sig for abs_val exists
+    {
+        auto it = foreign_sigs.find("math_ops::abs_val");
+        REQUIRE(it != foreign_sigs.end());
+        INFO("Foreign abs_val return_type.name = '" << it->second.return_type.name << "'");
+        CHECK(it->second.return_type.name == "i32");
+        CHECK(it->second.param_count_known == true);
+    }
+
+    // Inject
+    sema.InjectForeignSignatures(foreign_sigs);
+
+    // After injection: should have upgraded return type
+    {
+        auto it = sema.KnownSignatures().find("math_ops::abs_val");
+        REQUIRE(it != sema.KnownSignatures().end());
+        INFO("After injection return_type.name = '" << it->second.return_type.name << "'");
+        INFO("After injection return_type.kind = " << static_cast<int>(it->second.return_type.kind));
+        INFO("After injection param_count_known = " << it->second.param_count_known);
+        CHECK(it->second.return_type.name == "i32");
+        CHECK(it->second.param_count_known == true);
+    }
+
+    // Build topology
+    TopologyAnalyzer analyzer(sema);
+    REQUIRE(analyzer.Build(module));
+
+    // Find the source node for abs_val
+    const auto *abs_val_node = analyzer.Graph().FindNodeByName("cpp::math_ops::abs_val");
+    REQUIRE(abs_val_node != nullptr);
+    REQUIRE_FALSE(abs_val_node->outputs.empty());
+
+    INFO("abs_val output port type.name = '" << abs_val_node->outputs[0].type.name << "'");
+    CHECK(abs_val_node->outputs[0].type.name == "i32");
 }

@@ -36,6 +36,7 @@ class CppParser : public frontends::ParserBase {
     void ParseTopLevel();
     std::shared_ptr<Statement> ParseStatement();
     std::shared_ptr<Statement> ParseBlock();
+    std::shared_ptr<Statement> ParseBlockOrStatement();
     std::shared_ptr<Statement> ParseIf();
     std::shared_ptr<Statement> ParseWhile();
     std::shared_ptr<Statement> ParseFor();

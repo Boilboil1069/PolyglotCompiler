@@ -333,11 +333,10 @@ class TopologyPanel : public QWidget {
     // View mode: which layer of the topology to display
     /** @brief ViewMode enumeration. */
     enum class ViewMode {
-        kAll,       // Show all nodes and edges
         kLink,      // Show only LINK declaration-level bindings
         kCall,      // Show only FUNC/PIPELINE call-level data flow
     };
-    ViewMode view_mode_{ViewMode::kAll};
+    ViewMode view_mode_{ViewMode::kLink};
     QComboBox *view_mode_combo_{nullptr};
 
     // Force-directed layout engine

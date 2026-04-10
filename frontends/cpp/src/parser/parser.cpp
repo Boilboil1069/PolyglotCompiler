@@ -489,21 +489,56 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
     while (true) {
         if (auto ident = std::dynamic_pointer_cast<Identifier>(expr)) {
             if (IsSymbol("<")) {
-                // Heuristic: treat '<' as template args only when the next
-                // token is a type keyword, identifier, or '>' (empty args).
-                // Otherwise it is a relational operator handled later.
+                // Heuristic: treat '<' as template args only when the token
+                // sequence after '<' looks like a template argument list rather
+                // than a relational comparison.
+                //
+                //   Template-like:   ident< TYPE >     ident< TYPE, ... >
+                //                    ident< >          (empty template args)
+                //   Comparison-like: ident < var )     ident < var ;
+                //                    ident < expr +    ...
+                //
+                // Strategy:
+                //   1. If the next token is '>' (empty args) → template.
+                //   2. If the next token is a type keyword → template.
+                //   3. If the next token is an identifier, peek one more:
+                //      - If the second token is '>' or ',' → template.
+                //      - Otherwise → comparison (relational operator).
                 auto la = lexer_.NextToken();
                 pushback_.push_back(la);
-                bool looks_template =
-                    la.kind == frontends::TokenKind::kIdentifier ||
-                    (la.kind == frontends::TokenKind::kKeyword &&
-                     (la.lexeme == "int" || la.lexeme == "void" || la.lexeme == "float" ||
-                      la.lexeme == "double" || la.lexeme == "char" || la.lexeme == "bool" ||
-                      la.lexeme == "auto" || la.lexeme == "long" || la.lexeme == "short" ||
-                      la.lexeme == "unsigned" || la.lexeme == "signed" ||
-                      la.lexeme == "typename" || la.lexeme == "class" ||
-                      la.lexeme == "const" || la.lexeme == "volatile")) ||
-                    (la.kind == frontends::TokenKind::kSymbol && la.lexeme == ">");
+                bool looks_template = false;
+                if (la.kind == frontends::TokenKind::kSymbol && la.lexeme == ">") {
+                    // Empty template args: ident<>
+                    looks_template = true;
+                } else if (la.kind == frontends::TokenKind::kKeyword &&
+                           (la.lexeme == "int" || la.lexeme == "void" ||
+                            la.lexeme == "float" || la.lexeme == "double" ||
+                            la.lexeme == "char" || la.lexeme == "bool" ||
+                            la.lexeme == "auto" || la.lexeme == "long" ||
+                            la.lexeme == "short" || la.lexeme == "unsigned" ||
+                            la.lexeme == "signed" || la.lexeme == "typename" ||
+                            la.lexeme == "class" || la.lexeme == "const" ||
+                            la.lexeme == "volatile")) {
+                    // Type keyword after '<' → definitely template args.
+                    looks_template = true;
+                } else if (la.kind == frontends::TokenKind::kIdentifier) {
+                    // Identifier after '<' — ambiguous.  Look at the token
+                    // AFTER the identifier to disambiguate.
+                    auto la2 = lexer_.NextToken();
+                    // Push in reverse order: la2 first, then la, so that
+                    // the LIFO pushback stack yields la before la2.
+                    pushback_.pop_back();  // remove la temporarily
+                    pushback_.push_back(la2);
+                    pushback_.push_back(la);
+                    if (la2.kind == frontends::TokenKind::kSymbol &&
+                        (la2.lexeme == ">" || la2.lexeme == "," ||
+                         la2.lexeme == "::" || la2.lexeme == "<" ||
+                         la2.lexeme == "*" || la2.lexeme == "&")) {
+                        looks_template = true;
+                    }
+                    // Otherwise: 'ident < ident )', 'ident < ident ;', etc.
+                    // → treat as relational comparison.
+                }
                 if (looks_template) {
                     auto args = ParseTemplateArgs();
                     auto tid = std::make_shared<TemplateIdExpression>();
@@ -1681,6 +1716,14 @@ std::shared_ptr<Statement> CppParser::ParseBlock() {
     return block;
 }
 
+std::shared_ptr<Statement> CppParser::ParseBlockOrStatement() {
+    if (IsSymbol("{")) {
+        return ParseBlock();
+    }
+    // Single-statement body (e.g.  `if (x) return y;`)
+    return ParseStatement();
+}
+
 std::shared_ptr<Statement> CppParser::ParseIf() {
     auto stmt = std::make_shared<IfStatement>();
     stmt->loc = current_.loc;
@@ -1692,10 +1735,10 @@ std::shared_ptr<Statement> CppParser::ParseIf() {
     ExpectSymbol("(", "Expected '(' after if");
     stmt->condition = ParseExpression();
     ExpectSymbol(")", "Expected ')' after condition");
-    stmt->then_body.push_back(ParseBlock());
+    stmt->then_body.push_back(ParseBlockOrStatement());
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
         Consume();
-        stmt->else_body.push_back(ParseBlock());
+        stmt->else_body.push_back(ParseBlockOrStatement());
     }
     return stmt;
 }
@@ -1707,7 +1750,7 @@ std::shared_ptr<Statement> CppParser::ParseWhile() {
     ExpectSymbol("(", "Expected '(' after while");
     stmt->condition = ParseExpression();
     ExpectSymbol(")", "Expected ')' after condition");
-    stmt->body.push_back(ParseBlock());
+    stmt->body.push_back(ParseBlockOrStatement());
     return stmt;
 }
 
@@ -1747,7 +1790,7 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
                 rng->loop_var = loop;
                 rng->range = ParseExpression();
                 ExpectSymbol(")", "Expected ')' after range-for");
-                auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlock());
+                auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlockOrStatement());
                 if (body)
                     rng->body = body->statements;
                 return rng;
@@ -1777,7 +1820,7 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
                 stmt->increment = ParseExpression();
             }
             ExpectSymbol(")", "Expected ')' after for clauses");
-            stmt->body.push_back(ParseBlock());
+            stmt->body.push_back(ParseBlockOrStatement());
             return stmt;
         }
     }
@@ -1799,11 +1842,29 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
         stmt->increment = ParseExpression();
     }
     ExpectSymbol(")", "Expected ')' after for clauses");
-    stmt->body.push_back(ParseBlock());
+    stmt->body.push_back(ParseBlockOrStatement());
     return stmt;
 }
 
 std::shared_ptr<Statement> CppParser::ParseStatement() {
+    // Skip preprocessor directives (#include, #define, #pragma, etc.).
+    // The lexer emits kPreprocessor tokens for '#' and the directive word
+    // (e.g. "include"), but the rest of the directive line (e.g. <cmath>)
+    // can be lexed as normal kSymbol / kIdentifier / kString tokens.
+    // We therefore skip the kPreprocessor tokens *and* any remaining tokens
+    // on the same source line, so the parser never sees partial directives.
+    while (current_.kind == frontends::TokenKind::kPreprocessor) {
+        auto directive_line = current_.loc.line;
+        // Consume all tokens that belong to this preprocessor directive line.
+        while (current_.kind != frontends::TokenKind::kEndOfFile &&
+               current_.loc.line == directive_line) {
+            Consume();
+        }
+    }
+    if (current_.kind == frontends::TokenKind::kEndOfFile) {
+        return nullptr;
+    }
+
     auto leading_attrs = ParseAttributes();
     bool is_export = false;
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "export") {
@@ -1882,7 +1943,7 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
             auto dw = std::make_shared<DoWhileStatement>();
             dw->loc = current_.loc;
             Consume();
-            auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlock());
+            auto body = std::dynamic_pointer_cast<CompoundStatement>(ParseBlockOrStatement());
             if (body) dw->body = body->statements;
             if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "while") {
                 Consume();

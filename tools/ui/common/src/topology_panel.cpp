@@ -855,9 +855,8 @@ void TopologyPanel::SetupToolbar() {
 
     // View mode selector: choose which topology layer to display
     view_mode_combo_ = new QComboBox(toolbar_);
-    view_mode_combo_->addItem("All");          // index 0 = kAll
-    view_mode_combo_->addItem("LINK Bindings");  // index 1 = kLink
-    view_mode_combo_->addItem("CALL Data Flow"); // index 2 = kCall
+    view_mode_combo_->addItem("LINK Bindings");  // index 0 = kLink
+    view_mode_combo_->addItem("CALL Data Flow"); // index 1 = kCall
     connect(view_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TopologyPanel::OnViewModeChanged);
     toolbar_->addWidget(view_mode_combo_);
@@ -1889,18 +1888,15 @@ void TopologyPanel::OnLayoutChanged(int index) {
 
 void TopologyPanel::OnViewModeChanged(int index) {
     switch (index) {
-    case 0:  view_mode_ = ViewMode::kAll;  break;
-    case 1:  view_mode_ = ViewMode::kLink; break;
-    case 2:  view_mode_ = ViewMode::kCall; break;
-    default: view_mode_ = ViewMode::kAll;  break;
+    case 0:  view_mode_ = ViewMode::kLink; break;
+    case 1:  view_mode_ = ViewMode::kCall; break;
+    default: view_mode_ = ViewMode::kLink; break;
     }
     ApplyViewModeFilter();
 }
 
 void TopologyPanel::ApplyViewModeFilter() {
     // View mode semantics:
-    //
-    //   kAll  — show everything (LINK bindings + FUNC declarations + CALL edges)
     //
     //   kLink — show only LINK declaration-level bindings:
     //           visible nodes:  external nodes created by LINK (origin=kLink)
@@ -1942,11 +1938,6 @@ void TopologyPanel::ApplyViewModeFilter() {
 
     // Step 2: determine node visibility
     for (auto &[id, item] : node_items_) {
-        if (view_mode_ == ViewMode::kAll) {
-            item->setVisible(true);
-            continue;
-        }
-
         auto nit = node_origin_.find(id);
         auto kit = node_kind_.find(id);
         auto origin = (nit != node_origin_.end()) ? static_cast<NodeOrigin>(nit->second)
@@ -1958,8 +1949,6 @@ void TopologyPanel::ApplyViewModeFilter() {
 
         if (view_mode_ == ViewMode::kLink) {
             // LINK view: show only LINK-origin external nodes
-            // Hide FUNC, PIPELINE, MAP_FUNC declarations — they are not part of
-            // the binding relationship
             if (origin == NodeOrigin::kLink) {
                 visible = true;
             }
@@ -1975,12 +1964,10 @@ void TopologyPanel::ApplyViewModeFilter() {
                 (kind == NodeKind::kFunction || kind == NodeKind::kPipeline);
 
             if (is_decl_container) {
-                // FUNC and PIPELINE declarations are hidden in CALL view
                 visible = false;
             } else if (origin == NodeOrigin::kCall) {
                 visible = true;
             } else if (visible_edge_nodes.count(id)) {
-                // A node that is an endpoint of a visible CALL edge
                 visible = true;
             }
         }
@@ -1989,18 +1976,14 @@ void TopologyPanel::ApplyViewModeFilter() {
     }
 
     // Step 3: hide edges whose source or target node is hidden.
-    // This handles CALL edges that connect to/from FUNC declaration nodes
-    // which are hidden in CALL view.
-    if (view_mode_ != ViewMode::kAll) {
-        for (auto *edge_item : edge_items_) {
-            if (!edge_item->isVisible()) continue;
-            auto src_it = node_items_.find(edge_item->SourceNodeId());
-            auto tgt_it = node_items_.find(edge_item->TargetNodeId());
-            bool src_visible = (src_it != node_items_.end()) && src_it->second->isVisible();
-            bool tgt_visible = (tgt_it != node_items_.end()) && tgt_it->second->isVisible();
-            if (!src_visible || !tgt_visible) {
-                edge_item->setVisible(false);
-            }
+    for (auto *edge_item : edge_items_) {
+        if (!edge_item->isVisible()) continue;
+        auto src_it = node_items_.find(edge_item->SourceNodeId());
+        auto tgt_it = node_items_.find(edge_item->TargetNodeId());
+        bool src_visible = (src_it != node_items_.end()) && src_it->second->isVisible();
+        bool tgt_visible = (tgt_it != node_items_.end()) && tgt_it->second->isVisible();
+        if (!src_visible || !tgt_visible) {
+            edge_item->setVisible(false);
         }
     }
 }

@@ -951,3 +951,10 @@ int abs_val(int x) {
 所以是不是应该出现一个选项是产生link的逻辑还是func之间的逻辑？
 
 --end -done
+
+2026-04-10-08
+
+1.PIPLINE的拓扑图逻辑也要按照前述的逻辑进行修改，PIPLINE中要显示FUNC顺序逻辑与数据流向。
+2.gui的初始视图进去只有编辑器，其他的部分Explorer，toolbar等元素都没有，这个bug请修改。
+
+--end

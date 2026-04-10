@@ -117,7 +117,7 @@ Write-Host "[OK] windeployqt: $WinDeployQt"
 # Ensure MSVC build environment is available (cl.exe, nmake, link, etc.).
 # If not already in a Developer Command Prompt we load vcvarsall.bat.
 if (-not (Get-Command "cl" -ErrorAction SilentlyContinue)) {
-    Write-Host "[..] MSVC environment not detected — searching for vcvarsall.bat ..."
+    Write-Host "[..] MSVC environment not detected - searching for vcvarsall.bat ..."
     $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $VsWhere)) {
         $VsWhere = "${env:ProgramFiles}\Microsoft Visual Studio\Installer\vswhere.exe"

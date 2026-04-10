@@ -212,7 +212,7 @@ target_link_libraries(test_linker PRIVATE
 # -- Topology ----------------------------------------------------------------
 add_executable(test_topology ${UNIT_TEST_TOPOLOGY})
 target_link_libraries(test_topology PRIVATE
-    topo_lib frontend_ploy ${CATCH2_LIBS})
+    topo_lib polyc_lib frontend_ploy frontend_cpp frontend_python ${CATCH2_LIBS})
 
 # -- E2E ---------------------------------------------------------------------
 add_executable(test_e2e ${UNIT_TEST_E2E})
