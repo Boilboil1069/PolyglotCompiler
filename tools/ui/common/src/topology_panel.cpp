@@ -916,6 +916,7 @@ void TopologyPanel::Clear() {
     node_items_.clear();
     edge_items_.clear();
     node_origin_.clear();
+    node_kind_.clear();
     edge_origin_.clear();
     details_tree_->clear();
     diagnostics_output_->clear();
@@ -1341,6 +1342,7 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
         scene_->addItem(item);
         node_items_[node.id] = item;
         node_origin_[node.id] = static_cast<int>(node.origin);
+        node_kind_[node.id] = static_cast<int>(node.kind);
     }
 
     // Initial layout (grid as starting positions, then force if selected)
@@ -1896,16 +1898,29 @@ void TopologyPanel::OnViewModeChanged(int index) {
 }
 
 void TopologyPanel::ApplyViewModeFilter() {
-    // Collect which node ids are "active" under the current view mode.
-    // LINK-only nodes/edges should be hidden in kCall mode, and vice versa.
-    // Declarations (FUNC, PIPELINE, MAP_FUNC, etc.) are always visible.
+    // View mode semantics:
+    //
+    //   kAll  — show everything (LINK bindings + FUNC declarations + CALL edges)
+    //
+    //   kLink — show only LINK declaration-level bindings:
+    //           visible nodes:  external nodes created by LINK (origin=kLink)
+    //           visible edges:  edges from LINK declarations (origin=kLink)
+    //           hidden:         FUNC / PIPELINE declaration nodes, CALL edges,
+    //                           CALL-created external nodes
+    //
+    //   kCall — show only FUNC/PIPELINE internal CALL data-flow:
+    //           visible nodes:  external nodes created by CALL (origin=kCall),
+    //                           plus any node that is an endpoint of a CALL edge
+    //           visible edges:  edges from CALL data-flow (origin=kCall)
+    //           hidden:         FUNC / PIPELINE declaration nodes (they are just
+    //                           containers), LINK edges, LINK-only external nodes
 
     using NodeOrigin = topo::TopologyNode::Origin;
+    using NodeKind   = topo::TopologyNode::Kind;
     using EdgeOrigin = topo::TopologyEdge::Origin;
 
-    // First: determine edge visibility and collect which nodes are endpoints
-    // of at least one visible edge.
-    std::unordered_set<uint64_t> edge_referenced_nodes;
+    // Step 1: determine edge visibility, collect endpoint node ids of visible edges
+    std::unordered_set<uint64_t> visible_edge_nodes;
 
     for (auto *edge_item : edge_items_) {
         bool visible = true;
@@ -1920,33 +1935,73 @@ void TopologyPanel::ApplyViewModeFilter() {
         }
         edge_item->setVisible(visible);
         if (visible) {
-            edge_referenced_nodes.insert(edge_item->SourceNodeId());
-            edge_referenced_nodes.insert(edge_item->TargetNodeId());
+            visible_edge_nodes.insert(edge_item->SourceNodeId());
+            visible_edge_nodes.insert(edge_item->TargetNodeId());
         }
     }
 
-    // Second: determine node visibility.
-    // - Declaration-origin nodes (FUNC, PIPELINE, etc.) are always visible.
-    // - LINK-origin external nodes are visible in kAll and kLink modes.
-    // - CALL-origin external nodes are visible in kAll and kCall modes.
-    // Additionally, a node is visible if it's an endpoint of a visible edge.
+    // Step 2: determine node visibility
     for (auto &[id, item] : node_items_) {
-        bool visible = true;
+        if (view_mode_ == ViewMode::kAll) {
+            item->setVisible(true);
+            continue;
+        }
+
         auto nit = node_origin_.find(id);
-        if (nit != node_origin_.end()) {
-            auto origin = static_cast<NodeOrigin>(nit->second);
+        auto kit = node_kind_.find(id);
+        auto origin = (nit != node_origin_.end()) ? static_cast<NodeOrigin>(nit->second)
+                                                   : NodeOrigin::kDecl;
+        auto kind   = (kit != node_kind_.end()) ? static_cast<NodeKind>(kit->second)
+                                                 : NodeKind::kFunction;
+
+        bool visible = false;
+
+        if (view_mode_ == ViewMode::kLink) {
+            // LINK view: show only LINK-origin external nodes
+            // Hide FUNC, PIPELINE, MAP_FUNC declarations — they are not part of
+            // the binding relationship
             if (origin == NodeOrigin::kLink) {
-                visible = (view_mode_ != ViewMode::kCall);
-            } else if (origin == NodeOrigin::kCall) {
-                visible = (view_mode_ != ViewMode::kLink);
+                visible = true;
             }
-            // kDecl nodes are always visible
+            // Also show a node if it's an endpoint of a visible LINK edge
+            if (visible_edge_nodes.count(id)) {
+                visible = true;
+            }
+        } else if (view_mode_ == ViewMode::kCall) {
+            // CALL view: show CALL-origin external nodes and any node
+            // that participates in a CALL edge.
+            // FUNC / PIPELINE declaration nodes are containers — hide them.
+            bool is_decl_container = (origin == NodeOrigin::kDecl) &&
+                (kind == NodeKind::kFunction || kind == NodeKind::kPipeline);
+
+            if (is_decl_container) {
+                // FUNC and PIPELINE declarations are hidden in CALL view
+                visible = false;
+            } else if (origin == NodeOrigin::kCall) {
+                visible = true;
+            } else if (visible_edge_nodes.count(id)) {
+                // A node that is an endpoint of a visible CALL edge
+                visible = true;
+            }
         }
-        // Also show a node if a visible edge references it
-        if (!visible && edge_referenced_nodes.count(id)) {
-            visible = true;
-        }
+
         item->setVisible(visible);
+    }
+
+    // Step 3: hide edges whose source or target node is hidden.
+    // This handles CALL edges that connect to/from FUNC declaration nodes
+    // which are hidden in CALL view.
+    if (view_mode_ != ViewMode::kAll) {
+        for (auto *edge_item : edge_items_) {
+            if (!edge_item->isVisible()) continue;
+            auto src_it = node_items_.find(edge_item->SourceNodeId());
+            auto tgt_it = node_items_.find(edge_item->TargetNodeId());
+            bool src_visible = (src_it != node_items_.end()) && src_it->second->isVisible();
+            bool tgt_visible = (tgt_it != node_items_.end()) && tgt_it->second->isVisible();
+            if (!src_visible || !tgt_visible) {
+                edge_item->setVisible(false);
+            }
+        }
     }
 }
 

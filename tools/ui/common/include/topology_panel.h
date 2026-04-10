@@ -356,6 +356,7 @@ class TopologyPanel : public QWidget {
 
     // Stored origin metadata for nodes and edges (populated by BuildGraphFromFile)
     std::unordered_map<uint64_t, int> node_origin_;  // node_id -> TopologyNode::Origin
+    std::unordered_map<uint64_t, int> node_kind_;    // node_id -> TopologyNode::Kind
     std::unordered_map<uint64_t, int> edge_origin_;  // edge_id -> TopologyEdge::Origin
 
     // Interactive edge id counter (for user-created edges)
