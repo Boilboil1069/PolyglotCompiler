@@ -1077,3 +1077,354 @@ TEST_CASE("E2E: wasm multi-function binary emission",
     REQUIRE(binary[2] == 0x73);
     REQUIRE(binary[3] == 0x6D);
 }
+
+// ============================================================================
+// E2E: PolyglotLinker Marshal — byte-level stub verification
+// ============================================================================
+
+namespace {
+
+// Search for a CALL relocation targeting a given symbol name in a stub
+bool HasRelocationTo(const polyglot::linker::GlueStub &stub, const std::string &sym) {
+    for (const auto &r : stub.relocations) {
+        if (r.symbol == sym) return true;
+    }
+    return false;
+}
+
+// Search the code vector for the x86_64 CALL opcode (0xE8) followed by a
+// placeholder at the given relocation offset.  Returns the number of CALL
+// instructions in the stub.
+size_t CountCallInstructions(const std::vector<std::uint8_t> &code) {
+    size_t count = 0;
+    for (size_t i = 0; i + 4 < code.size(); ++i) {
+        if (code[i] == 0xE8) ++count;
+    }
+    return count;
+}
+
+// Create a PolyglotLinker with two registered symbols and a LINK entry,
+// resolve, and return the first generated stub.
+polyglot::linker::GlueStub MakeStub(
+    const std::string &target_lang, const std::string &source_lang,
+    const std::string &target_symbol, const std::string &source_symbol,
+    std::vector<polyglot::ploy::TypeMappingEntry> mappings = {},
+    polyglot::linker::TargetArch arch = polyglot::linker::TargetArch::kX86_64) {
+    polyglot::linker::LinkerConfig config;
+    config.target_arch = arch;
+    polyglot::linker::PolyglotLinker linker(config);
+
+    polyglot::ploy::LinkEntry entry;
+    entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
+    entry.target_language = target_lang;
+    entry.source_language = source_lang;
+    entry.target_symbol = target_symbol;
+    entry.source_symbol = source_symbol;
+    entry.param_mappings = std::move(mappings);
+    linker.AddLinkEntry(entry);
+
+    polyglot::linker::CrossLangSymbol tgt;
+    tgt.name = target_symbol;
+    tgt.mangled_name = target_symbol;
+    tgt.language = target_lang;
+    tgt.type = polyglot::linker::SymbolType::kFunction;
+    tgt.params.push_back({"i64", 8, false});
+    tgt.return_desc = {"i64", 8, false};
+
+    polyglot::linker::CrossLangSymbol src;
+    src.name = source_symbol;
+    src.mangled_name = source_symbol;
+    src.language = source_lang;
+    src.type = polyglot::linker::SymbolType::kFunction;
+    src.params.push_back({"i64", 8, false});
+    src.return_desc = {"i64", 8, false};
+
+    linker.AddCrossLangSymbol(tgt);
+    linker.AddCrossLangSymbol(src);
+
+    REQUIRE(linker.ResolveLinks());
+    auto &stubs = linker.GetStubs();
+    REQUIRE_FALSE(stubs.empty());
+    return stubs.front();
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// 1. EmitContainerMarshal: cpp::vector <-> python::list bidirectional
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: stub for cpp->python list contains cppvec_to_pylist relocation",
+          "[integration][e2e][linker][marshal][container]") {
+    polyglot::ploy::TypeMappingEntry m;
+    m.source_language = "cpp";
+    m.source_type = "vector";
+    m.target_language = "python";
+    m.target_type = "list";
+
+    auto stub = MakeStub("cpp", "python", "cpp_fn", "py_fn", {m});
+
+    // The stub must contain a relocation to the cpp->python list helper
+    CHECK(HasRelocationTo(stub, "__ploy_rt_convert_cppvec_to_pylist"));
+    CHECK_FALSE(stub.code.empty());
+}
+
+TEST_CASE("E2E: stub for python->cpp list contains pylist_to_cppvec relocation",
+          "[integration][e2e][linker][marshal][container]") {
+    polyglot::ploy::TypeMappingEntry m;
+    m.source_language = "python";
+    m.source_type = "list";
+    m.target_language = "cpp";
+    m.target_type = "vector";
+
+    auto stub = MakeStub("python", "cpp", "py_fn", "cpp_fn", {m});
+
+    CHECK(HasRelocationTo(stub, "__ploy_rt_convert_pylist_to_cppvec"));
+}
+
+// ---------------------------------------------------------------------------
+// 2. EmitReturnMarshal: Python int -> C++ int64_t (unbox)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: cpp->python stub contains PyLong_AsLongLong for return unboxing",
+          "[integration][e2e][linker][marshal][return]") {
+    // When we call a Python function from C++, the return value is a PyObject*.
+    // The stub must unbox it with PyLong_AsLongLong.
+    auto stub = MakeStub("cpp", "python", "cpp_caller", "py_callee");
+
+    CHECK(HasRelocationTo(stub, "PyLong_AsLongLong"));
+}
+
+TEST_CASE("E2E: python->cpp stub contains PyLong_FromLongLong for return boxing",
+          "[integration][e2e][linker][marshal][return]") {
+    // When Python calls a C++ function, the C++ int64_t return must be boxed.
+    auto stub = MakeStub("python", "cpp", "py_caller", "cpp_callee");
+
+    // source_language="cpp", target_language="python" → box int → PyLong_FromLongLong
+    CHECK(HasRelocationTo(stub, "PyLong_FromLongLong"));
+}
+
+// ---------------------------------------------------------------------------
+// 3. EmitCallingConventionAdaptor: SysV <-> Win64 register rearrangement
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: cross-platform stub has non-trivial code for CC adaptation",
+          "[integration][e2e][linker][marshal][cc]") {
+    // On any platform the stub should have real code (prologue + call + epilogue).
+    auto stub = MakeStub("cpp", "rust", "cpp_fn", "rust_fn");
+
+    // Prologue: push rbp (0x55) must be the first byte
+    REQUIRE(stub.code.size() > 8);
+    CHECK(stub.code[0] == 0x55);
+
+    // Epilogue: last byte must be ret (0xC3)
+    CHECK(stub.code.back() == 0xC3);
+
+    // The stub must contain at least one CALL instruction (to the callee)
+    CHECK(CountCallInstructions(stub.code) >= 1);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Python GIL: stub contains PyGILState_Ensure / PyGILState_Release
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: Python bridge stub acquires and releases GIL",
+          "[integration][e2e][linker][marshal][gil]") {
+    auto stub = MakeStub("cpp", "python", "cpp_fn", "py_fn");
+
+    CHECK(HasRelocationTo(stub, "PyGILState_Ensure"));
+    CHECK(HasRelocationTo(stub, "PyGILState_Release"));
+
+    // GIL acquire must come before the callee call, and release after.
+    // Find their offsets.
+    size_t ensure_off = SIZE_MAX, release_off = SIZE_MAX, callee_off = SIZE_MAX;
+    for (const auto &r : stub.relocations) {
+        if (r.symbol == "PyGILState_Ensure") ensure_off = r.offset;
+        if (r.symbol == "PyGILState_Release") release_off = r.offset;
+        if (r.symbol == "py_fn") callee_off = r.offset;
+    }
+    REQUIRE(ensure_off != SIZE_MAX);
+    REQUIRE(release_off != SIZE_MAX);
+    REQUIRE(callee_off != SIZE_MAX);
+
+    CHECK(ensure_off < callee_off);
+    CHECK(release_off > callee_off);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Java JNI: stub contains jni_get_env / jni_release_env
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: Java bridge stub acquires and releases JNI env",
+          "[integration][e2e][linker][marshal][jni]") {
+    auto stub = MakeStub("cpp", "java", "cpp_fn", "java_fn");
+
+    CHECK(HasRelocationTo(stub, "__ploy_rt_jni_get_env"));
+    CHECK(HasRelocationTo(stub, "__ploy_rt_jni_release_env"));
+}
+
+// ---------------------------------------------------------------------------
+// 6. Rust borrow annotations
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: Rust bridge stub contains borrow annotation NOPs",
+          "[integration][e2e][linker][marshal][rust]") {
+    // Create a stub where one side is Rust with a pointer parameter
+    polyglot::linker::LinkerConfig config;
+    config.target_arch = polyglot::linker::TargetArch::kX86_64;
+    polyglot::linker::PolyglotLinker linker(config);
+
+    polyglot::ploy::LinkEntry entry;
+    entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
+    entry.target_language = "cpp";
+    entry.source_language = "rust";
+    entry.target_symbol = "cpp_fn";
+    entry.source_symbol = "rust_fn";
+    linker.AddLinkEntry(entry);
+
+    polyglot::linker::CrossLangSymbol tgt;
+    tgt.name = "cpp_fn"; tgt.mangled_name = "cpp_fn"; tgt.language = "cpp";
+    tgt.params.push_back({"*i64", 8, true});  // pointer parameter
+    tgt.return_desc = {"i64", 8, false};
+    linker.AddCrossLangSymbol(tgt);
+
+    polyglot::linker::CrossLangSymbol src;
+    src.name = "rust_fn"; src.mangled_name = "rust_fn"; src.language = "rust";
+    src.params.push_back({"*i64", 8, true});  // pointer parameter
+    src.return_desc = {"i64", 8, false};
+    linker.AddCrossLangSymbol(src);
+
+    REQUIRE(linker.ResolveLinks());
+    auto &stubs = linker.GetStubs();
+    REQUIRE_FALSE(stubs.empty());
+    auto &stub = stubs.front();
+
+    // Look for the 3-byte NOP borrow annotation: 0x0F 0x1F <modrm>
+    bool found_borrow_nop = false;
+    for (size_t i = 0; i + 2 < stub.code.size(); ++i) {
+        if (stub.code[i] == 0x0F && stub.code[i + 1] == 0x1F) {
+            found_borrow_nop = true;
+            break;
+        }
+    }
+    CHECK(found_borrow_nop);
+}
+
+// ---------------------------------------------------------------------------
+// 7. AArch64 stub: GIL acquire/release for Python targets
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: AArch64 Python bridge stub has GIL relocations",
+          "[integration][e2e][linker][marshal][arm64][gil]") {
+    auto stub = MakeStub("cpp", "python", "cpp_fn", "py_fn", {},
+                          polyglot::linker::TargetArch::kAArch64);
+
+    CHECK(HasRelocationTo(stub, "PyGILState_Ensure"));
+    CHECK(HasRelocationTo(stub, "PyGILState_Release"));
+    // AArch64 prologue: first 4 bytes = stp x29, x30, [sp, #-16]!
+    REQUIRE(stub.code.size() >= 8);
+    CHECK(stub.code[0] == 0xFD);
+    CHECK(stub.code[1] == 0x7B);
+    CHECK(stub.code[2] == 0xBF);
+    CHECK(stub.code[3] == 0xA9);
+}
+
+// ---------------------------------------------------------------------------
+// 8. AArch64 stub: JNI env for Java targets
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: AArch64 Java bridge stub has JNI relocations",
+          "[integration][e2e][linker][marshal][arm64][jni]") {
+    auto stub = MakeStub("cpp", "java", "cpp_fn", "java_fn", {},
+                          polyglot::linker::TargetArch::kAArch64);
+
+    CHECK(HasRelocationTo(stub, "__ploy_rt_jni_get_env"));
+    CHECK(HasRelocationTo(stub, "__ploy_rt_jni_release_env"));
+}
+
+// ---------------------------------------------------------------------------
+// 9. Dict marshal: cpp -> python
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: cpp->python dict marshal stub uses pydict helper",
+          "[integration][e2e][linker][marshal][container][dict]") {
+    polyglot::ploy::TypeMappingEntry m;
+    m.source_language = "cpp";
+    m.source_type = "map";
+    m.target_language = "python";
+    m.target_type = "dict";
+
+    auto stub = MakeStub("cpp", "python", "cpp_fn", "py_fn", {m});
+    CHECK(HasRelocationTo(stub, "__ploy_rt_convert_cppmap_to_pydict"));
+}
+
+// ---------------------------------------------------------------------------
+// 10. Full .ploy compile -> linker -> stub generation pipeline
+// ---------------------------------------------------------------------------
+
+TEST_CASE("E2E: .ploy compile pipeline produces stub with GIL for Python call",
+          "[integration][e2e][linker][marshal][pipeline]") {
+    Diagnostics diags;
+    std::string code = R"(
+LINK(cpp, python, math::compute, pyutil::process) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+FUNC main_entry(x: i64) -> i64 {
+    LET result = CALL(cpp, math::compute, x);
+    RETURN result;
+}
+    )";
+
+    auto result = CompileWithDescriptors(code, diags);
+    REQUIRE(result.success);
+    REQUIRE(result.descriptors.size() >= 1);
+
+    // Feed into PolyglotLinker
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+    for (auto &desc : result.descriptors) {
+        linker.AddCallDescriptor(desc);
+    }
+
+    polyglot::ploy::LinkEntry entry;
+    entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
+    entry.target_language = "cpp";
+    entry.source_language = "python";
+    entry.target_symbol = "math::compute";
+    entry.source_symbol = "pyutil::process";
+    {
+        polyglot::ploy::TypeMappingEntry tm;
+        tm.source_type = "int"; tm.target_type = "int";
+        entry.param_mappings.push_back(tm);
+    }
+    linker.AddLinkEntry(entry);
+
+    polyglot::linker::CrossLangSymbol cpp_sym;
+    cpp_sym.name = "math::compute"; cpp_sym.mangled_name = "math::compute";
+    cpp_sym.language = "cpp";
+    cpp_sym.params.push_back({"int", 8, false});
+    cpp_sym.return_desc = {"int", 8, false};
+    linker.AddCrossLangSymbol(cpp_sym);
+
+    polyglot::linker::CrossLangSymbol py_sym;
+    py_sym.name = "pyutil::process"; py_sym.mangled_name = "pyutil::process";
+    py_sym.language = "python";
+    py_sym.params.push_back({"int", 8, false});
+    py_sym.return_desc = {"int", 8, false};
+    linker.AddCrossLangSymbol(py_sym);
+
+    REQUIRE(linker.ResolveLinks());
+    auto &stubs = linker.GetStubs();
+    REQUIRE_FALSE(stubs.empty());
+
+    auto &stub = stubs.front();
+    // Must have GIL management
+    CHECK(HasRelocationTo(stub, "PyGILState_Ensure"));
+    CHECK(HasRelocationTo(stub, "PyGILState_Release"));
+    // Must have return marshalling
+    CHECK(HasRelocationTo(stub, "PyLong_AsLongLong"));
+    // Prologue + code + epilogue
+    CHECK(stub.code.front() == 0x55);  // push rbp
+    CHECK(stub.code.back() == 0xC3);   // ret
+}

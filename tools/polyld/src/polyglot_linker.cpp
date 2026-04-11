@@ -645,32 +645,92 @@ void PolyglotLinker::GenerateX86_64Stub(GlueStub &stub, const ploy::LinkEntry &e
                                          const CrossLangSymbol &target_sym,
                                          const CrossLangSymbol &source_sym) {
     auto &code = stub.code;
-    (void)target_sym;
-    (void)source_sym;
 
     // Function prologue: push rbp; mov rbp, rsp
     code.push_back(0x55);                   // push rbp
     code.push_back(0x48); code.push_back(0x89); code.push_back(0xE5); // mov rbp, rsp
 
     // Allocate stack space for marshalling (64 bytes)
+    // Layout: [rbp-0x08..rbp-0x20] saved regs
+    //         [rbp-0x28] reserved
+    //         [rbp-0x30] JNIEnv* (if Java)
+    //         [rbp-0x38] GIL state (if Python)
+    //         [rbp-0x40] scratch
     code.push_back(0x48); code.push_back(0x83); code.push_back(0xEC); code.push_back(0x40);
     // sub rsp, 0x40
 
-    // Save argument registers (System V ABI: rdi, rsi, rdx, rcx, r8, r9)
-    // For calling convention adaptation, we may need to rearrange registers
+    // ── Language-specific pre-call setup ──
+
+    // Python target: acquire the GIL before touching any CPython API
+    bool target_is_python = (entry.source_language == "python");
+    bool target_is_java   = (entry.source_language == "java");
+    // Note: entry.source_language is the *callee* language (the function we call).
+
+    // Save argument registers on the stack so that GIL/JNI acquisition calls
+    // do not clobber them.  We save the first 4 integer args.
+    // push rdi; push rsi; push rdx; push rcx  (or rcx,rdx,r8,r9 on Win64)
+#ifdef _WIN32
+    code.push_back(0x51); // push rcx
+    code.push_back(0x52); // push rdx
+    code.push_back(0x41); code.push_back(0x50); // push r8
+    code.push_back(0x41); code.push_back(0x51); // push r9
+#else
+    code.push_back(0x57); // push rdi
+    code.push_back(0x56); // push rsi
+    code.push_back(0x52); // push rdx
+    code.push_back(0x51); // push rcx
+#endif
+
+    if (target_is_python) {
+        EmitGILAcquire(code);
+    }
+    if (target_is_java) {
+        EmitJNIEnvAcquire(code);
+    }
+
+    // Restore argument registers
+#ifdef _WIN32
+    code.push_back(0x41); code.push_back(0x59); // pop r9
+    code.push_back(0x41); code.push_back(0x58); // pop r8
+    code.push_back(0x5A); // pop rdx
+    code.push_back(0x59); // pop rcx
+#else
+    code.push_back(0x59); // pop rcx
+    code.push_back(0x5A); // pop rdx
+    code.push_back(0x5E); // pop rsi
+    code.push_back(0x5F); // pop rdi
+#endif
+
+    // ── Calling convention adaptation ──
     std::string from_cc = GetCallingConvention(entry.target_language);
     std::string to_cc = GetCallingConvention(entry.source_language);
 
     if (from_cc != to_cc) {
-        // Generate calling convention adaptation code
         EmitCallingConventionAdaptor(code, entry.target_language, entry.source_language);
     }
 
-    // Apply type marshalling for each parameter
+    // ── Rust borrow annotations (metadata NOPs) ──
+    if (entry.source_language == "rust" || entry.target_language == "rust") {
+        for (size_t i = 0; i < source_sym.params.size(); ++i) {
+            if (source_sym.params[i].is_pointer) {
+                // Assume immutable borrow for pointer params by default
+                EmitRustBorrowAnnotation(code, i, /*is_mutable=*/false);
+            }
+        }
+    }
+
+    // ── Parameter marshalling ──
     for (size_t i = 0; i < entry.param_mappings.size(); ++i) {
         const auto &mapping = entry.param_mappings[i];
         if (!mapping.source_type.empty() && !mapping.target_type.empty()) {
-            // Determine conversion type
+            // Check if this is a container type conversion
+            if (IsContainerType(mapping.source_type) || IsContainerType(mapping.target_type)) {
+                EmitContainerMarshal(code, entry.target_language, entry.source_language,
+                                     mapping.source_type, mapping.target_type, i);
+                continue;
+            }
+
+            // Scalar type conversions
             bool src_is_int = (mapping.source_type == "int" || mapping.source_type == "i64" ||
                               mapping.source_type == "i32");
             bool dst_is_float = (mapping.target_type == "float" || mapping.target_type == "double" ||
@@ -686,23 +746,35 @@ void PolyglotLinker::GenerateX86_64Stub(GlueStub &stub, const ploy::LinkEntry &e
                 EmitFloatToIntMarshal(code, i);
             } else if (mapping.source_type == "str" || mapping.source_type == "std::string" ||
                        mapping.source_type == "String") {
-                EmitStringMarshal(code, entry.source_language, entry.target_language);
-            } else if (IsListType(mapping.source_type) || IsListType(mapping.target_type)) {
-                EmitListMarshal(code, entry.source_language, entry.target_language, i);
-            } else if (IsDictType(mapping.source_type) || IsDictType(mapping.target_type)) {
-                EmitDictMarshal(code, entry.source_language, entry.target_language, i);
-            } else if (IsTupleType(mapping.source_type) || IsTupleType(mapping.target_type)) {
-                EmitTupleMarshal(code, entry.source_language, entry.target_language, i);
-            } else if (IsStructType(mapping.source_type) || IsStructType(mapping.target_type)) {
-                EmitStructMarshal(code, entry.source_language, entry.target_language, i);
+                EmitStringMarshal(code, entry.target_language, entry.source_language);
             }
         }
     }
 
-    // Call the source function
-    // Generate a CALL instruction with a relocation to the source symbol
+    // ── Java JNI: prepend JNIEnv* as first argument ──
+    if (target_is_java) {
+        // Shift existing args right by one position to make room for JNIEnv*
+#ifdef _WIN32
+        // Win64: rcx=env, rdx=arg1, r8=arg2, r9=arg3 (arg4 on stack)
+        code.push_back(0x4D); code.push_back(0x89); code.push_back(0xC1); // mov r9, r8
+        code.push_back(0x49); code.push_back(0x89); code.push_back(0xD0); // mov r8, rdx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xCA); // mov rdx, rcx
+        // Load JNIEnv* from [rbp - 0x30] into rcx
+        code.push_back(0x48); code.push_back(0x8B); code.push_back(0x4D);
+        code.push_back(0xD0);
+#else
+        // SysV: rdi=env, rsi=arg1, rdx=arg2, rcx=arg3
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xD1); // mov rcx, rdx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xF2); // mov rdx, rsi
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xFE); // mov rsi, rdi
+        // Load JNIEnv* from [rbp - 0x30] into rdi
+        code.push_back(0x48); code.push_back(0x8B); code.push_back(0x7D);
+        code.push_back(0xD0);
+#endif
+    }
+
+    // ── Call the source function ──
     code.push_back(0xE8); // call rel32
-    // Placeholder for 32-bit PC-relative offset (will be filled by linker)
     size_t call_offset = code.size();
     code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x00);
 
@@ -716,7 +788,26 @@ void PolyglotLinker::GenerateX86_64Stub(GlueStub &stub, const ploy::LinkEntry &e
     reloc.size = 4;
     stub.relocations.push_back(reloc);
 
-    // Marshal return value if needed (currently assumes direct pass-through)
+    // ── Return value marshalling ──
+    // Determine the return type name for marshalling decisions
+    std::string ret_type_name;
+    if (!target_sym.return_desc.type_name.empty()) {
+        ret_type_name = target_sym.return_desc.type_name;
+    } else if (!source_sym.return_desc.type_name.empty()) {
+        ret_type_name = source_sym.return_desc.type_name;
+    } else {
+        ret_type_name = "i64"; // default
+    }
+    EmitReturnMarshal(code, entry.source_language, entry.target_language, ret_type_name);
+
+    // ── Language-specific post-call cleanup ──
+    if (target_is_python) {
+        // GIL state was saved at [rbp - 0x38] (offset 0x38 = 56)
+        EmitGILRelease(code, 0x38);
+    }
+    if (target_is_java) {
+        EmitJNIEnvRelease(code);
+    }
 
     // Function epilogue: mov rsp, rbp; pop rbp; ret
     code.push_back(0x48); code.push_back(0x89); code.push_back(0xEC); // mov rsp, rbp
@@ -732,14 +823,77 @@ void PolyglotLinker::GenerateAArch64Stub(GlueStub &stub, const ploy::LinkEntry &
                                           const CrossLangSymbol &target_sym,
                                           const CrossLangSymbol &source_sym) {
     auto &code = stub.code;
-    (void)target_sym;
-    (void)entry;
+
+    bool target_is_python = (entry.source_language == "python");
+    bool target_is_java   = (entry.source_language == "java");
 
     // AArch64 function prologue: stp x29, x30, [sp, #-16]!; mov x29, sp
     // stp x29, x30, [sp, #-16]!
     code.push_back(0xFD); code.push_back(0x7B); code.push_back(0xBF); code.push_back(0xA9);
     // mov x29, sp
     code.push_back(0xFD); code.push_back(0x03); code.push_back(0x00); code.push_back(0x91);
+
+    // Allocate 64 bytes of stack space: sub sp, sp, #64
+    code.push_back(0xFF); code.push_back(0x03); code.push_back(0x01); code.push_back(0xD1);
+
+    // Save argument registers x0-x3 to stack for GIL/JNI calls
+    if (target_is_python || target_is_java) {
+        // stp x0, x1, [sp, #0]
+        code.push_back(0xE0); code.push_back(0x07); code.push_back(0x00); code.push_back(0xA9);
+        // stp x2, x3, [sp, #16]
+        code.push_back(0xE2); code.push_back(0x0F); code.push_back(0x01); code.push_back(0xA9);
+    }
+
+    // Python: acquire GIL
+    if (target_is_python) {
+        // BL PyGILState_Ensure
+        size_t gil_off = code.size();
+        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x94);
+        {
+            Relocation r;
+            r.offset = gil_off;
+            r.symbol = "PyGILState_Ensure";
+            r.type = static_cast<std::uint32_t>(RelocationType_ARM64::kR_AARCH64_CALL26);
+            r.addend = 0; r.is_pc_relative = true; r.size = 4;
+            pending_marshal_relocs_.push_back(r);
+        }
+        // Save GIL state: str w0, [sp, #32]
+        code.push_back(0xE0); code.push_back(0x23); code.push_back(0x00); code.push_back(0xB9);
+    }
+
+    // Java: acquire JNIEnv*
+    if (target_is_java) {
+        size_t jni_off = code.size();
+        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x94);
+        {
+            Relocation r;
+            r.offset = jni_off;
+            r.symbol = "__ploy_rt_jni_get_env";
+            r.type = static_cast<std::uint32_t>(RelocationType_ARM64::kR_AARCH64_CALL26);
+            r.addend = 0; r.is_pc_relative = true; r.size = 4;
+            pending_marshal_relocs_.push_back(r);
+        }
+        // Save JNIEnv*: str x0, [sp, #40]
+        code.push_back(0xE0); code.push_back(0x2B); code.push_back(0x00); code.push_back(0xF9);
+    }
+
+    // Restore argument registers
+    if (target_is_python || target_is_java) {
+        // ldp x0, x1, [sp, #0]
+        code.push_back(0xE0); code.push_back(0x07); code.push_back(0x40); code.push_back(0xA9);
+        // ldp x2, x3, [sp, #16]
+        code.push_back(0xE2); code.push_back(0x0F); code.push_back(0x41); code.push_back(0xA9);
+    }
+
+    // Java: shift args right, prepend JNIEnv*
+    if (target_is_java) {
+        // mov x3, x2; mov x2, x1; mov x1, x0
+        code.push_back(0xE3); code.push_back(0x03); code.push_back(0x02); code.push_back(0xAA);
+        code.push_back(0xE2); code.push_back(0x03); code.push_back(0x01); code.push_back(0xAA);
+        code.push_back(0xE1); code.push_back(0x03); code.push_back(0x00); code.push_back(0xAA);
+        // ldr x0, [sp, #40]  — JNIEnv*
+        code.push_back(0xE0); code.push_back(0x2B); code.push_back(0x40); code.push_back(0xF9);
+    }
 
     // BL <source_function> — branch with link (call)
     size_t call_offset = code.size();
@@ -754,6 +908,75 @@ void PolyglotLinker::GenerateAArch64Stub(GlueStub &stub, const ploy::LinkEntry &
     reloc.is_pc_relative = true;
     reloc.size = 4;
     stub.relocations.push_back(reloc);
+
+    // Return value marshalling (AArch64 version uses same runtime helpers,
+    // called via BL with the same relocations — the helpers are position-independent)
+    std::string ret_type_name;
+    if (!target_sym.return_desc.type_name.empty()) {
+        ret_type_name = target_sym.return_desc.type_name;
+    } else if (!source_sym.return_desc.type_name.empty()) {
+        ret_type_name = source_sym.return_desc.type_name;
+    }
+    // On AArch64, Python unbox: x0 = PyObject* → scalar in x0/d0
+    if (target_is_python && !ret_type_name.empty() &&
+        (entry.target_language == "cpp" || entry.target_language == "rust")) {
+        bool is_float = (ret_type_name == "float" || ret_type_name == "double" ||
+                         ret_type_name == "f64" || ret_type_name == "f32");
+        std::string helper = is_float ? "PyFloat_AsDouble" : "PyLong_AsLongLong";
+        // x0 already holds PyObject*
+        size_t unbox_off = code.size();
+        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x94);
+        {
+            Relocation r;
+            r.offset = unbox_off;
+            r.symbol = helper;
+            r.type = static_cast<std::uint32_t>(RelocationType_ARM64::kR_AARCH64_CALL26);
+            r.addend = 0; r.is_pc_relative = true; r.size = 4;
+            pending_marshal_relocs_.push_back(r);
+        }
+    }
+
+    // Python: release GIL
+    if (target_is_python) {
+        // Save return value: str x0, [sp, #48]
+        code.push_back(0xE0); code.push_back(0x33); code.push_back(0x00); code.push_back(0xF9);
+        // Load GIL state: ldr w0, [sp, #32]
+        code.push_back(0xE0); code.push_back(0x23); code.push_back(0x40); code.push_back(0xB9);
+        // BL PyGILState_Release
+        size_t rel_off = code.size();
+        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x94);
+        {
+            Relocation r;
+            r.offset = rel_off;
+            r.symbol = "PyGILState_Release";
+            r.type = static_cast<std::uint32_t>(RelocationType_ARM64::kR_AARCH64_CALL26);
+            r.addend = 0; r.is_pc_relative = true; r.size = 4;
+            pending_marshal_relocs_.push_back(r);
+        }
+        // Restore return value: ldr x0, [sp, #48]
+        code.push_back(0xE0); code.push_back(0x33); code.push_back(0x40); code.push_back(0xF9);
+    }
+
+    // Java: release JNI env
+    if (target_is_java) {
+        // Save x0
+        code.push_back(0xE0); code.push_back(0x33); code.push_back(0x00); code.push_back(0xF9);
+        size_t jrel_off = code.size();
+        code.push_back(0x00); code.push_back(0x00); code.push_back(0x00); code.push_back(0x94);
+        {
+            Relocation r;
+            r.offset = jrel_off;
+            r.symbol = "__ploy_rt_jni_release_env";
+            r.type = static_cast<std::uint32_t>(RelocationType_ARM64::kR_AARCH64_CALL26);
+            r.addend = 0; r.is_pc_relative = true; r.size = 4;
+            pending_marshal_relocs_.push_back(r);
+        }
+        // Restore x0
+        code.push_back(0xE0); code.push_back(0x33); code.push_back(0x40); code.push_back(0xF9);
+    }
+
+    // Deallocate stack: add sp, sp, #64
+    code.push_back(0xFF); code.push_back(0x03); code.push_back(0x01); code.push_back(0x91);
 
     // Function epilogue: ldp x29, x30, [sp], #16; ret
     code.push_back(0xFD); code.push_back(0x7B); code.push_back(0xC1); code.push_back(0xA8);
@@ -852,17 +1075,42 @@ void PolyglotLinker::EmitCallingConventionAdaptor(std::vector<std::uint8_t> &cod
     std::string to_cc = GetCallingConvention(to_lang);
 
     if (from_cc == "sysv" && to_cc == "win64") {
-        // System V → Windows x64: move rdi→rcx, rsi→rdx, rdx→r8, rcx→r9
+        // System V → Windows x64:
+        //   SysV:  rdi, rsi, rdx, rcx, r8, r9  (integer params 1-6)
+        //   Win64: rcx, rdx, r8,  r9            (integer params 1-4)
+        // We must rearrange without clobbering: use rax as scratch.
+        //
+        //   mov rax, rdx        ; save original rdx (SysV param 3)
+        //   mov rcx, rdi        ; SysV param 1 → Win64 param 1
+        //   mov rdx, rsi        ; SysV param 2 → Win64 param 2
+        //   mov r8,  rax        ; SysV param 3 → Win64 param 3
+        //   ; rcx already holds SysV param 4 → Win64 param 4 (r9)
+        //   mov r9,  rcx        ; — but we overwrote rcx above,
+        //   ; so we need to grab SysV's original rcx from the stack save area.
+        // Save original rdx into rax first to avoid clobber.
+        // mov rax, rdx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xD0);
         // mov rcx, rdi
         code.push_back(0x48); code.push_back(0x89); code.push_back(0xF9);
         // mov rdx, rsi
         code.push_back(0x48); code.push_back(0x89); code.push_back(0xF2);
-        // mov r8, rdx (save original rdx first)
-        code.push_back(0x49); code.push_back(0x89); code.push_back(0xD0);
-        // mov r9, rcx
-        code.push_back(0x49); code.push_back(0x89); code.push_back(0xC9);
+        // mov r8, rax  (original rdx)
+        code.push_back(0x49); code.push_back(0x89); code.push_back(0xC0);
+        // SysV param 4 was in rcx, but we overwrote rcx.
+        // The caller's rcx is saved at [rbp-0x08] by the prologue's push sequence
+        // (we saved argument registers in GenerateX86_64Stub).
+        // For the common case (≤3 params) r9 is unused, so emit a safe load.
+        // mov r9, [rbp-0x20]   ; 4th arg from stack save area
+        code.push_back(0x4C); code.push_back(0x8B); code.push_back(0x4D);
+        code.push_back(0xE0);
+        // Allocate 32-byte shadow space required by Win64
+        // sub rsp, 0x20
+        code.push_back(0x48); code.push_back(0x83); code.push_back(0xEC);
+        code.push_back(0x20);
     } else if (from_cc == "win64" && to_cc == "sysv") {
-        // Windows x64 → System V: move rcx→rdi, rdx→rsi, r8→rdx, r9→rcx
+        // Windows x64 → System V:
+        //   Win64: rcx, rdx, r8, r9  (integer params 1-4)
+        //   SysV:  rdi, rsi, rdx, rcx, r8, r9
         // mov rdi, rcx
         code.push_back(0x48); code.push_back(0x89); code.push_back(0xCF);
         // mov rsi, rdx
@@ -872,14 +1120,29 @@ void PolyglotLinker::EmitCallingConventionAdaptor(std::vector<std::uint8_t> &cod
         // mov rcx, r9
         code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC9);
     }
-    // Same convention — no adaptation needed
+    // Same convention → no adaptation needed
 }
 
 std::string PolyglotLinker::GetCallingConvention(const std::string &language) {
-    // All supported languages use the platform's native C calling convention
-    // On Linux/macOS: System V AMD64 ABI
-    // On Windows: Microsoft x64 calling convention
-    (void)language;
+    // Language-specific calling convention overrides:
+    //   - Java uses JNI which wraps the platform C ABI but requires JNIEnv* as
+    //     the first argument — effectively extending the native convention.
+    //   - Python uses the platform C ABI but requires GIL management around
+    //     every call into CPython.
+    //   - Rust uses the platform C ABI for extern "C" functions.
+    //   - .NET/C# uses the platform C ABI for P/Invoke (similar to Win64 on
+    //     Windows, SysV on Linux).
+    // The returned string identifies the *base* calling convention; language-
+    // specific wrappers (GIL, JNI) are emitted separately by the stub generator.
+    if (language == "java") {
+        // JNI calls use the platform convention but prepend JNIEnv* and jobject
+#ifdef _WIN32
+        return "win64";
+#else
+        return "sysv";
+#endif
+    }
+    // All other languages use the platform-native C calling convention
 #ifdef _WIN32
     return "win64";
 #else
@@ -903,19 +1166,63 @@ void PolyglotLinker::EmitListMarshal(std::vector<std::uint8_t> &code,
                                       const std::string &from_lang,
                                       const std::string &to_lang,
                                       size_t param_idx) {
-    (void)param_idx;
-
     // Generate a call to the appropriate runtime conversion function.
-    // The argument register already holds a pointer to the source container.
-    // We emit a CALL with a relocation to the conversion helper.
+    // On x86_64 the source container pointer is in the register for param_idx
+    // (rdi/rcx = 0, rsi/rdx = 1, …).  Before the call we must move it into
+    // the first-argument register if it is not already there.
+    //
+    // Each from_lang / to_lang pair has a dedicated runtime helper that
+    // performs a deep copy or creates a shared-memory view, depending on
+    // memory-model compatibility.
 
+    // Ensure the source pointer is in rdi (SysV) / rcx (Win64) — param 0
+    // position — since the runtime helpers expect it there.
+#ifdef _WIN32
+    // Win64: params are in rcx, rdx, r8, r9
+    if (param_idx == 1) {
+        // mov rcx, rdx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xD1);
+    } else if (param_idx == 2) {
+        // mov rcx, r8
+        code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC1);
+    } else if (param_idx == 3) {
+        // mov rcx, r9
+        code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC9);
+    }
+    // param_idx == 0 → already in rcx
+#else
+    // SysV: params are in rdi, rsi, rdx, rcx, r8, r9
+    if (param_idx == 1) {
+        // mov rdi, rsi
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xF7);
+    } else if (param_idx == 2) {
+        // mov rdi, rdx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xD7);
+    } else if (param_idx == 3) {
+        // mov rdi, rcx
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xCF);
+    }
+    // param_idx == 0 → already in rdi
+#endif
+
+    // Select the runtime helper based on the language pair
     std::string target_sym;
-    if (from_lang == "rust" && (to_lang == "cpp" || to_lang == "python")) {
-        target_sym = "__ploy_rt_convert_vec_to_list";
-    } else if (from_lang == "python" && (to_lang == "cpp" || to_lang == "rust")) {
-        target_sym = "__ploy_rt_convert_pylist_to_list";
-    } else if (from_lang == "cpp" && (to_lang == "python" || to_lang == "rust")) {
-        target_sym = "__ploy_rt_convert_cppvec_to_list";
+    if (from_lang == "cpp" && to_lang == "python") {
+        target_sym = "__ploy_rt_convert_cppvec_to_pylist";
+    } else if (from_lang == "python" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_pylist_to_cppvec";
+    } else if (from_lang == "rust" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_rustvec_to_cppvec";
+    } else if (from_lang == "cpp" && to_lang == "rust") {
+        target_sym = "__ploy_rt_convert_cppvec_to_rustvec";
+    } else if (from_lang == "rust" && to_lang == "python") {
+        target_sym = "__ploy_rt_convert_rustvec_to_pylist";
+    } else if (from_lang == "python" && to_lang == "rust") {
+        target_sym = "__ploy_rt_convert_pylist_to_rustvec";
+    } else if (from_lang == "java" && (to_lang == "cpp" || to_lang == "python")) {
+        target_sym = "__ploy_rt_convert_jarray_to_list";
+    } else if ((from_lang == "cpp" || from_lang == "python") && to_lang == "java") {
+        target_sym = "__ploy_rt_convert_list_to_jarray";
     } else {
         target_sym = "__ploy_rt_convert_list_generic";
     }
@@ -934,18 +1241,70 @@ void PolyglotLinker::EmitListMarshal(std::vector<std::uint8_t> &code,
         r.size = 4;
         pending_marshal_relocs_.push_back(r);
     }
+
+    // The runtime helper returns the converted pointer in rax.
+    // Move it back into the parameter register for the downstream call.
+#ifdef _WIN32
+    if (param_idx == 0) {
+        // mov rcx, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC1);
+    } else if (param_idx == 1) {
+        // mov rdx, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC2);
+    } else if (param_idx == 2) {
+        // mov r8, rax
+        code.push_back(0x49); code.push_back(0x89); code.push_back(0xC0);
+    } else if (param_idx == 3) {
+        // mov r9, rax
+        code.push_back(0x49); code.push_back(0x89); code.push_back(0xC1);
+    }
+#else
+    if (param_idx == 0) {
+        // mov rdi, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC7);
+    } else if (param_idx == 1) {
+        // mov rsi, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC6);
+    } else if (param_idx == 2) {
+        // mov rdx, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC2);
+    } else if (param_idx == 3) {
+        // mov rcx, rax
+        code.push_back(0x48); code.push_back(0x89); code.push_back(0xC1);
+    }
+#endif
 }
 
 void PolyglotLinker::EmitTupleMarshal(std::vector<std::uint8_t> &code,
                                        const std::string &from_lang,
                                        const std::string &to_lang,
                                        size_t param_idx) {
-    (void)from_lang;
-    (void)to_lang;
-    (void)param_idx;
-
     // Tuples are passed as pointers to a packed struct.
-    // Emit a call to __ploy_rt_convert_tuple with a proper relocation.
+    // Different languages lay out tuple fields in different orders / with
+    // different padding, so we call a language-pair-specific runtime helper.
+
+    std::string target_sym;
+    if (from_lang == "python" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_pytuple_to_cpptuple";
+    } else if (from_lang == "cpp" && to_lang == "python") {
+        target_sym = "__ploy_rt_convert_cpptuple_to_pytuple";
+    } else if (from_lang == "rust" && (to_lang == "cpp" || to_lang == "python")) {
+        target_sym = "__ploy_rt_convert_rusttuple_to_tuple";
+    } else {
+        target_sym = "__ploy_rt_convert_tuple";
+    }
+
+    // Move param into first-arg register if necessary (same pattern as list)
+#ifdef _WIN32
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD1); }
+    else if (param_idx == 2) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC1); }
+    else if (param_idx == 3) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC9); }
+#else
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xF7); }
+    else if (param_idx == 2) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD7); }
+    else if (param_idx == 3) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xCF); }
+#endif
+
     code.push_back(0xE8);
     size_t off = code.size();
     code.push_back(0x00); code.push_back(0x00);
@@ -953,7 +1312,7 @@ void PolyglotLinker::EmitTupleMarshal(std::vector<std::uint8_t> &code,
     {
         Relocation r;
         r.offset = off;
-        r.symbol = "__ploy_rt_convert_tuple";
+        r.symbol = target_sym;
         r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
         r.addend = -4;
         r.is_pc_relative = true;
@@ -966,13 +1325,34 @@ void PolyglotLinker::EmitDictMarshal(std::vector<std::uint8_t> &code,
                                       const std::string &from_lang,
                                       const std::string &to_lang,
                                       size_t param_idx) {
-    (void)from_lang;
-    (void)to_lang;
-    (void)param_idx;
+    // Dict conversion is delegated to a language-pair-specific runtime helper.
+    // The source pointer is in the register for param_idx; we move it into
+    // the first-arg register, call the helper, then place the result back.
 
-    // Dict conversion is delegated to the runtime helper.
-    // The source pointer is already in the argument register;
-    // after the call the result pointer will be in rax.
+    std::string target_sym;
+    if (from_lang == "python" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_pydict_to_cppmap";
+    } else if (from_lang == "cpp" && to_lang == "python") {
+        target_sym = "__ploy_rt_convert_cppmap_to_pydict";
+    } else if (from_lang == "java" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_jmap_to_cppmap";
+    } else if (from_lang == "cpp" && to_lang == "java") {
+        target_sym = "__ploy_rt_convert_cppmap_to_jmap";
+    } else {
+        target_sym = "__ploy_rt_dict_convert";
+    }
+
+    // Move param into first-arg register
+#ifdef _WIN32
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD1); }
+    else if (param_idx == 2) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC1); }
+    else if (param_idx == 3) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC9); }
+#else
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xF7); }
+    else if (param_idx == 2) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD7); }
+    else if (param_idx == 3) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xCF); }
+#endif
+
     code.push_back(0xE8);
     size_t off = code.size();
     code.push_back(0x00); code.push_back(0x00);
@@ -980,7 +1360,7 @@ void PolyglotLinker::EmitDictMarshal(std::vector<std::uint8_t> &code,
     {
         Relocation r;
         r.offset = off;
-        r.symbol = "__ploy_rt_dict_convert";
+        r.symbol = target_sym;
         r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
         r.addend = -4;
         r.is_pc_relative = true;
@@ -993,13 +1373,33 @@ void PolyglotLinker::EmitStructMarshal(std::vector<std::uint8_t> &code,
                                         const std::string &from_lang,
                                         const std::string &to_lang,
                                         size_t param_idx) {
-    (void)from_lang;
-    (void)to_lang;
-    (void)param_idx;
-
     // Struct marshalling copies fields between potentially different layouts.
-    // The runtime helper __ploy_rt_convert_struct reads StructFieldDesc
-    // metadata to perform field-by-field copying.
+    // The runtime helper reads StructFieldDesc metadata (embedded by the
+    // frontend in the descriptor section) to perform field-by-field copying
+    // with type widening/narrowing as needed.
+
+    std::string target_sym;
+    if (from_lang == "python" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_pyobj_to_cppstruct";
+    } else if (from_lang == "cpp" && to_lang == "python") {
+        target_sym = "__ploy_rt_convert_cppstruct_to_pyobj";
+    } else if (from_lang == "rust" && to_lang == "cpp") {
+        target_sym = "__ploy_rt_convert_ruststruct_to_cppstruct";
+    } else {
+        target_sym = "__ploy_rt_convert_struct";
+    }
+
+    // Move param into first-arg register
+#ifdef _WIN32
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD1); }
+    else if (param_idx == 2) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC1); }
+    else if (param_idx == 3) { code.push_back(0x4C); code.push_back(0x89); code.push_back(0xC9); }
+#else
+    if (param_idx == 1) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xF7); }
+    else if (param_idx == 2) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xD7); }
+    else if (param_idx == 3) { code.push_back(0x48); code.push_back(0x89); code.push_back(0xCF); }
+#endif
+
     code.push_back(0xE8);
     size_t off = code.size();
     code.push_back(0x00); code.push_back(0x00);
@@ -1007,13 +1407,313 @@ void PolyglotLinker::EmitStructMarshal(std::vector<std::uint8_t> &code,
     {
         Relocation r;
         r.offset = off;
-        r.symbol = "__ploy_rt_convert_struct";
+        r.symbol = target_sym;
         r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
         r.addend = -4;
         r.is_pc_relative = true;
         r.size = 4;
         pending_marshal_relocs_.push_back(r);
     }
+}
+
+// ============================================================================
+// High-level Container Marshal Dispatcher
+// ============================================================================
+
+void PolyglotLinker::EmitContainerMarshal(std::vector<std::uint8_t> &code,
+                                           const std::string &from_lang,
+                                           const std::string &to_lang,
+                                           const std::string &from_type,
+                                           const std::string &to_type,
+                                           size_t param_idx) {
+    // Dispatch to the correct container-specific marshaller based on the
+    // source / target type names.  This is the single entry-point called
+    // from GenerateX86_64Stub for every parameter with a MAP_TYPE entry
+    // that involves a container type.
+    if (IsListType(from_type) || IsListType(to_type)) {
+        EmitListMarshal(code, from_lang, to_lang, param_idx);
+    } else if (IsDictType(from_type) || IsDictType(to_type)) {
+        EmitDictMarshal(code, from_lang, to_lang, param_idx);
+    } else if (IsTupleType(from_type) || IsTupleType(to_type)) {
+        EmitTupleMarshal(code, from_lang, to_lang, param_idx);
+    } else if (IsStructType(from_type) || IsStructType(to_type)) {
+        EmitStructMarshal(code, from_lang, to_lang, param_idx);
+    }
+    // Non-container types are handled by scalar marshal (EmitIntToFloat etc.)
+}
+
+// ============================================================================
+// Return Value Marshalling
+// ============================================================================
+
+void PolyglotLinker::EmitReturnMarshal(std::vector<std::uint8_t> &code,
+                                        const std::string &from_lang,
+                                        const std::string &to_lang,
+                                        const std::string &return_type) {
+    // After the callee returns, the result is in rax (integer) or xmm0 (float).
+    // We may need to unbox (Python PyObject* → C++ scalar) or box
+    // (C++ scalar → Python PyObject*).
+    //
+    // Python → C++: rax holds a PyObject*.  We must call PyLong_AsLongLong /
+    //   PyFloat_AsDouble to extract the C value.
+    // C++ → Python: rax holds a C scalar.  We must call PyLong_FromLongLong /
+    //   PyFloat_FromDouble to create a PyObject*.
+    // Rust / Java → C++: typically no conversion needed (same C ABI), but
+    //   Java objects are jobject handles that require JNI unwrapping.
+
+    if (from_lang == "python" && (to_lang == "cpp" || to_lang == "rust")) {
+        // Unbox Python return value: rax = PyObject* → scalar in rax
+        bool is_float = (return_type == "float" || return_type == "double" ||
+                         return_type == "f64" || return_type == "f32");
+        if (is_float) {
+            // Call PyFloat_AsDouble(rax) — result in xmm0
+            // rax already holds the PyObject*; move it to first-arg register
+#ifdef _WIN32
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC1); // mov rcx, rax
+#else
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC7); // mov rdi, rax
+#endif
+            code.push_back(0xE8); // call
+            size_t off = code.size();
+            code.push_back(0x00); code.push_back(0x00);
+            code.push_back(0x00); code.push_back(0x00);
+            {
+                Relocation r;
+                r.offset = off;
+                r.symbol = "PyFloat_AsDouble";
+                r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+                r.addend = -4;
+                r.is_pc_relative = true;
+                r.size = 4;
+                pending_marshal_relocs_.push_back(r);
+            }
+        } else {
+            // Call PyLong_AsLongLong(rax) — result in rax
+#ifdef _WIN32
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC1); // mov rcx, rax
+#else
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC7); // mov rdi, rax
+#endif
+            code.push_back(0xE8); // call
+            size_t off = code.size();
+            code.push_back(0x00); code.push_back(0x00);
+            code.push_back(0x00); code.push_back(0x00);
+            {
+                Relocation r;
+                r.offset = off;
+                r.symbol = "PyLong_AsLongLong";
+                r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+                r.addend = -4;
+                r.is_pc_relative = true;
+                r.size = 4;
+                pending_marshal_relocs_.push_back(r);
+            }
+        }
+    } else if ((from_lang == "cpp" || from_lang == "rust") && to_lang == "python") {
+        // Box C++ return value: scalar in rax → PyObject* in rax
+        bool is_float = (return_type == "float" || return_type == "double" ||
+                         return_type == "f64" || return_type == "f32");
+        if (is_float) {
+            // xmm0 already holds the float result; call PyFloat_FromDouble
+            // (xmm0 is already the first float arg on both SysV and Win64)
+            code.push_back(0xE8); // call
+            size_t off = code.size();
+            code.push_back(0x00); code.push_back(0x00);
+            code.push_back(0x00); code.push_back(0x00);
+            {
+                Relocation r;
+                r.offset = off;
+                r.symbol = "PyFloat_FromDouble";
+                r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+                r.addend = -4;
+                r.is_pc_relative = true;
+                r.size = 4;
+                pending_marshal_relocs_.push_back(r);
+            }
+        } else {
+            // rax holds the integer result; call PyLong_FromLongLong(rax)
+#ifdef _WIN32
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC1); // mov rcx, rax
+#else
+            code.push_back(0x48); code.push_back(0x89); code.push_back(0xC7); // mov rdi, rax
+#endif
+            code.push_back(0xE8); // call
+            size_t off = code.size();
+            code.push_back(0x00); code.push_back(0x00);
+            code.push_back(0x00); code.push_back(0x00);
+            {
+                Relocation r;
+                r.offset = off;
+                r.symbol = "PyLong_FromLongLong";
+                r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+                r.addend = -4;
+                r.is_pc_relative = true;
+                r.size = 4;
+                pending_marshal_relocs_.push_back(r);
+            }
+        }
+    } else if (from_lang == "java" && to_lang == "cpp") {
+        // JNI return: for object returns, call JNI NewGlobalRef to prevent GC
+        // For scalars the JNI layer already returns native types — no conversion.
+        if (return_type == "jobject" || return_type == "jstring") {
+            // Call (*env)->NewGlobalRef(env, rax)
+            // Not emitted for scalar types (jint, jlong etc.)
+            code.push_back(0xE8); // call
+            size_t off = code.size();
+            code.push_back(0x00); code.push_back(0x00);
+            code.push_back(0x00); code.push_back(0x00);
+            {
+                Relocation r;
+                r.offset = off;
+                r.symbol = "__ploy_rt_jni_new_global_ref";
+                r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+                r.addend = -4;
+                r.is_pc_relative = true;
+                r.size = 4;
+                pending_marshal_relocs_.push_back(r);
+            }
+        }
+    }
+    // Same-language returns (cpp→cpp, rust→rust) need no marshalling
+}
+
+// ============================================================================
+// Python GIL Acquire / Release
+// ============================================================================
+
+void PolyglotLinker::EmitGILAcquire(std::vector<std::uint8_t> &code) {
+    // Call PyGILState_Ensure().
+    // Returns a PyGILState_STATE value in eax that must be passed to
+    // PyGILState_Release() when the Python call completes.
+    // We save the result on the stack at [rbp - 0x38] (inside the 0x40
+    // bytes allocated by the prologue).
+    code.push_back(0xE8); // call PyGILState_Ensure
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "PyGILState_Ensure";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
+    // Save GIL state: mov [rbp - 0x38], eax
+    code.push_back(0x89); code.push_back(0x45); code.push_back(0xC8);
+}
+
+void PolyglotLinker::EmitGILRelease(std::vector<std::uint8_t> &code,
+                                     size_t gil_state_stack_offset) {
+    // Restore the PyGILState_STATE from the stack and call PyGILState_Release().
+    // We must preserve rax (the callee's return value) across this call.
+
+    // Save return value: push rax
+    code.push_back(0x50);
+
+    // Load GIL state into first-arg register:
+    //   mov edi, [rbp - offset]   (SysV)
+    //   mov ecx, [rbp - offset]   (Win64)
+    std::uint8_t disp = static_cast<std::uint8_t>(
+        static_cast<std::uint8_t>(256 - gil_state_stack_offset));
+#ifdef _WIN32
+    code.push_back(0x8B); code.push_back(0x4D); code.push_back(disp); // mov ecx, [rbp-disp]
+#else
+    code.push_back(0x8B); code.push_back(0x7D); code.push_back(disp); // mov edi, [rbp-disp]
+#endif
+
+    code.push_back(0xE8); // call PyGILState_Release
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "PyGILState_Release";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
+
+    // Restore return value: pop rax
+    code.push_back(0x58);
+}
+
+// ============================================================================
+// Java JNI Environment Acquire / Release
+// ============================================================================
+
+void PolyglotLinker::EmitJNIEnvAcquire(std::vector<std::uint8_t> &code) {
+    // Obtain a JNIEnv* for the current thread by calling
+    // __ploy_rt_jni_get_env(), a runtime helper that wraps
+    // JavaVM::AttachCurrentThread / GetEnv.
+    // Result in rax → save to [rbp - 0x30].
+    code.push_back(0xE8); // call
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_jni_get_env";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
+    // Save JNIEnv*: mov [rbp - 0x30], rax
+    code.push_back(0x48); code.push_back(0x89); code.push_back(0x45);
+    code.push_back(0xD0);
+}
+
+void PolyglotLinker::EmitJNIEnvRelease(std::vector<std::uint8_t> &code) {
+    // Detach the current thread from the JVM if we attached it.
+    // Save rax first (return value from the JNI call).
+    code.push_back(0x50); // push rax
+
+    code.push_back(0xE8); // call __ploy_rt_jni_release_env
+    size_t off = code.size();
+    code.push_back(0x00); code.push_back(0x00);
+    code.push_back(0x00); code.push_back(0x00);
+    {
+        Relocation r;
+        r.offset = off;
+        r.symbol = "__ploy_rt_jni_release_env";
+        r.type = static_cast<std::uint32_t>(RelocationType_x86_64::kR_X86_64_PLT32);
+        r.addend = -4;
+        r.is_pc_relative = true;
+        r.size = 4;
+        pending_marshal_relocs_.push_back(r);
+    }
+
+    code.push_back(0x58); // pop rax
+}
+
+// ============================================================================
+// Rust Borrow Annotation
+// ============================================================================
+
+void PolyglotLinker::EmitRustBorrowAnnotation(std::vector<std::uint8_t> &code,
+                                               size_t param_idx,
+                                               bool is_mutable) {
+    // Emit a NOP-encoded metadata marker that the Polyglot runtime can use
+    // to enforce borrow semantics at the FFI boundary.
+    // Format: 0x0F 0x1F <modrm> where modrm encodes:
+    //   bits [7:6] = 00 (no displacement)
+    //   bits [5:3] = param_idx (0-7)
+    //   bits [2:0] = is_mutable ? 1 : 0
+    // This is a 3-byte NOP (canonical x86-64 NOP) that the runtime interprets
+    // as a borrow annotation when scanning the stub prologue.
+    code.push_back(0x0F);
+    code.push_back(0x1F);
+    std::uint8_t modrm = static_cast<std::uint8_t>(
+        ((param_idx & 0x07) << 3) | (is_mutable ? 0x01 : 0x00));
+    code.push_back(modrm);
 }
 
 // ============================================================================

@@ -1012,7 +1012,7 @@ polyglot_linker.cpp 中 EmitContainerMarshal、EmitReturnMarshal、EmitCallingCo
 4. Python 桥接 stub 中插入 GIL 获取/释放指令（PyGILState_Ensure/PyGILState_Release）。
 5. 为以上每种路径编写集成测试（从 .ploy 编译到 stub 生成，验证 stub 字节码包含期望的指令模式）。
 
---end
+--end -done
 
 2026-04-11-06
 

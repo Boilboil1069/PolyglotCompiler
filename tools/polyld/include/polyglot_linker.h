@@ -146,6 +146,25 @@ class PolyglotLinker {
     void EmitDictMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
     void EmitStructMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, size_t param_idx);
 
+    // High-level container marshal dispatcher: selects the correct per-lang
+    // deep-copy / view-sharing path based on from_lang / to_lang combination.
+    void EmitContainerMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, const std::string &from_type, const std::string &to_type, size_t param_idx);
+
+    // Return value marshalling: emits box/unbox instructions to convert the
+    // return value in rax/x0 between language ABIs (e.g. Python PyObject* → C++ int64_t).
+    void EmitReturnMarshal(std::vector<std::uint8_t> &code, const std::string &from_lang, const std::string &to_lang, const std::string &return_type);
+
+    // Python GIL management: must bracket every call into the CPython runtime
+    void EmitGILAcquire(std::vector<std::uint8_t> &code);
+    void EmitGILRelease(std::vector<std::uint8_t> &code, size_t gil_state_stack_offset);
+
+    // Java JNI environment management: obtain/release JNIEnv* for JNI calls
+    void EmitJNIEnvAcquire(std::vector<std::uint8_t> &code);
+    void EmitJNIEnvRelease(std::vector<std::uint8_t> &code);
+
+    // Rust borrow annotation: emit metadata markers for borrow-checked parameters
+    void EmitRustBorrowAnnotation(std::vector<std::uint8_t> &code, size_t param_idx, bool is_mutable);
+
     // Detect whether a type name refers to a container type
     static bool IsContainerType(const std::string &type_name);
     static bool IsListType(const std::string &type_name);
