@@ -971,3 +971,9 @@ PIPELINE的显示逻辑还是不对，PIPELINE内部应该只显示PIPELINE的FU
 添加单元/集成测试覆盖：加载一个包含 PIPELINE 的样例，断言默认 PIPELINE 视图中只有 stage 节点可见，双击后内部 CALL 边与节点可见。
 
 --end -done
+
+2026-04-11-03
+
+PIPELINE双击的逻辑不对，不应该在同一个窗口里面显示，应该在新的子窗口中出现。
+
+--end -done

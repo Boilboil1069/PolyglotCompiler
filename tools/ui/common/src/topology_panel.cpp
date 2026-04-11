@@ -578,12 +578,14 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
 
 void TopoNodeItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
     Q_UNUSED(event);
-    // Toggle expansion regardless of source location — even nodes without
-    // source files can be expandable containers.
+    // Open a drill-down sub-window for expandable nodes instead of toggling
+    // expansion in the same canvas.
     for (auto *v : scene()->views()) {
         auto *tgv = qobject_cast<TopoGraphicsView *>(v);
         if (tgv && tgv->Panel()) {
-            tgv->Panel()->ToggleNodeExpansion(node_id_);
+            if (expandable_) {
+                tgv->Panel()->OpenDrillDownWindow(node_id_);
+            }
             // Also emit the NodeDoubleClicked signal for navigation if location exists
             if (!source_file_.isEmpty() && source_line_ > 0) {
                 emit tgv->Panel()->NodeDoubleClicked(source_file_, source_line_);
@@ -606,9 +608,9 @@ void TopoNodeItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event) {
 
     if (expandable_) {
         if (expanded_) {
-            tip += "<br><br>🔽 <i>Double-click to collapse internal calls</i>";
+            tip += "<br><br>🔽 <i>Double-click to open internal calls in a sub-window</i>";
         } else {
-            tip += "<br><br>▶ <i>Double-click to expand internal calls</i>";
+            tip += "<br><br>▶ <i>Double-click to open internal calls in a sub-window</i>";
         }
     }
 
@@ -2082,17 +2084,12 @@ void TopologyPanel::ApplyViewModeFilter() {
                 }
             }
         }
-        // Respect drill-down expansion: if this edge was created by a
-        // function/stage body (context_node_id != 0) and that context node
-        // is not expanded, hide the edge.  This makes CALL internals
-        // collapsed by default and only visible after expanding the
-        // enclosing function/stage.
+        // Context-based hiding: edges created by a function/stage body
+        // (context_node_id != 0) are only shown in their dedicated
+        // drill-down sub-window, never on the main canvas.
         auto ectx_it = edge_context_.find(edge_item->EdgeId());
         if (visible && ectx_it != edge_context_.end() && ectx_it->second != 0) {
-            uint64_t ctx = ectx_it->second;
-            if (!expanded_nodes_.count(ctx)) {
-                visible = false;
-            }
+            visible = false;
         }
         edge_item->setVisible(visible);
         if (visible) {
@@ -2149,15 +2146,12 @@ void TopologyPanel::ApplyViewModeFilter() {
             }
         }
 
-        // If this node was created as part of a function/stage body
-        // (context_node_id != 0) and the enclosing node is not expanded,
-        // hide it. This keeps function internals collapsed by default.
+        // Context-based hiding: nodes created as part of a function/stage
+        // body (context_node_id != 0) are only shown in their dedicated
+        // drill-down sub-window, never on the main canvas.
         auto nctx_it = node_context_.find(id);
         if (visible && nctx_it != node_context_.end() && nctx_it->second != 0) {
-            uint64_t ctx = nctx_it->second;
-            if (!expanded_nodes_.count(ctx)) {
-                visible = false;
-            }
+            visible = false;
         }
 
         item->setVisible(visible);
@@ -2181,6 +2175,243 @@ void TopologyPanel::OnFileChanged(const QString &path) {
     // Start or restart the debounce timer.  The actual reload happens in
     // the timer callback to coalesce rapid successive writes.
     reload_debounce_->start();
+}
+
+// ============================================================================
+// TopologyPanel::OpenDrillDownWindow — open a sub-window for a container node
+// ============================================================================
+
+void TopologyPanel::OpenDrillDownWindow(uint64_t node_id) {
+    if (node_id == 0) return;
+
+    // Only expandable nodes may be drilled into
+    auto nit = node_items_.find(node_id);
+    if (nit == node_items_.end()) return;
+    if (!nit->second->IsExpandable()) return;
+
+    // If a window for this node is already open, just raise it
+    auto wit = drill_down_windows_.find(node_id);
+    if (wit != drill_down_windows_.end() && wit->second) {
+        wit->second->raise();
+        wit->second->activateWindow();
+        diagnostics_output_->appendPlainText(
+            QString("[DrillDown] Raised existing sub-window for node %1 (%2)")
+                .arg(node_id).arg(nit->second->NodeName()));
+        return;
+    }
+
+    // Create a new sub-window
+    auto *win = new DrillDownWindow(node_id, nit->second->NodeName(), this);
+    drill_down_windows_[node_id] = win;
+
+    // Remove from map when the window is destroyed
+    connect(win, &QObject::destroyed, this, [this, node_id]() {
+        drill_down_windows_.erase(node_id);
+    });
+
+    // Forward navigation signals to the main panel so editors can navigate
+    connect(win, &DrillDownWindow::NodeDoubleClicked,
+            this, &TopologyPanel::NodeDoubleClicked);
+
+    win->show();
+
+    diagnostics_output_->appendPlainText(
+        QString("[DrillDown] Opened sub-window for node %1 (%2)")
+            .arg(node_id).arg(nit->second->NodeName()));
+}
+
+// ============================================================================
+// DrillDownWindow — sub-window showing internal calls of a container node
+// ============================================================================
+
+DrillDownWindow::DrillDownWindow(uint64_t container_node_id,
+                                 const QString &container_name,
+                                 TopologyPanel *parent_panel,
+                                 QWidget *parent)
+    : QWidget(parent, Qt::Window),
+      container_node_id_(container_node_id),
+      parent_panel_(parent_panel) {
+    setAttribute(Qt::WA_DeleteOnClose);
+    SetupUI(container_name);
+    PopulateScene();
+    LayoutDrillDownNodes();
+}
+
+DrillDownWindow::~DrillDownWindow() = default;
+
+void DrillDownWindow::SetupUI(const QString &container_name) {
+    setWindowTitle(QString("Drill-Down: %1").arg(container_name));
+    resize(800, 600);
+
+    auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(4, 4, 4, 4);
+    layout->setSpacing(2);
+
+    // Toolbar with zoom buttons
+    auto *toolbar = new QToolBar(this);
+    toolbar->setIconSize(QSize(16, 16));
+
+    auto *zoom_in_btn = new QPushButton("+", this);
+    zoom_in_btn->setFixedSize(28, 28);
+    zoom_in_btn->setToolTip("Zoom in");
+    toolbar->addWidget(zoom_in_btn);
+
+    auto *zoom_out_btn = new QPushButton("−", this);
+    zoom_out_btn->setFixedSize(28, 28);
+    zoom_out_btn->setToolTip("Zoom out");
+    toolbar->addWidget(zoom_out_btn);
+
+    auto *zoom_fit_btn = new QPushButton("⊞", this);
+    zoom_fit_btn->setFixedSize(28, 28);
+    zoom_fit_btn->setToolTip("Zoom to fit");
+    toolbar->addWidget(zoom_fit_btn);
+
+    layout->addWidget(toolbar);
+
+    // Scene and view
+    scene_ = new QGraphicsScene(this);
+    view_ = new TopoGraphicsView(scene_, this);
+    // Do NOT set the panel pointer — the sub-window's nodes should not
+    // interact with the main panel's expansion logic.
+    view_->setRenderHint(QPainter::Antialiasing);
+    view_->setDragMode(QGraphicsView::ScrollHandDrag);
+    layout->addWidget(view_);
+
+    // Status label
+    status_label_ = new QLabel(this);
+    layout->addWidget(status_label_);
+
+    // Zoom connections
+    connect(zoom_in_btn, &QPushButton::clicked, this, [this]() {
+        view_->scale(1.2, 1.2);
+    });
+    connect(zoom_out_btn, &QPushButton::clicked, this, [this]() {
+        view_->scale(1.0 / 1.2, 1.0 / 1.2);
+    });
+    connect(zoom_fit_btn, &QPushButton::clicked, this, [this]() {
+        view_->fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
+    });
+}
+
+void DrillDownWindow::PopulateScene() {
+    if (!parent_panel_) return;
+
+    const auto &src_nodes = parent_panel_->NodeItems();
+    const auto &src_edges = parent_panel_->EdgeItems();
+    const auto &node_ctx = parent_panel_->NodeContextMap();
+    const auto &edge_ctx = parent_panel_->EdgeContextMap();
+    const auto &node_origin = parent_panel_->NodeOriginMap();
+    const auto &edge_origin = parent_panel_->EdgeOriginMap();
+
+    // Collect nodes whose context_node_id matches the container, plus nodes
+    // reachable from visible edges to ensure a complete sub-graph.
+    std::unordered_set<uint64_t> context_node_ids;
+    for (auto &[nid, ctx] : node_ctx) {
+        if (ctx == container_node_id_) {
+            context_node_ids.insert(nid);
+        }
+    }
+
+    // Also include the container node itself as a reference anchor
+    context_node_ids.insert(container_node_id_);
+
+    // Collect edges belonging to this context
+    std::unordered_set<uint64_t> visible_edge_ids;
+    for (auto *edge : src_edges) {
+        auto eit = edge_ctx.find(edge->EdgeId());
+        if (eit != edge_ctx.end() && eit->second == container_node_id_) {
+            visible_edge_ids.insert(edge->EdgeId());
+            // Ensure both endpoint nodes are included even if they don't
+            // directly belong to this context (e.g. an external node whose
+            // context is a nested stage)
+            context_node_ids.insert(edge->SourceNodeId());
+            context_node_ids.insert(edge->TargetNodeId());
+        }
+    }
+
+    // Clone the matching nodes into the sub-window's scene
+    for (uint64_t nid : context_node_ids) {
+        auto it = src_nodes.find(nid);
+        if (it == src_nodes.end()) continue;
+
+        const TopoNodeItem *src = it->second;
+        auto *item = new TopoNodeItem(
+            src->NodeId(), src->NodeName(), src->Language(), src->Kind());
+        item->SetSourceLocation(src->SourceFile(), src->SourceLine());
+
+        // Re-create ports so edge endpoints can resolve positions
+        for (const auto *port : src->InputPorts()) {
+            item->AddInputPort(port->PortId(), port->PortName(), port->TypeName());
+        }
+        for (const auto *port : src->OutputPorts()) {
+            item->AddOutputPort(port->PortId(), port->PortName(), port->TypeName());
+        }
+
+        // Mark whether this clone is also expandable (for nested drill-down)
+        item->SetExpandable(src->IsExpandable());
+
+        scene_->addItem(item);
+        node_items_[nid] = item;
+    }
+
+    // Clone matching edges
+    for (auto *src_edge : src_edges) {
+        if (!visible_edge_ids.count(src_edge->EdgeId())) continue;
+
+        auto src_it = node_items_.find(src_edge->SourceNodeId());
+        auto tgt_it = node_items_.find(src_edge->TargetNodeId());
+        if (src_it == node_items_.end() || tgt_it == node_items_.end()) continue;
+
+        QPointF start = src_it->second->OutputPortPos(src_edge->SourcePortId());
+        QPointF end = tgt_it->second->InputPortPos(src_edge->TargetPortId());
+
+        auto *edge_item = new TopoEdgeItem(
+            src_edge->EdgeId(), start, end, src_edge->Status());
+        edge_item->SetEndpointIds(src_edge->SourceNodeId(), src_edge->SourcePortId(),
+                                  src_edge->TargetNodeId(), src_edge->TargetPortId());
+        scene_->addItem(edge_item);
+        edge_items_.push_back(edge_item);
+    }
+
+    status_label_->setText(
+        QString("Internal view: %1 nodes, %2 edges")
+            .arg(node_items_.size())
+            .arg(edge_items_.size()));
+}
+
+void DrillDownWindow::LayoutDrillDownNodes() {
+    // Simple grid layout for the sub-window's nodes
+    qreal spacing_x = kNodeWidth + 80;
+    qreal spacing_y = 140;
+    size_t cols = std::max(static_cast<size_t>(1),
+                           static_cast<size_t>(std::ceil(std::sqrt(
+                               static_cast<double>(node_items_.size())))));
+    size_t i = 0;
+    for (auto &[id, item] : node_items_) {
+        size_t col = i % cols;
+        size_t row = i / cols;
+        qreal x = static_cast<qreal>(col) * spacing_x;
+        qreal y = static_cast<qreal>(row) * spacing_y;
+        item->setPos(x, y);
+        ++i;
+    }
+
+    // Update edge endpoints after layout
+    for (auto *edge_item : edge_items_) {
+        auto src_it = node_items_.find(edge_item->SourceNodeId());
+        auto tgt_it = node_items_.find(edge_item->TargetNodeId());
+        if (src_it != node_items_.end() && tgt_it != node_items_.end()) {
+            QPointF start = src_it->second->OutputPortPos(edge_item->SourcePortId());
+            QPointF end = tgt_it->second->InputPortPos(edge_item->TargetPortId());
+            edge_item->UpdateEndpoints(start, end);
+        }
+    }
+
+    // Zoom to fit content
+    QTimer::singleShot(100, this, [this]() {
+        view_->fitInView(scene_->sceneRect().adjusted(-40, -40, 40, 40),
+                         Qt::KeepAspectRatio);
+    });
 }
 
 } // namespace polyglot::tools::ui

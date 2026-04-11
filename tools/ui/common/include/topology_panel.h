@@ -242,6 +242,58 @@ class TopoGraphicsView : public QGraphicsView {
 };
 
 // ============================================================================
+// DrillDownWindow — sub-window showing internal calls of a container node
+// ============================================================================
+
+/**
+ * @brief Sub-window opened when double-clicking an expandable node.
+ *
+ * Instead of expanding internal calls in-place on the main canvas, a
+ * DrillDownWindow presents a dedicated QGraphicsScene that contains only
+ * the nodes and edges whose @c context_node_id matches the container.
+ * The window supports the same zooming, selection, and context-menu
+ * interactions as the main topology view.
+ */
+class DrillDownWindow : public QWidget {
+    Q_OBJECT
+
+  public:
+    /**
+     * @brief Construct a drill-down sub-window.
+     * @param container_node_id  The id of the container node being drilled into.
+     * @param container_name     Display name for the window title.
+     * @param parent_panel       The TopologyPanel that owns the master data.
+     * @param parent             Optional parent widget.
+     */
+    explicit DrillDownWindow(uint64_t container_node_id,
+                             const QString &container_name,
+                             TopologyPanel *parent_panel,
+                             QWidget *parent = nullptr);
+    ~DrillDownWindow() override;
+
+    uint64_t ContainerNodeId() const { return container_node_id_; }
+
+  signals:
+    // Re-emit navigation request so parent can forward to the editor
+    void NodeDoubleClicked(const QString &filename, int line);
+
+  private:
+    void SetupUI(const QString &container_name);
+    void PopulateScene();
+    void LayoutDrillDownNodes();
+
+    uint64_t container_node_id_{0};
+    TopologyPanel *parent_panel_{nullptr};
+    QGraphicsScene *scene_{nullptr};
+    TopoGraphicsView *view_{nullptr};
+    QLabel *status_label_{nullptr};
+
+    // Cloned items for this sub-view (owned by the scene)
+    std::unordered_map<uint64_t, TopoNodeItem *> node_items_;
+    std::vector<TopoEdgeItem *> edge_items_;
+};
+
+// ============================================================================
 // TopologyPanel — main panel widget
 // ============================================================================
 
@@ -274,6 +326,21 @@ class TopologyPanel : public QWidget {
 
     // Query whether a specific node is currently expanded (drill-down).
     bool IsNodeExpanded(uint64_t node_id) const;
+
+    // Open a drill-down sub-window showing the internal calls of a
+    // container node (e.g. a FUNC or pipeline stage).  If a sub-window
+    // for the same container is already open it will be raised instead.
+    void OpenDrillDownWindow(uint64_t node_id);
+
+    // ── Data accessors for DrillDownWindow ──────────────────────────────
+    const std::unordered_map<uint64_t, TopoNodeItem *> &NodeItems() const { return node_items_; }
+    const std::vector<TopoEdgeItem *> &EdgeItems() const { return edge_items_; }
+    const std::unordered_map<uint64_t, uint64_t> &NodeContextMap() const { return node_context_; }
+    const std::unordered_map<uint64_t, uint64_t> &EdgeContextMap() const { return edge_context_; }
+    const std::unordered_map<uint64_t, int> &NodeOriginMap() const { return node_origin_; }
+    const std::unordered_map<uint64_t, int> &NodeKindMap() const { return node_kind_; }
+    const std::unordered_map<uint64_t, int> &EdgeOriginMap() const { return edge_origin_; }
+    QPlainTextEdit *DiagnosticsOutput() const { return diagnostics_output_; }
 
     // Called by TopoGraphicsView when a port-to-port drag completes
     void TryCreateEdge(TopoPortItem *source, TopoPortItem *target);
@@ -392,6 +459,10 @@ class TopologyPanel : public QWidget {
 
     // Currently execution-highlighted node id (0 = none)
     uint64_t execution_highlight_id_{0};
+
+    // Open drill-down sub-windows keyed by container node id.
+    // Entries are removed automatically when the window is closed.
+    std::unordered_map<uint64_t, DrillDownWindow *> drill_down_windows_;
 };
 
 } // namespace polyglot::tools::ui
