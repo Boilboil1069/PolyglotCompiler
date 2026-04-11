@@ -46,6 +46,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
                 // Save and reset var_bindings_ per function scope
                 auto saved_bindings = std::move(var_bindings_);
                 var_bindings_.clear();
+                current_context_id_ = node->id;
 
                 // Bind each FUNC parameter to the node's input port
                 for (size_t i = 0; i < func->params.size() && i < node->inputs.size(); ++i) {
@@ -55,6 +56,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
 
                 AnalyzeBody(func->body, node->id);
 
+                current_context_id_ = 0;
                 var_bindings_ = std::move(saved_bindings);
             }
         } else if (auto pipeline = std::dynamic_pointer_cast<ploy::PipelineDecl>(stmt)) {
@@ -62,7 +64,9 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
             if (node) {
                 auto saved_bindings = std::move(var_bindings_);
                 var_bindings_.clear();
+                current_context_id_ = node->id;
                 AnalyzeBody(pipeline->body, node->id);
+                current_context_id_ = 0;
                 var_bindings_ = std::move(saved_bindings);
             }
 
@@ -76,6 +80,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
 
                 auto saved_bindings2 = std::move(var_bindings_);
                 var_bindings_.clear();
+                current_context_id_ = stage_node->id;
                 for (size_t i = 0; i < sub_func->params.size()
                                    && i < stage_node->inputs.size(); ++i) {
                     var_bindings_[sub_func->params[i].name] = {
@@ -83,6 +88,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
                         stage_node->inputs[i].type};
                 }
                 AnalyzeBody(sub_func->body, stage_node->id);
+                current_context_id_ = 0;
                 var_bindings_ = std::move(saved_bindings2);
             }
         } else if (auto map_func = std::dynamic_pointer_cast<ploy::MapFuncDecl>(stmt)) {
@@ -90,6 +96,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
             if (node) {
                 auto saved_bindings = std::move(var_bindings_);
                 var_bindings_.clear();
+                current_context_id_ = node->id;
 
                 for (size_t i = 0; i < map_func->params.size() && i < node->inputs.size(); ++i) {
                     var_bindings_[map_func->params[i].name] = {
@@ -97,6 +104,7 @@ bool TopologyAnalyzer::Build(const std::shared_ptr<ploy::Module> &module) {
                 }
 
                 AnalyzeBody(map_func->body, node->id);
+                current_context_id_ = 0;
                 var_bindings_ = std::move(saved_bindings);
             }
         }
@@ -738,6 +746,7 @@ uint64_t TopologyAnalyzer::FindOrCreateExternalNode(
     node.kind = TopologyNode::Kind::kExternalCall;
     node.loc = loc;
     node.origin = TopologyNode::Origin::kCall;
+    node.context_node_id = current_context_id_;
 
     // Try to resolve signature from sema.
     // The signature may be registered under different key formats:
@@ -827,6 +836,7 @@ void TopologyAnalyzer::ConnectEdge(
     edge.target_port_id = target_port_id;
     edge.status = TopologyEdge::Status::kUnknown;
     edge.loc = loc;
+    edge.context_node_id = current_context_id_;
 
     graph_.AddEdge(std::move(edge));
 }

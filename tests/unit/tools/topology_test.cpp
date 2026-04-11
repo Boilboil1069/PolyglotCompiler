@@ -629,3 +629,304 @@ TEST_CASE("TopologyAnalyzer: LINK source node return type after foreign injectio
     INFO("abs_val output port type.name = '" << abs_val_node->outputs[0].type.name << "'");
     CHECK(abs_val_node->outputs[0].type.name == "i32");
 }
+
+// ============================================================================
+// PIPELINE drill-down: context_node_id and expansion visibility
+// ============================================================================
+
+TEST_CASE("TopologyAnalyzer: PIPELINE stages have kPipelineStage origin",
+          "[topology][analyzer][pipeline]") {
+    std::string source = R"(
+PIPELINE image_process {
+    FUNC step1(img: Image) -> Image {
+        RETURN img;
+    }
+    FUNC step2(img: Image) -> Image {
+        RETURN img;
+    }
+}
+)";
+
+    auto graph = BuildGraph(source);
+
+    // There should be a pipeline container node
+    const TopologyNode *pipeline_node = nullptr;
+    for (const auto &n : graph.Nodes()) {
+        if (n.kind == TopologyNode::Kind::kPipeline) {
+            pipeline_node = &n;
+            break;
+        }
+    }
+    REQUIRE(pipeline_node != nullptr);
+    CHECK(pipeline_node->origin == TopologyNode::Origin::kDecl);
+
+    // There should be two stage sub-nodes with kPipelineStage origin
+    std::vector<const TopologyNode *> stages;
+    for (const auto &n : graph.Nodes()) {
+        if (n.origin == TopologyNode::Origin::kPipelineStage) {
+            stages.push_back(&n);
+        }
+    }
+    REQUIRE(stages.size() == 2);
+    CHECK(stages[0]->kind == TopologyNode::Kind::kFunction);
+    CHECK(stages[1]->kind == TopologyNode::Kind::kFunction);
+
+    // There should be one stage-order edge connecting the two stages
+    int stage_order_edges = 0;
+    for (const auto &e : graph.Edges()) {
+        if (e.origin == TopologyEdge::Origin::kPipelineStage) {
+            ++stage_order_edges;
+        }
+    }
+    CHECK(stage_order_edges == 1);
+}
+
+TEST_CASE("TopologyAnalyzer: PIPELINE FUNC with CALL sets context_node_id",
+          "[topology][analyzer][pipeline][drilldown]") {
+    std::string source = R"(
+PIPELINE data_flow {
+    FUNC preprocess(x: Int) -> Int {
+        VAR result = CALL(cpp, transform, x);
+        RETURN result;
+    }
+    FUNC postprocess(y: Int) -> Int {
+        VAR output = CALL(python, finalize, y);
+        RETURN output;
+    }
+}
+)";
+
+    auto graph = BuildGraph(source);
+
+    // Find the stage nodes for preprocess and postprocess
+    const TopologyNode *preprocess_stage = nullptr;
+    const TopologyNode *postprocess_stage = nullptr;
+    for (const auto &n : graph.Nodes()) {
+        if (n.name.find("preprocess") != std::string::npos &&
+            n.origin == TopologyNode::Origin::kPipelineStage) {
+            preprocess_stage = &n;
+        }
+        if (n.name.find("postprocess") != std::string::npos &&
+            n.origin == TopologyNode::Origin::kPipelineStage) {
+            postprocess_stage = &n;
+        }
+    }
+    REQUIRE(preprocess_stage != nullptr);
+    REQUIRE(postprocess_stage != nullptr);
+
+    // Find the external CALL nodes (cpp::transform, python::finalize)
+    const TopologyNode *transform_node = nullptr;
+    const TopologyNode *finalize_node = nullptr;
+    for (const auto &n : graph.Nodes()) {
+        if (n.name == "cpp::transform") {
+            transform_node = &n;
+        }
+        if (n.name == "python::finalize") {
+            finalize_node = &n;
+        }
+    }
+    REQUIRE(transform_node != nullptr);
+    REQUIRE(finalize_node != nullptr);
+
+    // External nodes created by a stage body should have context_node_id
+    // pointing to the enclosing stage node
+    CHECK(transform_node->context_node_id == preprocess_stage->id);
+    CHECK(finalize_node->context_node_id == postprocess_stage->id);
+
+    // CALL edges created inside stage bodies should also have context_node_id
+    // pointing to their enclosing stage
+    bool found_transform_edge = false;
+    bool found_finalize_edge = false;
+    for (const auto &e : graph.Edges()) {
+        if (e.target_node_id == transform_node->id) {
+            CHECK(e.context_node_id == preprocess_stage->id);
+            found_transform_edge = true;
+        }
+        if (e.target_node_id == finalize_node->id) {
+            CHECK(e.context_node_id == postprocess_stage->id);
+            found_finalize_edge = true;
+        }
+    }
+    CHECK(found_transform_edge);
+    CHECK(found_finalize_edge);
+}
+
+TEST_CASE("TopologyAnalyzer: FUNC with CALL sets context_node_id on edges",
+          "[topology][analyzer][drilldown]") {
+    std::string source = R"(
+FUNC process(x: Int) -> Int {
+    VAR mid = CALL(cpp, compute, x);
+    VAR result = CALL(python, finalize, mid);
+    RETURN result;
+}
+)";
+
+    auto graph = BuildGraph(source);
+
+    // Find the process FUNC declaration node
+    const TopologyNode *process_node = nullptr;
+    for (const auto &n : graph.Nodes()) {
+        if (n.name == "process" && n.origin == TopologyNode::Origin::kDecl) {
+            process_node = &n;
+            break;
+        }
+    }
+    REQUIRE(process_node != nullptr);
+
+    // External CALL nodes should have context_node_id == process_node->id
+    for (const auto &n : graph.Nodes()) {
+        if (n.kind == TopologyNode::Kind::kExternalCall) {
+            INFO("External node: " << n.name << " context_node_id=" << n.context_node_id);
+            CHECK(n.context_node_id == process_node->id);
+        }
+    }
+
+    // CALL edges should have context_node_id == process_node->id
+    for (const auto &e : graph.Edges()) {
+        if (e.origin == TopologyEdge::Origin::kCall) {
+            INFO("CALL edge id=" << e.id << " context_node_id=" << e.context_node_id);
+            CHECK(e.context_node_id == process_node->id);
+        }
+    }
+}
+
+TEST_CASE("TopologyGraph: drill-down visibility — collapsed hides context children",
+          "[topology][graph][drilldown]") {
+    // Build a graph manually simulating what the analyzer produces:
+    // A pipeline container, two stage nodes, and two external nodes created
+    // by stage bodies (with context_node_id set).
+    TopologyGraph graph;
+
+    // Pipeline container
+    TopologyNode pipe;
+    pipe.name = "pipeline:test";
+    pipe.language = "ploy";
+    pipe.kind = TopologyNode::Kind::kPipeline;
+    pipe.origin = TopologyNode::Origin::kDecl;
+    Port pipe_out;
+    pipe_out.name = "result";
+    pipe_out.direction = Port::Direction::kOutput;
+    pipe.outputs.push_back(pipe_out);
+    uint64_t pipe_id = graph.AddNode(std::move(pipe));
+
+    // Stage 1
+    TopologyNode stage1;
+    stage1.name = "pipeline:test::step1";
+    stage1.language = "ploy";
+    stage1.kind = TopologyNode::Kind::kFunction;
+    stage1.origin = TopologyNode::Origin::kPipelineStage;
+    Port s1_in;
+    s1_in.name = "x";
+    s1_in.direction = Port::Direction::kInput;
+    stage1.inputs.push_back(s1_in);
+    Port s1_out;
+    s1_out.name = "return";
+    s1_out.direction = Port::Direction::kOutput;
+    stage1.outputs.push_back(s1_out);
+    uint64_t stage1_id = graph.AddNode(std::move(stage1));
+
+    // Stage 2
+    TopologyNode stage2;
+    stage2.name = "pipeline:test::step2";
+    stage2.language = "ploy";
+    stage2.kind = TopologyNode::Kind::kFunction;
+    stage2.origin = TopologyNode::Origin::kPipelineStage;
+    Port s2_in;
+    s2_in.name = "y";
+    s2_in.direction = Port::Direction::kInput;
+    stage2.inputs.push_back(s2_in);
+    Port s2_out;
+    s2_out.name = "return";
+    s2_out.direction = Port::Direction::kOutput;
+    stage2.outputs.push_back(s2_out);
+    uint64_t stage2_id = graph.AddNode(std::move(stage2));
+
+    // External node created by stage1 body
+    TopologyNode ext1;
+    ext1.name = "cpp::transform";
+    ext1.language = "cpp";
+    ext1.kind = TopologyNode::Kind::kExternalCall;
+    ext1.origin = TopologyNode::Origin::kCall;
+    ext1.context_node_id = stage1_id;
+    Port e1_out;
+    e1_out.name = "return";
+    e1_out.direction = Port::Direction::kOutput;
+    ext1.outputs.push_back(e1_out);
+    uint64_t ext1_id = graph.AddNode(std::move(ext1));
+
+    // External node created by stage2 body
+    TopologyNode ext2;
+    ext2.name = "python::finalize";
+    ext2.language = "python";
+    ext2.kind = TopologyNode::Kind::kExternalCall;
+    ext2.origin = TopologyNode::Origin::kCall;
+    ext2.context_node_id = stage2_id;
+    Port e2_out;
+    e2_out.name = "return";
+    e2_out.direction = Port::Direction::kOutput;
+    ext2.outputs.push_back(e2_out);
+    uint64_t ext2_id = graph.AddNode(std::move(ext2));
+
+    // Retrieve port ids
+    const auto *s1 = graph.GetNode(stage1_id);
+    const auto *s2 = graph.GetNode(stage2_id);
+    const auto *e1 = graph.GetNode(ext1_id);
+    const auto *e2 = graph.GetNode(ext2_id);
+
+    // Stage-order edge: stage1 -> stage2
+    TopologyEdge stage_edge;
+    stage_edge.source_node_id = stage1_id;
+    stage_edge.source_port_id = s1->outputs[0].id;
+    stage_edge.target_node_id = stage2_id;
+    stage_edge.target_port_id = s2->inputs[0].id;
+    stage_edge.origin = TopologyEdge::Origin::kPipelineStage;
+    stage_edge.context_node_id = 0;  // pipeline-level, not body-level
+    graph.AddEdge(std::move(stage_edge));
+
+    // CALL edge: stage1 -> ext1 (created by stage1's body)
+    TopologyEdge call_edge1;
+    call_edge1.source_node_id = stage1_id;
+    call_edge1.source_port_id = s1->inputs[0].id;
+    call_edge1.target_node_id = ext1_id;
+    call_edge1.target_port_id = e1->outputs[0].id;
+    call_edge1.origin = TopologyEdge::Origin::kCall;
+    call_edge1.context_node_id = stage1_id;  // created by stage1's body
+    auto call_edge1_id = graph.AddEdge(std::move(call_edge1));
+
+    // CALL edge: stage2 -> ext2 (created by stage2's body)
+    TopologyEdge call_edge2;
+    call_edge2.source_node_id = stage2_id;
+    call_edge2.source_port_id = s2->inputs[0].id;
+    call_edge2.target_node_id = ext2_id;
+    call_edge2.target_port_id = e2->outputs[0].id;
+    call_edge2.origin = TopologyEdge::Origin::kCall;
+    call_edge2.context_node_id = stage2_id;  // created by stage2's body
+    auto call_edge2_id = graph.AddEdge(std::move(call_edge2));
+
+    // Verify graph structure
+    REQUIRE(graph.NodeCount() == 5);
+    REQUIRE(graph.EdgeCount() == 3);
+
+    // Verify context_node_id assignments
+    const auto *ext1_check = graph.GetNode(ext1_id);
+    const auto *ext2_check = graph.GetNode(ext2_id);
+    CHECK(ext1_check->context_node_id == stage1_id);
+    CHECK(ext2_check->context_node_id == stage2_id);
+
+    // Check that stage nodes have context_node_id == 0 (top-level stages)
+    const auto *s1_check = graph.GetNode(stage1_id);
+    const auto *s2_check = graph.GetNode(stage2_id);
+    CHECK(s1_check->context_node_id == 0);
+    CHECK(s2_check->context_node_id == 0);
+
+    // Verify edge context_node_ids
+    for (const auto &e : graph.Edges()) {
+        if (e.origin == TopologyEdge::Origin::kPipelineStage) {
+            CHECK(e.context_node_id == 0);
+        } else if (e.id == call_edge1_id) {
+            CHECK(e.context_node_id == stage1_id);
+        } else if (e.id == call_edge2_id) {
+            CHECK(e.context_node_id == stage2_id);
+        }
+    }
+}

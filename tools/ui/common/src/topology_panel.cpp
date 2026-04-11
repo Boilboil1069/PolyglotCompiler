@@ -450,8 +450,37 @@ void TopoNodeItem::paint(QPainter *painter,
     header_font.setPointSize(9);
     header_font.setBold(true);
     painter->setFont(header_font);
+
+    // Draw expand/collapse indicator for expandable nodes
+    qreal text_left = 8;
+    if (expandable_) {
+        // Draw a small triangle: ▶ (collapsed) or ▼ (expanded)
+        painter->save();
+        painter->setBrush(QBrush(Qt::white));
+        painter->setPen(Qt::NoPen);
+        QPolygonF triangle;
+        constexpr qreal kTriSize = 6.0;
+        qreal cx = header.x() + 10;
+        qreal cy = header.y() + header.height() / 2;
+        if (expanded_) {
+            // ▼ pointing down
+            triangle << QPointF(cx - kTriSize, cy - kTriSize * 0.5)
+                     << QPointF(cx + kTriSize, cy - kTriSize * 0.5)
+                     << QPointF(cx,            cy + kTriSize * 0.5);
+        } else {
+            // ▶ pointing right
+            triangle << QPointF(cx - kTriSize * 0.5, cy - kTriSize)
+                     << QPointF(cx + kTriSize * 0.5, cy)
+                     << QPointF(cx - kTriSize * 0.5, cy + kTriSize);
+        }
+        painter->drawPolygon(triangle);
+        painter->restore();
+        painter->setPen(Qt::white);
+        text_left = 22;  // Shift header text right to make room for the indicator
+    }
+
     QString header_text = "[" + kind_ + "] " + name_;
-    painter->drawText(header.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft,
+    painter->drawText(header.adjusted(text_left, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft,
                       header_text);
 
     // Language badge
@@ -549,16 +578,47 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
 
 void TopoNodeItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
     Q_UNUSED(event);
-    if (!source_file_.isEmpty() && source_line_ > 0) {
-        for (auto *v : scene()->views()) {
-            auto *tgv = qobject_cast<TopoGraphicsView *>(v);
-            if (tgv && tgv->Panel()) {
+    // Toggle expansion regardless of source location — even nodes without
+    // source files can be expandable containers.
+    for (auto *v : scene()->views()) {
+        auto *tgv = qobject_cast<TopoGraphicsView *>(v);
+        if (tgv && tgv->Panel()) {
+            tgv->Panel()->ToggleNodeExpansion(node_id_);
+            // Also emit the NodeDoubleClicked signal for navigation if location exists
+            if (!source_file_.isEmpty() && source_line_ > 0) {
                 emit tgv->Panel()->NodeDoubleClicked(source_file_, source_line_);
-                return;
             }
+            return;
         }
     }
     QGraphicsRectItem::mouseDoubleClickEvent(event);
+}
+
+void TopoNodeItem::hoverEnterEvent(QGraphicsSceneHoverEvent *event) {
+    // Build a tooltip that includes drill-down hint when the node is expandable
+    QString tip = QString("<b>[%1] %2</b><br>"
+                          "<i>Language:</i> %3")
+                      .arg(kind_, name_, language_);
+
+    if (!source_file_.isEmpty() && source_line_ > 0) {
+        tip += QString("<br><i>Source:</i> %1:%2").arg(source_file_).arg(source_line_);
+    }
+
+    if (expandable_) {
+        if (expanded_) {
+            tip += "<br><br>🔽 <i>Double-click to collapse internal calls</i>";
+        } else {
+            tip += "<br><br>▶ <i>Double-click to expand internal calls</i>";
+        }
+    }
+
+    QToolTip::showText(event->screenPos(), tip);
+    QGraphicsRectItem::hoverEnterEvent(event);
+}
+
+void TopoNodeItem::hoverLeaveEvent(QGraphicsSceneHoverEvent *event) {
+    QToolTip::hideText();
+    QGraphicsRectItem::hoverLeaveEvent(event);
 }
 
 // ============================================================================
@@ -917,6 +977,9 @@ void TopologyPanel::Clear() {
     edge_items_.clear();
     node_origin_.clear();
     node_kind_.clear();
+    node_context_.clear();
+    edge_context_.clear();
+    expanded_nodes_.clear();
     edge_origin_.clear();
     details_tree_->clear();
     diagnostics_output_->clear();
@@ -1343,6 +1406,7 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
         node_items_[node.id] = item;
         node_origin_[node.id] = static_cast<int>(node.origin);
         node_kind_[node.id] = static_cast<int>(node.kind);
+        node_context_[node.id] = node.context_node_id;
     }
 
     // Initial layout (grid as starting positions, then force if selected)
@@ -1372,6 +1436,27 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
         scene_->addItem(edge_item);
         edge_items_.push_back(edge_item);
         edge_origin_[edge.id] = static_cast<int>(edge.origin);
+        edge_context_[edge.id] = edge.context_node_id;
+    }
+
+    // Mark nodes as expandable if any other node or edge references them
+    // as a context parent (i.e. context_node_id == this node's id).
+    // These are the FUNC / pipeline-stage container nodes that can be
+    // double-clicked to drill down into their internal CALL graph.
+    {
+        std::unordered_set<uint64_t> context_parents;
+        for (auto &[nid, ctx] : node_context_) {
+            if (ctx != 0) context_parents.insert(ctx);
+        }
+        for (auto &[eid, ctx] : edge_context_) {
+            if (ctx != 0) context_parents.insert(ctx);
+        }
+        for (uint64_t parent_id : context_parents) {
+            auto it = node_items_.find(parent_id);
+            if (it != node_items_.end()) {
+                it->second->SetExpandable(true);
+            }
+        }
     }
 
     // Apply view mode filter (hide/show nodes and edges based on selected mode)
@@ -1897,6 +1982,37 @@ void TopologyPanel::OnViewModeChanged(int index) {
     ApplyViewModeFilter();
 }
 
+void TopologyPanel::ToggleNodeExpansion(uint64_t node_id) {
+    if (node_id == 0) return;
+
+    // Only expandable nodes can be toggled
+    auto nit = node_items_.find(node_id);
+    if (nit == node_items_.end()) return;
+    if (!nit->second->IsExpandable()) return;
+
+    if (expanded_nodes_.count(node_id)) {
+        expanded_nodes_.erase(node_id);
+        nit->second->SetExpanded(false);
+        diagnostics_output_->appendPlainText(
+            QString("[DrillDown] Collapsed node %1 (%2)")
+                .arg(node_id).arg(nit->second->NodeName()));
+    } else {
+        expanded_nodes_.insert(node_id);
+        nit->second->SetExpanded(true);
+        diagnostics_output_->appendPlainText(
+            QString("[DrillDown] Expanded node %1 (%2)")
+                .arg(node_id).arg(nit->second->NodeName()));
+    }
+
+    // Recompute visibility based on new expansion set and refresh edges
+    ApplyViewModeFilter();
+    RefreshEdgePositions();
+}
+
+bool TopologyPanel::IsNodeExpanded(uint64_t node_id) const {
+    return expanded_nodes_.count(node_id) > 0;
+}
+
 void TopologyPanel::ApplyViewModeFilter() {
     // View mode semantics:
     //
@@ -1966,6 +2082,18 @@ void TopologyPanel::ApplyViewModeFilter() {
                 }
             }
         }
+        // Respect drill-down expansion: if this edge was created by a
+        // function/stage body (context_node_id != 0) and that context node
+        // is not expanded, hide the edge.  This makes CALL internals
+        // collapsed by default and only visible after expanding the
+        // enclosing function/stage.
+        auto ectx_it = edge_context_.find(edge_item->EdgeId());
+        if (visible && ectx_it != edge_context_.end() && ectx_it->second != 0) {
+            uint64_t ctx = ectx_it->second;
+            if (!expanded_nodes_.count(ctx)) {
+                visible = false;
+            }
+        }
         edge_item->setVisible(visible);
         if (visible) {
             visible_edge_nodes.insert(edge_item->SourceNodeId());
@@ -2018,6 +2146,17 @@ void TopologyPanel::ApplyViewModeFilter() {
             } else if (visible_edge_nodes.count(id)) {
                 // Show external nodes that participate in pipeline data-flow
                 visible = true;
+            }
+        }
+
+        // If this node was created as part of a function/stage body
+        // (context_node_id != 0) and the enclosing node is not expanded,
+        // hide it. This keeps function internals collapsed by default.
+        auto nctx_it = node_context_.find(id);
+        if (visible && nctx_it != node_context_.end() && nctx_it->second != 0) {
+            uint64_t ctx = nctx_it->second;
+            if (!expanded_nodes_.count(ctx)) {
+                visible = false;
             }
         }
 

@@ -121,12 +121,23 @@ class TopoNodeItem : public QGraphicsRectItem {
     const QString &SourceFile() const { return source_file_; }
     int SourceLine() const { return source_line_; }
 
+    // Expandable drill-down state: whether this node has internal children
+    // that can be revealed by double-clicking.
+    void SetExpandable(bool expandable) { expandable_ = expandable; }
+    bool IsExpandable() const { return expandable_; }
+
+    // Expanded state: whether the node's internal children are currently shown.
+    void SetExpanded(bool expanded) { expanded_ = expanded; update(); }
+    bool IsExpanded() const { return expanded_; }
+
   protected:
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
                QWidget *widget) override;
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
     void contextMenuEvent(QGraphicsSceneContextMenuEvent *event) override;
     void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) override;
+    void hoverEnterEvent(QGraphicsSceneHoverEvent *event) override;
+    void hoverLeaveEvent(QGraphicsSceneHoverEvent *event) override;
 
   private:
     void LayoutPorts();
@@ -148,6 +159,8 @@ class TopoNodeItem : public QGraphicsRectItem {
 
     bool highlight_error_{false};
     bool debug_active_{false};
+    bool expandable_{false};
+    bool expanded_{false};
 
     // Pulse animation state for execution highlighting
     QTimer *pulse_timer_{nullptr};
@@ -254,6 +267,14 @@ class TopologyPanel : public QWidget {
     void HighlightExecutingNode(uint64_t node_id);
     void ClearExecutionHighlight();
 
+    // Toggle expand/collapse for a node (drill-down). When a node is
+    // expanded, internal nodes/edges created by its body (context_node_id)
+    // become visible in the scene for drill-down exploration.
+    void ToggleNodeExpansion(uint64_t node_id);
+
+    // Query whether a specific node is currently expanded (drill-down).
+    bool IsNodeExpanded(uint64_t node_id) const;
+
     // Called by TopoGraphicsView when a port-to-port drag completes
     void TryCreateEdge(TopoPortItem *source, TopoPortItem *target);
 
@@ -353,6 +374,13 @@ class TopologyPanel : public QWidget {
     // Scene items indexed by id
     std::unordered_map<uint64_t, TopoNodeItem *> node_items_;
     std::vector<TopoEdgeItem *> edge_items_;
+
+    // Context maps populated from TopologyGraph (context_node_id fields)
+    std::unordered_map<uint64_t, uint64_t> node_context_; // node_id -> context_node_id
+    std::unordered_map<uint64_t, uint64_t> edge_context_; // edge_id -> context_node_id
+
+    // Expanded node set for drill-down (node ids that have been expanded)
+    std::unordered_set<uint64_t> expanded_nodes_;
 
     // Stored origin metadata for nodes and edges (populated by BuildGraphFromFile)
     std::unordered_map<uint64_t, int> node_origin_;  // node_id -> TopologyNode::Origin

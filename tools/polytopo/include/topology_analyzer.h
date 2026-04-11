@@ -103,6 +103,11 @@ class TopologyAnalyzer {
 
     // Track external nodes by qualified name to avoid duplicates
     std::unordered_map<std::string, uint64_t> external_nodes_;
+
+    // Current body-analysis context: the FUNC / pipeline-stage node whose
+    // body is being walked.  Set before AnalyzeBody() and read by
+    // FindOrCreateExternalNode() / ConnectEdge() to tag new items.
+    uint64_t current_context_id_{0};
 };
 
 } // namespace polyglot::tools::topo

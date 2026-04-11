@@ -957,4 +957,17 @@ int abs_val(int x) {
 1.PIPLINE的拓扑图逻辑也要按照前述的逻辑进行修改，PIPLINE中要显示FUNC顺序逻辑与数据流向。
 2.gui的初始视图进去只有编辑器，其他的部分Explorer，toolbar等元素都没有，这个bug请修改。
 
---end
+--end -done
+
+2026-04-11-01
+
+PIPELINE的显示逻辑还是不对，PIPELINE内部应该只显示PIPELINE的FUNC的调用，但是FUNC内部的调用需要双击FUNC才能看见。其他部分也需要这样。
+
+--end -done
+
+2026-04-11-02
+
+为该行为添加 UI 提示（节点 hover-tip 说明双击可展开），并在节点 header 加入小「▶/▼」图标指示展开状态。
+添加单元/集成测试覆盖：加载一个包含 PIPELINE 的样例，断言默认 PIPELINE 视图中只有 stage 节点可见，双击后内部 CALL 边与节点可见。
+
+--end -done

@@ -83,6 +83,10 @@ struct TopologyNode {
         kPipelineStage,     // Created as a stage inside a PIPELINE body
     };
     Origin origin{Origin::kDecl};
+
+    // Context: the enclosing FUNC / pipeline-stage node whose body created
+    // this node.  Zero for top-level declarations and LINK-origin nodes.
+    uint64_t context_node_id{0};
 };
 
 // ============================================================================
@@ -121,6 +125,10 @@ struct TopologyEdge {
 
     // If conversion is needed, the required marshal operation
     std::string conversion_note;
+
+    // Context: the enclosing FUNC / pipeline-stage node whose body analysis
+    // created this edge.  Zero for LINK edges and pipeline-stage-order edges.
+    uint64_t context_node_id{0};
 
     core::SourceLoc loc{};         // Source location of the connection
 };
