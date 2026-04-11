@@ -16,6 +16,7 @@
 #include <QGraphicsRectItem>
 #include <QGraphicsScene>
 #include <QGraphicsView>
+#include <QHBoxLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -37,6 +38,8 @@ namespace polyglot::tools::ui {
 class TopoNodeItem;
 class TopoEdgeItem;
 class TopologyPanel;
+class DrillDownWindow;
+class BreadcrumbBar;
 
 // ============================================================================
 // TopoPortItem — a port dot that supports hover tooltips and drag-connect
@@ -224,6 +227,9 @@ class TopoGraphicsView : public QGraphicsView {
     void SetPanel(TopologyPanel *panel) { panel_ = panel; }
     TopologyPanel *Panel() const { return panel_; }
 
+    void SetDrillDownWindow(DrillDownWindow *win) { drill_down_window_ = win; }
+    DrillDownWindow *GetDrillDownWindow() const { return drill_down_window_; }
+
     // Called by TopoPortItem when a drag starts / moves / ends
     void BeginPortDrag(TopoPortItem *source_port, const QPointF &scene_pos);
     void UpdatePortDrag(const QPointF &scene_pos);
@@ -237,8 +243,44 @@ class TopoGraphicsView : public QGraphicsView {
 
   private:
     TopologyPanel *panel_{nullptr};
+    DrillDownWindow *drill_down_window_{nullptr};
     TopoPortItem *drag_source_port_{nullptr};
     QGraphicsLineItem *drag_line_{nullptr};
+};
+
+// ============================================================================
+// BreadcrumbBar — shows the drill-down navigation path
+// ============================================================================
+
+/**
+ * @brief A horizontal bar showing the chain of drill-down levels.
+ *
+ * Each level is a clickable label (e.g. "Pipeline > Stage > SubCall").
+ * Clicking a level raises the corresponding DrillDownWindow or the
+ * main panel.
+ */
+class BreadcrumbBar : public QWidget {
+    Q_OBJECT
+
+  public:
+    /** @brief A single breadcrumb entry. */
+    struct Entry {
+        QString label;         ///< Display text (e.g. "pipeline:data_flow")
+        uint64_t node_id{0};   ///< Container node id (0 = root / main panel)
+        QWidget *window{nullptr}; ///< The window for this level (nullptr = root)
+    };
+
+    explicit BreadcrumbBar(QWidget *parent = nullptr);
+
+    /** @brief Set the full path from root to current level. */
+    void SetPath(const std::vector<Entry> &entries);
+
+  signals:
+    /** @brief Emitted when the user clicks a breadcrumb entry. */
+    void EntryClicked(uint64_t node_id, QWidget *window);
+
+  private:
+    QHBoxLayout *layout_{nullptr};
 };
 
 // ============================================================================
@@ -251,8 +293,9 @@ class TopoGraphicsView : public QGraphicsView {
  * Instead of expanding internal calls in-place on the main canvas, a
  * DrillDownWindow presents a dedicated QGraphicsScene that contains only
  * the nodes and edges whose @c context_node_id matches the container.
- * The window supports the same zooming, selection, and context-menu
- * interactions as the main topology view.
+ * The window supports the same zooming, selection, context-menu
+ * interactions, force-directed layout, details sidebar, and recursive
+ * drill-down as the main topology view.
  */
 class DrillDownWindow : public QWidget {
     Q_OBJECT
@@ -263,34 +306,83 @@ class DrillDownWindow : public QWidget {
      * @param container_node_id  The id of the container node being drilled into.
      * @param container_name     Display name for the window title.
      * @param parent_panel       The TopologyPanel that owns the master data.
+     * @param breadcrumb_path    Breadcrumb path from root to this level.
      * @param parent             Optional parent widget.
      */
     explicit DrillDownWindow(uint64_t container_node_id,
                              const QString &container_name,
                              TopologyPanel *parent_panel,
+                             const std::vector<BreadcrumbBar::Entry> &breadcrumb_path = {},
                              QWidget *parent = nullptr);
     ~DrillDownWindow() override;
 
     uint64_t ContainerNodeId() const { return container_node_id_; }
 
+    // ── Recursive drill-down support ────────────────────────────────────
+    /**
+     * @brief Open a nested drill-down sub-window for an expandable node.
+     *
+     * If a sub-window for the same container is already open it will be
+     * raised instead of creating a duplicate.
+     */
+    void OpenDrillDownWindow(uint64_t node_id);
+
+    // ── Data accessors used by TopoNodeItem (via Panel()) ───────────────
+    const std::unordered_map<uint64_t, TopoNodeItem *> &NodeItems() const { return node_items_; }
+    const std::vector<TopoEdgeItem *> &EdgeItems() const { return edge_items_; }
+    QPlainTextEdit *DiagnosticsOutput() const { return diagnostics_output_; }
+
+    // ── Details panel update ────────────────────────────────────────────
+    void UpdateDetailsPanel(uint64_t node_id);
+
+    // ── Edge position refresh (called when nodes are moved) ─────────────
+    void RefreshEdgePositions();
+
   signals:
     // Re-emit navigation request so parent can forward to the editor
     void NodeDoubleClicked(const QString &filename, int line);
+
+  private slots:
+    void OnNodeSelected();
+    void OnForceLayoutTick();
+    void OnBreadcrumbClicked(uint64_t node_id, QWidget *window);
 
   private:
     void SetupUI(const QString &container_name);
     void PopulateScene();
     void LayoutDrillDownNodes();
+    void StartForceLayout();
+    void StopForceLayout();
 
     uint64_t container_node_id_{0};
     TopologyPanel *parent_panel_{nullptr};
     QGraphicsScene *scene_{nullptr};
     TopoGraphicsView *view_{nullptr};
     QLabel *status_label_{nullptr};
+    QSplitter *splitter_{nullptr};
+    QTreeWidget *details_tree_{nullptr};
+    QPlainTextEdit *diagnostics_output_{nullptr};
+    BreadcrumbBar *breadcrumb_{nullptr};
+
+    // Breadcrumb path from root to this window (inclusive)
+    std::vector<BreadcrumbBar::Entry> breadcrumb_path_;
+
+    // Force-directed layout engine
+    QTimer *force_timer_{nullptr};
+    int force_iterations_remaining_{0};
+    static constexpr int kForceMaxIterations = 300;
+    static constexpr double kRepulsionStrength = 50000.0;
+    static constexpr double kAttractionStrength = 0.005;
+    static constexpr double kIdealEdgeLength = 250.0;
+    static constexpr double kDamping = 0.85;
+    static constexpr double kMinMovement = 0.5;
 
     // Cloned items for this sub-view (owned by the scene)
     std::unordered_map<uint64_t, TopoNodeItem *> node_items_;
     std::vector<TopoEdgeItem *> edge_items_;
+
+    // Open nested drill-down sub-windows keyed by container node id.
+    std::unordered_map<uint64_t, DrillDownWindow *> drill_down_windows_;
 };
 
 // ============================================================================

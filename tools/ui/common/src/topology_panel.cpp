@@ -353,12 +353,16 @@ void TopoNodeItem::SetSourceLocation(const QString &file, int line) {
 QVariant TopoNodeItem::itemChange(GraphicsItemChange change,
                                   const QVariant &value) {
     if (change == ItemPositionHasChanged) {
-        // Notify the panel so that edges connected to this node are
-        // re-routed to the new port positions in real time.
+        // Notify the panel or drill-down window so that edges connected
+        // to this node are re-routed to the new port positions in real time.
         if (scene()) {
             for (auto *v : scene()->views()) {
                 auto *tgv = qobject_cast<TopoGraphicsView *>(v);
-                if (tgv && tgv->Panel()) {
+                if (!tgv) continue;
+                if (tgv->GetDrillDownWindow()) {
+                    tgv->GetDrillDownWindow()->RefreshEdgePositions();
+                    break;
+                } else if (tgv->Panel()) {
                     tgv->Panel()->RefreshEdgePositions();
                     break;
                 }
@@ -506,13 +510,15 @@ void TopoNodeItem::paint(QPainter *painter,
 }
 
 void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
-    // Find the TopologyPanel through the view hierarchy
+    // Find the TopologyPanel or DrillDownWindow through the view hierarchy
     TopologyPanel *panel = nullptr;
+    DrillDownWindow *drill_win = nullptr;
     for (auto *v : scene()->views()) {
         auto *tgv = qobject_cast<TopoGraphicsView *>(v);
-        if (tgv && tgv->Panel()) {
+        if (tgv) {
             panel = tgv->Panel();
-            break;
+            drill_win = tgv->GetDrillDownWindow();
+            if (panel || drill_win) break;
         }
     }
 
@@ -524,6 +530,7 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
 
     // Show Details — select this node and show its details in the side panel
     QAction *show_details = menu.addAction("Show Details");
+    show_details->setEnabled(panel != nullptr || drill_win != nullptr);
 
     // Highlight Connections — visually emphasise all edges connected to this node
     QAction *highlight_conn = menu.addAction("Highlight Connections");
@@ -537,12 +544,20 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
     QAction *chosen = menu.exec(event->screenPos());
     if (!chosen) return;
 
-    if (chosen == goto_source && panel) {
-        emit panel->NodeDoubleClicked(source_file_, source_line_);
-    } else if (chosen == show_details && panel) {
+    if (chosen == goto_source) {
+        if (panel) {
+            emit panel->NodeDoubleClicked(source_file_, source_line_);
+        } else if (drill_win) {
+            emit drill_win->NodeDoubleClicked(source_file_, source_line_);
+        }
+    } else if (chosen == show_details) {
         // Select this node so the details panel updates
         scene()->clearSelection();
         setSelected(true);
+        // If inside a drill-down window, directly update its details panel
+        if (drill_win) {
+            drill_win->UpdateDetailsPanel(node_id_);
+        }
     } else if (chosen == highlight_conn) {
         // Temporarily highlight all edges connected to this node
         for (auto *item : scene()->items()) {
@@ -579,19 +594,31 @@ void TopoNodeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
 void TopoNodeItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent *event) {
     Q_UNUSED(event);
     // Open a drill-down sub-window for expandable nodes instead of toggling
-    // expansion in the same canvas.
+    // expansion in the same canvas.  Works for both the main panel and
+    // nested DrillDownWindows (recursive drill-down).
     for (auto *v : scene()->views()) {
         auto *tgv = qobject_cast<TopoGraphicsView *>(v);
-        if (tgv && tgv->Panel()) {
-            if (expandable_) {
+        if (!tgv) continue;
+
+        // Prefer the DrillDownWindow's own drill-down if this view belongs
+        // to a sub-window; otherwise fall back to the main panel.
+        if (expandable_) {
+            if (tgv->GetDrillDownWindow()) {
+                tgv->GetDrillDownWindow()->OpenDrillDownWindow(node_id_);
+            } else if (tgv->Panel()) {
                 tgv->Panel()->OpenDrillDownWindow(node_id_);
             }
-            // Also emit the NodeDoubleClicked signal for navigation if location exists
-            if (!source_file_.isEmpty() && source_line_ > 0) {
-                emit tgv->Panel()->NodeDoubleClicked(source_file_, source_line_);
-            }
-            return;
         }
+
+        // Also emit the NodeDoubleClicked signal for navigation if location exists
+        if (!source_file_.isEmpty() && source_line_ > 0) {
+            if (tgv->Panel()) {
+                emit tgv->Panel()->NodeDoubleClicked(source_file_, source_line_);
+            } else if (tgv->GetDrillDownWindow()) {
+                emit tgv->GetDrillDownWindow()->NodeDoubleClicked(source_file_, source_line_);
+            }
+        }
+        return;
     }
     QGraphicsRectItem::mouseDoubleClickEvent(event);
 }
@@ -2200,9 +2227,26 @@ void TopologyPanel::OpenDrillDownWindow(uint64_t node_id) {
         return;
     }
 
+    // Build the breadcrumb path: root level only for the main panel
+    std::vector<BreadcrumbBar::Entry> bc_path;
+    BreadcrumbBar::Entry root_entry;
+    root_entry.label = "Root";
+    root_entry.node_id = 0;
+    root_entry.window = nullptr;
+    bc_path.push_back(root_entry);
+
+    BreadcrumbBar::Entry this_entry;
+    this_entry.label = nit->second->NodeName();
+    this_entry.node_id = node_id;
+    this_entry.window = nullptr; // will be set after creation
+    bc_path.push_back(this_entry);
+
     // Create a new sub-window
-    auto *win = new DrillDownWindow(node_id, nit->second->NodeName(), this);
+    auto *win = new DrillDownWindow(node_id, nit->second->NodeName(), this, bc_path);
     drill_down_windows_[node_id] = win;
+
+    // Fix the breadcrumb entry to point to the actual window
+    // (the window sets this internally during construction)
 
     // Remove from map when the window is destroyed
     connect(win, &QObject::destroyed, this, [this, node_id]() {
@@ -2221,31 +2265,112 @@ void TopologyPanel::OpenDrillDownWindow(uint64_t node_id) {
 }
 
 // ============================================================================
+// BreadcrumbBar — drill-down navigation path
+// ============================================================================
+
+BreadcrumbBar::BreadcrumbBar(QWidget *parent)
+    : QWidget(parent) {
+    layout_ = new QHBoxLayout(this);
+    layout_->setContentsMargins(4, 2, 4, 2);
+    layout_->setSpacing(0);
+    setMinimumHeight(24);
+}
+
+void BreadcrumbBar::SetPath(const std::vector<Entry> &entries) {
+    // Clear existing labels
+    while (layout_->count() > 0) {
+        auto *item = layout_->takeAt(0);
+        if (item->widget()) {
+            delete item->widget();
+        }
+        delete item;
+    }
+
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto &entry = entries[i];
+
+        // Separator between entries
+        if (i > 0) {
+            auto *sep = new QLabel(" ▸ ", this);
+            sep->setStyleSheet("color: #888; font-size: 12px;");
+            layout_->addWidget(sep);
+        }
+
+        // Clickable label
+        auto *label = new QPushButton(entry.label, this);
+        label->setFlat(true);
+        label->setCursor(Qt::PointingHandCursor);
+
+        // Last entry is the current level — bold, no click action
+        bool is_current = (i == entries.size() - 1);
+        if (is_current) {
+            label->setStyleSheet(
+                "QPushButton { font-weight: bold; color: #e0e0e0; "
+                "border: none; padding: 2px 4px; font-size: 12px; }"
+                "QPushButton:hover { color: #ffffff; }");
+            label->setEnabled(false);
+        } else {
+            label->setStyleSheet(
+                "QPushButton { color: #82AAFF; border: none; "
+                "padding: 2px 4px; font-size: 12px; text-decoration: underline; }"
+                "QPushButton:hover { color: #C3DAFE; }");
+
+            uint64_t nid = entry.node_id;
+            QWidget *win = entry.window;
+            connect(label, &QPushButton::clicked, this, [this, nid, win]() {
+                emit EntryClicked(nid, win);
+            });
+        }
+
+        layout_->addWidget(label);
+    }
+
+    layout_->addStretch();
+}
+
+// ============================================================================
 // DrillDownWindow — sub-window showing internal calls of a container node
 // ============================================================================
 
 DrillDownWindow::DrillDownWindow(uint64_t container_node_id,
                                  const QString &container_name,
                                  TopologyPanel *parent_panel,
+                                 const std::vector<BreadcrumbBar::Entry> &breadcrumb_path,
                                  QWidget *parent)
     : QWidget(parent, Qt::Window),
       container_node_id_(container_node_id),
-      parent_panel_(parent_panel) {
+      parent_panel_(parent_panel),
+      breadcrumb_path_(breadcrumb_path) {
     setAttribute(Qt::WA_DeleteOnClose);
+
+    // Fix up the last breadcrumb entry to point to this window
+    if (!breadcrumb_path_.empty()) {
+        breadcrumb_path_.back().window = this;
+    }
+
     SetupUI(container_name);
     PopulateScene();
     LayoutDrillDownNodes();
 }
 
-DrillDownWindow::~DrillDownWindow() = default;
+DrillDownWindow::~DrillDownWindow() {
+    StopForceLayout();
+}
 
 void DrillDownWindow::SetupUI(const QString &container_name) {
     setWindowTitle(QString("Drill-Down: %1").arg(container_name));
-    resize(800, 600);
+    resize(1000, 700);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(4, 4, 4, 4);
     layout->setSpacing(2);
+
+    // Breadcrumb navigation bar
+    breadcrumb_ = new BreadcrumbBar(this);
+    breadcrumb_->SetPath(breadcrumb_path_);
+    connect(breadcrumb_, &BreadcrumbBar::EntryClicked,
+            this, &DrillDownWindow::OnBreadcrumbClicked);
+    layout->addWidget(breadcrumb_);
 
     // Toolbar with zoom buttons
     auto *toolbar = new QToolBar(this);
@@ -2268,14 +2393,53 @@ void DrillDownWindow::SetupUI(const QString &container_name) {
 
     layout->addWidget(toolbar);
 
+    // Main splitter: scene + details panel
+    splitter_ = new QSplitter(Qt::Horizontal, this);
+
     // Scene and view
     scene_ = new QGraphicsScene(this);
+    scene_->setBackgroundBrush(QColor("#1E1E1E"));
     view_ = new TopoGraphicsView(scene_, this);
-    // Do NOT set the panel pointer — the sub-window's nodes should not
-    // interact with the main panel's expansion logic.
+    // Set the panel pointer to parent_panel_ so that port-drag and other
+    // panel-level interactions work; set drill_down_window_ so that
+    // recursive drill-down and right-click menus route correctly.
+    view_->SetPanel(parent_panel_);
+    view_->SetDrillDownWindow(this);
     view_->setRenderHint(QPainter::Antialiasing);
     view_->setDragMode(QGraphicsView::ScrollHandDrag);
-    layout->addWidget(view_);
+    splitter_->addWidget(view_);
+
+    // Connect selection changes to details panel
+    connect(scene_, &QGraphicsScene::selectionChanged,
+            this, &DrillDownWindow::OnNodeSelected);
+
+    // Right panel (details + diagnostics)
+    auto *right_panel = new QWidget(this);
+    auto *right_layout = new QVBoxLayout(right_panel);
+    right_layout->setContentsMargins(4, 4, 4, 4);
+
+    auto *details_label = new QLabel("Node Details", right_panel);
+    details_label->setStyleSheet("font-weight: bold; padding: 4px;");
+    right_layout->addWidget(details_label);
+
+    details_tree_ = new QTreeWidget(right_panel);
+    details_tree_->setHeaderLabels({"Property", "Value"});
+    details_tree_->header()->setStretchLastSection(true);
+    right_layout->addWidget(details_tree_);
+
+    auto *diag_label = new QLabel("Diagnostics", right_panel);
+    diag_label->setStyleSheet("font-weight: bold; padding: 4px;");
+    right_layout->addWidget(diag_label);
+
+    diagnostics_output_ = new QPlainTextEdit(right_panel);
+    diagnostics_output_->setReadOnly(true);
+    diagnostics_output_->setMaximumBlockCount(200);
+    right_layout->addWidget(diagnostics_output_);
+
+    splitter_->addWidget(right_panel);
+    splitter_->setStretchFactor(0, 3);
+    splitter_->setStretchFactor(1, 1);
+    layout->addWidget(splitter_);
 
     // Status label
     status_label_ = new QLabel(this);
@@ -2291,6 +2455,12 @@ void DrillDownWindow::SetupUI(const QString &container_name) {
     connect(zoom_fit_btn, &QPushButton::clicked, this, [this]() {
         view_->fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
     });
+
+    // Force-directed layout timer
+    force_timer_ = new QTimer(this);
+    force_timer_->setInterval(16); // ~60 FPS
+    connect(force_timer_, &QTimer::timeout,
+            this, &DrillDownWindow::OnForceLayoutTick);
 }
 
 void DrillDownWindow::PopulateScene() {
@@ -2300,8 +2470,6 @@ void DrillDownWindow::PopulateScene() {
     const auto &src_edges = parent_panel_->EdgeItems();
     const auto &node_ctx = parent_panel_->NodeContextMap();
     const auto &edge_ctx = parent_panel_->EdgeContextMap();
-    const auto &node_origin = parent_panel_->NodeOriginMap();
-    const auto &edge_origin = parent_panel_->EdgeOriginMap();
 
     // Collect nodes whose context_node_id matches the container, plus nodes
     // reachable from visible edges to ensure a complete sub-graph.
@@ -2347,8 +2515,16 @@ void DrillDownWindow::PopulateScene() {
             item->AddOutputPort(port->PortId(), port->PortName(), port->TypeName());
         }
 
-        // Mark whether this clone is also expandable (for nested drill-down)
-        item->SetExpandable(src->IsExpandable());
+        // Check if this node has children in the main panel's context map
+        // to determine whether it should be expandable for further drill-down.
+        bool has_children = false;
+        for (const auto &[child_id, ctx] : node_ctx) {
+            if (ctx == nid && child_id != nid) {
+                has_children = true;
+                break;
+            }
+        }
+        item->SetExpandable(has_children);
 
         scene_->addItem(item);
         node_items_[nid] = item;
@@ -2380,38 +2556,288 @@ void DrillDownWindow::PopulateScene() {
 }
 
 void DrillDownWindow::LayoutDrillDownNodes() {
-    // Simple grid layout for the sub-window's nodes
+    if (node_items_.size() < 2) {
+        // For a single node or empty scene, just center it
+        for (auto &[id, item] : node_items_) {
+            item->setPos(0, 0);
+        }
+        RefreshEdgePositions();
+        QTimer::singleShot(100, this, [this]() {
+            view_->fitInView(scene_->sceneRect().adjusted(-40, -40, 40, 40),
+                             Qt::KeepAspectRatio);
+        });
+        return;
+    }
+
+    // Initial grid placement as starting positions for force-directed layout
     qreal spacing_x = kNodeWidth + 80;
     qreal spacing_y = 140;
     size_t cols = std::max(static_cast<size_t>(1),
                            static_cast<size_t>(std::ceil(std::sqrt(
                                static_cast<double>(node_items_.size())))));
+
+    // Add some random offset to the initial positions to avoid symmetry
+    // that can trap force-directed layout in local minima.
+    std::mt19937 rng(static_cast<uint32_t>(container_node_id_));
+    std::uniform_real_distribution<double> jitter(-30.0, 30.0);
+
     size_t i = 0;
     for (auto &[id, item] : node_items_) {
         size_t col = i % cols;
         size_t row = i / cols;
-        qreal x = static_cast<qreal>(col) * spacing_x;
-        qreal y = static_cast<qreal>(row) * spacing_y;
+        qreal x = static_cast<qreal>(col) * spacing_x + jitter(rng);
+        qreal y = static_cast<qreal>(row) * spacing_y + jitter(rng);
         item->setPos(x, y);
         ++i;
     }
 
-    // Update edge endpoints after layout
-    for (auto *edge_item : edge_items_) {
-        auto src_it = node_items_.find(edge_item->SourceNodeId());
-        auto tgt_it = node_items_.find(edge_item->TargetNodeId());
-        if (src_it != node_items_.end() && tgt_it != node_items_.end()) {
-            QPointF start = src_it->second->OutputPortPos(edge_item->SourcePortId());
-            QPointF end = tgt_it->second->InputPortPos(edge_item->TargetPortId());
-            edge_item->UpdateEndpoints(start, end);
-        }
-    }
+    // Start force-directed layout to settle into a nice arrangement
+    StartForceLayout();
 
-    // Zoom to fit content
-    QTimer::singleShot(100, this, [this]() {
+    // Zoom to fit content after a brief delay (layout will keep running)
+    QTimer::singleShot(200, this, [this]() {
         view_->fitInView(scene_->sceneRect().adjusted(-40, -40, 40, 40),
                          Qt::KeepAspectRatio);
     });
+}
+
+// ── Force-directed layout engine (mirrors TopologyPanel implementation) ─────
+
+void DrillDownWindow::StartForceLayout() {
+    force_iterations_remaining_ = kForceMaxIterations;
+    if (!force_timer_->isActive()) {
+        force_timer_->start();
+    }
+}
+
+void DrillDownWindow::StopForceLayout() {
+    if (force_timer_) {
+        force_timer_->stop();
+    }
+    force_iterations_remaining_ = 0;
+}
+
+void DrillDownWindow::OnForceLayoutTick() {
+    if (force_iterations_remaining_ <= 0 || node_items_.size() < 2) {
+        StopForceLayout();
+        RefreshEdgePositions();
+        return;
+    }
+    --force_iterations_remaining_;
+
+    // Compute forces on each node
+    struct NodeForce {
+        double fx{0.0};
+        double fy{0.0};
+    };
+    std::unordered_map<uint64_t, NodeForce> forces;
+    for (auto &[id, item] : node_items_) {
+        forces[id] = {0.0, 0.0};
+    }
+
+    // Repulsion between all node pairs (Coulomb's law)
+    auto ids = std::vector<uint64_t>();
+    ids.reserve(node_items_.size());
+    for (auto &[id, item] : node_items_) ids.push_back(id);
+
+    for (size_t a = 0; a < ids.size(); ++a) {
+        for (size_t b = a + 1; b < ids.size(); ++b) {
+            auto *na = node_items_[ids[a]];
+            auto *nb = node_items_[ids[b]];
+            double dx = na->x() - nb->x();
+            double dy = na->y() - nb->y();
+            double dist_sq = dx * dx + dy * dy;
+            if (dist_sq < 1.0) dist_sq = 1.0;
+            double dist = std::sqrt(dist_sq);
+            double force = kRepulsionStrength / dist_sq;
+            double fx = force * (dx / dist);
+            double fy = force * (dy / dist);
+            forces[ids[a]].fx += fx;
+            forces[ids[a]].fy += fy;
+            forces[ids[b]].fx -= fx;
+            forces[ids[b]].fy -= fy;
+        }
+    }
+
+    // Attraction along edges (Hooke's law)
+    for (const auto *edge : edge_items_) {
+        auto src_it = node_items_.find(edge->SourceNodeId());
+        auto tgt_it = node_items_.find(edge->TargetNodeId());
+        if (src_it == node_items_.end() || tgt_it == node_items_.end()) continue;
+
+        auto *ns = src_it->second;
+        auto *nt = tgt_it->second;
+        double dx = nt->x() - ns->x();
+        double dy = nt->y() - ns->y();
+        double dist = std::sqrt(dx * dx + dy * dy);
+        if (dist < 1.0) dist = 1.0;
+        double displacement = dist - kIdealEdgeLength;
+        double force = kAttractionStrength * displacement;
+        double fx = force * (dx / dist);
+        double fy = force * (dy / dist);
+        forces[src_it->first].fx += fx;
+        forces[src_it->first].fy += fy;
+        forces[tgt_it->first].fx -= fx;
+        forces[tgt_it->first].fy -= fy;
+    }
+
+    // Apply forces with damping (simulated annealing)
+    double damping = kDamping;
+    double progress = 1.0 - static_cast<double>(force_iterations_remaining_) /
+                                static_cast<double>(kForceMaxIterations);
+    damping *= (1.0 - progress * 0.5);
+
+    double max_movement = 0.0;
+    for (auto &[id, item] : node_items_) {
+        if (item->isSelected()) continue; // Don't move items being dragged
+        double fx = forces[id].fx * damping;
+        double fy = forces[id].fy * damping;
+        // Clamp maximum displacement per tick
+        double mag = std::sqrt(fx * fx + fy * fy);
+        constexpr double kMaxDisplacement = 30.0;
+        if (mag > kMaxDisplacement) {
+            fx = fx / mag * kMaxDisplacement;
+            fy = fy / mag * kMaxDisplacement;
+        }
+        item->moveBy(fx, fy);
+        max_movement = std::max(max_movement, std::abs(fx) + std::abs(fy));
+    }
+
+    RefreshEdgePositions();
+
+    // Early termination if the system has settled
+    if (max_movement < kMinMovement) {
+        StopForceLayout();
+    }
+}
+
+void DrillDownWindow::RefreshEdgePositions() {
+    for (auto *edge : edge_items_) {
+        auto src_it = node_items_.find(edge->SourceNodeId());
+        auto tgt_it = node_items_.find(edge->TargetNodeId());
+        if (src_it == node_items_.end() || tgt_it == node_items_.end()) continue;
+        QPointF start = src_it->second->OutputPortPos(edge->SourcePortId());
+        QPointF end = tgt_it->second->InputPortPos(edge->TargetPortId());
+        edge->UpdateEndpoints(start, end);
+    }
+}
+
+// ── Details panel ───────────────────────────────────────────────────────────
+
+void DrillDownWindow::UpdateDetailsPanel(uint64_t node_id) {
+    details_tree_->clear();
+    auto it = node_items_.find(node_id);
+    if (it == node_items_.end()) return;
+
+    auto *item = it->second;
+    auto *root = new QTreeWidgetItem(details_tree_, {"Node", ""});
+    new QTreeWidgetItem(root, {"ID", QString::number(static_cast<qulonglong>(node_id))});
+    new QTreeWidgetItem(root, {"Name", item->NodeName()});
+    new QTreeWidgetItem(root, {"Language", item->Language()});
+    new QTreeWidgetItem(root, {"Kind", item->Kind()});
+    new QTreeWidgetItem(root, {"Source", item->SourceFile() + ":" +
+                                            QString::number(item->SourceLine())});
+    root->setExpanded(true);
+
+    // Input ports
+    if (!item->InputPorts().empty()) {
+        auto *in_root = new QTreeWidgetItem(details_tree_, {"Inputs", ""});
+        for (const auto *port : item->InputPorts()) {
+            new QTreeWidgetItem(in_root,
+                {port->PortName(), port->TypeName()});
+        }
+        in_root->setExpanded(true);
+    }
+    // Output ports
+    if (!item->OutputPorts().empty()) {
+        auto *out_root = new QTreeWidgetItem(details_tree_, {"Outputs", ""});
+        for (const auto *port : item->OutputPorts()) {
+            new QTreeWidgetItem(out_root,
+                {port->PortName(), port->TypeName()});
+        }
+        out_root->setExpanded(true);
+    }
+
+    details_tree_->expandAll();
+}
+
+void DrillDownWindow::OnNodeSelected() {
+    auto items = scene_->selectedItems();
+    if (items.isEmpty()) return;
+
+    for (auto *item : items) {
+        auto *node_item = dynamic_cast<TopoNodeItem *>(item);
+        if (node_item) {
+            UpdateDetailsPanel(node_item->NodeId());
+            return;
+        }
+    }
+}
+
+// ── Recursive drill-down ────────────────────────────────────────────────────
+
+void DrillDownWindow::OpenDrillDownWindow(uint64_t node_id) {
+    if (node_id == 0) return;
+
+    // Only expandable nodes may be drilled into
+    auto nit = node_items_.find(node_id);
+    if (nit == node_items_.end()) return;
+    if (!nit->second->IsExpandable()) return;
+
+    // If a window for this node is already open, just raise it
+    auto wit = drill_down_windows_.find(node_id);
+    if (wit != drill_down_windows_.end() && wit->second) {
+        wit->second->raise();
+        wit->second->activateWindow();
+        if (diagnostics_output_) {
+            diagnostics_output_->appendPlainText(
+                QString("[DrillDown] Raised existing nested sub-window for node %1 (%2)")
+                    .arg(node_id).arg(nit->second->NodeName()));
+        }
+        return;
+    }
+
+    // Build the breadcrumb path: extend current path with the new level
+    auto bc_path = breadcrumb_path_;
+    BreadcrumbBar::Entry new_entry;
+    new_entry.label = nit->second->NodeName();
+    new_entry.node_id = node_id;
+    new_entry.window = nullptr; // will be set in DrillDownWindow constructor
+    bc_path.push_back(new_entry);
+
+    // Create a new nested sub-window, passing this window's parent_panel_
+    // so it can access the master node/edge/context data.
+    auto *win = new DrillDownWindow(
+        node_id, nit->second->NodeName(), parent_panel_, bc_path);
+    drill_down_windows_[node_id] = win;
+
+    // Remove from map when the window is destroyed
+    connect(win, &QObject::destroyed, this, [this, node_id]() {
+        drill_down_windows_.erase(node_id);
+    });
+
+    // Forward navigation signals up the chain
+    connect(win, &DrillDownWindow::NodeDoubleClicked,
+            this, &DrillDownWindow::NodeDoubleClicked);
+
+    win->show();
+
+    if (diagnostics_output_) {
+        diagnostics_output_->appendPlainText(
+            QString("[DrillDown] Opened nested sub-window for node %1 (%2)")
+                .arg(node_id).arg(nit->second->NodeName()));
+    }
+}
+
+// ── Breadcrumb click handler ────────────────────────────────────────────────
+
+void DrillDownWindow::OnBreadcrumbClicked(uint64_t node_id, QWidget *window) {
+    Q_UNUSED(node_id);
+    // When the user clicks a breadcrumb entry, raise the corresponding window
+    if (window) {
+        window->raise();
+        window->activateWindow();
+    }
 }
 
 } // namespace polyglot::tools::ui

@@ -977,3 +977,120 @@ PIPELINE的显示逻辑还是不对，PIPELINE内部应该只显示PIPELINE的FU
 PIPELINE双击的逻辑不对，不应该在同一个窗口里面显示，应该在新的子窗口中出现。
 
 --end -done
+
+2026-04-11-04
+
+全项目分析：优化方向与后续需求规划
+====================================
+
+以下是对全项目（369 个源文件 / ~133K 行 C++20）的系统性审计结论，按优先级从高到低排列。
+
+─── 方向一：拓扑子窗口递归钻入与交互闭环 ───
+
+当前 DrillDownWindow 的 TopoGraphicsView 没有设置 Panel 指针，因此子窗口中的节点无法继续递归钻入（双击无反应），也无法通过右键菜单操作。子窗口中也缺少视图模式选择、节点详情面板、力导向布局等主面板已有的功能。
+
+实现内容：
+1. DrillDownWindow 中为 TopoGraphicsView 设置一个轻量代理 Panel（或直接把 parent_panel_ 传入），使子窗口中的 expandable 节点也可以递归打开新的子窗口（嵌套钻入）。
+2. 子窗口添加力导向布局支持（复用 TopologyPanel 的力导向算法），替换当前简单网格。
+3. 子窗口中的节点支持右键菜单（Go to Source、Show Details、Highlight Connections），复用主面板的 contextMenuEvent 逻辑。
+4. 子窗口增加节点选中时的详情侧边栏（端口类型、源码位置等），与主面板的 details_tree_ 行为一致。
+5. 为递归钻入添加面包屑导航栏（breadcrumb），显示 Pipeline > Stage > SubCall 的钻入路径，支持点击返回上层。
+6. 编写单元测试：验证 DrillDownWindow 可正确创建，场景中包含期望的节点/边数，验证重复打开同一节点会复用窗口而非重复创建。
+
+--end -done
+
+2026-04-11-05
+
+─── 方向二：polyld 跨语言链接器 marshal 函数仍有大量 (void) 占位 ───
+
+polyglot_linker.cpp 中 EmitContainerMarshal、EmitReturnMarshal、EmitCallingConventionAdaptor 等函数接收了 from_lang、to_lang、param_idx 等参数但用 (void) 静默丢弃，意味着这些 stub 生成路径尚未按语言/ABI 差异生成真实的转换代码。虽然上层 GenerateX86_64Stub/GenerateARM64Stub 已有基础实现，但 marshal 层仍是"通用路径"，未考虑 Python↔C++ 的 GIL 获取/释放、Rust 的 borrow 语义标注、Java 的 JNI 调用约定。
+
+实现内容：
+1. EmitContainerMarshal：按 from_lang/to_lang 组合（cpp↔python、cpp↔rust 等）生成实际的容器深拷贝/视图共享代码，而非空操作。至少实现 cpp::vector↔python::list 双向路径。
+2. EmitReturnMarshal：根据返回类型和目标语言 ABI 生成 box/unbox 指令（如 Python int → C++ int64_t）。
+3. EmitCallingConventionAdaptor：区分 System V vs MSVC ABI，生成寄存器重排代码。
+4. Python 桥接 stub 中插入 GIL 获取/释放指令（PyGILState_Ensure/PyGILState_Release）。
+5. 为以上每种路径编写集成测试（从 .ploy 编译到 stub 生成，验证 stub 字节码包含期望的指令模式）。
+
+--end
+
+2026-04-11-06
+
+─── 方向三：中端 IR 到后端的优化集成仍有断层 ───
+
+PassManager（pass_manager.h）已实现 O0-O3 四级管线构建，但 polyc 的 stage_backend.cpp 只在 Release 模式下真正调用 PassManager::RunOnModule()。更重要的是，PGO 和 LTO 管线虽然代码量很大（link_time_optimizer.cpp ~2000 行、profile_data.cpp ~300 行），但与 polyc 主编译流程的接入路径不完整：polyc 没有 --pgo-generate/--pgo-use 命令行选项，LTO 在非 --lto 模式下完全不触发。
+
+实现内容：
+1. polyc 新增 `--pgo-generate` 和 `--pgo-use <profile.pgd>` 命令行选项，在 stage_backend 中条件性插入 PGO 插桩/利用 pass。
+2. polyc 的 `--lto` 选项在 stage_packaging 中真正调用 LinkTimeOptimizer 的跨模块 inline/DCE/type merge，而非仅做文件拷贝。
+3. `polyopt` 工具现在只优化空 IRContext（optimizer.cpp line 88），需要真正解析输入 .ir 文件（使用 IRParser），跑 PassManager，然后输出优化后的 IR。
+4. 为 O1/O2/O3 各级别编写回归测试：输入带有可优化模式的 IR（如常量折叠、死代码消除、公共子表达式），验证输出 IR 的指令数或特定指令消失。
+
+--end
+
+2026-04-11-07
+
+─── 方向四：后端对象文件格式完善 ───
+
+ELF builder（object_file.cpp）的 e_machine 已按架构切换，但 Mach-O builder 仍然只写最小头部。COFF/PE 加载路径在 linker.cpp 中有框架但不完整（Windows 产物在本地测试中使用 .pobj 私有格式而非标准 COFF）。debug_emitter.cpp 中 PDB TPI 类型流为空（line 1061）、.eh_frame FDE 简化（line 894），这些直接影响 Windows 调试体验。
+
+实现内容：
+1. Mach-O builder：补齐 LC_SYMTAB、LC_DYSYMTAB、__TEXT/__DATA segment/section 布局，使 macOS 上 polyc 产物可被 ld64 或 lld 消费。
+2. COFF builder：实现标准 COFF object 输出（IMAGE_FILE_HEADER + section table + relocations），在 Windows 上取代 .pobj 格式，使 polyld 或 MSVC link.exe 可消费。
+3. PDB TPI stream：至少为基本类型（int/float/double/pointer）和函数签名生成有效的 type record，使 Visual Studio/WinDbg 能显示变量类型。
+4. .eh_frame：生成标准 CIE + FDE，使 Linux 上的异常展开和 GDB backtrace 可用。
+5. 对应的集成测试：编译一个最小 C++ 源码到 .o，用 readelf/objdump/dumpbin 验证输出格式有效。
+
+--end
+
+2026-04-11-08
+
+─── 方向五：UI/polyui 编辑器体验优化 ───
+
+polyui 的编辑器层（code_editor.cpp / syntax_highlighter.cpp）已支持基础语法高亮和暗/亮主题，但以下交互优化可显著提升开发体验：
+
+实现内容：
+1. 代码自动补全：为 .ploy 语言实现关键字补全（54 个关键字 + 内置类型），在用户输入时弹出补全列表；C++/Python/Rust 文件提供基于当前文件词法分析的标识符补全。
+2. 错误波浪线：将 Diagnostics 中的 error/warning 位置映射到编辑器文本，在对应区域绘制红色/橙色波浪下划线（类似 VS Code 的 squiggly lines），而非仅在 Output Panel 输出文字。
+3. 行内诊断提示：在错误行右侧灰色显示简短错误消息（inline diagnostic），减少用户切换到 Output 面板的频率。
+4. 跳转到定义：在 .ploy 文件中 Ctrl+Click 一个 FUNC/PIPELINE 名称时，跳转到其声明位置；跨文件时跳转到对应的 .cpp/.py/.rs 文件。
+5. 迷你地图（Minimap）：在编辑器右侧绘制整个文件的缩略视图，支持点击快速导航。
+
+--end
+
+2026-04-11-09
+
+─── 方向六：测试体系深化 ───
+
+当前 808 个 test case 覆盖了大部分模块，但存在明显薄弱区：
+- topology_test.cpp：22 个 case 只测试 TopologyGraph/Analyzer/Validator/Printer，没有 UI 层测试（DrillDownWindow、场景构建、视图模式切换）。
+- 无 polyc 端到端 CLI 测试：没有测试从 .ploy 源码经 polyc 编译到产物再 polyld 链接的完整路径。
+- 无 polyui 冒烟测试：没有 QTest 框架的 GUI 测试。
+- backends/ 测试只有 61 个 case，其中 WASM 后端缺乏独立测试。
+
+实现内容：
+1. 新增 polyc CLI 端到端测试：用 QProcess 或 std::system 调用 polyc 编译 samples/01_basic_linking，验证退出码和产物文件存在性。
+2. 新增 WASM 后端独立测试：构造最小 IR（单函数、加法），调用 WasmTarget::EmitAssembly()，验证输出 WAT 包含 (func 和 (export。
+3. 新增 topology UI 测试：实例化 TopologyPanel，调用 BuildGraphFromFile() 加载 sample，验证 node_items_ 和 edge_items_ 数量，模拟 OpenDrillDownWindow 调用验证子窗口创建。
+4. 新增 .ploy sema strict mode 回归测试：验证类型错误在 strict 模式下被拒绝，在 non-strict 模式下降级为 warning。
+5. 将所有新增测试纳入 CTest，目标新增 30+ case 使总数超过 840。
+
+--end
+
+2026-04-11-10
+
+─── 方向七：文档同步与完善 ───
+
+docs/ 已有完善的双语文档体系（specs/realization/tutorial/api 各有 _zh 版本），但以下内容需更新：
+- topology_tool.md/topology_tool_zh.md：未记录子窗口钻入机制（2026-04-11-03 新增的 DrillDownWindow）。
+- USER_GUIDE 和 api_reference：测试统计数字（808 cases / 3 suites）可能已过时（实际 CTest 有 20 个 suite），需对齐。
+- README.md 的 Last Updated 仍为 2026-03-19，需更新。
+
+实现内容：
+1. 更新 topology_tool.md / topology_tool_zh.md：新增「子窗口钻入」章节，说明 DrillDownWindow 的架构、交互流程、面包屑导航（如已实现）。
+2. 更新 USER_GUIDE.md / USER_GUIDE_zh.md 和 README.md 中的测试统计数据。
+3. 更新 README.md 的 Last Updated 日期。
+4. 在 api_reference.md / api_reference_zh.md 中新增 DrillDownWindow 类的 API 说明。
+5. 运行 docs_sync_check.py --scope core 确认中英文核心文档同步无 drift。
+
+--end

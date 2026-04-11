@@ -130,6 +130,10 @@ set(UNIT_TEST_TOPOLOGY
     unit/tools/topology_test.cpp
 )
 
+set(UNIT_TEST_TOPOLOGY_UI
+    unit/tools/drilldown_window_test.cpp
+)
+
 set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
     unit/e2e/compilation_behavior_test.cpp
@@ -214,6 +218,33 @@ add_executable(test_topology ${UNIT_TEST_TOPOLOGY})
 target_link_libraries(test_topology PRIVATE
     topo_lib polyc_lib frontend_ploy frontend_cpp frontend_python ${CATCH2_LIBS})
 
+# -- Topology UI (requires Qt) -----------------------------------------------
+# DrillDownWindow / BreadcrumbBar tests need a QApplication and Qt widgets.
+find_package(Qt6 QUIET COMPONENTS Widgets)
+if(NOT Qt6_FOUND)
+    find_package(Qt5 QUIET COMPONENTS Widgets)
+endif()
+if(Qt6_FOUND OR Qt5_FOUND)
+    set(CMAKE_AUTOMOC ON)
+    add_executable(test_topology_ui ${UNIT_TEST_TOPOLOGY_UI}
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/topology_panel.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/topology_panel.h
+        ${CMAKE_SOURCE_DIR}/tools/polyc/src/foreign_signature_extractor.cpp
+    )
+    target_include_directories(test_topology_ui PRIVATE ${CMAKE_SOURCE_DIR})
+    if(Qt6_FOUND)
+        set(_QT_UI_TEST_LIB Qt6::Widgets)
+    else()
+        set(_QT_UI_TEST_LIB Qt5::Widgets)
+    endif()
+    target_link_libraries(test_topology_ui PRIVATE
+        ${_QT_UI_TEST_LIB}
+        topo_lib polyc_lib
+        frontend_ploy frontend_cpp frontend_python
+        ${CATCH2_LIBS})
+    message(STATUS "Qt found — building test_topology_ui (DrillDownWindow tests)")
+endif()
+
 # -- E2E ---------------------------------------------------------------------
 add_executable(test_e2e ${UNIT_TEST_E2E})
 target_link_libraries(test_e2e PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
@@ -291,6 +322,9 @@ add_test(NAME test_backends          COMMAND test_backends)
 add_test(NAME test_runtime           COMMAND test_runtime)
 add_test(NAME test_linker            COMMAND test_linker)
 add_test(NAME test_topology          COMMAND test_topology)
+if(TARGET test_topology_ui)
+    add_test(NAME test_topology_ui   COMMAND test_topology_ui)
+endif()
 add_test(NAME test_e2e               COMMAND test_e2e)
 
 # Labels for per-module tests
@@ -303,6 +337,9 @@ set_tests_properties(test_backends PROPERTIES LABELS "unit;backend")
 set_tests_properties(test_runtime PROPERTIES LABELS "unit;runtime")
 set_tests_properties(test_linker PROPERTIES LABELS "unit;linker")
 set_tests_properties(test_topology PROPERTIES LABELS "unit;topology")
+if(TARGET test_topology_ui)
+    set_tests_properties(test_topology_ui PROPERTIES LABELS "unit;topology;ui")
+endif()
 set_tests_properties(test_e2e PROPERTIES LABELS "unit;e2e")
 
 # Combined targets (backward compatibility)
