@@ -13,20 +13,18 @@
 #include <vector>
 
 #include "middle/include/ir/ir_context.h"
-#include "middle/include/passes/transform/common_subexpr.h"
-#include "middle/include/passes/transform/constant_fold.h"
-#include "middle/include/passes/transform/dead_code_elim.h"
-#include "middle/include/passes/transform/inlining.h"
 #include "middle/include/ir/ir_parser.h"
 #include "middle/include/ir/ir_printer.h"
+#include "middle/include/passes/pass_manager.h"
 
 namespace polyglot::tools {
 
-void Optimize(ir::IRContext &context) {
-  passes::transform::RunConstantFold(context);
-  passes::transform::RunDeadCodeElimination(context);
-  passes::transform::RunCommonSubexpressionElimination(context);
-  passes::transform::RunInlining(context);
+void Optimize(ir::IRContext &context, int opt_level) {
+    if (opt_level <= 0) return;
+    passes::PassManager pm(
+        static_cast<passes::PassManager::OptLevel>(opt_level));
+    pm.Build();
+    pm.RunOnModule(context, /*verbose=*/false);
 }
 
 }  // namespace polyglot::tools
@@ -38,7 +36,7 @@ static void PrintUsage(const char *argv0) {
   std::cerr << "  -O0          No optimisation\n";
   std::cerr << "  -O1          Basic optimisations (constant fold + DCE)\n";
   std::cerr << "  -O2          Standard optimisations (+ CSE + inlining) [default]\n";
-  std::cerr << "  -O3          Aggressive optimisations (same as -O2 for now)\n";
+  std::cerr << "  -O3          Aggressive optimisations (loop, vectorisation, etc.)\n";
   std::cerr << "  --help       Show this message\n";
 }
 
@@ -95,15 +93,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  // Run optimisation passes according to the requested level.
-  if (opt_level >= 1) {
-    polyglot::passes::transform::RunConstantFold(ctx);
-    polyglot::passes::transform::RunDeadCodeElimination(ctx);
-  }
-  if (opt_level >= 2) {
-    polyglot::passes::transform::RunCommonSubexpressionElimination(ctx);
-    polyglot::passes::transform::RunInlining(ctx);
-  }
+  // Run optimisation passes via PassManager according to the requested level.
+  polyglot::tools::Optimize(ctx, opt_level);
 
   // Emit the optimised IR.
   std::ostringstream ir_out;

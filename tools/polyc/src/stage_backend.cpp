@@ -27,6 +27,7 @@
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
 #include "middle/include/passes/pass_manager.h"
+#include "middle/include/pgo/profile_data.h"
 
 namespace polyglot::tools {
 
@@ -241,6 +242,52 @@ BackendResult RunBackendStage(const DriverSettings &settings,
             }
             std::cerr << "[warn] post-opt IR: " << post_msg
                       << " (continuing in --force/dev mode)\n";
+        }
+    }
+
+    // ── PGO: instrumentation or profile-guided passes ────────────────────────
+    if (settings.pgo_generate) {
+        // Insert profiling instrumentation into every function so the
+        // resulting binary collects execution counts at runtime.
+        for (auto &fn : ir_ctx->Functions()) {
+            pgo::ProfileInstrumentation::InstrumentFunction(*fn);
+        }
+        if (V) std::cerr << "[stage/backend]  PGO instrumentation inserted\n";
+    }
+
+    if (!settings.pgo_use_path.empty()) {
+        // Load profile data and apply profile-guided optimisations
+        pgo::ProfileData profile;
+        if (profile.LoadFromFile(settings.pgo_use_path)) {
+            pgo::PGOOptimizer pgo_opt(profile);
+            auto report = pgo_opt.GenerateReport();
+            if (V) {
+                std::cerr << "[stage/backend]  PGO: "
+                          << report.hot_functions << " hot fn(s), "
+                          << report.inlining_candidates << " inline candidate(s), "
+                          << report.predictable_branches << " predictable branch(es)\n";
+            }
+
+            // Apply branch-prediction hints to the IR
+            for (const auto &hint : pgo_opt.GetBranchPredictions()) {
+                auto *fn = ir_ctx->FindFunction(hint.function);
+                if (!fn) continue;
+                for (auto &blk : fn->blocks) {
+                    if (blk->id == hint.block_id) {
+                        blk->branch_weight_taken     = hint.likely_taken ? 0.9 : 0.1;
+                        blk->branch_weight_not_taken  = hint.likely_taken ? 0.1 : 0.9;
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.diagnostics.Report(
+                core::SourceLoc{"<backend>", 1, 1},
+                "failed to load PGO profile: " + settings.pgo_use_path);
+            if (!settings.force) {
+                result.success = false;
+                return result;
+            }
         }
     }
 

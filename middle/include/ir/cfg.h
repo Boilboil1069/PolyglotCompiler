@@ -35,11 +35,16 @@ struct StubRelocation {
 /** @brief BasicBlock data structure. */
 struct BasicBlock {
   std::string name;
+  std::size_t id{0};                                       // Block index (for PGO)
   std::vector<std::shared_ptr<PhiInstruction>> phis;       // Phi nodes (dominated by block)
   std::vector<std::shared_ptr<Instruction>> instructions;  // non-phi, non-terminator
   std::shared_ptr<Instruction> terminator{nullptr};
   std::vector<BasicBlock *> successors{};
   std::vector<BasicBlock *> predecessors{};
+
+  // PGO branch-weight hints (set by --pgo-use, consumed by code layout)
+  double branch_weight_taken{0.5};
+  double branch_weight_not_taken{0.5};
 
   void AddInstruction(const std::shared_ptr<Instruction> &inst);
   void AddPhi(const std::shared_ptr<PhiInstruction> &phi);

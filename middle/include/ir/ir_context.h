@@ -42,7 +42,20 @@ class IRContext {
   void AddStatement(const std::shared_ptr<Statement> &stmt);
 
   const std::vector<std::shared_ptr<Function>> &Functions() const { return functions_; }
+  std::vector<std::shared_ptr<Function>> &Functions() { return functions_; }
   const std::vector<std::shared_ptr<GlobalValue>> &Globals() const { return globals_; }
+
+  // Look up a function by name (returns nullptr if not found)
+  Function *FindFunction(const std::string &name) {
+    for (auto &fn : functions_)
+      if (fn && fn->name == name) return fn.get();
+    return nullptr;
+  }
+  const Function *FindFunction(const std::string &name) const {
+    for (const auto &fn : functions_)
+      if (fn && fn->name == name) return fn.get();
+    return nullptr;
+  }
 
   const DataLayout &Layout() const { return layout_; }
   DataLayout &Layout() { return layout_; }

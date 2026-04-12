@@ -329,6 +329,13 @@ public:
     // Build .debug_frame section (call frame information)
     std::vector<uint8_t> BuildDebugFrame(const DebugInfoBuilder &info);
     
+    // Build .eh_frame section (exception-handling call frame information).
+    // Unlike .debug_frame, .eh_frame uses CIE_id=0, "zR" augmentation for
+    // PC-relative FDE encoding, and relative CIE back-pointers in FDEs.
+    // This is the format consumed by libunwind / libgcc_s for Linux exception
+    // unwinding and by GDB for backtrace generation.
+    std::vector<uint8_t> BuildEhFrame(const DebugInfoBuilder &info);
+    
     // Build .debug_aranges section (address ranges)
     std::vector<uint8_t> BuildDebugAranges(const DebugInfoBuilder &info);
     
@@ -964,6 +971,121 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugFrame(const DebugInfoBuilder
     return result;
 }
 
+std::vector<uint8_t> DwarfSectionBuilder::BuildEhFrame(const DebugInfoBuilder &info) {
+    // .eh_frame uses the same DWARF CFI encoding as .debug_frame but with:
+    //   - CIE id = 0 (vs 0xFFFFFFFF in .debug_frame)
+    //   - "zR" augmentation: the 'z' prefix enables an augmentation data length
+    //     field, and 'R' specifies that FDE addresses use a specific encoding.
+    //   - FDE CIE_pointer is a *negative* relative offset (from CIE_pointer field
+    //     to the start of the CIE it references).
+    //   - Version 1 (not 4).
+    std::vector<uint8_t> result;
+
+    // ── CIE (Common Information Entry) ──────────────────────────────────
+    size_t cie_start = result.size();
+    size_t cie_length_pos = result.size();
+    WriteLE<uint32_t>(result, 0);  // placeholder for length
+
+    WriteLE<uint32_t>(result, 0);  // CIE_id = 0 (distinguishes CIE from FDE)
+
+    result.push_back(1);  // Version 1
+
+    // Augmentation string "zR\0"
+    result.push_back('z');
+    result.push_back('R');
+    result.push_back(0);
+
+    // Code alignment factor
+    WriteULEB128(result, 1);
+
+    // Data alignment factor
+    WriteSLEB128(result, -8);
+
+    // Return address register (x86-64: RIP = 16)
+    WriteULEB128(result, 16);
+
+    // Augmentation data length (1 byte: the FDE encoding byte)
+    WriteULEB128(result, 1);
+
+    // FDE pointer encoding: DW_EH_PE_udata8 | DW_EH_PE_absptr = 0x04 (udata8)
+    // 0x00 = DW_EH_PE_absptr, 0x04 = DW_EH_PE_udata8
+    result.push_back(0x00);  // abs pointer, native size (8 bytes on 64-bit)
+
+    // Initial instructions: define CFA and register save rules
+    // DW_CFA_def_cfa: register RSP(7), offset 8
+    result.push_back(0x0c);  // DW_CFA_def_cfa
+    WriteULEB128(result, 7);  // RSP
+    WriteULEB128(result, 8);  // offset (return address pushed by call)
+
+    // DW_CFA_offset: RIP(16) at CFA-8  →  offset_factor = 8/8 = 1
+    result.push_back(0x80 | 16);  // DW_CFA_offset reg 16
+    WriteULEB128(result, 1);
+
+    // Pad CIE to pointer-size alignment
+    while ((result.size() - cie_start) % 8 != 0)
+        result.push_back(0);  // DW_CFA_nop
+
+    // Patch CIE length
+    uint32_t cie_length = static_cast<uint32_t>(result.size() - cie_length_pos - 4);
+    Patch32(result, cie_length_pos, cie_length);
+
+    // ── FDEs (Frame Description Entries) ────────────────────────────────
+    for (const auto &sym : info.Symbols()) {
+        if (!sym.is_function || sym.size == 0) continue;
+
+        AlignTo(result, 8);
+        size_t fde_start = result.size();
+        size_t fde_length_pos = result.size();
+        WriteLE<uint32_t>(result, 0);  // placeholder for length
+
+        // CIE pointer: offset from *this field* back to the CIE start
+        uint32_t cie_ptr = static_cast<uint32_t>(result.size() - cie_start);
+        WriteLE<uint32_t>(result, cie_ptr);
+
+        // Augmentation data length (0 — no per-FDE augmentation data)
+        // (The 'z' augmentation requires this field in the FDE.)
+        WriteULEB128(result, 0);
+
+        // Initial location (function address)
+        WriteLE<uint64_t>(result, sym.address);
+
+        // Address range (function size)
+        WriteLE<uint64_t>(result, sym.size);
+
+        // Call frame instructions: standard frame-pointer prologue
+        //   push rbp          (1 byte)
+        //   mov  rbp, rsp     (3 bytes)
+
+        // DW_CFA_advance_loc(1): after push rbp
+        result.push_back(0x41);
+        // DW_CFA_def_cfa_offset(16): RSP moved by 8 (call) + 8 (push)
+        result.push_back(0x0E);
+        WriteULEB128(result, 16);
+        // DW_CFA_offset(RBP=6, 2): RBP saved at CFA-16 (16/8 = 2)
+        result.push_back(0x80 | 6);
+        WriteULEB128(result, 2);
+
+        // DW_CFA_advance_loc(3): after mov rbp, rsp
+        result.push_back(0x43);
+        // DW_CFA_def_cfa_register(RBP=6): CFA is now RBP+16
+        result.push_back(0x0D);
+        WriteULEB128(result, 6);
+
+        // Pad FDE to pointer-size alignment
+        while ((result.size() - fde_start) % 8 != 0)
+            result.push_back(0);
+
+        // Patch FDE length
+        uint32_t fde_length = static_cast<uint32_t>(result.size() - fde_length_pos - 4);
+        Patch32(result, fde_length_pos, fde_length);
+    }
+
+    // Zero-length terminator (4 zero bytes mark end of .eh_frame)
+    WriteLE<uint32_t>(result, 0);
+
+    return result;
+}
+
 std::vector<uint8_t> DwarfSectionBuilder::BuildDebugAranges(const DebugInfoBuilder &info) {
     std::vector<uint8_t> result;
     
@@ -1068,45 +1190,94 @@ std::vector<uint8_t> PdbSectionBuilder::BuildPdbInfoStream() {
 std::vector<uint8_t> PdbSectionBuilder::BuildTpiStream(const DebugInfoBuilder &info) {
     std::vector<uint8_t> result;
     
-    // Build type records first to know their total size
+    // Build type records first to know their total size.
+    // PDB predefined type indices (0x0000-0x0FFF) already cover basic C types
+    // (e.g., T_INT4=0x0074, T_REAL32=0x0040, T_REAL64=0x0041, T_VOID=0x0003,
+    //  T_UCHAR=0x0020, T_BOOL08=0x0030).
+    // User-defined type records start at index 0x1000.
     std::vector<uint8_t> type_records;
-    uint32_t type_index_end = 0x1000;  // Start at min type index
-    
-    // Emit LF_ARGLIST (0x1201) for each function — empty arg list as baseline
+    uint32_t type_index_end = 0x1000;
+
+    // ── LF_ARGLIST (0x1201): empty argument list as a reusable baseline ──
+    // Index: 0x1000
     {
         uint16_t rec_len = 6;  // 2 kind + 4 count
         WriteLE<uint16_t>(type_records, rec_len);
         WriteLE<uint16_t>(type_records, 0x1201);  // LF_ARGLIST
         WriteLE<uint32_t>(type_records, 0);        // argcount = 0
-        type_index_end++;
+        type_index_end++;  // 0x1001
     }
 
-    // Emit LF_POINTER (0x1002) for pointer types discovered in DebugType
-    // and LF_MODIFIER (0x1001) for const-qualified types — this gives the
-    // PDB consumer basic type layout information.
+    // ── LF_POINTER (0x1002): int* — 64-bit near pointer to T_INT4 ──
+    // Index: 0x1001
+    {
+        uint16_t rec_len = 10;  // 2 kind + 4 referent + 4 attrs
+        WriteLE<uint16_t>(type_records, rec_len);
+        WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
+        WriteLE<uint32_t>(type_records, 0x0074);   // referent: T_INT4 (int)
+        // pointer attrs: 64-bit (size=8), near, plain
+        WriteLE<uint32_t>(type_records, 0x0000000C);
+        type_index_end++;  // 0x1002
+    }
+
+    // ── LF_POINTER: float* ──
+    // Index: 0x1002
+    {
+        uint16_t rec_len = 10;
+        WriteLE<uint16_t>(type_records, rec_len);
+        WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
+        WriteLE<uint32_t>(type_records, 0x0040);   // referent: T_REAL32 (float)
+        WriteLE<uint32_t>(type_records, 0x0000000C);
+        type_index_end++;  // 0x1003
+    }
+
+    // ── LF_POINTER: double* ──
+    // Index: 0x1003
+    {
+        uint16_t rec_len = 10;
+        WriteLE<uint16_t>(type_records, rec_len);
+        WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
+        WriteLE<uint32_t>(type_records, 0x0041);   // referent: T_REAL64 (double)
+        WriteLE<uint32_t>(type_records, 0x0000000C);
+        type_index_end++;  // 0x1004
+    }
+
+    // ── LF_POINTER: void* ──
+    // Index: 0x1004
+    {
+        uint16_t rec_len = 10;
+        WriteLE<uint16_t>(type_records, rec_len);
+        WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
+        WriteLE<uint32_t>(type_records, 0x0003);   // referent: T_VOID
+        WriteLE<uint32_t>(type_records, 0x0000000C);
+        type_index_end++;  // 0x1005
+    }
+
+    // ── Additional LF_POINTER records for DebugType entries marked "pointer" ──
     for (const auto &dt : info.Types()) {
         if (dt.kind == "pointer") {
-            uint16_t rec_len = 10;  // 2 kind + 4 referent + 4 attrs
+            uint16_t rec_len = 10;
             WriteLE<uint16_t>(type_records, rec_len);
             WriteLE<uint16_t>(type_records, 0x1002);  // LF_POINTER
-            WriteLE<uint32_t>(type_records, 0x0074);   // referent: T_INT8 (char)
-            // pointer attributes: 64-bit, near, plain
+            WriteLE<uint32_t>(type_records, 0x0074);   // referent: T_INT4
             WriteLE<uint32_t>(type_records, 0x0000000C);
             type_index_end++;
         }
     }
     
-    // Emit LF_PROCEDURE (0x1008) for each function symbol
+    // ── LF_PROCEDURE (0x1008) for each function symbol ──
+    // Each record describes: return type, calling convention, param count,
+    // and the LF_ARGLIST type index.
     for (const auto &sym : info.Symbols()) {
         if (sym.is_function) {
             uint16_t rec_len = 14;  // 2 kind + 4 ret + 1 callconv + 1 attrs + 2 parmcount + 4 arglist
             WriteLE<uint16_t>(type_records, rec_len);
             WriteLE<uint16_t>(type_records, 0x1008);  // LF_PROCEDURE
-            WriteLE<uint32_t>(type_records, 0x0003);   // return type: T_VOID
+            WriteLE<uint32_t>(type_records, 0x0074);   // return type: T_INT4 (int)
             type_records.push_back(0);                  // calling convention: near C
-            type_records.push_back(0);                  // attributes
+            type_records.push_back(0);                  // function attributes
             WriteLE<uint16_t>(type_records, 0);         // parameter count
-            WriteLE<uint32_t>(type_records, 0x1000);    // arglist type index
+            WriteLE<uint32_t>(type_records, 0x1000);    // arglist type index (empty arglist)
             type_index_end++;
         }
     }
@@ -1366,6 +1537,7 @@ bool DebugEmitter::EmitDWARF(const DebugInfoBuilder &info, const std::string &pa
     std::vector<uint8_t> debug_info = builder.BuildDebugInfo(info);
     std::vector<uint8_t> debug_line = builder.BuildDebugLine(info);
     std::vector<uint8_t> debug_frame = builder.BuildDebugFrame(info);
+    std::vector<uint8_t> eh_frame = builder.BuildEhFrame(info);
     std::vector<uint8_t> debug_aranges = builder.BuildDebugAranges(info);
     
     // Rebuild debug_str after all strings have been collected during info building
@@ -1398,6 +1570,12 @@ bool DebugEmitter::EmitDWARF(const DebugInfoBuilder &info, const std::string &pa
     frame_section.name = ".debug_frame";
     frame_section.data = std::move(debug_frame);
     sections.push_back(std::move(frame_section));
+    
+    // .eh_frame section for Linux exception unwinding and GDB backtrace
+    DebugSection eh_frame_section;
+    eh_frame_section.name = ".eh_frame";
+    eh_frame_section.data = std::move(eh_frame);
+    sections.push_back(std::move(eh_frame_section));
     
     DebugSection aranges_section;
     aranges_section.name = ".debug_aranges";

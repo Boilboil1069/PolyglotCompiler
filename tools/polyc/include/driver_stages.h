@@ -95,6 +95,13 @@ struct DriverSettings {
     int jobs{1};
     RegAllocChoice regalloc{RegAllocChoice::kLinearScan};
 
+    // PGO (Profile-Guided Optimisation)
+    bool pgo_generate{false};        // --pgo-generate: instrument for profiling
+    std::string pgo_use_path{};      // --pgo-use <file>: use profile data
+
+    // LTO (Link-Time Optimisation)
+    bool lto_enabled{false};         // --lto: enable cross-module LTO
+
     // Package indexing
     bool package_index{true};
     int package_index_timeout_ms{10000};

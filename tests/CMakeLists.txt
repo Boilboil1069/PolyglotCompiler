@@ -103,6 +103,7 @@ set(UNIT_TEST_MIDDLE
     unit/middle/ir_ssa_test.cpp
     unit/middle/lto_test.cpp
     unit/middle/optimization_passes_test.cpp
+    unit/middle/opt_level_regression_test.cpp
     unit/middle/template_instantiator_test.cpp
     unit/devirtualization_test.cpp
     unit/gvn_test.cpp
@@ -283,12 +284,14 @@ set(INTEGRATION_TEST_SOURCES
     integration/interop_tests/interop_test.cpp
     integration/performance/perf_test.cpp
     integration/e2e/polyc_e2e_test.cpp
+    integration/object_format_test.cpp
 )
 set(INTEGRATION_TEST_SOURCES
     integration/compile_tests/compile_pipeline_test.cpp
     integration/interop_tests/interop_test.cpp
     integration/performance/perf_test.cpp
     integration/e2e/polyc_e2e_test.cpp
+    integration/object_format_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})

@@ -22,6 +22,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "middle/include/lto/link_time_optimizer.h"
+
 #if __has_include(<elf.h>)
 #include <elf.h>
 #else
@@ -96,11 +98,7 @@ struct Elf64_Rela {
 #define ELF64_R_INFO(s,t)   ((((Elf64_Xword)(s))<<32)+((t)&0xffffffffULL))
 #endif
 
-#if defined(__APPLE__)
-#include <mach-o/loader.h>
-#include <mach-o/nlist.h>
-#include <mach-o/reloc.h>
-#endif
+// Mach-O64 builder is now self-contained — no platform-specific headers needed.
 
 namespace fs = std::filesystem;
 
@@ -457,104 +455,300 @@ std::string BuildElf64(const std::string &path,
 }
 
 // ── Mach-O64 ────────────────────────────────────────────────────────────────
+//
+// Self-contained cross-platform Mach-O 64 object emitter.
+// Produces a relocatable MH_OBJECT with __TEXT/__text, optional __DATA/__data,
+// LC_SYMTAB, and LC_DYSYMTAB load commands so that ld64 / lld can consume it.
+//
 
-#if defined(__APPLE__)
+// Mach-O constants (platform-independent definitions)
+namespace macho {
+constexpr std::uint32_t kMhMagic64      = 0xFEEDFACF;
+constexpr std::uint32_t kMhObject       = 0x1;
+constexpr std::uint32_t kMhSubsectionsViaSymbols = 0x2000;
+constexpr std::uint32_t kCpuTypeX86_64  = 0x01000007;
+constexpr std::uint32_t kCpuTypeArm64   = 0x0100000C;
+constexpr std::uint32_t kCpuSubX86All   = 0x03;
+constexpr std::uint32_t kCpuSubArm64All = 0x00;
+constexpr std::uint32_t kLcSegment64    = 0x19;
+constexpr std::uint32_t kLcSymtab       = 0x02;
+constexpr std::uint32_t kLcDysymtab     = 0x0B;
+constexpr std::uint32_t kSRegular       = 0x00;
+constexpr std::uint32_t kSAttrSomeInstr = 0x00000400;
+constexpr std::uint32_t kSAttrPureInstr = 0x80000000;
+constexpr std::uint8_t  kNExt           = 0x01;
+constexpr std::uint8_t  kNSect          = 0x0E;
+constexpr std::uint8_t  kNUndf          = 0x00;
+constexpr std::uint32_t kVmProtRead     = 0x01;
+constexpr std::uint32_t kVmProtWrite    = 0x02;
+constexpr std::uint32_t kVmProtExec     = 0x04;
+// Sizes of on-disk structures
+constexpr std::size_t kMachHeader64Size   = 32;
+constexpr std::size_t kSegmentCmd64Size   = 72;
+constexpr std::size_t kSection64Size      = 80;
+constexpr std::size_t kSymtabCmdSize      = 24;
+constexpr std::size_t kDysymtabCmdSize    = 80;
+constexpr std::size_t kNlist64Size        = 16;
+constexpr std::size_t kRelocInfoSize      = 8;
+}  // namespace macho
+
 std::string BuildMachO64(const std::string &path,
                          const std::vector<ObjSection> &obj_sections,
                          const std::vector<ObjSymbol>  &obj_symbols,
                          const std::string &arch) {
+    using namespace macho;
+    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
+
+    // Locate key sections
     auto text_it = std::find_if(obj_sections.begin(), obj_sections.end(),
                                 [](const ObjSection &s){ return s.name == ".text"; });
-    bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
-    std::size_t text_size = text_it != obj_sections.end() ? text_it->data.size() : 0;
+    auto data_it = std::find_if(obj_sections.begin(), obj_sections.end(),
+                                [](const ObjSection &s){
+                                    return s.name == ".data" && !s.bss && !s.data.empty();
+                                });
 
-    mach_header_64 mh{};
-    mh.magic     = MH_MAGIC_64;
-    mh.cputype   = is_arm64 ? CPU_TYPE_ARM64 : CPU_TYPE_X86_64;
-    mh.cpusubtype = is_arm64 ? CPU_SUBTYPE_ARM64_ALL : CPU_SUBTYPE_X86_64_ALL;
-    mh.filetype  = MH_OBJECT;
-    mh.ncmds     = 2;
-    mh.sizeofcmds = sizeof(segment_command_64) + sizeof(section_64) + sizeof(symtab_command);
-    mh.flags     = MH_SUBSECTIONS_VIA_SYMBOLS;
+    std::size_t text_size = (text_it != obj_sections.end()) ? text_it->data.size() : 0;
+    std::size_t data_size = (data_it != obj_sections.end()) ? data_it->data.size() : 0;
+    bool has_data = data_size > 0;
 
-    segment_command_64 seg{};
-    seg.cmd = LC_SEGMENT_64;
-    seg.cmdsize = sizeof(segment_command_64) + sizeof(section_64);
-    std::memcpy(seg.segname, "__TEXT", 6);
-    seg.vmsize = text_size; seg.filesize = text_size;
-    seg.maxprot = VM_PROT_READ | VM_PROT_EXECUTE;
-    seg.initprot = VM_PROT_READ | VM_PROT_EXECUTE;
-    seg.nsects = 1;
+    // Section count in the segment command: __text (always) + __data (optional)
+    std::uint32_t nsects = 1 + (has_data ? 1 : 0);
 
-    section_64 sec{};
-    std::memcpy(sec.sectname, "__text", 6);
-    std::memcpy(sec.segname,  "__TEXT", 6);
-    sec.size  = text_size;
-    sec.align = 4;
-    sec.flags = S_REGULAR | S_ATTR_SOME_INSTRUCTIONS;
-    sec.offset = sizeof(mach_header_64) + seg.cmdsize + sizeof(symtab_command);
+    // Load command sizes
+    std::size_t seg_cmd_total   = kSegmentCmd64Size + nsects * kSection64Size;
+    std::size_t load_cmds_size  = seg_cmd_total + kSymtabCmdSize + kDysymtabCmdSize;
+    std::size_t header_and_cmds = kMachHeader64Size + load_cmds_size;
 
-    std::string strtab(1, '\0');
-    std::vector<nlist_64> nlists;
-    std::unordered_map<std::string, std::uint32_t> sym_index;
+    // Build string table and nlist entries
+    std::string strtab(1, '\0');  // Index 0 is always '\0'
+    struct NL { std::uint32_t strx; std::uint8_t type; std::uint8_t sect;
+                std::uint16_t desc; std::uint64_t value; };
+    std::vector<NL> local_syms, ext_syms, undef_syms;
+    std::unordered_map<std::string, std::uint32_t> seen;
+
     for (const auto &sym : obj_symbols) {
-        if (sym_index.count(sym.name)) continue;
-        std::uint32_t name_off = static_cast<std::uint32_t>(strtab.size());
+        if (seen.count(sym.name)) continue;
+        std::uint32_t strx = static_cast<std::uint32_t>(strtab.size());
+        // Mach-O expects symbols prefixed with '_'
+        strtab.push_back('_');
         strtab.append(sym.name); strtab.push_back('\0');
-        nlist_64 nl{};
-        nl.n_un.n_strx = name_off;
+        seen[sym.name] = strx;
+
+        NL nl{};
+        nl.strx = strx;
+        nl.desc = 0;
         bool defined = sym.defined && sym.section_index != 0xFFFFFFFF;
-        nl.n_type = defined ? (N_EXT | N_SECT) : (N_EXT | N_UNDF);
-        nl.n_sect  = defined ? 1 : 0;
-        nl.n_value = defined ? sym.value : 0;
-        sym_index[sym.name] = static_cast<std::uint32_t>(nlists.size());
-        nlists.push_back(nl);
-    }
-
-    std::size_t reloc_bytes = (text_it != obj_sections.end())
-        ? text_it->relocs.size() * sizeof(relocation_info) : 0;
-    sec.reloff  = static_cast<std::uint32_t>(sec.offset + text_size);
-    sec.nreloc  = static_cast<std::uint32_t>(text_it != obj_sections.end() ? text_it->relocs.size() : 0);
-
-    symtab_command st{};
-    st.cmd      = LC_SYMTAB;
-    st.cmdsize  = sizeof(symtab_command);
-    st.symoff   = static_cast<std::uint32_t>(sec.reloff + reloc_bytes);
-    st.nsyms    = static_cast<std::uint32_t>(nlists.size());
-    st.stroff   = st.symoff + static_cast<std::uint32_t>(nlists.size() * sizeof(nlist_64));
-    st.strsize  = static_cast<std::uint32_t>(strtab.size());
-
-    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-    if (!ofs.is_open()) return {};
-    ofs.write(reinterpret_cast<const char *>(&mh),  sizeof(mh));
-    ofs.write(reinterpret_cast<const char *>(&seg), sizeof(seg));
-    ofs.write(reinterpret_cast<const char *>(&sec), sizeof(sec));
-    ofs.write(reinterpret_cast<const char *>(&st),  sizeof(st));
-    if (text_it != obj_sections.end()) {
-        ofs.write(reinterpret_cast<const char *>(text_it->data.data()),
-                  static_cast<std::streamsize>(text_it->data.size()));
-        for (const auto &r : text_it->relocs) {
-            relocation_info ri{};
-            ri.r_address   = static_cast<std::int32_t>(r.offset);
-            ri.r_symbolnum = static_cast<std::int32_t>(r.symbol_index);
-            ri.r_pcrel     = (r.type == 1);
-            ri.r_length    = 2;
-            ri.r_extern    = 1;
-            ri.r_type      = is_arm64 ? 2 : 0;
-            ofs.write(reinterpret_cast<const char *>(&ri), sizeof(ri));
+        if (defined) {
+            nl.type  = kNExt | kNSect;
+            // Determine which Mach-O section (1-based) this maps to.
+            // Section 1 = __text, Section 2 = __data (if present).
+            if (sym.section_index < obj_sections.size() &&
+                obj_sections[sym.section_index].name == ".data" && has_data) {
+                nl.sect = 2;
+            } else {
+                nl.sect = 1;
+            }
+            nl.value = sym.value;
+            if (sym.global) ext_syms.push_back(nl);
+            else            local_syms.push_back(nl);
+        } else {
+            nl.type  = kNExt | kNUndf;
+            nl.sect  = 0;
+            nl.value = 0;
+            undef_syms.push_back(nl);
         }
     }
-    for (const auto &n : nlists)
-        ofs.write(reinterpret_cast<const char *>(&n), sizeof(n));
-    ofs.write(strtab.data(), static_cast<std::streamsize>(strtab.size()));
+
+    // Merge in order: locals, externals, undefs (Mach-O convention)
+    std::vector<NL> all_syms;
+    all_syms.insert(all_syms.end(), local_syms.begin(), local_syms.end());
+    std::uint32_t ilocalsym  = 0;
+    std::uint32_t nlocalsym  = static_cast<std::uint32_t>(local_syms.size());
+    std::uint32_t iextdefsym = nlocalsym;
+    std::uint32_t nextdefsym = static_cast<std::uint32_t>(ext_syms.size());
+    all_syms.insert(all_syms.end(), ext_syms.begin(), ext_syms.end());
+    std::uint32_t iundefsym  = iextdefsym + nextdefsym;
+    std::uint32_t nundefsym  = static_cast<std::uint32_t>(undef_syms.size());
+    all_syms.insert(all_syms.end(), undef_syms.begin(), undef_syms.end());
+
+    // Build relocation entries for __text section
+    struct MachReloc { std::int32_t address; std::uint32_t packed; };
+    std::vector<MachReloc> text_relocs;
+    if (text_it != obj_sections.end()) {
+        // Build a sym-name-to-merged-index map
+        std::unordered_map<std::string, std::uint32_t> name_to_idx;
+        {
+            std::uint32_t idx = 0;
+            std::unordered_map<std::string, bool> added;
+            for (const auto &sym : obj_symbols) {
+                if (added.count(sym.name)) continue;
+                added[sym.name] = true;
+                name_to_idx[sym.name] = idx++;
+            }
+        }
+        for (const auto &r : text_it->relocs) {
+            MachReloc mr{};
+            mr.address = static_cast<std::int32_t>(r.offset);
+            std::uint32_t sym_idx = r.symbol_index;
+            if (r.symbol_index < obj_symbols.size()) {
+                auto it2 = name_to_idx.find(obj_symbols[r.symbol_index].name);
+                if (it2 != name_to_idx.end()) sym_idx = it2->second;
+            }
+            bool pcrel = (r.type == 1);
+            std::uint32_t length = 2;  // 2 = 4-byte (log2)
+            if (!pcrel) length = 3;    // 3 = 8-byte for abs64
+            std::uint32_t rtype = is_arm64 ? 2 : (pcrel ? 2 : 0);
+            // Pack relocation_info fields (Mach-O packed format):
+            //   bits 0-23: symbolnum, bit 24: pcrel, bits 25-26: length,
+            //   bit 27: extern, bits 28-31: type
+            mr.packed = (sym_idx & 0x00FFFFFF)
+                      | (pcrel    ? (1u << 24) : 0)
+                      | ((length & 3u) << 25)
+                      | (1u << 27)  // extern = 1
+                      | ((rtype & 0x0Fu) << 28);
+            text_relocs.push_back(mr);
+        }
+    }
+
+    // Compute file offsets
+    auto align8 = [](std::size_t v) { return (v + 7) & ~std::size_t(7); };
+
+    std::size_t text_offset = header_and_cmds;
+    std::size_t data_offset = align8(text_offset + text_size);
+    std::size_t reloc_offset = align8(data_offset + data_size);
+    std::size_t reloc_bytes  = text_relocs.size() * kRelocInfoSize;
+    std::size_t symoff       = align8(reloc_offset + reloc_bytes);
+    std::size_t sym_bytes    = all_syms.size() * kNlist64Size;
+    std::size_t stroff       = symoff + sym_bytes;
+    std::size_t total_size   = stroff + strtab.size();
+
+    // Segment covers text + data range
+    std::uint64_t seg_vmsize   = data_offset + data_size - text_offset;
+    std::uint64_t seg_filesize = seg_vmsize;
+
+    // ── Write output ────────────────────────────────────────────────────
+    std::vector<std::uint8_t> buf(total_size, 0);
+    auto w8 = [&](std::size_t off, std::uint8_t v) { buf[off] = v; };
+    auto w16 = [&](std::size_t off, std::uint16_t v) {
+        buf[off]   = v & 0xFF; buf[off+1] = (v >> 8) & 0xFF;
+    };
+    auto w32 = [&](std::size_t off, std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) buf[off + i] = static_cast<std::uint8_t>((v >> (i*8)) & 0xFF);
+    };
+    auto w64 = [&](std::size_t off, std::uint64_t v) {
+        for (int i = 0; i < 8; ++i) buf[off + i] = static_cast<std::uint8_t>((v >> (i*8)) & 0xFF);
+    };
+
+    // -- mach_header_64 (32 bytes) --
+    w32(0,  kMhMagic64);
+    w32(4,  is_arm64 ? kCpuTypeArm64 : kCpuTypeX86_64);
+    w32(8,  is_arm64 ? kCpuSubArm64All : kCpuSubX86All);
+    w32(12, kMhObject);
+    w32(16, 3);  // ncmds: LC_SEGMENT_64 + LC_SYMTAB + LC_DYSYMTAB
+    w32(20, static_cast<std::uint32_t>(load_cmds_size));
+    w32(24, kMhSubsectionsViaSymbols);
+    w32(28, 0);  // reserved
+
+    // -- LC_SEGMENT_64 --
+    std::size_t p = kMachHeader64Size;
+    w32(p,      kLcSegment64);
+    w32(p + 4,  static_cast<std::uint32_t>(seg_cmd_total));
+    // segname: leave zeros (unnamed, covers whole file for MH_OBJECT)
+    w64(p + 24, 0);                                     // vmaddr
+    w64(p + 32, seg_vmsize);                             // vmsize
+    w64(p + 40, text_offset);                            // fileoff
+    w64(p + 48, seg_filesize);                           // filesize
+    w32(p + 56, kVmProtRead | kVmProtWrite | kVmProtExec);  // maxprot
+    w32(p + 60, kVmProtRead | kVmProtWrite | kVmProtExec);  // initprot
+    w32(p + 64, nsects);
+    w32(p + 68, 0);  // flags
+    p += kSegmentCmd64Size;
+
+    // -- section_64 : __text, __TEXT --
+    {
+        std::memcpy(buf.data() + p,      "__text\0\0\0\0\0\0\0\0\0\0", 16);
+        std::memcpy(buf.data() + p + 16, "__TEXT\0\0\0\0\0\0\0\0\0\0", 16);
+        w64(p + 32, 0);                                         // addr
+        w64(p + 40, text_size);                                  // size
+        w32(p + 48, static_cast<std::uint32_t>(text_offset));   // offset
+        w32(p + 52, 4);                                          // align (2^4 = 16)
+        w32(p + 56, static_cast<std::uint32_t>(reloc_offset));  // reloff
+        w32(p + 60, static_cast<std::uint32_t>(text_relocs.size()));  // nreloc
+        w32(p + 64, kSRegular | kSAttrSomeInstr | kSAttrPureInstr);  // flags
+        w32(p + 68, 0); w32(p + 72, 0); w32(p + 76, 0);        // reserved
+        p += kSection64Size;
+    }
+
+    // -- section_64 : __data, __DATA (optional) --
+    if (has_data) {
+        std::memcpy(buf.data() + p,      "__data\0\0\0\0\0\0\0\0\0\0", 16);
+        std::memcpy(buf.data() + p + 16, "__DATA\0\0\0\0\0\0\0\0\0\0", 16);
+        w64(p + 32, data_offset - text_offset);                  // addr (vm)
+        w64(p + 40, data_size);                                  // size
+        w32(p + 48, static_cast<std::uint32_t>(data_offset));   // offset
+        w32(p + 52, 3);                                          // align (2^3 = 8)
+        w32(p + 56, 0); w32(p + 60, 0);                         // no relocs
+        w32(p + 64, kSRegular);                                  // flags
+        w32(p + 68, 0); w32(p + 72, 0); w32(p + 76, 0);
+        p += kSection64Size;
+    }
+
+    // -- LC_SYMTAB --
+    w32(p,      kLcSymtab);
+    w32(p + 4,  static_cast<std::uint32_t>(kSymtabCmdSize));
+    w32(p + 8,  static_cast<std::uint32_t>(symoff));
+    w32(p + 12, static_cast<std::uint32_t>(all_syms.size()));
+    w32(p + 16, static_cast<std::uint32_t>(stroff));
+    w32(p + 20, static_cast<std::uint32_t>(strtab.size()));
+    p += kSymtabCmdSize;
+
+    // -- LC_DYSYMTAB --
+    w32(p,      kLcDysymtab);
+    w32(p + 4,  static_cast<std::uint32_t>(kDysymtabCmdSize));
+    w32(p + 8,  ilocalsym);   // ilocalsym
+    w32(p + 12, nlocalsym);   // nlocalsym
+    w32(p + 16, iextdefsym);  // iextdefsym
+    w32(p + 20, nextdefsym);  // nextdefsym
+    w32(p + 24, iundefsym);   // iundefsym
+    w32(p + 28, nundefsym);   // nundefsym
+    // Remaining fields (tocoff, ntoc, modtaboff, ...) are zero-initialised
+    p += kDysymtabCmdSize;
+
+    // -- Section data: __text --
+    if (text_it != obj_sections.end())
+        std::memcpy(buf.data() + text_offset, text_it->data.data(), text_size);
+
+    // -- Section data: __data --
+    if (has_data)
+        std::memcpy(buf.data() + data_offset, data_it->data.data(), data_size);
+
+    // -- Relocations --
+    for (std::size_t i = 0; i < text_relocs.size(); ++i) {
+        std::size_t off = reloc_offset + i * kRelocInfoSize;
+        w32(off,     static_cast<std::uint32_t>(text_relocs[i].address));
+        w32(off + 4, text_relocs[i].packed);
+    }
+
+    // -- Symbol table (nlist_64 entries) --
+    for (std::size_t i = 0; i < all_syms.size(); ++i) {
+        std::size_t off = symoff + i * kNlist64Size;
+        w32(off,     all_syms[i].strx);
+        w8 (off + 4, all_syms[i].type);
+        w8 (off + 5, all_syms[i].sect);
+        w16(off + 6, all_syms[i].desc);
+        w64(off + 8, all_syms[i].value);
+    }
+
+    // -- String table --
+    std::memcpy(buf.data() + stroff, strtab.data(), strtab.size());
+
+    // ── Flush to disk ───────────────────────────────────────────────────
+    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+    if (!ofs.is_open()) return {};
+    ofs.write(reinterpret_cast<const char *>(buf.data()),
+              static_cast<std::streamsize>(buf.size()));
     return ofs.good() ? path : std::string{};
 }
-#else
-std::string BuildMachO64(const std::string &, const std::vector<ObjSection> &,
-                         const std::vector<ObjSymbol> &, const std::string &) {
-    return {};
-}
-#endif
 
 // ── COFF ────────────────────────────────────────────────────────────────────
 
@@ -597,6 +791,8 @@ constexpr std::uint8_t  kCoffSymStatic   = 3;
 constexpr std::uint16_t kCoffRelocAMD64Addr64   = 0x0001;
 constexpr std::uint16_t kCoffRelocAMD64Rel32    = 0x0004;
 constexpr std::uint16_t kCoffRelocARM64Branch26 = 0x0003;
+constexpr std::uint16_t kCoffCharLargeAddr = 0x0020;  // IMAGE_FILE_LARGE_ADDRESS_AWARE
+constexpr std::uint8_t  kCoffSymSection    = 3;        // IMAGE_SYM_CLASS_STATIC (section sym)
 
 std::string BuildCoff(const std::string &path,
                       const std::vector<ObjSection> &obj_sections,
@@ -620,9 +816,48 @@ std::string BuildCoff(const std::string &path,
         sec_headers.push_back(sh); sec_ptrs.push_back(&s);
     }
 
+    // String table: first 4 bytes are the total size of the string table
     std::string strtab(4, '\0');
+
+    // Build the COFF symbol table.
+    // Per COFF spec each section gets a section symbol (IMAGE_SYM_CLASS_STATIC)
+    // followed by one auxiliary record that describes the section.
     std::vector<CoffSymbol> coff_syms;
     std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
+
+    // 1) Section symbols + auxiliary records
+    for (std::size_t si = 0; si < sec_headers.size(); ++si) {
+        CoffSymbol cs{}; std::memset(&cs, 0, sizeof(cs));
+        const auto &sec_name = obj_sections[si].name;
+        if (sec_name.size() <= 8) {
+            std::memcpy(cs.Name.ShortName, sec_name.data(), sec_name.size());
+        } else {
+            cs.Name.LongName.Zeroes = 0;
+            cs.Name.LongName.Offset = static_cast<std::uint32_t>(strtab.size());
+            strtab.append(sec_name); strtab.push_back('\0');
+        }
+        cs.Value          = 0;
+        cs.SectionNumber  = static_cast<std::int16_t>(si + 1);
+        cs.Type           = 0;
+        cs.StorageClass   = kCoffSymSection;
+        cs.NumberOfAuxSymbols = 1;  // One aux record follows
+        coff_syms.push_back(cs);
+
+        // Auxiliary section symbol record (same size as CoffSymbol = 18 bytes)
+        CoffSymbol aux{}; std::memset(&aux, 0, sizeof(aux));
+        // First 4 bytes: Length, next 2 bytes: NumberOfRelocations,
+        // next 2 bytes: NumberOfLinenumbers, rest: zeros.
+        // We stash these in the Name union bytes since the struct is reused.
+        auto raw = reinterpret_cast<std::uint8_t *>(&aux);
+        auto len = static_cast<std::uint32_t>(obj_sections[si].data.size());
+        std::memcpy(raw, &len, 4);
+        auto nrelocs = static_cast<std::uint16_t>(obj_sections[si].relocs.size());
+        std::memcpy(raw + 4, &nrelocs, 2);
+        // NumberOfLinenumbers = 0 (bytes 6-7 stay zero)
+        coff_syms.push_back(aux);
+    }
+
+    // 2) User-defined symbols (functions / data labels)
     for (const auto &sym : obj_symbols) {
         CoffSymbol cs{}; std::memset(&cs, 0, sizeof(cs));
         if (sym.name.size() <= 8) {
@@ -635,14 +870,17 @@ std::string BuildCoff(const std::string &path,
         cs.Value = static_cast<std::uint32_t>(sym.value);
         cs.SectionNumber = (sym.defined && sym.section_index != 0xFFFFFFFF)
                          ? static_cast<std::int16_t>(sym.section_index + 1) : 0;
-        cs.Type = 0x20;
+        cs.Type = 0x20;  // Function
         cs.StorageClass = sym.global ? kCoffSymExternal : kCoffSymStatic;
         sym_name_to_idx[sym.name] = static_cast<std::uint32_t>(coff_syms.size());
         coff_syms.push_back(cs);
     }
+
+    // Finalise string table size (first 4 bytes = total size including itself)
     std::uint32_t strtab_size = static_cast<std::uint32_t>(strtab.size());
     std::memcpy(strtab.data(), &strtab_size, 4);
 
+    // Build per-section relocation tables
     std::vector<std::vector<CoffRelocation>> sec_relocs(sec_headers.size());
     for (std::size_t si = 0; si < obj_sections.size(); ++si) {
         for (const auto &r : obj_sections[si].relocs) {
@@ -658,6 +896,7 @@ std::string BuildCoff(const std::string &path,
         }
     }
 
+    // Compute file offsets for raw data and relocations
     std::size_t offset = sizeof(CoffFileHeader) + sec_headers.size() * sizeof(CoffSectionHeader);
     for (std::size_t i = 0; i < sec_headers.size(); ++i) {
         if (sec_ptrs[i]->bss) { sec_headers[i].PointerToRawData = 0; }
@@ -677,6 +916,7 @@ std::string BuildCoff(const std::string &path,
     fh.NumberOfSections     = static_cast<std::uint16_t>(sec_headers.size());
     fh.PointerToSymbolTable = static_cast<std::uint32_t>(offset);
     fh.NumberOfSymbols      = static_cast<std::uint32_t>(coff_syms.size());
+    fh.Characteristics      = kCoffCharLargeAddr;
 
     std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
     if (!ofs.is_open()) return {};
@@ -724,14 +964,9 @@ std::string EmitObject(const DriverSettings &settings,
         return w;
     }
     if (fmt == "macho") {
-#if defined(__APPLE__)
         auto w = BuildMachO64(out, sections, symbols, settings.arch);
         if (w.empty()) std::cerr << "[error] Mach-O emit failed\n";
         return w;
-#else
-        std::cerr << "[error] Mach-O requested on non-Apple platform\n";
-        return {};
-#endif
     }
     std::cerr << "[warn] unknown obj format '" << fmt << "', falling back to POBJ\n";
     return BuildPobj(out, sections, symbols);
@@ -839,6 +1074,42 @@ PackagingResult RunPackagingStage(const DriverSettings &settings,
     }
 
     // ── Object emission + optional link ──────────────────────────────────
+    // If LTO is enabled, run cross-module optimisation before final emission.
+    if (settings.lto_enabled && settings.mode == "link") {
+        lto::LTOLinker lto_linker;
+        lto::LTOLinker::Config lto_cfg;
+        lto_cfg.opt_level              = settings.opt_level;
+        lto_cfg.enable_devirtualization = true;
+        lto_cfg.enable_gvn             = true;
+        lto_cfg.enable_constant_prop   = true;
+        lto_linker.SetConfig(lto_cfg);
+        lto_linker.SetOptimizationLevel(settings.opt_level);
+
+        // Emit a temporary object so the LTO linker can load it
+        std::string tmp_obj = EmitObject(settings, sections, symbols);
+        if (!tmp_obj.empty()) {
+            lto_linker.AddInputFile(tmp_obj);
+
+            std::string lto_out = settings.output;
+            if (lto_linker.Link(lto_out)) {
+                auto stats = lto_linker.GetStatistics();
+                if (V) {
+                    std::cerr << "[stage/packaging] LTO: "
+                              << stats.modules_linked << " module(s), "
+                              << stats.functions_inlined << " inlined, "
+                              << stats.functions_removed << " removed, "
+                              << stats.optimization_time_ms << "ms\n";
+                }
+                result.output_path = lto_out;
+                result.obj_path    = tmp_obj;
+                result.success     = true;
+                return result;
+            }
+            // LTO link failed — fall through to standard path
+            if (V) std::cerr << "[stage/packaging] LTO link failed; falling back to standard path\n";
+        }
+    }
+
     auto emit_and_link = [&](bool do_link) -> bool {
         std::string obj_path = EmitObject(settings, sections, symbols);
         if (obj_path.empty()) {

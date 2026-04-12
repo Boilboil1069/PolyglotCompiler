@@ -103,6 +103,9 @@ DriverSettings ParseArgs(int argc, char **argv) {
                 << "  --strict            Reject placeholders; disable degraded stubs\n"
                 << "  --dev               Dev mode: permissive + degraded fallbacks allowed\n"
                 << "  --permissive        Explicit permissive override\n"
+                << "  --pgo-generate      Instrument binary for profile collection\n"
+                << "  --pgo-use <file>    Use profile data for guided optimisation\n"
+                << "  --lto               Enable link-time optimisation\n"
                 << "  --package-index     Run explicit package-index phase (default)\n"
                 << "  --no-package-index  Skip package-index phase\n"
                 << "  --pkg-timeout=<ms>  Per-command timeout for package indexing\n"
@@ -143,6 +146,10 @@ DriverSettings ParseArgs(int argc, char **argv) {
         if (arg == "--strict") { s.strict = true; continue; }
         if (arg == "--dev")   { s.dev_mode = true; s.force = true; continue; }
         if (arg == "--permissive") { s.permissive = true; continue; }
+        if (arg == "--pgo-generate") { s.pgo_generate = true; continue; }
+        if (arg == "--pgo-use" && i + 1 < argc) { s.pgo_use_path = argv[++i]; continue; }
+        if (arg.rfind("--pgo-use=", 0) == 0) { s.pgo_use_path = arg.substr(10); continue; }
+        if (arg == "--lto") { s.lto_enabled = true; continue; }
         if (arg == "--package-index") { s.package_index = true; continue; }
         if (arg == "--no-package-index") { s.package_index = false; continue; }
         if (arg.rfind("--pkg-timeout=", 0) == 0) {
@@ -278,6 +285,9 @@ int main(int argc, char **argv) {
                   << (settings.language_explicit ? " (explicit)" : " (auto-detected)") << "\n";
         std::cerr << "[polyc] Arch: " << settings.arch << "\n";
         std::cerr << "[polyc] Opt: O" << settings.opt_level << "\n";
+        if (settings.pgo_generate) std::cerr << "[polyc] PGO: generate (instrumented)\n";
+        if (!settings.pgo_use_path.empty()) std::cerr << "[polyc] PGO: use " << settings.pgo_use_path << "\n";
+        if (settings.lto_enabled) std::cerr << "[polyc] LTO: enabled\n";
         std::cerr << "[polyc] Output: " << settings.output << "\n";
         std::cerr << "[polyc] Mode: "
                   << (settings.dev_mode ? "dev" : settings.strict ? "strict" : "permissive") << "\n";
