@@ -42,6 +42,7 @@
 #include <QTextBlock>
 #include <QTextStream>
 #include <QTimer>
+#include <QToolTip>
 
 namespace polyglot::tools::ui {
 
@@ -1250,6 +1251,58 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
     AttachHighlighter(editor, language);
     UpdateLanguageCombo(language);
 
+    // Wire the compiler service and language for auto-completion
+    editor->SetCompilerService(compiler_service_.get());
+    editor->SetLanguage(language.toStdString());
+
+    // Handle go-to-definition requests
+    connect(editor, &CodeEditor::GoToDefinitionRequested,
+            this, [this](const QString &symbol, int line, int col) {
+        Q_UNUSED(line)
+        Q_UNUSED(col)
+        // Search in the current file for a declaration of the symbol.
+        // For .ploy files, look for FUNC <symbol> or PIPELINE <symbol>.
+        // For other files, use a simple text search.
+        CodeEditor *ed = CurrentEditor();
+        if (!ed) return;
+
+        QString text = ed->toPlainText();
+        // Try to find "FUNC <symbol>" or "PIPELINE <symbol>" or
+        // language-native patterns like "def <symbol>", "fn <symbol>",
+        // "void <symbol>", etc.
+        QStringList patterns = {
+            "FUNC " + symbol,
+            "PIPELINE " + symbol,
+            "def " + symbol,
+            "fn " + symbol,
+            "void " + symbol,
+            "int " + symbol,
+            "class " + symbol,
+            "struct " + symbol,
+        };
+
+        for (const QString &pat : patterns) {
+            int pos = text.indexOf(pat);
+            if (pos >= 0) {
+                QTextCursor cursor = ed->textCursor();
+                cursor.setPosition(pos);
+                cursor.movePosition(QTextCursor::StartOfLine);
+                ed->setTextCursor(cursor);
+                ed->centerCursor();
+                ed->setFocus();
+                return;
+            }
+        }
+
+        // Cross-file: if the symbol looks like a foreign function (e.g. from
+        // a LINK declaration), try to find and open the referenced file.
+        // For now, show a tooltip that the definition was not found.
+        QToolTip::showText(
+            ed->mapToGlobal(ed->cursorRect().topLeft()),
+            QString("Definition of '%1' not found in current file").arg(symbol),
+            ed, QRect(), 2000);
+    });
+
     // Connect modification signal
     connect(editor->document(), &QTextDocument::modificationChanged,
             this, [this, editor](bool modified) {
@@ -1419,6 +1472,9 @@ void MainWindow::Compile() {
         result.diagnostics,
         it->second.file_path);
 
+    // Push diagnostics to the editor for squiggly underlines and inline hints
+    editor->SetDiagnostics(result.diagnostics);
+
     if (result.success) {
         status_message_->setText("Compilation successful");
     } else {
@@ -1468,6 +1524,9 @@ void MainWindow::CompileAndRun() {
         QString("Compilation elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
     output_panel_->ShowDiagnostics(result.diagnostics, it->second.file_path);
+
+    // Push diagnostics to the editor for squiggly underlines and inline hints
+    editor->SetDiagnostics(result.diagnostics);
 
     if (!result.success) {
         status_message_->setText("Compilation failed — cannot run");
@@ -1600,6 +1659,9 @@ void MainWindow::AnalyzeCode() {
     output_panel_->ShowDiagnostics(
         diagnostics,
         it->second.file_path);
+
+    // Push diagnostics to the editor for squiggly underlines and inline hints
+    editor->SetDiagnostics(diagnostics);
 
     int errors = 0;
     int warnings = 0;
@@ -2036,6 +2098,9 @@ void MainWindow::OnAnalysisTimerTimeout() {
     output_panel_->ShowDiagnostics(
         diagnostics,
         it->second.file_path);
+
+    // Push diagnostics to the editor for squiggly underlines and inline hints
+    editor->SetDiagnostics(diagnostics);
 }
 
 // ============================================================================
@@ -2054,6 +2119,7 @@ void MainWindow::OnLanguageChanged(int index) {
         CodeEditor *editor = EditorAt(tab_index);
         if (editor) {
             AttachHighlighter(editor, language);
+            editor->SetLanguage(language.toStdString());
         }
         status_language_->setText(language);
     }

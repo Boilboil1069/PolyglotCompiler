@@ -10,7 +10,7 @@
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
 <!-- BEGIN:test_badge -->
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-808_cases_|_3_suites-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-1019_cases_|_21_CTest_targets-brightgreen.svg"/>
 <!-- END:test_badge -->
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
@@ -36,7 +36,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
-- **808 Test Cases** — Unit (743), Integration (52), Benchmark (18) across 3 test suites
+- **1019 Test Cases** — Unit (909), Integration (92), Benchmark (18) across 21 CTest targets
 
 ---
 
@@ -302,8 +302,8 @@ PolyglotCompiler/
 ├── common/             # Common utilities: type system, symbol table, DWARF5
 ├── tools/              # Compiler driver (polyc), linker (polyld), assembler, IDE (polyui), etc.
 ├── tests/
-│   ├── unit/           # Unit tests — 743 cases (Catch2)
-│   ├── integration/    # Integration tests — 52 cases
+│   ├── unit/           # Unit tests — 909 cases (Catch2)
+│   ├── integration/    # Integration tests — 92 cases
 │   ├── benchmarks/     # Benchmark tests — 18 cases
 │   └── samples/        # 16 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs)
 └── docs/               # Documentation (bilingual: Chinese + English)
@@ -317,7 +317,7 @@ PolyglotCompiler/
 
 ## Testing / 测试
 
-The project uses **Catch2** as the testing framework with three test suites, totalling **808 test cases**.
+The project uses **Catch2** as the testing framework with 21 CTest targets, totalling **1019 test cases**.
 
 ```bash
 # Run all tests via CTest
@@ -350,31 +350,33 @@ cd build && ctest
 
 | Suite | Cases | Tags | Coverage |
 |-------|-------|------|----------|
-| **Unit Tests** | **743** | 231 tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E |
-| **Integration Tests** | **52** | `[integration]` | Full pipeline, cross-language interop, performance stress |
+| **Unit Tests** | **909** | 250+ tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E, topology, sema strict |
+| **Integration Tests** | **92** | `[integration]` | Full pipeline, cross-language interop, performance stress, object file formats |
 | **Benchmark Tests** | **18** | `[benchmark]` | Micro (lexer/parser/sema/lowering) + Macro (scaling/OOP/pipeline) |
-| **Total** | **808** | — | — |
+| **Total** | **1019** | — | — |
 
 ### Unit Test Breakdown / 单元测试明细
 
 | Category | Tag | Cases |
 |----------|-----|-------|
-| .ploy Frontend | `[ploy]` | 216 |
+| .ploy Frontend | `[ploy]` | 283 |
 | Python Frontend | `[python]` | 127 |
 | Rust Frontend | `[rust]` | 46 |
-| Java Frontend | `[java]` | 22 |
-| .NET Frontend | `[dotnet]` | 24 |
-| C++ Frontend | `[cpp]` | 10 |
+| E2E Pipeline | `[e2e]` | 56 |
 | FFI / Interop | `[ffi]` | 39 |
 | Linker | `[linker]` | 36 |
-| E2E Pipeline | `[e2e]` | 29 |
+| .NET Frontend | `[dotnet]` | 24 |
+| Java Frontend | `[java]` | 22 |
+| Topology | `[topology]` | 22 |
+| Backend | `[backend]` | 20 |
 | GC Algorithms | `[gc]` | 20 |
-| Optimisation Passes | `[opt]` | 17 |
 | Preprocessor | `[preprocessor]` | 18 |
+| Optimisation Passes | `[opt]` | 17 |
 | Threading | `[threading]` | 16 |
 | LTO | `[lto]` | 14 |
 | PGO | `[pgo]` | 13 |
-| Backend | `[backend]` | 12 |
+| C++ Frontend | `[cpp]` | 10 |
+| Sema Strict Mode | `[sema][strict]` | 10 |
 | DWARF5 | `[dwarf5]` | 7 |
 | Debug | `[debug]` | 4 |
 
@@ -488,6 +490,6 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-03-19*  
+*Last Updated: 2026-04-11*  
 *Document Version: v1.0.0*
 <!-- END:version_footer_en -->

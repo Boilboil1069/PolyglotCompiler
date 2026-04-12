@@ -294,8 +294,76 @@ std::vector<CompletionItem> CompilerService::Complete(
         return GetPloyCompletions(source, line, column);
     }
 
-    // For other languages provide basic keyword completions
-    return {};
+    // For C++/Python/Rust/Java/C# — provide language keyword completions
+    // that the editor's identifier completer supplements with document tokens.
+    static const std::unordered_map<std::string,
+                                    std::vector<std::string>> lang_keywords = {
+        {"cpp",
+         {"auto", "break", "case", "catch", "class", "const", "constexpr",
+          "continue", "default", "delete", "do", "else", "enum", "explicit",
+          "extern", "false", "for", "friend", "goto", "if", "inline",
+          "int", "long", "namespace", "new", "noexcept", "nullptr",
+          "operator", "override", "private", "protected", "public",
+          "register", "return", "short", "signed", "sizeof", "static",
+          "static_cast", "struct", "switch", "template", "this", "throw",
+          "true", "try", "typedef", "typename", "union", "unsigned",
+          "using", "virtual", "void", "volatile", "while",
+          "#include", "#define", "#ifdef", "#ifndef", "#endif", "#pragma"}},
+        {"python",
+         {"and", "as", "assert", "async", "await", "break", "class",
+          "continue", "def", "del", "elif", "else", "except", "False",
+          "finally", "for", "from", "global", "if", "import", "in",
+          "is", "lambda", "None", "nonlocal", "not", "or", "pass",
+          "raise", "return", "True", "try", "while", "with", "yield",
+          "print", "range", "len", "list", "dict", "set", "tuple",
+          "int", "float", "str", "bool", "type", "isinstance"}},
+        {"rust",
+         {"as", "async", "await", "break", "const", "continue", "crate",
+          "dyn", "else", "enum", "extern", "false", "fn", "for", "if",
+          "impl", "in", "let", "loop", "match", "mod", "move", "mut",
+          "pub", "ref", "return", "self", "Self", "static", "struct",
+          "super", "trait", "true", "type", "unsafe", "use", "where",
+          "while", "Vec", "Box", "Option", "Result", "String",
+          "println!", "eprintln!", "format!", "vec!"}},
+        {"java",
+         {"abstract", "assert", "boolean", "break", "byte", "case",
+          "catch", "char", "class", "continue", "default", "do",
+          "double", "else", "enum", "extends", "final", "finally",
+          "float", "for", "if", "implements", "import", "instanceof",
+          "int", "interface", "long", "native", "new", "null",
+          "package", "private", "protected", "public", "return",
+          "short", "static", "strictfp", "super", "switch",
+          "synchronized", "this", "throw", "throws", "transient",
+          "try", "void", "volatile", "while", "System", "String"}},
+        {"csharp",
+         {"abstract", "as", "base", "bool", "break", "byte", "case",
+          "catch", "char", "checked", "class", "const", "continue",
+          "decimal", "default", "delegate", "do", "double", "else",
+          "enum", "event", "explicit", "extern", "false", "finally",
+          "fixed", "float", "for", "foreach", "goto", "if", "implicit",
+          "in", "int", "interface", "internal", "is", "lock", "long",
+          "namespace", "new", "null", "object", "operator", "out",
+          "override", "params", "private", "protected", "public",
+          "readonly", "ref", "return", "sbyte", "sealed", "short",
+          "sizeof", "stackalloc", "static", "string", "struct",
+          "switch", "this", "throw", "true", "try", "typeof",
+          "uint", "ulong", "unchecked", "unsafe", "ushort", "using",
+          "var", "virtual", "void", "volatile", "while", "async", "await"}},
+    };
+
+    std::vector<CompletionItem> result;
+    auto it = lang_keywords.find(language);
+    if (it != lang_keywords.end()) {
+        for (const auto &kw : it->second) {
+            CompletionItem item;
+            item.label = kw;
+            item.kind = "keyword";
+            item.detail = language + " keyword";
+            item.insert_text = kw;
+            result.push_back(std::move(item));
+        }
+    }
+    return result;
 }
 
 std::vector<CompletionItem> CompilerService::GetPloyCompletions(

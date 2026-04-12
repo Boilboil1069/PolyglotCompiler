@@ -329,3 +329,89 @@ Hovering over a `TopoPortItem` displays:
 - Parent node name
 - Language
 - Connection status: `✔ Valid`, `⚠ Implicit Convert`, `✘ Incompatible`, `? Unknown`, or `Not connected`
+
+## 10. Sub-Window Drill-Down
+
+When an expandable container node (e.g. `kPipeline`) is double-clicked, the topology panel opens a **DrillDownWindow** — a dedicated popup sub-window that displays only the internal nodes and edges belonging to that container. This avoids cluttering the main canvas with deeply nested call graphs.
+
+### 10.1 Architecture
+
+`DrillDownWindow` is a standalone `QWidget` (not embedded in the main `QGraphicsScene`). Each instance owns:
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| `scene_` | `QGraphicsScene*` | Dedicated scene for the container's internal nodes |
+| `view_` | `TopoGraphicsView*` | Interactive view with zoom / pan / rubber-band selection |
+| `breadcrumb_` | `BreadcrumbBar*` | Hierarchical path from root to current level |
+| `details_tree_` | `QTreeWidget*` | Property inspector for the selected node |
+| `diagnostics_output_` | `QPlainTextEdit*` | Validation messages scoped to this container |
+| `node_items_` | `std::unordered_map<uint64_t, TopoNodeItem*>` | Cloned node items whose `context_node_id` matches the container |
+| `edge_items_` | `std::vector<TopoEdgeItem*>` | Edges connecting the cloned nodes |
+| `drill_down_windows_` | `std::unordered_map<uint64_t, DrillDownWindow*>` | Nested sub-windows for recursive drill-down |
+
+The window title is set to `"Drill-Down: <container_name>"` and an independent status label shows the node/edge count.
+
+### 10.2 Interaction Flow
+
+```
+User double-clicks an expandable node on the main canvas (TopologyPanel)
+    → TopologyPanel::OpenDrillDownWindow(node_id)
+        - If a window for this node_id is already open → raise + activateWindow
+        - Else → create new DrillDownWindow(node_id, name, this, breadcrumb_path)
+    → DrillDownWindow constructor:
+        1. SetupUI()         — builds the splitter / view / details / diagnostics / breadcrumb
+        2. PopulateScene()   — filters node_items_ and edge_items_ by context_node_id
+        3. LayoutDrillDownNodes() — initial grid placement
+        4. StartForceLayout()    — 300-iteration Fruchterman–Reingold simulation
+    → Window is shown as a top-level popup
+```
+
+If the user double-clicks an expandable node **inside** a DrillDownWindow, the process recurses:
+
+```
+DrillDownWindow::OpenDrillDownWindow(nested_node_id)
+    → Creates a child DrillDownWindow
+    → Breadcrumb path is extended: [root, ..., current_container, nested_container]
+```
+
+### 10.3 BreadcrumbBar
+
+The `BreadcrumbBar` widget provides hierarchical navigation between drill-down levels.
+
+**Data Model:**
+
+```cpp
+struct BreadcrumbBar::Entry {
+    QString label;           // Display text (e.g. "pipeline:data_flow")
+    uint64_t node_id;        // Container node id (0 = root / main panel)
+    QWidget *window;         // The window for this level (nullptr = root)
+};
+```
+
+**Behaviour:**
+
+- Each entry is rendered as a clickable `QPushButton`.
+- Entries are separated by `"›"` arrow labels.
+- Clicking a breadcrumb entry emits `EntryClicked(node_id, window)`, which raises and activates the target window.
+- The path grows with each recursive drill-down and allows jumping back to any ancestor level.
+
+### 10.4 Force-Directed Layout
+
+DrillDownWindow reuses the same Fruchterman–Reingold simulation as the main panel (§9.1), with identical constants:
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `kForceMaxIterations` | 300 | Maximum simulation steps |
+| `kRepulsionStrength` | 50000 | Coulomb repulsion between node pairs |
+| `kAttractionStrength` | 0.005 | Hooke attraction along edges |
+| `kIdealEdgeLength` | 250 | Target edge length in pixels |
+| `kDamping` | 0.85 | Simulated annealing decay factor |
+| `kMinMovement` | 0.5 | Early termination threshold |
+
+The simulation runs on a `QTimer` and calls `RefreshEdgePositions()` each tick to update Bezier edge paths.
+
+### 10.5 Deduplication and Lifecycle
+
+- **No duplicates:** `OpenDrillDownWindow()` checks `drill_down_windows_` before creating a new window. If a window for the same `container_node_id` already exists, it is raised.
+- **Ownership:** Each `DrillDownWindow` is stored in the parent's `drill_down_windows_` map. When the parent is destroyed, all child windows are destroyed.
+- **Signal forwarding:** `DrillDownWindow::NodeDoubleClicked(filename, line)` is connected to the parent panel so that navigation requests propagate up to `MainWindow` and open the corresponding source location in the editor.

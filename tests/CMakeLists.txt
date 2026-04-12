@@ -88,6 +88,7 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/sema_discovery_test.cpp
     unit/frontends/ploy/devirtualization_test.cpp
     unit/frontends/ploy/loop_optimization_test.cpp
+    unit/frontends/ploy/sema_strict_mode_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -113,6 +114,7 @@ set(UNIT_TEST_MIDDLE
 set(UNIT_TEST_BACKENDS
     unit/backends/backend_optimizations_test.cpp
     unit/backends/isel_opcodes_test.cpp
+    unit/backends/wasm_target_test.cpp
 )
 
 set(UNIT_TEST_RUNTIME
@@ -133,11 +135,13 @@ set(UNIT_TEST_TOPOLOGY
 
 set(UNIT_TEST_TOPOLOGY_UI
     unit/tools/drilldown_window_test.cpp
+    unit/tools/topology_ui_extended_test.cpp
 )
 
 set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
     unit/e2e/compilation_behavior_test.cpp
+    unit/e2e/polyc_cli_e2e_test.cpp
 )
 
 # ============================================================================
@@ -244,6 +248,35 @@ if(Qt6_FOUND OR Qt5_FOUND)
         frontend_ploy frontend_cpp frontend_python
         ${CATCH2_LIBS})
     message(STATUS "Qt found — building test_topology_ui (DrillDownWindow tests)")
+
+    # Windows: deploy Qt runtime DLLs next to test_topology_ui.exe so that
+    # CTest can run the test without manual PATH configuration.
+    if(WIN32)
+        if(Qt6_FOUND)
+            get_target_property(_qt_test_qmake Qt6::qmake IMPORTED_LOCATION)
+        else()
+            get_target_property(_qt_test_qmake Qt5::qmake IMPORTED_LOCATION)
+        endif()
+        get_filename_component(_qt_test_bin_dir "${_qt_test_qmake}" DIRECTORY)
+
+        find_program(_WINDEPLOYQT_TEST windeployqt
+            HINTS "${_qt_test_bin_dir}" NO_DEFAULT_PATH)
+        if(_WINDEPLOYQT_TEST)
+            add_custom_command(TARGET test_topology_ui POST_BUILD
+                COMMAND "${_WINDEPLOYQT_TEST}"
+                    --no-translations
+                    --no-system-d3d-compiler
+                    --no-opengl-sw
+                    --no-compiler-runtime
+                    "$<TARGET_FILE:test_topology_ui>"
+                COMMENT "Running windeployqt for test_topology_ui..."
+                VERBATIM
+            )
+            message(STATUS "windeployqt will deploy Qt DLLs for test_topology_ui")
+        else()
+            message(WARNING "windeployqt not found — test_topology_ui may fail at runtime")
+        endif()
+    endif()
 endif()
 
 # -- E2E ---------------------------------------------------------------------

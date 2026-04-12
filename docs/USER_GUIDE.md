@@ -301,10 +301,10 @@ PolyglotCompiler/
 │       ├── linux/          #   Linux-specific entry point (main.cpp)
 │       └── macos/          #   macOS-specific entry point (main.cpp)
 ├── tests/                  # Tests
-│   ├── unit/               # Unit tests (Catch2 framework) — 743 test cases
-│   │   └── frontends/ploy/ #   ploy_test.cpp (216 test cases)
+│   ├── unit/               # Unit tests (Catch2 framework) — 909 test cases
+│   │   └── frontends/ploy/ #   ploy_test.cpp (283 test cases)
 │   ├── samples/            # Sample programs (16 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
-│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 52 test cases
+│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 92 test cases
 │   └── benchmarks/         # Benchmark tests (micro / macro) — 18 test cases
 └── docs/                   # Documentation
     ├── api/                # API reference (bilingual)
@@ -2247,33 +2247,35 @@ The project uses the **Catch2** testing framework. There are three test executab
 
 | Executable | Source Directory | Tags | Description |
 |-----------|-----------------|------|-------------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **743 cases** |
-| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **52 cases** |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **909 cases** |
+| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **92 cases** |
 | `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks — **18 cases** |
 
 ### Test Suite Summary
 
 | Test Suite | Tag | Test Cases | Coverage |
 |-----------|-----|-----------|----------|
-| .ploy Frontend | `[ploy]` | 216 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
+| .ploy Frontend | `[ploy]` | 283 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
 | Python Frontend | `[python]` | 127 | 25+ advanced features, type annotations, async, comprehensions |
 | Rust Frontend | `[rust]` | 46 | Borrow checking, lifetimes, closures, traits |
-| Linker | `[linker]` | 36 | Symbol resolution, ELF/MachO/COFF, cross-language glue |
+| E2E Pipeline | `[e2e]` | 56 | Full pipeline from source → object code |
 | FFI / Interop | `[ffi]` | 39 | FFI bindings, marshalling, type mapping, ownership tracking |
-| E2E Pipeline | `[e2e]` | 29 | Full pipeline from source → object code |
-| Java Frontend | `[java]` | 22 | Java 8/17/21/23 features |
+| Linker | `[linker]` | 36 | Symbol resolution, ELF/MachO/COFF, cross-language glue |
 | .NET Frontend | `[dotnet]` | 24 | .NET 6/7/8/9 features |
+| Java Frontend | `[java]` | 22 | Java 8/17/21/23 features |
+| Topology | `[topology]` | 22 | Graph, analyzer, validator, printer, UI panel, drill-down |
+| Backend | `[backend]` | 20 | Instruction selection, register allocation, scheduler, WASM |
 | GC Algorithms | `[gc]` | 20 | 4 GC algorithms (mark-sweep, generational, copying, incremental) |
 | Preprocessor | `[preprocessor]` | 18 | Object/function-like macros, directives, token pool |
 | Optimisation Passes | `[opt]` | 17 | Constant fold, DCE, CSE, GVN, inlining, devirtualisation |
 | Threading Services | `[threading]` | 16 | Thread pool, synchronisation primitives, coroutines |
 | LTO | `[lto]` | 14 | Link-time optimisation, cross-module opt |
 | PGO | `[pgo]` | 13 | Profile-guided optimisation |
-| Backend | `[backend]` | 12 | Instruction selection, register allocation, scheduler |
+| Sema Strict Mode | `[sema][strict]` | 10 | Cross-language call type strictness, ReportStrictDiag |
 | C++ Frontend | `[cpp]` | 10 | OOP, templates, RTTI, exceptions, constexpr |
 | DWARF5 Debug | `[dwarf5]` | 7 | DWARF 5 debug info generation |
 | Debug Info | `[debug]` | 4 | PDB, source map, debug emitter |
-| Integration Tests | `[integration]` | 52 | Full pipeline / Cross-language interop / Performance stress |
+| Integration Tests | `[integration]` | 92 | Full pipeline / Cross-language interop / Performance stress / Object file formats |
 | Benchmark Tests | `[benchmark]` | 18 | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
 
 ## 10.2 .ploy Test Details

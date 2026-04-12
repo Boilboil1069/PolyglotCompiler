@@ -1041,7 +1041,7 @@ ELF builder（object_file.cpp）的 e_machine 已按架构切换，但 Mach-O bu
 4. .eh_frame：生成标准 CIE + FDE，使 Linux 上的异常展开和 GDB backtrace 可用。
 5. 对应的集成测试：编译一个最小 C++ 源码到 .o，用 readelf/objdump/dumpbin 验证输出格式有效。
 
---end
+--end -done
 
 2026-04-11-08
 
@@ -1056,7 +1056,7 @@ polyui 的编辑器层（code_editor.cpp / syntax_highlighter.cpp）已支持基
 4. 跳转到定义：在 .ploy 文件中 Ctrl+Click 一个 FUNC/PIPELINE 名称时，跳转到其声明位置；跨文件时跳转到对应的 .cpp/.py/.rs 文件。
 5. 迷你地图（Minimap）：在编辑器右侧绘制整个文件的缩略视图，支持点击快速导航。
 
---end
+--end -done
 
 2026-04-11-09
 
@@ -1075,7 +1075,7 @@ polyui 的编辑器层（code_editor.cpp / syntax_highlighter.cpp）已支持基
 4. 新增 .ploy sema strict mode 回归测试：验证类型错误在 strict 模式下被拒绝，在 non-strict 模式下降级为 warning。
 5. 将所有新增测试纳入 CTest，目标新增 30+ case 使总数超过 840。
 
---end
+--end -done
 
 2026-04-11-10
 
@@ -1093,4 +1093,4 @@ docs/ 已有完善的双语文档体系（specs/realization/tutorial/api 各有 
 4. 在 api_reference.md / api_reference_zh.md 中新增 DrillDownWindow 类的 API 说明。
 5. 运行 docs_sync_check.py --scope core 确认中英文核心文档同步无 drift。
 
---end
+--end -done

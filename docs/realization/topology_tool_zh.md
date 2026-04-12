@@ -329,3 +329,89 @@ tools/polytopo/
 - 父节点名称
 - 所属语言
 - 连接状态：`✔ Valid`、`⚠ Implicit Convert`、`✘ Incompatible`、`? Unknown` 或 `Not connected`
+
+## 10. 子窗口钻入
+
+当用户双击一个可展开的容器节点（如 `kPipeline`）时，拓扑面板会打开一个 **DrillDownWindow** — 一个专用弹出子窗口，仅显示属于该容器的内部节点和边。这避免了在主画布上展示深层嵌套调用图导致的混乱。
+
+### 10.1 架构
+
+`DrillDownWindow` 是一个独立的 `QWidget`（不嵌入主 `QGraphicsScene`）。每个实例拥有：
+
+| 组件 | 类型 | 用途 |
+|------|------|------|
+| `scene_` | `QGraphicsScene*` | 容器内部节点的专用场景 |
+| `view_` | `TopoGraphicsView*` | 交互式视图，支持缩放/平移/框选 |
+| `breadcrumb_` | `BreadcrumbBar*` | 从根到当前层级的层次路径 |
+| `details_tree_` | `QTreeWidget*` | 选中节点的属性检查器 |
+| `diagnostics_output_` | `QPlainTextEdit*` | 限定在此容器范围内的验证消息 |
+| `node_items_` | `std::unordered_map<uint64_t, TopoNodeItem*>` | `context_node_id` 匹配容器的克隆节点项 |
+| `edge_items_` | `std::vector<TopoEdgeItem*>` | 连接克隆节点的边 |
+| `drill_down_windows_` | `std::unordered_map<uint64_t, DrillDownWindow*>` | 用于递归钻入的嵌套子窗口 |
+
+窗口标题设为 `"Drill-Down: <容器名称>"`，独立的状态标签显示节点/边数量。
+
+### 10.2 交互流程
+
+```
+用户双击主画布上的可展开节点（TopologyPanel）
+    → TopologyPanel::OpenDrillDownWindow(node_id)
+        - 如果该 node_id 的窗口已打开 → 提升并激活窗口
+        - 否则 → 创建新的 DrillDownWindow(node_id, name, this, breadcrumb_path)
+    → DrillDownWindow 构造函数：
+        1. SetupUI()         — 构建分割器/视图/详情/诊断/面包屑
+        2. PopulateScene()   — 按 context_node_id 过滤 node_items_ 和 edge_items_
+        3. LayoutDrillDownNodes() — 初始网格布局
+        4. StartForceLayout()    — 300 次迭代 Fruchterman–Reingold 模拟
+    → 窗口以顶层弹出窗口形式显示
+```
+
+如果用户在 DrillDownWindow **内部**双击一个可展开节点，过程递归进行：
+
+```
+DrillDownWindow::OpenDrillDownWindow(nested_node_id)
+    → 创建子 DrillDownWindow
+    → 面包屑路径扩展：[根, ..., 当前容器, 嵌套容器]
+```
+
+### 10.3 面包屑导航栏
+
+`BreadcrumbBar` 组件提供钻入层级之间的层次化导航。
+
+**数据模型：**
+
+```cpp
+struct BreadcrumbBar::Entry {
+    QString label;           // 显示文本（如 "pipeline:data_flow"）
+    uint64_t node_id;        // 容器节点 ID（0 = 根/主面板）
+    QWidget *window;         // 该层级的窗口（nullptr = 根）
+};
+```
+
+**行为：**
+
+- 每个条目渲染为可点击的 `QPushButton`。
+- 条目之间以 `"›"` 箭头标签分隔。
+- 点击面包屑条目发射 `EntryClicked(node_id, window)`，提升并激活目标窗口。
+- 路径随每次递归钻入增长，允许跳回任意祖先层级。
+
+### 10.4 力导向布局
+
+DrillDownWindow 复用与主面板相同的 Fruchterman–Reingold 模拟（§9.1），常量相同：
+
+| 常量 | 值 | 用途 |
+|------|-----|------|
+| `kForceMaxIterations` | 300 | 最大模拟步数 |
+| `kRepulsionStrength` | 50000 | 节点对之间的库仑排斥力 |
+| `kAttractionStrength` | 0.005 | 沿边的胡克引力 |
+| `kIdealEdgeLength` | 250 | 目标边长度（像素） |
+| `kDamping` | 0.85 | 模拟退火衰减因子 |
+| `kMinMovement` | 0.5 | 提前终止阈值 |
+
+模拟在 `QTimer` 上运行，每次迭代调用 `RefreshEdgePositions()` 更新贝塞尔边路径。
+
+### 10.5 去重与生命周期
+
+- **无重复窗口：** `OpenDrillDownWindow()` 在创建新窗口前检查 `drill_down_windows_`。如果同一 `container_node_id` 的窗口已存在，则提升该窗口。
+- **所有权：** 每个 `DrillDownWindow` 存储在父级的 `drill_down_windows_` 映射中。父级销毁时，所有子窗口随之销毁。
+- **信号转发：** `DrillDownWindow::NodeDoubleClicked(filename, line)` 连接到父面板，使导航请求向上传播到 `MainWindow`，并在编辑器中打开对应的源码位置。

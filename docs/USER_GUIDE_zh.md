@@ -300,10 +300,10 @@ PolyglotCompiler/
 │       ├── linux/          #   Linux 专用入口点 (main.cpp)
 │       └── macos/          #   macOS 专用入口点 (main.cpp)
 ├── tests/                  # 测试
-│   ├── unit/               # 单元测试（Catch2 框架）— 743 个测试用例
-│   │   └── frontends/ploy/ #   ploy_test.cpp（216 测试用例）
+│   ├── unit/               # 单元测试（Catch2 框架）— 909 个测试用例
+│   │   └── frontends/ploy/ #   ploy_test.cpp（283 测试用例）
 │   ├── samples/            # 示例程序（16 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
-│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 52 个测试用例
+│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 92 个测试用例
 │   └── benchmarks/         # 基准测试（微基准/宏基准）— 18 个测试用例
 └── docs/                   # 文档
     ├── api/                # API 参考（中英双语）
@@ -2237,33 +2237,35 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 可执行文件 | 源码目录 | 标签 | 说明 |
 |-----------|---------|------|------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **743 个用例** |
-| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **52 个用例** |
+| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **909 个用例** |
+| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **92 个用例** |
 | `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 — **18 个用例** |
 
 ### 测试套件汇总
 
 | 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
 |---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 216 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
+| .ploy 前端 | `[ploy]` | 283 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
 | Python 前端 | `[python]` | 127 | 25+ 高级特性，类型注解，async，推导式 |
 | Rust 前端 | `[rust]` | 46 | 借用检查、生命周期、闭包、Traits |
-| 链接器 | `[linker]` | 36 | 符号解析、ELF/MachO/COFF、跨语言粘合 |
+| E2E 管道 | `[e2e]` | 56 | 从源码到目标码的完整管道 |
 | FFI / 互操作 | `[ffi]` | 39 | FFI 绑定、编组、类型映射、所有权跟踪 |
-| E2E 管道 | `[e2e]` | 29 | 从源码到目标码的完整管道 |
-| Java 前端 | `[java]` | 22 | Java 8/17/21/23 特性 |
+| 链接器 | `[linker]` | 36 | 符号解析、ELF/MachO/COFF、跨语言粘合 |
 | .NET 前端 | `[dotnet]` | 24 | .NET 6/7/8/9 特性 |
+| Java 前端 | `[java]` | 22 | Java 8/17/21/23 特性 |
+| 拓扑分析 | `[topology]` | 22 | 图、分析器、验证器、打印器、UI 面板、钻入 |
+| 后端 | `[backend]` | 20 | 指令选择、寄存器分配、调度器、WASM |
 | GC 算法 | `[gc]` | 20 | 4 种 GC 算法（标记清除、分代、拷贝、增量） |
 | 预处理器 | `[preprocessor]` | 18 | 对象宏/函数宏、指令、Token池 |
 | 优化 Passes | `[opt]` | 17 | 常量折叠、DCE、CSE、GVN、内联、去虚拟化 |
 | 线程服务 | `[threading]` | 16 | 线程池、同步原语、协程 |
 | LTO | `[lto]` | 14 | 链接时优化、跨模块优化 |
 | PGO | `[pgo]` | 13 | 剖面引导优化 |
-| 后端 | `[backend]` | 12 | 指令选择、寄存器分配、调度器 |
+| 严格模式语义 | `[sema][strict]` | 10 | 跨语言调用类型严格性、ReportStrictDiag |
 | C++ 前端 | `[cpp]` | 10 | OOP、模板、RTTI、异常、constexpr |
 | DWARF5 调试 | `[dwarf5]` | 7 | DWARF 5 调试信息生成 |
 | 调试信息 | `[debug]` | 4 | PDB、源码映射、调试发射器 |
-| 集成测试 | `[integration]` | 52 | 完整管道/跨语言互操作/性能压力 |
+| 集成测试 | `[integration]` | 92 | 完整管道/跨语言互操作/性能压力/目标文件格式 |
 | 基准测试 | `[benchmark]` | 18 | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
 
 ## 10.2 .ploy 测试详细分类

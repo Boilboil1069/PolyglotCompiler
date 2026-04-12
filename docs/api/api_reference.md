@@ -1,7 +1,7 @@
 # PolyglotCompiler API Reference
 
 > **Version**: 3.0.0  
-> **Last Updated**: 2026-02-22  
+> **Last Updated**: 2026-04-11  
 
 ---
 
@@ -15,6 +15,10 @@
 6. [IR Utilities](#6-ir-utilities)
 7. [Frontend APIs](#7-frontend-apis)
 8. [Diagnostics](#8-diagnostics)
+9. [Linker ABI Validation](#9-linker-abi-validation)
+10. [Semantic Analysis Class Schema](#10-semantic-analysis-class-schema)
+11. [IR Verifier](#11-ir-verifier)
+12. [Topology UI — DrillDownWindow](#12-topology-ui--drilldownwindow)
 
 ---
 
@@ -891,6 +895,90 @@ bool Verify(const IRContext& ctx, std::string* msg = nullptr);
 // Standard check + optional strict placeholder check.
 bool Verify(const IRContext& ctx, const VerifyOptions& opts, std::string* msg = nullptr);
 ```
+
+---
+
+# 12. Topology UI — DrillDownWindow
+
+**Header**: `tools/ui/common/include/topology_panel.h`  
+**Namespace**: `polyglot::ui`
+
+Sub-window widget opened when double-clicking an expandable container node (e.g. `kPipeline`) in the topology panel. Each instance owns a dedicated `QGraphicsScene` with only the nodes and edges whose `context_node_id` matches the container.
+
+## 12.1 BreadcrumbBar
+
+Hierarchical navigation bar for drill-down levels.
+
+```cpp
+class BreadcrumbBar : public QWidget {
+    Q_OBJECT
+public:
+    struct Entry {
+        QString label;            // Display text (e.g. "pipeline:data_flow")
+        uint64_t node_id{0};      // Container node id (0 = root / main panel)
+        QWidget *window{nullptr}; // The window for this level (nullptr = root)
+    };
+
+    explicit BreadcrumbBar(QWidget *parent = nullptr);
+    void SetPath(const std::vector<Entry> &entries);
+
+signals:
+    void EntryClicked(uint64_t node_id, QWidget *window);
+};
+```
+
+## 12.2 DrillDownWindow
+
+```cpp
+class DrillDownWindow : public QWidget {
+    Q_OBJECT
+public:
+    explicit DrillDownWindow(uint64_t container_node_id,
+                             const QString &container_name,
+                             TopologyPanel *parent_panel,
+                             const std::vector<BreadcrumbBar::Entry> &breadcrumb_path = {},
+                             QWidget *parent = nullptr);
+    ~DrillDownWindow() override;
+```
+
+### Constructor Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `container_node_id` | `uint64_t` | The id of the container node being drilled into |
+| `container_name` | `const QString&` | Display name for the window title |
+| `parent_panel` | `TopologyPanel*` | The TopologyPanel that owns the master data |
+| `breadcrumb_path` | `const std::vector<BreadcrumbBar::Entry>&` | Breadcrumb path from root to this level |
+| `parent` | `QWidget*` | Optional parent widget |
+
+### Public Methods
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `ContainerNodeId` | `uint64_t ContainerNodeId() const` | Returns the container node id |
+| `OpenDrillDownWindow` | `void OpenDrillDownWindow(uint64_t node_id)` | Open a nested drill-down sub-window; raises existing window if already open |
+| `NodeItems` | `const std::unordered_map<uint64_t, TopoNodeItem*>& NodeItems() const` | Returns the cloned node items map |
+| `EdgeItems` | `const std::vector<TopoEdgeItem*>& EdgeItems() const` | Returns the cloned edge items |
+| `DiagnosticsOutput` | `QPlainTextEdit* DiagnosticsOutput() const` | Returns the diagnostics text widget |
+| `UpdateDetailsPanel` | `void UpdateDetailsPanel(uint64_t node_id)` | Populates the details tree for the given node |
+| `RefreshEdgePositions` | `void RefreshEdgePositions()` | Recalculates all Bezier edge paths |
+
+### Signals
+
+| Signal | Signature | Description |
+|--------|-----------|-------------|
+| `NodeDoubleClicked` | `void NodeDoubleClicked(const QString &filename, int line)` | Emitted when a node is double-clicked; forwarded to the editor for source navigation |
+
+### Force-Directed Layout Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `kForceMaxIterations` | 300 | Maximum simulation steps |
+| `kRepulsionStrength` | 50000.0 | Coulomb repulsion between node pairs |
+| `kAttractionStrength` | 0.005 | Hooke attraction along edges |
+| `kIdealEdgeLength` | 250.0 | Target edge length in pixels |
+| `kDamping` | 0.85 | Simulated annealing decay factor |
+| `kMinMovement` | 0.5 | Early termination movement threshold |
 
 ---
 

@@ -1,7 +1,7 @@
 # PolyglotCompiler API 参考手册
 
 > **版本**: 3.0.0  
-> **最后更新**: 2026-04-09  
+> **最后更新**: 2026-04-11  
 
 ---
 
@@ -15,6 +15,10 @@
 6. [IR 工具](#6-ir-工具)
 7. [前端 API](#7-前端-api)
 8. [诊断系统](#8-诊断系统)
+9. [链接器 ABI 验证](#9-链接器-abi-验证)
+10. [语义分析类模式](#10-语义分析类模式)
+11. [IR 验证器](#11-ir-验证器)
+12. [拓扑 UI — DrillDownWindow](#12-拓扑-ui--drilldownwindow)
 
 ---
 
@@ -744,6 +748,35 @@ ABIDescriptor GetABIDescriptor(const std::string& language,
 **头文件**: `frontends/ploy/include/ploy_sema.h`
 **命名空间**: `polyglot::ploy`
 
+## 10.1 ForeignClassSchema
+
+描述外部类的布局，用于编译时类型检查。
+
+```cpp
+struct ForeignClassSchema {
+    std::string language;
+    std::string class_name;
+    std::vector<Field> fields;           // 字段名 + 类型
+    std::vector<Method> methods;         // 方法名 + 签名
+    std::vector<Constructor> constructors; // 可用构造函数
+    bool has_destructor;
+    bool has_context_manager;            // __enter__/__exit__
+};
+
+struct Field {
+    std::string name;
+    core::Type type;
+    Access access;  // public/protected/private
+};
+
+struct Method {
+    std::string name;
+    std::vector<core::Type> param_types;
+    core::Type return_type;
+    bool is_static;
+};
+```
+
 ## 10.2 PloySemaOptions
 
 `.ploy` 语义分析阶段的配置选项。
@@ -867,6 +900,90 @@ bool Verify(const IRContext& ctx, std::string* msg = nullptr);
 // 标准检查 + 可选的严格占位符检查。
 bool Verify(const IRContext& ctx, const VerifyOptions& opts, std::string* msg = nullptr);
 ```
+
+---
+
+# 12. 拓扑 UI — DrillDownWindow
+
+**头文件**: `tools/ui/common/include/topology_panel.h`  
+**命名空间**: `polyglot::ui`
+
+双击拓扑面板中的可展开容器节点（如 `kPipeline`）时打开的子窗口组件。每个实例拥有专用的 `QGraphicsScene`，仅包含 `context_node_id` 与容器匹配的节点和边。
+
+## 12.1 BreadcrumbBar（面包屑导航栏）
+
+钻入层级的层次化导航栏。
+
+```cpp
+class BreadcrumbBar : public QWidget {
+    Q_OBJECT
+public:
+    struct Entry {
+        QString label;            // 显示文本（如 "pipeline:data_flow"）
+        uint64_t node_id{0};      // 容器节点 ID（0 = 根/主面板）
+        QWidget *window{nullptr}; // 该层级的窗口（nullptr = 根）
+    };
+
+    explicit BreadcrumbBar(QWidget *parent = nullptr);
+    void SetPath(const std::vector<Entry> &entries);
+
+signals:
+    void EntryClicked(uint64_t node_id, QWidget *window);
+};
+```
+
+## 12.2 DrillDownWindow
+
+```cpp
+class DrillDownWindow : public QWidget {
+    Q_OBJECT
+public:
+    explicit DrillDownWindow(uint64_t container_node_id,
+                             const QString &container_name,
+                             TopologyPanel *parent_panel,
+                             const std::vector<BreadcrumbBar::Entry> &breadcrumb_path = {},
+                             QWidget *parent = nullptr);
+    ~DrillDownWindow() override;
+```
+
+### 构造函数参数
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `container_node_id` | `uint64_t` | 被钻入的容器节点 ID |
+| `container_name` | `const QString&` | 窗口标题的显示名称 |
+| `parent_panel` | `TopologyPanel*` | 拥有主数据的 TopologyPanel |
+| `breadcrumb_path` | `const std::vector<BreadcrumbBar::Entry>&` | 从根到此层级的面包屑路径 |
+| `parent` | `QWidget*` | 可选的父组件 |
+
+### 公共方法
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `ContainerNodeId` | `uint64_t ContainerNodeId() const` | 返回容器节点 ID |
+| `OpenDrillDownWindow` | `void OpenDrillDownWindow(uint64_t node_id)` | 打开嵌套钻入子窗口；若已打开则提升现有窗口 |
+| `NodeItems` | `const std::unordered_map<uint64_t, TopoNodeItem*>& NodeItems() const` | 返回克隆的节点项映射 |
+| `EdgeItems` | `const std::vector<TopoEdgeItem*>& EdgeItems() const` | 返回克隆的边项 |
+| `DiagnosticsOutput` | `QPlainTextEdit* DiagnosticsOutput() const` | 返回诊断文本组件 |
+| `UpdateDetailsPanel` | `void UpdateDetailsPanel(uint64_t node_id)` | 为指定节点填充详情树 |
+| `RefreshEdgePositions` | `void RefreshEdgePositions()` | 重新计算所有贝塞尔边路径 |
+
+### 信号
+
+| 信号 | 签名 | 说明 |
+|------|------|------|
+| `NodeDoubleClicked` | `void NodeDoubleClicked(const QString &filename, int line)` | 节点被双击时发射；转发到编辑器以进行源码导航 |
+
+### 力导向布局常量
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `kForceMaxIterations` | 300 | 最大模拟步数 |
+| `kRepulsionStrength` | 50000.0 | 节点对之间的库仑排斥力 |
+| `kAttractionStrength` | 0.005 | 沿边的胡克引力 |
+| `kIdealEdgeLength` | 250.0 | 目标边长度（像素） |
+| `kDamping` | 0.85 | 模拟退火衰减因子 |
+| `kMinMovement` | 0.5 | 提前终止移动阈值 |
 
 ---
 
