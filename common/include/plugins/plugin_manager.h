@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -45,11 +47,19 @@ struct PluginHandle {
     PFN_polyglot_plugin_get_code_actions fn_get_code_actions{nullptr};
     PFN_polyglot_plugin_get_formatter    fn_get_formatter{nullptr};
     PFN_polyglot_plugin_get_linter       fn_get_linter{nullptr};
+    PFN_polyglot_plugin_get_completion   fn_get_completion{nullptr};
+    PFN_polyglot_plugin_get_diagnostic   fn_get_diagnostic{nullptr};
+    PFN_polyglot_plugin_get_template     fn_get_template{nullptr};
+    PFN_polyglot_plugin_get_topology_proc fn_get_topology_proc{nullptr};
 
     // Cached providers (populated after activation)
     const PolyglotLanguageProvider *language_provider{nullptr};
     const PolyglotFormatter        *formatter{nullptr};
     const PolyglotLinter           *linter{nullptr};
+    const PolyglotCompletionProvider  *completion_provider{nullptr};
+    const PolyglotDiagnosticProvider  *diagnostic_provider{nullptr};
+    const PolyglotTemplateProvider    *template_provider{nullptr};
+    const PolyglotTopologyProcessor   *topology_processor{nullptr};
     std::vector<const PolyglotOptimizerPass *>  optimizer_passes;
     std::vector<const PolyglotCodeAction *>     code_actions;
 
@@ -59,6 +69,11 @@ struct PluginHandle {
 
     // Menu contributions registered by this plugin
     std::vector<PolyglotMenuContribution> menu_contributions;
+
+    // Sandbox state — failure tracking for automatic circuit-breaker
+    std::atomic<uint32_t> consecutive_failures{0};
+    std::atomic<bool>     circuit_open{false};      // Plugin disabled by breaker
+    std::string           last_error;               // Last recorded crash/error
 };
 
 // ============================================================================
@@ -133,6 +148,69 @@ class PluginManager {
 
     // Collect all active code actions.
     std::vector<const PolyglotCodeAction *> GetCodeActions() const;
+
+    // Collect all active completion providers for a given language.
+    std::vector<const PolyglotCompletionProvider *>
+    FindCompletionProviders(const std::string &language) const;
+
+    // Collect all active diagnostic providers for a given language.
+    std::vector<const PolyglotDiagnosticProvider *>
+    FindDiagnosticProviders(const std::string &language) const;
+
+    // Collect all active template providers.
+    std::vector<const PolyglotTemplateProvider *> GetTemplateProviders() const;
+
+    // Collect all active topology post-processors.
+    std::vector<const PolyglotTopologyProcessor *> GetTopologyProcessors() const;
+
+    /** @} */
+
+    /** @name Conflict detection */
+    /** @{ */
+
+    // A conflict record describing a capability collision between plugins.
+    struct PluginConflict {
+        std::string plugin_a;
+        std::string plugin_b;
+        uint32_t    capability;     // The conflicting PolyglotPluginCap bit
+        std::string description;
+    };
+
+    // Detect capability conflicts among all loaded plugins.  Returns a list
+    // of conflicts (e.g. two formatters for the same language).
+    std::vector<PluginConflict> DetectConflicts() const;
+
+    /** @} */
+
+    /** @name Sandbox policy */
+    /** @{ */
+
+    struct SandboxPolicy {
+        uint32_t call_timeout_ms{5000};       // Max time per plugin callback
+        uint64_t memory_limit_bytes{0};       // 0 = unlimited
+        uint32_t max_consecutive_failures{3}; // Trips circuit breaker
+    };
+
+    // Set or query the global sandbox policy.
+    void SetSandboxPolicy(const SandboxPolicy &policy);
+    SandboxPolicy GetSandboxPolicy() const;
+
+    // Record a plugin callback failure.  Increments the consecutive failure
+    // counter and opens the circuit breaker when the threshold is reached.
+    void RecordPluginFailure(const std::string &plugin_id,
+                             const std::string &error_msg);
+
+    // Record a successful callback — resets the failure counter.
+    void RecordPluginSuccess(const std::string &plugin_id);
+
+    // Query whether a plugin's circuit breaker is open (auto-disabled).
+    bool IsCircuitOpen(const std::string &plugin_id) const;
+
+    // Reset a tripped circuit breaker, allowing the plugin to run again.
+    void ResetCircuitBreaker(const std::string &plugin_id);
+
+    // Return crash/error log entries for a specific plugin.
+    std::string GetPluginLastError(const std::string &plugin_id) const;
 
     /** @} */
 
@@ -288,6 +366,14 @@ class PluginManager {
     // Build host service table for a specific plugin.
     void BuildHostServices();
 
+    // Parse a SemVer string "major.minor.patch" into three integers.
+    // Returns false if the string is null or malformed.
+    static bool ParseSemVer(const char *str, int &major, int &minor, int &patch);
+
+    // Compare plugin's min_host_version against the running host version.
+    // Returns true if the plugin is compatible.
+    static bool CheckHostVersionConstraint(const PolyglotPluginInfo *info);
+
     mutable std::mutex mu_;
     std::vector<std::string> search_paths_;
     std::unordered_map<std::string, std::unique_ptr<PluginHandle>> plugins_;
@@ -295,6 +381,9 @@ class PluginManager {
     // Host context shared by all plugins
     PolyglotHostContext  *host_ctx_{nullptr};
     PolyglotHostServices  host_services_{};
+
+    // Sandbox policy
+    SandboxPolicy sandbox_policy_;
 
     // Application callbacks
     LogCallback       log_cb_;

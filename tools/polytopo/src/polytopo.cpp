@@ -61,6 +61,8 @@ struct TopoOptions {
     std::string output_file;       // empty = stdout
     std::string format{"text"};    // text, dot, json, summary
     std::string subcommand;        // empty = default analysis, "generate" = code gen
+    std::string view_mode;         // empty = show all; "link" or "call"
+    std::string filter_language;   // empty = show all; language name to filter by
     bool validate{false};
     bool strict{false};
     bool use_color{true};
@@ -94,6 +96,8 @@ static void PrintHelp() {
         << "  --compact                         Compact output\n"
         << "  --allow-cycles                    Do not error on cycles\n"
         << "  --dot-horizontal                  DOT: use left-to-right layout\n"
+        << "  --view-mode <link|call>           Filter edges by origin (link or call)\n"
+        << "  --filter-language <lang>          Show only nodes of a specific language\n"
         << "  --output, -o <file>               Write output to file\n"
         << "  --help                            Show this help message\n"
         << "  --version                         Show version\n\n"
@@ -143,6 +147,10 @@ static TopoOptions ParseArgs(int argc, char *argv[]) {
             opts.allow_cycles = true;
         } else if (arg == "--dot-horizontal") {
             opts.dot_horizontal = true;
+        } else if (arg == "--view-mode" && i + 1 < argc) {
+            opts.view_mode = argv[++i];
+        } else if (arg == "--filter-language" && i + 1 < argc) {
+            opts.filter_language = argv[++i];
         } else if (arg[0] != '-' && opts.input_file.empty()) {
             opts.input_file = arg;
         } else {
@@ -316,6 +324,47 @@ static int Run(const TopoOptions &opts) {
     auto &graph = analyzer.MutableGraph();
     graph.source_file = opts.input_file;
     graph.module_name = filename;
+
+    // Apply --view-mode filter: remove edges that do not match the mode
+    if (!opts.view_mode.empty()) {
+        topo::TopologyEdge::Origin target_origin;
+        bool valid_mode = true;
+        if (opts.view_mode == "link") {
+            target_origin = topo::TopologyEdge::Origin::kLink;
+        } else if (opts.view_mode == "call") {
+            target_origin = topo::TopologyEdge::Origin::kCall;
+        } else {
+            std::cerr << "Error: Unknown view-mode: " << opts.view_mode
+                      << " (expected 'link' or 'call')\n";
+            valid_mode = false;
+        }
+        if (valid_mode) {
+            graph.RemoveEdgesIf([&](const topo::TopologyEdge &e) {
+                return e.origin != target_origin;
+            });
+            // Remove orphan nodes (no remaining edges)
+            std::unordered_set<uint64_t> connected;
+            for (const auto &e : graph.Edges()) {
+                connected.insert(e.source_node_id);
+                connected.insert(e.target_node_id);
+            }
+            graph.RemoveNodesIf([&](const topo::TopologyNode &n) {
+                return connected.find(n.id) == connected.end();
+            });
+        }
+    }
+
+    // Apply --filter-language: remove nodes whose language does not match
+    if (!opts.filter_language.empty()) {
+        graph.RemoveNodesIf([&](const topo::TopologyNode &n) {
+            return !n.language.empty() && n.language != opts.filter_language;
+        });
+        // Remove edges whose endpoints were removed
+        graph.RemoveEdgesIf([&](const topo::TopologyEdge &e) {
+            return !graph.GetNode(e.source_node_id) ||
+                   !graph.GetNode(e.target_node_id);
+        });
+    }
 
     // Step 5: Validate (if requested)
     std::vector<topo::ValidationDiagnostic> validation_diags;

@@ -740,6 +740,12 @@ void MainWindow::SetupConnections() {
         topology_panel_->LoadFromFile(ploy_path);
     });
 
+    // File browser — create file from template in the selected directory
+    connect(file_browser_, &FileBrowser::NewFromTemplateRequested,
+            this, [this](const QString &parent_dir) {
+        NewFromTemplateInDir(parent_dir);
+    });
+
     // Output panel error click
     connect(output_panel_, &OutputPanel::ErrorClicked,
             this, [this](int line, int col, const QString &file) {
@@ -1034,6 +1040,95 @@ void MainWindow::NewFromTemplate() {
     status_message_->setText(QString("Created from template: %1").arg(tmpl.display_name));
 }
 
+// ============================================================================
+// NewFromTemplateInDir — create a template file inside a specific directory
+// ============================================================================
+
+void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
+    // Reuse the same template catalogue as NewFromTemplate().
+    struct Template {
+        QString display_name;
+        QString language;
+        QString extension;
+        QString content;
+    };
+
+    static const std::vector<Template> templates = {
+        {"Ploy — Cross-language linker script", "ploy", "ploy",
+         "// Cross-language linker script\n"
+         "IMPORT python PACKAGE numpy;\n"
+         "\n"
+         "LINK cpp::math::add AS FUNC(INT, INT) -> INT;\n"
+         "\n"
+         "FUNC main() -> INT {\n"
+         "    LET result = CALL(cpp, math::add, 1, 2);\n"
+         "    RETURN result;\n"
+         "}\n"},
+        {"C++ — Hello World", "cpp", "cpp",
+         "#include <iostream>\n\nint main() {\n"
+         "    std::cout << \"Hello, World!\" << std::endl;\n"
+         "    return 0;\n}\n"},
+        {"Python — Script", "python", "py",
+         "#!/usr/bin/env python3\n\"\"\"Module docstring.\"\"\"\n\n\n"
+         "def main() -> None:\n    print(\"Hello, World!\")\n\n\n"
+         "if __name__ == \"__main__\":\n    main()\n"},
+        {"Rust — Hello World", "rust", "rs",
+         "fn main() {\n    println!(\"Hello, World!\");\n}\n"},
+        {"Java — Hello World", "java", "java",
+         "public class Main {\n"
+         "    public static void main(String[] args) {\n"
+         "        System.out.println(\"Hello, World!\");\n"
+         "    }\n}\n"},
+        {"C# — Hello World", "csharp", "cs",
+         "using System;\n\nclass Program {\n"
+         "    static void Main(string[] args) {\n"
+         "        Console.WriteLine(\"Hello, World!\");\n"
+         "    }\n}\n"},
+    };
+
+    QStringList names;
+    names.reserve(static_cast<int>(templates.size()));
+    for (const auto &t : templates) {
+        names << t.display_name;
+    }
+
+    bool ok = false;
+    QString chosen = QInputDialog::getItem(
+        this, "New From Template", "Select a template:", names, 0, false, &ok);
+    if (!ok || chosen.isEmpty()) return;
+
+    int idx = names.indexOf(chosen);
+    if (idx < 0 || idx >= static_cast<int>(templates.size())) return;
+
+    const Template &tmpl = templates[static_cast<size_t>(idx)];
+
+    // Ask for the file name
+    QString default_name = QString("untitled.%1").arg(tmpl.extension);
+    QString name = QInputDialog::getText(
+        this, "New From Template", "File name:", QLineEdit::Normal,
+        default_name, &ok);
+    if (!ok || name.isEmpty()) return;
+
+    QString full_path = parent_dir + "/" + name;
+    QFile file(full_path);
+    if (file.exists()) {
+        QMessageBox::warning(this, "New From Template",
+                             "A file with that name already exists.");
+        return;
+    }
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(this, "New From Template",
+                              "Failed to create file: " + file.errorString());
+        return;
+    }
+    file.write(tmpl.content.toUtf8());
+    file.close();
+
+    OpenFileInTab(full_path);
+    status_message_->setText(
+        QString("Created from template: %1").arg(tmpl.display_name));
+}
+
 void MainWindow::OpenFile() {
     QStringList paths = QFileDialog::getOpenFileNames(
         this, "Open File", QString(),
@@ -1093,6 +1188,14 @@ void MainWindow::Save() {
         // Notify plugins about the file save
         polyglot::plugins::PluginManager::Instance().FireFileSaved(
             it->second.file_path.toStdString());
+
+        // Re-index file symbols after save
+        if (compiler_service_) {
+            compiler_service_->IndexWorkspaceFile(
+                it->second.file_path.toStdString(),
+                editor->toPlainText().toStdString(),
+                it->second.language.toStdString());
+        }
     } else {
         QMessageBox::warning(this, "Save Error",
                              "Could not save file: " + it->second.file_path);
@@ -1216,6 +1319,14 @@ int MainWindow::OpenFileInTab(const QString &path) {
     polyglot::plugins::PluginManager::Instance().FireFileOpened(
         path.toStdString());
 
+    // Index file symbols for cross-file go-to-definition and completions
+    if (editor && compiler_service_) {
+        compiler_service_->IndexWorkspaceFile(
+            path.toStdString(),
+            content.toStdString(),
+            language.toStdString());
+    }
+
     return index;
 }
 
@@ -1260,46 +1371,58 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
             this, [this](const QString &symbol, int line, int col) {
         Q_UNUSED(line)
         Q_UNUSED(col)
-        // Search in the current file for a declaration of the symbol.
-        // For .ploy files, look for FUNC <symbol> or PIPELINE <symbol>.
-        // For other files, use a simple text search.
+
         CodeEditor *ed = CurrentEditor();
         if (!ed) return;
 
-        QString text = ed->toPlainText();
-        // Try to find "FUNC <symbol>" or "PIPELINE <symbol>" or
-        // language-native patterns like "def <symbol>", "fn <symbol>",
-        // "void <symbol>", etc.
-        QStringList patterns = {
-            "FUNC " + symbol,
-            "PIPELINE " + symbol,
-            "def " + symbol,
-            "fn " + symbol,
-            "void " + symbol,
-            "int " + symbol,
-            "class " + symbol,
-            "struct " + symbol,
-        };
+        int idx = editor_tabs_->currentIndex();
+        auto info_it = tab_info_.find(idx);
+        std::string current_file = info_it != tab_info_.end()
+            ? info_it->second.file_path.toStdString() : std::string();
+        std::string current_lang = info_it != tab_info_.end()
+            ? info_it->second.language.toStdString() : std::string();
+        std::string source = ed->toPlainText().toStdString();
 
-        for (const QString &pat : patterns) {
-            int pos = text.indexOf(pat);
-            if (pos >= 0) {
-                QTextCursor cursor = ed->textCursor();
-                cursor.setPosition(pos);
-                cursor.movePosition(QTextCursor::StartOfLine);
-                ed->setTextCursor(cursor);
-                ed->centerCursor();
-                ed->setFocus();
-                return;
+        // Use CompilerService::FindDefinition for cross-file resolution
+        auto def = compiler_service_->FindDefinition(
+            symbol.toStdString(), current_file, source, current_lang);
+
+        if (def.found) {
+            if (def.file == current_file || def.file.empty()) {
+                // Navigate within current file
+                QTextBlock block = ed->document()->findBlockByNumber(
+                    static_cast<int>(def.line) - 1);
+                if (block.isValid()) {
+                    QTextCursor cursor(block);
+                    ed->setTextCursor(cursor);
+                    ed->centerCursor();
+                    ed->setFocus();
+                }
+            } else {
+                // Open the target file and navigate to definition line
+                int tab_idx = OpenFileInTab(QString::fromStdString(def.file));
+                if (tab_idx >= 0) {
+                    editor_tabs_->setCurrentIndex(tab_idx);
+                    CodeEditor *target_ed = EditorAt(tab_idx);
+                    if (target_ed) {
+                        QTextBlock block = target_ed->document()->findBlockByNumber(
+                            static_cast<int>(def.line) - 1);
+                        if (block.isValid()) {
+                            QTextCursor cursor(block);
+                            target_ed->setTextCursor(cursor);
+                            target_ed->centerCursor();
+                            target_ed->setFocus();
+                        }
+                    }
+                }
             }
+            return;
         }
 
-        // Cross-file: if the symbol looks like a foreign function (e.g. from
-        // a LINK declaration), try to find and open the referenced file.
-        // For now, show a tooltip that the definition was not found.
+        // Definition not found — show tooltip
         QToolTip::showText(
             ed->mapToGlobal(ed->cursorRect().topLeft()),
-            QString("Definition of '%1' not found in current file").arg(symbol),
+            QString("Definition of '%1' not found").arg(symbol),
             ed, QRect(), 2000);
     });
 

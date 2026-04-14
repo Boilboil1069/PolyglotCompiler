@@ -142,6 +142,7 @@ set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
     unit/e2e/compilation_behavior_test.cpp
     unit/e2e/polyc_cli_e2e_test.cpp
+    unit/e2e/expansion_features_test.cpp
 )
 
 # ============================================================================

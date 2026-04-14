@@ -21,11 +21,13 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
 
 #include "common/include/version.h"
 #include "frontends/common/include/frontend_registry.h"
 #include "runtime/include/libs/base.h"
+#include "tools/polyc/include/compilation_cache.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/driver_stages.h"
 #include "tools/polyc/src/stage_backend.h"
@@ -109,6 +111,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
                 << "  --package-index     Run explicit package-index phase (default)\n"
                 << "  --no-package-index  Skip package-index phase\n"
                 << "  --pkg-timeout=<ms>  Per-command timeout for package indexing\n"
+                << "  --progress=json     Emit machine-readable JSON progress events\n"
+                << "  --clean-cache       Purge incremental compilation cache\n"
                 << "  -j<N>               Parallelism hint\n"
                 << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
                 << "\n"
@@ -152,6 +156,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
         if (arg == "--lto") { s.lto_enabled = true; continue; }
         if (arg == "--package-index") { s.package_index = true; continue; }
         if (arg == "--no-package-index") { s.package_index = false; continue; }
+        if (arg == "--progress=json") { s.progress_json = true; continue; }
+        if (arg == "--clean-cache") { s.clean_cache = true; continue; }
         if (arg.rfind("--pkg-timeout=", 0) == 0) {
             s.package_index_timeout_ms = std::atoi(arg.substr(14).c_str());
             if (s.package_index_timeout_ms < 0) s.package_index_timeout_ms = 0;
@@ -213,20 +219,74 @@ std::string SourceStem(const DriverSettings &s) {
     return s.source_path.empty() ? "output" : fs::path(s.source_path).stem().string();
 }
 
+// ── Error summary (aggregated by error code) ────────────────────────────────
+
+void PrintErrorSummary(const frontends::Diagnostics &diags, bool json_progress) {
+    std::map<int, int> error_counts;
+    std::map<int, std::string> first_trace;
+
+    for (const auto &d : diags.All()) {
+        if (d.severity != frontends::DiagnosticSeverity::kError) continue;
+        int code = static_cast<int>(d.code);
+        error_counts[code]++;
+        if (first_trace.find(code) == first_trace.end()) {
+            first_trace[code] = frontends::Diagnostics::Format(d);
+        }
+    }
+
+    if (error_counts.empty()) return;
+
+    if (json_progress) {
+        std::cout << "{\"event\":\"error_summary\",\"errors\":[";
+        bool first = true;
+        for (const auto &[code, count] : error_counts) {
+            if (!first) std::cout << ",";
+            std::cout << "{\"code\":" << code << ",\"count\":" << count << "}";
+            first = false;
+        }
+        std::cout << "]}\n" << std::flush;
+    } else {
+        std::cerr << "\n─── Error Summary ───\n";
+        for (const auto &[code, count] : error_counts) {
+            std::cerr << "  E" << code << ": " << count << " occurrence(s)\n";
+            std::cerr << "    First: " << first_trace[code] << "\n";
+        }
+        std::cerr << "─────────────────────\n";
+    }
+}
+
 // ── StageTimer ───────────────────────────────────────────────────────────────
 
 struct StageTimer {
     std::string name;
     std::chrono::high_resolution_clock::time_point start;
     bool verbose;
-    StageTimer(const std::string &n, bool v)
-        : name(n), verbose(v), start(std::chrono::high_resolution_clock::now()) {
-        if (verbose) std::cerr << "[polyc] " << name << "... " << std::flush;
+    bool json_progress;
+    int stage_index;
+    int total_stages;
+
+    StageTimer(const std::string &n, bool v, bool json = false,
+               int idx = 0, int total = 0)
+        : name(n), verbose(v), json_progress(json),
+          stage_index(idx), total_stages(total),
+          start(std::chrono::high_resolution_clock::now()) {
+        if (json_progress) {
+            std::cout << "{\"event\":\"stage_start\",\"stage\":\"" << name
+                      << "\",\"index\":" << stage_index
+                      << ",\"total\":" << total_stages << "}\n" << std::flush;
+        }
+        if (verbose && !json_progress)
+            std::cerr << "[polyc] " << name << "... " << std::flush;
     }
     double Stop() {
         double ms = std::chrono::duration<double, std::milli>(
             std::chrono::high_resolution_clock::now() - start).count();
-        if (verbose)
+        if (json_progress) {
+            std::cout << "{\"event\":\"stage_end\",\"stage\":\"" << name
+                      << "\",\"elapsed_ms\":" << std::fixed << std::setprecision(1)
+                      << ms << "}\n" << std::flush;
+        }
+        if (verbose && !json_progress)
             std::cerr << "done (" << std::fixed << std::setprecision(1) << ms << "ms)\n";
         return ms;
     }
@@ -244,6 +304,21 @@ int main(int argc, char **argv) {
 
     auto total_start = std::chrono::high_resolution_clock::now();
     DriverSettings settings = ParseArgs(argc, argv);
+
+    // Handle --clean-cache: purge the incremental cache and exit
+    if (settings.clean_cache) {
+        namespace fs = std::filesystem;
+        std::string cache_dir;
+        if (!settings.source_path.empty()) {
+            cache_dir = (fs::path(settings.source_path).parent_path() / ".polyc_cache").string();
+        } else {
+            cache_dir = ".polyc_cache";
+        }
+        polyglot::compilation::CompilationCache cache(cache_dir);
+        cache.Clean();
+        std::cerr << "[polyc] Cache cleaned: " << cache_dir << "\n";
+        return 0;
+    }
 
     // Auto-resolve polyld path relative to the current executable when the
     // user has not provided an explicit --polyld= override.
@@ -326,7 +401,7 @@ int main(int argc, char **argv) {
         polyglot::compilation::CompilationPipeline pipeline(std::move(cfg));
         bool ok = false;
         {
-            StageTimer t("Staged compilation pipeline (.ploy)", V);
+            StageTimer t("Staged compilation pipeline (.ploy)", V, settings.progress_json, 1, 1);
             ok = pipeline.RunAll();
             t.Stop();
         }
@@ -355,61 +430,69 @@ int main(int argc, char **argv) {
     void *scratch = polyglot_alloc(32);
     polyglot_gc_register_root(&scratch);
 
+    const bool JP = settings.progress_json;
+    double stage_ms[6] = {};
+
     // Stage 1
     FrontendResult frontend;
-    { StageTimer t("Stage 1: frontend", V); frontend = RunFrontendStage(settings); t.Stop(); }
+    { StageTimer t("frontend", V, JP, 1, 6); frontend = RunFrontendStage(settings); stage_ms[0] = t.Stop(); }
     if (!frontend.success && !settings.force) {
         std::cerr << "[error] Frontend stage failed.\n";
         for (const auto &d : frontend.diagnostics.All())
             std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+        PrintErrorSummary(frontend.diagnostics, JP);
         polyglot_gc_unregister_root(&scratch);
         return 1;
     }
 
     // Stage 2
     SemanticResult semantic;
-    { StageTimer t("Stage 2: semantic", V); semantic = RunSemanticStage(settings, frontend); t.Stop(); }
+    { StageTimer t("semantic", V, JP, 2, 6); semantic = RunSemanticStage(settings, frontend); stage_ms[1] = t.Stop(); }
     if (!semantic.success && !settings.force) {
         std::cerr << "[error] Semantic stage failed.\n";
         for (const auto &d : semantic.diagnostics.All())
             std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+        PrintErrorSummary(semantic.diagnostics, JP);
         polyglot_gc_unregister_root(&scratch);
         return 1;
     }
 
     // Stage 3
     MarshalResult marshal;
-    { StageTimer t("Stage 3: marshal", V); marshal = RunMarshalStage(settings, semantic); t.Stop(); }
+    { StageTimer t("marshal", V, JP, 3, 6); marshal = RunMarshalStage(settings, semantic); stage_ms[2] = t.Stop(); }
 
     // Stage 4
     BridgeResult bridge;
-    { StageTimer t("Stage 4: bridge", V); bridge = RunBridgeStage(settings, marshal, semantic, aux_dir, stem); t.Stop(); }
+    { StageTimer t("bridge", V, JP, 4, 6); bridge = RunBridgeStage(settings, marshal, semantic, aux_dir, stem); stage_ms[3] = t.Stop(); }
     if (!bridge.success && !settings.force) {
         std::cerr << "[error] Bridge stage failed.\n";
         for (const auto &d : bridge.diagnostics.All())
             std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+        PrintErrorSummary(bridge.diagnostics, JP);
         polyglot_gc_unregister_root(&scratch);
         return 1;
     }
 
     // Stage 5
     BackendResult backend;
-    { StageTimer t("Stage 5: backend", V); backend = RunBackendStage(settings, frontend, semantic, bridge); t.Stop(); }
+    { StageTimer t("backend", V, JP, 5, 6); backend = RunBackendStage(settings, frontend, semantic, bridge); stage_ms[4] = t.Stop(); }
     if (!backend.success) {
         std::cerr << "[error] Backend stage failed.\n";
         for (const auto &d : backend.diagnostics.All())
             std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+        PrintErrorSummary(backend.diagnostics, JP);
         polyglot_gc_unregister_root(&scratch);
         return 1;
     }
 
     // Stage 6
     PackagingResult packaging;
-    { StageTimer t("Stage 6: packaging", V); packaging = RunPackagingStage(settings, backend, bridge, aux_dir, stem); t.Stop(); }
+    { StageTimer t("packaging", V, JP, 6, 6); packaging = RunPackagingStage(settings, backend, bridge, aux_dir, stem); stage_ms[5] = t.Stop(); }
     if (!packaging.success) {
         std::cerr << "[error] Packaging stage failed.\n";
         for (const auto &d : packaging.diagnostics.All())
             std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
+        PrintErrorSummary(packaging.diagnostics, JP);
         polyglot_gc_unregister_root(&scratch);
         return 1;
     }
@@ -417,6 +500,42 @@ int main(int argc, char **argv) {
     // ── Summary ──────────────────────────────────────────────────────────
     double total_ms = std::chrono::duration<double, std::milli>(
         std::chrono::high_resolution_clock::now() - total_start).count();
+
+    // Write build_profile.bin to aux directory (binary stage statistics)
+    if (!aux_dir.empty() && settings.emit_aux) {
+        fs::path profile_path = fs::path(aux_dir) / "build_profile.bin";
+        std::ofstream pfs(profile_path.string(), std::ios::binary);
+        if (pfs.is_open()) {
+            // Binary format: [uint32_t stage_count] then per-stage:
+            //   [uint32_t name_len][char[] name][double elapsed_ms]
+            struct StageRecord { std::string name; double ms; };
+            StageRecord records[] = {
+                {"frontend",  stage_ms[0]},
+                {"semantic",  stage_ms[1]},
+                {"marshal",   stage_ms[2]},
+                {"bridge",    stage_ms[3]},
+                {"backend",   stage_ms[4]},
+                {"packaging", stage_ms[5]},
+            };
+            uint32_t count = 6;
+            pfs.write(reinterpret_cast<const char *>(&count), sizeof(count));
+            for (const auto &r : records) {
+                uint32_t nlen = static_cast<uint32_t>(r.name.size());
+                pfs.write(reinterpret_cast<const char *>(&nlen), sizeof(nlen));
+                pfs.write(r.name.data(), static_cast<std::streamsize>(nlen));
+                pfs.write(reinterpret_cast<const char *>(&r.ms), sizeof(r.ms));
+            }
+            pfs.close();
+        }
+    }
+
+    // JSON progress: completion event
+    if (JP) {
+        std::cout << "{\"event\":\"complete\",\"success\":true,\"total_ms\":"
+                  << std::fixed << std::setprecision(1) << total_ms << "}\n"
+                  << std::flush;
+    }
+
     if (V) {
         std::cerr << "----------------------------------------\n";
         std::cerr << "[polyc] Target: " << backend.target_triple << "\n";

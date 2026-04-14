@@ -115,6 +115,12 @@ struct DriverSettings {
 
     // Include search paths
     std::vector<std::string> include_paths{"."};
+
+    // Progress output
+    bool progress_json{false};      // --progress=json: emit machine-readable events
+
+    // Incremental compilation cache
+    bool clean_cache{false};        // --clean-cache: purge incremental cache
 };
 
 // ============================================================================

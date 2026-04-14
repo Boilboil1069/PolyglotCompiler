@@ -243,14 +243,14 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 
 | Tool | Binary | Purpose |
 |------|--------|---------|
-| Compiler Driver | `polyc` | Source → IR → Target code |
+| Compiler Driver | `polyc` | Source → IR → Target code. Supports `--progress=json` for machine-readable stage events, `--clean-cache` for cache management, and incremental compilation cache. |
 | Linker | `polyld` | Object file linking + cross-language glue |
 | Assembler | `polyasm` | Assembly → Object file |
 | Optimiser | `polyopt` | IR optimisation passes |
 | Runtime Tool | `polyrt` | GC / FFI / Thread management |
-| Topology Analyser | `polytopo` | Function I/O topology visualisation, link validation, and graph export (text / DOT / JSON) |
+| Topology Analyser | `polytopo` | Function I/O topology visualisation, link validation, and graph export (text / DOT / JSON). Supports `--view-mode` and `--filter-language` filtering. |
 | Benchmark | `polybench` | Performance evaluation suite |
-| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel, and compilation |
+| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel (with grouping and batch operations), file templates, and compilation |
 
 ---
 
@@ -273,6 +273,14 @@ PolyglotCompiler 支持 C ABI 插件接口，用于扩展编译器和 IDE。插�
 | Formatter | Add code formatters |
 | Linter | Add code linters |
 | Debugger | Add debugger integrations |
+| Completion | Add editor completion providers (per language) |
+| Diagnostic | Add editor diagnostic providers (per language) |
+| Template | Add file template providers for "New From Template" |
+| Topology Proc | Add topology graph post-processors |
+
+**Sandbox & version constraints:**  Plugins declare `min_host_version` in their metadata to ensure compatibility. The host enforces version constraints at load time and rejects incompatible plugins. A circuit-breaker mechanism auto-disables plugins after repeated callback failures (configurable via `SandboxPolicy`).
+
+**沙箱与版本约束：** 插件在元数据中声明 `min_host_version` 以确保兼容性。宿主在加载时检查版本约束，拒绝不兼容的插件。熔断机制在回调连续失败后自动禁用插件（可通过 `SandboxPolicy` 配置）。
 
 See [`docs/specs/plugin_specification.md`](docs/specs/plugin_specification.md) for the full specification.  
 详细说明见 [`docs/specs/plugin_specification_zh.md`](docs/specs/plugin_specification_zh.md)。

@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -215,6 +216,31 @@ class TopologyGraph {
 
     // Count of edges per status
     std::unordered_map<TopologyEdge::Status, size_t> EdgeStatusDistribution() const;
+
+    // -- Filtering -----------------------------------------------------------
+
+    // Remove edges matching a predicate
+    template <typename Pred>
+    void RemoveEdgesIf(Pred pred) {
+        edges_.erase(std::remove_if(edges_.begin(), edges_.end(), pred),
+                     edges_.end());
+    }
+
+    // Remove nodes matching a predicate (also clears index entries)
+    template <typename Pred>
+    void RemoveNodesIf(Pred pred) {
+        auto it = std::remove_if(nodes_.begin(), nodes_.end(), pred);
+        for (auto rm = it; rm != nodes_.end(); ++rm) {
+            node_index_.erase(rm->id);
+            name_index_.erase(rm->name);
+        }
+        nodes_.erase(it, nodes_.end());
+        // Rebuild node_index_ sequentially
+        node_index_.clear();
+        for (size_t i = 0; i < nodes_.size(); ++i) {
+            node_index_[nodes_[i].id] = i;
+        }
+    }
 
     // -- Metadata ------------------------------------------------------------
 

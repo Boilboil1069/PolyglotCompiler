@@ -29,8 +29,10 @@
 
 #include <cstdint>
 #include <memory>
+#include <map>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace polyglot::tools::ui {
 
@@ -473,6 +475,10 @@ class TopologyPanel : public QWidget {
     void OnNodeSelected();
     void OnLayoutChanged(int index);
     void OnViewModeChanged(int index);
+    void OnGroupModeChanged(int index);
+    void OnBatchDelete();
+    void OnBatchHighlight();
+    void OnBatchExport();
     void OnFileChanged(const QString &path);
     void OnForceLayoutTick();
 
@@ -482,6 +488,7 @@ class TopologyPanel : public QWidget {
     void SetupScene();
     void BuildGraphFromFile(const QString &path);
     void ApplyViewModeFilter();
+    void ApplyGrouping();
     void LayoutNodes();
     void UpdateDetailsPanel(uint64_t node_id);
 
@@ -519,6 +526,19 @@ class TopologyPanel : public QWidget {
     };
     ViewMode view_mode_{ViewMode::kLink};
     QComboBox *view_mode_combo_{nullptr};
+
+    // Grouping mode: how to visually cluster nodes
+    enum class GroupMode {
+        kNone,          // No grouping
+        kLanguage,      // Group by source language
+        kPipeline,      // Group by pipeline membership
+        kModule,        // Group by module (first segment of qualified name)
+    };
+    GroupMode group_mode_{GroupMode::kNone};
+    QComboBox *group_mode_combo_{nullptr};
+
+    // Group boundary rectangles drawn on the scene
+    std::vector<QGraphicsRectItem *> group_boxes_;
 
     // Force-directed layout engine
     QTimer *force_timer_{nullptr};

@@ -62,6 +62,9 @@ class FileBrowser : public QWidget {
     // Emitted when the user requests to generate a topology graph for a .ploy file
     void GenerateTopologyRequested(const QString &ploy_file_path);
 
+    // Emitted when the user requests to create a file from a template
+    void NewFromTemplateRequested(const QString &parent_dir);
+
   private slots:
     void OnItemDoubleClicked(const QModelIndex &index);
     void OnFilterTextChanged(const QString &text);
@@ -104,6 +107,7 @@ class FileBrowser : public QWidget {
     QAction *action_reveal_explorer_{nullptr};
     QAction *action_open_terminal_{nullptr};
     QAction *action_generate_topology_{nullptr};
+    QAction *action_new_from_template_{nullptr};
 };
 
 } // namespace polyglot::tools::ui

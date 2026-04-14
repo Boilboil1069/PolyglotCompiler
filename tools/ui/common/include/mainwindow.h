@@ -61,6 +61,7 @@ class MainWindow : public QMainWindow {
     // File menu actions
     void NewFile();
     void NewFromTemplate();
+    void NewFromTemplateInDir(const QString &parent_dir);
     void OpenFile();
     void OpenFolder();
     void Save();

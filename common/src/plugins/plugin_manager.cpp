@@ -12,6 +12,9 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <sstream>
+
+#include "common/include/version.h"
 
 #ifdef _WIN32
 #  define WIN32_LEAN_AND_MEAN
@@ -321,6 +324,15 @@ std::string PluginManager::LoadPlugin(const std::string &path) {
         return {};
     }
 
+    // Host version constraint check (min_host_version)
+    if (!CheckHostVersionConstraint(info)) {
+        std::cerr << "[plugin-manager] " << info->id
+                  << " requires host >= " << (info->min_host_version ? info->min_host_version : "?")
+                  << ", running " << POLYGLOT_VERSION_STRING << "\n";
+        DlClose(handle);
+        return {};
+    }
+
     // Resolve mandatory create / destroy
     auto fn_create = reinterpret_cast<PFN_polyglot_plugin_create>(
         DlSym(handle, "polyglot_plugin_create"));
@@ -469,6 +481,10 @@ bool PluginManager::DeactivatePlugin(const std::string &id) {
     ph.language_provider = nullptr;
     ph.formatter = nullptr;
     ph.linter = nullptr;
+    ph.completion_provider = nullptr;
+    ph.diagnostic_provider = nullptr;
+    ph.template_provider = nullptr;
+    ph.topology_processor = nullptr;
     ph.optimizer_passes.clear();
     ph.code_actions.clear();
 
@@ -921,6 +937,26 @@ void PluginManager::ResolveCapabilitySymbols(PluginHandle &handle) {
             reinterpret_cast<PFN_polyglot_plugin_get_linter>(
                 DlSym(handle.dl_handle, "polyglot_plugin_get_linter"));
     }
+    if (caps & POLYGLOT_CAP_COMPLETION) {
+        handle.fn_get_completion =
+            reinterpret_cast<PFN_polyglot_plugin_get_completion>(
+                DlSym(handle.dl_handle, "polyglot_plugin_get_completion"));
+    }
+    if (caps & POLYGLOT_CAP_DIAGNOSTIC) {
+        handle.fn_get_diagnostic =
+            reinterpret_cast<PFN_polyglot_plugin_get_diagnostic>(
+                DlSym(handle.dl_handle, "polyglot_plugin_get_diagnostic"));
+    }
+    if (caps & POLYGLOT_CAP_TEMPLATE) {
+        handle.fn_get_template =
+            reinterpret_cast<PFN_polyglot_plugin_get_template>(
+                DlSym(handle.dl_handle, "polyglot_plugin_get_template"));
+    }
+    if (caps & POLYGLOT_CAP_TOPOLOGY_PROC) {
+        handle.fn_get_topology_proc =
+            reinterpret_cast<PFN_polyglot_plugin_get_topology_proc>(
+                DlSym(handle.dl_handle, "polyglot_plugin_get_topology_proc"));
+    }
 
     // Always try to resolve the event handler — any plugin can subscribe
     handle.fn_on_event =
@@ -958,6 +994,18 @@ void PluginManager::CacheProviders(PluginHandle &handle) {
             }
         }
     }
+    if (handle.fn_get_completion) {
+        handle.completion_provider = handle.fn_get_completion(handle.instance);
+    }
+    if (handle.fn_get_diagnostic) {
+        handle.diagnostic_provider = handle.fn_get_diagnostic(handle.instance);
+    }
+    if (handle.fn_get_template) {
+        handle.template_provider = handle.fn_get_template(handle.instance);
+    }
+    if (handle.fn_get_topology_proc) {
+        handle.topology_processor = handle.fn_get_topology_proc(handle.instance);
+    }
 }
 
 void PluginManager::BuildHostServices() {
@@ -977,6 +1025,202 @@ void PluginManager::BuildHostServices() {
     host_services_.unsubscribe_event  = HostUnsubscribeEvent;
     host_services_.register_menu_item = HostRegisterMenuItem;
     host_services_.unregister_menu_item = HostUnregisterMenuItem;
+}
+
+// ============================================================================
+// Version constraint helpers
+// ============================================================================
+
+bool PluginManager::ParseSemVer(const char *str, int &major, int &minor, int &patch) {
+    if (!str) return false;
+    major = minor = patch = 0;
+    std::istringstream ss(str);
+    char dot1 = 0, dot2 = 0;
+    ss >> major >> dot1 >> minor >> dot2 >> patch;
+    return dot1 == '.' && dot2 == '.' && !ss.fail();
+}
+
+bool PluginManager::CheckHostVersionConstraint(const PolyglotPluginInfo *info) {
+    if (!info || !info->min_host_version) return true;  // No constraint
+
+    int req_major = 0, req_minor = 0, req_patch = 0;
+    if (!ParseSemVer(info->min_host_version, req_major, req_minor, req_patch))
+        return true;  // Malformed constraint — allow loading
+
+    // Compare against the host version defined in version.h
+    if (POLYGLOT_VERSION_MAJOR != req_major)
+        return POLYGLOT_VERSION_MAJOR > req_major;
+    if (POLYGLOT_VERSION_MINOR != req_minor)
+        return POLYGLOT_VERSION_MINOR > req_minor;
+    return POLYGLOT_VERSION_PATCH >= req_patch;
+}
+
+// ============================================================================
+// New capability aggregation methods
+// ============================================================================
+
+std::vector<const PolyglotCompletionProvider *>
+PluginManager::FindCompletionProviders(const std::string &language) const {
+    std::lock_guard lock(mu_);
+    std::vector<const PolyglotCompletionProvider *> result;
+    for (const auto &[id, ph] : plugins_) {
+        if (!ph->active || !ph->completion_provider ||
+            !ph->completion_provider->languages) continue;
+        for (const char **lang = ph->completion_provider->languages; *lang; ++lang) {
+            if (language == *lang) {
+                result.push_back(ph->completion_provider);
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<const PolyglotDiagnosticProvider *>
+PluginManager::FindDiagnosticProviders(const std::string &language) const {
+    std::lock_guard lock(mu_);
+    std::vector<const PolyglotDiagnosticProvider *> result;
+    for (const auto &[id, ph] : plugins_) {
+        if (!ph->active || !ph->diagnostic_provider ||
+            !ph->diagnostic_provider->languages) continue;
+        for (const char **lang = ph->diagnostic_provider->languages; *lang; ++lang) {
+            if (language == *lang) {
+                result.push_back(ph->diagnostic_provider);
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+std::vector<const PolyglotTemplateProvider *>
+PluginManager::GetTemplateProviders() const {
+    std::lock_guard lock(mu_);
+    std::vector<const PolyglotTemplateProvider *> result;
+    for (const auto &[id, ph] : plugins_) {
+        if (ph->active && ph->template_provider)
+            result.push_back(ph->template_provider);
+    }
+    return result;
+}
+
+std::vector<const PolyglotTopologyProcessor *>
+PluginManager::GetTopologyProcessors() const {
+    std::lock_guard lock(mu_);
+    std::vector<const PolyglotTopologyProcessor *> result;
+    for (const auto &[id, ph] : plugins_) {
+        if (ph->active && ph->topology_processor)
+            result.push_back(ph->topology_processor);
+    }
+    return result;
+}
+
+// ============================================================================
+// Conflict detection
+// ============================================================================
+
+std::vector<PluginManager::PluginConflict>
+PluginManager::DetectConflicts() const {
+    std::lock_guard lock(mu_);
+    std::vector<PluginConflict> conflicts;
+
+    // Track exclusive capabilities that should not overlap:
+    // - FORMATTER: only one per language
+    // - LANGUAGE: only one per language_name
+    // Also detect duplicate plugin IDs (already prevented by LoadPlugin, but
+    // reported for completeness).
+
+    // Formatter conflicts: group by language
+    std::unordered_map<std::string, std::string> formatter_owners;
+    for (const auto &[id, ph] : plugins_) {
+        if (!ph->active || !ph->formatter || !ph->formatter->language) continue;
+        std::string lang = ph->formatter->language;
+        auto it = formatter_owners.find(lang);
+        if (it != formatter_owners.end()) {
+            conflicts.push_back({it->second, id, POLYGLOT_CAP_FORMATTER,
+                                 "Duplicate formatter for language: " + lang});
+        } else {
+            formatter_owners[lang] = id;
+        }
+    }
+
+    // Language provider conflicts: one provider per language_name
+    std::unordered_map<std::string, std::string> language_owners;
+    for (const auto &[id, ph] : plugins_) {
+        if (!ph->active || !ph->language_provider ||
+            !ph->language_provider->language_name) continue;
+        std::string lang = ph->language_provider->language_name;
+        auto it = language_owners.find(lang);
+        if (it != language_owners.end()) {
+            conflicts.push_back({it->second, id, POLYGLOT_CAP_LANGUAGE,
+                                 "Duplicate language provider for: " + lang});
+        } else {
+            language_owners[lang] = id;
+        }
+    }
+
+    return conflicts;
+}
+
+// ============================================================================
+// Sandbox policy
+// ============================================================================
+
+void PluginManager::SetSandboxPolicy(const SandboxPolicy &policy) {
+    std::lock_guard lock(mu_);
+    sandbox_policy_ = policy;
+}
+
+PluginManager::SandboxPolicy PluginManager::GetSandboxPolicy() const {
+    std::lock_guard lock(mu_);
+    return sandbox_policy_;
+}
+
+void PluginManager::RecordPluginFailure(const std::string &plugin_id,
+                                        const std::string &error_msg) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it == plugins_.end()) return;
+
+    auto &ph = *it->second;
+    ph.last_error = error_msg;
+    uint32_t count = ++ph.consecutive_failures;
+
+    if (sandbox_policy_.max_consecutive_failures > 0 &&
+        count >= sandbox_policy_.max_consecutive_failures) {
+        ph.circuit_open.store(true);
+        std::cerr << "[plugin-manager] Circuit breaker tripped for "
+                  << plugin_id << " after " << count << " consecutive failures\n";
+    }
+}
+
+void PluginManager::RecordPluginSuccess(const std::string &plugin_id) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it == plugins_.end()) return;
+    it->second->consecutive_failures.store(0);
+}
+
+bool PluginManager::IsCircuitOpen(const std::string &plugin_id) const {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    return it != plugins_.end() && it->second->circuit_open.load();
+}
+
+void PluginManager::ResetCircuitBreaker(const std::string &plugin_id) {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    if (it == plugins_.end()) return;
+    it->second->circuit_open.store(false);
+    it->second->consecutive_failures.store(0);
+    it->second->last_error.clear();
+    std::cerr << "[plugin-manager] Circuit breaker reset for " << plugin_id << "\n";
+}
+
+std::string PluginManager::GetPluginLastError(const std::string &plugin_id) const {
+    std::lock_guard lock(mu_);
+    auto it = plugins_.find(plugin_id);
+    return it != plugins_.end() ? it->second->last_error : std::string{};
 }
 
 }  // namespace polyglot::plugins

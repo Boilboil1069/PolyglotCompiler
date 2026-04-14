@@ -794,7 +794,7 @@ QWidget *SettingsDialog::CreatePluginsPage() {
     auto *list_layout = new QVBoxLayout(list_group);
 
     plugin_tree_ = new QTreeWidget();
-    plugin_tree_->setHeaderLabels({"Name", "Version", "Author", "Status", "Capabilities"});
+    plugin_tree_->setHeaderLabels({"Name", "Version", "Author", "Status", "Capabilities", "Load Order"});
     plugin_tree_->setRootIsDecorated(false);
     plugin_tree_->setAlternatingRowColors(true);
     plugin_tree_->header()->setStretchLastSection(true);
@@ -805,10 +805,14 @@ QWidget *SettingsDialog::CreatePluginsPage() {
     auto *btn_row = new QHBoxLayout();
     plugin_enable_button_ = new QPushButton("Enable");
     plugin_disable_button_ = new QPushButton("Disable");
+    plugin_unload_button_ = new QPushButton("Unload");
+    plugin_reset_breaker_button_ = new QPushButton("Reset Breaker");
     auto *refresh_button = new QPushButton("Refresh");
     auto *load_button = new QPushButton("Load from File...");
     btn_row->addWidget(plugin_enable_button_);
     btn_row->addWidget(plugin_disable_button_);
+    btn_row->addWidget(plugin_unload_button_);
+    btn_row->addWidget(plugin_reset_breaker_button_);
     btn_row->addWidget(refresh_button);
     btn_row->addWidget(load_button);
     btn_row->addStretch();
@@ -841,16 +845,29 @@ QWidget *SettingsDialog::CreatePluginsPage() {
         QString desc = QString("<b>%1</b> v%2<br>"
                                "Author: %3<br>"
                                "License: %4<br>"
-                               "ID: %5<br><br>%6")
+                               "ID: %5<br>"
+                               "Min Host: %6<br><br>%7")
                            .arg(info->name ? info->name : "?")
                            .arg(info->version ? info->version : "?")
                            .arg(info->author ? info->author : "?")
                            .arg(info->license ? info->license : "?")
                            .arg(info->id ? info->id : "?")
+                           .arg(info->min_host_version ? info->min_host_version : "any")
                            .arg(info->description ? info->description : "");
         if (info->homepage)
             desc += QString("<br>Homepage: <a href=\"%1\">%1</a>")
                         .arg(info->homepage);
+
+        // Circuit breaker and crash log
+        if (handle->circuit_open.load()) {
+            desc += "<br><br><font color=\"red\"><b>Circuit breaker OPEN — "
+                    "plugin auto-disabled after repeated failures.</b></font>";
+        }
+        std::string err = pm.GetPluginLastError(id.toStdString());
+        if (!err.empty()) {
+            desc += "<br><br><b>Last Error:</b><br><pre>" +
+                    QString::fromStdString(err).toHtmlEscaped() + "</pre>";
+        }
         desc_label->setText(desc);
     });
 
@@ -908,6 +925,26 @@ QWidget *SettingsDialog::CreatePluginsPage() {
         RefreshPluginList();
     });
 
+    // Unload button: deactivate and fully unload from process
+    connect(plugin_unload_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = plugin_tree_->currentItem();
+        if (!item) return;
+        QString id = item->data(0, Qt::UserRole).toString();
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        pm.UnloadPlugin(id.toStdString());
+        RefreshPluginList();
+    });
+
+    // Reset breaker button: clear circuit breaker
+    connect(plugin_reset_breaker_button_, &QPushButton::clicked, this, [this]() {
+        auto *item = plugin_tree_->currentItem();
+        if (!item) return;
+        QString id = item->data(0, Qt::UserRole).toString();
+        auto &pm = polyglot::plugins::PluginManager::Instance();
+        pm.ResetCircuitBreaker(id.toStdString());
+        RefreshPluginList();
+    });
+
     // Populate the list on creation
     RefreshPluginList();
 
@@ -919,6 +956,7 @@ void SettingsDialog::RefreshPluginList() {
     plugin_tree_->clear();
 
     auto &pm = polyglot::plugins::PluginManager::Instance();
+    int load_index = 0;
     for (const auto *info : pm.ListPlugins()) {
         if (!info || !info->id) continue;
 
@@ -928,23 +966,35 @@ void SettingsDialog::RefreshPluginList() {
         item->setText(2, info->author ? info->author : "?");
 
         bool active = pm.IsActive(info->id);
-        item->setText(3, active ? "Active" : "Loaded");
+        bool breaker = pm.IsCircuitOpen(info->id);
+        if (breaker) {
+            item->setText(3, "Breaker Open");
+            item->setForeground(3, QColor(Qt::red));
+        } else {
+            item->setText(3, active ? "Active" : "Loaded");
+        }
 
         // Build capabilities string
         QStringList caps;
         uint32_t c = info->capabilities;
-        if (c & POLYGLOT_CAP_LANGUAGE)     caps << "Language";
-        if (c & POLYGLOT_CAP_OPTIMIZER)    caps << "Optimizer";
-        if (c & POLYGLOT_CAP_BACKEND)      caps << "Backend";
-        if (c & POLYGLOT_CAP_TOOL)         caps << "Tool";
-        if (c & POLYGLOT_CAP_UI_PANEL)     caps << "UI Panel";
-        if (c & POLYGLOT_CAP_SYNTAX_THEME) caps << "Theme";
-        if (c & POLYGLOT_CAP_FILE_TYPE)    caps << "File Type";
-        if (c & POLYGLOT_CAP_CODE_ACTION)  caps << "Code Action";
-        if (c & POLYGLOT_CAP_FORMATTER)    caps << "Formatter";
-        if (c & POLYGLOT_CAP_LINTER)       caps << "Linter";
-        if (c & POLYGLOT_CAP_DEBUGGER)     caps << "Debugger";
+        if (c & POLYGLOT_CAP_LANGUAGE)       caps << "Language";
+        if (c & POLYGLOT_CAP_OPTIMIZER)      caps << "Optimizer";
+        if (c & POLYGLOT_CAP_BACKEND)        caps << "Backend";
+        if (c & POLYGLOT_CAP_TOOL)           caps << "Tool";
+        if (c & POLYGLOT_CAP_UI_PANEL)       caps << "UI Panel";
+        if (c & POLYGLOT_CAP_SYNTAX_THEME)   caps << "Theme";
+        if (c & POLYGLOT_CAP_FILE_TYPE)      caps << "File Type";
+        if (c & POLYGLOT_CAP_CODE_ACTION)    caps << "Code Action";
+        if (c & POLYGLOT_CAP_FORMATTER)      caps << "Formatter";
+        if (c & POLYGLOT_CAP_LINTER)         caps << "Linter";
+        if (c & POLYGLOT_CAP_DEBUGGER)       caps << "Debugger";
+        if (c & POLYGLOT_CAP_COMPLETION)     caps << "Completion";
+        if (c & POLYGLOT_CAP_DIAGNOSTIC)     caps << "Diagnostic";
+        if (c & POLYGLOT_CAP_TEMPLATE)       caps << "Template";
+        if (c & POLYGLOT_CAP_TOPOLOGY_PROC)  caps << "Topology Proc";
         item->setText(4, caps.join(", "));
+
+        item->setText(5, QString::number(++load_index));
 
         item->setData(0, Qt::UserRole, QString::fromUtf8(info->id));
     }

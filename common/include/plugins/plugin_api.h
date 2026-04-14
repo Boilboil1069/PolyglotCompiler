@@ -38,6 +38,10 @@ typedef enum PolyglotPluginCap {
     POLYGLOT_CAP_FORMATTER        = 1 << 8,   // Adds a code formatter
     POLYGLOT_CAP_LINTER           = 1 << 9,   // Adds a linting pass
     POLYGLOT_CAP_DEBUGGER         = 1 << 10,  // Adds debugger integration
+    POLYGLOT_CAP_COMPLETION       = 1 << 11,  // Adds completion provider
+    POLYGLOT_CAP_DIAGNOSTIC       = 1 << 12,  // Adds diagnostic provider
+    POLYGLOT_CAP_TEMPLATE         = 1 << 13,  // Adds template provider
+    POLYGLOT_CAP_TOPOLOGY_PROC    = 1 << 14,  // Adds topology post-processor
 } PolyglotPluginCap;
 
 // ============================================================================
@@ -267,6 +271,98 @@ typedef struct PolyglotLinter {
 } PolyglotLinter;
 
 // ============================================================================
+// Completion provider callbacks (CAP_COMPLETION)
+// ============================================================================
+
+// A single completion item offered to the editor.
+typedef struct PolyglotCompletionItem {
+    const char *label;          // Display text
+    const char *insert_text;    // Text to insert (may differ from label)
+    const char *detail;         // Short description (may be NULL)
+    const char *kind;           // "function", "variable", "keyword", "type", etc.
+} PolyglotCompletionItem;
+
+typedef struct PolyglotCompletionProvider {
+    // Languages this provider supports (NULL-terminated array).
+    const char **languages;
+
+    // Return completions at the given position.
+    // Writes items into `out_items` (caller-allocated, capacity `max_items`).
+    // Returns the number of items written.
+    uint32_t (*complete)(const PolyglotHostContext *ctx,
+                         const PolyglotHostServices *host,
+                         const char *source, size_t len,
+                         const char *filename,
+                         uint32_t line, uint32_t column,
+                         PolyglotCompletionItem *out_items,
+                         uint32_t max_items);
+} PolyglotCompletionProvider;
+
+// ============================================================================
+// Diagnostic provider callbacks (CAP_DIAGNOSTIC)
+// ============================================================================
+
+typedef struct PolyglotDiagnosticProvider {
+    // Languages this provider supports (NULL-terminated array).
+    const char **languages;
+
+    // Analyse `source` and emit diagnostics via the host services.
+    void (*diagnose)(const PolyglotHostContext *ctx,
+                     const PolyglotHostServices *host,
+                     const char *source, size_t len,
+                     const char *filename);
+} PolyglotDiagnosticProvider;
+
+// ============================================================================
+// Template provider callbacks (CAP_TEMPLATE)
+// ============================================================================
+
+// A file template contributed by a plugin.
+typedef struct PolyglotTemplate {
+    const char *display_name;    // e.g. "Go — Hello World"
+    const char *language;        // Language id
+    const char *extension;       // File extension (without dot)
+    const char *content;         // Template source text
+} PolyglotTemplate;
+
+typedef struct PolyglotTemplateProvider {
+    // Return templates offered by this plugin.
+    // Writes templates into `out` (caller-allocated, capacity `max`).
+    // Returns the number written.
+    uint32_t (*get_templates)(const PolyglotHostContext *ctx,
+                              PolyglotTemplate *out,
+                              uint32_t max);
+} PolyglotTemplateProvider;
+
+// ============================================================================
+// Topology post-processor callbacks (CAP_TOPOLOGY_PROC)
+// ============================================================================
+
+typedef struct PolyglotTopoNode {
+    uint64_t    id;
+    const char *name;
+    const char *language;
+    const char *kind;       // "function", "pipeline", "external_call", etc.
+} PolyglotTopoNode;
+
+typedef struct PolyglotTopoEdge {
+    uint64_t    id;
+    uint64_t    source_node_id;
+    uint64_t    target_node_id;
+    const char *status;     // "valid", "implicit_convert", "incompatible", etc.
+} PolyglotTopoEdge;
+
+typedef struct PolyglotTopologyProcessor {
+    const char *processor_name;
+
+    // Called after topology graph is built.  The plugin may modify the JSON
+    // representation and return a malloc'd replacement, or NULL for no change.
+    char *(*process)(const PolyglotHostContext *ctx,
+                     const PolyglotHostServices *host,
+                     const char *topo_json, size_t len);
+} PolyglotTopologyProcessor;
+
+// ============================================================================
 // Plugin instance — opaque handle returned by polyglot_plugin_create()
 // ============================================================================
 
@@ -311,6 +407,22 @@ typedef const PolyglotFormatter *(*PFN_polyglot_plugin_get_formatter)(
 
 // CAP_LINTER
 typedef const PolyglotLinter *(*PFN_polyglot_plugin_get_linter)(
+    PolyglotPlugin *plugin);
+
+// CAP_COMPLETION
+typedef const PolyglotCompletionProvider *(*PFN_polyglot_plugin_get_completion)(
+    PolyglotPlugin *plugin);
+
+// CAP_DIAGNOSTIC
+typedef const PolyglotDiagnosticProvider *(*PFN_polyglot_plugin_get_diagnostic)(
+    PolyglotPlugin *plugin);
+
+// CAP_TEMPLATE
+typedef const PolyglotTemplateProvider *(*PFN_polyglot_plugin_get_template)(
+    PolyglotPlugin *plugin);
+
+// CAP_TOPOLOGY_PROC
+typedef const PolyglotTopologyProcessor *(*PFN_polyglot_plugin_get_topology_proc)(
     PolyglotPlugin *plugin);
 
 // Lifecycle hooks (always called if exported)

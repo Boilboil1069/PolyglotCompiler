@@ -953,6 +953,33 @@ void TopologyPanel::SetupToolbar() {
 
     toolbar_->addSeparator();
 
+    // Grouping mode selector: cluster nodes visually
+    group_mode_combo_ = new QComboBox(toolbar_);
+    group_mode_combo_->addItem("No Grouping");       // index 0 = kNone
+    group_mode_combo_->addItem("Group by Language");  // index 1 = kLanguage
+    group_mode_combo_->addItem("Group by Pipeline");  // index 2 = kPipeline
+    group_mode_combo_->addItem("Group by Module");    // index 3 = kModule
+    connect(group_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &TopologyPanel::OnGroupModeChanged);
+    toolbar_->addWidget(group_mode_combo_);
+
+    toolbar_->addSeparator();
+
+    // Batch operations for multi-selected items
+    auto *batch_delete = new QPushButton("Delete Selected", toolbar_);
+    connect(batch_delete, &QPushButton::clicked, this, &TopologyPanel::OnBatchDelete);
+    toolbar_->addWidget(batch_delete);
+
+    auto *batch_highlight = new QPushButton("Highlight Selected", toolbar_);
+    connect(batch_highlight, &QPushButton::clicked, this, &TopologyPanel::OnBatchHighlight);
+    toolbar_->addWidget(batch_highlight);
+
+    auto *batch_export = new QPushButton("Export Selected", toolbar_);
+    connect(batch_export, &QPushButton::clicked, this, &TopologyPanel::OnBatchExport);
+    toolbar_->addWidget(batch_export);
+
+    toolbar_->addSeparator();
+
     auto *export_dot = new QPushButton("Export DOT", toolbar_);
     connect(export_dot, &QPushButton::clicked, this, &TopologyPanel::OnExportDot);
     toolbar_->addWidget(export_dot);
@@ -1010,6 +1037,7 @@ void TopologyPanel::Clear() {
     edge_context_.clear();
     expanded_nodes_.clear();
     edge_origin_.clear();
+    group_boxes_.clear();  // scene_->clear() already deleted them
     details_tree_->clear();
     diagnostics_output_->clear();
     status_label_->setText("No topology loaded");
@@ -2009,6 +2037,262 @@ void TopologyPanel::OnViewModeChanged(int index) {
     default: view_mode_ = ViewMode::kLink;     break;
     }
     ApplyViewModeFilter();
+    ApplyGrouping();
+}
+
+void TopologyPanel::OnGroupModeChanged(int index) {
+    switch (index) {
+    case 0:  group_mode_ = GroupMode::kNone;     break;
+    case 1:  group_mode_ = GroupMode::kLanguage; break;
+    case 2:  group_mode_ = GroupMode::kPipeline; break;
+    case 3:  group_mode_ = GroupMode::kModule;   break;
+    default: group_mode_ = GroupMode::kNone;     break;
+    }
+    ApplyGrouping();
+}
+
+void TopologyPanel::ApplyGrouping() {
+    // Remove previous group boxes from the scene
+    for (auto *box : group_boxes_) {
+        scene_->removeItem(box);
+        delete box;
+    }
+    group_boxes_.clear();
+
+    if (group_mode_ == GroupMode::kNone) return;
+
+    // Classify visible nodes into groups
+    std::map<QString, std::vector<TopoNodeItem *>> groups;
+
+    for (auto &[id, item] : node_items_) {
+        if (!item->isVisible()) continue;
+
+        QString key;
+        if (group_mode_ == GroupMode::kLanguage) {
+            key = item->Language().isEmpty() ? "unknown" : item->Language();
+        } else if (group_mode_ == GroupMode::kPipeline) {
+            // Group by pipeline membership: nodes whose context_node_id is
+            // a pipeline node belong to that pipeline's group
+            auto ctx_it = node_context_.find(id);
+            uint64_t ctx = (ctx_it != node_context_.end()) ? ctx_it->second : 0;
+            if (ctx != 0) {
+                auto parent_it = node_items_.find(ctx);
+                if (parent_it != node_items_.end()) {
+                    key = parent_it->second->NodeName();
+                } else {
+                    key = QString("pipeline_%1").arg(ctx);
+                }
+            } else {
+                auto kit = node_kind_.find(id);
+                if (kit != node_kind_.end() &&
+                    static_cast<topo::TopologyNode::Kind>(kit->second) ==
+                        topo::TopologyNode::Kind::kPipeline) {
+                    key = item->NodeName();
+                } else {
+                    key = "top-level";
+                }
+            }
+        } else if (group_mode_ == GroupMode::kModule) {
+            // Group by first segment of qualified name
+            QString name = item->NodeName();
+            int sep = name.indexOf("::");
+            key = (sep > 0) ? name.left(sep) : name;
+        }
+
+        groups[key].push_back(item);
+    }
+
+    // Draw translucent bounding rectangles for each group
+    static const QColor palette[] = {
+        QColor(80, 130, 200, 40),  QColor(200, 130, 80, 40),
+        QColor(80, 200, 130, 40),  QColor(200, 80, 130, 40),
+        QColor(130, 80, 200, 40),  QColor(130, 200, 80, 40),
+        QColor(200, 200, 80, 40),  QColor(80, 200, 200, 40),
+    };
+    constexpr int palette_size = sizeof(palette) / sizeof(palette[0]);
+    int color_idx = 0;
+
+    for (auto &[key, items] : groups) {
+        if (items.size() < 2) continue; // no box for single-node groups
+
+        // Compute bounding rect of group members
+        QRectF bounds;
+        for (auto *item : items) {
+            QRectF r = item->sceneBoundingRect();
+            if (bounds.isNull()) {
+                bounds = r;
+            } else {
+                bounds = bounds.united(r);
+            }
+        }
+
+        // Pad the bounding rect
+        constexpr qreal pad = 30.0;
+        bounds.adjust(-pad, -pad, pad, pad);
+
+        auto *box = new QGraphicsRectItem(bounds);
+        box->setBrush(palette[color_idx % palette_size]);
+        box->setPen(QPen(palette[color_idx % palette_size].lighter(150), 1.5,
+                         Qt::DashLine));
+        box->setZValue(-100); // behind nodes
+        box->setToolTip(key);
+
+        // Add a label at the top-left of the group
+        auto *label = new QGraphicsTextItem(key, box);
+        label->setDefaultTextColor(Qt::white);
+        label->setPos(bounds.topLeft() + QPointF(4, 2));
+        auto font = label->font();
+        font.setPointSize(9);
+        font.setBold(true);
+        label->setFont(font);
+
+        scene_->addItem(box);
+        group_boxes_.push_back(box);
+        ++color_idx;
+    }
+}
+
+void TopologyPanel::OnBatchDelete() {
+    auto selected = scene_->selectedItems();
+    if (selected.isEmpty()) {
+        diagnostics_output_->appendPlainText(
+            "[Batch] No items selected — select nodes or edges first.");
+        return;
+    }
+
+    int removed_nodes = 0;
+    int removed_edges = 0;
+
+    // Collect edge items to remove (including edges connected to deleted nodes)
+    std::unordered_set<uint64_t> deleted_node_ids;
+    for (auto *item : selected) {
+        if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
+            deleted_node_ids.insert(node->NodeId());
+        }
+    }
+
+    // Remove selected edges and edges connected to deleted nodes
+    auto edge_it = edge_items_.begin();
+    while (edge_it != edge_items_.end()) {
+        auto *edge = *edge_it;
+        bool should_remove = edge->isSelected() ||
+            deleted_node_ids.count(edge->SourceNodeId()) ||
+            deleted_node_ids.count(edge->TargetNodeId());
+        if (should_remove) {
+            scene_->removeItem(edge);
+            delete edge;
+            edge_it = edge_items_.erase(edge_it);
+            ++removed_edges;
+        } else {
+            ++edge_it;
+        }
+    }
+
+    // Remove selected nodes
+    for (auto *item : selected) {
+        if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
+            node_items_.erase(node->NodeId());
+            scene_->removeItem(node);
+            delete node;
+            ++removed_nodes;
+        }
+    }
+
+    diagnostics_output_->appendPlainText(
+        QString("[Batch] Deleted %1 node(s) and %2 edge(s).")
+            .arg(removed_nodes).arg(removed_edges));
+
+    emit GraphModified();
+    ApplyGrouping();
+}
+
+void TopologyPanel::OnBatchHighlight() {
+    auto selected = scene_->selectedItems();
+    if (selected.isEmpty()) {
+        diagnostics_output_->appendPlainText(
+            "[Batch] No items selected — select nodes to highlight.");
+        return;
+    }
+
+    int count = 0;
+    for (auto *item : selected) {
+        if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
+            node->StartPulseAnimation();
+            ++count;
+        }
+    }
+
+    diagnostics_output_->appendPlainText(
+        QString("[Batch] Highlighted %1 node(s).").arg(count));
+}
+
+void TopologyPanel::OnBatchExport() {
+    auto selected = scene_->selectedItems();
+    if (selected.isEmpty()) {
+        diagnostics_output_->appendPlainText(
+            "[Batch] No items selected — select nodes to export.");
+        return;
+    }
+
+    // Collect the selected node ids
+    std::unordered_set<uint64_t> selected_ids;
+    for (auto *item : selected) {
+        if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
+            selected_ids.insert(node->NodeId());
+        }
+    }
+
+    if (selected_ids.empty()) {
+        diagnostics_output_->appendPlainText(
+            "[Batch] No nodes in selection.");
+        return;
+    }
+
+    // Build a DOT subgraph of selected nodes and their interconnecting edges
+    QString dot = "digraph selected {\n";
+    dot += "    rankdir=LR;\n";
+    dot += "    bgcolor=\"#1E1E1E\";\n";
+    dot += "    node [style=filled, fontcolor=white];\n\n";
+
+    for (auto *item : selected) {
+        if (auto *node = dynamic_cast<TopoNodeItem *>(item)) {
+            dot += QString("    n%1 [label=\"%2\\n[%3]\", fillcolor=\"#2D2D2D\"];\n")
+                       .arg(node->NodeId())
+                       .arg(node->NodeName())
+                       .arg(node->Language());
+        }
+    }
+
+    dot += "\n";
+
+    for (auto *edge : edge_items_) {
+        if (!edge->isVisible()) continue;
+        if (selected_ids.count(edge->SourceNodeId()) &&
+            selected_ids.count(edge->TargetNodeId())) {
+            dot += QString("    n%1 -> n%2;\n")
+                       .arg(edge->SourceNodeId())
+                       .arg(edge->TargetNodeId());
+        }
+    }
+
+    dot += "}\n";
+
+    QString path = QFileDialog::getSaveFileName(
+        this, "Export Selected Nodes", QString(), "DOT Files (*.dot);;All Files (*)");
+    if (path.isEmpty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        diagnostics_output_->appendPlainText(
+            "[Batch] Failed to write: " + file.errorString());
+        return;
+    }
+    file.write(dot.toUtf8());
+    file.close();
+
+    diagnostics_output_->appendPlainText(
+        QString("[Batch] Exported %1 node(s) to %2")
+            .arg(selected_ids.size()).arg(path));
 }
 
 void TopologyPanel::ToggleNodeExpansion(uint64_t node_id) {

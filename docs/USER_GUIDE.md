@@ -1446,6 +1446,8 @@ polyc [options] <input_file>
 | `--force` | Continue compilation despite errors |
 | `--strict` | Strict mode: reject placeholder types, disable degraded stubs |
 | `--permissive` | Permissive mode: allow placeholder types (override Release default) |
+| `--progress=json` | Emit machine-readable JSON progress events to stdout (stage_start, stage_end, complete) |
+| `--clean-cache` | Purge the incremental compilation cache and exit |
 | `-h` / `--help` | Show usage information |
 
 > **Note:** Release builds default to strict mode (via `POLYC_DEFAULT_STRICT`).
@@ -1545,6 +1547,7 @@ By default, `polyc` generates intermediate files in an `aux/` subdirectory along
 | `<stem>.asm.paux` | Generated assembly code — binary |
 | `<stem>.obj` / `<stem>.o` | COFF/ELF/Mach-O object file (platform-dependent) |
 | `<stem>_<lang>.lib.pobj` | Per-language bridge library (e.g., `_cpp.lib.pobj`, `_python.lib.pobj`) |
+| `build_profile.bin` | Binary build profile: per-stage timing data (generated on successful compilation) |
 
 #### PAUX Binary Format
 
@@ -2619,6 +2622,30 @@ Each plugin declares a bitmask of capabilities in its `PolyglotPluginInfo`:
 | `POLYGLOT_CAP_FORMATTER` | `1 << 8` | Code formatter |
 | `POLYGLOT_CAP_LINTER` | `1 << 9` | Code linter |
 | `POLYGLOT_CAP_DEBUGGER` | `1 << 10` | Debugger integration |
+| `POLYGLOT_CAP_COMPLETION` | `1 << 11` | Editor completion provider |
+| `POLYGLOT_CAP_DIAGNOSTIC` | `1 << 12` | Editor diagnostic provider |
+| `POLYGLOT_CAP_TEMPLATE` | `1 << 13` | File template provider |
+| `POLYGLOT_CAP_TOPOLOGY_PROC` | `1 << 14` | Topology graph post-processor |
+
+### Version constraints
+
+Plugins declare `min_host_version` (e.g. `"1.0.0"`) in `PolyglotPluginInfo`. The host checks this at load time and rejects plugins that require a newer host version. Malformed version strings are treated as "no constraint".
+
+### Conflict detection
+
+`PluginManager::DetectConflicts()` scans active plugins for exclusive-capability collisions — for example, two plugins registering a formatter for the same language, or two language providers with the same `language_name`. Detected conflicts are returned as a `std::vector<PluginConflict>`.
+
+### Sandbox policy & circuit breaker
+
+The host enforces a **sandbox policy** for plugin callbacks:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `call_timeout_ms` | 5000 | Maximum milliseconds per callback invocation |
+| `memory_limit_bytes` | 0 (unlimited) | Memory limit per plugin (reserved for future enforcement) |
+| `max_consecutive_failures` | 3 | Number of consecutive failures before the circuit breaker trips |
+
+When a plugin exceeds the failure threshold, its **circuit breaker** opens automatically — the plugin is disabled until explicitly reset via `ResetCircuitBreaker()` or the "Reset Breaker" button in the IDE settings.
 
 ## 13.3 Mandatory Plugin Exports
 

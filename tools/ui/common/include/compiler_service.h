@@ -9,7 +9,9 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "frontends/common/include/diagnostics.h"
@@ -115,6 +117,27 @@ class CompilerService {
     // Return supported languages list
     std::vector<std::string> SupportedLanguages() const;
 
+    // ── Workspace symbol index ───────────────────────────────────────────
+    // Build a symbol index from additional workspace files (called by UI
+    // when workspace is loaded or files are saved).
+    void IndexWorkspaceFile(const std::string &path,
+                            const std::string &source,
+                            const std::string &language);
+    void ClearWorkspaceIndex();
+
+    // ── Go-to-definition support ─────────────────────────────────────────
+    // Resolve a symbol to its definition location across the workspace.
+    struct DefinitionLocation {
+        std::string file;
+        size_t line{0};
+        size_t column{0};
+        bool found{false};
+    };
+    DefinitionLocation FindDefinition(const std::string &symbol,
+                                       const std::string &current_file,
+                                       const std::string &source,
+                                       const std::string &language) const;
+
   private:
     // Internal helpers
     std::vector<DiagnosticInfo> ConvertDiagnostics(
@@ -122,6 +145,22 @@ class CompilerService {
 
     std::vector<CompletionItem> GetPloyCompletions(
         const std::string &source, size_t line, size_t column) const;
+
+    // Extract FUNC/PIPELINE/LINK/LET/VAR/STRUCT/IMPORT symbols from .ploy source
+    void ExtractSourceSymbols(const std::string &source,
+                              std::vector<CompletionItem> &out) const;
+
+    // Workspace symbol index — maps symbol name to file + line
+    struct IndexedSymbol {
+        std::string name;
+        std::string file;
+        size_t line{0};
+        std::string kind;      // "function", "variable", "type", etc.
+        std::string language;
+        std::string detail;
+    };
+    mutable std::mutex index_mutex_;
+    std::unordered_map<std::string, std::vector<IndexedSymbol>> workspace_index_;
 };
 
 } // namespace polyglot::tools::ui

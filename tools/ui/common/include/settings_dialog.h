@@ -142,6 +142,8 @@ class SettingsDialog : public QDialog {
     QPushButton *plugin_enable_button_{nullptr};
     QPushButton *plugin_disable_button_{nullptr};
     QPushButton *plugin_browse_button_{nullptr};
+    QPushButton *plugin_unload_button_{nullptr};
+    QPushButton *plugin_reset_breaker_button_{nullptr};
     QLineEdit   *plugin_dir_edit_{nullptr};
 
     void PopulateDefaultKeybindings();

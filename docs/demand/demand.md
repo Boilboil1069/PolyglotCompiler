@@ -1094,3 +1094,46 @@ docs/ 已有完善的双语文档体系（specs/realization/tutorial/api 各有 
 5. 运行 docs_sync_check.py --scope core 确认中英文核心文档同步无 drift。
 
 --end -done
+
+2026-04-14-1
+
+功能扩张（优先交付）
+
+1.polyui 编辑器增强：
+- 为 `.ploy` 增加完整关键字与内置类型智能补全，并支持函数名、PIPELINE 名、LINK 目标符号补全；
+- 为 C++/Python/Rust/Java/.NET 文件提供基于当前工程符号索引的补全；
+- 实现 diagnostics 波浪线（error=红色，warning=橙色）与行内诊断提示（inline diagnostics）；
+- 支持 Ctrl+Click 跳转定义（先支持 `.ploy` 内部，再支持跨语言源文件）；
+- 增加模板中心（New From Template）：cpp/python/rust/java/dotnet/ploy 六类模板，支持从 Explorer 右键创建。
+
+2.拓扑工具能力扩张：
+- 增加视图模式切换：`LINK 关系视图` 与 `FUNC/PIPELINE 调用数据流视图`，两种模式可独立筛选与导出；
+- 增加拓扑节点分组（按 language、pipeline、module）与折叠/展开；
+- 增加边与节点的批量操作（多选删除、多选高亮、多选导出）；
+- 拓扑图导出的 `.ploy` 代码需要保留 source location 注释，便于回写和差异对比；
+- CLI `polytopo` 增加 `--view-mode link|call` 和 `--filter-language <lang>` 参数，与 UI 行为一致。
+
+3.编译体验与产物可观测性扩张：
+- `polyc` 输出阶段级进度（frontend/sema/marshal/bridge/backend/packaging）以及每阶段耗时、峰值内存；
+- 增加 `--progress=json` 输出机器可读进度事件，供 UI 进度条实时消费；
+- 增加增量编译缓存（按输入哈希和编译参数命中），并支持 `--clean-cache`；
+- `aux` 目录新增 `build_profile.bin`（二进制）记录阶段统计，禁止输出明文占位统计；
+- 编译失败时输出错误汇总（按 error code 聚合）并附带首个 traceback。
+
+4.插件与扩展生态扩张：
+- 插件 API 增加编辑器扩展点：补全提供器、诊断提供器、模板提供器、拓扑后处理器；
+- 插件加载支持版本约束（min/max host version）和冲突检测；
+- UI 增加插件管理页：启用/禁用、加载顺序、崩溃隔离与日志查看；
+- 增加插件沙箱策略：超时、内存上限、失败自动熔断。
+
+5.测试与验收要求：
+- 新增端到端测试覆盖上述扩张能力：编辑器补全、波浪线、拓扑双视图、polyc 进度事件、缓存命中；
+- 所有新增测试不得使用 `REQUIRE(true)`；必须包含行为断言和失败路径断言；
+- 新增功能需在 macOS 与 Linux 下通过构建和测试，Windows 至少通过编译与 smoke test。
+
+6.文档同步要求：
+- 必须同步更新 `README.md`、`docs/USER_GUIDE.md`、`docs/USER_GUIDE_zh.md`；
+- 新增双语实现文档：`docs/realization/editor_expansion.md` 与 `docs/realization/editor_expansion_zh.md`；
+- 文档中需要包含能力边界、配置项、命令示例、常见失败场景与排查步骤。
+
+--end -done

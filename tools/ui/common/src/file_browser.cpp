@@ -153,6 +153,10 @@ void FileBrowser::SetupContextMenu() {
     context_menu_->addSeparator();
 
     action_generate_topology_ = context_menu_->addAction("Generate Topology Graph");
+
+    context_menu_->addSeparator();
+
+    action_new_from_template_ = context_menu_->addAction("New From Template...");
 }
 
 // ============================================================================
@@ -249,6 +253,7 @@ void FileBrowser::OnContextMenuRequested(const QPoint &pos) {
     action_copy_relative_path_->setEnabled(has_selection);
     action_reveal_explorer_->setEnabled(has_selection);
     action_generate_topology_->setVisible(is_ploy);
+    action_new_from_template_->setVisible(true);
 
     // Disconnect previous connections and reconnect with current index
     // to avoid stale captures.
@@ -262,6 +267,7 @@ void FileBrowser::OnContextMenuRequested(const QPoint &pos) {
     action_reveal_explorer_->disconnect();
     action_open_terminal_->disconnect();
     action_generate_topology_->disconnect();
+    action_new_from_template_->disconnect();
 
     connect(action_open_, &QAction::triggered, this, [this, index]() {
         if (index.isValid() && !model_->isDir(index)) {
@@ -294,6 +300,9 @@ void FileBrowser::OnContextMenuRequested(const QPoint &pos) {
     });
     connect(action_generate_topology_, &QAction::triggered, this, [this, index]() {
         ContextGenerateTopology(index);
+    });
+    connect(action_new_from_template_, &QAction::triggered, this, [this, index]() {
+        emit NewFromTemplateRequested(DirectoryForIndex(index));
     });
 
     context_menu_->exec(tree_view_->viewport()->mapToGlobal(pos));

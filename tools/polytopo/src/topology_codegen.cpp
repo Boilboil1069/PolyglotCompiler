@@ -97,6 +97,13 @@ std::string StripLangPrefix(const std::string &name, const std::string &language
     return name;
 }
 
+// Emit a source location comment for diff/write-back.
+// Format: "// @source <file>:<line>"
+std::string SourceLocComment(const core::SourceLoc &loc) {
+    if (loc.file.empty()) return {};
+    return "// @source " + loc.file + ":" + std::to_string(loc.line);
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -226,6 +233,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
         if (emitted_links.count(link_key) > 0) continue;
         emitted_links.insert(link_key);
 
+        // Source location comment for diff/write-back
+        std::string loc_cmt = SourceLocComment(src_node->loc);
+        if (!loc_cmt.empty()) out << loc_cmt << "\n";
+
         // Determine RETURNS type from source node's output port
         std::string returns_type;
         if (!src_node->outputs.empty()) {
@@ -272,6 +283,10 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
     for (const auto &node : graph.Nodes()) {
         if (node.kind != TopologyNode::Kind::kPipeline) continue;
         pipeline_ids.insert(node.id);
+
+        // Source location comment for diff/write-back
+        std::string loc_cmt = SourceLocComment(node.loc);
+        if (!loc_cmt.empty()) out << loc_cmt << "\n";
 
         out << "PIPELINE " << node.name << " {\n";
 
@@ -330,7 +345,11 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
             continue;  // External map functions are not regenerated
         }
 
-        // Comment header
+        // Comment header with source location
+        std::string loc_cmt = SourceLocComment(node.loc);
+        if (!loc_cmt.empty()) {
+            out << loc_cmt << "\n";
+        }
         out << "// " << KindString(node.kind) << ": "
             << node.name << " [" << node.language << "]\n";
 
