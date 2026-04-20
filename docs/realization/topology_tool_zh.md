@@ -299,15 +299,22 @@ tools/polytopo/
 
 ## 9. 高级交互功能
 
-### 9.1 力导向布局
+### 9.1 布局算法
 
-拓扑面板使用 Fruchterman–Reingold 风格的模拟：
+拓扑面板内置 8 种可选布局算法。**默认采用「分层 (DAG)」**，因为它是完全静态的分层绘制——对于同一图，每次结果完全一致且没有任何动画。力导向仍然保留但不再是默认值。当前选择持久化在 `QSettings` 的 `topology/layout_mode` 中，由主面板和所有钻入子窗口共享。
 
-- **排斥力**：所有节点对之间的库仑定律（`kRepulsionStrength = 50000`）。
-- **引力**：沿边的胡克定律（`kAttractionStrength = 0.005`，`kIdealEdgeLength = 250`）。
-- **阻尼**：模拟退火，`kDamping = 0.85`，在 300 次迭代中衰减。
-- **提前终止**：当每次迭代最大移动量 < `kMinMovement = 0.5` 时停止。
-- **边刷新**：`RefreshEdgePositions()` 每次迭代重新计算所有贝塞尔路径。
+| 模式 | 枚举值 | 是否动画 | 描述 |
+|------|--------|----------|------|
+| 分层 (DAG) | `kHierarchical` *（默认）* | 否 | Kahn 拓扑排序 + 最长路径分层；按层从左至右堆叠，层内按节点 id 稳定排序。 |
+| 力导向 | `kForceDirected` | 是 | Fruchterman–Reingold 模拟（`kRepulsionStrength = 50000`、`kAttractionStrength = 0.005`、`kIdealEdgeLength = 250`、`kDamping = 0.85`、`kForceMaxIterations = 300`，`kMinMovement = 0.5` 提前终止）。 |
+| 从上到下网格 | `kGridTopDown` | 否 | 行优先 √n 网格。 |
+| 从左到右网格 | `kGridLeftRight` | 否 | 列优先 √n 网格。 |
+| 环形 | `kCircular` | 否 | 所有节点在单个圆上等间距排布，半径随节点数量自适应。 |
+| 同心环（按度数） | `kConcentric` | 否 | 按节点度数分环，度数最大的组位于中心。 |
+| 螺旋 | `kSpiral` | 否 | 阿基米德螺线，径向/角向步长可配置。 |
+| BFS 树 | `kBfsTree` | 否 | 以最高度数节点为根的广度优先树，按层级依次铺开。 |
+
+所有算法都通过 `QGraphicsItem::setPos()` 写入最终位置并调用 `RefreshEdgePositions()` 重建每条 `TopoEdgeItem` 的贝塞尔路径。静态算法按节点 id 升序排列，因此对相同图多次运行的结果完全一致（确定性）。
 
 ### 9.2 交互式边创建/删除
 
@@ -395,9 +402,9 @@ struct BreadcrumbBar::Entry {
 - 点击面包屑条目发射 `EntryClicked(node_id, window)`，提升并激活目标窗口。
 - 路径随每次递归钻入增长，允许跳回任意祖先层级。
 
-### 10.4 力导向布局
+### 10.4 钻入子窗口的布局算法
 
-DrillDownWindow 复用与主面板相同的 Fruchterman–Reingold 模拟（§9.1），常量相同：
+DrillDownWindow 在自身工具栏上提供与主面板相同的 8 种布局算法选择。该 `QComboBox` 依据共享的 `topology/layout_mode` 设置初始化，因此在主面板或任意钻入子窗口中切换布局都会持久化并影响后续打开的所有窗口。默认仍为「分层 (DAG)」；只有「力导向」会启动动画，其他布局均为完全静态。当显式选择「力导向」时，使用以下与主面板一致的常量：
 
 | 常量 | 值 | 用途 |
 |------|-----|------|

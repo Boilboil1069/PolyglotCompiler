@@ -44,6 +44,33 @@ class DrillDownWindow;
 class BreadcrumbBar;
 
 // ============================================================================
+// LayoutMode — algorithms available for arranging topology nodes
+// ============================================================================
+//
+// The default mode is kHierarchical because it is fully static (deterministic,
+// no animated simulation) and produces a stable left-to-right DAG layered
+// drawing that does not move under the user's cursor.  Force-directed remains
+// available but is no longer the default to satisfy the requirement that the
+// out-of-the-box layout be static.
+//
+/** @brief Topology layout algorithm identifiers. */
+enum class LayoutMode {
+    kHierarchical = 0,   // Layered DAG (Sugiyama-lite, longest-path layering)
+    kForceDirected,      // Animated spring-electrical simulation
+    kGridTopDown,        // Row-major grid (top-down filling)
+    kGridLeftRight,      // Column-major grid (left-right filling)
+    kCircular,           // All nodes on a single circle
+    kConcentric,         // Rings keyed by node degree (high degree at center)
+    kSpiral,             // Archimedean spiral (compact ordering)
+    kBfsTree,            // Breadth-first tree from highest-degree root
+};
+
+/** @brief Convert a LayoutMode value to/from the persisted settings string. */
+QString LayoutModeToString(LayoutMode mode);
+LayoutMode LayoutModeFromString(const QString &name,
+                                LayoutMode fallback = LayoutMode::kHierarchical);
+
+// ============================================================================
 // TopoPortItem — a port dot that supports hover tooltips and drag-connect
 // ============================================================================
 
@@ -348,6 +375,7 @@ class DrillDownWindow : public QWidget {
     void OnNodeSelected();
     void OnForceLayoutTick();
     void OnBreadcrumbClicked(uint64_t node_id, QWidget *window);
+    void OnLayoutChanged(int index);
 
   private:
     void SetupUI(const QString &container_name);
@@ -365,6 +393,8 @@ class DrillDownWindow : public QWidget {
     QTreeWidget *details_tree_{nullptr};
     QPlainTextEdit *diagnostics_output_{nullptr};
     BreadcrumbBar *breadcrumb_{nullptr};
+    QComboBox *layout_combo_{nullptr};
+    LayoutMode layout_mode_{LayoutMode::kHierarchical};
 
     // Breadcrumb path from root to this window (inclusive)
     std::vector<BreadcrumbBar::Entry> breadcrumb_path_;
@@ -491,7 +521,6 @@ class TopologyPanel : public QWidget {
     void ApplyGrouping();
     void LayoutNodes();
     void UpdateDetailsPanel(uint64_t node_id);
-
     // .ploy file synchronization helpers
     void SyncEdgeToFile(TopoEdgeItem *edge);
     void RemoveEdgeFromFile(TopoEdgeItem *edge);
@@ -536,6 +565,11 @@ class TopologyPanel : public QWidget {
     };
     GroupMode group_mode_{GroupMode::kNone};
     QComboBox *group_mode_combo_{nullptr};
+
+    // Currently active layout algorithm.  Persisted in QSettings under
+    // "topology/layout_mode".  Defaults to kHierarchical (a static layered
+    // DAG drawing) so that opening a topology never starts an animation.
+    LayoutMode layout_mode_{LayoutMode::kHierarchical};
 
     // Group boundary rectangles drawn on the scene
     std::vector<QGraphicsRectItem *> group_boxes_;

@@ -24,12 +24,14 @@
 #include <QPen>
 #include <QProcess>
 #include <QScrollBar>
+#include <QSettings>
 #include <QTextStream>
 #include <QToolTip>
 #include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -48,6 +50,36 @@
 #include "tools/polytopo/include/topology_validator.h"
 
 namespace polyglot::tools::ui {
+
+// ============================================================================
+// LayoutMode — string conversion helpers used to persist user choice
+// ============================================================================
+
+QString LayoutModeToString(LayoutMode mode) {
+    switch (mode) {
+    case LayoutMode::kHierarchical:   return "hierarchical";
+    case LayoutMode::kForceDirected:  return "force_directed";
+    case LayoutMode::kGridTopDown:    return "grid_top_down";
+    case LayoutMode::kGridLeftRight:  return "grid_left_right";
+    case LayoutMode::kCircular:       return "circular";
+    case LayoutMode::kConcentric:     return "concentric";
+    case LayoutMode::kSpiral:         return "spiral";
+    case LayoutMode::kBfsTree:        return "bfs_tree";
+    }
+    return "hierarchical";
+}
+
+LayoutMode LayoutModeFromString(const QString &name, LayoutMode fallback) {
+    if (name == "hierarchical")    return LayoutMode::kHierarchical;
+    if (name == "force_directed")  return LayoutMode::kForceDirected;
+    if (name == "grid_top_down")   return LayoutMode::kGridTopDown;
+    if (name == "grid_left_right") return LayoutMode::kGridLeftRight;
+    if (name == "circular")        return LayoutMode::kCircular;
+    if (name == "concentric")      return LayoutMode::kConcentric;
+    if (name == "spiral")          return LayoutMode::kSpiral;
+    if (name == "bfs_tree")        return LayoutMode::kBfsTree;
+    return fallback;
+}
 
 // ============================================================================
 // Color scheme per language
@@ -932,10 +964,26 @@ void TopologyPanel::SetupToolbar() {
 
     toolbar_->addSeparator();
 
+    // Layout algorithm selector.  The default is Hierarchical (a static
+    // layered DAG drawing) so the topology view does not animate on open.
+    // The combo entries below must stay in the same order as the LayoutMode
+    // enum values declared in topology_panel.h.
     layout_combo_ = new QComboBox(toolbar_);
-    layout_combo_->addItem("Force-Directed");
-    layout_combo_->addItem("Top-Down Grid");
-    layout_combo_->addItem("Left-Right Grid");
+    layout_combo_->addItem("Hierarchical (DAG)");   // 0 = kHierarchical (static, default)
+    layout_combo_->addItem("Force-Directed");       // 1 = kForceDirected (animated)
+    layout_combo_->addItem("Top-Down Grid");        // 2 = kGridTopDown
+    layout_combo_->addItem("Left-Right Grid");      // 3 = kGridLeftRight
+    layout_combo_->addItem("Circular");             // 4 = kCircular
+    layout_combo_->addItem("Concentric (by degree)"); // 5 = kConcentric
+    layout_combo_->addItem("Spiral");               // 6 = kSpiral
+    layout_combo_->addItem("BFS Tree");             // 7 = kBfsTree
+    {
+        QSettings settings("PolyglotCompiler", "IDE");
+        layout_mode_ = LayoutModeFromString(
+            settings.value("topology/layout_mode", "hierarchical").toString(),
+            LayoutMode::kHierarchical);
+        layout_combo_->setCurrentIndex(static_cast<int>(layout_mode_));
+    }
     connect(layout_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &TopologyPanel::OnLayoutChanged);
     toolbar_->addWidget(layout_combo_);
@@ -1531,54 +1579,336 @@ void TopologyPanel::BuildGraphFromFile(const QString &path) {
                                .arg(path));
 }
 
-void TopologyPanel::LayoutNodes() {
-    int mode = layout_combo_ ? layout_combo_->currentIndex() : 0;
+// ============================================================================
+// Static layout algorithms (used by both TopologyPanel and DrillDownWindow)
+// ============================================================================
+//
+// Each algorithm receives the current node map and edge list and writes the
+// final position into every node via QGraphicsItem::setPos().  Algorithms are
+// pure (no animation): callers that previously relied on a running force
+// simulation must invoke RefreshEdgePositions() separately.
+//
+namespace {
 
-    if (mode == 0) {
-        // Force-directed: seed with grid positions then run simulation
-        qreal spacing_x = kNodeWidth + 80;
-        qreal spacing_y = 140;
-        size_t cols = std::max(static_cast<size_t>(1),
-                               static_cast<size_t>(std::ceil(std::sqrt(
-                                   static_cast<double>(node_items_.size())))));
-        // Add slight random jitter so force layout can separate overlapping nodes
+// Stable ordering: sort node ids ascending so that two runs of the same
+// algorithm on the same input always produce identical layouts.  This is what
+// makes the static layouts truly static.
+std::vector<uint64_t> StableNodeOrder(
+        const std::unordered_map<uint64_t, TopoNodeItem *> &nodes) {
+    std::vector<uint64_t> ids;
+    ids.reserve(nodes.size());
+    for (const auto &[id, _] : nodes) ids.push_back(id);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+// Build undirected and directed adjacency maps for graph-aware algorithms.
+struct Adjacency {
+    std::unordered_map<uint64_t, std::vector<uint64_t>> out_edges;  // src -> [dst]
+    std::unordered_map<uint64_t, std::vector<uint64_t>> in_edges;   // dst -> [src]
+    std::unordered_map<uint64_t, int> degree;                       // total degree
+};
+
+Adjacency BuildAdjacency(
+        const std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+        const std::vector<TopoEdgeItem *> &edges) {
+    Adjacency adj;
+    for (const auto &[id, _] : nodes) {
+        adj.out_edges[id];
+        adj.in_edges[id];
+        adj.degree[id] = 0;
+    }
+    for (auto *e : edges) {
+        if (!e) continue;
+        uint64_t s = e->SourceNodeId();
+        uint64_t t = e->TargetNodeId();
+        if (nodes.find(s) == nodes.end() || nodes.find(t) == nodes.end()) continue;
+        if (s == t) continue;
+        adj.out_edges[s].push_back(t);
+        adj.in_edges[t].push_back(s);
+        adj.degree[s] += 1;
+        adj.degree[t] += 1;
+    }
+    return adj;
+}
+
+// ── Hierarchical (longest-path layered DAG) ─────────────────────────────────
+//
+// Compute a layer for every node equal to the longest path length from any
+// source (in_degree == 0) node, treating back-edges (those that would create a
+// cycle in topological order) as forward edges anyway.  Within each layer the
+// nodes are ordered by id for determinism.  This is a static, fully reproducible
+// layout — perfect as the new default.
+//
+void LayoutHierarchical(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                        const std::vector<TopoEdgeItem *> &edges,
+                        qreal layer_spacing_x,
+                        qreal node_spacing_y) {
+    if (nodes.empty()) return;
+    Adjacency adj = BuildAdjacency(nodes, edges);
+
+    // Topological order (Kahn).  Nodes left over (cycles) are appended last.
+    std::vector<uint64_t> topo;
+    topo.reserve(nodes.size());
+    std::unordered_map<uint64_t, int> in_count;
+    for (const auto &[id, ins] : adj.in_edges) in_count[id] = static_cast<int>(ins.size());
+
+    std::deque<uint64_t> ready;
+    {
+        std::vector<uint64_t> stable_ids = StableNodeOrder(nodes);
+        for (uint64_t id : stable_ids) {
+            if (in_count[id] == 0) ready.push_back(id);
+        }
+    }
+    while (!ready.empty()) {
+        uint64_t id = ready.front();
+        ready.pop_front();
+        topo.push_back(id);
+        for (uint64_t s : adj.out_edges[id]) {
+            if (--in_count[s] == 0) ready.push_back(s);
+        }
+    }
+    // Append cycle remnants in stable order so every node receives a layer.
+    if (topo.size() < nodes.size()) {
+        std::unordered_set<uint64_t> seen(topo.begin(), topo.end());
+        for (uint64_t id : StableNodeOrder(nodes)) {
+            if (!seen.count(id)) topo.push_back(id);
+        }
+    }
+
+    // Longest-path layering on the topological order.
+    std::unordered_map<uint64_t, int> layer;
+    for (const auto &[id, _] : nodes) layer[id] = 0;
+    for (uint64_t id : topo) {
+        for (uint64_t s : adj.out_edges[id]) {
+            if (layer[s] < layer[id] + 1) layer[s] = layer[id] + 1;
+        }
+    }
+
+    // Bucket nodes by layer (stable order within a bucket).
+    std::map<int, std::vector<uint64_t>> buckets;
+    for (uint64_t id : StableNodeOrder(nodes)) {
+        buckets[layer[id]].push_back(id);
+    }
+
+    // Place buckets left-to-right; each column is centered vertically.
+    for (const auto &[lvl, ids] : buckets) {
+        qreal x = static_cast<qreal>(lvl) * layer_spacing_x;
+        qreal total_h = static_cast<qreal>(ids.size() - 1) * node_spacing_y;
+        qreal y0 = -total_h / 2.0;
+        for (size_t i = 0; i < ids.size(); ++i) {
+            auto it = nodes.find(ids[i]);
+            if (it != nodes.end()) {
+                it->second->setPos(x, y0 + static_cast<qreal>(i) * node_spacing_y);
+            }
+        }
+    }
+}
+
+// ── Grid (row-major or column-major) ────────────────────────────────────────
+void LayoutGrid(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                qreal spacing_x, qreal spacing_y, bool left_right) {
+    if (nodes.empty()) return;
+    std::vector<uint64_t> ids = StableNodeOrder(nodes);
+    size_t cols = std::max(static_cast<size_t>(1),
+                           static_cast<size_t>(std::ceil(std::sqrt(
+                               static_cast<double>(ids.size())))));
+    for (size_t i = 0; i < ids.size(); ++i) {
+        size_t col = i % cols;
+        size_t row = i / cols;
+        qreal x = left_right
+                      ? static_cast<qreal>(row) * spacing_x
+                      : static_cast<qreal>(col) * spacing_x;
+        qreal y = left_right
+                      ? static_cast<qreal>(col) * spacing_y
+                      : static_cast<qreal>(row) * spacing_y;
+        nodes[ids[i]]->setPos(x, y);
+    }
+}
+
+// ── Circular ────────────────────────────────────────────────────────────────
+void LayoutCircular(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                    qreal min_radius) {
+    if (nodes.empty()) return;
+    std::vector<uint64_t> ids = StableNodeOrder(nodes);
+    qreal radius = std::max(min_radius,
+                            (kNodeWidth + 60.0) * static_cast<qreal>(ids.size()) / (2.0 * M_PI));
+    for (size_t i = 0; i < ids.size(); ++i) {
+        double angle = 2.0 * M_PI * static_cast<double>(i)
+                                  / static_cast<double>(ids.size());
+        qreal x = radius * std::cos(angle);
+        qreal y = radius * std::sin(angle);
+        nodes[ids[i]]->setPos(x, y);
+    }
+}
+
+// ── Concentric (ring per node degree, high degree near center) ──────────────
+void LayoutConcentric(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                      const std::vector<TopoEdgeItem *> &edges,
+                      qreal ring_spacing) {
+    if (nodes.empty()) return;
+    Adjacency adj = BuildAdjacency(nodes, edges);
+
+    // Group ids by degree, descending — the highest-degree group sits on the
+    // innermost ring (or at the origin if it is the only node in that group).
+    std::map<int, std::vector<uint64_t>, std::greater<int>> by_degree;
+    for (uint64_t id : StableNodeOrder(nodes)) {
+        by_degree[adj.degree[id]].push_back(id);
+    }
+
+    int ring_index = 0;
+    for (const auto &[deg, ids] : by_degree) {
+        if (ring_index == 0 && ids.size() == 1) {
+            nodes[ids.front()]->setPos(0, 0);
+        } else {
+            qreal radius = ring_spacing * static_cast<qreal>(ring_index + 1);
+            for (size_t i = 0; i < ids.size(); ++i) {
+                double angle = 2.0 * M_PI * static_cast<double>(i)
+                                          / static_cast<double>(ids.size());
+                qreal x = radius * std::cos(angle);
+                qreal y = radius * std::sin(angle);
+                nodes[ids[i]]->setPos(x, y);
+            }
+        }
+        ++ring_index;
+    }
+}
+
+// ── Spiral (Archimedean) ────────────────────────────────────────────────────
+void LayoutSpiral(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                  qreal radial_step, qreal angular_step) {
+    if (nodes.empty()) return;
+    std::vector<uint64_t> ids = StableNodeOrder(nodes);
+    for (size_t i = 0; i < ids.size(); ++i) {
+        double t = static_cast<double>(i);
+        qreal r = radial_step * t / (2.0 * M_PI);
+        qreal x = r * std::cos(angular_step * t);
+        qreal y = r * std::sin(angular_step * t);
+        nodes[ids[i]]->setPos(x, y);
+    }
+}
+
+// ── BFS Tree from highest-degree root ───────────────────────────────────────
+void LayoutBfsTree(std::unordered_map<uint64_t, TopoNodeItem *> &nodes,
+                   const std::vector<TopoEdgeItem *> &edges,
+                   qreal level_height,
+                   qreal sibling_spacing) {
+    if (nodes.empty()) return;
+    Adjacency adj = BuildAdjacency(nodes, edges);
+
+    // Choose the highest-degree node (smallest id breaks ties) as the root.
+    uint64_t root = 0;
+    int best = -1;
+    for (uint64_t id : StableNodeOrder(nodes)) {
+        if (adj.degree[id] > best) {
+            best = adj.degree[id];
+            root = id;
+        }
+    }
+
+    // BFS over the underlying undirected graph.
+    std::unordered_map<uint64_t, int> level;
+    std::deque<uint64_t> queue;
+    level[root] = 0;
+    queue.push_back(root);
+    while (!queue.empty()) {
+        uint64_t u = queue.front();
+        queue.pop_front();
+        auto visit = [&](uint64_t v) {
+            if (level.count(v)) return;
+            level[v] = level[u] + 1;
+            queue.push_back(v);
+        };
+        for (uint64_t v : adj.out_edges[u]) visit(v);
+        for (uint64_t v : adj.in_edges[u])  visit(v);
+    }
+    // Detached nodes go on a synthetic last level.
+    int max_level = 0;
+    for (const auto &[_, l] : level) max_level = std::max(max_level, l);
+    for (uint64_t id : StableNodeOrder(nodes)) {
+        if (!level.count(id)) level[id] = max_level + 1;
+    }
+
+    // Bucket by level for placement.
+    std::map<int, std::vector<uint64_t>> buckets;
+    for (uint64_t id : StableNodeOrder(nodes)) {
+        buckets[level[id]].push_back(id);
+    }
+    for (const auto &[lvl, ids] : buckets) {
+        qreal y = static_cast<qreal>(lvl) * level_height;
+        qreal total_w = static_cast<qreal>(ids.size() - 1) * sibling_spacing;
+        qreal x0 = -total_w / 2.0;
+        for (size_t i = 0; i < ids.size(); ++i) {
+            nodes[ids[i]]->setPos(x0 + static_cast<qreal>(i) * sibling_spacing, y);
+        }
+    }
+}
+
+}  // namespace
+
+void TopologyPanel::LayoutNodes() {
+    layout_mode_ = layout_combo_
+                       ? static_cast<LayoutMode>(layout_combo_->currentIndex())
+                       : LayoutMode::kHierarchical;
+
+    // All non-force layouts must stop any running simulation, otherwise the
+    // freshly placed positions would be immediately perturbed by the timer.
+    if (layout_mode_ != LayoutMode::kForceDirected) {
+        StopForceLayout();
+    }
+
+    switch (layout_mode_) {
+    case LayoutMode::kHierarchical:
+        LayoutHierarchical(node_items_, edge_items_,
+                           kNodeWidth + 120.0, kNodeWidth * 0.65);
+        RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kForceDirected: {
+        // Seed with a deterministic grid then run the spring simulation so
+        // users who explicitly pick this mode still get the animated layout.
+        LayoutGrid(node_items_, kNodeWidth + 80.0, 140.0, /*left_right=*/false);
         std::mt19937 rng(42);
         std::uniform_real_distribution<double> jitter(-20.0, 20.0);
-        size_t i = 0;
-        for (auto &[id, item] : node_items_) {
-            size_t col = i % cols;
-            size_t row = i / cols;
-            qreal x = static_cast<qreal>(col) * spacing_x + jitter(rng);
-            qreal y = static_cast<qreal>(row) * spacing_y + jitter(rng);
-            item->setPos(x, y);
-            ++i;
+        for (auto &[_, item] : node_items_) {
+            item->moveBy(jitter(rng), jitter(rng));
         }
         StartForceLayout();
-    } else {
-        // Grid layout (top-down or left-right)
-        StopForceLayout();
-        bool horizontal = (mode == 2);
-        qreal spacing_x = kNodeWidth + 60;
-        qreal spacing_y = 120;
-        size_t cols = std::max(static_cast<size_t>(1),
-                               static_cast<size_t>(std::ceil(std::sqrt(
-                                   static_cast<double>(node_items_.size())))));
-        size_t i = 0;
-        for (auto &[id, item] : node_items_) {
-            size_t col = i % cols;
-            size_t row = i / cols;
-            qreal x, y;
-            if (horizontal) {
-                x = static_cast<qreal>(row) * spacing_x;
-                y = static_cast<qreal>(col) * spacing_y;
-            } else {
-                x = static_cast<qreal>(col) * spacing_x;
-                y = static_cast<qreal>(row) * spacing_y;
-            }
-            item->setPos(x, y);
-            ++i;
-        }
+        break;
+    }
+
+    case LayoutMode::kGridTopDown:
+        LayoutGrid(node_items_, kNodeWidth + 60.0, 120.0, /*left_right=*/false);
         RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kGridLeftRight:
+        LayoutGrid(node_items_, kNodeWidth + 60.0, 120.0, /*left_right=*/true);
+        RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kCircular:
+        LayoutCircular(node_items_, /*min_radius=*/240.0);
+        RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kConcentric:
+        LayoutConcentric(node_items_, edge_items_, /*ring_spacing=*/220.0);
+        RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kSpiral:
+        LayoutSpiral(node_items_, /*radial_step=*/kNodeWidth + 40.0,
+                     /*angular_step=*/0.55);
+        RefreshEdgePositions();
+        break;
+
+    case LayoutMode::kBfsTree:
+        LayoutBfsTree(node_items_, edge_items_,
+                      /*level_height=*/160.0,
+                      /*sibling_spacing=*/kNodeWidth + 40.0);
+        RefreshEdgePositions();
+        break;
     }
 }
 
@@ -2025,7 +2355,10 @@ void TopologyPanel::OnNodeSelected() {
 }
 
 void TopologyPanel::OnLayoutChanged(int index) {
-    Q_UNUSED(index);
+    layout_mode_ = static_cast<LayoutMode>(
+        std::clamp(index, 0, static_cast<int>(LayoutMode::kBfsTree)));
+    QSettings settings("PolyglotCompiler", "IDE");
+    settings.setValue("topology/layout_mode", LayoutModeToString(layout_mode_));
     LayoutNodes();
 }
 
@@ -2639,6 +2972,15 @@ DrillDownWindow::DrillDownWindow(uint64_t container_node_id,
 
 DrillDownWindow::~DrillDownWindow() {
     StopForceLayout();
+    // Disconnect any signals from child objects that are routed back to this
+    // window's slots.  Without this, destruction of child QGraphicsItems
+    // inside ~QGraphicsScene (called from ~QWidget::deleteChildren()) can
+    // emit QGraphicsScene::selectionChanged after the DrillDownWindow part
+    // of this object has already been destroyed, causing Qt's
+    // assertObjectType<DrillDownWindow>() check to abort.
+    if (scene_) {
+        disconnect(scene_, nullptr, this, nullptr);
+    }
 }
 
 void DrillDownWindow::SetupUI(const QString &container_name) {
@@ -2674,6 +3016,31 @@ void DrillDownWindow::SetupUI(const QString &container_name) {
     zoom_fit_btn->setFixedSize(28, 28);
     zoom_fit_btn->setToolTip("Zoom to fit");
     toolbar->addWidget(zoom_fit_btn);
+
+    toolbar->addSeparator();
+
+    // Layout algorithm selector — defaults to Hierarchical (static), the same
+    // as the parent TopologyPanel.  The setting is shared via QSettings so
+    // changing it in either window persists across sessions.
+    layout_combo_ = new QComboBox(this);
+    layout_combo_->addItem("Hierarchical (DAG)");     // 0 = kHierarchical
+    layout_combo_->addItem("Force-Directed");         // 1 = kForceDirected
+    layout_combo_->addItem("Top-Down Grid");          // 2 = kGridTopDown
+    layout_combo_->addItem("Left-Right Grid");        // 3 = kGridLeftRight
+    layout_combo_->addItem("Circular");               // 4 = kCircular
+    layout_combo_->addItem("Concentric (by degree)"); // 5 = kConcentric
+    layout_combo_->addItem("Spiral");                 // 6 = kSpiral
+    layout_combo_->addItem("BFS Tree");               // 7 = kBfsTree
+    {
+        QSettings settings("PolyglotCompiler", "IDE");
+        layout_mode_ = LayoutModeFromString(
+            settings.value("topology/layout_mode", "hierarchical").toString(),
+            LayoutMode::kHierarchical);
+        layout_combo_->setCurrentIndex(static_cast<int>(layout_mode_));
+    }
+    connect(layout_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &DrillDownWindow::OnLayoutChanged);
+    toolbar->addWidget(layout_combo_);
 
     layout->addWidget(toolbar);
 
@@ -2840,11 +3207,12 @@ void DrillDownWindow::PopulateScene() {
 }
 
 void DrillDownWindow::LayoutDrillDownNodes() {
-    if (node_items_.size() < 2) {
-        // For a single node or empty scene, just center it
-        for (auto &[id, item] : node_items_) {
-            item->setPos(0, 0);
-        }
+    if (node_items_.empty()) {
+        RefreshEdgePositions();
+        return;
+    }
+    if (node_items_.size() == 1) {
+        node_items_.begin()->second->setPos(0, 0);
         RefreshEdgePositions();
         QTimer::singleShot(100, this, [this]() {
             view_->fitInView(scene_->sceneRect().adjusted(-40, -40, 40, 40),
@@ -2853,36 +3221,70 @@ void DrillDownWindow::LayoutDrillDownNodes() {
         return;
     }
 
-    // Initial grid placement as starting positions for force-directed layout
-    qreal spacing_x = kNodeWidth + 80;
-    qreal spacing_y = 140;
-    size_t cols = std::max(static_cast<size_t>(1),
-                           static_cast<size_t>(std::ceil(std::sqrt(
-                               static_cast<double>(node_items_.size())))));
-
-    // Add some random offset to the initial positions to avoid symmetry
-    // that can trap force-directed layout in local minima.
-    std::mt19937 rng(static_cast<uint32_t>(container_node_id_));
-    std::uniform_real_distribution<double> jitter(-30.0, 30.0);
-
-    size_t i = 0;
-    for (auto &[id, item] : node_items_) {
-        size_t col = i % cols;
-        size_t row = i / cols;
-        qreal x = static_cast<qreal>(col) * spacing_x + jitter(rng);
-        qreal y = static_cast<qreal>(row) * spacing_y + jitter(rng);
-        item->setPos(x, y);
-        ++i;
+    // Honour the user's selected algorithm.  Force-directed is the only mode
+    // that runs an animated simulation; every other mode is fully static.
+    if (layout_mode_ != LayoutMode::kForceDirected) {
+        StopForceLayout();
+    }
+    switch (layout_mode_) {
+    case LayoutMode::kHierarchical:
+        LayoutHierarchical(node_items_, edge_items_,
+                           kNodeWidth + 120.0, kNodeWidth * 0.65);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kForceDirected: {
+        LayoutGrid(node_items_, kNodeWidth + 80.0, 140.0, /*left_right=*/false);
+        std::mt19937 rng(static_cast<uint32_t>(container_node_id_));
+        std::uniform_real_distribution<double> jitter(-30.0, 30.0);
+        for (auto &[_, item] : node_items_) {
+            item->moveBy(jitter(rng), jitter(rng));
+        }
+        StartForceLayout();
+        break;
+    }
+    case LayoutMode::kGridTopDown:
+        LayoutGrid(node_items_, kNodeWidth + 60.0, 120.0, /*left_right=*/false);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kGridLeftRight:
+        LayoutGrid(node_items_, kNodeWidth + 60.0, 120.0, /*left_right=*/true);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kCircular:
+        LayoutCircular(node_items_, /*min_radius=*/240.0);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kConcentric:
+        LayoutConcentric(node_items_, edge_items_, /*ring_spacing=*/220.0);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kSpiral:
+        LayoutSpiral(node_items_, /*radial_step=*/kNodeWidth + 40.0,
+                     /*angular_step=*/0.55);
+        RefreshEdgePositions();
+        break;
+    case LayoutMode::kBfsTree:
+        LayoutBfsTree(node_items_, edge_items_,
+                      /*level_height=*/160.0,
+                      /*sibling_spacing=*/kNodeWidth + 40.0);
+        RefreshEdgePositions();
+        break;
     }
 
-    // Start force-directed layout to settle into a nice arrangement
-    StartForceLayout();
-
-    // Zoom to fit content after a brief delay (layout will keep running)
+    // Zoom to fit content after a brief delay (force-directed will keep
+    // running afterwards; static algorithms have already settled).
     QTimer::singleShot(200, this, [this]() {
         view_->fitInView(scene_->sceneRect().adjusted(-40, -40, 40, 40),
                          Qt::KeepAspectRatio);
     });
+}
+
+void DrillDownWindow::OnLayoutChanged(int index) {
+    layout_mode_ = static_cast<LayoutMode>(
+        std::clamp(index, 0, static_cast<int>(LayoutMode::kBfsTree)));
+    QSettings settings("PolyglotCompiler", "IDE");
+    settings.setValue("topology/layout_mode", LayoutModeToString(layout_mode_));
+    LayoutDrillDownNodes();
 }
 
 // ── Force-directed layout engine (mirrors TopologyPanel implementation) ─────

@@ -136,6 +136,7 @@ set(UNIT_TEST_TOPOLOGY
 set(UNIT_TEST_TOPOLOGY_UI
     unit/tools/drilldown_window_test.cpp
     unit/tools/topology_ui_extended_test.cpp
+    unit/tools/topology_layout_test.cpp
 )
 
 set(UNIT_TEST_E2E

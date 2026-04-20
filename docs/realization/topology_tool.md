@@ -299,15 +299,30 @@ User right-clicks to delete an edge
 
 ## 9. Advanced Interaction Features
 
-### 9.1 Force-Directed Layout
+### 9.1 Layout Algorithms
 
-The topology panel uses a Fruchterman–Reingold-style simulation:
+The topology panel ships eight selectable layout algorithms.  The default is
+**Hierarchical (DAG)** because it is a fully static layered drawing—identical
+for any given graph and free of animation.  Force-directed remains available
+but is no longer the default.  The selected algorithm is persisted under
+`topology/layout_mode` in `QSettings` and is shared by the main panel and
+every drill-down sub-window.
 
-- **Repulsion**: Coulomb's law between all node pairs (`kRepulsionStrength = 50000`).
-- **Attraction**: Hooke's law along edges (`kAttractionStrength = 0.005`, `kIdealEdgeLength = 250`).
-- **Damping**: Simulated annealing with `kDamping = 0.85`, decaying over 300 iterations.
-- **Early termination**: Stops when maximum movement per tick < `kMinMovement = 0.5`.
-- **Edge refresh**: `RefreshEdgePositions()` recalculates all Bezier paths each tick.
+| Mode | Enum value | Animated | Description |
+|------|------------|----------|-------------|
+| Hierarchical (DAG) | `kHierarchical` *(default)* | No | Kahn topological sort followed by longest-path layering; layers are stacked left-to-right with stable in-layer ordering by node id. |
+| Force-Directed | `kForceDirected` | Yes | Fruchterman–Reingold simulation (`kRepulsionStrength = 50000`, `kAttractionStrength = 0.005`, `kIdealEdgeLength = 250`, `kDamping = 0.85`, `kForceMaxIterations = 300`, early stop at `kMinMovement = 0.5`). |
+| Top-Down Grid | `kGridTopDown` | No | Row-major √n grid. |
+| Left-Right Grid | `kGridLeftRight` | No | Column-major √n grid. |
+| Circular | `kCircular` | No | All nodes equally spaced on a single circle whose radius scales with `n`. |
+| Concentric (by degree) | `kConcentric` | No | Rings keyed by node degree, highest-degree group at the center. |
+| Spiral | `kSpiral` | No | Archimedean spiral with configurable radial / angular step. |
+| BFS Tree | `kBfsTree` | No | Breadth-first tree rooted at the highest-degree node, level by level. |
+
+All algorithms write final positions via `QGraphicsItem::setPos()` and call
+`RefreshEdgePositions()` to rebuild every `TopoEdgeItem` Bezier path.  Static
+algorithms order nodes by ascending id so that successive runs on the same
+graph produce identical layouts (deterministic).
 
 ### 9.2 Interactive Edge Creation/Deletion
 
@@ -395,9 +410,15 @@ struct BreadcrumbBar::Entry {
 - Clicking a breadcrumb entry emits `EntryClicked(node_id, window)`, which raises and activates the target window.
 - The path grows with each recursive drill-down and allows jumping back to any ancestor level.
 
-### 10.4 Force-Directed Layout
+### 10.4 Layout Algorithms in Drill-Down
 
-DrillDownWindow reuses the same Fruchterman–Reingold simulation as the main panel (§9.1), with identical constants:
+DrillDownWindow exposes the same eight layout algorithms as the main panel
+through its own `QComboBox` on the toolbar.  The combo is initialised from the
+shared `topology/layout_mode` setting, so changing the algorithm in either the
+main panel or any drill-down sub-window persists the choice for both.  The
+default is again Hierarchical (DAG); only Force-Directed is animated, every
+other algorithm is fully static and uses the same Fruchterman–Reingold
+constants when force-directed is explicitly selected:
 
 | Constant | Value | Purpose |
 |----------|-------|---------|

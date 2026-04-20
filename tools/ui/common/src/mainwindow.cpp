@@ -1967,8 +1967,21 @@ void MainWindow::CloseTerminalTab(int index) {
     if (terminal) {
         terminal->deleteLater();
     }
-    if (terminal_tabs_->count() == 0 && bottom_tabs_->currentWidget() == terminal_tabs_) {
-        bottom_tabs_->setVisible(false);
+    // Closing the last terminal tab must not hide the entire bottom panel,
+    // because the bottom panel also hosts Output/Build/Git/Debug/Topology.
+    // Hiding it here used to persist `view/show_bottom_panel = false`,
+    // making the next launch start with no bottom tabs visible at all.
+    if (terminal_tabs_->count() == 0
+        && bottom_tabs_->currentWidget() == terminal_tabs_
+        && bottom_tabs_->count() > 1) {
+        // Switch to the first non-terminal panel so the bottom area stays
+        // useful instead of showing an empty Terminal tab.
+        for (int i = 0; i < bottom_tabs_->count(); ++i) {
+            if (bottom_tabs_->widget(i) != terminal_tabs_) {
+                bottom_tabs_->setCurrentIndex(i);
+                break;
+            }
+        }
     }
     UpdateViewActionChecks();
 }
@@ -2680,6 +2693,15 @@ void MainWindow::RestoreState() {
             main_splitter_->setSizes({250, qMax(sizes[1], 800)});
         }
     }
+    // Same safeguard for the vertical splitter: keep the bottom panel area
+    // (Output / Terminal / Build / Git / Debug / Topology) at a usable height
+    // even if a previous session collapsed it.
+    {
+        QList<int> vsizes = vertical_splitter_->sizes();
+        if (vsizes.size() >= 2 && vsizes[1] < 80) {
+            vertical_splitter_->setSizes({qMax(vsizes[0], 500), 250});
+        }
+    }
 
     const QString root_path = settings.value("workspace/root_path").toString();
     if (!root_path.isEmpty() && QDir(root_path).exists()) {
@@ -2689,10 +2711,24 @@ void MainWindow::RestoreState() {
     // Restore visibility flags for all major UI panels.
     // QMainWindow::restoreState() may override toolbar visibility, so we
     // must re-apply the persisted flags explicitly *after* restoreState().
-    const bool show_browser = settings.value("view/show_file_browser", true).toBool();
-    const bool show_bottom = settings.value("view/show_bottom_panel", true).toBool();
+    bool show_browser = settings.value("view/show_file_browser", true).toBool();
+    bool show_bottom = settings.value("view/show_bottom_panel", true).toBool();
     const bool show_toolbar = settings.value("appearance/show_toolbar", true).toBool();
     const bool show_statusbar = settings.value("appearance/show_statusbar", true).toBool();
+
+    // Recovery: previous versions had a bug where closing the last terminal
+    // tab would persist `view/show_bottom_panel=false`, leaving subsequent
+    // launches with no bottom panel.  If both the explorer and the bottom
+    // panel ended up hidden, the default workspace is unusable, so restore
+    // both to their default-visible state.  Users can still toggle either
+    // off explicitly within a session.
+    if (!show_browser && !show_bottom) {
+        show_browser = true;
+        show_bottom = true;
+        settings.setValue("view/show_file_browser", true);
+        settings.setValue("view/show_bottom_panel", true);
+    }
+
     file_browser_->setVisible(show_browser);
     bottom_tabs_->setVisible(show_bottom);
     if (main_toolbar_)  main_toolbar_->setVisible(show_toolbar);

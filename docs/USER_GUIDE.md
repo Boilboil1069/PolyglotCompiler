@@ -1847,7 +1847,7 @@ The IDE includes an interactive topology visualization panel for `.ploy` files, 
 
 | Feature | Description |
 |---------|-------------|
-| **Force-Directed Layout** | Automatic graph layout using a Fruchterman–Reingold-style force simulation with repulsion between nodes and attraction along edges; includes simulated annealing for smooth convergence. Grid layouts (Top-Down, Left-Right) are also available via the layout selector. All `TopoEdgeItem` bezier paths are synchronously updated after layout computation. |
+| **Layout Algorithms** | Eight selectable layouts: *Hierarchical (DAG)* (**default**, fully static layered drawing computed via Kahn topological order + longest-path layering), *Force-Directed* (animated Fruchterman–Reingold simulation with simulated annealing), *Top-Down Grid*, *Left-Right Grid*, *Circular*, *Concentric (by degree)*, *Spiral* (Archimedean), and *BFS Tree* (rooted at the highest-degree node). All non-force-directed layouts are deterministic and free of animation; the user's choice is persisted under `topology/layout_mode` in `QSettings` and shared between the main panel and every drill-down sub-window. All `TopoEdgeItem` bezier paths are synchronously updated after layout computation. |
 | **Interactive Edge Creation** | Drag from an output port to an input port (or vice versa) to create a new edge. Self-loops and duplicate edges are rejected with diagnostics. New edges are automatically written back to the current `.ploy` file as `LINK` declarations. |
 | **Interactive Edge Deletion** | Right-click an edge to delete it from the graph. The corresponding `LINK`/`CALL` statement is automatically removed from the `.ploy` source file. |
 | **Live File Reload** | A `QFileSystemWatcher` monitors the loaded `.ploy` file; when it changes on disk the topology is automatically rebuilt after a 200 ms debounce. The status bar displays "Reloaded" upon successful refresh. |
@@ -1859,7 +1859,7 @@ The IDE includes an interactive topology visualization panel for `.ploy` files, 
 
 **Usage:**
 1. Right-click a `.ploy` file in the Explorer and select **Generate Topology Graph**, or press `Ctrl+Shift+T` with a `.ploy` file open.
-2. Use the layout selector to switch between *Force-Directed*, *Top-Down Grid*, and *Left-Right Grid*.
+2. Use the layout selector to switch between *Hierarchical (DAG)* — the static default — *Force-Directed*, *Top-Down Grid*, *Left-Right Grid*, *Circular*, *Concentric (by degree)*, *Spiral*, and *BFS Tree*.
 3. Drag between port dots to interactively create edges; right-click an edge to delete it.
 4. Click **Validate** to run type-compatibility validation on all edges.
 5. Start a debug session — the topology panel will automatically highlight the active node.
