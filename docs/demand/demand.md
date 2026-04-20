@@ -1149,3 +1149,276 @@ docs/ 已有完善的双语文档体系（specs/realization/tutorial/api 各有 
 增加更多的拓扑图布局算法，并且尽量默认的算法是静态的。
 
 --end -done
+
+2026-04-20-3
+
+修复下列ci错误
+
+1.check formatting fail:
+
+Run find common middle frontends backends runtime tools \
+  find common middle frontends backends runtime tools \
+    -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+    -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+    | xargs -0 -r clang-format-20 --dry-run --Werror --style=file \
+    2>&1 | head -200
+  # Exit with the pipeline status
+  find common middle frontends backends runtime tools \
+    -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
+    -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+    | xargs -0 -r clang-format-20 --dry-run --Werror --style=file
+  shell: /usr/bin/bash -e {0}
+common/src/debug/dwarf5.cpp:9:1: error: code should be clang-formatted [-Wclang-format-violations]
+#include "common/include/debug/dwarf5.h"
+^
+common/src/debug/dwarf5.cpp:20:51: error: code should be clang-formatted [-Wclang-format-violations]
+void LocationExpr::AddOp(Op op, int64_t operand) {
+                                                  ^
+common/src/debug/dwarf5.cpp:24:52: error: code should be clang-formatted [-Wclang-format-violations]
+std::vector<uint8_t> LocationExpr::Encode() const {
+                                                   ^
+common/src/debug/dwarf5.cpp:25:33: error: code should be clang-formatted [-Wclang-format-violations]
+    std::vector<uint8_t> result;
+                                ^
+common/src/debug/dwarf5.cpp:27:20: error: code should be clang-formatted [-Wclang-format-violations]
+    for (const auto& [op, operand] : operations_) {
+                   ^
+common/src/debug/dwarf5.cpp:27:21: error: code should be clang-formatted [-Wclang-format-violations]
+    for (const auto& [op, operand] : operations_) {
+                    ^
+common/src/debug/dwarf5.cpp:27:52: error: code should be clang-formatted [-Wclang-format-violations]
+    for (const auto& [op, operand] : operations_) {
+                                                   ^
+common/src/debug/dwarf5.cpp:28:52: error: code should be clang-formatted [-Wclang-format-violations]
+        result.push_back(static_cast<uint8_t>(op));
+                                                   ^
+common/src/debug/dwarf5.cpp:30:33: error: code should be clang-formatted [-Wclang-format-violations]
+        // Add operand if needed
+                                ^
+common/src/debug/dwarf5.cpp:31:22: error: code should be clang-formatted [-Wclang-format-violations]
+        switch (op) {
+                     ^
+common/src/debug/dwarf5.cpp:32:29: error: code should be clang-formatted [-Wclang-format-violations]
+            case Op::kFBReg:
+                            ^
+common/src/debug/dwarf5.cpp:33:31: error: code should be clang-formatted [-Wclang-format-violations]
+            case Op::kConst1u:
+                              ^
+common/src/debug/dwarf5.cpp:34:65: error: code should be clang-formatted [-Wclang-format-violations]
+
+2.static analysis fail:
+
+Run # Run on all project source files (exclude tests, deps, .cache)
+  # Run on all project source files (exclude tests, deps, .cache)
+  find common middle frontends backends runtime tools \
+    -type f -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
+    | xargs -0 -r -P$(nproc) -n 1 \
+      clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
+    > clang-tidy.log 2>&1
+  tail -100 clang-tidy.log
+  shell: /usr/bin/bash -e {0}
+Error: Process completed with exit code 123.
+
+3.Sanitizers (ASan + UBSan) fail:
+
+Run cd build
+Test project /home/runner/work/PolyglotCompiler/PolyglotCompiler/build
+      Start  1: test_core
+ 1/17 Test  #1: test_core ........................   Passed    0.10 sec
+      Start  2: test_plugins
+ 2/17 Test  #2: test_plugins .....................   Passed    0.03 sec
+      Start  3: test_frontend_common
+ 3/17 Test  #3: test_frontend_common .............   Passed    0.08 sec
+      Start  4: test_frontend_python
+ 4/17 Test  #4: test_frontend_python .............   Passed    0.28 sec
+      Start  5: test_frontend_cpp
+ 5/17 Test  #5: test_frontend_cpp ................   Passed    0.05 sec
+      Start  6: test_frontend_rust
+ 6/17 Test  #6: test_frontend_rust ...............   Passed    0.10 sec
+      Start  7: test_frontend_ploy
+ 7/17 Test  #7: test_frontend_ploy ...............   Passed    0.29 sec
+      Start  8: test_frontend_java
+ 8/17 Test  #8: test_frontend_java ...............   Passed    0.05 sec
+      Start  9: test_frontend_dotnet
+ 9/17 Test  #9: test_frontend_dotnet .............   Passed    0.05 sec
+      Start 10: test_middle
+10/17 Test #10: test_middle ......................   Passed    0.11 sec
+      Start 11: test_backends
+11/17 Test #11: test_backends ....................   Passed    0.05 sec
+      Start 12: test_runtime
+12/17 Test #12: test_runtime .....................***Failed    0.25 sec
+/home/runner/work/PolyglotCompiler/PolyglotCompiler/tests/unit/runtime/polyrt_test.cpp:230:9: runtime error: load of misaligned address 0x53100001ee1e for type 'long unsigned int', which requires 8 byte alignment
+0x53100001ee1e: note: pointer points here
+ 00 00 00 00 00 00  00 00 00 00 00 00 01 ec  07 00 00 00 00 00 00 c4  17 00 00 00 00 00 00 00  00 00
+             ^ 
+    #0 0x55d4f73290c2 in CATCH2_INTERNAL_TEST_28 /home/runner/work/PolyglotCompiler/PolyglotCompiler/tests/unit/runtime/polyrt_test.cpp:230
+    #1 0x55d4f75bba4c in invoke src/catch2/internal/catch_test_registry.cpp:58
+    #2 0x55d4f757eea1 in Catch::TestCaseHandle::invoke() const src/catch2/../catch2/catch_test_case_info.hpp:116
+    #3 0x55d4f7577ff8 in Catch::RunContext::invokeActiveTestCase() src/catch2/internal/catch_run_context.cpp:554
+    #4 0x55d4f75767b0 in Catch::RunContext::runCurrentTest(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) src/catch2/internal/catch_run_context.cpp:517
+    #5 0x55d4f75696cc in Catch::RunContext::runTest(Catch::TestCaseHandle const&) src/catch2/internal/catch_run_context.cpp:239
+    #6 0x55d4f7a87f6c in execute src/catch2/catch_session.cpp:111
+    #7 0x55d4f7a8f737 in Catch::Session::runInternal() src/catch2/catch_session.cpp:333
+    #8 0x55d4f7a8d606 in Catch::Session::run() src/catch2/catch_session.cpp:264
+    #9 0x55d4f7885b66 in int Catch::Session::run<char>(int, char const* const*) src/catch2/../catch2/catch_session.hpp:41
+    #10 0x55d4f78858c2 in main src/catch2/internal/catch_main.cpp:36
+    #11 0x7f06ba42a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #12 0x7f06ba42a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #13 0x55d4f727a344 in _start (/home/runner/work/PolyglotCompiler/PolyglotCompiler/build/tests/test_runtime+0x1186344) (BuildId: c6a5fd47173762ca54ad8f45019ddc4a0db24085)
+
+
+      Start 13: test_linker
+13/17 Test #13: test_linker ......................   Passed    0.04 sec
+      Start 14: test_topology
+14/17 Test #14: test_topology ....................   Passed    0.08 sec
+      Start 15: test_e2e
+15/17 Test #15: test_e2e .........................   Passed    0.15 sec
+      Start 16: unit_tests
+16/17 Test #16: unit_tests .......................***Failed    1.10 sec
+Randomness seeded to: 3584451927
+[plugin-manager] Failed to load /nonexistent/path/libpolyplug_fake.so: /nonexistent/path/libpolyplug_fake.so: cannot open shared object file: No such file or directory
+[plugin-manager] Registered file type: .xyz -> xyz-lang (from test.plugin)
+[plugin-manager] Registered file type: .xyz -> xyz-lang-v2 (from test.plugin2)
+[plugin-manager] Registered file type: .abc -> abc-lang (from test.plugin)
+[python-lowering] unresolved type hint 'A'; defaulting to i64
+[python-lowering] unresolved type hint 'A'; defaulting to i64
+/home/runner/work/PolyglotCompiler/PolyglotCompiler/tests/unit/runtime/polyrt_test.cpp:230:9: runtime error: load of misaligned address 0x53100001ee1e for type 'long unsigned int', which requires 8 byte alignment
+0x53100001ee1e: note: pointer points here
+ 00 00 00 00 00 00  00 00 00 00 00 00 01 ec  07 00 00 00 00 00 00 c4  17 00 00 00 00 00 00 00  00 00
+             ^ 
+    #0 0x555af2ead13a in CATCH2_INTERNAL_TEST_28 /home/runner/work/PolyglotCompiler/PolyglotCompiler/tests/unit/runtime/polyrt_test.cpp:230
+    #1 0x555af43851ca in invoke src/catch2/internal/catch_test_registry.cpp:58
+    #2 0x555af434bc0f in Catch::TestCaseHandle::invoke() const src/catch2/../catch2/catch_test_case_info.hpp:116
+    #3 0x555af4344f62 in Catch::RunContext::invokeActiveTestCase() src/catch2/internal/catch_run_context.cpp:554
+    #4 0x555af434371a in Catch::RunContext::runCurrentTest(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >&) src/catch2/internal/catch_run_context.cpp:517
+    #5 0x555af4336636 in Catch::RunContext::runTest(Catch::TestCaseHandle const&) src/catch2/internal/catch_run_context.cpp:239
+    #6 0x555af4d245e8 in execute src/catch2/catch_session.cpp:111
+    #7 0x555af4d2bdb3 in Catch::Session::runInternal() src/catch2/catch_session.cpp:333
+    #8 0x555af4d29c82 in Catch::Session::run() src/catch2/catch_session.cpp:264
+    #9 0x555af45752bc in int Catch::Session::run<char>(int, char const* const*) src/catch2/../catch2/catch_session.hpp:41
+    #10 0x555af4575018 in main src/catch2/internal/catch_main.cpp:36
+    #11 0x7f645902a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #12 0x7f645902a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: 8e9fd827446c24067541ac5390e6f527fb5947bb)
+    #13 0x555af23f29d4 in _start (/home/runner/work/PolyglotCompiler/PolyglotCompiler/build/tests/unit_tests+0x64909d4) (BuildId: 102ab695825a78cb1a49d085aac2f4ea25f4065f)
+
+
+      Start 17: integration_tests
+17/17 Test #17: integration_tests ................   Passed    0.57 sec
+
+88% tests passed, 2 tests failed out of 17
+
+Label Time Summary:
+backend     =   0.05 sec*proc (1 test)
+core        =   0.13 sec*proc (2 tests)
+e2e         =   0.15 sec*proc (1 test)
+frontend    =   0.88 sec*proc (7 tests)
+linker      =   0.04 sec*proc (1 test)
+middle      =   0.11 sec*proc (1 test)
+runtime     =   0.25 sec*proc (1 test)
+topology    =   0.08 sec*proc (1 test)
+unit        =   1.69 sec*proc (15 tests)
+
+Total Test time (real) =   3.37 sec
+
+The following tests FAILED:
+Errors while running CTest
+	 12 - test_runtime (Failed)                             runtime unit
+	 16 - unit_tests (Failed)
+Error: Process completed with exit code 8.
+
+4.Code Coverage fail:
+
+Run lcov --capture --directory build --output-file coverage.info \
+Capturing coverage data from build
+geninfo cmd: '/usr/bin/geninfo build --output-filename coverage.info --ignore-errors mismatch --ignore-errors empty --memory 0'
+Found gcov version: 13.3.0
+Using intermediate gcov format
+Writing temporary data to /tmp/geninfo_datLHC_
+Scanning build for .gcda files ...
+Found 308 data files in build
+Processing build/tests/CMakeFiles/test_frontend_cpp.dir/unit/constexpr_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+Processing build/tests/CMakeFiles/test_frontend_cpp.dir/unit/frontends/cpp/parser_basic_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_cpp.dir/unit/frontends/cpp/sema_member_overload_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/basic_string.h:355: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_cpp.dir/unit/frontends/cpp/parser_advanced_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/ext/atomicity.h:52: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_topology.dir/unit/tools/topology_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/ext/atomicity.h:52: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_common.dir/unit/frontends/frontend_registry_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/alloc_traits.h:482: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_common.dir/unit/frontend/preprocessor_tests.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/import_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/phi_and_control_flow_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/e2e_python_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/lowering_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/sema_attribute_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/lexer_fstring_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/sema_scope_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/advanced_features_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/ext/atomicity.h:52: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/parser_basic_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/test_frontend_python.dir/unit/frontends/python/parser_advanced_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/integration_tests.dir/integration/performance/perf_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/integration_tests.dir/integration/e2e/polyc_e2e_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/alloc_traits.h:482: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/integration_tests.dir/integration/interop_tests/interop_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/integration_tests.dir/integration/object_format_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/ext/alloc_traits.h:98: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/integration_tests.dir/integration/compile_tests/compile_pipeline_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/basic_string.h:355: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/unit_tests.dir/unit/linker_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/stl_iterator_base_funcs.h:106: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/unit_tests.dir/unit/tools/topology_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/ext/alloc_traits.h:98: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/unit_tests.dir/unit/runtime/polyrt_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/unit_tests.dir/unit/runtime/ffi_interop_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/new_allocator.h:88: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+Processing build/tests/CMakeFiles/unit_tests.dir/unit/runtime/threading_services_test.cpp.gcda
+geninfo: WARNING: /usr/include/c++/13/bits/allocator.h:163: unexecuted block on non-branch line with non-zero hit count.  Use "geninfo --rc geninfo_unexecuted_blocks=1 to set count to zero.
+	(use "geninfo --ignore-errors gcov,gcov ..." to suppress this warning)
+geninfo: ERROR: Unexpected negative count '-31165' for /home/runner/work/PolyglotCompiler/PolyglotCompiler/runtime/include/services/threading.h:438.
+	Perhaps you need to compile with '-fprofile-update=atomic
+	(use "geninfo --ignore-errors negative ..." to bypass this error)
+Error: Process completed with exit code 1.
+
+--end -done

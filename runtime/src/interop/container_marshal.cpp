@@ -51,6 +51,29 @@ static void ListGrow(RuntimeList *list) {
 constexpr std::size_t kDictInitialCapacity = 16;
 constexpr double      kDictMaxLoadFactor   = 0.75;
 
+/// Maximum useful natural alignment for any primitive key/value type the
+/// runtime currently marshals (uint64_t, pointers, doubles).  Using a fixed
+/// alignment keeps the slot layout simple and lets users dereference the
+/// pointer returned by `__ploy_rt_dict_lookup` as e.g. `uint64_t *` without
+/// triggering UBSan's `alignment` check.
+constexpr std::size_t kSlotAlign = alignof(std::max_align_t);
+
+static inline std::size_t AlignUp(std::size_t value, std::size_t align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+/// Compute the per-slot layout (key_offset / value_offset / slot_stride) for
+/// the given key/value sizes.  All offsets are aligned to `kSlotAlign`.
+static inline void DictComputeLayout(RuntimeDict *dict) {
+    // SlotState occupies byte 0; pad up to the alignment boundary before the
+    // key and again before the value.  The trailing pad keeps `slot_stride`
+    // a multiple of kSlotAlign so every slot in the flat array starts at an
+    // aligned address (the calloc base is at least max_align_t-aligned).
+    dict->key_offset   = AlignUp(1, kSlotAlign);
+    dict->value_offset = AlignUp(dict->key_offset + dict->key_size, kSlotAlign);
+    dict->slot_stride  = AlignUp(dict->value_offset + dict->value_size, kSlotAlign);
+}
+
 /// Return the byte offset of slot `idx` within `dict->slots`.
 static inline std::size_t SlotOffset(const RuntimeDict *dict, std::size_t idx) {
     return idx * dict->slot_stride;
@@ -64,12 +87,12 @@ static inline SlotState *SlotStatePtr(const RuntimeDict *dict, std::size_t idx) 
 
 /// Return a pointer to the key bytes of slot `idx`.
 static inline void *SlotKeyPtr(const RuntimeDict *dict, std::size_t idx) {
-    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + 1;
+    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + dict->key_offset;
 }
 
 /// Return a pointer to the value bytes of slot `idx`.
 static inline void *SlotValuePtr(const RuntimeDict *dict, std::size_t idx) {
-    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + 1 + dict->key_size;
+    return static_cast<char *>(dict->slots) + SlotOffset(dict, idx) + dict->value_offset;
 }
 
 /// Rehash `dict` into a fresh flat slot array of `new_cap` slots.
@@ -77,7 +100,9 @@ static inline void *SlotValuePtr(const RuntimeDict *dict, std::size_t idx) {
 static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
     if (!dict || new_cap == 0) return false;
 
-    std::size_t stride = 1 + dict->key_size + dict->value_size;
+    // Layout (and therefore stride) does not depend on capacity, so reuse the
+    // already-computed dict->slot_stride.
+    std::size_t stride = dict->slot_stride;
     void *new_slots = std::calloc(new_cap, stride); // calloc → all bytes 0 → all kEmpty
     if (!new_slots) return false;
 
@@ -99,9 +124,9 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
                     static_cast<char *>(new_slots) + pos * stride);
                 if (*nst == SlotState::kEmpty) {
                     *nst = SlotState::kOccupied;
-                    std::memcpy(reinterpret_cast<char *>(nst) + 1,
+                    std::memcpy(static_cast<char *>(new_slots) + pos * stride + dict->key_offset,
                                 old_key, dict->key_size);
-                    std::memcpy(reinterpret_cast<char *>(nst) + 1 + dict->key_size,
+                    std::memcpy(static_cast<char *>(new_slots) + pos * stride + dict->value_offset,
                                 old_val, dict->value_size);
                     break;
                 }
@@ -112,7 +137,6 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
 
     dict->slots    = new_slots;
     dict->capacity = new_cap;
-    dict->slot_stride = stride;
     return true;
 }
 
@@ -214,10 +238,10 @@ void *__ploy_rt_dict_create(std::size_t key_size, std::size_t value_size) {
 
     auto *dict = static_cast<RuntimeDict *>(std::calloc(1, sizeof(RuntimeDict)));
     if (!dict) return nullptr;
-    dict->key_size    = key_size;
-    dict->value_size  = value_size;
-    dict->slot_stride = 1 + key_size + value_size;
-    dict->capacity    = kDictInitialCapacity;
+    dict->key_size   = key_size;
+    dict->value_size = value_size;
+    DictComputeLayout(dict);
+    dict->capacity   = kDictInitialCapacity;
     // calloc zeros all bytes → all SlotState fields start as kEmpty (== 0).
     dict->slots = std::calloc(kDictInitialCapacity, dict->slot_stride);
     if (!dict->slots) {

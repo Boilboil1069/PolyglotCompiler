@@ -96,7 +96,9 @@ endif()
 
 # -- Code coverage (GCC/Clang only) ------------------------------------------
 if(POLYGLOT_ENABLE_COVERAGE AND NOT MSVC)
-    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
+    # -fprofile-update=atomic prevents counter races (and lcov negative counts)
+    # in multi-threaded code such as runtime/services/threading.
+    add_compile_options(--coverage -fprofile-arcs -ftest-coverage -fprofile-update=atomic)
     add_link_options(--coverage)
 endif()
 

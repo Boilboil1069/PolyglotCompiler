@@ -229,13 +229,13 @@ void *__ploy_rt_dict_convert(void *dict) {
 
     // Iterate all occupied slots and re-insert entries.
     for (std::size_t i = 0; i < src->capacity; ++i) {
+        const auto *slot_base = static_cast<const char *>(src->slots) + i * src->slot_stride;
         // SlotState is the first byte of each slot.
-        const auto *st = reinterpret_cast<const std::uint8_t *>(
-            static_cast<const char *>(src->slots) + i * src->slot_stride);
+        const auto *st = reinterpret_cast<const std::uint8_t *>(slot_base);
         if (*st != static_cast<std::uint8_t>(SlotState::kOccupied)) continue;
 
-        const void *kptr = st + 1;
-        const void *vptr = reinterpret_cast<const std::uint8_t *>(kptr) + src->key_size;
+        const void *kptr = slot_base + src->key_offset;
+        const void *vptr = slot_base + src->value_offset;
         __ploy_rt_dict_insert(dst, kptr, vptr);
     }
 

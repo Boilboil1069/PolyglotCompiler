@@ -49,21 +49,26 @@ enum class SlotState : std::uint8_t {
 
 /// Open-addressing hash-map descriptor for DICT[K,V] at runtime.
 ///
-/// Layout of the `slots` array:
+/// Layout of the `slots` array (each field is padded so that the key and the
+/// value are aligned to `alignof(std::max_align_t)`; this guarantees safe
+/// `uint64_t` / pointer reads through the lookup pointer the runtime exposes
+/// to user code):
 ///   slot i starts at offset i * slot_stride
-///   bytes [0]         : SlotState (1 byte)
-///   bytes [1, key_size]           : key  (key_size bytes)
-///   bytes [1+key_size, value_size]: value (value_size bytes)
+///   bytes [0]                                  : SlotState (1 byte)
+///   bytes [key_offset,   key_offset+key_size)  : key
+///   bytes [value_offset, value_offset+value_size): value
 ///
 /// Load factor invariant: count / capacity <= 0.75.
 /// Rehash doubles capacity when the invariant would be violated.
 struct RuntimeDict {
-    std::size_t count{0};       ///< Number of live (Occupied) entries.
-    std::size_t capacity{0};    ///< Total number of slots allocated.
-    std::size_t key_size{0};    ///< Size of each key in bytes.
-    std::size_t value_size{0};  ///< Size of each value in bytes.
-    std::size_t slot_stride{0}; ///< Bytes per slot = 1 + key_size + value_size.
-    void       *slots{nullptr}; ///< Flat slot array (capacity * slot_stride bytes).
+    std::size_t count{0};        ///< Number of live (Occupied) entries.
+    std::size_t capacity{0};     ///< Total number of slots allocated.
+    std::size_t key_size{0};     ///< Size of each key in bytes.
+    std::size_t value_size{0};   ///< Size of each value in bytes.
+    std::size_t key_offset{0};   ///< Byte offset of key within a slot.
+    std::size_t value_offset{0}; ///< Byte offset of value within a slot.
+    std::size_t slot_stride{0};  ///< Bytes per slot, padded for alignment.
+    void       *slots{nullptr};  ///< Flat slot array (capacity * slot_stride bytes).
 };
 
 // ============================================================================

@@ -90,7 +90,7 @@ jobs:
           find common middle frontends backends runtime tools \
             -type f -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
             | xargs -0 -r -P$(nproc) -n 1 \
-              clang-tidy-17 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
+              clang-tidy-20 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
             > clang-tidy.log 2>&1
           tail -100 clang-tidy.log
 
