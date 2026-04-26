@@ -49,6 +49,7 @@ add_library(frontend_rust
     rust/src/sema/sema.cpp
     rust/src/lowering/lowering.cpp
     rust/src/rust_frontend.cpp
+    rust/src/crate_loader.cpp
 )
 
 target_include_directories(frontend_rust PUBLIC ${CMAKE_SOURCE_DIR})

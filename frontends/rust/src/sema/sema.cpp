@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "frontends/rust/include/rust_sema.h"
+#include "frontends/rust/include/crate_loader.h"
 
 namespace polyglot::rust {
 
@@ -64,7 +65,9 @@ struct VarOwnership {
 
 class Analyzer {
   public:
-    Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
+    Analyzer(const Module &mod, frontends::SemaContext &ctx,
+             CrateLoader *loader = nullptr)
+        : module_(mod), ctx_(ctx), loader_(loader) {}
 
     void Run() {
         scope_stack_.push_back({ScopeKind::kModule, "<rust-module>"});
@@ -311,8 +314,62 @@ class Analyzer {
             return;
         }
         if (auto ruse = std::dynamic_pointer_cast<UseDeclaration>(item)) {
+            // Always declare the path itself as a module symbol (legacy behaviour).
             Symbol us{ruse->path, Type::Module(ruse->path, "rust"), ruse->loc, SymbolKind::kModule, "rust"};
             Syms().Declare(us);
+
+            // If a crate loader is configured, resolve concrete items so that
+            // names brought into scope by `use crate_x::Foo` (or
+            // `use crate_x::Foo as Bar`) become real symbols.
+            if (loader_) {
+                std::string path = ruse->path;
+                std::string alias_name;
+                // Handle "use a::b as c"
+                auto as_pos = path.find(" as ");
+                if (as_pos != std::string::npos) {
+                    alias_name = path.substr(as_pos + 4);
+                    // Strip whitespace
+                    while (!alias_name.empty() && std::isspace(static_cast<unsigned char>(alias_name.front()))) alias_name.erase(0, 1);
+                    while (!alias_name.empty() && std::isspace(static_cast<unsigned char>(alias_name.back())))  alias_name.pop_back();
+                    path.erase(as_pos);
+                }
+                // Last segment is the bound name unless the user wrote `as`.
+                std::string bind = alias_name;
+                if (bind.empty()) {
+                    auto sep = path.rfind("::");
+                    bind = (sep == std::string::npos) ? path : path.substr(sep + 2);
+                    // Strip glob/curly artefacts (e.g. "*", "{Foo, Bar}").
+                    if (bind == "*" || (!bind.empty() && bind.front() == '{')) bind.clear();
+                }
+
+                if (const auto *item = loader_->ResolvePath(path)) {
+                    if (!bind.empty()) {
+                        SymbolKind kind = SymbolKind::kVariable;
+                        switch (item->kind) {
+                            case CrateItemKind::kFunction:
+                            case CrateItemKind::kMacro:    kind = SymbolKind::kFunction; break;
+                            case CrateItemKind::kStruct:
+                            case CrateItemKind::kEnum:
+                            case CrateItemKind::kTrait:
+                            case CrateItemKind::kTypeAlias: kind = SymbolKind::kTypeName; break;
+                            case CrateItemKind::kConst:
+                            case CrateItemKind::kStatic:    kind = SymbolKind::kVariable; break;
+                            case CrateItemKind::kModule:    kind = SymbolKind::kModule;   break;
+                        }
+                        Symbol sym{bind, item->type, ruse->loc, kind, "rust"};
+                        Syms().Declare(sym);
+                    }
+                } else {
+                    // Diagnose only when a crate loader is configured AND the
+                    // crate prefix is one we have actually loaded — this
+                    // avoids false positives for `use crate::self_mod::*`.
+                    auto sep = path.find("::");
+                    std::string head = (sep == std::string::npos) ? path : path.substr(0, sep);
+                    if (loader_->ResolveCrate(head)) {
+                        Diags().Report(ruse->loc, "Cannot resolve `use " + path + "` in crate `" + head + "`");
+                    }
+                }
+            }
             return;
         }
         if (auto trait = std::dynamic_pointer_cast<TraitItem>(item)) {
@@ -920,6 +977,7 @@ class Analyzer {
 
     const Module &module_;
     frontends::SemaContext &ctx_;
+    CrateLoader *loader_{nullptr};
     std::vector<ScopeState> scope_stack_{};
     Type current_return_type_{Type::Any()};
     bool saw_return_{false};
@@ -929,6 +987,12 @@ class Analyzer {
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
     Analyzer analyzer(module, context);
+    analyzer.Run();
+}
+
+void AnalyzeModule(const Module &module, frontends::SemaContext &context,
+                   const RustSemaOptions &options) {
+    Analyzer analyzer(module, context, options.loader);
     analyzer.Run();
 }
 

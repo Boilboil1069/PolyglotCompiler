@@ -15,6 +15,7 @@
 #include "frontends/rust/include/rust_parser.h"
 #include "frontends/rust/include/rust_sema.h"
 #include "frontends/rust/include/rust_lowering.h"
+#include "frontends/rust/include/crate_loader.h"
 
 namespace polyglot::rust {
 
@@ -48,7 +49,7 @@ bool RustLanguageFrontend::Analyze(
     const std::string &source,
     const std::string &filename,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     RustLexer lexer(source, filename);
     RustParser parser(lexer, diagnostics);
@@ -59,7 +60,9 @@ bool RustLanguageFrontend::Analyze(
     if (!module) return false;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    CrateLoader loader(options.rust_crate_dir, options.rust_externs, diagnostics);
+    RustSemaOptions sema_opts{&loader};
+    AnalyzeModule(*module, ctx, sema_opts);
     return !diagnostics.HasErrors();
 }
 
@@ -72,7 +75,7 @@ frontends::FrontendResult RustLanguageFrontend::Lower(
     const std::string &filename,
     ir::IRContext &ir_ctx,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     frontends::FrontendResult result;
 
@@ -84,7 +87,9 @@ frontends::FrontendResult RustLanguageFrontend::Lower(
     if (!module || diagnostics.HasErrors()) return result;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    CrateLoader loader(options.rust_crate_dir, options.rust_externs, diagnostics);
+    RustSemaOptions sema_opts{&loader};
+    AnalyzeModule(*module, ctx, sema_opts);
     if (diagnostics.HasErrors()) return result;
 
     LowerToIR(*module, ir_ctx, diagnostics);

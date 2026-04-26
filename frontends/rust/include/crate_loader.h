@@ -59,7 +59,7 @@ struct CrateInfo {
 class CrateLoader {
   public:
     CrateLoader(const std::string &crate_dir,
-                const std::vector<std::string> &externs,
+                const std::vector<std::pair<std::string, std::string>> &externs,
                 frontends::Diagnostics &diags);
 
     /// Look up a crate by name (e.g. "serde", "std").  Returns nullptr if
