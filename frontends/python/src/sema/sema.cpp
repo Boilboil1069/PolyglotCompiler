@@ -14,6 +14,8 @@
 #include "frontends/common/include/sema_context.h"
 
 #include "frontends/python/include/python_ast.h"
+#include "frontends/python/include/python_sema.h"
+#include "frontends/python/include/pyi_loader.h"
 
 namespace polyglot::python {
 
@@ -32,7 +34,9 @@ struct ScopeState {
 
 class Analyzer {
   public:
-    Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
+    Analyzer(const Module &mod, frontends::SemaContext &ctx,
+             PyiLoader *loader = nullptr)
+        : module_(mod), ctx_(ctx), loader_(loader) {}
 
     void Run() {
         scope_states_.push_back({ScopeKind::kModule});
@@ -204,15 +208,27 @@ class Analyzer {
         };
     }
 
-    // Check if a module is known (built-in or already imported)
+    // Check if a module is known (built-in, .pyi-resolved, or already imported)
     bool IsKnownModule(const std::string &modname) {
         if (imported_modules_.count(modname)) return true;
+        if (loader_ && loader_->Resolve(modname) != nullptr) return true;
         auto builtin = BuiltinModuleExports();
         return builtin.count(modname) > 0;
     }
 
-    // Get exports for a module
+    // Get exports for a module: .pyi loader wins over builtins, builtins over
+    // any user-imported scope, falling back to empty.
     std::unordered_map<std::string, Type> GetModuleExports(const std::string &modname) {
+        if (loader_) {
+            if (const PyiModule *m = loader_->Resolve(modname)) {
+                std::unordered_map<std::string, Type> out;
+                out.reserve(m->exports.size());
+                for (const auto &kv : m->exports) {
+                    out.emplace(kv.first, kv.second.type);
+                }
+                return out;
+            }
+        }
         auto builtin = BuiltinModuleExports();
         if (auto it = builtin.find(modname); it != builtin.end()) {
             return it->second;
@@ -377,6 +393,15 @@ class Analyzer {
                 // Populate module exports
                 if (auto it = builtin.find(modname); it != builtin.end()) {
                     module_exports_[modname] = it->second;
+                } else if (loader_) {
+                    if (const PyiModule *pm = loader_->Resolve(modname)) {
+                        auto &slot = module_exports_[modname];
+                        for (const auto &kv : pm->exports) {
+                            slot[kv.first] = kv.second.type;
+                        }
+                    } else {
+                        module_exports_.try_emplace(modname);
+                    }
                 } else {
                     module_exports_.try_emplace(modname);
                 }
@@ -771,6 +796,7 @@ class Analyzer {
 
     const Module &module_;
     frontends::SemaContext &ctx_;
+    PyiLoader *loader_{nullptr};
     std::vector<ScopeState> scope_states_{};
     Type last_return_type_{Type::Any()};
 };
@@ -779,6 +805,12 @@ class Analyzer {
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
     Analyzer analyzer(module, context);
+    analyzer.Run();
+}
+
+void AnalyzeModule(const Module &module, frontends::SemaContext &context,
+                   const PythonSemaOptions &options) {
+    Analyzer analyzer(module, context, options.loader);
     analyzer.Run();
 }
 

@@ -105,7 +105,9 @@ For package import, the parser:
 
 `AnalyzeImportDecl` updated:
 
-1. Validates the language is supported (`cpp`, `python`, `rust`, `c`, `ploy`)
+1. Validates the language is supported (`cpp`, `c`, `python`, `rust`, `ploy`,
+   `java`, `dotnet`/`csharp`, `javascript`/`js`/`typescript`/`ts`,
+   `ruby`/`rb`, `go`/`golang`)
 2. Determines the symbol name:
    - If `alias` is set → use alias
    - Else if `package_name` is set → use package name
@@ -134,8 +136,77 @@ At runtime, package imports are resolved by:
 | Empty package name | `IMPORT module path is empty` | Package name not provided |
 | Duplicate import | `redefinition of symbol 'np'` | Same alias used twice |
 
-## 7. Future Extensions
+## 7. Supported Languages and Discovery Strategies
+
+The set of languages accepted in `IMPORT <lang> PACKAGE ...` has been
+extended. Each language is paired with one or more package-manager
+probes that populate the shared `PackageDiscoveryCache` during sema
+pre-analysis.
+
+| Language identifier(s)                 | Discovery commands                                                            | Cache key prefix |
+|----------------------------------------|-------------------------------------------------------------------------------|------------------|
+| `python`                               | `pip list --format=freeze` (+ conda/uv/poetry)                                | `python::`       |
+| `rust`                                 | `cargo metadata --format-version 1`                                           | `rust::`         |
+| `cpp`, `c`                             | pkg-config / system include scan                                              | `cpp::`          |
+| `java`                                 | `mvn dependency:list` / `gradle dependencies`                                 | `java::`         |
+| `dotnet`, `csharp`                     | `dotnet list package` / NuGet cache scan                                      | `dotnet::`       |
+| `javascript`, `js`, `typescript`, `ts` | `npm ls --json` / `yarn list --json` / `pnpm list --json` (+ Node core stdlib) | `javascript::`   |
+| `ruby`, `rb`                           | `bundle list` (when Gemfile present) / `gem list --local` (+ Ruby stdlib)     | `ruby::`         |
+| `go`, `golang`                         | `go list -m all` (+ Go stdlib paths)                                          | `go::`           |
+
+### 7.1 JavaScript / TypeScript
+
+`PackageIndexer::IndexJavaScript` runs all three managers in turn so a
+project using npm, Yarn, or pnpm is fully covered. The parsers are
+inline (no `nlohmann::json` dependency in the indexer) so unit tests
+can drive them with a `MockCommandRunner`. After the manager output is
+parsed, the 32 Node.js core modules (`fs`, `http`, `path`, …) are
+unconditionally injected so that
+`IMPORT javascript PACKAGE fs::(readFileSync);` resolves even on a host
+with no `package.json`.
+
+Scoped names such as `@types/node` are preserved by splitting the
+yarn-style `<name>@<version>` token on its **rightmost** `@`.
+
+### 7.2 Ruby
+
+`IndexRuby` first tries `bundle list` whenever a project path was
+provided, then falls back to `gem list --local`. The parser handles
+both the regular `name (1.2.3)` form and the `name (default: 2.6.3)`
+form used by stdlib-bundled gems. ~80 Ruby stdlib names (`set`, `time`,
+`json`, `csv`, …) are always injected.
+
+### 7.3 Go
+
+`IndexGo` runs `go list -m all` and parses each `<module-path> v<X.Y.Z>`
+line (the first line — the main module, with no version — is skipped).
+The Go standard library is also baked in (~100 paths covering `fmt`,
+`net/http`, `encoding/json`, `sync`, `context`, …) so stdlib imports
+work without a `go.mod`.
+
+## 8. CLI Plumbing
+
+`polyc` exposes per-language flags that feed the indexer's
+project-path argument and any auxiliary search roots:
+
+| Flag                                          | Purpose                                |
+|-----------------------------------------------|----------------------------------------|
+| `--python-stubs <dir>`                        | Python typeshed / stub roots           |
+| `--classpath <jars>`, `-cp <jars>`            | Java classpath                         |
+| `--reference <dll>`, `-r <dll>`               | .NET assembly references               |
+| `--crate-dir <dir>`, `--extern <name=path>`   | Rust crate sources / `--extern`        |
+| `--js-project <dir>`, `--node-modules <dir>`  | JS project root / extra `node_modules` |
+| `--ruby-project <dir>`, `--gem-path <dir>`    | Ruby project root / extra GEM_PATH     |
+| `--go-project <dir>`, `--go-mod-cache <dir>`  | Go project root / extra module cache   |
+
+Both `--name=value` and `--name value` forms are accepted. The values
+are stored on `polyc::Settings` and forwarded into `PloySemaOptions`
+so that the indexer's per-language sub-helpers receive a non-empty
+`project_path` when appropriate.
+
+## 9. Future Extensions
 
 - **Version constraints**: `IMPORT python PACKAGE numpy >= 1.20;`
 - **Selective import**: `IMPORT python PACKAGE numpy USE (array, mean, std);`
-- **Package auto-discovery**: Automatic detection of installed packages
+- **Lock-file ingestion**: parse `package-lock.json`, `Gemfile.lock`,
+  and `go.sum` directly to avoid spawning external commands.

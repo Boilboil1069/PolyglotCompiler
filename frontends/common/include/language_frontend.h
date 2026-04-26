@@ -29,7 +29,26 @@ struct FrontendOptions {
     bool strict{false};               // reject placeholders / Any fallback
     bool force{false};                // continue past errors
     bool enable_preprocessing{true};  // run preprocessor before parsing
+
+    // C / C++ preprocessor inputs
     std::vector<std::string> include_paths{"."};
+    std::vector<std::string> system_include_paths{};   // -isystem
+    std::vector<std::string> defines{};                // -DNAME or -DNAME=VAL
+    std::vector<std::string> undefines{};              // -UNAME
+
+    // Python — user-supplied .pyi stub roots (typeshed-compatible layout)
+    std::vector<std::string> python_stub_paths{};      // --python-stubs
+
+    // Java — class-path entries: directories with .class trees and .jar files
+    std::vector<std::string> classpath{};              // --classpath / -cp
+
+    // .NET — assembly references to load (.dll / .exe with CLI metadata)
+    std::vector<std::string> dotnet_references{};      // --reference / -r
+
+    // Rust — cargo project root and explicit extern crate mapping
+    std::string rust_crate_dir{};                      // --crate-dir
+    std::vector<std::pair<std::string,std::string>>
+        rust_externs{};                                // --extern name=path
 };
 
 // ============================================================================

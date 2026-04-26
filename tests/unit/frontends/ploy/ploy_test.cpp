@@ -393,9 +393,9 @@ TEST_CASE("Ploy sema rejects invalid language", "[ploy][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
-LINK(javascript, python, console::log, utils::print);
+LINK(kotlin, python, console::log, utils::print);
 )", diags, sema);
-    // 'javascript' is not a supported language �� sema should report error
+    // 'kotlin' is not a supported language - sema should report error
     REQUIRE(!ok);
 }
 
@@ -1972,7 +1972,7 @@ TEST_CASE("Ploy sema rejects METHOD with invalid language", "[ploy][sema][class]
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
 LET obj = NEW(python, MyClass);
-LET result = METHOD(ruby, obj, run);
+LET result = METHOD(kotlin, obj, run);
 )", diags, sema);
     REQUIRE(!ok);
 }

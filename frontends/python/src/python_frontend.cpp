@@ -14,6 +14,7 @@
 #include "frontends/python/include/python_parser.h"
 #include "frontends/python/include/python_sema.h"
 #include "frontends/python/include/python_lowering.h"
+#include "frontends/python/include/pyi_loader.h"
 
 namespace polyglot::python {
 
@@ -47,7 +48,7 @@ bool PythonLanguageFrontend::Analyze(
     const std::string &source,
     const std::string &filename,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     PythonLexer lexer(source, filename);
     PythonParser parser(lexer, diagnostics);
@@ -58,7 +59,9 @@ bool PythonLanguageFrontend::Analyze(
     if (!module) return false;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    PyiLoader loader(options.python_stub_paths, diagnostics);
+    PythonSemaOptions sema_opts{&loader};
+    AnalyzeModule(*module, ctx, sema_opts);
     return !diagnostics.HasErrors();
 }
 
@@ -71,7 +74,7 @@ frontends::FrontendResult PythonLanguageFrontend::Lower(
     const std::string &filename,
     ir::IRContext &ir_ctx,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     frontends::FrontendResult result;
 
@@ -83,7 +86,9 @@ frontends::FrontendResult PythonLanguageFrontend::Lower(
     if (!module || diagnostics.HasErrors()) return result;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    PyiLoader loader(options.python_stub_paths, diagnostics);
+    PythonSemaOptions sema_opts{&loader};
+    AnalyzeModule(*module, ctx, sema_opts);
     if (diagnostics.HasErrors()) return result;
 
     LowerToIR(*module, ir_ctx, diagnostics);

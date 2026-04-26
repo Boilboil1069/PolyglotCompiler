@@ -92,6 +92,17 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
             if (pp_enabled) {
                 frontends::Preprocessor pp(result.diagnostics);
                 ApplyIncludePaths(pp, settings.include_paths);
+                ApplyIncludePaths(pp, settings.system_include_paths);
+                // Apply -D / -U flags
+                for (const auto &d : settings.defines) {
+                    auto eq = d.find('=');
+                    if (eq == std::string::npos) {
+                        pp.Define(d, "1");
+                    } else {
+                        pp.Define(d.substr(0, eq), d.substr(eq + 1));
+                    }
+                }
+                for (const auto &u : settings.undefines) pp.Undefine(u);
                 result.processed_source = pp.Process(
                     settings.source,
                     result.source_label);
@@ -119,6 +130,14 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
         fe_opts.strict = settings.strict;
         fe_opts.force = settings.force;
         fe_opts.include_paths = settings.include_paths;
+        fe_opts.system_include_paths = settings.system_include_paths;
+        fe_opts.defines = settings.defines;
+        fe_opts.undefines = settings.undefines;
+        fe_opts.python_stub_paths = settings.python_stub_paths;
+        fe_opts.classpath = settings.classpath;
+        fe_opts.dotnet_references = settings.dotnet_references;
+        fe_opts.rust_crate_dir = settings.rust_crate_dir;
+        fe_opts.rust_externs = settings.rust_externs;
 
         auto fe_result = fe->Lower(result.processed_source, result.source_label,
                                    *result.ir_ctx, result.diagnostics, fe_opts);

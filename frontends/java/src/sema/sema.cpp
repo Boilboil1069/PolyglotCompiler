@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "frontends/java/include/class_file_reader.h"
 #include "frontends/java/include/java_sema.h"
 
 namespace polyglot::java {
@@ -26,7 +27,9 @@ struct ScopeState {
 
 class Analyzer {
   public:
-    Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
+    Analyzer(const Module &mod, frontends::SemaContext &ctx,
+             ClasspathLoader *loader)
+        : module_(mod), ctx_(ctx), loader_(loader) {}
 
     void Run() {
         scope_stack_.push_back({ScopeKind::kModule});
@@ -96,12 +99,89 @@ class Analyzer {
 
     /** @name Imports */
     /** @{ */
-    void AnalyzeImport(const ImportDecl &imp) {
-        // Register imported symbol or wildcard
-        Symbol sym{imp.path, Type::Module(imp.path, "java"), imp.loc, SymbolKind::kModule, "java"};
-        Syms().Declare(sym);
+    // Declare a single resolved class as a symbol in the current scope.
+    // When `import_static` is true, also exposes its public static methods and
+    // fields as top-level symbols (Java 5+ static import semantics).
+    void DeclareImportedClass(const ClassFile &cf, const core::SourceLoc &loc,
+                              bool import_static, const std::string &alias = {}) {
+        // Class itself — short name (last segment of dotted FQN).
+        std::string fqn = cf.this_class.empty() ? alias : cf.this_class;
+        std::string simple = fqn;
+        auto dot = fqn.find_last_of('.');
+        if (dot != std::string::npos) simple = fqn.substr(dot + 1);
+        Type t = Type::Struct(fqn, "java");
+        Symbol class_sym{simple, t, loc, SymbolKind::kTypeName, "java"};
+        Syms().Declare(class_sym);
+
+        // Register inheritance metadata so name resolution can walk the chain.
+        std::vector<std::string> bases;
+        if (!cf.super_class.empty() && cf.super_class != "java.lang.Object") {
+            bases.push_back(cf.super_class);
+        }
+        for (const auto &i : cf.interfaces) bases.push_back(i);
+        if (!bases.empty()) Syms().RegisterTypeBases(simple, bases);
+
+        if (!import_static) return;
+
+        // Static-import: declare public static fields and methods.
+        constexpr std::uint16_t kAccPublic = 0x0001;
+        constexpr std::uint16_t kAccStatic = 0x0008;
+        for (const auto &f : cf.fields) {
+            if ((f.access & kAccStatic) == 0) continue;
+            if ((f.access & kAccPublic) == 0) continue;
+            core::Type ft = DescriptorToCoreType(f.descriptor);
+            Symbol fs{f.name, ft, loc, SymbolKind::kVariable, "java"};
+            Syms().Declare(fs);
+        }
+        for (const auto &m : cf.methods) {
+            if ((m.access & kAccStatic) == 0) continue;
+            if ((m.access & kAccPublic) == 0) continue;
+            ParsedMethodDescriptor pd = ParseMethodDescriptor(m.descriptor);
+            Symbol ms{m.name, pd.ret, loc, SymbolKind::kFunction, "java"};
+            Syms().Declare(ms);
+        }
     }
 
+    void AnalyzeImport(const ImportDecl &imp) {
+        // 1) Always record the import path as a module symbol so legacy code
+        //    paths (no classpath, unit tests) still see the name.
+        Symbol module_sym{imp.path, Type::Module(imp.path, "java"), imp.loc,
+                          SymbolKind::kModule, "java"};
+        Syms().Declare(module_sym);
+
+        if (loader_ == nullptr) return;
+
+        // 2) Detect wildcard imports (`import java.util.*;`) and resolve via
+        //    package listing.
+        const std::string kWildcard = ".*";
+        bool is_wildcard = imp.path.size() >= kWildcard.size() &&
+                           imp.path.compare(imp.path.size() - kWildcard.size(),
+                                            kWildcard.size(), kWildcard) == 0;
+        if (is_wildcard) {
+            std::string pkg = imp.path.substr(0, imp.path.size() - kWildcard.size());
+            const auto &classes = loader_->ListPackage(pkg);
+            for (const ClassFile *cf : classes) {
+                if (cf) DeclareImportedClass(*cf, imp.loc, imp.is_static);
+            }
+            return;
+        }
+
+        // 3) Direct import.  For `import static a.b.C.member;` the path
+        //    designates a member of class `a.b.C`, so we strip the trailing
+        //    component and try resolving as a class.
+        const ClassFile *cf = loader_->Resolve(imp.path);
+        if (cf == nullptr && imp.is_static) {
+            auto dot = imp.path.find_last_of('.');
+            if (dot != std::string::npos) {
+                cf = loader_->Resolve(imp.path.substr(0, dot));
+            }
+        }
+        if (cf != nullptr) {
+            DeclareImportedClass(*cf, imp.loc, imp.is_static);
+        }
+        // If unresolved, the legacy module symbol declared above keeps the
+        // name visible — downstream stages will report an error if needed.
+    }
     /** @} */
 
     /** @name Declarations */
@@ -617,6 +697,7 @@ class Analyzer {
 
     const Module &module_;
     frontends::SemaContext &ctx_;
+    ClasspathLoader *loader_{nullptr};
     std::vector<ScopeState> scope_stack_;
     Type current_return_type_{Type::Void()};
 };
@@ -624,7 +705,13 @@ class Analyzer {
 } // namespace
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
-    Analyzer a(module, context);
+    Analyzer a(module, context, /*loader=*/nullptr);
+    a.Run();
+}
+
+void AnalyzeModule(const Module &module, frontends::SemaContext &context,
+                   const JavaSemaOptions &options) {
+    Analyzer a(module, context, options.classpath_loader);
     a.Run();
 }
 

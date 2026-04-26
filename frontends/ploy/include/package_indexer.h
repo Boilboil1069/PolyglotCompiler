@@ -135,6 +135,30 @@ class PackageIndexer {
     void IndexDotnet(std::unordered_map<std::string, PackageInfo> &packages);
     void IndexDotnetNuget(std::unordered_map<std::string, PackageInfo> &packages);
 
+    // JavaScript — npm/yarn/pnpm + node_modules introspection.
+    void IndexJavaScript(const std::string &project_path,
+                         std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexJavaScriptViaNpm(const std::string &project_path,
+                               std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexJavaScriptViaYarn(const std::string &project_path,
+                                std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexJavaScriptViaPnpm(const std::string &project_path,
+                                std::unordered_map<std::string, PackageInfo> &packages);
+
+    // Ruby — gem/bundler introspection.
+    void IndexRuby(const std::string &project_path,
+                   std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexRubyViaGem(std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexRubyViaBundler(const std::string &project_path,
+                             std::unordered_map<std::string, PackageInfo> &packages);
+
+    // Go — `go list -m all` against the active GOPATH / module cache.
+    void IndexGo(const std::string &project_path,
+                 std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexGoViaModList(const std::string &project_path,
+                           std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexGoStdlib(std::unordered_map<std::string, PackageInfo> &packages);
+
     // Execute a command with timeout and retry, updating stats_.
     CommandResult Execute(const std::string &command);
 

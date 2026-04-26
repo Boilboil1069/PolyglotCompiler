@@ -137,7 +137,7 @@ struct ImportDecl : public Statement {
 
 `AnalyzeImportDecl` 的更新逻辑：
 
-1. **验证语言有效性**：确认语言标识符在支持列表中（`cpp`、`python`、`rust`、`c`、`ploy`）
+1. **验证语言有效性**：确认语言标识符在支持列表中（`cpp`、`c`、`python`、`rust`、`ploy`、`java`、`dotnet`/`csharp`、`javascript`/`js`/`typescript`/`ts`、`ruby`/`rb`、`go`/`golang`）
 2. **确定符号名称**：
    - 如果有 `alias` → 使用别名（如 `np`）
    - 否则如果有 `package_name` → 使用包名（如 `numpy`）
@@ -186,11 +186,72 @@ struct ImportDecl : public Statement {
 | 空包名 | `IMPORT module path is empty` | 未提供包名 |
 | 重复导入 | `redefinition of symbol 'np'` | 相同别名使用两次 |
 
-## 7. 未来扩展方向
+## 7. 已支持语言与发现策略
+
+`IMPORT <lang> PACKAGE ...` 现已扩展到 8 个语言族。每种语言通过一个或多个
+包管理器命令探测，将结果写入共享的 `PackageDiscoveryCache`，供 sema
+预分析阶段使用。
+
+| 语言标识                                 | 发现命令                                                                | 缓存键前缀        |
+|-----------------------------------------|-------------------------------------------------------------------------|------------------|
+| `python`                                | `pip list --format=freeze`（含 conda/uv/poetry）                         | `python::`       |
+| `rust`                                  | `cargo metadata --format-version 1`                                      | `rust::`         |
+| `cpp`、`c`                              | pkg-config / 系统头文件扫描                                              | `cpp::`          |
+| `java`                                  | `mvn dependency:list` / `gradle dependencies`                            | `java::`         |
+| `dotnet`、`csharp`                      | `dotnet list package` / NuGet 缓存扫描                                   | `dotnet::`       |
+| `javascript`、`js`、`typescript`、`ts`  | `npm ls --json` / `yarn list --json` / `pnpm list --json`（+ Node 内置模块） | `javascript::`   |
+| `ruby`、`rb`                            | `bundle list`（项目内）/ `gem list --local`（+ Ruby 标准库）             | `ruby::`         |
+| `go`、`golang`                          | `go list -m all`（+ Go 标准库路径）                                       | `go::`           |
+
+### 7.1 JavaScript / TypeScript
+
+`PackageIndexer::IndexJavaScript` 依次调用三种包管理器，使得 npm / Yarn /
+pnpm 任何一种工作流都能被覆盖。其 JSON 解析采用内联实现（不引入
+`nlohmann::json`），便于通过 `MockCommandRunner` 进行单测。包管理器输出
+解析完毕后，无条件注入 32 个 Node.js 核心模块（`fs`、`http`、`path` 等），
+即使项目没有 `package.json` 也能解析 `IMPORT javascript PACKAGE fs::(...)`。
+
+像 `@types/node` 这样的 scoped 名通过对 yarn 形式的 `<name>@<version>`
+按**最右侧**的 `@` 切分得以保留。
+
+### 7.2 Ruby
+
+`IndexRuby` 当存在项目路径时优先调用 `bundle list`，否则回退到
+`gem list --local`。解析器同时支持 `name (1.2.3)` 和标准库内置 gem 的
+`name (default: 2.6.3)` 两种形式。无条件注入约 80 个 Ruby 标准库名
+（`set`、`time`、`json`、`csv` 等）。
+
+### 7.3 Go
+
+`IndexGo` 调用 `go list -m all`，按行解析 `<module-path> v<X.Y.Z>` 格式
+（首行为主模块、无版本号，会被跳过）。同时内置约 100 个 Go 标准库路径
+（`fmt`、`net/http`、`encoding/json`、`sync`、`context` 等），即便没有
+`go.mod` 也能解析标准库导入。
+
+## 8. 命令行接口
+
+`polyc` 为每种语言暴露相应的标志，将值传给 indexer 的 `project_path` 参数
+和辅助查找根目录：
+
+| 标志                                          | 用途                                  |
+|-----------------------------------------------|---------------------------------------|
+| `--python-stubs <dir>`                        | Python typeshed / 存根目录            |
+| `--classpath <jars>`、`-cp <jars>`            | Java classpath                        |
+| `--reference <dll>`、`-r <dll>`               | .NET 程序集引用                       |
+| `--crate-dir <dir>`、`--extern <name=path>`   | Rust crate 源 / `--extern`            |
+| `--js-project <dir>`、`--node-modules <dir>`  | JS 项目根 / 额外的 `node_modules`     |
+| `--ruby-project <dir>`、`--gem-path <dir>`    | Ruby 项目根 / 额外 GEM_PATH           |
+| `--go-project <dir>`、`--go-mod-cache <dir>`  | Go 项目根 / 额外模块缓存              |
+
+`--name=value` 与 `--name value` 两种形式都被接受。这些值存入
+`polyc::Settings` 后，再透传到 `PloySemaOptions`，保证 indexer 在合适的
+场景下能拿到非空的 `project_path`。
+
+## 9. 未来扩展方向
 
 | 功能 | 语法概念 | 说明 |
 |------|---------|------|
 | 版本约束 | `IMPORT python PACKAGE numpy >= 1.20;` | 指定包的最低版本要求 |
 | 选择性导入 | `IMPORT python PACKAGE numpy USE (array, mean);` | 仅导入特定函数 |
-| 包自动发现 | 自动检测 | 自动检测已安装的包并提供补全 |
+| Lock 文件读取 | 解析 `package-lock.json` / `Gemfile.lock` / `go.sum` | 避免每次都启动外部命令 |
 | 虚拟环境支持 | 配置选项 | 指定使用特定的 Python 虚拟环境 |

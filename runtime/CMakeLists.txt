@@ -20,7 +20,7 @@ add_library(runtime
     src/libs/base.c
     src/libs/base_gc_bridge.cpp
     src/libs/python_rt.c
-    src/libs/cpp_rt.c
+    src/libs/cpp_rt.cpp
     src/libs/rust_rt.c
     src/libs/java_rt.c
     src/libs/dotnet_rt.c

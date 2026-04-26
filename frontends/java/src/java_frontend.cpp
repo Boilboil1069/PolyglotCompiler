@@ -14,6 +14,7 @@
 #include "frontends/java/include/java_parser.h"
 #include "frontends/java/include/java_sema.h"
 #include "frontends/java/include/java_lowering.h"
+#include "frontends/java/include/class_file_reader.h"
 
 namespace polyglot::java {
 
@@ -47,7 +48,7 @@ bool JavaLanguageFrontend::Analyze(
     const std::string &source,
     const std::string &filename,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     JavaLexer lexer(source, filename);
     JavaParser parser(lexer, diagnostics);
@@ -58,7 +59,10 @@ bool JavaLanguageFrontend::Analyze(
     if (!module) return false;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    JavaSemaOptions sema_opts;
+    ClasspathLoader loader(options.classpath, diagnostics);
+    if (!options.classpath.empty()) sema_opts.classpath_loader = &loader;
+    AnalyzeModule(*module, ctx, sema_opts);
     return !diagnostics.HasErrors();
 }
 
@@ -71,7 +75,7 @@ frontends::FrontendResult JavaLanguageFrontend::Lower(
     const std::string &filename,
     ir::IRContext &ir_ctx,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     frontends::FrontendResult result;
 
@@ -83,7 +87,10 @@ frontends::FrontendResult JavaLanguageFrontend::Lower(
     if (!module || diagnostics.HasErrors()) return result;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    JavaSemaOptions sema_opts;
+    ClasspathLoader loader(options.classpath, diagnostics);
+    if (!options.classpath.empty()) sema_opts.classpath_loader = &loader;
+    AnalyzeModule(*module, ctx, sema_opts);
     if (diagnostics.HasErrors()) return result;
 
     LowerToIR(*module, ir_ctx, diagnostics);

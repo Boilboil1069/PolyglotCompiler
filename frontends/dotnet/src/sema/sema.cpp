@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "frontends/dotnet/include/dotnet_sema.h"
+#include "frontends/dotnet/include/metadata_reader.h"
 
 namespace polyglot::dotnet {
 
@@ -26,7 +27,9 @@ struct ScopeState {
 
 class Analyzer {
   public:
-    Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
+    Analyzer(const Module &mod, frontends::SemaContext &ctx,
+             AssemblyLoader *loader)
+        : module_(mod), ctx_(ctx), loader_(loader) {}
 
     void Run() {
         scope_stack_.push_back({ScopeKind::kModule});
@@ -100,12 +103,71 @@ class Analyzer {
 
     /** @name Using directives */
     /** @{ */
-    void AnalyzeUsing(const UsingDirective &u) {
-        Symbol sym{u.alias.empty() ? u.ns : u.alias,
-                   Type::Module(u.ns, "csharp"), u.loc, SymbolKind::kModule, "csharp"};
-        Syms().Declare(sym);
+    // Declare a single resolved CLI type as a symbol in the current scope.
+    // When `import_static` is true, also exposes its public static methods
+    // and fields as top-level symbols (C# 6+ `using static` semantics).
+    void DeclareUsingType(const CliTypeMeta &t, const core::SourceLoc &loc,
+                          bool import_static) {
+        // The simple (unqualified) name is what shows up in source after
+        // `using static System.Console;` or `using System;` + `Console`.
+        std::string simple = t.name;
+        Type ty = Type::Struct(t.full_name, "csharp");
+        Symbol class_sym{simple, ty, loc, SymbolKind::kTypeName, "csharp"};
+        Syms().Declare(class_sym);
+
+        if (!import_static) return;
+
+        // ECMA-335 §II.23.1.10 method flags: 0x0010 = Static, 0x0006 = Public
+        constexpr std::uint16_t kMethodPublic = 0x0006;
+        constexpr std::uint16_t kMethodStatic = 0x0010;
+        constexpr std::uint16_t kFieldPublic  = 0x0006;
+        constexpr std::uint16_t kFieldStatic  = 0x0010;
+
+        for (const auto &f : t.fields) {
+            if ((f.flags & kFieldStatic) == 0) continue;
+            if ((f.flags & 0x0007) != kFieldPublic) continue;
+            Symbol fs{f.name, f.type, loc, SymbolKind::kVariable, "csharp"};
+            Syms().Declare(fs);
+        }
+        for (const auto &m : t.methods) {
+            if ((m.flags & kMethodStatic) == 0) continue;
+            if ((m.flags & 0x0007) != kMethodPublic) continue;
+            Symbol ms{m.name, m.return_type, loc, SymbolKind::kFunction, "csharp"};
+            Syms().Declare(ms);
+        }
     }
 
+    void AnalyzeUsing(const UsingDirective &u) {
+        // 1) Always declare the legacy module symbol so unit tests continue
+        //    to observe the imported namespace name.
+        Symbol module_sym{u.alias.empty() ? u.ns : u.alias,
+                          Type::Module(u.ns, "csharp"), u.loc,
+                          SymbolKind::kModule, "csharp"};
+        Syms().Declare(module_sym);
+
+        if (loader_ == nullptr) return;
+
+        // 2) `using static System.Console;` — last segment names a type.
+        if (u.is_static) {
+            const CliTypeMeta *t = loader_->ResolveType(u.ns);
+            if (t == nullptr) {
+                // try interpreting as namespace.Type when the user wrote it
+                // as a single dotted token.
+                auto dot = u.ns.find_last_of('.');
+                if (dot != std::string::npos) {
+                    t = loader_->ResolveType(u.ns);
+                }
+            }
+            if (t) DeclareUsingType(*t, u.loc, /*import_static=*/true);
+            return;
+        }
+
+        // 3) Plain `using System;` — bring every type in the namespace into
+        //    scope under its simple name.
+        for (const CliTypeMeta *t : loader_->ListNamespace(u.ns)) {
+            if (t) DeclareUsingType(*t, u.loc, /*import_static=*/false);
+        }
+    }
     /** @} */
 
     /** @name Declarations */
@@ -647,6 +709,7 @@ class Analyzer {
 
     const Module &module_;
     frontends::SemaContext &ctx_;
+    AssemblyLoader *loader_{nullptr};
     std::vector<ScopeState> scope_stack_;
     Type current_return_type_{Type::Void()};
 };
@@ -654,7 +717,13 @@ class Analyzer {
 } // namespace
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
-    Analyzer a(module, context);
+    Analyzer a(module, context, /*loader=*/nullptr);
+    a.Run();
+}
+
+void AnalyzeModule(const Module &module, frontends::SemaContext &context,
+                   const DotNetSemaOptions &options) {
+    Analyzer a(module, context, options.loader);
     a.Run();
 }
 

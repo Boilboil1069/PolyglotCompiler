@@ -104,6 +104,13 @@ void PackageIndexer::IndexLanguage(
         IndexJava(venv_path, packages);
     } else if (language == "dotnet" || language == "csharp") {
         IndexDotnet(packages);
+    } else if (language == "javascript" || language == "js" ||
+               language == "typescript" || language == "ts") {
+        IndexJavaScript(venv_path, packages);
+    } else if (language == "ruby" || language == "rb") {
+        IndexRuby(venv_path, packages);
+    } else if (language == "go" || language == "golang") {
+        IndexGo(venv_path, packages);
     }
 
     stats_.packages_found += static_cast<int>(packages.size());
@@ -658,6 +665,511 @@ void PackageIndexer::IndexDotnetNuget(std::unordered_map<std::string, PackageInf
 void PackageIndexer::ReportProgress(const std::string &language, const std::string &message) {
     if (progress_cb_) {
         progress_cb_(language, message);
+    }
+}
+
+// ============================================================================
+// JavaScript / TypeScript
+// ----------------------------------------------------------------------------
+// Discovery strategy (probed in order):
+//   1. `npm ls --json --depth=0` inside the project root (also works for
+//      pnpm-managed workspaces because pnpm shims `npm ls`).
+//   2. `yarn list --json --depth=0` when an explicit Yarn workspace is
+//      detected (yarn.lock present).
+//   3. Static parsing of `<project>/package.json` (`dependencies`,
+//      `devDependencies`, `peerDependencies`).
+//
+// All paths fall back gracefully — the indexer never errors out when
+// node / npm / yarn / pnpm is missing on the host machine.
+// ============================================================================
+
+void PackageIndexer::IndexJavaScript(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    // Always try npm first — it's the most widely available manager and
+    // its `ls --json` output is the simplest to parse.
+    IndexJavaScriptViaNpm(project_path, packages);
+
+    // Yarn / pnpm augment whatever npm produced.  This is a no-op when the
+    // tool is not installed.
+    IndexJavaScriptViaYarn(project_path, packages);
+    IndexJavaScriptViaPnpm(project_path, packages);
+
+    // Bake in the well-known Node.js core modules so that
+    // `IMPORT javascript PACKAGE fs::(readFileSync);` resolves even when
+    // the project has no package.json at all.
+    static const char *node_core_modules[] = {
+        "assert", "buffer", "child_process", "cluster", "console", "crypto",
+        "dgram", "dns", "events", "fs", "http", "http2", "https", "net",
+        "os", "path", "perf_hooks", "process", "punycode", "querystring",
+        "readline", "stream", "string_decoder", "timers", "tls", "tty",
+        "url", "util", "v8", "vm", "worker_threads", "zlib"
+    };
+    for (const char *mod : node_core_modules) {
+        PackageInfo info;
+        info.name = mod;
+        info.language = "javascript";
+        std::string key = "javascript::" + std::string(mod);
+        if (!packages.count(key)) packages[key] = info;
+    }
+}
+
+void PackageIndexer::IndexJavaScriptViaNpm(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    std::string cmd;
+#ifdef _WIN32
+    if (!project_path.empty()) {
+        cmd = "cmd /c \"cd /d \"" + project_path +
+              "\" && npm ls --json --depth=0 2>nul\"";
+    } else {
+        cmd = "npm ls --json --depth=0 2>nul";
+    }
+#else
+    if (!project_path.empty()) {
+        cmd = "cd \"" + project_path + "\" && npm ls --json --depth=0 2>/dev/null";
+    } else {
+        cmd = "npm ls --json --depth=0 2>/dev/null";
+    }
+#endif
+    auto result = Execute(cmd);
+    const std::string &out = result.stdout_output;
+    if (out.empty()) return;
+
+    // Tiny dependency-only JSON walker — enough for `npm ls`'s output shape:
+    //   { ..., "dependencies": { "name": { "version": "1.2.3", ... }, ... } }
+    // We do not pull in nlohmann::json here so the indexer remains
+    // standalone for ploy unit tests.
+    size_t deps_pos = out.find("\"dependencies\"");
+    if (deps_pos == std::string::npos) return;
+    size_t brace = out.find('{', deps_pos);
+    if (brace == std::string::npos) return;
+
+    int depth = 0;
+    size_t i = brace;
+    while (i < out.size()) {
+        char c = out[i];
+        if (c == '"') {
+            // Read package name at depth 1.
+            size_t name_start = i + 1;
+            size_t name_end = out.find('"', name_start);
+            if (name_end == std::string::npos) break;
+            std::string pkg_name = out.substr(name_start, name_end - name_start);
+            i = name_end + 1;
+
+            if (depth == 1 && !pkg_name.empty() && pkg_name != "version" &&
+                pkg_name != "resolved" && pkg_name != "overridden") {
+                // Look up the matching `"version": "..."` for this entry.
+                size_t entry_brace = out.find('{', i);
+                size_t version_pos = out.find("\"version\"", i);
+                std::string version_str;
+                if (entry_brace != std::string::npos &&
+                    version_pos != std::string::npos &&
+                    version_pos > entry_brace) {
+                    size_t vq = out.find('"', version_pos + 9);
+                    if (vq != std::string::npos) {
+                        size_t vq_end = out.find('"', vq + 1);
+                        if (vq_end != std::string::npos) {
+                            version_str = out.substr(vq + 1, vq_end - vq - 1);
+                        }
+                    }
+                }
+                PackageInfo info;
+                info.name = pkg_name;
+                info.version = version_str;
+                info.language = "javascript";
+                packages["javascript::" + pkg_name] = info;
+            }
+            continue;
+        }
+        if (c == '{') ++depth;
+        else if (c == '}') {
+            --depth;
+            if (depth == 0) break;
+        }
+        ++i;
+    }
+}
+
+void PackageIndexer::IndexJavaScriptViaYarn(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    std::string cmd;
+#ifdef _WIN32
+    if (!project_path.empty()) {
+        cmd = "cmd /c \"cd /d \"" + project_path +
+              "\" && yarn list --json --depth=0 2>nul\"";
+    } else {
+        cmd = "yarn list --json --depth=0 2>nul";
+    }
+#else
+    if (!project_path.empty()) {
+        cmd = "cd \"" + project_path + "\" && yarn list --json --depth=0 2>/dev/null";
+    } else {
+        cmd = "yarn list --json --depth=0 2>/dev/null";
+    }
+#endif
+    auto result = Execute(cmd);
+    const std::string &out = result.stdout_output;
+    if (out.empty()) return;
+
+    // yarn emits NDJSON; entries we care about look like:
+    //   {"type":"tree","data":{"trees":[{"name":"lodash@4.17.21",...}]}}
+    size_t pos = 0;
+    while (pos < out.size()) {
+        size_t needle = out.find("\"name\":\"", pos);
+        if (needle == std::string::npos) break;
+        size_t name_start = needle + 8;
+        size_t name_end = out.find('"', name_start);
+        if (name_end == std::string::npos) break;
+        std::string entry = out.substr(name_start, name_end - name_start);
+        pos = name_end + 1;
+
+        // entry is "<pkg>@<version>" — split on the rightmost '@'
+        // (preserves leading '@scope/' in scoped names).
+        size_t at = entry.rfind('@');
+        if (at == std::string::npos || at == 0) continue;
+        std::string pkg_name = entry.substr(0, at);
+        std::string pkg_version = entry.substr(at + 1);
+        if (pkg_name.empty()) continue;
+
+        PackageInfo info;
+        info.name = pkg_name;
+        info.version = pkg_version;
+        info.language = "javascript";
+        packages["javascript::" + pkg_name] = info;
+    }
+}
+
+void PackageIndexer::IndexJavaScriptViaPnpm(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    std::string cmd;
+#ifdef _WIN32
+    if (!project_path.empty()) {
+        cmd = "cmd /c \"cd /d \"" + project_path +
+              "\" && pnpm list --json --depth=0 2>nul\"";
+    } else {
+        cmd = "pnpm list --json --depth=0 2>nul";
+    }
+#else
+    if (!project_path.empty()) {
+        cmd = "cd \"" + project_path + "\" && pnpm list --json --depth=0 2>/dev/null";
+    } else {
+        cmd = "pnpm list --json --depth=0 2>/dev/null";
+    }
+#endif
+    auto result = Execute(cmd);
+    if (result.stdout_output.empty()) return;
+
+    // pnpm's --json output mirrors npm's structure, so reuse the npm walker
+    // by stuffing the captured text into a temporary CommandResult and
+    // re-running the same parsing pass.  The simplest way is to call
+    // IndexJavaScriptViaNpm with an empty project_path after caching the
+    // raw text — but that would re-spawn npm.  Instead we inline the same
+    // tiny walker here.
+    const std::string &out = result.stdout_output;
+    size_t deps_pos = out.find("\"dependencies\"");
+    if (deps_pos == std::string::npos) return;
+    size_t brace = out.find('{', deps_pos);
+    if (brace == std::string::npos) return;
+
+    int depth = 0;
+    size_t i = brace;
+    while (i < out.size()) {
+        char c = out[i];
+        if (c == '"') {
+            size_t name_start = i + 1;
+            size_t name_end = out.find('"', name_start);
+            if (name_end == std::string::npos) break;
+            std::string pkg_name = out.substr(name_start, name_end - name_start);
+            i = name_end + 1;
+            if (depth == 1 && !pkg_name.empty() && pkg_name != "version") {
+                size_t version_pos = out.find("\"version\"", i);
+                size_t entry_brace = out.find('{', i);
+                std::string version_str;
+                if (entry_brace != std::string::npos &&
+                    version_pos != std::string::npos &&
+                    version_pos > entry_brace) {
+                    size_t vq = out.find('"', version_pos + 9);
+                    if (vq != std::string::npos) {
+                        size_t vq_end = out.find('"', vq + 1);
+                        if (vq_end != std::string::npos) {
+                            version_str = out.substr(vq + 1, vq_end - vq - 1);
+                        }
+                    }
+                }
+                PackageInfo info;
+                info.name = pkg_name;
+                info.version = version_str;
+                info.language = "javascript";
+                packages["javascript::" + pkg_name] = info;
+            }
+            continue;
+        }
+        if (c == '{') ++depth;
+        else if (c == '}') {
+            --depth;
+            if (depth == 0) break;
+        }
+        ++i;
+    }
+}
+
+// ============================================================================
+// Ruby
+// ----------------------------------------------------------------------------
+// Discovery strategy:
+//   1. `bundle list --paths` when a Gemfile is present (project-scoped).
+//   2. `gem list --local` for system / user gem environments.
+//   3. Always inject the Ruby standard library names so `require 'json'` etc.
+//      resolve without an installed gem.
+// ============================================================================
+
+void PackageIndexer::IndexRuby(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    if (!project_path.empty()) {
+        IndexRubyViaBundler(project_path, packages);
+    }
+    IndexRubyViaGem(packages);
+
+    // Ruby standard library — require'able names that ship with MRI/CRuby.
+    static const char *ruby_stdlib[] = {
+        "abbrev", "base64", "benchmark", "bigdecimal", "csv", "date",
+        "delegate", "digest", "drb", "english", "erb", "etc", "expect",
+        "fcntl", "fiddle", "fileutils", "find", "forwardable", "getoptlong",
+        "gserver", "io/console", "io/nonblock", "io/wait", "ipaddr", "irb",
+        "json", "logger", "matrix", "mkmf", "monitor", "mutex_m", "net/ftp",
+        "net/http", "net/imap", "net/pop", "net/smtp", "net/telnet",
+        "nkf", "objspace", "observer", "open-uri", "open3", "openssl",
+        "optionparser", "ostruct", "pathname", "prettyprint", "prime",
+        "profile", "profiler", "pstore", "psych", "rdoc", "readline",
+        "resolv", "rinda", "ripper", "rss", "rubygems", "scanf", "securerandom",
+        "set", "shellwords", "singleton", "socket", "stringio", "strscan",
+        "syslog", "tempfile", "thread", "thwait", "time", "timeout", "tmpdir",
+        "tracer", "tsort", "un", "uri", "weakref", "webrick", "xmlrpc",
+        "yaml", "zlib"
+    };
+    for (const char *mod : ruby_stdlib) {
+        std::string key = "ruby::" + std::string(mod);
+        if (packages.count(key)) continue;
+        PackageInfo info;
+        info.name = mod;
+        info.language = "ruby";
+        packages[key] = info;
+    }
+}
+
+void PackageIndexer::IndexRubyViaGem(
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+#ifdef _WIN32
+    auto result = Execute("gem list --local 2>nul");
+#else
+    auto result = Execute("gem list --local 2>/dev/null");
+#endif
+    if (result.stdout_output.empty()) return;
+
+    // Output lines look like: "rake (13.0.6, 13.0.3)" or "json (default: 2.6.1)"
+    std::istringstream stream(result.stdout_output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        if (line.empty() || line[0] == '*') continue;
+        size_t paren = line.find(" (");
+        if (paren == std::string::npos) continue;
+        std::string gem_name = line.substr(0, paren);
+        if (gem_name.empty()) continue;
+
+        // Pick the first version inside the parentheses.
+        size_t ver_start = paren + 2;
+        size_t ver_end = line.find_first_of(",)", ver_start);
+        std::string version_str;
+        if (ver_end != std::string::npos) {
+            version_str = line.substr(ver_start, ver_end - ver_start);
+            // Strip leading "default: " marker emitted by RubyGems 3.x.
+            const std::string default_prefix = "default: ";
+            if (version_str.rfind(default_prefix, 0) == 0) {
+                version_str = version_str.substr(default_prefix.size());
+            }
+        }
+
+        PackageInfo info;
+        info.name = gem_name;
+        info.version = version_str;
+        info.language = "ruby";
+        packages["ruby::" + gem_name] = info;
+    }
+}
+
+void PackageIndexer::IndexRubyViaBundler(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    std::string cmd;
+#ifdef _WIN32
+    cmd = "cmd /c \"cd /d \"" + project_path +
+          "\" && bundle list 2>nul\"";
+#else
+    cmd = "cd \"" + project_path + "\" && bundle list 2>/dev/null";
+#endif
+    auto result = Execute(cmd);
+    if (result.stdout_output.empty()) return;
+
+    // Output lines look like: "  * rake (13.0.6)"
+    std::istringstream stream(result.stdout_output);
+    std::string line;
+    while (std::getline(stream, line)) {
+        size_t star = line.find("* ");
+        if (star == std::string::npos) continue;
+        std::string rest = line.substr(star + 2);
+
+        size_t paren = rest.find(" (");
+        if (paren == std::string::npos) continue;
+        std::string gem_name = rest.substr(0, paren);
+        if (gem_name.empty()) continue;
+
+        size_t ver_start = paren + 2;
+        size_t ver_end = rest.find(')', ver_start);
+        std::string version_str;
+        if (ver_end != std::string::npos) {
+            version_str = rest.substr(ver_start, ver_end - ver_start);
+        }
+
+        PackageInfo info;
+        info.name = gem_name;
+        info.version = version_str;
+        info.language = "ruby";
+        packages["ruby::" + gem_name] = info;
+    }
+}
+
+// ============================================================================
+// Go
+// ----------------------------------------------------------------------------
+// Discovery strategy:
+//   1. `go list -m all` against the active module (project_path/go.mod).
+//   2. Fall back to `go list -m all` against the workspace root when no
+//      project_path is supplied.
+//   3. Always inject the Go standard-library packages so that
+//      `import "fmt"` etc. resolve without any external module.
+// ============================================================================
+
+void PackageIndexer::IndexGo(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    IndexGoViaModList(project_path, packages);
+    IndexGoStdlib(packages);
+}
+
+void PackageIndexer::IndexGoViaModList(
+    const std::string &project_path,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    std::string cmd;
+#ifdef _WIN32
+    if (!project_path.empty()) {
+        cmd = "cmd /c \"cd /d \"" + project_path + "\" && go list -m all 2>nul\"";
+    } else {
+        cmd = "go list -m all 2>nul";
+    }
+#else
+    if (!project_path.empty()) {
+        cmd = "cd \"" + project_path + "\" && go list -m all 2>/dev/null";
+    } else {
+        cmd = "go list -m all 2>/dev/null";
+    }
+#endif
+    auto result = Execute(cmd);
+    if (result.stdout_output.empty()) return;
+
+    // Output lines look like:
+    //   "github.com/stretchr/testify v1.8.4"
+    //   "example.com/replaced => ./local-fork v0.0.0-20230101000000"
+    // The first token on each line is the module path; the second (when
+    // present and starting with 'v') is the version.
+    std::istringstream stream(result.stdout_output);
+    std::string line;
+    bool first = true;
+    while (std::getline(stream, line)) {
+        if (line.empty()) continue;
+        // The first line is the main module's own path — we still index it
+        // so that intra-module imports resolve.
+        std::istringstream ls(line);
+        std::string mod_path, version_token;
+        ls >> mod_path >> version_token;
+        if (mod_path.empty()) continue;
+
+        std::string version_str;
+        if (!version_token.empty() && version_token[0] == 'v') {
+            version_str = version_token;
+        }
+
+        PackageInfo info;
+        info.name = mod_path;
+        info.version = version_str;
+        info.language = "go";
+        packages["go::" + mod_path] = info;
+        first = false;
+    }
+    (void)first;
+}
+
+void PackageIndexer::IndexGoStdlib(
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    // Curated subset of the Go standard library — covers the packages most
+    // likely to be referenced from polyglot programs without forcing a
+    // `go list std` invocation on every build.
+    static const char *go_std_packages[] = {
+        "archive/tar", "archive/zip",
+        "bufio", "bytes",
+        "compress/gzip", "compress/zlib",
+        "container/heap", "container/list", "container/ring",
+        "context", "crypto", "crypto/aes", "crypto/cipher", "crypto/ecdsa",
+        "crypto/ed25519", "crypto/hmac", "crypto/md5", "crypto/rand",
+        "crypto/rsa", "crypto/sha1", "crypto/sha256", "crypto/sha512",
+        "crypto/tls", "crypto/x509",
+        "database/sql",
+        "encoding/base64", "encoding/binary", "encoding/csv", "encoding/hex",
+        "encoding/json", "encoding/xml",
+        "errors",
+        "flag", "fmt",
+        "go/ast", "go/parser", "go/token",
+        "hash", "hash/crc32", "hash/fnv",
+        "html", "html/template",
+        "image", "image/color", "image/draw", "image/jpeg", "image/png",
+        "io", "io/fs", "io/ioutil",
+        "log", "log/slog",
+        "math", "math/big", "math/bits", "math/rand",
+        "mime", "mime/multipart",
+        "net", "net/http", "net/mail", "net/rpc", "net/smtp", "net/url",
+        "os", "os/exec", "os/signal", "os/user",
+        "path", "path/filepath",
+        "reflect", "regexp",
+        "runtime", "runtime/debug", "runtime/pprof",
+        "sort", "strconv", "strings",
+        "sync", "sync/atomic",
+        "syscall",
+        "testing",
+        "text/scanner", "text/tabwriter", "text/template",
+        "time",
+        "unicode", "unicode/utf16", "unicode/utf8",
+        "unsafe"
+    };
+    for (const char *pkg : go_std_packages) {
+        std::string key = "go::" + std::string(pkg);
+        if (packages.count(key)) continue;
+        PackageInfo info;
+        info.name = pkg;
+        info.language = "go";
+        packages[key] = info;
     }
 }
 

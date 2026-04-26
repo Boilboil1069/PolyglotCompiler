@@ -115,6 +115,36 @@ struct DriverSettings {
 
     // Include search paths
     std::vector<std::string> include_paths{"."};
+    std::vector<std::string> system_include_paths{};        // -isystem
+    std::vector<std::string> defines{};                     // -DNAME[=VAL]
+    std::vector<std::string> undefines{};                   // -UNAME
+
+    // Python — user-supplied .pyi stub roots
+    std::vector<std::string> python_stub_paths{};           // --python-stubs
+
+    // Java — classpath (directories + .jar files)
+    std::vector<std::string> classpath{};                   // --classpath / -cp
+
+    // .NET — assembly references
+    std::vector<std::string> dotnet_references{};           // --reference / -r
+
+    // Rust — cargo dir + extern crate mapping
+    std::string rust_crate_dir{};                           // --crate-dir
+    std::vector<std::pair<std::string,std::string>>
+        rust_externs{};                                     // --extern name=path
+
+    // JavaScript / TypeScript — npm / yarn / pnpm project root and
+    // additional `node_modules` roots that the resolver should consult.
+    std::string js_project_dir{};                           // --js-project=<dir>
+    std::vector<std::string> node_modules_paths{};          // --node-modules=<dir>
+
+    // Ruby — Bundler project root + extra gem paths.
+    std::string ruby_project_dir{};                         // --ruby-project=<dir>
+    std::vector<std::string> gem_paths{};                   // --gem-path=<dir>
+
+    // Go — module root + extra GOPATH / module-cache hints.
+    std::string go_project_dir{};                           // --go-project=<dir>
+    std::vector<std::string> go_module_paths{};             // --go-mod-cache=<dir>
 
     // Progress output
     bool progress_json{false};      // --progress=json: emit machine-readable events

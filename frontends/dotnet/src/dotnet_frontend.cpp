@@ -14,6 +14,7 @@
 #include "frontends/dotnet/include/dotnet_parser.h"
 #include "frontends/dotnet/include/dotnet_sema.h"
 #include "frontends/dotnet/include/dotnet_lowering.h"
+#include "frontends/dotnet/include/metadata_reader.h"
 
 namespace polyglot::dotnet {
 
@@ -47,7 +48,7 @@ bool DotnetLanguageFrontend::Analyze(
     const std::string &source,
     const std::string &filename,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     DotnetLexer lexer(source, filename);
     DotnetParser parser(lexer, diagnostics);
@@ -58,7 +59,10 @@ bool DotnetLanguageFrontend::Analyze(
     if (!module) return false;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    DotNetSemaOptions sema_opts;
+    AssemblyLoader loader(options.dotnet_references, diagnostics);
+    if (!loader.empty()) sema_opts.loader = &loader;
+    AnalyzeModule(*module, ctx, sema_opts);
     return !diagnostics.HasErrors();
 }
 
@@ -71,7 +75,7 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
     const std::string &filename,
     ir::IRContext &ir_ctx,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
 
     frontends::FrontendResult result;
 
@@ -83,7 +87,10 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
     if (!module || diagnostics.HasErrors()) return result;
 
     frontends::SemaContext ctx(diagnostics);
-    AnalyzeModule(*module, ctx);
+    DotNetSemaOptions sema_opts;
+    AssemblyLoader loader(options.dotnet_references, diagnostics);
+    if (!loader.empty()) sema_opts.loader = &loader;
+    AnalyzeModule(*module, ctx, sema_opts);
     if (diagnostics.HasErrors()) return result;
 
     LowerToIR(*module, ir_ctx, diagnostics);

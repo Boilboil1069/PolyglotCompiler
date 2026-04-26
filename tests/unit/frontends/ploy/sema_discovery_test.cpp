@@ -514,3 +514,139 @@ TEST_CASE("PackageIndexer progress callback is invoked", "[ploy][discovery][inde
     // At least one progress message should have been emitted
     REQUIRE_FALSE(progress_messages.empty());
 }
+
+// ============================================================================
+// PackageIndexer — newly added languages (JavaScript / Ruby / Go)
+// ============================================================================
+
+TEST_CASE("PackageIndexer indexes JavaScript via yarn output", "[ploy][discovery][indexer][js]") {
+    auto mock = std::make_shared<MockCommandRunner>();
+    // Yarn-style NDJSON.  npm / pnpm walkers look for "dependencies" first
+    // and return early when absent, so only the yarn parser populates here.
+    mock->SetOutput(
+        "{\"type\":\"tree\",\"data\":{\"trees\":["
+        "{\"name\":\"lodash@4.17.21\"},"
+        "{\"name\":\"express@4.18.2\"},"
+        "{\"name\":\"@types/node@20.5.0\"}"
+        "]}}\n");
+
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+    indexer.BuildIndex({"javascript"});
+
+    auto key = PackageDiscoveryCache::MakeKey("javascript", "venv", "");
+    REQUIRE(cache->HasDiscovered(key));
+
+    auto pkgs = cache->Retrieve(key);
+    REQUIRE(pkgs.count("javascript::lodash") == 1);
+    REQUIRE(pkgs["javascript::lodash"].version == "4.17.21");
+    REQUIRE(pkgs.count("javascript::express") == 1);
+    REQUIRE(pkgs["javascript::express"].version == "4.18.2");
+    // scoped package name (`@scope/foo`) — split on rightmost '@' must keep the leading '@'
+    REQUIRE(pkgs.count("javascript::@types/node") == 1);
+    REQUIRE(pkgs["javascript::@types/node"].version == "20.5.0");
+
+    // Node core modules are always injected
+    REQUIRE(pkgs.count("javascript::fs") == 1);
+    REQUIRE(pkgs.count("javascript::path") == 1);
+    REQUIRE(pkgs.count("javascript::http") == 1);
+}
+
+TEST_CASE("PackageIndexer indexes JavaScript via npm JSON output", "[ploy][discovery][indexer][js]") {
+    auto mock = std::make_shared<MockCommandRunner>();
+    mock->SetOutput(
+        "{\"name\":\"app\",\"dependencies\":{"
+        "\"react\":{\"version\":\"18.2.0\"},"
+        "\"axios\":{\"version\":\"1.4.0\"}"
+        "}}\n");
+
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+    indexer.BuildIndex({"js"}); // alias also accepted
+
+    auto key = PackageDiscoveryCache::MakeKey("js", "venv", "");
+    REQUIRE(cache->HasDiscovered(key));
+
+    auto pkgs = cache->Retrieve(key);
+    REQUIRE(pkgs.count("javascript::react") == 1);
+    REQUIRE(pkgs["javascript::react"].version == "18.2.0");
+    REQUIRE(pkgs.count("javascript::axios") == 1);
+    REQUIRE(pkgs["javascript::axios"].version == "1.4.0");
+}
+
+TEST_CASE("PackageIndexer indexes Ruby via gem list output", "[ploy][discovery][indexer][ruby]") {
+    auto mock = std::make_shared<MockCommandRunner>();
+    // `gem list --local` emits lines like `name (version, version, ...)`.
+    // The "default: " prefix occurs for stdlib-bundled gems and must be stripped.
+    mock->SetOutput(
+        "*** LOCAL GEMS ***\n"
+        "\n"
+        "rake (13.0.6)\n"
+        "json (default: 2.6.3)\n"
+        "rails (7.0.4, 6.1.7)\n");
+
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+    indexer.BuildIndex({"ruby"});
+
+    auto key = PackageDiscoveryCache::MakeKey("ruby", "venv", "");
+    REQUIRE(cache->HasDiscovered(key));
+
+    auto pkgs = cache->Retrieve(key);
+    REQUIRE(pkgs.count("ruby::rake") == 1);
+    REQUIRE(pkgs["ruby::rake"].version == "13.0.6");
+    REQUIRE(pkgs.count("ruby::json") == 1); // stdlib injection or gem-list overlap
+    REQUIRE(pkgs.count("ruby::rails") == 1);
+    // First version listed wins
+    REQUIRE(pkgs["ruby::rails"].version == "7.0.4");
+
+    // Stdlib names always present
+    REQUIRE(pkgs.count("ruby::set") == 1);
+    REQUIRE(pkgs.count("ruby::time") == 1);
+}
+
+TEST_CASE("PackageIndexer indexes Go via `go list -m all`", "[ploy][discovery][indexer][go]") {
+    auto mock = std::make_shared<MockCommandRunner>();
+    mock->SetOutput(
+        "github.com/example/app\n"
+        "github.com/gorilla/mux v1.8.0\n"
+        "github.com/stretchr/testify v1.8.4\n"
+        "golang.org/x/sys v0.10.0\n");
+
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+    indexer.BuildIndex({"go"});
+
+    auto key = PackageDiscoveryCache::MakeKey("go", "venv", "");
+    REQUIRE(cache->HasDiscovered(key));
+
+    auto pkgs = cache->Retrieve(key);
+    REQUIRE(pkgs.count("go::github.com/gorilla/mux") == 1);
+    REQUIRE(pkgs["go::github.com/gorilla/mux"].version == "v1.8.0");
+    REQUIRE(pkgs.count("go::github.com/stretchr/testify") == 1);
+    REQUIRE(pkgs.count("go::golang.org/x/sys") == 1);
+
+    // Stdlib paths always injected
+    REQUIRE(pkgs.count("go::fmt") == 1);
+    REQUIRE(pkgs.count("go::net/http") == 1);
+    REQUIRE(pkgs.count("go::encoding/json") == 1);
+}
+
+TEST_CASE("PackageIndexer treats new-language aliases as same family", "[ploy][discovery][indexer]") {
+    auto mock = std::make_shared<MockCommandRunner>();
+    mock->SetOutput("");
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+
+    // typescript -> javascript family, golang -> go family, rb -> ruby family
+    indexer.BuildIndex({"typescript", "golang", "rb"});
+
+    // All three cache keys should be populated even when commands return nothing
+    REQUIRE(cache->HasDiscovered(PackageDiscoveryCache::MakeKey("typescript", "venv", "")));
+    REQUIRE(cache->HasDiscovered(PackageDiscoveryCache::MakeKey("golang",     "venv", "")));
+    REQUIRE(cache->HasDiscovered(PackageDiscoveryCache::MakeKey("rb",         "venv", "")));
+
+    auto stats = indexer.LastStats();
+    REQUIRE(stats.languages_indexed == 3);
+}
+

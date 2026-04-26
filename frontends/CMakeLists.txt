@@ -25,6 +25,7 @@ add_library(frontend_python
     python/src/sema/sema.cpp
     python/src/lowering/lowering.cpp
     python/src/python_frontend.cpp
+    python/src/pyi_loader.cpp
 )
 
 target_include_directories(frontend_python PUBLIC ${CMAKE_SOURCE_DIR})
@@ -73,6 +74,7 @@ add_library(frontend_java
     java/src/sema/sema.cpp
     java/src/lowering/lowering.cpp
     java/src/java_frontend.cpp
+    java/src/class_file_reader.cpp
 )
 
 target_include_directories(frontend_java PUBLIC ${CMAKE_SOURCE_DIR})
@@ -84,6 +86,7 @@ add_library(frontend_dotnet
     dotnet/src/sema/sema.cpp
     dotnet/src/lowering/lowering.cpp
     dotnet/src/dotnet_frontend.cpp
+    dotnet/src/metadata_reader.cpp
 )
 
 target_include_directories(frontend_dotnet PUBLIC ${CMAKE_SOURCE_DIR})

@@ -116,6 +116,27 @@ DriverSettings ParseArgs(int argc, char **argv) {
                 << "  -j<N>               Parallelism hint\n"
                 << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
                 << "\n"
+                << "  --pp-cpp / --no-pp-cpp\n"
+                << "  --pp-rust / --no-pp-rust\n"
+                << "  --pp-python / --no-pp-python\n"
+                << "\n"
+                << "External-package options:\n"
+                << "  -I<path> / --I=<path>     C/C++ user header search path\n"
+                << "  -isystem <path>           C/C++ system header search path\n"
+                << "  -D<name>[=<value>]        Define a C/C++ preprocessor macro\n"
+                << "  -U<name>                  Undefine a C/C++ preprocessor macro\n"
+                << "  --python-stubs=<dir>      Add a directory of .pyi stubs\n"
+                << "  --classpath=<paths> / -cp Java classpath (sep: ; on Windows, : elsewhere)\n"
+                << "  --reference=<dll> / -r    .NET assembly reference (.dll / .exe)\n"
+                << "  --crate-dir=<dir>         Rust cargo project root for cargo metadata\n"
+                << "  --extern <name>=<path>    Rust extern crate mapping\n"
+                << "  --js-project=<dir>        JavaScript/TypeScript project root (npm/yarn/pnpm)\n"
+                << "  --node-modules=<dir>      Additional node_modules root for resolution\n"
+                << "  --ruby-project=<dir>      Ruby Bundler project root\n"
+                << "  --gem-path=<dir>          Additional gem search path (RubyGems)\n"
+                << "  --go-project=<dir>        Go module root (containing go.mod)\n"
+                << "  --go-mod-cache=<dir>      Additional Go module cache root\n"
+                << "\n"
                 << "Source can be a file path or inline code.\n";
             std::exit(0);
         }
@@ -184,6 +205,107 @@ DriverSettings ParseArgs(int argc, char **argv) {
         if (arg == "--no-pp-python"){ s.pp_overrides["python"] = false; continue; }
         if (arg.rfind("--I=", 0) == 0) { s.include_paths.push_back(arg.substr(4)); continue; }
         if (arg == "--I" && i + 1 < argc) { s.include_paths.push_back(argv[++i]); continue; }
+        if (arg.rfind("-I", 0) == 0 && arg.size() > 2) { s.include_paths.push_back(arg.substr(2)); continue; }
+        if (arg == "-I" && i + 1 < argc) { s.include_paths.push_back(argv[++i]); continue; }
+        if (arg == "-isystem" && i + 1 < argc) { s.system_include_paths.push_back(argv[++i]); continue; }
+        if (arg.rfind("-isystem=", 0) == 0) { s.system_include_paths.push_back(arg.substr(9)); continue; }
+        if (arg.rfind("-D", 0) == 0 && arg.size() > 2) { s.defines.push_back(arg.substr(2)); continue; }
+        if (arg == "-D" && i + 1 < argc) { s.defines.push_back(argv[++i]); continue; }
+        if (arg.rfind("-U", 0) == 0 && arg.size() > 2) { s.undefines.push_back(arg.substr(2)); continue; }
+        if (arg == "-U" && i + 1 < argc) { s.undefines.push_back(argv[++i]); continue; }
+        if (arg.rfind("--python-stubs=", 0) == 0) {
+            s.python_stub_paths.push_back(arg.substr(15)); continue;
+        }
+        if (arg == "--python-stubs" && i + 1 < argc) {
+            s.python_stub_paths.push_back(argv[++i]); continue;
+        }
+        if (arg.rfind("--classpath=", 0) == 0 || arg.rfind("-classpath=", 0) == 0) {
+            std::string raw = (arg[1] == '-') ? arg.substr(12) : arg.substr(11);
+#if defined(_WIN32)
+            const char sep = ';';
+#else
+            const char sep = ':';
+#endif
+            std::size_t p = 0;
+            while (p < raw.size()) {
+                auto q = raw.find(sep, p);
+                if (q == std::string::npos) q = raw.size();
+                if (q > p) s.classpath.push_back(raw.substr(p, q - p));
+                p = q + 1;
+            }
+            continue;
+        }
+        if ((arg == "-cp" || arg == "--classpath") && i + 1 < argc) {
+            std::string raw = argv[++i];
+#if defined(_WIN32)
+            const char sep = ';';
+#else
+            const char sep = ':';
+#endif
+            std::size_t p = 0;
+            while (p < raw.size()) {
+                auto q = raw.find(sep, p);
+                if (q == std::string::npos) q = raw.size();
+                if (q > p) s.classpath.push_back(raw.substr(p, q - p));
+                p = q + 1;
+            }
+            continue;
+        }
+        if (arg.rfind("--reference=", 0) == 0) {
+            s.dotnet_references.push_back(arg.substr(12)); continue;
+        }
+        if ((arg == "-r" || arg == "--reference") && i + 1 < argc) {
+            s.dotnet_references.push_back(argv[++i]); continue;
+        }
+        if (arg.rfind("--crate-dir=", 0) == 0) { s.rust_crate_dir = arg.substr(12); continue; }
+        if (arg == "--crate-dir" && i + 1 < argc) { s.rust_crate_dir = argv[++i]; continue; }
+        if (arg == "--extern" && i + 1 < argc) {
+            std::string spec = argv[++i];
+            auto eq = spec.find('=');
+            if (eq != std::string::npos) {
+                s.rust_externs.emplace_back(spec.substr(0, eq), spec.substr(eq + 1));
+            } else {
+                s.rust_externs.emplace_back(spec, std::string{});
+            }
+            continue;
+        }
+        if (arg.rfind("--extern=", 0) == 0) {
+            std::string spec = arg.substr(9);
+            auto eq = spec.find('=');
+            if (eq != std::string::npos) {
+                s.rust_externs.emplace_back(spec.substr(0, eq), spec.substr(eq + 1));
+            } else {
+                s.rust_externs.emplace_back(spec, std::string{});
+            }
+            continue;
+        }
+        // ---------------- JavaScript / TypeScript ----------------
+        if (arg.rfind("--js-project=", 0) == 0) { s.js_project_dir = arg.substr(13); continue; }
+        if (arg == "--js-project" && i + 1 < argc) { s.js_project_dir = argv[++i]; continue; }
+        if (arg.rfind("--node-modules=", 0) == 0) {
+            s.node_modules_paths.push_back(arg.substr(15)); continue;
+        }
+        if (arg == "--node-modules" && i + 1 < argc) {
+            s.node_modules_paths.push_back(argv[++i]); continue;
+        }
+        // ---------------- Ruby ----------------
+        if (arg.rfind("--ruby-project=", 0) == 0) { s.ruby_project_dir = arg.substr(15); continue; }
+        if (arg == "--ruby-project" && i + 1 < argc) { s.ruby_project_dir = argv[++i]; continue; }
+        if (arg.rfind("--gem-path=", 0) == 0) {
+            s.gem_paths.push_back(arg.substr(11)); continue;
+        }
+        if (arg == "--gem-path" && i + 1 < argc) {
+            s.gem_paths.push_back(argv[++i]); continue;
+        }
+        // ---------------- Go ----------------
+        if (arg.rfind("--go-project=", 0) == 0) { s.go_project_dir = arg.substr(13); continue; }
+        if (arg == "--go-project" && i + 1 < argc) { s.go_project_dir = argv[++i]; continue; }
+        if (arg.rfind("--go-mod-cache=", 0) == 0) {
+            s.go_module_paths.push_back(arg.substr(15)); continue;
+        }
+        if (arg == "--go-mod-cache" && i + 1 < argc) {
+            s.go_module_paths.push_back(argv[++i]); continue;
+        }
         if (!source_set) { s.source = arg; source_set = true; continue; }
     }
 

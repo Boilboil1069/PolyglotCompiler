@@ -13,6 +13,18 @@
 
 namespace polyglot::python {
 
+class PyiLoader;
+
+/// Optional inputs that augment the semantic analyser with real `.pyi`
+/// resolution.  When `loader` is null the analyser falls back to its
+/// hard-coded stdlib stub registry (preserved for tests that don't supply
+/// stub paths).
+struct PythonSemaOptions {
+    PyiLoader *loader{nullptr};
+};
+
 void AnalyzeModule(const Module &module, frontends::SemaContext &context);
+void AnalyzeModule(const Module &module, frontends::SemaContext &context,
+                   const PythonSemaOptions &options);
 
 } // namespace polyglot::python

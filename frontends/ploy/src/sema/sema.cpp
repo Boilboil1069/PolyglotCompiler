@@ -1498,7 +1498,11 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
 bool PloySema::IsValidLanguage(const std::string &lang) const {
     return lang == "cpp" || lang == "python" || lang == "rust" ||
            lang == "c" || lang == "ploy" ||
-           lang == "java" || lang == "dotnet" || lang == "csharp";
+           lang == "java" || lang == "dotnet" || lang == "csharp" ||
+           lang == "javascript" || lang == "js" ||
+           lang == "typescript" || lang == "ts" ||
+           lang == "ruby" || lang == "rb" ||
+           lang == "go" || lang == "golang";
 }
 
 bool PloySema::AreTypesCompatible(const core::Type &from, const core::Type &to) const {
