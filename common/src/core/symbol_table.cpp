@@ -14,10 +14,11 @@
 #include "common/include/core/symbols.h"
 
 #include <algorithm>
-#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
+
+#include <fmt/format.h>
 
 namespace polyglot::core {
 
@@ -50,24 +51,34 @@ std::string ScopeKindToString(ScopeKind kind) {
 }
 
 std::string FormatSymbol(const Symbol &sym) {
-  std::ostringstream os;
-  os << SymbolKindToString(sym.kind) << " '" << sym.name << "'";
-  os << " : " << sym.type.ToString();
-  if (!sym.language.empty()) os << " [" << sym.language << "]";
-  if (!sym.access.empty()) os << " (" << sym.access << ")";
-  if (sym.captured) os << " [captured]";
-  if (sym.scope_id >= 0) os << " @scope=" << sym.scope_id;
-  if (!sym.loc.file.empty()) {
-    os << " at " << sym.loc.file << ":" << sym.loc.line << ":" << sym.loc.column;
+  // Use fmt::memory_buffer to compose the diagnostic line in a single
+  // allocation pass instead of repeatedly resizing a std::ostringstream.
+  fmt::memory_buffer buf;
+  fmt::format_to(std::back_inserter(buf), "{} '{}' : {}",
+                 SymbolKindToString(sym.kind), sym.name, sym.type.ToString());
+  if (!sym.language.empty()) {
+    fmt::format_to(std::back_inserter(buf), " [{}]", sym.language);
   }
-  return os.str();
+  if (!sym.access.empty()) {
+    fmt::format_to(std::back_inserter(buf), " ({})", sym.access);
+  }
+  if (sym.captured) {
+    fmt::format_to(std::back_inserter(buf), " [captured]");
+  }
+  if (sym.scope_id >= 0) {
+    fmt::format_to(std::back_inserter(buf), " @scope={}", sym.scope_id);
+  }
+  if (!sym.loc.file.empty()) {
+    fmt::format_to(std::back_inserter(buf), " at {}:{}:{}",
+                   sym.loc.file, sym.loc.line, sym.loc.column);
+  }
+  return fmt::to_string(buf);
 }
 
 std::string FormatScope(const ScopeInfo &scope) {
-  std::ostringstream os;
-  os << ScopeKindToString(scope.kind) << " '" << scope.name << "'";
-  os << " (id=" << scope.id << ", parent=" << scope.parent << ")";
-  return os.str();
+  return fmt::format("{} '{}' (id={}, parent={})",
+                     ScopeKindToString(scope.kind), scope.name,
+                     scope.id, scope.parent);
 }
 
 }  // namespace polyglot::core

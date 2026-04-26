@@ -90,7 +90,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
                 << "Usage: polyc [options] <source-file-or-code>\n"
                 << "\n"
                 << "Options:\n"
-                << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet\n"
+                << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet|javascript|ruby|go\n"
                 << "  -O<0-3>             Optimisation level\n"
                 << "  -o <output>         Output file name\n"
                 << "  --mode=<mode>       compile|assemble|link\n"

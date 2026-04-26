@@ -15,6 +15,9 @@ set(POLYGLOT_ALL_FRONTENDS
     frontend_ploy
     frontend_java
     frontend_dotnet
+    frontend_javascript
+    frontend_ruby
+    frontend_go
 )
 
 set(POLYGLOT_ALL_BACKENDS
@@ -97,6 +100,18 @@ set(UNIT_TEST_FRONTEND_JAVA
 
 set(UNIT_TEST_FRONTEND_DOTNET
     unit/frontends/dotnet/dotnet_test.cpp
+)
+
+set(UNIT_TEST_FRONTEND_JAVASCRIPT
+    unit/frontends/javascript/javascript_test.cpp
+)
+
+set(UNIT_TEST_FRONTEND_RUBY
+    unit/frontends/ruby/ruby_test.cpp
+)
+
+set(UNIT_TEST_FRONTEND_GO
+    unit/frontends/go/go_test.cpp
 )
 
 set(UNIT_TEST_MIDDLE
@@ -200,6 +215,21 @@ add_executable(test_frontend_dotnet ${UNIT_TEST_FRONTEND_DOTNET})
 target_link_libraries(test_frontend_dotnet PRIVATE
     frontend_dotnet ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})
 
+# -- JavaScript frontend -----------------------------------------------------
+add_executable(test_frontend_javascript ${UNIT_TEST_FRONTEND_JAVASCRIPT})
+target_link_libraries(test_frontend_javascript PRIVATE
+    frontend_javascript ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})
+
+# -- Ruby frontend -----------------------------------------------------------
+add_executable(test_frontend_ruby ${UNIT_TEST_FRONTEND_RUBY})
+target_link_libraries(test_frontend_ruby PRIVATE
+    frontend_ruby ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})
+
+# -- Go frontend -------------------------------------------------------------
+add_executable(test_frontend_go ${UNIT_TEST_FRONTEND_GO})
+target_link_libraries(test_frontend_go PRIVATE
+    frontend_go ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})
+
 # -- Middle (IR / optimization) ----------------------------------------------
 add_executable(test_middle ${UNIT_TEST_MIDDLE})
 target_link_libraries(test_middle PRIVATE
@@ -299,6 +329,9 @@ set(ALL_UNIT_TEST_SOURCES
     ${UNIT_TEST_FRONTEND_PLOY}
     ${UNIT_TEST_FRONTEND_JAVA}
     ${UNIT_TEST_FRONTEND_DOTNET}
+    ${UNIT_TEST_FRONTEND_JAVASCRIPT}
+    ${UNIT_TEST_FRONTEND_RUBY}
+    ${UNIT_TEST_FRONTEND_GO}
     ${UNIT_TEST_MIDDLE}
     ${UNIT_TEST_BACKENDS}
     ${UNIT_TEST_RUNTIME}
@@ -355,6 +388,9 @@ add_test(NAME test_frontend_rust     COMMAND test_frontend_rust)
 add_test(NAME test_frontend_ploy     COMMAND test_frontend_ploy)
 add_test(NAME test_frontend_java     COMMAND test_frontend_java)
 add_test(NAME test_frontend_dotnet   COMMAND test_frontend_dotnet)
+add_test(NAME test_frontend_javascript COMMAND test_frontend_javascript)
+add_test(NAME test_frontend_ruby     COMMAND test_frontend_ruby)
+add_test(NAME test_frontend_go       COMMAND test_frontend_go)
 add_test(NAME test_middle            COMMAND test_middle)
 add_test(NAME test_backends          COMMAND test_backends)
 add_test(NAME test_runtime           COMMAND test_runtime)

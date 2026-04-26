@@ -16,6 +16,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <mimalloc.h>
+
 namespace polyglot::runtime::gc {
 namespace {
 
@@ -38,7 +40,8 @@ class IncrementalGC : public GC {
  public:
   void *Allocate(size_t size) override {
     std::lock_guard<std::mutex> lock(mu_);
-    void *mem = std::malloc(size);
+    // Backed by mimalloc.
+    void *mem = mi_malloc(size);
     if (!mem) return nullptr;
 
     blocks_.push_back({mem, size, IBlock::WHITE});
@@ -159,7 +162,7 @@ class IncrementalGC : public GC {
       // Free white and any stray gray objects (gray should not remain)
       current_heap_bytes_ -= blocks_[i].size;
       total_freed_bytes_ += blocks_[i].size;
-      std::free(blocks_[i].ptr);
+      mi_free(blocks_[i].ptr);
       index_.erase(blocks_[i].ptr);
 
       if (i + 1 != blocks_.size()) {

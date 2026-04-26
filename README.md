@@ -19,13 +19,13 @@
 
 ## Overview / 项目概述
 
-PolyglotCompiler is a multi-language compiler that compiles **C++**, **Python**, **Rust**, **Java**, and **C# (.NET)** source code into a unified intermediate representation (IR), and provides cross-language interoperability through the **`.ploy`** domain-specific language. It features its own frontends, optimisation passes, backends targeting x86_64, ARM64, and WebAssembly, and a runtime with garbage collection and FFI support.
+PolyglotCompiler is a multi-language compiler that compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **JavaScript**, **Ruby**, and **Go** source code into a unified intermediate representation (IR), and provides cross-language interoperability through the **`.ploy`** domain-specific language. It features its own frontends, optimisation passes, backends targeting x86_64, ARM64, and WebAssembly, and a runtime with garbage collection and FFI support.
 
-PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、**Rust**、**Java** 和 **C# (.NET)** 源代码编译为统一的中间表示（IR），并通过 **`.ploy`** 领域特定语言实现跨语言互操作。项目拥有自己的前端、优化 Pass、面向 x86_64/ARM64/WebAssembly 的后端，以及包含垃圾回收和 FFI 的运行时系统。
+PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、**Rust**、**Java**、**C# (.NET)**、**JavaScript**、**Ruby** 与 **Go** 源代码编译为统一的中间表示（IR），并通过 **`.ploy`** 领域特定语言实现跨语言互操作。项目拥有自己的前端、优化 Pass、面向 x86_64/ARM64/WebAssembly 的后端，以及包含垃圾回收和 FFI 的运行时系统。
 
 ### Key Features / 核心特性
 
-- **Multi-Frontend Architecture** — Dedicated frontends for C++, Python, Rust, Java, C# (.NET), and `.ploy`, all managed by a unified `FrontendRegistry`
+- **Multi-Frontend Architecture** — Dedicated frontends for C++, Python, Rust, Java, C# (.NET), JavaScript, Ruby, Go and `.ploy`, all managed by a unified `FrontendRegistry`
 - **Shared IR** — All languages compile to a common SSA-form intermediate representation
 - **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
 - **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND` keywords for cross-language class instantiation, method calls, attribute access, and resource management
@@ -306,7 +306,7 @@ PolyglotCompiler/
 │   ├── arm64/          # ARM64 backend (isel, regalloc, asm_printer)
 │   └── wasm/           # WebAssembly backend (wasm_target)
 ├── runtime/            # Runtime: GC (4 algorithms), FFI, marshalling, threading
-│   └── src/libs/       # Language runtimes: python_rt, cpp_rt, rust_rt, java_rt, dotnet_rt
+│   └── src/libs/       # Language runtimes: python_rt, cpp_rt, rust_rt, java_rt, dotnet_rt, javascript_rt, ruby_rt, go_rt
 ├── common/             # Common utilities: type system, symbol table, DWARF5
 ├── tools/              # Compiler driver (polyc), linker (polyld), assembler, IDE (polyui), etc.
 ├── tests/

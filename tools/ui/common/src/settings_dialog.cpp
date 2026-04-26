@@ -234,7 +234,8 @@ QWidget *SettingsDialog::CreateCompilerPage() {
     auto *defaults_group = new QGroupBox("Default Compiler Settings");
     auto *defaults_layout = new QFormLayout(defaults_group);
     default_language_combo_ = new QComboBox();
-    default_language_combo_->addItems({"Ploy", "C++", "Python", "Rust", "Java", "C#"});
+    default_language_combo_->addItems({"Ploy", "C++", "Python", "Rust", "Java", "C#",
+                                       "JavaScript", "Ruby", "Go"});
     defaults_layout->addRow("Default Language:", default_language_combo_);
     default_target_combo_ = new QComboBox();
     default_target_combo_->addItems({"x86_64", "arm64", "wasm"});

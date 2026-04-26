@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <mimalloc.h>
+
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -41,7 +43,7 @@ static std::size_t HashBytes(const void *data, std::size_t size) {
 /// Grow a RuntimeList when capacity is exhausted.
 static void ListGrow(RuntimeList *list) {
     std::size_t new_cap = (list->capacity == 0) ? 8 : list->capacity * 2;
-    void *new_data = std::realloc(list->data, new_cap * list->elem_size);
+    void *new_data = mi_realloc(list->data, new_cap * list->elem_size);
     if (new_data) {
         list->data = new_data;
         list->capacity = new_cap;
@@ -103,7 +105,7 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
     // Layout (and therefore stride) does not depend on capacity, so reuse the
     // already-computed dict->slot_stride.
     std::size_t stride = dict->slot_stride;
-    void *new_slots = std::calloc(new_cap, stride); // calloc â†’ all bytes 0 â†’ all kEmpty
+    void *new_slots = mi_calloc(new_cap, stride); // calloc â†?all bytes 0 â†?all kEmpty
     if (!new_slots) return false;
 
     // Re-insert every live entry from the old slot array.
@@ -132,7 +134,7 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
                 }
             }
         }
-        std::free(dict->slots);
+        mi_free(dict->slots);
     }
 
     dict->slots    = new_slots;
@@ -147,12 +149,12 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
 // ============================================================================
 
 void *__ploy_rt_list_create(std::size_t elem_size, std::size_t initial_capacity) {
-    auto *list = static_cast<RuntimeList *>(std::calloc(1, sizeof(RuntimeList)));
+    auto *list = static_cast<RuntimeList *>(mi_calloc(1, sizeof(RuntimeList)));
     if (!list) return nullptr;
     list->elem_size = elem_size;
     list->capacity = initial_capacity;
     if (initial_capacity > 0) {
-        list->data = std::calloc(initial_capacity, elem_size);
+        list->data = mi_calloc(initial_capacity, elem_size);
     }
     return list;
 }
@@ -183,8 +185,8 @@ std::size_t __ploy_rt_list_len(void *raw) {
 void __ploy_rt_list_free(void *raw) {
     if (!raw) return;
     auto *list = static_cast<RuntimeList *>(raw);
-    std::free(list->data);
-    std::free(list);
+    mi_free(list->data);
+    mi_free(list);
 }
 
 // ============================================================================
@@ -194,10 +196,10 @@ void __ploy_rt_list_free(void *raw) {
 void *__ploy_rt_tuple_create(std::size_t num_elements, const std::size_t *elem_sizes) {
     if (num_elements == 0 || !elem_sizes) return nullptr;
 
-    auto *tuple = static_cast<RuntimeTuple *>(std::calloc(1, sizeof(RuntimeTuple)));
+    auto *tuple = static_cast<RuntimeTuple *>(mi_calloc(1, sizeof(RuntimeTuple)));
     if (!tuple) return nullptr;
     tuple->num_elements = num_elements;
-    tuple->offsets = static_cast<std::size_t *>(std::calloc(num_elements, sizeof(std::size_t)));
+    tuple->offsets = static_cast<std::size_t *>(mi_calloc(num_elements, sizeof(std::size_t)));
 
     // Compute total data size and element offsets with natural alignment
     std::size_t total_size = 0;
@@ -210,7 +212,7 @@ void *__ploy_rt_tuple_create(std::size_t num_elements, const std::size_t *elem_s
         total_size += elem_sizes[i];
     }
 
-    tuple->data = std::calloc(1, total_size);
+    tuple->data = mi_calloc(1, total_size);
     return tuple;
 }
 
@@ -224,9 +226,9 @@ void *__ploy_rt_tuple_get(void *raw, std::size_t index) {
 void __ploy_rt_tuple_free(void *raw) {
     if (!raw) return;
     auto *tuple = static_cast<RuntimeTuple *>(raw);
-    std::free(tuple->offsets);
-    std::free(tuple->data);
-    std::free(tuple);
+    mi_free(tuple->offsets);
+    mi_free(tuple->data);
+    mi_free(tuple);
 }
 
 // ============================================================================
@@ -236,16 +238,16 @@ void __ploy_rt_tuple_free(void *raw) {
 void *__ploy_rt_dict_create(std::size_t key_size, std::size_t value_size) {
     if (key_size == 0 || value_size == 0) return nullptr;
 
-    auto *dict = static_cast<RuntimeDict *>(std::calloc(1, sizeof(RuntimeDict)));
+    auto *dict = static_cast<RuntimeDict *>(mi_calloc(1, sizeof(RuntimeDict)));
     if (!dict) return nullptr;
     dict->key_size   = key_size;
     dict->value_size = value_size;
     DictComputeLayout(dict);
     dict->capacity   = kDictInitialCapacity;
-    // calloc zeros all bytes â†’ all SlotState fields start as kEmpty (== 0).
-    dict->slots = std::calloc(kDictInitialCapacity, dict->slot_stride);
+    // calloc zeros all bytes â†?all SlotState fields start as kEmpty (== 0).
+    dict->slots = mi_calloc(kDictInitialCapacity, dict->slot_stride);
     if (!dict->slots) {
-        std::free(dict);
+        mi_free(dict);
         return nullptr;
     }
     return dict;
@@ -285,7 +287,7 @@ void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
             }
             continue;
         }
-        // kEmpty â€” key not present; use tombstone slot if one was seen, else use this slot.
+        // kEmpty â€?key not present; use tombstone slot if one was seen, else use this slot.
         std::size_t dest = found_tomb ? first_tomb : idx;
         *SlotStatePtr(dict, dest) = SlotState::kOccupied;
         std::memcpy(SlotKeyPtr(dict, dest),   key,   dict->key_size);
@@ -294,7 +296,7 @@ void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
         return;
     }
 
-    // Table is full of tombstones + occupied â€” shouldn't happen with proper
+    // Table is full of tombstones + occupied â€?shouldn't happen with proper
     // rehashing, but handle gracefully by rehashing and retrying once.
     DictRehash(dict, dict->capacity * 2);
     __ploy_rt_dict_insert(raw, key, value);
@@ -327,8 +329,8 @@ std::size_t __ploy_rt_dict_len(void *raw) {
 void __ploy_rt_dict_free(void *raw) {
     if (!raw) return;
     auto *dict = static_cast<RuntimeDict *>(raw);
-    std::free(dict->slots);
-    std::free(dict);
+    mi_free(dict->slots);
+    mi_free(dict);
 }
 
 // ============================================================================
@@ -620,12 +622,12 @@ void *__ploy_rt_convert_list_to_vec(void *list, std::size_t elem_size) {
         std::size_t cap;
     };
 
-    auto *rv = static_cast<RustVecLayout *>(std::calloc(1, sizeof(RustVecLayout)));
+    auto *rv = static_cast<RustVecLayout *>(mi_calloc(1, sizeof(RustVecLayout)));
     if (!rv) return nullptr;
 
     rv->len = rl->count;
     rv->cap = rl->count;
-    rv->ptr = std::malloc(rl->count * elem_size);
+    rv->ptr = mi_malloc(rl->count * elem_size);
     if (rv->ptr && rl->data) {
         std::memcpy(rv->ptr, rl->data, rl->count * elem_size);
     }

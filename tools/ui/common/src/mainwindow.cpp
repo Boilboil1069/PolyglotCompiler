@@ -74,7 +74,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     InitializePlugins();
 
     // Create an initial empty tab using the configured default language.
-    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp", "javascript", "ruby", "go"};
     int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
     if (lang_index < 0 || lang_index >= lang_ids.size()) {
         lang_index = 0;
@@ -92,7 +92,7 @@ MainWindow::~MainWindow() {
 }
 
 // ============================================================================
-// Central Widget — tabbed editor
+// Central Widget �?tabbed editor
 // ============================================================================
 
 void MainWindow::SetupCentralWidget() {
@@ -128,7 +128,7 @@ void MainWindow::SetupCentralWidget() {
 
     vertical_splitter_->addWidget(bottom_tabs_);
 
-    // Set initial sizes — will be adjusted in SetupDockWidgets
+    // Set initial sizes �?will be adjusted in SetupDockWidgets
     main_splitter_->addWidget(vertical_splitter_);
 
     // NOTE: initial sizes are set in SetupDockWidgets() after file_browser_
@@ -138,7 +138,7 @@ void MainWindow::SetupCentralWidget() {
 }
 
 // ============================================================================
-// Dock Widgets — file browser + output panel
+// Dock Widgets �?file browser + output panel
 // ============================================================================
 
 void MainWindow::SetupDockWidgets() {
@@ -426,7 +426,8 @@ void MainWindow::SetupToolBar() {
     main_toolbar_->addWidget(lang_label);
 
     language_combo_ = new QComboBox(main_toolbar_);
-    language_combo_->addItems({"Ploy", "C++", "Python", "Rust", "Java", "C#"});
+    language_combo_->addItems({"Ploy", "C++", "Python", "Rust", "Java", "C#",
+                               "JavaScript", "Ruby", "Go"});
     language_combo_->setCurrentIndex(0);
     language_combo_->setStyleSheet(combo_init_ss);
     main_toolbar_->addWidget(language_combo_);
@@ -643,7 +644,7 @@ void MainWindow::SetupConnections() {
         }
     });
 
-    // Topology panel: bidirectional sync — when edge sync modifies the .ploy
+    // Topology panel: bidirectional sync �?when edge sync modifies the .ploy
     // file, reload and highlight the affected line in the editor.
     connect(topology_panel_, &TopologyPanel::FileContentChanged,
             this, [this](const QString &file_path, int line) {
@@ -697,11 +698,11 @@ void MainWindow::SetupConnections() {
     // File browser
     connect(file_browser_, &FileBrowser::FileActivated, this, &MainWindow::OnFileActivated);
 
-    // File browser — open file from context menu
+    // File browser �?open file from context menu
     connect(file_browser_, &FileBrowser::OpenFileRequested,
             this, &MainWindow::OnFileActivated);
 
-    // File browser — open terminal at a directory
+    // File browser �?open terminal at a directory
     connect(file_browser_, &FileBrowser::OpenTerminalRequested,
             this, [this](const QString &dir) {
         // Create a new terminal tab rooted at the requested directory.
@@ -732,7 +733,7 @@ void MainWindow::SetupConnections() {
                                       vertical_splitter_->height() / 3});
     });
 
-    // File browser — generate topology for a .ploy file
+    // File browser �?generate topology for a .ploy file
     connect(file_browser_, &FileBrowser::GenerateTopologyRequested,
             this, [this](const QString &ploy_path) {
         panel_manager_->ShowPanel("topology");
@@ -740,7 +741,7 @@ void MainWindow::SetupConnections() {
         topology_panel_->LoadFromFile(ploy_path);
     });
 
-    // File browser — create file from template in the selected directory
+    // File browser �?create file from template in the selected directory
     connect(file_browser_, &FileBrowser::NewFromTemplateRequested,
             this, [this](const QString &parent_dir) {
         NewFromTemplateInDir(parent_dir);
@@ -804,7 +805,7 @@ void MainWindow::SetupAnalysisTimer() {
 // ============================================================================
 
 void MainWindow::NewFile() {
-    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp", "javascript", "ruby", "go"};
     int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
     if (lang_index < 0 || lang_index >= lang_ids.size()) {
         lang_index = 0;
@@ -817,7 +818,7 @@ void MainWindow::NewFile() {
 }
 
 // ============================================================================
-// NewFromTemplate — create a new file pre-filled with a language template
+// NewFromTemplate �?create a new file pre-filled with a language template
 // ============================================================================
 
 void MainWindow::NewFromTemplate() {
@@ -831,7 +832,7 @@ void MainWindow::NewFromTemplate() {
     };
 
     static const std::vector<Template> templates = {
-        {"Ploy — Cross-language linker script", "ploy", "ploy",
+        {"Ploy �?Cross-language linker script", "ploy", "ploy",
          "// Cross-language linker script\n"
          "// Link functions from different languages\n"
          "\n"
@@ -848,7 +849,7 @@ void MainWindow::NewFromTemplate() {
          "    RETURN result;\n"
          "}\n"},
 
-        {"C++ — Hello World", "cpp", "cpp",
+        {"C++ �?Hello World", "cpp", "cpp",
          "#include <iostream>\n"
          "\n"
          "int main() {\n"
@@ -856,7 +857,7 @@ void MainWindow::NewFromTemplate() {
          "    return 0;\n"
          "}\n"},
 
-        {"C++ — Class template", "cpp", "hpp",
+        {"C++ �?Class template", "cpp", "hpp",
          "#pragma once\n"
          "\n"
          "#include <string>\n"
@@ -873,7 +874,7 @@ void MainWindow::NewFromTemplate() {
          "    int value_{0};\n"
          "};\n"},
 
-        {"Python — Script", "python", "py",
+        {"Python �?Script", "python", "py",
          "#!/usr/bin/env python3\n"
          "\"\"\"Module docstring.\"\"\"\n"
          "\n"
@@ -886,7 +887,7 @@ void MainWindow::NewFromTemplate() {
          "if __name__ == \"__main__\":\n"
          "    main()\n"},
 
-        {"Python — Class", "python", "py",
+        {"Python �?Class", "python", "py",
          "#!/usr/bin/env python3\n"
          "\"\"\"Module with a sample class.\"\"\"\n"
          "\n"
@@ -904,12 +905,12 @@ void MainWindow::NewFromTemplate() {
          "        \"\"\"Process the data.\"\"\"\n"
          "        return f\"{self.name}: {self.value}\"\n"},
 
-        {"Rust — Hello World", "rust", "rs",
+        {"Rust �?Hello World", "rust", "rs",
          "fn main() {\n"
          "    println!(\"Hello, World!\");\n"
          "}\n"},
 
-        {"Rust — Struct with impl", "rust", "rs",
+        {"Rust �?Struct with impl", "rust", "rs",
          "/// A sample struct.\n"
          "pub struct MyStruct {\n"
          "    name: String,\n"
@@ -934,14 +935,14 @@ void MainWindow::NewFromTemplate() {
          "    s.display();\n"
          "}\n"},
 
-        {"Java — Hello World", "java", "java",
+        {"Java �?Hello World", "java", "java",
          "public class Main {\n"
          "    public static void main(String[] args) {\n"
          "        System.out.println(\"Hello, World!\");\n"
          "    }\n"
          "}\n"},
 
-        {"Java — Class template", "java", "java",
+        {"Java �?Class template", "java", "java",
          "/**\n"
          " * A sample Java class.\n"
          " */\n"
@@ -968,7 +969,7 @@ void MainWindow::NewFromTemplate() {
          "    }\n"
          "}\n"},
 
-        {"C# — Hello World", "csharp", "cs",
+        {"C# �?Hello World", "csharp", "cs",
          "using System;\n"
          "\n"
          "namespace MyApp\n"
@@ -982,7 +983,7 @@ void MainWindow::NewFromTemplate() {
          "    }\n"
          "}\n"},
 
-        {"C# — Class template", "csharp", "cs",
+        {"C# �?Class template", "csharp", "cs",
          "using System;\n"
          "\n"
          "namespace MyApp\n"
@@ -1041,7 +1042,7 @@ void MainWindow::NewFromTemplate() {
 }
 
 // ============================================================================
-// NewFromTemplateInDir — create a template file inside a specific directory
+// NewFromTemplateInDir �?create a template file inside a specific directory
 // ============================================================================
 
 void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
@@ -1054,7 +1055,7 @@ void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
     };
 
     static const std::vector<Template> templates = {
-        {"Ploy — Cross-language linker script", "ploy", "ploy",
+        {"Ploy �?Cross-language linker script", "ploy", "ploy",
          "// Cross-language linker script\n"
          "IMPORT python PACKAGE numpy;\n"
          "\n"
@@ -1064,22 +1065,22 @@ void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
          "    LET result = CALL(cpp, math::add, 1, 2);\n"
          "    RETURN result;\n"
          "}\n"},
-        {"C++ — Hello World", "cpp", "cpp",
+        {"C++ �?Hello World", "cpp", "cpp",
          "#include <iostream>\n\nint main() {\n"
          "    std::cout << \"Hello, World!\" << std::endl;\n"
          "    return 0;\n}\n"},
-        {"Python — Script", "python", "py",
+        {"Python �?Script", "python", "py",
          "#!/usr/bin/env python3\n\"\"\"Module docstring.\"\"\"\n\n\n"
          "def main() -> None:\n    print(\"Hello, World!\")\n\n\n"
          "if __name__ == \"__main__\":\n    main()\n"},
-        {"Rust — Hello World", "rust", "rs",
+        {"Rust �?Hello World", "rust", "rs",
          "fn main() {\n    println!(\"Hello, World!\");\n}\n"},
-        {"Java — Hello World", "java", "java",
+        {"Java �?Hello World", "java", "java",
          "public class Main {\n"
          "    public static void main(String[] args) {\n"
          "        System.out.println(\"Hello, World!\");\n"
          "    }\n}\n"},
-        {"C# — Hello World", "csharp", "cs",
+        {"C# �?Hello World", "csharp", "cs",
          "using System;\n\nclass Program {\n"
          "    static void Main(string[] args) {\n"
          "        Console.WriteLine(\"Hello, World!\");\n"
@@ -1334,7 +1335,7 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
     auto *editor = new CodeEditor();
 
     // Apply editor theme.  Use the current theme's editor colors.
-    // NOTE: Do not set the `color` property via stylesheet — that overrides
+    // NOTE: Do not set the `color` property via stylesheet �?that overrides
     // QSyntaxHighlighter character formats on many Qt builds.  Instead, set
     // the text foreground via QPalette so that the highlighter's per-token
     // setFormat() calls take precedence.
@@ -1419,7 +1420,7 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
             return;
         }
 
-        // Definition not found — show tooltip
+        // Definition not found �?show tooltip
         QToolTip::showText(
             ed->mapToGlobal(ed->cursorRect().topLeft()),
             QString("Definition of '%1' not found").arg(symbol),
@@ -1652,11 +1653,11 @@ void MainWindow::CompileAndRun() {
     editor->SetDiagnostics(result.diagnostics);
 
     if (!result.success) {
-        status_message_->setText("Compilation failed — cannot run");
+        status_message_->setText("Compilation failed �?cannot run");
         return;
     }
 
-    status_message_->setText("Compilation successful — running...");
+    status_message_->setText("Compilation successful �?running...");
     action_stop_->setEnabled(true);
     action_compile_run_->setEnabled(false);
 
@@ -1689,7 +1690,7 @@ void MainWindow::CompileAndRun() {
         output_panel_->AppendOutput(
             "[Note] For interpreted languages, runtime execution is delegated "
             "to the language runtime.");
-        status_message_->setText("Binary not found — check output");
+        status_message_->setText("Binary not found �?check output");
         action_stop_->setEnabled(false);
         action_compile_run_->setEnabled(true);
         return;
@@ -2175,7 +2176,7 @@ void MainWindow::OnTabChanged(int index) {
 }
 
 // ============================================================================
-// Editor Modified — trigger debounced analysis
+// Editor Modified �?trigger debounced analysis
 // ============================================================================
 
 void MainWindow::OnEditorModified() {
@@ -2199,7 +2200,7 @@ void MainWindow::OnCursorPositionChanged() {
 }
 
 // ============================================================================
-// File Browser — file activated
+// File Browser �?file activated
 // ============================================================================
 
 void MainWindow::OnFileActivated(const QString &path) {
@@ -2207,7 +2208,7 @@ void MainWindow::OnFileActivated(const QString &path) {
 }
 
 // ============================================================================
-// Analysis Timer Timeout — run analysis on current editor
+// Analysis Timer Timeout �?run analysis on current editor
 // ============================================================================
 
 void MainWindow::OnAnalysisTimerTimeout() {
@@ -2244,7 +2245,7 @@ void MainWindow::OnAnalysisTimerTimeout() {
 // ============================================================================
 
 void MainWindow::OnLanguageChanged(int index) {
-    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp", "javascript", "ruby", "go"};
     if (index < 0 || index >= lang_ids.size()) return;
 
     QString language = lang_ids[index];
@@ -2290,6 +2291,9 @@ QString MainWindow::LanguageToExtension(const QString &language) const {
     if (language == "rust") return "rs";
     if (language == "java") return "java";
     if (language == "csharp") return "cs";
+    if (language == "javascript") return "js";
+    if (language == "ruby") return "rb";
+    if (language == "go") return "go";
     return "ploy";
 }
 
@@ -2587,7 +2591,7 @@ void MainWindow::ApplyTheme() {
     if (main_splitter_) main_splitter_->setStyleSheet(splitter_ss);
     if (vertical_splitter_) vertical_splitter_->setStyleSheet(splitter_ss);
 
-    // Editors — apply background and selection via stylesheet, text color
+    // Editors �?apply background and selection via stylesheet, text color
     // via QPalette so that QSyntaxHighlighter formats take precedence.
     for (int i = 0; i < editor_tabs_->count(); ++i) {
         if (auto *ed = EditorAt(i)) {
@@ -2618,11 +2622,14 @@ QString MainWindow::DetectLanguage(const QString &filename) const {
     if (ext == "rs") return "rust";
     if (ext == "java") return "java";
     if (ext == "cs") return "csharp";
+    if (ext == "js" || ext == "mjs" || ext == "cjs") return "javascript";
+    if (ext == "rb") return "ruby";
+    if (ext == "go") return "go";
     return "ploy"; // default
 }
 
 void MainWindow::UpdateLanguageCombo(const QString &language) {
-    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp"};
+    static const QStringList lang_ids = {"ploy", "cpp", "python", "rust", "java", "csharp", "javascript", "ruby", "go"};
     int idx = lang_ids.indexOf(language);
     if (idx >= 0) {
         // Block signals to prevent recursive OnLanguageChanged

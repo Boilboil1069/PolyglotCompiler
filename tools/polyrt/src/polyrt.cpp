@@ -25,12 +25,15 @@
 #include <thread>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "common/include/version.h"
 #include "runtime/include/gc/gc_api.h"
 #include "runtime/include/gc/gc_strategy.h"
 #include "runtime/include/gc/heap.h"
 #include "runtime/include/gc/runtime.h"
 #include "runtime/include/libs/base.h"
+#include "runtime/include/memory/polyglot_alloc.h"
 #include "runtime/include/services/advanced_threading.h"
 #include "runtime/include/services/exception.h"
 #include "runtime/include/services/threading.h"
@@ -49,28 +52,25 @@ constexpr const char *kToolName = POLYGLOT_POLYRT_NAME;
 // ============================================================================
 
 std::string FormatBytes(size_t bytes) {
-  const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+  static constexpr const char *kUnits[] = {"B", "KB", "MB", "GB", "TB"};
   int unit_index = 0;
   double size = static_cast<double>(bytes);
   while (size >= 1024.0 && unit_index < 4) {
     size /= 1024.0;
     ++unit_index;
   }
-  std::ostringstream oss;
-  oss << std::fixed << std::setprecision(2) << size << " " << units[unit_index];
-  return oss.str();
+  return fmt::format("{:.2f} {}", size, kUnits[unit_index]);
 }
 
 std::string FormatDuration(std::chrono::microseconds us) {
-  if (us.count() < 1000) {
-    return std::to_string(us.count()) + " us";
+  const auto count = us.count();
+  if (count < 1000) {
+    return fmt::format("{} us", count);
   }
-  if (us.count() < 1000000) {
-    return std::to_string(us.count() / 1000) + "." +
-           std::to_string((us.count() % 1000) / 100) + " ms";
+  if (count < 1000000) {
+    return fmt::format("{}.{} ms", count / 1000, (count % 1000) / 100);
   }
-  return std::to_string(us.count() / 1000000) + "." +
-         std::to_string((us.count() % 1000000) / 100000) + " s";
+  return fmt::format("{}.{} s", count / 1000000, (count % 1000000) / 100000);
 }
 
 std::string GCStrategyToString(runtime::gc::Strategy strategy) {
@@ -995,7 +995,15 @@ int CmdInfo(int argc, char **argv) {
     std::cout << "|    Max Pool Size:      256 threads                            |\n";
     std::cout << "|                                                              |\n";
     std::cout << "|  Memory Configuration                                        |\n";
-    std::cout << "|    Allocator:          mimalloc                               |\n";
+    {
+      // Show the live mimalloc version reported by the runtime so operators
+      // can verify the high-performance allocator is wired in correctly.
+      std::ostringstream alloc_line;
+      alloc_line << "    Allocator:          "
+                 << polyglot_allocator_name() << " "
+                 << polyglot_allocator_version();
+      std::cout << "|" << std::left << std::setw(62) << alloc_line.str() << "|\n";
+    }
     std::cout << "|    Large Object:       >= 8 KB                                |\n";
     std::cout << "|                                                              |\n";
     std::cout << "+--------------------------------------------------------------+\n";

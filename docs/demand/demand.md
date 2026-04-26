@@ -1422,3 +1422,62 @@ geninfo: ERROR: Unexpected negative count '-31165' for /home/runner/work/Polyglo
 Error: Process completed with exit code 1.
 
 --end -done
+
+2026-04-26-01
+
+前端增加更多语言：js，Ruby，Go三种语言。
+
+--end -done
+
+2026-04-26-02
+
+1.mimalloc 被声明但从未被任何目标链接或 #include（孤儿依赖），需要改为真正使用这个高性能库。
+2.fmt 同样是声明而未被使用，需要真正使用 fmt 替换 std::ostringstream/printf
+
+--end -done
+
+2026-04-26-03
+
+背景：经过对全项目代码的审查，发现 polyc 在编译用户源码时，对各语言里 `import / #include / use / using` 等"外部包引用"语句目前只做到"语法识别 + 占位符号登记"，并未真正从外部包加载符号声明，也未把外部包的实现链接进最终产物。本次需求要求把"外部包消费"这条链路真正打通，使 polyc 编译出的程序能够引用并链接真实的第三方库。具体要求如下：
+
+1.C++ 前端：把 `frontends/common/src/preprocessor.cpp`（已具备 `Define / AddIncludePath / SetIncludePaths / #if 条件求值` 等能力）真正接到 C++ 前端的 token 流上，替换现有 `parser.cpp` 中"直接跳过 kPreprocessor 整行"的逻辑，实现 `#include "x.h"`、`#include <vector>`、`#define`、`#ifdef` 等指令的真实展开；支持通过 polyc CLI 的 `--I=<path>` 注入头文件搜索路径，并新增 `-isystem <path>`、`-D<name>[=<value>]`、`-U<name>` 三类选项。
+
+2.Python 前端：把 `frontends/python/src/sema/sema.cpp` 中的 `BuiltinModuleExports()` 硬编码表替换为基于 `.pyi` 存根的真实类型加载器；至少支持读取 typeshed（标准库存根）与用户通过 `--python-stubs=<dir>` 提供的第三方包存根；对于在已发现的 site-packages 中找到的 `.pyi`/`__init__.pyi`，自动加入搜索路径。Lowering 阶段对非内置模块的导入应生成可被运行时实际解析的调用，而不是裸 `__py_import_from` 占位。
+
+3.Java 前端：实现完整可用的 `.class` / `.jar` 元数据读取器（解析常量池、方法表、字段表、签名属性），让 `import java.util.List;` 能够把真实类型与方法签名引入符号表；polyc 新增 `--classpath=<paths>` / `-cp <paths>` CLI，多个路径用平台分隔符。`module-info.class` 也应被读取以提供模块级可见性信息。
+
+4 .NET 前端：实现 ECMA-335 metadata 读取器（至少读取 `#Strings`、`#US`、`#GUID`、`#Blob` 堆与 `TypeDef`、`MethodDef`、`MemberRef`、`AssemblyRef` 表），让 `using System.Collections.Generic;` 能将 `List<T>` 等真实类型/方法引入符号表；polyc 新增 `--reference=<dll>` / `-r <dll>` CLI，可指定多个程序集；自动从 `dotnet --list-runtimes` 给出的路径与 NuGet 全局缓存中查找。
+
+5.Rust 前端：补齐 `cargo metadata --format-version 1` 调用并把结果写入 `PackageIndexer`；对 `use ::crate_name::...` 路径，从 `target/<profile>/deps/*.rmeta` 与 `cargo metadata` 给出的 manifest_path 解析依赖图，按 crate 名注入符号表；polyc 新增 `--crate-dir=<dir>` 与 `--extern <name>=<path>` CLI。
+
+6.Ploy 包发现层：补齐 `PackageIndexer` 缺失的 cargo 实现，与 Python/Java/.NET/已有逻辑保持同样的"manager + 路径 + 缓存 key"三元组结构；并把 `PackageInfo` 中收集到的 `location/version` 真正下发到 lowering 阶段，使 `IMPORT python PACKAGE numpy::(array, mean);` 等语法不仅在 sema 通过校验，还能在 IR 中产生引用真实包符号的调用。
+
+7.链接器与运行时：扩展 `polyld` 与 `runtime/src/libs/*_rt.c`，对各前端在 lowering 中产生的"外部包符号引用"在加载阶段通过 dlopen/LoadLibrary + dlsym/GetProcAddress 真正解析；为每种语言提供对应的 ABI 适配桥（Python 走 CPython C-API、Java 走 JNI、.NET 走 hostfxr/CoreCLR、Rust 走 C ABI cdylib、C++ 走系统 ABI）。当宿主机缺失对应运行时（如未装 Python）时，polyc 应给出明确的诊断而非崩溃。
+
+8.polyc CLI 统一：在 `tools/polyc/src/driver.cpp` 中加入第 1–5 条提到的 CLI 选项，并在 `--help` 中归类显示；同步更新 `tools/polyc/include/compilation_pipeline.h` 与 `stage_frontend.cpp / stage_semantic.cpp` 的 `Settings` 结构。
+
+9.测试：为 1–7 中每一项都增加端到端测试，放在 `tests/integration/external_packages/`，覆盖：
+  - `cpp/include_real_header.cpp` — 真正消费一个项目内放置的 `.h` 头文件。
+  - `python/import_numpy_stub.py` — 通过用户提供的 `.pyi` 存根消费一个伪 `numpy.array` 签名。
+  - `java/import_jar_class.java` — 通过 `--classpath` 消费一个由测试夹具生成的最小 `.jar`。
+  - `dotnet/use_dll_reference.cs` — 通过 `--reference` 消费一个最小 `.dll`。
+  - `rust/use_extern_crate.rs` — 通过 `--extern` 消费一个最小 rmeta。
+  - `ploy/package_real_call.ploy` — 让 ploy 的 PACKAGE 导入真正落到上述五种之一的 lowering。
+  每个测试都要求"不依赖网络、不依赖宿主机已装第三方运行时"，所有夹具放在 `tests/fixtures/external_packages/` 下并随仓库提交。
+
+10.文档：同步更新 `docs/USER_GUIDE.md`、`docs/USER_GUIDE_zh.md`、`docs/specs/ploy_language_spec*.md`、`docs/realization/` 下相关实现文档与 `README.md`。新增 `docs/realization/external_packages.md` / `docs/realization/external_packages_zh.md` 中英双份，详细说明各语言的查找顺序、CLI 选项、ABI 桥接细节与故障诊断。
+
+11.约束：
+  - 不允许最小实现/占位；
+  - C++ 代码注释一律英文；
+  - 全程保持与现有项目风格一致；
+  - 现有的所有单元/集成/基准测试必须仍然通过；
+  - 完成后在本条目末尾追加 `--end -done` 完成标记。
+
+--end
+
+2026-04-26-04
+
+为什么runtime中Python/C++/Rust 是轻量包装，而不是完整实现呢？请帮我修改成完整的实现。
+
+--end

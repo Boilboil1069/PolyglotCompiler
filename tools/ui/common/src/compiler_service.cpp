@@ -126,7 +126,8 @@ static std::string ClassifyToken(frontends::TokenKind kind, const std::string &l
                 "Vec", "Box", "Option", "Result", "Some", "None", "Ok", "Err",
                 // Ploy language qualifiers — the language names that appear
                 // as namespace prefixes in LINK / IMPORT / CALL expressions
-                "cpp", "python", "rust", "java", "csharp", "dotnet"
+                "cpp", "python", "rust", "java", "csharp", "dotnet",
+                "javascript", "ruby", "go"
             };
             if (type_names.count(lexeme)) return "type";
             if (builtins.count(lexeme)) return "builtin";
@@ -351,6 +352,32 @@ std::vector<CompletionItem> CompilerService::Complete(
           "switch", "this", "throw", "true", "try", "typeof",
           "uint", "ulong", "unchecked", "unsafe", "ushort", "using",
           "var", "virtual", "void", "volatile", "while", "async", "await"}},
+        {"javascript",
+         {"async", "await", "break", "case", "catch", "class", "const",
+          "continue", "debugger", "default", "delete", "do", "else",
+          "export", "extends", "false", "finally", "for", "function",
+          "if", "import", "in", "instanceof", "let", "new", "null",
+          "of", "return", "static", "super", "switch", "this", "throw",
+          "true", "try", "typeof", "undefined", "var", "void", "while",
+          "with", "yield", "console", "Math", "JSON", "Promise"}},
+        {"ruby",
+         {"BEGIN", "END", "alias", "and", "begin", "break", "case",
+          "class", "def", "defined?", "do", "else", "elsif", "end",
+          "ensure", "false", "for", "if", "in", "module", "next",
+          "nil", "not", "or", "redo", "rescue", "retry", "return",
+          "self", "super", "then", "true", "undef", "unless", "until",
+          "when", "while", "yield", "puts", "require", "attr_accessor",
+          "attr_reader", "attr_writer"}},
+        {"go",
+         {"break", "case", "chan", "const", "continue", "default",
+          "defer", "else", "fallthrough", "for", "func", "go", "goto",
+          "if", "import", "interface", "map", "package", "range",
+          "return", "select", "struct", "switch", "type", "var",
+          "true", "false", "nil", "iota", "int", "int8", "int16",
+          "int32", "int64", "uint", "uint8", "uint16", "uint32",
+          "uint64", "float32", "float64", "string", "bool", "byte",
+          "rune", "error", "make", "new", "len", "cap", "append",
+          "copy", "delete", "panic", "recover", "fmt"}},
     };
 
     std::vector<CompletionItem> result;
@@ -698,6 +725,61 @@ void CompilerService::IndexWorkspaceFile(const std::string &path,
                          m[1].str() + "(...)"});
                 }
             }
+        } else if (language == "javascript") {
+            std::string trimmed = line_text.substr(first);
+            static const std::regex fn_re(
+                R"((?:async\s+)?function\s+(\w+)\s*\()");
+            static const std::regex cls_re(R"(class\s+(\w+))");
+            static const std::regex var_re(
+                R"((?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?(?:function|\([^)]*\)\s*=>))");
+            std::smatch m;
+            if (std::regex_search(trimmed, m, fn_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "function", language,
+                     "function " + m[1].str()});
+            } else if (std::regex_search(trimmed, m, cls_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "type", language,
+                     "class " + m[1].str()});
+            } else if (std::regex_search(trimmed, m, var_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "function", language,
+                     m[1].str() + "(...)"});
+            }
+        } else if (language == "ruby") {
+            std::string trimmed = line_text.substr(first);
+            static const std::regex def_re(R"(def\s+(?:self\.)?(\w+))");
+            static const std::regex cls_re(R"(class\s+(\w+))");
+            static const std::regex mod_re(R"(module\s+(\w+))");
+            std::smatch m;
+            if (std::regex_search(trimmed, m, def_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "function", language,
+                     "def " + m[1].str()});
+            } else if (std::regex_search(trimmed, m, cls_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "type", language,
+                     "class " + m[1].str()});
+            } else if (std::regex_search(trimmed, m, mod_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "type", language,
+                     "module " + m[1].str()});
+            }
+        } else if (language == "go") {
+            std::string trimmed = line_text.substr(first);
+            static const std::regex fn_re(
+                R"(func\s+(?:\([^)]*\)\s+)?(\w+)\s*\()");
+            static const std::regex type_re(R"(type\s+(\w+)\s+)");
+            std::smatch m;
+            if (std::regex_search(trimmed, m, fn_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "function", language,
+                     "func " + m[1].str()});
+            } else if (std::regex_search(trimmed, m, type_re)) {
+                workspace_index_[m[1].str()].push_back(
+                    {m[1].str(), path, line_num, "type", language,
+                     "type " + m[1].str()});
+            }
         }
     }
 
@@ -753,6 +835,14 @@ CompilerService::DefinitionLocation CompilerService::FindDefinition(
         def_patterns = {"fn " + symbol, "struct " + symbol, "enum " + symbol};
     } else if (language == "java" || language == "csharp") {
         def_patterns = {"class " + symbol};
+    } else if (language == "javascript") {
+        def_patterns = {"function " + symbol, "class " + symbol,
+                        "const " + symbol, "let " + symbol, "var " + symbol};
+    } else if (language == "ruby") {
+        def_patterns = {"def " + symbol, "class " + symbol, "module " + symbol};
+    } else if (language == "go") {
+        def_patterns = {"func " + symbol, "type " + symbol,
+                        "var " + symbol, "const " + symbol};
     }
 
     while (std::getline(stream, line_text)) {

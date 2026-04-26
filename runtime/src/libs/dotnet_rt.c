@@ -4,6 +4,7 @@
 
 #include "runtime/include/libs/base.h"
 #include "runtime/include/libs/dotnet_rt.h"
+#include "runtime/include/memory/polyglot_alloc.h"
 
 // ============================================================================
 // .NET Runtime Bridge
@@ -307,7 +308,7 @@ void *polyglot_dotnet_call_method(void *object,
         return NULL;
 
     // Build an extended args array with the object handle as the first element.
-    const void **ext_args = (const void **)malloc((size_t)(arg_count + 1) * sizeof(void *));
+    const void **ext_args = (const void **)polyglot_raw_malloc((size_t)(arg_count + 1) * sizeof(void *));
     if (!ext_args) return NULL;
     ext_args[0] = object;
     for (int i = 0; i < arg_count; ++i) {
@@ -327,7 +328,7 @@ void *polyglot_dotnet_call_method(void *object,
         result = method((const void *const *)ext_args, arg_count + 1);
     }
 
-    free(ext_args);
+    polyglot_raw_free(ext_args);
     return result;
 }
 

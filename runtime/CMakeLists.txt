@@ -24,6 +24,10 @@ add_library(runtime
     src/libs/rust_rt.c
     src/libs/java_rt.c
     src/libs/dotnet_rt.c
+    src/libs/go_rt.c
+    src/libs/javascript_rt.c
+    src/libs/ruby_rt.c
+    src/memory/polyglot_alloc.cpp
     src/services/exception.cpp
     src/services/reflection.cpp
     src/services/threading.cpp
@@ -33,7 +37,12 @@ target_include_directories(runtime PUBLIC
     ${CMAKE_SOURCE_DIR}
 )
 
+# mimalloc-static is exposed PUBLIC so any executable that links `runtime`
+# (polyrt, polyc, tests) automatically picks up mi_malloc / mi_free symbols
+# even when the runtime library is built as a shared object.
 target_link_libraries(runtime PUBLIC
     ${CMAKE_DL_LIBS}
     Threads::Threads
+    mimalloc-static
+    fmt::fmt-header-only
 )

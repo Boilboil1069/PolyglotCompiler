@@ -1,7 +1,7 @@
 # PolyglotCompiler Complete Guide
 
 > A fully-featured multi-language compiler project  
-> Supports C++, Python, Rust, Java, C# (.NET) → x86_64/ARM64/WebAssembly  
+> Supports C++, Python, Rust, Java, C# (.NET), JavaScript, Ruby, Go → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
 **Version**: v1.0.0  
@@ -165,7 +165,7 @@ EXPORT inference AS "run_inference";
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              Source Code                                    │
-│             C++ / Python / Rust / Java / C# (.NET) / .ploy                  │
+│             C++ / Python / Rust / Java / C# (.NET) / JavaScript / Ruby / Go / .ploy                  │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │
      ┌──────────┬──────────┬──────────┼──────────┬──────────┐
@@ -218,7 +218,7 @@ EXPORT inference AS "run_inference";
 - Each frontend independently implements the complete Lexer → Parser → Sema → Lowering pipeline
 - All frontends are registered with a central **FrontendRegistry** using the `ILanguageFrontend` interface, enabling unified dispatch from CLI, IDE, tests, and plugins
 - The `.ploy` frontend is unique in that its IR is consumed by the PolyglotLinker, generating cross-language glue code
-- Six frontends: C++, Python, Rust, Java, .NET (C#), and .ploy
+- Nine frontends: C++, Python, Rust, Java, .NET (C#), JavaScript, Ruby, Go, and .ploy
 
 ## 3.2 Directory Structure
 
@@ -277,7 +277,7 @@ PolyglotCompiler/
 │   └── src/
 │       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
 │       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c
+│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c, javascript_rt.c, ruby_rt.c, go_rt.c
 │       └── services/       #   exception, reflection, threading
 ├── common/                 # Project-wide common facilities
 │   ├── include/
@@ -1432,7 +1432,7 @@ polyc [options] <input_file>
 
 | Option | Description |
 |--------|-------------|
-| `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | Source language (auto-detected from extension if omitted) |
+| `--lang=<cpp\|python\|rust\|java\|dotnet\|javascript\|ruby\|go\|ploy>` | Source language (auto-detected from extension if omitted) |
 | `--arch=<x86_64\|arm64\|wasm>` | Target architecture (default: host-detected — `arm64` on Apple Silicon / AArch64, `x86_64` otherwise) |
 | `-O<0\|1\|2\|3>` | Optimisation level |
 | `--emit-ir=<file>` | Output IR text |

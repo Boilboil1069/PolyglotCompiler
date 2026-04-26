@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <mimalloc.h>
+
 namespace polyglot::runtime::gc {
 namespace {
 
@@ -36,16 +38,18 @@ struct ObjectHeader {
 class CopyingGC : public GC {
  public:
   CopyingGC() {
-    from_space_ = std::malloc(kSemiSpaceSize);
-    to_space_ = std::malloc(kSemiSpaceSize);
+    // Both semi-spaces are reserved through mimalloc so collector turnover
+    // benefits from the same allocator as the rest of the runtime.
+    from_space_ = mi_malloc(kSemiSpaceSize);
+    to_space_ = mi_malloc(kSemiSpaceSize);
     from_ptr_ = static_cast<char *>(from_space_);
     from_limit_ = from_ptr_ + kSemiSpaceSize;
     to_ptr_ = static_cast<char *>(to_space_);
   }
 
   ~CopyingGC() override {
-    std::free(from_space_);
-    std::free(to_space_);
+    mi_free(from_space_);
+    mi_free(to_space_);
   }
 
   void *Allocate(size_t size) override {

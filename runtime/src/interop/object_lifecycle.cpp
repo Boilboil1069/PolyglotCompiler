@@ -14,6 +14,8 @@
 #include <shared_mutex>
 #include <vector>
 
+#include <mimalloc.h>
+
 #include "runtime/include/interop/container_marshal.h"
 #include "runtime/include/interop/memory.h"
 #include "runtime/include/libs/base.h"
@@ -188,14 +190,14 @@ void *__ploy_rt_convert_tuple(void *tuple) {
     std::size_t n = src->num_elements;
     if (n == 0) return __ploy_rt_tuple_create(0, nullptr);
 
-    auto *elem_sizes = static_cast<std::size_t *>(std::calloc(n, sizeof(std::size_t)));
+    auto *elem_sizes = static_cast<std::size_t *>(mi_calloc(n, sizeof(std::size_t)));
     if (!elem_sizes) return nullptr;
 
     for (std::size_t i = 0; i < n; ++i) {
         if (i + 1 < n) {
             elem_sizes[i] = src->offsets[i + 1] - src->offsets[i];
         } else {
-            // Last element: estimate from total allocation — not perfectly knowable
+            // Last element: estimate from total allocation �?not perfectly knowable
             // without explicit metadata.  Use 8 bytes as a safe upper bound.
             elem_sizes[i] = 8;
         }
@@ -212,7 +214,7 @@ void *__ploy_rt_convert_tuple(void *tuple) {
         }
     }
 
-    std::free(elem_sizes);
+    mi_free(elem_sizes);
     return dst;
 }
 
@@ -253,7 +255,7 @@ void *__ploy_rt_convert_struct(void *src) {
 
     // The total_size field itself is part of the allocation.
     std::size_t alloc_size = sizeof(std::size_t) + total_size;
-    void *dst = std::calloc(1, alloc_size);
+    void *dst = mi_calloc(1, alloc_size);
     if (!dst) return nullptr;
 
     std::memcpy(dst, src, alloc_size);

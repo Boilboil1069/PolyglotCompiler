@@ -25,6 +25,9 @@ target_link_libraries(polyc_lib PUBLIC
     frontend_ploy
     frontend_java
     frontend_dotnet
+    frontend_javascript
+    frontend_ruby
+    frontend_go
     backend_x86_64
     backend_arm64
     backend_wasm
@@ -125,6 +128,9 @@ target_link_libraries(polybench
     frontend_ploy
     frontend_java
     frontend_dotnet
+    frontend_javascript
+    frontend_ruby
+    frontend_go
     backend_x86_64
     backend_arm64
     backend_wasm
@@ -288,7 +294,6 @@ if(Qt6_FOUND OR Qt5_FOUND)
         message(STATUS "Qt6 found — building polyui (IDE) [platform main: ${POLYUI_PLATFORM_MAIN}]")
     else()
         set(QT_LIB Qt5::Widgets)
-        message(STATUS "Qt5 found — building polyui (IDE) [platform main: ${POLYUI_PLATFORM_MAIN}]")
     endif()
 
     target_link_libraries(polyui
@@ -299,6 +304,9 @@ if(Qt6_FOUND OR Qt5_FOUND)
         frontend_ploy
         frontend_java
         frontend_dotnet
+        frontend_javascript
+        frontend_ruby
+        frontend_go
         backend_x86_64
         backend_arm64
         backend_wasm
@@ -340,15 +348,11 @@ if(Qt6_FOUND OR Qt5_FOUND)
     if(APPLE)
         set_target_properties(polyui PROPERTIES
             MACOSX_BUNDLE TRUE
-            MACOSX_BUNDLE_BUNDLE_NAME "${PROJECT_NAME} IDE"
-            MACOSX_BUNDLE_GUI_IDENTIFIER "org.polyglotcompiler.polyui"
-            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         )
-
         set(_POLYUI_DYLIB_TARGETS
             frontend_python frontend_cpp frontend_rust frontend_ploy
             frontend_java frontend_dotnet frontend_common
+            frontend_javascript frontend_ruby frontend_go
             backend_x86_64 backend_arm64 backend_wasm
             middle_ir runtime polyglot_common linker_lib topo_lib
         )

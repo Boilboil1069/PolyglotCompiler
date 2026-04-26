@@ -1,7 +1,7 @@
 # PolyglotCompiler 用户指南
 
 > 一个功能完整的多语言编译器项目  
-> 支持 C++、Python、Rust、Java、C# (.NET) → x86_64/ARM64/WebAssembly  
+> 支持 C++、Python、Rust、Java、C# (.NET)、JavaScript、Ruby、Go → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
 **版本**: v1.0.0  
@@ -36,7 +36,7 @@ PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端
 
 **核心目标：**
 
-- ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#) 的完整编译前端
+- ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#)、JavaScript、Ruby、Go 的完整编译前端
 - ✅ **三重后端架构**: x86_64 (SSE/AVX)、ARM64 (NEON)、WebAssembly 后端
 - ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）、IDE（polyui）
 - ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
@@ -276,7 +276,7 @@ PolyglotCompiler/
 │   └── src/
 │       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
 │       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c
+│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c, javascript_rt.c, ruby_rt.c, go_rt.c
 │       └── services/       #   exception, reflection, threading
 ├── common/                 # 项目公共设施
 │   ├── include/
@@ -1420,7 +1420,7 @@ polyc [选项] <输入文件>
 
 | 选项 | 说明 |
 |------|------|
-| `--lang=<cpp\|python\|rust\|java\|dotnet\|ploy>` | 源语言（省略时根据扩展名自动检测） |
+| `--lang=<cpp\|python\|rust\|java\|dotnet\|javascript\|ruby\|go\|ploy>` | 源语言（省略时根据扩展名自动检测） |
 | `--arch=<x86_64\|arm64\|wasm>` | 目标架构（默认：宿主检测 — Apple Silicon / AArch64 为 `arm64`，其他为 `x86_64`） |
 | `-O<0\|1\|2\|3>` | 优化级别 |
 | `--emit-ir=<文件>` | 输出 IR 文本 |

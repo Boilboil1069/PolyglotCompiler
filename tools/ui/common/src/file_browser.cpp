@@ -69,7 +69,7 @@ void FileBrowser::SetupUi() {
     // Filter out build artifacts by default
     QStringList name_filters;
     name_filters << "*.cpp" << "*.h" << "*.hpp" << "*.c" << "*.cc"
-                 << "*.py" << "*.rs" << "*.java" << "*.cs"
+                 << "*.py" << "*.rs" << "*.java" << "*.cs" << "*.js" << "*.mjs" << "*.cjs" << "*.rb" << "*.go"
                  << "*.ploy" << "*.cmake" << "CMakeLists.txt"
                  << "*.json" << "*.yml" << "*.yaml" << "*.md"
                  << "*.txt" << "*.sh" << "*.ps1" << "*.bat"
@@ -85,7 +85,7 @@ void FileBrowser::SetupUi() {
     tree_view_->setSortingEnabled(true);
     tree_view_->sortByColumn(0, Qt::AscendingOrder);
 
-    // Hide size, type, date columns â€” only show name
+    // Hide size, type, date columns â€?only show name
     tree_view_->hideColumn(1);
     tree_view_->hideColumn(2);
     tree_view_->hideColumn(3);
@@ -227,7 +227,7 @@ void FileBrowser::OnFilterTextChanged(const QString &text) {
         // Restore default filters
         QStringList name_filters;
         name_filters << "*.cpp" << "*.h" << "*.hpp" << "*.c" << "*.cc"
-                     << "*.py" << "*.rs" << "*.java" << "*.cs"
+                     << "*.py" << "*.rs" << "*.java" << "*.cs" << "*.js" << "*.mjs" << "*.cjs" << "*.rb" << "*.go"
                      << "*.ploy" << "*.cmake" << "CMakeLists.txt"
                      << "*.json" << "*.yml" << "*.yaml" << "*.md"
                      << "*.txt" << "*.sh" << "*.ps1" << "*.bat";

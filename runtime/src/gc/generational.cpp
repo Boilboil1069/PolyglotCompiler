@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include <mimalloc.h>
+
 namespace polyglot::runtime::gc {
 namespace {
 
@@ -34,7 +36,8 @@ class GenerationalGC : public GC {
  public:
   void *Allocate(size_t size) override {
     std::lock_guard<std::mutex> lock(mu_);
-    void *mem = std::malloc(size);
+    // Backed by mimalloc.
+    void *mem = mi_malloc(size);
     if (!mem) return nullptr;
     young_.push_back({mem, size, false, 0});
     young_index_[mem] = young_.size() - 1;
@@ -125,7 +128,7 @@ class GenerationalGC : public GC {
       }
       current_heap_bytes_ -= gen[i].size;
       total_freed_bytes_ += gen[i].size;
-      std::free(gen[i].ptr);
+      mi_free(gen[i].ptr);
       index.erase(gen[i].ptr);
       if (i + 1 != gen.size()) {
         gen[i] = gen.back();

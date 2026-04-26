@@ -12,7 +12,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <cstdlib>
-#include <sstream>
 #elif defined(__APPLE__) || (defined(__linux__) && defined(__GLIBC__))
 // execinfo.h is available on macOS and glibc-based Linux distributions.
 // musl-based systems (e.g. Alpine Linux) do not provide it.
@@ -23,7 +22,8 @@
 // Fallback: no backtrace support on this platform.
 #include <cstdlib>
 #endif
-#include <sstream>
+
+#include <fmt/format.h>
 
 namespace polyglot::runtime::services {
 
@@ -33,10 +33,12 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
   USHORT captured = ::CaptureStackBackTrace(
       1, static_cast<DWORD>(max_frames), buffer.data(), nullptr);
   std::vector<std::string> frames;
+  frames.reserve(captured);
   for (USHORT i = 0; i < captured; ++i) {
-    std::ostringstream oss;
-    oss << "frame " << i << ": 0x" << std::hex << reinterpret_cast<uintptr_t>(buffer[i]);
-    frames.push_back(oss.str());
+    // Format: "frame <i>: 0x<hex addr>" — single fmt::format call replaces
+    // a per-frame ostringstream + std::hex manipulator combo.
+    frames.push_back(fmt::format("frame {}: {:#x}", i,
+                                 reinterpret_cast<uintptr_t>(buffer[i])));
   }
   return frames;
 #elif defined(HAS_EXECINFO)
