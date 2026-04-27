@@ -1006,6 +1006,16 @@ bool CompilationPipeline::RunSemantic() {
 
             auto runner = std::make_shared<ploy::DefaultCommandRunner>(idx_opts.command_timeout);
             ploy::PackageIndexer indexer(context_.package_cache, runner, idx_opts);
+            // Forward CLI-supplied per-language project roots through the
+            // VenvConfig channel so cargo metadata / mvn / gradle pick the
+            // right working directory.
+            if (!context_.config.rust_crate_dir.empty()) {
+                ploy::VenvConfig vc;
+                vc.language = "rust";
+                vc.venv_path = context_.config.rust_crate_dir;
+                vc.manager = ploy::VenvConfigDecl::ManagerKind::kVenv;
+                venvs.push_back(std::move(vc));
+            }
             indexer.BuildIndex(languages, venvs);
         }
     }

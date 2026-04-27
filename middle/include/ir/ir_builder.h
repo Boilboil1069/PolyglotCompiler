@@ -27,6 +27,21 @@ class IRBuilder {
 
   std::shared_ptr<BasicBlock> GetOrCreateEntryBlock();
   void SetInsertPoint(const std::shared_ptr<BasicBlock> &block) { insert_block_ = block; }
+  // Convenience overload for callers that hold a non-owning BasicBlock*.
+  // Locates the matching shared_ptr inside the active function (or the
+  // default function) and forwards to the primary overload.  Falls back
+  // to wrapping the raw pointer in a non-owning shared_ptr when no match
+  // is found, mirroring legacy behaviour used by several frontends.
+  void SetInsertPoint(BasicBlock *block) {
+      if (!block) { insert_block_.reset(); return; }
+      auto fn = active_function_ ? active_function_ : context_.DefaultFunction();
+      if (fn) {
+          for (const auto &bb : fn->blocks) {
+              if (bb.get() == block) { insert_block_ = bb; return; }
+          }
+      }
+      insert_block_ = std::shared_ptr<BasicBlock>(block, [](BasicBlock *){});
+  }
   std::shared_ptr<BasicBlock> GetInsertPoint() const { return insert_block_; }
 
   std::shared_ptr<LiteralExpression> MakeLiteral(long long value, const std::string &name = "");

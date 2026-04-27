@@ -8,9 +8,12 @@
  */
 #include "frontends/ruby/include/ruby_frontend.h"
 
+#include <filesystem>
+
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/sema_context.h"
 #include "frontends/ruby/include/ruby_ast.h"
+#include "frontends/ruby/include/ruby_import_resolver.h"
 #include "frontends/ruby/include/ruby_lexer.h"
 #include "frontends/ruby/include/ruby_lowering.h"
 #include "frontends/ruby/include/ruby_parser.h"
@@ -32,9 +35,43 @@ std::vector<frontends::Token> RubyLanguageFrontend::Tokenize(
     return out;
 }
 
+namespace {
+
+// Walk the module body and pull out every top-level require/require_relative/
+// load/autoload call so the resolver can be driven uniformly.
+struct RbRequire {
+    std::string specifier;
+    bool relative{false};
+};
+void CollectRequires(const std::vector<std::shared_ptr<Statement>> &body,
+                     std::vector<RbRequire> &out) {
+    for (const auto &stmt : body) {
+        auto es = std::dynamic_pointer_cast<ExprStmt>(stmt);
+        if (!es) continue;
+        auto call = std::dynamic_pointer_cast<CallExpr>(es->expr);
+        if (!call) continue;
+        if (call->receiver) continue;  // only bare-method form
+        const std::string &m = call->method;
+        bool is_require = (m == "require" || m == "load");
+        bool is_relative = (m == "require_relative");
+        bool is_autoload = (m == "autoload");
+        if (!is_require && !is_relative && !is_autoload) continue;
+        // First string arg is the path; for autoload it is the second arg.
+        std::size_t idx = is_autoload ? 1 : 0;
+        if (call->args.size() <= idx) continue;
+        auto lit = std::dynamic_pointer_cast<Literal>(call->args[idx]);
+        if (!lit) continue;
+        if (lit->kind != Literal::Kind::kString && lit->kind != Literal::Kind::kSymbol)
+            continue;
+        out.push_back({lit->value, is_relative});
+    }
+}
+
+}  // namespace
+
 bool RubyLanguageFrontend::Analyze(
     const std::string &source, const std::string &filename,
-    frontends::Diagnostics &d, const frontends::FrontendOptions &) const {
+    frontends::Diagnostics &d, const frontends::FrontendOptions &opts) const {
     RbLexer lex(source, filename);
     RbParser p(lex, d);
     p.ParseModule();
@@ -43,13 +80,38 @@ bool RubyLanguageFrontend::Analyze(
     if (!m) return false;
     frontends::SemaContext ctx(d);
     AnalyzeModule(*m, ctx);
+    if (d.HasErrors()) return false;
+    // Resolve `require` / `require_relative` / `load` / `autoload` to real
+    // .rb files and inject their top-level definitions as external symbols.
+    std::string importer_dir = std::filesystem::path(filename).parent_path().string();
+    RbImportResolver resolver(opts.ruby_project_dir, opts.gem_paths, d);
+    std::vector<RbRequire> requires_;
+    CollectRequires(m->body, requires_);
+    for (const auto &r : requires_) {
+        const RbFile *rf = resolver.Resolve(r.specifier, importer_dir, r.relative);
+        if (!rf) { if (opts.strict) return false; continue; }
+        for (const auto &kv : rf->exports) {
+            core::Symbol s;
+            s.name = kv.second.qualified_name.empty() ? kv.second.name : kv.second.qualified_name;
+            s.kind = (kv.second.kind == RbSymbolKind::kMethod)
+                         ? core::SymbolKind::kFunction
+                         : (kv.second.kind == RbSymbolKind::kClass ||
+                            kv.second.kind == RbSymbolKind::kModule)
+                               ? core::SymbolKind::kTypeName
+                               : core::SymbolKind::kVariable;
+            s.type = kv.second.return_type;
+            s.language = "ruby";
+            s.access = "external";
+            ctx.Symbols().Declare(s);
+        }
+    }
     return !d.HasErrors();
 }
 
 frontends::FrontendResult RubyLanguageFrontend::Lower(
     const std::string &source, const std::string &filename,
     ir::IRContext &ir_ctx, frontends::Diagnostics &d,
-    const frontends::FrontendOptions &) const {
+    const frontends::FrontendOptions &opts) const {
     frontends::FrontendResult r;
     RbLexer lex(source, filename);
     RbParser p(lex, d);
@@ -59,6 +121,20 @@ frontends::FrontendResult RubyLanguageFrontend::Lower(
     frontends::SemaContext ctx(d);
     AnalyzeModule(*m, ctx);
     if (d.HasErrors()) return r;
+    // Run the same require resolution pass so the lowered IR can reference
+    // external Ruby symbols by their fully qualified name.
+    std::string importer_dir = std::filesystem::path(filename).parent_path().string();
+    RbImportResolver resolver(opts.ruby_project_dir, opts.gem_paths, d);
+    std::vector<RbRequire> requires_;
+    CollectRequires(m->body, requires_);
+    for (const auto &rq : requires_) {
+        const RbFile *rf = resolver.Resolve(rq.specifier, importer_dir, rq.relative);
+        if (!rf && opts.strict) {
+            r.lowered = false;
+            r.success = false;
+            return r;
+        }
+    }
     LowerToIR(*m, ir_ctx, d);
     r.lowered = true;
     r.success = !d.HasErrors();

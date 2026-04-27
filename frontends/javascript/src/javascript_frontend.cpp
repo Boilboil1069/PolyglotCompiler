@@ -8,9 +8,12 @@
  */
 #include "frontends/javascript/include/javascript_frontend.h"
 
+#include <filesystem>
+
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/sema_context.h"
 #include "frontends/javascript/include/javascript_ast.h"
+#include "frontends/javascript/include/javascript_import_resolver.h"
 #include "frontends/javascript/include/javascript_lexer.h"
 #include "frontends/javascript/include/javascript_lowering.h"
 #include "frontends/javascript/include/javascript_parser.h"
@@ -47,7 +50,7 @@ std::vector<frontends::Token> JsLanguageFrontend::Tokenize(
 bool JsLanguageFrontend::Analyze(
     const std::string &source, const std::string &filename,
     frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
     JsLexer lexer(source, filename);
     JsParser parser(lexer, diagnostics);
     parser.ParseModule();
@@ -56,6 +59,52 @@ bool JsLanguageFrontend::Analyze(
     if (!module) return false;
     frontends::SemaContext ctx(diagnostics);
     AnalyzeModule(*module, ctx);
+    if (diagnostics.HasErrors()) return false;
+    // Resolve external module imports (Node.js / TypeScript algorithm) so
+    // that imported names participate in semantic checking.
+    std::string importer_dir = std::filesystem::path(filename).parent_path().string();
+    JsImportResolver resolver(options.js_project_dir, options.node_modules_paths,
+                              diagnostics);
+    for (const auto &stmt : module->body) {
+        auto imp = std::dynamic_pointer_cast<ImportDecl>(stmt);
+        if (!imp) continue;
+        const JsModule *m = resolver.Resolve(imp->source, importer_dir);
+        if (!m) { if (options.strict) return false; continue; }
+        for (const auto &spec : imp->specifiers) {
+            std::string foreign = spec.is_default ? std::string("default") : spec.imported;
+            auto it = m->exports.find(foreign);
+            if (it == m->exports.end() && spec.is_default && !m->exports.empty()) {
+                // Allow a single non-default export to satisfy a default import
+                // when the module has no explicit `default` export (CommonJS shim).
+                it = m->exports.begin();
+            }
+            if (it == m->exports.end()) continue;
+            core::Symbol s;
+            s.name = spec.local.empty() ? it->second.name : spec.local;
+            s.kind = (it->second.kind == JsSymbolKind::kFunction)
+                         ? core::SymbolKind::kFunction
+                         : (it->second.kind == JsSymbolKind::kClass ||
+                            it->second.kind == JsSymbolKind::kTypeAlias)
+                               ? core::SymbolKind::kTypeName
+                               : core::SymbolKind::kVariable;
+            s.type = it->second.return_type;
+            s.language = "javascript";
+            s.access = "external";
+            ctx.Symbols().Declare(s);
+        }
+        // For namespace imports (`import * as ns from "..."`) declare the
+        // alias as a module symbol so member accesses can be checked.
+        for (const auto &spec : imp->specifiers) {
+            if (!spec.is_namespace) continue;
+            core::Symbol s;
+            s.name = spec.local;
+            s.kind = core::SymbolKind::kModule;
+            s.type = core::Type{core::TypeKind::kModule, m->specifier, "javascript"};
+            s.language = "javascript";
+            s.access = "external";
+            ctx.Symbols().Declare(s);
+        }
+    }
     return !diagnostics.HasErrors();
 }
 
@@ -66,7 +115,7 @@ bool JsLanguageFrontend::Analyze(
 frontends::FrontendResult JsLanguageFrontend::Lower(
     const std::string &source, const std::string &filename,
     ir::IRContext &ir_ctx, frontends::Diagnostics &diagnostics,
-    const frontends::FrontendOptions & /*options*/) const {
+    const frontends::FrontendOptions &options) const {
     frontends::FrontendResult result;
     JsLexer lexer(source, filename);
     JsParser parser(lexer, diagnostics);
@@ -76,6 +125,21 @@ frontends::FrontendResult JsLanguageFrontend::Lower(
     frontends::SemaContext ctx(diagnostics);
     AnalyzeModule(*module, ctx);
     if (diagnostics.HasErrors()) return result;
+    // Re-run import resolution so the lowered IR can emit external symbol
+    // references with their fully-resolved package coordinates.
+    std::string importer_dir = std::filesystem::path(filename).parent_path().string();
+    JsImportResolver resolver(options.js_project_dir, options.node_modules_paths,
+                              diagnostics);
+    for (const auto &stmt : module->body) {
+        auto imp = std::dynamic_pointer_cast<ImportDecl>(stmt);
+        if (!imp) continue;
+        const JsModule *m = resolver.Resolve(imp->source, importer_dir);
+        if (!m && options.strict) {
+            result.lowered = false;
+            result.success = false;
+            return result;
+        }
+    }
     LowerToIR(*module, ir_ctx, diagnostics);
     result.lowered = true;
     result.success = !diagnostics.HasErrors();

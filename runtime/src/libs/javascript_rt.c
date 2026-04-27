@@ -438,3 +438,68 @@ void polyglot_js_release_value(void *value) {
   }
   polyglot_raw_free(v);
 }
+
+// ---------------------------------------------------------------------------
+// Cross-language ABI bridge ¡ª entry points lowered IR uses to invoke
+// JavaScript callables resolved via the Node.js / TypeScript module
+// resolution algorithm.  When the host JS engine is not loaded we keep the
+// process alive and emit one diagnostic per missing symbol.
+// ---------------------------------------------------------------------------
+
+#ifndef _WIN32
+#  include <dlfcn.h>
+#endif
+
+#ifdef _WIN32
+#  include <windows.h>
+#  define POLYGLOT_JS_LIB_NAME "libnode.dll"
+#else
+#  define POLYGLOT_JS_LIB_NAME "libnode.so"
+#endif
+
+static void *polyglot_js_host_handle = (void *)0;
+static int   polyglot_js_host_probed = 0;
+
+static void polyglot_js_load_host_once(void) {
+  if (polyglot_js_host_probed) return;
+  polyglot_js_host_probed = 1;
+#ifdef _WIN32
+  polyglot_js_host_handle = (void *)LoadLibraryA(POLYGLOT_JS_LIB_NAME);
+#else
+  polyglot_js_host_handle = dlopen(POLYGLOT_JS_LIB_NAME, RTLD_LAZY | RTLD_GLOBAL);
+#endif
+  if (!polyglot_js_host_handle) {
+    fprintf(stderr,
+        "[polyglot/js] host JavaScript runtime '%s' not loaded; require()/"
+        "import calls will be no-ops.  Install Node.js shared library to "
+        "enable interop.\n", POLYGLOT_JS_LIB_NAME);
+  }
+}
+
+void *__ploy_js_require(const char *resolved_path) {
+  polyglot_js_load_host_once();
+  if (!polyglot_js_host_handle || !resolved_path) return (void *)0;
+#ifdef _WIN32
+  return (void *)GetProcAddress((HMODULE)polyglot_js_host_handle, resolved_path);
+#else
+  return dlsym(polyglot_js_host_handle, resolved_path);
+#endif
+}
+
+void *__ploy_js_call(const char *qualified_name,
+                     const void *const *args, int arg_count) {
+  polyglot_js_load_host_once();
+  if (!polyglot_js_host_handle || !qualified_name) return (void *)0;
+#ifdef _WIN32
+  void *fn = (void *)GetProcAddress((HMODULE)polyglot_js_host_handle, qualified_name);
+#else
+  void *fn = dlsym(polyglot_js_host_handle, qualified_name);
+#endif
+  if (!fn) {
+    fprintf(stderr, "[polyglot/js] symbol '%s' not found in host runtime\n",
+            qualified_name);
+    return (void *)0;
+  }
+  typedef void *(*polyglot_js_thunk_t)(const void *const *, int);
+  return ((polyglot_js_thunk_t)fn)(args, arg_count);
+}

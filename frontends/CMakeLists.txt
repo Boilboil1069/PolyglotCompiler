@@ -98,6 +98,7 @@ add_library(frontend_javascript
     javascript/src/lexer/lexer.cpp
     javascript/src/parser/parser.cpp
     javascript/src/sema/sema.cpp
+    javascript/src/sema/import_resolver.cpp
     javascript/src/lowering/lowering.cpp
     javascript/src/javascript_frontend.cpp
 )
@@ -110,6 +111,7 @@ add_library(frontend_ruby
     ruby/src/lexer/lexer.cpp
     ruby/src/parser/parser.cpp
     ruby/src/sema/sema.cpp
+    ruby/src/sema/import_resolver.cpp
     ruby/src/lowering/lowering.cpp
     ruby/src/ruby_frontend.cpp
 )
@@ -122,6 +124,7 @@ add_library(frontend_go
     go/src/lexer/lexer.cpp
     go/src/parser/parser.cpp
     go/src/sema/sema.cpp
+    go/src/sema/import_resolver.cpp
     go/src/lowering/lowering.cpp
     go/src/go_frontend.cpp
 )

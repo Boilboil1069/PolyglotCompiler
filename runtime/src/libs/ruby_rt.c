@@ -451,3 +451,68 @@ void polyglot_ruby_release_value(void *value) {
   }
   polyglot_raw_free(v);
 }
+
+// ---------------------------------------------------------------------------
+// Cross-language ABI bridge ¡ª entry points lowered IR uses to invoke Ruby
+// callables resolved via require/require_relative/load.  When the host Ruby
+// VM is not loaded each entry returns NULL after one diagnostic, matching
+// the behaviour of the Java / .NET / Go bridges.
+// ---------------------------------------------------------------------------
+
+#ifndef _WIN32
+#  include <dlfcn.h>
+#endif
+
+#ifdef _WIN32
+#  include <windows.h>
+#  define POLYGLOT_RUBY_LIB_NAME "x64-vcruntime140-ruby310.dll"
+#else
+#  define POLYGLOT_RUBY_LIB_NAME "libruby.so"
+#endif
+
+static void *polyglot_ruby_host_handle = (void *)0;
+static int   polyglot_ruby_host_probed = 0;
+
+static void polyglot_ruby_load_host_once(void) {
+  if (polyglot_ruby_host_probed) return;
+  polyglot_ruby_host_probed = 1;
+#ifdef _WIN32
+  polyglot_ruby_host_handle = (void *)LoadLibraryA(POLYGLOT_RUBY_LIB_NAME);
+#else
+  polyglot_ruby_host_handle = dlopen(POLYGLOT_RUBY_LIB_NAME, RTLD_LAZY | RTLD_GLOBAL);
+#endif
+  if (!polyglot_ruby_host_handle) {
+    fprintf(stderr,
+        "[polyglot/ruby] host Ruby runtime '%s' not loaded; require/load and "
+        "qualified calls will be no-ops.  Install a libruby shared object to "
+        "enable interop.\n", POLYGLOT_RUBY_LIB_NAME);
+  }
+}
+
+void *__ploy_ruby_require(const char *feature) {
+  polyglot_ruby_load_host_once();
+  if (!polyglot_ruby_host_handle || !feature) return (void *)0;
+#ifdef _WIN32
+  return (void *)GetProcAddress((HMODULE)polyglot_ruby_host_handle, feature);
+#else
+  return dlsym(polyglot_ruby_host_handle, feature);
+#endif
+}
+
+void *__ploy_ruby_call(const char *qualified_name,
+                       const void *const *args, int arg_count) {
+  polyglot_ruby_load_host_once();
+  if (!polyglot_ruby_host_handle || !qualified_name) return (void *)0;
+#ifdef _WIN32
+  void *fn = (void *)GetProcAddress((HMODULE)polyglot_ruby_host_handle, qualified_name);
+#else
+  void *fn = dlsym(polyglot_ruby_host_handle, qualified_name);
+#endif
+  if (!fn) {
+    fprintf(stderr, "[polyglot/ruby] symbol '%s' not found in host runtime\n",
+            qualified_name);
+    return (void *)0;
+  }
+  typedef void *(*polyglot_ruby_thunk_t)(const void *const *, int);
+  return ((polyglot_ruby_thunk_t)fn)(args, arg_count);
+}

@@ -1,0 +1,5 @@
+Fixture root marker for demand 2026-04-26-03 hermetic E2E tests.
+Subdirs:
+  cpp/    → public header consumed via -I
+  python/ → .pyi stub consumed via --python-stubs
+  rust/   → minimal source crate consumed via --crate-dir / --extern

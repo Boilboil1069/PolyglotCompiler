@@ -11,6 +11,7 @@
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/sema_context.h"
 #include "frontends/go/include/go_ast.h"
+#include "frontends/go/include/go_import_resolver.h"
 #include "frontends/go/include/go_lexer.h"
 #include "frontends/go/include/go_lowering.h"
 #include "frontends/go/include/go_parser.h"
@@ -34,7 +35,7 @@ std::vector<frontends::Token> GoLanguageFrontend::Tokenize(
 
 bool GoLanguageFrontend::Analyze(
     const std::string &source, const std::string &filename,
-    frontends::Diagnostics &d, const frontends::FrontendOptions &) const {
+    frontends::Diagnostics &d, const frontends::FrontendOptions &opts) const {
     GoLexer lex(source, filename);
     GoParser p(lex, d);
     p.ParseFile();
@@ -43,13 +44,43 @@ bool GoLanguageFrontend::Analyze(
     if (!f) return false;
     frontends::SemaContext ctx(d);
     AnalyzeFile(*f, ctx);
+    if (d.HasErrors()) return false;
+    // Resolve external package imports so that downstream consumers (e.g.
+    // topology extraction, IR lowering) can verify cross-package symbols.
+    GoImportResolver resolver(opts.go_project_dir, opts.go_module_paths, d);
+    for (const auto &gd : f->decls) {
+        if (gd.keyword != "import") continue;
+        for (const auto &spec : gd.imports) {
+            const GoPackage *pkg = resolver.Resolve(spec.path);
+            if (!pkg) {
+                if (opts.strict) return false;
+                continue;
+            }
+            for (const auto &kv : pkg->exports) {
+                core::Symbol s;
+                s.name = (spec.alias.empty() ? pkg->package_name : spec.alias) +
+                         "." + kv.second.name;
+                s.kind = (kv.second.kind == GoSymbolKind::kFunction)
+                             ? core::SymbolKind::kFunction
+                             : (kv.second.kind == GoSymbolKind::kStruct ||
+                                kv.second.kind == GoSymbolKind::kInterface ||
+                                kv.second.kind == GoSymbolKind::kTypeAlias)
+                                   ? core::SymbolKind::kTypeName
+                                   : core::SymbolKind::kVariable;
+                s.type = kv.second.return_type;
+                s.language = "go";
+                s.access = "external";
+                ctx.Symbols().Declare(s);
+            }
+        }
+    }
     return !d.HasErrors();
 }
 
 frontends::FrontendResult GoLanguageFrontend::Lower(
     const std::string &source, const std::string &filename,
     ir::IRContext &ir_ctx, frontends::Diagnostics &d,
-    const frontends::FrontendOptions &) const {
+    const frontends::FrontendOptions &opts) const {
     frontends::FrontendResult r;
     GoLexer lex(source, filename);
     GoParser p(lex, d);
@@ -59,6 +90,20 @@ frontends::FrontendResult GoLanguageFrontend::Lower(
     frontends::SemaContext ctx(d);
     AnalyzeFile(*f, ctx);
     if (d.HasErrors()) return r;
+    // Run the same import resolution as Analyze() so the lowered IR can
+    // reference external symbols by their qualified Go name.
+    GoImportResolver resolver(opts.go_project_dir, opts.go_module_paths, d);
+    for (const auto &gd : f->decls) {
+        if (gd.keyword != "import") continue;
+        for (const auto &spec : gd.imports) {
+            const GoPackage *pkg = resolver.Resolve(spec.path);
+            if (!pkg && opts.strict) {
+                r.lowered = false;
+                r.success = false;
+                return r;
+            }
+        }
+    }
     LowerToIR(*f, ir_ctx, d);
     r.lowered = true;
     r.success = !d.HasErrors();

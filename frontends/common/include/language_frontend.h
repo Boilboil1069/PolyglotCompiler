@@ -49,6 +49,18 @@ struct FrontendOptions {
     std::string rust_crate_dir{};                      // --crate-dir
     std::vector<std::pair<std::string,std::string>>
         rust_externs{};                                // --extern name=path
+
+    // Go — module project root + extra GOPATH / module-cache hints
+    std::string go_project_dir{};                      // --go-project
+    std::vector<std::string> go_module_paths{};        // --go-mod-cache
+
+    // JavaScript / TypeScript — npm project root + extra node_modules roots
+    std::string js_project_dir{};                      // --js-project
+    std::vector<std::string> node_modules_paths{};     // --node-modules
+
+    // Ruby — Bundler project root + extra gem load paths
+    std::string ruby_project_dir{};                    // --ruby-project
+    std::vector<std::string> gem_paths{};              // --gem-path
 };
 
 // ============================================================================

@@ -348,6 +348,19 @@ struct CompilationContext {
         std::string emit_asm_path;
         std::string emit_obj_path;
         std::vector<std::string> additional_libs;
+        // External-package CLI mirrors (sourced from polyc driver flags).  We
+        // keep them on Config so non-driver entry points (tests, benchmarks)
+        // can populate the same fields without going through stage_frontend.
+        std::vector<std::string> include_paths;          // -I
+        std::vector<std::string> system_include_paths;   // -isystem
+        std::vector<std::string> defines;                // -D
+        std::vector<std::string> undefines;              // -U
+        std::vector<std::string> python_stub_paths;      // --python-stubs
+        std::vector<std::string> classpath;              // --classpath / -cp
+        std::vector<std::string> dotnet_references;      // --reference / -r
+        std::string rust_crate_dir;                      // --crate-dir
+        std::vector<std::pair<std::string, std::string>>
+            rust_externs;                                // --extern name=path
         // Path to the serialized cross-language descriptor file written after
         // bridge generation (passed as --ploy-desc to polyld in link mode).
         std::string ploy_desc_file;

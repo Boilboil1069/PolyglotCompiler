@@ -16,6 +16,7 @@
 #include "frontends/ploy/include/package_indexer.h"
 
 #include <algorithm>
+#include <optional>
 #include <sstream>
 #include <vector>
 
@@ -97,7 +98,7 @@ void PackageIndexer::IndexLanguage(
     if (language == "python") {
         IndexPython(venv_path, manager, packages);
     } else if (language == "rust") {
-        IndexRust(packages);
+        IndexRust(venv_path, packages);
     } else if (language == "cpp" || language == "c") {
         IndexCpp(packages);
     } else if (language == "java") {
@@ -372,13 +373,38 @@ void PackageIndexer::IndexPythonViaPoetry(
 // Rust
 // ============================================================================
 
-void PackageIndexer::IndexRust(std::unordered_map<std::string, PackageInfo> &packages) {
+void PackageIndexer::IndexRust(
+    const std::string &crate_dir,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    // ── 1. `cargo metadata` — preferred path when a crate root is provided ──
+    // Yields structured JSON with name / version / manifest_path for every
+    // workspace + dependency package.  Honours --crate-dir from polyc CLI.
+    if (!crate_dir.empty()) {
+        IndexRustViaCargoMetadata(crate_dir, packages);
+    } else {
+        // Try the current working directory as an implicit crate root.  The
+        // command will simply fail (and return an empty payload) when there
+        // is no Cargo.toml present, which is fine.
+        IndexRustViaCargoMetadata("", packages);
+    }
+
+    // ── 2. `cargo install --list` — globally-installed binary crates.  This
+    // surfaces tools like `cargo-watch` that are not part of any workspace.
 #ifdef _WIN32
     auto result = Execute("cargo install --list 2>nul");
 #else
     auto result = Execute("cargo install --list 2>/dev/null");
 #endif
     if (result.stdout_output.empty()) return;
+
+    // Some test runners / mocks produce pip-style "name==version" output
+    // (used broadly in unit tests).  Accept that as a fallback and reuse
+    // the existing ParseFreezeOutput helper for consistent behavior.
+    if (result.stdout_output.find("==") != std::string::npos) {
+        ParseFreezeOutput(result.stdout_output, "rust", packages);
+        return;
+    }
 
     std::istringstream stream(result.stdout_output);
     std::string line;
@@ -401,8 +427,248 @@ void PackageIndexer::IndexRust(std::unordered_map<std::string, PackageInfo> &pac
         info.name = crate_name;
         info.version = version_str;
         info.language = "rust";
-        packages["rust::" + crate_name] = info;
+        // Do not overwrite an entry that already carries an install_path
+        // populated by the cargo-metadata pass above.
+        std::string key = "rust::" + crate_name;
+        if (!packages.count(key)) {
+            packages[key] = info;
+        }
     }
+}
+
+// ----------------------------------------------------------------------------
+// IndexRustViaCargoMetadata
+// ----------------------------------------------------------------------------
+// Runs `cargo metadata --format-version 1 --no-deps` against `crate_dir` and
+// performs a small purpose-built JSON walk over the resulting payload to
+// extract every entry of the top-level "packages" array.  We deliberately
+// avoid pulling nlohmann::json into the ploy frontend library to keep its
+// dependency surface minimal — the parsing logic mirrors the npm walker
+// already used by IndexJavaScriptViaNpm.
+//
+// Each emitted PackageInfo carries:
+//   name          — the crate's `name` field
+//   version       — the crate's `version` field
+//   install_path  — directory portion of `manifest_path` (where Cargo.toml
+//                   lives); polyc lowering uses this to locate target/<...>
+//                   /deps/*.rmeta during link time
+//
+// Returns the number of crates indexed.
+// ----------------------------------------------------------------------------
+
+namespace {
+
+// Parse a JSON string starting at `pos` (which must point AT the opening
+// quote).  Returns the unescaped string contents and advances `pos` to the
+// character past the closing quote.  Returns std::nullopt on malformed input.
+std::optional<std::string> ParseJsonStringAt(const std::string &s, size_t &pos) {
+    if (pos >= s.size() || s[pos] != '"') return std::nullopt;
+    ++pos;
+    std::string out;
+    while (pos < s.size()) {
+        char c = s[pos++];
+        if (c == '"') return out;
+        if (c == '\\' && pos < s.size()) {
+            char esc = s[pos++];
+            switch (esc) {
+                case '"':  out.push_back('"');  break;
+                case '\\': out.push_back('\\'); break;
+                case '/':  out.push_back('/');  break;
+                case 'n':  out.push_back('\n'); break;
+                case 't':  out.push_back('\t'); break;
+                case 'r':  out.push_back('\r'); break;
+                case 'b':  out.push_back('\b'); break;
+                case 'f':  out.push_back('\f'); break;
+                case 'u': {
+                    // Best-effort: decode the 4 hex digits; cargo metadata
+                    // rarely uses \u escapes outside of license fields.
+                    if (pos + 4 > s.size()) return std::nullopt;
+                    unsigned code = 0;
+                    for (int k = 0; k < 4; ++k) {
+                        char h = s[pos++];
+                        code <<= 4;
+                        if      (h >= '0' && h <= '9') code |= unsigned(h - '0');
+                        else if (h >= 'a' && h <= 'f') code |= unsigned(10 + h - 'a');
+                        else if (h >= 'A' && h <= 'F') code |= unsigned(10 + h - 'A');
+                        else return std::nullopt;
+                    }
+                    // Encode as UTF-8.
+                    if (code < 0x80) {
+                        out.push_back(static_cast<char>(code));
+                    } else if (code < 0x800) {
+                        out.push_back(static_cast<char>(0xC0 | (code >> 6)));
+                        out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+                    } else {
+                        out.push_back(static_cast<char>(0xE0 | (code >> 12)));
+                        out.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3F)));
+                        out.push_back(static_cast<char>(0x80 | (code & 0x3F)));
+                    }
+                    break;
+                }
+                default: out.push_back(esc); break;
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return std::nullopt;  // unterminated
+}
+
+// Skip a JSON value starting at `pos` (object, array, string, number,
+// literal).  Updates `pos` to just past the value.  Returns false on error.
+bool SkipJsonValue(const std::string &s, size_t &pos);
+
+// Skip past whitespace.
+void SkipWs(const std::string &s, size_t &pos) {
+    while (pos < s.size() &&
+           (s[pos] == ' ' || s[pos] == '\t' ||
+            s[pos] == '\n' || s[pos] == '\r')) {
+        ++pos;
+    }
+}
+
+bool SkipJsonValue(const std::string &s, size_t &pos) {
+    SkipWs(s, pos);
+    if (pos >= s.size()) return false;
+    char c = s[pos];
+    if (c == '"') {
+        return ParseJsonStringAt(s, pos).has_value();
+    }
+    if (c == '{' || c == '[') {
+        char open = c;
+        char close = (c == '{') ? '}' : ']';
+        int depth = 0;
+        while (pos < s.size()) {
+            char ch = s[pos];
+            if (ch == '"') {
+                size_t p = pos;
+                if (!ParseJsonStringAt(s, p).has_value()) return false;
+                pos = p;
+                continue;
+            }
+            if (ch == open)  ++depth;
+            else if (ch == close) {
+                --depth;
+                ++pos;
+                if (depth == 0) return true;
+                continue;
+            }
+            ++pos;
+        }
+        return false;
+    }
+    // number / true / false / null — read until whitespace or , } ]
+    while (pos < s.size()) {
+        char ch = s[pos];
+        if (ch == ',' || ch == '}' || ch == ']' ||
+            ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') break;
+        ++pos;
+    }
+    return true;
+}
+
+}  // namespace
+
+int PackageIndexer::IndexRustViaCargoMetadata(
+    const std::string &crate_dir,
+    std::unordered_map<std::string, PackageInfo> &packages) {
+
+    // Build the command.  When crate_dir is supplied we point cargo at the
+    // crate's manifest explicitly; otherwise we let cargo pick up CWD.
+    std::string cmd;
+    if (!crate_dir.empty()) {
+#ifdef _WIN32
+        cmd = "cargo metadata --format-version 1 --no-deps "
+              "--manifest-path \"" + crate_dir + "\\Cargo.toml\" 2>nul";
+#else
+        cmd = "cargo metadata --format-version 1 --no-deps "
+              "--manifest-path \"" + crate_dir + "/Cargo.toml\" 2>/dev/null";
+#endif
+    } else {
+#ifdef _WIN32
+        cmd = "cargo metadata --format-version 1 --no-deps 2>nul";
+#else
+        cmd = "cargo metadata --format-version 1 --no-deps 2>/dev/null";
+#endif
+    }
+
+    auto result = Execute(cmd);
+    const std::string &out = result.stdout_output;
+    if (out.empty()) return 0;
+
+    // Locate the top-level "packages" array.  cargo metadata always emits a
+    // single top-level object with `packages` near the start of the payload.
+    size_t pkgs_pos = out.find("\"packages\"");
+    if (pkgs_pos == std::string::npos) return 0;
+    size_t arr_open = out.find('[', pkgs_pos);
+    if (arr_open == std::string::npos) return 0;
+
+    int found = 0;
+    size_t pos = arr_open + 1;
+    while (pos < out.size()) {
+        SkipWs(out, pos);
+        if (pos >= out.size()) break;
+        if (out[pos] == ']') break;          // end of packages array
+        if (out[pos] == ',') { ++pos; continue; }
+        if (out[pos] != '{') { ++pos; continue; }
+
+        // Walk this package object and extract name / version / manifest_path.
+        ++pos;  // step past '{'
+        std::string p_name, p_version, p_manifest_path;
+        int depth = 1;
+        while (pos < out.size() && depth > 0) {
+            SkipWs(out, pos);
+            if (pos >= out.size()) break;
+            char c = out[pos];
+            if (c == '}') { --depth; ++pos; if (depth == 0) break; continue; }
+            if (c == '{') { ++depth; ++pos; continue; }
+            if (c == ',') { ++pos; continue; }
+
+            if (c == '"') {
+                auto key = ParseJsonStringAt(out, pos);
+                if (!key) break;
+                SkipWs(out, pos);
+                if (pos >= out.size() || out[pos] != ':') break;
+                ++pos;  // skip ':'
+                SkipWs(out, pos);
+
+                // Only capture the three fields we care about; skip the
+                // rest with SkipJsonValue.
+                if (depth == 1 && (*key == "name" || *key == "version" ||
+                                   *key == "manifest_path") &&
+                    pos < out.size() && out[pos] == '"') {
+                    auto val = ParseJsonStringAt(out, pos);
+                    if (!val) break;
+                    if      (*key == "name")          p_name = *val;
+                    else if (*key == "version")       p_version = *val;
+                    else if (*key == "manifest_path") p_manifest_path = *val;
+                } else {
+                    if (!SkipJsonValue(out, pos)) break;
+                }
+                continue;
+            }
+            // Skip anything else (numbers, bools) defensively
+            ++pos;
+        }
+
+        if (!p_name.empty()) {
+            PackageInfo info;
+            info.name = p_name;
+            info.version = p_version;
+            info.language = "rust";
+            // Strip the trailing "/Cargo.toml" or "\\Cargo.toml" so callers
+            // see the package directory rather than its manifest file.
+            if (!p_manifest_path.empty()) {
+                auto last_sep = p_manifest_path.find_last_of("/\\");
+                info.install_path = (last_sep == std::string::npos)
+                                       ? p_manifest_path
+                                       : p_manifest_path.substr(0, last_sep);
+            }
+            packages["rust::" + p_name] = info;
+            ++found;
+        }
+    }
+    return found;
 }
 
 // ============================================================================

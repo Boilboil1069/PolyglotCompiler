@@ -360,9 +360,13 @@ set(INTEGRATION_TEST_SOURCES
     integration/performance/perf_test.cpp
     integration/e2e/polyc_e2e_test.cpp
     integration/object_format_test.cpp
+    integration/external_packages/external_packages_test.cpp
+    integration/external_packages/demand_03_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
+target_compile_definitions(integration_tests PRIVATE
+    POLYGLOT_TESTS_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/external_packages")
 
 # ============================================================================
 # Benchmark Tests

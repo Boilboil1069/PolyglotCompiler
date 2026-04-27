@@ -124,7 +124,15 @@ class PackageIndexer {
                               std::unordered_map<std::string, PackageInfo> &packages);
     void IndexPythonViaPoetry(const std::string &project_path,
                               std::unordered_map<std::string, PackageInfo> &packages);
-    void IndexRust(std::unordered_map<std::string, PackageInfo> &packages);
+    void IndexRust(const std::string &crate_dir,
+                   std::unordered_map<std::string, PackageInfo> &packages);
+    // Run `cargo metadata --format-version 1 --no-deps` against the supplied
+    // crate directory and populate `packages` with name/version/install_path
+    // (manifest_path's parent directory).  Returns the number of packages
+    // discovered; 0 means cargo was unavailable or the output was empty.
+    int IndexRustViaCargoMetadata(
+        const std::string &crate_dir,
+        std::unordered_map<std::string, PackageInfo> &packages);
     void IndexCpp(std::unordered_map<std::string, PackageInfo> &packages);
     void IndexJava(const std::string &classpath,
                    std::unordered_map<std::string, PackageInfo> &packages);

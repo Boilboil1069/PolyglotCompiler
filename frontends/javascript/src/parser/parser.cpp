@@ -26,8 +26,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 #include <string>
 
 namespace polyglot::javascript {

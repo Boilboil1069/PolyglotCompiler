@@ -1475,10 +1475,59 @@ Error: Process completed with exit code 1.
   - 现有的所有单元/集成/基准测试必须仍然通过；
   - 完成后在本条目末尾追加 `--end -done` 完成标记。
 
---end
+--end -done
 
 2026-04-26-04
 
 为什么runtime中Python/C++/Rust 是轻量包装，而不是完整实现呢？请帮我修改成完整的实现。
+
+--end -done
+
+2026-04-27-1
+
+背景：经审查，`2026-04-26-03` 仅为 C++/Python/Java/.NET/Rust 五种语言接通了"外部包真实导入解析+链接"链路；`2026-04-26-01` 引入的 Go/JavaScript/Ruby 三个前端目前只完成了词法/语法骨架——`import "fmt"` / `import x from 'y'` / `require 'foo'` 仅停留在 AST 层，sema 没有解析包符号，lowering 没有发射桥接，CLI 中的 `--go-project` / `--node-modules` / `--gem-path` 等占位字段从未传递到 `FrontendOptions`，`runtime/src/libs/` 也没有 `__ploy_go_*` / `__ploy_js_*` / `__ploy_ruby_*` 桥。本次需求要求把这条链路按 `2026-04-26-03` 的同等深度对 Go/JavaScript/Ruby 补齐。
+
+1.Go 前端：实现 `frontends/go/include/go_import_resolver.h` 与配套源码，解析当前项目根 `go.mod`（module 名 + 依赖 require/replace），并在以下位置按顺序查找包导入路径：
+   - 项目本地 `<go_project_dir>/<import-path>` 子目录（package main 的内部包）；
+   - `GOROOT/src/<import-path>`（标准库，自动从 `go env GOROOT` 探测）；
+   - `GOPATH/pkg/mod/<escaped-path>@<version>/`（用户模块缓存）；
+   - `--go-mod-cache=<dir>` 指定的额外缓存。
+   解析到包目录后，扫描其中的 `.go` 文件用本前端自身的 `GoParser` 提取 `FuncDecl` / `TypeSpec` 作为外部符号，写入 `SemaContext`。Lowering 阶段对所有跨包调用生成 `__ploy_go_call`/`__ploy_go_load_pkg` 运行时桥引用而非裸名字。
+
+2.JavaScript 前端：实现 `frontends/javascript/include/javascript_import_resolver.h`，按 Node.js 标准解析算法定位模块：
+   - 相对路径（`./x`、`../y`）→ 加 `.js/.mjs/.cjs/.ts/.d.ts`、再尝试 `index.*`；
+   - 包说明符（`lodash`）→ 沿 `<file_dir>/node_modules/<name>` 向上回溯，直到根目录；同样消费 `--node-modules=<dir>` 给出的额外根；
+   - 命中后读取 `package.json`（解析 `main` / `module` / `types` / `exports`）；
+   - 优先加载同目录的 `.d.ts` / `index.d.ts`（用现有 JS lexer 提取 `export` 声明的类型签名），无则回落到对应 `.js` 用 JS parser 提取顶层 `function`/`class`/`const` 声明；
+   - 同步处理 CommonJS：`require('x')` 调用要被 sema 提升为隐式 `ImportDecl`。
+   Sema 把解析出的符号写入 `SemaContext` 并标记为 `external`；lowering 为相应调用发射 `__ploy_js_call`/`__ploy_js_require`。
+
+3.Ruby 前端：在 `ruby_ast.h` 增加 `RequireStmt`（区分 `require`/`require_relative`/`load`/`autoload`），parser 在表达式语句层把这些方法名提升为该 AST 节点；新增 `frontends/ruby/include/ruby_import_resolver.h`，按以下顺序查找：
+   - `require_relative` → 相对当前文件目录；
+   - `RUBYLIB` 环境变量；
+   - `--gem-path=<dir>` 与项目 `Gemfile` 的 bundler 路径（复用 ploy 已有 `IndexRubyViaBundler`）；
+   - `$LOAD_PATH` 默认 site-ruby 与 vendor-ruby（自动从 `ruby -e "puts $LOAD_PATH"` 探测）。
+   解析到 `.rb` 后用 RbParser 提取 `MethodDecl` / `ClassDecl` / `ModuleDecl` 写入 SemaContext；lowering 为外部 `Module::method` 调用发射 `__ploy_ruby_call`/`__ploy_ruby_require`。
+
+4.FrontendOptions 扩展：在 `frontends/common/include/language_frontend.h` 的 `FrontendOptions` 增加 `js_project_dir / node_modules_paths / ruby_project_dir / gem_paths / go_project_dir / go_module_paths` 六个字段，并由 `tools/polyc/src/stage_frontend.cpp` 从已有 `Settings` 字段透传，三个语言前端的 `Lower()` 真正消费这些选项。
+
+5.polyc CLI：`driver.cpp --help` 中新增/归类显示 `--go-project=<dir>` / `--go-mod-cache=<dir>` / `--js-project=<dir>` / `--node-modules=<dir>` / `--ruby-project=<dir>` / `--gem-path=<dir>`；解析逻辑与 `Settings` 字段同步。
+
+6.运行时桥接：在 `runtime/src/libs/` 增加 `go_rt.c`、`js_rt.c`、`ruby_rt.c`，分别用 `dlopen`/`LoadLibrary` + `dlsym`/`GetProcAddress` 加载并调用 lowering 发射的外部符号；缺失对应运行时时给出明确诊断（不崩溃）。`runtime/CMakeLists.txt` 同步加入新源文件并产出 `runtime_go_rt`/`runtime_js_rt`/`runtime_ruby_rt` 三个静态库（与 python/java/dotnet 风格一致）。
+
+7.集成测试：在 `tests/integration/external_packages/` 增加：
+   - `go/import_local_pkg.go` — 通过 `--go-project` 消费同项目下 `mathpkg/` 子包；
+   - `javascript/import_node_module.js` — 通过 `--node-modules` 消费 `tests/fixtures/external_packages/javascript/node_modules/fakelib/` 提供的 `.d.ts`；
+   - `ruby/require_lib.rb` — 通过 `--gem-path` 消费 `tests/fixtures/external_packages/ruby/lib/strutil.rb`。
+   每个测试断言：sema 通过、lowering IR 中含真实外部符号引用、运行时缺失时报告明确诊断而非崩溃。
+
+8.文档：更新 `README.md` 与 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md` 的"外部包消费"章节，把表格扩展到 8 种语言；扩写 `docs/realization/external_packages.md` 与 `_zh.md`，新增 Go/JavaScript/Ruby 三节（查找顺序、CLI、ABI 桥接、故障诊断）。
+
+9.约束：
+   - 不允许最小实现/占位；
+   - C++ 代码注释一律英文；
+   - 全程保持与现有项目风格一致；
+   - 现有所有单元/集成/基准测试必须仍然通过；
+   - 完成后在本条目末尾追加 `--end -done`。
 
 --end -done

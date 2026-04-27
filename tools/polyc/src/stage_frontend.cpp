@@ -138,6 +138,12 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
         fe_opts.dotnet_references = settings.dotnet_references;
         fe_opts.rust_crate_dir = settings.rust_crate_dir;
         fe_opts.rust_externs = settings.rust_externs;
+        fe_opts.go_project_dir = settings.go_project_dir;
+        fe_opts.go_module_paths = settings.go_module_paths;
+        fe_opts.js_project_dir = settings.js_project_dir;
+        fe_opts.node_modules_paths = settings.node_modules_paths;
+        fe_opts.ruby_project_dir = settings.ruby_project_dir;
+        fe_opts.gem_paths = settings.gem_paths;
 
         auto fe_result = fe->Lower(result.processed_source, result.source_label,
                                    *result.ir_ctx, result.diagnostics, fe_opts);
@@ -213,7 +219,18 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
                         std::cerr << "  [pkg-index:" << lang << "] " << msg << "\n";
                     });
             }
-            indexer.BuildIndex(languages);
+            // Wire CLI-supplied per-language project roots into the indexer
+            // through the existing VenvConfig channel (manager=kVenv just
+            // means "default plumbing"; the runner only inspects venv_path).
+            std::vector<ploy::VenvConfig> venv_configs;
+            if (!settings.rust_crate_dir.empty()) {
+                ploy::VenvConfig vc;
+                vc.language = "rust";
+                vc.venv_path = settings.rust_crate_dir;
+                vc.manager = ploy::VenvConfigDecl::ManagerKind::kVenv;
+                venv_configs.push_back(std::move(vc));
+            }
+            indexer.BuildIndex(languages, venv_configs);
             if (V) {
                 auto stats = indexer.LastStats();
                 std::cerr << "  [pkg-index] " << stats.packages_found

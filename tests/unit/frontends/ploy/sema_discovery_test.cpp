@@ -632,6 +632,83 @@ TEST_CASE("PackageIndexer indexes Go via `go list -m all`", "[ploy][discovery][i
     REQUIRE(pkgs.count("go::encoding/json") == 1);
 }
 
+// ----------------------------------------------------------------------------
+// Rust — cargo metadata JSON parsing (Phase ⑥ of demand 2026-04-26-03)
+// ----------------------------------------------------------------------------
+// Verifies that IndexRust feeds `cargo metadata --format-version 1 --no-deps`
+// output through the JSON walker and surfaces:
+//   * package name
+//   * version string
+//   * install_path = parent directory of `manifest_path`
+// ----------------------------------------------------------------------------
+
+TEST_CASE("PackageIndexer parses cargo metadata JSON for crate dir",
+          "[ploy][discovery][indexer][rust][cargo-metadata]") {
+    // Canned output mimics the "packages" array of `cargo metadata`.
+    // Two crates at distinct manifest paths so we can verify install_path
+    // extraction (= parent of manifest_path).
+    const std::string kCargoMetadataJson = R"({
+        "packages": [
+            {
+                "name": "serde",
+                "version": "1.0.193",
+                "id": "serde 1.0.193",
+                "manifest_path": "/home/user/.cargo/registry/src/serde-1.0.193/Cargo.toml"
+            },
+            {
+                "name": "tokio",
+                "version": "1.34.0",
+                "id": "tokio 1.34.0",
+                "manifest_path": "/home/user/.cargo/registry/src/tokio-1.34.0/Cargo.toml"
+            }
+        ],
+        "workspace_members": [],
+        "resolve": null,
+        "target_directory": "/home/user/project/target",
+        "version": 1,
+        "workspace_root": "/home/user/project",
+        "metadata": null
+    })";
+
+    auto mock = std::make_shared<MockCommandRunner>();
+    mock->SetOutput(kCargoMetadataJson);
+
+    auto cache = std::make_shared<PackageDiscoveryCache>();
+    PackageIndexer indexer(cache, mock);
+
+    // Drive the rust path with an explicit crate dir; this routes through
+    // IndexRustViaCargoMetadata first.
+    polyglot::ploy::VenvConfig vc;
+    vc.language = "rust";
+    vc.venv_path = "/home/user/project";
+    indexer.BuildIndex({"rust"}, {vc});
+
+    auto key = PackageDiscoveryCache::MakeKey("rust", "venv", "/home/user/project");
+    REQUIRE(cache->HasDiscovered(key));
+
+    auto pkgs = cache->Retrieve(key);
+
+    // Both packages must be parsed out of the JSON payload.
+    REQUIRE(pkgs.count("rust::serde") == 1);
+    REQUIRE(pkgs.count("rust::tokio") == 1);
+
+    // Version strings preserved exactly.
+    CHECK(pkgs["rust::serde"].version == "1.0.193");
+    CHECK(pkgs["rust::tokio"].version == "1.34.0");
+
+    // install_path = parent directory of manifest_path (no trailing
+    // "/Cargo.toml").  Accept either separator since the parser strips
+    // whichever appears last in the source string.
+    CHECK(pkgs["rust::serde"].install_path ==
+          "/home/user/.cargo/registry/src/serde-1.0.193");
+    CHECK(pkgs["rust::tokio"].install_path ==
+          "/home/user/.cargo/registry/src/tokio-1.34.0");
+
+    // Language tag survives.
+    CHECK(pkgs["rust::serde"].language == "rust");
+    CHECK(pkgs["rust::tokio"].language == "rust");
+}
+
 TEST_CASE("PackageIndexer treats new-language aliases as same family", "[ploy][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("");

@@ -394,3 +394,72 @@ void polyglot_go_defer_run(void *frame) {
     polyglot_raw_free(n);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Cross-language ABI bridge — invoked from lowered IR for `import`-resolved
+// Go calls.  Mirrors the `__ploy_java_*` / `__ploy_dotnet_*` style.  When the
+// host Go shared library is unavailable, every entry returns NULL after
+// emitting one stderr diagnostic so the caller can keep degrading gracefully.
+// ---------------------------------------------------------------------------
+
+#ifndef _WIN32
+#  include <dlfcn.h>
+#endif
+
+#ifdef _WIN32
+#  define POLYGLOT_GO_LIB_NAME "go_runtime.dll"
+#else
+#  define POLYGLOT_GO_LIB_NAME "libgo_runtime.so"
+#endif
+
+static void *polyglot_go_host_handle = (void *)0;
+static int   polyglot_go_host_probed = 0;
+
+static void polyglot_go_load_host_once(void) {
+  if (polyglot_go_host_probed) return;
+  polyglot_go_host_probed = 1;
+#ifdef _WIN32
+  polyglot_go_host_handle = (void *)LoadLibraryA(POLYGLOT_GO_LIB_NAME);
+#else
+  polyglot_go_host_handle = dlopen(POLYGLOT_GO_LIB_NAME, RTLD_LAZY | RTLD_GLOBAL);
+#endif
+  if (!polyglot_go_host_handle) {
+    fprintf(stderr,
+        "[polyglot/go] host Go runtime '%s' not loaded; cross-package calls "
+        "will be no-ops.  Set GO_RUNTIME_LIB or rebuild the program with a "
+        "linked Go shared object to enable interop.\n",
+        POLYGLOT_GO_LIB_NAME);
+  }
+}
+
+void *__ploy_go_load_pkg(const char *import_path) {
+  polyglot_go_load_host_once();
+  if (!polyglot_go_host_handle || !import_path) return (void *)0;
+#ifdef _WIN32
+  return (void *)GetProcAddress((HMODULE)polyglot_go_host_handle, import_path);
+#else
+  return dlsym(polyglot_go_host_handle, import_path);
+#endif
+}
+
+void *__ploy_go_call(const char *qualified_name,
+                     const void *const *args, int arg_count) {
+  (void)args; (void)arg_count;
+  polyglot_go_load_host_once();
+  if (!polyglot_go_host_handle || !qualified_name) return (void *)0;
+#ifdef _WIN32
+  void *fn = (void *)GetProcAddress((HMODULE)polyglot_go_host_handle, qualified_name);
+#else
+  void *fn = dlsym(polyglot_go_host_handle, qualified_name);
+#endif
+  if (!fn) {
+    fprintf(stderr, "[polyglot/go] symbol '%s' not found in host runtime\n",
+            qualified_name);
+    return (void *)0;
+  }
+  // Invoke as `void *(*)(const void *const *, int)` �� the Go shim is expected
+  // to dispatch the arg array to the actual function.  This matches the call
+  // convention used by python/java bridges.
+  typedef void *(*polyglot_go_thunk_t)(const void *const *, int);
+  return ((polyglot_go_thunk_t)fn)(args, arg_count);
+}

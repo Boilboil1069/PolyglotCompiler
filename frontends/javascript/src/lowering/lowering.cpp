@@ -1,6 +1,6 @@
 /**
  * @file     lowering.cpp
- * @brief    JavaScript â†?Polyglot IR lowering
+ * @brief    JavaScript ï¿½?Polyglot IR lowering
  *
  * @ingroup  Frontend / JavaScript
  * @author   Manning Cyrus
@@ -20,7 +20,7 @@
  *
  * Constructs that have no clean static lowering (closures, classes,
  * generators, async/await, prototype chains) are reported as warnings
- * and elided from IR â€?they remain valid JavaScript at runtime, just
+ * and elided from IR ï¿½?they remain valid JavaScript at runtime, just
  * not part of the cross-language IR surface.
  */
 #include "frontends/javascript/include/javascript_lowering.h"
@@ -131,7 +131,7 @@ class Lowerer {
             }
         }
         if (!terminated_) {
-            // Implicit return â€?produce 0/undefined of the right type.
+            // Implicit return ï¿½?produce 0/undefined of the right type.
             if (ret_ty.kind == ir::IRTypeKind::kVoid) {
                 builder_.MakeReturn();
             } else {
@@ -189,19 +189,19 @@ class Lowerer {
             auto else_bb = ifs->else_branch ? fn->CreateBlock("if.else") : nullptr;
             auto cont_bb = fn->CreateBlock("if.end");
             auto cond = LowerExpression(ifs->condition, ir::IRType::I1());
-            builder_.MakeCondBranch(cond, then_bb.get(),
-                                    else_bb ? else_bb.get() : cont_bb.get());
+            builder_.MakeCondBranch(cond, then_bb,
+                                    else_bb ? else_bb : cont_bb);
 
             builder_.SetInsertPoint(then_bb);
             terminated_ = false;
             LowerStatement(ifs->then_branch);
-            if (!terminated_) builder_.MakeBranch(cont_bb.get());
+            if (!terminated_) builder_.MakeBranch(cont_bb);
 
             if (else_bb) {
                 builder_.SetInsertPoint(else_bb);
                 terminated_ = false;
                 LowerStatement(ifs->else_branch);
-                if (!terminated_) builder_.MakeBranch(cont_bb.get());
+                if (!terminated_) builder_.MakeBranch(cont_bb);
             }
             builder_.SetInsertPoint(cont_bb);
             terminated_ = false;
@@ -212,16 +212,16 @@ class Lowerer {
             auto cond_bb = fn->CreateBlock("while.cond");
             auto body_bb = fn->CreateBlock("while.body");
             auto end_bb  = fn->CreateBlock("while.end");
-            builder_.MakeBranch(cond_bb.get());
+            builder_.MakeBranch(cond_bb);
             builder_.SetInsertPoint(cond_bb);
             auto cv = LowerExpression(wh->condition, ir::IRType::I1());
-            builder_.MakeCondBranch(cv, body_bb.get(), end_bb.get());
+            builder_.MakeCondBranch(cv, body_bb, end_bb);
             builder_.SetInsertPoint(body_bb);
             terminated_ = false;
-            loop_stack_.push_back({cond_bb.get(), end_bb.get()});
+            loop_stack_.push_back({cond_bb, end_bb});
             LowerStatement(wh->body);
             loop_stack_.pop_back();
-            if (!terminated_) builder_.MakeBranch(cond_bb.get());
+            if (!terminated_) builder_.MakeBranch(cond_bb);
             builder_.SetInsertPoint(end_bb);
             terminated_ = false;
             return;
@@ -233,24 +233,24 @@ class Lowerer {
             auto body_bb = fn->CreateBlock("for.body");
             auto step_bb = fn->CreateBlock("for.step");
             auto end_bb  = fn->CreateBlock("for.end");
-            builder_.MakeBranch(cond_bb.get());
+            builder_.MakeBranch(cond_bb);
             builder_.SetInsertPoint(cond_bb);
             if (fs->condition) {
                 auto cv = LowerExpression(fs->condition, ir::IRType::I1());
-                builder_.MakeCondBranch(cv, body_bb.get(), end_bb.get());
+                builder_.MakeCondBranch(cv, body_bb, end_bb);
             } else {
-                builder_.MakeBranch(body_bb.get());
+                builder_.MakeBranch(body_bb);
             }
             builder_.SetInsertPoint(body_bb);
             terminated_ = false;
-            loop_stack_.push_back({step_bb.get(), end_bb.get()});
+            loop_stack_.push_back({step_bb, end_bb});
             LowerStatement(fs->body);
             loop_stack_.pop_back();
-            if (!terminated_) builder_.MakeBranch(step_bb.get());
+            if (!terminated_) builder_.MakeBranch(step_bb);
             builder_.SetInsertPoint(step_bb);
             terminated_ = false;
             if (fs->update) LowerExpression(fs->update, ir::IRType::F64());
-            builder_.MakeBranch(cond_bb.get());
+            builder_.MakeBranch(cond_bb);
             builder_.SetInsertPoint(end_bb);
             terminated_ = false;
             return;
@@ -269,7 +269,7 @@ class Lowerer {
             }
             return;
         }
-        // Other statements are silently skipped â€?they have no IR equivalent.
+        // Other statements are silently skipped ï¿½?they have no IR equivalent.
     }
 
     // ---- Expression lowering ----------------------------------------------
@@ -290,7 +290,7 @@ class Lowerer {
                 auto load = builder_.MakeLoad(it->second.addr, it->second.type, id->name);
                 return load->name;
             }
-            // Unknown identifier â€?leave the lookup to the runtime.
+            // Unknown identifier ï¿½?leave the lookup to the runtime.
             diag_.Report(id->loc, "unresolved identifier '" + id->name +
                                   "' in IR lowering; emitting opaque reference");
             return id->name;
@@ -299,7 +299,7 @@ class Lowerer {
             return LowerBinary(*bin, want);
         }
         if (auto lg = std::dynamic_pointer_cast<LogicalExpr>(e)) {
-            // Lower &&/||/?? as bitwise on i1 â€?semantic short-circuit is a
+            // Lower &&/||/?? as bitwise on i1 ï¿½?semantic short-circuit is a
             // future optimisation; this preserves truthy-falsy values for
             // typical JSDoc'd boolean code.
             auto l = LowerExpression(lg->left,  ir::IRType::I1());
@@ -333,15 +333,15 @@ class Lowerer {
             auto end_bb  = fn->CreateBlock("cond.end");
             auto cv = LowerExpression(c->test, ir::IRType::I1());
             auto slot = builder_.MakeAlloca(want, "cond.tmp");
-            builder_.MakeCondBranch(cv, then_bb.get(), else_bb.get());
+            builder_.MakeCondBranch(cv, then_bb, else_bb);
             builder_.SetInsertPoint(then_bb);
             auto t = LowerExpression(c->then_branch, want);
             builder_.MakeStore("cond.tmp", t);
-            builder_.MakeBranch(end_bb.get());
+            builder_.MakeBranch(end_bb);
             builder_.SetInsertPoint(else_bb);
             auto f = LowerExpression(c->else_branch, want);
             builder_.MakeStore("cond.tmp", f);
-            builder_.MakeBranch(end_bb.get());
+            builder_.MakeBranch(end_bb);
             builder_.SetInsertPoint(end_bb);
             auto load = builder_.MakeLoad("cond.tmp", want, "cond.val");
             return load->name;
@@ -350,7 +350,7 @@ class Lowerer {
             return LowerCall(*call, want);
         }
         // Arrow/function expressions, member expressions, templates, etc.
-        // are not part of the static IR surface â€?return a literal zero.
+        // are not part of the static IR surface ï¿½?return a literal zero.
         return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
                              : builder_.MakeLiteral((long long)0)->name;
     }
