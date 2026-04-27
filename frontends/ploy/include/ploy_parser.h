@@ -49,6 +49,13 @@ private:
   std::shared_ptr<Statement> ParseConfigDecl();
   std::shared_ptr<Statement> ParseExtendDecl();
 
+  // Language version pinning.
+  std::shared_ptr<Statement> ParseLangPragma();              // top-level: LANG cpp = c++23;
+  std::shared_ptr<Statement> ParseWithLangBlock();           // WITH LANG (cpp=c++23, ...) { ... }
+  std::shared_ptr<Statement> ParseLangAnnotation();          // @LANG(cpp=c++23, ...) <stmt>
+  // Helper that fills a (lang, version) pin-list from the current `(lang=ver, ...)` form.
+  void ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins);
+
   // Statements
   std::shared_ptr<Statement> ParseStatement();
   std::shared_ptr<Statement> ParseVarDecl(bool is_mutable);

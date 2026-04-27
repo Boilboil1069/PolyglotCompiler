@@ -12,10 +12,14 @@
 #include <iostream>
 #include <string>
 
+#include "tools/common/include/effective_settings_loader.h"
 #include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/polyglot_linker.h"
 
 int main(int argc, char **argv) {
+  if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv); rc.has_value()) {
+    return *rc;
+  }
   using namespace polyglot::linker;
 
   LinkerConfig config;

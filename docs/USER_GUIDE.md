@@ -1888,6 +1888,29 @@ The topology panel maintains a live bidirectional synchronization with the code 
 
 This bidirectional protocol ensures the visual topology graph and the textual `.ploy` source always remain in sync. For implementation details, see `docs/realization/topology_tool.md`.
 
+### Markdown Viewer
+
+The IDE renders Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`) as formatted documents instead of raw source. This is the preferred way to read the bundled documentation (`README.md`, `docs/USER_GUIDE.md`, `docs/specs/*.md`, ...) without leaving the IDE.
+
+**Features:**
+
+| Feature | Description |
+|---------|-------------|
+| **Native rendering** | Uses Qt's built-in `QTextDocument::setMarkdown()` (CommonMark + a useful subset of GitHub-Flavoured Markdown: tables, fenced code blocks, task lists, strike-through). No third-party library required. |
+| **Preview ↔ Source toggle** | An embedded toolbar provides **Preview / Source / Reload** buttons. Press `Ctrl+Shift+M` (View → Toggle Markdown Preview) to switch between the rendered view and the raw source view. |
+| **Theme-aware** | The viewer adopts the active theme's editor background, foreground, and selection colours, so light / dark themes look consistent with the rest of the IDE. Updates live when the theme changes. |
+| **Resource resolution** | Relative `<img src="...">` and link paths resolve against the source file's directory, so embedded screenshots in docs render correctly. |
+| **External links** | `http(s)://` and `mailto:` links open in your default browser. Intra-document `#anchor` links navigate inside the viewer. Local cross-document links (`./other.md`) open in a new editor tab. |
+| **UTF-8 safe** | Files are read as UTF-8 regardless of the system locale, so Chinese / Japanese / emoji content renders correctly. |
+
+**Usage:**
+
+1. Open any `.md` file via **File → Open**, the Explorer panel, or by clicking a Markdown link in another rendered document. The IDE auto-detects the extension and opens it in a Markdown Viewer tab instead of the code editor.
+2. Use the embedded toolbar **Preview** / **Source** buttons (or `Ctrl+Shift+M`) to switch between rendered and raw views. **Reload** re-reads the file from disk.
+3. Click any link in the rendered view to navigate (intra-doc anchor → scroll, external URL → browser, local file → new tab).
+
+> The Markdown Viewer is read-only by design. If you need to edit a Markdown file, open it via right-click → *Open With → Code Editor* (forthcoming), or temporarily rename to a non-Markdown extension.
+
 ### Settings
 
 Open the Settings dialog via **File → Settings** or `Ctrl+,`. Preferences are organized into 7 categories:

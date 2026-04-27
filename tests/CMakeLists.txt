@@ -34,6 +34,7 @@ set(POLYGLOT_TEST_ALL_LIBS
     linker_lib
     topo_lib
     polyc_lib
+    polyglot_tools_settings
     ${CATCH2_LIBS}
 )
 
@@ -148,6 +149,10 @@ set(UNIT_TEST_TOPOLOGY
     unit/tools/topology_test.cpp
 )
 
+set(UNIT_TEST_SETTINGS
+    unit/tools/settings_loader_test.cpp
+)
+
 set(UNIT_TEST_TOPOLOGY_UI
     unit/tools/topology_ui_main.cpp
     unit/tools/drilldown_window_test.cpp
@@ -256,6 +261,12 @@ add_executable(test_topology ${UNIT_TEST_TOPOLOGY})
 target_link_libraries(test_topology PRIVATE
     topo_lib polyc_lib frontend_ploy frontend_cpp frontend_python ${CATCH2_LIBS})
 
+# -- Settings (3-layer JSON loader, schema validation) -----------------------
+add_executable(test_settings ${UNIT_TEST_SETTINGS})
+target_include_directories(test_settings PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_settings PRIVATE
+    polyglot_tools_settings ${CATCH2_LIBS})
+
 # -- Topology UI (requires Qt) -----------------------------------------------
 # DrillDownWindow / BreadcrumbBar tests need a QApplication and Qt widgets.
 find_package(Qt6 QUIET COMPONENTS Widgets)
@@ -363,6 +374,7 @@ set(ALL_UNIT_TEST_SOURCES
     ${UNIT_TEST_RUNTIME}
     ${UNIT_TEST_LINKER}
     ${UNIT_TEST_TOPOLOGY}
+    ${UNIT_TEST_SETTINGS}
     ${UNIT_TEST_E2E}
 )
 
@@ -426,6 +438,7 @@ add_test(NAME test_backends          COMMAND test_backends)
 add_test(NAME test_runtime           COMMAND test_runtime)
 add_test(NAME test_linker            COMMAND test_linker)
 add_test(NAME test_topology          COMMAND test_topology)
+add_test(NAME test_settings          COMMAND test_settings)
 if(TARGET test_topology_ui)
     add_test(NAME test_topology_ui   COMMAND test_topology_ui)
 endif()
@@ -441,6 +454,7 @@ set_tests_properties(test_backends PROPERTIES LABELS "unit;backend")
 set_tests_properties(test_runtime PROPERTIES LABELS "unit;runtime")
 set_tests_properties(test_linker PROPERTIES LABELS "unit;linker")
 set_tests_properties(test_topology PROPERTIES LABELS "unit;topology")
+set_tests_properties(test_settings PROPERTIES LABELS "unit;tools;settings")
 if(TARGET test_topology_ui)
     set_tests_properties(test_topology_ui PROPERTIES LABELS "unit;topology;ui")
 endif()

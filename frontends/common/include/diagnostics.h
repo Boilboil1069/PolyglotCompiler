@@ -80,7 +80,12 @@ enum class ErrorCode {
   kUnresolvedSymbol = 5001,
   kDuplicateExport = 5002,
   kSignatureMismatch = 5003,
-  kABICrossModuleMismatch = 5004
+  kABICrossModuleMismatch = 5004,
+
+  // Tool-chain / language-version errors (6xxx) — demand 2026-04-27-3
+  kLangVersionMismatch  = 6001, // E_LANG_VERSION_MISMATCH (hard error)
+  kLangVersionFallback  = 6002, // W_LANG_VERSION_FALLBACK (warning)
+  kToolchainNotFound    = 6003  // E_TOOLCHAIN_NOT_FOUND (hard error)
 };
 
 // ============================================================================

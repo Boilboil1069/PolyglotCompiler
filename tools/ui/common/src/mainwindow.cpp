@@ -30,14 +30,19 @@
 #include "tools/ui/common/include/action_manager.h"
 #include "tools/ui/common/include/build_panel.h"
 #include "tools/ui/common/include/code_editor.h"
+#include "tools/ui/common/include/command_palette.h"
 #include "tools/ui/common/include/compiler_service.h"
 #include "tools/ui/common/include/debug_panel.h"
 #include "tools/ui/common/include/file_browser.h"
 #include "tools/ui/common/include/git_panel.h"
+#include "tools/ui/common/include/keybinding_service.h"
 #include "tools/ui/common/include/mainwindow.h"
+#include "tools/ui/common/include/markdown_viewer.h"
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/panel_manager.h"
 #include "tools/ui/common/include/settings_dialog.h"
+#include "tools/ui/common/include/settings_page.h"
+#include "tools/ui/common/include/settings_service.h"
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
 #include "tools/ui/common/include/theme_manager.h"
@@ -327,6 +332,12 @@ void MainWindow::SetupMenuBar() {
   action_toggle_topology_->setChecked(false);
   action_toggle_topology_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
 
+  view_menu_->addSeparator();
+  action_toggle_markdown_preview_ = view_menu_->addAction("Toggle &Markdown Preview");
+  action_toggle_markdown_preview_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
+  action_toggle_markdown_preview_->setStatusTip(
+      "Switch the current Markdown tab between rendered preview and raw source");
+
   // ── Build Menu ────────────────────────────────────────────────────
   build_menu_ = mb->addMenu("&Build");
 
@@ -539,6 +550,16 @@ void MainWindow::SetupConnections() {
   connect(action_toggle_build_, &QAction::triggered, this, &MainWindow::ToggleBuildPanel);
   connect(action_toggle_debug_, &QAction::triggered, this, &MainWindow::ToggleDebugPanel);
   connect(action_toggle_topology_, &QAction::triggered, this, &MainWindow::ToggleTopologyPanel);
+
+  // Markdown preview toggle: only meaningful when the active tab is a
+  // MarkdownViewer; silently no-ops otherwise.
+  if (action_toggle_markdown_preview_) {
+    connect(action_toggle_markdown_preview_, &QAction::triggered, this, [this]() {
+      if (auto *md = MarkdownViewerAt(editor_tabs_->currentIndex())) {
+        md->TogglePreview();
+      }
+    });
+  }
 
   // CMake build actions
   connect(action_cmake_configure_, &QAction::triggered, this, &MainWindow::CmakeConfigure);
@@ -762,7 +783,13 @@ void MainWindow::SetupConnections() {
 // ============================================================================
 
 void MainWindow::SetupShortcuts() {
-  // Extra shortcuts not covered by menu actions can be added here
+  // VS Code-style command palette.
+  auto *palette_sc = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P), this);
+  connect(palette_sc, &QShortcut::activated, this, &MainWindow::OpenCommandPalette);
+
+  // Build the command registry & load user keybindings (if any).
+  RegisterBuiltinCommands();
+  KeybindingService::Instance().LoadUserKeybindings();
 }
 
 // ============================================================================
@@ -1273,6 +1300,12 @@ int MainWindow::OpenFileInTab(const QString &path) {
     }
   }
 
+  // Markdown documents (.md / .markdown) get a dedicated MarkdownViewer tab
+  // that renders the document instead of treating it as raw source.
+  if (IsMarkdownFile(path)) {
+    return OpenMarkdownInTab(path);
+  }
+
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
     QMessageBox::warning(this, "Open Error", "Could not open: " + path);
@@ -1306,6 +1339,68 @@ int MainWindow::OpenFileInTab(const QString &path) {
     compiler_service_->IndexWorkspaceFile(path.toStdString(), content.toStdString(),
                                           language.toStdString());
   }
+
+  return index;
+}
+
+// ----------------------------------------------------------------------------
+// Markdown rendering support
+// ----------------------------------------------------------------------------
+
+bool MainWindow::IsMarkdownFile(const QString &path) {
+  const QString ext = QFileInfo(path).suffix().toLower();
+  return ext == "md" || ext == "markdown" || ext == "mdown" || ext == "mkd";
+}
+
+int MainWindow::OpenMarkdownInTab(const QString &path) {
+  // Already open?  Switch to the existing tab.
+  for (auto &[index, info] : tab_info_) {
+    if (info.file_path == path) {
+      editor_tabs_->setCurrentIndex(index);
+      return index;
+    }
+  }
+
+  auto *viewer = new MarkdownViewer();
+  if (!viewer->LoadFile(path)) {
+    QMessageBox::warning(this, "Open Error", "Could not open Markdown file: " + path);
+    delete viewer;
+    return -1;
+  }
+
+  const int index = editor_tabs_->addTab(viewer, QFileInfo(path).fileName());
+  editor_tabs_->setCurrentIndex(index);
+
+  TabInfo info;
+  info.file_path = path;
+  info.language = "markdown";
+  info.highlighter = nullptr;
+  tab_info_[index] = info;
+
+  // External links in the rendered preview that point at other local files
+  // are routed back into the IDE so that .md ↔ .md cross-links open in new
+  // tabs instead of launching an external application.
+  connect(viewer, &MarkdownViewer::ExternalLinkClicked, this,
+          [this, viewer](const QUrl &url) {
+            if (url.scheme() == "http" || url.scheme() == "https" ||
+                url.scheme() == "mailto") {
+              return;  // already handled by MarkdownViewer (QDesktopServices)
+            }
+            QString target = url.isLocalFile() ? url.toLocalFile() : url.path();
+            if (target.isEmpty()) return;
+            // Resolve relative paths against the source document's directory.
+            QFileInfo target_fi(target);
+            if (target_fi.isRelative() && !viewer->FilePath().isEmpty()) {
+              target_fi.setFile(QFileInfo(viewer->FilePath()).absoluteDir(), target);
+            }
+            const QString abs = target_fi.absoluteFilePath();
+            if (QFileInfo(abs).exists()) {
+              OpenFileInTab(abs);
+            }
+          });
+
+  // Notify plugins about the file open (markdown counts as a regular open).
+  polyglot::plugins::PluginManager::Instance().FireFileOpened(path.toStdString());
 
   return index;
 }
@@ -1429,6 +1524,10 @@ CodeEditor *MainWindow::CurrentEditor() const {
 
 CodeEditor *MainWindow::EditorAt(int index) const {
   return qobject_cast<CodeEditor *>(editor_tabs_->widget(index));
+}
+
+MarkdownViewer *MainWindow::MarkdownViewerAt(int index) const {
+  return qobject_cast<MarkdownViewer *>(editor_tabs_->widget(index));
 }
 
 void MainWindow::UpdateTabTitle(int index, bool modified) {
@@ -1992,11 +2091,72 @@ void MainWindow::CloseTerminalTab(int index) {
 // ============================================================================
 
 void MainWindow::OpenSettings() {
-  if (!settings_dialog_) {
-    settings_dialog_ = new SettingsDialog(this);
-    connect(settings_dialog_, &SettingsDialog::SettingsChanged, this, &MainWindow::ApplySettings);
+  // VS Code-style two-pane settings page (replaces legacy SettingsDialog).
+  SettingsPage page(this);
+  connect(&page, &SettingsPage::RequestOpenJson, this,
+          [this](const QString &path) { OpenFileInTab(path); });
+  page.exec();
+  ApplySettings();
+}
+
+// ============================================================================
+// Command palette (Ctrl+Shift+P)
+// ============================================================================
+
+void MainWindow::OpenCommandPalette() {
+  if (!command_palette_) {
+    command_palette_ = new CommandPalette(this);
   }
-  settings_dialog_->exec();
+  command_palette_->Refresh();
+  command_palette_->exec();
+}
+
+void MainWindow::RegisterBuiltinCommands() {
+  auto &kb = KeybindingService::Instance();
+  kb.RegisterCommand("workbench.action.openSettings",
+                     [this]() { OpenSettings(); }, tr("Preferences: Open Settings (UI)"));
+  kb.RegisterCommand("workbench.action.openSettingsJson",
+                     [this]() {
+                       OpenFileInTab(SettingsService::Instance().UserSettingsPath());
+                     },
+                     tr("Preferences: Open User Settings (JSON)"));
+  kb.RegisterCommand("workbench.action.openWorkspaceSettingsJson",
+                     [this]() {
+                       const QString ws = SettingsService::Instance().WorkspaceSettingsPath();
+                       if (!ws.isEmpty()) OpenFileInTab(ws);
+                     },
+                     tr("Preferences: Open Workspace Settings (JSON)"));
+  kb.RegisterCommand("workbench.action.openDefaultSettingsJson",
+                     [this]() {
+                       QString p = QDir::tempPath() + "/polyglot_default_settings.json";
+                       QFile f(p);
+                       if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                         f.write(SettingsService::Instance().DefaultsPrettyPrint().toUtf8());
+                         f.close();
+                       }
+                       OpenFileInTab(p);
+                     },
+                     tr("Preferences: Open Default Settings (JSON, read-only)"));
+  kb.RegisterCommand("workbench.action.openKeybindings",
+                     [this]() { OpenFileInTab(SettingsService::Instance().UserKeybindingsPath()); },
+                     tr("Preferences: Open Keyboard Shortcuts (JSON)"));
+  kb.RegisterCommand("workbench.action.files.save",
+                     [this]() { Save(); }, tr("File: Save"));
+  kb.RegisterCommand("workbench.action.files.saveAs",
+                     [this]() { SaveAs(); }, tr("File: Save As..."));
+  kb.RegisterCommand("workbench.action.files.openFile",
+                     [this]() { OpenFile(); }, tr("File: Open File..."));
+  kb.RegisterCommand("workbench.action.files.newUntitled",
+                     [this]() { NewFile(); }, tr("File: New File"));
+  kb.RegisterCommand("workbench.action.showCommands",
+                     [this]() { OpenCommandPalette(); }, tr("Show All Commands"));
+  kb.RegisterCommand("editor.action.toggleMarkdownPreview",
+                     [this]() {
+                       if (auto *md = MarkdownViewerAt(editor_tabs_->currentIndex())) {
+                         md->TogglePreview();
+                       }
+                     },
+                     tr("Markdown: Toggle Preview"));
 }
 
 // ============================================================================
@@ -2315,20 +2475,20 @@ void MainWindow::ApplyEditorSettings(CodeEditor *editor) {
   if (!editor)
     return;
 
-  QSettings settings("PolyglotCompiler", "IDE");
+  // Canonical settings store: SettingsService (settings.json layered).
+  auto &svc = SettingsService::Instance();
 
-  const int tab_width = qBound(1, settings.value("editor/tab_width", 4).toInt(), 16);
-  const bool insert_spaces = settings.value("editor/insert_spaces", true).toBool();
-  const bool auto_indent = settings.value("editor/auto_indent", true).toBool();
-  const bool show_line_numbers = settings.value("editor/show_line_numbers", true).toBool();
-  const bool highlight_current_line =
-      settings.value("editor/highlight_current_line", true).toBool();
-  const bool bracket_matching = settings.value("editor/bracket_matching", true).toBool();
-  const bool word_wrap = settings.value("editor/word_wrap", false).toBool();
+  const int tab_width = qBound(1, svc.GetInt("editor.tabSize", 4), 16);
+  const bool insert_spaces = svc.GetBool("editor.insertSpaces", true);
+  const bool auto_indent = svc.GetBool("editor.autoIndent", true);
+  const bool show_line_numbers = svc.GetBool("editor.lineNumbers", true);
+  const bool highlight_current_line = svc.GetBool("editor.highlightCurrentLine", true);
+  const bool bracket_matching = svc.GetBool("editor.bracketMatching", true);
+  const bool word_wrap = svc.GetBool("editor.wordWrap", false);
 
   QFont editor_font = editor->font();
-  editor_font.setFamily(settings.value("appearance/font_family", editor_font.family()).toString());
-  editor_font.setPointSize(qBound(8, settings.value("appearance/font_size", 11).toInt(), 32));
+  editor_font.setFamily(svc.GetString("editor.fontFamily", editor_font.family()));
+  editor_font.setPointSize(qBound(8, svc.GetInt("editor.fontSize", 11), 32));
 
   editor->SetEditorFont(editor_font);
   editor->SetTabWidth(tab_width);
@@ -2612,6 +2772,9 @@ void MainWindow::ApplyTheme() {
       if (it != tab_info_.end() && it->second.highlighter) {
         it->second.highlighter->rehighlight();
       }
+    } else if (auto *md = MarkdownViewerAt(i)) {
+      // Markdown viewer tabs also follow the active theme.
+      md->ApplyTheme();
     }
   }
 }

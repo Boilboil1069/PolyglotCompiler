@@ -141,6 +141,16 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     fe_opts.node_modules_paths = settings.node_modules_paths;
     fe_opts.ruby_project_dir = settings.ruby_project_dir;
     fe_opts.gem_paths = settings.gem_paths;
+    // Per-language version selection (demand 2026-04-27-3).
+    fe_opts.cpp_dialect             = settings.cpp_dialect;
+    fe_opts.python_version          = settings.python_version;
+    fe_opts.java_release            = settings.java_release;
+    fe_opts.dotnet_lang_version     = settings.dotnet_lang_version;
+    fe_opts.dotnet_target_framework = settings.dotnet_target_framework;
+    fe_opts.rust_edition            = settings.rust_edition;
+    fe_opts.go_version              = settings.go_version;
+    fe_opts.ecma_version            = settings.ecma_version;
+    fe_opts.ruby_version            = settings.ruby_version;
 
     auto fe_result = fe->Lower(result.processed_source, result.source_label, *result.ir_ctx,
                                result.diagnostics, fe_opts);

@@ -16,6 +16,7 @@
 
 #include "common/include/core/types.h"
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/lexer_base.h"
 
 namespace polyglot::frontends {
@@ -61,6 +62,31 @@ struct FrontendOptions {
   // Ruby — Bundler project root + extra gem load paths
   std::string ruby_project_dir{};       // --ruby-project
   std::vector<std::string> gem_paths{}; // --gem-path
+
+  // -------------------------------------------------------------------------
+  // Per-language version / dialect (introduced by demand 2026-04-27-3).
+  //
+  // Each field defaults to `kAuto` which means: let the frontend infer the
+  // version from (1) source pragmas / leading comments, (2) project
+  // configuration files (`go.mod` / `Cargo.toml` / `*.csproj` /
+  // `package.json` / `pyproject.toml` / `Gemfile`), (3) tool-chain probing
+  // (`python --version`, `dotnet --version`, ...), (4) per-language
+  // conservative default (see `language_versions.h`).
+  //
+  // These fields are populated by polyc CLI flags (`--std=...`,
+  // `--python-version=...` etc.), by ploy `LANG`/`WITH LANG`/`@LANG`
+  // directives flowing through the SemanticDatabase, or by callers that
+  // explicitly set them (UI Toolchains tab, tests).
+  // -------------------------------------------------------------------------
+  CppDialect            cpp_dialect{CppDialect::kAuto};
+  PythonVersion         python_version{PythonVersion::kAuto};
+  JavaRelease           java_release{JavaRelease::kAuto};
+  DotnetLangVersion     dotnet_lang_version{DotnetLangVersion::kAuto};
+  DotnetTargetFramework dotnet_target_framework{DotnetTargetFramework::kAuto};
+  RustEdition           rust_edition{RustEdition::kAuto};
+  GoVersion             go_version{GoVersion::kAuto};
+  EcmaVersion           ecma_version{EcmaVersion::kAuto};
+  RubyVersion           ruby_version{RubyVersion::kAuto};
 };
 
 // ============================================================================

@@ -33,6 +33,7 @@
 #include <string>
 
 #include "common/include/version.h"
+#include "tools/common/include/effective_settings_loader.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -447,6 +448,9 @@ static int Run(const TopoOptions &opts) {
 // ============================================================================
 
 int main(int argc, char *argv[]) {
+  if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv); rc.has_value()) {
+    return *rc;
+  }
   auto opts = polyglot::tools::ParseArgs(argc, argv);
 
   if (opts.show_help) {

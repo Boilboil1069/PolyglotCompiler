@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/polyglot/settings">
+    <file>default_settings.json</file>
+    <file>settings_schema.json</file>
+  </qresource>
+</RCC>

@@ -9,8 +9,9 @@
 5.生成的文档要中英双语两份文档;
 6.不允许删库操作；
 7.每次修改后都要检查是否需要修改文档，如有需要请修改相关的所有文档；
-8.每次完成需求后要增加完成标记。
-9.根据修改判断版本号的变化
+8.每次完成需求后要增加完成标记；
+9.根据修改判断版本号的变化；
+10.所有生成的注释与文档中不要出现与该文档相关的内容；
 
 日期次数分割线示例如下：
 ```
@@ -1531,3 +1532,303 @@ Error: Process completed with exit code 1.
    - 完成后在本条目末尾追加 `--end -done`。
 
 --end -done
+
+2026-04-27-2
+
+编译器gui要支持渲染Markdown格式的文档（可以使用外部库）
+
+--end -done
+
+2026-04-27-3
+
+背景：经过对全项目代码的审查，polyc 当前对各前端的"语言版本（language standard）"基本是固定的：C++ 走单一默认 dialect（无 `-std=c++17/20/23`）、Python 走 `Py3` 通用解析路径、Java 没有 `--release/-source/-target`、.NET 没有 `LangVersion / TargetFramework`、Rust 没有 `--edition`、Go 没有 `go.mod` 中 `go 1.x` 行的消费、JavaScript 没有 ECMAScript 版本切换、Ruby 没有 1.9/2.x/3.x 语法切换。Ploy 语言本身也没有任何"指定/约束目标语言版本"的语法。本次需求要求把"各语言多版本编译与管理"这条能力做实，并在 ploy 中加入"可显式指定语言版本（默认自动推断）"的语法与语义。具体要求如下：
+
+1.前端能力按版本切换：
+   - C++ 前端：在 `frontends/cpp/include/cpp_options.h`（如不存在则新增）中加入 `CppDialect { Cpp98, Cpp03, Cpp11, Cpp14, Cpp17, Cpp20, Cpp23, Cpp26 }`，由 `parser/sema/lowering` 共享。词法层根据 dialect 启用/禁用关键字（如 `co_await`/`concept` 仅 C++20+，`if consteval` 仅 C++23+，`auto` 类型推断仅 C++11+）；parser/sema 控制特性可见性（lambda、`constexpr if`、`requires`、`<=>`、模板形参 `auto`）。
+   - Python 前端：加入 `PythonVersion { Py2_7, Py3_6, Py3_8, Py3_10, Py3_11, Py3_12, Py3_13 }`。lexer 控制 `print` 关键字 vs 函数、`async/await` 自 3.5+、`match/case` 自 3.10+、PEP 695 类型参数自 3.12+；sema 控制 walrus `:=`(3.8+)、PEP 604 联合类型 `X | Y`(3.10+)、`type` 语句(3.12+)。
+   - Java 前端：加入 `JavaRelease { Java8, Java11, Java17, Java21, Java23 }`。已有 java8/17/21/23 支持要按 release 限制语法：`var` 自 10+、`record/sealed` 自 17+、pattern matching for switch 自 21+、unnamed variable `_` 自 21+、primitive patterns 自 23+。
+   - .NET/C# 前端：加入 `DotnetLangVersion { Cs7_3, Cs8, Cs9, Cs10, Cs11, Cs12 }` 与 `TargetFramework { Net6, Net7, Net8, Net9 }`。控制 `record`(9+)、`init`(9+)、`global using`(10+)、`raw string`(11+)、primary constructors(12+)、`required` 成员(11+) 等。
+   - Rust 前端：加入 `RustEdition { E2015, E2018, E2021, E2024 }`。控制 `async/await`(2018+)、`dyn` 关键字、`raw_ref` 与 `let-else`(2021+)、`gen` 块(2024+)；`use` 路径解析的 edition 差异要落到 sema。
+   - Go 前端：从项目根 `go.mod` 中读取 `go 1.X` 行得出 `GoVersion { Go1_18, Go1_20, Go1_21, Go1_22, Go1_23 }`。控制泛型(1.18+)、`any` 别名(1.18+)、`min/max/clear` 内建(1.21+)、`for range int`(1.22+)。
+   - JavaScript 前端：加入 `EcmaVersion { Es5, Es2015, Es2017, Es2020, Es2022, Es2023, Esnext }`。控制 `class/let/const`(Es2015+)、`async/await`(Es2017+)、optional chaining/null coalescing(Es2020+)、top-level await/private fields(Es2022+)。
+   - Ruby 前端：加入 `RubyVersion { Ruby1_9, Ruby2_7, Ruby3_0, Ruby3_2, Ruby3_3 }`。控制 `safe navigation &.`(2.3+)、pattern matching(3.0+)、`it` 块参数(3.4+ 预留)、endless method(3.0+)、shorthand hash literal(3.1+)。
+
+2.每个前端的 `ILanguageFrontend::Lower()` / `Analyze()` 入口需通过 `FrontendOptions` 接收对应版本字段；`frontends/common/include/language_frontend.h` 的 `FrontendOptions` 增加 `cpp_dialect / python_version / java_release / dotnet_lang_version / dotnet_target_framework / rust_edition / go_version / ecma_version / ruby_version` 九个字段，默认 `Auto`（让前端自行推断）。各前端在自己的 `Lower()` 内若收到 `Auto`，按以下顺序推断：源文件首行/首注释的版本指示（如 `// @cpp-dialect: c++20`）→ 项目配置文件（`go.mod` / `Cargo.toml [package].edition` / `*.csproj <LangVersion>` / `package.json engines.node` / `pyproject.toml [tool.polyc].python` / `Gemfile .ruby-version`）→ 工具链可探测版本（`python --version` / `dotnet --version` / `rustc --edition` / `go env GOVERSION`）→ 该语言保守默认（C++20、Py3.11、Java17、Cs11/Net8、Rust 2021、Go1.21、Es2022、Ruby3.2）。
+
+3.polyc CLI 扩展（在 `tools/polyc/src/driver.cpp` 与 `tools/polyc/include/compilation_pipeline.h` 的 `Settings` 中同步落地）：新增并在 `--help` 中归类显示
+   - `--std=c++17|c++20|c++23|c++26`（同时接受 `-std=` 形式以兼容主流惯例）；
+   - `--python-version=3.10|3.11|3.12|3.13`；
+   - `--java-release=8|11|17|21|23`；
+   - `--cs-lang=7.3|8|9|10|11|12`、`--target-framework=net6|net7|net8|net9`；
+   - `--rust-edition=2015|2018|2021|2024`；
+   - `--go-version=1.21|1.22|1.23`；
+   - `--ecma=es2017|es2020|es2022|esnext`；
+   - `--ruby-version=2.7|3.0|3.2|3.3`；
+   每个选项缺省值均为 `auto`，并通过 `stage_frontend.cpp` 透传到对应前端。CLI 同时支持 `--list-language-versions` 子命令，打印当前 polyc 支持的全部语言/版本矩阵。
+
+4.工具链管理（多版本共存）：新增 `tools/polyver/`（命令名 `polyver`，与 `polyc/polyld/polyasm/polyopt/polyrt/polytopo/polybench/polyui` 风格一致）作为"语言工具链管理器"。功能：
+   - `polyver list <lang>`：列出已检测到的该语言所有可用工具链（路径、版本、是否默认）；
+   - `polyver detect`：在 PATH、常见安装目录（Windows: `C:\Python*` / `C:\Program Files\Java\*` / `C:\Program Files\dotnet` / `%USERPROFILE%\.cargo`，macOS/Linux: `/usr/bin`、`/opt/homebrew`、`~/.pyenv`、`~/.rbenv`、`~/.nvm`、`~/.sdkman`、`/usr/lib/jvm`、`/usr/local/go`）下扫描并写入用户级 `~/.polyglot/toolchains.json`；
+   - `polyver use <lang> <version>`：把指定版本设为当前工程默认（写入工程根 `.polyglot/toolchains.lock`）；
+   - `polyver path <lang> <version>`：打印该工具链的可执行文件绝对路径；
+   - polyc 在解析 `Auto` 时若发现工程根存在 `.polyglot/toolchains.lock`，优先使用其中固定的版本；其次读取 `~/.polyglot/toolchains.json`。
+   `polyver` 必须有完整源码 + 单元测试，禁止仅是壳工具。
+
+5.Ploy 语言新增"语言版本指定"语法：
+   - 文件级：`LANG cpp = c++20; LANG python = 3.11; LANG rust = 2021;`，作用域为整个 `.ploy` 文件，必须出现在文件顶部（`IMPORT` 之前）。
+   - 块级（覆盖文件级）：`WITH LANG(cpp = c++23) { ... }`，块内的 `LINK`/`CALL`/内联 `cpp::...` 引用按 c++23 行为解析。
+   - 单符号级（覆盖块级）：`LINK cpp::math::add @LANG(c++23);`、`CALL python::np::array(x) @LANG(3.12);`，仅对该一处 LINK/CALL 生效。
+   - 缺省（未写 `LANG` 也无 `@LANG`）：自动推断，规则同第 2 条。
+   - 解析与 sema：
+     - 在 `frontends/ploy/include/ploy_ast.h` 增加 `LangDirective`（文件级）、`WithLangBlock`（块级）、`LangAnnotation`（单符号级）三个 AST 节点；
+     - parser 在 `parser.cpp` 中识别 `LANG` 与 `WITH LANG(...)` 与 `@LANG(...)` 三种形式，关键字 `LANG` 加入 `ploy_lexer.cpp` 关键字表；
+     - sema 在 `sema.cpp` 中维护"语言版本作用域栈"，对每个跨语言引用解析时，把当前栈顶版本一并写入 `CallDescriptor` 与 `LinkEntry`，并把版本信息透传到对应前端的 lowering（同一个 `.ploy` 文件内允许同语言多版本共存，各 LINK/CALL 走自己的版本签名）。
+   - lowering：将版本信息写入 aux 描述符（`*_link_descriptors.paux`）的二进制结构里，供 `polyld` 在生成跨语言桥时按版本选择正确的 ABI 桥代码。
+
+6.SemaContext 与诊断：每个前端在加载外部包符号、解析关键字、生成 IR 时，遇到"当前 dialect/version 不支持的语法"时，必须以 `DiagError` 报告——给出版本不匹配的明确信息（如 `'co_await' requires C++20 or later (current: c++17)`），定位到出现该语法的源位置；不允许静默降级。`docs/realization/diagnostics.md` 中新增 `E_LANG_VERSION_MISMATCH`、`W_LANG_VERSION_FALLBACK`、`E_TOOLCHAIN_NOT_FOUND` 三个错误码。
+
+7.运行时与链接：
+   - `runtime/src/libs/python_rt.c` / `java_rt.c` / `dotnet_rt.c` / `go_rt.c` / `js_rt.c` / `ruby_rt.c` 分别接受"目标版本"参数，运行时从 `.polyglot/toolchains.lock` 选择对应解释器/JVM/CoreCLR/Node/MRI 的实际可执行路径，确保 `polyc` 编译产物在多版本共存机器上选择正确的运行时；
+   - `polyld` 在解析跨语言桥时按 `CallDescriptor.lang_version` 字段选择对应的 ABI 适配（例如 Python 3.10 vs 3.12 的 `Py_buffer` / `PyType_Spec` 差异、Java 8 vs Java 21 的 `MethodHandle` 调用约定差异）。
+
+8.集成测试：在 `tests/integration/language_versions/` 下增加：
+   - `cpp/cpp17_vs_cpp20_concept.cpp` + 对应 ploy 触发 `requires` 关键字仅在 `--std=c++20` 通过；
+   - `python/walrus_in_3_8.py` + ploy 用 `LANG python = 3.6;` 期望诊断；
+   - `java/record_in_17.java` + ploy 用 `LANG java = 8;` 期望诊断；
+   - `dotnet/raw_string_in_cs11.cs`；
+   - `rust/let_else_in_2021.rs`；
+   - `go/generic_in_1_18.go`；
+   - `js/optional_chaining_in_es2020.js`；
+   - `ruby/pattern_match_in_3_0.rb`；
+   - `ploy/per_callsite_version.ploy`：同一文件 `LINK cpp::a @LANG(c++17);` 与 `LINK cpp::b @LANG(c++23);` 共存，验证两套 ABI 桥同时生成。
+   每个测试都覆盖"通过路径"+"版本不匹配诊断路径"两种断言，禁止 `REQUIRE(true)`。
+
+9.UI 集成：`polyui` 的 Settings 页面新增"Toolchains"标签页，调用 `polyver list/detect`，让用户在 GUI 中选择各语言默认版本；编辑器对 `.ploy` 中的 `LANG` / `WITH LANG` / `@LANG` 语法提供高亮、补全、悬停提示；拓扑面板节点 hover-tip 中显示该节点解析时使用的具体语言版本。
+
+10.文档：
+   - 新增 `docs/realization/language_versions.md` 与 `docs/realization/language_versions_zh.md`，详细说明各语言支持的版本矩阵、`polyver` 用法、`.polyglot/toolchains.{json,lock}` 格式、ploy 中三种作用域语法、自动推断算法、版本不匹配诊断与故障排查；
+   - 更新 `docs/specs/ploy_language_spec.md` 与 `_zh.md`：新增 `LANG` / `WITH LANG` / `@LANG` 三条语法的 EBNF、语义解释与示例；
+   - 更新 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md` 的"编译命令"与"多语言混合"章节；
+   - 更新 `README.md` 的"Supported Languages"表格，把每行扩展为"language : versions"；
+   - 同步刷新 `docs/api/api_reference.md` / `_zh.md` 中前端 API 与 `FrontendOptions` 字段说明。
+
+11.约束：
+   - 不允许最小实现/占位；
+   - C++ 代码注释一律英文；
+   - 全程保持与现有项目风格一致；
+   - 现有所有单元/集成/基准测试必须仍然通过；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因引入 ploy 新语法、CLI 新选项与新工具 `polyver`，版本号建议从 `1.0.0` 升级为 `1.1.0`（次版本号 +1，向后兼容）。
+
+--end
+
+2026-04-27-4
+
+背景：当前 `polyui` 的设置仅通过 `SettingsDialog` 的 GUI 表单写入 `QSettings`（注册表/平台原生存储），既不便于跨机器同步、无法纳入 Git 版本控制、也无法在没有 GUI 的环境（CI、远程开发、SSH）中调整；不同模块（编辑器、构建、调试、Git、插件、拓扑、Toolchains 等）的设置散落在 `QSettings` 的不同 key 中，没有统一 schema 与默认值文档。本次需求要求引入"VS Code 风格"的设置体系：所有设置以 JSON 文件为唯一事实源，GUI 只是 JSON 的可视化编辑器；同时支持用户级与工程级设置，并提供命令面板/快捷键直接打开 JSON 进行编辑。具体要求如下：
+
+1.设置存储分层（与 VS Code 完全对齐）：
+   - **默认设置（Default Settings）**：内置在 polyui 二进制资源中（`tools/ui/common/resources/default_settings.json`），只读，用于回退；GUI 中以只读视图展示，便于用户对照。
+   - **用户设置（User Settings）**：`%APPDATA%/PolyglotCompiler/settings.json`（Windows）/ `~/Library/Application Support/PolyglotCompiler/settings.json`（macOS）/ `~/.config/PolyglotCompiler/settings.json`（Linux），跨工程生效。
+   - **工程设置（Workspace Settings）**：当前工程根的 `.polyglot/settings.json`，仅对当前工程生效，优先级高于用户设置；与 `.polyglot/toolchains.lock`（见 2026-04-27-3）同目录。
+   - **覆盖优先级**：默认 < 用户 < 工程；运行时合并为单个生效设置树（effective settings），任意层级的字段缺失时按上级回退。
+
+2.JSON Schema 与字段命名（点号分组，与 VS Code 命名风格一致）：
+   - 在 `tools/ui/common/resources/settings_schema.json` 中提供完整 JSON Schema（draft-2020-12），覆盖以下命名空间：
+     - `editor.*`（fontFamily / fontSize / tabSize / insertSpaces / wordWrap / minimap.enabled / lineNumbers / renderWhitespace / formatOnSave / autoSave / autoSaveDelay / rulers）
+     - `workbench.*`（colorTheme / iconTheme / startupEditor / showToolbar / showStatusBar / showExplorer / sideBar.location）
+     - `terminal.*`（fontFamily / fontSize / shell.windows / shell.linux / shell.osx / cursorStyle）
+     - `build.*`（cmakePath / generator / parallelJobs / configurations / defaultConfiguration）
+     - `debug.*`（gdbPath / lldbPath / breakOnException / showInlineValues / consoleEncoding）
+     - `git.*`（path / autoFetch / autoFetchPeriod / confirmSync / defaultBranch）
+     - `plugins.*`（enabled / loadOrder / sandboxTimeoutMs / sandboxMemoryMb）
+     - `topology.*`（layoutAlgorithm / showPortLabels / animateTransitions / drillDown.openInNewWindow）
+     - `polyc.*`（path / extraArgs / progressFormat / cacheEnabled）
+     - `toolchains.*`（cpp.default / python.default / java.default / dotnet.default / rust.default / go.default / js.default / ruby.default）（与 2026-04-27-3 联动）
+     - `ploy.*`（strictMode / packageDiscoveryEnabled / langDirectiveAutoInfer）
+     - `keybindings.*`（命令名 → 快捷键字符串，与 VS Code `keybindings.json` 一致风格）
+     - `files.*`（associations / exclude / encoding / eol）
+   - Schema 必须给出每个字段的 `type`、`default`、`description`（中英双语，至少 `description` 与 `descriptionZh` 两字段）、`enum`（如适用）、`pattern`（如适用）。
+
+3.运行时设置服务（C++/Qt 实现，所有 UI 模块统一调用）：
+   - 新增 `tools/ui/common/include/settings_service.h` + `settings_service.cpp`，提供 `SettingsService`：
+     - `void Load()`：读取默认/用户/工程三层 JSON，合并为 effective settings，使用 `nlohmann::json` 库（项目已通过 `Dependencies.cmake` 引入 fmt，可同样规范引入 nlohmann/json，禁止自己手写 JSON 解析）。
+     - `template<typename T> T Get(QStringView key, T fallback) const;` 与 `void Set(QStringView key, const QJsonValue &value, Scope scope);`（`Scope = User | Workspace`）。
+     - `QObject` 信号 `settingsChanged(QString key, QJsonValue oldValue, QJsonValue newValue)`，所有面板订阅并热更新（不要求重启）。
+     - `Watch()`：用 `QFileSystemWatcher` 监听用户/工程 JSON 文件变更，文件外部修改后 200ms 防抖重新加载并发出信号。
+     - `ValidateAgainstSchema()`：基于 JSON Schema 校验，错误以 `Diagnostics` 形式上抛到 UI 状态栏与 Output 面板（行/列定位）。
+   - 全项目所有 `QSettings` 访问点（`mainwindow.cpp` / `settings_dialog.cpp` / `build_panel.cpp` / `debug_panel.cpp` / `git_panel.cpp` / `terminal_panel.cpp` / `topology_panel.cpp` / `editor/code_editor.cpp` / `plugin_manager.cpp`）改为通过 `SettingsService` 访问，禁止保留 `QSettings` 旁路写入；保留一次性的"旧 QSettings → user settings.json"迁移工具（`MigrateLegacyQSettings()`），首次启动时自动执行并备份原数据到 `settings.json.qsettings.bak`。
+
+4.设置编辑器 UI（VS Code 风格）：
+   - 重写 `SettingsDialog`，命令面板/菜单/快捷键 `Ctrl+,` 打开 `SettingsPage`（停靠式或独立窗口），布局分两栏：
+     - 左侧：搜索框 + 命名空间树（Editor / Workbench / Terminal / Build / Debug / Git / Plugins / Topology / Polyc / Toolchains / Ploy / Keybindings / Files）。
+     - 右侧：当前命名空间下所有字段的可视化编辑器，根据 schema 类型渲染 `QLineEdit / QSpinBox / QDoubleSpinBox / QCheckBox / QComboBox / QFontComboBox / QKeySequenceEdit / QListWidget`；每项右上角显示"已被工程覆盖"等来源标签（与 VS Code 一致）。
+     - 顶部按钮：`Open User settings.json` / `Open Workspace settings.json` / `Reset to Default`（针对单字段或全部）；右上角"⋯"菜单含 `Switch to JSON view`（直接切到内置 JSON 编辑器并定位到该字段行）。
+   - 新增内置 `SettingsJsonEditor`（基于现有 `CodeEditor` + 新增 JSON 高亮器 + JSON Schema 实时校验），打开 `settings.json` / `.polyglot/settings.json` 时自动启用补全（基于 schema）、悬停文档提示、波浪线诊断、保存时自动校验。
+   - 命令面板（新增 `CommandPalette`，`Ctrl+Shift+P`）必须包含至少以下命令：
+     - `Preferences: Open Settings (UI)`
+     - `Preferences: Open User Settings (JSON)`
+     - `Preferences: Open Workspace Settings (JSON)`
+     - `Preferences: Open Default Settings (JSON, read-only)`
+     - `Preferences: Open Keyboard Shortcuts`
+     - `Preferences: Open Keyboard Shortcuts (JSON)`
+     - `Preferences: Reset Setting...`（带搜索）
+
+5.快捷键体系（与 VS Code 风格一致）：
+   - 用户级 `keybindings.json`（与 `settings.json` 同目录，独立文件）：数组形式 `[{"key": "ctrl+s", "command": "workbench.action.files.save", "when": "editorTextFocus"}]`。
+   - `KeybindingService`（`tools/ui/common/include/keybinding_service.h`）：注册命令、解析按键序列（含 chord，如 `ctrl+k ctrl+s`）、`when` 表达式求值（最少支持 `editorTextFocus` / `terminalFocus` / `debugRunning` / `!suggestWidgetVisible`）。
+   - GUI 中 `Ctrl+K Ctrl+S` 打开"Keyboard Shortcuts"列表页，支持搜索/筛选（按命令名、按键、来源），点击单项可改键并写回 `keybindings.json`。
+
+6.工程模板与 `.polyglot/` 目录契约：
+   - 当用户首次在工程中点击"Save as Workspace Settings"或在 Explorer 右键"Configure Workspace Settings"时，自动创建 `.polyglot/` 目录与 `settings.json`（含一份注释模板），并把 `.polyglot/` 加入 `.gitignore` 的反向白名单建议（`!.polyglot/settings.json` / `!.polyglot/toolchains.lock`，提示用户是否纳入版本控制）。
+   - 所有"模板创建"（2026-04-09-16 的模板中心）生成的工程，根目录默认含 `.polyglot/settings.json` 与最小化默认配置。
+
+7.CLI 一致性：
+   - `polyc` / `polyld` / `polybench` / `polyrt` / `polytopo` / `polyver` 在启动时也读取同一份 `.polyglot/settings.json` 中的相关命名空间字段（`polyc.*` / `toolchains.*` / `ploy.*`），命令行参数仍可显式覆盖。CLI 工具新增 `--settings <path>` 显式指定 JSON 文件、`--print-effective-settings` 打印合并后的最终设置树（用于排错）。
+   - 在 `tools/common/`（新增）放置 `effective_settings_loader.{h,cpp}`，CLI 与 UI 共用同一加载/合并/校验代码，禁止出现两份实现。
+
+8.热更新与一致性：
+   - GUI 中改动设置 → 立即写入对应 scope 的 JSON → 触发 `settingsChanged` → 所有订阅面板即时刷新（字体、主题、编辑器规则、终端 shell、构建并行度、调试器路径、Git 路径等）。
+   - 反向：用户在外部编辑器修改 JSON → `QFileSystemWatcher` 触发重新加载 → GUI 即时刷新；若 schema 校验失败，弹出诊断条 + Output 面板红色行，并保留旧值不应用。
+
+9.集成测试与单元测试：
+   - 新增 `tests/unit/tools/ui/settings_service_test.cpp`：覆盖默认/用户/工程三层合并、`Get/Set` 类型转换、信号触发、schema 校验失败路径、迁移 `QSettings` 路径。
+   - 新增 `tests/unit/tools/ui/keybinding_service_test.cpp`：覆盖 chord 解析、`when` 表达式求值、冲突检测、`keybindings.json` 读写。
+   - 新增 `tests/integration/ui/settings_e2e_test.cpp`（QTest）：在 headless 模式下打开 SettingsPage、修改字段、断言 JSON 文件内容与 GUI 显示同步、外部修改 JSON 后断言 GUI 刷新。
+   - 现有测试不得回归；CI 在 ASan 下运行新增测试。
+
+10.文档：
+   - 新增 `docs/realization/settings_system.md` 与 `docs/realization/settings_system_zh.md`，详细说明三层合并语义、JSON Schema 字段表、命令面板命令清单、快捷键体系、`.polyglot/` 目录契约、迁移流程、常见故障排查。
+   - 更新 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`：新增"设置（Settings）"章节，给出 `settings.json` 示例与命令面板截图位说明。
+   - 更新 `README.md`：在 Features 表中加入 `JSON-first settings (VS Code style) with UI editor and command palette`。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：新增 `SettingsService` / `KeybindingService` / `CommandPalette` 公共 API。
+
+11.约束：
+   - 不允许最小实现/占位（如"仅打开 JSON 不做合并"等不接受）；
+   - C++ 代码注释一律英文；
+   - 全程保持与现有项目风格一致（命名空间 `polyglot::ui`，文件命名小写下划线）；
+   - JSON 解析统一使用 `nlohmann/json`，禁止自写解析器；
+   - 现有所有单元/集成/基准测试必须仍然通过；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因引入 JSON 设置体系、命令面板、快捷键体系，建议版本号 `1.1.0 → 1.2.0`（次版本号 +1，向后兼容；保留 QSettings 自动迁移）。
+
+--end
+
+2026-04-27-5
+
+背景：当前 `polyui` 的主题仅在 `SettingsDialog` 中以一组硬编码 `setStyleSheet(QString::fromLatin1("..."))` 字符串切换（Light / Dark / Solarized 等若干内置主题），主题样式与 C++ 代码强耦合，用户无法自定义颜色、无法分发主题包、也无法独立编辑/调试样式。本次需求要求把主题体系做成"VS Code 风格"的可外部加载、可组合、可分发的主题系统：用户既可通过外部 CSS/QSS 文件覆盖控件样式，也可通过 JSON 主题描述文件定义编辑器与 UI 的语义化颜色（token colors / workbench colors），并提供独立的"主题管理页面（Theme Manager）"用于浏览、安装、启用、预览、导出主题。具体要求如下：
+
+1.主题文件格式与目录契约：
+   - **JSON 主题（语义化颜色，主形式）**：扩展名 `.polytheme.json`，schema 在 `tools/ui/common/resources/theme_schema.json` 提供（draft-2020-12）。结构与 VS Code Color Theme 对齐：
+     ```json
+     {
+       "name": "Polyglot Dark+",
+       "id": "polyglot.dark-plus",
+       "type": "dark",                 // dark | light | high-contrast
+       "version": "1.0.0",
+       "author": "...",
+       "extends": "polyglot.dark",     // optional, inherit and override
+       "colors": {                      // workbench colors (UI elements)
+         "editor.background": "#1e1e1e",
+         "editor.foreground": "#d4d4d4",
+         "editorLineNumber.foreground": "#858585",
+         "sideBar.background": "#252526",
+         "statusBar.background": "#007acc",
+         "panel.border": "#80808059",
+         "tab.activeBackground": "#1e1e1e",
+         "topology.node.background": "#2d2d30",
+         "topology.edge.valid": "#4ec9b0",
+         "topology.edge.incompatible": "#f48771"
+       },
+       "tokenColors": [                 // editor syntax tokens
+         { "scope": ["keyword.control.ploy"], "settings": { "foreground": "#c586c0", "fontStyle": "bold" } },
+         { "scope": ["string.quoted"],        "settings": { "foreground": "#ce9178" } }
+       ],
+       "qss": "extra.qss"               // optional sibling QSS file for finer control
+     }
+     ```
+   - **CSS/QSS 主题（控件样式覆盖，辅助形式）**：扩展名 `.qss`（Qt Style Sheets，是 CSS 子集 + Qt 扩展）。允许独立存在（仅 QSS 主题，无 JSON 语义颜色），也可作为 JSON 主题的 `qss` 字段被联动加载；加载时 `SettingsService` 会先把 JSON 中的 `colors.*` 注入为 QSS 变量（形式 `--editor-background` → 编译期替换或 Qt 6 的 `QPalette::Color` 映射），便于 QSS 引用。
+   - **目录契约（与 settings 对齐）**：
+     - 内置主题：`tools/ui/common/resources/themes/{polyglot-light,polyglot-dark,polyglot-high-contrast}.polytheme.json`（随二进制打包，只读）。
+     - 用户主题：`<userConfigDir>/PolyglotCompiler/themes/*.polytheme.json` 与同名 `*.qss`。
+     - 工程主题：`.polyglot/themes/*.polytheme.json`，作用域仅当前工程。
+     - 加载优先级：内置 < 用户 < 工程。
+   - **主题包（可分发）**：扩展名 `.polythemepack`（实质是 zip），包含一个 `pack.json`（描述包名、作者、license、依赖的最小 polyui 版本）+ 一个或多个 `.polytheme.json` + 资源（图标、字体、QSS 片段）。主题包可被插件系统识别并安装。
+
+2.主题运行时服务（C++/Qt）：
+   - 新增 `tools/ui/common/include/theme_service.h` + `theme_service.cpp`，提供 `ThemeService`：
+     - `void Scan()`：扫描三层目录 + 已安装主题包，构建 `available_themes_` 列表。
+     - `bool Activate(const QString &theme_id)`：解析 JSON（含 `extends` 链）→ 合成最终 `colors`/`tokenColors` 表 → 应用到全局 `QPalette` + 加载/合成 QSS → 通过现有 `SyntaxHighlighter` 重新着色所有打开编辑器 → 通知 `TopologyPanel` 重绘节点/边色。
+     - `Reload()`：用 `QFileSystemWatcher` 监听激活主题文件变更，500ms 防抖热重载（无需重启 polyui，便于主题作者实时调试）。
+     - `ExportToFile(const QString &theme_id, const QString &out_path)`：将合成后（含 extends 展开）的主题导出为单一 `.polytheme.json`。
+     - `Install(const QString &pack_path)` / `Uninstall(const QString &theme_id)`：安装/卸载 `.polythemepack` 到用户主题目录。
+     - `ValidateAgainstSchema()`：基于 `theme_schema.json` 校验，错误以诊断形式上抛。
+   - 现有所有 `setStyleSheet` 硬编码（`mainwindow.cpp` / `settings_dialog.cpp` / `git_panel.cpp` / `build_panel.cpp` / `debug_panel.cpp` / `topology_panel.cpp` 等）必须移除并改为通过 `ThemeService` 注入；不允许任何模块再写裸 `setStyleSheet` 字面量（除非读取自主题文件）。
+   - 与 `SettingsService`（2026-04-27-4）联动：`workbench.colorTheme`（字符串，主题 id）和 `workbench.iconTheme` 字段是激活主题的唯一入口；用户在 SettingsPage 改 `workbench.colorTheme` 即触发 `ThemeService::Activate`。
+
+3.主题管理页面（Theme Manager UI，独立功能页）：
+   - 入口：菜单 `View → Theme Manager`、命令面板 `Preferences: Color Theme` 与 `Preferences: Manage Themes`、快捷键 `Ctrl+K Ctrl+T`（与 VS Code 一致）。
+   - 布局（独立窗口或停靠面板，三栏）：
+     - 左栏：主题列表（按来源分组：Built-in / User / Workspace / Installed Packs），支持搜索、按类型筛选（Dark/Light/HC）、置顶收藏。
+     - 中栏：所选主题的实时预览区（一个固定的"展示用 mini-IDE"：含一个代码编辑器片段、一个拓扑图小片段、一个终端片段、一个状态栏片段），鼠标悬停可显示该色键名。
+     - 右栏：主题元信息（name / id / type / version / author / extends 链），下方是"Color Tokens"折叠树（按 `editor / sideBar / statusBar / topology / terminal / panel / button` 等分组），每项显示色块与 hex 值，可点击进入"Override"模式（写入用户级覆盖到 `<userConfigDir>/themes/<id>.override.polytheme.json`，不污染原主题文件）。
+   - 顶部工具栏按钮：
+     - `Activate`：激活当前选中主题（写入 `workbench.colorTheme` 设置）。
+     - `Edit`：在内置 JSON 编辑器中打开该主题文件（带 schema 补全/校验/波浪线，复用 2026-04-27-4 的 `SettingsJsonEditor`）。
+     - `Edit QSS`：若主题含/可关联 `.qss`，在 QSS 编辑器中打开（复用 `CodeEditor` + 新增 QSS 高亮器）。
+     - `Duplicate`：基于当前主题创建一份副本到用户目录，自动以 `extends` 引用原主题，仅写入差异。
+     - `Export`：导出合成后的单文件主题。
+     - `Install from File`：从本地选择 `.polythemepack` 安装；`Install from URL`：从 URL 下载并安装（带 SHA-256 校验提示）。
+     - `Uninstall`：卸载用户/包主题（内置主题不可卸载，按钮禁用）。
+   - 实时预览：编辑主题文件保存（或在右栏改 token 颜色）后，预览区与全局 UI 同步刷新（依赖 `ThemeService::Reload`），无需重启。
+
+4.主题作者工作流支持：
+   - 命令 `Developer: Generate Color Theme From Current Settings`：把当前生效配色（含用户已做的所有 override）导出为一份新的 `.polytheme.json` 模板。
+   - 命令 `Developer: Inspect Editor Token`：在编辑器中点击任意 token，弹出该 token 的 scope 链与当前命中的 `tokenColors` 规则（与 VS Code 同名命令一致），便于精确编写规则。
+   - 命令 `Developer: Inspect UI Color Key`：鼠标悬停任意 UI 元素，弹出对应的 workbench color key（如 `sideBar.background`）。
+   - 这三条命令均挂入命令面板（2026-04-27-4 引入）。
+
+5.内置主题（首批必须随发布提供，作为后续主题的参考实现）：
+   - `polyglot-light`：浅色，作为默认。
+   - `polyglot-dark`：深色。
+   - `polyglot-high-contrast`：高对比度（黑底，符合无障碍）。
+   - `polyglot-solarized-light` / `polyglot-solarized-dark`：经典 Solarized。
+   - 全部以纯 JSON 形式提供（不允许仍有硬编码 QSS 字面量），并与文档中的"色键参考表"严格一一对应。
+
+6.CLI 一致性（与 2026-04-27-4 共享加载层）：
+   - `polyui --theme <id|path>` 启动时强制以指定主题运行（用于截图、文档生成、CI 视觉回归）。
+   - 新增 `polyui --list-themes` 仅列出可用主题与来源后退出。
+   - `polyui --validate-theme <path>` 仅做 schema 校验后退出，错误以非零退出码 + JSON 诊断输出（便于主题作者在 CI 中校验）。
+
+7.测试：
+   - 新增 `tests/unit/tools/ui/theme_service_test.cpp`：覆盖 schema 校验、`extends` 链合成、三层目录优先级、热重载信号、`Install/Uninstall` 路径、QSS 联动注入。
+   - 新增 `tests/integration/ui/theme_manager_e2e_test.cpp`（QTest，headless）：打开 Theme Manager → 选中 dark → Activate → 断言 `workbench.colorTheme` 写入；外部修改 JSON → 断言预览与全局刷新；安装 `.polythemepack` → 断言出现在列表；导出 → 断言文件存在且可被再次解析。
+   - 新增视觉回归冒烟：`polyui --theme polyglot-dark --headless --screenshot <out.png>` 在 CI 中产出截图并与基线对比（容差像素 < 阈值）。
+   - 不得使用 `REQUIRE(true)`；现有测试不得回归。
+
+8.文档：
+   - 新增 `docs/realization/theme_system.md` 与 `docs/realization/theme_system_zh.md`，包含：
+     - 三层目录加载顺序与优先级；
+     - JSON Schema 全字段参考表（含每个 workbench color key 的中英双语含义与作用控件清单）；
+     - `tokenColors` scope 命名约定（与各前端 lexer 输出的 scope 对齐：`keyword.control.ploy` / `entity.name.function.cpp` 等，必须列全）；
+     - QSS 与 JSON colors 的联动机制；
+     - 主题包 `.polythemepack` 打包格式；
+     - 主题作者完整工作流（Inspect → Edit → Reload → Export → Pack）；
+     - 故障排查（常见加载失败、热重载未触发、色键拼写错误）。
+   - 更新 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`：新增"主题（Themes）"章节。
+   - 更新 `README.md`：在 Features 表中加入 `External JSON/QSS theme system with theme manager`。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：新增 `ThemeService` 与 Theme Manager 公共 API。
+
+9.约束：
+   - 不允许最小实现/占位（如"仅切换 stylesheet 字符串而不接 JSON schema"等不接受）；
+   - C++ 代码注释一律英文；
+   - JSON 解析统一使用 `nlohmann/json`，QSS 解析复用 Qt 自带能力；
+   - 所有内置主题必须以 JSON 文件存在，不允许保留硬编码 stylesheet 分支；
+   - 全程保持与现有项目风格一致（命名空间 `polyglot::ui`，文件命名小写下划线）；
+   - 现有所有单元/集成/基准测试必须仍然通过；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 与 2026-04-27-4 同属设置/外观体系扩展，建议在同一发布周期内合并发布；版本号在 2026-04-27-4 的基础上由 `1.2.0 → 1.3.0`（次版本号 +1，向后兼容）。
+
+--end

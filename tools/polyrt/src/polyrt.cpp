@@ -23,6 +23,8 @@
 #include <memory>
 #include <sstream>
 #include <string>
+
+#include "tools/common/include/effective_settings_loader.h"
 #include <thread>
 #include <vector>
 
@@ -1021,15 +1023,15 @@ int CmdInfo(int argc, char **argv) {
     std::cout << "+- Runtime Configuration -------------------------------------+\n";
     std::cout << "|                                                              |\n";
     std::cout << "|  GC Configuration                                            |\n";
-    std::cout << "|    Default Strategy:   Mark-Sweep                             |\n";
-    std::cout << "|    Initial Heap Size:  1 MB                                   |\n";
-    std::cout << "|    Max Heap Size:      Unlimited                              |\n";
+    std::cout << "|    Default Strategy:   Mark-Sweep                            |\n";
+    std::cout << "|    Initial Heap Size:  1 MB                                  |\n";
+    std::cout << "|    Max Heap Size:      Unlimited                             |\n";
     std::cout << "|                                                              |\n";
     std::cout << "|  Thread Configuration                                        |\n";
     std::ostringstream oss;
     oss << "    Default Pool Size:  " << hw_threads << " threads";
     std::cout << "|" << std::left << std::setw(62) << oss.str() << "|\n";
-    std::cout << "|    Max Pool Size:      256 threads                            |\n";
+    std::cout << "|    Max Pool Size:      256 threads                           |\n";
     std::cout << "|                                                              |\n";
     std::cout << "|  Memory Configuration                                        |\n";
     {
@@ -1040,7 +1042,7 @@ int CmdInfo(int argc, char **argv) {
                  << polyglot_allocator_version();
       std::cout << "|" << std::left << std::setw(62) << alloc_line.str() << "|\n";
     }
-    std::cout << "|    Large Object:       >= 8 KB                                |\n";
+    std::cout << "|    Large Object:       >= 8 KB                               |\n";
     std::cout << "|                                                              |\n";
     std::cout << "+--------------------------------------------------------------+\n";
   }
@@ -1102,6 +1104,9 @@ int Run(int argc, char **argv) {
 } // namespace polyglot::tools
 
 int main(int argc, char **argv) {
+  if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv); rc.has_value()) {
+    return *rc;
+  }
   return polyglot::tools::Run(argc, argv);
 }
 

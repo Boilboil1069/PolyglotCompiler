@@ -34,6 +34,7 @@
 #include "middle/include/ir/ir_context.h"
 
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
 #include "frontends/ploy/include/package_discovery_cache.h"
 #include "frontends/ploy/include/ploy_lowering.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -151,6 +152,26 @@ struct DriverSettings {
 
   // Incremental compilation cache
   bool clean_cache{false}; // --clean-cache: purge incremental cache
+
+  // -------------------------------------------------------------------------
+  // Per-language version selection (demand 2026-04-27-3).
+  //
+  // All nine fields default to `kAuto` (= "let the frontend infer").
+  // The CLI populates them from `--std=...`, `--python-version=...`,
+  // `--java-release=...`, `--cs-lang=...`, `--target-framework=...`,
+  // `--rust-edition=...`, `--go-version=...`, `--ecma=...`,
+  // `--ruby-version=...`.  They are then forwarded to the matching
+  // FrontendOptions field by stage_frontend.
+  // -------------------------------------------------------------------------
+  frontends::CppDialect            cpp_dialect{frontends::CppDialect::kAuto};
+  frontends::PythonVersion         python_version{frontends::PythonVersion::kAuto};
+  frontends::JavaRelease           java_release{frontends::JavaRelease::kAuto};
+  frontends::DotnetLangVersion     dotnet_lang_version{frontends::DotnetLangVersion::kAuto};
+  frontends::DotnetTargetFramework dotnet_target_framework{frontends::DotnetTargetFramework::kAuto};
+  frontends::RustEdition           rust_edition{frontends::RustEdition::kAuto};
+  frontends::GoVersion             go_version{frontends::GoVersion::kAuto};
+  frontends::EcmaVersion           ecma_version{frontends::EcmaVersion::kAuto};
+  frontends::RubyVersion           ruby_version{frontends::RubyVersion::kAuto};
 };
 
 // ============================================================================

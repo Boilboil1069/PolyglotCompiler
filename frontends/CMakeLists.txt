@@ -9,6 +9,7 @@ add_library(frontend_common
     common/src/token_pool.cpp
     common/src/preprocessor.cpp
     common/src/frontend_registry.cpp
+    common/src/language_versions.cpp
 )
 
 target_include_directories(frontend_common PUBLIC

@@ -3,6 +3,17 @@
 # polyc, polyasm, polyld, polyopt, polyrt, polybench, and polyui (Qt IDE).
 # ============================================================================
 
+# -- polyglot_tools_settings (shared CLI/UI settings loader) -------------------
+# Implements the 3-layer (default/user/workspace) settings.json loader used
+# by every CLI tool and by the polyui IDE.  Header-only public API +
+# nlohmann/json.  See tools/common/include/effective_settings_loader.h.
+
+add_library(polyglot_tools_settings STATIC
+    ../tools/common/src/effective_settings_loader.cpp
+)
+target_include_directories(polyglot_tools_settings PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(polyglot_tools_settings PUBLIC nlohmann_json::nlohmann_json)
+
 # -- polyc_lib (shared pipeline library — used by polyc and integration tests) -
 
 add_library(polyc_lib STATIC
@@ -43,6 +54,7 @@ add_executable(polyc
 
 target_link_libraries(polyc
     polyc_lib
+    polyglot_tools_settings
 )
 
 # Enable strict mode by default for Release builds
@@ -89,6 +101,7 @@ target_link_libraries(polyld
     linker_lib
     polyglot_common
     frontend_ploy
+    polyglot_tools_settings
 )
 
 # -- polyopt (standalone optimizer) --------------------------------------------
@@ -113,6 +126,22 @@ add_executable(polyrt
 target_link_libraries(polyrt
     runtime
     polyglot_common
+    polyglot_tools_settings
+)
+
+# -- polyver (multi-language tool-chain manager) -------------------------------
+# Introduced by demand 2026-04-27-3.
+
+add_executable(polyver
+    polyver/src/polyver.cpp
+    polyver/src/toolchain_db.cpp
+)
+
+target_include_directories(polyver PUBLIC ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(polyver
+    polyglot_common
+    nlohmann_json::nlohmann_json
 )
 
 # -- polybench (benchmark suite) -----------------------------------------------
@@ -136,6 +165,7 @@ target_link_libraries(polybench
     backend_wasm
     runtime
     nlohmann_json::nlohmann_json
+    polyglot_tools_settings
 )
 
 # -- topo_lib (topology analysis library) --------------------------------------
@@ -167,6 +197,7 @@ target_link_libraries(polytopo
     topo_lib
     polyglot_common
     frontend_ploy
+    polyglot_tools_settings
 )
 
 # -- polyui (Qt-based desktop IDE) ---------------------------------------------
@@ -245,6 +276,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
     # Common (cross-platform) sources
     set(POLYUI_COMMON_SOURCES
         ui/common/resources/polyui_icons.qrc
+        ui/common/resources/settings_resources.qrc
         ui/common/src/mainwindow.cpp
         ui/common/src/code_editor.cpp
         ui/common/src/syntax_highlighter.cpp
@@ -253,6 +285,10 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/compiler_service.cpp
         ui/common/src/terminal_widget.cpp
         ui/common/src/settings_dialog.cpp
+        ui/common/src/settings_page.cpp
+        ui/common/src/settings_service.cpp
+        ui/common/src/keybinding_service.cpp
+        ui/common/src/command_palette.cpp
         ui/common/src/git_panel.cpp
         ui/common/src/build_panel.cpp
         ui/common/src/debug_panel.cpp
@@ -260,6 +296,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/action_manager.cpp
         ui/common/src/panel_manager.cpp
         ui/common/src/topology_panel.cpp
+        ui/common/src/markdown_viewer.cpp
         polyc/src/foreign_signature_extractor.cpp
     )
 
@@ -272,12 +309,17 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/include/output_panel.h
         ui/common/include/terminal_widget.h
         ui/common/include/settings_dialog.h
+        ui/common/include/settings_page.h
+        ui/common/include/settings_service.h
+        ui/common/include/keybinding_service.h
+        ui/common/include/command_palette.h
         ui/common/include/git_panel.h
         ui/common/include/build_panel.h
         ui/common/include/debug_panel.h
         ui/common/include/action_manager.h
         ui/common/include/panel_manager.h
         ui/common/include/topology_panel.h
+        ui/common/include/markdown_viewer.h
     )
 
     add_executable(polyui
@@ -312,6 +354,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         backend_wasm
         runtime
         topo_lib
+        polyglot_tools_settings
         nlohmann_json::nlohmann_json
     )
 

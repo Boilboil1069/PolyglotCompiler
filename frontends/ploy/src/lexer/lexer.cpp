@@ -66,7 +66,8 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
       "AND",      "OR",      "NOT",    "CALL",     "VOID",     "INT",    "FLOAT",  "STRING",
       "BOOL",     "ARRAY",   "STRUCT", "PACKAGE",  "LIST",     "TUPLE",  "DICT",   "OPTION",
       "MAP_FUNC", "CONVERT", "CONFIG", "VENV",     "CONDA",    "UV",     "PIPENV", "POETRY",
-      "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND"};
+      // language-version pinning keyword.
+      "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND", "LANG"};
 
   frontends::TokenKind kind =
       keywords.count(lexeme) ? frontends::TokenKind::kKeyword : frontends::TokenKind::kIdentifier;

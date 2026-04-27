@@ -97,10 +97,19 @@ std::shared_ptr<Module> PloyParser::TakeModule() {
 }
 
 void PloyParser::ParseTopLevel() {
+  // Demand 2026-04-27-3: `@LANG(...)` annotation can prefix any top-level stmt.
+  if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
+    module_->declarations.push_back(ParseLangAnnotation());
+    return;
+  }
   if (current_.kind == frontends::TokenKind::kKeyword) {
     const std::string &kw = current_.lexeme;
     if (kw == "LINK") {
       module_->declarations.push_back(ParseLinkDecl());
+      return;
+    }
+    if (kw == "LANG") {
+      module_->declarations.push_back(ParseLangPragma());
       return;
     }
     if (kw == "IMPORT") {
@@ -561,8 +570,16 @@ std::vector<FuncDecl::Param> PloyParser::ParseParams() {
 // ============================================================================
 
 std::shared_ptr<Statement> PloyParser::ParseStatement() {
+  // Demand 2026-04-27-3: `@LANG(...)` annotation at statement level.
+  if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
+    return ParseLangAnnotation();
+  }
   if (current_.kind == frontends::TokenKind::kKeyword) {
     const std::string &kw = current_.lexeme;
+    if (kw == "LANG") {
+      // Demand 2026-04-27-3: top-level pin can also appear as a statement.
+      return ParseLangPragma();
+    }
     if (kw == "LET") {
       Advance();
       return ParseVarDecl(false);
@@ -587,7 +604,53 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
       return ParseReturnStatement();
     }
     if (kw == "WITH") {
-      return ParseWithStatement();
+      // `WITH LANG (...) { ... }` is a version-pinning
+      // block; the legacy `WITH (lang, expr) AS name { ... }` is the
+      // resource-management form.
+      // We lex one token ahead to disambiguate.
+      auto saved = current_;
+      Advance();
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "LANG") {
+        // current_ points at LANG; ParseWithLangBlock consumes LANG and the rest.
+        return ParseWithLangBlock();
+      }
+      // Roll back: the WITH-resource form expects `current_` to be just past
+      // WITH already, so feed the parser the right state by emulating the
+      // original entry point.
+      // (ParseWithStatement re-reads `current_` and immediately Advance()s
+      //  over WITH, so we restore by pushing the saved WITH back into
+      //  current_; subsequent token is already cached in our peek.)
+      // Simpler approach: re-implement the body inline here.
+      auto node = std::make_shared<WithStatement>();
+      node->loc = saved.loc;
+      // We are already past WITH; the parser body of ParseWithStatement after
+      // its own `Advance()` continues from the same point.
+      ExpectSymbol("(", "expected '(' after WITH");
+      if (current_.kind == frontends::TokenKind::kIdentifier ||
+          current_.kind == frontends::TokenKind::kKeyword) {
+        node->language = current_.lexeme;
+        Advance();
+      } else {
+        diagnostics_.Report(current_.loc, "expected language name in WITH");
+        Sync();
+        return node;
+      }
+      ExpectSymbol(",", "expected ',' after language in WITH");
+      node->resource_expr = ParseExpression();
+      ExpectSymbol(")", "expected ')' after WITH arguments");
+      ExpectKeyword("AS", "expected 'AS' after WITH(...)");
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->var_name = current_.lexeme;
+        Advance();
+      } else {
+        diagnostics_.Report(current_.loc, "expected variable name after AS in WITH");
+        Sync();
+        return node;
+      }
+      ExpectSymbol("{", "expected '{' after WITH ... AS name");
+      node->body = ParseBlockBody();
+      ExpectSymbol("}", "expected '}' to close WITH block");
+      return node;
     }
     if (kw == "BREAK") {
       auto node = std::make_shared<BreakStatement>();
@@ -2082,6 +2145,143 @@ std::shared_ptr<Statement> PloyParser::ParseExtendDecl() {
   }
   ExpectSymbol("}", "expected '}' after EXTEND body");
 
+  return node;
+}
+
+// ============================================================================
+// Demand 2026-04-27-3: language-version pinning
+// ============================================================================
+
+// Helper: parse `(lang = ver, lang2 = ver2, ...)` into a flat pin list.
+// `current_` must point at the opening '('.
+void PloyParser::ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins) {
+  ExpectSymbol("(", "expected '(' to begin language pin list");
+  if (IsSymbol(")")) {
+    Advance();
+    diagnostics_.Report(current_.loc, "language pin list must contain at least one entry");
+    return;
+  }
+  do {
+    WithLangBlock::Pin pin;
+    if (current_.kind != frontends::TokenKind::kIdentifier &&
+        current_.kind != frontends::TokenKind::kKeyword) {
+      diagnostics_.Report(current_.loc, "expected language name in language pin list");
+      Sync();
+      return;
+    }
+    pin.language = current_.lexeme;
+    Advance();
+    ExpectSymbol("=", "expected '=' between language and version");
+    // Version token: identifier ("c++23" comes through as 'c' '+' '+' so we
+    // accept either an identifier OR a string literal OR a number; we then
+    // gather any trailing punctuation that forms a contiguous version token.
+    if (current_.kind == frontends::TokenKind::kStringLiteral) {
+      pin.version = current_.lexeme;
+      Advance();
+    } else if (current_.kind == frontends::TokenKind::kIdentifier ||
+               current_.kind == frontends::TokenKind::kKeyword ||
+               current_.kind == frontends::TokenKind::kNumberLiteral) {
+      pin.version = current_.lexeme;
+      Advance();
+      // Consume contiguous "+" "+" "23" / ".11" tokens that the lexer split.
+      while (current_.kind == frontends::TokenKind::kSymbol &&
+             (current_.lexeme == "+" || current_.lexeme == "." ||
+              current_.lexeme == "-")) {
+        pin.version += current_.lexeme;
+        Advance();
+        if (current_.kind == frontends::TokenKind::kIdentifier ||
+            current_.kind == frontends::TokenKind::kKeyword ||
+            current_.kind == frontends::TokenKind::kNumberLiteral) {
+          pin.version += current_.lexeme;
+          Advance();
+        }
+      }
+    } else {
+      diagnostics_.Report(current_.loc, "expected version token after '='");
+      Sync();
+      return;
+    }
+    out_pins.push_back(std::move(pin));
+  } while (MatchSymbol(","));
+  ExpectSymbol(")", "expected ')' to close language pin list");
+}
+
+// LANG <lang> = <version>;   (top-level / statement form)
+std::shared_ptr<Statement> PloyParser::ParseLangPragma() {
+  auto node = std::make_shared<LangPragma>();
+  node->loc = current_.loc;
+  Advance(); // consume 'LANG'
+  if (current_.kind != frontends::TokenKind::kIdentifier &&
+      current_.kind != frontends::TokenKind::kKeyword) {
+    diagnostics_.Report(current_.loc, "expected language name after LANG");
+    Sync();
+    return node;
+  }
+  node->language = current_.lexeme;
+  Advance();
+  ExpectSymbol("=", "expected '=' after language name in LANG pragma");
+  if (current_.kind == frontends::TokenKind::kStringLiteral) {
+    node->version = current_.lexeme;
+    Advance();
+  } else if (current_.kind == frontends::TokenKind::kIdentifier ||
+             current_.kind == frontends::TokenKind::kKeyword ||
+             current_.kind == frontends::TokenKind::kNumberLiteral) {
+    node->version = current_.lexeme;
+    Advance();
+    while (current_.kind == frontends::TokenKind::kSymbol &&
+           (current_.lexeme == "+" || current_.lexeme == "." ||
+            current_.lexeme == "-")) {
+      node->version += current_.lexeme;
+      Advance();
+      if (current_.kind == frontends::TokenKind::kIdentifier ||
+          current_.kind == frontends::TokenKind::kKeyword ||
+          current_.kind == frontends::TokenKind::kNumberLiteral) {
+        node->version += current_.lexeme;
+        Advance();
+      }
+    }
+  } else {
+    diagnostics_.Report(current_.loc, "expected version token after '='");
+    Sync();
+    return node;
+  }
+  ExpectSymbol(";", "expected ';' after LANG pragma");
+  return node;
+}
+
+// WITH LANG (lang = ver, ...) { body }
+// On entry, `current_` points at the LANG keyword (WITH already consumed).
+std::shared_ptr<Statement> PloyParser::ParseWithLangBlock() {
+  auto node = std::make_shared<WithLangBlock>();
+  node->loc = current_.loc;
+  Advance(); // consume 'LANG'
+  ParseLangPinList(node->pins);
+  ExpectSymbol("{", "expected '{' after WITH LANG (...)");
+  node->body = ParseBlockBody();
+  ExpectSymbol("}", "expected '}' to close WITH LANG block");
+  return node;
+}
+
+// @LANG(lang = ver, ...) <statement>
+std::shared_ptr<Statement> PloyParser::ParseLangAnnotation() {
+  auto node = std::make_shared<LangAnnotation>();
+  node->loc = current_.loc;
+  // Consume '@'.
+  if (!(current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@")) {
+    diagnostics_.Report(current_.loc, "internal: ParseLangAnnotation called without leading '@'");
+    Sync();
+    return node;
+  }
+  Advance(); // consume '@'
+  if (!(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "LANG")) {
+    diagnostics_.Report(current_.loc, "expected 'LANG' after '@'");
+    Sync();
+    return node;
+  }
+  Advance(); // consume 'LANG'
+  ParseLangPinList(node->pins);
+  // Body is a single subsequent statement.
+  node->target = ParseStatement();
   return node;
 }
 

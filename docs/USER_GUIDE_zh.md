@@ -1878,6 +1878,29 @@ CLI 和 UI 共享相同的 `GeneratePloySrc` 逻辑，确保输出一致。
 
 此双向协议确保可视拓扑图与文本 `.ploy` 源代码始终保持同步。实现细节请参阅 `docs/realization/topology_tool_zh.md`。
 
+### Markdown 渲染查看器
+
+IDE 将 Markdown 文档（`.md`、`.markdown`、`.mdown`、`.mkd`）以排版后的格式呈现，而非原始源码。这是在 IDE 内阅读项目自带文档（`README.md`、`docs/USER_GUIDE_zh.md`、`docs/specs/*.md` 等）的推荐方式。
+
+**功能特性：**
+
+| 特性 | 说明 |
+|------|------|
+| **原生渲染** | 使用 Qt 内置的 `QTextDocument::setMarkdown()` 渲染（CommonMark + GitHub Flavoured Markdown 子集：表格、围栏代码块、任务列表、删除线）。无需任何第三方库。 |
+| **预览 ↔ 源码切换** | 内嵌工具栏提供 **Preview / Source / Reload** 按钮。按 `Ctrl+Shift+M`（视图 → 切换 Markdown 预览）即可在渲染视图与原始源码视图之间切换。 |
+| **主题感知** | 查看器自动采用当前主题的编辑器背景色、前景色与选中色，使浅色 / 深色主题与 IDE 其它部分保持一致。主题切换时实时更新。 |
+| **资源解析** | 相对路径的 `<img src="...">` 与超链接相对于源文件目录解析，因此文档中嵌入的截图能正确显示。 |
+| **外部链接** | `http(s)://` 与 `mailto:` 链接在系统默认浏览器中打开。文档内的 `#anchor` 锚点在查看器内跳转。本地跨文档链接（`./other.md`）会在新标签页中打开。 |
+| **UTF-8 安全** | 文件统一以 UTF-8 读取，与系统区域设置无关，因此中文 / 日文 / emoji 内容均能正确呈现。 |
+
+**使用步骤：**
+
+1. 通过 **文件 → 打开**、Explorer 面板，或在已渲染的另一份文档中点击 Markdown 链接打开任意 `.md` 文件。IDE 自动识别扩展名，将其在 Markdown 查看器标签页中打开，而非代码编辑器。
+2. 使用内嵌工具栏的 **Preview** / **Source** 按钮（或 `Ctrl+Shift+M`）在渲染与原始视图间切换。**Reload** 按钮重新从磁盘读取文件。
+3. 点击渲染视图中的任意链接进行跳转（文档内锚点 → 滚动定位，外部 URL → 浏览器，本地文件 → 新标签页）。
+
+> Markdown 查看器在设计上是只读的。如需编辑 Markdown 文件，请右键 → *Open With → Code Editor*（计划中），或临时改名为非 Markdown 扩展名后再打开。
+
 ### 设置
 
 通过 **文件 → 设置** 或 `Ctrl+,` 打开设置对话框。偏好设置分为 7 个类别：

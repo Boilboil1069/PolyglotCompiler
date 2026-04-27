@@ -27,6 +27,7 @@
 #include "common/include/version.h"
 #include "frontends/common/include/frontend_registry.h"
 #include "runtime/include/libs/base.h"
+#include "tools/common/include/effective_settings_loader.h"
 #include "tools/polyc/include/compilation_cache.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/driver_stages.h"
@@ -88,6 +89,11 @@ DriverSettings ParseArgs(int argc, char **argv) {
   bool source_set = false;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
+    // Skip the shared --settings / --print-effective-settings flags; these
+    // are handled before ParseArgs() in main().
+    if (arg == "--print-effective-settings") continue;
+    if (arg == "--settings" && i + 1 < argc) { ++i; continue; }
+    if (arg.rfind("--settings=", 0) == 0) continue;
     if (arg == "--help" || arg == "-h") {
       std::cout
           << "Usage: polyc [options] <source-file-or-code>\n"
@@ -140,7 +146,32 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --go-project=<dir>        Go module root (containing go.mod)\n"
           << "  --go-mod-cache=<dir>      Additional Go module cache root\n"
           << "\n"
+          << "Language version selection (demand 2026-04-27-3):\n"
+          << "  --std=<dialect>           C++ dialect: c++17|c++20|c++23|c++26 (alias: -std=)\n"
+          << "  --python-version=<v>      Python: 3.8|3.10|3.11|3.12|3.13\n"
+          << "  --java-release=<n>        Java release: 8|11|17|21|23\n"
+          << "  --cs-lang=<v>             C# language: 7.3|8|9|10|11|12\n"
+          << "  --target-framework=<tfm>  .NET target: net6|net7|net8|net9\n"
+          << "  --rust-edition=<y>        Rust edition: 2015|2018|2021|2024\n"
+          << "  --go-version=<v>          Go release: 1.18|1.20|1.21|1.22|1.23\n"
+          << "  --ecma=<v>                ECMAScript: es2017|es2020|es2022|es2023|esnext\n"
+          << "  --ruby-version=<v>        Ruby: 2.7|3.0|3.2|3.3\n"
+          << "  --list-language-versions  Print the supported version matrix and exit\n"
+          << "\n"
           << "Source can be a file path or inline code.\n";
+      std::exit(0);
+    }
+    if (arg == "--list-language-versions") {
+      std::cout << "polyc supported language/version matrix:\n"
+                << "  cpp        : c++98 c++03 c++11 c++14 c++17 c++20 c++23 c++26\n"
+                << "  python     : 2.7 3.6 3.8 3.10 3.11 3.12 3.13\n"
+                << "  java       : 8 11 17 21 23\n"
+                << "  dotnet/cs  : 7.3 8 9 10 11 12  (target: net6 net7 net8 net9)\n"
+                << "  rust       : 2015 2018 2021 2024 (editions)\n"
+                << "  go         : 1.18 1.20 1.21 1.22 1.23\n"
+                << "  javascript : es5 es2015 es2017 es2020 es2022 es2023 esnext\n"
+                << "  ruby       : 1.9 2.7 3.0 3.2 3.3\n"
+                << "Use `auto` (or omit the flag) to enable per-language inference.\n";
       std::exit(0);
     }
     if (arg.rfind("--lang=", 0) == 0) {
@@ -477,6 +508,69 @@ DriverSettings ParseArgs(int argc, char **argv) {
       s.go_module_paths.push_back(argv[++i]);
       continue;
     }
+    // Language version selection (demand 2026-04-27-3).
+    // Each flag accepts the canonical token plus common aliases; "auto" keeps
+    // per-language inference. Unknown values fall through to a non-fatal
+    // warning so the build can continue with the conservative default.
+    auto parse_version_flag = [&s](std::string_view long_form, std::string_view alias_form,
+                                   const std::string &arg_in, auto setter) -> int {
+      const std::string lf = std::string(long_form) + "=";
+      const std::string af = std::string(alias_form) + "=";
+      std::string val;
+      if (arg_in.rfind(lf, 0) == 0) val = arg_in.substr(lf.size());
+      else if (!alias_form.empty() && arg_in.rfind(af, 0) == 0) val = arg_in.substr(af.size());
+      else return 0;
+      if (!setter(val)) {
+        std::cerr << "[warn] unrecognised " << long_form << " value '" << val
+                  << "', falling back to language default\n";
+      }
+      return 1;
+    };
+    if (parse_version_flag("--std", "-std", arg, [&](const std::string &v) {
+          auto r = frontends::ParseCppDialect(v);
+          if (r) { s.cpp_dialect = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--python-version", "--py", arg, [&](const std::string &v) {
+          auto r = frontends::ParsePythonVersion(v);
+          if (r) { s.python_version = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--java-release", "--java", arg, [&](const std::string &v) {
+          auto r = frontends::ParseJavaRelease(v);
+          if (r) { s.java_release = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--cs-lang", "--csharp", arg, [&](const std::string &v) {
+          auto r = frontends::ParseDotnetLangVersion(v);
+          if (r) { s.dotnet_lang_version = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--target-framework", "--tfm", arg, [&](const std::string &v) {
+          auto r = frontends::ParseDotnetTargetFramework(v);
+          if (r) { s.dotnet_target_framework = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--rust-edition", "--edition", arg, [&](const std::string &v) {
+          auto r = frontends::ParseRustEdition(v);
+          if (r) { s.rust_edition = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--go-version", "--go", arg, [&](const std::string &v) {
+          auto r = frontends::ParseGoVersion(v);
+          if (r) { s.go_version = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--ecma", "--es", arg, [&](const std::string &v) {
+          auto r = frontends::ParseEcmaVersion(v);
+          if (r) { s.ecma_version = *r; return true; }
+          return false;
+        })) continue;
+    if (parse_version_flag("--ruby-version", "--ruby", arg, [&](const std::string &v) {
+          auto r = frontends::ParseRubyVersion(v);
+          if (r) { s.ruby_version = *r; return true; }
+          return false;
+        })) continue;
     if (!source_set) {
       s.source = arg;
       source_set = true;
@@ -605,6 +699,12 @@ struct StageTimer {
 
 int main(int argc, char **argv) {
   using namespace polyglot::tools;
+
+  // ── Settings.json integration (shared with polyui IDE) ───────────────
+  if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv);
+      rc.has_value()) {
+    return *rc;
+  }
 
   auto total_start = std::chrono::high_resolution_clock::now();
   DriverSettings settings = ParseArgs(argc, argv);

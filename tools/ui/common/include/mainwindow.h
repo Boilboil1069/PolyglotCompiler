@@ -34,6 +34,7 @@ class CompilerService;
 class DebugPanel;
 class FileBrowser;
 class GitPanel;
+class MarkdownViewer;
 class OutputPanel;
 class PanelManager;
 class SettingsDialog;
@@ -100,6 +101,10 @@ private slots:
   // Settings
   void OpenSettings();
 
+  // VS Code-style command palette (Ctrl+Shift+P)
+  void OpenCommandPalette();
+  void RegisterBuiltinCommands();
+
   // Git panel
   void ToggleGitPanel();
 
@@ -160,8 +165,15 @@ private:
   // Tab helpers
   int OpenFileInTab(const QString &path);
   int CreateNewTab(const QString &title, const QString &language);
+  /// Open a Markdown file (.md / .markdown) in a dedicated MarkdownViewer tab.
+  /// Returns the new tab index, or the existing index if already open, or -1
+  /// on failure.
+  int OpenMarkdownInTab(const QString &path);
+  /// Convenience: true when the file extension indicates a Markdown document.
+  static bool IsMarkdownFile(const QString &path);
   CodeEditor *CurrentEditor() const;
   CodeEditor *EditorAt(int index) const;
+  MarkdownViewer *MarkdownViewerAt(int index) const;
   void UpdateTabTitle(int index, bool modified);
   bool MaybeSave(int index);
   bool MaybeSaveAll();
@@ -281,6 +293,10 @@ private:
   QAction *action_toggle_topology_{nullptr};
   QAction *action_open_topology_{nullptr};
 
+  // Markdown preview toggle (Ctrl+Shift+M) — switches the current
+  // MarkdownViewer tab between rendered preview and raw source.
+  QAction *action_toggle_markdown_preview_{nullptr};
+
   QMenu *terminal_menu_{nullptr};
 
   // ── Compiler Service ─────────────────────────────────────────────────
@@ -290,6 +306,7 @@ private:
   QString last_compiled_binary_;
   // ── Panels ──────────────────────────────────────────────────────
   SettingsDialog *settings_dialog_{nullptr};
+  class CommandPalette *command_palette_{nullptr};
   GitPanel *git_panel_{nullptr};
   BuildPanel *build_panel_{nullptr};
   DebugPanel *debug_panel_{nullptr};

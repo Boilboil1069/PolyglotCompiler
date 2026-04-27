@@ -23,6 +23,8 @@
 #include <map>
 #include <nlohmann/json.hpp>
 #include <string>
+
+#include "tools/common/include/effective_settings_loader.h"
 #include <vector>
 
 #include "middle/include/ir/ir_context.h"
@@ -518,6 +520,9 @@ void BenchmarkComparison() {
 /** @{ */
 
 int main(int argc, char *argv[]) {
+  if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv); rc.has_value()) {
+    return *rc;
+  }
   using namespace polyglot::tools;
 
   std::cout << "╔════════════════════════════════════════════════╗\n";
