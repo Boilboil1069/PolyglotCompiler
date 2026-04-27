@@ -30,6 +30,9 @@
 #include "frontends/rust/include/rust_frontend.h"
 #include "frontends/java/include/java_frontend.h"
 #include "frontends/dotnet/include/dotnet_frontend.h"
+#include "frontends/javascript/include/javascript_frontend.h"
+#include "frontends/ruby/include/ruby_frontend.h"
+#include "frontends/go/include/go_frontend.h"
 
 using polyglot::frontends::FrontendRegistry;
 using polyglot::frontends::ILanguageFrontend;
@@ -370,6 +373,9 @@ TEST_CASE("[registry] Clear removes all frontends", "[frontend_registry]") {
     reg.Register(std::make_shared<polyglot::rust::RustLanguageFrontend>());
     reg.Register(std::make_shared<polyglot::java::JavaLanguageFrontend>());
     reg.Register(std::make_shared<polyglot::dotnet::DotnetLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::javascript::JsLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::ruby::RubyLanguageFrontend>());
+    reg.Register(std::make_shared<polyglot::go::GoLanguageFrontend>());
 
     // Verify restoration
     auto restored = reg.SupportedLanguages();

@@ -82,6 +82,10 @@ class GoParser : public frontends::ParserBase {
     frontends::Token current_{};
     std::string pending_doc_;
     std::unique_ptr<File> file_;
+    // When true, suppress treating `Ident{...}` as a composite literal in
+    // primary-expression suffixes. Used while parsing for/if/switch headers
+    // where `{` introduces the body block (Go's standard ambiguity rule).
+    bool no_composite_lit_ = false;
 };
 
 }  // namespace polyglot::go

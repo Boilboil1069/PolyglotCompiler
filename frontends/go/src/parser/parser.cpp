@@ -663,6 +663,8 @@ std::shared_ptr<Statement> GoParser::ParseIfStmt() {
     auto saved = lexer_.SaveState();
     auto saved_cur = current_;
     auto saved_doc = pending_doc_;
+    bool saved_nc = no_composite_lit_;
+    no_composite_lit_ = true;
     // Try parsing 'simple_stmt ;' then condition. Otherwise just condition.
     auto first = ParseSimpleStmt(false);
     if (MatchSymbol(";")) {
@@ -674,6 +676,7 @@ std::shared_ptr<Statement> GoParser::ParseIfStmt() {
         if (auto e = std::dynamic_pointer_cast<ExprStmt>(first)) s->cond = e->expr;
         else { (void)saved; (void)saved_cur; (void)saved_doc; }
     }
+    no_composite_lit_ = saved_nc;
     s->body = ParseBlock();
     if (MatchKeyword("else")) {
         if (IsKeyword("if")) s->else_branch = ParseIfStmt();
@@ -687,6 +690,8 @@ std::shared_ptr<Statement> GoParser::ParseForStmt() {
     s->loc = current_.loc;
     Advance();  // 'for'
     if (IsSymbol("{")) { s->body = ParseBlock(); return s; }
+    bool saved_nc = no_composite_lit_;
+    no_composite_lit_ = true;
     // Three-part or condition-only or range
     // Try "lhs := range x" / "lhs = range x"
     // Simple approach: read tokens up to '{' and look for 'range' / ';'
@@ -700,6 +705,7 @@ std::shared_ptr<Statement> GoParser::ParseForStmt() {
                 s->range_lhs = as->lhs;
                 s->range_assign = as->op;
                 s->range_x = un->operand;
+                no_composite_lit_ = saved_nc;
                 s->body = ParseBlock();
                 return s;
             }
@@ -713,6 +719,7 @@ std::shared_ptr<Statement> GoParser::ParseForStmt() {
     } else {
         if (auto e = std::dynamic_pointer_cast<ExprStmt>(first)) s->cond = e->expr;
     }
+    no_composite_lit_ = saved_nc;
     s->body = ParseBlock();
     return s;
 }
@@ -721,6 +728,8 @@ std::shared_ptr<Statement> GoParser::ParseSwitchStmt() {
     auto s = std::make_shared<SwitchStmt>();
     s->loc = current_.loc;
     Advance();  // 'switch'
+    bool saved_nc = no_composite_lit_;
+    no_composite_lit_ = true;
     if (!IsSymbol("{")) {
         auto first = ParseSimpleStmt(false);
         if (MatchSymbol(";")) {
@@ -734,6 +743,7 @@ std::shared_ptr<Statement> GoParser::ParseSwitchStmt() {
             s->tag = e->expr;
         }
     }
+    no_composite_lit_ = saved_nc;
     ExpectSymbol("{", "expected '{'");
     SkipSemis();
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
@@ -957,7 +967,7 @@ std::shared_ptr<Expression> GoParser::ParsePrimaryExpr() {
             }
             ExpectSymbol(")", "expected ')'");
             e = call;
-        } else if (IsSymbol("{")) {
+        } else if (IsSymbol("{") && !no_composite_lit_) {
             // Composite literal on previously-parsed type-name expression.
             // Only treat as composite literal if `e` looks like a type.
             // Heuristic: only if `e` is an Identifier or SelectorExpr.
