@@ -11,7 +11,7 @@
 #pragma once
 
 // --- Project identity -------------------------------------------------------
-#define POLYGLOT_PROJECT_NAME "PolyglotCompiler"
+#define POLYGLOT_PROJECT_NAME      "PolyglotCompiler"
 #define POLYGLOT_ORGANIZATION_NAME "PolyglotCompiler"
 #define POLYGLOT_ORGANIZATION_DOMAIN "polyglotcompiler.org"
 
@@ -25,19 +25,18 @@
 #define POLYGLOT_VERSION_BANNER POLYGLOT_PROJECT_NAME " v" POLYGLOT_VERSION_STRING
 
 // --- Tool display names -----------------------------------------------------
-#define POLYGLOT_POLYC_NAME "polyc"
-#define POLYGLOT_POLYLD_NAME "polyld"
+#define POLYGLOT_POLYC_NAME   "polyc"
+#define POLYGLOT_POLYLD_NAME  "polyld"
 #define POLYGLOT_POLYASM_NAME "polyasm"
 #define POLYGLOT_POLYOPT_NAME "polyopt"
-#define POLYGLOT_POLYRT_NAME "polyrt"
+#define POLYGLOT_POLYRT_NAME  "polyrt"
 #define POLYGLOT_POLYTOPO_NAME "polytopo"
 #define POLYGLOT_POLYBENCH_NAME "polybench"
-#define POLYGLOT_POLYUI_NAME "polyui"
+#define POLYGLOT_POLYUI_NAME  "polyui"
 
 // --- IDE display strings ----------------------------------------------------
-#define POLYGLOT_IDE_NAME POLYGLOT_PROJECT_NAME " IDE"
-#define POLYGLOT_IDE_BANNER                                                                        \
-  POLYGLOT_POLYUI_NAME " (" POLYGLOT_IDE_NAME ") v" POLYGLOT_VERSION_STRING
+#define POLYGLOT_IDE_NAME   POLYGLOT_PROJECT_NAME " IDE"
+#define POLYGLOT_IDE_BANNER POLYGLOT_POLYUI_NAME " (" POLYGLOT_IDE_NAME ") v" POLYGLOT_VERSION_STRING
 
 // --- Copyright --------------------------------------------------------------
 #define POLYGLOT_COPYRIGHT "Copyright (c) 2026 " POLYGLOT_PROJECT_NAME " Project"

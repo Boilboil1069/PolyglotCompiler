@@ -149,6 +149,7 @@ set(UNIT_TEST_TOPOLOGY
 )
 
 set(UNIT_TEST_TOPOLOGY_UI
+    unit/tools/topology_ui_main.cpp
     unit/tools/drilldown_window_test.cpp
     unit/tools/topology_ui_extended_test.cpp
     unit/tools/topology_layout_test.cpp
@@ -278,8 +279,33 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ${_QT_UI_TEST_LIB}
         topo_lib polyc_lib
         frontend_ploy frontend_cpp frontend_python
-        ${CATCH2_LIBS})
+        Catch2::Catch2)
     message(STATUS "Qt found — building test_topology_ui (DrillDownWindow tests)")
+
+    # macOS: embed an rpath pointing to the Qt frameworks directory so dyld can
+    # locate QtWidgets.framework etc. without DYLD_FRAMEWORK_PATH being set.
+    if(APPLE)
+        if(Qt6_FOUND)
+            get_target_property(_qt_test_widgets_loc Qt6::Widgets LOCATION)
+        else()
+            get_target_property(_qt_test_widgets_loc Qt5::Widgets LOCATION)
+        endif()
+        if(_qt_test_widgets_loc)
+            # Frameworks live at <dir>/QtWidgets.framework/Versions/A/QtWidgets,
+            # so the rpath the binary needs is <dir>.
+            get_filename_component(_qt_fw_versions "${_qt_test_widgets_loc}" DIRECTORY)
+            get_filename_component(_qt_fw_a       "${_qt_fw_versions}"      DIRECTORY)
+            get_filename_component(_qt_fw_root    "${_qt_fw_a}"             DIRECTORY)
+            get_filename_component(_qt_fw_dir     "${_qt_fw_root}"          DIRECTORY)
+            # The project sets CMAKE_BUILD_WITH_INSTALL_RPATH=TRUE, so the
+            # build-tree binary uses INSTALL_RPATH directly. Append the Qt
+            # frameworks dir to the existing @executable_path-based entries
+            # rather than overwriting them.
+            set_property(TARGET test_topology_ui APPEND PROPERTY
+                INSTALL_RPATH "${_qt_fw_dir}"
+            )
+        endif()
+    endif()
 
     # Windows: deploy Qt runtime DLLs next to test_topology_ui.exe so that
     # CTest can run the test without manual PATH configuration.
