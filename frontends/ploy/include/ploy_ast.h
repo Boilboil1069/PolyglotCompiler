@@ -191,6 +191,7 @@ struct ExtendDecl : Statement {
   std::string derived_name; // The name of the derived type in .ploy
   // Override methods (each should be a FuncDecl)
   std::vector<std::shared_ptr<Statement>> methods;
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Member access: obj.member
@@ -411,6 +412,7 @@ struct WithStatement : Statement {
   std::shared_ptr<Expression> resource_expr;
   std::string var_name; // bound variable name after AS
   std::vector<std::shared_ptr<Statement>> body;
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // STRUCT Name { field1: Type1, field2: Type2, ... }

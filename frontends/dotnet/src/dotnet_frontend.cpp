@@ -49,6 +49,7 @@ bool DotnetLanguageFrontend::Analyze(const std::string &source, const std::strin
                                      const frontends::FrontendOptions &options) const {
   DotnetLexer lexer(source, filename);
   DotnetParser parser(lexer, diagnostics);
+  parser.SetDotnetLangVersion(options.dotnet_lang_version);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -77,6 +78,7 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
 
   DotnetLexer lexer(source, filename);
   DotnetParser parser(lexer, diagnostics);
+  parser.SetDotnetLangVersion(options.dotnet_lang_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
 
@@ -99,7 +101,7 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€” parse C# source and extract method signatures
+// ExtractSignatures â€?parse C# source and extract method signatures
 // ============================================================================
 
 namespace {

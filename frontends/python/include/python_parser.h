@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/python/include/python_ast.h"
 #include "frontends/python/include/python_lexer.h"
@@ -21,6 +22,12 @@ class PythonParser : public frontends::ParserBase {
 public:
   PythonParser(PythonLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
+
+  // Inform the parser which Python language version the source must conform
+  // to. Affects syntax gating (walrus needs >= 3.8, match/case >= 3.10,
+  // `type X = ...` alias >= 3.12). Defaults to `kAuto` which behaves as
+  // `kPythonVersionDefault` and accepts every feature the parser knows.
+  void SetPythonVersion(frontends::PythonVersion v) { python_version_ = v; }
 
   void ParseModule() override;
 
@@ -94,6 +101,10 @@ private:
   // Flag to suppress 'in' as comparison operator while parsing for-loop
   // targets and comprehension targets.
   bool suppress_in_{false};
+  // Active python language version selected by the driver. Used to gate
+  // syntax features such as walrus (3.8+), match/case (3.10+), and the
+  // `type Alias = ...` statement (3.12+).
+  frontends::PythonVersion python_version_{frontends::PythonVersion::kAuto};
 };
 
 } // namespace polyglot::python

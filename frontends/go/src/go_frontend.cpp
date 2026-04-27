@@ -38,6 +38,7 @@ bool GoLanguageFrontend::Analyze(const std::string &source, const std::string &f
                                  const frontends::FrontendOptions &opts) const {
   GoLexer lex(source, filename);
   GoParser p(lex, d);
+  p.SetGoVersion(opts.go_version);
   p.ParseFile();
   if (d.HasErrors())
     return false;
@@ -88,6 +89,7 @@ frontends::FrontendResult GoLanguageFrontend::Lower(const std::string &source,
   frontends::FrontendResult r;
   GoLexer lex(source, filename);
   GoParser p(lex, d);
+  p.SetGoVersion(opts.go_version);
   p.ParseFile();
   auto f = p.TakeFile();
   if (!f || d.HasErrors())
@@ -190,7 +192,7 @@ std::vector<frontends::ForeignFunctionSignature> GoLanguageFrontend::ExtractSign
   for (auto &fn : f->funcs) {
     if (!fn)
       continue;
-    // Only export capitalised names (Go's convention) — but include all
+    // Only export capitalised names (Go's convention) �?but include all
     // for cross-language access.
     frontends::ForeignFunctionSignature sig;
     sig.name = fn->name;

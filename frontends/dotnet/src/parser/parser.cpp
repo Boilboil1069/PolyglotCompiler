@@ -8,6 +8,9 @@
  */
 #include "frontends/dotnet/include/dotnet_parser.h"
 
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
+
 namespace polyglot::dotnet {
 
 void DotnetParser::Advance() {
@@ -206,9 +209,25 @@ void DotnetParser::ParseTopLevel() {
       is_ref = true;
       Consume();
     } else if (kw == "file") {
+      if (!frontends::DotnetLangVersionAtLeast(dotnet_lang_version_,
+                                               frontends::DotnetLangVersion::kCs11)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("'file'-scoped types require C# 11 or newer "
+                                             "(current: ") +
+                                     frontends::DotnetLangVersionToString(dotnet_lang_version_) +
+                                     ")");
+      }
       is_file = true;
       Consume();
     } else if (kw == "record") {
+      if (!frontends::DotnetLangVersionAtLeast(dotnet_lang_version_,
+                                               frontends::DotnetLangVersion::kCs9)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("'record' declarations require C# 9 or newer "
+                                             "(current: ") +
+                                     frontends::DotnetLangVersionToString(dotnet_lang_version_) +
+                                     ")");
+      }
       is_record = true;
       break;
     } else if (kw == "new" || kw == "unsafe") {

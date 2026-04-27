@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/cpp/include/cpp_ast.h"
 #include "frontends/cpp/include/cpp_lexer.h"
@@ -21,6 +22,13 @@ class CppParser : public frontends::ParserBase {
 public:
   CppParser(CppLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
+
+  // Inform the parser which C++ dialect the source must conform to. Drives
+  // syntax gating: coroutines (`co_await`/`co_yield`/`co_return`),
+  // `consteval`, and `concept` all require C++20 or newer. Defaults to
+  // `kAuto` which behaves as `kCppDialectDefault` and accepts every
+  // construct the parser knows.
+  void SetCppDialect(frontends::CppDialect d) { cpp_dialect_ = d; }
 
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
@@ -99,6 +107,9 @@ private:
   std::shared_ptr<Module> module_{std::make_shared<Module>()};
   frontends::Token current_{};
   std::vector<frontends::Token> pushback_{};
+  // Active C++ dialect for syntax gating. `kAuto` is treated as
+  // `kCppDialectDefault` and admits every construct the parser knows.
+  frontends::CppDialect cpp_dialect_{frontends::CppDialect::kAuto};
 };
 
 } // namespace polyglot::cpp

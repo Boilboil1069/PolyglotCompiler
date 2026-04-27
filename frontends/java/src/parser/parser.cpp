@@ -8,6 +8,9 @@
  */
 #include "frontends/java/include/java_parser.h"
 
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
+
 namespace polyglot::java {
 
 void JavaParser::Advance() {
@@ -196,9 +199,19 @@ void JavaParser::ParseTopLevel() {
       is_static = true;
       Consume();
     } else if (kw == "sealed") {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                            std::string("'sealed' classes require Java 17 or newer (current: ") +
+                                frontends::JavaReleaseToString(java_release_) + ")");
+      }
       is_sealed = true;
       Consume();
     } else if (kw == "non-sealed") {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                            std::string("'non-sealed' requires Java 17 or newer (current: ") +
+                                frontends::JavaReleaseToString(java_release_) + ")");
+      }
       is_non_sealed = true;
       Consume();
     } else if (kw == "strictfp") {
@@ -224,6 +237,12 @@ void JavaParser::ParseTopLevel() {
   } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "enum") {
     module_->declarations.push_back(ParseEnumDecl(access, annotations));
   } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "record") {
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               std::string("'record' declarations require Java 17 or newer "
+                                           "(current: ") +
+                                   frontends::JavaReleaseToString(java_release_) + ")");
+    }
     module_->declarations.push_back(ParseRecordDecl(access, annotations));
   } else {
     // Skip unknown tokens
@@ -838,6 +857,12 @@ std::shared_ptr<Statement> JavaParser::ParseStatement() {
       return node;
     }
     if (kw == "yield") {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("'yield' statement (switch expressions) requires "
+                                             "Java 17 or newer (current: ") +
+                                     frontends::JavaReleaseToString(java_release_) + ")");
+      }
       auto node = std::make_shared<YieldStatement>();
       node->loc = current_.loc;
       Consume();
@@ -886,6 +911,12 @@ std::shared_ptr<Statement> JavaParser::ParseVarDecl() {
 
   // Type (or 'var' for Java 10+)
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "var") {
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava11)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               std::string("'var' local-variable type inference requires "
+                                           "Java 11 or newer (current: ") +
+                                   frontends::JavaReleaseToString(java_release_) + ")");
+    }
     node->type = nullptr; // inferred
     Consume();
   } else {
@@ -1359,7 +1390,7 @@ std::shared_ptr<Expression> JavaParser::ParseLambda() {
   return node;
 }
 
-// Standalone ParseMethodDecl — parses a method declaration outside a class
+// Standalone ParseMethodDecl �?parses a method declaration outside a class
 // body context.  Used by external tools that need to parse method signatures.
 std::shared_ptr<MethodDecl> JavaParser::ParseMethodDecl(
     const std::string &access, const std::vector<Annotation> &annotations) {
@@ -1434,7 +1465,7 @@ std::shared_ptr<MethodDecl> JavaParser::ParseMethodDecl(
   return method;
 }
 
-// Standalone ParseFieldDecl — parses a field declaration outside a class body.
+// Standalone ParseFieldDecl �?parses a field declaration outside a class body.
 std::shared_ptr<FieldDecl> JavaParser::ParseFieldDecl(const std::string &access,
                                                       const std::vector<Annotation> &annotations) {
   bool is_static = false, is_final = false;

@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/dotnet/include/dotnet_ast.h"
 #include "frontends/dotnet/include/dotnet_lexer.h"
@@ -20,6 +21,11 @@ public:
   DotnetParser(DotnetLexer &lexer, frontends::Diagnostics &diags) :
       ParserBase(diags), lexer_(lexer) {}
 
+  // Active C# language version for syntax gating. `record` declarations
+  // require C# 9+; `required` members and `file`-scoped types require
+  // C# 11+. `kAuto` is treated as `kDotnetLangVersionDefault`.
+  void SetDotnetLangVersion(frontends::DotnetLangVersion v) { dotnet_lang_version_ = v; }
+
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
 
@@ -27,6 +33,8 @@ private:
   DotnetLexer &lexer_;
   frontends::Token current_{};
   std::shared_ptr<Module> module_;
+  // Active C# language version for syntax gating. `kAuto` ⇒ `kDotnetLangVersionDefault`.
+  frontends::DotnetLangVersion dotnet_lang_version_{frontends::DotnetLangVersion::kAuto};
 
   void Advance();
   frontends::Token Consume();

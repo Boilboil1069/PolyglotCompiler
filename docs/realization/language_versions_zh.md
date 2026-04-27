@@ -133,10 +133,25 @@ polyver --help                       打印帮助信息
 
 ## 后续路线（仍是 WIP）
 
-* **Phase 2** &mdash; ploy 的 `LANG <name>;`、`WITH LANG (name=ver) { … }`
-  与 `@LANG(name=ver)` 注解；各前端的版本门控（如 C++ 关键字可见性、
-  Python walrus / match、Java records、Rust edition macros）；运行时 /
-  链接器 ABI 选择，使得多个版本能共存于同一可执行文件中。
+* **Phase 2 &mdash; ploy 语法（已完成）**：模块级 `LANG <name> = "<ver>";`、
+  作用域块 `WITH LANG (name=ver, …) { … }`，以及单语句注解
+  `@LANG (name=ver) <stmt>` 已在 ploy 词法 / 语法 / 语义阶段全链路落地。
+  语义阶段维护一个 pin 栈：模块层 pragma 写入栈底，`WITH LANG` /
+  `@LANG` push / pop 内层 frame，`AnalyzeCrossLangCall` /
+  `AnalyzeNewExpression` / `AnalyzeMethodCallExpression` /
+  `AnalyzeGetAttrExpression` / `AnalyzeSetAttrExpression` /
+  `AnalyzeDeleteExpression` / `AnalyzeWithStatement` /
+  `AnalyzeExtendDecl` / `AnalyzeLinkDecl` 在拍板时调用
+  `ResolveLangVersion(language)` 写入相应 AST 节点的 `lang_version_pin`
+  字段。下沉阶段把它复制进 `CrossLangCallDescriptor::lang_version`，
+  bridge 阶段把它写成 `.paux` 描述文件里的 `VERSION <lang> <ver>` 行（紧
+  跟在对应 `CALL` 行之后），polyld 在 `LoadDescriptorFile` 中向回查找
+  最近的同语言 CALL 并附加版本。覆盖测试位于
+  `tests/unit/frontends/ploy/lang_version_pin_test.cpp`。
+* **Phase 2 &mdash; 运行时 / 后端门控（仍待办）**：各前端按
+  `FrontendOptions` 暴露的版本字段开启 / 关闭语法（C++ 关键字可见性、
+  Python walrus / match、Java records、Rust edition macros），运行时
+  按描述文件里的 `VERSION` 行选择 ABI bridge 变体。
 * **Phase 3** &mdash; `polyui` 的 Tool-chains 页面调用 `polyver list/detect`、
   ploy `LANG` 的语法高亮、`tests/integration/language_versions/` 下九个
   集成测试目录。

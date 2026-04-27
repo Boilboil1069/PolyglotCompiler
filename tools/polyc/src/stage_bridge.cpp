@@ -10,6 +10,7 @@
 // stage_bridge.cpp — Stage 4 implementation
 // ============================================================================
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -128,10 +129,28 @@ BridgeResult RunBridgeStage(const DriverSettings &settings, const MarshalResult 
             << entry.target_symbol << " " << entry.source_symbol << "\n";
       }
       for (const auto &cp : marshal.call_plans) {
+        // Mirror the mangling rule from `MangleStubName` in the ploy
+        // lowering: when a foreign-language version is pinned weave it in
+        // as a `_v<sanitized_version>_` segment so the linker resolves the
+        // versioned bridge.
         std::string stub_name = "__ploy_bridge_" + cp.target_language + "_" + cp.source_language +
-                                "_" + cp.target_function;
+                                "_";
+        if (!cp.lang_version.empty()) {
+          stub_name += "v";
+          for (char c : cp.lang_version) {
+            stub_name.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+          }
+          stub_name.push_back('_');
+        }
+        stub_name += cp.target_function;
         ofs << "CALL " << stub_name << " " << cp.source_language << " " << cp.target_language << " "
             << cp.source_function << " " << cp.target_function << "\n";
+        // Emit a paired VERSION line whenever the user pinned a specific
+        // foreign-language version. The linker uses this to pick the right
+        // ABI bridge variant (e.g. CPython 3.11 vs 3.12).
+        if (!cp.lang_version.empty()) {
+          ofs << "VERSION " << cp.source_language << " " << cp.lang_version << "\n";
+        }
       }
       // Symbols
       std::unordered_set<std::string> seen;

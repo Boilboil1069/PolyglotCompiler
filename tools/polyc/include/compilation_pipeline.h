@@ -152,6 +152,10 @@ struct CallMarshalPlan {
 
   // Estimated cost (for optimization decisions)
   int estimated_cycles{0};
+
+  // Optional foreign-language version pin (e.g. "3.11", "c++23"). Empty
+  // means the linker / runtime should fall back to the toolchain default.
+  std::string lang_version;
 };
 
 /** @brief MarshalPlan data structure. */

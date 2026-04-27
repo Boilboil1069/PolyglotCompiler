@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -421,6 +422,7 @@ public:
       call_plan.source_language = entry.source_language;
       call_plan.target_function = entry.target_symbol;
       call_plan.source_function = entry.source_symbol;
+      call_plan.lang_version = entry.lang_version;
 
       const auto sig_it = input.signatures.find(entry.target_symbol);
       if (sig_it != input.signatures.end()) {
@@ -477,8 +479,19 @@ public:
     // Build descriptors from marshal plan.
     for (const auto &cp : plan.call_plans) {
       ploy::CrossLangCallDescriptor desc;
-      desc.stub_name = "__ploy_bridge_" + cp.target_language + "_" + cp.source_language + "_" +
-                       cp.target_function;
+      // Mirror the mangling rule from `MangleStubName` in ploy lowering:
+      // weave a `_v<sanitized_version>_` segment into the stub name when a
+      // foreign-language version is pinned, so that the linker can route to
+      // the matching versioned bridge variant.
+      desc.stub_name = "__ploy_bridge_" + cp.target_language + "_" + cp.source_language + "_";
+      if (!cp.lang_version.empty()) {
+        desc.stub_name += "v";
+        for (char c : cp.lang_version) {
+          desc.stub_name.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+        }
+        desc.stub_name.push_back('_');
+      }
+      desc.stub_name += cp.target_function;
       desc.source_language = cp.source_language;
       desc.target_language = cp.target_language;
       desc.source_function = cp.source_function;
@@ -497,6 +510,7 @@ public:
       desc.return_marshal.kind = ploy::CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
       desc.return_marshal.from = desc.source_return_type;
       desc.return_marshal.to = desc.target_return_type;
+      desc.lang_version = cp.lang_version;
       linker.AddCallDescriptor(desc);
     }
 
@@ -1090,10 +1104,24 @@ bool CompilationPipeline::RunBridgeGeneration() {
 
       // Emit CALL descriptors (from lowering, carried through marshal plan)
       for (const auto &cp : context_.marshal_plan->call_plans) {
-        std::string stub_name = "__ploy_bridge_" + cp.target_language + "_" + cp.source_language +
-                                "_" + cp.target_function;
+        // Mirror the mangling rule from `MangleStubName` in ploy lowering:
+        // include a `_v<sanitized_version>_` segment when a version is
+        // pinned so polyld can resolve the right versioned bridge.
+        std::string stub_name =
+            "__ploy_bridge_" + cp.target_language + "_" + cp.source_language + "_";
+        if (!cp.lang_version.empty()) {
+          stub_name += "v";
+          for (char c : cp.lang_version) {
+            stub_name.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+          }
+          stub_name.push_back('_');
+        }
+        stub_name += cp.target_function;
         ofs << "CALL " << stub_name << " " << cp.source_language << " " << cp.target_language << " "
             << cp.source_function << " " << cp.target_function << "\n";
+        if (!cp.lang_version.empty()) {
+          ofs << "VERSION " << cp.source_language << " " << cp.lang_version << "\n";
+        }
       }
 
       // Emit SYMBOL entries derived from sema signatures so polyld can

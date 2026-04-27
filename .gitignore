@@ -39,3 +39,7 @@ tests/samples/*/*.dot
 tests/samples/*/*.json
 
 *.o
+
+*.bat
+*.ps1
+!package_windows.ps1

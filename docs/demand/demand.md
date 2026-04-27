@@ -1832,3 +1832,245 @@ Error: Process completed with exit code 1.
    - 与 2026-04-27-4 同属设置/外观体系扩展，建议在同一发布周期内合并发布；版本号在 2026-04-27-4 的基础上由 `1.2.0 → 1.3.0`（次版本号 +1，向后兼容）。
 
 --end
+
+2026-04-28-1
+
+背景：`frontends/common/src/token_pool.cpp` 目前是占位文件（实现部分只有一行注释 `// TokenPool is header-only for now.`），而 `frontends/common/include/token_pool.h` 中的 `TokenPool` 也只是对 `std::vector<Token>` 的极薄包装：没有 lexeme 的 arena/intern 机制、没有标识符去重、没有 snapshot/restore、没有线程安全、没有内存统计；全仓 grep 显示除 `tests/unit/frontend/preprocessor_tests.cpp` 之外没有任何生产代码使用它，9 个语言前端的 lexer/parser 仍各自管理 `std::vector<Token>`，与 `docs/specs/namespace_architecture.md` 第 131 行将 `TokenPool` 列为 `polyglot::frontends` 公共基础设施的承诺严重不符。本次需求要求把 `TokenPool` 做成真正的、被所有前端共享的 token 基础设施，并把 `token_pool.cpp` 从占位升级为完整实现。具体要求如下：
+
+1.数据模型与 API：
+   - 在 `frontends/common/include/token_pool.h` 中引入：
+     - `class StringArena`：单调增长的字节 arena（默认 64 KiB chunk，可配置），提供 `std::string_view Intern(std::string_view s)`，所有 lexeme 与标识符文本统一在此分配；arena 析构时一次性释放，禁止逐 token 释放。
+     - `using StringRef = std::string_view`：所有 `Token::lexeme` 字段类型从 `std::string` 改为 `StringRef`，指向 `StringArena` 中的稳定地址（`TokenPool` 生命周期内永不失效）。
+     - `using TokenHandle = uint32_t`：稳定的 token 句柄；`AST` 与 `Diagnostics` 改为持有 `TokenHandle` 而非 `Token` 引用，避免 vector 重分配后悬挂。
+     - `class IdentifierTable`：基于开放寻址的标识符去重表，`SymbolId Intern(StringRef name)` 返回紧凑 32 位 id；用于 keyword 识别、scope 查找、跨 token 比较的零拷贝快速路径。
+     - `class TokenPool` 提供：
+       - `TokenHandle Add(Token token)`、`const Token &Get(TokenHandle h) const`、`size_t Size() const`、`Span<const Token> All() const`；
+       - `StringRef InternLexeme(std::string_view raw)`、`SymbolId InternIdentifier(std::string_view raw)`；
+       - `struct Snapshot { size_t token_count; size_t arena_offset; size_t identifier_count; };`
+       - `Snapshot Save() const` / `void Restore(const Snapshot &)`：用于 parser 的推测性解析（lookahead 失败回滚），arena 与 identifier table 必须随之回退（要求 arena 支持 `RewindTo(offset)`，identifier table 支持高水位回退）；
+       - `struct PoolStats { size_t tokens; size_t arena_bytes; size_t arena_capacity; size_t unique_identifiers; size_t intern_hits; size_t intern_misses; }`；`PoolStats Stats() const`；
+       - `void Reset()`：清空全部 token / arena / identifier table，复用已分配的 chunk（不归还 OS），用于编译多文件时的池复用。
+   - **不允许** 仍以 `std::vector<Token>` 为 `TokenPool` 的唯一存储；必须使用 `std::deque<Token>` 或 chunked storage，保证插入不让既有 `Token&` 失效（`TokenHandle` 永远稳定，`Get` 返回的引用在 `Reset/Restore` 之前永远稳定）。
+   - 所有公共类型必须放在 `polyglot::frontends` 命名空间，文件名 `token_pool.h` / `token_pool.cpp` / `string_arena.h` / `string_arena.cpp` / `identifier_table.h` / `identifier_table.cpp`，注释一律英文。
+
+2.线程安全模型：
+   - 默认 `TokenPool` 为单线程使用（lexer/parser 拥有专属池），不引入锁开销。
+   - 新增 `class SharedTokenPool`：在 `TokenPool` 之上叠加 `std::shared_mutex`，`Add` / `InternLexeme` / `InternIdentifier` 取写锁，`Get` / `All` / `Stats` 取读锁；用于 polyui 后台多文件并行索引、polyc 在 `--jobs N` 下的并行词法化。
+   - `string_view` 必须保证跨线程读安全：arena 一旦分配某段就只追加、不移动（chunk 链表结构），保证既有 `string_view` 永不失效。
+
+3.占位文件升级（核心交付物）：
+   - `frontends/common/src/token_pool.cpp` 必须给出完整实现，至少包含：
+     - `StringArena::Intern` / `StringArena::RewindTo` / arena chunk 管理；
+     - `IdentifierTable::Intern` 的 FNV-1a/xxhash 哈希、扩容、回退；
+     - `TokenPool::Add/Get/Save/Restore/Reset/Stats` 的全部方法体；
+     - `SharedTokenPool` 的方法体。
+   - 不允许保留 `// TokenPool is header-only for now.` 之类占位注释；不允许 `// TODO`；不允许任何空函数体或 `return {};` 兜底。
+
+4.前端接入（必须真实使用，否则视同未完成）：
+   - 修改全部 9 个前端的 lexer/parser，把内部 `std::vector<Token>` / 字符串拷贝改为通过 `TokenPool` 与 `StringArena` 管理：
+     - `frontends/cpp/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/python/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/java/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/dotnet/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/rust/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/go/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/javascript/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/ruby/src/lexer/lexer.cpp` + `parser/parser.cpp`
+     - `frontends/ploy/src/lexer/lexer.cpp` + `parser/parser.cpp`
+   - 修改 `frontends/common/src/preprocessor.cpp`：宏展开产生的 token 必须 push 到调用方传入的 `TokenPool`，`#define` 体的字面量走 arena intern，禁止再用 `std::string` 拷贝。
+   - 修改 `frontends/common/src/frontend_registry.cpp` 与 `frontends/common/include/language_frontend.h`：在 `FrontendOptions` / `FrontendResult` 中加入 `TokenPool *token_pool`（由 polyc/polyui 调用方持有，可选；为 `nullptr` 时前端自建私有 pool 保持向后兼容）。
+   - 修改 `tools/polyc/src/stage_frontend.cpp` 与 `tools/ui/common/src/compiler_service.cpp`：编译会话级别复用一个 `SharedTokenPool`，编译完成后调用 `Stats()` 写入 aux 诊断目录 `pool_stats.json`。
+
+5.诊断与调试：
+   - `Diagnostics` 中所有引用 token 的 API 改为接收 `TokenHandle`，渲染时通过 pool 反查；保证多文件链上诊断不会因为 `Token&` 失效而崩溃。
+   - 新增 `polyc --dump-token-pool` CLI 标志：编译完成后将 `pool_stats.json` 与 `tokens.tsv`（handle / kind / lexeme / loc）落盘到 aux 目录，便于性能调优与回归调试。
+   - `polyui` 状态栏显示当前会话的 `tokens / arena_bytes / unique_identifiers`，悬浮 tooltip 给出 intern 命中率。
+
+6.CLI 与设置联动（与 2026-04-27-4 设置体系对齐）：
+   - 新增设置项（写入 `default_settings.json` 与 `settings_schema.json`）：
+     - `frontend.tokenPool.arenaChunkBytes`（int，默认 65536，最小 4096，最大 16777216）
+     - `frontend.tokenPool.shared`（bool，默认 `true`，控制是否使用 `SharedTokenPool`）
+     - `frontend.tokenPool.dumpStats`（bool，默认 `false`，等价于 `--dump-token-pool`）
+   - 三项均通过现有 `SettingsService` 加载，CLI 标志优先级高于 settings。
+
+7.测试（不允许 `REQUIRE(true)`，必须行为级断言）：
+   - 改写 `tests/unit/frontend/preprocessor_tests.cpp` 中现有 3 个 `TokenPool` 用例，断言新增 API 行为。
+   - 新增 `tests/unit/frontend/token_pool_test.cpp`，至少覆盖：
+     - `StringArena::Intern` 跨多个 chunk 的稳定性（保存 1000 个 string_view，再分配 100MB 后断言全部仍指向正确字节）；
+     - `IdentifierTable` 命中率与扩容正确性（10w 个标识符，含 1w 重复）；
+     - `TokenPool::Save/Restore` 在 lookahead 失败后能精确回退 token 数、arena offset、identifier 数；
+     - `SharedTokenPool` 在 16 线程下并发 `InternIdentifier` 的 id 唯一性与稳定性（TSan 通过）；
+     - `TokenHandle` 在 1M 次 `Add` 后仍稳定（`Get(h)` 与首次返回内容字节级一致）。
+   - 新增 `tests/integration/frontend/token_pool_pipeline_test.cpp`：调用 `polyc` 对 `tests/samples` 中的 cpp / python / rust / java / .net / ploy 各一份样例编译，断言 `pool_stats.json` 字段齐全、`intern_hits > 0`、`unique_identifiers > 0`、编译成功；并对同一组文件再编译一次以验证 `Reset()` 复用路径。
+   - 新增 `tests/benchmarks/micro/token_pool_bench.cpp`：对比"私有 pool"与"共享 pool"在 100k token 词法化下的吞吐与峰值内存（通过 `tests/benchmarks/macro` 已有的内存统计 hook）；接入现有 `benchmark_fast` / `benchmark_full` 档位（参见 2026-02-22-4）。
+
+8.文档（中英双语）：
+   - 新增 `docs/realization/token_pool.md` 与 `docs/realization/token_pool_zh.md`，包含：
+     - 数据模型图（TokenPool / StringArena / IdentifierTable / SharedTokenPool 之间关系）；
+     - `TokenHandle` 稳定性契约；
+     - `Save/Restore` 的 lookahead 用法示例；
+     - 9 个前端的接入方式与改动清单；
+     - 设置项与 CLI 标志参考表；
+     - 性能基准对比（微基准数字、内存对比）；
+     - 故障排查（intern 命中率过低、arena 增长异常、并发数据竞争）。
+   - 更新 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`：在 "Compilation Pipeline" / "编译管线" 章节加入 token pool 子节，列出新设置项与 `--dump-token-pool` 用法。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：新增 `TokenPool` / `SharedTokenPool` / `StringArena` / `IdentifierTable` / `TokenHandle` / `SymbolId` 公共 API。
+   - 更新 `docs/specs/namespace_architecture.md`：把 `TokenPool` 旁边补齐 `SharedTokenPool` / `StringArena` / `IdentifierTable`。
+   - 更新 `README.md`：在 Architecture 段落补充"shared frontend token pool with arena & interning"。
+
+9.约束：
+   - 不允许最小实现 / 占位 / 空函数体（如 `// TokenPool is header-only for now.` 这类必须被彻底替换）；
+   - C++ 代码注释一律英文；
+   - 所有公共类型放在 `polyglot::frontends` 命名空间，文件命名小写下划线，与现有 `lexer_base.h` / `preprocessor.h` 风格一致；
+   - 哈希实现走 `<functional>` / 项目已有的 `common/util` 哈希工具，禁止引入新依赖；
+   - 必须保证 `--ploy` / `--cpp` / `--python` / `--java` / `--dotnet` / `--rust` / `--go` / `--javascript` / `--ruby` 全部 9 个前端在 `unit_tests` / `integration_tests` 中继续通过；
+   - 现有所有单元 / 集成 / 基准测试不得回归；
+   - 必须在 Windows / Linux / macOS 三平台编译并通过 CI（含 ASan / TSan / clang-tidy 闸门，参见 2026-03-17-8 与 2026-03-19-1）；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因引入新的公共类型 (`TokenHandle` / `SymbolId` / `SharedTokenPool` / `StringArena` / `IdentifierTable`) 与 `Token::lexeme` 类型变更（`std::string` → `string_view`，对前端是不兼容修改，对外只是 ABI 内部细节），视作内部 API 重构而非用户面向变更；建议版本号在 `1.2.0 → 1.2.1`（patch 级；若与 2026-04-27-5 同发布周期合并，则统一为 `1.3.1`）。
+
+--end
+
+2026-04-28-2
+
+背景：审查 `backends/` 后发现整个后端层的抽象不足、目标间能力严重不对称、关键基础设施缺位，已经无法支撑后续多架构演进与质量闸门要求。具体观察：
+
+- `backends/common/include/target_machine.h` 仅 24 行，接口只暴露 `TargetTriple()` 与 `EmitAssembly()`，没有 `EmitObject` / 重定位汇报 / 符号导出 / Verifier / 诊断；
+- `abi.h` (22 行) 仅 `{name, pointer_size}`、`relocation.h` (26 行) 只有 `{kAbs32, kAbs64, kPcRel32}` 三种，缺 GOT/PLT/TLS/ARM64 `R_AARCH64_ADR_PREL_PG_HI21`/WASM reloc 全族；
+- `polyc` 当前按架构字符串走长 if/else 分发后端，尚未沉淀 `BackendRegistry`/`ITargetBackend`（与 2026-03-17-2 在前端层已修复的问题同构）；
+- x86_64 与 arm64 各自一份 `MachineIR` / `LinearScan` / `GraphColoring` / `Scheduler` / `CostModel`（两份 `scheduler.cpp` ~95% 同源），算法/数据结构重复实现；
+- x86_64 有 `optimizations.cpp` (1373 行) 与 `instruction_scheduler.h`，arm64 完全缺失，后端能力跨目标不对称；
+- `backends/wasm/src/wasm_target.cpp` 是 962 行单体，没有按 isel/regalloc/asm_printer 切分，与其他后端目录结构不一致；
+- 无 RISC-V 后端，无 LLVM bitcode 备用输出；
+- `debug_info.cpp` (41 行) / `debug_emitter.cpp` (1286 行) / `dwarf_builder.cpp` (236 行) 职责分裂，且 `debug_emitter.cpp` 仍保留 7 处 `WriteLE<uint32_t>(result, 0); // Placeholder for length` 与多处 `// Placeholder` / `// Simplified` 残留（grep 已确认）；
+- 无 MachineIR Verifier，isel/regalloc 后无合法性校验；
+- `object_file.cpp` (544 行) 仅支持 ELF 与最小 Mach-O，没有 COFF 写入路径；
+- ARM64 `calling_convention.cpp` (201 行) 只覆盖基础 GPR 与少量 FP，没有 NEON/SVE 参数传递规则。
+
+本需求要求把后端层做一次结构性重构与能力补齐，定位为 1.4.0 主线特性。具体要求如下：
+
+1.目标机抽象与后端注册中心：
+   - 在 `backends/common/include/target_backend.h` 新增 `class ITargetBackend`，明确接口面：
+     - `TargetTriple()` / `Description()` / `IsAvailable()`；
+     - `Verify(const ir::IRContext &) -> Diagnostics`；
+     - `Compile(const ir::IRContext &, const TargetOptions &) -> Result<TargetArtifacts>`，其中 `TargetArtifacts` 至少包含：`assembly_text`、`object_bytes`、`relocations`、`exported_symbols`、`unresolved_symbols`、`debug_sections`、`compile_stats`；
+     - `EmitObject(...)`、`EmitAssembly(...)`、`EmitBitcode(...)`（最后一个允许返回"unsupported"诊断）；
+     - `RegisterClasses() const` / `CallingConventions() const` / `RelocationTraits() const`：暴露目标元数据，供链接器与诊断器查询。
+   - 新增 `class BackendRegistry`（单例 + 进程级互斥）：
+     - `Register(std::unique_ptr<ITargetBackend>)`；
+     - `Find(string_view triple_or_alias) -> ITargetBackend*`；
+     - `List() -> std::vector<BackendInfo>`（含 triple、aliases、capability matrix）。
+   - x86_64 / arm64 / wasm 三个现有后端必须改造为 `ITargetBackend` 实现并在 `static initializer` 中自注册；后续新增后端只增不改 `polyc`。
+   - 修改 `tools/polyc/src/driver.cpp`：删除按架构字符串硬分发的 if/else 长链，改为统一走 `BackendRegistry::Find(opts.target_triple)`；当 triple 解析失败或 backend 不可用时，给出"available backends"列表的诊断（参考 LLVM `--print-targets`）。
+   - 新增 `polyc --print-targets` / `--print-target-info <triple>` CLI，输出当前进程注册的后端能力矩阵（JSON 与人类可读两种）。
+   - 修改 `tools/polyasm/src/assembler.cpp`：同步走 `BackendRegistry`，禁止保留独立的架构枚举分支。
+
+2.通用 MachineIR 与 codegen 通用算法上提：
+   - 新增 `backends/common/include/machine_ir/`：`opcode_traits.h` / `machine_function.h` / `live_interval.h` / `cost_model.h` / `verifier.h`；提供与目标无关的 `MachineFunction<TargetTraits>` 模板（或基于 `TargetTraits` 的 CRTP/policy 设计），把 `MachineBasicBlock` / `MachineInstr` / `Operand` 通用结构沉淀到此处。
+   - 把 `LinearScanAllocate` / `GraphColoringAllocate` / `ComputeLiveIntervals` / `ScheduleFunction` 上提到 `backends/common/src/machine_ir/`，以模板/虚接口接受目标级 `RegisterClass` 与 `CostModel`；x86_64 与 arm64 各自只保留目标特异部分（register class 表、call clobber、ABI 约束）。
+   - **强制**：上提后 `backends/x86_64/src/regalloc/*.cpp`、`backends/arm64/src/regalloc/*.cpp`、两份 `scheduler.cpp` 必须真正删除（用 `git rm`，禁止保留"deprecated wrapper"），剩余目标特定文件不得再持有完整算法实现。
+   - 新增 `backends/common/include/machine_ir/verifier.h` + 实现：
+     - 校验：(a) 所有 use 在 def 之后；(b) BB 必须以 terminator 结尾；(c) physical register 与 register class 兼容；(d) stack slot 尺寸合法；(e) call 指令的实参寄存器与目标 ABI 一致。
+     - 在 isel 后、regalloc 前后各跑一次；任何 verify 失败必须给出 `MachineIR` 文本快照（`MachineFunction::Print()`）与失败位置，并在非 `--force` 模式下中断编译。
+
+3.ABI / 重定位 / 调用约定模型完整化：
+   - 重写 `abi.h` 为完整模型：`struct ABISpec { string name; size_t pointer_size; size_t int_reg_param_count; vector<RegId> int_arg_regs; vector<RegId> fp_arg_regs; bool return_in_x0_x1; StructPassingRule struct_rule; ... };`；至少覆盖 `SystemV-x86_64` / `Win64-x86_64` / `AAPCS64` / `Win-ARM64` / `Wasm-Default` 五套预设。
+   - 重写 `relocation.h` 为按目标分文件：
+     - `relocation_x86_64.h`（含 `R_X86_64_PC32` / `R_X86_64_PLT32` / `R_X86_64_GOTPCREL` / `R_X86_64_TPOFF32` / `R_X86_64_TLSGD` 等全集）；
+     - `relocation_arm64.h`（含 `R_AARCH64_CALL26` / `R_AARCH64_ADR_PREL_PG_HI21` / `R_AARCH64_ADD_ABS_LO12_NC` / `R_AARCH64_LDST64_ABS_LO12_NC` 等）；
+     - `relocation_wasm.h`（含 `R_WASM_FUNCTION_INDEX_LEB` / `R_WASM_TABLE_INDEX_SLEB` / `R_WASM_MEMORY_ADDR_LEB` 等）；
+     - 通用 `relocation.h` 改为聚合头与跨目标 trait 接口，禁止再保留 `enum class RelocType { kAbs32, kAbs64, kPcRel32 };` 这种过简枚举。
+   - 链接器侧（`tools/polyld/src/polyglot_linker.cpp` 等）必须按新重定位模型消费，不允许保留按字符串匹配的旧路径。
+
+4.WASM 后端拆分与能力补齐：
+   - 把 `backends/wasm/src/wasm_target.cpp` (962 行) 拆为目录化结构（与 x86_64 对齐）：`isel/`、`regalloc/`、`asm_printer/`（emitter 写 `.wat` 与 `.wasm` 两种产物）、`optimizations/`、`calling_convention.cpp`。
+   - 实施真正的结构化 CFG → block-depth 映射（修复 2026-03-15-4 第 6 行的 `br/br_if` 深度固定 0 的遗留），并对每个 IR 指令显式给出"已支持/通过 runtime helper 模拟/拒绝"三态决策。
+   - `frem` 必须走 `f64.div + trunc + sub`（或 runtime helper），禁止继续以 `f64.div` 单条指令冒充语义（修复 2026-03-15-4 第 7 行）。
+   - 未解析 callee 走"emit import + 记录 unresolved 符号"路径，禁止继续 emit `index 0` 占位（修复 2026-03-15-4 第 5 行）。
+
+5.RISC-V 后端首版（rv64gc）：
+   - 新增 `backends/riscv64/`：目录与 x86_64/arm64 完全对齐（`include/`、`src/isel/`、`src/regalloc/`（仅薄 register class 适配）、`src/asm_printer/`、`src/calling_convention.cpp`、`src/optimizations.cpp` 可暂留 stub 但必须能跑通 lit 级 e2e）。
+   - 通过 `BackendRegistry` 暴露 triple `riscv64-unknown-elf` 与 `riscv64-linux-gnu`。
+   - 至少完成：算术/逻辑/分支/调用/load/store/`auipc`+`addi` 地址计算、PC 相关重定位（`R_RISCV_CALL_PLT`、`R_RISCV_PCREL_HI20`、`R_RISCV_PCREL_LO12_I`），通过新增的 e2e smoke 测试。
+   - 不允许只做"目录骨架"提交：必须能编译并运行 `tests/samples/01-basic-linking` 中至少一个 sample 到 `.o`，并能与 polyld 走通到可执行（在 CI 上以 `qemu-riscv64` 运行）。
+
+6.LLVM bitcode 备用输出：
+   - 新增 `backends/common/src/bitcode_emitter.cpp`（依赖 `nlohmann/json` 之外的零额外重量级库；若必须依赖 LLVM，须在 CMake 中以 `POLYGLOT_ENABLE_LLVM_BITCODE` 选项守护，默认 OFF，但接口与诊断必须在 OFF 时仍可调用并给出明确不可用诊断）。
+   - 提供 `polyc --emit=bitcode` 与 `polyc --emit=llvm-ir` 两个新发射模式；用于与外部工具链互通（perf/coverage/外部链接），并在文档中说明 bitcode 不参与跨语言链接闭环、仅用于研究/对比。
+
+7.Debug 信息层归一化与占位清零：
+   - 合并 `debug_info.cpp` (41 行) / `debug_emitter.cpp` (1286 行) / `dwarf_builder.cpp` (236 行) 为单一职责清晰的两个组件：`debug_info_model`（IR 端 → 中性 debug 模型）与 `debug_emitter`（中性模型 → DWARF/PDB 字节流）；删除重复的 SourceLocation 定义（`debug_info_builder.h` 与 `dwarf5.h` 的重复见 2026-02-21-7 #1）。
+   - **强制**：清理 `debug_emitter.cpp` 中所有 `// Placeholder` / `// Placeholder for length` / `// Simplified` 注释及其覆盖的代码：
+     - PDB stream 长度字段必须二次回写真实长度，禁止留 0；
+     - CFA 初始化必须按 ABI 真实计算，不允许"address++ // Simplified address tracking"；
+     - GUID 必须使用 `<random>` + 时间戳 + 模块哈希组合生成，不允许保留"GUID generation (simplified)"；
+     - PE/COFF 调试目录、TPI/IPI type record 必须按 PDB v7 spec 真实序列化。
+   - 新增 `tests/integration/backends/debug_emitter_e2e_test.cpp`：用 `dwarfdump` / `llvm-pdbutil`（在 CI 容器中安装）解析产物，断言段长度、行号表、变量位置、函数 DIE 数量。
+
+8.对象文件写入扩展：
+   - 在 `backends/common/src/object_file.cpp` 增加 COFF 写入路径（含 `.text` / `.rdata` / `.pdata` / `.xdata` / debug `$T` 段），与 ELF/Mach-O 三平台对齐。
+   - ELF 的 `e_machine` 必须按目标 triple 切换（修复 2026-02-21-7 #2 中 `EM_X86_64` 硬编码遗留），并把 `SHT_RELA` section 真正落地（reloff/nreloc 与 Mach-O 的 nreloc 同步）。
+
+9.ARM64 ABI 补齐：
+   - 在 `backends/arm64/src/calling_convention.cpp` 中按 AAPCS64 完整规则覆盖：
+     - HFA / HVA 检测与按 v0..v7 传参；
+     - 大于 16 字节的复合类型按指针 + 隐式 hidden return ptr (`x8`) 传递；
+     - NEON 128-bit 向量参数；
+     - 可选 SVE scalable vector：在 backend 端增加 capability flag，未启用时显式诊断"sve not enabled"。
+   - 新增对应单元测试矩阵（每条规则 ≥ 1 个用例）。
+
+10.诊断与产物元信息：
+   - `TargetArtifacts` 必须随产物输出 `aux/<basename>.target.json`：含目标 triple、ABI 名、寄存器分配策略、未解析符号清单、所有发射的重定位条目、调试段大小、isel/regalloc/sched 各阶段耗时与峰值内存。
+   - polyc 与 polyui 编译完成后均须把该 JSON 摘要回显（polyui 在状态栏与 Build Output 面板）。
+
+11.设置项与 CLI 联动（与 2026-04-27-4 设置体系对齐）：
+   - 新增设置（写入 `default_settings.json` 与 `settings_schema.json`，分发到 `SettingsService`）：
+     - `backend.regAlloc`（enum：`linear-scan` | `graph-coloring`，默认 `linear-scan`）；
+     - `backend.scheduler`（enum：`list` | `none`，默认 `list`）；
+     - `backend.verify`（enum：`off` | `on` | `strict`，默认 `on`，`strict` 等价 `--Werror-machine-ir`）；
+     - `backend.emit`（enum：`object` | `assembly` | `bitcode` | `llvm-ir`，默认 `object`）；
+     - `backend.debugInfo`（enum：`none` | `line` | `full`，默认 `full`）。
+   - CLI 标志：`--reg-alloc`、`--scheduler`、`--verify-machine-ir={off|on|strict}`、`--emit=<...>`、`--debug=<...>`，CLI 优先级高于 settings。
+
+12.测试（不允许 `REQUIRE(true)`，必须行为级断言）：
+   - 新增 `tests/unit/backends/target_backend_registry_test.cpp`：覆盖注册、查找、能力矩阵、重复注册诊断。
+   - 新增 `tests/unit/backends/machine_ir_verifier_test.cpp`：构造刻意非法的 MIR（use-before-def / 缺 terminator / 错 register class），断言 verifier 正确诊断且产生定位信息。
+   - 新增 `tests/unit/backends/abi_x86_64_test.cpp` / `abi_arm64_test.cpp`：对照 SystemV / Win64 / AAPCS64 规范实例（含结构体、HFA、可变参数）。
+   - 新增 `tests/unit/backends/relocation_test.cpp`：对每族重定位至少 1 个用例，校验 reloc 编码字节级一致。
+   - 新增 `tests/unit/backends/riscv64_basic_test.cpp`：算术/分支/调用/load-store 各 ≥ 1 个用例。
+   - 新增 `tests/integration/backends/multi_target_e2e_test.cpp`：同一段 IR 分别经由 x86_64 / arm64 / riscv64 / wasm 四个后端走完整链路（emit object → polyld → 运行/`qemu` 验证），输出一致；wasm 走 `wasmtime` 在 CI 中执行。
+   - 把现有 `tests/unit/backends/wasm_target_test.cpp` 中 `simplified` 类注释覆盖的弱断言改为：解析产物 wasm 字节流并断言指令序列、block 深度、import 表。
+   - 微基准：新增 `tests/benchmarks/micro/regalloc_bench.cpp` 对比 linear-scan 与 graph-coloring 在 1k / 10k 虚拟寄存器规模下的吞吐与峰值内存。
+
+13.文档（中英双语）：
+   - 新增 `docs/realization/backend_architecture.md` 与 `docs/realization/backend_architecture_zh.md`，包含：
+     - `ITargetBackend` 接口契约与生命周期；
+     - `BackendRegistry` 注册机制与与 `FrontendRegistry` 的对照；
+     - 通用 MachineIR 与目标 trait 的设计；
+     - ABI / Reloc 模型分类参考表；
+     - 各目标能力矩阵（已支持 / 部分支持 / 未实现）；
+     - WASM 拆分后的目录结构；
+     - RISC-V 首版能力边界与运行依赖（qemu-riscv64）；
+     - Debug emitter 重构与 PDB / DWARF 段布局参考；
+     - 故障排查（verify 失败诊断、目标找不到、bitcode 路径不可用）。
+   - 新增 `docs/specs/target_backend_spec.md` 与 `_zh.md`：单文档单源化"目标后端开发者规范"，给出新增后端的最小步骤清单与必须通过的测试集。
+   - 更新 `docs/USER_GUIDE.md` / `_zh.md`：在"Backends"章节列出新设置项与 CLI 标志，给出 `--print-targets` 输出示例与 RISC-V 运行示例。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：新增 `ITargetBackend` / `BackendRegistry` / `MachineFunction` / `RegisterClass` / `ABISpec` / `RelocationTraits` / `TargetArtifacts` 公共 API。
+   - 更新 `docs/specs/namespace_architecture.md`：在 `polyglot::backends` 下补齐 `target_backend` / `backend_registry` / `machine_ir`。
+   - 更新 `README.md`：在 Architecture 段落补充"backend registry, RISC-V target, machine IR verifier, WASM split"。
+
+14.约束：
+   - 不允许最小实现 / 占位 / 空函数体；明令禁止再向后端代码引入 `// Placeholder` / `// Simplified` / `// TODO` 注释（新增 CI 校验：`grep -rn -E "Placeholder|Simplified|TODO" backends/` 必须返回 0 行）；
+   - C++ 代码注释一律英文；
+   - 命名空间一律 `polyglot::backends` 与 `polyglot::backends::<target>`；文件命名小写下划线；
+   - 不允许保留两份重复算法（regalloc / scheduler 必须落到 `backends/common`）；
+   - WASM 拆分后旧的 962 行单文件必须 `git rm`，禁止保留"deprecated"备份；
+   - 现有所有单元 / 集成 / 基准测试必须仍然通过；
+   - 必须在 Windows / Linux / macOS 三平台编译并通过 CI（含 ASan / UBSan / TSan / clang-tidy 闸门，参见 2026-03-17-8 与 2026-03-19-1）；
+   - RISC-V 与 WASM e2e 在 CI 中需以 `qemu-riscv64` / `wasmtime` 执行，禁止仅做"emit 通过即算成功"；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因引入 `ITargetBackend` / `BackendRegistry` / 新增 RISC-V 目标 / Reloc 模型重写 / WASM 目录结构变更（对外是新能力，对内是较大重构），建议版本号 `1.3.0 → 1.4.0`（次版本号 +1，向后兼容；CLI 旧 `--target=x86-64` 等别名通过 `BackendRegistry` 的 alias 机制保持有效）。
+
+--end

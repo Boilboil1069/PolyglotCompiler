@@ -7,6 +7,7 @@
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -206,7 +207,45 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
       desc.target_language = tgt_lang;
       desc.source_function = src_func;
       desc.target_function = tgt_func;
+      // Optional 6th token: pinned foreign-language version. Old descriptor
+      // files written by previous polyc revisions omit this field, so we
+      // accept absence silently for backward compatibility.
+      std::string version_tok;
+      if (iss >> version_tok && !version_tok.empty()) {
+        desc.lang_version = version_tok;
+      }
       call_descriptors_.push_back(desc);
+    } else if (kind == "VERSION") {
+      // Standalone version pin line: applies to the most recently emitted
+      // CALL whose source_language matches. This pairs with the writer in
+      // stage_bridge / compilation_pipeline that emits a VERSION line right
+      // after each CALL whose marshal plan carries lang_version.
+      std::string lang, version;
+      if (!(iss >> lang >> version)) {
+        ReportError("malformed VERSION at " + path + ":" + std::to_string(line_num) +
+                    " — expected: VERSION <language> <version>");
+        has_errors = true;
+        continue;
+      }
+      if (!is_valid_language(lang)) {
+        ReportError("unknown language '" + lang + "' in VERSION at " + path + ":" +
+                    std::to_string(line_num));
+        has_errors = true;
+        continue;
+      }
+      bool attached = false;
+      for (auto it = call_descriptors_.rbegin(); it != call_descriptors_.rend(); ++it) {
+        if (it->source_language == lang && it->lang_version.empty()) {
+          it->lang_version = version;
+          attached = true;
+          break;
+        }
+      }
+      if (!attached) {
+        ReportWarning("VERSION " + lang + " " + version + " at " + path + ":" +
+                      std::to_string(line_num) +
+                      " has no preceding CALL to attach to (ignored)");
+      }
     } else if (kind == "SYMBOL") {
       CrossLangSymbol sym;
       std::string name, lang, mangled;
@@ -584,9 +623,20 @@ GlueStub PolyglotLinker::GenerateGlueStub(const ploy::LinkEntry &entry,
   stub.target_function = entry.target_symbol;
   stub.source_function = entry.source_symbol;
 
-  // Generate the stub name
-  stub.stub_name = "__ploy_bridge_" + entry.target_language + "_" + entry.source_language + "_" +
-                   entry.target_symbol;
+  // Generate the stub name. When the LinkEntry carries a pinned foreign
+  // language version (e.g. python=3.11) embed it as a `_v<sanitized_version>_`
+  // segment so that distinct toolchains route to distinct bridges. The
+  // sanitisation rule mirrors `MangleStubName` in the ploy lowering: any
+  // non-alphanumeric character is normalised to `_`.
+  stub.stub_name = "__ploy_bridge_" + entry.target_language + "_" + entry.source_language + "_";
+  if (!entry.lang_version.empty()) {
+    stub.stub_name += "v";
+    for (char c : entry.lang_version) {
+      stub.stub_name.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+    }
+    stub.stub_name.push_back('_');
+  }
+  stub.stub_name += entry.target_symbol;
   for (char &c : stub.stub_name) {
     if (c == ':')
       c = '_';

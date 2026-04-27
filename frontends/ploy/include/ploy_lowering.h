@@ -57,6 +57,10 @@ struct CrossLangCallDescriptor {
   };
   std::vector<MarshalOp> param_marshal;
   MarshalOp return_marshal;
+  // Optional language version pin resolved by sema from enclosing
+  // LANG / WITH LANG / @LANG scopes. Empty string means "use the
+  // toolchain default selected by polyver / FrontendOptions".
+  std::string lang_version;
 };
 
 // ============================================================================

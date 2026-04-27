@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/go/include/go_ast.h"
 #include "frontends/go/include/go_lexer.h"
@@ -28,6 +29,12 @@ public:
   void ParseModule() override { ParseFile(); }
   void ParseFile();
   std::unique_ptr<File> TakeFile() { return std::move(file_); }
+
+  // Active Go release for syntax gating. Today the parser plumbs the value
+  // through for downstream lowering / linker consumption only — once the
+  // parser learns about generics or `for range over int` the relevant
+  // gates will live here. `kAuto` behaves as `kGoVersionDefault`.
+  void SetGoVersion(frontends::GoVersion v) { go_version_ = v; }
 
 private:
   void Advance();
@@ -86,6 +93,8 @@ private:
   // primary-expression suffixes. Used while parsing for/if/switch headers
   // where `{` introduces the body block (Go's standard ambiguity rule).
   bool no_composite_lit_ = false;
+  // Active Go release for syntax gating. `kAuto` ⇒ `kGoVersionDefault`.
+  frontends::GoVersion go_version_{frontends::GoVersion::kAuto};
 };
 
 } // namespace polyglot::go

@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/rust/include/rust_ast.h"
 #include "frontends/rust/include/rust_lexer.h"
@@ -21,6 +22,11 @@ class RustParser : public frontends::ParserBase {
 public:
   RustParser(RustLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
+
+  // Active Rust edition for syntax gating. `let-else` requires Edition 2021
+  // or newer; Edition 2024 unlocks additional syntax. `kAuto` is treated as
+  // `kRustEditionDefault`.
+  void SetRustEdition(frontends::RustEdition e) { rust_edition_ = e; }
 
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
@@ -93,6 +99,8 @@ private:
   std::shared_ptr<Module> module_{std::make_shared<Module>()};
   frontends::Token current_{};
   std::vector<frontends::Token> pushback_{};
+  // Active Rust edition for syntax gating. `kAuto` ⇒ `kRustEditionDefault`.
+  frontends::RustEdition rust_edition_{frontends::RustEdition::kAuto};
 };
 
 } // namespace polyglot::rust

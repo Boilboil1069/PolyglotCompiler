@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <cctype>
 #include <cstdlib>
 
 #include "common/include/core/types.h"
@@ -14,10 +15,25 @@
 namespace polyglot::ploy {
 namespace {
 
-// Mangle a cross-language stub name: __ploy_bridge_<target_lang>_<source_lang>_<symbol>
+// Mangle a cross-language stub name. Without a pinned version the name is
+//   __ploy_bridge_<target_lang>_<source_lang>_<symbol>
+// When the call carries a `LANG <lang> = <version>;` pin (or is inside a
+// `WITH LANG`/`@LANG` scope) the version is woven in as a separate segment:
+//   __ploy_bridge_<target_lang>_<source_lang>_v<sanitized_version>_<symbol>
+// `.`, `-` and other punctuation in the version are normalised to `_` so the
+// resulting symbol is a valid C identifier and survives every supported
+// object-file format. The unversioned form is preserved as the fallback for
+// older descriptors that predate version-aware ABI routing (Phase 2 Track C).
 std::string MangleStubName(const std::string &target_lang, const std::string &source_lang,
-                           const std::string &symbol) {
+                           const std::string &symbol, const std::string &lang_version = "") {
   std::string mangled = "__ploy_bridge_" + target_lang + "_" + source_lang + "_";
+  if (!lang_version.empty()) {
+    mangled += "v";
+    for (char c : lang_version) {
+      mangled.push_back((std::isalnum(static_cast<unsigned char>(c))) ? c : '_');
+    }
+    mangled.push_back('_');
+  }
   for (char c : symbol) {
     if (c == ':') {
       mangled.push_back('_');
@@ -969,10 +985,10 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     }
     if (link_match) {
       stub_name = MangleStubName(link_match->target_language, link_match->source_language,
-                                 link_match->target_symbol);
+                                 link_match->target_symbol, call->lang_version_pin);
     } else {
       // No matching LINK entry — fall back to ploy→<language> naming.
-      stub_name = MangleStubName("ploy", call->language, call->function);
+      stub_name = MangleStubName("ploy", call->language, call->function, call->lang_version_pin);
     }
   }
 
@@ -1027,6 +1043,7 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = call_ret_type;
   desc.return_marshal.to = call_ret_type;
+  desc.lang_version = call->lang_version_pin;
 
   call_descriptors_.push_back(desc);
 
@@ -1048,7 +1065,8 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
 
   // Generate the stub name for the constructor call
   std::string stub_name =
-      MangleStubName("ploy", new_expr->language, new_expr->class_name + "::__init__");
+      MangleStubName("ploy", new_expr->language, new_expr->class_name + "::__init__",
+                     new_expr->lang_version_pin);
 
   // Resolve the object type from sema �?the sema now performs full type
   // resolution via ResolveObjectType, so we can trust the symbol table.
@@ -1110,6 +1128,7 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = obj_type;
   desc.return_marshal.to = obj_type;
+  desc.lang_version = new_expr->lang_version_pin;
 
   call_descriptors_.push_back(desc);
 
@@ -1135,7 +1154,8 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   }
 
   // Generate the stub name for the method call
-  std::string stub_name = MangleStubName("ploy", method_call->language, method_call->method_name);
+  std::string stub_name = MangleStubName("ploy", method_call->language, method_call->method_name,
+                                         method_call->lang_version_pin);
 
   // Resolve return type from sema known signatures.  Try the method name
   // directly, then try qualified with the object type if available.
@@ -1187,6 +1207,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = method_ret_type;
   desc.return_marshal.to = method_ret_type;
+  desc.lang_version = method_call->lang_version_pin;
 
   call_descriptors_.push_back(desc);
 
@@ -1209,7 +1230,8 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
 
   // Generate the stub name for the getattr call
   std::string stub_name =
-      MangleStubName("ploy", get_attr->language, "__getattr__" + get_attr->attr_name);
+      MangleStubName("ploy", get_attr->language, "__getattr__" + get_attr->attr_name,
+                     get_attr->lang_version_pin);
 
   // Attribute access returns an opaque pointer by default �?the exact
   // type depends on the foreign object's schema which is unknown at
@@ -1238,6 +1260,7 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = attr_ret_type;
   desc.return_marshal.to = attr_ret_type;
+  desc.lang_version = get_attr->lang_version_pin;
 
   call_descriptors_.push_back(desc);
 
@@ -1299,7 +1322,8 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
   // Generate the stub name for the setattr call
   std::string stub_name =
-      MangleStubName("ploy", set_attr->language, "__setattr__" + set_attr->attr_name);
+      MangleStubName("ploy", set_attr->language, "__setattr__" + set_attr->attr_name,
+                     set_attr->lang_version_pin);
 
   // Record the cross-language call descriptor
   CrossLangCallDescriptor desc;
@@ -1331,6 +1355,7 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = ir::IRType::Void();
   desc.return_marshal.to = ir::IRType::Void();
+  desc.lang_version = set_attr->lang_version_pin;
 
   call_descriptors_.push_back(desc);
 
@@ -1356,7 +1381,8 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   EvalResult resource = LowerExpression(with_stmt->resource_expr);
 
   // Step 2: Call __enter__ on the resource
-  std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__");
+  std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__",
+                                          with_stmt->lang_version_pin);
   std::vector<std::string> enter_args = {resource.value};
 
   // Resolve the enter return type �?use typed pointer if class is known
@@ -1393,6 +1419,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   enter_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   enter_desc.return_marshal.from = enter_ret_type;
   enter_desc.return_marshal.to = enter_ret_type;
+  enter_desc.lang_version = with_stmt->lang_version_pin;
   call_descriptors_.push_back(enter_desc);
 
   // Step 3: Bind the result to the variable name
@@ -1402,7 +1429,8 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   LowerBlockStatements(with_stmt->body);
 
   // Step 5: Call __exit__ on the resource
-  std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__");
+  std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__",
+                                         with_stmt->lang_version_pin);
   std::vector<std::string> exit_args = {resource.value};
   builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
 
@@ -1424,6 +1452,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   exit_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   exit_desc.return_marshal.from = ir::IRType::Void();
   exit_desc.return_marshal.to = ir::IRType::Void();
+  exit_desc.lang_version = with_stmt->lang_version_pin;
   call_descriptors_.push_back(exit_desc);
 }
 
@@ -2078,6 +2107,7 @@ PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = ir::IRType::Void();
   desc.return_marshal.to = ir::IRType::Void();
+  desc.lang_version = del_expr->lang_version_pin;
   call_descriptors_.push_back(desc);
 
   return {call_inst->name, ir::IRType::Void()};
@@ -2165,6 +2195,7 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
   desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
   desc.return_marshal.from = ir::IRType::Void();
   desc.return_marshal.to = ir::IRType::Void();
+  desc.lang_version = extend->lang_version_pin;
   call_descriptors_.push_back(desc);
 }
 

@@ -33,6 +33,7 @@ MarshalResult RunMarshalStage(const DriverSettings &settings, const SemanticResu
     plan.target_language = entry.target_language;
     plan.source_function = entry.source_symbol;
     plan.target_function = entry.target_symbol;
+    plan.lang_version = entry.lang_version;
 
     // Derive parameter count from known signatures if available.
     auto it = semantic.signatures.find(entry.target_symbol);

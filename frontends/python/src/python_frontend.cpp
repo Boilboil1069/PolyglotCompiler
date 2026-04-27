@@ -49,6 +49,7 @@ bool PythonLanguageFrontend::Analyze(const std::string &source, const std::strin
                                      const frontends::FrontendOptions &options) const {
   PythonLexer lexer(source, filename);
   PythonParser parser(lexer, diagnostics);
+  parser.SetPythonVersion(options.python_version);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -75,6 +76,7 @@ frontends::FrontendResult PythonLanguageFrontend::Lower(
 
   PythonLexer lexer(source, filename);
   PythonParser parser(lexer, diagnostics);
+  parser.SetPythonVersion(options.python_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
 

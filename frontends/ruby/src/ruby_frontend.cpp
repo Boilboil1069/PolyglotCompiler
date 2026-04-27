@@ -80,6 +80,7 @@ bool RubyLanguageFrontend::Analyze(const std::string &source, const std::string 
                                    const frontends::FrontendOptions &opts) const {
   RbLexer lex(source, filename);
   RbParser p(lex, d);
+  p.SetRubyVersion(opts.ruby_version);
   p.ParseModule();
   if (d.HasErrors())
     return false;
@@ -125,6 +126,7 @@ frontends::FrontendResult RubyLanguageFrontend::Lower(
   frontends::FrontendResult r;
   RbLexer lex(source, filename);
   RbParser p(lex, d);
+  p.SetRubyVersion(opts.ruby_version);
   p.ParseModule();
   auto m = p.TakeModule();
   if (!m || d.HasErrors())

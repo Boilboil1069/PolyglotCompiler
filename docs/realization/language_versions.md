@@ -141,11 +141,28 @@ The same schema is used for the project lock file.
 
 ## Roadmap (still WIP)
 
-* **Phase 2** &mdash; ploy `LANG <name>;`, `WITH LANG (name=ver) { … }` and
-  `@LANG(name=ver)` annotations; per-frontend version gating (e.g. C++ keyword
-  visibility, Python walrus / match, Java records, Rust edition macros);
-  runtime / linker ABI selection so different versions can co-exist in one
-  binary.
+* **Phase 2 &mdash; ploy syntax (done)**: module-level
+  `LANG <name> = "<ver>";`, scoped `WITH LANG (name=ver, …) { … }` blocks,
+  and single-statement `@LANG (name=ver) <stmt>` annotations are wired
+  through the ploy lexer / parser / sema pipeline. Sema keeps a stack of
+  pin frames: the module-level pragma populates the bottom frame, while
+  `WITH LANG` / `@LANG` push and pop inner frames. When sema visits each
+  cross-language site (`AnalyzeCrossLangCall`, `AnalyzeNewExpression`,
+  `AnalyzeMethodCallExpression`, `AnalyzeGetAttrExpression`,
+  `AnalyzeSetAttrExpression`, `AnalyzeDeleteExpression`,
+  `AnalyzeWithStatement`, `AnalyzeExtendDecl`, `AnalyzeLinkDecl`), it
+  calls `ResolveLangVersion(language)` and stores the result on the AST
+  node's `lang_version_pin` field. Lowering copies it into
+  `CrossLangCallDescriptor::lang_version`; the bridge stage emits a
+  paired `VERSION <lang> <ver>` line right after each `CALL` line in the
+  `.paux` descriptor file; polyld's `LoadDescriptorFile` picks it up and
+  attaches it to the matching call descriptor. Coverage lives in
+  `tests/unit/frontends/ploy/lang_version_pin_test.cpp`.
+* **Phase 2 &mdash; runtime / backend gating (still TODO)**: each frontend
+  needs to honor the `FrontendOptions` version field (C++ keyword visibility,
+  Python walrus / match, Java records, Rust edition macros), and the
+  runtime needs to consume the descriptor `VERSION` line to select the
+  matching ABI bridge variant.
 * **Phase 3** &mdash; `polyui` Tool-chains tab calling `polyver list/detect`,
   ploy LANG syntax highlighting, nine integration test directories under
   `tests/integration/language_versions/`.

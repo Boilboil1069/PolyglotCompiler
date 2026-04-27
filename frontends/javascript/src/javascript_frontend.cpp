@@ -52,6 +52,7 @@ bool JsLanguageFrontend::Analyze(const std::string &source, const std::string &f
                                  const frontends::FrontendOptions &options) const {
   JsLexer lexer(source, filename);
   JsParser parser(lexer, diagnostics);
+  parser.SetEcmaVersion(options.ecma_version);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -125,6 +126,7 @@ frontends::FrontendResult JsLanguageFrontend::Lower(
   frontends::FrontendResult result;
   JsLexer lexer(source, filename);
   JsParser parser(lexer, diagnostics);
+  parser.SetEcmaVersion(options.ecma_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
   if (!module || diagnostics.HasErrors())
@@ -155,7 +157,7 @@ frontends::FrontendResult JsLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€” JSDoc-driven, with conservative inference.
+// ExtractSignatures â€?JSDoc-driven, with conservative inference.
 // ============================================================================
 
 namespace {

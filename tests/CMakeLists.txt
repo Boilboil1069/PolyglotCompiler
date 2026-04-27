@@ -67,6 +67,7 @@ set(UNIT_TEST_FRONTEND_PYTHON
     unit/frontends/python/phi_and_control_flow_test.cpp
     unit/frontends/python/sema_attribute_test.cpp
     unit/frontends/python/sema_scope_test.cpp
+    unit/frontends/python/version_gating_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_CPP
@@ -93,6 +94,7 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/devirtualization_test.cpp
     unit/frontends/ploy/loop_optimization_test.cpp
     unit/frontends/ploy/sema_strict_mode_test.cpp
+    unit/frontends/ploy/lang_version_pin_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA

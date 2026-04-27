@@ -276,6 +276,9 @@ struct MarshalCallPlan {
   std::string target_function;
   // Param descriptors (one per parameter crossing the language boundary)
   std::size_t param_count{0};
+  // Optional foreign-language version pin (e.g. "3.11", "c++23"). Empty
+  // means the linker / runtime should fall back to the toolchain default.
+  std::string lang_version;
 };
 
 /** @brief MarshalResult data structure. */

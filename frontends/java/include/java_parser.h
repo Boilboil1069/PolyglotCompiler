@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/java/include/java_ast.h"
 #include "frontends/java/include/java_lexer.h"
@@ -21,6 +22,12 @@ class JavaParser : public frontends::ParserBase {
 public:
   JavaParser(JavaLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
+
+  // Inform the parser which Java release the source must conform to. Drives
+  // syntax gating: `var` (>=11), `record`/`sealed`/`yield` (>=17), text
+  // blocks (>=17). Defaults to `kAuto` which behaves as
+  // `kJavaReleaseDefault` and accepts every construct the parser knows.
+  void SetJavaRelease(frontends::JavaRelease r) { java_release_ = r; }
 
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
@@ -93,6 +100,9 @@ private:
   JavaLexer &lexer_;
   frontends::Token current_{};
   std::shared_ptr<Module> module_;
+  // Active Java release for syntax gating. `kAuto` is treated as
+  // `kJavaReleaseDefault` and admits every construct the parser knows.
+  frontends::JavaRelease java_release_{frontends::JavaRelease::kAuto};
 };
 
 } // namespace polyglot::java

@@ -8,6 +8,9 @@
  */
 #include "frontends/cpp/include/cpp_parser.h"
 
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
+
 namespace polyglot::cpp {
 
 void CppParser::Advance() {
@@ -495,11 +498,11 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
         //                    ident < expr +    ...
         //
         // Strategy:
-        //   1. If the next token is '>' (empty args) â†’ template.
-        //   2. If the next token is a type keyword â†’ template.
+        //   1. If the next token is '>' (empty args) â†?template.
+        //   2. If the next token is a type keyword â†?template.
         //   3. If the next token is an identifier, peek one more:
-        //      - If the second token is '>' or ',' â†’ template.
-        //      - Otherwise â†’ comparison (relational operator).
+        //      - If the second token is '>' or ',' â†?template.
+        //      - Otherwise â†?comparison (relational operator).
         auto la = lexer_.NextToken();
         pushback_.push_back(la);
         bool looks_template = false;
@@ -512,10 +515,10 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
                     la.lexeme == "auto" || la.lexeme == "long" || la.lexeme == "short" ||
                     la.lexeme == "unsigned" || la.lexeme == "signed" || la.lexeme == "typename" ||
                     la.lexeme == "class" || la.lexeme == "const" || la.lexeme == "volatile")) {
-          // Type keyword after '<' â†’ definitely template args.
+          // Type keyword after '<' â†?definitely template args.
           looks_template = true;
         } else if (la.kind == frontends::TokenKind::kIdentifier) {
-          // Identifier after '<' â€” ambiguous.  Look at the token
+          // Identifier after '<' â€?ambiguous.  Look at the token
           // AFTER the identifier to disambiguate.
           auto la2 = lexer_.NextToken();
           // Push in reverse order: la2 first, then la, so that
@@ -529,7 +532,7 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
             looks_template = true;
           }
           // Otherwise: 'ident < ident )', 'ident < ident ;', etc.
-          // â†’ treat as relational comparison.
+          // â†?treat as relational comparison.
         }
         if (looks_template) {
           auto args = ParseTemplateArgs();
@@ -664,6 +667,12 @@ std::shared_ptr<Expression> CppParser::ParseLambda() {
 std::shared_ptr<Expression> CppParser::ParseUnary() {
   if (current_.kind == frontends::TokenKind::kKeyword &&
       (current_.lexeme == "co_await" || current_.lexeme == "co_yield")) {
+    if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                          std::string("coroutine operator '") + current_.lexeme +
+                              "' requires C++20 or newer (current: " +
+                              frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
     auto unary = std::make_shared<UnaryExpression>();
     unary->op = current_.lexeme;
     unary->loc = current_.loc;
@@ -996,6 +1005,11 @@ std::shared_ptr<Statement> CppParser::ParseModuleDecl(bool is_export) {
 std::shared_ptr<Statement> CppParser::ParseConcept() {
   auto decl = std::make_shared<ConceptDecl>();
   decl->loc = current_.loc;
+  if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+    diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                        std::string("'concept' declarations require C++20 or newer (current: ") +
+                            frontends::CppDialectToString(cpp_dialect_) + ")");
+  }
   MatchKeyword("concept");
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     decl->name = current_.lexeme;
@@ -1029,7 +1043,7 @@ std::shared_ptr<Statement> CppParser::ParseUsing() {
     std::string name = current_.lexeme;
     Consume();
     if (MatchSymbol("=")) {
-      // "using Name = Type;" â€” produce UsingDeclaration for simple
+      // "using Name = Type;" â€?produce UsingDeclaration for simple
       // aliases and UsingAliasDeclaration for template aliases.
       auto type = ParseType();
       std::string type_text;
@@ -1162,6 +1176,11 @@ std::shared_ptr<Statement> CppParser::ParseReturn() {
   auto stmt = std::make_shared<ReturnStatement>();
   stmt->loc = current_.loc;
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "co_return") {
+    if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                          std::string("'co_return' requires C++20 or newer (current: ") +
+                              frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
     stmt->is_co_return = true;
     Consume();
   } else {
@@ -1327,6 +1346,12 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
            (current_.lexeme == "constexpr" || current_.lexeme == "consteval" ||
             current_.lexeme == "inline" || current_.lexeme == "static" ||
             current_.lexeme == "virtual" || current_.lexeme == "mutable")) {
+      if (current_.lexeme == "consteval" &&
+          !frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                            std::string("'consteval' requires C++20 or newer (current: ") +
+                                frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
       if (current_.lexeme == "constexpr")
         is_constexpr = true;
       if (current_.lexeme == "consteval")
@@ -1374,7 +1399,7 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
         }
         continue;
       }
-      // Not a constructor â€” push back and fall through to normal member
+      // Not a constructor â€?push back and fall through to normal member
       pushback_.push_back(current_);
       current_ = saved;
     }
@@ -1856,6 +1881,13 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
          (current_.lexeme == "constexpr" || current_.lexeme == "consteval" ||
           current_.lexeme == "constinit" || current_.lexeme == "inline" ||
           current_.lexeme == "static")) {
+    if ((current_.lexeme == "consteval" || current_.lexeme == "constinit") &&
+        !frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                          std::string("'") + current_.lexeme +
+                              "' requires C++20 or newer (current: " +
+                              frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
     if (current_.lexeme == "constexpr")
       is_constexpr = true;
     if (current_.lexeme == "consteval")

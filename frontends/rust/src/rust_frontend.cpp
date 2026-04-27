@@ -50,6 +50,7 @@ bool RustLanguageFrontend::Analyze(const std::string &source, const std::string 
                                    const frontends::FrontendOptions &options) const {
   RustLexer lexer(source, filename);
   RustParser parser(lexer, diagnostics);
+  parser.SetRustEdition(options.rust_edition);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -76,6 +77,7 @@ frontends::FrontendResult RustLanguageFrontend::Lower(
 
   RustLexer lexer(source, filename);
   RustParser parser(lexer, diagnostics);
+  parser.SetRustEdition(options.rust_edition);
   parser.ParseModule();
   auto module = parser.TakeModule();
 
@@ -96,7 +98,7 @@ frontends::FrontendResult RustLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€” parse Rust source and extract function signatures
+// ExtractSignatures â€?parse Rust source and extract function signatures
 // ============================================================================
 
 namespace {
@@ -104,7 +106,7 @@ namespace {
 /// Map a Rust TypeNode to a core::Type.
 core::Type RustTypeToCore(const std::shared_ptr<TypeNode> &tn) {
   if (!tn)
-    return core::Type::Void(); // no return type â†’ ()
+    return core::Type::Void(); // no return type â†?()
 
   if (auto tp = std::dynamic_pointer_cast<TypePath>(tn)) {
     // Flatten path segments to a single name
@@ -172,7 +174,7 @@ core::Type RustTypeToCore(const std::shared_ptr<TypeNode> &tn) {
     return core::Type{core::TypeKind::kClass, name, "rust"};
   }
   if (auto rt = std::dynamic_pointer_cast<ReferenceType>(tn)) {
-    return RustTypeToCore(rt->inner); // &T â†’ T for cross-lang purposes
+    return RustTypeToCore(rt->inner); // &T â†?T for cross-lang purposes
   }
   if (auto st = std::dynamic_pointer_cast<SliceType>(tn)) {
     return core::Type{core::TypeKind::kSlice, "slice", "rust"};
@@ -182,7 +184,7 @@ core::Type RustTypeToCore(const std::shared_ptr<TypeNode> &tn) {
   }
   if (auto tt = std::dynamic_pointer_cast<TupleType>(tn)) {
     if (tt->elements.empty())
-      return core::Type::Void(); // () â†’ void
+      return core::Type::Void(); // () â†?void
     return core::Type{core::TypeKind::kStruct, "tuple", "rust"};
   }
   return core::Type::Any();

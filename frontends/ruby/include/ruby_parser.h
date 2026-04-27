@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/ruby/include/ruby_ast.h"
 #include "frontends/ruby/include/ruby_lexer.h"
@@ -19,6 +20,10 @@ namespace polyglot::ruby {
 class RbParser : public frontends::ParserBase {
 public:
   RbParser(RbLexer &lexer, frontends::Diagnostics &d) : ParserBase(d), lexer_(lexer) {}
+
+  // Active Ruby release for syntax gating. Pattern matching (`case ... in`)
+  // requires Ruby 3.0+. `kAuto` is treated as `kRubyVersionDefault`.
+  void SetRubyVersion(frontends::RubyVersion v) { ruby_version_ = v; }
 
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
@@ -76,6 +81,8 @@ private:
   frontends::Token current_{};
   std::shared_ptr<Module> module_;
   std::string pending_doc_;
+  // Active Ruby release for syntax gating. `kAuto` ⇒ `kRubyVersionDefault`.
+  frontends::RubyVersion ruby_version_{frontends::RubyVersion::kAuto};
 };
 
 } // namespace polyglot::ruby

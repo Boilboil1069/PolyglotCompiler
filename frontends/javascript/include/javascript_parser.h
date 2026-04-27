@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
 #include "frontends/javascript/include/javascript_ast.h"
 #include "frontends/javascript/include/javascript_lexer.h"
@@ -21,6 +22,10 @@ class JsParser : public frontends::ParserBase {
 public:
   JsParser(JsLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
+
+  // Active ECMAScript edition for syntax gating. Class private fields
+  // (`#name`) require ES2022. `kAuto` is treated as `kEcmaVersionDefault`.
+  void SetEcmaVersion(frontends::EcmaVersion v) { ecma_version_ = v; }
 
   void ParseModule() override;
   std::shared_ptr<Module> TakeModule();
@@ -92,6 +97,8 @@ private:
   frontends::Token current_{};
   std::shared_ptr<Module> module_;
   std::string pending_doc_;
+  // Active ECMAScript edition for syntax gating. `kAuto` ⇒ `kEcmaVersionDefault`.
+  frontends::EcmaVersion ecma_version_{frontends::EcmaVersion::kAuto};
 };
 
 } // namespace polyglot::javascript

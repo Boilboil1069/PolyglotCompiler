@@ -33,6 +33,9 @@
 
 #include "frontends/javascript/include/javascript_parser.h"
 
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_versions.h"
+
 namespace polyglot::javascript {
 
 namespace {
@@ -946,6 +949,12 @@ std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported
       std::string field_name = saved.lexeme;
       bool is_private = false;
       if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "#") {
+        if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
+          diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                   std::string("class private fields ('#name') require ES2022 "
+                                               "or newer (current: ") +
+                                       frontends::EcmaVersionToString(ecma_version_) + ")");
+        }
         is_private = true;
         Advance();
         if (current_.kind == frontends::TokenKind::kIdentifier) {

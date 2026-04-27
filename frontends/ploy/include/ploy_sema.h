@@ -106,6 +106,9 @@ struct LinkEntry {
   // Per-parameter type mappings from the LINK body
   std::vector<TypeMappingEntry> param_mappings;
   core::SourceLoc defined_at{};
+  // Optional language version pin resolved from the enclosing
+  // LANG / WITH LANG / @LANG scope. Empty means use the toolchain default.
+  std::string lang_version;
 };
 
 // ============================================================================

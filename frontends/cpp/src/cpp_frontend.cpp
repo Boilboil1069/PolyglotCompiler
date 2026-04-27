@@ -45,9 +45,10 @@ std::vector<frontends::Token> CppLanguageFrontend::Tokenize(const std::string &s
 
 bool CppLanguageFrontend::Analyze(const std::string &source, const std::string &filename,
                                   frontends::Diagnostics &diagnostics,
-                                  const frontends::FrontendOptions & /*options*/) const {
+                                  const frontends::FrontendOptions &options) const {
   CppLexer lexer(source, filename);
   CppParser parser(lexer, diagnostics);
+  parser.SetCppDialect(options.cpp_dialect);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -67,11 +68,12 @@ bool CppLanguageFrontend::Analyze(const std::string &source, const std::string &
 
 frontends::FrontendResult CppLanguageFrontend::Lower(
     const std::string &source, const std::string &filename, ir::IRContext &ir_ctx,
-    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions & /*options*/) const {
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   frontends::FrontendResult result;
 
   CppLexer lexer(source, filename);
   CppParser parser(lexer, diagnostics);
+  parser.SetCppDialect(options.cpp_dialect);
   parser.ParseModule();
   auto module = parser.TakeModule();
 

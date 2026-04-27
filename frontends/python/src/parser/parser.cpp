@@ -8,6 +8,8 @@
  */
 #include "frontends/python/include/python_parser.h"
 
+#include "frontends/common/include/diagnostics.h"
+
 namespace polyglot::python {
 
 namespace {
@@ -726,6 +728,15 @@ std::shared_ptr<Expression> PythonParser::ParseSliceOrIndex(std::shared_ptr<Expr
 std::shared_ptr<Expression> PythonParser::ParseNamedExpression() {
   auto expr = ParseOr();
   if (MatchSymbol(":=")) {
+    // Walrus operator (PEP 572) was introduced in Python 3.8. Reject it
+    // when the active language version is older.
+    if (!frontends::PythonVersionAtLeast(python_version_,
+                                         frontends::PythonVersion::kPy3_8)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                          "walrus operator ':=' requires Python 3.8 or newer (current: " +
+                              std::string(frontends::PythonVersionToString(python_version_)) +
+                              ")");
+    }
     auto named = std::make_shared<NamedExpression>();
     named->loc = expr ? expr->loc : current_.loc;
     named->target = expr;
@@ -1337,6 +1348,15 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
       return stmt;
     }
     if (current_.lexeme == "match") {
+      // PEP 634 / 636 structural pattern matching landed in Python 3.10.
+      // Older targets must reject the soft keyword as a statement opener.
+      if (!frontends::PythonVersionAtLeast(python_version_,
+                                           frontends::PythonVersion::kPy3_10)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                            "'match' / 'case' statements require Python 3.10 or newer (current: " +
+                                std::string(frontends::PythonVersionToString(python_version_)) +
+                                ")");
+      }
       auto stmt = ParseMatch();
       AttachPendingDoc(stmt);
       return stmt;

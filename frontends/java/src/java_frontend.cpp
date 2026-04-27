@@ -49,6 +49,7 @@ bool JavaLanguageFrontend::Analyze(const std::string &source, const std::string 
                                    const frontends::FrontendOptions &options) const {
   JavaLexer lexer(source, filename);
   JavaParser parser(lexer, diagnostics);
+  parser.SetJavaRelease(options.java_release);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -77,6 +78,7 @@ frontends::FrontendResult JavaLanguageFrontend::Lower(
 
   JavaLexer lexer(source, filename);
   JavaParser parser(lexer, diagnostics);
+  parser.SetJavaRelease(options.java_release);
   parser.ParseModule();
   auto module = parser.TakeModule();
 
@@ -99,7 +101,7 @@ frontends::FrontendResult JavaLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€” parse Java source and extract method signatures
+// ExtractSignatures â€?parse Java source and extract method signatures
 // ============================================================================
 
 namespace {
@@ -176,7 +178,7 @@ std::vector<frontends::ForeignFunctionSignature> JavaLanguageFrontend::ExtractSi
   if (!module)
     return result;
 
-  // Walk declarations â€” Java top-level is usually a class
+  // Walk declarations â€?Java top-level is usually a class
   for (const auto &decl : module->declarations) {
     if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
       for (const auto &member : cls->members) {

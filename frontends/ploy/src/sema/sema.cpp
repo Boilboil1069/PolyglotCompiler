@@ -148,6 +148,9 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
   entry.target_symbol = link->target_symbol;
   entry.source_symbol = link->source_symbol;
   entry.defined_at = link->loc;
+  // Pin the source-side language version (the foreign side) to whatever
+  // LANG / WITH LANG / @LANG scope the LINK statement is enclosed in.
+  entry.lang_version = ResolveLangVersion(link->source_language);
 
   // Process MAP_TYPE directives in body
   for (const auto &body_stmt : link->body) {
@@ -1303,6 +1306,8 @@ void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_s
     ReportError(with_stmt->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + with_stmt->language + "' in WITH");
   }
+  // Stamp the resolved language version, if any.
+  with_stmt->lang_version_pin = ResolveLangVersion(with_stmt->language);
 
   // Validate variable name
   if (with_stmt->var_name.empty()) {
@@ -2616,6 +2621,8 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
                 "supported languages: python, cpp, rust");
     return;
   }
+  // Stamp the resolved language version, if any.
+  extend->lang_version_pin = ResolveLangVersion(extend->language);
 
   // Validate base class name
   if (extend->base_class.empty()) {

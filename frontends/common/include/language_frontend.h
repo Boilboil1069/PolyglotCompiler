@@ -22,7 +22,7 @@
 namespace polyglot::frontends {
 
 // ============================================================================
-// FrontendOptions 鈥?common options passed to frontend pipelines
+// FrontendOptions — common options passed to frontend pipelines
 // ============================================================================
 
 /** @brief FrontendOptions data structure. */
@@ -38,28 +38,28 @@ struct FrontendOptions {
   std::vector<std::string> defines{};              // -DNAME or -DNAME=VAL
   std::vector<std::string> undefines{};            // -UNAME
 
-  // Python 鈥?user-supplied .pyi stub roots (typeshed-compatible layout)
+  // Python — user-supplied .pyi stub roots (typeshed-compatible layout)
   std::vector<std::string> python_stub_paths{}; // --python-stubs
 
-  // Java 鈥?class-path entries: directories with .class trees and .jar files
+  // Java — class-path entries: directories with .class trees and .jar files
   std::vector<std::string> classpath{}; // --classpath / -cp
 
-  // .NET 鈥?assembly references to load (.dll / .exe with CLI metadata)
+  // .NET — assembly references to load (.dll / .exe with CLI metadata)
   std::vector<std::string> dotnet_references{}; // --reference / -r
 
-  // Rust 鈥?cargo project root and explicit extern crate mapping
+  // Rust — cargo project root and explicit extern crate mapping
   std::string rust_crate_dir{};                                    // --crate-dir
   std::vector<std::pair<std::string, std::string>> rust_externs{}; // --extern name=path
 
-  // Go 鈥?module project root + extra GOPATH / module-cache hints
+  // Go — module project root + extra GOPATH / module-cache hints
   std::string go_project_dir{};               // --go-project
   std::vector<std::string> go_module_paths{}; // --go-mod-cache
 
-  // JavaScript / TypeScript 鈥?npm project root + extra node_modules roots
+  // JavaScript / TypeScript — npm project root + extra node_modules roots
   std::string js_project_dir{};                  // --js-project
   std::vector<std::string> node_modules_paths{}; // --node-modules
 
-  // Ruby 鈥?Bundler project root + extra gem load paths
+  // Ruby — Bundler project root + extra gem load paths
   std::string ruby_project_dir{};       // --ruby-project
   std::vector<std::string> gem_paths{}; // --gem-path
 
@@ -90,7 +90,7 @@ struct FrontendOptions {
 };
 
 // ============================================================================
-// FrontendResult 鈥?outcome of a full frontend pipeline run
+// FrontendResult — outcome of a full frontend pipeline run
 // ============================================================================
 
 /** @brief FrontendResult data structure. */
@@ -100,7 +100,7 @@ struct FrontendResult {
 };
 
 // ============================================================================
-// ForeignFunctionSignature 鈥?extracted signature from a foreign source file
+// ForeignFunctionSignature — extracted signature from a foreign source file
 // ============================================================================
 // Represents a function/method signature extracted by parsing a source file
 // in its native language.  Used for cross-language type inference in the
@@ -119,7 +119,7 @@ struct ForeignFunctionSignature {
 };
 
 // ============================================================================
-// ILanguageFrontend 鈥?abstract interface for a language frontend
+// ILanguageFrontend — abstract interface for a language frontend
 // ============================================================================
 
 /** @brief ILanguageFrontend class. */
