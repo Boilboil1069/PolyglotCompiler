@@ -224,13 +224,16 @@ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ```
 PolyglotCompiler/
-├── frontends/              # Language frontends (6 frontends)
+├── frontends/              # Language frontends (9 frontends)
 │   ├── common/             #   Shared frontend facilities (Token, Diagnostics)
 │   ├── cpp/                #   C++ frontend
 │   ├── python/             #   Python frontend
-│   ├── rust/               #   Rust frontend
+│   ├── rust/               #   Rust frontend (cargo metadata + crate loader)
 │   ├── java/               #   Java frontend (Java 8/17/21/23)
 │   ├── dotnet/             #   .NET frontend (C# .NET 6/7/8/9)
+│   ├── go/                 #   Go frontend (go.mod + GOROOT/GOPATH resolver)
+│   ├── javascript/         #   JavaScript / TypeScript frontend (Node.js resolver)
+│   ├── ruby/               #   Ruby frontend (require / Gemfile / Bundler)
 │   └── ploy/               #   .ploy cross-language frontend
 ├── middle/                 # Middle layer (IR + Optimisation)
 │   ├── include/

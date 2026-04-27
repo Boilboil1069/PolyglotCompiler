@@ -218,23 +218,23 @@ PIPELINE <名称> {
 
 ### 原始类型
 
-| .ploy 类型 | C++ | Python | Rust | Java | C# |
-|-----------|-----|--------|------|------|-----|
-| `INT` | `int` | `int` | `i32` | `int` | `int` |
-| `FLOAT` | `double` | `float` | `f64` | `double` | `double` |
-| `STRING` | `std::string` | `str` | `String` | `String` | `string` |
-| `BOOL` | `bool` | `bool` | `bool` | `boolean` | `bool` |
-| `VOID` | `void` | `None` | `()` | `void` | `void` |
+| .ploy 类型 | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
+|-----------|-----|--------|------|------|-----|------|-----------|------|
+| `INT`     | `int`         | `int`   | `i32`     | `int`     | `int`    | `int`     | `number`        | `Integer` |
+| `FLOAT`   | `double`      | `float` | `f64`     | `double`  | `double` | `float64` | `number`        | `Float`   |
+| `STRING`  | `std::string` | `str`   | `String`  | `String`  | `string` | `string`  | `string`        | `String`  |
+| `BOOL`    | `bool`        | `bool`  | `bool`    | `boolean` | `bool`   | `bool`    | `boolean`       | `TrueClass` / `FalseClass` |
+| `VOID`    | `void`        | `None`  | `()`      | `void`    | `void`   | （无返回值） | `undefined`   | `nil`     |
 
 ### 容器类型
 
-| .ploy 类型 | C++ | Python | Rust |
-|-----------|-----|--------|------|
-| `LIST<T>` | `std::vector<T>` | `list[T]` | `Vec<T>` |
-| `TUPLE<T...>` | `std::tuple<T...>` | `tuple` | `(T...)` |
-| `DICT<K,V>` | `std::unordered_map<K,V>` | `dict[K,V]` | `HashMap<K,V>` |
-| `ARRAY<T,N>` | `T[N]` | `list[T]` | `[T; N]` |
-| `OPTION<T>` | `std::optional<T>` | `Optional[T]` | `Option<T>` |
+| .ploy 类型 | C++ | Python | Rust | Go | JavaScript | Ruby |
+|------------|-----|--------|------|------|-----------|------|
+| `LIST<T>`        | `std::vector<T>`           | `list[T]`     | `Vec<T>`        | `[]T`            | `Array`         | `Array`     |
+| `TUPLE<T...>`    | `std::tuple<T...>`         | `tuple`       | `(T...)`        | `struct{...}`    | （定长 Array）  | `Array`     |
+| `DICT<K,V>`      | `std::unordered_map<K,V>`  | `dict[K,V]`   | `HashMap<K,V>`  | `map[K]V`        | `Object` / `Map`| `Hash`      |
+| `ARRAY<T,N>`     | `T[N]`                     | `list[T]`     | `[T; N]`        | `[N]T`           | `Array`         | `Array`     |
+| `OPTION<T>`      | `std::optional<T>`         | `Optional[T]` | `Option<T>`     | `*T`（可空指针） | `T \| null`    | `T \| nil` |
 
 ## 2.10 运算符
 

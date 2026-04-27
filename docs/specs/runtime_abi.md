@@ -76,6 +76,25 @@ lifecycle.
 
 Provides FFI-compatible entry points for calling into Rust code.
 
+### 3.6 Go Bridge (`runtime/include/libs/go_rt.h`)
+
+Hosts a `cgo`-style entry table for invoking Go functions and exchanging
+slices/strings; values escaping into the GC arena are anchored as roots
+through the same `polyglot_*_strdup_gc` / `polyglot_*_release` pattern as the
+other bridges.
+
+### 3.7 JavaScript Bridge (`runtime/include/libs/javascript_rt.h`)
+
+Hosts a V8/Node-compatible call gateway. Strings cross the boundary as UTF-8
+buffers anchored in GC memory; objects are reachable through opaque handles
+managed by the bridge.
+
+### 3.8 Ruby Bridge (`runtime/include/libs/ruby_rt.h`)
+
+Provides a CRuby-compatible entry table (`rb_funcall` / `rb_string_value_cstr`
+shims) for invoking Ruby methods and converting `VALUE` references to
+GC-anchored strings.
+
 ---
 
 ## 4 Interop / Object Lifecycle (`runtime/include/interop/object_lifecycle.h`)

@@ -224,13 +224,16 @@ cmake .. -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
 ```
 PolyglotCompiler/
-├── frontends/              # 语言前端（6 个前端）
+├── frontends/              # 语言前端（9 个前端）
 │   ├── common/             #   共享前端设施（Token、Diagnostics）
 │   ├── cpp/                #   C++ 前端
 │   ├── python/             #   Python 前端
-│   ├── rust/               #   Rust 前端
+│   ├── rust/               #   Rust 前端（cargo 元数据 + crate 加载器）
 │   ├── java/               #   Java 前端（Java 8/17/21/23）
 │   ├── dotnet/             #   .NET 前端（C# .NET 6/7/8/9）
+│   ├── go/                 #   Go 前端（go.mod + GOROOT/GOPATH 解析）
+│   ├── javascript/         #   JavaScript / TypeScript 前端（Node.js 解析）
+│   ├── ruby/               #   Ruby 前端（require / Gemfile / Bundler）
 │   └── ploy/               #   .ploy 跨语言前端
 ├── middle/                 # 中间层（IR + 优化）
 │   ├── include/

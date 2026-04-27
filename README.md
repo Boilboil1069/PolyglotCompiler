@@ -10,7 +10,7 @@
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
 <!-- BEGIN:test_badge -->
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-1019_cases_|_21_CTest_targets-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Tests-1084_cases_|_3_suites-brightgreen.svg"/>
 <!-- END:test_badge -->
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
@@ -30,56 +30,56 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
 - **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND` keywords for cross-language class instantiation, method calls, attribute access, and resource management
 - **Early ABI Validation** — Signature/arity/type checks are enforced in `.ploy` semantic analysis and hardened again in `polyld` as link-time hard failures
-- **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/NuGet/Maven/Gradle/pkg-config
+- **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/NuGet/Maven/Gradle/pkg-config, plus `go.mod` (Go), `node_modules` / `package.json` (JavaScript), and `Gemfile` / RubyGems (Ruby)
 - **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly (shadow stack, WAT/binary)
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
-- **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration
+- **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration. Per-language runtime bridges: `python_rt`, `cpp_rt`, `rust_rt`, `java_rt`, `dotnet_rt`, `go_rt`, `javascript_rt`, `ruby_rt`
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
-- **1019 Test Cases** — Unit (909), Integration (92), Benchmark (18) across 21 CTest targets
+- **1084 Test Cases** — Unit (960), Integration (106), Benchmark (18) across 23 CTest targets
 
 ---
 
 ## Architecture / 架构设计
 
 ```
-┌─────────────┐  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  C++ Source │  │ Python Source│  │  Rust Source │  │ Java Source │  │  C# Source  │  │ .ploy Source│
-└──────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                 │                 │                │                │
-       ▼                ▼                 ▼                 ▼                ▼                ▼
-┌──────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ C++ Frontend │ │Python Frontend│ │ Rust Frontend│ │ Java Frontend│ │ .NET Frontend│ │ Ploy Frontend│
-└──────┬───────┘ └──────┬────────┘ └──────┬───────┘ └───────┬──────┘ └──────┬───────┘ └──────┬───────┘
-       │                │                 │                 │               │                │
-       └────────────────┴────────┬────────┴─────────────────┴───────────────┘                │
-                                 │                                                           │ 
-                                 ▼                                                           │
-                          ┌───────────┐                             ┌─────────────┐          │
-                          │ Shared IR │                             │  Polyglot   │◄─────────┘
-                          │   (SSA)   │                             │   Linker    │
-                          └─────┬─────┘                             └──────┬──────┘
-                                │                                          │
-                      ┌─────────┼─────────────────┐                        │
-                      ▼         ▼                 ▼                        │
-               ┌───────────┐ ┌───────────┐ ┌───────────┐                   │
-               │  x86_64   │ │   ARM64   │ │   WASM    │                   │
-               │  Backend  │ │  Backend  │ │  Backend  │                   │
-               └─────┬─────┘ └─────┬─────┘ └─────┬─────┘                   │
-                     │             │             │                         │
-                     └──────┬──────┴─────────────┘                         │
-                            ▼                                              ▼
-                     ┌─────────────┐                              ┌─────────────┐
-                     │ Object Files│                              │ Glue Code   │
-                     └──────┬──────┘                              └──────┬──────┘
-                            └────────┬───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .ploy│
+└──────────────┬─────────────────────────────────────────────────────┬────────────┘
+               │                                                     │
+               ▼                                                     ▼
+┌──────────────────────────────────────┐                  ┌────────────────────┐
+│ Language Frontends (FrontendRegistry)│                  │   Ploy Frontend    │
+│  cpp • python • rust • java • dotnet │                  │ (orchestration DSL)│
+│  go  • javascript • ruby             │                  └─────────┬──────────┘
+└───────────────────┬──────────────────┘                            │
+                    │                                               │
+                    ▼                                               ▼
+              ┌───────────┐                                 ┌─────────────┐
+              │ Shared IR │                                 │  Polyglot   │
+              │   (SSA)   │                                 │   Linker    │
+              └─────┬─────┘                                 └──────┬──────┘
+                    │                                              │
+        ┌───────────┼─────────────────┐                            │
+        ▼           ▼                 ▼                            │
+   ┌───────────┐ ┌───────────┐ ┌───────────┐                       │
+   │  x86_64   │ │   ARM64   │ │   WASM    │                       │
+   │  Backend  │ │  Backend  │ │  Backend  │                       │
+   └─────┬─────┘ └─────┬─────┘ └─────┬─────┘                       │
+         │             │             │                             │
+         └──────┬──────┴─────────────┘                             │
+                ▼                                                  ▼
+         ┌─────────────┐                                  ┌─────────────┐
+         │ Object Files│                                  │ Glue Code   │
+         └──────┬──────┘                                  └──────┬──────┘
+                └────────────────────┬─────────────────────────-─┘
                                      ▼
                               ┌─────────────┐
                               │  Executable │
                               └─────────────┘
 ```
 
-> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet). The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step. `polyld` is automatically resolved relative to `polyc`'s binary location.
+> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_go`, `frontend_javascript`, `frontend_ruby`, `frontend_ploy`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet/go/node/ruby) for code generation. The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step. `polyld` is automatically resolved relative to `polyc`'s binary location.
 
 ---
 
@@ -441,10 +441,11 @@ Managed automatically via CMake `FetchContent`:
 <!-- BEGIN:dependencies_table -->
 | Dependency | Purpose |
 |-----------|---------|
-| [fmt](https://github.com/fmtlib/fmt) | Formatted output |
+| [fmt](https://github.com/fmtlib/fmt) | Formatted output (>= 11.2.0 required for Apple Clang 21) |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
 | [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
-| [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator |
+| [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator (mi_* APIs only; global malloc override disabled to keep allocator consistent across dylib boundaries) |
+| [Qt 6](https://www.qt.io/) | Desktop IDE (polyui) |
 <!-- END:dependencies_table -->
 
 **Optional (not fetched by CMake — must be pre-installed):**
@@ -498,6 +499,6 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-04-11*  
-*Document Version: v1.0.0*
+*Last Updated: 2026-04-27*  
+*Document Version: v1.1.0*
 <!-- END:version_footer_en -->

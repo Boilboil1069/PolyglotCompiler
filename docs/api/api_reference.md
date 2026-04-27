@@ -610,7 +610,45 @@ Each language frontend exposes the same four-phase pipeline:
 
 **Supported versions**: .NET 6, 7, 8, 9
 
-## 7.6 .ploy Frontend
+## 7.6 Go Frontend
+
+**Namespace**: `polyglot::frontends::go`
+
+| Header | Class/Function |
+|--------|---------------|
+| `frontends/go/include/go_lexer.h` | `GoLexer : LexerBase` |
+| `frontends/go/include/go_parser.h` | `GoParser : ParserBase` |
+| `frontends/go/include/go_sema.h` | `void AnalyzeModule(const GoModule&, SemaContext&)` |
+| `frontends/go/include/go_lowering.h` | `void LowerToIR(const GoModule&, ir::IRContext&, Diagnostics&)` |
+| `frontends/go/include/go_import_resolver.h` | `GoImportResolver` — resolves `import "..."` against `go.mod`, `GOROOT/src`, `GOPATH/pkg/mod`, and `--go-mod-cache` |
+
+## 7.7 JavaScript Frontend
+
+**Namespace**: `polyglot::frontends::javascript`
+
+| Header | Class/Function |
+|--------|---------------|
+| `frontends/javascript/include/javascript_lexer.h` | `JavaScriptLexer : LexerBase` |
+| `frontends/javascript/include/javascript_parser.h` | `JavaScriptParser : ParserBase` |
+| `frontends/javascript/include/javascript_sema.h` | `void AnalyzeModule(const JavaScriptModule&, SemaContext&)` |
+| `frontends/javascript/include/javascript_lowering.h` | `void LowerToIR(const JavaScriptModule&, ir::IRContext&, Diagnostics&)` |
+| `frontends/javascript/include/javascript_import_resolver.h` | `JavaScriptImportResolver` — Node.js algorithm with `package.json` (`main`/`module`/`types`/`exports`), prefers `.d.ts` for typed signatures |
+
+**Supported module formats**: ESM (`.mjs`), CommonJS (`.cjs`/`require`), TypeScript declarations (`.d.ts`)
+
+## 7.8 Ruby Frontend
+
+**Namespace**: `polyglot::frontends::ruby`
+
+| Header | Class/Function |
+|--------|---------------|
+| `frontends/ruby/include/ruby_lexer.h` | `RubyLexer : LexerBase` |
+| `frontends/ruby/include/ruby_parser.h` | `RubyParser : ParserBase` |
+| `frontends/ruby/include/ruby_sema.h` | `void AnalyzeModule(const RubyModule&, SemaContext&)` |
+| `frontends/ruby/include/ruby_lowering.h` | `void LowerToIR(const RubyModule&, ir::IRContext&, Diagnostics&)` |
+| `frontends/ruby/include/ruby_import_resolver.h` | `RubyImportResolver` — `require` / `require_relative` / `load` / `autoload`, honours `RUBYLIB`, `Gemfile` (Bundler), and `--gem-path` |
+
+## 7.9 .ploy Frontend
 
 **Namespace**: `polyglot::frontends::ploy`
 

@@ -18,7 +18,7 @@ set(FMT_TEST OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG 11.0.2
+    GIT_TAG 11.2.0
 )
 
 # nlohmann/json (header-only)
@@ -43,6 +43,18 @@ set(MI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_OBJECT OFF CACHE BOOL "" FORCE)
 set(MI_BUILD_STATIC ON CACHE BOOL "" FORCE)
+# Do not override the standard malloc/free entry points. The project links
+# mimalloc-static into a single shared library (libruntime), but PolyglotCompiler
+# ships several independent dylibs (frontends, backends, runtime). When mimalloc
+# overrides malloc/free only in the dylib that contains it, allocations made on
+# one side of a dylib boundary can be freed on the other side, producing
+# "pointer being freed was not allocated" aborts on macOS (especially with
+# MI_OSX_INTERPOSE / MI_OSX_ZONE). Keep the mi_* symbols available for explicit
+# use, but route the global new/delete and malloc/free through libSystem so all
+# dylibs agree on a single allocator.
+set(MI_OVERRIDE OFF CACHE BOOL "" FORCE)
+set(MI_OSX_ZONE OFF CACHE BOOL "" FORCE)
+set(MI_OSX_INTERPOSE OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     mimalloc
     GIT_REPOSITORY https://github.com/microsoft/mimalloc.git

@@ -112,16 +112,6 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
 | **Type safety across languages** | Type marshalling is done at compile time via the PolyglotLinker's glue code generation, not at runtime via dynamic dispatch. |
 | **Cross-language overhead** | The only overhead is the marshalling code at language boundaries (argument conversion, ownership tracking), which is comparable to a standard FFI call. |
 
-### 不使用外部编译器
-
-| 方面 | 说明 |
-|------|------|
-| **无外部编译器** | PolyglotCompiler 不调用 `g++`、`msvc`、`rustc` 或 `python`。所有语言都由项目自己的前端编译。 |
-| **运行时无解释器** | Python 代码被编译为原生机器码，而非由 CPython 解释执行。生成的二进制文件运行时不需要安装 Python。 |
-| **单一二进制输出** | 输出是一个统一的原生可执行文件（或库），包含来自所有源语言的编译代码，通过共享 IR 统一。 |
-| **跨语言类型安全** | 类型编组在编译时通过 PolyglotLinker 的粘合代码生成完成，而非运行时动态分发。 |
-| **跨语言开销** | 唯一的开销是语言边界处的编组代码（参数转换、所有权跟踪），与标准 FFI 调用相当。 |
-
 ### Example / 示例
 
 Given these source files:
@@ -176,6 +166,16 @@ polyld -o program image_processor.o ml_model.o pipeline.o    # Link into single 
 ```
 
 The final `program` is a **single native x86_64 (or ARM64 / WebAssembly) executable** — no Python interpreter, no C++ compiler, no external dependencies required at runtime.
+
+### Compared with Traditional Toolchains / 与传统方案的对比
+
+| Aspect | PolyglotCompiler | Traditional FFI (e.g. ctypes / pybind11) |
+|--------|------------------|------------------------------------------|
+| Compilation | Every language is compiled by its own frontend into a shared IR | Each language is compiled separately and bound at runtime |
+| Runtime dependencies | None | Requires a Python interpreter + C++ runtime |
+| Performance | Native code; cross-language calls only pay marshalling cost | Interpreter overhead + FFI overhead |
+| Type safety | Checked at compile time | Checked at runtime |
+| Deployment | Single executable | Multiple runtimes must be deployed |
 
 ---
 

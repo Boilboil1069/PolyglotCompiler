@@ -13,7 +13,7 @@ the depth of `java_rt`, `dotnet_rt`, `javascript_rt`, and `ruby_rt`.
 | File                            | Old size | New size | Status                         |
 | ------------------------------- | -------- | -------- | ------------------------------ |
 | `runtime/src/libs/python_rt.c`  | 33 lines | ~470 lines | full CPython embedding       |
-| `runtime/src/libs/cpp_rt.c` → `.cpp` | 30 lines | ~270 lines | dlopen + try/catch bridge |
+| `runtime/src/libs/cpp_rt.cpp`   | 30 lines | ~270 lines | dlopen + try/catch bridge    |
 | `runtime/src/libs/rust_rt.c`    | 30 lines | ~220 lines | cdylib loader + ABI helpers  |
 
 The three pre-existing entry points

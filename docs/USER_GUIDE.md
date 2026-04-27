@@ -2371,25 +2371,34 @@ tests/samples/
 
 ## 10.5 Integration Tests
 
-The `tests/integration/` directory contains 52 integration tests across 3 categories:
+The `tests/integration/` directory contains 106 integration tests across 6 categories:
 
 ```
 tests/integration/
 ├── compile_tests/
-│   └── compile_pipeline_test.cpp       # 17 tests: full compilation pipeline
+│   └── compile_pipeline_test.cpp       # 41 tests: full compilation pipeline
 ├── interop_tests/
-│   └── interop_test.cpp                # 14 tests: cross-language interop
-└── performance/
-    └── perf_test.cpp                   # 14 tests: performance stress
+│   └── interop_test.cpp                # 15 tests: cross-language interop
+├── performance/
+│   └── perf_test.cpp                   # 11 tests: performance stress
+├── e2e/
+│   └── polyc_e2e_test.cpp              # 12 tests: polyc CLI end-to-end
+├── external_packages/
+│   ├── external_packages_test.cpp      #  8 tests: import resolver path resolution
+│   └── demand_03_test.cpp              #  6 tests: demand-driven external imports
+└── object_format_test.cpp              # 13 tests: COFF / ELF / Mach-O writers
 ```
 
 ### Integration Test Categories
 
 | Category | Tag | Tests | Coverage |
 |----------|-----|-------|----------|
-| Compile Pipeline | `[integration][compile]` | 17 | LINK+CALL, STRUCT, PIPELINE, IF/ELSE/WHILE/FOR, NEW/METHOD, GET/SET, WITH, DELETE, EXTEND, MATCH, ML pipeline, multi-function PIPELINE |
-| Cross-Language Interop | `[integration][interop]` | 14 | LINK chains, NEW creation, METHOD chains, lifecycle (NEW→METHOD→DELETE), multi-lang objects, GET/SET, WITH/nested, EXTEND, combined OOP, three-language |
-| Performance Stress | `[integration][perf]` | 14 | 50/100 functions, 10/20-level nesting, 50/100 CALLs, 20/50-stage pipelines, complex mixed program, lexer/parser throughput |
+| Compile Pipeline | `[integration][compile]` | 41 | LINK+CALL, STRUCT, PIPELINE, IF/ELSE/WHILE/FOR, NEW/METHOD, GET/SET, WITH, DELETE, EXTEND, MATCH, ML pipeline, multi-function PIPELINE |
+| Cross-Language Interop | `[integration][interop]` | 15 | LINK chains, NEW creation, METHOD chains, lifecycle (NEW→METHOD→DELETE), multi-lang objects, GET/SET, WITH/nested, EXTEND, combined OOP, three-language |
+| Performance Stress | `[integration][perf]` | 11 | 50/100 functions, 10/20-level nesting, 50/100 CALLs, 20/50-stage pipelines, complex mixed program, lexer/parser throughput |
+| End-to-End | `[integration][e2e]` | 12 | Real `polyc` CLI compilation, source → executable |
+| External Packages | `[integration][external]` | 14 | External-package import resolvers for all eight languages (cpp/python/rust/java/dotnet/go/javascript/ruby) |
+| Object Formats | `[integration][objfmt]` | 13 | COFF / ELF / Mach-O writers and round-trip parsing |
 
 ## 10.6 Benchmark Tests
 
@@ -3140,6 +3149,6 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-03-19*  
-*Document Version: v1.0.0*
+*Last Updated: 2026-04-27*  
+*Document Version: v1.1.0*
 <!-- END:version_footer_en -->

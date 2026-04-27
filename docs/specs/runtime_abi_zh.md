@@ -73,6 +73,21 @@ polyglot 链接器所消费的*契约*层。
 
 提供与 FFI 兼容的入口点，用于调用 Rust 代码。
 
+### 3.6 Go 桥接 (`runtime/include/libs/go_rt.h`)
+
+提供类似 `cgo` 的入口表，用于调用 Go 函数并交换切片/字符串；逃逸到 GC 堆上的值通过与
+其他桥接一致的 `polyglot_*_strdup_gc` / `polyglot_*_release` 模式锚定为 GC 根。
+
+### 3.7 JavaScript 桥接 (`runtime/include/libs/javascript_rt.h`)
+
+提供 V8/Node 兼容的调用网关。字符串以 UTF-8 缓冲区形式跨越边界并锚定在 GC 内存中；对象
+通过桥接管理的不透明句柄进行可达性追踪。
+
+### 3.8 Ruby 桥接 (`runtime/include/libs/ruby_rt.h`)
+
+提供 CRuby 兼容的入口表（`rb_funcall` / `rb_string_value_cstr` 等垫片），用于调用 Ruby
+方法，并把 `VALUE` 引用转换为 GC 锚定的字符串。
+
 ---
 
 ## 4 互操作 / 对象生命周期 (`runtime/include/interop/object_lifecycle.h`)

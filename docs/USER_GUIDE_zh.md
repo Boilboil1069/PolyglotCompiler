@@ -2357,25 +2357,34 @@ tests/samples/
 
 ## 10.5 集成测试
 
-`tests/integration/` 目录包含 52 个集成测试，分为 3 个类别：
+`tests/integration/` 目录包含 106 个集成测试，分为 6 个类别：
 
 ```
 tests/integration/
 ├── compile_tests/
-│   └── compile_pipeline_test.cpp       # 17 个测试：完整编译管道
+│   └── compile_pipeline_test.cpp       # 41 个测试：完整编译管道
 ├── interop_tests/
-│   └── interop_test.cpp                # 14 个测试：跨语言互操作
-└── performance/
-    └── perf_test.cpp                   # 14 个测试：性能压力
+│   └── interop_test.cpp                # 15 个测试：跨语言互操作
+├── performance/
+│   └── perf_test.cpp                   # 11 个测试：性能压力
+├── e2e/
+│   └── polyc_e2e_test.cpp              # 12 个测试：polyc CLI 端到端
+├── external_packages/
+│   ├── external_packages_test.cpp      #  8 个测试：外部包导入解析
+│   └── demand_03_test.cpp              #  6 个测试：需求驱动的外部导入
+└── object_format_test.cpp              # 13 个测试：COFF / ELF / Mach-O 写入
 ```
 
 ### 集成测试类别
 
 | 类别 | 标签 | 测试数 | 覆盖内容 |
 |------|------|--------|---------|
-| 编译管道 | `[integration][compile]` | 17 | LINK+CALL、STRUCT、PIPELINE、IF/ELSE/WHILE/FOR、NEW/METHOD、GET/SET、WITH、DELETE、EXTEND、MATCH、ML管道、多函数PIPELINE |
-| 跨语言互操作 | `[integration][interop]` | 14 | LINK链、NEW创建、METHOD链、生命周期(NEW→METHOD→DELETE)、多语言对象、GET/SET、WITH/嵌套WITH、EXTEND、组合OOP、三语言 |
-| 性能压力 | `[integration][perf]` | 14 | 50/100函数、10/20层嵌套、50/100 CALL、20/50阶段管道、复杂混合程序、词法/语法吞吐 |
+| 编译管道 | `[integration][compile]` | 41 | LINK+CALL、STRUCT、PIPELINE、IF/ELSE/WHILE/FOR、NEW/METHOD、GET/SET、WITH、DELETE、EXTEND、MATCH、ML管道、多函数PIPELINE |
+| 跨语言互操作 | `[integration][interop]` | 15 | LINK链、NEW创建、METHOD链、生命周期(NEW→METHOD→DELETE)、多语言对象、GET/SET、WITH/嵌套WITH、EXTEND、组合OOP、三语言 |
+| 性能压力 | `[integration][perf]` | 11 | 50/100函数、10/20层嵌套、50/100 CALL、20/50阶段管道、复杂混合程序、词法/语法吞吐 |
+| 端到端 | `[integration][e2e]` | 12 | polyc CLI 真实编译流程，从源码到二进制 |
+| 外部包 | `[integration][external]` | 14 | 八种语言的外部包导入解析（cpp/python/rust/java/dotnet/go/javascript/ruby） |
+| 目标文件格式 | `[integration][objfmt]` | 13 | COFF / ELF / Mach-O 写入与回读 |
 
 ## 10.6 基准测试
 
@@ -3114,6 +3123,6 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 
 <!-- BEGIN:version_footer_zh -->
 *本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-03-19*  
-*文档版本: v1.0.0*
+*最后更新: 2026-04-27*  
+*文档版本: v1.1.0*
 <!-- END:version_footer_zh -->

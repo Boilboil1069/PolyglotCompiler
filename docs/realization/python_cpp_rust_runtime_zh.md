@@ -13,7 +13,7 @@
 | 文件                                  | 升级前 | 升级后    | 状态                            |
 | ------------------------------------- | ------ | --------- | ------------------------------- |
 | `runtime/src/libs/python_rt.c`        | 33 行  | 约 470 行 | 完整 CPython 嵌入               |
-| `runtime/src/libs/cpp_rt.c` → `.cpp`  | 30 行  | 约 270 行 | dlopen + try/catch 异常网关     |
+| `runtime/src/libs/cpp_rt.cpp`     | 30 行  | 约 270 行 | dlopen + try/catch 异常网关     |
 | `runtime/src/libs/rust_rt.c`          | 30 行  | 约 220 行 | cdylib 加载器 + ABI 帮手        |
 
 原有的三个公开符号
