@@ -2908,7 +2908,7 @@ void MainWindow::InitializePlugins() {
           shortcut = QKeySequence(QString::fromStdString(std::string(item.shortcut)));
         }
 
-        auto callback_fn = item.callback;
+        [[maybe_unused]] auto callback_fn = item.callback;
         auto &pm_ref = polyglot::plugins::PluginManager::Instance();
         action_manager_->RegisterPluginAction(
             QString::fromStdString(plugin_id), action_id, label, shortcut,

@@ -475,7 +475,9 @@ bool LocateStreams(const std::uint8_t *base, std::size_t size, std::size_t md_of
   return r.ok();
 }
 
-bool DecodeTildeHeader(MetadataInfo &md, const std::string &path, frontends::Diagnostics &diags) {
+bool DecodeTildeHeader(MetadataInfo &md, const std::string &path, frontends::Diagnostics &diags);
+[[maybe_unused]] bool DecodeTildeHeader(MetadataInfo &md, const std::string &path,
+                                        frontends::Diagnostics &diags) {
   LEReader r(md.image_base, md.image_size, md.tilde.offset);
   r.skip(4); // reserved
   r.skip(2); // major+minor version
@@ -684,7 +686,8 @@ std::uint32_t ReadCol(LEReader &r, std::uint8_t width) {
 }
 
 // Decode a coded index into (table, row).  row==0 means null.
-std::pair<std::uint8_t, std::uint32_t> DecodeCoded(std::uint32_t value, const CodedIndexInfo &ci) {
+[[maybe_unused]] std::pair<std::uint8_t, std::uint32_t> DecodeCoded(std::uint32_t value,
+                                                                    const CodedIndexInfo &ci) {
   std::uint32_t mask = (1u << ci.tag_bits) - 1u;
   std::uint32_t tag = value & mask;
   std::uint32_t row = value >> ci.tag_bits;
@@ -811,7 +814,7 @@ private:
 };
 
 // ELEMENT_TYPE values
-constexpr std::uint8_t ET_END = 0x00;
+[[maybe_unused]] constexpr std::uint8_t ET_END = 0x00;
 constexpr std::uint8_t ET_VOID = 0x01;
 constexpr std::uint8_t ET_BOOLEAN = 0x02;
 constexpr std::uint8_t ET_CHAR = 0x03;
@@ -833,16 +836,16 @@ constexpr std::uint8_t ET_CLASS = 0x12;
 constexpr std::uint8_t ET_VAR = 0x13;
 constexpr std::uint8_t ET_ARRAY = 0x14;
 constexpr std::uint8_t ET_GENERICINST = 0x15;
-constexpr std::uint8_t ET_TYPEDBYREF = 0x16;
+[[maybe_unused]] constexpr std::uint8_t ET_TYPEDBYREF = 0x16;
 constexpr std::uint8_t ET_I = 0x18;
 constexpr std::uint8_t ET_U = 0x19;
-constexpr std::uint8_t ET_FNPTR = 0x1B;
+[[maybe_unused]] constexpr std::uint8_t ET_FNPTR = 0x1B;
 constexpr std::uint8_t ET_OBJECT = 0x1C;
 constexpr std::uint8_t ET_SZARRAY = 0x1D;
 constexpr std::uint8_t ET_MVAR = 0x1E;
 constexpr std::uint8_t ET_CMOD_REQD = 0x1F;
 constexpr std::uint8_t ET_CMOD_OPT = 0x20;
-constexpr std::uint8_t ET_PINNED = 0x45;
+[[maybe_unused]] constexpr std::uint8_t ET_PINNED = 0x45;
 constexpr std::uint8_t ET_SENTINEL = 0x41;
 
 core::Type ParseSigType(SigReader &sr, const MetadataInfo &md, const ColumnSizes &c,

@@ -85,7 +85,7 @@ void FileBrowser::SetupUi() {
   tree_view_->setSortingEnabled(true);
   tree_view_->sortByColumn(0, Qt::AscendingOrder);
 
-  // Hide size, type, date columns â€?only show name
+  // Hide size, type, date columns --only show name
   tree_view_->hideColumn(1);
   tree_view_->hideColumn(2);
   tree_view_->hideColumn(3);

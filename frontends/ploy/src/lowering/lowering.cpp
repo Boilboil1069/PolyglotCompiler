@@ -717,7 +717,7 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
   };
 
   // Helper: determine if a type is definitely integer
-  auto is_int_type = [](const ir::IRType &t) -> bool {
+  [[maybe_unused]] auto is_int_type = [](const ir::IRType &t) -> bool {
     return t.kind == ir::IRTypeKind::kI1 || t.kind == ir::IRTypeKind::kI8 ||
            t.kind == ir::IRTypeKind::kI16 || t.kind == ir::IRTypeKind::kI32 ||
            t.kind == ir::IRTypeKind::kI64;

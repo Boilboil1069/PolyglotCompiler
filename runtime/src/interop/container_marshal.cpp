@@ -50,7 +50,6 @@ static void ListGrow(RuntimeList *list) {
 }
 
 constexpr std::size_t kDictInitialCapacity = 16;
-constexpr double kDictMaxLoadFactor = 0.75;
 
 /// Maximum useful natural alignment for any primitive key/value type the
 /// runtime currently marshals (uint64_t, pointers, doubles).  Using a fixed
@@ -104,7 +103,7 @@ static bool DictRehash(RuntimeDict *dict, std::size_t new_cap) {
   // Layout (and therefore stride) does not depend on capacity, so reuse the
   // already-computed dict->slot_stride.
   std::size_t stride = dict->slot_stride;
-  void *new_slots = mi_calloc(new_cap, stride); // calloc â†?all bytes 0 â†?all kEmpty
+  void *new_slots = mi_calloc(new_cap, stride); // calloc ->all bytes 0 ->all kEmpty
   if (!new_slots)
     return false;
 
@@ -259,7 +258,7 @@ void *__ploy_rt_dict_create(std::size_t key_size, std::size_t value_size) {
   dict->value_size = value_size;
   DictComputeLayout(dict);
   dict->capacity = kDictInitialCapacity;
-  // calloc zeros all bytes â†?all SlotState fields start as kEmpty (== 0).
+  // calloc zeros all bytes ->all SlotState fields start as kEmpty (== 0).
   dict->slots = mi_calloc(kDictInitialCapacity, dict->slot_stride);
   if (!dict->slots) {
     mi_free(dict);
@@ -305,7 +304,7 @@ void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
       }
       continue;
     }
-    // kEmpty â€?key not present; use tombstone slot if one was seen, else use this slot.
+    // kEmpty --key not present; use tombstone slot if one was seen, else use this slot.
     std::size_t dest = found_tomb ? first_tomb : idx;
     *SlotStatePtr(dict, dest) = SlotState::kOccupied;
     std::memcpy(SlotKeyPtr(dict, dest), key, dict->key_size);
@@ -314,7 +313,7 @@ void __ploy_rt_dict_insert(void *raw, const void *key, const void *value) {
     return;
   }
 
-  // Table is full of tombstones + occupied â€?shouldn't happen with proper
+  // Table is full of tombstones + occupied --shouldn't happen with proper
   // rehashing, but handle gracefully by rehashing and retrying once.
   DictRehash(dict, dict->capacity * 2);
   __ploy_rt_dict_insert(raw, key, value);

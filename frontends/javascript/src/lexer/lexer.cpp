@@ -281,9 +281,9 @@ frontends::Token JsLexer::LexRegex() {
 frontends::Token JsLexer::LexOperator() {
   core::SourceLoc loc = CurrentLoc();
   static const char *multi_ops[] = {
-      ">>>=", "**=", "<<=", ">>=", "&&=", "||=", "??=", "...", ">>>", "**",   "<<", ">>",
-      "&&",   "||",  "??",  "==",  "!=",  "===", "!==", "<=",  ">=",  "+=",   "-=", "*=",
-      "/=",   "%=",  "&=",  "|=",  "^=",  "++",  "--",  "=>",  "?.",  nullptr};
+      ">>>=", "**=", "<<=",  ">>=", "&&=", "||=", "\?\?=", "...", ">>>", "**",   "<<", ">>",
+      "&&",   "||",  "\?\?", "==",  "!=",  "===", "!==",   "<=",  ">=",  "+=",   "-=", "*=",
+      "/=",   "%=",  "&=",   "|=",  "^=",  "++",  "--",    "=>",  "?.",  nullptr};
   // ES has === / !== which are 3 chars; check 4-char first then 3 then 2.
   for (int i = 0; multi_ops[i]; ++i) {
     std::string op(multi_ops[i]);

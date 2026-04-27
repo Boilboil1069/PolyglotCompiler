@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
-#include <vector>
 #include <memory>
+#include <vector>
 
 #include "runtime/include/gc/gc_strategy.h"
 #include "runtime/include/gc/heap.h"
@@ -9,286 +9,281 @@ using namespace polyglot::runtime::gc;
 
 // Test helper structures
 struct TestObject {
-    int value;
-    TestObject* next;
-    
-    TestObject(int v) : value(v), next(nullptr) {}
+  int value;
+  TestObject *next;
+
+  TestObject(int v) : value(v), next(nullptr) {}
 };
 
 // Scenario 1: Basic allocation and collection
 TEST_CASE("GC - Basic Allocation and Collection", "[gc][allocation]") {
-    SECTION("MarkSweep GC") {
-        Heap heap(Strategy::kMarkSweep);
-        
-        void* ptr = heap.Allocate(1024);
-        REQUIRE(ptr != nullptr);
-        
-        heap.Collect();
-        // Object should be collected (no root references)
-    }
-    
-    SECTION("Generational GC") {
-        Heap heap(Strategy::kGenerational);
-        
-        void* ptr = heap.Allocate(1024);
-        REQUIRE(ptr != nullptr);
-        
-        heap.Collect();
-    }
-    
-    SECTION("Copying GC") {
-        Heap heap(Strategy::kCopying);
-        
-        void* ptr = heap.Allocate(1024);
-        REQUIRE(ptr != nullptr);
-        
-        heap.Collect();
-    }
-    
-    SECTION("Incremental GC") {
-        Heap heap(Strategy::kIncremental);
-        
-        void* ptr = heap.Allocate(1024);
-        REQUIRE(ptr != nullptr);
-        
-        heap.Collect();
-    }
+  SECTION("MarkSweep GC") {
+    Heap heap(Strategy::kMarkSweep);
+
+    void *ptr = heap.Allocate(1024);
+    REQUIRE(ptr != nullptr);
+
+    heap.Collect();
+    // Object should be collected (no root references)
+  }
+
+  SECTION("Generational GC") {
+    Heap heap(Strategy::kGenerational);
+
+    void *ptr = heap.Allocate(1024);
+    REQUIRE(ptr != nullptr);
+
+    heap.Collect();
+  }
+
+  SECTION("Copying GC") {
+    Heap heap(Strategy::kCopying);
+
+    void *ptr = heap.Allocate(1024);
+    REQUIRE(ptr != nullptr);
+
+    heap.Collect();
+  }
+
+  SECTION("Incremental GC") {
+    Heap heap(Strategy::kIncremental);
+
+    void *ptr = heap.Allocate(1024);
+    REQUIRE(ptr != nullptr);
+
+    heap.Collect();
+  }
 }
 
 // Scenario 2: Multiple object allocation
 TEST_CASE("GC - Multiple Object Allocation", "[gc][allocation]") {
-    std::vector<Strategy> strategies = {
-        Strategy::kMarkSweep,
-        Strategy::kGenerational,
-        Strategy::kCopying,
-        Strategy::kIncremental
-    };
-    
-    for (auto strategy : strategies) {
-        Heap heap(strategy);
-        std::vector<void*> objects;
-        
-        // Allocate 100 objects
-        for (int i = 0; i < 100; ++i) {
-            void* ptr = heap.Allocate(64);
-            REQUIRE(ptr != nullptr);
-            objects.push_back(ptr);
-        }
-        
-        REQUIRE(objects.size() == 100);
+  std::vector<Strategy> strategies = {Strategy::kMarkSweep, Strategy::kGenerational,
+                                      Strategy::kCopying, Strategy::kIncremental};
+
+  for (auto strategy : strategies) {
+    Heap heap(strategy);
+    std::vector<void *> objects;
+
+    // Allocate 100 objects
+    for (int i = 0; i < 100; ++i) {
+      void *ptr = heap.Allocate(64);
+      REQUIRE(ptr != nullptr);
+      objects.push_back(ptr);
     }
+
+    REQUIRE(objects.size() == 100);
+  }
 }
 
 // Scenario 3: Root reference tracking
 TEST_CASE("GC - Root Tracking", "[gc][roots]") {
-    Heap heap(Strategy::kMarkSweep);
-    
-    void* obj1 = heap.Allocate(128);
-    void* obj2 = heap.Allocate(128);
-    (void)obj2;
-    
-    // Register root reference
-    auto handle1 = heap.Track(&obj1);
-    (void)handle1;
-    
-    // After GC, obj1 should survive and obj2 should be collected
-    heap.Collect();
-    
-    // obj1 remains usable
-    REQUIRE(obj1 != nullptr);
+  Heap heap(Strategy::kMarkSweep);
+
+  void *obj1 = heap.Allocate(128);
+  void *obj2 = heap.Allocate(128);
+  (void)obj2;
+
+  // Register root reference
+  auto handle1 = heap.Track(&obj1);
+  (void)handle1;
+
+  // After GC, obj1 should survive and obj2 should be collected
+  heap.Collect();
+
+  // obj1 remains usable
+  REQUIRE(obj1 != nullptr);
 }
 
 // Scenario 4: Large object allocation
 TEST_CASE("GC - Large Object Allocation", "[gc][large]") {
-    std::vector<Strategy> strategies = {
-        Strategy::kMarkSweep,
-        Strategy::kGenerational,
-        Strategy::kCopying,
-        Strategy::kIncremental
-    };
-    
-    for (auto strategy : strategies) {
-        Heap heap(strategy);
-        
-        // Allocate a 1MB object
-        void* large_obj = heap.Allocate(1024 * 1024);
-        
-        if (strategy == Strategy::kCopying) {
-            // Copying GC may fail because of insufficient space
-            // This is expected
-        } else {
-            REQUIRE(large_obj != nullptr);
-        }
+  std::vector<Strategy> strategies = {Strategy::kMarkSweep, Strategy::kGenerational,
+                                      Strategy::kCopying, Strategy::kIncremental};
+
+  for (auto strategy : strategies) {
+    Heap heap(strategy);
+
+    // Allocate a 1MB object
+    void *large_obj = heap.Allocate(1024 * 1024);
+
+    if (strategy == Strategy::kCopying) {
+      // Copying GC may fail because of insufficient space
+      // This is expected
+    } else {
+      REQUIRE(large_obj != nullptr);
     }
+  }
 }
 
 // Scenario 5: Multiple GC cycles
 TEST_CASE("GC - Multiple Collection Cycles", "[gc][collection]") {
-    Heap heap(Strategy::kGenerational);
-    
-    for (int cycle = 0; cycle < 10; ++cycle) {
-        // Allocate some objects
-        for (int i = 0; i < 50; ++i) {
-            heap.Allocate(128);
-        }
-        
-        // Run GC
-        heap.Collect();
+  Heap heap(Strategy::kGenerational);
+
+  for (int cycle = 0; cycle < 10; ++cycle) {
+    // Allocate some objects
+    for (int i = 0; i < 50; ++i) {
+      heap.Allocate(128);
     }
-    
-    // After 10 collection cycles, stats should reflect all cycles
-    GCStats stats = heap.GetStats();
-    REQUIRE(stats.collections >= 10);
-    // We allocated 10 * 50 = 500 objects total
-    REQUIRE(stats.total_allocations >= 500);
-    REQUIRE(stats.total_bytes_allocated >= 500 * 128);
+
+    // Run GC
+    heap.Collect();
+  }
+
+  // After 10 collection cycles, stats should reflect all cycles
+  GCStats stats = heap.GetStats();
+  REQUIRE(stats.collections >= 10);
+  // We allocated 10 * 50 = 500 objects total
+  REQUIRE(stats.total_allocations >= 500);
+  REQUIRE(stats.total_bytes_allocated >= 500 * 128);
 }
 
 // Scenario 6: Object survival
 TEST_CASE("GC - Object Survival", "[gc][survival]") {
-    Heap heap(Strategy::kGenerational);
-    
-    void* long_lived = heap.Allocate(256);
-    auto handle = heap.Track(&long_lived);
-    (void)handle;
-    
-    // After multiple GCs the object should be promoted to the old generation
-    for (int i = 0; i < 5; ++i) {
-        heap.Collect();
-    }
-    
-    REQUIRE(long_lived != nullptr);
+  Heap heap(Strategy::kGenerational);
+
+  void *long_lived = heap.Allocate(256);
+  auto handle = heap.Track(&long_lived);
+  (void)handle;
+
+  // After multiple GCs the object should be promoted to the old generation
+  for (int i = 0; i < 5; ++i) {
+    heap.Collect();
+  }
+
+  REQUIRE(long_lived != nullptr);
 }
 
 // Scenario 7: Memory pressure
 TEST_CASE("GC - Memory Pressure", "[gc][pressure]") {
-    Heap heap(Strategy::kMarkSweep);
-    std::vector<void*> live_objects;
-    
-    // Allocate until memory pressure rises
-    for (int i = 0; i < 1000; ++i) {
-        void* obj = heap.Allocate(1024);
-        if (obj) {
-            if (i % 10 == 0) {
-                // Keep 10% of objects alive
-                live_objects.push_back(obj);
-            }
-        }
-        
-        if (i % 100 == 0) {
-            heap.Collect();
-        }
+  Heap heap(Strategy::kMarkSweep);
+  std::vector<void *> live_objects;
+
+  // Allocate until memory pressure rises
+  for (int i = 0; i < 1000; ++i) {
+    void *obj = heap.Allocate(1024);
+    if (obj) {
+      if (i % 10 == 0) {
+        // Keep 10% of objects alive
+        live_objects.push_back(obj);
+      }
     }
-    
-    REQUIRE(live_objects.size() > 0);
+
+    if (i % 100 == 0) {
+      heap.Collect();
+    }
+  }
+
+  REQUIRE(live_objects.size() > 0);
 }
 
 // Scenario 8: Fragmentation
 TEST_CASE("GC - Fragmentation", "[gc][fragmentation]") {
-    Heap heap(Strategy::kCopying);  // Copying GC should handle fragmentation
-    
-    // Allocate objects of different sizes
-    std::vector<size_t> sizes = {16, 32, 64, 128, 256, 512, 1024};
-    
-    for (int round = 0; round < 5; ++round) {
-        for (size_t size : sizes) {
-            void* obj = heap.Allocate(size);
-            // Some allocations may fail; that's fine
-            (void)obj;
-        }
-        heap.Collect();
+  Heap heap(Strategy::kCopying); // Copying GC should handle fragmentation
+
+  // Allocate objects of different sizes
+  std::vector<size_t> sizes = {16, 32, 64, 128, 256, 512, 1024};
+
+  for (int round = 0; round < 5; ++round) {
+    for (size_t size : sizes) {
+      void *obj = heap.Allocate(size);
+      // Some allocations may fail; that's fine
+      (void)obj;
     }
-    
-    // After multiple rounds of allocation and collection, heap should be valid
-    REQUIRE(heap.GetStats().collections >= 5);
+    heap.Collect();
+  }
+
+  // After multiple rounds of allocation and collection, heap should be valid
+  REQUIRE(heap.GetStats().collections >= 5);
 }
 
 // Scenario 9: Incrementality of incremental GC
 TEST_CASE("GC - Incremental Collection", "[gc][incremental]") {
-    Heap heap(Strategy::kIncremental);
-    
-    // Allocate some objects
-    for (int i = 0; i < 200; ++i) {
-        heap.Allocate(64);
-    }
-    
-    // Incremental GC should progress over multiple allocations
-    // rather than completing in a single step
-    for (int i = 0; i < 50; ++i) {
-        heap.Allocate(64);  // Each allocation triggers an incremental step
-    }
-    
-    // Incremental GC should have made progress
-    GCStats stats = heap.GetStats();
-    // After 200 + 50 = 250 allocations, the collector should have recorded them
-    REQUIRE(stats.total_allocations >= 250);
-    REQUIRE(stats.total_bytes_allocated >= 250 * 64);
+  Heap heap(Strategy::kIncremental);
+
+  // Allocate some objects
+  for (int i = 0; i < 200; ++i) {
+    heap.Allocate(64);
+  }
+
+  // Incremental GC should progress over multiple allocations
+  // rather than completing in a single step
+  for (int i = 0; i < 50; ++i) {
+    heap.Allocate(64); // Each allocation triggers an incremental step
+  }
+
+  // Incremental GC should have made progress
+  GCStats stats = heap.GetStats();
+  // After 200 + 50 = 250 allocations, the collector should have recorded them
+  REQUIRE(stats.total_allocations >= 250);
+  REQUIRE(stats.total_bytes_allocated >= 250 * 64);
 }
 
 // Scenario 10: GC performance benchmark
 TEST_CASE("GC - Performance Benchmark", "[gc][benchmark]") {
-    const int NUM_ALLOCATIONS = 10000;
+  const int NUM_ALLOCATIONS = 10000;
 
-    SECTION("MarkSweep GC allocations and collections") {
-        Heap heap(Strategy::kMarkSweep);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            void* p = heap.Allocate(64);
-            REQUIRE(p != nullptr);
-            if (i % 1000 == 0) heap.Collect();
-        }
-        GCStats stats = heap.GetStats();
-        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
-        REQUIRE(stats.collections >= 10);
+  SECTION("MarkSweep GC allocations and collections") {
+    Heap heap(Strategy::kMarkSweep);
+    for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+      void *p = heap.Allocate(64);
+      REQUIRE(p != nullptr);
+      if (i % 1000 == 0)
+        heap.Collect();
     }
+    GCStats stats = heap.GetStats();
+    REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+    REQUIRE(stats.collections >= 10);
+  }
 
-    SECTION("Generational GC allocations and collections") {
-        Heap heap(Strategy::kGenerational);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            void* p = heap.Allocate(64);
-            REQUIRE(p != nullptr);
-            if (i % 1000 == 0) heap.Collect();
-        }
-        GCStats stats = heap.GetStats();
-        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
-        REQUIRE(stats.collections >= 10);
+  SECTION("Generational GC allocations and collections") {
+    Heap heap(Strategy::kGenerational);
+    for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+      void *p = heap.Allocate(64);
+      REQUIRE(p != nullptr);
+      if (i % 1000 == 0)
+        heap.Collect();
     }
+    GCStats stats = heap.GetStats();
+    REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+    REQUIRE(stats.collections >= 10);
+  }
 
-    SECTION("Incremental GC allocations and collections") {
-        Heap heap(Strategy::kIncremental);
-        for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
-            void* p = heap.Allocate(64);
-            REQUIRE(p != nullptr);
-            if (i % 1000 == 0) heap.Collect();
-        }
-        GCStats stats = heap.GetStats();
-        REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+  SECTION("Incremental GC allocations and collections") {
+    Heap heap(Strategy::kIncremental);
+    for (int i = 0; i < NUM_ALLOCATIONS; ++i) {
+      void *p = heap.Allocate(64);
+      REQUIRE(p != nullptr);
+      if (i % 1000 == 0)
+        heap.Collect();
     }
+    GCStats stats = heap.GetStats();
+    REQUIRE(stats.total_allocations == static_cast<size_t>(NUM_ALLOCATIONS));
+  }
 }
 
 // Additional tests: edge cases
 TEST_CASE("GC - Edge Cases", "[gc][edge]") {
-    SECTION("Zero-size allocation") {
-        Heap heap(Strategy::kMarkSweep);
-        void* ptr = heap.Allocate(0);
-        // Zero-size allocation should either succeed or return nullptr;
-        // either way the allocator must track it consistently
-        GCStats stats = heap.GetStats();
-        REQUIRE(stats.total_allocations >= 1);
-    }
-    
-    SECTION("Collect with no allocations") {
-        Heap heap(Strategy::kMarkSweep);
-        heap.Collect();  // Should not crash
-        // After collect on empty heap, live count should be zero
-        REQUIRE(heap.GetStats().live_objects == 0);
-    }
-    
-    SECTION("Multiple collects") {
-        Heap heap(Strategy::kMarkSweep);
-        heap.Collect();
-        heap.Collect();
-        heap.Collect();
-        // Multiple collects on empty heap should maintain zero live objects
-        REQUIRE(heap.GetStats().live_objects == 0);
-    }
+  SECTION("Zero-size allocation") {
+    Heap heap(Strategy::kMarkSweep);
+    [[maybe_unused]] void *ptr = heap.Allocate(0);
+    // Zero-size allocation should either succeed or return nullptr;
+    // either way the allocator must track it consistently
+    GCStats stats = heap.GetStats();
+    REQUIRE(stats.total_allocations >= 1);
+  }
+
+  SECTION("Collect with no allocations") {
+    Heap heap(Strategy::kMarkSweep);
+    heap.Collect(); // Should not crash
+    // After collect on empty heap, live count should be zero
+    REQUIRE(heap.GetStats().live_objects == 0);
+  }
+
+  SECTION("Multiple collects") {
+    Heap heap(Strategy::kMarkSweep);
+    heap.Collect();
+    heap.Collect();
+    heap.Collect();
+    // Multiple collects on empty heap should maintain zero live objects
+    REQUIRE(heap.GetStats().live_objects == 0);
+  }
 }

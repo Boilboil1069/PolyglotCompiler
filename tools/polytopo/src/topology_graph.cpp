@@ -223,7 +223,7 @@ std::vector<uint64_t> TopologyGraph::DetectCycles() const {
           while (trace != next) {
             cycle.push_back(trace);
             // Find parent on stack
-            bool found_parent = false;
+            [[maybe_unused]] bool found_parent = false;
             for (auto sit = stack.size(); sit > 0; --sit) {
               // Walk up the DFS stack to trace back
             }

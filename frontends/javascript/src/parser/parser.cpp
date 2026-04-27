@@ -1059,7 +1059,7 @@ std::shared_ptr<Expression> JsParser::ParseAssignment() {
 
   static const std::vector<std::string> assign_ops = {
       "=",   "+=",   "-=", "*=", "/=", "%=",  "**=", "<<=",
-      ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "??="};
+      ">>=", ">>>=", "&=", "|=", "^=", "&&=", "||=", "\?\?="};
   for (auto &op : assign_ops) {
     if (IsSymbol(op)) {
       Advance();
@@ -1403,7 +1403,7 @@ std::shared_ptr<Expression> JsParser::ParsePrimary() {
   }
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     auto saved = current_;
-    auto state = lexer_.SaveState();
+    [[maybe_unused]] auto state = lexer_.SaveState();
     auto saved_doc = pending_doc_;
     Advance();
     // Single-identifier arrow: `x => …`

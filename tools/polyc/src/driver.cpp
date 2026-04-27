@@ -571,8 +571,8 @@ struct StageTimer {
   int total_stages;
 
   StageTimer(const std::string &n, bool v, bool json = false, int idx = 0, int total = 0) :
-      name(n), verbose(v), json_progress(json), stage_index(idx), total_stages(total),
-      start(std::chrono::high_resolution_clock::now()) {
+      name(n), start(std::chrono::high_resolution_clock::now()), verbose(v), json_progress(json),
+      stage_index(idx), total_stages(total) {
     if (json_progress) {
       std::cout << "{\"event\":\"stage_start\",\"stage\":\"" << name
                 << "\",\"index\":" << stage_index << ",\"total\":" << total_stages << "}\n"

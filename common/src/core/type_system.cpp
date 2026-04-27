@@ -855,6 +855,7 @@ size_t TypeSystem::SizeOf(const Type &t) const {
   case TypeKind::kGenericInstance:
   case TypeKind::kModule:
   case TypeKind::kInvalid:
+  case TypeKind::kUnknown:
     return 0;
   }
   return 0;
@@ -1175,6 +1176,8 @@ std::string TypeSystem::KindToString(TypeKind kind) {
     return "Optional";
   case TypeKind::kSlice:
     return "Slice";
+  case TypeKind::kUnknown:
+    return "Unknown";
   }
   return "Unknown";
 }

@@ -122,7 +122,7 @@ void BuildPanel::SetupConfigSection() {
   form_layout->setSpacing(8);
 
   const auto &tm = ThemeManager::Instance();
-  const auto &tc = tm.Active();
+  [[maybe_unused]] const auto &tc = tm.Active();
   const QString label_style = tm.LabelStylesheet() + " QLabel { font-size: 12px; }";
   const QString input_style = tm.LineEditStylesheet() + " QLineEdit { font-size: 12px; }";
   const QString combo_style = tm.ComboBoxStylesheet() + " QComboBox { min-width: 120px; }";

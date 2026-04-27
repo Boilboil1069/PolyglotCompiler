@@ -485,7 +485,7 @@ void polyglot_ruby_release_value(void *value) {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-language ABI bridge ¡ª entry points lowered IR uses to invoke Ruby
+// Cross-language ABI bridge -- entry points lowered IR uses to invoke Ruby
 // callables resolved via require/require_relative/load.  When the host Ruby
 // VM is not loaded each entry returns NULL after one diagnostic, matching
 // the behaviour of the Java / .NET / Go bridges.

@@ -10,32 +10,33 @@
 //   default — 3 warmup, 10 runs  (normal)
 // ============================================================================
 
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
+#include <numeric>
 #include <sstream>
 #include <string>
-#include <chrono>
 #include <vector>
-#include <numeric>
-#include <iostream>
-#include <algorithm>
-#include <iomanip>
-#include <cstdlib>
 
-#include "frontends/ploy/include/ploy_lexer.h"
-#include "frontends/ploy/include/ploy_parser.h"
-#include "frontends/ploy/include/ploy_sema.h"
-#include "frontends/ploy/include/ploy_lowering.h"
-#include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/ir_printer.h"
 
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/ploy/include/ploy_lexer.h"
+#include "frontends/ploy/include/ploy_lowering.h"
+#include "frontends/ploy/include/ploy_parser.h"
+#include "frontends/ploy/include/ploy_sema.h"
+
 using polyglot::frontends::Diagnostics;
+using polyglot::ir::IRContext;
 using polyglot::ploy::PloyLexer;
+using polyglot::ploy::PloyLowering;
 using polyglot::ploy::PloyParser;
 using polyglot::ploy::PloySema;
 using polyglot::ploy::PloySemaOptions;
-using polyglot::ploy::PloyLowering;
-using polyglot::ir::IRContext;
 
 // ============================================================================
 // Benchmark infrastructure
@@ -44,184 +45,184 @@ using polyglot::ir::IRContext;
 namespace {
 
 struct MacroStats {
-    double mean_ms;
-    double min_ms;
-    double max_ms;
-    double median_ms;
-    int iterations;
-    size_t ir_size;   // bytes of generated IR
+  double mean_ms;
+  double min_ms;
+  double max_ms;
+  double median_ms;
+  int iterations;
+  size_t ir_size; // bytes of generated IR
 };
 
 MacroStats RunFullPipeline(const std::string &code, int warmup, int runs) {
-    // Build discovery-disabled options for benchmarking
-    PloySemaOptions bench_opts;
-    bench_opts.enable_package_discovery = false;
+  // Build discovery-disabled options for benchmarking
+  PloySemaOptions bench_opts;
+  bench_opts.enable_package_discovery = false;
 
-    // Warmup
-    for (int i = 0; i < warmup; ++i) {
-        Diagnostics diags;
-        PloyLexer lexer(code, "<macro>");
-        PloyParser parser(lexer, diags);
-        parser.ParseModule();
-        auto module = parser.TakeModule();
-        PloySema sema(diags, bench_opts);
-        sema.Analyze(module);
-        IRContext ctx;
-        PloyLowering lowering(ctx, diags, sema);
-        lowering.Lower(module);
+  // Warmup
+  for (int i = 0; i < warmup; ++i) {
+    Diagnostics diags;
+    PloyLexer lexer(code, "<macro>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    PloySema sema(diags, bench_opts);
+    sema.Analyze(module);
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    lowering.Lower(module);
+  }
+
+  std::vector<double> samples;
+  size_t ir_size = 0;
+  for (int i = 0; i < runs; ++i) {
+    auto start = std::chrono::high_resolution_clock::now();
+
+    Diagnostics diags;
+    PloyLexer lexer(code, "<macro>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+
+    PloySema sema(diags, bench_opts);
+    sema.Analyze(module);
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    lowering.Lower(module);
+
+    std::ostringstream oss;
+    for (const auto &fn : ctx.Functions()) {
+      polyglot::ir::PrintFunction(*fn, oss);
     }
 
-    std::vector<double> samples;
-    size_t ir_size = 0;
-    for (int i = 0; i < runs; ++i) {
-        auto start = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
+    samples.push_back(std::chrono::duration<double, std::milli>(end - start).count());
+    ir_size = oss.str().size();
+  }
 
-        Diagnostics diags;
-        PloyLexer lexer(code, "<macro>");
-        PloyParser parser(lexer, diags);
-        parser.ParseModule();
-        auto module = parser.TakeModule();
-
-        PloySema sema(diags, bench_opts);
-        sema.Analyze(module);
-
-        IRContext ctx;
-        PloyLowering lowering(ctx, diags, sema);
-        lowering.Lower(module);
-
-        std::ostringstream oss;
-        for (const auto &fn : ctx.Functions()) {
-            polyglot::ir::PrintFunction(*fn, oss);
-        }
-
-        auto end = std::chrono::high_resolution_clock::now();
-        samples.push_back(std::chrono::duration<double, std::milli>(end - start).count());
-        ir_size = oss.str().size();
-    }
-
-    std::sort(samples.begin(), samples.end());
-    double sum = std::accumulate(samples.begin(), samples.end(), 0.0);
-    return {
-        sum / static_cast<double>(samples.size()),
-        samples.front(),
-        samples.back(),
-        samples[samples.size() / 2],
-        static_cast<int>(samples.size()),
-        ir_size
-    };
+  std::sort(samples.begin(), samples.end());
+  double sum = std::accumulate(samples.begin(), samples.end(), 0.0);
+  return {sum / static_cast<double>(samples.size()),
+          samples.front(),
+          samples.back(),
+          samples[samples.size() / 2],
+          static_cast<int>(samples.size()),
+          ir_size};
 }
 
 void PrintMacroStats(const std::string &label, const MacroStats &s) {
-    std::cout << std::fixed << std::setprecision(3);
-    std::cout << "  [MACRO] " << label
-              << ": mean=" << s.mean_ms << "ms"
-              << " min=" << s.min_ms << "ms"
-              << " max=" << s.max_ms << "ms"
-              << " median=" << s.median_ms << "ms"
-              << " ir_bytes=" << s.ir_size
-              << " (n=" << s.iterations << ")\n";
+  std::cout << std::fixed << std::setprecision(3);
+  std::cout << "  [MACRO] " << label << ": mean=" << s.mean_ms << "ms"
+            << " min=" << s.min_ms << "ms"
+            << " max=" << s.max_ms << "ms"
+            << " median=" << s.median_ms << "ms"
+            << " ir_bytes=" << s.ir_size << " (n=" << s.iterations << ")\n";
 }
 
 // --- Program generators ---
 
 std::string GenerateScalingProgram(int funcs) {
-    std::ostringstream oss;
-    oss << "IMPORT python PACKAGE lib;\n";
-    oss << "IMPORT cpp::proc;\n";
-    oss << "MAP_TYPE(cpp::int, python::int);\n";
-    oss << "MAP_TYPE(cpp::double, python::float);\n\n";
+  std::ostringstream oss;
+  oss << "IMPORT python PACKAGE lib;\n";
+  oss << "IMPORT cpp::proc;\n";
+  oss << "MAP_TYPE(cpp::int, python::int);\n";
+  oss << "MAP_TYPE(cpp::double, python::float);\n\n";
 
-    for (int i = 0; i < funcs; ++i) {
-        oss << "FUNC f" << i << "(x" << i << ": INT, y" << i << ": FLOAT) -> FLOAT {\n";
-        oss << "    LET a" << i << " = CALL(python, lib::compute, x" << i << ");\n";
-        oss << "    LET b" << i << " = CALL(cpp, proc::transform, y" << i << ");\n";
-        oss << "    IF a" << i << " > 0 {\n";
-        oss << "        RETURN b" << i << ";\n";
-        oss << "    } ELSE {\n";
-        oss << "        RETURN 0.0;\n";
-        oss << "    }\n";
-        oss << "}\n\n";
-    }
-    return oss.str();
+  for (int i = 0; i < funcs; ++i) {
+    oss << "FUNC f" << i << "(x" << i << ": INT, y" << i << ": FLOAT) -> FLOAT {\n";
+    oss << "    LET a" << i << " = CALL(python, lib::compute, x" << i << ");\n";
+    oss << "    LET b" << i << " = CALL(cpp, proc::transform, y" << i << ");\n";
+    oss << "    IF a" << i << " > 0 {\n";
+    oss << "        RETURN b" << i << ";\n";
+    oss << "    } ELSE {\n";
+    oss << "        RETURN 0.0;\n";
+    oss << "    }\n";
+    oss << "}\n\n";
+  }
+  return oss.str();
 }
 
 std::string GenerateOOPProgram(int objects) {
-    std::ostringstream oss;
-    oss << "IMPORT python PACKAGE base;\n";
-    oss << "MAP_TYPE(cpp::double, python::float);\n";
-    oss << "MAP_TYPE(cpp::int, python::int);\n\n";
+  std::ostringstream oss;
+  oss << "IMPORT python PACKAGE base;\n";
+  oss << "MAP_TYPE(cpp::double, python::float);\n";
+  oss << "MAP_TYPE(cpp::int, python::int);\n\n";
 
-    for (int i = 0; i < objects; ++i) {
-        oss << "EXTEND(python, base::Widget) AS Widget" << i << " {\n";
-        oss << "    FUNC action" << i << "(x" << i << ": INT) -> INT {\n";
-        oss << "        RETURN x" << i << " + " << i << ";\n";
-        oss << "    }\n";
-        oss << "}\n\n";
-    }
+  for (int i = 0; i < objects; ++i) {
+    oss << "EXTEND(python, base::Widget) AS Widget" << i << " {\n";
+    oss << "    FUNC action" << i << "(x" << i << ": INT) -> INT {\n";
+    oss << "        RETURN x" << i << " + " << i << ";\n";
+    oss << "    }\n";
+    oss << "}\n\n";
+  }
 
-    oss << "FUNC use_widgets() -> INT {\n";
-    oss << "    VAR total_uw = 0;\n";
-    for (int i = 0; i < objects; ++i) {
-        oss << "    LET w" << i << " = NEW(python, Widget" << i << ", \"w\");\n";
-        oss << "    LET r" << i << " = METHOD(python, w" << i << ", action" << i << ", " << i << ");\n";
-        oss << "    total_uw = total_uw + r" << i << ";\n";
-        oss << "    DELETE(python, w" << i << ");\n";
-    }
-    oss << "    RETURN total_uw;\n";
-    oss << "}\n";
-    return oss.str();
+  oss << "FUNC use_widgets() -> INT {\n";
+  oss << "    VAR total_uw = 0;\n";
+  for (int i = 0; i < objects; ++i) {
+    oss << "    LET w" << i << " = NEW(python, Widget" << i << ", \"w\");\n";
+    oss << "    LET r" << i << " = METHOD(python, w" << i << ", action" << i << ", " << i << ");\n";
+    oss << "    total_uw = total_uw + r" << i << ";\n";
+    oss << "    DELETE(python, w" << i << ");\n";
+  }
+  oss << "    RETURN total_uw;\n";
+  oss << "}\n";
+  return oss.str();
 }
 
 std::string GenerateComplexPipeline(int stages, int callsPerStage) {
-    std::ostringstream oss;
-    oss << "IMPORT cpp::proc;\n";
-    oss << "IMPORT python PACKAGE ml;\n";
-    oss << "IMPORT rust::data;\n";
-    oss << "MAP_TYPE(cpp::double, python::float);\n";
-    oss << "MAP_TYPE(cpp::int, python::int);\n";
-    oss << "MAP_TYPE(rust::f64, python::float);\n\n";
+  std::ostringstream oss;
+  oss << "IMPORT cpp::proc;\n";
+  oss << "IMPORT python PACKAGE ml;\n";
+  oss << "IMPORT rust::data;\n";
+  oss << "MAP_TYPE(cpp::double, python::float);\n";
+  oss << "MAP_TYPE(cpp::int, python::int);\n";
+  oss << "MAP_TYPE(rust::f64, python::float);\n\n";
 
-    oss << "PIPELINE big {\n";
-    for (int s = 0; s < stages; ++s) {
-        oss << "    FUNC stage" << s << "(x" << s << ": FLOAT) -> FLOAT {\n";
-        oss << "        VAR v" << s << " = x" << s << ";\n";
-        for (int c = 0; c < callsPerStage; ++c) {
-            // Use a globally unique temp name: s{stage}_t{call}
-            std::string tname = "s" + std::to_string(s) + "_t" + std::to_string(c);
-            if (c % 3 == 0) {
-                oss << "        LET " << tname << " = CALL(cpp, proc::transform, v" << s << ");\n";
-            } else if (c % 3 == 1) {
-                oss << "        LET " << tname << " = CALL(python, ml::predict, v" << s << ");\n";
-            } else {
-                oss << "        LET " << tname << " = CALL(rust, data::process, v" << s << ");\n";
-            }
-            oss << "        v" << s << " = v" << s << " + " << tname << ";\n";
-        }
-        oss << "        RETURN v" << s << ";\n";
-        oss << "    }\n\n";
+  oss << "PIPELINE big {\n";
+  for (int s = 0; s < stages; ++s) {
+    oss << "    FUNC stage" << s << "(x" << s << ": FLOAT) -> FLOAT {\n";
+    oss << "        VAR v" << s << " = x" << s << ";\n";
+    for (int c = 0; c < callsPerStage; ++c) {
+      // Use a globally unique temp name: s{stage}_t{call}
+      std::string tname = "s" + std::to_string(s) + "_t" + std::to_string(c);
+      if (c % 3 == 0) {
+        oss << "        LET " << tname << " = CALL(cpp, proc::transform, v" << s << ");\n";
+      } else if (c % 3 == 1) {
+        oss << "        LET " << tname << " = CALL(python, ml::predict, v" << s << ");\n";
+      } else {
+        oss << "        LET " << tname << " = CALL(rust, data::process, v" << s << ");\n";
+      }
+      oss << "        v" << s << " = v" << s << " + " << tname << ";\n";
     }
-    oss << "}\n";
-    oss << "EXPORT big AS \"pipeline\";\n";
-    return oss.str();
+    oss << "        RETURN v" << s << ";\n";
+    oss << "    }\n\n";
+  }
+  oss << "}\n";
+  oss << "EXPORT big AS \"pipeline\";\n";
+  return oss.str();
 }
 
 constexpr int kDefaultWarmup = 3;
-constexpr int kDefaultRuns   = 10;
-constexpr int kFastWarmup    = 1;
-constexpr int kFastRuns      = 3;
-constexpr int kFullWarmup    = 5;
-constexpr int kFullRuns      = 20;
+constexpr int kDefaultRuns = 10;
+constexpr int kFastWarmup = 1;
+constexpr int kFastRuns = 3;
+constexpr int kFullWarmup = 5;
+constexpr int kFullRuns = 20;
 
 // Read POLYBENCH_MODE environment variable and return (warmup, runs).
-static std::pair<int,int> GetBenchConfig() {
-#pragma warning(suppress: 4996)
-    const char *mode = std::getenv("POLYBENCH_MODE");
-    if (mode) {
-        std::string m(mode);
-        if (m == "fast") return {kFastWarmup, kFastRuns};
-        if (m == "full") return {kFullWarmup, kFullRuns};
-    }
-    return {kDefaultWarmup, kDefaultRuns};
+static std::pair<int, int> GetBenchConfig() {
+#if defined(_MSC_VER)
+#pragma warning(suppress : 4996)
+#endif
+  const char *mode = std::getenv("POLYBENCH_MODE");
+  if (mode) {
+    std::string m(mode);
+    if (m == "fast")
+      return {kFastWarmup, kFastRuns};
+    if (m == "full")
+      return {kFullWarmup, kFullRuns};
+  }
+  return {kDefaultWarmup, kDefaultRuns};
 }
 
 } // namespace
@@ -231,39 +232,39 @@ static std::pair<int,int> GetBenchConfig() {
 // ============================================================================
 
 TEST_CASE("Macro: full pipeline — 10 functions", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateScalingProgram(10);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/10-funcs", stats);
-    REQUIRE(stats.mean_ms < 5000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateScalingProgram(10);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/10-funcs", stats);
+  REQUIRE(stats.mean_ms < 5000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 50 functions", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateScalingProgram(50);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/50-funcs", stats);
-    REQUIRE(stats.mean_ms < 2000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateScalingProgram(50);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/50-funcs", stats);
+  REQUIRE(stats.mean_ms < 2000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 100 functions", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateScalingProgram(100);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/100-funcs", stats);
-    REQUIRE(stats.mean_ms < 5000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateScalingProgram(100);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/100-funcs", stats);
+  REQUIRE(stats.mean_ms < 5000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: full pipeline — 200 functions", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateScalingProgram(200);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/200-funcs", stats);
-    REQUIRE(stats.mean_ms < 15000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateScalingProgram(200);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/200-funcs", stats);
+  REQUIRE(stats.mean_ms < 15000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 // ============================================================================
@@ -271,26 +272,26 @@ TEST_CASE("Macro: full pipeline — 200 functions", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: scaling linearity check", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    // Measure 25, 50, 100 functions and verify roughly linear scaling
-    auto s25  = RunFullPipeline(GenerateScalingProgram(25),  warmup, runs);
-    auto s50  = RunFullPipeline(GenerateScalingProgram(50),  warmup, runs);
-    auto s100 = RunFullPipeline(GenerateScalingProgram(100), warmup, runs);
+  auto [warmup, runs] = GetBenchConfig();
+  // Measure 25, 50, 100 functions and verify roughly linear scaling
+  auto s25 = RunFullPipeline(GenerateScalingProgram(25), warmup, runs);
+  auto s50 = RunFullPipeline(GenerateScalingProgram(50), warmup, runs);
+  auto s100 = RunFullPipeline(GenerateScalingProgram(100), warmup, runs);
 
-    PrintMacroStats("Scaling/25-funcs",  s25);
-    PrintMacroStats("Scaling/50-funcs",  s50);
-    PrintMacroStats("Scaling/100-funcs", s100);
+  PrintMacroStats("Scaling/25-funcs", s25);
+  PrintMacroStats("Scaling/50-funcs", s50);
+  PrintMacroStats("Scaling/100-funcs", s100);
 
-    // 2x input should be at most 4x time (sub-quadratic)
-    double ratio_50_25  = s50.mean_ms  / s25.mean_ms;
-    double ratio_100_50 = s100.mean_ms / s50.mean_ms;
+  // 2x input should be at most 4x time (sub-quadratic)
+  double ratio_50_25 = s50.mean_ms / s25.mean_ms;
+  double ratio_100_50 = s100.mean_ms / s50.mean_ms;
 
-    std::cout << "  [SCALING] 50/25 ratio: " << ratio_50_25 << "\n";
-    std::cout << "  [SCALING] 100/50 ratio: " << ratio_100_50 << "\n";
+  std::cout << "  [SCALING] 50/25 ratio: " << ratio_50_25 << "\n";
+  std::cout << "  [SCALING] 100/50 ratio: " << ratio_100_50 << "\n";
 
-    // Allow generous bounds: ratio should be under 5x for 2x input
-    REQUIRE(ratio_50_25 < 5.0);
-    REQUIRE(ratio_100_50 < 5.0);
+  // Allow generous bounds: ratio should be under 5x for 2x input
+  REQUIRE(ratio_50_25 < 5.0);
+  REQUIRE(ratio_100_50 < 5.0);
 }
 
 // ============================================================================
@@ -298,21 +299,21 @@ TEST_CASE("Macro: scaling linearity check", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: OOP features — 10 extended classes", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateOOPProgram(10);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("OOP/10-classes", stats);
-    REQUIRE(stats.mean_ms < 2000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateOOPProgram(10);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("OOP/10-classes", stats);
+  REQUIRE(stats.mean_ms < 2000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: OOP features — 25 extended classes", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateOOPProgram(25);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("OOP/25-classes", stats);
-    REQUIRE(stats.mean_ms < 5000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateOOPProgram(25);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("OOP/25-classes", stats);
+  REQUIRE(stats.mean_ms < 5000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 // ============================================================================
@@ -320,21 +321,21 @@ TEST_CASE("Macro: OOP features — 25 extended classes", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: pipeline — 10 stages x 5 calls", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateComplexPipeline(10, 5);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/10x5", stats);
-    REQUIRE(stats.mean_ms < 3000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateComplexPipeline(10, 5);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/10x5", stats);
+  REQUIRE(stats.mean_ms < 3000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 TEST_CASE("Macro: pipeline — 20 stages x 10 calls", "[benchmark][macro]") {
-    auto [warmup, runs] = GetBenchConfig();
-    auto code = GenerateComplexPipeline(20, 10);
-    auto stats = RunFullPipeline(code, warmup, runs);
-    PrintMacroStats("Pipeline/20x10", stats);
-    REQUIRE(stats.mean_ms < 10000.0);
-    REQUIRE(stats.ir_size > 0);
+  auto [warmup, runs] = GetBenchConfig();
+  auto code = GenerateComplexPipeline(20, 10);
+  auto stats = RunFullPipeline(code, warmup, runs);
+  PrintMacroStats("Pipeline/20x10", stats);
+  REQUIRE(stats.mean_ms < 10000.0);
+  REQUIRE(stats.ir_size > 0);
 }
 
 // ============================================================================
@@ -342,17 +343,17 @@ TEST_CASE("Macro: pipeline — 20 stages x 10 calls", "[benchmark][macro]") {
 // ============================================================================
 
 TEST_CASE("Macro: IR output size grows with program size", "[benchmark][macro]") {
-    auto s10  = RunFullPipeline(GenerateScalingProgram(10),  1, 1);
-    auto s50  = RunFullPipeline(GenerateScalingProgram(50),  1, 1);
-    auto s100 = RunFullPipeline(GenerateScalingProgram(100), 1, 1);
+  auto s10 = RunFullPipeline(GenerateScalingProgram(10), 1, 1);
+  auto s50 = RunFullPipeline(GenerateScalingProgram(50), 1, 1);
+  auto s100 = RunFullPipeline(GenerateScalingProgram(100), 1, 1);
 
-    std::cout << "  [IR_SIZE] 10 funcs: " << s10.ir_size << " bytes\n";
-    std::cout << "  [IR_SIZE] 50 funcs: " << s50.ir_size << " bytes\n";
-    std::cout << "  [IR_SIZE] 100 funcs: " << s100.ir_size << " bytes\n";
+  std::cout << "  [IR_SIZE] 10 funcs: " << s10.ir_size << " bytes\n";
+  std::cout << "  [IR_SIZE] 50 funcs: " << s50.ir_size << " bytes\n";
+  std::cout << "  [IR_SIZE] 100 funcs: " << s100.ir_size << " bytes\n";
 
-    // IR size should grow with function count
-    REQUIRE(s50.ir_size > s10.ir_size);
-    REQUIRE(s100.ir_size > s50.ir_size);
-    // Approximately linear: 5x functions → at least 3x IR
-    REQUIRE(s50.ir_size > s10.ir_size * 3);
+  // IR size should grow with function count
+  REQUIRE(s50.ir_size > s10.ir_size);
+  REQUIRE(s100.ir_size > s50.ir_size);
+  // Approximately linear: 5x functions → at least 3x IR
+  REQUIRE(s50.ir_size > s10.ir_size * 3);
 }

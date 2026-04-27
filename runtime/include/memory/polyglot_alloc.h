@@ -19,7 +19,7 @@
  *           instead of the platform `malloc` family.
  *
  *           The header is C-compatible so the C runtime sources
- *           (`libs/*.c`) can use the same wrappers without pulling in the C++
+ *           (`libs/<lang>.c`) can use the same wrappers without pulling in the C++
  *           mimalloc API.
  *
  * @ingroup  Runtime / Memory

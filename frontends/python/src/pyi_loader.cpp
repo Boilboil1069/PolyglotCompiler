@@ -1078,7 +1078,7 @@ private:
   std::size_t pos_{0};
   std::string mod_name_;
   PyiLoader &owner_;
-  frontends::Diagnostics &diags_;
+  [[maybe_unused]] frontends::Diagnostics &diags_;
 };
 
 // ============================================================================

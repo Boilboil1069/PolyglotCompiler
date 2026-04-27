@@ -483,7 +483,7 @@ public:
       desc.target_language = cp.target_language;
       desc.source_function = cp.source_function;
       desc.target_function = cp.target_function;
-      for (const auto &pm : cp.param_plans) {
+      for ([[maybe_unused]] const auto &pm : cp.param_plans) {
         desc.source_param_types.push_back(ir::IRType::Pointer(ir::IRType::Void()));
         desc.target_param_types.push_back(ir::IRType::Pointer(ir::IRType::Void()));
         ploy::CrossLangCallDescriptor::MarshalOp op;

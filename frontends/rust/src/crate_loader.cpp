@@ -358,7 +358,7 @@ private:
   }
 
   CrateInfo &info_;
-  frontends::Diagnostics &diags_;
+  [[maybe_unused]] frontends::Diagnostics &diags_;
   std::unordered_set<std::string> visited_;
 };
 

@@ -476,7 +476,7 @@ void polyglot_js_release_value(void *value) {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-language ABI bridge ¡ª entry points lowered IR uses to invoke
+// Cross-language ABI bridge -- entry points lowered IR uses to invoke
 // JavaScript callables resolved via the Node.js / TypeScript module
 // resolution algorithm.  When the host JS engine is not loaded we keep the
 // process alive and emit one diagnostic per missing symbol.

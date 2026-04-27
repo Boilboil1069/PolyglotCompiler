@@ -22,7 +22,7 @@
 #include <vector>
 
 namespace polyglot::ir {
-class Function;
+struct Function;
 }
 
 namespace polyglot::pgo {

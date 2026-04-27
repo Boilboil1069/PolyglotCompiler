@@ -329,7 +329,7 @@ private:
   const Module &module_;
   ir::IRContext &ctx_;
   ir::IRBuilder builder_;
-  frontends::Diagnostics &diag_;
+  [[maybe_unused]] frontends::Diagnostics &diag_;
   std::unordered_map<std::string, Local> locals_;
   ir::IRType current_ret_{ir::IRType::Void()};
   bool terminated_{false};
