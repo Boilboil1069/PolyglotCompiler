@@ -7,7 +7,9 @@
  * @date     2026-04-26
  */
 #include <cctype>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 #include "frontends/ruby/include/ruby_lexer.h"
 
