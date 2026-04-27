@@ -1,17 +1,17 @@
 /**
  * @file     toolchain_db.h
- * @brief    Tool-chain database — discovery, persistence, and lookup.
+ * @brief    Tool-chain database 鈥?discovery, persistence, and lookup.
  *
- * Introduced by demand 2026-04-27-3.  Backs the `polyver` CLI as well as
+ * Backs the runtime version-management surface: the `polyver` CLI as well as
  * the polyc/polyld auto-detection paths and the polyui Toolchains tab.
  *
  * On disk we maintain two JSON files:
  *
- *   * `~/.polyglot/toolchains.json`     — global (per-user) tool-chain
+ *   * `~/.polyglot/toolchains.json`     鈥?global (per-user) tool-chain
  *                                         catalog produced by `polyver
  *                                         detect` and edited via
  *                                         `polyver use`.
- *   * `<project>/.polyglot/toolchains.lock` — per-project pinned versions
+ *   * `<project>/.polyglot/toolchains.lock` 鈥?per-project pinned versions
  *                                         (written by `polyver use` when
  *                                         executed inside a project).
  *

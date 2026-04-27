@@ -1040,3 +1040,20 @@ struct SourceLoc {
   SourceLoc(std::string file_path, size_t line_number, size_t column_number);
 };
 ```
+
+---
+
+# 13. 设置系统（需求 2026-04-27-4）
+
+**头文件**：
+- `tools/common/include/effective_settings_loader.h` — 纯 C++ 共享加载器（CLI + UI 共用）
+- `tools/ui/common/include/settings_service.h` — Qt 单例（`SettingsService::Instance()`）
+- `tools/ui/common/include/keybinding_service.h` — 和弦解析 + `when` 表达式求值
+- `tools/ui/common/include/command_palette.h` — `Ctrl+Shift+P` 命令面板
+- `tools/ui/common/include/settings_page.h` — Schema 驱动的双栏表单
+
+**库**：`polyglot_tools_settings`（静态库，`PUBLIC` 链接 `nlohmann_json`）。
+被 `polyc`、`polyld`、`polyrt`、`polytopo`、`polybench` 与 `polyui` 共同链接。
+
+完整 API 签名与英文版一致，请参见 `api_reference.md` 第 13 章；
+三层模型、Schema 字段表与迁移规则见 `docs/realization/settings_system_zh.md`。

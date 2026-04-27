@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "common/include/version.h"
 #include "tools/polyver/include/toolchain_db.h"
 
 namespace fs = std::filesystem;
@@ -29,7 +30,7 @@ using namespace polyglot::polyver;
 
 namespace {
 
-constexpr const char *kPolyverVersion = "1.2.0";
+constexpr const char *kPolyverVersion = POLYGLOT_VERSION_STRING;
 
 void PrintUsage(std::ostream &out) {
   out << "polyver " << kPolyverVersion

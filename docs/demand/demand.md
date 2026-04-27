@@ -1713,7 +1713,7 @@ Error: Process completed with exit code 1.
    - 完成后在本条目末尾追加 `--end -done`；
    - 因引入 JSON 设置体系、命令面板、快捷键体系，建议版本号 `1.1.0 → 1.2.0`（次版本号 +1，向后兼容；保留 QSettings 自动迁移）。
 
---end
+--end -done
 
 2026-04-27-5
 

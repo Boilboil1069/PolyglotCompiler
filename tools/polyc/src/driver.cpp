@@ -7,11 +7,11 @@
  * @date     2026-04-10
  */
 // ============================================================================
-// driver.cpp — polyc top-level driver (thin orchestration layer)
+// driver.cpp 鈥?polyc top-level driver (thin orchestration layer)
 //
 // This file contains only:
-//   1. ParseArgs()  — CLI flag parsing → DriverSettings
-//   2. main()       — stage orchestration: calls RunXxxStage() in order
+//   1. ParseArgs()  鈥?CLI flag parsing 鈫?DriverSettings
+//   2. main()       鈥?stage orchestration: calls RunXxxStage() in order
 //
 // All heavy lifting has been moved into the six stage_*.cpp files.
 // ============================================================================
@@ -43,7 +43,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 std::string DetectLanguage(const std::string &path) {
   return polyglot::frontends::FrontendRegistry::Instance().DetectLanguage(path);
@@ -82,7 +82,7 @@ std::string ResolveSiblingTool(const char *argv0, const std::string &tool_name) 
   return tool_name;
 }
 
-// ── ParseArgs ────────────────────────────────────────────────────────────────
+// 鈹€鈹€ ParseArgs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 DriverSettings ParseArgs(int argc, char **argv) {
   DriverSettings s;
@@ -146,7 +146,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --go-project=<dir>        Go module root (containing go.mod)\n"
           << "  --go-mod-cache=<dir>      Additional Go module cache root\n"
           << "\n"
-          << "Language version selection (demand 2026-04-27-3):\n"
+          << "Language version selection:\n"
           << "  --std=<dialect>           C++ dialect: c++17|c++20|c++23|c++26 (alias: -std=)\n"
           << "  --python-version=<v>      Python: 3.8|3.10|3.11|3.12|3.13\n"
           << "  --java-release=<n>        Java release: 8|11|17|21|23\n"
@@ -508,7 +508,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
       s.go_module_paths.push_back(argv[++i]);
       continue;
     }
-    // Language version selection (demand 2026-04-27-3).
+    // Language version selection.
     // Each flag accepts the canonical token plus common aliases; "auto" keeps
     // per-language inference. Unknown values fall through to a non-fatal
     // warning so the build can continue with the conservative default.
@@ -596,7 +596,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
   return s;
 }
 
-// ── SetupAuxDir / SourceStem ─────────────────────────────────────────────────
+// 鈹€鈹€ SetupAuxDir / SourceStem 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 std::string SetupAuxDir(const DriverSettings &s) {
   if (!s.emit_aux || s.source_path.empty())
@@ -615,7 +615,7 @@ std::string SourceStem(const DriverSettings &s) {
   return s.source_path.empty() ? "output" : fs::path(s.source_path).stem().string();
 }
 
-// ── Error summary (aggregated by error code) ────────────────────────────────
+// 鈹€鈹€ Error summary (aggregated by error code) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 void PrintErrorSummary(const frontends::Diagnostics &diags, bool json_progress) {
   std::map<int, int> error_counts;
@@ -645,16 +645,16 @@ void PrintErrorSummary(const frontends::Diagnostics &diags, bool json_progress) 
     }
     std::cout << "]}\n" << std::flush;
   } else {
-    std::cerr << "\n─── Error Summary ───\n";
+    std::cerr << "\n鈹€鈹€鈹€ Error Summary 鈹€鈹€鈹€\n";
     for (const auto &[code, count] : error_counts) {
       std::cerr << "  E" << code << ": " << count << " occurrence(s)\n";
       std::cerr << "    First: " << first_trace[code] << "\n";
     }
-    std::cerr << "─────────────────────\n";
+    std::cerr << "鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€\n";
   }
 }
 
-// ── StageTimer ───────────────────────────────────────────────────────────────
+// 鈹€鈹€ StageTimer 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 struct StageTimer {
   std::string name;
@@ -700,7 +700,7 @@ struct StageTimer {
 int main(int argc, char **argv) {
   using namespace polyglot::tools;
 
-  // ── Settings.json integration (shared with polyui IDE) ───────────────
+  // 鈹€鈹€ Settings.json integration (shared with polyui IDE) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv);
       rc.has_value()) {
     return *rc;
@@ -730,13 +730,13 @@ int main(int argc, char **argv) {
     settings.polyld_path = ResolveSiblingTool(argv[0], "polyld");
   }
 
-  // ── Mode validation ──────────────────────────────────────────────────
+  // 鈹€鈹€ Mode validation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (settings.mode != "compile" && settings.mode != "assemble" && settings.mode != "link") {
     std::cerr << "[error] Unknown mode: " << settings.mode << " (use compile|assemble|link)\n";
     return 1;
   }
 
-  // ── Strict / permissive / force reconciliation ───────────────────────
+  // 鈹€鈹€ Strict / permissive / force reconciliation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 #ifdef POLYC_DEFAULT_STRICT
   if (!settings.permissive && !settings.strict && !settings.dev_mode)
     settings.strict = true;
@@ -752,7 +752,7 @@ int main(int argc, char **argv) {
 
   const bool V = settings.verbose;
 
-  // ── Banner ───────────────────────────────────────────────────────────
+  // 鈹€鈹€ Banner 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (V) {
     std::cerr << "========================================\n";
     std::cerr << " " << POLYGLOT_VERSION_BANNER << "  (" << POLYGLOT_POLYC_NAME << ")\n";
@@ -781,7 +781,7 @@ int main(int argc, char **argv) {
   if (settings.jobs > 1 && V)
     std::cerr << "[polyc] -j" << settings.jobs << " noted (single-threaded for now)\n";
 
-  // ── .ploy: delegate to existing CompilationPipeline ──────────────────
+  // 鈹€鈹€ .ploy: delegate to existing CompilationPipeline 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (settings.language == "ploy") {
     std::string aux_dir = SetupAuxDir(settings);
     std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
@@ -829,7 +829,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  // ── Non-.ploy: six-stage pipeline ─────────────────────────────────────
+  // 鈹€鈹€ Non-.ploy: six-stage pipeline 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   std::string aux_dir = SetupAuxDir(settings);
   std::string stem = SourceStem(settings);
   if (!aux_dir.empty() && V)
@@ -930,7 +930,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // ── Summary ──────────────────────────────────────────────────────────
+  // 鈹€鈹€ Summary 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   double total_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::high_resolution_clock::now() - total_start)
                         .count();

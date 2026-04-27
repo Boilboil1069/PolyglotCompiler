@@ -21,9 +21,9 @@ namespace polyglot::frontends {
 
 /** @brief DiagnosticSeverity enumeration. */
 enum class DiagnosticSeverity {
-  kError,   // Fatal error — compilation fails
-  kWarning, // Non-fatal issue — compilation continues
-  kNote     // Informational — attached to a previous diagnostic for context
+  kError,   // Fatal error 鈥?compilation fails
+  kWarning, // Non-fatal issue 鈥?compilation continues
+  kNote     // Informational 鈥?attached to a previous diagnostic for context
 };
 
 // ============================================================================
@@ -82,14 +82,14 @@ enum class ErrorCode {
   kSignatureMismatch = 5003,
   kABICrossModuleMismatch = 5004,
 
-  // Tool-chain / language-version errors (6xxx) — demand 2026-04-27-3
+  // Tool-chain / language-version errors (6xxx) 鈥?this subsystem
   kLangVersionMismatch  = 6001, // E_LANG_VERSION_MISMATCH (hard error)
   kLangVersionFallback  = 6002, // W_LANG_VERSION_FALLBACK (warning)
   kToolchainNotFound    = 6003  // E_TOOLCHAIN_NOT_FOUND (hard error)
 };
 
 // ============================================================================
-// Diagnostic Structure — UI-Ready
+// Diagnostic Structure 鈥?UI-Ready
 // ============================================================================
 
 /** @brief Diagnostic data structure. */
@@ -107,7 +107,7 @@ struct Diagnostic {
 };
 
 // ============================================================================
-// Diagnostics Container — Collects all diagnostics during compilation
+// Diagnostics Container 鈥?Collects all diagnostics during compilation
 // ============================================================================
 
 /** @brief Diagnostics class. */

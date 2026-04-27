@@ -1911,21 +1911,59 @@ The IDE renders Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`) as for
 
 > The Markdown Viewer is read-only by design. If you need to edit a Markdown file, open it via right-click → *Open With → Code Editor* (forthcoming), or temporarily rename to a non-Markdown extension.
 
-### Settings
+### Settings (VS Code-style JSON)
 
-Open the Settings dialog via **File → Settings** or `Ctrl+,`. Preferences are organized into 7 categories:
+> Since demand **2026-04-27-4**, all preferences are stored in a single
+> JSON file — exactly like VS Code. The legacy `QSettings` storage is
+> auto-migrated on first launch.
 
-| Category | Options |
-|----------|--------|
-| **Appearance** | Theme, UI font family and size |
-| **Editor** | Font family, size, tab width, word wrap, show whitespace, line numbers |
-| **Compiler** | Default optimization level, target architecture, C++ standard, extra flags |
-| **Environment** | Project root, CMake path, debugger path, PATH overrides |
-| **Build** | Default generator, build type, parallel jobs, CMake extra arguments |
-| **Debug** | Preferred debugger (lldb/gdb/auto), stop on entry, break on exceptions |
-| **Key Bindings** | View and reference all keyboard shortcuts |
+**Three layers, lowest priority first:**
 
-All settings are persisted via `QSettings` ("PolyglotCompiler"/"IDE") and applied immediately upon clicking **Apply** or **OK**.
+| Layer        | Where                                                                  |
+|--------------|------------------------------------------------------------------------|
+| Default      | embedded resource (read-only)                                          |
+| User         | `%APPDATA%\PolyglotCompiler\settings.json` (Windows) / `~/.config/PolyglotCompiler/settings.json` (Linux) / `~/Library/Application Support/PolyglotCompiler/settings.json` (macOS) |
+| Workspace    | `<workspace>/.polyglot/settings.json`                                   |
+
+**How to edit settings:**
+
+- **Form view** — `File → Settings` (or run `Preferences: Open Settings` from
+  the command palette). The page is auto-generated from
+  `settings_schema.json`; each row shows a source badge
+  (`(default)` / `(user)` / `(workspace)`).
+- **JSON view** — Buttons at the top of the form open
+  `settings.json` (user / workspace / default) directly in an editor tab.
+  Saving the file triggers a 200 ms-debounced hot reload — no restart
+  required.
+- **Workspace overrides** — open the *Open Workspace Settings (JSON)*
+  command; the file is created on demand under `.polyglot/settings.json`.
+
+**Command palette:** press `Ctrl+Shift+P` to open the palette and run any
+registered command (`Preferences: Open Settings (JSON)`,
+`Preferences: Open Keyboard Shortcuts (JSON)`,
+`File: Save / Save As / Open / New Untitled`,
+`Markdown: Toggle Preview`, …).
+
+**Custom keybindings** live in `keybindings.json` next to `settings.json`
+and use the standard VS Code-style schema:
+
+```json
+[
+  { "key": "ctrl+shift+m", "command": "editor.action.toggleMarkdownPreview" },
+  { "key": "ctrl+k ctrl+s", "command": "workbench.action.openKeybindings" }
+]
+```
+
+**CLI tools** (`polyc`, `polyld`, `polyrt`, `polytopo`, `polybench`) read
+the same `settings.json` and accept two extra flags:
+
+| Flag                              | Effect                                                |
+|-----------------------------------|-------------------------------------------------------|
+| `--settings <path>`               | Override the user file with an explicit JSON path.    |
+| `--print-effective-settings`      | Print the merged effective JSON to stdout and exit 0. |
+
+See `docs/realization/settings_system.md` for the full key reference and
+implementation details.
 
 ### Git Integration
 

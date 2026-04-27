@@ -1,6 +1,6 @@
 # Per-Language Multi-Version Compilation & Tool-chain Management
 
-> Demand: `2026-04-27-3` &nbsp;|&nbsp; Project version: **1.2.0** (bump to **1.3.0** is deferred until Phases 2 & 3 land) &nbsp;|&nbsp; Status: **Phase 1 — foundation delivered (work in progress)**
+> Project version: **1.2.0** (bump to **1.3.0** is deferred until later phases land) &nbsp;|&nbsp; Status: **foundation delivered (work in progress)**
 
 PolyglotCompiler distinguishes between the **source language** (cpp / python / java
 / dotnet / rust / go / javascript / ruby) and the **language version** (e.g.
@@ -139,7 +139,7 @@ The same schema is used for the project lock file.
 | `6002` | `kLangVersionFallback`          | Warning  | No source could supply a version; the conservative default was used.   |
 | `6003` | `kToolchainNotFound`            | Error    | No tool-chain at all is available for the requested language.          |
 
-## Roadmap (still WIP &mdash; do **not** mark the demand `--end -done` yet)
+## Roadmap (still WIP)
 
 * **Phase 2** &mdash; ploy `LANG <name>;`, `WITH LANG (name=ver) { … }` and
   `@LANG(name=ver)` annotations; per-frontend version gating (e.g. C++ keyword
@@ -150,6 +150,6 @@ The same schema is used for the project lock file.
   ploy LANG syntax highlighting, nine integration test directories under
   `tests/integration/language_versions/`.
 
-When Phase 3 lands, the demand line for `2026-04-27-3` in
-`docs/demand/demand.md` will receive the `--end -done` suffix per the demand
-governance contract.
+When the remaining phases land, the project VERSION will be bumped per the
+governance rules and a completion mark will be appended in the requirements
+ledger.

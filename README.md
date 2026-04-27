@@ -35,6 +35,7 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
 - **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration. Per-language runtime bridges: `python_rt`, `cpp_rt`, `rust_rt`, `java_rt`, `dotnet_rt`, `go_rt`, `javascript_rt`, `ruby_rt`
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
+- **VS Code-style Settings** — JSON-first 3-layer settings (default / user / `<workspace>/.polyglot/settings.json`) with schema validation, hot reload, command palette (`Ctrl+Shift+P`) and `keybindings.json`; the same `settings.json` is honoured by every CLI tool via `--settings` / `--print-effective-settings`
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
 - **1084 Test Cases** — Unit (960), Integration (106), Benchmark (18) across 23 CTest targets
 

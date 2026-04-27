@@ -26,7 +26,7 @@ class PackageDiscoveryCache;
 class ICommandRunner;
 
 // ============================================================================
-// PloySemaOptions — configuration structure for PloySema
+// PloySemaOptions 鈥?configuration structure for PloySema
 //
 // All fields have sensible defaults so that existing call-sites that construct
 // PloySema(diagnostics) continue to work unchanged.
@@ -36,7 +36,7 @@ class ICommandRunner;
 struct PloySemaOptions {
   // When true, PloySema runs external package-manager commands on the first
   // IMPORT PACKAGE for each language to discover installed packages and their
-  // versions.  Defaults to false — callers should use PackageIndexer to run
+  // versions.  Defaults to false 鈥?callers should use PackageIndexer to run
   // discovery as an explicit pre-compilation phase and pass the populated
   // cache via discovery_cache.  Set to true only for backward-compatible
   // scenarios where inline discovery is acceptable.
@@ -134,7 +134,7 @@ struct VenvConfig {
 };
 
 // ============================================================================
-// ABI Signature — unified calling convention and type layout descriptor
+// ABI Signature 鈥?unified calling convention and type layout descriptor
 // ============================================================================
 
 // Describes the ABI-level contract for a cross-language function call.
@@ -209,14 +209,14 @@ struct ForeignClassSchema {
 /** @brief PloySema class. */
 class PloySema {
 public:
-  // Backward-compatible constructor — uses default options.
+  // Backward-compatible constructor 鈥?uses default options.
   // DEPRECATED: All new call-sites should explicitly pass PloySemaOptions{}
   // so that the intent (strict or permissive) is visible at the call-site.
   [[deprecated("Pass PloySemaOptions{} explicitly to declare strict-mode intent")]]
   explicit PloySema(frontends::Diagnostics &diagnostics) :
       PloySema(diagnostics, PloySemaOptions{}) {}
 
-  // Full constructor — accepts options for fine-grained control.
+  // Full constructor 鈥?accepts options for fine-grained control.
   PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &options);
 
   // Enable strict type-checking mode.  When enabled, the sema emits warnings
@@ -288,6 +288,16 @@ private:
   void AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
   void AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
 
+  // Language-version pinning support.
+  void AnalyzeLangPragma(const std::shared_ptr<LangPragma> &pragma);
+  void AnalyzeWithLangBlock(const std::shared_ptr<WithLangBlock> &block);
+  void AnalyzeLangAnnotation(const std::shared_ptr<LangAnnotation> &anno);
+  // Resolve the effective version for `language` against the active
+  // scope stack (innermost wins). Returns empty string when no pin applies
+  // (the lowering layer then leaves the descriptor's lang_version field
+  // empty so downstream stages can fall back to the language default).
+  std::string ResolveLangVersion(const std::string &language) const;
+
   // Expression analysis
   core::Type AnalyzeExpression(const std::shared_ptr<Expression> &expr);
   core::Type AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call);
@@ -351,7 +361,7 @@ private:
                      const std::string &message, const std::string &suggestion);
 
   // Report a diagnostic whose severity depends on strict mode:
-  // strict → error (fails compilation), permissive → warning.
+  // strict 鈫?error (fails compilation), permissive 鈫?warning.
   void ReportStrictDiag(const core::SourceLoc &loc, frontends::ErrorCode code,
                         const std::string &message);
 
@@ -428,6 +438,12 @@ private:
 
   // Instance-local copy of discovered packages (populated from cache)
   std::unordered_map<std::string, PackageInfo> discovered_packages_{};
+
+  // Scope stack of `language -> version` pin maps.
+  // Element 0 is the module-wide LANG-pragma pins; subsequent elements are
+  // pushed by `WITH LANG (...)` blocks and `@LANG(...)` annotations.
+  std::vector<std::unordered_map<std::string, std::string>> lang_pin_stack_{
+      std::unordered_map<std::string, std::string>{}};
 };
 
 } // namespace polyglot::ploy

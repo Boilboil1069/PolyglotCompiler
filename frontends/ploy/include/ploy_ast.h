@@ -127,7 +127,7 @@ struct CrossLangCallExpression : Expression {
   std::string function;
   std::vector<std::shared_ptr<Expression>> args;
   // Filled in by sema from the active LANG / WITH LANG / @LANG scope.
-  // Empty string means "use the language's default version" (demand 2026-04-27-3).
+  // Empty string means "use the language's default version".
   std::string lang_version_pin;
 };
 
@@ -138,7 +138,7 @@ struct NewExpression : Expression {
   std::string language;
   std::string class_name; // Possibly qualified: module::ClassName
   std::vector<std::shared_ptr<Expression>> args;
-  std::string lang_version_pin; // Resolved by sema (demand 2026-04-27-3).
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Cross-language method call: METHOD(language, object, method_name, arg1, arg2, ...)
@@ -149,7 +149,7 @@ struct MethodCallExpression : Expression {
   std::shared_ptr<Expression> object;
   std::string method_name;
   std::vector<std::shared_ptr<Expression>> args;
-  std::string lang_version_pin; // Resolved by sema (demand 2026-04-27-3).
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Cross-language attribute get: GET(language, object, attribute_name)
@@ -159,7 +159,7 @@ struct GetAttrExpression : Expression {
   std::string language;
   std::shared_ptr<Expression> object;
   std::string attr_name;
-  std::string lang_version_pin; // Resolved by sema (demand 2026-04-27-3).
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Cross-language attribute set: SET(language, object, attribute_name, value)
@@ -170,7 +170,7 @@ struct SetAttrExpression : Expression {
   std::shared_ptr<Expression> object;
   std::string attr_name;
   std::shared_ptr<Expression> value;
-  std::string lang_version_pin; // Resolved by sema (demand 2026-04-27-3).
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Cross-language destructor call: DELETE(language, object)
@@ -179,7 +179,7 @@ struct SetAttrExpression : Expression {
 struct DeleteExpression : Expression {
   std::string language;
   std::shared_ptr<Expression> object;
-  std::string lang_version_pin; // Resolved by sema (demand 2026-04-27-3).
+  std::string lang_version_pin; // Resolved by sema.
 };
 
 // Cross-language inheritance: EXTEND(language, base_class) AS DerivedName { ... }
@@ -460,11 +460,11 @@ struct VenvConfigDecl : Statement {
 // Module (top-level AST root)
 // ============================================================================
 
-// Demand 2026-04-27-3: language-version pinning.
+// Language-version pinning syntax.
 //
-// `LANG <lang> = <version>;`             — module-wide pin (top-level only).
-// `WITH LANG (<lang>=<ver>, ...) { ... }` — scoped pin around a block.
-// `@LANG(<lang>=<ver>, ...) <stmt>`       — single-statement annotation.
+// `LANG <lang> = <version>;`             鈥?module-wide pin (top-level only).
+// `WITH LANG (<lang>=<ver>, ...) { ... }` 鈥?scoped pin around a block.
+// `@LANG(<lang>=<ver>, ...) <stmt>`       鈥?single-statement annotation.
 //
 // All three forms feed the same scope-stack consulted by sema, which then
 // stamps the resolved value into every cross-language node's

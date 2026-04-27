@@ -99,6 +99,15 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
     AnalyzeWithStatement(with_stmt);
   } else if (auto extend = std::dynamic_pointer_cast<ExtendDecl>(stmt)) {
     AnalyzeExtendDecl(extend);
+  } else if (auto lang_pragma = std::dynamic_pointer_cast<LangPragma>(stmt)) {
+    // Module-wide language version pin.
+    AnalyzeLangPragma(lang_pragma);
+  } else if (auto with_lang = std::dynamic_pointer_cast<WithLangBlock>(stmt)) {
+    // Scoped language version pin.
+    AnalyzeWithLangBlock(with_lang);
+  } else if (auto lang_anno = std::dynamic_pointer_cast<LangAnnotation>(stmt)) {
+    // Single-statement language version pin.
+    AnalyzeLangAnnotation(lang_anno);
   }
 }
 
@@ -200,7 +209,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     link_sym.type = core::Type::Unknown();
   }
   link_sym.defined_at = link->loc;
-  // Do not report redefinition for link targets — they may overlap with imports
+  // Do not report redefinition for link targets 鈥?they may overlap with imports
   symbols_.try_emplace(link->target_symbol, link_sym);
 
   // Register the LINK target as a known function signature so that the
@@ -289,7 +298,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
       RegisterFunctionSignature(link->source_symbol, src_reg_sig);
     }
   } else {
-    // LINK without MAP_TYPE entries is valid — it simply means that no
+    // LINK without MAP_TYPE entries is valid 鈥?it simply means that no
     // per-parameter ABI mapping is declared.  Parameter validation at call
     // sites will be skipped for this link.  Emit an informational warning
     // so developers are aware, but never treat this as an error.
@@ -337,7 +346,7 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     // Selective imports and alias cannot be used together because
     // the alias target is ambiguous (does it refer to symbol A or B?)
     if (!import->alias.empty()) {
-      Report(import->loc, "selective import and AS alias cannot be combined — "
+      Report(import->loc, "selective import and AS alias cannot be combined 鈥?"
                           "alias '" +
                               import->alias +
                               "' is ambiguous when "
@@ -387,11 +396,11 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         PackageDiscoveryCache::MakeKey(import->language, manager_str, venv_path);
 
     if (!discovery_cache_->HasDiscovered(cache_key)) {
-      // Cache miss — run external commands and store results
+      // Cache miss 鈥?run external commands and store results
       DiscoverPackages(import->language, venv_path, manager);
       discovery_cache_->Store(cache_key, discovered_packages_);
     } else {
-      // Cache hit — merge cached results into instance-local map
+      // Cache hit 鈥?merge cached results into instance-local map
       auto cached = discovery_cache_->Retrieve(cache_key);
       for (const auto &[k, v] : cached) {
         discovered_packages_.try_emplace(k, v);
@@ -402,7 +411,7 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     std::string pkg_key = import->language + "::" + import->package_name;
     auto pkg_it = discovered_packages_.find(pkg_key);
     if (pkg_it != discovered_packages_.end()) {
-      // Package found — check version constraint if specified
+      // Package found 鈥?check version constraint if specified
       if (!import->version_op.empty() && !import->version_constraint.empty()) {
         if (!CompareVersions(pkg_it->second.version, import->version_constraint,
                              import->version_op)) {
@@ -534,7 +543,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
       ReportStrictDiag(func->loc, frontends::ErrorCode::kTypeMismatch,
                        "parameter '" + param.name +
                            "' has no type annotation; "
-                           "defaults to Unknown — add explicit type annotation");
+                           "defaults to Unknown 鈥?add explicit type annotation");
     }
     param_types.push_back(pt);
   }
@@ -593,7 +602,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   // Re-register the function symbol itself (it was declared in outer scope
   // but may have been overwritten by the restore if it wasn't in saved_symbols
   // before DeclareSymbol was called). Since we declared it before the save,
-  // it is already in saved_symbols — no extra action needed.
+  // it is already in saved_symbols 鈥?no extra action needed.
 }
 
 // ============================================================================
@@ -735,7 +744,7 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
     sym.type = core::Type::Unknown();
     ReportStrictDiag(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
                      "FOR iterator '" + for_stmt->iterator_name +
-                         "' type could not be inferred from iterable; defaults to Unknown — "
+                         "' type could not be inferred from iterable; defaults to Unknown 鈥?"
                          "add explicit type annotation or ensure iterable is typed");
   }
   DeclareSymbol(sym);
@@ -810,7 +819,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
     // Qualified identifiers refer to imported module symbols.
     ReportStrictDiag(qid->loc, frontends::ErrorCode::kTypeMismatch,
                      "qualified identifier type cannot be resolved; "
-                     "defaults to Unknown — add a LINK or IMPORT with type mapping");
+                     "defaults to Unknown 鈥?add a LINK or IMPORT with type mapping");
     return core::Type::Unknown();
   }
 
@@ -907,7 +916,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
   }
 
   if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
-    // Named arguments are transparent for type analysis — the type is
+    // Named arguments are transparent for type analysis 鈥?the type is
     // determined by the value expression.  However we validate that the
     // name corresponds to a known parameter so typos are caught early.
     core::Type val_type = AnalyzeExpression(named_arg->value);
@@ -918,7 +927,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
     return val_type;
   }
 
-  return core::Type::Unknown(); // unrecognized expression kind — type cannot be determined
+  return core::Type::Unknown(); // unrecognized expression kind 鈥?type cannot be determined
 }
 
 core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call) {
@@ -991,7 +1000,7 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
     return callee_type.type_args[0]; // First type_arg is return type
   }
 
-  return core::Type::Unknown(); // return type unknown — no function type or signature found
+  return core::Type::Unknown(); // return type unknown 鈥?no function type or signature found
 }
 
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
@@ -1000,6 +1009,8 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
     ReportError(call->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + call->language + "' in CALL");
   }
+  // Stamp the resolved language version, if any.
+  call->lang_version_pin = ResolveLangVersion(call->language);
 
   // Analyze arguments and collect their types
   std::vector<core::Type> arg_types;
@@ -1050,21 +1061,21 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
   }
 
   // If the symbol is completely unregistered (no LINK, no IMPORT), this is
-  // an unconditional error regardless of strict mode — the function simply
+  // an unconditional error regardless of strict mode 鈥?the function simply
   // does not exist in the current compilation context.
   if (!sig && sym_it == symbols_.end()) {
     ReportError(call->loc, frontends::ErrorCode::kTypeMismatch,
                 "CALL to '" + call->function + "' (language: " + call->language +
-                    ") references an unregistered cross-language symbol — "
+                    ") references an unregistered cross-language symbol 鈥?"
                     "add a LINK declaration to connect it");
     return core::Type::Unknown();
   }
 
   // Cross-language calls whose target is registered but has no precise return
-  // type — in strict mode this is an error, in permissive mode a warning.
+  // type 鈥?in strict mode this is an error, in permissive mode a warning.
   ReportStrictDiag(call->loc, frontends::ErrorCode::kTypeMismatch,
                    "CALL to '" + call->function + "' (language: " + call->language +
-                       ") has no known return type; defaults to Unknown — "
+                       ") has no known return type; defaults to Unknown 鈥?"
                        "add MAP_TYPE to enable type checking");
   return core::Type::Unknown();
 }
@@ -1075,6 +1086,8 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
     ReportError(new_expr->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + new_expr->language + "' in NEW");
   }
+  //: stamp the resolved language version, if any.
+  new_expr->lang_version_pin = ResolveLangVersion(new_expr->language);
 
   // Validate class name is non-empty
   if (new_expr->class_name.empty()) {
@@ -1114,7 +1127,7 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
       sym_it->second.type.kind != core::TypeKind::kInvalid) {
     return sym_it->second.type;
   }
-  return core::Type::Unknown(); // class type not resolved — add LINK declaration
+  return core::Type::Unknown(); // class type not resolved 鈥?add LINK declaration
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(
@@ -1124,6 +1137,8 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     ReportError(method_call->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + method_call->language + "' in METHOD");
   }
+  // Stamp the resolved language version, if any.
+  method_call->lang_version_pin = ResolveLangVersion(method_call->language);
 
   // Validate method name is non-empty
   if (method_call->method_name.empty()) {
@@ -1161,7 +1176,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     ValidateCallArgCount(method_call->loc, method_call->method_name, method_call->args.size(), sig);
     ValidateCallArgTypes(method_call->loc, method_call->method_name, arg_types, sig);
   } else {
-    // No method signature registered — report so the user knows
+    // No method signature registered 鈥?report so the user knows
     // parameter validation is skipped for this METHOD call.
     ReportStrictDiag(method_call->loc, frontends::ErrorCode::kSignatureMissing,
                      "METHOD '" + method_call->method_name +
@@ -1188,6 +1203,8 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     ReportError(get_attr->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + get_attr->language + "' in GET");
   }
+  // Stamp the resolved language version, if any.
+  get_attr->lang_version_pin = ResolveLangVersion(get_attr->language);
 
   // Validate attribute name is non-empty
   if (get_attr->attr_name.empty()) {
@@ -1250,6 +1267,8 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
     ReportError(set_attr->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + set_attr->language + "' in SET");
   }
+  // Stamp the resolved language version, if any.
+  set_attr->lang_version_pin = ResolveLangVersion(set_attr->language);
 
   // Validate attribute name is non-empty
   if (set_attr->attr_name.empty()) {
@@ -1340,7 +1359,7 @@ void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_s
     exit_sig = LookupSignature("__exit__");
   }
   if (exit_sig) {
-    // Validate __exit__ return type — should be void or bool (suppress flag)
+    // Validate __exit__ return type 鈥?should be void or bool (suppress flag)
     if (exit_sig->return_type.kind != core::TypeKind::kAny &&
         exit_sig->return_type.kind != core::TypeKind::kInvalid &&
         exit_sig->return_type.kind != core::TypeKind::kVoid &&
@@ -1753,7 +1772,7 @@ void PloySema::InjectForeignSignatures(
   for (const auto &[name, sig] : foreign_sigs) {
     auto it = known_signatures_.find(name);
     if (it == known_signatures_.end()) {
-      // No existing signature — insert the foreign one directly.
+      // No existing signature 鈥?insert the foreign one directly.
       known_signatures_[name] = sig;
     } else if (sig.param_count_known && !it->second.param_count_known) {
       // The foreign signature is more complete (has real parameter count
@@ -1812,7 +1831,7 @@ void PloySema::ValidateCallArgTypes(const core::SourceLoc &call_loc, const std::
   // MAP_TYPE entries (indicated by a non-null ABI descriptor), the parameter
   // types stored in the signature are the foreign function's native types.
   // Ploy call-site arguments use Ploy-native types which are intentionally
-  // different — the MAP_TYPE marshalling code bridges the gap at runtime.
+  // different 鈥?the MAP_TYPE marshalling code bridges the gap at runtime.
   // Therefore skip strict type checking for these signatures.
   if (sig->abi)
     return;
@@ -1869,7 +1888,7 @@ std::string ABISignature::ValidateCompatibility(const ABISignature &other) const
     const auto &tp = params[i];
     const auto &sp = other.params[i];
 
-    // Size mismatch is a hard error — the calling convention will misalign
+    // Size mismatch is a hard error 鈥?the calling convention will misalign
     if (tp.size_bytes != 0 && sp.size_bytes != 0 && tp.size_bytes != sp.size_bytes) {
       return "parameter " + std::to_string(i + 1) + " size mismatch: " + "target expects " +
              std::to_string(tp.size_bytes) + " bytes but source provides " +
@@ -1967,7 +1986,7 @@ ABIParamDesc PloySema::TypeToABIParam(const core::Type &type) const {
   case core::TypeKind::kStruct:
     desc.abi_type_name = "struct";
     desc.is_by_value = true;
-    // Size unknown without struct layout — leave as 0
+    // Size unknown without struct layout 鈥?leave as 0
     break;
   case core::TypeKind::kVoid:
     desc.abi_type_name = "void";
@@ -2558,6 +2577,10 @@ core::Type PloySema::AnalyzeDeleteExpression(const std::shared_ptr<DeleteExpress
                 "supported languages: python, cpp, rust");
     return core::Type::Void();
   }
+  // Stamp the resolved language version, if any.
+  if (!del_expr->language.empty()) {
+    del_expr->lang_version_pin = ResolveLangVersion(del_expr->language);
+  }
 
   // Analyze the object expression being deleted
   if (!del_expr->object) {
@@ -2954,6 +2977,139 @@ void PloySema::DiscoverDotnetNugetPackages() {
       discovered_packages_[key] = info;
     }
   }
+}
+
+// ============================================================================
+// Language-version pinning
+// ============================================================================
+//
+// Three surface forms feed a single scope stack of `language -> version`
+// maps:
+//
+//   * `LANG <lang> = <version>;`            — module-wide pin (stack[0]).
+//   * `WITH LANG (lang=ver, ...) { body }`  — scoped pin (push on entry,
+//                                              analyze body, pop on exit).
+//   * `@LANG(lang=ver, ...) <stmt>`         — single-statement pin (push,
+//                                              analyze the wrapped stmt, pop).
+//
+// `ResolveLangVersion(lang)` walks the stack from innermost to outermost
+// and returns the first match, or "" when no pin applies (downstream
+// stages then fall back to the language default).
+
+namespace {
+
+// Map a user-written language identifier (case-insensitive, allowing common
+// aliases) to the canonical short name accepted by `IsValidLanguage`.
+// Returns empty string when the alias is unknown.
+std::string CanonicalizeLangName(const std::string &raw) {
+  std::string s;
+  s.reserve(raw.size());
+  for (char c : raw) {
+    s.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+  }
+  if (s == "cpp" || s == "c++") return "cpp";
+  if (s == "python" || s == "py") return "python";
+  if (s == "java") return "java";
+  if (s == "dotnet" || s == "cs" || s == "csharp" || s == "c#") return "dotnet";
+  if (s == "rust") return "rust";
+  if (s == "go" || s == "golang") return "go";
+  if (s == "javascript" || s == "js" || s == "ecma" || s == "ecmascript" ||
+      s == "typescript" || s == "ts") {
+    return "javascript";
+  }
+  if (s == "ruby" || s == "rb") return "ruby";
+  if (s == "c") return "c";
+  if (s == "ploy") return "ploy";
+  return {};
+}
+
+} // namespace
+
+void PloySema::AnalyzeLangPragma(const std::shared_ptr<LangPragma> &pragma) {
+  if (!pragma) return;
+  const std::string canon = CanonicalizeLangName(pragma->language);
+  if (canon.empty()) {
+    ReportError(pragma->loc, frontends::ErrorCode::kInvalidLanguage,
+                "unknown language '" + pragma->language + "' in LANG pragma",
+                "expected one of: cpp, python, java, dotnet, rust, go, javascript, ruby");
+    return;
+  }
+  if (pragma->version.empty()) {
+    ReportError(pragma->loc, frontends::ErrorCode::kLangVersionMismatch,
+                "LANG pragma for '" + pragma->language + "' has empty version");
+    return;
+  }
+  // Module-wide pins live in stack[0]; later pragmas overwrite earlier ones.
+  if (lang_pin_stack_.empty()) {
+    lang_pin_stack_.emplace_back();
+  }
+  lang_pin_stack_.front()[canon] = pragma->version;
+}
+
+void PloySema::AnalyzeWithLangBlock(const std::shared_ptr<WithLangBlock> &block) {
+  if (!block) return;
+  std::unordered_map<std::string, std::string> frame;
+  for (const auto &pin : block->pins) {
+    const std::string canon = CanonicalizeLangName(pin.language);
+    if (canon.empty()) {
+      ReportError(block->loc, frontends::ErrorCode::kInvalidLanguage,
+                  "unknown language '" + pin.language + "' in WITH LANG",
+                  "expected one of: cpp, python, java, dotnet, rust, go, javascript, ruby");
+      continue;
+    }
+    if (pin.version.empty()) {
+      ReportError(block->loc, frontends::ErrorCode::kLangVersionMismatch,
+                  "WITH LANG pin for '" + pin.language + "' has empty version");
+      continue;
+    }
+    frame[canon] = pin.version;
+  }
+  lang_pin_stack_.push_back(std::move(frame));
+  AnalyzeBlockStatements(block->body);
+  lang_pin_stack_.pop_back();
+}
+
+void PloySema::AnalyzeLangAnnotation(const std::shared_ptr<LangAnnotation> &anno) {
+  if (!anno) return;
+  std::unordered_map<std::string, std::string> frame;
+  for (const auto &pin : anno->pins) {
+    const std::string canon = CanonicalizeLangName(pin.language);
+    if (canon.empty()) {
+      ReportError(anno->loc, frontends::ErrorCode::kInvalidLanguage,
+                  "unknown language '" + pin.language + "' in @LANG annotation",
+                  "expected one of: cpp, python, java, dotnet, rust, go, javascript, ruby");
+      continue;
+    }
+    if (pin.version.empty()) {
+      ReportError(anno->loc, frontends::ErrorCode::kLangVersionMismatch,
+                  "@LANG pin for '" + pin.language + "' has empty version");
+      continue;
+    }
+    frame[canon] = pin.version;
+  }
+  lang_pin_stack_.push_back(std::move(frame));
+  if (anno->target) {
+    AnalyzeStatement(anno->target);
+  } else {
+    ReportError(anno->loc, frontends::ErrorCode::kMissingExpression,
+                "@LANG annotation has no target statement");
+  }
+  lang_pin_stack_.pop_back();
+}
+
+std::string PloySema::ResolveLangVersion(const std::string &language) const {
+  const std::string canon = CanonicalizeLangName(language);
+  if (canon.empty()) {
+    return {};
+  }
+  // Walk innermost-first.
+  for (auto it = lang_pin_stack_.rbegin(); it != lang_pin_stack_.rend(); ++it) {
+    auto found = it->find(canon);
+    if (found != it->end()) {
+      return found->second;
+    }
+  }
+  return {};
 }
 
 } // namespace polyglot::ploy

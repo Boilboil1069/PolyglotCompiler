@@ -97,7 +97,7 @@ std::shared_ptr<Module> PloyParser::TakeModule() {
 }
 
 void PloyParser::ParseTopLevel() {
-  // Demand 2026-04-27-3: `@LANG(...)` annotation can prefix any top-level stmt.
+  // `@LANG(...)` annotation can prefix any top-level statement.
   if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
     module_->declarations.push_back(ParseLangAnnotation());
     return;
@@ -256,7 +256,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
     }
     ExpectSymbol("}", "expected '}' to close LINK body");
   } else {
-    // Simple LINK without body — expect semicolon
+    // Simple LINK without body 闁?expect semicolon
     ExpectSymbol(";", "expected ';' after LINK directive");
   }
 
@@ -570,14 +570,14 @@ std::vector<FuncDecl::Param> PloyParser::ParseParams() {
 // ============================================================================
 
 std::shared_ptr<Statement> PloyParser::ParseStatement() {
-  // Demand 2026-04-27-3: `@LANG(...)` annotation at statement level.
+  // `@LANG(...)` annotation at statement level.
   if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
     return ParseLangAnnotation();
   }
   if (current_.kind == frontends::TokenKind::kKeyword) {
     const std::string &kw = current_.lexeme;
     if (kw == "LANG") {
-      // Demand 2026-04-27-3: top-level pin can also appear as a statement.
+      // Top-level pin can also appear as a statement.
       return ParseLangPragma();
     }
     if (kw == "LET") {
@@ -732,7 +732,7 @@ std::shared_ptr<Statement> PloyParser::ParseIfStatement() {
   // Optional ELSE / ELSE IF
   if (MatchKeyword("ELSE")) {
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "IF") {
-      // ELSE IF — nest as a single statement in else_body
+      // ELSE IF 闁?nest as a single statement in else_body
       auto elif = ParseIfStatement();
       node->else_body.push_back(elif);
     } else {
@@ -1244,7 +1244,7 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
       ExpectSymbol(")", "expected ')' after tuple literal");
       return tuple;
     }
-    // Single expression in parens — grouped expression
+    // Single expression in parens 闁?grouped expression
     ExpectSymbol(")", "expected ')' after grouped expression");
     return first;
   }
@@ -1571,7 +1571,7 @@ std::vector<std::shared_ptr<Expression>> PloyParser::ParseArguments() {
     auto expr = ParseExpression();
 
     // Check if the parsed expression is a named argument pattern:
-    //   name = value  →  BinaryExpression(op="=", left=Identifier, right=value)
+    //   name = value  闁? BinaryExpression(op="=", left=Identifier, right=value)
     if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
       if (bin->op == "=") {
         if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
@@ -2149,7 +2149,7 @@ std::shared_ptr<Statement> PloyParser::ParseExtendDecl() {
 }
 
 // ============================================================================
-// Demand 2026-04-27-3: language-version pinning
+// Language-version pinning
 // ============================================================================
 
 // Helper: parse `(lang = ver, lang2 = ver2, ...)` into a flat pin list.
@@ -2175,12 +2175,12 @@ void PloyParser::ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins) {
     // Version token: identifier ("c++23" comes through as 'c' '+' '+' so we
     // accept either an identifier OR a string literal OR a number; we then
     // gather any trailing punctuation that forms a contiguous version token.
-    if (current_.kind == frontends::TokenKind::kStringLiteral) {
+    if (current_.kind == frontends::TokenKind::kString) {
       pin.version = current_.lexeme;
       Advance();
     } else if (current_.kind == frontends::TokenKind::kIdentifier ||
                current_.kind == frontends::TokenKind::kKeyword ||
-               current_.kind == frontends::TokenKind::kNumberLiteral) {
+               current_.kind == frontends::TokenKind::kNumber) {
       pin.version = current_.lexeme;
       Advance();
       // Consume contiguous "+" "+" "23" / ".11" tokens that the lexer split.
@@ -2191,7 +2191,7 @@ void PloyParser::ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins) {
         Advance();
         if (current_.kind == frontends::TokenKind::kIdentifier ||
             current_.kind == frontends::TokenKind::kKeyword ||
-            current_.kind == frontends::TokenKind::kNumberLiteral) {
+            current_.kind == frontends::TokenKind::kNumber) {
           pin.version += current_.lexeme;
           Advance();
         }
@@ -2220,12 +2220,12 @@ std::shared_ptr<Statement> PloyParser::ParseLangPragma() {
   node->language = current_.lexeme;
   Advance();
   ExpectSymbol("=", "expected '=' after language name in LANG pragma");
-  if (current_.kind == frontends::TokenKind::kStringLiteral) {
+  if (current_.kind == frontends::TokenKind::kString) {
     node->version = current_.lexeme;
     Advance();
   } else if (current_.kind == frontends::TokenKind::kIdentifier ||
              current_.kind == frontends::TokenKind::kKeyword ||
-             current_.kind == frontends::TokenKind::kNumberLiteral) {
+             current_.kind == frontends::TokenKind::kNumber) {
     node->version = current_.lexeme;
     Advance();
     while (current_.kind == frontends::TokenKind::kSymbol &&
@@ -2235,7 +2235,7 @@ std::shared_ptr<Statement> PloyParser::ParseLangPragma() {
       Advance();
       if (current_.kind == frontends::TokenKind::kIdentifier ||
           current_.kind == frontends::TokenKind::kKeyword ||
-          current_.kind == frontends::TokenKind::kNumberLiteral) {
+          current_.kind == frontends::TokenKind::kNumber) {
         node->version += current_.lexeme;
         Advance();
       }

@@ -2,7 +2,7 @@
  * @file     language_versions.h
  * @brief    Per-language version / dialect enumerations and helpers
  *
- * Introduced by demand 2026-04-27-3 (multi-language version management).
+ * Multi-language version management infrastructure.
  *
  * Each supported source language gets a strongly-typed enum describing the
  * dialect / language standard / runtime version that the corresponding
@@ -588,7 +588,7 @@ inline bool RubyVersionAtLeast(RubyVersion actual, RubyVersion required) {
 }
 
 // ===========================================================================
-// Generic helpers — used by ploy `LANG` directives, polyver, and CLI
+// Generic helpers 鈥?used by ploy `LANG` directives, polyver, and CLI
 // ===========================================================================
 
 /**

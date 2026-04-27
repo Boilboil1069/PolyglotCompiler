@@ -1,6 +1,6 @@
 # 多语言多版本编译与工具链管理
 
-> 需求编号：`2026-04-27-3` &nbsp;|&nbsp; 项目版本：**1.2.0**（升 **1.3.0** 推迟到 Phase 2、3 完成时）&nbsp;|&nbsp; 状态：**Phase 1 — 基础设施已交付（仍在进行中）**
+> 项目版本：**1.2.0**（升 **1.3.0** 推迟到后续阶段完成时）&nbsp;|&nbsp; 状态：**基础设施已交付（仍在进行中）**
 
 PolyglotCompiler 把"源语言"（cpp / python / java / dotnet / rust / go /
 javascript / ruby）和"语言版本"（如 `c++20`、`python 3.11`、`java 17`、
@@ -131,7 +131,7 @@ polyver --help                       打印帮助信息
 | `6002` | `kLangVersionFallback`          | 警告 | 没有来源给出版本，回落到了保守默认值。                               |
 | `6003` | `kToolchainNotFound`            | 错误 | 所请求语言完全没有可用工具链。                                       |
 
-## 后续路线（仍是 WIP，**请勿** 在 demand 中追加 `--end -done`）
+## 后续路线（仍是 WIP）
 
 * **Phase 2** &mdash; ploy 的 `LANG <name>;`、`WITH LANG (name=ver) { … }`
   与 `@LANG(name=ver)` 注解；各前端的版本门控（如 C++ 关键字可见性、
@@ -141,5 +141,5 @@ polyver --help                       打印帮助信息
   ploy `LANG` 的语法高亮、`tests/integration/language_versions/` 下九个
   集成测试目录。
 
-待 Phase 3 完成后，`docs/demand/demand.md` 中 `2026-04-27-3` 行才会按需求
-治理约定被追加 `--end -done`。
+剩余阶段全部落地后，将按治理规则推升项目 VERSION，并在需求账本中追加完成
+标记。

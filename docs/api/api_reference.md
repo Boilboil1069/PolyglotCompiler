@@ -1035,3 +1035,160 @@ struct SourceLoc {
   SourceLoc(std::string file_path, size_t line_number, size_t column_number);
 };
 ```
+
+---
+
+# 13. Settings System
+
+**Headers**:
+- `tools/common/include/effective_settings_loader.h` — pure C++ shared loader (CLI + UI)
+- `tools/ui/common/include/settings_service.h` — Qt singleton (`SettingsService::Instance()`)
+- `tools/ui/common/include/keybinding_service.h` — chord parser + `when`-expression evaluator
+- `tools/ui/common/include/command_palette.h` — `Ctrl+Shift+P` palette
+- `tools/ui/common/include/settings_page.h` — schema-driven two-pane form
+
+**Library**: `polyglot_tools_settings` (static; PUBLIC-links `nlohmann_json`).
+Linked into `polyc`, `polyld`, `polyrt`, `polytopo`, `polybench` and `polyui`.
+
+## 13.1 Effective settings loader
+
+**Namespace**: `polyglot::tools::common`
+
+```cpp
+struct SettingsDiagnostic {
+  std::string scope;    // "default" | "user" | "workspace" | "schema"
+  std::string file;
+  int line{-1};
+  int column{-1};
+  std::string message;
+  bool is_error{true};
+};
+
+struct EffectiveSettings {
+  nlohmann::json defaults;     // layer 1
+  nlohmann::json user;         // layer 2 (only fields explicitly set)
+  nlohmann::json workspace;    // layer 3 (only fields explicitly set)
+  nlohmann::json effective;    // merged: defaults < user < workspace
+  std::vector<SettingsDiagnostic> diagnostics;
+};
+
+std::filesystem::path UserSettingsPath();
+std::filesystem::path UserKeybindingsPath();
+std::filesystem::path WorkspaceSettingsPath(const std::filesystem::path& workspace_root);
+
+EffectiveSettings LoadEffectiveSettings(const std::string& defaults_json,
+                                        const std::string& schema_json,
+                                        const std::filesystem::path& workspace_root = {});
+
+EffectiveSettings LoadEffectiveSettingsExplicit(const std::string& defaults_json,
+                                                const std::string& schema_json,
+                                                const std::filesystem::path& user_path,
+                                                const std::filesystem::path& workspace_path);
+
+bool ValidateAgainstSchema(const nlohmann::json& data,
+                           const std::string& schema_json,
+                           std::vector<SettingsDiagnostic>* diagnostics);
+
+void DeepMerge(nlohmann::json& base, const nlohmann::json& override_);
+nlohmann::json GetByDottedKey(const nlohmann::json& tree, const std::string& dotted_key);
+void SetByDottedKey(nlohmann::json& tree, const std::string& dotted_key,
+                    const nlohmann::json& value);
+std::string PrettyPrint(const nlohmann::json& tree);
+
+// Top-of-main() helper for CLI tools.
+std::optional<int> HandleSettingsCliFlags(int argc, char** argv);
+```
+
+## 13.2 SettingsService (Qt singleton)
+
+```cpp
+namespace polyglot::tools::ui {
+
+enum class SettingsScope { User, Workspace };
+
+class SettingsService : public QObject {
+  Q_OBJECT
+ public:
+  static SettingsService& Instance();
+
+  QVariant Get(const QString& dotted_key,
+               const QVariant& fallback = {}) const;
+  bool     GetBool(const QString& key, bool fallback = false) const;
+  int      GetInt (const QString& key, int  fallback = 0)     const;
+  double   GetDouble(const QString& key, double fallback = 0) const;
+  QString  GetString(const QString& key, const QString& fb = {}) const;
+
+  void Set  (const QString& dotted_key, const QVariant& value,
+             SettingsScope scope = SettingsScope::User);
+  void Reset(const QString& dotted_key, SettingsScope scope);
+
+  QString UserSettingsPath()       const;
+  QString WorkspaceSettingsPath()  const;
+  QString UserKeybindingsPath()    const;
+  QString DefaultsPrettyPrint()    const;
+
+  void MigrateLegacyQSettings();
+
+ signals:
+  void settingsChanged(const QString& key,
+                       const QVariant& oldValue,
+                       const QVariant& newValue);
+  void settingsReloaded();
+};
+
+}  // namespace polyglot::tools::ui
+```
+
+## 13.3 KeybindingService
+
+```cpp
+class KeybindingService : public QObject {
+  Q_OBJECT
+ public:
+  static KeybindingService& Instance();
+
+  void RegisterCommand(const QString& id,
+                       std::function<void()> handler,
+                       const QString& title);
+
+  void AddDefaultBinding(const QString& key, const QString& command_id,
+                         const QString& when = {});
+  void AddUserBinding   (const QString& key, const QString& command_id,
+                         const QString& when = {});
+
+  QList<QPair<QString,QString>> EffectiveBindings() const;
+  QString  KeyForCommand(const QString& command_id) const;
+
+  void LoadUserKeybindings();
+  void SaveUserKeybindings() const;
+
+  // Expression helpers
+  QStringList ParseChord(const QString& chord);  // space-separated tokens
+  void        SetContext(const QString& key, bool value);
+  bool        EvaluateWhen(const QString& expression) const;
+
+  bool Dispatch(const QString& key);  // true if a command was run
+};
+```
+
+## 13.4 CommandPalette / SettingsPage
+
+```cpp
+class CommandPalette : public QDialog {
+  Q_OBJECT
+ public:
+  explicit CommandPalette(QWidget* parent = nullptr);
+  void Refresh();  // pull commands from KeybindingService
+};
+
+class SettingsPage : public QDialog {
+  Q_OBJECT
+ public:
+  explicit SettingsPage(QWidget* parent = nullptr);
+ signals:
+  void RequestOpenJson(const QString& path);  // routed to MainWindow tab
+};
+```
+
+See `docs/realization/settings_system.md` for the layer model, JSON schema
+and migration table.

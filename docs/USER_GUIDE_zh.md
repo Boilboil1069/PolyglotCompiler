@@ -1901,21 +1901,54 @@ IDE 将 Markdown 文档（`.md`、`.markdown`、`.mdown`、`.mkd`）以排版后
 
 > Markdown 查看器在设计上是只读的。如需编辑 Markdown 文件，请右键 → *Open With → Code Editor*（计划中），或临时改名为非 Markdown 扩展名后再打开。
 
-### 设置
+### 设置（VS Code 风格 JSON）
 
-通过 **文件 → 设置** 或 `Ctrl+,` 打开设置对话框。偏好设置分为 7 个类别：
+> 自需求 **2026-04-27-4** 起，所有偏好以单一 JSON 文件存储 —— 与 VS Code
+> 完全一致。原 `QSettings` 存储在首次启动时自动迁移。
 
-| 类别 | 选项 |
-|------|------|
-| **外观** | 主题、UI 字体和大小 |
-| **编辑器** | 字体、大小、Tab 宽度、自动换行、显示空白字符、行号 |
-| **编译器** | 默认优化级别、目标架构、C++ 标准、额外标志 |
-| **环境** | 项目根目录、CMake 路径、调试器路径、PATH 覆盖 |
-| **构建** | 默认生成器、构建类型、并行任务数、CMake 额外参数 |
-| **调试** | 首选调试器（lldb/gdb/自动）、入口停止、异常断点 |
-| **键绑定** | 查看和参考所有键盘快捷键 |
+**三层覆盖（优先级由低到高）：**
 
-所有设置通过 `QSettings`（"PolyglotCompiler"/"IDE"）持久化，点击 **应用** 或 **确定** 后立即生效。
+| 层级       | 位置                                                                       |
+|------------|----------------------------------------------------------------------------|
+| 默认       | 内嵌资源（只读）                                                            |
+| 用户       | `%APPDATA%\PolyglotCompiler\settings.json`（Windows） / `~/.config/PolyglotCompiler/settings.json`（Linux） / `~/Library/Application Support/PolyglotCompiler/settings.json`（macOS） |
+| 工程       | `<workspace>/.polyglot/settings.json`                                      |
+
+**编辑方式：**
+
+- **表单视图** —— `文件 → 设置`（或在命令面板执行
+  `Preferences: Open Settings`）。表单由 `settings_schema.json` 自动生成，
+  每行显示来源徽标（`(default)` / `(user)` / `(workspace)`）。
+- **JSON 视图** —— 表单顶部按钮直接在编辑器标签页中打开
+  `settings.json`（用户/工程/默认）。保存文件触发 200 ms 防抖热重载，
+  无需重启。
+- **工程级覆盖** —— 通过命令 *Open Workspace Settings (JSON)* 创建
+  `.polyglot/settings.json`（不存在时自动生成）。
+
+**命令面板：** 按 `Ctrl+Shift+P` 打开命令面板，执行任意已注册命令
+（`Preferences: Open Settings (JSON)`、`Preferences: Open Keyboard Shortcuts (JSON)`、
+`File: Save / Save As / Open / New Untitled`、
+`Markdown: Toggle Preview` 等）。
+
+**自定义快捷键** 保存在 `settings.json` 同级目录的 `keybindings.json`，
+使用与 VS Code 一致的 schema：
+
+```json
+[
+  { "key": "ctrl+shift+m", "command": "editor.action.toggleMarkdownPreview" },
+  { "key": "ctrl+k ctrl+s", "command": "workbench.action.openKeybindings" }
+]
+```
+
+**CLI 工具**（`polyc`、`polyld`、`polyrt`、`polytopo`、`polybench`）读取
+同一份 `settings.json`，并支持两个额外标志：
+
+| 标志                              | 作用                                                  |
+|-----------------------------------|-------------------------------------------------------|
+| `--settings <path>`               | 用显式 JSON 路径覆盖用户层。                           |
+| `--print-effective-settings`      | 把合并后的生效 JSON 打印到 stdout 并退出 0。          |
+
+完整键参考与实现细节见 `docs/realization/settings_system_zh.md`。
 
 ### Git 集成
 
