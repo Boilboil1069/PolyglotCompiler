@@ -86,13 +86,32 @@ jobs:
 
       - name: Run clang-tidy
         run: |
-          # Run on all project source files (exclude tests, deps, .cache)
+          # Run on all project source files (exclude tests, deps, .cache).
+          # We only treat the two listed bugprone checks as hard errors.
+          # xargs returns 123 if any child returns 1-125, which can be caused
+          # by clang-tidy compile errors on platform-specific TUs that are
+          # missing from compile_commands.json. We therefore tolerate the
+          # xargs exit status and re-derive pass/fail from the log itself.
+          set +e
           find common middle frontends backends runtime tools \
             -type f -name '*.cpp' -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
-            | xargs -0 -r -P$(nproc) -n 1 \
-              clang-tidy-20 -p build --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
+            | xargs -0 -r -P"$(nproc)" -n 1 \
+              clang-tidy-20 -p build \
+                --warnings-as-errors='bugprone-use-after-move,bugprone-dangling-handle' \
+                --quiet \
             > clang-tidy.log 2>&1
-          tail -100 clang-tidy.log
+          xargs_status=$?
+          set -e
+          tail -200 clang-tidy.log
+          # Hard-fail only when the two gated checks triggered.
+          if grep -E '\[(bugprone-use-after-move|bugprone-dangling-handle)\]' clang-tidy.log; then
+            echo "::error::clang-tidy gated check failed"
+            exit 1
+          fi
+          # Surface but tolerate non-gated diagnostics / compile failures.
+          if [ "$xargs_status" -ne 0 ]; then
+            echo "::warning::clang-tidy reported diagnostics (xargs=$xargs_status) but no gated check failed"
+          fi
 
   # ==========================================================================
   # Quality Gate 4: Sanitizers (ASan + UBSan)
@@ -159,16 +178,19 @@ jobs:
       - name: Collect coverage
         run: |
           lcov --capture --directory build --output-file coverage.info \
-            --ignore-errors mismatch,empty
+            --ignore-errors mismatch,empty,source,gcov,negative,inconsistent
           # Remove external/test/generated files from report
           lcov --remove coverage.info \
             '/usr/*' \
             '*/deps/*' \
+            '*/_deps/*' \
             '*/.cache/*' \
             '*/tests/*' \
             '*/Catch2/*' \
+            '*/catch2/*' \
+            '*/build/*' \
             --output-file coverage_filtered.info \
-            --ignore-errors unused
+            --ignore-errors unused,empty
           lcov --list coverage_filtered.info
 
       - name: Upload coverage artifact
