@@ -11,14 +11,13 @@
  * @version  2.0.0
  */
 
-#include "common/include/core/symbols.h"
-
 #include <algorithm>
+#include <fmt/format.h>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
-#include <fmt/format.h>
+#include "common/include/core/symbols.h"
 
 namespace polyglot::core {
 
@@ -28,24 +27,36 @@ namespace polyglot::core {
 
 std::string SymbolKindToString(SymbolKind kind) {
   switch (kind) {
-    case SymbolKind::kVariable:  return "Variable";
-    case SymbolKind::kFunction:  return "Function";
-    case SymbolKind::kTypeName:  return "TypeName";
-    case SymbolKind::kModule:    return "Module";
-    case SymbolKind::kParameter: return "Parameter";
-    case SymbolKind::kField:     return "Field";
+  case SymbolKind::kVariable:
+    return "Variable";
+  case SymbolKind::kFunction:
+    return "Function";
+  case SymbolKind::kTypeName:
+    return "TypeName";
+  case SymbolKind::kModule:
+    return "Module";
+  case SymbolKind::kParameter:
+    return "Parameter";
+  case SymbolKind::kField:
+    return "Field";
   }
   return "Unknown";
 }
 
 std::string ScopeKindToString(ScopeKind kind) {
   switch (kind) {
-    case ScopeKind::kGlobal:        return "Global";
-    case ScopeKind::kModule:        return "Module";
-    case ScopeKind::kFunction:      return "Function";
-    case ScopeKind::kClass:         return "Class";
-    case ScopeKind::kBlock:         return "Block";
-    case ScopeKind::kComprehension: return "Comprehension";
+  case ScopeKind::kGlobal:
+    return "Global";
+  case ScopeKind::kModule:
+    return "Module";
+  case ScopeKind::kFunction:
+    return "Function";
+  case ScopeKind::kClass:
+    return "Class";
+  case ScopeKind::kBlock:
+    return "Block";
+  case ScopeKind::kComprehension:
+    return "Comprehension";
   }
   return "Unknown";
 }
@@ -54,8 +65,8 @@ std::string FormatSymbol(const Symbol &sym) {
   // Use fmt::memory_buffer to compose the diagnostic line in a single
   // allocation pass instead of repeatedly resizing a std::ostringstream.
   fmt::memory_buffer buf;
-  fmt::format_to(std::back_inserter(buf), "{} '{}' : {}",
-                 SymbolKindToString(sym.kind), sym.name, sym.type.ToString());
+  fmt::format_to(std::back_inserter(buf), "{} '{}' : {}", SymbolKindToString(sym.kind), sym.name,
+                 sym.type.ToString());
   if (!sym.language.empty()) {
     fmt::format_to(std::back_inserter(buf), " [{}]", sym.language);
   }
@@ -69,16 +80,15 @@ std::string FormatSymbol(const Symbol &sym) {
     fmt::format_to(std::back_inserter(buf), " @scope={}", sym.scope_id);
   }
   if (!sym.loc.file.empty()) {
-    fmt::format_to(std::back_inserter(buf), " at {}:{}:{}",
-                   sym.loc.file, sym.loc.line, sym.loc.column);
+    fmt::format_to(std::back_inserter(buf), " at {}:{}:{}", sym.loc.file, sym.loc.line,
+                   sym.loc.column);
   }
   return fmt::to_string(buf);
 }
 
 std::string FormatScope(const ScopeInfo &scope) {
-  return fmt::format("{} '{}' (id={}, parent={})",
-                     ScopeKindToString(scope.kind), scope.name,
+  return fmt::format("{} '{}' (id={}, parent={})", ScopeKindToString(scope.kind), scope.name,
                      scope.id, scope.parent);
 }
 
-}  // namespace polyglot::core
+} // namespace polyglot::core

@@ -19,27 +19,26 @@
  * @date     2026-04-26
  */
 
-#include "runtime/include/libs/python_rt.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "runtime/include/libs/base.h"
+#include "runtime/include/libs/python_rt.h"
 #include "runtime/include/memory/polyglot_alloc.h"
 
 #ifdef _WIN32
 #include <windows.h>
 typedef HMODULE py_lib_t;
-#define PY_LOAD(path)     LoadLibraryA(path)
+#define PY_LOAD(path) LoadLibraryA(path)
 #define PY_SYM(lib, name) ((void *)GetProcAddress((lib), (name)))
-#define PY_UNLOAD(lib)    FreeLibrary(lib)
+#define PY_UNLOAD(lib) FreeLibrary(lib)
 #else
 #include <dlfcn.h>
 typedef void *py_lib_t;
-#define PY_LOAD(path)     dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
+#define PY_LOAD(path) dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
 #define PY_SYM(lib, name) dlsym((lib), (name))
-#define PY_UNLOAD(lib)    dlclose(lib)
+#define PY_UNLOAD(lib) dlclose(lib)
 #endif
 
 // ----------------------------------------------------------------------------
@@ -80,7 +79,7 @@ typedef void (*PyErr_Print_fn)(void);
 
 static py_lib_t py_lib_ = NULL;
 static int py_version_hint_ = 0;
-static int py_owns_init_ = 0;  // did we call Py_Initialize ourselves?
+static int py_owns_init_ = 0; // did we call Py_Initialize ourselves?
 
 static Py_Initialize_fn Py_Initialize_ = NULL;
 static Py_InitializeEx_fn Py_InitializeEx_ = NULL;
@@ -115,7 +114,7 @@ static int py_alive(void) {
 // ----------------------------------------------------------------------------
 
 typedef enum {
-  POLYGLOT_PY_VAL_PYOBJ = 0,  // strong reference to a PyObject
+  POLYGLOT_PY_VAL_PYOBJ = 0, // strong reference to a PyObject
   POLYGLOT_PY_VAL_STRING,
   POLYGLOT_PY_VAL_INT,
   POLYGLOT_PY_VAL_FLOAT,
@@ -125,7 +124,7 @@ typedef enum {
 typedef struct {
   polyglot_py_val_kind_t kind;
   union {
-    PyObject *obj;  // strong ref (Py_IncRef on wrap, Py_DecRef on release)
+    PyObject *obj; // strong ref (Py_IncRef on wrap, Py_DecRef on release)
     char *str;
     long long i64;
     double f64;
@@ -133,37 +132,42 @@ typedef struct {
 } polyglot_py_value_t;
 
 static polyglot_py_value_t *new_descriptor(polyglot_py_val_kind_t kind) {
-  polyglot_py_value_t *v =
-      (polyglot_py_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (v) v->kind = kind;
+  polyglot_py_value_t *v = (polyglot_py_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (v)
+    v->kind = kind;
   return v;
 }
 
 static polyglot_py_value_t *wrap_pyobject(PyObject *obj) {
-  if (!obj) return NULL;
+  if (!obj)
+    return NULL;
   polyglot_py_value_t *v = new_descriptor(POLYGLOT_PY_VAL_PYOBJ);
-  if (!v) return NULL;
+  if (!v)
+    return NULL;
   v->as.obj = obj;
-  if (Py_IncRef_) Py_IncRef_(obj);
+  if (Py_IncRef_)
+    Py_IncRef_(obj);
   return v;
 }
 
 // Convert any descriptor into a fresh PyObject* (caller owns one ref).
 // Returns NULL when the engine isn't alive or kind unsupported.
 static PyObject *descriptor_to_pyobject(const polyglot_py_value_t *v) {
-  if (!v || !py_alive()) return NULL;
+  if (!v || !py_alive())
+    return NULL;
   switch (v->kind) {
-    case POLYGLOT_PY_VAL_PYOBJ:
-      if (v->as.obj && Py_IncRef_) Py_IncRef_(v->as.obj);
-      return v->as.obj;
-    case POLYGLOT_PY_VAL_STRING:
-      return PyUnicode_FromString_ ? PyUnicode_FromString_(v->as.str) : NULL;
-    case POLYGLOT_PY_VAL_INT:
-      return PyLong_FromLongLong_ ? PyLong_FromLongLong_(v->as.i64) : NULL;
-    case POLYGLOT_PY_VAL_FLOAT:
-      return PyFloat_FromDouble_ ? PyFloat_FromDouble_(v->as.f64) : NULL;
-    case POLYGLOT_PY_VAL_NONE:
-      return NULL;
+  case POLYGLOT_PY_VAL_PYOBJ:
+    if (v->as.obj && Py_IncRef_)
+      Py_IncRef_(v->as.obj);
+    return v->as.obj;
+  case POLYGLOT_PY_VAL_STRING:
+    return PyUnicode_FromString_ ? PyUnicode_FromString_(v->as.str) : NULL;
+  case POLYGLOT_PY_VAL_INT:
+    return PyLong_FromLongLong_ ? PyLong_FromLongLong_(v->as.i64) : NULL;
+  case POLYGLOT_PY_VAL_FLOAT:
+    return PyFloat_FromDouble_ ? PyFloat_FromDouble_(v->as.f64) : NULL;
+  case POLYGLOT_PY_VAL_NONE:
+    return NULL;
   }
   return NULL;
 }
@@ -173,7 +177,8 @@ static PyObject *descriptor_to_pyobject(const polyglot_py_value_t *v) {
 // ----------------------------------------------------------------------------
 
 static int try_load(const char *path) {
-  if (!path || !path[0]) return 0;
+  if (!path || !path[0])
+    return 0;
   py_lib_ = PY_LOAD(path);
   return py_lib_ ? 1 : 0;
 }
@@ -181,11 +186,13 @@ static int try_load(const char *path) {
 static int load_libpython(int hint) {
   // 1. explicit override
   const char *override_path = getenv("POLYGLOT_PYTHON_LIBRARY");
-  if (override_path && try_load(override_path)) return 0;
+  if (override_path && try_load(override_path))
+    return 0;
 
   // 2. PYTHONHOME / PYTHON_HOME
   const char *home = getenv("PYTHONHOME");
-  if (!home) home = getenv("PYTHON_HOME");
+  if (!home)
+    home = getenv("PYTHON_HOME");
   char path[1024];
 
   // Versions to try, ordered by `hint` then descending.
@@ -197,11 +204,14 @@ static int load_libpython(int hint) {
     if (v == 0) {
       // generic name, no version
 #ifdef _WIN32
-      if (try_load("python3.dll")) return 0;
+      if (try_load("python3.dll"))
+        return 0;
 #elif defined(__APPLE__)
-      if (try_load("libpython3.dylib")) return 0;
+      if (try_load("libpython3.dylib"))
+        return 0;
 #else
-      if (try_load("libpython3.so")) return 0;
+      if (try_load("libpython3.so"))
+        return 0;
 #endif
       continue;
     }
@@ -210,31 +220,40 @@ static int load_libpython(int hint) {
     if (home && home[0]) {
       char with_home[1024];
       snprintf(with_home, sizeof(with_home), "%s\\%s", home, path);
-      if (try_load(with_home)) return 0;
+      if (try_load(with_home))
+        return 0;
     }
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
 #elif defined(__APPLE__)
     snprintf(path, sizeof(path), "libpython%d.%d.dylib", major, minor);
     if (home && home[0]) {
       char with_home[1024];
       snprintf(with_home, sizeof(with_home), "%s/lib/%s", home, path);
-      if (try_load(with_home)) return 0;
+      if (try_load(with_home))
+        return 0;
     }
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
     snprintf(path, sizeof(path), "libpython%d.%dm.dylib", major, minor);
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
 #else
     snprintf(path, sizeof(path), "libpython%d.%d.so.1.0", major, minor);
     if (home && home[0]) {
       char with_home[1024];
       snprintf(with_home, sizeof(with_home), "%s/lib/%s", home, path);
-      if (try_load(with_home)) return 0;
+      if (try_load(with_home))
+        return 0;
     }
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
     snprintf(path, sizeof(path), "libpython%d.%d.so", major, minor);
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
     snprintf(path, sizeof(path), "libpython%d.%dm.so.1.0", major, minor);
-    if (try_load(path)) return 0;
+    if (try_load(path))
+      return 0;
 #endif
   }
   return -1;
@@ -276,12 +295,12 @@ static void resolve_symbols(void) {
 
 int polyglot_python_init(int version_hint) {
   py_version_hint_ = version_hint;
-  if (py_lib_) return 0;  // already loaded
+  if (py_lib_)
+    return 0; // already loaded
 
   if (load_libpython(version_hint) != 0) {
-    fprintf(stderr,
-            "[polyglot-python] warning: no libpython3.x shared library "
-            "found. Python helpers fall back to standalone mode.\n");
+    fprintf(stderr, "[polyglot-python] warning: no libpython3.x shared library "
+                    "found. Python helpers fall back to standalone mode.\n");
     return -1;
   }
   resolve_symbols();
@@ -298,7 +317,7 @@ int polyglot_python_init(int version_hint) {
 
   if (Py_IsInitialized_() == 0) {
     if (Py_InitializeEx_) {
-      Py_InitializeEx_(0);  // 0 = don't install signal handlers
+      Py_InitializeEx_(0); // 0 = don't install signal handlers
     } else {
       Py_Initialize_();
     }
@@ -347,26 +366,32 @@ void polyglot_python_shutdown(void) {
 // ----------------------------------------------------------------------------
 
 void polyglot_python_print(const char *message) {
-  if (!message) return;
+  if (!message)
+    return;
   printf("%s\n", message);
 }
 
 char *polyglot_python_strdup_gc(const char *message, void ***root_handle_out) {
-  if (!message) return NULL;
+  if (!message)
+    return NULL;
   size_t len = strlen(message) + 1;
   char *buf = (char *)polyglot_alloc(len);
-  if (!buf) return NULL;
+  if (!buf)
+    return NULL;
   memcpy(buf, message, len);
   polyglot_gc_register_root((void **)&buf);
-  if (root_handle_out) *root_handle_out = (void **)&buf;
+  if (root_handle_out)
+    *root_handle_out = (void **)&buf;
   return buf;
 }
 
 void polyglot_python_release(char **ptr, void ***root_handle) {
-  if (!ptr || !*ptr) return;
+  if (!ptr || !*ptr)
+    return;
   polyglot_gc_unregister_root((void **)ptr);
   *ptr = NULL;
-  if (root_handle) *root_handle = NULL;
+  if (root_handle)
+    *root_handle = NULL;
 }
 
 // ----------------------------------------------------------------------------
@@ -374,192 +399,237 @@ void polyglot_python_release(char **ptr, void ***root_handle) {
 // ----------------------------------------------------------------------------
 
 int polyglot_python_run_string(const char *source) {
-  if (!source) return -1;
-  if (!py_alive() || !PyRun_SimpleStringFlags_) return -1;
+  if (!source)
+    return -1;
+  if (!py_alive() || !PyRun_SimpleStringFlags_)
+    return -1;
   int rc = PyRun_SimpleStringFlags_(source, NULL);
-  if (rc != 0 && PyErr_Print_) PyErr_Print_();
+  if (rc != 0 && PyErr_Print_)
+    PyErr_Print_();
   return rc;
 }
 
 void *polyglot_python_import(const char *module_name) {
-  if (!module_name || !py_alive() || !PyImport_ImportModule_) return NULL;
+  if (!module_name || !py_alive() || !PyImport_ImportModule_)
+    return NULL;
   PyObject *mod = PyImport_ImportModule_(module_name);
   if (!mod) {
-    if (PyErr_Print_) PyErr_Print_();
+    if (PyErr_Print_)
+      PyErr_Print_();
     return NULL;
   }
   polyglot_py_value_t *v = wrap_pyobject(mod);
-  if (Py_DecRef_) Py_DecRef_(mod);  // wrap took its own ref
+  if (Py_DecRef_)
+    Py_DecRef_(mod); // wrap took its own ref
   return v;
 }
 
 void *polyglot_python_get_attr(void *object, const char *name) {
-  if (!object || !name || !py_alive() || !PyObject_GetAttrString_) return NULL;
+  if (!object || !name || !py_alive() || !PyObject_GetAttrString_)
+    return NULL;
   polyglot_py_value_t *o = (polyglot_py_value_t *)object;
-  if (o->kind != POLYGLOT_PY_VAL_PYOBJ || !o->as.obj) return NULL;
+  if (o->kind != POLYGLOT_PY_VAL_PYOBJ || !o->as.obj)
+    return NULL;
   PyObject *attr = PyObject_GetAttrString_(o->as.obj, name);
   if (!attr) {
-    if (PyErr_Clear_) PyErr_Clear_();
+    if (PyErr_Clear_)
+      PyErr_Clear_();
     return NULL;
   }
   polyglot_py_value_t *v = wrap_pyobject(attr);
-  if (Py_DecRef_) Py_DecRef_(attr);
+  if (Py_DecRef_)
+    Py_DecRef_(attr);
   return v;
 }
 
 int polyglot_python_set_attr(void *object, const char *name, void *value) {
-  if (!object || !name || !py_alive() || !PyObject_SetAttrString_) return -1;
+  if (!object || !name || !py_alive() || !PyObject_SetAttrString_)
+    return -1;
   polyglot_py_value_t *o = (polyglot_py_value_t *)object;
-  if (o->kind != POLYGLOT_PY_VAL_PYOBJ || !o->as.obj) return -1;
+  if (o->kind != POLYGLOT_PY_VAL_PYOBJ || !o->as.obj)
+    return -1;
   PyObject *raw = descriptor_to_pyobject((polyglot_py_value_t *)value);
-  if (!raw) return -1;
+  if (!raw)
+    return -1;
   int rc = PyObject_SetAttrString_(o->as.obj, name, raw);
-  if (Py_DecRef_) Py_DecRef_(raw);
-  if (rc != 0 && PyErr_Clear_) PyErr_Clear_();
+  if (Py_DecRef_)
+    Py_DecRef_(raw);
+  if (rc != 0 && PyErr_Clear_)
+    PyErr_Clear_();
   return rc == 0 ? 0 : -1;
 }
 
 void *polyglot_python_call(void *callable, const void *const *args, int arg_count) {
-  if (!callable || !py_alive() || !PyObject_CallObject_) return NULL;
+  if (!callable || !py_alive() || !PyObject_CallObject_)
+    return NULL;
   polyglot_py_value_t *fn = (polyglot_py_value_t *)callable;
-  if (fn->kind != POLYGLOT_PY_VAL_PYOBJ || !fn->as.obj) return NULL;
+  if (fn->kind != POLYGLOT_PY_VAL_PYOBJ || !fn->as.obj)
+    return NULL;
 
   PyObject *tuple = NULL;
   if (arg_count > 0 && PyTuple_New_ && PyTuple_SetItem_) {
     tuple = PyTuple_New_((long long)arg_count);
-    if (!tuple) return NULL;
+    if (!tuple)
+      return NULL;
     for (int i = 0; i < arg_count; ++i) {
       PyObject *a = descriptor_to_pyobject((const polyglot_py_value_t *)args[i]);
       // PyTuple_SetItem steals the reference, which matches what we want.
       if (!a || PyTuple_SetItem_(tuple, (long long)i, a) != 0) {
-        if (Py_DecRef_) Py_DecRef_(tuple);
-        if (PyErr_Clear_) PyErr_Clear_();
+        if (Py_DecRef_)
+          Py_DecRef_(tuple);
+        if (PyErr_Clear_)
+          PyErr_Clear_();
         return NULL;
       }
     }
   }
 
   PyObject *result = PyObject_CallObject_(fn->as.obj, tuple);
-  if (tuple && Py_DecRef_) Py_DecRef_(tuple);
+  if (tuple && Py_DecRef_)
+    Py_DecRef_(tuple);
   if (!result) {
-    if (PyErr_Print_) PyErr_Print_();
+    if (PyErr_Print_)
+      PyErr_Print_();
     return NULL;
   }
   polyglot_py_value_t *out = wrap_pyobject(result);
-  if (Py_DecRef_) Py_DecRef_(result);
+  if (Py_DecRef_)
+    Py_DecRef_(result);
   return out;
 }
 
-void *polyglot_python_call_method(void *receiver, const char *method_name,
-                                  const void *const *args, int arg_count) {
-  if (!receiver || !method_name) return NULL;
+void *polyglot_python_call_method(void *receiver, const char *method_name, const void *const *args,
+                                  int arg_count) {
+  if (!receiver || !method_name)
+    return NULL;
   void *callable = polyglot_python_get_attr(receiver, method_name);
-  if (!callable) return NULL;
+  if (!callable)
+    return NULL;
   void *out = polyglot_python_call(callable, args, arg_count);
   polyglot_python_release_value(callable);
   return out;
 }
 
 char *polyglot_python_value_to_string(void *value, void ***root_handle_out) {
-  if (!value) return NULL;
+  if (!value)
+    return NULL;
   polyglot_py_value_t *v = (polyglot_py_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_PY_VAL_STRING:
-      return polyglot_python_strdup_gc(v->as.str, root_handle_out);
-    case POLYGLOT_PY_VAL_INT: {
-      char buf[32];
-      snprintf(buf, sizeof(buf), "%lld", v->as.i64);
-      return polyglot_python_strdup_gc(buf, root_handle_out);
-    }
-    case POLYGLOT_PY_VAL_FLOAT: {
-      char buf[64];
-      snprintf(buf, sizeof(buf), "%g", v->as.f64);
-      return polyglot_python_strdup_gc(buf, root_handle_out);
-    }
-    case POLYGLOT_PY_VAL_NONE:
-      return polyglot_python_strdup_gc("None", root_handle_out);
-    case POLYGLOT_PY_VAL_PYOBJ:
-      break;
+  case POLYGLOT_PY_VAL_STRING:
+    return polyglot_python_strdup_gc(v->as.str, root_handle_out);
+  case POLYGLOT_PY_VAL_INT: {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%lld", v->as.i64);
+    return polyglot_python_strdup_gc(buf, root_handle_out);
   }
-  if (!py_alive() || !PyObject_Str_ || !PyUnicode_AsUTF8_) return NULL;
+  case POLYGLOT_PY_VAL_FLOAT: {
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%g", v->as.f64);
+    return polyglot_python_strdup_gc(buf, root_handle_out);
+  }
+  case POLYGLOT_PY_VAL_NONE:
+    return polyglot_python_strdup_gc("None", root_handle_out);
+  case POLYGLOT_PY_VAL_PYOBJ:
+    break;
+  }
+  if (!py_alive() || !PyObject_Str_ || !PyUnicode_AsUTF8_)
+    return NULL;
   PyObject *s = PyObject_Str_(v->as.obj);
   if (!s) {
-    if (PyErr_Clear_) PyErr_Clear_();
+    if (PyErr_Clear_)
+      PyErr_Clear_();
     return NULL;
   }
   const char *utf8 = PyUnicode_AsUTF8_(s);
   char *gc = utf8 ? polyglot_python_strdup_gc(utf8, root_handle_out) : NULL;
-  if (Py_DecRef_) Py_DecRef_(s);
+  if (Py_DecRef_)
+    Py_DecRef_(s);
   return gc;
 }
 
 long long polyglot_python_value_to_int(void *value) {
-  if (!value) return 0;
+  if (!value)
+    return 0;
   polyglot_py_value_t *v = (polyglot_py_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_PY_VAL_INT: return v->as.i64;
-    case POLYGLOT_PY_VAL_FLOAT: return (long long)v->as.f64;
-    case POLYGLOT_PY_VAL_STRING: return v->as.str ? atoll(v->as.str) : 0;
-    case POLYGLOT_PY_VAL_NONE: return 0;
-    case POLYGLOT_PY_VAL_PYOBJ:
-      if (py_alive() && PyLong_AsLongLong_) {
-        long long out = PyLong_AsLongLong_(v->as.obj);
-        if (PyErr_Occurred_ && PyErr_Occurred_()) {
-          if (PyErr_Clear_) PyErr_Clear_();
-          return 0;
-        }
-        return out;
+  case POLYGLOT_PY_VAL_INT:
+    return v->as.i64;
+  case POLYGLOT_PY_VAL_FLOAT:
+    return (long long)v->as.f64;
+  case POLYGLOT_PY_VAL_STRING:
+    return v->as.str ? atoll(v->as.str) : 0;
+  case POLYGLOT_PY_VAL_NONE:
+    return 0;
+  case POLYGLOT_PY_VAL_PYOBJ:
+    if (py_alive() && PyLong_AsLongLong_) {
+      long long out = PyLong_AsLongLong_(v->as.obj);
+      if (PyErr_Occurred_ && PyErr_Occurred_()) {
+        if (PyErr_Clear_)
+          PyErr_Clear_();
+        return 0;
       }
-      return 0;
+      return out;
+    }
+    return 0;
   }
   return 0;
 }
 
 double polyglot_python_value_to_float(void *value) {
-  if (!value) return 0.0;
+  if (!value)
+    return 0.0;
   polyglot_py_value_t *v = (polyglot_py_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_PY_VAL_FLOAT: return v->as.f64;
-    case POLYGLOT_PY_VAL_INT: return (double)v->as.i64;
-    case POLYGLOT_PY_VAL_STRING: return v->as.str ? atof(v->as.str) : 0.0;
-    case POLYGLOT_PY_VAL_NONE: return 0.0;
-    case POLYGLOT_PY_VAL_PYOBJ:
-      if (py_alive() && PyFloat_AsDouble_) {
-        double out = PyFloat_AsDouble_(v->as.obj);
-        if (PyErr_Occurred_ && PyErr_Occurred_()) {
-          if (PyErr_Clear_) PyErr_Clear_();
-          return 0.0;
-        }
-        return out;
+  case POLYGLOT_PY_VAL_FLOAT:
+    return v->as.f64;
+  case POLYGLOT_PY_VAL_INT:
+    return (double)v->as.i64;
+  case POLYGLOT_PY_VAL_STRING:
+    return v->as.str ? atof(v->as.str) : 0.0;
+  case POLYGLOT_PY_VAL_NONE:
+    return 0.0;
+  case POLYGLOT_PY_VAL_PYOBJ:
+    if (py_alive() && PyFloat_AsDouble_) {
+      double out = PyFloat_AsDouble_(v->as.obj);
+      if (PyErr_Occurred_ && PyErr_Occurred_()) {
+        if (PyErr_Clear_)
+          PyErr_Clear_();
+        return 0.0;
       }
-      return 0.0;
+      return out;
+    }
+    return 0.0;
   }
   return 0.0;
 }
 
 void *polyglot_python_string_value(const char *utf8) {
   polyglot_py_value_t *v = new_descriptor(POLYGLOT_PY_VAL_STRING);
-  if (!v) return NULL;
+  if (!v)
+    return NULL;
   size_t len = utf8 ? strlen(utf8) : 0;
   v->as.str = (char *)polyglot_raw_malloc(len + 1);
   if (!v->as.str) {
     polyglot_raw_free(v);
     return NULL;
   }
-  if (utf8) memcpy(v->as.str, utf8, len);
+  if (utf8)
+    memcpy(v->as.str, utf8, len);
   v->as.str[len] = '\0';
   return v;
 }
 
 void *polyglot_python_integer_value(long long n) {
   polyglot_py_value_t *v = new_descriptor(POLYGLOT_PY_VAL_INT);
-  if (v) v->as.i64 = n;
+  if (v)
+    v->as.i64 = n;
   return v;
 }
 
 void *polyglot_python_float_value(double n) {
   polyglot_py_value_t *v = new_descriptor(POLYGLOT_PY_VAL_FLOAT);
-  if (v) v->as.f64 = n;
+  if (v)
+    v->as.f64 = n;
   return v;
 }
 
@@ -568,19 +638,22 @@ void *polyglot_python_none_value(void) {
 }
 
 void polyglot_python_release_value(void *value) {
-  if (!value) return;
+  if (!value)
+    return;
   polyglot_py_value_t *v = (polyglot_py_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_PY_VAL_PYOBJ:
-      if (v->as.obj && Py_DecRef_) Py_DecRef_(v->as.obj);
-      break;
-    case POLYGLOT_PY_VAL_STRING:
-      if (v->as.str) polyglot_raw_free(v->as.str);
-      break;
-    case POLYGLOT_PY_VAL_INT:
-    case POLYGLOT_PY_VAL_FLOAT:
-    case POLYGLOT_PY_VAL_NONE:
-      break;
+  case POLYGLOT_PY_VAL_PYOBJ:
+    if (v->as.obj && Py_DecRef_)
+      Py_DecRef_(v->as.obj);
+    break;
+  case POLYGLOT_PY_VAL_STRING:
+    if (v->as.str)
+      polyglot_raw_free(v->as.str);
+    break;
+  case POLYGLOT_PY_VAL_INT:
+  case POLYGLOT_PY_VAL_FLOAT:
+  case POLYGLOT_PY_VAL_NONE:
+    break;
   }
   polyglot_raw_free(v);
 }

@@ -6,33 +6,37 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "middle/include/ir/ssa.h"
-
 #include <stack>
 #include <vector>
 
+#include "middle/include/ir/ssa.h"
+
 namespace polyglot::ir {
 
-static std::unordered_map<std::string, std::unordered_set<BasicBlock *>>
-CollectDefSites(Function &func) {
+static std::unordered_map<std::string, std::unordered_set<BasicBlock *>> CollectDefSites(
+    Function &func) {
   std::unordered_map<std::string, std::unordered_set<BasicBlock *>> defsites;
   for (auto &bb_ptr : func.blocks) {
     auto *bb = bb_ptr.get();
     for (auto &phi : bb->phis) {
-      if (!phi->name.empty()) defsites[phi->name].insert(bb);
+      if (!phi->name.empty())
+        defsites[phi->name].insert(bb);
     }
     for (auto &inst : bb->instructions) {
-      if (inst->HasResult()) defsites[inst->name].insert(bb);
+      if (inst->HasResult())
+        defsites[inst->name].insert(bb);
       if (auto *assign = dynamic_cast<AssignInstruction *>(inst.get())) {
-        if (assign->HasResult()) defsites[assign->name].insert(bb);
+        if (assign->HasResult())
+          defsites[assign->name].insert(bb);
       }
     }
   }
   return defsites;
 }
 
-void InsertPhiNodes(Function &func, const DominanceFrontier &df,
-                    const std::unordered_map<std::string, std::unordered_set<BasicBlock *>> &defsites) {
+void InsertPhiNodes(
+    Function &func, const DominanceFrontier &df,
+    const std::unordered_map<std::string, std::unordered_set<BasicBlock *>> &defsites) {
   for (const auto &[var, blocks] : defsites) {
     std::unordered_set<BasicBlock *> has_already;
     std::vector<BasicBlock *> worklist(blocks.begin(), blocks.end());
@@ -40,11 +44,12 @@ void InsertPhiNodes(Function &func, const DominanceFrontier &df,
       auto *x = worklist.back();
       worklist.pop_back();
       auto it = df.find(x);
-      if (it == df.end()) continue;
+      if (it == df.end())
+        continue;
       for (auto *y : it->second) {
         if (has_already.insert(y).second) {
           auto phi = std::make_shared<PhiInstruction>();
-          phi->name = var;  // will be versioned during renaming
+          phi->name = var; // will be versioned during renaming
           // placeholder incomings for all preds
           for (auto *pred : y->predecessors) {
             phi->incomings.push_back({pred, var});
@@ -72,7 +77,8 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
 
   auto current_top = [&](const std::string &base) -> std::string {
     auto it = stacks.find(base);
-    if (it == stacks.end() || it->second.empty()) return base;
+    if (it == stacks.end() || it->second.empty())
+      return base;
     int v = it->second.back();
     return base + "_" + std::to_string(v);
   };
@@ -141,7 +147,8 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
       auto base_end = (*it)->name.find_last_of('_');
       if (base_end != std::string::npos) {
         std::string base = (*it)->name.substr(0, base_end);
-        if (!stacks[base].empty()) stacks[base].pop_back();
+        if (!stacks[base].empty())
+          stacks[base].pop_back();
       }
     }
   }
@@ -150,14 +157,16 @@ static void RenameBlock(BasicBlock *bb, const DominatorTree &dom_tree,
       auto base_end = (*it)->name.find_last_of('_');
       if (base_end != std::string::npos) {
         std::string base = (*it)->name.substr(0, base_end);
-        if (!stacks[base].empty()) stacks[base].pop_back();
+        if (!stacks[base].empty())
+          stacks[base].pop_back();
       }
     }
   }
 }
 
 void RenameToSSA(Function &func, const DominatorTree &dom_tree) {
-  if (!func.entry) return;
+  if (!func.entry)
+    return;
   std::unordered_map<std::string, std::vector<int>> stacks;
   std::unordered_map<std::string, int> counters;
   std::unordered_set<std::string> pre_defined(func.params.begin(), func.params.end());
@@ -173,12 +182,13 @@ static void RemoveTrivialPhis(Function &func) {
     changed = false;
     for (auto &bb_ptr : func.blocks) {
       auto *bb = bb_ptr.get();
-      for (auto it = bb->phis.begin(); it != bb->phis.end(); ) {
+      for (auto it = bb->phis.begin(); it != bb->phis.end();) {
         auto &phi = *it;
         std::string unique_val;
         bool trivial = true;
         for (auto &inc : phi->incomings) {
-          if (inc.second == phi->name || inc.second == "undef") continue;  // self-reference or undef
+          if (inc.second == phi->name || inc.second == "undef")
+            continue; // self-reference or undef
           if (unique_val.empty()) {
             unique_val = inc.second;
           } else if (inc.second != unique_val) {
@@ -194,13 +204,15 @@ static void RemoveTrivialPhis(Function &func) {
         const std::string old_name = phi->name;
         auto replace_in = [&](std::vector<std::string> &ops) {
           for (auto &op : ops) {
-            if (op == old_name) op = unique_val;
+            if (op == old_name)
+              op = unique_val;
           }
         };
         for (auto &b : func.blocks) {
           for (auto &p : b->phis) {
             for (auto &inc : p->incomings) {
-              if (inc.second == old_name) inc.second = unique_val;
+              if (inc.second == old_name)
+                inc.second = unique_val;
             }
           }
           for (auto &inst : b->instructions) {
@@ -227,4 +239,4 @@ void ConvertToSSA(Function &func) {
   RemoveTrivialPhis(func);
 }
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

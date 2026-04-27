@@ -44,7 +44,7 @@ struct AliasInfo {
 
 /** @brief AnalysisCache class. */
 class AnalysisCache {
- public:
+public:
   explicit AnalysisCache(Function &func);
 
   void InvalidateAll();
@@ -59,7 +59,7 @@ class AnalysisCache {
   const LivenessInfo &GetLiveness();
   const AliasInfo &GetAliasInfo();
 
- private:
+private:
   Function &func_;
   ControlFlowGraph cfg_;
   DominatorTree dom_;
@@ -87,4 +87,4 @@ class AnalysisCache {
   void EnsureAlias();
 };
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

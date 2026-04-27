@@ -20,8 +20,9 @@ namespace polyglot::ir {
 void ConvertToSSA(Function &func);
 
 // Exposed helpers for testing or advanced pipelines.
-void InsertPhiNodes(Function &func, const DominanceFrontier &df,
-                    const std::unordered_map<std::string, std::unordered_set<BasicBlock *>> &defsites);
+void InsertPhiNodes(
+    Function &func, const DominanceFrontier &df,
+    const std::unordered_map<std::string, std::unordered_set<BasicBlock *>> &defsites);
 void RenameToSSA(Function &func, const DominatorTree &dom_tree);
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

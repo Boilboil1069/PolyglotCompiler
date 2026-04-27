@@ -8,9 +8,10 @@
  */
 #pragma once
 
-#include "frontends/java/include/java_ast.h"
-#include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
+
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/java/include/java_ast.h"
 
 namespace polyglot::java {
 

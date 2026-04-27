@@ -15,13 +15,10 @@ namespace polyglot::core {
 
 /** @brief Config class. */
 class Config {
- public:
-  void SetOption(const std::string &key, const std::string &value) {
-    options_[key] = value;
-  }
+public:
+  void SetOption(const std::string &key, const std::string &value) { options_[key] = value; }
 
-  std::string GetOption(const std::string &key,
-                        const std::string &default_value = "") const {
+  std::string GetOption(const std::string &key, const std::string &default_value = "") const {
     auto it = options_.find(key);
     if (it == options_.end()) {
       return default_value;
@@ -29,8 +26,8 @@ class Config {
     return it->second;
   }
 
- private:
+private:
   std::unordered_map<std::string, std::string> options_{};
 };
 
-}  // namespace polyglot::core
+} // namespace polyglot::core

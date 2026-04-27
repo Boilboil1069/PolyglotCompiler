@@ -21,23 +21,23 @@ namespace polyglot::backends::x86_64 {
 
 /** @brief InstructionScheduler class. */
 class InstructionScheduler {
- public:
+public:
   explicit InstructionScheduler(const MachineFunction &func) : function_(func) {}
 
   // Run instruction scheduling
   MachineFunction Schedule();
 
- private:
+private:
   // Data-dependency graph node
   /** @brief SchedNode data structure. */
   struct SchedNode {
     MachineInstr *inst;
-    std::vector<SchedNode *> predecessors;  // Dependency predecessors
-    std::vector<SchedNode *> successors;    // Dependency successors
-    int earliest_cycle{0};                  // Earliest schedulable cycle
-    int latest_cycle{INT_MAX};              // Latest schedulable cycle
-    int height{0};                          // Longest path to a leaf
-    int depth{0};                           // Longest path from root
+    std::vector<SchedNode *> predecessors; // Dependency predecessors
+    std::vector<SchedNode *> successors;   // Dependency successors
+    int earliest_cycle{0};                 // Earliest schedulable cycle
+    int latest_cycle{INT_MAX};             // Latest schedulable cycle
+    int height{0};                         // Longest path to a leaf
+    int depth{0};                          // Longest path from root
     bool scheduled{false};
   };
 
@@ -49,8 +49,7 @@ class InstructionScheduler {
   void ComputeCriticalPath(std::vector<std::unique_ptr<SchedNode>> &nodes);
 
   // List-scheduling algorithm
-  std::vector<MachineInstr> ListScheduling(
-      std::vector<std::unique_ptr<SchedNode>> &nodes);
+  std::vector<MachineInstr> ListScheduling(std::vector<std::unique_ptr<SchedNode>> &nodes);
 
   // Heuristic: pick the next instruction to schedule
   SchedNode *SelectNext(const std::vector<SchedNode *> &ready_list);
@@ -59,8 +58,7 @@ class InstructionScheduler {
   bool IsReady(const SchedNode *node) const;
 
   // Update the ready list after scheduling a node
-  void UpdateReadyList(std::vector<SchedNode *> &ready_list,
-                      const SchedNode *scheduled);
+  void UpdateReadyList(std::vector<SchedNode *> &ready_list, const SchedNode *scheduled);
 
   const MachineFunction &function_;
 };
@@ -70,7 +68,7 @@ class InstructionScheduler {
 
 /** @brief SoftwarePipeliner class. */
 class SoftwarePipeliner {
- public:
+public:
   /** @brief PipelineStage data structure. */
   struct PipelineStage {
     std::vector<MachineInstr> instructions;
@@ -79,16 +77,16 @@ class SoftwarePipeliner {
 
   /** @brief PipelineSchedule data structure. */
   struct PipelineSchedule {
-    std::vector<PipelineStage> prologue;   // Prologue
-    std::vector<PipelineStage> kernel;     // Kernel
-    std::vector<PipelineStage> epilogue;   // Epilogue
-    int initiation_interval{1};            // Initiation interval (II)
+    std::vector<PipelineStage> prologue; // Prologue
+    std::vector<PipelineStage> kernel;   // Kernel
+    std::vector<PipelineStage> epilogue; // Epilogue
+    int initiation_interval{1};          // Initiation interval (II)
   };
 
   // Simplified loop info
   /** @brief LoopInfo data structure. */
   struct LoopInfo {
-    int trip_count{-1};  // Trip count (-1 unknown)
+    int trip_count{-1}; // Trip count (-1 unknown)
     bool has_side_effects{false};
   };
 
@@ -96,13 +94,12 @@ class SoftwarePipeliner {
   static PipelineSchedule PipelineLoop(const std::vector<MachineInstr> &loop_body,
                                        const LoopInfo &loop_info);
 
- private:
+private:
   // Compute minimum initiation interval (MII)
   static int ComputeMII(const std::vector<MachineInstr> &body);
 
   // Modulo scheduling algorithm
-  static PipelineSchedule ModuloScheduling(const std::vector<MachineInstr> &body,
-                                           int target_ii);
+  static PipelineSchedule ModuloScheduling(const std::vector<MachineInstr> &body, int target_ii);
 };
 
 // Instruction Fusion
@@ -110,12 +107,11 @@ class SoftwarePipeliner {
 
 /** @brief InstructionFusion class. */
 class InstructionFusion {
- public:
+public:
   // Detect and fuse instruction patterns
-  static std::vector<MachineInstr> FuseInstructions(
-      const std::vector<MachineInstr> &insts);
+  static std::vector<MachineInstr> FuseInstructions(const std::vector<MachineInstr> &insts);
 
- private:
+private:
   // LEA fusion: add/mul -> lea
   static bool FuseToLEA(std::vector<MachineInstr> &insts, size_t pos);
 
@@ -134,32 +130,26 @@ class InstructionFusion {
 
 /** @brief MicroOpInfo data structure. */
 struct MicroOpInfo {
-  int num_uops{1};           // Number of micro-ops
-  int port_mask{0};          // Executable port mask
-  int latency{1};            // Latency in cycles
-  int throughput{1};         // Throughput (reciprocal)
+  int num_uops{1};            // Number of micro-ops
+  int port_mask{0};           // Executable port mask
+  int latency{1};             // Latency in cycles
+  int throughput{1};          // Throughput (reciprocal)
   bool can_dual_issue{false}; // Whether it can dual-issue
 };
 
 /** @brief MicroArchOptimizer class. */
 class MicroArchOptimizer {
- public:
+public:
   // Optimize for a specific microarchitecture
   /** @brief Architecture enumeration. */
-  enum Architecture {
-    kGeneric,
-    kHaswell,
-    kSkylake,
-    kZen2,
-    kZen3
-  };
+  enum Architecture { kGeneric, kHaswell, kSkylake, kZen2, kZen3 };
 
   explicit MicroArchOptimizer(Architecture arch) : arch_(arch) {}
 
   // Optimize an instruction sequence
   std::vector<MachineInstr> Optimize(const std::vector<MachineInstr> &insts);
 
- private:
+private:
   // Retrieve micro-op info for an instruction
   MicroOpInfo GetMicroOpInfo(const MachineInstr &inst) const;
 
@@ -183,12 +173,11 @@ class MicroArchOptimizer {
 
 /** @brief RegisterRenamer class. */
 class RegisterRenamer {
- public:
+public:
   // Rename registers to remove false dependencies
-  static std::vector<MachineInstr> RenameRegisters(
-      const std::vector<MachineInstr> &insts);
+  static std::vector<MachineInstr> RenameRegisters(const std::vector<MachineInstr> &insts);
 
- private:
+private:
   // Analyze live ranges
   /** @brief LiveRange data structure. */
   struct LiveRange {
@@ -197,12 +186,11 @@ class RegisterRenamer {
     int vreg;
   };
 
-  static std::vector<LiveRange> ComputeLiveRanges(
-      const std::vector<MachineInstr> &insts);
+  static std::vector<LiveRange> ComputeLiveRanges(const std::vector<MachineInstr> &insts);
 
   // Find opportunities for renaming
   static bool FindRenameOpportunity(const LiveRange &range,
-                                   const std::vector<LiveRange> &all_ranges);
+                                    const std::vector<LiveRange> &all_ranges);
 };
 
 // Zero-latency instruction optimization
@@ -210,12 +198,11 @@ class RegisterRenamer {
 
 /** @brief ZeroLatencyOptimizer class. */
 class ZeroLatencyOptimizer {
- public:
+public:
   // Optimize zero-latency moves
-  static std::vector<MachineInstr> OptimizeMoves(
-      const std::vector<MachineInstr> &insts);
+  static std::vector<MachineInstr> OptimizeMoves(const std::vector<MachineInstr> &insts);
 
- private:
+private:
   // Detect mov instructions that can be eliminated
   static bool CanEliminateMove(const MachineInstr &mov);
 
@@ -231,18 +218,18 @@ class ZeroLatencyOptimizer {
 
 /** @brief CacheOptimizer class. */
 class CacheOptimizer {
- public:
+public:
   // Optimize data layout
   static void OptimizeDataLayout(MachineFunction &func);
 
   // Insert prefetch instructions
   static void InsertPrefetch(std::vector<MachineInstr> &insts,
-                            const SoftwarePipeliner::LoopInfo &loop_info);
+                             const SoftwarePipeliner::LoopInfo &loop_info);
 
   // Improve cache-line alignment
   static void AlignCacheLines(MachineFunction &func);
 
- private:
+private:
   // Analyze memory access patterns
   /** @brief AccessPattern data structure. */
   struct AccessPattern {
@@ -262,12 +249,11 @@ class CacheOptimizer {
 
 /** @brief BranchOptimizer class. */
 class BranchOptimizer {
- public:
+public:
   // Optimize branches
-  static std::vector<MachineInstr> OptimizeBranches(
-      const std::vector<MachineInstr> &insts);
+  static std::vector<MachineInstr> OptimizeBranches(const std::vector<MachineInstr> &insts);
 
- private:
+private:
   // Convert conditional mov to cmov
   static bool ConvertToCMOV(std::vector<MachineInstr> &insts, size_t pos);
 
@@ -278,4 +264,4 @@ class BranchOptimizer {
   static bool EliminateBranch(std::vector<MachineInstr> &insts, size_t pos);
 };
 
-}  // namespace polyglot::backends::x86_64
+} // namespace polyglot::backends::x86_64

@@ -24,10 +24,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "backends/arm64/include/arm64_target.h"
-#include "backends/x86_64/include/x86_target.h"
-#include "backends/wasm/include/wasm_target.h"
 #include "middle/include/ir/ir_parser.h"
+
+#include "backends/arm64/include/arm64_target.h"
+#include "backends/wasm/include/wasm_target.h"
+#include "backends/x86_64/include/x86_target.h"
 
 namespace polyglot::tools {
 namespace {
@@ -42,7 +43,8 @@ struct Options {
 Options ParseArgs(int argc, char **argv) {
   Options opts;
   if (argc < 2) {
-    throw std::invalid_argument("Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64|wasm] [--format=elf|pobj|macho]");
+    throw std::invalid_argument("Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64|wasm] "
+                                "[--format=elf|pobj|macho]");
   }
 
   opts.input = argv[1];
@@ -62,7 +64,8 @@ Options ParseArgs(int argc, char **argv) {
   if (opts.output.empty()) {
     std::filesystem::path in_path(opts.input);
     auto stem = in_path.stem().string();
-    if (stem.empty()) stem = "a";
+    if (stem.empty())
+      stem = "a";
     opts.output = (in_path.parent_path() / (stem + ".o")).string();
   }
 
@@ -262,10 +265,12 @@ std::string BuildPobj(const std::string &path, const std::vector<ObjSection> &ob
   }
 
   std::size_t cursor = sizeof(FileHeader) + sections.size() * sizeof(SectionRecord) +
-                       symbols.size() * sizeof(SymbolRecord) + reloc_records.size() * sizeof(RelocRecord);
+                       symbols.size() * sizeof(SymbolRecord) +
+                       reloc_records.size() * sizeof(RelocRecord);
   for (std::size_t i = 0; i < obj_sections.size(); ++i) {
     sections[i].offset = obj_sections[i].bss ? 0 : cursor;
-    if (!obj_sections[i].bss) cursor += obj_sections[i].data.size();
+    if (!obj_sections[i].bss)
+      cursor += obj_sections[i].data.size();
   }
 
   FileHeader hdr{};
@@ -276,17 +281,25 @@ std::string BuildPobj(const std::string &path, const std::vector<ObjSection> &ob
   hdr.strtab_offset = static_cast<std::uint32_t>(cursor);
 
   std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-  if (!ofs.is_open()) return {};
+  if (!ofs.is_open())
+    return {};
   ofs.write(reinterpret_cast<const char *>(&hdr), static_cast<std::streamsize>(sizeof(hdr)));
-  ofs.write(reinterpret_cast<const char *>(sections.data()), static_cast<std::streamsize>(sections.size() * sizeof(SectionRecord)));
-  ofs.write(reinterpret_cast<const char *>(symbols.data()), static_cast<std::streamsize>(symbols.size() * sizeof(SymbolRecord)));
-  ofs.write(reinterpret_cast<const char *>(reloc_records.data()), static_cast<std::streamsize>(reloc_records.size() * sizeof(RelocRecord)));
+  ofs.write(reinterpret_cast<const char *>(sections.data()),
+            static_cast<std::streamsize>(sections.size() * sizeof(SectionRecord)));
+  ofs.write(reinterpret_cast<const char *>(symbols.data()),
+            static_cast<std::streamsize>(symbols.size() * sizeof(SymbolRecord)));
+  ofs.write(reinterpret_cast<const char *>(reloc_records.data()),
+            static_cast<std::streamsize>(reloc_records.size() * sizeof(RelocRecord)));
   for (const auto &sec : obj_sections) {
-    if (sec.bss) continue;
-    ofs.write(reinterpret_cast<const char *>(sec.data.data()), static_cast<std::streamsize>(sec.data.size()));
+    if (sec.bss)
+      continue;
+    ofs.write(reinterpret_cast<const char *>(sec.data.data()),
+              static_cast<std::streamsize>(sec.data.size()));
   }
-  ofs.write(reinterpret_cast<const char *>(strtab.data()), static_cast<std::streamsize>(strtab.size()));
-  if (!ofs.good()) return {};
+  ofs.write(reinterpret_cast<const char *>(strtab.data()),
+            static_cast<std::streamsize>(strtab.size()));
+  if (!ofs.good())
+    return {};
   return path;
 }
 
@@ -294,14 +307,18 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
                        const std::vector<ObjSymbol> &obj_symbols, const std::string &arch) {
   bool is_arm64 = (arch == "arm64" || arch == "aarch64" || arch == "armv8");
   auto align_to = [](std::size_t value, std::size_t align) {
-    if (align == 0) return value;
+    if (align == 0)
+      return value;
     auto mask = align - 1;
     return (value + mask) & ~mask;
   };
 
-  auto text_it = std::find_if(obj_sections.begin(), obj_sections.end(), [](const ObjSection &s) { return s.name == ".text"; });
-  auto data_it = std::find_if(obj_sections.begin(), obj_sections.end(), [](const ObjSection &s) { return s.name == ".data"; });
-  auto bss_it = std::find_if(obj_sections.begin(), obj_sections.end(), [](const ObjSection &s) { return s.bss; });
+  auto text_it = std::find_if(obj_sections.begin(), obj_sections.end(),
+                              [](const ObjSection &s) { return s.name == ".text"; });
+  auto data_it = std::find_if(obj_sections.begin(), obj_sections.end(),
+                              [](const ObjSection &s) { return s.name == ".data"; });
+  auto bss_it = std::find_if(obj_sections.begin(), obj_sections.end(),
+                             [](const ObjSection &s) { return s.bss; });
 
   std::string shstr;
   shstr.push_back('\0');
@@ -473,12 +490,14 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
   ehdr.e_shstrndx = idx_shstr;
 
   std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-  if (!ofs.is_open()) return {};
+  if (!ofs.is_open())
+    return {};
 
   ofs.write(reinterpret_cast<const char *>(&ehdr), sizeof(ehdr));
   std::size_t cursor = sizeof(Elf64_Ehdr);
   auto pad_to = [&](std::size_t target) {
-    if (target <= cursor) return;
+    if (target <= cursor)
+      return;
     std::vector<char> zero(target - cursor, 0);
     ofs.write(zero.data(), static_cast<std::streamsize>(zero.size()));
     cursor = target;
@@ -486,19 +505,22 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
 
   if (idx_text != SHN_UNDEF && text_it != obj_sections.end()) {
     pad_to(shdrs[idx_text].sh_offset);
-    ofs.write(reinterpret_cast<const char *>(text_it->data.data()), static_cast<std::streamsize>(text_it->data.size()));
+    ofs.write(reinterpret_cast<const char *>(text_it->data.data()),
+              static_cast<std::streamsize>(text_it->data.size()));
     cursor += text_it->data.size();
   }
 
   if (idx_data != SHN_UNDEF && data_it != obj_sections.end()) {
     pad_to(shdrs[idx_data].sh_offset);
-    ofs.write(reinterpret_cast<const char *>(data_it->data.data()), static_cast<std::streamsize>(data_it->data.size()));
+    ofs.write(reinterpret_cast<const char *>(data_it->data.data()),
+              static_cast<std::streamsize>(data_it->data.size()));
     cursor += data_it->data.size();
   }
 
   if (idx_symtab != SHN_UNDEF) {
     pad_to(shdrs[idx_symtab].sh_offset);
-    ofs.write(reinterpret_cast<const char *>(symtab.data()), static_cast<std::streamsize>(symtab.size() * sizeof(Elf64_Sym)));
+    ofs.write(reinterpret_cast<const char *>(symtab.data()),
+              static_cast<std::streamsize>(symtab.size() * sizeof(Elf64_Sym)));
     cursor += shdrs[idx_symtab].sh_size;
   }
 
@@ -533,7 +555,8 @@ std::string BuildElf64(const std::string &path, const std::vector<ObjSection> &o
   }
 
   pad_to(ehdr.e_shoff);
-  ofs.write(reinterpret_cast<const char *>(shdrs.data()), static_cast<std::streamsize>(shdrs.size() * sizeof(Elf64_Shdr)));
+  ofs.write(reinterpret_cast<const char *>(shdrs.data()),
+            static_cast<std::streamsize>(shdrs.size() * sizeof(Elf64_Shdr)));
   return ofs.good() ? path : std::string{};
 }
 
@@ -577,7 +600,8 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
   std::unordered_map<std::string, std::uint32_t> sym_index;
 
   auto add_sym = [&](const ObjSymbol &sym) {
-    if (sym_index.count(sym.name)) return sym_index[sym.name];
+    if (sym_index.count(sym.name))
+      return sym_index[sym.name];
     std::uint32_t name_off = static_cast<std::uint32_t>(strtab.size());
     strtab.append(sym.name);
     strtab.push_back('\0');
@@ -597,9 +621,11 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
     add_sym(sym);
   }
 
-  std::size_t reloc_bytes = text_it != obj_sections.end() ? text_it->relocs.size() * sizeof(relocation_info) : 0;
+  std::size_t reloc_bytes =
+      text_it != obj_sections.end() ? text_it->relocs.size() * sizeof(relocation_info) : 0;
   sec.reloff = static_cast<std::uint32_t>(sec.offset + text_size);
-  sec.nreloc = static_cast<std::uint32_t>(text_it != obj_sections.end() ? text_it->relocs.size() : 0);
+  sec.nreloc =
+      static_cast<std::uint32_t>(text_it != obj_sections.end() ? text_it->relocs.size() : 0);
 
   symtab_command st{};
   st.cmd = LC_SYMTAB;
@@ -610,7 +636,8 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
   st.strsize = static_cast<std::uint32_t>(strtab.size());
 
   std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
-  if (!ofs.is_open()) return {};
+  if (!ofs.is_open())
+    return {};
 
   ofs.write(reinterpret_cast<const char *>(&mh), sizeof(mh));
   ofs.write(reinterpret_cast<const char *>(&seg), sizeof(seg));
@@ -652,15 +679,16 @@ std::string EmitObject(const Options &opts, const std::vector<ObjSection> &secti
   }
   if (fmt == "macho") {
     auto written = BuildMachO64(opts.output, sections, symbols, opts.arch);
-    if (written.empty()) std::cerr << "[error] Mach-O emit failed or unsupported on this platform\n";
+    if (written.empty())
+      std::cerr << "[error] Mach-O emit failed or unsupported on this platform\n";
     return written;
   }
   return BuildElf64(opts.output, sections, symbols, opts.arch);
 }
 
 template <typename BackendT>
-void ConvertBackendMC(const BackendT &mc, const std::string &arch, std::vector<ObjSection> &sections,
-                      std::vector<ObjSymbol> &symbols) {
+void ConvertBackendMC(const BackendT &mc, const std::string &arch,
+                      std::vector<ObjSection> &sections, std::vector<ObjSymbol> &symbols) {
   sections.clear();
   symbols.clear();
   std::unordered_map<std::string, std::uint32_t> sec_index;
@@ -687,7 +715,8 @@ void ConvertBackendMC(const BackendT &mc, const std::string &arch, std::vector<O
   }
 
   std::uint32_t text_idx = sec_index.count(".text") ? sec_index[".text"] : 0;
-  symbols.push_back({"_start", text_idx, 0, static_cast<std::uint64_t>(sections[text_idx].data.size()), true, true});
+  symbols.push_back({"_start", text_idx, 0,
+                     static_cast<std::uint64_t>(sections[text_idx].data.size()), true, true});
 
   for (const auto &sym : mc.symbols) {
     ObjSymbol osym;
@@ -703,12 +732,14 @@ void ConvertBackendMC(const BackendT &mc, const std::string &arch, std::vector<O
   }
 
   std::unordered_map<std::string, std::uint32_t> sym_index;
-  for (std::uint32_t i = 0; i < symbols.size(); ++i) sym_index[symbols[i].name] = i;
+  for (std::uint32_t i = 0; i < symbols.size(); ++i)
+    sym_index[symbols[i].name] = i;
 
   for (const auto &r : mc.relocs) {
     std::string sec_name = r.section.empty() ? ".text" : r.section;
     auto s_it = sec_index.find(sec_name);
-    if (s_it == sec_index.end()) continue;
+    if (s_it == sec_index.end())
+      continue;
 
     auto sym_it = sym_index.find(r.symbol);
     if (sym_it == sym_index.end()) {
@@ -776,8 +807,8 @@ std::string Assemble(const std::string &source, const Options &opts) {
   return written;
 }
 
-}  // namespace
-}  // namespace polyglot::tools
+} // namespace
+} // namespace polyglot::tools
 
 int main(int argc, char **argv) {
   polyglot::tools::Options opts;

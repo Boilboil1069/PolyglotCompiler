@@ -28,27 +28,26 @@
  * @date     2026-04-26
  */
 
-#include "runtime/include/libs/javascript_rt.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "runtime/include/libs/base.h"
+#include "runtime/include/libs/javascript_rt.h"
 #include "runtime/include/memory/polyglot_alloc.h"
 
 #ifdef _WIN32
 #include <windows.h>
 typedef HMODULE js_lib_t;
-#define JS_LOAD(path)     LoadLibraryA(path)
+#define JS_LOAD(path) LoadLibraryA(path)
 #define JS_SYM(lib, name) ((void *)GetProcAddress((lib), (name)))
-#define JS_UNLOAD(lib)    FreeLibrary(lib)
+#define JS_UNLOAD(lib) FreeLibrary(lib)
 #else
 #include <dlfcn.h>
 typedef void *js_lib_t;
-#define JS_LOAD(path)     dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
+#define JS_LOAD(path) dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
 #define JS_SYM(lib, name) dlsym((lib), (name))
-#define JS_UNLOAD(lib)    dlclose(lib)
+#define JS_UNLOAD(lib) dlclose(lib)
 #endif
 
 // ----------------------------------------------------------------------------
@@ -59,10 +58,10 @@ typedef void *js_lib_t;
 
 typedef struct napi_env__ *napi_env;
 typedef struct napi_value__ *napi_value;
-typedef int napi_status;  // napi_ok == 0
+typedef int napi_status; // napi_ok == 0
 
-typedef napi_status (*napi_create_string_utf8_fn)(napi_env env, const char *str,
-                                                  size_t length, napi_value *result);
+typedef napi_status (*napi_create_string_utf8_fn)(napi_env env, const char *str, size_t length,
+                                                  napi_value *result);
 typedef napi_status (*napi_create_double_fn)(napi_env env, double value, napi_value *result);
 typedef napi_status (*napi_get_value_double_fn)(napi_env env, napi_value value, double *result);
 typedef napi_status (*napi_get_value_string_utf8_fn)(napi_env env, napi_value value, char *buf,
@@ -111,16 +110,16 @@ typedef enum {
 typedef struct {
   polyglot_js_val_kind_t kind;
   union {
-    void *napi_ref;  // strong reference into the JS engine
-    char *str;       // owned string (raw heap)
+    void *napi_ref; // strong reference into the JS engine
+    char *str;      // owned string (raw heap)
     double num;
   } as;
 } polyglot_js_value_t;
 
 static polyglot_js_value_t *make_string_value(const char *utf8) {
-  polyglot_js_value_t *v =
-      (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  polyglot_js_value_t *v = (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_JS_VAL_STRING;
   size_t len = utf8 ? strlen(utf8) : 0;
   v->as.str = (char *)polyglot_raw_malloc(len + 1);
@@ -128,15 +127,16 @@ static polyglot_js_value_t *make_string_value(const char *utf8) {
     polyglot_raw_free(v);
     return NULL;
   }
-  if (utf8) memcpy(v->as.str, utf8, len);
+  if (utf8)
+    memcpy(v->as.str, utf8, len);
   v->as.str[len] = '\0';
   return v;
 }
 
 static polyglot_js_value_t *make_number_value(double n) {
-  polyglot_js_value_t *v =
-      (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  polyglot_js_value_t *v = (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_JS_VAL_NUMBER;
   v->as.num = n;
   return v;
@@ -151,7 +151,8 @@ static int load_node_library(void) {
   const char *override_path = getenv("POLYGLOT_JS_LIBRARY");
   if (override_path && override_path[0]) {
     js_lib_ = JS_LOAD(override_path);
-    if (js_lib_) return 0;
+    if (js_lib_)
+      return 0;
   }
 
   // Probe NODE_HOME / well-known names per platform.
@@ -163,20 +164,24 @@ static int load_node_library(void) {
     snprintf(path, sizeof(path), "%s\\node.dll", node_home);
     js_lib_ = JS_LOAD(path);
   }
-  if (!js_lib_) js_lib_ = JS_LOAD("node.dll");
-  if (!js_lib_) js_lib_ = JS_LOAD("libnode.dll");
+  if (!js_lib_)
+    js_lib_ = JS_LOAD("node.dll");
+  if (!js_lib_)
+    js_lib_ = JS_LOAD("libnode.dll");
 #elif defined(__APPLE__)
   if (node_home && node_home[0]) {
     snprintf(path, sizeof(path), "%s/lib/libnode.dylib", node_home);
     js_lib_ = JS_LOAD(path);
   }
-  if (!js_lib_) js_lib_ = JS_LOAD("libnode.dylib");
+  if (!js_lib_)
+    js_lib_ = JS_LOAD("libnode.dylib");
 #else
   if (node_home && node_home[0]) {
     snprintf(path, sizeof(path), "%s/lib/libnode.so", node_home);
     js_lib_ = JS_LOAD(path);
   }
-  if (!js_lib_) js_lib_ = JS_LOAD("libnode.so");
+  if (!js_lib_)
+    js_lib_ = JS_LOAD("libnode.so");
 #endif
 
   return js_lib_ ? 0 : -1;
@@ -186,28 +191,21 @@ int polyglot_js_init(int version_hint) {
   js_version_hint_ = version_hint;
 
   if (load_node_library() != 0) {
-    fprintf(stderr,
-            "[polyglot-js] warning: no Node.js / libnode shared library "
-            "found. JavaScript helpers fall back to standalone mode.\n");
+    fprintf(stderr, "[polyglot-js] warning: no Node.js / libnode shared library "
+                    "found. JavaScript helpers fall back to standalone mode.\n");
     return -1;
   }
 
-  napi_create_string_utf8_ =
-      (napi_create_string_utf8_fn)JS_SYM(js_lib_, "napi_create_string_utf8");
-  napi_create_double_ =
-      (napi_create_double_fn)JS_SYM(js_lib_, "napi_create_double");
-  napi_get_value_double_ =
-      (napi_get_value_double_fn)JS_SYM(js_lib_, "napi_get_value_double");
+  napi_create_string_utf8_ = (napi_create_string_utf8_fn)JS_SYM(js_lib_, "napi_create_string_utf8");
+  napi_create_double_ = (napi_create_double_fn)JS_SYM(js_lib_, "napi_create_double");
+  napi_get_value_double_ = (napi_get_value_double_fn)JS_SYM(js_lib_, "napi_get_value_double");
   napi_get_value_string_utf8_ =
       (napi_get_value_string_utf8_fn)JS_SYM(js_lib_, "napi_get_value_string_utf8");
   napi_get_global_ = (napi_get_global_fn)JS_SYM(js_lib_, "napi_get_global");
-  napi_get_named_property_ =
-      (napi_get_named_property_fn)JS_SYM(js_lib_, "napi_get_named_property");
+  napi_get_named_property_ = (napi_get_named_property_fn)JS_SYM(js_lib_, "napi_get_named_property");
   napi_call_function_ = (napi_call_function_fn)JS_SYM(js_lib_, "napi_call_function");
-  napi_create_reference_ =
-      (napi_create_reference_fn)JS_SYM(js_lib_, "napi_create_reference");
-  napi_delete_reference_ =
-      (napi_delete_reference_fn)JS_SYM(js_lib_, "napi_delete_reference");
+  napi_create_reference_ = (napi_create_reference_fn)JS_SYM(js_lib_, "napi_create_reference");
+  napi_delete_reference_ = (napi_delete_reference_fn)JS_SYM(js_lib_, "napi_delete_reference");
   napi_get_reference_value_ =
       (napi_get_reference_value_fn)JS_SYM(js_lib_, "napi_get_reference_value");
 
@@ -221,7 +219,9 @@ int polyglot_js_init(int version_hint) {
 
 // Allow an external embedder (e.g. polyrt's optional Node host) to inject the
 // active napi_env so the eval/call helpers below can talk to a real engine.
-void polyglot_js_register_env(void *env) { js_env_ = (napi_env)env; }
+void polyglot_js_register_env(void *env) {
+  js_env_ = (napi_env)env;
+}
 
 void polyglot_js_shutdown(void) {
   if (js_lib_) {
@@ -247,26 +247,32 @@ void polyglot_js_shutdown(void) {
 // ----------------------------------------------------------------------------
 
 void polyglot_js_print(const char *message) {
-  if (!message) return;
+  if (!message)
+    return;
   printf("%s\n", message);
 }
 
 char *polyglot_js_strdup_gc(const char *message, void ***root_handle_out) {
-  if (!message) return NULL;
+  if (!message)
+    return NULL;
   size_t len = strlen(message) + 1;
   char *buf = (char *)polyglot_alloc(len);
-  if (!buf) return NULL;
+  if (!buf)
+    return NULL;
   memcpy(buf, message, len);
   polyglot_gc_register_root((void **)&buf);
-  if (root_handle_out) *root_handle_out = (void **)&buf;
+  if (root_handle_out)
+    *root_handle_out = (void **)&buf;
   return buf;
 }
 
 void polyglot_js_release(char **ptr, void ***root_handle) {
-  if (!ptr || !*ptr) return;
+  if (!ptr || !*ptr)
+    return;
   polyglot_gc_unregister_root((void **)ptr);
   *ptr = NULL;
-  if (root_handle) *root_handle = NULL;
+  if (root_handle)
+    *root_handle = NULL;
 }
 
 // ----------------------------------------------------------------------------
@@ -274,11 +280,12 @@ void polyglot_js_release(char **ptr, void ***root_handle) {
 // ----------------------------------------------------------------------------
 
 static polyglot_js_value_t *wrap_napi_value(napi_value raw) {
-  if (!js_env_ || !napi_create_reference_) return NULL;
+  if (!js_env_ || !napi_create_reference_)
+    return NULL;
   void *ref = NULL;
-  if (napi_create_reference_(js_env_, raw, 1, &ref) != 0 || !ref) return NULL;
-  polyglot_js_value_t *v =
-      (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (napi_create_reference_(js_env_, raw, 1, &ref) != 0 || !ref)
+    return NULL;
+  polyglot_js_value_t *v = (polyglot_js_value_t *)polyglot_raw_calloc(1, sizeof(*v));
   if (!v) {
     napi_delete_reference_(js_env_, ref);
     return NULL;
@@ -289,11 +296,13 @@ static polyglot_js_value_t *wrap_napi_value(napi_value raw) {
 }
 
 void *polyglot_js_eval(const char *source) {
-  if (!source || !js_env_) return NULL;
+  if (!source || !js_env_)
+    return NULL;
   // We invoke the global `eval` to keep the surface tiny.  Engine-side code
   // injection is the embedder's responsibility (see polyrt's --js-host mode).
   napi_value global = NULL;
-  if (napi_get_global_(js_env_, &global) != 0 || !global) return NULL;
+  if (napi_get_global_(js_env_, &global) != 0 || !global)
+    return NULL;
   napi_value eval_fn = NULL;
   if (napi_get_named_property_(js_env_, global, "eval", &eval_fn) != 0 || !eval_fn) {
     return NULL;
@@ -310,33 +319,43 @@ void *polyglot_js_eval(const char *source) {
 }
 
 void *polyglot_js_get_global(const char *name) {
-  if (!name || !js_env_) return NULL;
+  if (!name || !js_env_)
+    return NULL;
   napi_value global = NULL;
-  if (napi_get_global_(js_env_, &global) != 0) return NULL;
+  if (napi_get_global_(js_env_, &global) != 0)
+    return NULL;
   napi_value v = NULL;
-  if (napi_get_named_property_(js_env_, global, name, &v) != 0 || !v) return NULL;
+  if (napi_get_named_property_(js_env_, global, name, &v) != 0 || !v)
+    return NULL;
   return wrap_napi_value(v);
 }
 
 void *polyglot_js_get_property(void *object, const char *name) {
-  if (!object || !name || !js_env_) return NULL;
+  if (!object || !name || !js_env_)
+    return NULL;
   polyglot_js_value_t *obj = (polyglot_js_value_t *)object;
-  if (obj->kind != POLYGLOT_JS_VAL_NAPI_REF) return NULL;
+  if (obj->kind != POLYGLOT_JS_VAL_NAPI_REF)
+    return NULL;
   napi_value raw = NULL;
-  if (napi_get_reference_value_(js_env_, obj->as.napi_ref, &raw) != 0) return NULL;
+  if (napi_get_reference_value_(js_env_, obj->as.napi_ref, &raw) != 0)
+    return NULL;
   napi_value v = NULL;
-  if (napi_get_named_property_(js_env_, raw, name, &v) != 0 || !v) return NULL;
+  if (napi_get_named_property_(js_env_, raw, name, &v) != 0 || !v)
+    return NULL;
   return wrap_napi_value(v);
 }
 
-void *polyglot_js_call_function(void *function, void *this_arg,
-                                const void *const *args, int arg_count) {
-  if (!function || !js_env_) return NULL;
+void *polyglot_js_call_function(void *function, void *this_arg, const void *const *args,
+                                int arg_count) {
+  if (!function || !js_env_)
+    return NULL;
   polyglot_js_value_t *fn_val = (polyglot_js_value_t *)function;
-  if (fn_val->kind != POLYGLOT_JS_VAL_NAPI_REF) return NULL;
+  if (fn_val->kind != POLYGLOT_JS_VAL_NAPI_REF)
+    return NULL;
 
   napi_value fn_raw = NULL;
-  if (napi_get_reference_value_(js_env_, fn_val->as.napi_ref, &fn_raw) != 0) return NULL;
+  if (napi_get_reference_value_(js_env_, fn_val->as.napi_ref, &fn_raw) != 0)
+    return NULL;
 
   napi_value this_raw = NULL;
   if (this_arg) {
@@ -345,7 +364,8 @@ void *polyglot_js_call_function(void *function, void *this_arg,
       napi_get_reference_value_(js_env_, t->as.napi_ref, &this_raw);
     }
   }
-  if (!this_raw) napi_get_global_(js_env_, &this_raw);
+  if (!this_raw)
+    napi_get_global_(js_env_, &this_raw);
 
   enum { kMaxArgs = 32 };
   napi_value argv[kMaxArgs];
@@ -355,15 +375,15 @@ void *polyglot_js_call_function(void *function, void *this_arg,
     napi_value raw = NULL;
     if (a) {
       switch (a->kind) {
-        case POLYGLOT_JS_VAL_NAPI_REF:
-          napi_get_reference_value_(js_env_, a->as.napi_ref, &raw);
-          break;
-        case POLYGLOT_JS_VAL_STRING:
-          napi_create_string_utf8_(js_env_, a->as.str, strlen(a->as.str), &raw);
-          break;
-        case POLYGLOT_JS_VAL_NUMBER:
-          napi_create_double_(js_env_, a->as.num, &raw);
-          break;
+      case POLYGLOT_JS_VAL_NAPI_REF:
+        napi_get_reference_value_(js_env_, a->as.napi_ref, &raw);
+        break;
+      case POLYGLOT_JS_VAL_STRING:
+        napi_create_string_utf8_(js_env_, a->as.str, strlen(a->as.str), &raw);
+        break;
+      case POLYGLOT_JS_VAL_NUMBER:
+        napi_create_double_(js_env_, a->as.num, &raw);
+        break;
       }
     }
     argv[i] = raw;
@@ -376,7 +396,8 @@ void *polyglot_js_call_function(void *function, void *this_arg,
 }
 
 char *polyglot_js_value_to_string(void *value, void ***root_handle_out) {
-  if (!value) return NULL;
+  if (!value)
+    return NULL;
   polyglot_js_value_t *v = (polyglot_js_value_t *)value;
 
   if (v->kind == POLYGLOT_JS_VAL_STRING) {
@@ -387,13 +408,17 @@ char *polyglot_js_value_to_string(void *value, void ***root_handle_out) {
     snprintf(buf, sizeof(buf), "%g", v->as.num);
     return polyglot_js_strdup_gc(buf, root_handle_out);
   }
-  if (!js_env_ || v->kind != POLYGLOT_JS_VAL_NAPI_REF) return NULL;
+  if (!js_env_ || v->kind != POLYGLOT_JS_VAL_NAPI_REF)
+    return NULL;
   napi_value raw = NULL;
-  if (napi_get_reference_value_(js_env_, v->as.napi_ref, &raw) != 0) return NULL;
+  if (napi_get_reference_value_(js_env_, v->as.napi_ref, &raw) != 0)
+    return NULL;
   size_t needed = 0;
-  if (napi_get_value_string_utf8_(js_env_, raw, NULL, 0, &needed) != 0) return NULL;
+  if (napi_get_value_string_utf8_(js_env_, raw, NULL, 0, &needed) != 0)
+    return NULL;
   char *tmp = (char *)polyglot_raw_malloc(needed + 1);
-  if (!tmp) return NULL;
+  if (!tmp)
+    return NULL;
   size_t written = 0;
   if (napi_get_value_string_utf8_(js_env_, raw, tmp, needed + 1, &written) != 0) {
     polyglot_raw_free(tmp);
@@ -406,35 +431,46 @@ char *polyglot_js_value_to_string(void *value, void ***root_handle_out) {
 }
 
 double polyglot_js_value_to_number(void *value) {
-  if (!value) return 0.0;
+  if (!value)
+    return 0.0;
   polyglot_js_value_t *v = (polyglot_js_value_t *)value;
-  if (v->kind == POLYGLOT_JS_VAL_NUMBER) return v->as.num;
-  if (v->kind == POLYGLOT_JS_VAL_STRING) return atof(v->as.str);
-  if (!js_env_ || v->kind != POLYGLOT_JS_VAL_NAPI_REF) return 0.0;
+  if (v->kind == POLYGLOT_JS_VAL_NUMBER)
+    return v->as.num;
+  if (v->kind == POLYGLOT_JS_VAL_STRING)
+    return atof(v->as.str);
+  if (!js_env_ || v->kind != POLYGLOT_JS_VAL_NAPI_REF)
+    return 0.0;
   napi_value raw = NULL;
-  if (napi_get_reference_value_(js_env_, v->as.napi_ref, &raw) != 0) return 0.0;
+  if (napi_get_reference_value_(js_env_, v->as.napi_ref, &raw) != 0)
+    return 0.0;
   double out = 0.0;
   napi_get_value_double_(js_env_, raw, &out);
   return out;
 }
 
-void *polyglot_js_string_value(const char *utf8) { return make_string_value(utf8); }
-void *polyglot_js_number_value(double n) { return make_number_value(n); }
+void *polyglot_js_string_value(const char *utf8) {
+  return make_string_value(utf8);
+}
+void *polyglot_js_number_value(double n) {
+  return make_number_value(n);
+}
 
 void polyglot_js_release_value(void *value) {
-  if (!value) return;
+  if (!value)
+    return;
   polyglot_js_value_t *v = (polyglot_js_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_JS_VAL_NAPI_REF:
-      if (js_env_ && v->as.napi_ref && napi_delete_reference_) {
-        napi_delete_reference_(js_env_, v->as.napi_ref);
-      }
-      break;
-    case POLYGLOT_JS_VAL_STRING:
-      if (v->as.str) polyglot_raw_free(v->as.str);
-      break;
-    case POLYGLOT_JS_VAL_NUMBER:
-      break;
+  case POLYGLOT_JS_VAL_NAPI_REF:
+    if (js_env_ && v->as.napi_ref && napi_delete_reference_) {
+      napi_delete_reference_(js_env_, v->as.napi_ref);
+    }
+    break;
+  case POLYGLOT_JS_VAL_STRING:
+    if (v->as.str)
+      polyglot_raw_free(v->as.str);
+    break;
+  case POLYGLOT_JS_VAL_NUMBER:
+    break;
   }
   polyglot_raw_free(v);
 }
@@ -447,21 +483,22 @@ void polyglot_js_release_value(void *value) {
 // ---------------------------------------------------------------------------
 
 #ifndef _WIN32
-#  include <dlfcn.h>
+#include <dlfcn.h>
 #endif
 
 #ifdef _WIN32
-#  include <windows.h>
-#  define POLYGLOT_JS_LIB_NAME "libnode.dll"
+#include <windows.h>
+#define POLYGLOT_JS_LIB_NAME "libnode.dll"
 #else
-#  define POLYGLOT_JS_LIB_NAME "libnode.so"
+#define POLYGLOT_JS_LIB_NAME "libnode.so"
 #endif
 
 static void *polyglot_js_host_handle = (void *)0;
-static int   polyglot_js_host_probed = 0;
+static int polyglot_js_host_probed = 0;
 
 static void polyglot_js_load_host_once(void) {
-  if (polyglot_js_host_probed) return;
+  if (polyglot_js_host_probed)
+    return;
   polyglot_js_host_probed = 1;
 #ifdef _WIN32
   polyglot_js_host_handle = (void *)LoadLibraryA(POLYGLOT_JS_LIB_NAME);
@@ -470,15 +507,17 @@ static void polyglot_js_load_host_once(void) {
 #endif
   if (!polyglot_js_host_handle) {
     fprintf(stderr,
-        "[polyglot/js] host JavaScript runtime '%s' not loaded; require()/"
-        "import calls will be no-ops.  Install Node.js shared library to "
-        "enable interop.\n", POLYGLOT_JS_LIB_NAME);
+            "[polyglot/js] host JavaScript runtime '%s' not loaded; require()/"
+            "import calls will be no-ops.  Install Node.js shared library to "
+            "enable interop.\n",
+            POLYGLOT_JS_LIB_NAME);
   }
 }
 
 void *__ploy_js_require(const char *resolved_path) {
   polyglot_js_load_host_once();
-  if (!polyglot_js_host_handle || !resolved_path) return (void *)0;
+  if (!polyglot_js_host_handle || !resolved_path)
+    return (void *)0;
 #ifdef _WIN32
   return (void *)GetProcAddress((HMODULE)polyglot_js_host_handle, resolved_path);
 #else
@@ -486,18 +525,17 @@ void *__ploy_js_require(const char *resolved_path) {
 #endif
 }
 
-void *__ploy_js_call(const char *qualified_name,
-                     const void *const *args, int arg_count) {
+void *__ploy_js_call(const char *qualified_name, const void *const *args, int arg_count) {
   polyglot_js_load_host_once();
-  if (!polyglot_js_host_handle || !qualified_name) return (void *)0;
+  if (!polyglot_js_host_handle || !qualified_name)
+    return (void *)0;
 #ifdef _WIN32
   void *fn = (void *)GetProcAddress((HMODULE)polyglot_js_host_handle, qualified_name);
 #else
   void *fn = dlsym(polyglot_js_host_handle, qualified_name);
 #endif
   if (!fn) {
-    fprintf(stderr, "[polyglot/js] symbol '%s' not found in host runtime\n",
-            qualified_name);
+    fprintf(stderr, "[polyglot/js] symbol '%s' not found in host runtime\n", qualified_name);
     return (void *)0;
   }
   typedef void *(*polyglot_js_thunk_t)(const void *const *, int);

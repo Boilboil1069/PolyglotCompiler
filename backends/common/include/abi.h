@@ -18,4 +18,4 @@ struct ABI {
   size_t pointer_size{8};
 };
 
-}  // namespace polyglot::backends
+} // namespace polyglot::backends

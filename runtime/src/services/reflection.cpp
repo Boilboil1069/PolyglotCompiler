@@ -27,7 +27,8 @@ ReflectionInfo ReflectionRegistry::Register(const std::string &type_name, std::s
 const ReflectionInfo *ReflectionRegistry::Get(const std::string &type_name) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = types_.find(type_name);
-  if (it == types_.end()) return nullptr;
+  if (it == types_.end())
+    return nullptr;
   return &it->second;
 }
 
@@ -41,4 +42,4 @@ std::vector<ReflectionInfo> ReflectionRegistry::List() const {
   return result;
 }
 
-}  // namespace polyglot::runtime::services
+} // namespace polyglot::runtime::services

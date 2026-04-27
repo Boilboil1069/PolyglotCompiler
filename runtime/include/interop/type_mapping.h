@@ -37,4 +37,4 @@ ABIType MapBuiltinType(const std::string &lang, const std::string &type_name);
 // Convenience cache for mapping lookups; thread-safe reads after initialization.
 const std::unordered_map<std::string, ABIType> &BuiltinTypeTable();
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

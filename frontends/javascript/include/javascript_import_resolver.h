@@ -39,12 +39,12 @@
 namespace polyglot::javascript {
 
 enum class JsSymbolKind {
-    kFunction,
-    kClass,
-    kVariable,
-    kConstant,
-    kTypeAlias,
-    kNamespace,
+  kFunction,
+  kClass,
+  kVariable,
+  kConstant,
+  kTypeAlias,
+  kNamespace,
 };
 
 /**
@@ -55,31 +55,31 @@ enum class JsSymbolKind {
  * importer-side alias for diagnostic purposes.
  */
 struct JsSymbol {
-    std::string name;            // export name as seen by importers
-    std::string qualified_name;  // "<package>.<name>" or "<file>.<name>"
-    JsSymbolKind kind{JsSymbolKind::kFunction};
-    bool is_default{false};
+  std::string name;           // export name as seen by importers
+  std::string qualified_name; // "<package>.<name>" or "<file>.<name>"
+  JsSymbolKind kind{JsSymbolKind::kFunction};
+  bool is_default{false};
 
-    // Function/method signature (only valid for kFunction).
-    std::vector<core::Type> param_types;
-    std::vector<std::string> param_names;
-    core::Type return_type{core::Type::Any()};
+  // Function/method signature (only valid for kFunction).
+  std::vector<core::Type> param_types;
+  std::vector<std::string> param_names;
+  core::Type return_type{core::Type::Any()};
 };
 
 /**
  * @brief A resolved JavaScript module (single file or package entry).
  */
 struct JsModule {
-    std::string specifier;       // raw import specifier
-    std::string resolved_path;   // absolute file path of the loaded entry
-    std::string package_name;    // "" for relative imports, package name otherwise
-    std::string package_version; // value of "version" in package.json (if any)
-    bool is_typescript_decl{false};   // true when resolved_path ends in .d.ts
-    bool is_commonjs{false};          // true for .cjs / detected `module.exports`
+  std::string specifier;          // raw import specifier
+  std::string resolved_path;      // absolute file path of the loaded entry
+  std::string package_name;       // "" for relative imports, package name otherwise
+  std::string package_version;    // value of "version" in package.json (if any)
+  bool is_typescript_decl{false}; // true when resolved_path ends in .d.ts
+  bool is_commonjs{false};        // true for .cjs / detected `module.exports`
 
-    // Index keyed by export name (default export uses the empty key "" or
-    // explicit "default" — both are populated for ergonomic lookup).
-    std::unordered_map<std::string, JsSymbol> exports;
+  // Index keyed by export name (default export uses the empty key "" or
+  // explicit "default" — both are populated for ergonomic lookup).
+  std::unordered_map<std::string, JsSymbol> exports;
 };
 
 /**
@@ -89,53 +89,45 @@ struct JsModule {
  * the same import is resolved at most once per compilation unit.
  */
 class JsImportResolver {
-  public:
-    JsImportResolver(std::string project_dir,
-                     std::vector<std::string> extra_node_modules,
-                     frontends::Diagnostics &diagnostics);
+public:
+  JsImportResolver(std::string project_dir, std::vector<std::string> extra_node_modules,
+                   frontends::Diagnostics &diagnostics);
 
-    /// Resolve a specifier against the directory of the importing file.
-    /// Returns nullptr (and reports a diagnostic) when resolution fails.
-    /// Returned pointer remains valid for the lifetime of the resolver.
-    const JsModule *Resolve(const std::string &specifier,
-                            const std::string &importer_dir);
+  /// Resolve a specifier against the directory of the importing file.
+  /// Returns nullptr (and reports a diagnostic) when resolution fails.
+  /// Returned pointer remains valid for the lifetime of the resolver.
+  const JsModule *Resolve(const std::string &specifier, const std::string &importer_dir);
 
-    /// Look up a previously-resolved module without performing I/O.
-    const JsModule *Lookup(const std::string &specifier,
-                           const std::string &importer_dir) const;
+  /// Look up a previously-resolved module without performing I/O.
+  const JsModule *Lookup(const std::string &specifier, const std::string &importer_dir) const;
 
-    /// All node_modules roots in the order the resolver consults them
-    /// (configured project + ancestor walk + extras).
-    const std::vector<std::string> &ExtraNodeModulePaths() const { return extra_node_modules_; }
+  /// All node_modules roots in the order the resolver consults them
+  /// (configured project + ancestor walk + extras).
+  const std::vector<std::string> &ExtraNodeModulePaths() const { return extra_node_modules_; }
 
-    const std::vector<std::unique_ptr<JsModule>> &modules() const { return modules_; }
+  const std::vector<std::unique_ptr<JsModule>> &modules() const { return modules_; }
 
-  private:
-    std::string ResolveRelative(const std::string &specifier,
-                                const std::string &importer_dir) const;
-    std::string ResolveBare(const std::string &specifier,
-                            const std::string &importer_dir,
-                            std::string &out_pkg_name,
-                            std::string &out_pkg_version) const;
-    std::string ProbeExtensions(const std::string &path_no_ext) const;
-    std::string ResolvePackageEntry(const std::string &pkg_dir) const;
+private:
+  std::string ResolveRelative(const std::string &specifier, const std::string &importer_dir) const;
+  std::string ResolveBare(const std::string &specifier, const std::string &importer_dir,
+                          std::string &out_pkg_name, std::string &out_pkg_version) const;
+  std::string ProbeExtensions(const std::string &path_no_ext) const;
+  std::string ResolvePackageEntry(const std::string &pkg_dir) const;
 
-    std::unique_ptr<JsModule> LoadModule(const std::string &specifier,
-                                          const std::string &resolved_path,
-                                          const std::string &pkg_name,
-                                          const std::string &pkg_version);
+  std::unique_ptr<JsModule> LoadModule(const std::string &specifier,
+                                       const std::string &resolved_path,
+                                       const std::string &pkg_name, const std::string &pkg_version);
 
-    static std::string CacheKey(const std::string &specifier,
-                                const std::string &importer_dir);
+  static std::string CacheKey(const std::string &specifier, const std::string &importer_dir);
 
-    std::string project_dir_;
-    std::vector<std::string> extra_node_modules_;
-    frontends::Diagnostics &diagnostics_;
+  std::string project_dir_;
+  std::vector<std::string> extra_node_modules_;
+  frontends::Diagnostics &diagnostics_;
 
-    std::vector<std::unique_ptr<JsModule>> modules_;
-    std::unordered_map<std::string, JsModule *> by_key_;
-    // De-dup loaded files by absolute path.
-    std::unordered_map<std::string, JsModule *> by_path_;
+  std::vector<std::unique_ptr<JsModule>> modules_;
+  std::unordered_map<std::string, JsModule *> by_key_;
+  // De-dup loaded files by absolute path.
+  std::unordered_map<std::string, JsModule *> by_path_;
 };
 
-}  // namespace polyglot::javascript
+} // namespace polyglot::javascript

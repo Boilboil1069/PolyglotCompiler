@@ -20,7 +20,7 @@ class PyiLoader;
 /// hard-coded stdlib stub registry (preserved for tests that don't supply
 /// stub paths).
 struct PythonSemaOptions {
-    PyiLoader *loader{nullptr};
+  PyiLoader *loader{nullptr};
 };
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context);

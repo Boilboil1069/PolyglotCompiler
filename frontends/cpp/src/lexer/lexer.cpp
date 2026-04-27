@@ -6,11 +6,11 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "frontends/cpp/include/cpp_lexer.h"
-
 #include <cctype>
 #include <unordered_set>
 #include <vector>
+
+#include "frontends/cpp/include/cpp_lexer.h"
 
 namespace polyglot::cpp {
 
@@ -80,23 +80,25 @@ frontends::Token CppLexer::LexIdentifierOrKeyword() {
     lexeme.push_back(Get());
   }
   static const std::unordered_set<std::string> keywords = {
-      "alignas",   "alignof",      "asm",       "auto",        "bool",       "break",
-      "case",      "catch",        "char",      "char8_t",     "char16_t",   "char32_t",
-      "class",     "const",        "consteval", "constexpr",   "constinit",  "continue",
-      "co_await",  "co_return",    "co_yield",  "concept",     "decltype",    "default",
-      "delete",    "do",           "double",    "dynamic_cast", "else",       "enum",
-      "explicit",  "export",       "extern",    "false",       "float",       "for",
-      "friend",    "goto",         "if",        "import",      "inline",      "int",
-      "long",      "module",       "mutable",   "namespace",   "new",         "noexcept",
-      "nullptr",   "operator",     "private",   "protected",   "public",      "register",
-      "reinterpret_cast", "requires", "return", "short",       "signed",      "sizeof",
-      "static",    "static_assert", "static_cast", "struct",   "switch",      "template",
-      "this",      "thread_local", "throw",     "true",        "try",         "typedef",
-      "typeid",    "typename",     "union",     "unsigned",    "using",       "virtual",
-      "void",      "volatile",     "wchar_t",   "while"};
+      "alignas",   "alignof",       "asm",          "auto",     "bool",
+      "break",     "case",          "catch",        "char",     "char8_t",
+      "char16_t",  "char32_t",      "class",        "const",    "consteval",
+      "constexpr", "constinit",     "continue",     "co_await", "co_return",
+      "co_yield",  "concept",       "decltype",     "default",  "delete",
+      "do",        "double",        "dynamic_cast", "else",     "enum",
+      "explicit",  "export",        "extern",       "false",    "float",
+      "for",       "friend",        "goto",         "if",       "import",
+      "inline",    "int",           "long",         "module",   "mutable",
+      "namespace", "new",           "noexcept",     "nullptr",  "operator",
+      "private",   "protected",     "public",       "register", "reinterpret_cast",
+      "requires",  "return",        "short",        "signed",   "sizeof",
+      "static",    "static_assert", "static_cast",  "struct",   "switch",
+      "template",  "this",          "thread_local", "throw",    "true",
+      "try",       "typedef",       "typeid",       "typename", "union",
+      "unsigned",  "using",         "virtual",      "void",     "volatile",
+      "wchar_t",   "while"};
   frontends::TokenKind kind =
-      keywords.count(lexeme) ? frontends::TokenKind::kKeyword
-                             : frontends::TokenKind::kIdentifier;
+      keywords.count(lexeme) ? frontends::TokenKind::kKeyword : frontends::TokenKind::kIdentifier;
   return frontends::Token{kind, lexeme, loc};
 }
 
@@ -245,11 +247,10 @@ frontends::Token CppLexer::LexPreprocessor() {
   };
 
   static const std::vector<std::string> operators = {
-    "<=>", ">>=", "<<=", "->*", "##",  "...", ">>", "<<", "==", "!=", "<=", ">=",
-    "&&",  "||",  "++",  "--",  "->",  "::",  ".*", "+=", "-=", "*=", "/=", "%=",
-    "&=",  "|=",  "^=",  ".",   "?",   ":",   "+",  "-",  "*",  "/",  "%",  "&",
-    "|",   "^",   "!",   "~",   "<",   ">",   "=",  ",",  ";",  "{",  "}",  "(",
-    ")",   "[",   "]",   "#"};
+      "<=>", ">>=", "<<=", "->*", "##", "...", ">>", "<<", "==", "!=", "<=", ">=", "&&",
+      "||",  "++",  "--",  "->",  "::", ".*",  "+=", "-=", "*=", "/=", "%=", "&=", "|=",
+      "^=",  ".",   "?",   ":",   "+",  "-",   "*",  "/",  "%",  "&",  "|",  "^",  "!",
+      "~",   "<",   ">",   "=",   ",",  ";",   "{",  "}",  "(",  ")",  "[",  "]",  "#"};
 
   auto match_operator = [&](core::SourceLoc l) -> bool {
     for (const auto &op : operators) {
@@ -365,16 +366,35 @@ frontends::Token CppLexer::LexPreprocessor() {
       char third = source_[position_ + 2];
       char mapped = '\0';
       switch (third) {
-        case '=': mapped = '#'; break;
-        case '/': mapped = '\\'; break;
-        case '\'': mapped = '^'; break;
-        case '(': mapped = '['; break;
-        case ')': mapped = ']'; break;
-        case '!': mapped = '|'; break;
-        case '<': mapped = '{'; break;
-        case '>': mapped = '}'; break;
-        case '-': mapped = '~'; break;
-        default: break;
+      case '=':
+        mapped = '#';
+        break;
+      case '/':
+        mapped = '\\';
+        break;
+      case '\'':
+        mapped = '^';
+        break;
+      case '(':
+        mapped = '[';
+        break;
+      case ')':
+        mapped = ']';
+        break;
+      case '!':
+        mapped = '|';
+        break;
+      case '<':
+        mapped = '{';
+        break;
+      case '>':
+        mapped = '}';
+        break;
+      case '-':
+        mapped = '~';
+        break;
+      default:
+        break;
       }
       if (mapped != '\0') {
         Get();
@@ -435,16 +455,35 @@ frontends::Token CppLexer::LexOperator() {
     char third = source_[position_ + 2];
     char mapped = '\0';
     switch (third) {
-      case '=': mapped = '#'; break;
-      case '/': mapped = '\\'; break;
-      case '\'': mapped = '^'; break;
-      case '(': mapped = '['; break;
-      case ')': mapped = ']'; break;
-      case '!': mapped = '|'; break;
-      case '<': mapped = '{'; break;
-      case '>': mapped = '}'; break;
-      case '-': mapped = '~'; break;
-      default: break;
+    case '=':
+      mapped = '#';
+      break;
+    case '/':
+      mapped = '\\';
+      break;
+    case '\'':
+      mapped = '^';
+      break;
+    case '(':
+      mapped = '[';
+      break;
+    case ')':
+      mapped = ']';
+      break;
+    case '!':
+      mapped = '|';
+      break;
+    case '<':
+      mapped = '{';
+      break;
+    case '>':
+      mapped = '}';
+      break;
+    case '-':
+      mapped = '~';
+      break;
+    default:
+      break;
     }
     if (mapped != '\0') {
       Get();
@@ -454,11 +493,10 @@ frontends::Token CppLexer::LexOperator() {
     }
   }
   static const std::vector<std::string> operators = {
-    "<=>", ">>=", "<<=", "->*", "##",  "...", ">>", "<<", "==", "!=", "<=", ">=",
-    "&&",  "||",  "++",  "--",  "->",  "::",  ".*", "+=", "-=", "*=", "/=", "%=",
-    "&=",  "|=",  "^=",  ".",   "?",   ":",   "+",  "-",  "*",  "/",  "%",  "&",
-    "|",   "^",   "!",   "~",   "<",   ">",   "=",  ",",  ";",  "{",  "}",  "(",
-    ")",   "[",   "]"};
+      "<=>", ">>=", "<<=", "->*", "##", "...", ">>", "<<", "==", "!=", "<=", ">=", "&&",
+      "||",  "++",  "--",  "->",  "::", ".*",  "+=", "-=", "*=", "/=", "%=", "&=", "|=",
+      "^=",  ".",   "?",   ":",   "+",  "-",   "*",  "/",  "%",  "&",  "|",  "^",  "!",
+      "~",   "<",   ">",   "=",   ",",  ";",   "{",  "}",  "(",  ")",  "[",  "]"};
   for (const auto &op : operators) {
     if (source_.compare(position_, op.size(), op) == 0) {
       for (size_t i = 0; i < op.size(); ++i) {
@@ -502,8 +540,9 @@ frontends::Token CppLexer::NextToken() {
   if (c == '"' || (c == 'R' && PeekNext() == '"') || StartsWithStringPrefix()) {
     return LexString();
   }
-  if (c == '\'' || (StartsWithStringPrefix() && (PeekNext() == '\'' ||
-      (Peek() == 'u' && position_ + 2 < source_.size() && source_[position_ + 2] == '\'')))) {
+  if (c == '\'' || (StartsWithStringPrefix() &&
+                    (PeekNext() == '\'' || (Peek() == 'u' && position_ + 2 < source_.size() &&
+                                            source_[position_ + 2] == '\'')))) {
     return LexChar();
   }
   if (IsIdentStart(static_cast<unsigned char>(c))) {
@@ -516,4 +555,4 @@ frontends::Token CppLexer::NextToken() {
   return LexOperator();
 }
 
-}  // namespace polyglot::cpp
+} // namespace polyglot::cpp

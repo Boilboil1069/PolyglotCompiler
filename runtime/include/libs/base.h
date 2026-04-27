@@ -8,9 +8,9 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,7 +32,8 @@ void polyglot_gc_collect(void);
 void polyglot_gc_register_root(void **slot);
 void polyglot_gc_unregister_root(void **slot);
 
-// Convenience for C callers to allocate and keep a root alive for the caller scope (uses cleanup when available).
+// Convenience for C callers to allocate and keep a root alive for the caller scope (uses cleanup
+// when available).
 void *polyglot_alloc_rooted(size_t size);
 
 // Cross-language basic IO

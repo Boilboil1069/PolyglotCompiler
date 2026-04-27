@@ -14,4 +14,4 @@ namespace polyglot::passes::transform {
 
 void RunDeadCodeElimination(ir::IRContext &context);
 
-}  // namespace polyglot::passes::transform
+} // namespace polyglot::passes::transform

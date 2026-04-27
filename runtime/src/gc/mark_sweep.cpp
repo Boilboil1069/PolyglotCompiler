@@ -6,16 +6,15 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/gc_api.h"
-
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <mimalloc.h>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
-#include <mimalloc.h>
+#include "runtime/include/gc/gc_api.h"
 
 namespace polyglot::runtime::gc {
 namespace {
@@ -26,16 +25,17 @@ struct Block {
   bool marked{false};
 };
 
-}  // namespace
+} // namespace
 
 class MarkSweepGC : public GC {
- public:
+public:
   void *Allocate(size_t size) override {
     std::lock_guard<std::mutex> lock(mu_);
     // Backed by mimalloc — see runtime/include/memory/polyglot_alloc.h
     // for the rationale behind the project-wide allocator switch.
     void *mem = mi_malloc(size);
-    if (!mem) return nullptr;
+    if (!mem)
+      return nullptr;
     blocks_.push_back({mem, size, false});
     index_[mem] = blocks_.size() - 1;
     total_allocations_++;
@@ -49,11 +49,14 @@ class MarkSweepGC : public GC {
 
   void Collect() override {
     std::lock_guard<std::mutex> lock(mu_);
-    for (auto &b : blocks_) b.marked = false;
+    for (auto &b : blocks_)
+      b.marked = false;
     for (auto *slot : roots_) {
-      if (!slot || !*slot) continue;
+      if (!slot || !*slot)
+        continue;
       auto it = index_.find(*slot);
-      if (it != index_.end()) blocks_[it->second].marked = true;
+      if (it != index_.end())
+        blocks_[it->second].marked = true;
     }
     Sweep();
     collections_++;
@@ -61,13 +64,15 @@ class MarkSweepGC : public GC {
 
   void RegisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
 
@@ -85,7 +90,7 @@ class MarkSweepGC : public GC {
     return stats;
   }
 
- private:
+private:
   void Sweep() {
     std::size_t i = 0;
     while (i < blocks_.size()) {
@@ -119,6 +124,8 @@ class MarkSweepGC : public GC {
   size_t total_freed_bytes_{0};
 };
 
-std::unique_ptr<GC> MakeMarkSweepGC() { return std::make_unique<MarkSweepGC>(); }
+std::unique_ptr<GC> MakeMarkSweepGC() {
+  return std::make_unique<MarkSweepGC>();
+}
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

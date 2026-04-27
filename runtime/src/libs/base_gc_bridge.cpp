@@ -6,9 +6,9 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/runtime.h"
-
 #include <cstddef>
+
+#include "runtime/include/gc/runtime.h"
 
 extern "C" {
 
@@ -27,5 +27,4 @@ void polyglot_gc_register_root(void **slot) {
 void polyglot_gc_unregister_root(void **slot) {
   polyglot::runtime::gc::GlobalHeap().Raw()->UnregisterRoot(slot);
 }
-
 }

@@ -35,9 +35,9 @@ struct StubRelocation {
 /** @brief BasicBlock data structure. */
 struct BasicBlock {
   std::string name;
-  std::size_t id{0};                                       // Block index (for PGO)
-  std::vector<std::shared_ptr<PhiInstruction>> phis;       // Phi nodes (dominated by block)
-  std::vector<std::shared_ptr<Instruction>> instructions;  // non-phi, non-terminator
+  std::size_t id{0};                                      // Block index (for PGO)
+  std::vector<std::shared_ptr<PhiInstruction>> phis;      // Phi nodes (dominated by block)
+  std::vector<std::shared_ptr<Instruction>> instructions; // non-phi, non-terminator
   std::shared_ptr<Instruction> terminator{nullptr};
   std::vector<BasicBlock *> successors{};
   std::vector<BasicBlock *> predecessors{};
@@ -75,12 +75,12 @@ struct Function {
 /** @brief ControlFlowGraph data structure. */
 struct ControlFlowGraph {
   BasicBlock *entry{nullptr};
-  std::vector<BasicBlock *> blocks{};  // non-owning
+  std::vector<BasicBlock *> blocks{}; // non-owning
 };
 
 /** @brief DominatorTree data structure. */
 struct DominatorTree {
-  std::unordered_map<BasicBlock *, BasicBlock *> idom;  // immediate dominator
+  std::unordered_map<BasicBlock *, BasicBlock *> idom; // immediate dominator
   std::unordered_map<BasicBlock *, std::vector<BasicBlock *>> children;
 };
 
@@ -88,6 +88,7 @@ using DominanceFrontier = std::unordered_map<BasicBlock *, std::unordered_set<Ba
 
 ControlFlowGraph BuildCFG(Function &func);
 DominatorTree ComputeDominators(const ControlFlowGraph &cfg);
-DominanceFrontier ComputeDominanceFrontier(const ControlFlowGraph &cfg, const DominatorTree &dom_tree);
+DominanceFrontier ComputeDominanceFrontier(const ControlFlowGraph &cfg,
+                                           const DominatorTree &dom_tree);
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

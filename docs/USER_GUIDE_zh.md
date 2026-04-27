@@ -4,8 +4,8 @@
 > 支持 C++、Python、Rust、Java、C# (.NET)、JavaScript、Ruby、Go → x86_64/ARM64/WebAssembly  
 > 含 .ploy 跨语言链接前端
 
-**版本**: v1.0.0  
-**最后更新**: 2026-03-15
+**版本**: v1.1.1  
+**最后更新**: 2026-04-27
 
 ---
 
@@ -3124,5 +3124,5 @@ PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
 <!-- BEGIN:version_footer_zh -->
 *本文档由 PolyglotCompiler 团队维护*  
 *最后更新: 2026-04-27*  
-*文档版本: v1.1.0*
+*文档版本: v1.1.1*
 <!-- END:version_footer_zh -->

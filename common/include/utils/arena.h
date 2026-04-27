@@ -16,7 +16,7 @@ namespace polyglot::utils {
 
 /** @brief Arena class. */
 class Arena {
- public:
+public:
   explicit Arena(size_t block_size = 4096) : block_size_(block_size) {}
 
   void *Allocate(size_t size, size_t alignment = alignof(std::max_align_t)) {
@@ -36,7 +36,7 @@ class Arena {
     current_offset_ = 0;
   }
 
- private:
+private:
   size_t Align(size_t offset, size_t alignment) const {
     size_t mask = alignment - 1;
     return (offset + mask) & ~mask;
@@ -54,4 +54,4 @@ class Arena {
   size_t current_offset_{0};
 };
 
-}  // namespace polyglot::utils
+} // namespace polyglot::utils

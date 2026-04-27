@@ -16,14 +16,14 @@ namespace polyglot::frontends {
 
 /** @brief ParserBase class. */
 class ParserBase {
- public:
+public:
   explicit ParserBase(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}
   virtual ~ParserBase() = default;
 
   virtual void ParseModule() = 0;
 
- protected:
+protected:
   Diagnostics &diagnostics_;
 };
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends

@@ -27,62 +27,61 @@
 namespace polyglot::rust {
 
 enum class CrateItemKind {
-    kFunction,
-    kStruct,
-    kEnum,
-    kTrait,
-    kModule,
-    kConst,
-    kStatic,
-    kTypeAlias,
-    kMacro,
+  kFunction,
+  kStruct,
+  kEnum,
+  kTrait,
+  kModule,
+  kConst,
+  kStatic,
+  kTypeAlias,
+  kMacro,
 };
 
 struct CrateItem {
-    std::string     name;             // last path segment
-    std::string     qualified_name;   // crate-rooted, e.g. "serde::Serializer"
-    CrateItemKind   kind{CrateItemKind::kFunction};
-    core::Type      type{core::Type::Any()};
-    std::vector<core::Type> param_types;   // functions only
-    core::Type      return_type{core::Type::Void()};
+  std::string name;           // last path segment
+  std::string qualified_name; // crate-rooted, e.g. "serde::Serializer"
+  CrateItemKind kind{CrateItemKind::kFunction};
+  core::Type type{core::Type::Any()};
+  std::vector<core::Type> param_types; // functions only
+  core::Type return_type{core::Type::Void()};
 };
 
 struct CrateInfo {
-    std::string name;
-    std::string version;
-    std::string root_path;            // src/lib.rs or .rs entry / .rlib / .rmeta
-    bool        is_binary_artifact{false};   // .rlib/.rmeta: items will be empty
-    // Index keyed by qualified path (crate-rooted, e.g. "serde::ser::Serializer").
-    std::unordered_map<std::string, CrateItem> items;
+  std::string name;
+  std::string version;
+  std::string root_path;          // src/lib.rs or .rs entry / .rlib / .rmeta
+  bool is_binary_artifact{false}; // .rlib/.rmeta: items will be empty
+  // Index keyed by qualified path (crate-rooted, e.g. "serde::ser::Serializer").
+  std::unordered_map<std::string, CrateItem> items;
 };
 
 class CrateLoader {
-  public:
-    CrateLoader(const std::string &crate_dir,
-                const std::vector<std::pair<std::string, std::string>> &externs,
-                frontends::Diagnostics &diags);
+public:
+  CrateLoader(const std::string &crate_dir,
+              const std::vector<std::pair<std::string, std::string>> &externs,
+              frontends::Diagnostics &diags);
 
-    /// Look up a crate by name (e.g. "serde", "std").  Returns nullptr if
-    /// the crate is unknown.
-    const CrateInfo *ResolveCrate(const std::string &crate_name) const;
+  /// Look up a crate by name (e.g. "serde", "std").  Returns nullptr if
+  /// the crate is unknown.
+  const CrateInfo *ResolveCrate(const std::string &crate_name) const;
 
-    /// Resolve a fully-qualified Rust path (e.g. "serde::Serializer").
-    /// Both "::"-separated and the rust path-AST string form are accepted.
-    /// Returns nullptr if the path is not exported by any loaded crate.
-    const CrateItem *ResolvePath(const std::string &path) const;
+  /// Resolve a fully-qualified Rust path (e.g. "serde::Serializer").
+  /// Both "::"-separated and the rust path-AST string form are accepted.
+  /// Returns nullptr if the path is not exported by any loaded crate.
+  const CrateItem *ResolvePath(const std::string &path) const;
 
-    bool empty() const { return crates_.empty(); }
+  bool empty() const { return crates_.empty(); }
 
-    /// All loaded crates, in load order.  Useful for tests/diagnostics.
-    const std::vector<std::unique_ptr<CrateInfo>> &crates() const { return crates_; }
+  /// All loaded crates, in load order.  Useful for tests/diagnostics.
+  const std::vector<std::unique_ptr<CrateInfo>> &crates() const { return crates_; }
 
-  private:
-    void LoadFromPath(const std::string &explicit_name,
-                      const std::string &path,
-                      frontends::Diagnostics &diags);
+private:
+  void LoadFromPath(const std::string &explicit_name, const std::string &path,
+                    frontends::Diagnostics &diags);
 
-    std::vector<std::unique_ptr<CrateInfo>> crates_;
-    std::unordered_map<std::string, CrateInfo *> by_name_;
+  std::vector<std::unique_ptr<CrateInfo>> crates_;
+  std::unordered_map<std::string, CrateInfo *> by_name_;
 };
 
-}  // namespace polyglot::rust
+} // namespace polyglot::rust

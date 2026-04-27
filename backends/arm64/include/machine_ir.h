@@ -12,8 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "backends/arm64/include/arm64_register.h"
 #include "middle/include/ir/cfg.h"
+
+#include "backends/arm64/include/arm64_register.h"
 
 namespace polyglot::backends::arm64 {
 
@@ -57,7 +58,9 @@ struct Operand {
   int stack_slot{-1};
   bool is_float{false};
 
-  static Operand VReg(int v, bool is_float = false) { return Operand{Kind::kVReg, v, Register::kX0, 0, "", -1, is_float}; }
+  static Operand VReg(int v, bool is_float = false) {
+    return Operand{Kind::kVReg, v, Register::kX0, 0, "", -1, is_float};
+  }
   static Operand Phys(Register r, bool is_float = false) {
     Operand op;
     op.kind = Kind::kPhysReg;
@@ -149,7 +152,9 @@ enum class RegAllocStrategy { kLinearScan, kGraphColoring };
 MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model);
 void ScheduleFunction(MachineFunction &fn);
 std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn);
-AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector<Register> &available);
-AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vector<Register> &available);
+AllocationResult LinearScanAllocate(const MachineFunction &fn,
+                                    const std::vector<Register> &available);
+AllocationResult GraphColoringAllocate(const MachineFunction &fn,
+                                       const std::vector<Register> &available);
 
-}  // namespace polyglot::backends::arm64
+} // namespace polyglot::backends::arm64

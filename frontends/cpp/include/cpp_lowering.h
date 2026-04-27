@@ -8,9 +8,10 @@
  */
 #pragma once
 
-#include "frontends/cpp/include/cpp_ast.h"
-#include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
+
+#include "frontends/common/include/diagnostics.h"
+#include "frontends/cpp/include/cpp_ast.h"
 
 namespace polyglot::cpp {
 
@@ -18,4 +19,4 @@ namespace polyglot::cpp {
 // (functions with integer params/returns, literals, binary ops, simple vars).
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags);
 
-}  // namespace polyglot::cpp
+} // namespace polyglot::cpp

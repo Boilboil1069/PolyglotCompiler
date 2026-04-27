@@ -36,12 +36,12 @@
 namespace polyglot::go {
 
 enum class GoSymbolKind {
-    kFunction,
-    kStruct,
-    kInterface,
-    kVariable,
-    kConstant,
-    kTypeAlias,
+  kFunction,
+  kStruct,
+  kInterface,
+  kVariable,
+  kConstant,
+  kTypeAlias,
 };
 
 /**
@@ -52,18 +52,18 @@ enum class GoSymbolKind {
  * `qualified_name` as `<pkg>.<Type>.<Method>`.
  */
 struct GoSymbol {
-    std::string name;            // unqualified symbol name
-    std::string qualified_name;  // "<pkg>.<symbol>" or "<pkg>.<Type>.<Method>"
-    GoSymbolKind kind{GoSymbolKind::kFunction};
+  std::string name;           // unqualified symbol name
+  std::string qualified_name; // "<pkg>.<symbol>" or "<pkg>.<Type>.<Method>"
+  GoSymbolKind kind{GoSymbolKind::kFunction};
 
-    // Function signature (only valid for kFunction).
-    std::vector<core::Type> param_types;
-    std::vector<std::string> param_names;
-    core::Type return_type{core::Type::Void()};
-    bool is_variadic{false};
+  // Function signature (only valid for kFunction).
+  std::vector<core::Type> param_types;
+  std::vector<std::string> param_names;
+  core::Type return_type{core::Type::Void()};
+  bool is_variadic{false};
 
-    // Receiver type for methods (empty for free functions / non-methods).
-    std::string receiver_type;
+  // Receiver type for methods (empty for free functions / non-methods).
+  std::string receiver_type;
 };
 
 /**
@@ -73,29 +73,29 @@ struct GoSymbol {
  * same canonical path; consumers must therefore treat it as immutable.
  */
 struct GoPackage {
-    std::string import_path;     // e.g. "github.com/user/proj/foo"
-    std::string package_name;    // last segment / `package` clause
-    std::string root_dir;        // absolute directory the package was loaded from
-    std::string module_version;  // e.g. "v1.2.3" (empty for std/local)
-    bool is_stdlib{false};
-    bool is_local{false};
-    bool source_available{false};
+  std::string import_path;    // e.g. "github.com/user/proj/foo"
+  std::string package_name;   // last segment / `package` clause
+  std::string root_dir;       // absolute directory the package was loaded from
+  std::string module_version; // e.g. "v1.2.3" (empty for std/local)
+  bool is_stdlib{false};
+  bool is_local{false};
+  bool source_available{false};
 
-    // Index keyed by simple symbol name (e.g. "Println").
-    std::unordered_map<std::string, GoSymbol> exports;
+  // Index keyed by simple symbol name (e.g. "Println").
+  std::unordered_map<std::string, GoSymbol> exports;
 };
 
 /**
  * @brief Parsed `go.mod` data for the active module.
  */
 struct GoModuleManifest {
-    std::string module_path;     // first `module` directive
-    std::string go_version;      // `go 1.21` directive (raw text)
-    // Each `require` entry: import-path -> version
-    std::unordered_map<std::string, std::string> requires_;
-    // Each `replace` entry: original-path -> replacement directory or path
-    std::unordered_map<std::string, std::string> replaces;
-    bool loaded{false};
+  std::string module_path; // first `module` directive
+  std::string go_version;  // `go 1.21` directive (raw text)
+  // Each `require` entry: import-path -> version
+  std::unordered_map<std::string, std::string> requires_;
+  // Each `replace` entry: original-path -> replacement directory or path
+  std::unordered_map<std::string, std::string> replaces;
+  bool loaded{false};
 };
 
 /**
@@ -106,47 +106,43 @@ struct GoModuleManifest {
  * discovery and parsing; subsequent calls hit an internal cache.
  */
 class GoImportResolver {
-  public:
-    GoImportResolver(std::string project_dir,
-                     std::vector<std::string> extra_module_paths,
-                     frontends::Diagnostics &diagnostics);
+public:
+  GoImportResolver(std::string project_dir, std::vector<std::string> extra_module_paths,
+                   frontends::Diagnostics &diagnostics);
 
-    /// Resolve an import path to a populated `GoPackage`.  Returns nullptr
-    /// when the path cannot be located (a diagnostic has already been
-    /// reported).  The returned pointer is owned by the resolver and stays
-    /// valid for its lifetime.
-    const GoPackage *Resolve(const std::string &import_path);
+  /// Resolve an import path to a populated `GoPackage`.  Returns nullptr
+  /// when the path cannot be located (a diagnostic has already been
+  /// reported).  The returned pointer is owned by the resolver and stays
+  /// valid for its lifetime.
+  const GoPackage *Resolve(const std::string &import_path);
 
-    /// Look up an already-resolved package (no I/O).  Useful for tests.
-    const GoPackage *Lookup(const std::string &import_path) const;
+  /// Look up an already-resolved package (no I/O).  Useful for tests.
+  const GoPackage *Lookup(const std::string &import_path) const;
 
-    /// Read-only access to the parsed module manifest, if any.
-    const GoModuleManifest &Manifest() const { return manifest_; }
+  /// Read-only access to the parsed module manifest, if any.
+  const GoModuleManifest &Manifest() const { return manifest_; }
 
-    /// Effective list of module-cache search directories.  Order follows
-    /// the search precedence documented at the top of this header.
-    const std::vector<std::string> &ModuleSearchPaths() const { return module_paths_; }
+  /// Effective list of module-cache search directories.  Order follows
+  /// the search precedence documented at the top of this header.
+  const std::vector<std::string> &ModuleSearchPaths() const { return module_paths_; }
 
-    /// All packages discovered by this resolver instance, in load order.
-    const std::vector<std::unique_ptr<GoPackage>> &packages() const { return packages_; }
+  /// All packages discovered by this resolver instance, in load order.
+  const std::vector<std::unique_ptr<GoPackage>> &packages() const { return packages_; }
 
-  private:
-    void LoadGoMod();
-    std::string LocatePackageDir(const std::string &import_path) const;
-    std::unique_ptr<GoPackage> LoadPackage(const std::string &import_path,
-                                           const std::string &dir,
-                                           const std::string &version,
-                                           bool is_local,
-                                           bool is_stdlib);
-    static std::string EscapeModulePath(const std::string &p);
+private:
+  void LoadGoMod();
+  std::string LocatePackageDir(const std::string &import_path) const;
+  std::unique_ptr<GoPackage> LoadPackage(const std::string &import_path, const std::string &dir,
+                                         const std::string &version, bool is_local, bool is_stdlib);
+  static std::string EscapeModulePath(const std::string &p);
 
-    std::string project_dir_;
-    std::vector<std::string> module_paths_;
-    frontends::Diagnostics &diagnostics_;
-    GoModuleManifest manifest_{};
+  std::string project_dir_;
+  std::vector<std::string> module_paths_;
+  frontends::Diagnostics &diagnostics_;
+  GoModuleManifest manifest_{};
 
-    std::vector<std::unique_ptr<GoPackage>> packages_;
-    std::unordered_map<std::string, GoPackage *> by_path_;
+  std::vector<std::unique_ptr<GoPackage>> packages_;
+  std::unordered_map<std::string, GoPackage *> by_path_;
 };
 
-}  // namespace polyglot::go
+} // namespace polyglot::go

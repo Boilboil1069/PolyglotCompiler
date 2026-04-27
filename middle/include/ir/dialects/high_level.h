@@ -13,4 +13,4 @@ namespace polyglot::ir::dialects {
 /** @brief HighLevelDialect data structure. */
 struct HighLevelDialect {};
 
-}  // namespace polyglot::ir::dialects
+} // namespace polyglot::ir::dialects

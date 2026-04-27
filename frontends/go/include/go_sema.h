@@ -15,4 +15,4 @@ namespace polyglot::go {
 
 void AnalyzeFile(const File &file, frontends::SemaContext &ctx);
 
-}  // namespace polyglot::go
+} // namespace polyglot::go

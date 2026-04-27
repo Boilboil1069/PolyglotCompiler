@@ -101,12 +101,12 @@ struct ForeignHandle {
 /// Tracks ownership state for every registered foreign handle and validates
 /// transitions (register, borrow, transfer, release).  Thread-safe.
 class OwnershipTracker {
- public:
+public:
   static OwnershipTracker &Instance();
 
   /// Register a new handle and return its unique id.
-  uint64_t Register(const std::string &name, Ownership ownership,
-                    ForeignHandle::Kind kind, void *resource);
+  uint64_t Register(const std::string &name, Ownership ownership, ForeignHandle::Kind kind,
+                    void *resource);
 
   /// Transfer ownership of a handle to a new mode. Only valid on owned handles.
   bool Transfer(uint64_t handle_id, Ownership new_ownership);
@@ -138,7 +138,7 @@ class OwnershipTracker {
   /// Clear all tracked handles (intended for testing/reset).
   void Reset();
 
- private:
+private:
   OwnershipTracker() = default;
   OwnershipTracker(const OwnershipTracker &) = delete;
   OwnershipTracker &operator=(const OwnershipTracker &) = delete;
@@ -161,7 +161,7 @@ class OwnershipTracker {
 
 /// RAII wrapper around dlopen / dlsym (Unix) or LoadLibrary / GetProcAddress (Windows).
 class DynamicLibrary {
- public:
+public:
   DynamicLibrary() = default;
   ~DynamicLibrary();
 
@@ -185,7 +185,7 @@ class DynamicLibrary {
   bool IsOpen() const { return handle_ != nullptr; }
   const std::string &Path() const { return path_; }
 
- private:
+private:
   void *handle_{nullptr};
   std::string path_;
   std::string last_error_;
@@ -204,14 +204,13 @@ class DynamicLibrary {
 /// Central registry for foreign functions, objects, and dynamic libraries.
 /// Coordinates binding, lookup, ownership transfer, and release.  Thread-safe.
 class FFIRegistry {
- public:
+public:
   static FFIRegistry &Instance();
 
   // -- Function binding -----------------------------------------------------
 
   /// Bind a foreign function and return its tracker handle id.
-  uint64_t BindFunction(const std::string &name, void *address,
-                        const ForeignSignature &sig,
+  uint64_t BindFunction(const std::string &name, void *address, const ForeignSignature &sig,
                         Ownership ownership = Ownership::kBorrowed);
 
   /// Look up a previously bound function by name.
@@ -223,8 +222,7 @@ class FFIRegistry {
   // -- Object binding -------------------------------------------------------
 
   /// Bind a foreign data object and return its tracker handle id.
-  uint64_t BindObject(const std::string &name, void *address, size_t size,
-                      Ownership ownership,
+  uint64_t BindObject(const std::string &name, void *address, size_t size, Ownership ownership,
                       std::function<void(void *)> deleter = nullptr);
 
   /// Look up a previously bound object by name.
@@ -263,7 +261,7 @@ class FFIRegistry {
   /// Clear all registrations (intended for testing).
   void Reset();
 
- private:
+private:
   FFIRegistry() = default;
   FFIRegistry(const FFIRegistry &) = delete;
   FFIRegistry &operator=(const FFIRegistry &) = delete;
@@ -300,6 +298,6 @@ ForeignFunction BindWithSignature(const std::string &name, void *address,
                                   const ForeignSignature &sig,
                                   Ownership ownership = Ownership::kBorrowed);
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop
 
 /** @} */

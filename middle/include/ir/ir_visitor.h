@@ -16,11 +16,11 @@ namespace polyglot::ir {
 // Minimal visitor kept for compatibility; can be extended as needed.
 /** @brief IRVisitor class. */
 class IRVisitor {
- public:
+public:
   virtual ~IRVisitor() = default;
 
   virtual void Visit(const LiteralExpression &expr) = 0;
   virtual void Visit(const ReturnStatement &stmt) = 0;
 };
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

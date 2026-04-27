@@ -6,17 +6,16 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/gc_api.h"
-
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <mimalloc.h>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include <mimalloc.h>
+#include "runtime/include/gc/gc_api.h"
 
 namespace polyglot::runtime::gc {
 namespace {
@@ -32,17 +31,18 @@ struct IBlock {
   enum Color { WHITE, GRAY, BLACK } color{WHITE};
 };
 
-constexpr size_t kIncrementalStepSize = 100;  // Number of objects processed per incremental step
+constexpr size_t kIncrementalStepSize = 100; // Number of objects processed per incremental step
 
-}  // namespace
+} // namespace
 
 class IncrementalGC : public GC {
- public:
+public:
   void *Allocate(size_t size) override {
     std::lock_guard<std::mutex> lock(mu_);
     // Backed by mimalloc.
     void *mem = mi_malloc(size);
-    if (!mem) return nullptr;
+    if (!mem)
+      return nullptr;
 
     blocks_.push_back({mem, size, IBlock::WHITE});
     index_[mem] = blocks_.size() - 1;
@@ -75,13 +75,15 @@ class IncrementalGC : public GC {
 
   void RegisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
 
@@ -99,7 +101,7 @@ class IncrementalGC : public GC {
     return stats;
   }
 
- private:
+private:
   void StartGC() {
     // Mark all objects white
     for (auto &b : blocks_) {
@@ -109,7 +111,8 @@ class IncrementalGC : public GC {
     // Mark all roots gray
     gray_set_.clear();
     for (auto **root : roots_) {
-      if (!root || !*root) continue;
+      if (!root || !*root)
+        continue;
       auto it = index_.find(*root);
       if (it != index_.end()) {
         blocks_[it->second].color = IBlock::GRAY;
@@ -121,7 +124,8 @@ class IncrementalGC : public GC {
   }
 
   void IncrementalStep() {
-    if (!gc_running_) return;
+    if (!gc_running_)
+      return;
 
     // Process a batch of gray objects
     size_t processed = 0;
@@ -195,6 +199,8 @@ class IncrementalGC : public GC {
   size_t total_freed_bytes_{0};
 };
 
-std::unique_ptr<GC> MakeIncrementalGC() { return std::make_unique<IncrementalGC>(); }
+std::unique_ptr<GC> MakeIncrementalGC() {
+  return std::make_unique<IncrementalGC>();
+}
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

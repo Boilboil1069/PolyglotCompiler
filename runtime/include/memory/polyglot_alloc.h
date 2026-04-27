@@ -59,5 +59,5 @@ const char *polyglot_allocator_name(void);
 const char *polyglot_allocator_version(void);
 
 #ifdef __cplusplus
-}  // extern "C"
+} // extern "C"
 #endif

@@ -6,10 +6,10 @@
  * @date     2026-02-06
  * @version  2.0.0
  */
-#include "runtime/include/interop/ffi.h"
-
 #include <algorithm>
 #include <utility>
+
+#include "runtime/include/interop/ffi.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -55,12 +55,15 @@ uint64_t OwnershipTracker::Register(const std::string &name, Ownership ownership
 bool OwnershipTracker::Transfer(uint64_t handle_id, Ownership new_ownership) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return false;
+  if (it == handles_.end())
+    return false;
 
   ForeignHandle &h = it->second;
   // Only active, owned handles may be transferred.
-  if (h.state != ForeignHandle::State::kActive) return false;
-  if (h.ownership != Ownership::kOwned) return false;
+  if (h.state != ForeignHandle::State::kActive)
+    return false;
+  if (h.ownership != Ownership::kOwned)
+    return false;
 
   h.ownership = new_ownership;
   // If ownership becomes borrowed it logically marks the handle as transferred
@@ -74,11 +77,11 @@ bool OwnershipTracker::Transfer(uint64_t handle_id, Ownership new_ownership) {
 bool OwnershipTracker::Release(uint64_t handle_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return false;
+  if (it == handles_.end())
+    return false;
 
   ForeignHandle &h = it->second;
-  if (h.state == ForeignHandle::State::kReleased ||
-      h.state == ForeignHandle::State::kInvalid) {
+  if (h.state == ForeignHandle::State::kReleased || h.state == ForeignHandle::State::kInvalid) {
     return false;
   }
 
@@ -90,8 +93,10 @@ bool OwnershipTracker::Release(uint64_t handle_id) {
 const ForeignHandle *OwnershipTracker::Access(uint64_t handle_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return nullptr;
-  if (it->second.state != ForeignHandle::State::kActive) return nullptr;
+  if (it == handles_.end())
+    return nullptr;
+  if (it->second.state != ForeignHandle::State::kActive)
+    return nullptr;
   ++it->second.access_count;
   return &it->second;
 }
@@ -99,28 +104,34 @@ const ForeignHandle *OwnershipTracker::Access(uint64_t handle_id) {
 const ForeignHandle *OwnershipTracker::Lookup(uint64_t handle_id) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return nullptr;
+  if (it == handles_.end())
+    return nullptr;
   return &it->second;
 }
 
 const ForeignHandle *OwnershipTracker::LookupByName(const std::string &name) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto nit = name_index_.find(name);
-  if (nit == name_index_.end()) return nullptr;
+  if (nit == name_index_.end())
+    return nullptr;
   auto it = handles_.find(nit->second);
-  if (it == handles_.end()) return nullptr;
+  if (it == handles_.end())
+    return nullptr;
   return &it->second;
 }
 
 bool OwnershipTracker::ValidateAccess(uint64_t handle_id, Ownership required) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return false;
+  if (it == handles_.end())
+    return false;
   const ForeignHandle &h = it->second;
-  if (h.state != ForeignHandle::State::kActive) return false;
+  if (h.state != ForeignHandle::State::kActive)
+    return false;
 
   // Owned satisfies any requirement.
-  if (h.ownership == Ownership::kOwned) return true;
+  if (h.ownership == Ownership::kOwned)
+    return true;
   // Shared satisfies shared or borrowed.
   if (h.ownership == Ownership::kShared &&
       (required == Ownership::kShared || required == Ownership::kBorrowed))
@@ -135,7 +146,8 @@ bool OwnershipTracker::ValidateAccess(uint64_t handle_id, Ownership required) co
 bool OwnershipTracker::ValidateBorrow(uint64_t handle_id) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = handles_.find(handle_id);
-  if (it == handles_.end()) return false;
+  if (it == handles_.end())
+    return false;
   const ForeignHandle &h = it->second;
   return h.state == ForeignHandle::State::kActive;
 }
@@ -155,7 +167,8 @@ size_t OwnershipTracker::ActiveCount() const {
   std::lock_guard<std::mutex> lock(mutex_);
   size_t count = 0;
   for (const auto &[id, h] : handles_) {
-    if (h.state == ForeignHandle::State::kActive) ++count;
+    if (h.state == ForeignHandle::State::kActive)
+      ++count;
   }
   return count;
 }
@@ -171,12 +184,13 @@ void OwnershipTracker::Reset() {
 // DynamicLibrary
 // ===========================================================================
 
-DynamicLibrary::~DynamicLibrary() { Close(); }
+DynamicLibrary::~DynamicLibrary() {
+  Close();
+}
 
-DynamicLibrary::DynamicLibrary(DynamicLibrary &&other) noexcept
-    : handle_(other.handle_),
-      path_(std::move(other.path_)),
-      last_error_(std::move(other.last_error_)) {
+DynamicLibrary::DynamicLibrary(DynamicLibrary &&other) noexcept :
+    handle_(other.handle_), path_(std::move(other.path_)),
+    last_error_(std::move(other.last_error_)) {
   other.handle_ = nullptr;
 }
 
@@ -215,7 +229,8 @@ bool DynamicLibrary::Open(const std::string &path) {
 }
 
 void DynamicLibrary::Close() {
-  if (!handle_) return;
+  if (!handle_)
+    return;
 
 #ifdef _WIN32
   ::FreeLibrary(static_cast<HMODULE>(handle_));
@@ -226,7 +241,8 @@ void DynamicLibrary::Close() {
 }
 
 void *DynamicLibrary::GetSymbol(const std::string &symbol_name) const {
-  if (!handle_) return nullptr;
+  if (!handle_)
+    return nullptr;
 
 #ifdef _WIN32
   void *sym = reinterpret_cast<void *>(
@@ -237,7 +253,7 @@ void *DynamicLibrary::GetSymbol(const std::string &symbol_name) const {
         "GetProcAddress failed with error code " + std::to_string(err);
   }
 #else
-  ::dlerror();  // clear previous errors
+  ::dlerror(); // clear previous errors
   void *sym = ::dlsym(handle_, symbol_name.c_str());
   const char *err = ::dlerror();
   if (err) {
@@ -260,8 +276,7 @@ FFIRegistry &FFIRegistry::Instance() {
 // -- Function binding -------------------------------------------------------
 
 uint64_t FFIRegistry::BindFunction(const std::string &name, void *address,
-                                   const ForeignSignature &sig,
-                                   Ownership ownership) {
+                                   const ForeignSignature &sig, Ownership ownership) {
   std::lock_guard<std::mutex> lock(mutex_);
   ForeignFunction fn;
   fn.name = name;
@@ -271,8 +286,8 @@ uint64_t FFIRegistry::BindFunction(const std::string &name, void *address,
 
   functions_[name] = fn;
 
-  uint64_t hid = OwnershipTracker::Instance().Register(
-      name, ownership, ForeignHandle::Kind::kFunction, address);
+  uint64_t hid = OwnershipTracker::Instance().Register(name, ownership,
+                                                       ForeignHandle::Kind::kFunction, address);
   fn_handle_to_name_[hid] = name;
   return hid;
 }
@@ -280,30 +295,32 @@ uint64_t FFIRegistry::BindFunction(const std::string &name, void *address,
 const ForeignFunction *FFIRegistry::GetFunction(const std::string &name) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = functions_.find(name);
-  if (it == functions_.end()) return nullptr;
+  if (it == functions_.end())
+    return nullptr;
   return &it->second;
 }
 
 const ForeignFunction *FFIRegistry::GetFunctionByHandle(uint64_t handle_id) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto nit = fn_handle_to_name_.find(handle_id);
-  if (nit == fn_handle_to_name_.end()) return nullptr;
+  if (nit == fn_handle_to_name_.end())
+    return nullptr;
   auto it = functions_.find(nit->second);
-  if (it == functions_.end()) return nullptr;
+  if (it == functions_.end())
+    return nullptr;
   return &it->second;
 }
 
 // -- Object binding ---------------------------------------------------------
 
-uint64_t FFIRegistry::BindObject(const std::string &name, void *address,
-                                 size_t size, Ownership ownership,
-                                 std::function<void(void *)> deleter) {
+uint64_t FFIRegistry::BindObject(const std::string &name, void *address, size_t size,
+                                 Ownership ownership, std::function<void(void *)> deleter) {
   std::lock_guard<std::mutex> lock(mutex_);
   ForeignObject *obj = AcquireForeign(address, size, std::move(deleter), ownership);
   objects_[name] = obj;
 
-  uint64_t hid = OwnershipTracker::Instance().Register(
-      name, ownership, ForeignHandle::Kind::kObject, address);
+  uint64_t hid =
+      OwnershipTracker::Instance().Register(name, ownership, ForeignHandle::Kind::kObject, address);
   obj_handle_to_name_[hid] = name;
   return hid;
 }
@@ -311,16 +328,19 @@ uint64_t FFIRegistry::BindObject(const std::string &name, void *address,
 ForeignObject *FFIRegistry::GetObject(const std::string &name) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = objects_.find(name);
-  if (it == objects_.end()) return nullptr;
+  if (it == objects_.end())
+    return nullptr;
   return it->second;
 }
 
 ForeignObject *FFIRegistry::GetObjectByHandle(uint64_t handle_id) const {
   std::lock_guard<std::mutex> lock(mutex_);
   auto nit = obj_handle_to_name_.find(handle_id);
-  if (nit == obj_handle_to_name_.end()) return nullptr;
+  if (nit == obj_handle_to_name_.end())
+    return nullptr;
   auto it = objects_.find(nit->second);
-  if (it == objects_.end()) return nullptr;
+  if (it == objects_.end())
+    return nullptr;
   return it->second;
 }
 
@@ -329,27 +349,29 @@ ForeignObject *FFIRegistry::GetObjectByHandle(uint64_t handle_id) const {
 uint64_t FFIRegistry::LoadLibrary(const std::string &path) {
   std::lock_guard<std::mutex> lock(mutex_);
   DynamicLibrary lib;
-  if (!lib.Open(path)) return 0;
+  if (!lib.Open(path))
+    return 0;
 
-  uint64_t hid = OwnershipTracker::Instance().Register(
-      path, Ownership::kOwned, ForeignHandle::Kind::kLibrary,
-      nullptr /* the library handle is internal */);
+  uint64_t hid =
+      OwnershipTracker::Instance().Register(path, Ownership::kOwned, ForeignHandle::Kind::kLibrary,
+                                            nullptr /* the library handle is internal */);
   libraries_.emplace(hid, std::move(lib));
   return hid;
 }
 
-void *FFIRegistry::GetLibrarySymbol(uint64_t lib_handle,
-                                    const std::string &symbol) {
+void *FFIRegistry::GetLibrarySymbol(uint64_t lib_handle, const std::string &symbol) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = libraries_.find(lib_handle);
-  if (it == libraries_.end()) return nullptr;
+  if (it == libraries_.end())
+    return nullptr;
   return it->second.GetSymbol(symbol);
 }
 
 bool FFIRegistry::UnloadLibrary(uint64_t lib_handle) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = libraries_.find(lib_handle);
-  if (it == libraries_.end()) return false;
+  if (it == libraries_.end())
+    return false;
 
   it->second.Close();
   libraries_.erase(it);
@@ -408,7 +430,8 @@ bool FFIRegistry::TransferOwnership(uint64_t handle_id, Ownership new_ownership)
   std::lock_guard<std::mutex> lock(mutex_);
 
   bool ok = OwnershipTracker::Instance().Transfer(handle_id, new_ownership);
-  if (!ok) return false;
+  if (!ok)
+    return false;
 
   // Update the cached ownership on the function record.
   {
@@ -456,7 +479,8 @@ std::vector<std::string> FFIRegistry::ListFunctions() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<std::string> names;
   names.reserve(functions_.size());
-  for (const auto &[n, _] : functions_) names.push_back(n);
+  for (const auto &[n, _] : functions_)
+    names.push_back(n);
   return names;
 }
 
@@ -464,7 +488,8 @@ std::vector<std::string> FFIRegistry::ListObjects() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<std::string> names;
   names.reserve(objects_.size());
-  for (const auto &[n, _] : objects_) names.push_back(n);
+  for (const auto &[n, _] : objects_)
+    names.push_back(n);
   return names;
 }
 
@@ -520,8 +545,7 @@ ForeignObject *BindShared(const std::string &name, void *address, size_t size,
 }
 
 ForeignFunction BindWithSignature(const std::string &name, void *address,
-                                  const ForeignSignature &sig,
-                                  Ownership ownership) {
+                                  const ForeignSignature &sig, Ownership ownership) {
   ForeignFunction fn;
   fn.name = name;
   fn.address = address;
@@ -530,9 +554,8 @@ ForeignFunction BindWithSignature(const std::string &name, void *address,
 
   // Register with the global ownership tracker so that the handle's lifecycle
   // is observable by the runtime.
-  OwnershipTracker::Instance().Register(name, ownership,
-                                        ForeignHandle::Kind::kFunction, address);
+  OwnershipTracker::Instance().Register(name, ownership, ForeignHandle::Kind::kFunction, address);
   return fn;
 }
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

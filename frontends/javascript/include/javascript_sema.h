@@ -16,4 +16,4 @@ namespace polyglot::javascript {
 /// Run semantic analysis on a parsed JavaScript module.
 void AnalyzeModule(const Module &module, frontends::SemaContext &context);
 
-}  // namespace polyglot::javascript
+} // namespace polyglot::javascript

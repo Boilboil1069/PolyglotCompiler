@@ -15,7 +15,7 @@ namespace polyglot::utils {
 
 /** @brief StringPool class. */
 class StringPool {
- public:
+public:
   const std::string &Intern(const std::string &value) {
     auto [it, inserted] = pool_.insert(value);
     return *it;
@@ -23,8 +23,8 @@ class StringPool {
 
   size_t Size() const { return pool_.size(); }
 
- private:
+private:
   std::unordered_set<std::string> pool_{};
 };
 
-}  // namespace polyglot::utils
+} // namespace polyglot::utils

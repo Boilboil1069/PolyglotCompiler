@@ -24,7 +24,6 @@
 namespace polyglot::tools {
 
 /// Execute Stage 3: Cross-language marshal plan generation.
-MarshalResult RunMarshalStage(const DriverSettings &settings,
-                               const SemanticResult &semantic);
+MarshalResult RunMarshalStage(const DriverSettings &settings, const SemanticResult &semantic);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

@@ -7,7 +7,8 @@
  * @date     2026-04-10
  */
 #ifdef ADVANCED_THREADING_H_
-#warning "advanced_threading.h has been merged into threading.h. Please include threading.h instead."
+#warning                                                                                           \
+    "advanced_threading.h has been merged into threading.h. Please include threading.h instead."
 #ifndef THREADING_H_
 #include "threading.h"
 #endif

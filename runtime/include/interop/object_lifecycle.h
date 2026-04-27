@@ -50,16 +50,14 @@ void __ploy_dotnet_dispose(void *object);
 /// @param language    Source language of the base class ("python", "cpp", ...).
 /// @param base_class  Name of the base class.
 /// @param derived     Name of the derived class (defined in .ploy).
-void __ploy_extend_register(const char *language, const char *base_class,
-                             const char *derived);
+void __ploy_extend_register(const char *language, const char *base_class, const char *derived);
 
 /// Return the number of registered cross-language extension mappings.
 std::size_t __ploy_extend_registry_count();
 
 /// Find a registered derived class by language + base class.
 /// @return Derived class name pointer, or nullptr when not found.
-const char *__ploy_extend_find_derived(const char *language,
-                                       const char *base_class);
+const char *__ploy_extend_find_derived(const char *language, const char *base_class);
 
 /// Test-only helper that clears the in-memory registry.
 void __ploy_extend_reset_registry_for_tests();
@@ -103,4 +101,4 @@ void *__ploy_rt_dict_convert(void *dict);
 /// @return Pointer to the converted struct data owned by the runtime.
 void *__ploy_rt_convert_struct(void *src);
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

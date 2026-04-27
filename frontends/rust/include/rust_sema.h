@@ -19,7 +19,7 @@ class CrateLoader;
 /// When `loader` is null the analyser falls back to the legacy behaviour of
 /// declaring `use` paths as opaque module symbols.
 struct RustSemaOptions {
-    CrateLoader *loader{nullptr};
+  CrateLoader *loader{nullptr};
 };
 
 // Lightweight semantic pass for Rust: scopes, symbols, and basic types/captures.

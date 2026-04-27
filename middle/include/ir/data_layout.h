@@ -16,7 +16,7 @@ namespace polyglot::ir {
 
 /** @brief DataLayout class. */
 class DataLayout {
- public:
+public:
   /** @brief Arch enumeration. */
   enum class Arch { kX86_64, kARM64 };
 
@@ -29,8 +29,8 @@ class DataLayout {
   size_t SizeOf(const IRType &type) const;
   size_t AlignOf(const IRType &type) const;
 
- private:
+private:
   Arch arch_;
 };
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

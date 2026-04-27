@@ -6,8 +6,8 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -20,14 +20,14 @@
 namespace polyglot::tools {
 
 void Optimize(ir::IRContext &context, int opt_level) {
-    if (opt_level <= 0) return;
-    passes::PassManager pm(
-        static_cast<passes::PassManager::OptLevel>(opt_level));
-    pm.Build();
-    pm.RunOnModule(context, /*verbose=*/false);
+  if (opt_level <= 0)
+    return;
+  passes::PassManager pm(static_cast<passes::PassManager::OptLevel>(opt_level));
+  pm.Build();
+  pm.RunOnModule(context, /*verbose=*/false);
 }
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools
 
 static void PrintUsage(const char *argv0) {
   std::cerr << "Usage: " << argv0 << " [options] <input.ir> [-o <output.ir>]\n";
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
     out << output_text;
   }
 
-  std::cerr << "[info] optimised (" << ctx.Functions().size() << " functions, -O"
-            << opt_level << ")\n";
+  std::cerr << "[info] optimised (" << ctx.Functions().size() << " functions, -O" << opt_level
+            << ")\n";
   return 0;
 }

@@ -18,12 +18,11 @@
  * @date     2026-04-26
  */
 
-#include "runtime/include/libs/go_rt.h"
-
 #include <stdio.h>
 #include <string.h>
 
 #include "runtime/include/libs/base.h"
+#include "runtime/include/libs/go_rt.h"
 #include "runtime/include/memory/polyglot_alloc.h"
 
 // ----------------------------------------------------------------------------
@@ -39,17 +38,33 @@ typedef HANDLE polyglot_thread_t;
 typedef CRITICAL_SECTION polyglot_mutex_t;
 typedef CONDITION_VARIABLE polyglot_cond_t;
 
-static void polyglot_mutex_init(polyglot_mutex_t *m) { InitializeCriticalSection(m); }
-static void polyglot_mutex_destroy(polyglot_mutex_t *m) { DeleteCriticalSection(m); }
-static void polyglot_mutex_lock(polyglot_mutex_t *m) { EnterCriticalSection(m); }
-static void polyglot_mutex_unlock(polyglot_mutex_t *m) { LeaveCriticalSection(m); }
-static void polyglot_cond_init(polyglot_cond_t *c) { InitializeConditionVariable(c); }
-static void polyglot_cond_destroy(polyglot_cond_t *c) { (void)c; }
+static void polyglot_mutex_init(polyglot_mutex_t *m) {
+  InitializeCriticalSection(m);
+}
+static void polyglot_mutex_destroy(polyglot_mutex_t *m) {
+  DeleteCriticalSection(m);
+}
+static void polyglot_mutex_lock(polyglot_mutex_t *m) {
+  EnterCriticalSection(m);
+}
+static void polyglot_mutex_unlock(polyglot_mutex_t *m) {
+  LeaveCriticalSection(m);
+}
+static void polyglot_cond_init(polyglot_cond_t *c) {
+  InitializeConditionVariable(c);
+}
+static void polyglot_cond_destroy(polyglot_cond_t *c) {
+  (void)c;
+}
 static void polyglot_cond_wait(polyglot_cond_t *c, polyglot_mutex_t *m) {
   SleepConditionVariableCS(c, m, INFINITE);
 }
-static void polyglot_cond_signal(polyglot_cond_t *c) { WakeConditionVariable(c); }
-static void polyglot_cond_broadcast(polyglot_cond_t *c) { WakeAllConditionVariable(c); }
+static void polyglot_cond_signal(polyglot_cond_t *c) {
+  WakeConditionVariable(c);
+}
+static void polyglot_cond_broadcast(polyglot_cond_t *c) {
+  WakeAllConditionVariable(c);
+}
 
 typedef DWORD polyglot_thread_ret_t;
 #define POLYGLOT_THREAD_CALL WINAPI
@@ -64,8 +79,12 @@ static void polyglot_thread_join(polyglot_thread_t t) {
   WaitForSingleObject(t, INFINITE);
   CloseHandle(t);
 }
-static void polyglot_thread_detach(polyglot_thread_t t) { CloseHandle(t); }
-static void polyglot_thread_yield(void) { SwitchToThread(); }
+static void polyglot_thread_detach(polyglot_thread_t t) {
+  CloseHandle(t);
+}
+static void polyglot_thread_yield(void) {
+  SwitchToThread();
+}
 
 #include <sysinfoapi.h>
 static int polyglot_num_cpu_native(void) {
@@ -73,7 +92,7 @@ static int polyglot_num_cpu_native(void) {
   GetSystemInfo(&info);
   return (int)info.dwNumberOfProcessors;
 }
-#else  // POSIX
+#else // POSIX
 #include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
@@ -81,27 +100,51 @@ typedef pthread_t polyglot_thread_t;
 typedef pthread_mutex_t polyglot_mutex_t;
 typedef pthread_cond_t polyglot_cond_t;
 
-static void polyglot_mutex_init(polyglot_mutex_t *m) { pthread_mutex_init(m, NULL); }
-static void polyglot_mutex_destroy(polyglot_mutex_t *m) { pthread_mutex_destroy(m); }
-static void polyglot_mutex_lock(polyglot_mutex_t *m) { pthread_mutex_lock(m); }
-static void polyglot_mutex_unlock(polyglot_mutex_t *m) { pthread_mutex_unlock(m); }
-static void polyglot_cond_init(polyglot_cond_t *c) { pthread_cond_init(c, NULL); }
-static void polyglot_cond_destroy(polyglot_cond_t *c) { pthread_cond_destroy(c); }
-static void polyglot_cond_wait(polyglot_cond_t *c, polyglot_mutex_t *m) { pthread_cond_wait(c, m); }
-static void polyglot_cond_signal(polyglot_cond_t *c) { pthread_cond_signal(c); }
-static void polyglot_cond_broadcast(polyglot_cond_t *c) { pthread_cond_broadcast(c); }
+static void polyglot_mutex_init(polyglot_mutex_t *m) {
+  pthread_mutex_init(m, NULL);
+}
+static void polyglot_mutex_destroy(polyglot_mutex_t *m) {
+  pthread_mutex_destroy(m);
+}
+static void polyglot_mutex_lock(polyglot_mutex_t *m) {
+  pthread_mutex_lock(m);
+}
+static void polyglot_mutex_unlock(polyglot_mutex_t *m) {
+  pthread_mutex_unlock(m);
+}
+static void polyglot_cond_init(polyglot_cond_t *c) {
+  pthread_cond_init(c, NULL);
+}
+static void polyglot_cond_destroy(polyglot_cond_t *c) {
+  pthread_cond_destroy(c);
+}
+static void polyglot_cond_wait(polyglot_cond_t *c, polyglot_mutex_t *m) {
+  pthread_cond_wait(c, m);
+}
+static void polyglot_cond_signal(polyglot_cond_t *c) {
+  pthread_cond_signal(c);
+}
+static void polyglot_cond_broadcast(polyglot_cond_t *c) {
+  pthread_cond_broadcast(c);
+}
 
 typedef void *polyglot_thread_ret_t;
-#define POLYGLOT_THREAD_CALL  /* nothing */
+#define POLYGLOT_THREAD_CALL /* nothing */
 
 static int polyglot_thread_start(polyglot_thread_t *out,
                                  polyglot_thread_ret_t(POLYGLOT_THREAD_CALL *entry)(void *),
                                  void *arg) {
   return pthread_create(out, NULL, entry, arg);
 }
-static void polyglot_thread_join(polyglot_thread_t t) { pthread_join(t, NULL); }
-static void polyglot_thread_detach(polyglot_thread_t t) { pthread_detach(t); }
-static void polyglot_thread_yield(void) { sched_yield(); }
+static void polyglot_thread_join(polyglot_thread_t t) {
+  pthread_join(t, NULL);
+}
+static void polyglot_thread_detach(polyglot_thread_t t) {
+  pthread_detach(t);
+}
+static void polyglot_thread_yield(void) {
+  sched_yield();
+}
 static int polyglot_num_cpu_native(void) {
   long n = sysconf(_SC_NPROCESSORS_ONLN);
   return n > 0 ? (int)n : 1;
@@ -113,27 +156,33 @@ static int polyglot_num_cpu_native(void) {
 // ----------------------------------------------------------------------------
 
 void polyglot_go_print(const char *message) {
-  if (!message) return;
+  if (!message)
+    return;
   // Go's fmt.Println terminates with '\n'.
   printf("%s\n", message);
 }
 
 char *polyglot_go_strdup_gc(const char *message, void ***root_handle_out) {
-  if (!message) return NULL;
+  if (!message)
+    return NULL;
   size_t len = strlen(message) + 1;
   char *buf = (char *)polyglot_alloc(len);
-  if (!buf) return NULL;
+  if (!buf)
+    return NULL;
   memcpy(buf, message, len);
   polyglot_gc_register_root((void **)&buf);
-  if (root_handle_out) *root_handle_out = (void **)&buf;
+  if (root_handle_out)
+    *root_handle_out = (void **)&buf;
   return buf;
 }
 
 void polyglot_go_release(char **ptr, void ***root_handle) {
-  if (!ptr || !*ptr) return;
+  if (!ptr || !*ptr)
+    return;
   polyglot_gc_unregister_root((void **)ptr);
   *ptr = NULL;
-  if (root_handle) *root_handle = NULL;
+  if (root_handle)
+    *root_handle = NULL;
 }
 
 // ----------------------------------------------------------------------------
@@ -149,7 +198,8 @@ struct polyglot_go_routine {
 
 static polyglot_thread_ret_t POLYGLOT_THREAD_CALL go_routine_trampoline(void *raw) {
   struct polyglot_go_routine *r = (struct polyglot_go_routine *)raw;
-  if (r && r->fn) r->fn(r->arg);
+  if (r && r->fn)
+    r->fn(r->arg);
   if (r && r->detached) {
     // Detached goroutines own their handle and must self-destruct.
     polyglot_raw_free(r);
@@ -158,10 +208,11 @@ static polyglot_thread_ret_t POLYGLOT_THREAD_CALL go_routine_trampoline(void *ra
 }
 
 polyglot_go_routine_t *polyglot_go_spawn(void (*fn)(void *), void *arg) {
-  if (!fn) return NULL;
-  struct polyglot_go_routine *r =
-      (struct polyglot_go_routine *)polyglot_raw_malloc(sizeof(*r));
-  if (!r) return NULL;
+  if (!fn)
+    return NULL;
+  struct polyglot_go_routine *r = (struct polyglot_go_routine *)polyglot_raw_malloc(sizeof(*r));
+  if (!r)
+    return NULL;
   r->fn = fn;
   r->arg = arg;
   r->detached = 0;
@@ -173,19 +224,23 @@ polyglot_go_routine_t *polyglot_go_spawn(void (*fn)(void *), void *arg) {
 }
 
 void polyglot_go_join(polyglot_go_routine_t *r) {
-  if (!r) return;
+  if (!r)
+    return;
   polyglot_thread_join(r->thread);
   polyglot_raw_free(r);
 }
 
 void polyglot_go_detach(polyglot_go_routine_t *r) {
-  if (!r) return;
+  if (!r)
+    return;
   r->detached = 1;
   polyglot_thread_detach(r->thread);
   // Memory is released by the trampoline once the thread exits.
 }
 
-void polyglot_go_yield(void) { polyglot_thread_yield(); }
+void polyglot_go_yield(void) {
+  polyglot_thread_yield();
+}
 
 int polyglot_go_num_cpu(void) {
   int n = polyglot_num_cpu_native();
@@ -217,10 +272,11 @@ struct polyglot_go_chan {
 };
 
 polyglot_go_chan_t *polyglot_go_chan_make(size_t elem_size, size_t capacity) {
-  if (elem_size == 0) return NULL;
-  struct polyglot_go_chan *ch =
-      (struct polyglot_go_chan *)polyglot_raw_calloc(1, sizeof(*ch));
-  if (!ch) return NULL;
+  if (elem_size == 0)
+    return NULL;
+  struct polyglot_go_chan *ch = (struct polyglot_go_chan *)polyglot_raw_calloc(1, sizeof(*ch));
+  if (!ch)
+    return NULL;
   ch->elem_size = elem_size;
   ch->capacity = capacity;
   if (capacity > 0) {
@@ -243,7 +299,8 @@ polyglot_go_chan_t *polyglot_go_chan_make(size_t elem_size, size_t capacity) {
 }
 
 int polyglot_go_chan_send(polyglot_go_chan_t *ch, const void *value) {
-  if (!ch || !value) return -1;
+  if (!ch || !value)
+    return -1;
   polyglot_mutex_lock(&ch->mu);
   if (ch->closed) {
     polyglot_mutex_unlock(&ch->mu);
@@ -283,7 +340,8 @@ int polyglot_go_chan_send(polyglot_go_chan_t *ch, const void *value) {
 }
 
 int polyglot_go_chan_recv(polyglot_go_chan_t *ch, void *out) {
-  if (!ch || !out) return 0;
+  if (!ch || !out)
+    return 0;
   polyglot_mutex_lock(&ch->mu);
   if (ch->capacity == 0) {
     while (!ch->rendezvous_full && !ch->closed) {
@@ -291,7 +349,7 @@ int polyglot_go_chan_recv(polyglot_go_chan_t *ch, void *out) {
     }
     if (!ch->rendezvous_full && ch->closed) {
       polyglot_mutex_unlock(&ch->mu);
-      return 0;  // closed and drained
+      return 0; // closed and drained
     }
     memcpy(out, ch->rendezvous, ch->elem_size);
     ch->rendezvous_full = 0;
@@ -304,7 +362,7 @@ int polyglot_go_chan_recv(polyglot_go_chan_t *ch, void *out) {
     }
     if (ch->count == 0 && ch->closed) {
       polyglot_mutex_unlock(&ch->mu);
-      return 0;  // closed and drained
+      return 0; // closed and drained
     }
     memcpy(out, ch->buffer + ch->head * ch->elem_size, ch->elem_size);
     ch->head = (ch->head + 1) % ch->capacity;
@@ -316,7 +374,8 @@ int polyglot_go_chan_recv(polyglot_go_chan_t *ch, void *out) {
 }
 
 void polyglot_go_chan_close(polyglot_go_chan_t *ch) {
-  if (!ch) return;
+  if (!ch)
+    return;
   polyglot_mutex_lock(&ch->mu);
   ch->closed = 1;
   polyglot_cond_broadcast(&ch->not_empty);
@@ -325,12 +384,15 @@ void polyglot_go_chan_close(polyglot_go_chan_t *ch) {
 }
 
 void polyglot_go_chan_destroy(polyglot_go_chan_t *ch) {
-  if (!ch) return;
+  if (!ch)
+    return;
   polyglot_mutex_destroy(&ch->mu);
   polyglot_cond_destroy(&ch->not_empty);
   polyglot_cond_destroy(&ch->not_full);
-  if (ch->buffer) polyglot_raw_free(ch->buffer);
-  if (ch->rendezvous) polyglot_raw_free(ch->rendezvous);
+  if (ch->buffer)
+    polyglot_raw_free(ch->buffer);
+  if (ch->rendezvous)
+    polyglot_raw_free(ch->rendezvous);
   polyglot_raw_free(ch);
 }
 
@@ -353,10 +415,11 @@ static __thread polyglot_go_defer_node_t *tls_defer_head_ = NULL;
 #endif
 
 void polyglot_go_defer_push(void *frame, void (*fn)(void *), void *arg) {
-  if (!fn) return;
-  polyglot_go_defer_node_t *n =
-      (polyglot_go_defer_node_t *)polyglot_raw_malloc(sizeof(*n));
-  if (!n) return;
+  if (!fn)
+    return;
+  polyglot_go_defer_node_t *n = (polyglot_go_defer_node_t *)polyglot_raw_malloc(sizeof(*n));
+  if (!n)
+    return;
   n->frame = frame;
   n->fn = fn;
   n->arg = arg;
@@ -390,7 +453,8 @@ void polyglot_go_defer_run(void *frame) {
   while (reversed) {
     polyglot_go_defer_node_t *n = reversed;
     reversed = n->next;
-    if (n->fn) n->fn(n->arg);
+    if (n->fn)
+      n->fn(n->arg);
     polyglot_raw_free(n);
   }
 }
@@ -403,20 +467,21 @@ void polyglot_go_defer_run(void *frame) {
 // ---------------------------------------------------------------------------
 
 #ifndef _WIN32
-#  include <dlfcn.h>
+#include <dlfcn.h>
 #endif
 
 #ifdef _WIN32
-#  define POLYGLOT_GO_LIB_NAME "go_runtime.dll"
+#define POLYGLOT_GO_LIB_NAME "go_runtime.dll"
 #else
-#  define POLYGLOT_GO_LIB_NAME "libgo_runtime.so"
+#define POLYGLOT_GO_LIB_NAME "libgo_runtime.so"
 #endif
 
 static void *polyglot_go_host_handle = (void *)0;
-static int   polyglot_go_host_probed = 0;
+static int polyglot_go_host_probed = 0;
 
 static void polyglot_go_load_host_once(void) {
-  if (polyglot_go_host_probed) return;
+  if (polyglot_go_host_probed)
+    return;
   polyglot_go_host_probed = 1;
 #ifdef _WIN32
   polyglot_go_host_handle = (void *)LoadLibraryA(POLYGLOT_GO_LIB_NAME);
@@ -425,16 +490,17 @@ static void polyglot_go_load_host_once(void) {
 #endif
   if (!polyglot_go_host_handle) {
     fprintf(stderr,
-        "[polyglot/go] host Go runtime '%s' not loaded; cross-package calls "
-        "will be no-ops.  Set GO_RUNTIME_LIB or rebuild the program with a "
-        "linked Go shared object to enable interop.\n",
-        POLYGLOT_GO_LIB_NAME);
+            "[polyglot/go] host Go runtime '%s' not loaded; cross-package calls "
+            "will be no-ops.  Set GO_RUNTIME_LIB or rebuild the program with a "
+            "linked Go shared object to enable interop.\n",
+            POLYGLOT_GO_LIB_NAME);
   }
 }
 
 void *__ploy_go_load_pkg(const char *import_path) {
   polyglot_go_load_host_once();
-  if (!polyglot_go_host_handle || !import_path) return (void *)0;
+  if (!polyglot_go_host_handle || !import_path)
+    return (void *)0;
 #ifdef _WIN32
   return (void *)GetProcAddress((HMODULE)polyglot_go_host_handle, import_path);
 #else
@@ -442,19 +508,19 @@ void *__ploy_go_load_pkg(const char *import_path) {
 #endif
 }
 
-void *__ploy_go_call(const char *qualified_name,
-                     const void *const *args, int arg_count) {
-  (void)args; (void)arg_count;
+void *__ploy_go_call(const char *qualified_name, const void *const *args, int arg_count) {
+  (void)args;
+  (void)arg_count;
   polyglot_go_load_host_once();
-  if (!polyglot_go_host_handle || !qualified_name) return (void *)0;
+  if (!polyglot_go_host_handle || !qualified_name)
+    return (void *)0;
 #ifdef _WIN32
   void *fn = (void *)GetProcAddress((HMODULE)polyglot_go_host_handle, qualified_name);
 #else
   void *fn = dlsym(polyglot_go_host_handle, qualified_name);
 #endif
   if (!fn) {
-    fprintf(stderr, "[polyglot/go] symbol '%s' not found in host runtime\n",
-            qualified_name);
+    fprintf(stderr, "[polyglot/go] symbol '%s' not found in host runtime\n", qualified_name);
     return (void *)0;
   }
   // Invoke as `void *(*)(const void *const *, int)` �� the Go shim is expected

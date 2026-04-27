@@ -17,14 +17,14 @@
 
 namespace polyglot::ir {
 
-struct BasicBlock;  // fwd
+struct BasicBlock; // fwd
 
 // Base class for all IR instructions (also a value when producing results).
 /** @brief Instruction data structure. */
 struct Instruction : Value {
   BasicBlock *parent{nullptr};
-  std::vector<std::string> operands;  // variable/use names; constants use empty names
-  bool is_dead{false};  // Marked for removal by dead code elimination
+  std::vector<std::string> operands; // variable/use names; constants use empty names
+  bool is_dead{false};               // Marked for removal by dead code elimination
 
   virtual bool IsTerminator() const { return false; }
   bool HasResult() const { return !name.empty() && type.kind != IRTypeKind::kVoid; }
@@ -37,17 +37,17 @@ struct BinaryInstruction : Instruction {
     kAdd,
     kSub,
     kMul,
-    kDiv,   // legacy alias: treated as signed div
+    kDiv, // legacy alias: treated as signed div
     kSDiv,
     kUDiv,
     kSRem,
     kURem,
-    kRem,   // legacy alias: treated as signed rem
-    kFAdd,  // Floating-point add
-    kFSub,  // Floating-point subtract
-    kFMul,  // Floating-point multiply
-    kFDiv,  // Floating-point divide
-    kFRem,  // Floating-point remainder
+    kRem,  // legacy alias: treated as signed rem
+    kFAdd, // Floating-point add
+    kFSub, // Floating-point subtract
+    kFMul, // Floating-point multiply
+    kFDiv, // Floating-point divide
+    kFRem, // Floating-point remainder
     kAnd,
     kOr,
     kXor,
@@ -64,21 +64,21 @@ struct BinaryInstruction : Instruction {
     kCmpSle,
     kCmpSgt,
     kCmpSge,
-    kCmpFoe,  // Floating-point ordered equal
-    kCmpFne,  // Floating-point ordered not equal
-    kCmpFlt,  // Floating-point ordered less than
-    kCmpFle,  // Floating-point ordered less than or equal
-    kCmpFgt,  // Floating-point ordered greater than
-    kCmpFge,  // Floating-point ordered greater than or equal
+    kCmpFoe, // Floating-point ordered equal
+    kCmpFne, // Floating-point ordered not equal
+    kCmpFlt, // Floating-point ordered less than
+    kCmpFle, // Floating-point ordered less than or equal
+    kCmpFgt, // Floating-point ordered greater than
+    kCmpFge, // Floating-point ordered greater than or equal
     kCmpLt
   };
-  Op op {Op::kAdd};
+  Op op{Op::kAdd};
   BinaryInstruction() { type = IRType::I64(); }
 };
 
 /** @brief PhiInstruction data structure. */
 struct PhiInstruction : Instruction {
-  std::vector<std::pair<BasicBlock *, std::string>> incomings;  // (pred, varName)
+  std::vector<std::pair<BasicBlock *, std::string>> incomings; // (pred, varName)
 };
 
 // Pre-SSA assignment of a named variable to a value name.
@@ -90,27 +90,27 @@ struct AssignInstruction : Instruction {
 /** @brief CallInstruction data structure. */
 struct CallInstruction : Instruction {
   std::string callee;
-  bool is_indirect{false};  // if true, callee is an operand name
-  IRType callee_type{IRType::Invalid()};  // optional function type annotation
+  bool is_indirect{false};               // if true, callee is an operand name
+  IRType callee_type{IRType::Invalid()}; // optional function type annotation
   bool is_vararg{false};
-  bool is_tail_call{false};  // Tail call optimization flag
+  bool is_tail_call{false}; // Tail call optimization flag
 };
 
 /** @brief AllocaInstruction data structure. */
 struct AllocaInstruction : Instruction {
-  bool no_escape{false};  // Set by escape analysis if allocation doesn't escape
+  bool no_escape{false}; // Set by escape analysis if allocation doesn't escape
   AllocaInstruction() { type = IRType::Pointer(IRType::Invalid()); }
 };
 
 /** @brief LoadInstruction data structure. */
 struct LoadInstruction : Instruction {
-  size_t align{0};  // 0 means natural alignment
+  size_t align{0}; // 0 means natural alignment
   LoadInstruction() { type = IRType::Invalid(); }
 };
 
 /** @brief StoreInstruction data structure. */
 struct StoreInstruction : Instruction {
-  size_t align{0};  // 0 means natural alignment
+  size_t align{0}; // 0 means natural alignment
   StoreInstruction() { type = IRType::Void(); }
 };
 
@@ -185,16 +185,16 @@ struct UnreachableStatement : Instruction {
 /** @brief InvokeInstruction data structure. */
 struct InvokeInstruction : Instruction {
   std::string callee;
-  BasicBlock *normal_dest{nullptr};  // Success continuation
-  BasicBlock *unwind_dest{nullptr};  // Exception landing pad
+  BasicBlock *normal_dest{nullptr}; // Success continuation
+  BasicBlock *unwind_dest{nullptr}; // Exception landing pad
   bool is_indirect{false};
   IRType callee_type{IRType::Invalid()};
 };
 
 /** @brief LandingPadInstruction data structure. */
 struct LandingPadInstruction : Instruction {
-  bool is_cleanup{false};  // Is this a cleanup landing pad?
-  std::vector<IRType> catch_types;  // Types this pad catches
+  bool is_cleanup{false};          // Is this a cleanup landing pad?
+  std::vector<IRType> catch_types; // Types this pad catches
   LandingPadInstruction() { type = IRType::Invalid(); }
 };
 
@@ -237,15 +237,15 @@ struct VectorInstruction : Instruction {
     kVecMin,
     kVecMax,
     kVecSqrt,
-    kVecRcp,   // Reciprocal
-    kVecRsqrt  // Reciprocal square root
+    kVecRcp,  // Reciprocal
+    kVecRsqrt // Reciprocal square root
   };
   VecOp op{VecOp::kVecAdd};
-  std::vector<int> shuffle_mask;  // For shuffle operation
-  int extract_index{0};            // For extract operation
-  int insert_index{0};             // For insert operation
+  std::vector<int> shuffle_mask; // For shuffle operation
+  int extract_index{0};          // For extract operation
+  int insert_index{0};           // For insert operation
 };
 
-using Statement = Instruction;  // backward compatibility
+using Statement = Instruction; // backward compatibility
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

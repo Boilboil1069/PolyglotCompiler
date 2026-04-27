@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fmt/format.h>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -24,8 +25,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <fmt/format.h>
 
 #include "common/include/version.h"
 #include "runtime/include/gc/gc_api.h"
@@ -75,16 +74,16 @@ std::string FormatDuration(std::chrono::microseconds us) {
 
 std::string GCStrategyToString(runtime::gc::Strategy strategy) {
   switch (strategy) {
-    case runtime::gc::Strategy::kMarkSweep:
-      return "mark-sweep";
-    case runtime::gc::Strategy::kGenerational:
-      return "generational";
-    case runtime::gc::Strategy::kCopying:
-      return "copying";
-    case runtime::gc::Strategy::kIncremental:
-      return "incremental";
-    default:
-      return "unknown";
+  case runtime::gc::Strategy::kMarkSweep:
+    return "mark-sweep";
+  case runtime::gc::Strategy::kGenerational:
+    return "generational";
+  case runtime::gc::Strategy::kCopying:
+    return "copying";
+  case runtime::gc::Strategy::kIncremental:
+    return "incremental";
+  default:
+    return "unknown";
   }
 }
 
@@ -101,7 +100,7 @@ runtime::gc::Strategy StringToGCStrategy(const std::string &str) {
   if (str == "incremental" || str == "inc" || str == "i") {
     return runtime::gc::Strategy::kIncremental;
   }
-  return runtime::gc::Strategy::kMarkSweep;  // default
+  return runtime::gc::Strategy::kMarkSweep; // default
 }
 
 // ============================================================================
@@ -244,30 +243,43 @@ int CmdStatus(int argc, char **argv) {
 
     if (show_gc) {
       std::cout << "+- GC Status --------------------------------------------------+\n";
-      std::cout << "| Strategy:       " << std::left << std::setw(43) << "Mark-Sweep (default)" << "|\n";
-      std::cout << "| Collections:    " << std::left << std::setw(43) << gc_stats.collections << "|\n";
-      std::cout << "| Heap Size:      " << std::left << std::setw(43) << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
-      std::cout << "| Peak Heap:      " << std::left << std::setw(43) << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
-      std::cout << "| Live Objects:   " << std::left << std::setw(43) << gc_stats.live_objects << "|\n";
-      std::cout << "| Roots:          " << std::left << std::setw(43) << gc_stats.root_count << "|\n";
-      std::cout << "| Total Freed:    " << std::left << std::setw(43) << FormatBytes(gc_stats.total_freed_bytes) << "|\n";
+      std::cout << "| Strategy:       " << std::left << std::setw(43) << "Mark-Sweep (default)"
+                << "|\n";
+      std::cout << "| Collections:    " << std::left << std::setw(43) << gc_stats.collections
+                << "|\n";
+      std::cout << "| Heap Size:      " << std::left << std::setw(43)
+                << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
+      std::cout << "| Peak Heap:      " << std::left << std::setw(43)
+                << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
+      std::cout << "| Live Objects:   " << std::left << std::setw(43) << gc_stats.live_objects
+                << "|\n";
+      std::cout << "| Roots:          " << std::left << std::setw(43) << gc_stats.root_count
+                << "|\n";
+      std::cout << "| Total Freed:    " << std::left << std::setw(43)
+                << FormatBytes(gc_stats.total_freed_bytes) << "|\n";
       std::cout << "+-------------------------------------------------------------+\n\n";
     }
 
     if (show_threads) {
       std::cout << "+- Thread Status -----------------------------------------------+\n";
       std::cout << "| Hardware Threads: " << std::left << std::setw(39) << hw_threads << "|\n";
-      std::cout << "| Pool Size:        " << std::left << std::setw(39) << (g_stats.thread_pool_size > 0 ? g_stats.thread_pool_size : hw_threads) << "|\n";
-      std::cout << "| Tasks Submitted:  " << std::left << std::setw(39) << g_stats.tasks_submitted << "|\n";
-      std::cout << "| Tasks Completed:  " << std::left << std::setw(39) << g_stats.tasks_completed << "|\n";
+      std::cout << "| Pool Size:        " << std::left << std::setw(39)
+                << (g_stats.thread_pool_size > 0 ? g_stats.thread_pool_size : hw_threads) << "|\n";
+      std::cout << "| Tasks Submitted:  " << std::left << std::setw(39) << g_stats.tasks_submitted
+                << "|\n";
+      std::cout << "| Tasks Completed:  " << std::left << std::setw(39) << g_stats.tasks_completed
+                << "|\n";
       std::cout << "+--------------------------------------------------------------+\n\n";
     }
 
     if (show_memory) {
       std::cout << "+- Memory Status -----------------------------------------------+\n";
-      std::cout << "| Current Usage:  " << std::left << std::setw(41) << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
-      std::cout << "| Peak Usage:     " << std::left << std::setw(41) << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
-      std::cout << "| Total Alloc:    " << std::left << std::setw(41) << FormatBytes(gc_stats.total_bytes_allocated) << "|\n";
+      std::cout << "| Current Usage:  " << std::left << std::setw(41)
+                << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
+      std::cout << "| Peak Usage:     " << std::left << std::setw(41)
+                << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
+      std::cout << "| Total Alloc:    " << std::left << std::setw(41)
+                << FormatBytes(gc_stats.total_bytes_allocated) << "|\n";
       std::cout << "+--------------------------------------------------------------+\n";
     }
   }
@@ -289,7 +301,8 @@ void PrintGCHelp() {
   std::cout << "Usage: " << kToolName << " gc [options]\n\n";
   std::cout << "GC management and statistics.\n\n";
   std::cout << "Options:\n";
-  std::cout << "  --strategy=<type>  Set GC strategy (mark-sweep|generational|copying|incremental)\n";
+  std::cout
+      << "  --strategy=<type>  Set GC strategy (mark-sweep|generational|copying|incremental)\n";
   std::cout << "  --collect          Trigger a garbage collection\n";
   std::cout << "  --stats            Show GC statistics\n";
   std::cout << "  --list             List available GC strategies\n";
@@ -356,14 +369,22 @@ int CmdGC(int argc, char **argv) {
     auto gc_stats = runtime::gc::GlobalHeap().GetStats();
     std::cout << "\n+- GC Statistics --------------------------------------------------+\n";
     std::cout << "| Current Strategy: " << std::left << std::setw(38) << "Mark-Sweep" << "|\n";
-    std::cout << "| Total Collections: " << std::left << std::setw(37) << gc_stats.collections << "|\n";
-    std::cout << "| Total Allocated:   " << std::left << std::setw(37) << FormatBytes(gc_stats.total_bytes_allocated) << "|\n";
-    std::cout << "| Current Heap:      " << std::left << std::setw(37) << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
-    std::cout << "| Peak Heap:         " << std::left << std::setw(37) << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
-    std::cout << "| Live Objects:      " << std::left << std::setw(37) << gc_stats.live_objects << "|\n";
-    std::cout << "| Roots:             " << std::left << std::setw(37) << gc_stats.root_count << "|\n";
-    std::cout << "| Total Freed:       " << std::left << std::setw(37) << FormatBytes(gc_stats.total_freed_bytes) << "|\n";
-    std::cout << "| Total Pause Time:  " << std::left << std::setw(37) << FormatDuration(g_stats.gc_total_pause_time) << "|\n";
+    std::cout << "| Total Collections: " << std::left << std::setw(37) << gc_stats.collections
+              << "|\n";
+    std::cout << "| Total Allocated:   " << std::left << std::setw(37)
+              << FormatBytes(gc_stats.total_bytes_allocated) << "|\n";
+    std::cout << "| Current Heap:      " << std::left << std::setw(37)
+              << FormatBytes(gc_stats.current_heap_bytes) << "|\n";
+    std::cout << "| Peak Heap:         " << std::left << std::setw(37)
+              << FormatBytes(gc_stats.peak_heap_bytes) << "|\n";
+    std::cout << "| Live Objects:      " << std::left << std::setw(37) << gc_stats.live_objects
+              << "|\n";
+    std::cout << "| Roots:             " << std::left << std::setw(37) << gc_stats.root_count
+              << "|\n";
+    std::cout << "| Total Freed:       " << std::left << std::setw(37)
+              << FormatBytes(gc_stats.total_freed_bytes) << "|\n";
+    std::cout << "| Total Pause Time:  " << std::left << std::setw(37)
+              << FormatDuration(g_stats.gc_total_pause_time) << "|\n";
     std::cout << "+------------------------------------------------------------------+\n";
   }
 
@@ -420,7 +441,8 @@ int CmdThread(int argc, char **argv) {
   if (list_threads) {
     std::cout << "\n+- Thread Information -----------------------------------------+\n";
     std::cout << "| Hardware Concurrency: " << std::left << std::setw(34) << hw_threads << "|\n";
-    std::cout << "| Main Thread ID:       " << std::left << std::setw(34) << std::this_thread::get_id() << "|\n";
+    std::cout << "| Main Thread ID:       " << std::left << std::setw(34)
+              << std::this_thread::get_id() << "|\n";
     std::cout << "+-------------------------------------------------------------+\n\n";
 
     std::cout << "Thread Pool Workers:\n";
@@ -433,10 +455,14 @@ int CmdThread(int argc, char **argv) {
   if (show_stats || (!list_threads && pool_size < 0)) {
     std::cout << "\n+- Thread Statistics ------------------------------------------+\n";
     std::cout << "| Hardware Threads:   " << std::left << std::setw(36) << hw_threads << "|\n";
-    std::cout << "| Pool Size:          " << std::left << std::setw(36) << (g_stats.thread_pool_size > 0 ? g_stats.thread_pool_size : hw_threads) << "|\n";
-    std::cout << "| Tasks Submitted:    " << std::left << std::setw(36) << g_stats.tasks_submitted << "|\n";
-    std::cout << "| Tasks Completed:    " << std::left << std::setw(36) << g_stats.tasks_completed << "|\n";
-    std::cout << "| Tasks Pending:      " << std::left << std::setw(36) << (g_stats.tasks_submitted - g_stats.tasks_completed) << "|\n";
+    std::cout << "| Pool Size:          " << std::left << std::setw(36)
+              << (g_stats.thread_pool_size > 0 ? g_stats.thread_pool_size : hw_threads) << "|\n";
+    std::cout << "| Tasks Submitted:    " << std::left << std::setw(36) << g_stats.tasks_submitted
+              << "|\n";
+    std::cout << "| Tasks Completed:    " << std::left << std::setw(36) << g_stats.tasks_completed
+              << "|\n";
+    std::cout << "| Tasks Pending:      " << std::left << std::setw(36)
+              << (g_stats.tasks_submitted - g_stats.tasks_completed) << "|\n";
     std::cout << "+-------------------------------------------------------------+\n";
   }
 
@@ -468,7 +494,7 @@ void PrintFFIHelp() {
 struct FFIBridgeInfo {
   std::string language;
   std::string runtime_name;
-  std::string status;        // "available", "unavailable", "degraded"
+  std::string status; // "available", "unavailable", "degraded"
   std::string version;
   std::string library_path;
 };
@@ -517,11 +543,16 @@ FFIBridgeInfo ProbeLanguageRuntime(const std::string &language) {
 #endif
       // Try to determine version from JAVA_HOME path
       std::string jh(java_home);
-      if (jh.find("21") != std::string::npos) info.version = "21 (LTS)";
-      else if (jh.find("17") != std::string::npos) info.version = "17 (LTS)";
-      else if (jh.find("23") != std::string::npos) info.version = "23";
-      else if (jh.find("1.8") != std::string::npos || jh.find("8") != std::string::npos) info.version = "8 (LTS)";
-      else info.version = "detected (version unknown)";
+      if (jh.find("21") != std::string::npos)
+        info.version = "21 (LTS)";
+      else if (jh.find("17") != std::string::npos)
+        info.version = "17 (LTS)";
+      else if (jh.find("23") != std::string::npos)
+        info.version = "23";
+      else if (jh.find("1.8") != std::string::npos || jh.find("8") != std::string::npos)
+        info.version = "8 (LTS)";
+      else
+        info.version = "detected (version unknown)";
     } else {
       info.library_path = "";
       info.status = "unavailable";
@@ -625,15 +656,16 @@ int CmdFFI(int argc, char **argv) {
       std::cout << "+-----------+----------------+--------------+--------------------+\n";
       for (const auto &b : bridges) {
         std::string status_icon;
-        if (b.status == "available") status_icon = "[OK]  ";
-        else if (b.status == "degraded") status_icon = "[WARN]";
-        else status_icon = "[MISS]";
+        if (b.status == "available")
+          status_icon = "[OK]  ";
+        else if (b.status == "degraded")
+          status_icon = "[WARN]";
+        else
+          status_icon = "[MISS]";
 
-        std::cout << "| " << std::left << std::setw(9) << b.language
-                  << " | " << std::left << std::setw(14) << b.runtime_name
-                  << " | " << std::left << std::setw(12) << status_icon
-                  << " | " << std::left << std::setw(18) << b.version
-                  << " |\n";
+        std::cout << "| " << std::left << std::setw(9) << b.language << " | " << std::left
+                  << std::setw(14) << b.runtime_name << " | " << std::left << std::setw(12)
+                  << status_icon << " | " << std::left << std::setw(18) << b.version << " |\n";
       }
       std::cout << "+-----------+----------------+--------------+--------------------+\n\n";
 
@@ -695,13 +727,18 @@ struct BenchmarkResult {
 void PrintBenchmarkResult(const BenchmarkResult &result) {
   std::cout << "+- " << result.name << " ";
   size_t pad = 54 - result.name.length();
-  for (size_t i = 0; i < pad; ++i) std::cout << "-";
+  for (size_t i = 0; i < pad; ++i)
+    std::cout << "-";
   std::cout << "+\n";
   std::cout << "| Iterations:   " << std::left << std::setw(42) << result.iterations << "|\n";
-  std::cout << "| Total Time:   " << std::left << std::setw(42) << FormatDuration(result.total_time) << "|\n";
-  std::cout << "| Min Time:     " << std::left << std::setw(42) << FormatDuration(result.min_time) << "|\n";
-  std::cout << "| Max Time:     " << std::left << std::setw(42) << FormatDuration(result.max_time) << "|\n";
-  std::cout << "| Avg Time:     " << std::left << std::setw(42) << FormatDuration(result.avg_time) << "|\n";
+  std::cout << "| Total Time:   " << std::left << std::setw(42) << FormatDuration(result.total_time)
+            << "|\n";
+  std::cout << "| Min Time:     " << std::left << std::setw(42) << FormatDuration(result.min_time)
+            << "|\n";
+  std::cout << "| Max Time:     " << std::left << std::setw(42) << FormatDuration(result.max_time)
+            << "|\n";
+  std::cout << "| Avg Time:     " << std::left << std::setw(42) << FormatDuration(result.avg_time)
+            << "|\n";
   double ops_per_sec = result.iterations * 1000000.0 / result.total_time.count();
   std::ostringstream oss;
   oss << std::fixed << std::setprecision(2) << ops_per_sec << " ops/sec";
@@ -752,8 +789,8 @@ BenchmarkResult RunAllocBenchmark(size_t iterations, size_t object_size) {
 
   auto &heap = runtime::gc::GlobalHeap();
 
-  std::cout << "Running allocation benchmark (" << iterations << " iterations, "
-            << object_size << " bytes each)...\n";
+  std::cout << "Running allocation benchmark (" << iterations << " iterations, " << object_size
+            << " bytes each)...\n";
 
   for (size_t i = 0; i < iterations; ++i) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -924,24 +961,24 @@ int CmdInfo(int argc, char **argv) {
   std::cout << "| Build:          " << std::left << std::setw(40) << "Release" << "|\n";
   std::cout << "| Platform:       " << std::left << std::setw(40) <<
 #if defined(__APPLE__)
-    "macOS"
+      "macOS"
 #elif defined(__linux__)
-    "Linux"
+      "Linux"
 #elif defined(_WIN32)
-    "Windows"
+      "Windows"
 #else
-    "Unknown"
+      "Unknown"
 #endif
-    << "|\n";
+            << "|\n";
   std::cout << "| Architecture:   " << std::left << std::setw(40) <<
 #if defined(__x86_64__) || defined(_M_X64)
-    "x86_64"
+      "x86_64"
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    "arm64"
+      "arm64"
 #else
-    "Unknown"
+      "Unknown"
 #endif
-    << "|\n";
+            << "|\n";
   std::cout << "+==========================================================+\n\n";
 
   if (show_features) {
@@ -999,8 +1036,7 @@ int CmdInfo(int argc, char **argv) {
       // Show the live mimalloc version reported by the runtime so operators
       // can verify the high-performance allocator is wired in correctly.
       std::ostringstream alloc_line;
-      alloc_line << "    Allocator:          "
-                 << polyglot_allocator_name() << " "
+      alloc_line << "    Allocator:          " << polyglot_allocator_name() << " "
                  << polyglot_allocator_version();
       std::cout << "|" << std::left << std::setw(62) << alloc_line.str() << "|\n";
     }
@@ -1063,7 +1099,7 @@ int Run(int argc, char **argv) {
   return 1;
 }
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools
 
 int main(int argc, char **argv) {
   return polyglot::tools::Run(argc, argv);

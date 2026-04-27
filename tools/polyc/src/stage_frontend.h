@@ -28,4 +28,4 @@ namespace polyglot::tools {
 /// Returns a fully populated FrontendResult; call result.success to check.
 FrontendResult RunFrontendStage(const DriverSettings &settings);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

@@ -12,4 +12,4 @@ namespace polyglot::frontends {
 
 // TokenPool is header-only for now.
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends

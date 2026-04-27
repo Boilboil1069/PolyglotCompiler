@@ -12,9 +12,8 @@
 #include <QPlainTextEdit>
 #include <QTabWidget>
 #include <QTableWidget>
-#include <QWidget>
 #include <QVBoxLayout>
-
+#include <QWidget>
 #include <vector>
 
 namespace polyglot::tools::ui {
@@ -27,58 +26,58 @@ struct DiagnosticInfo;
 
 /** @brief OutputPanel class. */
 class OutputPanel : public QWidget {
-    Q_OBJECT
+  Q_OBJECT
 
-  public:
-    explicit OutputPanel(QWidget *parent = nullptr);
-    ~OutputPanel() override;
+public:
+  explicit OutputPanel(QWidget *parent = nullptr);
+  ~OutputPanel() override;
 
-    // Append text to the output console
-    void AppendOutput(const QString &text);
+  // Append text to the output console
+  void AppendOutput(const QString &text);
 
-    // Clear the output console
-    void ClearOutput();
+  // Clear the output console
+  void ClearOutput();
 
-    // Display diagnostics in the error table
-    void ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
-                         const QString &file = QString());
+  // Display diagnostics in the error table
+  void ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
+                       const QString &file = QString());
 
-    // Clear the error table
-    void ClearDiagnostics();
+  // Clear the error table
+  void ClearDiagnostics();
 
-    // Append text to the compiler log
-    void AppendLog(const QString &text);
+  // Append text to the compiler log
+  void AppendLog(const QString &text);
 
-    // Clear the compiler log
-    void ClearLog();
+  // Clear the compiler log
+  void ClearLog();
 
-    // Clear everything
-    void ClearAll();
+  // Clear everything
+  void ClearAll();
 
-    // Re-apply theme colors to all child widgets
-    void ApplyTheme();
+  // Re-apply theme colors to all child widgets
+  void ApplyTheme();
 
-    // Switch to a specific tab
-    void ShowOutputTab();
-    void ShowErrorsTab();
-    void ShowLogTab();
+  // Switch to a specific tab
+  void ShowOutputTab();
+  void ShowErrorsTab();
+  void ShowLogTab();
 
-  signals:
-    // Emitted when user double-clicks an error row
-    void ErrorClicked(int line, int column, const QString &file);
+signals:
+  // Emitted when user double-clicks an error row
+  void ErrorClicked(int line, int column, const QString &file);
 
-  private slots:
-    void OnErrorRowDoubleClicked(int row, int column);
+private slots:
+  void OnErrorRowDoubleClicked(int row, int column);
 
-  private:
-    void SetupUi();
+private:
+  void SetupUi();
 
-    QVBoxLayout *layout_{nullptr};
-    QTabWidget *tab_widget_{nullptr};
+  QVBoxLayout *layout_{nullptr};
+  QTabWidget *tab_widget_{nullptr};
 
-    QPlainTextEdit *output_console_{nullptr};
-    QTableWidget *error_table_{nullptr};
-    QPlainTextEdit *compiler_log_{nullptr};
+  QPlainTextEdit *output_console_{nullptr};
+  QTableWidget *error_table_{nullptr};
+  QPlainTextEdit *compiler_log_{nullptr};
 };
 
 } // namespace polyglot::tools::ui

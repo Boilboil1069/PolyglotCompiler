@@ -36,32 +36,22 @@ char *polyglot_dotnet_strdup_gc(const char *message, void ***root_handle_out);
 void polyglot_dotnet_release(char **ptr, void ***root_handle);
 
 // Invoke a static .NET method by fully qualified name (Namespace.Class::Method).
-void *polyglot_dotnet_call_static(const char *assembly_name,
-                                  const char *type_name,
-                                  const char *method_name,
-                                  const void *const *args,
-                                  int arg_count);
+void *polyglot_dotnet_call_static(const char *assembly_name, const char *type_name,
+                                  const char *method_name, const void *const *args, int arg_count);
 
 // Instantiate a .NET object via constructor.
-void *polyglot_dotnet_new_object(const char *assembly_name,
-                                 const char *type_name,
-                                 const void *const *args,
-                                 int arg_count);
+void *polyglot_dotnet_new_object(const char *assembly_name, const char *type_name,
+                                 const void *const *args, int arg_count);
 
 // Invoke an instance method on a .NET object.
-void *polyglot_dotnet_call_method(void *object,
-                                  const char *method_name,
-                                  const void *const *args,
+void *polyglot_dotnet_call_method(void *object, const char *method_name, const void *const *args,
                                   int arg_count);
 
 // Get a property value from a .NET object.
-void *polyglot_dotnet_get_property(void *object,
-                                   const char *property_name);
+void *polyglot_dotnet_get_property(void *object, const char *property_name);
 
 // Set a property value on a .NET object.
-void polyglot_dotnet_set_property(void *object,
-                                  const char *property_name,
-                                  const void *value);
+void polyglot_dotnet_set_property(void *object, const char *property_name, const void *value);
 
 // Dispose a .NET object (calls IDisposable.Dispose if implemented).
 void polyglot_dotnet_dispose(void *object);

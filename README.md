@@ -500,5 +500,5 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
 *Last Updated: 2026-04-27*  
-*Document Version: v1.1.0*
+*Document Version: v1.1.1*
 <!-- END:version_footer_en -->

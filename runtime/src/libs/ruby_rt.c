@@ -18,27 +18,26 @@
  * @date     2026-04-26
  */
 
-#include "runtime/include/libs/ruby_rt.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "runtime/include/libs/base.h"
+#include "runtime/include/libs/ruby_rt.h"
 #include "runtime/include/memory/polyglot_alloc.h"
 
 #ifdef _WIN32
 #include <windows.h>
 typedef HMODULE rb_lib_t;
-#define RB_LOAD(path)     LoadLibraryA(path)
+#define RB_LOAD(path) LoadLibraryA(path)
 #define RB_SYM(lib, name) ((void *)GetProcAddress((lib), (name)))
-#define RB_UNLOAD(lib)    FreeLibrary(lib)
+#define RB_UNLOAD(lib) FreeLibrary(lib)
 #else
 #include <dlfcn.h>
 typedef void *rb_lib_t;
-#define RB_LOAD(path)     dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
+#define RB_LOAD(path) dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
 #define RB_SYM(lib, name) dlsym((lib), (name))
-#define RB_UNLOAD(lib)    dlclose(lib)
+#define RB_UNLOAD(lib) dlclose(lib)
 #endif
 
 // ----------------------------------------------------------------------------
@@ -104,7 +103,7 @@ static void *rb_cObject_value_ = NULL;
 // ----------------------------------------------------------------------------
 
 typedef enum {
-  POLYGLOT_RUBY_VAL_VM = 0,  // a real VALUE rooted via rb_gc_register_address
+  POLYGLOT_RUBY_VAL_VM = 0, // a real VALUE rooted via rb_gc_register_address
   POLYGLOT_RUBY_VAL_STRING,
   POLYGLOT_RUBY_VAL_INT,
   POLYGLOT_RUBY_VAL_FLOAT
@@ -113,12 +112,12 @@ typedef enum {
 typedef struct {
   polyglot_ruby_val_kind_t kind;
   union {
-    void *vm_value;  // VALUE; rooted while `rooted` is true
+    void *vm_value; // VALUE; rooted while `rooted` is true
     char *str;
     long long i64;
     double f64;
   } as;
-  int rooted;  // VM-only: whether rb_gc_register_address has been called
+  int rooted; // VM-only: whether rb_gc_register_address has been called
 } polyglot_ruby_value_t;
 
 // ----------------------------------------------------------------------------
@@ -130,10 +129,12 @@ static int probe_libruby(const char *base) {
 #ifdef _WIN32
   snprintf(path, sizeof(path), "%s\\bin\\x64-vcruntime140-ruby310.dll", base);
   rb_lib_ = RB_LOAD(path);
-  if (rb_lib_) return 0;
+  if (rb_lib_)
+    return 0;
   snprintf(path, sizeof(path), "%s\\bin\\x64-msvcrt-ruby310.dll", base);
   rb_lib_ = RB_LOAD(path);
-  if (rb_lib_) return 0;
+  if (rb_lib_)
+    return 0;
   snprintf(path, sizeof(path), "%s\\bin\\msvcrt-ruby270.dll", base);
   rb_lib_ = RB_LOAD(path);
 #elif defined(__APPLE__)
@@ -150,20 +151,26 @@ static int load_libruby(void) {
   const char *override_path = getenv("POLYGLOT_RUBY_LIBRARY");
   if (override_path && override_path[0]) {
     rb_lib_ = RB_LOAD(override_path);
-    if (rb_lib_) return 0;
+    if (rb_lib_)
+      return 0;
   }
   const char *ruby_root = getenv("RUBY_ROOT");
-  if (ruby_root && ruby_root[0] && probe_libruby(ruby_root) == 0) return 0;
+  if (ruby_root && ruby_root[0] && probe_libruby(ruby_root) == 0)
+    return 0;
 #ifdef _WIN32
   rb_lib_ = RB_LOAD("x64-vcruntime140-ruby310.dll");
-  if (!rb_lib_) rb_lib_ = RB_LOAD("x64-msvcrt-ruby310.dll");
-  if (!rb_lib_) rb_lib_ = RB_LOAD("msvcrt-ruby270.dll");
+  if (!rb_lib_)
+    rb_lib_ = RB_LOAD("x64-msvcrt-ruby310.dll");
+  if (!rb_lib_)
+    rb_lib_ = RB_LOAD("msvcrt-ruby270.dll");
 #elif defined(__APPLE__)
   rb_lib_ = RB_LOAD("libruby.dylib");
 #else
   rb_lib_ = RB_LOAD("libruby.so");
-  if (!rb_lib_) rb_lib_ = RB_LOAD("libruby.so.3");
-  if (!rb_lib_) rb_lib_ = RB_LOAD("libruby.so.2");
+  if (!rb_lib_)
+    rb_lib_ = RB_LOAD("libruby.so.3");
+  if (!rb_lib_)
+    rb_lib_ = RB_LOAD("libruby.so.2");
 #endif
   return rb_lib_ ? 0 : -1;
 }
@@ -175,18 +182,15 @@ static int resolve_symbols(void) {
   ruby_cleanup_ = (ruby_cleanup_fn)RB_SYM(rb_lib_, "ruby_cleanup");
   ruby_init_loadpath_ = (ruby_init_loadpath_fn)RB_SYM(rb_lib_, "ruby_init_loadpath");
 
-  rb_eval_string_protect_ =
-      (rb_eval_string_protect_fn)RB_SYM(rb_lib_, "rb_eval_string_protect");
+  rb_eval_string_protect_ = (rb_eval_string_protect_fn)RB_SYM(rb_lib_, "rb_eval_string_protect");
   rb_funcallv_ = (rb_funcallv_fn)RB_SYM(rb_lib_, "rb_funcallv");
   rb_intern_ = (rb_intern_fn)RB_SYM(rb_lib_, "rb_intern");
   rb_str_new_cstr_ = (rb_str_new_cstr_fn)RB_SYM(rb_lib_, "rb_str_new_cstr");
-  rb_string_value_cstr_ =
-      (rb_string_value_cstr_fn)RB_SYM(rb_lib_, "rb_string_value_cstr");
+  rb_string_value_cstr_ = (rb_string_value_cstr_fn)RB_SYM(rb_lib_, "rb_string_value_cstr");
   rb_int2inum_ = (rb_int2inum_fn)RB_SYM(rb_lib_, "rb_int2inum");
   rb_float_new_ = (rb_float_new_fn)RB_SYM(rb_lib_, "rb_float_new");
   rb_const_get_ = (rb_const_get_fn)RB_SYM(rb_lib_, "rb_const_get");
-  rb_gc_register_address_ =
-      (rb_gc_register_address_fn)RB_SYM(rb_lib_, "rb_gc_register_address");
+  rb_gc_register_address_ = (rb_gc_register_address_fn)RB_SYM(rb_lib_, "rb_gc_register_address");
   rb_gc_unregister_address_ =
       (rb_gc_unregister_address_fn)RB_SYM(rb_lib_, "rb_gc_unregister_address");
   rb_obj_as_string_ = (rb_obj_as_string_fn)RB_SYM(rb_lib_, "rb_obj_as_string");
@@ -194,26 +198,28 @@ static int resolve_symbols(void) {
 
   // `rb_cObject` is exported as a data symbol — read its current value once.
   void **cobj_slot = (void **)RB_SYM(rb_lib_, "rb_cObject");
-  if (cobj_slot) rb_cObject_value_ = *cobj_slot;
+  if (cobj_slot)
+    rb_cObject_value_ = *cobj_slot;
 
-  if (!ruby_setup_ && !ruby_init_) return -1;
-  if (!rb_eval_string_protect_ || !rb_funcallv_ || !rb_intern_) return -1;
+  if (!ruby_setup_ && !ruby_init_)
+    return -1;
+  if (!rb_eval_string_protect_ || !rb_funcallv_ || !rb_intern_)
+    return -1;
   return 0;
 }
 
 int polyglot_ruby_init(int version_hint) {
   rb_version_hint_ = version_hint;
-  if (rb_initialised_) return 0;
+  if (rb_initialised_)
+    return 0;
   if (load_libruby() != 0) {
-    fprintf(stderr,
-            "[polyglot-ruby] warning: libruby not found; falling back to "
-            "stand-alone helpers (puts/strdup only).\n");
+    fprintf(stderr, "[polyglot-ruby] warning: libruby not found; falling back to "
+                    "stand-alone helpers (puts/strdup only).\n");
     return -1;
   }
   if (resolve_symbols() != 0) {
-    fprintf(stderr,
-            "[polyglot-ruby] error: libruby loaded but required symbols are "
-            "missing; runtime is unsupported.\n");
+    fprintf(stderr, "[polyglot-ruby] error: libruby loaded but required symbols are "
+                    "missing; runtime is unsupported.\n");
     RB_UNLOAD(rb_lib_);
     rb_lib_ = NULL;
     return -1;
@@ -230,7 +236,8 @@ int polyglot_ruby_init(int version_hint) {
   } else {
     ruby_init_();
   }
-  if (ruby_init_loadpath_) ruby_init_loadpath_();
+  if (ruby_init_loadpath_)
+    ruby_init_loadpath_();
   rb_initialised_ = 1;
   return 0;
 }
@@ -260,26 +267,32 @@ void polyglot_ruby_shutdown(void) {
 // ----------------------------------------------------------------------------
 
 void polyglot_ruby_print(const char *message) {
-  if (!message) return;
+  if (!message)
+    return;
   printf("%s\n", message);
 }
 
 char *polyglot_ruby_strdup_gc(const char *message, void ***root_handle_out) {
-  if (!message) return NULL;
+  if (!message)
+    return NULL;
   size_t len = strlen(message) + 1;
   char *buf = (char *)polyglot_alloc(len);
-  if (!buf) return NULL;
+  if (!buf)
+    return NULL;
   memcpy(buf, message, len);
   polyglot_gc_register_root((void **)&buf);
-  if (root_handle_out) *root_handle_out = (void **)&buf;
+  if (root_handle_out)
+    *root_handle_out = (void **)&buf;
   return buf;
 }
 
 void polyglot_ruby_release(char **ptr, void ***root_handle) {
-  if (!ptr || !*ptr) return;
+  if (!ptr || !*ptr)
+    return;
   polyglot_gc_unregister_root((void **)ptr);
   *ptr = NULL;
-  if (root_handle) *root_handle = NULL;
+  if (root_handle)
+    *root_handle = NULL;
 }
 
 // ----------------------------------------------------------------------------
@@ -287,10 +300,11 @@ void polyglot_ruby_release(char **ptr, void ***root_handle) {
 // ----------------------------------------------------------------------------
 
 static polyglot_ruby_value_t *wrap_vm_value(void *raw) {
-  if (!raw) return NULL;
-  polyglot_ruby_value_t *v =
-      (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  if (!raw)
+    return NULL;
+  polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_RUBY_VAL_VM;
   v->as.vm_value = raw;
   if (rb_gc_register_address_) {
@@ -301,21 +315,23 @@ static polyglot_ruby_value_t *wrap_vm_value(void *raw) {
 }
 
 int polyglot_ruby_require(const char *feature) {
-  if (!rb_initialised_ || !feature || !rb_require_) return -1;
+  if (!rb_initialised_ || !feature || !rb_require_)
+    return -1;
   return rb_require_(feature);
 }
 
 void *polyglot_ruby_eval(const char *source) {
-  if (!rb_initialised_ || !source || !rb_eval_string_protect_) return NULL;
+  if (!rb_initialised_ || !source || !rb_eval_string_protect_)
+    return NULL;
   int state = 0;
   void *result = rb_eval_string_protect_(source, &state);
-  if (state != 0) return NULL;
+  if (state != 0)
+    return NULL;
   return wrap_vm_value(result);
 }
 
 void *polyglot_ruby_get_constant(const char *name) {
-  if (!rb_initialised_ || !name || !rb_const_get_ || !rb_intern_ ||
-      !rb_cObject_value_) {
+  if (!rb_initialised_ || !name || !rb_const_get_ || !rb_intern_ || !rb_cObject_value_) {
     return NULL;
   }
   // Resolve "A::B::C" by walking through rb_cObject.
@@ -326,25 +342,30 @@ void *polyglot_ruby_get_constant(const char *name) {
   char *cursor = buf;
   while (cursor && *cursor) {
     char *sep = strstr(cursor, "::");
-    if (sep) *sep = '\0';
+    if (sep)
+      *sep = '\0';
     int id = rb_intern_(cursor);
     current = rb_const_get_(current, id);
-    if (!current) return NULL;
-    if (!sep) break;
+    if (!current)
+      return NULL;
+    if (!sep)
+      break;
     cursor = sep + 2;
   }
   return wrap_vm_value(current);
 }
 
-void *polyglot_ruby_call_method(void *receiver, const char *method_name,
-                                const void *const *args, int arg_count) {
-  if (!rb_initialised_ || !method_name || !rb_funcallv_ || !rb_intern_) return NULL;
+void *polyglot_ruby_call_method(void *receiver, const char *method_name, const void *const *args,
+                                int arg_count) {
+  if (!rb_initialised_ || !method_name || !rb_funcallv_ || !rb_intern_)
+    return NULL;
   void *recv_val = NULL;
   if (receiver) {
     polyglot_ruby_value_t *r = (polyglot_ruby_value_t *)receiver;
     recv_val = r->kind == POLYGLOT_RUBY_VAL_VM ? r->as.vm_value : NULL;
   }
-  if (!recv_val) recv_val = rb_cObject_value_;  // top-level Kernel methods
+  if (!recv_val)
+    recv_val = rb_cObject_value_; // top-level Kernel methods
 
   enum { kMaxArgs = 32 };
   void *argv[kMaxArgs];
@@ -352,20 +373,24 @@ void *polyglot_ruby_call_method(void *receiver, const char *method_name,
   for (int i = 0; i < n; ++i) {
     argv[i] = NULL;
     polyglot_ruby_value_t *a = (polyglot_ruby_value_t *)args[i];
-    if (!a) continue;
+    if (!a)
+      continue;
     switch (a->kind) {
-      case POLYGLOT_RUBY_VAL_VM:
-        argv[i] = a->as.vm_value;
-        break;
-      case POLYGLOT_RUBY_VAL_STRING:
-        if (rb_str_new_cstr_) argv[i] = rb_str_new_cstr_(a->as.str);
-        break;
-      case POLYGLOT_RUBY_VAL_INT:
-        if (rb_int2inum_) argv[i] = rb_int2inum_(a->as.i64);
-        break;
-      case POLYGLOT_RUBY_VAL_FLOAT:
-        if (rb_float_new_) argv[i] = rb_float_new_(a->as.f64);
-        break;
+    case POLYGLOT_RUBY_VAL_VM:
+      argv[i] = a->as.vm_value;
+      break;
+    case POLYGLOT_RUBY_VAL_STRING:
+      if (rb_str_new_cstr_)
+        argv[i] = rb_str_new_cstr_(a->as.str);
+      break;
+    case POLYGLOT_RUBY_VAL_INT:
+      if (rb_int2inum_)
+        argv[i] = rb_int2inum_(a->as.i64);
+      break;
+    case POLYGLOT_RUBY_VAL_FLOAT:
+      if (rb_float_new_)
+        argv[i] = rb_float_new_(a->as.f64);
+      break;
     }
   }
   int mid = rb_intern_(method_name);
@@ -374,7 +399,8 @@ void *polyglot_ruby_call_method(void *receiver, const char *method_name,
 }
 
 char *polyglot_ruby_value_to_string(void *value, void ***root_handle_out) {
-  if (!value) return NULL;
+  if (!value)
+    return NULL;
   polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)value;
   if (v->kind == POLYGLOT_RUBY_VAL_STRING) {
     return polyglot_ruby_strdup_gc(v->as.str, root_handle_out);
@@ -389,20 +415,23 @@ char *polyglot_ruby_value_to_string(void *value, void ***root_handle_out) {
     snprintf(buf, sizeof(buf), "%g", v->as.f64);
     return polyglot_ruby_strdup_gc(buf, root_handle_out);
   }
-  if (!rb_initialised_ || !rb_obj_as_string_ || !rb_string_value_cstr_) return NULL;
+  if (!rb_initialised_ || !rb_obj_as_string_ || !rb_string_value_cstr_)
+    return NULL;
   void *str_val = rb_obj_as_string_(v->as.vm_value);
-  if (!str_val) return NULL;
+  if (!str_val)
+    return NULL;
   // rb_string_value_cstr expects a VALUE *; we hand it a local pointer copy.
   void *holder = str_val;
   const char *cstr = rb_string_value_cstr_(&holder);
-  if (!cstr) return NULL;
+  if (!cstr)
+    return NULL;
   return polyglot_ruby_strdup_gc(cstr, root_handle_out);
 }
 
 void *polyglot_ruby_string_value(const char *utf8) {
-  polyglot_ruby_value_t *v =
-      (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_RUBY_VAL_STRING;
   size_t len = utf8 ? strlen(utf8) : 0;
   v->as.str = (char *)polyglot_raw_malloc(len + 1);
@@ -410,44 +439,47 @@ void *polyglot_ruby_string_value(const char *utf8) {
     polyglot_raw_free(v);
     return NULL;
   }
-  if (utf8) memcpy(v->as.str, utf8, len);
+  if (utf8)
+    memcpy(v->as.str, utf8, len);
   v->as.str[len] = '\0';
   return v;
 }
 
 void *polyglot_ruby_integer_value(long long n) {
-  polyglot_ruby_value_t *v =
-      (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_RUBY_VAL_INT;
   v->as.i64 = n;
   return v;
 }
 
 void *polyglot_ruby_float_value(double n) {
-  polyglot_ruby_value_t *v =
-      (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
-  if (!v) return NULL;
+  polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)polyglot_raw_calloc(1, sizeof(*v));
+  if (!v)
+    return NULL;
   v->kind = POLYGLOT_RUBY_VAL_FLOAT;
   v->as.f64 = n;
   return v;
 }
 
 void polyglot_ruby_release_value(void *value) {
-  if (!value) return;
+  if (!value)
+    return;
   polyglot_ruby_value_t *v = (polyglot_ruby_value_t *)value;
   switch (v->kind) {
-    case POLYGLOT_RUBY_VAL_VM:
-      if (v->rooted && rb_gc_unregister_address_) {
-        rb_gc_unregister_address_(&v->as.vm_value);
-      }
-      break;
-    case POLYGLOT_RUBY_VAL_STRING:
-      if (v->as.str) polyglot_raw_free(v->as.str);
-      break;
-    case POLYGLOT_RUBY_VAL_INT:
-    case POLYGLOT_RUBY_VAL_FLOAT:
-      break;
+  case POLYGLOT_RUBY_VAL_VM:
+    if (v->rooted && rb_gc_unregister_address_) {
+      rb_gc_unregister_address_(&v->as.vm_value);
+    }
+    break;
+  case POLYGLOT_RUBY_VAL_STRING:
+    if (v->as.str)
+      polyglot_raw_free(v->as.str);
+    break;
+  case POLYGLOT_RUBY_VAL_INT:
+  case POLYGLOT_RUBY_VAL_FLOAT:
+    break;
   }
   polyglot_raw_free(v);
 }
@@ -460,21 +492,22 @@ void polyglot_ruby_release_value(void *value) {
 // ---------------------------------------------------------------------------
 
 #ifndef _WIN32
-#  include <dlfcn.h>
+#include <dlfcn.h>
 #endif
 
 #ifdef _WIN32
-#  include <windows.h>
-#  define POLYGLOT_RUBY_LIB_NAME "x64-vcruntime140-ruby310.dll"
+#include <windows.h>
+#define POLYGLOT_RUBY_LIB_NAME "x64-vcruntime140-ruby310.dll"
 #else
-#  define POLYGLOT_RUBY_LIB_NAME "libruby.so"
+#define POLYGLOT_RUBY_LIB_NAME "libruby.so"
 #endif
 
 static void *polyglot_ruby_host_handle = (void *)0;
-static int   polyglot_ruby_host_probed = 0;
+static int polyglot_ruby_host_probed = 0;
 
 static void polyglot_ruby_load_host_once(void) {
-  if (polyglot_ruby_host_probed) return;
+  if (polyglot_ruby_host_probed)
+    return;
   polyglot_ruby_host_probed = 1;
 #ifdef _WIN32
   polyglot_ruby_host_handle = (void *)LoadLibraryA(POLYGLOT_RUBY_LIB_NAME);
@@ -483,15 +516,17 @@ static void polyglot_ruby_load_host_once(void) {
 #endif
   if (!polyglot_ruby_host_handle) {
     fprintf(stderr,
-        "[polyglot/ruby] host Ruby runtime '%s' not loaded; require/load and "
-        "qualified calls will be no-ops.  Install a libruby shared object to "
-        "enable interop.\n", POLYGLOT_RUBY_LIB_NAME);
+            "[polyglot/ruby] host Ruby runtime '%s' not loaded; require/load and "
+            "qualified calls will be no-ops.  Install a libruby shared object to "
+            "enable interop.\n",
+            POLYGLOT_RUBY_LIB_NAME);
   }
 }
 
 void *__ploy_ruby_require(const char *feature) {
   polyglot_ruby_load_host_once();
-  if (!polyglot_ruby_host_handle || !feature) return (void *)0;
+  if (!polyglot_ruby_host_handle || !feature)
+    return (void *)0;
 #ifdef _WIN32
   return (void *)GetProcAddress((HMODULE)polyglot_ruby_host_handle, feature);
 #else
@@ -499,18 +534,17 @@ void *__ploy_ruby_require(const char *feature) {
 #endif
 }
 
-void *__ploy_ruby_call(const char *qualified_name,
-                       const void *const *args, int arg_count) {
+void *__ploy_ruby_call(const char *qualified_name, const void *const *args, int arg_count) {
   polyglot_ruby_load_host_once();
-  if (!polyglot_ruby_host_handle || !qualified_name) return (void *)0;
+  if (!polyglot_ruby_host_handle || !qualified_name)
+    return (void *)0;
 #ifdef _WIN32
   void *fn = (void *)GetProcAddress((HMODULE)polyglot_ruby_host_handle, qualified_name);
 #else
   void *fn = dlsym(polyglot_ruby_host_handle, qualified_name);
 #endif
   if (!fn) {
-    fprintf(stderr, "[polyglot/ruby] symbol '%s' not found in host runtime\n",
-            qualified_name);
+    fprintf(stderr, "[polyglot/ruby] symbol '%s' not found in host runtime\n", qualified_name);
     return (void *)0;
   }
   typedef void *(*polyglot_ruby_thunk_t)(const void *const *, int);

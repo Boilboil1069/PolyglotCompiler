@@ -13,4 +13,4 @@
 
 namespace polyglot::ruby {
 void AnalyzeModule(const Module &mod, frontends::SemaContext &ctx);
-}  // namespace polyglot::ruby
+} // namespace polyglot::ruby

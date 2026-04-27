@@ -38,25 +38,22 @@ void polyglot_java_release(char **ptr, void ***root_handle);
 // Invoke a static Java method by fully qualified name.
 // Returns an opaque handle to the result or NULL on failure.
 void *polyglot_java_call_static(const char *class_name, const char *method_name,
-                                const char *signature, const void *const *args,
-                                int arg_count);
+                                const char *signature, const void *const *args, int arg_count);
 
 // Instantiate a Java object (calls <init>).
 void *polyglot_java_new_object(const char *class_name, const char *ctor_signature,
                                const void *const *args, int arg_count);
 
 // Invoke an instance method on a Java object.
-void *polyglot_java_call_method(void *object, const char *method_name,
-                                const char *signature, const void *const *args,
-                                int arg_count);
+void *polyglot_java_call_method(void *object, const char *method_name, const char *signature,
+                                const void *const *args, int arg_count);
 
 // Get a field value from a Java object.
-void *polyglot_java_get_field(void *object, const char *field_name,
-                              const char *field_type);
+void *polyglot_java_get_field(void *object, const char *field_name, const char *field_type);
 
 // Set a field value on a Java object.
-void polyglot_java_set_field(void *object, const char *field_name,
-                             const char *field_type, const void *value);
+void polyglot_java_set_field(void *object, const char *field_name, const char *field_type,
+                             const void *value);
 
 // Release/dispose a Java object reference.
 void polyglot_java_release_object(void *object);

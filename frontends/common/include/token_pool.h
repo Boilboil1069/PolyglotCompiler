@@ -16,7 +16,7 @@ namespace polyglot::frontends {
 
 /** @brief TokenPool class. */
 class TokenPool {
- public:
+public:
   const Token &Add(Token token) {
     tokens_.push_back(std::move(token));
     return tokens_.back();
@@ -26,8 +26,8 @@ class TokenPool {
 
   void Clear() { tokens_.clear(); }
 
- private:
+private:
   std::vector<Token> tokens_{};
 };
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends

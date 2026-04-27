@@ -8,13 +8,14 @@
  */
 #pragma once
 
+#include "middle/include/ir/ir_context.h"
+
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/javascript/include/javascript_ast.h"
-#include "middle/include/ir/ir_context.h"
 
 namespace polyglot::javascript {
 
 /// Lower a parsed+analyzed JavaScript module to the unified IR.
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags);
 
-}  // namespace polyglot::javascript
+} // namespace polyglot::javascript

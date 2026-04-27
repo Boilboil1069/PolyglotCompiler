@@ -8,28 +8,27 @@
  */
 #pragma once
 
-#include "frontends/common/include/lexer_base.h"
-
 #include <vector>
+
+#include "frontends/common/include/lexer_base.h"
 
 namespace polyglot::ploy {
 
 /** @brief PloyLexer class. */
 class PloyLexer : public frontends::LexerBase {
-  public:
-    PloyLexer(std::string source, std::string file)
-        : LexerBase(std::move(source), std::move(file)) {}
+public:
+  PloyLexer(std::string source, std::string file) : LexerBase(std::move(source), std::move(file)) {}
 
-    frontends::Token NextToken() override;
+  frontends::Token NextToken() override;
 
-  private:
-    void SkipWhitespace();
-    void SkipLineComment();
-    void SkipBlockComment();
-    frontends::Token LexIdentifierOrKeyword();
-    frontends::Token LexNumber();
-    frontends::Token LexString();
-    frontends::Token LexOperator();
+private:
+  void SkipWhitespace();
+  void SkipLineComment();
+  void SkipBlockComment();
+  frontends::Token LexIdentifierOrKeyword();
+  frontends::Token LexNumber();
+  frontends::Token LexString();
+  frontends::Token LexOperator();
 };
 
 } // namespace polyglot::ploy

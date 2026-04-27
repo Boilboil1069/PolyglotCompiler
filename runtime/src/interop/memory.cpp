@@ -5,10 +5,10 @@
  * @date     2026-02-06
  * @version  2.0.0
  */
-#include "runtime/include/interop/memory.h"
-
 #include <atomic>
 #include <utility>
+
+#include "runtime/include/interop/memory.h"
 
 namespace polyglot::runtime::interop {
 
@@ -24,12 +24,14 @@ ForeignObject *AcquireForeign(void *ptr, size_t size, std::function<void(void *)
 }
 
 void RetainForeign(ForeignObject *obj) {
-  if (!obj) return;
+  if (!obj)
+    return;
   obj->refcount.fetch_add(1, std::memory_order_relaxed);
 }
 
 void ReleaseForeign(ForeignObject *obj) {
-  if (!obj) return;
+  if (!obj)
+    return;
   if (obj->refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
     // Call deleter for owned objects.  Shared objects also invoke the deleter
     // on final release (they share the cleanup responsibility).
@@ -42,7 +44,8 @@ void ReleaseForeign(ForeignObject *obj) {
 }
 
 size_t ForeignRefCount(const ForeignObject *obj) {
-  if (!obj) return 0;
+  if (!obj)
+    return 0;
   return obj->refcount.load(std::memory_order_relaxed);
 }
 
@@ -50,4 +53,4 @@ bool ForeignIsAlive(const ForeignObject *obj) {
   return ForeignRefCount(obj) > 0;
 }
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

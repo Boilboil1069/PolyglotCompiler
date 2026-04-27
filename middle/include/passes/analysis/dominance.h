@@ -32,7 +32,8 @@ struct DominanceInfo {
 
   // Return the immediate dominator of a block (nullptr if none / entry)
   ir::BasicBlock *GetIDom(ir::BasicBlock *bb) const {
-    if (!valid_) return nullptr;
+    if (!valid_)
+      return nullptr;
     auto it = dom_tree_.idom.find(bb);
     return it != dom_tree_.idom.end() ? it->second : nullptr;
   }
@@ -40,30 +41,35 @@ struct DominanceInfo {
   // Return the dominator-tree children of a block
   const std::vector<ir::BasicBlock *> &GetChildren(ir::BasicBlock *bb) const {
     static const std::vector<ir::BasicBlock *> empty;
-    if (!valid_) return empty;
+    if (!valid_)
+      return empty;
     auto it = dom_tree_.children.find(bb);
     return it != dom_tree_.children.end() ? it->second : empty;
   }
 
   // Check whether block a dominates block b (walking the idom chain)
   bool Dominates(ir::BasicBlock *a, ir::BasicBlock *b) const {
-    if (!valid_) return false;
-    if (a == b) return true;
+    if (!valid_)
+      return false;
+    if (a == b)
+      return true;
     while (b) {
       auto it = dom_tree_.idom.find(b);
-      if (it == dom_tree_.idom.end()) break;
+      if (it == dom_tree_.idom.end())
+        break;
       b = it->second;
-      if (b == a) return true;
+      if (b == a)
+        return true;
     }
     return false;
   }
 
   // Return the dominance frontier for a given block
   std::unordered_set<ir::BasicBlock *> GetFrontier(ir::BasicBlock *bb) const {
-    if (!valid_) return {};
+    if (!valid_)
+      return {};
     auto it = dom_frontier_.find(bb);
-    return it != dom_frontier_.end() ? it->second
-                                     : std::unordered_set<ir::BasicBlock *>{};
+    return it != dom_frontier_.end() ? it->second : std::unordered_set<ir::BasicBlock *>{};
   }
 
   // Access raw trees for advanced usage
@@ -78,4 +84,4 @@ private:
   bool valid_{false};
 };
 
-}  // namespace polyglot::passes::analysis
+} // namespace polyglot::passes::analysis

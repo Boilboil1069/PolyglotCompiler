@@ -6,8 +6,8 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "middle/include/passes/transform/constant_fold.h"
 #include "middle/include/ir/passes/opt.h"
+#include "middle/include/passes/transform/constant_fold.h"
 
 namespace polyglot::passes::transform {
 
@@ -17,4 +17,4 @@ void RunConstantFold(ir::IRContext &context) {
   }
 }
 
-}  // namespace polyglot::passes::transform
+} // namespace polyglot::passes::transform

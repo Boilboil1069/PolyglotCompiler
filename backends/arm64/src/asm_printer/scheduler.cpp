@@ -6,11 +6,11 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "backends/arm64/include/machine_ir.h"
-
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
+
+#include "backends/arm64/include/machine_ir.h"
 
 namespace polyglot::backends::arm64 {
 namespace {
@@ -43,18 +43,21 @@ void ScheduleBlock(MachineBasicBlock &bb) {
         indegree[i] += 1;
       }
     }
-    if (body[i].def >= 0) last_def[body[i].def] = static_cast<int>(i);
+    if (body[i].def >= 0)
+      last_def[body[i].def] = static_cast<int>(i);
   }
 
   std::vector<MachineInstr> scheduled;
   std::vector<int> ready;
   for (size_t i = 0; i < n; ++i) {
-    if (indegree[i] == 0) ready.push_back(static_cast<int>(i));
+    if (indegree[i] == 0)
+      ready.push_back(static_cast<int>(i));
   }
 
   while (!ready.empty()) {
     auto best_it = std::max_element(ready.begin(), ready.end(), [&](int a, int b) {
-      if (body[a].latency == body[b].latency) return body[a].cost < body[b].cost;
+      if (body[a].latency == body[b].latency)
+        return body[a].cost < body[b].cost;
       return body[a].latency < body[b].latency;
     });
     int idx = *best_it;
@@ -62,7 +65,8 @@ void ScheduleBlock(MachineBasicBlock &bb) {
     scheduled.push_back(body[idx]);
     for (int s : succ[idx]) {
       indegree[s] -= 1;
-      if (indegree[s] == 0) ready.push_back(s);
+      if (indegree[s] == 0)
+        ready.push_back(s);
     }
   }
 
@@ -70,10 +74,11 @@ void ScheduleBlock(MachineBasicBlock &bb) {
   bb.instructions = std::move(scheduled);
 }
 
-}  // namespace
+} // namespace
 
 void ScheduleFunction(MachineFunction &fn) {
-  for (auto &bb : fn.blocks) ScheduleBlock(bb);
+  for (auto &bb : fn.blocks)
+    ScheduleBlock(bb);
 }
 
-}  // namespace polyglot::backends::arm64
+} // namespace polyglot::backends::arm64

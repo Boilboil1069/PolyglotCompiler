@@ -20,6 +20,7 @@ namespace polyglot::ir {
 bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg = nullptr);
 
 // Parse a single function from text (no surrounding module/globals) and append to ctx.
-bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Function> *out_fn, std::string *msg = nullptr);
+bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Function> *out_fn,
+                   std::string *msg = nullptr);
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

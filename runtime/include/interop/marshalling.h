@@ -29,4 +29,4 @@ std::vector<uint8_t> MarshalInt(uint64_t value, size_t size, Endianness endianne
 // Unmarshal an integral value from bytes with the requested endianness and width.
 uint64_t UnmarshalInt(const std::vector<uint8_t> &bytes, Endianness endianness);
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

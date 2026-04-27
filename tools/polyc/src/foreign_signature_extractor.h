@@ -38,37 +38,36 @@ namespace polyglot::tools {
 
 /** @brief ForeignExtractionOptions data structure. */
 struct ForeignExtractionOptions {
-    /// Directory containing the .ploy file (used as base for relative paths).
-    std::string base_directory;
+  /// Directory containing the .ploy file (used as base for relative paths).
+  std::string base_directory;
 
-    /// Additional search directories for foreign source files.
-    std::vector<std::string> include_paths;
+  /// Additional search directories for foreign source files.
+  std::vector<std::string> include_paths;
 
-    /// Whether to emit verbose logging to stderr.
-    bool verbose{false};
+  /// Whether to emit verbose logging to stderr.
+  bool verbose{false};
 };
 
 /** @brief ForeignSignatureExtractor class. */
 class ForeignSignatureExtractor {
-  public:
-    explicit ForeignSignatureExtractor(const ForeignExtractionOptions &opts);
+public:
+  explicit ForeignSignatureExtractor(const ForeignExtractionOptions &opts);
 
-    /// Walk the ploy Module's IMPORT declarations and extract signatures from
-    /// all referenced foreign-language source files.
-    /// Returns a map of qualified_name → FunctionSignature.
-    std::unordered_map<std::string, ploy::FunctionSignature>
-    ExtractAll(const ploy::Module &module) const;
+  /// Walk the ploy Module's IMPORT declarations and extract signatures from
+  /// all referenced foreign-language source files.
+  /// Returns a map of qualified_name → FunctionSignature.
+  std::unordered_map<std::string, ploy::FunctionSignature> ExtractAll(
+      const ploy::Module &module) const;
 
-  private:
-    /// Attempt to locate a source file for the given language + module name.
-    /// Returns the full path if found, or empty string if not found.
-    std::string ResolveSourceFile(const std::string &language,
-                                  const std::string &module_name) const;
+private:
+  /// Attempt to locate a source file for the given language + module name.
+  /// Returns the full path if found, or empty string if not found.
+  std::string ResolveSourceFile(const std::string &language, const std::string &module_name) const;
 
-    /// Read a file into a string.  Returns empty string on failure.
-    static std::string ReadFile(const std::string &path);
+  /// Read a file into a string.  Returns empty string on failure.
+  static std::string ReadFile(const std::string &path);
 
-    ForeignExtractionOptions opts_;
+  ForeignExtractionOptions opts_;
 };
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

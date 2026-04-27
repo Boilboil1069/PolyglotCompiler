@@ -6,11 +6,11 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "middle/include/ir/cfg.h"
-
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "middle/include/ir/cfg.h"
 
 namespace polyglot::ir {
 
@@ -33,7 +33,8 @@ BasicBlock *Function::CreateBlock(const std::string &block_name) {
   auto bb = std::make_shared<BasicBlock>();
   bb->name = block_name;
   blocks.push_back(bb);
-  if (!entry) entry = bb.get();
+  if (!entry)
+    entry = bb.get();
   return bb.get();
 }
 
@@ -51,7 +52,8 @@ ControlFlowGraph BuildCFG(Function &func) {
   for (auto &bb_ptr : func.blocks) {
     auto *bb = bb_ptr.get();
     cfg.blocks.push_back(bb);
-    if (!bb->terminator) continue;
+    if (!bb->terminator)
+      continue;
     if (auto *br = dynamic_cast<BranchStatement *>(bb->terminator.get())) {
       if (br->target) {
         bb->successors.push_back(br->target);
@@ -100,7 +102,8 @@ static BasicBlock *Intersect(BasicBlock *b1, BasicBlock *b2,
 
 DominatorTree ComputeDominators(const ControlFlowGraph &cfg) {
   DominatorTree dom;
-  if (!cfg.entry) return dom;
+  if (!cfg.entry)
+    return dom;
 
   // Reverse post-order for intersect algorithm.
   std::vector<BasicBlock *> rpo = cfg.blocks;
@@ -111,35 +114,41 @@ DominatorTree ComputeDominators(const ControlFlowGraph &cfg) {
   while (!stack.empty()) {
     BasicBlock *n = stack.back();
     stack.pop_back();
-    if (visited[n]) continue;
+    if (visited[n])
+      continue;
     visited[n] = true;
     rpo.push_back(n);
     for (auto *succ : n->successors) {
-      if (!visited[succ]) stack.push_back(succ);
+      if (!visited[succ])
+        stack.push_back(succ);
     }
   }
   // reverse to get post-order then reverse => RPO
   std::reverse(rpo.begin(), rpo.end());
 
   std::unordered_map<BasicBlock *, int> rpo_index;
-  for (size_t i = 0; i < rpo.size(); ++i) rpo_index[rpo[i]] = static_cast<int>(i);
+  for (size_t i = 0; i < rpo.size(); ++i)
+    rpo_index[rpo[i]] = static_cast<int>(i);
 
   dom.idom[cfg.entry] = cfg.entry;
   bool changed = true;
   while (changed) {
     changed = false;
     for (auto *b : rpo) {
-      if (b == cfg.entry) continue;
+      if (b == cfg.entry)
+        continue;
       BasicBlock *new_idom = nullptr;
       for (auto *p : b->predecessors) {
-        if (dom.idom.find(p) == dom.idom.end()) continue;
+        if (dom.idom.find(p) == dom.idom.end())
+          continue;
         if (!new_idom) {
           new_idom = p;
         } else {
           new_idom = Intersect(p, new_idom, rpo_index, dom.idom);
         }
       }
-      if (!new_idom) continue;
+      if (!new_idom)
+        continue;
       if (dom.idom[b] != new_idom) {
         dom.idom[b] = new_idom;
         changed = true;
@@ -148,25 +157,30 @@ DominatorTree ComputeDominators(const ControlFlowGraph &cfg) {
   }
 
   for (auto &[node, id] : dom.idom) {
-    if (node == cfg.entry) continue;
+    if (node == cfg.entry)
+      continue;
     dom.children[id].push_back(node);
   }
   return dom;
 }
 
-DominanceFrontier ComputeDominanceFrontier(const ControlFlowGraph &cfg, const DominatorTree &dom_tree) {
+DominanceFrontier ComputeDominanceFrontier(const ControlFlowGraph &cfg,
+                                           const DominatorTree &dom_tree) {
   DominanceFrontier df;
   for (auto *b : cfg.blocks) {
-    if (b->predecessors.size() < 2) continue;
+    if (b->predecessors.size() < 2)
+      continue;
     auto idom_it = dom_tree.idom.find(b);
-    if (idom_it == dom_tree.idom.end()) continue;
+    if (idom_it == dom_tree.idom.end())
+      continue;
     BasicBlock *idom_b = idom_it->second;
     for (auto *p : b->predecessors) {
       auto runner = p;
       while (runner && runner != idom_b) {
         df[runner].insert(b);
         auto it = dom_tree.idom.find(runner);
-        if (it == dom_tree.idom.end()) break;
+        if (it == dom_tree.idom.end())
+          break;
         runner = it->second;
       }
     }
@@ -174,4 +188,4 @@ DominanceFrontier ComputeDominanceFrontier(const ControlFlowGraph &cfg, const Do
   return df;
 }
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

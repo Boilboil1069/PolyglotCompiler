@@ -4,8 +4,8 @@
 > Supports C++, Python, Rust, Java, C# (.NET), JavaScript, Ruby, Go → x86_64/ARM64/WebAssembly  
 > With .ploy cross-language linking frontend
 
-**Version**: v1.0.0  
-**Last Updated**: 2026-03-15
+**Version**: v1.1.1  
+**Last Updated**: 2026-04-27
 
 ---
 
@@ -3150,5 +3150,5 @@ See `docs/specs/release_packaging.md` for full details, prerequisites, and versi
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
 *Last Updated: 2026-04-27*  
-*Document Version: v1.1.0*
+*Document Version: v1.1.1*
 <!-- END:version_footer_en -->

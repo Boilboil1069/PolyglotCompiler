@@ -16,8 +16,8 @@
 // execinfo.h is available on macOS and glibc-based Linux distributions.
 // musl-based systems (e.g. Alpine Linux) do not provide it.
 #define HAS_EXECINFO 1
-#include <execinfo.h>
 #include <cstdlib>
+#include <execinfo.h>
 #else
 // Fallback: no backtrace support on this platform.
 #include <cstdlib>
@@ -30,15 +30,14 @@ namespace polyglot::runtime::services {
 std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
 #ifdef _WIN32
   std::vector<void *> buffer(max_frames);
-  USHORT captured = ::CaptureStackBackTrace(
-      1, static_cast<DWORD>(max_frames), buffer.data(), nullptr);
+  USHORT captured =
+      ::CaptureStackBackTrace(1, static_cast<DWORD>(max_frames), buffer.data(), nullptr);
   std::vector<std::string> frames;
   frames.reserve(captured);
   for (USHORT i = 0; i < captured; ++i) {
     // Format: "frame <i>: 0x<hex addr>" — single fmt::format call replaces
     // a per-frame ostringstream + std::hex manipulator combo.
-    frames.push_back(fmt::format("frame {}: {:#x}", i,
-                                 reinterpret_cast<uintptr_t>(buffer[i])));
+    frames.push_back(fmt::format("frame {}: {:#x}", i, reinterpret_cast<uintptr_t>(buffer[i])));
   }
   return frames;
 #elif defined(HAS_EXECINFO)
@@ -47,7 +46,8 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
   char **symbols = ::backtrace_symbols(buffer.data(), captured);
   std::vector<std::string> frames;
   if (symbols) {
-    for (int i = 0; i < captured; ++i) frames.emplace_back(symbols[i]);
+    for (int i = 0; i < captured; ++i)
+      frames.emplace_back(symbols[i]);
     std::free(symbols);
   }
   return frames;
@@ -62,4 +62,4 @@ std::vector<std::string> CaptureStackTrace(std::size_t max_frames) {
   throw RuntimeError(message, CaptureStackTrace());
 }
 
-}  // namespace polyglot::runtime::services
+} // namespace polyglot::runtime::services

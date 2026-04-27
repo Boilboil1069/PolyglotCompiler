@@ -16,17 +16,17 @@ namespace polyglot::frontends {
 
 /** @brief SemaContext class. */
 class SemaContext {
- public:
+public:
   explicit SemaContext(Diagnostics &diagnostics) : diagnostics_(diagnostics) {}
 
   core::SymbolTable &Symbols() { return symbols_; }
   core::TypeSystem &Types() { return types_; }
   Diagnostics &Diags() { return diagnostics_; }
 
- private:
+private:
   Diagnostics &diagnostics_;
   core::SymbolTable symbols_{};
   core::TypeSystem types_{};
 };
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends

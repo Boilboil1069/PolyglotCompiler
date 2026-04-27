@@ -24,9 +24,12 @@ enum class Ownership { kBorrowed, kOwned, kShared };
 /// Returns a human-readable label for an ownership mode.
 inline const char *OwnershipName(Ownership o) {
   switch (o) {
-    case Ownership::kBorrowed: return "borrowed";
-    case Ownership::kOwned:    return "owned";
-    case Ownership::kShared:   return "shared";
+  case Ownership::kBorrowed:
+    return "borrowed";
+  case Ownership::kOwned:
+    return "owned";
+  case Ownership::kShared:
+    return "shared";
   }
   return "unknown";
 }
@@ -40,7 +43,7 @@ struct ForeignObject {
   std::function<void(void *)> deleter;
   std::atomic<size_t> refcount{1};
   Ownership ownership{Ownership::kOwned};
-  std::string tag;  ///< Optional diagnostic tag (e.g. originating language).
+  std::string tag; ///< Optional diagnostic tag (e.g. originating language).
 };
 
 /// Create a new ForeignObject on the heap.
@@ -72,4 +75,4 @@ inline ForeignObject *AcquireShared(void *ptr, size_t size, std::function<void(v
   return AcquireForeign(ptr, size, std::move(deleter), Ownership::kShared);
 }
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

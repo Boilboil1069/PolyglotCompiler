@@ -15,13 +15,13 @@
 namespace polyglot::runtime::gc {
 
 /** @brief Strategy enumeration. */
-enum class Strategy { 
-  kMarkSweep,      // 标记-清除GC
-  kGenerational,   // 分代GC
-  kCopying,        // 复制式GC
-  kIncremental     // 增量式GC
+enum class Strategy {
+  kMarkSweep,    // 标记-清除GC
+  kGenerational, // 分代GC
+  kCopying,      // 复制式GC
+  kIncremental   // 增量式GC
 };
 
 std::unique_ptr<GC> MakeGC(Strategy strategy);
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

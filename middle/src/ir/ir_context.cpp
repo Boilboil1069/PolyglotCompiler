@@ -6,10 +6,10 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "middle/include/ir/ir_context.h"
-
 #include <algorithm>
 #include <utility>
+
+#include "middle/include/ir/ir_context.h"
 
 namespace polyglot::ir {
 
@@ -26,7 +26,9 @@ std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name) {
   return fn;
 }
 
-std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name, const IRType &ret, const std::vector<std::pair<std::string, IRType>> &params) {
+std::shared_ptr<Function> IRContext::CreateFunction(
+    const std::string &name, const IRType &ret,
+    const std::vector<std::pair<std::string, IRType>> &params) {
   auto fn = std::make_shared<Function>();
   fn->name = name;
   fn->ret_type = ret;
@@ -42,8 +44,8 @@ std::shared_ptr<Function> IRContext::CreateFunction(const std::string &name, con
 }
 
 std::shared_ptr<GlobalValue> IRContext::CreateGlobal(const std::string &name, const IRType &type,
-                                                    bool is_const, const std::string &init,
-                                                    std::shared_ptr<Value> initializer) {
+                                                     bool is_const, const std::string &init,
+                                                     std::shared_ptr<Value> initializer) {
   auto g = std::make_shared<GlobalValue>();
   g->name = name;
   g->type = type;
@@ -82,7 +84,8 @@ void IRContext::AddStatement(const std::shared_ptr<Statement> &stmt) {
 }
 
 void IRContext::RegisterDialectByName(const std::string &name) {
-  if (std::find(dialects_.begin(), dialects_.end(), name) != dialects_.end()) return;
+  if (std::find(dialects_.begin(), dialects_.end(), name) != dialects_.end())
+    return;
   dialects_.push_back(name);
 }
 
@@ -92,4 +95,4 @@ void IRContext::RegisterBuiltInDialects() {
   RegisterDialect<dialects::LowLevelDialect>();
 }
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

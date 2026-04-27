@@ -32,9 +32,9 @@ extern "C" {
 // pointer to a NUL-terminated UTF-8 string that lives at least until the
 // caller has had a chance to copy it.
 typedef struct {
-  int ok;             // 1 = success, 0 = failure
-  void *value;        // success payload (opaque)
-  const char *error;  // borrowed string; valid until next call on this thread
+  int ok;            // 1 = success, 0 = failure
+  void *value;       // success payload (opaque)
+  const char *error; // borrowed string; valid until next call on this thread
 } polyglot_rust_result_t;
 
 // ----- Lifecycle -----------------------------------------------------------
@@ -73,8 +73,8 @@ typedef double (*polyglot_rust_f64_fn)(double);
 typedef const char *(*polyglot_rust_str_fn)(const char *);
 
 // Invoke a `polyglot_rust_call_fn`; the result is forwarded verbatim.
-polyglot_rust_result_t polyglot_rust_call(polyglot_rust_call_fn fn,
-                                          const void *const *argv, int argc);
+polyglot_rust_result_t polyglot_rust_call(polyglot_rust_call_fn fn, const void *const *argv,
+                                          int argc);
 
 // Convenience trampolines for primitive symbols.
 long long polyglot_rust_call_i64(polyglot_rust_i64_fn fn, long long arg);
@@ -82,8 +82,7 @@ double polyglot_rust_call_f64(polyglot_rust_f64_fn fn, double arg);
 
 // Borrow a NUL-terminated string returned by a Rust function and copy it
 // onto the GC heap.  Releases via polyglot_rust_release.
-char *polyglot_rust_call_str(polyglot_rust_str_fn fn, const char *arg,
-                             void ***root_handle_out);
+char *polyglot_rust_call_str(polyglot_rust_str_fn fn, const char *arg, void ***root_handle_out);
 
 // Allocate a `(ptr, len)` pair on the raw heap so it can be passed across
 // FFI to a Rust slice constructor.  `len` is in elements.

@@ -6,7 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-  #pragma once
+#pragma once
 
 #include "middle/include/ir/cfg.h"
 
@@ -113,4 +113,4 @@ void LoopPredication(ir::Function &func);
 // Optimize data structure layout for cache performance
 void MemoryLayoutOptimization(ir::Function &func);
 
-}  // namespace polyglot::passes::transform
+} // namespace polyglot::passes::transform

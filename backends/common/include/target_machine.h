@@ -14,10 +14,10 @@ namespace polyglot::backends {
 
 /** @brief TargetMachine class. */
 class TargetMachine {
- public:
+public:
   virtual ~TargetMachine() = default;
   virtual std::string TargetTriple() const = 0;
   virtual std::string EmitAssembly() = 0;
 };
 
-}  // namespace polyglot::backends
+} // namespace polyglot::backends

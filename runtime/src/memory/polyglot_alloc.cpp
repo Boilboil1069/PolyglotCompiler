@@ -6,11 +6,10 @@
  * @author   Manning Cyrus
  * @date     2026-04-26
  */
-#include "runtime/include/memory/polyglot_alloc.h"
-
+#include <cstdio>
 #include <mimalloc.h>
 
-#include <cstdio>
+#include "runtime/include/memory/polyglot_alloc.h"
 
 extern "C" {
 
@@ -33,7 +32,9 @@ void polyglot_raw_free(void *ptr) {
   mi_free(ptr);
 }
 
-const char *polyglot_allocator_name(void) { return "mimalloc"; }
+const char *polyglot_allocator_name(void) {
+  return "mimalloc";
+}
 
 const char *polyglot_allocator_version(void) {
   // mi_version() returns an integer in the form MAJOR*100 + MINOR*10 + PATCH.
@@ -51,4 +52,4 @@ const char *polyglot_allocator_version(void) {
   return buffer;
 }
 
-}  // extern "C"
+} // extern "C"

@@ -18,10 +18,10 @@ namespace polyglot::tools {
 // Packaging result
 /** @brief PackagingResult data structure. */
 struct PackagingResult {
-    bool success{false};
-    std::string output_path;             // final output (exe / obj)
-    std::string obj_path;                // emitted object file path
-    frontends::Diagnostics diagnostics;
+  bool success{false};
+  std::string output_path; // final output (exe / obj)
+  std::string obj_path;    // emitted object file path
+  frontends::Diagnostics diagnostics;
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -33,10 +33,8 @@ struct PackagingResult {
 /// @param bridge     Result of RunBridgeStage() (provides descriptor_file path)
 /// @param aux_dir    Aux output directory (may be empty)
 /// @param stem       Source file stem used for naming aux files
-PackagingResult RunPackagingStage(const DriverSettings     &settings,
-                                  const BackendResult       &backend,
-                                  const BridgeResult        &bridge,
-                                  const std::string         &aux_dir,
-                                  const std::string         &stem);
+PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendResult &backend,
+                                  const BridgeResult &bridge, const std::string &aux_dir,
+                                  const std::string &stem);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

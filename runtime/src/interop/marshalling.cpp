@@ -29,4 +29,4 @@ uint64_t UnmarshalInt(const std::vector<uint8_t> &bytes, Endianness endianness) 
   return value;
 }
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

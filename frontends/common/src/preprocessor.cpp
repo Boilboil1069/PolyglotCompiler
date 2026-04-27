@@ -6,8 +6,6 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "frontends/common/include/preprocessor.h"
-
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -17,6 +15,8 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "frontends/common/include/preprocessor.h"
 
 namespace polyglot::frontends {
 
@@ -65,12 +65,8 @@ std::vector<std::string> TokenizeExpr(const std::string &expr) {
     // two-character operators: ==, !=, &&, ||, <=, >=
     if (i + 1 < expr.size()) {
       char next = expr[i + 1];
-      if ((c == '=' && next == '=') ||
-          (c == '!' && next == '=') ||
-          (c == '&' && next == '&') ||
-          (c == '|' && next == '|') ||
-          (c == '<' && next == '=') ||
-          (c == '>' && next == '=')) {
+      if ((c == '=' && next == '=') || (c == '!' && next == '=') || (c == '&' && next == '&') ||
+          (c == '|' && next == '|') || (c == '<' && next == '=') || (c == '>' && next == '=')) {
         tokens.emplace_back(expr.substr(i, 2));
         ++i;
         continue;
@@ -84,12 +80,17 @@ std::vector<std::string> TokenizeExpr(const std::string &expr) {
   return tokens;
 }
 
-int ParsePrimary(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
-int ParseComparison(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
-int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
-int ParseOr(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros);
+int ParsePrimary(TokenCursor &cursor,
+                 const std::unordered_map<std::string, Preprocessor::Macro> &macros);
+int ParseComparison(TokenCursor &cursor,
+                    const std::unordered_map<std::string, Preprocessor::Macro> &macros);
+int ParseAnd(TokenCursor &cursor,
+             const std::unordered_map<std::string, Preprocessor::Macro> &macros);
+int ParseOr(TokenCursor &cursor,
+            const std::unordered_map<std::string, Preprocessor::Macro> &macros);
 
-int ParsePrimary(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+int ParsePrimary(TokenCursor &cursor,
+                 const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   const std::string token = cursor.Next();
   if (token.empty()) {
     return 0;
@@ -125,24 +126,31 @@ int ParsePrimary(TokenCursor &cursor, const std::unordered_map<std::string, Prep
   return macros.count(token) ? 1 : 0;
 }
 
-int ParseComparison(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+int ParseComparison(TokenCursor &cursor,
+                    const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   int left = ParsePrimary(cursor, macros);
-  while (cursor.Peek() == "==" || cursor.Peek() == "!=" ||
-         cursor.Peek() == "<"  || cursor.Peek() == ">"  ||
-         cursor.Peek() == "<=" || cursor.Peek() == ">=") {
+  while (cursor.Peek() == "==" || cursor.Peek() == "!=" || cursor.Peek() == "<" ||
+         cursor.Peek() == ">" || cursor.Peek() == "<=" || cursor.Peek() == ">=") {
     std::string op = cursor.Next();
     int right = ParsePrimary(cursor, macros);
-    if (op == "==")      left = (left == right) ? 1 : 0;
-    else if (op == "!=") left = (left != right) ? 1 : 0;
-    else if (op == "<")  left = (left <  right) ? 1 : 0;
-    else if (op == ">")  left = (left >  right) ? 1 : 0;
-    else if (op == "<=") left = (left <= right) ? 1 : 0;
-    else if (op == ">=") left = (left >= right) ? 1 : 0;
+    if (op == "==")
+      left = (left == right) ? 1 : 0;
+    else if (op == "!=")
+      left = (left != right) ? 1 : 0;
+    else if (op == "<")
+      left = (left < right) ? 1 : 0;
+    else if (op == ">")
+      left = (left > right) ? 1 : 0;
+    else if (op == "<=")
+      left = (left <= right) ? 1 : 0;
+    else if (op == ">=")
+      left = (left >= right) ? 1 : 0;
   }
   return left;
 }
 
-int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+int ParseAnd(TokenCursor &cursor,
+             const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   int left = ParseComparison(cursor, macros);
   while (cursor.Peek() == "&&") {
     cursor.Next();
@@ -152,7 +160,8 @@ int ParseAnd(TokenCursor &cursor, const std::unordered_map<std::string, Preproce
   return left;
 }
 
-int ParseOr(TokenCursor &cursor, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+int ParseOr(TokenCursor &cursor,
+            const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   int left = ParseAnd(cursor, macros);
   while (cursor.Peek() == "||") {
     cursor.Next();
@@ -162,26 +171,36 @@ int ParseOr(TokenCursor &cursor, const std::unordered_map<std::string, Preproces
   return left;
 }
 
-bool EvaluateCondition(const std::string &expr, const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
+bool EvaluateCondition(const std::string &expr,
+                       const std::unordered_map<std::string, Preprocessor::Macro> &macros) {
   TokenCursor cursor{TokenizeExpr(expr), 0};
   return ParseOr(cursor, macros) != 0;
 }
 
 std::string TrimLeft(std::string s) {
-  s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char c) { return !std::isspace(c); }));
+  s.erase(s.begin(),
+          std::find_if(s.begin(), s.end(), [](unsigned char c) { return !std::isspace(c); }));
   return s;
 }
 
 std::string TrimRight(std::string s) {
-  s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char c) { return !std::isspace(c); }).base(), s.end());
+  s.erase(
+      std::find_if(s.rbegin(), s.rend(), [](unsigned char c) { return !std::isspace(c); }).base(),
+      s.end());
   return s;
 }
 
-bool IsIdentStart(char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; }
-bool IsIdentContinue(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; }
-bool IsWhitespace(char c) { return std::isspace(static_cast<unsigned char>(c)); }
+bool IsIdentStart(char c) {
+  return std::isalpha(static_cast<unsigned char>(c)) || c == '_';
+}
+bool IsIdentContinue(char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+}
+bool IsWhitespace(char c) {
+  return std::isspace(static_cast<unsigned char>(c));
+}
 
-}  // namespace
+} // namespace
 
 Preprocessor::Preprocessor(Diagnostics &diagnostics) : diagnostics_(diagnostics) {
   file_loader_ = [](const std::string &path) -> std::optional<std::string> {
@@ -208,20 +227,30 @@ void Preprocessor::DefineFunction(const std::string &name, std::vector<std::stri
   macros_[name] = Macro{true, std::move(params), value};
 }
 
-void Preprocessor::Undefine(const std::string &name) { macros_.erase(name); }
+void Preprocessor::Undefine(const std::string &name) {
+  macros_.erase(name);
+}
 
-void Preprocessor::AddIncludePath(const std::string &path) { include_paths_.push_back(path); }
+void Preprocessor::AddIncludePath(const std::string &path) {
+  include_paths_.push_back(path);
+}
 
-void Preprocessor::SetIncludePaths(std::vector<std::string> paths) { include_paths_ = std::move(paths); }
+void Preprocessor::SetIncludePaths(std::vector<std::string> paths) {
+  include_paths_ = std::move(paths);
+}
 
-void Preprocessor::SetMaxIncludeDepth(size_t depth) { max_include_depth_ = depth; }
+void Preprocessor::SetMaxIncludeDepth(size_t depth) {
+  max_include_depth_ = depth;
+}
 
-void Preprocessor::SetFileLoader(std::function<std::optional<std::string>(const std::string &)> loader) {
+void Preprocessor::SetFileLoader(
+    std::function<std::optional<std::string>(const std::string &)> loader) {
   file_loader_ = std::move(loader);
 }
 
 std::optional<std::string> Preprocessor::ReadFile(const std::string &path) const {
-  if (!file_loader_) return std::nullopt;
+  if (!file_loader_)
+    return std::nullopt;
   return file_loader_(path);
 }
 
@@ -236,17 +265,21 @@ std::optional<std::string> Preprocessor::ResolveInclude(const std::string &targe
     if (p.is_relative() && !current_file_dir.empty()) {
       p = fs::path(current_file_dir) / p;
     }
-    if (fs::exists(p, ec)) return p.string();
+    if (fs::exists(p, ec))
+      return p.string();
     // Also check the virtual file loader (if set) so that unit tests
     // and in-memory file systems can provide include targets.
-    if (file_loader_ && file_loader_(p.string())) return p.string();
+    if (file_loader_ && file_loader_(p.string()))
+      return p.string();
   }
 
   // angle include OR fallback to include paths
   for (const auto &inc : include_paths_) {
     fs::path p = fs::path(inc) / target;
-    if (fs::exists(p, ec)) return p.string();
-    if (file_loader_ && file_loader_(p.string())) return p.string();
+    if (fs::exists(p, ec))
+      return p.string();
+    if (file_loader_ && file_loader_(p.string()))
+      return p.string();
   }
   return std::nullopt;
 }
@@ -259,7 +292,8 @@ std::string Preprocessor::Expand(const std::string &source) {
 std::string Preprocessor::Stringize(const std::string &text) const {
   std::string out = "\"";
   for (char c : text) {
-    if (c == '"' || c == '\\') out.push_back('\\');
+    if (c == '"' || c == '\\')
+      out.push_back('\\');
     out.push_back(c);
   }
   out.push_back('"');
@@ -271,7 +305,8 @@ std::string Preprocessor::Paste(const std::string &lhs, const std::string &rhs) 
   return merged;
 }
 
-std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set<std::string> &guard) {
+std::string Preprocessor::ExpandLine(const std::string &line,
+                                     std::unordered_set<std::string> &guard) {
   std::string out;
   for (size_t i = 0; i < line.size();) {
     char c = line[i];
@@ -290,7 +325,8 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
           ++i;
           continue;
         }
-        if (ch == quote) break;
+        if (ch == quote)
+          break;
       }
       continue;
     }
@@ -327,15 +363,16 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
 
       // function-like: need immediate '(' after optional spaces
       size_t j = i;
-      while (j < line.size() && std::isspace(static_cast<unsigned char>(line[j]))) ++j;
+      while (j < line.size() && std::isspace(static_cast<unsigned char>(line[j])))
+        ++j;
       if (j >= line.size() || line[j] != '(') {
         out.append(line.substr(start, i - start));
         i = j;
         continue;
       }
 
-  // parse arguments, supporting variadic "..."
-      ++j;  // skip '('
+      // parse arguments, supporting variadic "..."
+      ++j; // skip '('
       int depth = 1;
       std::vector<std::string> args;
       std::string current;
@@ -382,7 +419,8 @@ std::string Preprocessor::ExpandLine(const std::string &line, std::unordered_set
       if (is_variadic) {
         std::string packed;
         for (size_t idx = required; idx < args.size(); ++idx) {
-          if (idx > required) packed += ",";
+          if (idx > required)
+            packed += ",";
           packed += args[idx];
         }
         args.resize(required + 1);
@@ -407,9 +445,13 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
   std::string result;
 
   auto match_param = [&](const std::string &s, size_t pos, const std::string &word) {
-    if (pos + word.size() > s.size()) return false;
-    if (s.compare(pos, word.size(), word) != 0) return false;
-    auto is_ident = [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; };
+    if (pos + word.size() > s.size())
+      return false;
+    if (s.compare(pos, word.size(), word) != 0)
+      return false;
+    auto is_ident = [](char ch) {
+      return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_';
+    };
     bool left_ok = pos == 0 || !is_ident(s[pos - 1]);
     bool right_ok = (pos + word.size() >= s.size()) || !is_ident(s[pos + word.size()]);
     return left_ok && right_ok;
@@ -419,7 +461,8 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
     if (macro.body[i] == '#') {
       // stringize
       ++i;
-      while (i < macro.body.size() && IsWhitespace(macro.body[i])) ++i;
+      while (i < macro.body.size() && IsWhitespace(macro.body[i]))
+        ++i;
       bool handled = false;
       for (size_t p = 0; p < macro.params.size(); ++p) {
         const auto &param = macro.params[p];
@@ -430,7 +473,8 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
           break;
         }
       }
-      if (handled) continue;
+      if (handled)
+        continue;
       result.push_back('#');
       continue;
     }
@@ -447,13 +491,16 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
     bool replaced = false;
     for (size_t p = 0; p < macro.params.size(); ++p) {
       const auto &param = macro.params[p];
-      if (!match_param(macro.body, i, param)) continue;
+      if (!match_param(macro.body, i, param))
+        continue;
 
       // check paste after
       size_t j = i + param.size();
       size_t save_j = j;
-      while (j + 1 < macro.body.size() && IsWhitespace(macro.body[j])) ++j;
-      bool has_paste = (j + 1 < macro.body.size() && macro.body[j] == '#' && macro.body[j + 1] == '#');
+      while (j + 1 < macro.body.size() && IsWhitespace(macro.body[j]))
+        ++j;
+      bool has_paste =
+          (j + 1 < macro.body.size() && macro.body[j] == '#' && macro.body[j + 1] == '#');
 
       guard.insert(param);
       std::string expanded = ExpandLine(args[p], guard);
@@ -461,7 +508,8 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
 
       if (has_paste) {
         j += 2;
-        while (j < macro.body.size() && IsWhitespace(macro.body[j])) ++j;
+        while (j < macro.body.size() && IsWhitespace(macro.body[j]))
+          ++j;
         std::string rhs;
         bool rhs_from_param = false;
         for (size_t k = 0; k < macro.params.size(); ++k) {
@@ -495,7 +543,8 @@ std::string Preprocessor::SubstituteParams(const Macro &macro, const std::vector
       break;
     }
 
-    if (pasted || replaced) continue;
+    if (pasted || replaced)
+      continue;
 
     result.push_back(macro.body[i]);
     ++i;
@@ -561,11 +610,13 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
             size_t close = param.find(')');
             if (close != std::string::npos) {
               std::string last = TrimRight(TrimLeft(param.substr(0, close)));
-              if (!last.empty()) params.push_back(last);
+              if (!last.empty())
+                params.push_back(last);
               break;
             }
             param = TrimRight(TrimLeft(param));
-            if (!param.empty()) params.push_back(param);
+            if (!param.empty())
+              params.push_back(param);
           }
         }
 
@@ -607,13 +658,15 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
 
         auto resolved = ResolveInclude(target, current_dir, is_angle);
         if (!resolved) {
-          diagnostics_.Report(core::SourceLoc{file, line_no, 1}, "Failed to resolve include: " + target);
+          diagnostics_.Report(core::SourceLoc{file, line_no, 1},
+                              "Failed to resolve include: " + target);
           ++line_no;
           continue;
         }
         auto contents = ReadFile(*resolved);
         if (!contents) {
-          diagnostics_.Report(core::SourceLoc{file, line_no, 1}, "Failed to read include: " + *resolved);
+          diagnostics_.Report(core::SourceLoc{file, line_no, 1},
+                              "Failed to read include: " + *resolved);
           ++line_no;
           continue;
         }
@@ -665,7 +718,8 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
           } else {
             IfState &state = stack.back();
             if (state.has_else) {
-              diagnostics_.Report(core::SourceLoc{file, line_no, 1}, "Unexpected #elif after #else");
+              diagnostics_.Report(core::SourceLoc{file, line_no, 1},
+                                  "Unexpected #elif after #else");
             } else {
               if (state.include) {
                 state.include = false;
@@ -755,9 +809,10 @@ std::optional<std::string> Preprocessor::DetectIncludeGuard(const std::string &s
 
   while (std::getline(ss, line)) {
     std::string trimmed = TrimLeft(line);
-    if (trimmed.empty()) continue;
+    if (trimmed.empty())
+      continue;
     if (trimmed.rfind("#pragma once", 0) == 0) {
-      return std::string{};  // signal pragma once
+      return std::string{}; // signal pragma once
     }
     if (trimmed.rfind("#ifndef", 0) == 0) {
       std::istringstream ls(trimmed.substr(7));
@@ -781,4 +836,4 @@ std::optional<std::string> Preprocessor::DetectIncludeGuard(const std::string &s
   return std::nullopt;
 }
 
-}  // namespace polyglot::frontends
+} // namespace polyglot::frontends

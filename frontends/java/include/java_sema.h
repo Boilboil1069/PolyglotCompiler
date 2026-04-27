@@ -18,10 +18,10 @@ class ClasspathLoader;
 
 // Optional configuration passed by the language frontend.
 struct JavaSemaOptions {
-    // Loader used to resolve `import` statements against real .class / .jar
-    // metadata.  When null, imports are recorded as opaque module symbols
-    // (legacy behaviour, kept for unit tests that exercise sema in isolation).
-    ClasspathLoader *classpath_loader{nullptr};
+  // Loader used to resolve `import` statements against real .class / .jar
+  // metadata.  When null, imports are recorded as opaque module symbols
+  // (legacy behaviour, kept for unit tests that exercise sema in isolation).
+  ClasspathLoader *classpath_loader{nullptr};
 };
 
 // Perform semantic analysis on a parsed Java compilation unit.

@@ -27,20 +27,20 @@ namespace polyglot::tools::topo {
 
 /** @brief Port data structure. */
 struct Port {
-    /** @brief Direction enumeration. */
-    enum class Direction { kInput, kOutput };
+  /** @brief Direction enumeration. */
+  enum class Direction { kInput, kOutput };
 
-    std::string name;                          // Parameter or return-value name
-    Direction direction{Direction::kInput};
-    core::Type type{core::Type::Any()};        // Semantic type
-    std::string language;                      // Owning language (e.g. "cpp", "python")
-    int index{0};                              // Positional index within the node
+  std::string name; // Parameter or return-value name
+  Direction direction{Direction::kInput};
+  core::Type type{core::Type::Any()}; // Semantic type
+  std::string language;               // Owning language (e.g. "cpp", "python")
+  int index{0};                       // Positional index within the node
 
-    // Unique id generated at graph-build time
-    uint64_t id{0};
+  // Unique id generated at graph-build time
+  uint64_t id{0};
 
-    bool operator==(const Port &o) const { return id == o.id; }
-    bool operator!=(const Port &o) const { return id != o.id; }
+  bool operator==(const Port &o) const { return id == o.id; }
+  bool operator!=(const Port &o) const { return id != o.id; }
 };
 
 // ============================================================================
@@ -49,45 +49,45 @@ struct Port {
 
 /** @brief TopologyNode data structure. */
 struct TopologyNode {
-    /** @brief Kind enumeration. */
-    enum class Kind {
-        kFunction,      // Standalone function (FUNC / CALL / LINK target)
-        kConstructor,   // NEW(...) class constructor
-        kMethod,        // METHOD(...) call on an object
-        kPipeline,      // PIPELINE block
-        kMapFunc,       // MAP_FUNC type conversion helper
-        kExternalCall,  // Cross-language CALL(lang, func, ...)
-    };
+  /** @brief Kind enumeration. */
+  enum class Kind {
+    kFunction,     // Standalone function (FUNC / CALL / LINK target)
+    kConstructor,  // NEW(...) class constructor
+    kMethod,       // METHOD(...) call on an object
+    kPipeline,     // PIPELINE block
+    kMapFunc,      // MAP_FUNC type conversion helper
+    kExternalCall, // Cross-language CALL(lang, func, ...)
+  };
 
-    uint64_t id{0};
-    std::string name;                       // Qualified name (e.g. "cpp::image::enhance")
-    std::string language;                   // Source language
-    Kind kind{Kind::kFunction};
+  uint64_t id{0};
+  std::string name;     // Qualified name (e.g. "cpp::image::enhance")
+  std::string language; // Source language
+  Kind kind{Kind::kFunction};
 
-    std::vector<Port> inputs;               // Input ports (parameters)
-    std::vector<Port> outputs;              // Output ports (return values)
+  std::vector<Port> inputs;  // Input ports (parameters)
+  std::vector<Port> outputs; // Output ports (return values)
 
-    core::SourceLoc loc{};                  // Source location in .ploy file
+  core::SourceLoc loc{}; // Source location in .ploy file
 
-    // Optional metadata
-    std::string description;                // Human-readable description
-    bool is_linked{false};                  // True if the node is a LINK target
-    std::string link_source_language;       // Source language of linked function
-    std::string link_source_function;       // Source function of linked function
+  // Optional metadata
+  std::string description;          // Human-readable description
+  bool is_linked{false};            // True if the node is a LINK target
+  std::string link_source_language; // Source language of linked function
+  std::string link_source_function; // Source function of linked function
 
-    // Origin: where this node was primarily created from
-    /** @brief Origin enumeration. */
-    enum class Origin {
-        kLink,              // Created from a LINK declaration
-        kCall,              // Created from a FUNC/PIPELINE body CALL
-        kDecl,              // Created from a top-level declaration (FUNC, PIPELINE, etc.)
-        kPipelineStage,     // Created as a stage inside a PIPELINE body
-    };
-    Origin origin{Origin::kDecl};
+  // Origin: where this node was primarily created from
+  /** @brief Origin enumeration. */
+  enum class Origin {
+    kLink,          // Created from a LINK declaration
+    kCall,          // Created from a FUNC/PIPELINE body CALL
+    kDecl,          // Created from a top-level declaration (FUNC, PIPELINE, etc.)
+    kPipelineStage, // Created as a stage inside a PIPELINE body
+  };
+  Origin origin{Origin::kDecl};
 
-    // Context: the enclosing FUNC / pipeline-stage node whose body created
-    // this node.  Zero for top-level declarations and LINK-origin nodes.
-    uint64_t context_node_id{0};
+  // Context: the enclosing FUNC / pipeline-stage node whose body created
+  // this node.  Zero for top-level declarations and LINK-origin nodes.
+  uint64_t context_node_id{0};
 };
 
 // ============================================================================
@@ -96,42 +96,42 @@ struct TopologyNode {
 
 /** @brief TopologyEdge data structure. */
 struct TopologyEdge {
-    uint64_t id{0};
+  uint64_t id{0};
 
-    uint64_t source_node_id{0};
-    uint64_t source_port_id{0};   // Output port on the source node
+  uint64_t source_node_id{0};
+  uint64_t source_port_id{0}; // Output port on the source node
 
-    uint64_t target_node_id{0};
-    uint64_t target_port_id{0};   // Input port on the target node
+  uint64_t target_node_id{0};
+  uint64_t target_port_id{0}; // Input port on the target node
 
-    // Type compatibility status
-    /** @brief Status enumeration. */
-    enum class Status {
-        kValid,             // Types are directly compatible
-        kImplicitConvert,   // Requires implicit type conversion (widening, etc.)
-        kExplicitConvert,   // Requires explicit MAP_TYPE / CONVERT
-        kIncompatible,      // Types are incompatible — validation error
-        kUnknown,           // One or both types are Any/unresolved
-    };
-    Status status{Status::kUnknown};
+  // Type compatibility status
+  /** @brief Status enumeration. */
+  enum class Status {
+    kValid,           // Types are directly compatible
+    kImplicitConvert, // Requires implicit type conversion (widening, etc.)
+    kExplicitConvert, // Requires explicit MAP_TYPE / CONVERT
+    kIncompatible,    // Types are incompatible — validation error
+    kUnknown,         // One or both types are Any/unresolved
+  };
+  Status status{Status::kUnknown};
 
-    // Origin: where this edge was created from
-    /** @brief Origin enumeration. */
-    enum class Origin {
-        kLink,              // Created from a LINK declaration (binding-level)
-        kCall,              // Created from a FUNC/PIPELINE CALL (data-flow-level)
-        kPipelineStage,     // Created from sequential stage ordering in a PIPELINE
-    };
-    Origin origin{Origin::kCall};
+  // Origin: where this edge was created from
+  /** @brief Origin enumeration. */
+  enum class Origin {
+    kLink,          // Created from a LINK declaration (binding-level)
+    kCall,          // Created from a FUNC/PIPELINE CALL (data-flow-level)
+    kPipelineStage, // Created from sequential stage ordering in a PIPELINE
+  };
+  Origin origin{Origin::kCall};
 
-    // If conversion is needed, the required marshal operation
-    std::string conversion_note;
+  // If conversion is needed, the required marshal operation
+  std::string conversion_note;
 
-    // Context: the enclosing FUNC / pipeline-stage node whose body analysis
-    // created this edge.  Zero for LINK edges and pipeline-stage-order edges.
-    uint64_t context_node_id{0};
+  // Context: the enclosing FUNC / pipeline-stage node whose body analysis
+  // created this edge.  Zero for LINK edges and pipeline-stage-order edges.
+  uint64_t context_node_id{0};
 
-    core::SourceLoc loc{};         // Source location of the connection
+  core::SourceLoc loc{}; // Source location of the connection
 };
 
 // ============================================================================
@@ -140,17 +140,17 @@ struct TopologyEdge {
 
 /** @brief ValidationDiagnostic data structure. */
 struct ValidationDiagnostic {
-    /** @brief Severity enumeration. */
-    enum class Severity { kError, kWarning, kInfo };
+  /** @brief Severity enumeration. */
+  enum class Severity { kError, kWarning, kInfo };
 
-    Severity severity{Severity::kError};
-    std::string message;
-    core::SourceLoc loc{};
+  Severity severity{Severity::kError};
+  std::string message;
+  core::SourceLoc loc{};
 
-    // Related nodes/edges for traceback
-    uint64_t node_id{0};
-    uint64_t edge_id{0};
-    uint64_t port_id{0};
+  // Related nodes/edges for traceback
+  uint64_t node_id{0};
+  uint64_t edge_id{0};
+  uint64_t port_id{0};
 };
 
 // ============================================================================
@@ -159,110 +159,107 @@ struct ValidationDiagnostic {
 
 /** @brief TopologyGraph class. */
 class TopologyGraph {
-  public:
-    TopologyGraph() = default;
-    ~TopologyGraph() = default;
+public:
+  TopologyGraph() = default;
+  ~TopologyGraph() = default;
 
-    // -- Node management -----------------------------------------------------
+  // -- Node management -----------------------------------------------------
 
-    // Add a node and return its assigned id
-    uint64_t AddNode(TopologyNode node);
+  // Add a node and return its assigned id
+  uint64_t AddNode(TopologyNode node);
 
-    // Look up a node by id (returns nullptr if not found)
-    const TopologyNode *GetNode(uint64_t id) const;
-    TopologyNode *GetMutableNode(uint64_t id);
+  // Look up a node by id (returns nullptr if not found)
+  const TopologyNode *GetNode(uint64_t id) const;
+  TopologyNode *GetMutableNode(uint64_t id);
 
-    // Find a node by qualified name (returns nullptr if not found)
-    const TopologyNode *FindNodeByName(const std::string &name) const;
+  // Find a node by qualified name (returns nullptr if not found)
+  const TopologyNode *FindNodeByName(const std::string &name) const;
 
-    // All nodes (ordered by insertion)
-    const std::vector<TopologyNode> &Nodes() const { return nodes_; }
+  // All nodes (ordered by insertion)
+  const std::vector<TopologyNode> &Nodes() const { return nodes_; }
 
-    // -- Edge management -----------------------------------------------------
+  // -- Edge management -----------------------------------------------------
 
-    // Add an edge connecting two ports; returns edge id
-    uint64_t AddEdge(TopologyEdge edge);
+  // Add an edge connecting two ports; returns edge id
+  uint64_t AddEdge(TopologyEdge edge);
 
-    // All edges
-    const std::vector<TopologyEdge> &Edges() const { return edges_; }
+  // All edges
+  const std::vector<TopologyEdge> &Edges() const { return edges_; }
 
-    // Edges originating from a given node
-    std::vector<const TopologyEdge *> OutEdges(uint64_t node_id) const;
+  // Edges originating from a given node
+  std::vector<const TopologyEdge *> OutEdges(uint64_t node_id) const;
 
-    // Edges targeting a given node
-    std::vector<const TopologyEdge *> InEdges(uint64_t node_id) const;
+  // Edges targeting a given node
+  std::vector<const TopologyEdge *> InEdges(uint64_t node_id) const;
 
-    // -- Query ---------------------------------------------------------------
+  // -- Query ---------------------------------------------------------------
 
-    // Return all root nodes (nodes with no incoming edges)
-    std::vector<const TopologyNode *> Roots() const;
+  // Return all root nodes (nodes with no incoming edges)
+  std::vector<const TopologyNode *> Roots() const;
 
-    // Return all leaf nodes (nodes with no outgoing edges)
-    std::vector<const TopologyNode *> Leaves() const;
+  // Return all leaf nodes (nodes with no outgoing edges)
+  std::vector<const TopologyNode *> Leaves() const;
 
-    // Topological sort (returns empty vector if cycle detected)
-    std::vector<const TopologyNode *> TopologicalSort() const;
+  // Topological sort (returns empty vector if cycle detected)
+  std::vector<const TopologyNode *> TopologicalSort() const;
 
-    // Detect cycles (returns list of node ids forming a cycle, empty if acyclic)
-    std::vector<uint64_t> DetectCycles() const;
+  // Detect cycles (returns list of node ids forming a cycle, empty if acyclic)
+  std::vector<uint64_t> DetectCycles() const;
 
-    // -- Statistics ----------------------------------------------------------
+  // -- Statistics ----------------------------------------------------------
 
-    size_t NodeCount() const { return nodes_.size(); }
-    size_t EdgeCount() const { return edges_.size(); }
+  size_t NodeCount() const { return nodes_.size(); }
+  size_t EdgeCount() const { return edges_.size(); }
 
-    // Count of nodes per language
-    std::unordered_map<std::string, size_t> LanguageDistribution() const;
+  // Count of nodes per language
+  std::unordered_map<std::string, size_t> LanguageDistribution() const;
 
-    // Count of edges per status
-    std::unordered_map<TopologyEdge::Status, size_t> EdgeStatusDistribution() const;
+  // Count of edges per status
+  std::unordered_map<TopologyEdge::Status, size_t> EdgeStatusDistribution() const;
 
-    // -- Filtering -----------------------------------------------------------
+  // -- Filtering -----------------------------------------------------------
 
-    // Remove edges matching a predicate
-    template <typename Pred>
-    void RemoveEdgesIf(Pred pred) {
-        edges_.erase(std::remove_if(edges_.begin(), edges_.end(), pred),
-                     edges_.end());
+  // Remove edges matching a predicate
+  template <typename Pred> void RemoveEdgesIf(Pred pred) {
+    edges_.erase(std::remove_if(edges_.begin(), edges_.end(), pred), edges_.end());
+  }
+
+  // Remove nodes matching a predicate (also clears index entries)
+  template <typename Pred> void RemoveNodesIf(Pred pred) {
+    auto it = std::remove_if(nodes_.begin(), nodes_.end(), pred);
+    for (auto rm = it; rm != nodes_.end(); ++rm) {
+      node_index_.erase(rm->id);
+      name_index_.erase(rm->name);
     }
-
-    // Remove nodes matching a predicate (also clears index entries)
-    template <typename Pred>
-    void RemoveNodesIf(Pred pred) {
-        auto it = std::remove_if(nodes_.begin(), nodes_.end(), pred);
-        for (auto rm = it; rm != nodes_.end(); ++rm) {
-            node_index_.erase(rm->id);
-            name_index_.erase(rm->name);
-        }
-        nodes_.erase(it, nodes_.end());
-        // Rebuild node_index_ sequentially
-        node_index_.clear();
-        for (size_t i = 0; i < nodes_.size(); ++i) {
-            node_index_[nodes_[i].id] = i;
-        }
+    nodes_.erase(it, nodes_.end());
+    // Rebuild node_index_ sequentially
+    node_index_.clear();
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      node_index_[nodes_[i].id] = i;
     }
+  }
 
-    // -- Metadata ------------------------------------------------------------
+  // -- Metadata ------------------------------------------------------------
 
-    std::string module_name;       // Name of the .ploy module
-    std::string source_file;       // Path to the .ploy file
+  std::string module_name; // Name of the .ploy module
+  std::string source_file; // Path to the .ploy file
 
-  private:
-    uint64_t next_node_id_{1};
-    uint64_t next_edge_id_{1};
-    uint64_t next_port_id_{1};
+private:
+  uint64_t next_node_id_{1};
+  uint64_t next_edge_id_{1};
+  uint64_t next_port_id_{1};
 
-    std::vector<TopologyNode> nodes_;
-    std::vector<TopologyEdge> edges_;
+  std::vector<TopologyNode> nodes_;
+  std::vector<TopologyEdge> edges_;
 
-    // Index: node id -> index in nodes_
-    std::unordered_map<uint64_t, size_t> node_index_;
-    // Index: qualified name -> node id
-    std::unordered_map<std::string, uint64_t> name_index_;
+  // Index: node id -> index in nodes_
+  std::unordered_map<uint64_t, size_t> node_index_;
+  // Index: qualified name -> node id
+  std::unordered_map<std::string, uint64_t> name_index_;
 
-    // Allow the analyzer to assign port ids
-    friend class TopologyAnalyzer;
-    uint64_t AllocPortId() { return next_port_id_++; }
+  // Allow the analyzer to assign port ids
+  friend class TopologyAnalyzer;
+  uint64_t AllocPortId() { return next_port_id_++; }
 };
 
 } // namespace polyglot::tools::topo

@@ -6,11 +6,11 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "backends/arm64/include/machine_ir.h"
-
 #include <algorithm>
 #include <numeric>
 #include <vector>
+
+#include "backends/arm64/include/machine_ir.h"
 
 namespace polyglot::backends::arm64 {
 namespace {
@@ -19,15 +19,18 @@ bool Overlaps(const LiveInterval &a, const LiveInterval &b) {
   return !(a.end <= b.start || b.end <= a.start);
 }
 
-}  // namespace
+} // namespace
 
-AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vector<Register> &available) {
+AllocationResult GraphColoringAllocate(const MachineFunction &fn,
+                                       const std::vector<Register> &available) {
   AllocationResult result;
   auto intervals = ComputeLiveIntervals(fn);
-  if (intervals.empty()) return result;
+  if (intervals.empty())
+    return result;
 
   if (available.empty()) {
-    for (const auto &li : intervals) result.vreg_to_slot[li.vreg] = result.stack_slots++;
+    for (const auto &li : intervals)
+      result.vreg_to_slot[li.vreg] = result.stack_slots++;
     return result;
   }
 
@@ -45,7 +48,8 @@ AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vec
   std::vector<std::size_t> order(n);
   std::iota(order.begin(), order.end(), 0);
   std::sort(order.begin(), order.end(), [&](std::size_t lhs, std::size_t rhs) {
-    if (graph[lhs].size() == graph[rhs].size()) return intervals[lhs].start < intervals[rhs].start;
+    if (graph[lhs].size() == graph[rhs].size())
+      return intervals[lhs].start < intervals[rhs].start;
     return graph[lhs].size() > graph[rhs].size();
   });
 
@@ -53,7 +57,8 @@ AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vec
     std::vector<Register> used_regs;
     for (std::size_t neighbor : graph[idx]) {
       auto phys_it = result.vreg_to_phys.find(intervals[neighbor].vreg);
-      if (phys_it != result.vreg_to_phys.end()) used_regs.push_back(phys_it->second);
+      if (phys_it != result.vreg_to_phys.end())
+        used_regs.push_back(phys_it->second);
     }
 
     Register chosen{};
@@ -76,4 +81,4 @@ AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vec
   return result;
 }
 
-}  // namespace polyglot::backends::arm64
+} // namespace polyglot::backends::arm64

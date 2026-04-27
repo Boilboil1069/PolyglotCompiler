@@ -13,14 +13,14 @@
 
 namespace polyglot::dotnet {
 
-class AssemblyLoader;  // metadata_reader.h
+class AssemblyLoader; // metadata_reader.h
 
 // Optional configuration passed by the language frontend.
 struct DotNetSemaOptions {
-    // Loader used to resolve `using` directives against real ECMA-335
-    // metadata.  When null, using directives are recorded as opaque module
-    // symbols (legacy behaviour, kept for unit tests).
-    AssemblyLoader *loader{nullptr};
+  // Loader used to resolve `using` directives against real ECMA-335
+  // metadata.  When null, using directives are recorded as opaque module
+  // symbols (legacy behaviour, kept for unit tests).
+  AssemblyLoader *loader{nullptr};
 };
 
 // Perform semantic analysis on a parsed C# compilation unit.

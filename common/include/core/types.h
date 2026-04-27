@@ -51,18 +51,18 @@ enum class TypeKind {
   kClass,
   kModule,
   kAny,
-  kUnknown,  ///< Unknown/unresolved type — emitted at cross-language boundaries
-             ///< when no annotation is present. Triggers a compile error in
-             ///< strict mode if it reaches a lowering boundary unchanged.
+  kUnknown, ///< Unknown/unresolved type — emitted at cross-language boundaries
+            ///< when no annotation is present. Triggers a compile error in
+            ///< strict mode if it reaches a lowering boundary unchanged.
   kStruct,
   kUnion,
   kEnum,
   kTuple,
   kGenericParam,
   kGenericInstance,
-  kArray,     ///< Fixed-size or dynamic array type.
-  kOptional,  ///< Optional/nullable type (std::optional, Option<T>, Optional).
-  kSlice,     ///< Slice type (Rust-style reference to contiguous memory).
+  kArray,    ///< Fixed-size or dynamic array type.
+  kOptional, ///< Optional/nullable type (std::optional, Option<T>, Optional).
+  kSlice,    ///< Slice type (Rust-style reference to contiguous memory).
 };
 
 /// Unified type representation for all supported source languages.
@@ -81,9 +81,9 @@ struct Type {
   bool is_const{false};
   bool is_volatile{false};
   bool is_rvalue_ref{false};
-  int bit_width{0};              ///< 0 = unspecified; 8/16/32/64/128 for integers and floats.
-  bool is_signed{true};          ///< Sign flag for integer types.
-  size_t array_size{0};          ///< Element count for fixed-size arrays (0 = dynamic).
+  int bit_width{0};     ///< 0 = unspecified; 8/16/32/64/128 for integers and floats.
+  bool is_signed{true}; ///< Sign flag for integer types.
+  size_t array_size{0}; ///< Element count for fixed-size arrays (0 = dynamic).
 
   /** @name Factory methods for common types */
   /** @{ */
@@ -191,14 +191,20 @@ struct Type {
   bool IsBool() const { return kind == TypeKind::kBool; }
   bool IsString() const { return kind == TypeKind::kString; }
   bool IsCallable() const { return kind == TypeKind::kFunction; }
-  bool IsGeneric() const { return kind == TypeKind::kGenericParam || kind == TypeKind::kGenericInstance; }
-  bool IsAggregate() const { return kind == TypeKind::kStruct || kind == TypeKind::kClass || kind == TypeKind::kUnion || kind == TypeKind::kArray || kind == TypeKind::kTuple; }
+  bool IsGeneric() const {
+    return kind == TypeKind::kGenericParam || kind == TypeKind::kGenericInstance;
+  }
+  bool IsAggregate() const {
+    return kind == TypeKind::kStruct || kind == TypeKind::kClass || kind == TypeKind::kUnion ||
+           kind == TypeKind::kArray || kind == TypeKind::kTuple;
+  }
   bool HasTypeArgs() const { return !type_args.empty(); }
   bool IsConcrete() const {
-    if (kind == TypeKind::kAny || kind == TypeKind::kUnknown ||
-        kind == TypeKind::kGenericParam) return false;
+    if (kind == TypeKind::kAny || kind == TypeKind::kUnknown || kind == TypeKind::kGenericParam)
+      return false;
     for (const auto &arg : type_args) {
-      if (!arg.IsConcrete()) return false;
+      if (!arg.IsConcrete())
+        return false;
     }
     return true;
   }
@@ -245,7 +251,6 @@ struct Type {
   bool operator==(const Type &other) const;
 };
 
-
 /// The central type system providing primitive type mapping, compatibility checking,
 /// implicit conversion rules, size/alignment computation, and alias management.
 ///
@@ -254,7 +259,7 @@ struct Type {
 /// can distinguish narrow and wide numeric types while keeping the general
 /// compatibility checks broad enough for cross-language interop.
 class TypeSystem {
- public:
+public:
   /// Constructor initialises extended primitive maps for all supported languages.
   TypeSystem();
 
@@ -271,7 +276,8 @@ class TypeSystem {
     return t;
   }
 
-  Type ReferenceTo(Type element, bool is_rvalue, bool is_const = false, bool is_volatile = false) const {
+  Type ReferenceTo(Type element, bool is_rvalue, bool is_const = false,
+                   bool is_volatile = false) const {
     Type t{TypeKind::kReference, element.name + (is_rvalue ? "&&" : "&")};
     t.type_args.push_back(std::move(element));
     t.is_const = is_const;
@@ -375,7 +381,7 @@ class TypeSystem {
   /// Return the TypeKind as a human-readable string.
   static std::string KindToString(TypeKind kind);
 
- private:
+private:
   /// Extended primitive maps per language with bit-width information.
   std::unordered_map<std::string, std::unordered_map<std::string, Type>> primitive_maps_;
 
@@ -389,7 +395,7 @@ struct TypeConstraint {
   enum class Kind { kEquals, kTrait } kind{Kind::kEquals};
   Type lhs;
   Type rhs;
-  std::string trait;  ///< Used when kind == kTrait.
+  std::string trait; ///< Used when kind == kTrait.
 };
 
 /// A lightweight unifier for Type that treats kGenericParam as variables.
@@ -398,34 +404,41 @@ struct TypeConstraint {
 /// prevent infinite types.  Trait constraints are recorded and can be queried
 /// but are not enforced during unification itself.
 class TypeUnifier {
- public:
+public:
   bool Unify(const Type &a, const Type &b) {
     Type aa = Apply(a);
     Type bb = Apply(b);
-    if (IsVar(aa)) return Bind(aa, bb);
-    if (IsVar(bb)) return Bind(bb, aa);
-    if (aa.kind != bb.kind) return false;
+    if (IsVar(aa))
+      return Bind(aa, bb);
+    if (IsVar(bb))
+      return Bind(bb, aa);
+    if (aa.kind != bb.kind)
+      return false;
     // For numeric types, unify by kind alone (ignore name differences
     // such as "int" vs "i32" that arise from generic vs language-specific
     // type constructors).
-    if (aa.kind == TypeKind::kInt || aa.kind == TypeKind::kFloat ||
-        aa.kind == TypeKind::kBool || aa.kind == TypeKind::kString ||
-        aa.kind == TypeKind::kVoid || aa.kind == TypeKind::kAny) {
-        return true;
+    if (aa.kind == TypeKind::kInt || aa.kind == TypeKind::kFloat || aa.kind == TypeKind::kBool ||
+        aa.kind == TypeKind::kString || aa.kind == TypeKind::kVoid || aa.kind == TypeKind::kAny) {
+      return true;
     }
-    if (aa.name != bb.name || aa.language != bb.language) return false;
-    if (aa.type_args.size() != bb.type_args.size()) return false;
+    if (aa.name != bb.name || aa.language != bb.language)
+      return false;
+    if (aa.type_args.size() != bb.type_args.size())
+      return false;
     for (size_t i = 0; i < aa.type_args.size(); ++i) {
-      if (!Unify(aa.type_args[i], bb.type_args[i])) return false;
+      if (!Unify(aa.type_args[i], bb.type_args[i]))
+        return false;
     }
-    if (aa.lifetime != bb.lifetime) return false;
+    if (aa.lifetime != bb.lifetime)
+      return false;
     return true;
   }
 
   Type Apply(const Type &t) const {
     if (IsVar(t)) {
       auto it = subst_.find(VarKey(t));
-      if (it != subst_.end()) return Apply(it->second);
+      if (it != subst_.end())
+        return Apply(it->second);
       return t;
     }
     Type out = t;
@@ -436,8 +449,8 @@ class TypeUnifier {
   }
 
   void AddTraitConstraint(const Type &t, std::string trait) {
-    trait_constraints_.push_back(TypeConstraint{TypeConstraint::Kind::kTrait, t, Type::Invalid(),
-                                                std::move(trait)});
+    trait_constraints_.push_back(
+        TypeConstraint{TypeConstraint::Kind::kTrait, t, Type::Invalid(), std::move(trait)});
   }
 
   /// Check whether a trait constraint has been registered for a given type.
@@ -446,7 +459,8 @@ class TypeUnifier {
     for (const auto &c : trait_constraints_) {
       if (c.kind == TypeConstraint::Kind::kTrait && c.trait == trait) {
         Type ct = Apply(c.lhs);
-        if (ct == applied) return true;
+        if (ct == applied)
+          return true;
       }
     }
     return false;
@@ -459,7 +473,8 @@ class TypeUnifier {
     for (const auto &c : trait_constraints_) {
       if (c.kind == TypeConstraint::Kind::kTrait) {
         Type ct = Apply(c.lhs);
-        if (ct == applied) result.push_back(c.trait);
+        if (ct == applied)
+          result.push_back(c.trait);
       }
     }
     return result;
@@ -473,14 +488,16 @@ class TypeUnifier {
     trait_constraints_.clear();
   }
 
- private:
+private:
   static bool IsVar(const Type &t) { return t.kind == TypeKind::kGenericParam; }
   static std::string VarKey(const Type &t) { return t.language + ":" + t.name; }
 
   bool Occurs(const std::string &key, const Type &t) {
-    if (IsVar(t) && VarKey(t) == key) return true;
+    if (IsVar(t) && VarKey(t) == key)
+      return true;
     for (const auto &arg : t.type_args) {
-      if (Occurs(key, arg)) return true;
+      if (Occurs(key, arg))
+        return true;
     }
     return false;
   }
@@ -488,7 +505,8 @@ class TypeUnifier {
   bool Bind(const Type &var, const Type &value) {
     std::string key = VarKey(var);
     Type applied = Apply(value);
-    if (Occurs(key, applied)) return false;
+    if (Occurs(key, applied))
+      return false;
     subst_[key] = applied;
     return true;
   }
@@ -503,7 +521,7 @@ class TypeUnifier {
 /// declare cross-language equivalences (e.g., Python's @c int is equivalent
 /// to Rust's @c i64 on a 64-bit platform).
 class TypeRegistry {
- public:
+public:
   TypeRegistry() = default;
 
   /// Register a named type in the registry.
@@ -546,7 +564,7 @@ class TypeRegistry {
   /// Return all registered (name, type) pairs.
   std::vector<std::pair<std::string, Type>> AllTypes() const;
 
- private:
+private:
   std::unordered_map<std::string, Type> types_;
   /// Equivalence map: key = "lang:type", value = list of equivalent "lang:type" entries.
   std::unordered_map<std::string, std::vector<std::string>> equivalences_;
@@ -560,6 +578,6 @@ inline bool Type::operator==(const Type &other) const {
          array_size == other.array_size;
 }
 
-}  // namespace polyglot::core
+} // namespace polyglot::core
 
 /** @} */

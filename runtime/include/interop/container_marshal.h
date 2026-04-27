@@ -16,18 +16,18 @@ namespace polyglot::runtime::interop {
 /// Dynamically-sized list descriptor used as the in-memory representation
 /// for LIST[T] values at runtime.
 struct RuntimeList {
-    std::size_t count{0};
-    std::size_t capacity{0};
-    std::size_t elem_size{0};
-    void *data{nullptr};
+  std::size_t count{0};
+  std::size_t capacity{0};
+  std::size_t elem_size{0};
+  void *data{nullptr};
 };
 
 /// Heterogeneous tuple descriptor.  Element offsets are computed from
 /// element sizes and stored for O(1) access.
 struct RuntimeTuple {
-    std::size_t num_elements{0};
-    std::size_t *offsets{nullptr};
-    void *data{nullptr};
+  std::size_t num_elements{0};
+  std::size_t *offsets{nullptr};
+  void *data{nullptr};
 };
 
 /// Open-addressing slot for DICT[K,V] at runtime.
@@ -42,9 +42,9 @@ struct RuntimeTuple {
 /// that a single allocation covers the entire flat array.  Accessors in
 /// container_marshal.cpp compute byte offsets from `slot_stride`.
 enum class SlotState : std::uint8_t {
-    kEmpty     = 0,
-    kOccupied  = 1,
-    kTombstone = 2,
+  kEmpty = 0,
+  kOccupied = 1,
+  kTombstone = 2,
 };
 
 /// Open-addressing hash-map descriptor for DICT[K,V] at runtime.
@@ -61,14 +61,14 @@ enum class SlotState : std::uint8_t {
 /// Load factor invariant: count / capacity <= 0.75.
 /// Rehash doubles capacity when the invariant would be violated.
 struct RuntimeDict {
-    std::size_t count{0};        ///< Number of live (Occupied) entries.
-    std::size_t capacity{0};     ///< Total number of slots allocated.
-    std::size_t key_size{0};     ///< Size of each key in bytes.
-    std::size_t value_size{0};   ///< Size of each value in bytes.
-    std::size_t key_offset{0};   ///< Byte offset of key within a slot.
-    std::size_t value_offset{0}; ///< Byte offset of value within a slot.
-    std::size_t slot_stride{0};  ///< Bytes per slot, padded for alignment.
-    void       *slots{nullptr};  ///< Flat slot array (capacity * slot_stride bytes).
+  std::size_t count{0};        ///< Number of live (Occupied) entries.
+  std::size_t capacity{0};     ///< Total number of slots allocated.
+  std::size_t key_size{0};     ///< Size of each key in bytes.
+  std::size_t value_size{0};   ///< Size of each value in bytes.
+  std::size_t key_offset{0};   ///< Byte offset of key within a slot.
+  std::size_t value_offset{0}; ///< Byte offset of value within a slot.
+  std::size_t slot_stride{0};  ///< Bytes per slot, padded for alignment.
+  void *slots{nullptr};        ///< Flat slot array (capacity * slot_stride bytes).
 };
 
 // ============================================================================
@@ -163,4 +163,4 @@ void *__ploy_rt_convert_cppvec_to_list(void *vec_data, std::size_t count, std::s
 /// @param elem_size    Size of each element in bytes.
 void *__ploy_rt_convert_list_generic(void *src_data, std::size_t count, std::size_t elem_size);
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

@@ -6,16 +6,15 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/gc_api.h"
-
 #include <algorithm>
 #include <cstdlib>
 #include <memory>
+#include <mimalloc.h>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
-#include <mimalloc.h>
+#include "runtime/include/gc/gc_api.h"
 
 namespace polyglot::runtime::gc {
 namespace {
@@ -30,15 +29,16 @@ struct GBlock {
 constexpr unsigned kPromotionAge = 2;
 constexpr unsigned kOldCycle = 4;
 
-}  // namespace
+} // namespace
 
 class GenerationalGC : public GC {
- public:
+public:
   void *Allocate(size_t size) override {
     std::lock_guard<std::mutex> lock(mu_);
     // Backed by mimalloc.
     void *mem = mi_malloc(size);
-    if (!mem) return nullptr;
+    if (!mem)
+      return nullptr;
     young_.push_back({mem, size, false, 0});
     young_index_[mem] = young_.size() - 1;
     total_allocations_++;
@@ -53,25 +53,31 @@ class GenerationalGC : public GC {
   void Collect() override {
     std::lock_guard<std::mutex> lock(mu_);
     ++cycle_;
-    for (auto &b : young_) b.marked = false;
-    for (auto &b : old_) b.marked = false;
+    for (auto &b : young_)
+      b.marked = false;
+    for (auto &b : old_)
+      b.marked = false;
     MarkGeneration(young_, young_index_);
-    if (cycle_ % kOldCycle == 0) MarkGeneration(old_, old_index_);
+    if (cycle_ % kOldCycle == 0)
+      MarkGeneration(old_, old_index_);
     PromoteSurvivors();
     SweepGeneration(young_, young_index_);
-    if (cycle_ % kOldCycle == 0) SweepGeneration(old_, old_index_);
+    if (cycle_ % kOldCycle == 0)
+      SweepGeneration(old_, old_index_);
     collections_++;
   }
 
   void RegisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
 
@@ -89,12 +95,14 @@ class GenerationalGC : public GC {
     return stats;
   }
 
- private:
+private:
   void MarkGeneration(std::vector<GBlock> &gen, std::unordered_map<void *, std::size_t> &index) {
     for (auto *slot : roots_) {
-      if (!slot || !*slot) continue;
+      if (!slot || !*slot)
+        continue;
       auto it = index.find(*slot);
-      if (it != index.end()) gen[it->second].marked = true;
+      if (it != index.end())
+        gen[it->second].marked = true;
     }
   }
 
@@ -155,6 +163,8 @@ class GenerationalGC : public GC {
   size_t total_freed_bytes_{0};
 };
 
-std::unique_ptr<GC> MakeGenerationalGC() { return std::make_unique<GenerationalGC>(); }
+std::unique_ptr<GC> MakeGenerationalGC() {
+  return std::make_unique<GenerationalGC>();
+}
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

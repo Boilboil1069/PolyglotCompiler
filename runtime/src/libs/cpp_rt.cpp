@@ -19,8 +19,6 @@
  * @date     2026-04-26
  */
 
-#include "runtime/include/libs/cpp_rt.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,20 +28,21 @@
 #include <vector>
 
 #include "runtime/include/libs/base.h"
+#include "runtime/include/libs/cpp_rt.h"
 #include "runtime/include/memory/polyglot_alloc.h"
 
 #ifdef _WIN32
 #include <windows.h>
 using cpp_lib_t = HMODULE;
-#define CPP_LOAD(path)     LoadLibraryA(path)
+#define CPP_LOAD(path) LoadLibraryA(path)
 #define CPP_SYM(lib, name) reinterpret_cast<void *>(GetProcAddress((lib), (name)))
-#define CPP_UNLOAD(lib)    FreeLibrary(lib)
+#define CPP_UNLOAD(lib) FreeLibrary(lib)
 #else
 #include <dlfcn.h>
 using cpp_lib_t = void *;
-#define CPP_LOAD(path)     dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
+#define CPP_LOAD(path) dlopen((path), RTLD_LAZY | RTLD_GLOBAL)
 #define CPP_SYM(lib, name) dlsym((lib), (name))
-#define CPP_UNLOAD(lib)    dlclose(lib)
+#define CPP_UNLOAD(lib) dlclose(lib)
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -84,7 +83,7 @@ bool unregister_lib(cpp_lib_t h) {
 
 void capture_current_exception() {
   try {
-    throw;  // re-throw within catch handler
+    throw; // re-throw within catch handler
   } catch (const std::exception &e) {
     g_last_exception = e.what() ? e.what() : "(std::exception)";
   } catch (const char *s) {
@@ -94,7 +93,7 @@ void capture_current_exception() {
   }
 }
 
-}  // namespace
+} // namespace
 
 extern "C" {
 
@@ -110,7 +109,8 @@ int polyglot_cpp_init(int /*version_hint*/) {
 void polyglot_cpp_shutdown(void) {
   std::lock_guard<std::mutex> lk(g_libs_mu);
   for (auto h : g_libs) {
-    if (h) CPP_UNLOAD(h);
+    if (h)
+      CPP_UNLOAD(h);
   }
   g_libs.clear();
   g_last_exception.clear();
@@ -121,26 +121,32 @@ void polyglot_cpp_shutdown(void) {
 // ---------------------------------------------------------------------------
 
 void polyglot_cpp_print(const char *message) {
-  if (!message) return;
+  if (!message)
+    return;
   std::printf("%s\n", message);
 }
 
 char *polyglot_cpp_strdup_gc(const char *message, void ***root_handle_out) {
-  if (!message) return NULL;
+  if (!message)
+    return NULL;
   size_t len = std::strlen(message) + 1;
   char *buf = (char *)polyglot_alloc(len);
-  if (!buf) return NULL;
+  if (!buf)
+    return NULL;
   std::memcpy(buf, message, len);
   polyglot_gc_register_root((void **)&buf);
-  if (root_handle_out) *root_handle_out = (void **)&buf;
+  if (root_handle_out)
+    *root_handle_out = (void **)&buf;
   return buf;
 }
 
 void polyglot_cpp_release(char **ptr, void ***root_handle) {
-  if (!ptr || !*ptr) return;
+  if (!ptr || !*ptr)
+    return;
   polyglot_gc_unregister_root((void **)ptr);
   *ptr = NULL;
-  if (root_handle) *root_handle = NULL;
+  if (root_handle)
+    *root_handle = NULL;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,7 +154,8 @@ void polyglot_cpp_release(char **ptr, void ***root_handle) {
 // ---------------------------------------------------------------------------
 
 void *polyglot_cpp_load_library(const char *path) {
-  if (!path || !path[0]) return NULL;
+  if (!path || !path[0])
+    return NULL;
   cpp_lib_t h = CPP_LOAD(path);
   if (!h) {
     std::fprintf(stderr, "[polyglot-cpp] failed to load library '%s'\n", path);
@@ -159,18 +166,22 @@ void *polyglot_cpp_load_library(const char *path) {
 }
 
 void polyglot_cpp_unload_library(void *handle) {
-  if (!handle) return;
+  if (!handle)
+    return;
   cpp_lib_t h = reinterpret_cast<cpp_lib_t>(handle);
-  if (unregister_lib(h)) CPP_UNLOAD(h);
+  if (unregister_lib(h))
+    CPP_UNLOAD(h);
 }
 
 void *polyglot_cpp_resolve_symbol(void *handle, const char *symbol) {
-  if (!handle || !symbol) return NULL;
+  if (!handle || !symbol)
+    return NULL;
   return CPP_SYM(reinterpret_cast<cpp_lib_t>(handle), symbol);
 }
 
 char *polyglot_cpp_demangle(const char *mangled, void ***root_handle_out) {
-  if (!mangled) return NULL;
+  if (!mangled)
+    return NULL;
 #if POLYGLOT_CPP_HAS_DEMANGLE
   int status = 0;
   char *demangled = abi::__cxa_demangle(mangled, NULL, NULL, &status);
@@ -188,7 +199,8 @@ char *polyglot_cpp_demangle(const char *mangled, void ***root_handle_out) {
 // ---------------------------------------------------------------------------
 
 int polyglot_cpp_try_call_void_void(polyglot_cpp_void_void_fn fn) {
-  if (!fn) return -1;
+  if (!fn)
+    return -1;
   try {
     g_last_exception.clear();
     fn();
@@ -200,7 +212,8 @@ int polyglot_cpp_try_call_void_void(polyglot_cpp_void_void_fn fn) {
 }
 
 int polyglot_cpp_try_call_void_str(polyglot_cpp_void_str_fn fn, const char *arg) {
-  if (!fn) return -1;
+  if (!fn)
+    return -1;
   try {
     g_last_exception.clear();
     fn(arg);
@@ -212,11 +225,13 @@ int polyglot_cpp_try_call_void_str(polyglot_cpp_void_str_fn fn, const char *arg)
 }
 
 int polyglot_cpp_try_call_i64_void(polyglot_cpp_i64_void_fn fn, long long *out) {
-  if (!fn) return -1;
+  if (!fn)
+    return -1;
   try {
     g_last_exception.clear();
     long long v = fn();
-    if (out) *out = v;
+    if (out)
+      *out = v;
     return 0;
   } catch (...) {
     capture_current_exception();
@@ -224,13 +239,14 @@ int polyglot_cpp_try_call_i64_void(polyglot_cpp_i64_void_fn fn, long long *out) 
   }
 }
 
-int polyglot_cpp_try_call_i64_i64(polyglot_cpp_i64_i64_fn fn, long long arg,
-                                  long long *out) {
-  if (!fn) return -1;
+int polyglot_cpp_try_call_i64_i64(polyglot_cpp_i64_i64_fn fn, long long arg, long long *out) {
+  if (!fn)
+    return -1;
   try {
     g_last_exception.clear();
     long long v = fn(arg);
-    if (out) *out = v;
+    if (out)
+      *out = v;
     return 0;
   } catch (...) {
     capture_current_exception();
@@ -238,13 +254,14 @@ int polyglot_cpp_try_call_i64_i64(polyglot_cpp_i64_i64_fn fn, long long arg,
   }
 }
 
-int polyglot_cpp_try_call_f64_f64(polyglot_cpp_f64_f64_fn fn, double arg,
-                                  double *out) {
-  if (!fn) return -1;
+int polyglot_cpp_try_call_f64_f64(polyglot_cpp_f64_f64_fn fn, double arg, double *out) {
+  if (!fn)
+    return -1;
   try {
     g_last_exception.clear();
     double v = fn(arg);
-    if (out) *out = v;
+    if (out)
+      *out = v;
     return 0;
   } catch (...) {
     capture_current_exception();
@@ -256,6 +273,8 @@ const char *polyglot_cpp_last_exception(void) {
   return g_last_exception.empty() ? NULL : g_last_exception.c_str();
 }
 
-void polyglot_cpp_clear_exception(void) { g_last_exception.clear(); }
+void polyglot_cpp_clear_exception(void) {
+  g_last_exception.clear();
+}
 
-}  // extern "C"
+} // extern "C"

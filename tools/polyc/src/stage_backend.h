@@ -26,9 +26,7 @@
 namespace polyglot::tools {
 
 /// Execute Stage 5: IR lowering + optimisation + code generation.
-BackendResult RunBackendStage(const DriverSettings &settings,
-                               const FrontendResult &frontend,
-                               const SemanticResult &semantic,
-                               const BridgeResult   &bridge);
+BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResult &frontend,
+                              const SemanticResult &semantic, const BridgeResult &bridge);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

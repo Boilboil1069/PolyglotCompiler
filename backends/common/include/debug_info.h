@@ -50,7 +50,7 @@ struct DebugSymbol {
 
 /** @brief DebugInfoBuilder class. */
 class DebugInfoBuilder {
- public:
+public:
   void AddVariable(DebugVariable var) { variables_.push_back(std::move(var)); }
   void AddType(DebugType ty) { types_.push_back(std::move(ty)); }
   void AddSymbol(DebugSymbol sym) { symbols_.push_back(std::move(sym)); }
@@ -63,11 +63,11 @@ class DebugInfoBuilder {
   // Emit a simple source map (JSON) capturing lines, variables, types, and symbols.
   std::string EmitSourceMapJSON() const;
 
- private:
+private:
   std::vector<DebugLineInfo> lines_{};
   std::vector<DebugVariable> variables_{};
   std::vector<DebugType> types_{};
   std::vector<DebugSymbol> symbols_{};
 };
 
-}  // namespace polyglot::backends
+} // namespace polyglot::backends

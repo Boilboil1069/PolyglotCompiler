@@ -29,10 +29,8 @@ namespace polyglot::tools {
 /// Execute Stage 4: Cross-language bridge stub generation.
 /// @param aux_dir  Path to the aux/ directory (may be empty — skip file write)
 /// @param stem     Source file stem used to name the descriptor file
-BridgeResult RunBridgeStage(const DriverSettings &settings,
-                             const MarshalResult &marshal,
-                             const SemanticResult &semantic,
-                             const std::string &aux_dir,
-                             const std::string &stem);
+BridgeResult RunBridgeStage(const DriverSettings &settings, const MarshalResult &marshal,
+                            const SemanticResult &semantic, const std::string &aux_dir,
+                            const std::string &stem);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

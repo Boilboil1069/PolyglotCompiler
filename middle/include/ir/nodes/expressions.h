@@ -21,7 +21,7 @@ namespace polyglot::ir {
 struct Value {
   virtual ~Value() = default;
   IRType type{IRType::Invalid()};
-  std::string name;  // SSA name (may be empty pre-SSA)
+  std::string name; // SSA name (may be empty pre-SSA)
 };
 
 // Literal (int or float).
@@ -38,23 +38,25 @@ struct LiteralExpression : Value {
 // Placeholder for uninitialized/undefined values.
 /** @brief UndefValue data structure. */
 struct UndefValue : Value {
-  UndefValue() { type = IRType::Invalid(); name = "undef"; }
+  UndefValue() {
+    type = IRType::Invalid();
+    name = "undef";
+  }
 };
 
 // Global or constant data placeholder.
 /** @brief GlobalValue data structure. */
 struct GlobalValue : Value {
   bool is_const{false};
-  std::string init;  // textual initializer for now
-  std::shared_ptr<Value> initializer;  // structured initializer
+  std::string init;                   // textual initializer for now
+  std::shared_ptr<Value> initializer; // structured initializer
 };
 
 /** @brief ConstantString data structure. */
 struct ConstantString : Value {
   std::string data;
   bool null_terminated{true};
-  explicit ConstantString(std::string d, bool nt = true)
-      : data(std::move(d)), null_terminated(nt) {
+  explicit ConstantString(std::string d, bool nt = true) : data(std::move(d)), null_terminated(nt) {
     size_t len = data.size() + (null_terminated ? 1 : 0);
     type = IRType::Array(IRType::I8(), len);
   }
@@ -63,7 +65,8 @@ struct ConstantString : Value {
 /** @brief ConstantArray data structure. */
 struct ConstantArray : Value {
   std::vector<std::shared_ptr<Value>> elements;
-  ConstantArray(std::vector<std::shared_ptr<Value>> elems, IRType elem_type) : elements(std::move(elems)) {
+  ConstantArray(std::vector<std::shared_ptr<Value>> elems, IRType elem_type) :
+      elements(std::move(elems)) {
     type = IRType::Array(elem_type, elements.size());
   }
 };
@@ -71,11 +74,12 @@ struct ConstantArray : Value {
 /** @brief ConstantStruct data structure. */
 struct ConstantStruct : Value {
   std::vector<std::shared_ptr<Value>> fields;
-  explicit ConstantStruct(std::vector<std::shared_ptr<Value>> f, std::string name = "struct")
-      : fields(std::move(f)) {
+  explicit ConstantStruct(std::vector<std::shared_ptr<Value>> f, std::string name = "struct") :
+      fields(std::move(f)) {
     std::vector<IRType> types;
     types.reserve(fields.size());
-    for (auto &v : fields) types.push_back(v ? v->type : IRType::Invalid());
+    for (auto &v : fields)
+      types.push_back(v ? v->type : IRType::Invalid());
     type = IRType::Struct(std::move(name), types);
   }
 };
@@ -104,11 +108,11 @@ inline IRType ResolveGEPResultType(IRType base_ptr_type, const std::vector<size_
 struct ConstantGEP : Value {
   std::shared_ptr<Value> base;
   std::vector<size_t> indices;
-  ConstantGEP(std::shared_ptr<Value> b, std::vector<size_t> idx)
-      : base(std::move(b)), indices(std::move(idx)) {
+  ConstantGEP(std::shared_ptr<Value> b, std::vector<size_t> idx) :
+      base(std::move(b)), indices(std::move(idx)) {
     IRType base_ptr = base ? IRType::Pointer(base->type) : IRType::Pointer(IRType::Invalid());
     type = ResolveGEPResultType(base_ptr, indices);
   }
 };
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

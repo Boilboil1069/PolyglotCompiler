@@ -16,9 +16,12 @@ namespace polyglot::runtime::gc {
 
 /** @brief RootHandle class. */
 class RootHandle {
- public:
+public:
   RootHandle() = default;
-  RootHandle(GC *gc, void **slot) : gc_(gc), slot_(slot) { if (gc_ && slot_) gc_->RegisterRoot(slot_); }
+  RootHandle(GC *gc, void **slot) : gc_(gc), slot_(slot) {
+    if (gc_ && slot_)
+      gc_->RegisterRoot(slot_);
+  }
   RootHandle(const RootHandle &) = delete;
   RootHandle &operator=(const RootHandle &) = delete;
   RootHandle(RootHandle &&other) noexcept { MoveFrom(other); }
@@ -32,14 +35,17 @@ class RootHandle {
   ~RootHandle() { Release(); }
 
   void Reset(void **slot) {
-    if (gc_ && slot_) gc_->UnregisterRoot(slot_);
+    if (gc_ && slot_)
+      gc_->UnregisterRoot(slot_);
     slot_ = slot;
-    if (gc_ && slot_) gc_->RegisterRoot(slot_);
+    if (gc_ && slot_)
+      gc_->RegisterRoot(slot_);
   }
 
- private:
+private:
   void Release() {
-    if (gc_ && slot_) gc_->UnregisterRoot(slot_);
+    if (gc_ && slot_)
+      gc_->UnregisterRoot(slot_);
     gc_ = nullptr;
     slot_ = nullptr;
   }
@@ -56,19 +62,22 @@ class RootHandle {
 
 /** @brief Heap class. */
 class Heap {
- public:
+public:
   explicit Heap(Strategy strategy = Strategy::kMarkSweep) : gc_(MakeGC(strategy)) {}
 
   void *Allocate(size_t size) { return gc_ ? gc_->Allocate(size) : nullptr; }
-  void Collect() { if (gc_) gc_->Collect(); }
+  void Collect() {
+    if (gc_)
+      gc_->Collect();
+  }
   RootHandle Track(void **slot) { return RootHandle(gc_.get(), slot); }
   GC *Raw() { return gc_.get(); }
 
   // Query runtime statistics from the underlying collector.
   GCStats GetStats() const { return gc_ ? gc_->GetStats() : GCStats{}; }
 
- private:
+private:
   std::unique_ptr<GC> gc_;
 };
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

@@ -62,8 +62,8 @@ void *polyglot_js_get_property(void *object, const char *name);
 // Call a function value with the given positional arguments.  `this_arg` may
 // be NULL to invoke the function with `globalThis` as the receiver.  Each
 // argument is itself a JS value handle.
-void *polyglot_js_call_function(void *function, void *this_arg,
-                                const void *const *args, int arg_count);
+void *polyglot_js_call_function(void *function, void *this_arg, const void *const *args,
+                                int arg_count);
 
 // Convert a JS value to its string representation.  The returned string is
 // allocated on the GC heap; release it with polyglot_js_release.

@@ -8,12 +8,13 @@
  */
 #pragma once
 
+#include "middle/include/ir/ir_context.h"
+
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/go/include/go_ast.h"
-#include "middle/include/ir/ir_context.h"
 
 namespace polyglot::go {
 
 void LowerToIR(const File &file, ir::IRContext &ctx, frontends::Diagnostics &d);
 
-}  // namespace polyglot::go
+} // namespace polyglot::go

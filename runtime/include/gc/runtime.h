@@ -18,4 +18,4 @@ Heap &GlobalHeap();
 // Swap the global heap strategy (intended for testing/configuration).
 void SetGlobalGCStrategy(Strategy strategy);
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

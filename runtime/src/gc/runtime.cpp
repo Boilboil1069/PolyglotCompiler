@@ -6,20 +6,22 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/runtime.h"
-
 #include <mutex>
+
+#include "runtime/include/gc/runtime.h"
 
 namespace polyglot::runtime::gc {
 namespace {
 Heap *g_heap = nullptr;
 std::mutex g_heap_mu;
-}
+} // namespace
 
 Heap &GlobalHeap() {
-  if (g_heap) return *g_heap;
+  if (g_heap)
+    return *g_heap;
   std::lock_guard<std::mutex> lock(g_heap_mu);
-  if (!g_heap) g_heap = new Heap();
+  if (!g_heap)
+    g_heap = new Heap();
   return *g_heap;
 }
 
@@ -29,4 +31,4 @@ void SetGlobalGCStrategy(Strategy strategy) {
   g_heap = new Heap(strategy);
 }
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

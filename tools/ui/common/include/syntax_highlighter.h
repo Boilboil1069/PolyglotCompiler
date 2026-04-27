@@ -10,7 +10,6 @@
 
 #include <QSyntaxHighlighter>
 #include <QTextCharFormat>
-
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -25,28 +24,27 @@ class CompilerService;
 
 /** @brief SyntaxHighlighter class. */
 class SyntaxHighlighter : public QSyntaxHighlighter {
-    Q_OBJECT
+  Q_OBJECT
 
-  public:
-    SyntaxHighlighter(QTextDocument *document, CompilerService *service,
-                      const std::string &language);
-    ~SyntaxHighlighter() override;
+public:
+  SyntaxHighlighter(QTextDocument *document, CompilerService *service, const std::string &language);
+  ~SyntaxHighlighter() override;
 
-    void SetLanguage(const std::string &language);
-    std::string Language() const { return language_; }
+  void SetLanguage(const std::string &language);
+  std::string Language() const { return language_; }
 
-    // Theme — set format for a given token kind
-    void SetFormat(const std::string &kind, const QTextCharFormat &fmt);
+  // Theme — set format for a given token kind
+  void SetFormat(const std::string &kind, const QTextCharFormat &fmt);
 
-  protected:
-    void highlightBlock(const QString &text) override;
+protected:
+  void highlightBlock(const QString &text) override;
 
-  private:
-    void InitDefaultFormats();
+private:
+  void InitDefaultFormats();
 
-    CompilerService *compiler_service_;
-    std::string language_;
-    std::unordered_map<std::string, QTextCharFormat> formats_;
+  CompilerService *compiler_service_;
+  std::string language_;
+  std::unordered_map<std::string, QTextCharFormat> formats_;
 };
 
 } // namespace polyglot::tools::ui

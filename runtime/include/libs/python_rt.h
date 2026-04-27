@@ -76,8 +76,8 @@ int polyglot_python_set_attr(void *object, const char *name, void *value);
 void *polyglot_python_call(void *callable, const void *const *args, int arg_count);
 
 // Convenience: receiver.method(*args).  NULL when the attribute is missing.
-void *polyglot_python_call_method(void *receiver, const char *method_name,
-                                  const void *const *args, int arg_count);
+void *polyglot_python_call_method(void *receiver, const char *method_name, const void *const *args,
+                                  int arg_count);
 
 // Convert a value to its `str()` form on the GC heap (release with
 // polyglot_python_release).

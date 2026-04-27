@@ -19,4 +19,4 @@ void PrintFunction(const Function &func, std::ostream &os);
 void PrintModule(const IRContext &ctx, std::ostream &os);
 std::string Dump(const Function &func);
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

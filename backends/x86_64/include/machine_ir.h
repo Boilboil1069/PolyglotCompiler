@@ -12,8 +12,9 @@
 #include <unordered_map>
 #include <vector>
 
-#include "backends/x86_64/include/x86_register.h"
 #include "middle/include/ir/cfg.h"
+
+#include "backends/x86_64/include/x86_register.h"
 
 namespace polyglot::backends::x86_64 {
 
@@ -37,21 +38,21 @@ enum class Opcode {
   kAShr,
   kCmp,
   // Floating-point operations
-  kMovsd,     // movsd (scalar double)
-  kMovss,     // movss (scalar single)
-  kAddsd,     // addsd
-  kSubsd,     // subsd
-  kMulsd,     // mulsd
-  kDivsd,     // divsd
-  kCmpsd,     // comisd (compare scalar double)
+  kMovsd, // movsd (scalar double)
+  kMovss, // movss (scalar single)
+  kAddsd, // addsd
+  kSubsd, // subsd
+  kMulsd, // mulsd
+  kDivsd, // divsd
+  kCmpsd, // comisd (compare scalar double)
   // SIMD operations
-  kAddps,     // addps (packed single)
-  kSubps,     // subps
-  kMulps,     // mulps
-  kDivps,     // divps
-  kShufps,    // shufps
-  kMovaps,    // movaps (aligned packed single)
-  kMovups,    // movups (unaligned packed single)
+  kAddps,  // addps (packed single)
+  kSubps,  // subps
+  kMulps,  // mulps
+  kDivps,  // divps
+  kShufps, // shufps
+  kMovaps, // movaps (aligned packed single)
+  kMovups, // movups (unaligned packed single)
   // General
   kLoad,
   kStore,
@@ -72,9 +73,11 @@ struct Operand {
   long long imm{0};
   std::string label;
   int stack_slot{-1};
-  bool is_float{false};  // used for call arg placement
+  bool is_float{false}; // used for call arg placement
 
-  static Operand VReg(int v, bool is_float = false) { return Operand{Kind::kVReg, v, Register::kRax, 0, "", -1, is_float}; }
+  static Operand VReg(int v, bool is_float = false) {
+    return Operand{Kind::kVReg, v, Register::kRax, 0, "", -1, is_float};
+  }
   static Operand Phys(Register r, bool is_float = false) {
     Operand op;
     op.kind = Kind::kPhysReg;
@@ -167,7 +170,9 @@ enum class RegAllocStrategy { kLinearScan, kGraphColoring };
 MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model);
 void ScheduleFunction(MachineFunction &fn);
 std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn);
-AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector<Register> &available);
-AllocationResult GraphColoringAllocate(const MachineFunction &fn, const std::vector<Register> &available);
+AllocationResult LinearScanAllocate(const MachineFunction &fn,
+                                    const std::vector<Register> &available);
+AllocationResult GraphColoringAllocate(const MachineFunction &fn,
+                                       const std::vector<Register> &available);
 
-}  // namespace polyglot::backends::x86_64
+} // namespace polyglot::backends::x86_64

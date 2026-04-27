@@ -26,7 +26,6 @@ namespace polyglot::tools {
 /// Execute Stage 2: Semantic analysis (only meaningful for .ploy sources).
 /// For non-.ploy languages the FrontendResult already contains a complete IR;
 /// in that case SemanticResult::success is set to true with empty metadata.
-SemanticResult RunSemanticStage(const DriverSettings &settings,
-                                const FrontendResult &frontend);
+SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendResult &frontend);
 
-}  // namespace polyglot::tools
+} // namespace polyglot::tools

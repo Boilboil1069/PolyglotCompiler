@@ -6,13 +6,12 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "middle/include/ir/ir_parser.h"
-
 #include <cctype>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "middle/include/ir/ir_parser.h"
 #include "middle/include/ir/ir_printer.h"
 
 namespace polyglot::ir {
@@ -20,31 +19,48 @@ namespace {
 
 std::string Trim(const std::string &s) {
   size_t b = 0;
-  while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+  while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b])))
+    ++b;
   size_t e = s.size();
-  while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
+  while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])))
+    --e;
   return s.substr(b, e - b);
 }
 
-bool StartsWith(const std::string &s, const std::string &p) { return s.rfind(p, 0) == 0; }
+bool StartsWith(const std::string &s, const std::string &p) {
+  return s.rfind(p, 0) == 0;
+}
 
 IRType ParseType(const std::string &text);
 
 IRType ParseBaseType(const std::string &text) {
   const std::string t = Trim(text);
-  if (t == "i1") return IRType::I1();
-  if (t == "i8") return IRType::I8(true);
-  if (t == "u8") return IRType::I8(false);
-  if (t == "i16") return IRType::I16(true);
-  if (t == "u16") return IRType::I16(false);
-  if (t == "i32") return IRType::I32(true);
-  if (t == "u32") return IRType::I32(false);
-  if (t == "i64") return IRType::I64(true);
-  if (t == "u64") return IRType::I64(false);
-  if (t == "f32") return IRType::F32();
-  if (t == "f64") return IRType::F64();
-  if (t == "void") return IRType::Void();
-  if (t == "invalid") return IRType::Invalid();
+  if (t == "i1")
+    return IRType::I1();
+  if (t == "i8")
+    return IRType::I8(true);
+  if (t == "u8")
+    return IRType::I8(false);
+  if (t == "i16")
+    return IRType::I16(true);
+  if (t == "u16")
+    return IRType::I16(false);
+  if (t == "i32")
+    return IRType::I32(true);
+  if (t == "u32")
+    return IRType::I32(false);
+  if (t == "i64")
+    return IRType::I64(true);
+  if (t == "u64")
+    return IRType::I64(false);
+  if (t == "f32")
+    return IRType::F32();
+  if (t == "f64")
+    return IRType::F64();
+  if (t == "void")
+    return IRType::Void();
+  if (t == "invalid")
+    return IRType::Invalid();
   // function type: ret (params)
   auto lp = t.find('(');
   auto rp = t.rfind(')');
@@ -56,7 +72,8 @@ IRType ParseBaseType(const std::string &text) {
     std::string item;
     while (std::getline(ss, item, ',')) {
       item = Trim(item);
-      if (item.empty()) continue;
+      if (item.empty())
+        continue;
       params.push_back(ParseType(item));
     }
     return IRType::Function(ret, params);
@@ -68,12 +85,14 @@ IRType ParseBaseType(const std::string &text) {
     std::vector<IRType> fields;
     if (brace != std::string::npos) {
       auto close = t.rfind('}');
-      std::string body = close == std::string::npos ? t.substr(brace + 1) : t.substr(brace + 1, close - brace - 1);
+      std::string body =
+          close == std::string::npos ? t.substr(brace + 1) : t.substr(brace + 1, close - brace - 1);
       std::stringstream ss(body);
       std::string item;
       while (std::getline(ss, item, ',')) {
         item = Trim(item);
-        if (!item.empty()) fields.push_back(ParseType(item));
+        if (!item.empty())
+          fields.push_back(ParseType(item));
       }
     }
     return IRType::Struct(name, fields);
@@ -87,9 +106,13 @@ IRType ParseType(const std::string &text) {
   size_t stars = 0;
   size_t refs = 0;
   while (!t.empty() && (t.back() == '*' || t.back() == '&')) {
-    if (t.back() == '*') ++stars; else ++refs;
+    if (t.back() == '*')
+      ++stars;
+    else
+      ++refs;
     t.pop_back();
-    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back()))) t.pop_back();
+    while (!t.empty() && std::isspace(static_cast<unsigned char>(t.back())))
+      t.pop_back();
   }
 
   if (!t.empty() && t.front() == '[') {
@@ -99,8 +122,10 @@ IRType ParseType(const std::string &text) {
     size_t n = static_cast<size_t>(std::stoul(t.substr(1, x - 1)));
     IRType elem = ParseType(t.substr(x + 1, close - x - 1));
     IRType arr = IRType::Array(elem, n);
-    for (size_t i = 0; i < stars; ++i) arr = IRType::Pointer(arr);
-    for (size_t i = 0; i < refs; ++i) arr = IRType::Reference(arr);
+    for (size_t i = 0; i < stars; ++i)
+      arr = IRType::Pointer(arr);
+    for (size_t i = 0; i < refs; ++i)
+      arr = IRType::Reference(arr);
     return arr;
   }
   if (!t.empty() && t.front() == '<') {
@@ -110,14 +135,18 @@ IRType ParseType(const std::string &text) {
     size_t n = static_cast<size_t>(std::stoul(t.substr(1, x - 1)));
     IRType elem = ParseType(t.substr(x + 1, close - x - 1));
     IRType vec = IRType::Vector(elem, n);
-    for (size_t i = 0; i < stars; ++i) vec = IRType::Pointer(vec);
-    for (size_t i = 0; i < refs; ++i) vec = IRType::Reference(vec);
+    for (size_t i = 0; i < stars; ++i)
+      vec = IRType::Pointer(vec);
+    for (size_t i = 0; i < refs; ++i)
+      vec = IRType::Reference(vec);
     return vec;
   }
 
   IRType base = ParseBaseType(t);
-  for (size_t i = 0; i < stars; ++i) base = IRType::Pointer(base);
-  for (size_t i = 0; i < refs; ++i) base = IRType::Reference(base);
+  for (size_t i = 0; i < stars; ++i)
+    base = IRType::Pointer(base);
+  for (size_t i = 0; i < refs; ++i)
+    base = IRType::Reference(base);
   return base;
 }
 
@@ -127,58 +156,101 @@ std::vector<std::string> SplitOperands(const std::string &s) {
   std::string item;
   while (std::getline(ss, item, ',')) {
     item = Trim(item);
-    if (!item.empty()) out.push_back(item);
+    if (!item.empty())
+      out.push_back(item);
   }
   return out;
 }
 
 BinaryInstruction::Op ParseBinOp(const std::string &s) {
-  if (s == "add") return BinaryInstruction::Op::kAdd;
-  if (s == "sub") return BinaryInstruction::Op::kSub;
-  if (s == "mul") return BinaryInstruction::Op::kMul;
-  if (s == "sdiv") return BinaryInstruction::Op::kSDiv;
-  if (s == "udiv") return BinaryInstruction::Op::kUDiv;
-  if (s == "srem") return BinaryInstruction::Op::kSRem;
-  if (s == "urem") return BinaryInstruction::Op::kURem;
-  if (s == "and") return BinaryInstruction::Op::kAnd;
-  if (s == "or") return BinaryInstruction::Op::kOr;
-  if (s == "xor") return BinaryInstruction::Op::kXor;
-  if (s == "shl") return BinaryInstruction::Op::kShl;
-  if (s == "lshr") return BinaryInstruction::Op::kLShr;
-  if (s == "ashr") return BinaryInstruction::Op::kAShr;
-  if (s == "cmpeq") return BinaryInstruction::Op::kCmpEq;
-  if (s == "cmpne") return BinaryInstruction::Op::kCmpNe;
-  if (s == "cmpult") return BinaryInstruction::Op::kCmpUlt;
-  if (s == "cmpule") return BinaryInstruction::Op::kCmpUle;
-  if (s == "cmpugt") return BinaryInstruction::Op::kCmpUgt;
-  if (s == "cmpuge") return BinaryInstruction::Op::kCmpUge;
-  if (s == "cmpslt") return BinaryInstruction::Op::kCmpSlt;
-  if (s == "cmpsle") return BinaryInstruction::Op::kCmpSle;
-  if (s == "cmpsgt") return BinaryInstruction::Op::kCmpSgt;
-  if (s == "cmpsge") return BinaryInstruction::Op::kCmpSge;
-  if (s == "cmpfoe") return BinaryInstruction::Op::kCmpFoe;
-  if (s == "cmpfne") return BinaryInstruction::Op::kCmpFne;
-  if (s == "cmpflt") return BinaryInstruction::Op::kCmpFlt;
-  if (s == "cmpfle") return BinaryInstruction::Op::kCmpFle;
-  if (s == "cmpfgt") return BinaryInstruction::Op::kCmpFgt;
-  if (s == "cmpfge") return BinaryInstruction::Op::kCmpFge;
-  if (s == "fadd") return BinaryInstruction::Op::kFAdd;
-  if (s == "fsub") return BinaryInstruction::Op::kFSub;
-  if (s == "fmul") return BinaryInstruction::Op::kFMul;
-  if (s == "fdiv") return BinaryInstruction::Op::kFDiv;
-  if (s == "frem") return BinaryInstruction::Op::kFRem;
+  if (s == "add")
+    return BinaryInstruction::Op::kAdd;
+  if (s == "sub")
+    return BinaryInstruction::Op::kSub;
+  if (s == "mul")
+    return BinaryInstruction::Op::kMul;
+  if (s == "sdiv")
+    return BinaryInstruction::Op::kSDiv;
+  if (s == "udiv")
+    return BinaryInstruction::Op::kUDiv;
+  if (s == "srem")
+    return BinaryInstruction::Op::kSRem;
+  if (s == "urem")
+    return BinaryInstruction::Op::kURem;
+  if (s == "and")
+    return BinaryInstruction::Op::kAnd;
+  if (s == "or")
+    return BinaryInstruction::Op::kOr;
+  if (s == "xor")
+    return BinaryInstruction::Op::kXor;
+  if (s == "shl")
+    return BinaryInstruction::Op::kShl;
+  if (s == "lshr")
+    return BinaryInstruction::Op::kLShr;
+  if (s == "ashr")
+    return BinaryInstruction::Op::kAShr;
+  if (s == "cmpeq")
+    return BinaryInstruction::Op::kCmpEq;
+  if (s == "cmpne")
+    return BinaryInstruction::Op::kCmpNe;
+  if (s == "cmpult")
+    return BinaryInstruction::Op::kCmpUlt;
+  if (s == "cmpule")
+    return BinaryInstruction::Op::kCmpUle;
+  if (s == "cmpugt")
+    return BinaryInstruction::Op::kCmpUgt;
+  if (s == "cmpuge")
+    return BinaryInstruction::Op::kCmpUge;
+  if (s == "cmpslt")
+    return BinaryInstruction::Op::kCmpSlt;
+  if (s == "cmpsle")
+    return BinaryInstruction::Op::kCmpSle;
+  if (s == "cmpsgt")
+    return BinaryInstruction::Op::kCmpSgt;
+  if (s == "cmpsge")
+    return BinaryInstruction::Op::kCmpSge;
+  if (s == "cmpfoe")
+    return BinaryInstruction::Op::kCmpFoe;
+  if (s == "cmpfne")
+    return BinaryInstruction::Op::kCmpFne;
+  if (s == "cmpflt")
+    return BinaryInstruction::Op::kCmpFlt;
+  if (s == "cmpfle")
+    return BinaryInstruction::Op::kCmpFle;
+  if (s == "cmpfgt")
+    return BinaryInstruction::Op::kCmpFgt;
+  if (s == "cmpfge")
+    return BinaryInstruction::Op::kCmpFge;
+  if (s == "fadd")
+    return BinaryInstruction::Op::kFAdd;
+  if (s == "fsub")
+    return BinaryInstruction::Op::kFSub;
+  if (s == "fmul")
+    return BinaryInstruction::Op::kFMul;
+  if (s == "fdiv")
+    return BinaryInstruction::Op::kFDiv;
+  if (s == "frem")
+    return BinaryInstruction::Op::kFRem;
   return BinaryInstruction::Op::kAdd;
 }
 
 [[maybe_unused]] CastInstruction::CastKind ParseCast(const std::string &s) {
-  if (s == "zext") return CastInstruction::CastKind::kZExt;
-  if (s == "sext") return CastInstruction::CastKind::kSExt;
-  if (s == "trunc") return CastInstruction::CastKind::kTrunc;
-  if (s == "bitcast") return CastInstruction::CastKind::kBitcast;
-  if (s == "fpext") return CastInstruction::CastKind::kFpExt;
-  if (s == "fptrunc") return CastInstruction::CastKind::kFpTrunc;
-  if (s == "inttoptr") return CastInstruction::CastKind::kIntToPtr;
-  if (s == "ptrtoint") return CastInstruction::CastKind::kPtrToInt;
+  if (s == "zext")
+    return CastInstruction::CastKind::kZExt;
+  if (s == "sext")
+    return CastInstruction::CastKind::kSExt;
+  if (s == "trunc")
+    return CastInstruction::CastKind::kTrunc;
+  if (s == "bitcast")
+    return CastInstruction::CastKind::kBitcast;
+  if (s == "fpext")
+    return CastInstruction::CastKind::kFpExt;
+  if (s == "fptrunc")
+    return CastInstruction::CastKind::kFpTrunc;
+  if (s == "inttoptr")
+    return CastInstruction::CastKind::kIntToPtr;
+  if (s == "ptrtoint")
+    return CastInstruction::CastKind::kPtrToInt;
   return CastInstruction::CastKind::kBitcast;
 }
 
@@ -205,7 +277,8 @@ struct PendingSwitch {
   std::string default_block;
 };
 
-bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, std::shared_ptr<Function> &fn, std::string *msg) {
+bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx,
+                       std::shared_ptr<Function> &fn, std::string *msg) {
   std::unordered_map<std::string, std::shared_ptr<BasicBlock>> blocks;
   std::unordered_map<std::string, IRType> value_types;
   std::shared_ptr<BasicBlock> current_bb;
@@ -216,12 +289,14 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
 
   auto get_or_create_bb = [&](const std::string &name) -> std::shared_ptr<BasicBlock> {
     auto it = blocks.find(name);
-    if (it != blocks.end()) return it->second;
+    if (it != blocks.end())
+      return it->second;
     auto bb = std::make_shared<BasicBlock>();
     bb->name = name;
     blocks[name] = bb;
     fn->blocks.push_back(bb);
-    if (!fn->entry) fn->entry = bb.get();
+    if (!fn->entry)
+      fn->entry = bb.get();
     return bb;
   };
 
@@ -232,21 +307,24 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
 
   for (const auto &raw : lines) {
     const std::string line = Trim(raw);
-    if (line.empty()) continue;
+    if (line.empty())
+      continue;
     if (line.back() == ':') {
       std::string bbname = line.substr(0, line.size() - 1);
       current_bb = get_or_create_bb(bbname);
       continue;
     }
     if (!current_bb) {
-      if (msg) *msg = "instruction without basic block";
+      if (msg)
+        *msg = "instruction without basic block";
       return false;
     }
 
     // split type suffix
     auto colon = line.rfind(" : ");
     if (colon == std::string::npos) {
-      if (msg) *msg = "missing type in instruction";
+      if (msg)
+        *msg = "missing type in instruction";
       return false;
     }
     std::string inst_part = line.substr(0, colon);
@@ -281,11 +359,14 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       std::stringstream ss(list);
       std::string item;
       while (std::getline(ss, item, ']')) {
-        if (item.empty()) continue;
+        if (item.empty())
+          continue;
         auto lb = item.find('[');
-        if (lb == std::string::npos) continue;
+        if (lb == std::string::npos)
+          continue;
         std::string body = Trim(item.substr(lb + 1));
-        if (body.empty()) continue;
+        if (body.empty())
+          continue;
         auto colon_pos = body.find(':');
         std::string pred = Trim(body.substr(0, colon_pos));
         std::string val = Trim(body.substr(colon_pos + 1));
@@ -294,20 +375,31 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       }
       current_bb->AddPhi(phi);
       new_inst = phi;
-      if (phi->HasResult()) value_types[phi->name] = phi->type;
+      if (phi->HasResult())
+        value_types[phi->name] = phi->type;
     } else if (StartsWith(inst_part, "call")) {
       auto call = std::make_shared<CallInstruction>();
       std::string rest = Trim(inst_part.substr(4));
       bool indirect = false;
-      if (!rest.empty() && rest[0] == '*') { indirect = true; rest = rest.substr(1); }
+      if (!rest.empty() && rest[0] == '*') {
+        indirect = true;
+        rest = rest.substr(1);
+      }
       auto lp = rest.find('(');
       // Find matching ')' for the call arguments (balanced parentheses)
       size_t rp = std::string::npos;
       if (lp != std::string::npos) {
         int depth = 1;
         for (size_t k = lp + 1; k < rest.size(); ++k) {
-          if (rest[k] == '(') ++depth;
-          else if (rest[k] == ')') { --depth; if (depth == 0) { rp = k; break; } }
+          if (rest[k] == '(')
+            ++depth;
+          else if (rest[k] == ')') {
+            --depth;
+            if (depth == 0) {
+              rp = k;
+              break;
+            }
+          }
         }
       }
       call->callee = Trim(rest.substr(0, lp));
@@ -335,13 +427,15 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       call->type = ty;
       call->name = ty.kind == IRTypeKind::kVoid ? "" : lhs;
       new_inst = call;
-      if (call->HasResult()) value_types[call->name] = call->type;
+      if (call->HasResult())
+        value_types[call->name] = call->type;
     } else if (StartsWith(inst_part, "alloca")) {
       auto al = std::make_shared<AllocaInstruction>();
       al->name = lhs;
       al->type = ty;
       new_inst = al;
-      if (al->HasResult()) value_types[al->name] = al->type;
+      if (al->HasResult())
+        value_types[al->name] = al->type;
     } else if (StartsWith(inst_part, "load")) {
       auto ld = std::make_shared<LoadInstruction>();
       take_align(ld->align);
@@ -350,7 +444,8 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       ld->name = lhs;
       ld->type = ty;
       new_inst = ld;
-      if (ld->HasResult()) value_types[ld->name] = ld->type;
+      if (ld->HasResult())
+        value_types[ld->name] = ld->type;
     } else if (StartsWith(inst_part, "store")) {
       auto st = std::make_shared<StoreInstruction>();
       take_align(st->align);
@@ -370,10 +465,12 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       std::string item;
       while (std::getline(ss, item, ',')) {
         item = Trim(item);
-        if (!item.empty()) gep->indices.push_back(static_cast<size_t>(std::stoul(item)));
+        if (!item.empty())
+          gep->indices.push_back(static_cast<size_t>(std::stoul(item)));
       }
       std::string tail = Trim(rest.substr(rb + 1));
-      if (StartsWith(tail, "inbounds")) gep->inbounds = true;
+      if (StartsWith(tail, "inbounds"))
+        gep->inbounds = true;
       gep->name = lhs;
       gep->type = ty;
       auto it_base = value_types.find(base);
@@ -381,18 +478,21 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
         gep->source_type = it_base->second.subtypes[0];
       }
       new_inst = gep;
-      if (gep->HasResult()) value_types[gep->name] = gep->type;
+      if (gep->HasResult())
+        value_types[gep->name] = gep->type;
     } else if (StartsWith(inst_part, "ret")) {
       auto ret = std::make_shared<ReturnStatement>();
       std::string ops = Trim(inst_part.substr(3));
-      if (!ops.empty()) ret->operands = {ops};
+      if (!ops.empty())
+        ret->operands = {ops};
       ret->type = ty;
       new_inst = ret;
       current_bb->SetTerminator(ret);
     } else if (StartsWith(inst_part, "br")) {
       auto br = std::make_shared<BranchStatement>();
-      std::string tgt = Trim(inst_part.substr(4));  // "-> label"
-      if (StartsWith(tgt, "->")) tgt = Trim(tgt.substr(2));
+      std::string tgt = Trim(inst_part.substr(4)); // "-> label"
+      if (StartsWith(tgt, "->"))
+        tgt = Trim(tgt.substr(2));
       br->type = ty;
       pending_br.push_back({br.get(), tgt});
       new_inst = br;
@@ -421,7 +521,8 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       std::string item;
       std::vector<std::string> block_names;
       while (ss >> item) {
-        if (item == "default") break;
+        if (item == "default")
+          break;
         long long value = std::stoll(item);
         std::string arrow;
         ss >> arrow; // ->
@@ -469,7 +570,8 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
       bin->name = lhs;
       bin->type = ty;
       new_inst = bin;
-      if (bin->HasResult()) value_types[bin->name] = bin->type;
+      if (bin->HasResult())
+        value_types[bin->name] = bin->type;
     }
 
     if (new_inst && !new_inst->IsTerminator()) {
@@ -509,14 +611,17 @@ bool ParseFunctionBody(const std::vector<std::string> &lines, IRContext &ctx, st
   return true;
 }
 
-}  // namespace
+} // namespace
 
-bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Function> *out_fn, std::string *msg) {
+bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Function> *out_fn,
+                   std::string *msg) {
   std::istringstream in(text);
   std::string line;
-  if (!std::getline(in, line)) return false;
+  if (!std::getline(in, line))
+    return false;
   line = Trim(line);
-  if (!StartsWith(line, "func")) return false;
+  if (!StartsWith(line, "func"))
+    return false;
   auto name_start = line.find(' ');
   auto lp = line.find('(');
   auto rp = line.rfind(')');
@@ -528,7 +633,8 @@ bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Func
   std::string pitem;
   while (std::getline(pss, pitem, ',')) {
     pitem = Trim(pitem);
-    if (pitem.empty()) continue;
+    if (pitem.empty())
+      continue;
     params.push_back({pitem, IRType::Invalid()});
   }
 
@@ -537,7 +643,8 @@ bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Func
   while (std::getline(in, line)) {
     body_lines.push_back(line);
   }
-  if (!ParseFunctionBody(body_lines, ctx, fn, msg)) return false;
+  if (!ParseFunctionBody(body_lines, ctx, fn, msg))
+    return false;
 
   // Infer return type from the first 'ret' instruction if the function was
   // created with Void but actually returns a value.
@@ -554,7 +661,8 @@ bool ParseFunction(const std::string &text, IRContext &ctx, std::shared_ptr<Func
     }
   }
 
-  if (out_fn) *out_fn = fn;
+  if (out_fn)
+    *out_fn = fn;
   return true;
 }
 
@@ -565,25 +673,27 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
   bool in_func = false;
   while (std::getline(in, line)) {
     std::string trimmed = Trim(line);
-    
+
     // Parse module-level global/const declarations
     if (StartsWith(trimmed, "global ") || StartsWith(trimmed, "const ")) {
       if (in_func) {
-        if (!ParseFunction(current_func_text, ctx, nullptr, msg)) return false;
+        if (!ParseFunction(current_func_text, ctx, nullptr, msg))
+          return false;
         current_func_text.clear();
         in_func = false;
       }
-      
+
       bool is_const = StartsWith(trimmed, "const ");
       std::string rest = Trim(trimmed.substr(is_const ? 6 : 7));
-      
+
       // Parse "name : type [= init]"
       auto colon_pos = rest.find(" : ");
-      if (colon_pos == std::string::npos) continue;
-      
+      if (colon_pos == std::string::npos)
+        continue;
+
       std::string name = Trim(rest.substr(0, colon_pos));
       std::string after_colon = Trim(rest.substr(colon_pos + 3));
-      
+
       // Split type and optional initializer at " = "
       std::string type_str;
       std::string init_str;
@@ -594,9 +704,9 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
       } else {
         type_str = after_colon;
       }
-      
+
       IRType ty = ParseType(type_str);
-      
+
       // Parse structured initializers
       std::shared_ptr<Value> initializer;
       if (!init_str.empty() && init_str.front() == '"') {
@@ -605,7 +715,8 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
         bool null_terminated = false;
         // Strip quotes
         std::string inner = init_str.substr(1);
-        if (!inner.empty() && inner.back() == '"') inner.pop_back();
+        if (!inner.empty() && inner.back() == '"')
+          inner.pop_back();
         // Check for \0 suffix
         if (inner.size() >= 2 && inner.substr(inner.size() - 2) == "\\0") {
           null_terminated = true;
@@ -613,7 +724,7 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
         }
         data = inner;
         initializer = std::make_shared<ConstantString>(data, null_terminated);
-        init_str.clear();  // Consumed
+        init_str.clear(); // Consumed
       } else if (StartsWith(init_str, "gep @")) {
         // Constant GEP: gep @base [idx1, idx2]
         std::string gep_rest = Trim(init_str.substr(5));
@@ -626,7 +737,8 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
         std::string item;
         while (std::getline(ss, item, ',')) {
           item = Trim(item);
-          if (!item.empty()) indices.push_back(static_cast<size_t>(std::stoul(item)));
+          if (!item.empty())
+            indices.push_back(static_cast<size_t>(std::stoul(item)));
         }
         // Find the base global by name
         std::shared_ptr<Value> base_val;
@@ -641,14 +753,15 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
         }
         init_str.clear();
       }
-      
+
       ctx.CreateGlobal(name, ty, is_const, init_str, initializer);
       continue;
     }
-    
+
     if (StartsWith(trimmed, "func")) {
       if (in_func) {
-        if (!ParseFunction(current_func_text, ctx, nullptr, msg)) return false;
+        if (!ParseFunction(current_func_text, ctx, nullptr, msg))
+          return false;
         current_func_text.clear();
       }
       in_func = true;
@@ -658,9 +771,10 @@ bool ParseModule(const std::string &text, IRContext &ctx, std::string *msg) {
     }
   }
   if (in_func && !current_func_text.empty()) {
-    if (!ParseFunction(current_func_text, ctx, nullptr, msg)) return false;
+    if (!ParseFunction(current_func_text, ctx, nullptr, msg))
+      return false;
   }
   return true;
 }
 
-}  // namespace polyglot::ir
+} // namespace polyglot::ir

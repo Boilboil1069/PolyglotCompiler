@@ -7,7 +7,8 @@
  * @date     2026-04-10
  */
 #ifdef RUST_ADVANCED_FEATURES_H_
-#warning "rust_advanced_features.h has been merged into rust_ast.h. Please include rust_ast.h instead."
+#warning                                                                                           \
+    "rust_advanced_features.h has been merged into rust_ast.h. Please include rust_ast.h instead."
 #ifndef RUST_AST_H_
 #include "rust_ast.h"
 #endif

@@ -6,11 +6,11 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "backends/x86_64/include/machine_ir.h"
-
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
+
+#include "backends/x86_64/include/machine_ir.h"
 
 namespace polyglot::backends::x86_64 {
 std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn) {
@@ -18,7 +18,8 @@ std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn) {
   int position = 0;
   auto ensure = [&](int vreg) -> LiveInterval & {
     auto it = intervals.find(vreg);
-    if (it != intervals.end()) return it->second;
+    if (it != intervals.end())
+      return it->second;
     LiveInterval li;
     li.vreg = vreg;
     li.start = position;
@@ -38,16 +39,16 @@ std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn) {
         auto &li = ensure(use);
         li.end = std::max(li.end, position);
       }
-      position += 2;  // leave gap for finer-grained scheduling
+      position += 2; // leave gap for finer-grained scheduling
     }
   }
 
   std::vector<LiveInterval> out;
   out.reserve(intervals.size());
-  for (auto &kv : intervals) out.push_back(kv.second);
-  std::sort(out.begin(), out.end(), [](const LiveInterval &a, const LiveInterval &b) {
-    return a.start < b.start;
-  });
+  for (auto &kv : intervals)
+    out.push_back(kv.second);
+  std::sort(out.begin(), out.end(),
+            [](const LiveInterval &a, const LiveInterval &b) { return a.start < b.start; });
   return out;
 }
 
@@ -64,14 +65,14 @@ void ExpireOldIntervals(std::vector<LiveInterval> &active, int position,
       it = active.erase(it);
     }
   }
-  std::sort(active.begin(), active.end(), [](const LiveInterval &a, const LiveInterval &b) {
-    return a.end < b.end;
-  });
+  std::sort(active.begin(), active.end(),
+            [](const LiveInterval &a, const LiveInterval &b) { return a.end < b.end; });
 }
 
-}  // namespace
+} // namespace
 
-AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector<Register> &available) {
+AllocationResult LinearScanAllocate(const MachineFunction &fn,
+                                    const std::vector<Register> &available) {
   auto intervals = ComputeLiveIntervals(fn);
   AllocationResult result;
   std::vector<LiveInterval> active;
@@ -82,9 +83,8 @@ AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector
     ExpireOldIntervals(active, interval.start, free_regs);
 
     if (free_regs.empty()) {
-      std::sort(active.begin(), active.end(), [](const LiveInterval &a, const LiveInterval &b) {
-        return a.end < b.end;
-      });
+      std::sort(active.begin(), active.end(),
+                [](const LiveInterval &a, const LiveInterval &b) { return a.end < b.end; });
       if (!active.empty() && active.back().end > interval.end) {
         auto spilled_active = active.back();
         active.pop_back();
@@ -105,17 +105,17 @@ AllocationResult LinearScanAllocate(const MachineFunction &fn, const std::vector
           has_phys = true;
         }
       } else {
-        free_regs.erase(std::remove(free_regs.begin(), free_regs.end(), interval.phys), free_regs.end());
+        free_regs.erase(std::remove(free_regs.begin(), free_regs.end(), interval.phys),
+                        free_regs.end());
       }
       result.vreg_to_phys[interval.vreg] = interval.phys;
       active.push_back(interval);
-      std::sort(active.begin(), active.end(), [](const LiveInterval &a, const LiveInterval &b) {
-        return a.end < b.end;
-      });
+      std::sort(active.begin(), active.end(),
+                [](const LiveInterval &a, const LiveInterval &b) { return a.end < b.end; });
     }
   }
 
   return result;
 }
 
-}  // namespace polyglot::backends::x86_64
+} // namespace polyglot::backends::x86_64

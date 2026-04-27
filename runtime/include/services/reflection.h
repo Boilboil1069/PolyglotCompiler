@@ -24,11 +24,10 @@ struct ReflectionInfo {
 
 /** @brief ReflectionRegistry class. */
 class ReflectionRegistry {
- public:
+public:
   static ReflectionRegistry &Instance();
 
-  template <typename T>
-  ReflectionInfo Register(const std::string &alias = "") {
+  template <typename T> ReflectionInfo Register(const std::string &alias = "") {
     const std::string name = alias.empty() ? typeid(T).name() : alias;
     return Register(name, sizeof(T));
   }
@@ -37,7 +36,7 @@ class ReflectionRegistry {
   const ReflectionInfo *Get(const std::string &type_name) const;
   std::vector<ReflectionInfo> List() const;
 
- private:
+private:
   ReflectionRegistry() = default;
   ReflectionRegistry(const ReflectionRegistry &) = delete;
   ReflectionRegistry &operator=(const ReflectionRegistry &) = delete;
@@ -46,8 +45,7 @@ class ReflectionRegistry {
   std::unordered_map<std::string, ReflectionInfo> types_;
 };
 
-template <typename T>
-ReflectionInfo RegisterType(const std::string &alias = "") {
+template <typename T> ReflectionInfo RegisterType(const std::string &alias = "") {
   return ReflectionRegistry::Instance().Register<T>(alias);
 }
 
@@ -63,4 +61,4 @@ inline std::vector<ReflectionInfo> ListReflections() {
   return ReflectionRegistry::Instance().List();
 }
 
-}  // namespace polyglot::runtime::services
+} // namespace polyglot::runtime::services

@@ -14,22 +14,21 @@ namespace polyglot::rust {
 
 /** @brief RustLexer class. */
 class RustLexer : public frontends::LexerBase {
-  public:
-    RustLexer(std::string source, std::string file)
-        : LexerBase(std::move(source), std::move(file)) {}
+public:
+  RustLexer(std::string source, std::string file) : LexerBase(std::move(source), std::move(file)) {}
 
-    frontends::Token NextToken() override;
+  frontends::Token NextToken() override;
 
-  private:
-    void SkipWhitespace();
-    void SkipLineComment();
-    void SkipBlockComment();
-    frontends::Token LexIdentifierOrKeyword();
-    frontends::Token LexRawIdentifier();
-    frontends::Token LexNumber();
-    frontends::Token LexString();
-    frontends::Token LexChar();
-    frontends::Token LexOperator();
+private:
+  void SkipWhitespace();
+  void SkipLineComment();
+  void SkipBlockComment();
+  frontends::Token LexIdentifierOrKeyword();
+  frontends::Token LexRawIdentifier();
+  frontends::Token LexNumber();
+  frontends::Token LexString();
+  frontends::Token LexChar();
+  frontends::Token LexOperator();
 };
 
 } // namespace polyglot::rust

@@ -60,8 +60,8 @@ void *polyglot_ruby_get_constant(const char *name);
 
 // Invoke a method on `receiver` with positional argument handles.  Pass
 // NULL `receiver` to invoke a top-level Kernel method (e.g. `puts`).
-void *polyglot_ruby_call_method(void *receiver, const char *method_name,
-                                const void *const *args, int arg_count);
+void *polyglot_ruby_call_method(void *receiver, const char *method_name, const void *const *args,
+                                int arg_count);
 
 // Convert a Ruby VALUE to its `.to_s` form.  Returned string lives on the
 // GC heap; release with polyglot_ruby_release.

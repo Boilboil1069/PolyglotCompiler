@@ -36,4 +36,4 @@ struct ForeignSignature {
 // Minimal validation ensuring sizes are non-zero and alignments are sane.
 bool ValidateSignature(const ForeignSignature &sig);
 
-}  // namespace polyglot::runtime::interop
+} // namespace polyglot::runtime::interop

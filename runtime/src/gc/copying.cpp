@@ -6,17 +6,16 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
-#include "runtime/include/gc/gc_api.h"
-
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mimalloc.h>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
 
-#include <mimalloc.h>
+#include "runtime/include/gc/gc_api.h"
 
 namespace polyglot::runtime::gc {
 namespace {
@@ -25,18 +24,18 @@ namespace {
 // 将堆分为两个半空间：from-space 和 to-space
 // 分配总是在 from-space 进行，GC 时将存活对象复制到 to-space，然后交换空间
 
-constexpr size_t kSemiSpaceSize = 1024 * 1024 * 8;  // 8MB per semi-space
+constexpr size_t kSemiSpaceSize = 1024 * 1024 * 8; // 8MB per semi-space
 
 struct ObjectHeader {
   size_t size;
-  void *forwarding_addr;  // 用于复制时记录新地址
+  void *forwarding_addr; // 用于复制时记录新地址
   bool forwarded;
 };
 
-}  // namespace
+} // namespace
 
 class CopyingGC : public GC {
- public:
+public:
   CopyingGC() {
     // Both semi-spaces are reserved through mimalloc so collector turnover
     // benefits from the same allocator as the rest of the runtime.
@@ -95,13 +94,15 @@ class CopyingGC : public GC {
 
   void RegisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.push_back(slot);
   }
 
   void UnregisterRoot(void **slot) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!slot) return;
+    if (!slot)
+      return;
     roots_.erase(std::remove(roots_.begin(), roots_.end(), slot), roots_.end());
   }
 
@@ -119,7 +120,7 @@ class CopyingGC : public GC {
     return stats;
   }
 
- private:
+private:
   // Internal collect without locking (caller must hold mu_).
   void CollectImpl() {
     // Reset to-space pointer
@@ -127,7 +128,8 @@ class CopyingGC : public GC {
 
     // Copy all root objects
     for (auto **root : roots_) {
-      if (!root || !*root) continue;
+      if (!root || !*root)
+        continue;
       *root = Copy(*root);
     }
 
@@ -137,10 +139,12 @@ class CopyingGC : public GC {
     from_limit_ = static_cast<char *>(from_space_) + kSemiSpaceSize;
   }
   void *Copy(void *obj) {
-    if (!obj) return nullptr;
+    if (!obj)
+      return nullptr;
 
     // 获取对象头
-    auto *header = reinterpret_cast<ObjectHeader *>(static_cast<char *>(obj) - sizeof(ObjectHeader));
+    auto *header =
+        reinterpret_cast<ObjectHeader *>(static_cast<char *>(obj) - sizeof(ObjectHeader));
 
     // 如果已经被复制，返回转发地址
     if (header->forwarded) {
@@ -180,6 +184,8 @@ class CopyingGC : public GC {
   size_t live_objects_{0};
 };
 
-std::unique_ptr<GC> MakeCopyingGC() { return std::make_unique<CopyingGC>(); }
+std::unique_ptr<GC> MakeCopyingGC() {
+  return std::make_unique<CopyingGC>();
+}
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

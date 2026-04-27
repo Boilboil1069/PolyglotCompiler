@@ -27,7 +27,7 @@ struct GCStats {
 
 /** @brief GC class. */
 class GC {
- public:
+public:
   virtual ~GC() = default;
   virtual void *Allocate(size_t size) = 0;
   virtual void Collect() = 0;
@@ -40,4 +40,4 @@ class GC {
   virtual GCStats GetStats() const { return GCStats{}; }
 };
 
-}  // namespace polyglot::runtime::gc
+} // namespace polyglot::runtime::gc

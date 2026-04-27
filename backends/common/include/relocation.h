@@ -22,4 +22,4 @@ struct Relocation {
   size_t offset{0};
 };
 
-}  // namespace polyglot::backends
+} // namespace polyglot::backends
