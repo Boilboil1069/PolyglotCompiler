@@ -42,7 +42,7 @@ public:
     ::polyglot::backends::BackendCapabilities caps;
     caps.emits_object = true;     // WASM module is the "object" form here.
     caps.emits_assembly = true;   // WAT textual form.
-    caps.emits_bitcode = false;
+    caps.emits_bitcode = true; // Polyglot bitcode via the default ITargetBackend impl.
     caps.supports_debug_info = false; // DWARF-in-WASM not yet wired up.
     caps.supports_position_independent = true;
     caps.supports_jit = false;

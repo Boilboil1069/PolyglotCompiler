@@ -88,6 +88,7 @@ polyglot
 | `polyglot::passes::transform` | `middle/include/passes/transform/*.h` | `middle/src/passes/optimizations/*.cpp` |
 | `polyglot::backends::x86_64` | `backends/x86_64/include/*.h` | `backends/x86_64/src/{isel,regalloc,asm_printer}/*.cpp` |
 | `polyglot::backends::common::machine_ir` | `backends/common/include/machine_ir/{machine_ir,verifier}.h` | 模板实例化定义在 `backends/{x86_64,arm64}/src/{regalloc,asm_printer}/*.cpp` |
+| `polyglot::backends::common::abi` | `backends/common/include/abi/{abi,calling_convention,relocation}.h` | `backends/common/src/abi.cpp`，per-target 实例化在 `backends/{x86_64,arm64}/src/calling_convention.cpp` |
 | `polyglot::runtime::interop` | `runtime/include/interop/*.h` | `runtime/src/interop/*.cpp` |
 | `polyglot::linker` | `tools/polyld/include/*.h` | `tools/polyld/src/{linker,polyglot_linker}.cpp` |
 
@@ -96,6 +97,7 @@ polyglot
 |---|---|
 | `dwarf` | `common/include/debug/dwarf5.h` 内部 DWARF 常量子空间 |
 | `macho` | `tools/polyld/src/linker.cpp` 的 Mach-O 局部命名空间 |
+| `polyglot::backends::wasm::internal` | 后端私有 WASM opcode + magic 常量，位于 `backends/wasm/include/internal/wasm_constants.h`；仅由 `backends/wasm/src/**` 消费。在 §3.2 / 主文件计数中刻意不列入，因为它在 `internal/` 边界之上不可见。 |
 | `std` | `middle/include/ir/template_instantiator.h` 中 `std::hash` 特化 |
 | `MyApp`、`ns` | 仅测试代码命名空间，不属于生产架构 |
 
@@ -136,6 +138,7 @@ Ploy 独有职责：
 | arm64 | `Arm64Target`、`SelectInstructions`、`ScheduleFunction`、`LinearScan/GraphColoring` | `backends/arm64/src/{isel,regalloc,asm_printer}/*.cpp` |
 | wasm | `WasmTarget`、`EmitWasmBinary` | `backends/wasm/src/wasm_target.cpp` |
 | 公共后端 | `ITargetBackend`、`BackendRegistry`（含 `TargetOptions` / `TargetArtifacts` / `BackendCapabilities` / `BackendInfo` / `MCRelocation` / `MCSymbol` / `MCSection` / `CompileStats` / `BackendDiagnostic` / `CompileResult`）、`TargetMachine`、`ObjectFileBuilder`、`DebugEmitter` | `backends/common/include/*.h`、`backends/common/src/*.cpp` |
+| 公共 ABI | `CallingConvention<Traits>`、`StackFrame<Traits>`、`ComputeStackFrame`、`AbiDescriptor`、`RelocationKind`、`RelocationEntry`、`MapToElfX86_64` / `MapToElfAArch64` / `MapToMachOX86_64` / `MapToMachOArm64` | `backends/common/include/abi/*.h`、`backends/common/src/abi.cpp` |
 
 ### 3.5 `runtime`（运行时层）
 | 子域 | 关键接口 | 关键实现 |

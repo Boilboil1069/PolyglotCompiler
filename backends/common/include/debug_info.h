@@ -15,11 +15,23 @@
 
 namespace polyglot::backends {
 
-/** @brief DebugLineInfo data structure. */
+/** @brief DebugLineInfo data structure.
+ *
+ * Describes a single row of the DWARF line-number state machine: the source
+ * `file:line:column` plus the program-counter offset (relative to the
+ * function/unit start) at which that source position takes effect.
+ *
+ * `address` defaults to 0 for callers that have not yet plumbed real machine
+ * addresses through the debug pipeline; in that case the line-number emitter
+ * advances the PC by one unit per row so that rows remain strictly monotonic
+ * and addressable by debuggers, while keeping the behavior identical for
+ * existing call sites that omit the field.
+ */
 struct DebugLineInfo {
   std::string file;
   int line{0};
   int column{0};
+  std::uint64_t address{0};
 };
 
 /** @brief DebugVariable data structure. */

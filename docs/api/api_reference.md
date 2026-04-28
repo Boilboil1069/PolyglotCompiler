@@ -785,6 +785,8 @@ struct TargetArtifacts {
     std::vector<MCSymbol>       symbols;
     std::vector<MCSection>      sections;
     std::vector<std::uint8_t>   debug_sections;
+    std::vector<std::uint8_t>   bitcode_bytes;   // Polyglot bitcode payload
+                                                 // when EmitBitcode succeeds.
     CompileStats                stats;
 };
 ```
@@ -817,6 +819,336 @@ std::string ToJson         (const std::vector<BackendInfo>&);
 
 All public methods are thread-safe. `Find` is case-insensitive; `FindOrDiagnose` populates
 `out_diag` with an error listing the available backends when the lookup fails.
+
+---
+
+# 7.11 Common MachineIR, Verifier & ABI
+
+**Headers**:
+`backends/common/include/machine_ir/machine_ir.h`,
+`backends/common/include/machine_ir/verifier.h`,
+`backends/common/include/abi/abi.h`
+**Namespaces**:
+`polyglot::backends::common::machine_ir`,
+`polyglot::backends::common::abi`
+
+The common code-generation layer hosts a target-independent MachineIR data
+model + register-allocation / scheduling algorithms (used by every backend
+through `using` aliases on its target-specific `TargetTraits`), a structural
+verifier, and an ABI facade that abstracts the calling-convention register
+tables and the stack-frame computation algorithm.
+
+## 7.11.1 MachineIR templates
+
+```cpp
+template <typename Traits>                   struct Operand;
+template <typename Traits, typename OpcodeT> struct MachineInstr;
+template <typename Traits, typename OpcodeT> struct MachineBasicBlock;
+template <typename Traits, typename OpcodeT> struct MachineFunction;
+template <typename Traits>                   struct LiveInterval;
+template <typename Traits>                   struct AllocationResult;
+enum class RegAllocStrategy { kLinearScan, kGraphColoring };
+
+// Algorithms (function templates):
+template <typename Traits, typename OpcodeT>
+std::vector<LiveInterval<Traits>>
+ComputeLiveIntervals(const MachineFunction<Traits, OpcodeT>&);
+
+template <typename Traits, typename OpcodeT>
+AllocationResult<Traits>
+LinearScanAllocate(const MachineFunction<Traits, OpcodeT>&,
+                   const std::vector<typename Traits::Register>&);
+
+template <typename Traits, typename OpcodeT>
+AllocationResult<Traits>
+GraphColoringAllocate(const MachineFunction<Traits, OpcodeT>&,
+                      const std::vector<typename Traits::Register>&);
+
+template <typename Traits, typename OpcodeT>
+void ScheduleFunction(MachineFunction<Traits, OpcodeT>&);
+
+template <typename Traits, typename OpcodeT>
+std::string Print(const MachineFunction<Traits, OpcodeT>&);
+```
+
+## 7.11.2 MachineIRVerifier and AbiContract
+
+```cpp
+struct VerifierDiagnostic {
+    enum class Severity { kWarning, kError };
+    enum class Code     { kStructural, kAbiCallArityExceeded, kAbiVolatileRegLeak };
+    Severity     severity;
+    Code         code;
+    std::string  message;
+    std::string  function_name;
+    std::string  block_name;
+    std::size_t  block_index;
+    std::size_t  instruction_index;
+    std::string  snapshot;          // populated on first error
+};
+
+struct VerifierResult {
+    std::vector<VerifierDiagnostic> diagnostics;
+    bool ok() const;                // true when no kError diagnostic is present
+};
+
+template <typename Traits, typename OpcodeT>
+struct AbiContract {
+    OpcodeT                                       call_opcode;
+    std::size_t                                   max_call_operands;
+    std::vector<typename Traits::Register>        volatile_regs;
+};
+
+template <typename Traits, typename OpcodeT>
+class MachineIRVerifier {
+ public:
+    VerifierResult Verify(const MachineFunction<Traits, OpcodeT>&) const;
+    VerifierResult Verify(const MachineFunction<Traits, OpcodeT>&,
+                          const AbiContract<Traits, OpcodeT>* abi) const;
+};
+```
+
+`Verify(fn)` runs the three structural rules (terminator at BB end, use ⇒
+visible def, no duplicate def in a single block).  `Verify(fn, abi)`
+additionally enforces:
+
+| Code | Meaning |
+|------|---------|
+| `kAbiCallArityExceeded` | A `call_opcode` instruction carries more operands than `max_call_operands`. |
+| `kAbiVolatileRegLeak`   | The instruction immediately following a call reads a physical register listed in `volatile_regs` without an intervening definition. |
+
+## 7.11.3 ABI calling convention and stack frame
+
+```cpp
+template <typename Traits>
+struct StackFrame {
+    int                                    total_size{0};
+    int                                    spill_area_size{0};
+    int                                    local_area_size{0};
+    int                                    arg_area_size{0};
+    std::vector<typename Traits::Register> saved_regs;
+};
+
+template <typename Traits>
+class CallingConvention {
+ public:
+    const std::vector<Register>& IntegerArgRegs()  const;
+    const std::vector<Register>& FloatArgRegs()    const;
+    const std::vector<Register>& CalleeSavedRegs() const;
+    const std::vector<Register>& VolatileRegs()    const;
+    constexpr int StackAlignment() const;
+    constexpr int PointerSize()    const;
+    constexpr int RedZoneSize()    const;
+    std::vector<Register> AvailableRegisters() const;   // volatile + callee_saved
+};
+
+template <typename Traits, typename OpcodeT>
+StackFrame<Traits> ComputeStackFrame(const CallingConvention<Traits>&,
+                                     const MachineFunction<Traits, OpcodeT>&,
+                                     const AllocationResult<Traits>&,
+                                     OpcodeT call_opcode);
+
+struct AbiDescriptor {
+    std::string  name;
+    std::size_t  pointer_size{8};
+    std::size_t  stack_alignment{16};
+    std::size_t  red_zone_size{0};
+};
+```
+
+`Traits` must extend the MachineIR contract with four `inline static const
+std::vector<Register>` register tables (`kIntegerArgRegs`, `kFloatArgRegs`,
+`kCalleeSavedRegs`, `kVolatileRegs`) and three `static constexpr int`
+sizing constants (`kStackAlignment`, `kPointerSize`, `kRedZoneSize`).
+
+## 7.11.4 Relocation kinds and per-format mappers
+
+```cpp
+enum class RelocationKind : std::uint32_t {
+    kAbs32,        kAbs64,         kPcRel32,        kPcRel64,
+    kGotPcRel32,   kPltPcRel32,
+    kPage21,       kPageOff12,     kBranch26,       kCondBranch19,
+    kMovwG0Abs,    kMovwG1Abs,     kMovwG2Abs,      kMovwG3Abs,
+};
+
+struct RelocationEntry {
+    std::string    section;
+    std::uint64_t  offset{0};
+    RelocationKind kind{RelocationKind::kAbs64};
+    std::string    symbol;
+    std::int64_t   addend{0};
+};
+
+inline constexpr std::uint32_t kUnsupportedRelocation = 0xFFFFFFFFu;
+
+std::uint32_t MapToElfX86_64   (RelocationKind) noexcept;
+std::uint32_t MapToElfAArch64  (RelocationKind) noexcept;
+std::uint32_t MapToMachOX86_64 (RelocationKind) noexcept;
+std::uint32_t MapToMachOArm64  (RelocationKind) noexcept;
+
+const char* ToString(RelocationKind) noexcept;
+bool        ParseRelocationKind(const std::string&, RelocationKind*) noexcept;
+```
+
+Each `MapTo*` returns `kUnsupportedRelocation` when the kind has no encoding
+in the requested object-file format; callers are expected to surface this
+through the backend's diagnostic stream.
+
+# 7.12 WASM Backend
+
+**Header**: `backends/wasm/include/wasm_target.h`
+**Namespace**: `polyglot::backends::wasm`
+
+`WasmTarget` lowers a `polyglot::ir::Module` to a WebAssembly 1.0 binary
+or WAT text artefact. The implementation is split across one entry-point
+translation unit and six focused TUs; only the four methods below are
+public.
+
+```cpp
+class WasmTarget {
+ public:
+    void              SetModule(const ir::Module* module);
+    std::vector<std::uint8_t> EmitWasmBinary();   // .wasm bytes
+    std::string       EmitAssembly();             // WAT text
+    std::string_view  TargetTriple() const noexcept;  // "wasm32-unknown-unknown"
+};
+```
+
+Translation-unit responsibilities:
+
+| Path | Role |
+|------|------|
+| `backends/wasm/src/wasm_target.cpp` | `EmitWasmBinary` driver: type collection → function-body lowering → section assembly. |
+| `backends/wasm/src/wasm_target_backend.cpp` | `ITargetBackend` adapter (registry plumbing). |
+| `backends/wasm/src/encoding/leb128.cpp` | Unsigned/signed LEB128 + string + section framing. |
+| `backends/wasm/src/lowering/type_mapping.cpp` | `IRTypeKind → WasmValType`. |
+| `backends/wasm/src/lowering/function_lowerer.cpp` | Locals RLE compression and per-block prologue/`end` emission. |
+| `backends/wasm/src/lowering/instruction_lowerer.cpp` | 11-shape IR-instruction dispatch. |
+| `backends/wasm/src/sections/section_emitters.cpp` | Type/Import/Function/Memory/Global/Export/Code section builders. |
+| `backends/wasm/src/wat_printer.cpp` | `EmitAssembly` text rendering. |
+
+Backend-private constants (magic bytes, opcode table, `kBlockTypeVoid`)
+live in `backends/wasm/include/internal/wasm_constants.h` under the
+`polyglot::backends::wasm::internal` sub-namespace. The header is
+consumed only by translation units inside `backends/wasm/src/**`; nothing
+above the `internal/` boundary is allowed to include it.
+
+The WASM backend inherits the default `EmitBitcode` implementation; see
+§7.13 for the polyglot-bitcode contract.
+
+# 7.13 Bitcode Emission
+
+**Header**: `middle/include/lto/link_time_optimizer.h`,
+`backends/common/include/target_backend.h`
+**Namespaces**: `polyglot::lto`, `polyglot::backends`
+
+The default `ITargetBackend::EmitBitcode` serialises the input
+`IRContext` into the project's polyglot bitcode format — a UTF-8 text
+stream beginning with the literal `module ` header — and stores the
+bytes in `TargetArtifacts::bitcode_bytes`.  All three production
+backends (`x86_64-unknown-elf`, `aarch64-unknown-elf`,
+`wasm32-unknown-unknown`) advertise `emits_bitcode = true` and inherit
+this default; backends that need a foreign format (e.g. real LLVM
+bitcode) override the virtual.
+
+```cpp
+namespace polyglot::lto {
+class LTOModule {
+ public:
+    // In-memory variants.
+    std::string SerializeBitcode() const;
+    bool        DeserializeBitcode(std::string_view bytes);
+
+    // Disk variants — wrappers over the in-memory pair.
+    bool SaveBitcode(const std::string& filename) const;
+    bool LoadBitcode(const std::string& filename);
+
+    // Build from an in-memory IRContext.  Functions and globals are
+    // deep-copied; every function name is registered as an entry-point
+    // candidate.
+    static LTOModule FromIRContext(const polyglot::ir::IRContext& ctx,
+                                   std::string module_name);
+};
+}  // namespace polyglot::lto
+
+namespace polyglot::backends {
+// Default contract: success ⇒ ok=true, diagnostics empty,
+// artifacts.bitcode_bytes populated; failure ⇒ ok=false with a single
+// kError diagnostic in component "EmitBitcode".
+virtual CompileResult ITargetBackend::EmitBitcode(
+    const polyglot::ir::IRContext& module,
+    const TargetOptions&           options);
+}  // namespace polyglot::backends
+```
+
+The byte stream is intentionally distinct from LLVM bitcode (`BC\xC0\xDE`
+magic) so that `tools/polyld` can handle both formats in the same
+linker invocation without ambiguity.
+
+---
+
+# 7.14 Debug Information Emission
+
+**Header**: `backends/common/include/debug_emitter.h`,
+`backends/common/include/debug_info.h`  
+**Namespace**: `polyglot::backends`
+
+## 7.14.1 Public surface
+
+```cpp
+namespace polyglot::backends {
+
+struct DebugLineInfo {
+  std::string   file;        // source file name
+  int           line{0};     // 1-based line number
+  int           column{0};   // 1-based column number
+  std::uint64_t address{0};  // PC offset within the enclosing function/unit
+};
+
+class DebugEmitter {
+ public:
+  static bool EmitSourceMap(const DebugInfoBuilder& info, const std::string& path);
+  static bool EmitDWARF    (const DebugInfoBuilder& info, const std::string& path);
+  static bool EmitPDB      (const DebugInfoBuilder& info, const std::string& path);
+};
+
+}  // namespace polyglot::backends
+```
+
+## 7.14.2 Reserved-length encoding contract
+
+For every DWARF length-prefix field (`unit_length`, `header_length`, CIE /
+FDE length) and the ELF `e_shoff` slot, the emitter writes a zero placeholder,
+appends the rest of the region, then patches the prefix via `Patch32` /
+in-place writeback before the builder method returns.  The patched value
+satisfies `prefix_value == region_byte_count − sizeof(prefix)` per DWARF v5
+§7.4 / §7.5 / §6.4.1, System V ABI §10.6.1, and the ELF gABI.
+
+The contract is exercised by
+`tests/unit/backends/debug_emitter_normalization_test.cpp` (4 cases covering
+`.debug_info` / `.debug_line` length prefixes, `DW_LNS_advance_pc` emission,
+and PDB GUID compliance).
+
+## 7.14.3 Line-program semantics
+
+`DebugLineInfo::address` is honoured by the production line-program emitter
+(`DwarfSectionBuilder::EncodeLineStatements`).  The first row emits
+`DW_LNE_set_address(entry.address)`; each subsequent row emits
+`DW_LNS_advance_pc ULEB128(delta)` with `delta = max(entry.address,
+last_address + 1) − last_address`.  Callers that omit the field still get a
+strictly monotonic, individually addressable program (the emitter falls back
+to a one-unit step per row).
+
+## 7.14.4 PDB GUID
+
+`PdbSectionBuilder::GenerateGuid` produces RFC 4122 v4 GUIDs using
+`std::random_device` for entropy and explicitly setting the version (`4`) and
+variant (`10b`) bit-fields per spec.  Two consecutive emissions are
+guaranteed to differ.
+
+See `docs/realization/debug_emitter_normalization.md` for the full
+specification, including the legacy `DwarfBuilder` fallback path's intentional
+narrower scope.
 
 ---
 

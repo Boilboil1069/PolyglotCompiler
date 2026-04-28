@@ -69,6 +69,13 @@ bool LTOModule::SaveBitcode(const std::string &filename) const {
   std::ofstream out(filename, std::ios::binary);
   if (!out)
     return false;
+  const std::string bytes = SerializeBitcode();
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  return static_cast<bool>(out);
+}
+
+std::string LTOModule::SerializeBitcode() const {
+  std::ostringstream out;
 
   // Write module header
   out << "module " << module_name << "\n";
@@ -112,13 +119,20 @@ bool LTOModule::SaveBitcode(const std::string &filename) const {
     out << ep << "\n";
   }
 
-  return static_cast<bool>(out);
+  return out.str();
 }
 
 bool LTOModule::LoadBitcode(const std::string &filename) {
   std::ifstream in(filename, std::ios::binary);
   if (!in)
     return false;
+  std::ostringstream buffer;
+  buffer << in.rdbuf();
+  return DeserializeBitcode(buffer.str());
+}
+
+bool LTOModule::DeserializeBitcode(std::string_view bytes) {
+  std::istringstream in{std::string(bytes)};
 
   functions.clear();
   globals.clear();
@@ -211,6 +225,26 @@ bool LTOModule::LoadBitcode(const std::string &filename) {
   }
 
   return true;
+}
+
+LTOModule LTOModule::FromIRContext(const polyglot::ir::IRContext &ctx,
+                                   std::string module_name_in) {
+  LTOModule out;
+  out.module_name = std::move(module_name_in);
+  out.functions.reserve(ctx.Functions().size());
+  for (const auto &fn_ptr : ctx.Functions()) {
+    if (!fn_ptr)
+      continue;
+    out.functions.push_back(*fn_ptr);
+    out.entry_points.insert(fn_ptr->name);
+  }
+  out.globals.reserve(ctx.Globals().size());
+  for (const auto &gv_ptr : ctx.Globals()) {
+    if (!gv_ptr)
+      continue;
+    out.globals.push_back(*gv_ptr);
+  }
+  return out;
 }
 
 ir::Function *LTOModule::GetFunction(const std::string &name) {

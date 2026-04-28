@@ -22,6 +22,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -29,6 +30,7 @@
 #include "backends/common/include/backend_registry.h"
 #include "backends/common/include/target_backend.h"
 #include "middle/include/ir/ir_context.h"
+#include "middle/include/lto/link_time_optimizer.h"
 
 using polyglot::backends::BackendCapabilities;
 using polyglot::backends::BackendInfo;
@@ -130,8 +132,8 @@ TEST_CASE("BackendRegistry::List exposes stable sorted snapshot",
     } else if (info.triple == "wasm32-unknown-unknown") {
       REQUIRE(info.capabilities.emits_object);
       REQUIRE(info.capabilities.emits_assembly);
-      // Bitcode is not yet wired up; the matrix must reflect that honestly.
-      REQUIRE_FALSE(info.capabilities.emits_bitcode);
+      // Bitcode is wired through the polyglot bitcode default emitter.
+      REQUIRE(info.capabilities.emits_bitcode);
       saw_wasm = true;
     }
   }
@@ -194,18 +196,28 @@ TEST_CASE("BackendInfo serialises to JSON and human-readable text",
   REQUIRE(human.find("capabilities") != std::string::npos);
 }
 
-TEST_CASE("ITargetBackend bitcode default returns unsupported diagnostic",
+TEST_CASE("ITargetBackend bitcode default emits polyglot bitcode bytes",
           "[backends][registry]") {
   auto *backend = BackendRegistry::Instance().Find("x86_64-unknown-elf");
   REQUIRE(backend != nullptr);
 
   polyglot::ir::IRContext module;
+  module.CreateFunction("alpha");
+  module.CreateFunction("beta");
+
   TargetOptions options;
   options.emit = polyglot::backends::EmitKind::kBitcode;
   CompileResult result = backend->EmitBitcode(module, options);
-  REQUIRE_FALSE(result.ok);
-  REQUIRE_FALSE(result.diagnostics.empty());
-  REQUIRE(result.diagnostics.front().severity ==
-          polyglot::backends::BackendDiagnostic::Severity::kError);
-  REQUIRE(result.diagnostics.front().message.find("bitcode") != std::string::npos);
+  REQUIRE(result.ok);
+  REQUIRE(result.diagnostics.empty());
+  REQUIRE_FALSE(result.artifacts.bitcode_bytes.empty());
+  // The polyglot bitcode stream begins with the literal "module " header.
+  REQUIRE(result.artifacts.bitcode_bytes.front() == static_cast<std::uint8_t>('m'));
+
+  // Round-trip through DeserializeBitcode and assert function count.
+  std::string roundtrip(reinterpret_cast<const char *>(result.artifacts.bitcode_bytes.data()),
+                        result.artifacts.bitcode_bytes.size());
+  polyglot::lto::LTOModule reloaded;
+  REQUIRE(reloaded.DeserializeBitcode(roundtrip));
+  REQUIRE(reloaded.functions.size() == 2);
 }

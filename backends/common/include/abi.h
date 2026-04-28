@@ -1,6 +1,11 @@
 /**
  * @file     abi.h
- * @brief    Shared backend infrastructure
+ * @brief    Forwarding header that exposes the `polyglot::backends::common::
+ *           abi` calling-convention model under the historic
+ *           `polyglot::backends::ABI` name.  New code should include the
+ *           sub-namespace umbrella `backends/common/include/abi/abi.h`
+ *           directly and refer to `common::abi::AbiDescriptor` /
+ *           `common::abi::CallingConvention` etc.
  *
  * @ingroup  Backend / Common
  * @author   Manning Cyrus
@@ -8,14 +13,13 @@
  */
 #pragma once
 
-#include <string>
+#include "backends/common/include/abi/abi.h"
 
 namespace polyglot::backends {
 
-/** @brief ABI data structure. */
-struct ABI {
-  std::string name;
-  size_t pointer_size{8};
-};
+/// @brief Backwards-compatible alias for the legacy `ABI` struct.  The new
+///        `AbiDescriptor` keeps the original `name` and `pointer_size`
+///        fields and adds `stack_alignment` / `red_zone_size`.
+using ABI = ::polyglot::backends::common::abi::AbiDescriptor;
 
-} // namespace polyglot::backends
+}  // namespace polyglot::backends

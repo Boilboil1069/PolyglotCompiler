@@ -78,12 +78,21 @@ def load_variables(root: Path) -> Dict:
 # ---------------------------------------------------------------------------
 
 def gen_test_badge(v: Dict) -> str:
-    """Generate the test badge image tag."""
-    total = v["test_total"]
-    suites = v["test_suites"]
+    """Generate the test badge image tag.
+
+    The legacy "{cases}_cases | {suites}_suites" format was retired in
+    doc-version 1.2.0 because the monolithic case count drifted away from
+    reality once `unit_tests` was split into per-module test binaries
+    (see CHANGELOG.md v1.0.6 / v1.4.0).  The badge now advertises only
+    the suite topology — currently 5 core suites (`test_core`,
+    `test_middle`, `test_backends`, `test_runtime`, `test_linker`) plus
+    8 frontend suites (`test_frontend_*`).
+    """
+    core = v.get("test_suites_core", 5)
+    frontend = v.get("test_suites_frontend", 8)
     return (
         f'  <img alt="Tests" '
-        f'src="https://img.shields.io/badge/Tests-{total}_cases_|_{suites}_suites-brightgreen.svg"/>'
+        f'src="https://img.shields.io/badge/Suites-{core}%20core%20%2B%20{frontend}%20frontend-brightgreen.svg"/>'
     )
 
 

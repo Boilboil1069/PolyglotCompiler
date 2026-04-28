@@ -251,11 +251,15 @@ public:
       std::vector<MCSection> *out_sections = nullptr);
 
   /**
-   * @brief Emit LLVM bitcode for @p module.
+   * @brief Emit bitcode for @p module.
    *
-   * Default implementation reports an "unsupported" diagnostic; backends
-   * that opt into bitcode emission must override.  Callers should consult
-   * @c Capabilities().emits_bitcode before invoking.
+   * The default implementation serialises @p module into the project's
+   * polyglot bitcode format (the same byte stream produced by
+   * @c polyglot::lto::LTOModule::SaveBitcode and consumed by
+   * @c LoadBitcode / @c DeserializeBitcode).  Backends that need to emit
+   * a foreign format such as LLVM bitcode are expected to override this
+   * method.  Callers should still consult @c Capabilities().emits_bitcode
+   * to decide whether bitcode emission is meaningful for their pipeline.
    */
   virtual CompileResult EmitBitcode(const polyglot::ir::IRContext &module,
                                     const TargetOptions &options);

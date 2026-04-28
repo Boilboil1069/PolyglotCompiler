@@ -16,6 +16,7 @@
 
 #include "middle/include/ir/cfg.h"
 
+#include "backends/common/include/abi/abi.h"
 #include "backends/common/include/machine_ir/machine_ir.h"
 #include "backends/x86_64/include/x86_register.h"
 
@@ -33,10 +34,39 @@ enum class Opcode {
     kLoad, kStore, kLea, kCall, kRet, kJmp, kJcc
 };
 
-/// @brief Traits hook required by the common MachineIR templates.
+/// @brief Traits hook required by the common MachineIR templates and the
+///        common ABI calling-convention facade.
+///
+/// In addition to the MachineIR contract (`Register` + `kDefaultRegister`),
+/// this struct exposes the four ABI register tables and the three sizing
+/// constants consumed by `common::abi::CallingConvention`.
 struct X86TargetTraits {
     using Register                              = ::polyglot::backends::x86_64::Register;
     static constexpr Register kDefaultRegister  = Register::kRax;
+
+    // ---- ABI sizing constants (System V AMD64) -----------------------------
+    static constexpr int kStackAlignment = 16;
+    static constexpr int kPointerSize    = 8;
+    static constexpr int kRedZoneSize    = 128;
+
+    // ---- ABI register tables (System V AMD64) ------------------------------
+    inline static const std::vector<Register> kIntegerArgRegs = {
+        Register::kRdi, Register::kRsi, Register::kRdx,
+        Register::kRcx, Register::kR8,  Register::kR9
+    };
+    inline static const std::vector<Register> kFloatArgRegs = {
+        Register::kXmm0, Register::kXmm1, Register::kXmm2, Register::kXmm3,
+        Register::kXmm4, Register::kXmm5, Register::kXmm6, Register::kXmm7
+    };
+    inline static const std::vector<Register> kCalleeSavedRegs = {
+        Register::kRbx, Register::kRbp, Register::kR12,
+        Register::kR13, Register::kR14, Register::kR15
+    };
+    inline static const std::vector<Register> kVolatileRegs = {
+        Register::kRax, Register::kRdi, Register::kRsi,
+        Register::kRdx, Register::kRcx, Register::kR8,
+        Register::kR9,  Register::kR10, Register::kR11
+    };
 };
 
 // ---- Aliases over the common templates -------------------------------------

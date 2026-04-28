@@ -99,7 +99,9 @@ std::vector<uint8_t> BuildELFObject(const std::vector<DebugSection> &sections) {
   write_u64(0);              // e_phoff (no program headers)
 
   size_t e_shoff_pos = result.size();
-  write_u64(0); // e_shoff (placeholder)
+  // e_shoff: reserved 64-bit field; patched after the section header table is
+  // appended (see the "Patch e_shoff" write-back below).
+  write_u64(0);
 
   write_u32(0);  // e_flags
   write_u16(64); // e_ehsize
@@ -172,7 +174,7 @@ std::vector<uint8_t> BuildELFObject(const std::vector<DebugSection> &sections) {
 
 // DWARF 5 standard opcodes
 constexpr uint8_t kDwLnsCopy = 0x01;
-[[maybe_unused]] constexpr uint8_t kDwLnsAdvancePc = 0x02;
+constexpr uint8_t kDwLnsAdvancePc = 0x02;
 constexpr uint8_t kDwLnsAdvanceLine = 0x03;
 constexpr uint8_t kDwLnsSetFile = 0x04;
 constexpr uint8_t kDwLnsSetColumn = 0x05;
@@ -515,9 +517,11 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugAbbrev() {
 std::vector<uint8_t> DwarfSectionBuilder::BuildDebugInfo(const DebugInfoBuilder &info) {
   std::vector<uint8_t> result;
 
-  // Reserve space for unit_length (32-bit DWARF format)
+  // Reserve space for unit_length (32-bit DWARF format).
+  // unit_length is patched via Patch32(unit_length_pos, ...) once the entire
+  // compilation unit body has been appended (DWARF v5 §7.4).
   size_t unit_length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // Placeholder
+  WriteLE<uint32_t>(result, 0);
 
   // DWARF version (5)
   WriteLE<uint16_t>(result, 5);
@@ -761,23 +765,40 @@ void DwarfSectionBuilder::EncodeLineStatements(std::vector<uint8_t> &out,
     return;
   }
 
-  // State machine registers
-  uint64_t address = 0;
-  uint32_t file = 1;
-  int32_t line = 1;
-  uint32_t column = 0;
+  // State machine registers (mirror DWARF v5 §6.2.2).
+  // `address` tracks the last PC written into the line-number program so that
+  // the next row can emit DW_LNS_advance_pc with the precise delta.
+  std::uint64_t address = 0;
+  std::uint32_t file = 1;
+  std::int32_t line = 1;
+  std::uint32_t column = 0;
   bool is_stmt = true;
   (void)is_stmt; // Part of DWARF line number state machine; reserved for future use
 
-  for (const auto &entry : lines) {
-    uint32_t entry_file = GetOrAddFile(entry.file);
+  bool address_initialized = false;
 
-    // Set address using extended opcode
-    if (address == 0) {
+  for (const auto &entry : lines) {
+    std::uint32_t entry_file = GetOrAddFile(entry.file);
+
+    // First row: emit DW_LNE_set_address with the entry's address (relocated
+    // by the linker if zero). Subsequent rows use DW_LNS_advance_pc deltas.
+    if (!address_initialized) {
       out.push_back(0);     // Extended opcode marker
       WriteULEB128(out, 9); // Length (1 + 8 bytes)
       out.push_back(kDwLneSetAddress);
-      WriteLE<uint64_t>(out, 0); // Address will be relocated
+      WriteLE<std::uint64_t>(out, entry.address);
+      address = entry.address;
+      address_initialized = true;
+    } else {
+      // Compute monotonic PC delta. When DebugLineInfo carries real addresses
+      // we honor them; when all addresses are zero (legacy callers that have
+      // not yet plumbed PC mapping) we still advance by one unit per row to
+      // keep the program strictly monotonic and individually addressable.
+      std::uint64_t target = entry.address > address ? entry.address : address + 1;
+      std::uint64_t delta = target - address;
+      out.push_back(kDwLnsAdvancePc);
+      WriteULEB128(out, delta);
+      address = target;
     }
 
     // Set file if changed
@@ -788,14 +809,14 @@ void DwarfSectionBuilder::EncodeLineStatements(std::vector<uint8_t> &out,
     }
 
     // Set column if changed
-    if (static_cast<uint32_t>(entry.column) != column) {
+    if (static_cast<std::uint32_t>(entry.column) != column) {
       out.push_back(kDwLnsSetColumn);
       WriteULEB128(out, entry.column);
       column = entry.column;
     }
 
     // Advance line
-    int32_t line_delta = entry.line - line;
+    std::int32_t line_delta = entry.line - line;
     if (line_delta != 0) {
       out.push_back(kDwLnsAdvanceLine);
       WriteSLEB128(out, line_delta);
@@ -804,8 +825,6 @@ void DwarfSectionBuilder::EncodeLineStatements(std::vector<uint8_t> &out,
 
     // Copy to emit row
     out.push_back(kDwLnsCopy);
-
-    address++; // Simplified address tracking
   }
 
   // End sequence
@@ -822,9 +841,10 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugLine(const DebugInfoBuilder 
     GetOrAddFile(line.file);
   }
 
-  // Reserve space for unit_length
+  // Reserve space for unit_length.
+  // Patched after the .debug_line program is fully encoded (DWARF v5 §6.2.4).
   size_t unit_length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // Placeholder
+  WriteLE<uint32_t>(result, 0);
 
   // DWARF version (5)
   WriteLE<uint16_t>(result, 5);
@@ -835,9 +855,10 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugLine(const DebugInfoBuilder 
   // Segment selector size
   result.push_back(0);
 
-  // Reserve space for header_length
+  // Reserve space for header_length.
+  // Patched after file/directory tables are written (DWARF v5 §6.2.4).
   size_t header_length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // Placeholder
+  WriteLE<uint32_t>(result, 0);
 
   size_t header_start = result.size();
 
@@ -863,7 +884,9 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugFrame(const DebugInfoBuilder
 
   // CIE (Common Information Entry)
   size_t cie_length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // Placeholder for length
+  // CIE length: reserved DWARF length prefix; patched after CIE body and
+  // padding are appended (DWARF v5 §6.4.1).
+  WriteLE<uint32_t>(result, 0);
 
   WriteLE<uint32_t>(result, 0xFFFFFFFF); // CIE_id (distinguishes from FDE)
 
@@ -912,7 +935,9 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildDebugFrame(const DebugInfoBuilder
       AlignTo(result, 8);
 
       size_t fde_length_pos = result.size();
-      WriteLE<uint32_t>(result, 0); // Placeholder for length
+      // FDE length: reserved DWARF length prefix; patched after FDE body and
+      // padding are appended (DWARF v5 §6.4.1).
+      WriteLE<uint32_t>(result, 0);
 
       WriteLE<uint32_t>(result, 0); // CIE pointer (offset from here)
 
@@ -963,7 +988,9 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildEhFrame(const DebugInfoBuilder &i
   // ── CIE (Common Information Entry) ──────────────────────────────────
   size_t cie_start = result.size();
   size_t cie_length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // placeholder for length
+  // .eh_frame CIE length: reserved 32-bit length prefix; patched after the
+  // CIE body and padding are appended (System V ABI / LSB §10.6.1).
+  WriteLE<uint32_t>(result, 0);
 
   WriteLE<uint32_t>(result, 0); // CIE_id = 0 (distinguishes CIE from FDE)
 
@@ -1016,7 +1043,9 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildEhFrame(const DebugInfoBuilder &i
     AlignTo(result, 8);
     size_t fde_start = result.size();
     size_t fde_length_pos = result.size();
-    WriteLE<uint32_t>(result, 0); // placeholder for length
+    // .eh_frame FDE length: reserved 32-bit length prefix; patched after the
+    // FDE body and padding are appended (System V ABI / LSB §10.6.1).
+    WriteLE<uint32_t>(result, 0);
 
     // CIE pointer: offset from *this field* back to the CIE start
     uint32_t cie_ptr = static_cast<uint32_t>(result.size() - cie_start);
@@ -1069,9 +1098,10 @@ std::vector<uint8_t> DwarfSectionBuilder::BuildEhFrame(const DebugInfoBuilder &i
 std::vector<uint8_t> DwarfSectionBuilder::BuildDebugAranges(const DebugInfoBuilder &info) {
   std::vector<uint8_t> result;
 
-  // Reserve space for length
+  // Reserve space for length: patched once the .debug_aranges header and
+  // tuples have been appended (DWARF v5 §6.1.2).
   size_t length_pos = result.size();
-  WriteLE<uint32_t>(result, 0); // Placeholder
+  WriteLE<uint32_t>(result, 0);
 
   // Version
   WriteLE<uint16_t>(result, 2);
@@ -1132,7 +1162,9 @@ private:
   std::vector<uint8_t> BuildDbiStream(const DebugInfoBuilder &info);
   std::vector<uint8_t> BuildSymbolStream(const DebugInfoBuilder &info);
 
-  // GUID generation (simplified)
+  // PDB GUID generation: RFC 4122 v4 (random) compliant. Uses
+  // std::random_device for entropy and explicitly sets the version (4) and
+  // variant (1) bit-fields per spec; see GenerateGuid() body below.
   void GenerateGuid(uint8_t guid[16]);
 };
 

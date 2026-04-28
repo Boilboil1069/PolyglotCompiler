@@ -101,6 +101,23 @@ public:
   bool SaveBitcode(const std::string &filename) const;
   bool LoadBitcode(const std::string &filename);
 
+  // In-memory variants of the above.  The byte stream produced by
+  // @c SerializeBitcode is exactly what @c SaveBitcode would have written;
+  // @c DeserializeBitcode is the symmetric counterpart of @c LoadBitcode.
+  // The format is the project's polyglot-bitcode text encoding (header line
+  // "module <name>" followed by per-function and per-global records); it is
+  // not LLVM bitcode and is intentionally distinct from any LLVM bc bytes
+  // that downstream tools may also accept.
+  std::string SerializeBitcode() const;
+  bool DeserializeBitcode(std::string_view bytes);
+
+  // Build an LTOModule from an in-memory IRContext.  Functions and globals
+  // are copied by value (deep copy of the IR shapes); every function is
+  // recorded as an entry-point candidate so that downstream consumers can
+  // walk the export surface without losing names.
+  static LTOModule FromIRContext(const polyglot::ir::IRContext &ctx,
+                                 std::string module_name);
+
   // Get function by name
   ir::Function *GetFunction(const std::string &name);
   const ir::Function *GetFunction(const std::string &name) const;

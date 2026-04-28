@@ -266,7 +266,12 @@ std::vector<std::uint8_t> DwarfBuilder::BuildDebugLine() {
     result[header_length_pos + i] = (header_length >> (i * 8)) & 0xFF;
   }
 
-  // Line number program (simplified)
+  // Line number program: emits one row per source-line entry using
+  // DW_LNE_set_address + DW_LNS_set_file + DW_LNS_advance_line + DW_LNS_copy.
+  // Special-opcode encoding is intentionally not used here because this legacy
+  // DwarfBuilder path is reserved for fallback emission; the production path
+  // with full state-machine encoding lives in
+  // DwarfSectionBuilder::EncodeLineStatements (debug_emitter.cpp).
   for (const auto &entry : line_entries_) {
     // DW_LNE_set_address
     result.push_back(0);     // Extended opcode

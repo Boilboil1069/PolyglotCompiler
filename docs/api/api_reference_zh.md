@@ -786,6 +786,7 @@ struct TargetArtifacts {
     std::vector<MCSymbol>       symbols;
     std::vector<MCSection>      sections;
     std::vector<std::uint8_t>   debug_sections;
+    std::vector<std::uint8_t>   bitcode_bytes;   // EmitBitcode 成功时的 polyglot bitcode payload。
     CompileStats                stats;
 };
 ```
@@ -818,6 +819,152 @@ std::string ToJson         (const std::vector<BackendInfo>&);
 
 所有公开方法线程安全。`Find` 大小写不敏感；查询失败时 `FindOrDiagnose` 会向 `out_diag` 写入
 列出可用后端的错误诊断。
+
+# 7.11 WASM 后端
+
+**头文件**: `backends/wasm/include/wasm_target.h`
+**命名空间**: `polyglot::backends::wasm`
+
+`WasmTarget` 把 `polyglot::ir::Module` 降级为 WebAssembly 1.0 二进制
+或 WAT 文本制品。实现拆分为 1 个公共入口 TU + 6 个聚焦 TU，对外仅
+公开下列 4 个方法。
+
+```cpp
+class WasmTarget {
+ public:
+    void              SetModule(const ir::Module* module);
+    std::vector<std::uint8_t> EmitWasmBinary();   // .wasm 字节
+    std::string       EmitAssembly();             // WAT 文本
+    std::string_view  TargetTriple() const noexcept;  // "wasm32-unknown-unknown"
+};
+```
+
+各翻译单元职责：
+
+| 路径 | 职责 |
+|------|------|
+| `backends/wasm/src/wasm_target.cpp` | `EmitWasmBinary` 驱动：类型收集 → 函数体降级 → 段汇编。 |
+| `backends/wasm/src/wasm_target_backend.cpp` | `ITargetBackend` 适配器（注册中心接线）。 |
+| `backends/wasm/src/encoding/leb128.cpp` | 无符号 / 有符号 LEB128 + 字符串 + 段框。 |
+| `backends/wasm/src/lowering/type_mapping.cpp` | `IRTypeKind → WasmValType`。 |
+| `backends/wasm/src/lowering/function_lowerer.cpp` | locals RLE 压缩与每块前奏 / `end` 发射。 |
+| `backends/wasm/src/lowering/instruction_lowerer.cpp` | 11 种 IR 指令形态分派。 |
+| `backends/wasm/src/sections/section_emitters.cpp` | Type/Import/Function/Memory/Global/Export/Code 段构建器。 |
+| `backends/wasm/src/wat_printer.cpp` | `EmitAssembly` 文本渲染。 |
+
+后端私有常量（magic 字节、opcode 表、`kBlockTypeVoid`）位于
+`backends/wasm/include/internal/wasm_constants.h`，归属
+`polyglot::backends::wasm::internal` 子命名空间。该头仅由
+`backends/wasm/src/**` 下的翻译单元消费；`internal/` 边界以上的任何
+头都不允许 include。
+
+WASM 后端继承默认 `EmitBitcode` 实现；详见 §7.12。
+
+# 7.12 Bitcode 发射
+
+**头文件**: `middle/include/lto/link_time_optimizer.h`、
+`backends/common/include/target_backend.h`
+**命名空间**: `polyglot::lto`、`polyglot::backends`
+
+默认的 `ITargetBackend::EmitBitcode` 把入参 `IRContext` 序列化为项目
+原生的 polyglot bitcode 格式 —— 一段以 `module ` 字面量开头的
+UTF-8 文本流 —— 并把字节存入 `TargetArtifacts::bitcode_bytes`。三个
+生产后端（`x86_64-unknown-elf`、`aarch64-unknown-elf`、
+`wasm32-unknown-unknown`）的 `emits_bitcode` 全为 true 并继承默认实现；
+需要别的格式（如真 LLVM bitcode）的后端重写虚函数即可。
+
+```cpp
+namespace polyglot::lto {
+class LTOModule {
+ public:
+    // 内存版本。
+    std::string SerializeBitcode() const;
+    bool        DeserializeBitcode(std::string_view bytes);
+
+    // 磁盘版本 —— 内存版本之上的薄壳。
+    bool SaveBitcode(const std::string& filename) const;
+    bool LoadBitcode(const std::string& filename);
+
+    // 由内存 IRContext 构建。functions / globals 深拷贝，
+    // 每个函数名记入 entry-point 候选集。
+    static LTOModule FromIRContext(const polyglot::ir::IRContext& ctx,
+                                   std::string module_name);
+};
+}  // namespace polyglot::lto
+
+namespace polyglot::backends {
+// 默认契约：成功 ⇒ ok=true，diagnostics 为空，
+// artifacts.bitcode_bytes 已填充；失败 ⇒ ok=false，
+// 带一条 component 为 "EmitBitcode" 的 kError 诊断。
+virtual CompileResult ITargetBackend::EmitBitcode(
+    const polyglot::ir::IRContext& module,
+    const TargetOptions&           options);
+}  // namespace polyglot::backends
+```
+
+字节流刻意不同于 LLVM bitcode（`BC\xC0\xDE` 魔数），`tools/polyld`
+能在同一次链接调用中无歧义地处理两种格式。
+
+---
+
+# 7.13 调试信息发射
+
+**头文件**：`backends/common/include/debug_emitter.h`、
+`backends/common/include/debug_info.h`  
+**命名空间**：`polyglot::backends`
+
+## 7.13.1 公开面
+
+```cpp
+namespace polyglot::backends {
+
+struct DebugLineInfo {
+  std::string   file;        // 源文件名
+  int           line{0};     // 行号（从 1 起）
+  int           column{0};   // 列号（从 1 起）
+  std::uint64_t address{0};  // 相对所在函数/单元起点的 PC 偏移
+};
+
+class DebugEmitter {
+ public:
+  static bool EmitSourceMap(const DebugInfoBuilder& info, const std::string& path);
+  static bool EmitDWARF    (const DebugInfoBuilder& info, const std::string& path);
+  static bool EmitPDB      (const DebugInfoBuilder& info, const std::string& path);
+};
+
+}  // namespace polyglot::backends
+```
+
+## 7.13.2 长度前缀的"先占位、后回填"契约
+
+DWARF 的 `unit_length` / `header_length` / CIE / FDE 长度前缀，以及 ELF 的
+`e_shoff` 槽位，发射器都先写 0、追加完区域后再用 `Patch32` 或 in-place
+回写把它们改成正确值；回填后的值满足
+`prefix_value == region_byte_count − sizeof(prefix)`，分别对应 DWARF v5
+§7.4 / §7.5 / §6.4.1、System V ABI §10.6.1，以及 ELF gABI 的规定。
+
+`tests/unit/backends/debug_emitter_normalization_test.cpp` 覆盖该契约（4
+个用例：`.debug_info` / `.debug_line` 长度前缀、`DW_LNS_advance_pc` 发射、
+PDB GUID 合规）。
+
+## 7.13.3 行号程序语义
+
+`DebugLineInfo::address` 由生产路径
+`DwarfSectionBuilder::EncodeLineStatements` 直接消费：第一行发射
+`DW_LNE_set_address(entry.address)`，之后每行发射
+`DW_LNS_advance_pc ULEB128(delta)`，其中
+`delta = max(entry.address, last_address + 1) − last_address`。即使调用方
+完全不填该字段，发射结果仍然严格单调、每行可寻址（emitter 退化为每行 +1
+单位）。
+
+## 7.13.4 PDB GUID
+
+`PdbSectionBuilder::GenerateGuid` 使用 `std::random_device` 提供熵，按
+RFC 4122 §4.4 显式设置 version (`4`) 与 variant (`10b`) 位。两次连续发射
+的 GUID 一定不同。
+
+完整规范、含遗留 `DwarfBuilder` fallback 的设计取舍，见
+`docs/realization/debug_emitter_normalization_zh.md`。
 
 ---
 

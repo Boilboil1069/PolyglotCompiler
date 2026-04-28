@@ -110,6 +110,7 @@ polyglot
 |---|---:|---|
 | `dwarf` | 1 | DWARF constants sub-namespace in `common/include/debug/dwarf5.h` |
 | `macho` | 1 | Mach-O constants/structs in `tools/polyld/src/linker.cpp` |
+| `polyglot::backends::wasm::internal` | 1 | Backend-private WASM opcode + magic constants in `backends/wasm/include/internal/wasm_constants.h`; consumed only by `backends/wasm/src/**`. Not counted in §3.2 because it is intentionally invisible above the `internal/` boundary. |
 | `std` | 1 | `std::hash` specialization in `middle/include/ir/template_instantiator.h` |
 | `MyApp`, `ns` | 1 each | Test-only namespaces; not part of production architecture |
 
@@ -158,7 +159,8 @@ Key observation:
 | Namespace | Key Interfaces |
 |---|---|
 | `polyglot::backends` | `ITargetBackend`, `BackendRegistry` (+ `TargetOptions` / `TargetArtifacts` / `BackendCapabilities` / `BackendInfo` / `MCRelocation` / `MCSymbol` / `MCSection` / `CompileStats` / `BackendDiagnostic` / `CompileResult`), `TargetMachine`, `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder`, `DebugInfoBuilder`, `DebugEmitter`, `DwarfBuilder` |
-| `polyglot::backends::common::machine_ir` | `Operand<Traits>`, `MachineInstr<Traits, OpcodeT>`, `MachineBasicBlock<…>`, `MachineFunction<…>`, `LiveInterval<Traits>`, `AllocationResult<Traits>`, `RegAllocStrategy`, `ComputeLiveIntervals` / `LinearScanAllocate` / `GraphColoringAllocate` / `ScheduleFunction` (templates), `Print(MachineFunction)`, `MachineIRVerifier<Traits, OpcodeT>` (+ `VerifierResult` / `VerifierDiagnostic`) |
+| `polyglot::backends::common::machine_ir` | `Operand<Traits>`, `MachineInstr<Traits, OpcodeT>`, `MachineBasicBlock<…>`, `MachineFunction<…>`, `LiveInterval<Traits>`, `AllocationResult<Traits>`, `RegAllocStrategy`, `ComputeLiveIntervals` / `LinearScanAllocate` / `GraphColoringAllocate` / `ScheduleFunction` (templates), `Print(MachineFunction)`, `MachineIRVerifier<Traits, OpcodeT>` (+ `VerifierResult` / `VerifierDiagnostic` / `AbiContract<Traits, OpcodeT>`) |
+| `polyglot::backends::common::abi` | `CallingConvention<Traits>`, `StackFrame<Traits>`, `ComputeStackFrame` (template), `AbiDescriptor`, `RelocationKind`, `RelocationEntry`, `MapToElfX86_64` / `MapToElfAArch64` / `MapToMachOX86_64` / `MapToMachOArm64`, `ToString(RelocationKind)`, `ParseRelocationKind`, `kUnsupportedRelocation` |
 | `polyglot::backends::x86_64` | `X86Target`, `X86TargetTraits`, `Opcode`, `CostModel`, `SelectInstructions`; `MachineFunction` / `LiveInterval` / `AllocationResult` and the four code-gen entry points are `using` aliases of the `polyglot::backends::common::machine_ir` templates |
 | `polyglot::backends::arm64` | `Arm64Target`, `Arm64TargetTraits`, `Opcode`, `CostModel`, `SelectInstructions`; `MachineFunction` / `LiveInterval` / `AllocationResult` and the four code-gen entry points are `using` aliases of the `polyglot::backends::common::machine_ir` templates |
 | `polyglot::backends::wasm` | `WasmTarget`, `EmitWasmBinary`, WASM section lowering |

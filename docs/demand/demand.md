@@ -2164,3 +2164,263 @@ Error: Process completed with exit code 1.
    - 因仅做内部结构重构 + 新增 Verifier 公共接口（向后兼容），版本号 `1.3.3 → 1.3.4`（patch 级）。
 
 --end -done
+
+2026-04-28-2c
+
+背景：从伞形 2026-04-28-2 中拆出，对应原 §3。基线审查显示：(i) `backends/common/include/abi.h` (24 行) 仅含一个 `struct ABI { name; pointer_size; }` 占位结构，全项目零消费者；(ii) `backends/common/include/relocation.h` (24 行) 仅含 `enum class RelocType { kAbs32, kAbs64, kPcRel32 }` + 一个三字段 `struct Relocation`，同样全项目零 include 消费者（`tools/polyc/src/compilation_pipeline.cpp:144` 使用的 `backends::Relocation` 来自 `object_file.h`，字段不同）；(iii) `backends/x86_64/src/calling_convention.cpp` (217 行) 与 `backends/arm64/src/calling_convention.cpp` (237 行) 在 `StackFrame` 字段集、`ComputeStackFrame` 算法骨架、`CallingConvention` 类方法签名上字节级同源，仅在寄存器表与汇编语法层不同；(iv) `target_backend.h` 已成熟提供 `MCRelocation { section, offset, type, symbol, addend }`，但与 `object_file.h::Relocation` 字段重复且无映射桥。本子需求把 ABI（调用约定 + 栈帧布局）抽象上提到 `backends/common/include/abi/`，并把"目标无关重定位语义 → 各 ELF/Mach-O 整数码"映射归一到 `backends/common/include/abi/relocation.h`，同步把现有占位文件 `abi.h` / `relocation.h` 改造为转发头（不删除文件，遵循禁止删库规则），为后续 2d (WASM 拆分) / 2e (Debug 归一化) / 2f (RISC-V 接入) 提供 ABI 接入面。
+
+1.通用 ABI 模板：
+   - 新增 `backends/common/include/abi/calling_convention.h`：定义 `polyglot::backends::common::abi::StackFrame<TargetTraits>` POD（字段集与现有 x86_64/arm64 私有 `StackFrame` 同源：`total_size / spill_area_size / local_area_size / arg_area_size / saved_regs`）；定义 `polyglot::backends::common::abi::CallingConvention<TargetTraits>` 模板类，至少暴露 `IntegerArgRegs() / FloatArgRegs() / CalleeSavedRegs() / VolatileRegs() / StackAlignment() / PointerSize() / RedZoneSize() / AvailableRegisters()` 共 8 个常量访问器，外加目标无关算法 `ComputeStackFrame(const MachineFunction&, const AllocationResult&)`（实现从 x86_64 版本字节等价上提）。`TargetTraits` 需在 2b 既有契约（`Register` + `kDefaultRegister`）之上追加：`static constexpr int kStackAlignment`、`static constexpr int kPointerSize`、`static constexpr int kRedZoneSize`、四张 `inline static const std::vector<Register>` 静态寄存器表（integer_arg / float_arg / callee_saved / volatile）。
+   - 新增 `backends/common/include/abi/abi.h` 作为 `common::abi` 子命名空间的伞形头（聚合 `calling_convention.h` 与 `relocation.h`）。
+   - 现有 `backends/common/include/abi.h` 不删除：内容重写为 `#include "backends/common/include/abi/abi.h"` + 在 `polyglot::backends` 命名空间提供 `using ABI = common::abi::AbiDescriptor;` 转发别名（`AbiDescriptor` 为新增的非模板汇总结构：`{ name; pointer_size; stack_alignment; red_zone_size; }`），保留旧 `struct ABI` 字段名向后兼容。
+
+2.通用重定位语义：
+   - 新增 `backends/common/include/abi/relocation.h`：定义目标无关 `enum class RelocationKind { kAbs32, kAbs64, kPcRel32, kPcRel64, kGotPcRel32, kPltPcRel32, kPage21, kPageOff12, kBranch26, kCondBranch19, kMovwG0Abs, kMovwG1Abs, kMovwG2Abs, kMovwG3Abs }`（同时覆盖 x86-64 SysV 与 AArch64 ELF/Mach-O 主流语义），并提供 `RelocationEntry { section; offset; kind; symbol; addend; }`（字段名/类型与既有 `MCRelocation` 一致以便互转）。
+   - 提供 4 个目标专用映射函数：`std::uint32_t MapToElfX86_64(RelocationKind)` / `std::uint32_t MapToElfAArch64(RelocationKind)` / `std::uint32_t MapToMachOX86_64(RelocationKind)` / `std::uint32_t MapToMachOArm64(RelocationKind)`，覆盖 `R_X86_64_PC32 / R_X86_64_64 / R_X86_64_GOTPCREL / R_X86_64_PLT32 / R_AARCH64_ABS64 / R_AARCH64_ADR_PREL_PG_HI21 / R_AARCH64_ADD_ABS_LO12_NC / R_AARCH64_CALL26 / R_AARCH64_CONDBR19 / R_AARCH64_MOVW_UABS_G0..G3` 等；不可映射的组合返回 `0xFFFFFFFFu` 哨兵并在调用方走诊断路径。
+   - 新增 `backends/common/src/abi.cpp`：上述 4 个映射函数 + `AbiDescriptor` 比较运算符 + `RelocationKind` 的 `ToString` / `ParseRelocationKind` 自由函数（用于诊断与未来 IR 序列化）。
+   - 现有 `backends/common/include/relocation.h` 不删除：内容重写为 `#include "backends/common/include/abi/relocation.h"` + 在 `polyglot::backends` 命名空间提供 `using RelocType = common::abi::RelocationKind;` 与 `using Relocation = common::abi::RelocationEntry;` 转发别名。该转发不得破坏 `tools/polyc/src/compilation_pipeline.cpp` 当前对 `backends::Relocation`（来自 `object_file.h`）的引用 —— 通过 ADL/ namespace scoping 区分（`object_file.h` 中的 `Relocation` 仍位于 `polyglot::backends` 直接命名空间，但不与 `using Relocation =` 别名冲突，因为后者放在头部 include 守卫 + `inline namespace v2 {}` 保护层中；如出现 ODR 冲突则以条件编译 `#ifndef POLYGLOT_BACKENDS_RELOCATION_LEGACY` 退出转发别名，让旧 builder 类型继续优先）。
+
+3.per-target `calling_convention.cpp` 改造：
+   - x86_64 版本：删除文件内匿名命名空间的 `StackFrame` 与 `CallingConvention` 定义（实现已上提）；改为定义 `X86_64Traits` 实例化所需的 `inline static const std::vector<Register>` 4 张表 + 4 个常量 (`kStackAlignment=16, kPointerSize=8, kRedZoneSize=128`)；保留 `EmitPrologue` / `EmitEpilogue` / `EmitCallSetup` 三个汇编语法相关方法（作为 `CallingConvention<X86_64Traits>` 的 `friend` 自由函数 `EmitPrologueX86_64` / `EmitEpilogueX86_64` / `EmitCallSetupX86_64`）；保留 `GetSysVCallingConvention()` 与 `GetAvailableRegisters()` 两个外部符号（即便目前无外部消费者也保留，避免 ABI 表面变化）。
+   - arm64 版本同上，改用 `Arm64Traits`，常量 `kStackAlignment=16, kPointerSize=8, kRedZoneSize=0`，保留 `EmitPrologueArm64` / `EmitEpilogueArm64` / `EmitCallSetupArm64`、`GetAAPCS64CallingConvention()`、`GetAvailableRegisters()`。
+   - 改造后两个 .cpp 文件预计净减 ≥ 70 行（算法主体上提），不得保留任何注释形式的死代码；行数减少必须由测试确认零回归。
+
+4.MachineIRVerifier ABI 规则扩展：
+   - 在 `backends/common/include/machine_ir/verifier.h` 中新增可选 `AbiContract<TargetTraits>` 参数（默认 `nullptr`，向后兼容现有 5 个 verifier 测试）；当传入非空时启用第 (d) 条规则："`kCall` 指令的非 callee 操作数数量超过 `IntegerArgRegs().size() + FloatArgRegs().size() + 16` 时报告诊断 `kAbiCallArityExceeded`，提示需要栈传参且尺寸异常"。
+   - 同步追加规则 (e)："函数体内任何 `kRet` 之前的最近一条 `kCall` 之后，到 `kRet` 之间，禁止读取已被 `EmitCallSetup` 视为 volatile 的物理寄存器"（仅在已分配阶段触发，未分配的 `kVReg` 操作数跳过此检查）。
+   - 这两条规则的实现必须与 2b 既有 (a)/(b)/(c) 规则共存：当 `AbiContract == nullptr` 时严格不退化；当传入时仅追加诊断条目，不修改既有诊断顺序。
+
+5.测试：
+   - 新增 `tests/unit/backends/abi_calling_convention_test.cpp`：≥ 4 用例覆盖：(a) `ComputeStackFrame` 在零参函数下产出 `total_size == 0` 与空 `saved_regs`；(b) 单 callee-saved 寄存器使用时 `total_size` 16 字节对齐；(c) 7 个 int 参数的 call 触发 `arg_area_size > 0`；(d) `AvailableRegisters()` 返回 `volatile + callee_saved` 的拼接顺序与原 `GetAvailableRegisters()` 字节等价。
+   - 新增 `tests/unit/backends/abi_relocation_test.cpp`：≥ 4 用例覆盖：(a) `MapToElfX86_64(kAbs64)==R_X86_64_64==1`、`MapToElfX86_64(kPcRel32)==R_X86_64_PC32==2`、`MapToElfX86_64(kGotPcRel32)==R_X86_64_GOTPCREL==9`、`MapToElfX86_64(kPltPcRel32)==R_X86_64_PLT32==4`；(b) `MapToElfAArch64(kAbs64)==R_AARCH64_ABS64==257`、`MapToElfAArch64(kPage21)==R_AARCH64_ADR_PREL_PG_HI21==275`、`MapToElfAArch64(kPageOff12)==R_AARCH64_ADD_ABS_LO12_NC==277`、`MapToElfAArch64(kBranch26)==R_AARCH64_CALL26==283`；(c) `MapToMachOX86_64(kPcRel32)` 返回 `X86_64_RELOC_BRANCH==2`；(d) 不可映射组合 (例如 `MapToElfX86_64(kBranch26)`) 返回哨兵 `0xFFFFFFFFu` 且 `ToString(kBranch26)=="kBranch26"`、`ParseRelocationKind("kBranch26")==kBranch26`。
+   - 新增 `tests/unit/backends/abi_verifier_test.cpp`：≥ 3 用例覆盖：(a) 不传 `AbiContract` 时既有 5 个 verifier 测试结果完全不变（用一个等价合法函数 + 一个缺 terminator 的非法函数双向验证）；(b) 传入 X86_64 `AbiContract` 时，包含 `kCall` + 100 个操作数的函数触发 `kAbiCallArityExceeded`；(c) 传入 Arm64 `AbiContract` 时，正常 4 参 `kCall` 不触发任何诊断。
+   - 既有 `test_backends` / `test_core` / `test_middle` / `test_runtime` / `test_linker` 全部不得回归。
+
+6.文档（中英双语）：
+   - 新增 `docs/realization/abi.md` 与 `docs/realization/abi_zh.md`，覆盖：`common::abi::CallingConvention` 设计与 `TargetTraits` 协议扩展（4 张静态表 + 3 个 constexpr 常量）、`StackFrame` 字段语义、`ComputeStackFrame` 算法逐步说明、`RelocationKind` 全集与各目标 ELF/Mach-O 整数码映射表、占位 `abi.h` / `relocation.h` 转发别名机制与向后兼容承诺、`AbiContract` 与 verifier 规则 (d)/(e) 的语义、新增后端如何接入 ABI 模板、故障排查（不可映射重定位、verifier 误报、栈帧未对齐）。
+   - 更新 `docs/specs/namespace_architecture.md` / `_zh.md`：在 `polyglot::backends::common::machine_ir` 行之后追加 `polyglot::backends::common::abi` 子命名空间行，列出 `CallingConvention` / `StackFrame` / `RelocationKind` / `RelocationEntry` / `AbiDescriptor` / `MapToElfX86_64` / `MapToElfAArch64` / `MapToMachOX86_64` / `MapToMachOArm64` / `ToString` / `ParseRelocationKind` 共 11 个公共符号。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：在既有 §7.11 "Common MachineIR & Verifier" 之后新增 §7.12 "Common ABI & Relocation"，给出 `CallingConvention<TargetTraits>` 接入示例、`RelocationKind` 全表、4 个目标映射函数签名、`AbiDescriptor` 字段表。
+
+7.约束：
+   - 不允许最小实现 / 占位 / 空函数体；
+   - C++ 代码注释一律英文；
+   - 公共类型一律 `polyglot::backends::common::abi`，目标层 `using` 别名置于 `polyglot::backends::<target>`，文件命名小写下划线；
+   - 现有 `backends/common/include/abi.h` 与 `backends/common/include/relocation.h` 必须保留为转发头，禁止删除文件；
+   - 算法上提后的 `ComputeStackFrame` 必须与原 x86_64 / arm64 版本对相同输入产出字节等价的 `StackFrame`（回归测试保护）；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅做内部结构重构 + 新增 ABI/Reloc 公共接口（向后兼容），版本号 `1.3.4 → 1.3.5`（patch 级）。
+
+--end -done
+
+2026-04-28-2d
+
+背景：从伞形 2026-04-28-2 中拆出，对应原 §4。基线审查显示 `backends/wasm/src/wasm_target.cpp` 单文件已膨胀到 1047 行，按 `// =====` 分为 7 个明显段：(1) 二进制格式常量 ~110 行（`kWasmMagic` / `kWasmVersion` / 60+ `kOp*` 操作码 / `kBlockTypeVoid`），(2) LEB128 编码 ~50 行（`EmitU32Leb128` / `EmitI32Leb128` / `EmitI64Leb128` / `EmitString` / `EmitSection`），(3) IR→Wasm 类型映射 ~25 行（`IRTypeToWasm`），(4) 7 个段发射器 ~95 行（type / import / function / memory / global / export / code），(5) `LowerInstruction` ~325 行（覆盖 binary / cmp / call / load / store / cast / alloca / br / br_if / unsupported），(6) `LowerFunction` ~70 行（locals 压缩 + 块深度建表 + block 包裹），(7) `EmitWasmBinary` 公共入口 ~115 行 + (8) `EmitAssembly` + `EmitInstructionWAT` WAT 文本发射器 ~145 行。该文件违反单一职责，任何下游修改（例如 2026-04-28-2c 的 ABI 表 / 后续 RISC-V smoke / debug emitter 整合）都要在 1k+ 行的 .cpp 中扫描，回归风险与 review 成本都偏高。本子需求把 `wasm_target.cpp` 按上述自然边界切分为 1 + 6 个聚焦 TU，保留 `wasm_target.cpp`（禁止 `git rm`）作为 `EmitWasmBinary` 的公共入口 TU，新增 6 个 .cpp 与 1 个内部常量头，所有方法签名、字节级输出与诊断顺序保持不变（由既有 `wasm_target_test.cpp` 8 个用例 + 新增 smoke 测试守护）。
+
+1.内部常量头：
+   - 新增 `backends/wasm/include/internal/wasm_constants.h`：把 `kWasmMagic` / `kWasmVersion` / 全部 `kOp*` 操作码 / `kBlockTypeVoid` 一律改为 `inline constexpr` 形式（C++17），归属命名空间 `polyglot::backends::wasm::internal`。该头是后端实现私有头（不进入 `include/` 公共面），消费者仅限 `backends/wasm/src/**`。
+   - 删除 `wasm_target.cpp` 内所有 `[[maybe_unused]] static constexpr` 单值定义（迁移到上述头），但 `wasm_target.cpp` 文件本身保留。
+
+2.编码与段写入 TU：
+   - 新增 `backends/wasm/src/encoding/leb128.cpp`：`WasmTarget::EmitU32Leb128` / `EmitI32Leb128` / `EmitI64Leb128` / `EmitString` / `EmitSection` 的字节等价实现迁出。
+
+3.类型映射 TU：
+   - 新增 `backends/wasm/src/lowering/type_mapping.cpp`：`WasmTarget::IRTypeToWasm` 的字节等价实现迁出。
+
+4.段发射器 TU：
+   - 新增 `backends/wasm/src/sections/section_emitters.cpp`：`EmitTypeSection` / `EmitImportSection` / `EmitFunctionSection` / `EmitMemorySection` / `EmitGlobalSection` / `EmitExportSection` / `EmitCodeSection` 共 7 个方法的字节等价实现迁出。
+
+5.指令降级 TU：
+   - 新增 `backends/wasm/src/lowering/instruction_lowerer.cpp`：`WasmTarget::LowerInstruction`（含 binary / return / call / load / store / cast / alloca / unreachable / branch / cond_branch / unsupported 共 11 个分支）字节等价迁出。`lowering_errors_` 写入顺序、`func_name_to_index_` 查找路径、`block_depth_map_` 解析路径全部保持不变。
+
+6.函数降级 TU：
+   - 新增 `backends/wasm/src/lowering/function_lowerer.cpp`：`WasmTarget::LowerFunction`（locals 压缩 + 块深度建表 + WASM block 包裹）字节等价迁出。
+
+7.WAT 文本发射器 TU：
+   - 新增 `backends/wasm/src/wat_printer.cpp`：`WasmTarget::EmitAssembly` 与 `WasmTarget::EmitInstructionWAT` 字节等价迁出，原匿名命名空间内的 `EmitInstructionWATImpl` 自由函数同步迁入并保留为该 TU 的内部链接（`namespace { … }`），不暴露给其他 TU。
+
+8.公共入口 TU 收敛：
+   - `backends/wasm/src/wasm_target.cpp` 改造后只保留 `WasmTarget::EmitWasmBinary` 一个方法（约 115 LOC），include 集合相应收敛到 `<algorithm>` / `<cstdint>` / `<iostream>` / `<vector>` 与必要 IR 头；文件顶部 doxygen 头保留，禁止保留任何注释形式的死代码或被迁出方法的空函数体。
+
+9.CMake 接线：
+   - `backends/CMakeLists.txt` 的 `backend_wasm` 目标新增上述 6 个 .cpp 源文件（`encoding/leb128.cpp` / `lowering/type_mapping.cpp` / `sections/section_emitters.cpp` / `lowering/instruction_lowerer.cpp` / `lowering/function_lowerer.cpp` / `wat_printer.cpp`），保留既有 `wasm_target.cpp` / `wasm_target_backend.cpp`；新增 `target_include_directories(backend_wasm PRIVATE backends/wasm/include/internal)`（已隐含在 `${CMAKE_SOURCE_DIR}` 中，但显式声明便于审阅）。
+
+10.测试：
+   - 新增 `tests/unit/backends/wasm_split_smoke_test.cpp`：≥ 4 用例覆盖：(a) 空 IR module 调 `EmitWasmBinary` 返回 8 字节 magic+version 头；(b) 单函数 `add(i32,i32)->i32` 模块 `EmitWasmBinary` 输出包含 type/function/memory/export/code 五段且 magic 正确；(c) 同一 IR 模块 `EmitAssembly` 输出 `(module` 起始且包含 `(func $add`；(d) `EmitU32Leb128(0x80)` 编码为 `{0x80, 0x01}`、`EmitI32Leb128(-1)` 编码为 `{0x7F}`（验证编码 TU 拆出后行为不变）。
+   - 既有 `tests/unit/backends/wasm_target_test.cpp` 8 个用例不得回归，作为字节等价的护栏。
+   - 既有 `test_backends` / `test_core` / `test_middle` / `test_runtime` / `test_linker` 全部不得回归。
+
+11.文档（中英双语）：
+   - 新增 `docs/realization/wasm_backend.md` 与 `docs/realization/wasm_backend_zh.md`，覆盖：拆分前的 1047 行单体痛点、新的 6+1 TU 边界与各自职责、`internal/wasm_constants.h` 的可见性策略、`LowerInstruction` 11 个分支的语义清单、`LowerFunction` 块深度建表算法、`EmitWasmBinary` 三阶段（类型收集 / 函数体降级 / 段汇编）流水、`EmitAssembly` WAT 输出 schema、新增 WASM 后端贡献者的接入路径、字节等价回归保护方法。
+   - 更新 `docs/specs/namespace_architecture.md` / `_zh.md`：在 `polyglot::backends::wasm` 行追加 `internal::wasm_constants` 子命名空间说明（仅一行注脚，不展开常量清单）。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：在既有 §7.11 之后新增 §7.12 "WASM Backend"，给出 `WasmTarget` 公共方法清单（`EmitWasmBinary` / `EmitAssembly` / `SetModule` / `TargetTriple`）与 6+1 TU 路径表，标注 `internal::` 命名空间为后端私有。
+
+12.约束：
+   - 不允许最小实现 / 占位 / 空函数体；
+   - C++ 代码注释一律英文；
+   - 公共类型一律 `polyglot::backends::wasm`，常量私有头放 `polyglot::backends::wasm::internal`，文件命名小写下划线；
+   - `wasm_target.cpp` 不得 `git rm`，必须保留为 `EmitWasmBinary` 的入口 TU；
+   - 拆分必须字节等价：`EmitWasmBinary` / `EmitAssembly` 对相同 IR 输入产出与拆分前完全一致的 byte sequence / 文本（既有 8 个 wasm_target_test 用例护栏）；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅做后端内部 TU 拆分（向后兼容、零行为变化），版本号 `1.3.5 → 1.3.6`（patch 级）。
+
+--end -done
+
+2026-04-28-2e
+
+背景：从伞形 2026-04-28-2 中拆出，对应 2a 在 `target_backend.h` / `target_backend.cpp` 中预留的 `EmitBitcode`（2a 末尾明确标注 "默认返回 unsupported 诊断，留待 2026-04-28-2e 启用"）。当前默认实现把所有 `EmitKind::kBitcode` 请求拒之门外，三个后端的 `BackendCapabilities::emits_bitcode` 全部为 `false`，`tools/polyld` 端虽已能识别 `kLLVMBitcode` 魔数但上游没有任何在制品；同时 `middle/src/lto/link_time_optimizer.cpp` 已实现一份基于 `LTOModule::SaveBitcode/LoadBitcode` 的 polyglot bitcode 文本格式（落盘式），LTO/ThinLTO 流水线已经依赖它。本子需求把这条已有的序列化能力上提为内存 API 并接入后端，使 `EmitBitcode` 成为真正可用的发射路径。
+
+1.LTOModule 内存级 bitcode API：
+   - 在 `middle/include/lto/link_time_optimizer.h` 的 `LTOModule` 中新增：
+     - `std::string SerializeBitcode() const;` —— 返回与现有 `SaveBitcode` 完全一致的字节流（不写盘）；
+     - `bool DeserializeBitcode(std::string_view bytes);` —— 从内存字节流恢复，与 `LoadBitcode` 字节等价；
+     - `static LTOModule FromIRContext(const polyglot::ir::IRContext& ctx, std::string module_name);` —— 把 `IRContext::Functions()` / `Globals()` 拷贝进 `LTOModule`，把每个 function 视作潜在 entry_point（无属性时全部纳入），保留 block / instruction 拓扑。
+   - 现有 `SaveBitcode` 用 `SerializeBitcode` + `std::ofstream` 实现；`LoadBitcode` 用 `std::ifstream::read` + `DeserializeBitcode` 实现；序列化语义保持 100% 兼容（既有 `tests/unit/middle/lto_test.cpp` 全部 SaveBitcode/LoadBitcode 用例必须仍然通过）。
+
+2.`ITargetBackend::EmitBitcode` 默认实现切换：
+   - 在 `backends/common/src/target_backend.cpp` 中：原 unsupported 诊断分支删除，改为 `LTOModule::FromIRContext` → `SerializeBitcode()` → 把 UTF-8 字节填入 `result.artifacts.bitcode_bytes`，`result.ok = true`，无诊断；
+   - 头文件 `backends/common/include/target_backend.h` 中 `EmitBitcode` 的 doxygen 注释更新：从 "Default implementation reports an unsupported diagnostic" 改为说明默认实现通过 polyglot bitcode（LTO 同源序列化格式）发射，后端可重写以输出 LLVM bitcode；
+   - `EmitKind::kBitcode` 的注释保持 "may be unsupported" 措辞不变（针对未来 LLVM bitcode 重写场景）。
+
+3.三个后端能力位翻转：
+   - `backends/x86_64/src/x86_target_backend.cpp`、`backends/arm64/src/arm64_target_backend.cpp`、`backends/wasm/src/wasm_target_backend.cpp` 三个 adapter 的 `Capabilities()` 中 `emits_bitcode` 由 `false` 改为 `true`；
+   - 不引入新的虚函数重写：三者继续走基类默认 `EmitBitcode`（即第 2 步的 polyglot bitcode 路径）。
+
+4.测试更新：
+   - `tests/unit/backends/target_backend_registry_test.cpp` 中：
+     - 第 134 行 `REQUIRE_FALSE(info.capabilities.emits_bitcode)` 改为 `REQUIRE(info.capabilities.emits_bitcode)`；
+     - 第 197 行 `TEST_CASE("ITargetBackend bitcode default returns unsupported diagnostic", ...)` 整体改写为 `"ITargetBackend bitcode default emits polyglot bitcode bytes"`：构造一个含两个函数的 `IRContext`，调用 `EmitBitcode`，断言 `result.ok == true`、`bitcode_bytes` 非空、首字节为 `'m'`（"module " 前缀）、且 `DeserializeBitcode` 回放得到的 `LTOModule.functions.size() == 2`；
+   - 新增 `tests/unit/backends/emit_bitcode_roundtrip_test.cpp`（≥ 3 个 case）：
+     - empty IRContext 走通；
+     - 三函数 IRContext：每条 backend triple 各序列化一次，断言三份产物字节等价（默认实现共享路径）；
+     - block + instruction 拓扑保持：构造一个含 entry block 与 ret 指令的 function，反序列化后断言 block 名 / 指令算子 ≥ 1。
+
+5.CMake 接线：
+   - `tests/CMakeLists.txt` 的 `UNIT_TEST_BACKENDS` 列表追加 `unit/backends/emit_bitcode_roundtrip_test.cpp`；
+   - 由于默认 `EmitBitcode` 现在依赖 `LTOModule`，`backends/common` 的 `add_library(backend_common ...)` 必须 `target_link_libraries` 链上 `middle_ir`（已存在的 LTO 实现所在 target）。如果已经间接依赖则保持不变，否则在 `backends/CMakeLists.txt` 中追加显式依赖。
+
+6.文档：
+   - 新增 `docs/realization/bitcode_emission.md` 与 `_zh.md`：交代 polyglot bitcode 的格式（与 LTO 同源的文本流：`module <name>` 头 → `<fn_count> <gv_count>` → 每函数 `<name>` / `<block_count>` / 每块 `<bname> <inst_count>` / 每指令 `<name> <type_kind> <op_count> <ops...>` → 全局 → entry_points），`EmitBitcode` 三阶段（FromIRContext → Serialize → bitcode_bytes），与 LLVM bitcode 的差异说明（不是 LLVM bc 格式，未来若需 LLVM 互通需要后端覆盖默认实现），以及 polyld 端的消费路径（`linker.cpp` 已通过魔数识别 `kLLVMBitcode`，本格式以 `m` 开头不会被误识别，互不冲突）。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：在 §7.10.2 `TargetOptions/TargetArtifacts` 中给 `bitcode_bytes` 字段加一行说明；在 §7.10 末尾或 §7.12 之后新增 §7.13 "Bitcode Emission"，列出 `LTOModule::SerializeBitcode/DeserializeBitcode/FromIRContext` 与 `ITargetBackend::EmitBitcode` 的契约（成功时 ok/diagnostics/bytes 三元组语义）。
+   - 更新 `docs/realization/wasm_backend.md` / `_zh.md`：在能力表行追加一句"默认 EmitBitcode 走 polyglot bitcode 路径"（仅一行注脚，不展开格式细节）。
+
+7.约束：
+   - 不允许最小实现 / 占位 / 空函数体；
+   - C++ 代码注释一律英文；
+   - 不允许 `git rm` 既有文件；不允许动 `LTOModule::SaveBitcode/LoadBitcode` 的对外签名（只增加新方法 + 让旧方法薄壳化）；
+   - `EmitKind::kBitcode` 的语义对外不变：调用方仍按 `Capabilities().emits_bitcode` 决策；
+   - 现有 `tests/unit/middle/lto_test.cpp` 全部用例必须保持绿色（SaveBitcode/LoadBitcode 字节等价护栏）；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅启用既有但未接通的能力 + 翻转三个 capability flag + 新增 3 个测试用例（向后兼容、无对外接口破坏），版本号 `1.3.6 → 1.3.7`（patch 级）。
+
+--end -done
+
+2026-04-28-2g
+
+MC，本条目为伞形需求 `2026-04-28-2` 的收口子需求（2f RISC-V 子项延后到后续次版本，本伞形以 2a–2e + 2g 完成）。目标：把 `backends/common` 调试信息发射子系统中遗留的所有 `// Placeholder` / `// (placeholder)` / `// Simplified` / `// simplified` 注释及其对应代码做规范化清理，并在不破坏既有 5 个测试套件（test_backends / test_core / test_middle / test_runtime / test_linker）绿色护栏的前提下补齐围绕"长度前缀-后回填" DWARF/ELF 惯用模式的语义注释、把 `EncodeLineStatements` 中以 `address++` 占位的 PC 推进改造成显式按 `DebugLineInfo::address` 单调递增的真实地址跟踪、把 PDB GUID 生成路径中的"simplified"标签替换为符合 RFC 4122 v4 的实现说明，并新增一个面向单元测试粒度的 `debug_emitter_normalization_test.cpp` 守住关键不变量。
+
+具体改造范围：
+
+1.注释规范化（共 12 处，零行为改动）：
+
+   `backends/common/src/debug_emitter.cpp`：
+   - 第 102 行 `write_u64(0); // e_shoff (placeholder)` 改为 `write_u64(0); // e_shoff: reserved 64-bit field, patched after section header table is appended (see e_shoff_pos write-back below)`；
+   - 第 520 行 `WriteLE<uint32_t>(result, 0); // Placeholder` 改为 `WriteLE<uint32_t>(result, 0); // unit_length: reserved DWARF length prefix, patched via Patch32(unit_length_pos, ...) at end of compilation unit`；
+   - 第 827 行 `WriteLE<uint32_t>(result, 0); // Placeholder` 改为 `WriteLE<uint32_t>(result, 0); // unit_length: reserved DWARF length prefix for .debug_line, patched after line program is fully encoded`；
+   - 第 840 行 `WriteLE<uint32_t>(result, 0); // Placeholder` 改为 `WriteLE<uint32_t>(result, 0); // header_length: reserved DWARF length prefix for line header, patched after file/directory tables are written`；
+   - 第 866 行 `WriteLE<uint32_t>(result, 0); // Placeholder for length` 改为 `WriteLE<uint32_t>(result, 0); // CIE length: reserved, patched after CIE body and padding are appended (DWARF v5 §6.4.1)`；
+   - 第 915 行 `WriteLE<uint32_t>(result, 0); // Placeholder for length` 改为 `WriteLE<uint32_t>(result, 0); // FDE length: reserved, patched after FDE body and padding are appended (DWARF v5 §6.4.1)`；
+   - 第 966 行 `WriteLE<uint32_t>(result, 0); // placeholder for length` 改为 `WriteLE<uint32_t>(result, 0); // .eh_frame CIE length: reserved, patched after CIE body and padding (System V ABI §10.6.1)`；
+   - 第 1019 行 `WriteLE<uint32_t>(result, 0); // placeholder for length` 改为 `WriteLE<uint32_t>(result, 0); // .eh_frame FDE length: reserved, patched after FDE body and padding (System V ABI §10.6.1)`；
+   - 第 1074 行 `// Placeholder` 同类替换为对应 .debug_aranges / .debug_pubnames 段的"reserved length, patched at section close"语义注释；
+   - 第 1135 行 `// GUID generation (simplified)` 改为 `// PDB GUID generation: RFC 4122 v4 (random) compliant; uses std::random_device for entropy and explicitly sets version (4) and variant (1) bit-fields per spec`；
+
+   `backends/common/src/dwarf_builder.cpp`：
+   - 第 269 行 `// Line number program (simplified)` 改为 `// Line number program: emits one row per source-line entry using DW_LNE_set_address + DW_LNS_set_file + DW_LNS_advance_line + DW_LNS_copy; complex special-opcode encoding is not used because the legacy DwarfBuilder path is reserved for fallback; production path lives in DwarfSectionBuilder::EncodeLineStatements`。
+
+2.行为规范化（仅 1 处真实代码改动）：
+
+   `backends/common/src/debug_emitter.cpp::DwarfSectionBuilder::EncodeLineStatements`（约第 753–812 行）：
+   - 删除第 808 行 `address++; // Simplified address tracking`；
+   - 在循环开始处把 `uint64_t address = 0;` 的语义改为"已发射到 DWARF 状态机的最后一个 PC"，并在每个 `entry` 处理时根据 `entry.address` 与 `address` 的差值采用 DWARF 标准做法推进：若 `delta > 0` 则发射 `DW_LNS_advance_pc + ULEB128(delta)`；若 `delta == 0` 则不发射 PC 推进；若 `delta < 0`（异常，非单调）则降级为重新 `DW_LNE_set_address` 一次（这种情况不应在合法 IR 中出现，仍要保持鲁棒）；
+   - 第一次 `entry`（`address == 0`）继续走 `DW_LNE_set_address(0)` + 后续标准推进，不再无条件 `address++`；
+   - 在 `kDwLnsCopy` 后赋值 `address = entry.address;`，确保状态机寄存器与真实 PC 一致；
+   - `kDwLnsAdvancePc` 由原本 `[[maybe_unused]]` 改为正式启用（删除 attribute）。
+
+3.测试新增：
+
+   `tests/unit/backends/debug_emitter_normalization_test.cpp`（≥ 4 个 case，仅依赖既有 `DebugInfoBuilder` / `DwarfSectionBuilder` / `PdbSectionBuilder` 公开 API，不调用任何外部 `dwarfdump` / `llvm-pdbutil`）：
+   - case 1 `.debug_info unit_length is reserved-then-patched`：构造一个含 1 个 compile unit + 1 个 subprogram 的 `DebugInfoBuilder`，调用 `BuildDebugInfo`，断言返回 `bytes.size() >= 11` 且 `LE32(bytes, 0) == bytes.size() - 4`；
+   - case 2 `.debug_line unit_length and header_length are reserved-then-patched`：同上方法构造一份带 2 行的行号信息，断言 `LE32(bytes, 0) == bytes.size() - 4`，且头部 `header_length` 字段（位于 unit_length(4) + version(2) + address_size(1) + segment_selector_size(1) 之后的 4 字节）非零并 < `bytes.size()`；
+   - case 3 `.debug_line line program advances PC monotonically`：构造 3 行同文件不同 address 的 `DebugLineInfo`（address 单调递增），断言序列化结果中至少出现一次 `DW_LNS_advance_pc`(0x02) 字节；
+   - case 4 `PDB GUID has RFC 4122 v4 + variant 1 bits`：调用 `PdbSectionBuilder::BuildPdbInfoStream` 取末 16 字节，断言 `(guid[6] & 0xF0) == 0x40 && (guid[8] & 0xC0) == 0x80`；并断言两次连续调用 GUID 不全相同（熵存在）。
+
+4.CMake 接线：
+
+   - `tests/CMakeLists.txt` 的 `UNIT_TEST_BACKENDS` 列表追加 `unit/backends/debug_emitter_normalization_test.cpp`；
+   - 不新增任何依赖（沿用既有 `backend_common` 链路）。
+
+5.文档：
+
+   - 新增 `docs/realization/debug_emitter_normalization.md` 与 `_zh.md`：
+     - 解释 DWARF/ELF "reserved length-prefix + patch-at-close" 惯用模式（为什么写 0 不是占位 bug）；
+     - 说明 `EncodeLineStatements` PC 推进的新语义（按 `DebugLineInfo::address` 真实推进，使用 `DW_LNS_advance_pc`）；
+     - 列出 PDB GUID 的 RFC 4122 v4 合规细节；
+     - 给出新增 4 个单元 case 的不变量清单。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：在调试发射相关节（`DwarfSectionBuilder` / `PdbSectionBuilder`）末尾追加一节"Reserved-length encoding contract"，说明所有 `// reserved ... patched` 注释代表的不变量。
+   - 不引入新的对外公开 API；如有头文件 `debug_emitter.h` 中需要标注的 doxygen 调整，仅做注释级修补。
+
+6.约束：
+
+   - 不允许最小实现 / 占位 / 空函数体；本子需求自身不引入任何新的占位注释；
+   - C++ 代码注释一律英文；
+   - 不允许 `git rm` 既有文件；不允许改 `DwarfSectionBuilder` / `DebugInfoBuilder` / `PdbSectionBuilder` 的对外公开签名（只允许内部行为细化 + 注释规范化 + 新增私有助手）；
+   - 既有 5 个测试套件（test_backends / test_core / test_middle / test_runtime / test_linker）必须全部保持绿色；test_backends 期望 case 数 +4、断言数随之增长；
+   - 行为改动仅限第 2 条（PC 推进），其它 11 处为纯注释级；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因本条目同时承担伞形需求 `2026-04-28-2` 的收口（2a–2e + 2g 已闭环，2f RISC-V 子项延后），版本号按伞形原计划做次版本跃迁：`1.3.7 → 1.4.0`；伞形条目自身不再单独追加 `--end -done`（按 2026-04-28-2 末尾规约："当 2a–2g 全部追加 --end -done 时视作伞形完成"，2f 缺席视为延后释出，不阻塞伞形收口）。
+
+--end -done
+
+2026-04-28-3
+
+MC，本条目专注文档侧整理：将更新日志从 `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md` 第 14.6 节剥离，独立成顶层 `docs/CHANGELOG.md` + `docs/CHANGELOG_zh.md` 双语文档，并补齐 1.3.2 → 1.4.0 区间所有版本（即新近完成的后端注册表、MachineIR 校验器、ABI/Reloc 重写、WASM TU 拆分、EmitBitcode 启用、调试发射规范化六个版本）的条目；同步更新 `README.md` 头部测试徽章、版本脚注、Last Updated 日期、文档目录链接，以及 USER_GUIDE 双语版的版本号 / 日期 / TOC 结构。
+
+具体改造范围：
+
+1.新增 `docs/CHANGELOG.md` 与 `docs/CHANGELOG_zh.md`：
+   - 顶部加项目名 / 维护说明 / 版本范围（v0.1.0 → v1.4.0）/ 与 USER_GUIDE 的相互引用；
+   - 按版本号倒序列出全部既有条目（直接搬运 USER_GUIDE 第 14.6 节内容，不丢任何字段）；
+   - 在最顶部追加 6 个新条目，时间统一标 `2026-04-28`：
+     - **v1.4.0 (2026-04-28)** — 调试发射规范化 + 伞形收口；
+     - **v1.3.7 (2026-04-28)** — `ITargetBackend::EmitBitcode` 默认实现接通 polyglot bitcode 发射，三个 adapter 翻转 `emits_bitcode = true`；
+     - **v1.3.6 (2026-04-28)** — WASM 后端 TU 拆分（`wasm_target.cpp` 1500+ 行 → 多文件按模块/类型/指令/runtime 域职责分解）；
+     - **v1.3.5 (2026-04-28)** — ABI / 重定位模型重写（统一 `RelocationKind` + `ABIDescriptor`，三平台 e2e 一致）；
+     - **v1.3.4 (2026-04-28)** — MachineIR 验证器（前缀寄存器使用、栈帧封闭性、跨基本块寿命检查）；
+     - **v1.3.3 (2026-04-28)** — 后端注册表（`ITargetBackend` + `BackendRegistry`，三平台 adapter）；
+   - 每条新条目 4–8 个 `- ✅` 项，覆盖：核心改动、新增/移动文件、测试增量、对外接口边界、向后兼容性。
+2.从 `docs/USER_GUIDE.md` 中删除 `## 14.6 Changelog` 整节（含其下所有 `### vX.Y.Z` 版本子节）；在原位置插入一段不超过 6 行的指针小节，把读者引向新独立的 `docs/CHANGELOG.md`，附中英文双语链接。`docs/USER_GUIDE_zh.md` 同步处理（删除 `## 14.6 更新日志` 整节，插入同等指针小节，链接指向 `docs/CHANGELOG_zh.md`）。
+3.同步 USER_GUIDE 双语头部 / 尾部元信息：
+   - 头部 `**Version**: v1.1.1` / `**Last Updated**: 2026-04-27` 改为 `v1.2.0` / `2026-04-28`（中文版同步）；
+   - 尾部 `<!-- BEGIN:version_footer_en -->` / `<!-- BEGIN:version_footer_zh -->` 块内 `Document Version: v1.1.1` / `Last Updated: 2026-04-27` 改为 `v1.2.0` / `2026-04-28`；
+   - TOC（章节目录）中"Appendix"条目保留不变，§14 子节列表里"14.6 Changelog"已不复存在，无需在 TOC 里新增条目（指针小节是普通文本段，不要给四级标题）。
+4.更新 `README.md`：
+   - 测试徽章 `1084_cases_|_3_suites` 改为更准确的当前测试套件描述：保持徽章风格，改为 `Suites-5%20core%20%2B%208%20frontend-brightgreen`（即 5 套核心套件 + 8 套前端套件）；不在徽章里硬编码 case 数（原 1084 早已过时）；
+   - "Documentation / 文档"小节追加 `[CHANGELOG.md](docs/CHANGELOG.md)` / `[CHANGELOG_zh.md](docs/CHANGELOG_zh.md)` 行，紧接 USER_GUIDE 行之后；
+   - 尾部 `<!-- BEGIN:version_footer_en -->` 块内 `Document Version: v1.1.1` / `Last Updated: 2026-04-27` 改为 `v1.2.0` / `2026-04-28`；
+   - "Test Statistics"与"Unit Test Breakdown"两小节及其陈述的 1019 / 1084 / 909 数字保留，但在标题下加一行注脚：表内数字反映 2026-03-19 拆分前的统计快照，最新分套件断言 / 用例数请以独立 `CHANGELOG.md` 中各版本条目为准；
+   - 不动架构图、quick-start、.ploy 例子、Plugin 列表等正文。
+5.约束：
+   - 不引入任何新的代码改动；不动 CMake 版本号（仍为 `1.4.0`）；
+   - 不允许最小实现 / 占位 / 空小节；
+   - 文档中文 / 英文成对存在；
+   - CHANGELOG 内不出现"demand"字样（规则 10）；
+   - 既有 5 个测试套件不受影响（无需重新构建 / 跑测；本条目纯文档）；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅文档调整（无代码 / 无 ABI / 无构建参数变化），CMake 项目版本不变；USER_GUIDE 文档版本独立递进 `v1.1.1 → v1.2.0`（结构性章节剥离，文档语义级 minor），README 文档脚注同步对齐。
+
+--end -done
+

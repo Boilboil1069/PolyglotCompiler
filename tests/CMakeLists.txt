@@ -131,11 +131,17 @@ set(UNIT_TEST_MIDDLE
 )
 
 set(UNIT_TEST_BACKENDS
+    unit/backends/abi_calling_convention_test.cpp
+    unit/backends/abi_relocation_test.cpp
+    unit/backends/abi_verifier_test.cpp
     unit/backends/backend_optimizations_test.cpp
     unit/backends/isel_opcodes_test.cpp
     unit/backends/machine_ir_template_test.cpp
     unit/backends/machine_ir_verifier_test.cpp
     unit/backends/target_backend_registry_test.cpp
+    unit/backends/wasm_split_smoke_test.cpp
+    unit/backends/emit_bitcode_roundtrip_test.cpp
+    unit/backends/debug_emitter_normalization_test.cpp
     unit/backends/wasm_target_test.cpp
 )
 

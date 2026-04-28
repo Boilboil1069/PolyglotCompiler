@@ -10,6 +10,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
+
+#include "middle/include/lto/link_time_optimizer.h"
 
 namespace polyglot::backends {
 
@@ -75,18 +78,31 @@ std::vector<std::uint8_t> ITargetBackend::EmitObject(
   return std::move(result.artifacts.object_bytes);
 }
 
-CompileResult ITargetBackend::EmitBitcode(const polyglot::ir::IRContext & /*module*/,
+CompileResult ITargetBackend::EmitBitcode(const polyglot::ir::IRContext &module,
                                           const TargetOptions & /*options*/) {
-  // Default policy: backends that do not advertise emits_bitcode in their
-  // capability matrix are reported as unsupported.  This keeps the public
-  // contract honest until the bitcode emitter ships in a later milestone.
+  // Default policy: serialise the IR module into the project's polyglot
+  // bitcode format (the same byte stream that LTOModule::SaveBitcode would
+  // write to disk).  Backends that want to emit a foreign format such as
+  // LLVM bitcode are expected to override this method; the default keeps
+  // the public contract honest by delivering a real, round-trippable
+  // artifact for every target that does not opt out.
   CompileResult result;
-  result.ok = false;
-  BackendDiagnostic diag;
-  diag.severity = BackendDiagnostic::Severity::kError;
-  diag.component = "EmitBitcode";
-  diag.message = TargetTriple() + " backend does not support bitcode emission";
-  result.diagnostics.push_back(std::move(diag));
+  polyglot::lto::LTOModule lto_module =
+      polyglot::lto::LTOModule::FromIRContext(module, std::string(TargetTriple()));
+  std::string bitcode = lto_module.SerializeBitcode();
+  if (bitcode.empty()) {
+    result.ok = false;
+    BackendDiagnostic diag;
+    diag.severity = BackendDiagnostic::Severity::kError;
+    diag.component = "EmitBitcode";
+    diag.message = "polyglot bitcode serialisation produced an empty payload";
+    result.diagnostics.push_back(std::move(diag));
+    return result;
+  }
+  result.artifacts.bitcode_bytes.assign(
+      reinterpret_cast<const std::uint8_t *>(bitcode.data()),
+      reinterpret_cast<const std::uint8_t *>(bitcode.data() + bitcode.size()));
+  result.ok = true;
   return result;
 }
 

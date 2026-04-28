@@ -12,6 +12,7 @@ add_library(backend_common
     common/src/object_file.cpp
     common/src/target_backend.cpp
     common/src/backend_registry.cpp
+    common/src/abi.cpp
 )
 
 target_include_directories(backend_common PUBLIC ${CMAKE_SOURCE_DIR})
@@ -53,6 +54,12 @@ target_link_libraries(backend_arm64 PUBLIC backend_common middle_ir)
 add_library(backend_wasm
     wasm/src/wasm_target.cpp
     wasm/src/wasm_target_backend.cpp
+    wasm/src/encoding/leb128.cpp
+    wasm/src/lowering/type_mapping.cpp
+    wasm/src/lowering/function_lowerer.cpp
+    wasm/src/lowering/instruction_lowerer.cpp
+    wasm/src/sections/section_emitters.cpp
+    wasm/src/wat_printer.cpp
 )
 
 target_include_directories(backend_wasm PUBLIC ${CMAKE_SOURCE_DIR})

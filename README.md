@@ -10,7 +10,7 @@
   <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
 <!-- BEGIN:test_badge -->
-  <img alt="Tests" src="https://img.shields.io/badge/Tests-1084_cases_|_3_suites-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Suites-5%20core%20%2B%208%20frontend-brightgreen.svg"/>
 <!-- END:test_badge -->
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
@@ -359,6 +359,14 @@ cd build && ctest
 
 ### Test Statistics / 测试统计
 
+> The case-count tables below are a 2026-03-19 snapshot taken just before
+> the monolithic `unit_tests` binary was split into per-module test
+> binaries. For the **current per-suite numbers** (e.g. `test_backends`
+> 461 / 66, `test_core` 357 / 41, `test_middle` 292 / 80,
+> `test_runtime` 35199 / 101, `test_linker` 171 / 35) and the rationale
+> for the split, see [`docs/CHANGELOG.md`](docs/CHANGELOG.md) entries
+> v1.0.6 and v1.4.0.
+
 | Suite | Cases | Tags | Coverage |
 |-------|-------|------|----------|
 | **Unit Tests** | **909** | 250+ tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E, topology, sema strict |
@@ -467,6 +475,8 @@ All documentation is provided in **bilingual** format (Chinese + English) under 
 |----------|-------------|
 | [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete user guide (English) |
 | [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide (Chinese / 完整用户指南) |
+| [`CHANGELOG.md`](docs/CHANGELOG.md) | Release history (English) — every version from v0.1.0 onward |
+| [`CHANGELOG_zh.md`](docs/CHANGELOG_zh.md) | Release history (Chinese / 更新日志) |
 | [`docs/api/`](docs/api/) | API reference (bilingual) |
 | [`docs/specs/`](docs/specs/) | Language & IR specifications, optimisation pipeline, runtime ABI, plugin specification |
 | [`docs/realization/`](docs/realization/) | Implementation details (bilingual, 8 topics) |
@@ -502,6 +512,6 @@ This project is licensed under the **GNU General Public License v3.0** — see t
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-04-27*  
-*Document Version: v1.1.1*
+*Last Updated: 2026-04-28*  
+*Document Version: v1.2.0*
 <!-- END:version_footer_en -->
