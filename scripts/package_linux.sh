@@ -33,6 +33,10 @@ OUTPUT_DIR="dist"
 
 SKIP_BUILD=false
 QT_ROOT=""
+REFRESH_DEPS=false
+OFFLINE=false
+SKIP_DEPS=false
+DEPS_MIRROR=""
 
 # Tool executables produced by the build
 TOOL_EXES=(polyc polyld polyasm polyopt polyrt polybench)
@@ -58,9 +62,26 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_DIR="$2"
             shift 2
             ;;
+        --refresh-deps)
+            REFRESH_DEPS=true
+            shift
+            ;;
+        --offline)
+            OFFLINE=true
+            shift
+            ;;
+        --skip-deps)
+            SKIP_DEPS=true
+            shift
+            ;;
+        --deps-mirror)
+            DEPS_MIRROR="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
             echo "Usage: $0 [--skip-build] [--qt-root <path>] [--build-dir <dir>] [--output-dir <dir>]"
+            echo "          [--refresh-deps] [--offline] [--skip-deps] [--deps-mirror <url>]"
             exit 1
             ;;
     esac
@@ -122,6 +143,38 @@ if [[ -n "$QT_ROOT" ]]; then
 fi
 
 # ============================================================================
+# Step 0.5 — Populate third-party dependency cache (offline-first)
+# ============================================================================
+# Avoids re-downloading fmt / json / Catch2 / mimalloc on every build.
+FETCH_SCRIPT="${PROJECT_ROOT}/scripts/fetch_deps.sh"
+DEPS_CACHE="${PROJECT_ROOT}/.cache/deps"
+EXTRA_CMAKE_ARGS=""
+
+if [[ "$SKIP_BUILD" == "true" || "$SKIP_DEPS" == "true" ]]; then
+    echo "[SKIP] Dependency cache step skipped"
+elif [[ ! -x "$FETCH_SCRIPT" && ! -f "$FETCH_SCRIPT" ]]; then
+    echo "[!] fetch_deps.sh not found, falling back to network FetchContent"
+else
+    fetch_args=()
+    [[ "$REFRESH_DEPS" == "true" ]] && fetch_args+=(--refresh)
+    [[ -n "$DEPS_MIRROR" ]] && fetch_args+=(--mirror "$DEPS_MIRROR")
+    chmod +x "$FETCH_SCRIPT" 2>/dev/null || true
+    if bash "$FETCH_SCRIPT" "${fetch_args[@]}"; then
+        echo "[OK] Dependency cache ready: $DEPS_CACHE"
+    else
+        if [[ "$OFFLINE" == "true" ]]; then
+            echo "[ERR] Dependency cache could not be populated and --offline was requested." >&2
+            exit 1
+        fi
+        echo "[!] fetch_deps.sh failed; CMake will try the network."
+    fi
+fi
+
+if [[ "$OFFLINE" == "true" ]]; then
+    EXTRA_CMAKE_ARGS="-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+fi
+
+# ============================================================================
 # Step 1 — Build in Release mode
 # ============================================================================
 if [[ "$SKIP_BUILD" == "false" ]]; then
@@ -131,7 +184,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     cmake -S . -B "$BUILD_DIR" -G "$GENERATOR" \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS=ON \
-        $QT_CMAKE_ARGS
+        $QT_CMAKE_ARGS $EXTRA_CMAKE_ARGS
 
     step "Building project"
     cmake --build "$BUILD_DIR" --config Release -- -j"$(nproc)"

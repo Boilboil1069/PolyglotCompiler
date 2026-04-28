@@ -38,10 +38,32 @@ enum class TokenKind {
 /** @brief Token data structure. */
 struct Token {
   TokenKind kind{TokenKind::kUnknown};
+  // Canonical lexeme.  For keywords this is the language's canonical spelling
+  // (e.g. always upper-case in Ploy), so that downstream parser / sema code
+  // can compare against a single fixed string regardless of how the user
+  // typed the keyword in source.  For identifiers, numbers, strings,
+  // operators and punctuation this stores the source text verbatim.
   std::string lexeme;
   core::SourceLoc loc{};
   // Optional metadata for tokens (e.g., doc comments)
   bool is_doc{false};
+  // Original source text exactly as it appeared in the input buffer.  When
+  // empty (the common case for identifiers / numbers / strings), the canonical
+  // @c lexeme already matches the source and consumers should treat
+  // @c SourceText() as equivalent to @c lexeme.  Lexers populate this field
+  // only when the canonical form differs from the source form (for example
+  // when normalizing case-insensitive keywords) so existing tests and
+  // diagnostics keep their original wording.  Placed last so existing
+  // 3- and 4-argument aggregate-initialization call sites remain
+  // source-compatible.
+  std::string raw_lexeme;
+
+  /// Returns the original source spelling of this token: @c raw_lexeme when
+  /// the lexer recorded a different source form, otherwise the canonical
+  /// @c lexeme.  Use this for diagnostics and source-faithful formatters.
+  const std::string &SourceText() const noexcept {
+    return raw_lexeme.empty() ? lexeme : raw_lexeme;
+  }
 };
 
 /** @brief LexerBase class. */

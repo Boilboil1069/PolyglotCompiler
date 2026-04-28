@@ -2424,3 +2424,1494 @@ MC，本条目专注文档侧整理：将更新日志从 `docs/USER_GUIDE.md` / 
 
 --end -done
 
+2026-04-28-03
+
+sample无法编译，请帮我修复
+```bash
+(base) PS D:\Others\PolyglotCompiler> .\build\polyc.exe .\tests\samples\03_pipeline\pipeline.ploy
+========================================
+ PolyglotCompiler v1.4.0  (polyc)
+========================================
+[polyc] Source: D:\Others\PolyglotCompiler\tests\samples\03_pipeline\pipeline.ploy
+[polyc] Language: ploy (auto-detected)
+[polyc] Arch: x86_64
+[polyc] Opt: O0
+[polyc] Output: a.out
+[polyc] Mode: permissive
+----------------------------------------
+[polyc] Staged compilation pipeline (.ploy)... [pipeline] link descriptors -> D:\Others\PolyglotCompiler\tests\samples\03_pipeline\aux\pipeline_link_descriptors.paux
+'link' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+'lld-link' 不是内部或外部命令，也不是可运行的程序
+或批处理文件。
+done (74.8ms)
+  - frontend: 5.1ms
+  - semantic-db: 2.4ms
+  - marshal-plan: 0.0ms
+  - bridge-generation: 0.7ms
+  - backend: 11.9ms
+  - packaging: 53.3ms
+[polyc] Compilation successful (staged pipeline).
+```
+
+--end -done
+
+2026-04-28-4
+
+请大幅丰富 `tests/samples/` 下的示例内容，要求覆盖更广、更真实、更有教学价值，具体如下：
+
+1. 新增至少 14 个示例文件夹（编号从 `17_` 起连续递增），每个示例必须包含：
+   - 一个 `.ploy` 入口文件；
+   - 至少两种宿主语言的真实可编译源文件（C++/Python/Rust/Java/C# 中至少 2 种，鼓励 3 种及以上）；
+   - 一个 `README.md`（中英双语，分两个文件 `README.md` / `README_zh.md`），说明示例目标、涉及的 ploy 关键字、运行方式与预期输出；
+   - 一个 `expected_output.txt`，记录正确执行后的标准输出（用于回归比对）。
+
+2. 主题建议（必须全部覆盖，可在此基础上扩展）：
+   - `17_string_processing/`：跨语言字符串/编码处理（UTF-8 / UTF-16 / 字节流互转）；
+   - `18_numeric_kernels/`：跨语言数值内核（C++ SIMD + Python NumPy + Rust 计算）；
+   - `19_file_io/`：跨语言文件 I/O（顺序/随机/二进制/文本）；
+   - `20_json_pipeline/`：跨语言 JSON 解析-转换-序列化流水线；
+   - `21_image_processing/`：跨语言图像处理（C++ 解码 -> Rust 滤镜 -> Python 可视化）；
+   - `22_database_access/`：跨语言访问 SQLite（建表、读写、事务）；
+   - `23_http_client/`：跨语言 HTTP 客户端（Rust 发请求、Python 解析、C++ 聚合）；
+   - `24_concurrency/`：跨语言并发与共享数据（线程池 + 通道 + 锁）；
+   - `25_event_loop/`：跨语言事件循环 / 回调注册（Python 注册 -> C++ 触发）；
+   - `26_state_machine/`：跨语言状态机（Rust 定义状态、ploy `MATCH` 驱动）；
+   - `27_plugin_system/`：跨语言插件系统（C++ 宿主加载 Python/Java 插件）；
+   - `28_ml_inference/`：跨语言 ML 推理（Python 模型加载 + C++ 张量预处理 + Java 后处理）；
+   - `29_data_analytics/`：跨语言数据分析（CSV -> DataFrame -> 报表）；
+   - `30_game_loop_demo/`：跨语言"游戏主循环"（C++ 帧驱动 + Python 脚本逻辑 + Rust 物理）。
+
+3. 同时强化已有 `01_-16_` 示例：
+   - 为每个旧示例补齐缺失的 `README_zh.md` 与 `expected_output.txt`；
+   - 旧示例中 `.cpp/.py/.rs/.java/.cs` 必须保证单独构建可通过（不得只是片段）。
+
+4. 在 `tests/samples/README.md` 与 `tests/samples/README_zh.md` 中：
+   - 更新示例目录表（涵盖新增 14 个）；
+   - 新增"按主题索引"小节（字符串 / 数值 / I/O / 网络 / 并发 / 数据 / ML 等）；
+   - 新增"按宿主语言组合索引"小节（cpp+py、cpp+rs、py+java …）。
+
+5. 在 `scripts/` 下新增 `build_all_samples.ps1` 与 `build_all_samples.sh`：
+   - 遍历 `tests/samples/` 下所有 `*.ploy`，依次调用 `polyc` 编译；
+   - 对每个示例运行编译产物，将 stdout 与 `expected_output.txt` 逐行比对；
+   - 输出汇总报告（成功 / 失败 / 输出不匹配的清单）。
+
+6. 在 `tests/integration/` 中新增 `samples_regression_test.cpp`：
+   - 通过 CTest 调用上述脚本，作为整套示例的集成回归；
+   - 加入 `CMakeLists.txt` 现有 integration 套件，不得破坏现有测试。
+
+7. 文档与版本：
+   - 更新中英双语 `USER_GUIDE` 与 `README` 中"示例"章节，列出新增示例；
+   - 更新 `CHANGELOG`（中英双语，若已有）；
+   - 项目版本号在根目录 `CMakeLists.txt` 中按 minor 递进（新增功能型样例与脚本，无 ABI 变更）；
+   - 所有新增注释 / 文档不得出现与本条目自身相关的字样（规则 10）；
+   - 新增的 `.ploy` 与宿主语言源文件中的注释一律使用英文（规则 2）。
+
+8. 验收标准：
+   - `build_all_samples.ps1` 在本机一次性运行，所有示例编译成功且输出与 `expected_output.txt` 完全一致；
+   - `ctest -R samples_regression` 通过；
+   - 不允许任何"占位 / 最小实现 / TODO"出现在新增样例中（规则 3）；
+   - 完成后在本条目末尾追加 `--end -done`。
+
+--end
+
+2026-04-28-5
+
+为 PolyglotCompiler IDE（`polyui`）新增"性能分析器（Profiler）"与"调用分析器（Call Analyzer）"两个一等公民面板，要求与 IDE 现有 Topology / Editor / Console 面板风格一致，并与 `polybench` / `polyrt` / `middle` 已有数据通道打通。具体需求：
+
+1. 性能分析器（Performance Profiler）面板：
+   - 在 `tools/polyui/` 下新增 `profiler_panel.{h,cpp}`，注册为 IDE 主停靠面板（与 Topology 面板并列），快捷键 `Ctrl+Shift+P`；
+   - 数据来源：调用 `polybench --json <out>` 与 `polyrt bench --json <out>`，统一接入 `tools/polyui/profile_session.{h,cpp}`；
+   - 必须包含的可视化子视图：
+     * 火焰图（Flame Graph，按 inclusive 时间）；
+     * 时间线（Timeline，按线程 / 跨语言桥接事件 swimlane 显示，支持缩放、拖拽）；
+     * Top-N 热点表（Self / Total / Calls / Avg，可按列排序与正则过滤）；
+     * 跨语言开销饼图（C++ / Python / Rust / Java / .NET / bridge 各占比）；
+     * 内存分配时间序列（来自 `polyrt gc --json`）；
+   - 实时模式：当 `polyrt` 以 `--profile-stream <pipe>` 运行时，IDE 通过命名管道 / 本地 socket 实时刷新（≥ 5 Hz）。
+
+2. 调用分析器（Call Analyzer）面板：
+   - 在 `tools/polyui/` 下新增 `call_analyzer_panel.{h,cpp}`，快捷键 `Ctrl+Shift+G`；
+   - 数据来源：编译期 `polyc --emit call-graph <out>.cgjson` + 运行期 `polyrt` 计数（已经存在的 g_stats 通道扩展，必要时在 `runtime/` 中新增 `call_trace.{h,c}`，提供 `__ploy_rt_call_enter` / `__ploy_rt_call_exit` 钩子，由 lowering 在 `CALL` / `METHOD` / `NEW` / `LINK stub` 入口插桩）；
+   - 必须包含的可视化与交互：
+     * 静态调用图（来自 `polyc` AST + LINK 解析），节点按宿主语言着色，边按 marshal 方向标注；
+     * 动态调用图叠加层（运行计数 / 平均耗时染色）；
+     * "选中函数 -> 双击跳转源码"（联动 Editor 面板，要求 `.ploy` / `.cpp` / `.py` / `.rs` / `.java` / `.cs` 全部可跳转）；
+     * 反向调用者 / 正向被调者两侧栏树视图；
+     * 跨语言边过滤器（仅 cpp->py、仅 py->java …）；
+     * 路径搜索：给定 src/dst 函数，列出全部静态可达路径（DFS，深度上限可配置）。
+
+3. 编译器与运行时支持（不允许只在 IDE 端造数据）：
+   - `polyc` 新增 `--emit call-graph <file>` 与 `--emit profile-symbols <file>`，输出稳定 schema 的 JSON（schema 写入 `docs/specs/`，中英双语）；
+   - `polyrt` 新增 `polyrt profile`、`polyrt calltrace` 子命令，对齐 `status/gc/thread/bench` 风格，支持 `--json`、`--stream <pipe>`；
+   - `runtime/` 中实现 `call_trace.{h,c}`、`profile_sink.{h,c}`，与现有 `gc_api.h`、`threading.h` 风格一致，并在 `CMakeLists.txt` 中纳入 `runtime` 目标；
+   - `middle/` 添加可选 pass `InstrumentCallTrace`（受 `--profile-instrument` 开关控制），插桩开销可被 LTO 在未启用时完全消除（dead-code-stripped）。
+
+4. IDE 工程化：
+   - 两个面板共用 `tools/polyui/data_models/`（`flame_node.{h,cpp}`、`call_graph_model.{h,cpp}`、`timeline_model.{h,cpp}`），均派生自 `QAbstractItemModel` / `QAbstractListModel`，与现有 topology model 风格一致；
+   - 主题：完整接入现有 light/dark 主题，颜色变量统一从 `tools/polyui/themes/` 读取；
+   - 配置项：在 IDE Settings 面板新增"Profiler"分组（采样频率、最大火焰深度、是否自动启动 `polyrt --profile-stream`、调用图最大节点数、布局算法 ELK / dagre / force）。
+
+5. 测试：
+   - `tests/unit/` 新增 `profile_session_test.cpp`、`call_graph_model_test.cpp`、`call_trace_runtime_test.cpp`；
+   - `tests/integration/` 新增 `profiler_e2e_test.cpp`：编译并运行 `tests/samples/09_mixed_pipeline` 与 `tests/samples/15_full_stack`，验证：
+     * `polyc --emit call-graph` 产物的节点数 / 边数与静态分析结果一致；
+     * `polyrt profile --json` 产物中 hot function 排名稳定（允许 ±1 名次抖动）；
+   - 所有用例必须挂入 CTest，不得 `#if 0` 或 `REQUIRE(true)` 占位；
+   - 新增 `tests/topology_ui` 风格的 `tests/topology_ui/profiler_panel_smoke_test.cpp`，最小启动 IDE 并校验两个面板可注册、可显示、无 QObject 警告。
+
+6. 文档：
+   - `docs/realization/` 新增 `profiler_zh.md` / `profiler_en.md` 与 `call_analyzer_zh.md` / `call_analyzer_en.md`，详尽说明数据通道、JSON schema、扩展点；
+   - `docs/api/` 新增 `polyrt_profile_api_zh.md` / `polyrt_profile_api_en.md`、`polyc_call_graph_api_zh.md` / `polyc_call_graph_api_en.md`；
+   - `docs/tutorial/` 新增 "性能分析入门" / "Profiling Quickstart" 与 "调用分析入门" / "Call Analyzer Quickstart" 两组中英双语教程，附图；
+   - `USER_GUIDE` 中英双语在"IDE 功能"章节新增"Profiler"与"Call Analyzer"两节；
+   - `README` 中英双语在"Tooling"小节列出新面板与快捷键。
+
+7. 版本与规约：
+   - 根 `CMakeLists.txt` 项目版本按 minor 递进（功能新增、IDE 面板与运行时插桩，无 ABI 破坏）；
+   - 所有新增 C/C++/QML 注释一律使用英文（规则 2）；
+   - 所有新增文档与注释不得出现与 `demand.md` 自身相关的字样（规则 10）；
+   - 不允许任何"占位 / 最小实现 / TODO"出现在本条目交付物中（规则 3）。
+
+8. 验收标准：
+   - 在 `tests/samples/09_mixed_pipeline` 上：`polyc --emit call-graph` 一次成功，IDE 中"调用分析器"面板能加载并显示完整跨语言调用图，节点 ≥ 真实函数数；
+   - `polyrt profile --stream` + IDE Profiler 实时模式可稳定运行 ≥ 60 秒不丢帧（≥ 5 Hz 刷新）；
+   - 全部新增单元 / 集成 / smoke 测试通过；
+   - 完成后在本条目末尾追加 `--end -done`。
+
+--end
+
+2026-04-28-6
+
+[P0/P1 词法层] 关键字大小写无关、删除冗余关键字、统一逻辑运算符。
+
+1. 词法器（`frontends/ploy/src/lexer/lexer.cpp`）：
+   - 关键字识别改为**大小写无关**：`LINK` / `link` / `Link` 均被识别为同一 `kKeyword`；
+   - 在 `Token` 中保留原始 lexeme（用于诊断与格式化器还原），但 `kind` 与关键字归一表驱动；
+   - 标识符仍区分大小写；新增 lexer 单元测试覆盖混合大小写。
+
+2. 推荐风格：
+   - 文档与全部新写示例一律使用**小写**关键字；
+   - `tests/samples/` 现有大写示例保留不动（兼容性），新增示例统一小写；
+   - IDE 格式化器（若后续接入）默认把关键字归一为小写。
+
+3. 删除冗余 / 废弃：
+   - 移除关键字 `RETURNS`（语言中从未实际使用），词法仍接受但 sema 给出 `deprecated` 警告，编译可继续；
+   - 逻辑运算符 `AND` / `OR` / `NOT` 与 `&&` / `||` / `!` 之间确立**唯一推荐形式**：
+     * 推荐 `&&` / `||` / `!`（与 C/C++/Rust/Python 习惯接近）；
+     * 关键字形式保留为 alias，sema 不警告，但文档明示"推荐符号形式"。
+
+4. 文档：
+   - 中英双语更新 `docs/specs/language_spec*.md` §2.2 / §2.10、`docs/realization/ploy_language_spec*.md` §3.1；
+   - 在 `USER_GUIDE` 中英双语"语法风格"一节加入"关键字大小写无关 + 推荐小写"说明；
+   - `CHANGELOG`（中英双语）记录 deprecation 列表。
+
+5. 测试：
+   - `tests/unit/frontend_ploy/lexer_case_insensitive_test.cpp`：覆盖 54 关键字混合大小写；
+   - `tests/unit/frontend_ploy/keyword_alias_test.cpp`：`AND` ↔ `&&` 解析等价；
+   - `tests/integration/`：新增一个全小写示例，确保端到端通过。
+
+6. 版本：根 `CMakeLists.txt` patch 递进（语法兼容增强，无破坏）。
+   完成后追加 `--end -done`。规则 2 / 3 / 10 全部生效。
+
+--end
+
+
+2026-04-28-7
+
+[P0/P2 类型基础] 引入显式位宽数值类型 + `TYPE` 别名 + `CONST`。
+
+1. 词法 / 解析：
+   - 新增基础类型关键字：`i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `f32` `f64` `usize` `isize`；
+   - 旧关键字 `INT` / `FLOAT` 作为 alias：`INT` ≡ `i64`，`FLOAT` ≡ `f64`（spec 中明确写明，并给出"为何 INT=i64"的语言学说明）；
+   - 新增 `TYPE <name> = <type_expr>;` 类型别名声明；
+   - 新增 `CONST <name>: <type> = <const_expr>;` **编译期常量**（必须可在 sema 阶段折叠）。
+
+2. 语义：
+   - sema 给出"类型宽度不匹配"细致诊断（参考 2026-02-20-4 的细化报错风格）；
+   - `TYPE` 别名在 sema 表中保留原名，错误消息打印 `T (alias of i32)`；
+   - `CONST` 引用进入常量传播 pass，与 middle 已有 const-prop 联通。
+
+3. 跨语言映射：
+   - 更新 `docs/specs/language_spec*.md` §2.9 表，给出 `i32 / i64 / u32 / u64 / f32 / f64` 与各宿主语言的精确对应（C++ `int32_t` 等、Rust `i32` 等、Java `int`/`long` 等、C# `int`/`long` 等、Python `int`/`numpy.int32`）；
+   - `runtime/` marshalling 表对齐位宽。
+
+4. 文档：
+   - 中英双语更新所有受影响的 spec / realization / USER_GUIDE / tutorial 的"基础类型"小节；
+   - `tests/samples/` 新增一个 `31_explicit_widths/` 示例，演示 `i32 / u64 / f32` 跨语言。
+
+5. 测试：
+   - `tests/unit/frontend_ploy/type_alias_test.cpp`、`const_decl_test.cpp`、`width_mismatch_diag_test.cpp`；
+   - `tests/integration/`：覆盖位宽匹配 + 误用诊断。
+
+6. 版本：minor 递进（新增类型 + 新关键字，向后兼容）。
+   完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-8
+
+[P0/P1 语法清理] 统一 `LINK` 形式、提升 `STAGE` 为关键字。
+
+1. `LINK` 形式收敛：
+   - **保留并推荐**：`LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret>;`（带签名版）；
+   - **降级**：`LINK(target_lang, source_lang, target_func, source_func);` 旧形式仍可解析，sema 给出 `deprecated` 警告并提示如何改写；
+   - 旧形式参数个数依赖 `MAP_TYPE` 推断的兜底逻辑保留至下个 minor 版本，下个 minor 版本起删除（在 `CHANGELOG` 中预告）。
+
+2. `STAGE` 关键字化：
+   - 把 `STAGE` 提升为正式关键字（仅在 `PIPELINE` 块内合法，块外仍可作为标识符是不可接受的——一律视为关键字以便 IDE 一致染色）；
+   - 词法表 + spec 关键字总数从 54 → 55+（含 P0-7 新增数值类型）；
+   - parser 在 `PIPELINE` 之外见到 `STAGE` 报"unexpected keyword `stage` outside PIPELINE"。
+
+3. 文档：
+   - 中英双语 spec / realization / USER_GUIDE / tutorial 全部以"带签名"形式重写 `LINK` 示例；
+   - 旧示例（`tests/samples/01_basic_linking` 等）若使用旧形式，**新增镜像版本**（`01_basic_linking_v2/`）展示新形式，旧版本保留并在 README 中标注 "legacy form"。
+
+4. 测试：
+   - 旧形式 + deprecation diag 单测；
+   - 新形式 sema 校验单测；
+   - `STAGE` 误用诊断单测。
+
+5. 版本：minor 递进。
+   完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-9
+
+[P0 类型安全] 跨语言对象进入静态类型系统：`HANDLE<lang::Class>`。
+
+1. 类型新增：
+   - 引入不透明句柄类型 `HANDLE<<lang>::<class_path>>`，例如 `HANDLE<python::torch::nn::Linear>`；
+   - `NEW(lang, class, args...)` 的返回类型由 `Any` 改为 `HANDLE<lang::class>`；
+   - `METHOD(lang, obj: HANDLE<lang::T>, name, args...)` 的参/返回类型由 sema 在已注册的方法签名表中查找；
+   - `GET / SET` 同理，参考已注册属性签名。
+
+2. 方法 / 属性签名注册：
+   - 新增声明：
+     ```ploy
+     class python::torch::nn::Linear {
+       method forward(input: HANDLE<python::torch::Tensor>) -> HANDLE<python::torch::Tensor>;
+       attr in_features: i32;
+     }
+     ```
+     用于显式登记跨语言类的方法签名；未登记时 sema 给"unknown method, falling back to dynamic dispatch"**warning**（不致命，保持向后兼容）。
+   - 也支持从 IDE/工具自动生成（后续可由 `polyc --emit class-stubs <lang> <module>` 提供）。
+
+3. 跨语言传参：
+   - `HANDLE<a::T>` 不能隐式转 `HANDLE<b::U>`；
+   - 显式转换走 `CONVERT(target_handle_type, source_obj)`，由用户提供 `MAP_FUNC`。
+
+4. 兼容性：
+   - 旧代码继续可写 `LET m = NEW(python, torch::nn::Linear, 10, 5);`，sema 推断 `m: HANDLE<python::torch::nn::Linear>`；
+   - 仅当用户显式标注错误目标类型时才报错。
+
+5. 文档：
+   - `docs/realization/cross_language_oop_*.md`（新建中英双语）；
+   - `docs/specs/language_spec*.md` §2.7 重写；
+   - USER_GUIDE / tutorial 中英双语补"静态类型化对象互操作"章节；
+   - 已有限制表删除"静态类型未知"行（与 2026-02-20-4 呼应）。
+
+6. 测试：
+   - sema 单测：方法签名命中 / 不命中 / 类型不兼容；
+   - 集成：`tests/samples/05_class_instantiation/` 升级带签名版；新增 `32_typed_handles/`。
+
+7. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-10
+
+[P0 模式匹配] 扩展 `MATCH` 模式语义。
+
+1. 支持模式：
+   - 字面量（已支持）；
+   - 通配 `_`；
+   - 范围 `CASE 1..10` / `CASE 1..=10`；
+   - 元组解构 `CASE (a, b)` / `CASE (_, b)`；
+   - 结构体解构 `CASE Point { x, y }` / `CASE Point { x, .. }`；
+   - 类型守卫 `CASE x: i32 IF x > 0`；
+   - 多模式 OR：`CASE 1 | 2 | 3`；
+   - 绑定：`CASE n @ 0..100`；
+   - `OPTION` 解构：`CASE Some(x)` / `CASE None`。
+
+2. 详尽匹配检查（exhaustiveness）：
+   - sema 进行覆盖性检查，遗漏报错，建议自动补 `_`；
+   - 不可达分支报警告。
+
+3. 解析 / AST：
+   - `parser.cpp` 新增 `ParsePattern` 子模块；
+   - `ploy_ast.h` 新增 `PatternNode` 系列。
+
+4. 文档：
+   - 中英双语 spec / realization / USER_GUIDE / tutorial 同步更新 `MATCH` 章节；
+   - `tests/samples/` 新增 `33_pattern_matching/`，覆盖全部模式形态。
+
+5. 测试：
+   - sema 详尽性 / 不可达性 / 嵌套模式；
+   - lowering 分支表生成验证。
+
+6. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-11
+
+[P1 一致性] 命名实参默认值、`AS` 语义集中说明、收紧 `EXTEND`。
+
+1. 命名实参默认值：
+   - 在 `FUNC f(x: i32, y: i32 = 0) -> i32 { … }` 中支持默认值；
+   - 调用点：`f(x: 1)` 等价于 `f(1, 0)`；`f(1, y: 5)` 合法；位置参数后不可再出现位置参数。
+   - sema 校验默认值表达式必须是 `CONST` 可折叠或纯函数调用。
+
+2. `AS` 语义集中说明：
+   - `AS` 当前用于：① IMPORT 别名；② EXPORT 别名；③ LINK 签名分隔；④ PACKAGE 别名；⑤ CONVERT 目标类型。
+   - 在 spec 中**新增专章**集中列出，并给出反例（哪些写法歧义、被禁）。
+   - IDE 自动补全提示需基于上下文给出最相关一种。
+
+3. 收紧 `EXTEND`：
+   - 静态语言（C++/Rust/Java/C#）**禁用** `EXTEND`，sema 直接报错并建议改为本地包装函数；
+   - 仅 Python / Ruby / JavaScript 允许，且语义明确为"宿主语言层 monkey-patch"，不进入 `.ploy` 类型系统；
+   - 文档中英双语注明该语义边界。
+
+4. 文档：
+   - 同步 spec / realization / USER_GUIDE / tutorial（中英双语）；
+   - `tests/samples/` 新增 `34_default_args/`、`35_extend_dynamic/`，并在 `08_delete_extend/` README 中加入"limitations"说明。
+
+5. 测试：
+   - 默认值 sema / lowering / 跨语言传递；
+   - `EXTEND` 在静态语言上的拒绝诊断。
+
+6. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-12
+
+[P1 可扩展性] `CONFIG` 包管理器字符串化。
+
+1. 旧形式：`CONFIG VENV "<path>"` / `CONFIG CONDA "<env>"` / `CONFIG UV "<path>"` / `CONFIG PIPENV "<path>"` / `CONFIG POETRY "<path>"`。
+2. 新形式：`CONFIG <language> "<package_manager>" "<path_or_env>";`
+   - 例：`CONFIG python "venv" ".venv";` / `CONFIG python "conda" "myenv";` / `CONFIG rust "cargo" ".";` / `CONFIG javascript "npm" "./node_modules";` / `CONFIG java "maven" "./pom.xml";` / `CONFIG dotnet "nuget" "./packages";` / `CONFIG ruby "bundler" "./Gemfile";` / `CONFIG go "gomod" "./go.mod";`。
+3. 旧关键字 `VENV` `CONDA` `UV` `PIPENV` `POETRY` 词法兼容期保留，sema 给 deprecation 警告并自动按新形式语义化。
+4. 内部以**注册表**（`runtime` 或 `tools/polyc/src/config_registry.{h,cpp}`）持有 `<language, package_manager> -> handler` 映射，新增包管理器只需注册不需改词法。
+5. 文档：
+   - spec / realization / USER_GUIDE / tutorial 中英双语全部以新形式书写示例；
+   - `docs/realization/package_management_*.md` 新增"如何注册自定义包管理器"小节。
+6. 测试：
+   - 单测覆盖新形式 + 旧形式 deprecation；
+   - 集成：`tests/samples/04_package_import` 增加 `npm` / `cargo` / `maven` 镜像版本。
+7. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-13
+
+[P2 错误处理] 引入 `TRY` / `CATCH` / `THROW` 与跨语言异常桥接。
+
+1. 语法：
+   ```ploy
+   TRY {
+     LET x = CALL(python, foo, 1);
+   } CATCH (e: Error) {
+     // handle
+   } FINALLY {
+     // optional
+   }
+   ```
+   - 表达式形式（短路传播）：`LET x = CALL(python, foo, 1)?;`，遇错向上抛出。
+2. 类型：
+   - 新增内建 `Error` 句柄类型，含 `message: String`、`source_lang: String`、`stacktrace: List<String>`；
+   - 跨语言异常桥接：Python `Exception`、C++ `std::exception`、Java `Throwable`、C# `Exception`、Rust `Result::Err` 统一封装为 `Error`。
+3. 运行时：
+   - `runtime/` 新增 `error_bridge.{h,c}`，对外提供 `__ploy_rt_throw` / `__ploy_rt_catch_begin` / `__ploy_rt_catch_end`；
+   - 各语言 bridge 拦截目标语言异常并转换为统一 `Error`；
+   - 反向：`THROW` 在跨语言调用栈上抛出可被宿主侧 `catch` 的对应异常。
+4. 文档：
+   - `docs/realization/error_handling_*.md` 新建中英双语；
+   - spec / USER_GUIDE / tutorial 中英双语新增"错误处理"章节。
+5. 测试：
+   - 单测：sema、lowering、运行时 bridge；
+   - 集成：`tests/samples/36_try_catch/`，覆盖 5 种宿主语言异常 → `.ploy` 捕获、`.ploy` `THROW` → 宿主捕获。
+6. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-14
+
+[P2 异步] 引入 `ASYNC` / `AWAIT` 与跨语言异步桥接。
+
+1. 语法：
+   - `ASYNC FUNC fetch() -> i32 { … }`；
+   - `LET v = AWAIT call_async();`；
+   - `ASYNC` 函数返回值类型隐式包装为 `Future<T>`（IDE 显示原始 `T`）。
+2. 调度模型：
+   - 单线程协作式事件循环 + 可选多线程 work-stealing 池（接现有 `runtime/threading.{h,cpp}`）；
+   - 跨语言：
+     * Python `asyncio` coroutine ↔ `.ploy` `Future` 互转；
+     * Rust `Future` 通过 `polyrt` 安装的 executor 驱动；
+     * C++20 `std::coroutine` / `co_await` 适配；
+     * Java `CompletableFuture` / .NET `Task<T>` 适配。
+3. 运行时：
+   - `runtime/` 新增 `async_bridge.{h,c}`、`event_loop.{h,c}`；
+   - `polyrt async` 子命令：状态查看 / 任务列表 / 队列长度。
+4. 文档：
+   - `docs/realization/async_model_*.md`；
+   - USER_GUIDE / tutorial 中英双语补"异步与并发"章节；
+   - 已有 `14_async_pipeline` 升级为真实 `ASYNC/AWAIT` 实现。
+5. 测试：
+   - 单测：调度公平性、取消、异常传播；
+   - 集成：`tests/samples/37_async_await/` 跨 5 种语言异步串/并联。
+6. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-15
+
+[P2 抽象] 引入泛型 `FUNC<T: Bound>` / `STRUCT<T>`。
+
+1. 语法：
+   - `FUNC max<T: Comparable>(a: T, b: T) -> T { IF a > b { RETURN a; } ELSE { RETURN b; } }`；
+   - `STRUCT Pair<A, B> { first: A; second: B; }`；
+   - 单态化（monomorphization）+ where 子句：`FUNC f<T>(x: T) WHERE T: Numeric { … }`。
+2. 内建 trait / bound：
+   - `Comparable` `Hashable` `Numeric` `Iterable` `Display`；
+   - 在 spec 中明确每个 bound 对应宿主语言的契约（C++ `concept`、Rust `trait`、Java `interface`、C# `interface`、Python `Protocol`）。
+3. 跨语言：
+   - 泛型实例化在 `.ploy` 端完成，每个具化版本生成独立 stub；
+   - sema 校验泛型参数与跨语言签名兼容。
+4. 文档：
+   - `docs/realization/generics_*.md` 新建中英双语；
+   - spec / USER_GUIDE / tutorial 中英双语新增"泛型"章节。
+5. 测试：
+   - 单测：单态化、bound 检查、错误诊断；
+   - 集成：`tests/samples/38_generics/` 演示泛型容器跨 C++/Python/Rust。
+6. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-16
+
+[P2 模块化] 可见性修饰 `PUB` / `PRIVATE` 与属性 / 注解 `@inline` 等。
+
+1. 可见性：
+   - 默认 `PRIVATE`（模块内可见）；显式 `PUB` 才跨模块可见；
+   - `EXPORT` 只能用于 `PUB` 符号，否则 sema 报错；
+   - 模块边界以文件为单位，未来可扩展 `MODULE name { … }` 嵌套。
+2. 属性 / 注解：
+   - 内建：
+     * `@inline` / `@noinline` / `@always_inline`；
+     * `@hot` / `@cold`；
+     * `@profile` / `@no_profile`（与 2026-04-28-5 Profiler 联动）；
+     * `@deprecated("msg")`；
+     * `@link_name("symbol")`（覆盖 mangle 后的导出名）；
+     * `@target("x86_64,arm64")`（限定可用架构）。
+   - 解析层 `@<ident>(<args>)` 通用，未识别的注解仅 sema 警告。
+3. 文档：
+   - spec / realization / USER_GUIDE / tutorial 中英双语补两节；
+   - `docs/specs/attribute_catalog_*.md` 新建中英双语，集中列出所有内建注解。
+4. 测试：
+   - 单测：可见性违反、各注解的 sema / 优化器交互；
+   - 集成：`tests/samples/39_visibility_attrs/`。
+5. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-17
+
+[P2 字面量] 字符串字面量扩展：raw / 多行 / 模板。
+
+1. 字面量形式：
+   - 普通：`"hello\n"`；
+   - Raw：`r"C:\path\no\escape"`、`r#"contains "quotes""#`；
+   - 多行：`"""line1\nline2"""` 或缩进感知 `"""\n  line1\n  line2\n"""`；
+   - 模板：`f"x = {x}, sum = {a + b}"`，编译期展开为 `format(...)` 调用，sema 检查内嵌表达式类型可格式化。
+2. 跨语言：
+   - 模板插值仅在 `.ploy` 侧展开；最终传给宿主语言的是已格式化字符串，与现有 marshalling 100% 兼容；
+   - raw / 多行字符串便于嵌入 SQL / JSON / 跨语言代码片段（与 `samples/22_database_access`、`20_json_pipeline` 联动）。
+3. 词法 / parser：
+   - 新增 lexer 分支处理 `r"..."` / `"""..."""` / `f"..."`；
+   - 模板字符串 AST 拆为 `string_part + expr_part` 序列。
+4. 文档：
+   - spec §3.3 / realization §3.3 / USER_GUIDE / tutorial 中英双语补"字符串字面量"章节；
+   - `tests/samples/` 在已有 string / SQL / JSON 示例中切换为新字面量。
+5. 测试：
+   - lexer 单测覆盖所有分支与转义；
+   - sema 模板插值类型检查；
+   - 集成：模板字符串跨语言传输。
+6. 版本：minor 递进（patch 也可，视字面量影响判断）。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-18
+
+[P3 收尾] 小语法瑕疵集合。
+
+1. `IF / WHILE / FOR` 外层括号设为可选：
+   - `IF cond { … }` 与 `IF (cond) { … }` 等价；
+   - parser 二者皆受。
+2. `OPTION<T>` 解包：
+   - 新语法 `IF LET Some(x) = opt { … } ELSE { … }`；
+   - `?` 后缀短路（与 2026-04-28-13 错误传播复用 token，需明确二者上下文区分规则）。
+3. 命名澄清：
+   - `LIST<T>` 在 spec 中加显著说明"非链表，等价 Rust `Vec<T>` / C++ `std::vector<T>`"；
+   - 在文档与 IDE tooltip 中提示。
+4. `NULL` 限定：
+   - sema 仅在与裸指针类型互操作时允许；与 `OPTION<T>` 互用时报错并建议改用 `None`；
+   - 文档明确两者区别。
+5. 文档注释：
+   - 新增 `///` 文档注释，紧邻 `FUNC` / `STRUCT` / `LET` 等顶层声明时收集为 doc；
+   - 新增工具 `polydoc`（`tools/polydoc/`），从 `.ploy` 抽取 doc 输出 Markdown / JSON；
+   - 接入 IDE 悬浮提示。
+
+6. 文档：
+   - spec / realization / USER_GUIDE / tutorial 中英双语全部小修；
+   - `docs/api/polydoc_*.md` 新建中英双语。
+7. 测试：
+   - parser：可选括号、`IF LET`、`?`；
+   - polydoc：抽取与渲染。
+8. 版本：minor 递进。完成后追加 `--end -done`。
+
+--end
+
+2026-04-28-19
+
+[IDE P0-1] LSP 客户端框架 + Polyglot Language Server 雏形。
+
+1. 在 `tools/ui/common/` 下新增 `lsp/`：
+   - `lsp_client.{h,cpp}`：JSON-RPC over stdio / TCP；支持 `initialize` / `shutdown` / `textDocument/{didOpen,didChange,didSave,didClose}` / 通用请求转发；
+   - `lsp_message.{h,cpp}`：LSP 标准消息类型（Position / Range / Diagnostic / Location / Hover / CompletionItem / SignatureHelp / SymbolInformation / CodeAction / TextEdit / WorkspaceEdit / DocumentSymbol）；
+   - `lsp_session.{h,cpp}`：以 (workspace_uri, language_id) 为键管理多服务器会话；
+   - `lsp_capability_registry.{h,cpp}`：服务器能力协商缓存；
+   - `lsp_log_panel.{h,cpp}`：可在 IDE 内查看 LSP 通信日志（请求 / 响应 / 通知，可过滤）。
+
+2. 新增 `tools/polyls/` —— PolyglotCompiler 自研 Language Server：
+   - 入口 `polyls.cpp`、库 `polyls_core/`；
+   - 复用 `frontend_ploy` + `frontend_cpp` + `frontend_python` + `frontend_rust` + `frontend_java` + `frontend_dotnet` 共享分析能力，提供 `.ploy` 与跨语言基础能力；
+   - 本条只交付 `initialize` / `textDocument/didOpen` / `didChange` / `didClose` / `publishDiagnostics`（仅语法错误）；
+   - 其它能力（completion / hover / definition）作为 capabilities advertised = false，留给后续条目实现。
+
+3. 编辑器接入：
+   - `code_editor` 增加变更事件桥接，按 debounce 200ms 转发为 LSP `didChange`；
+   - 新增 gutter `LspDiagnosticsModel`，把 `publishDiagnostics` 渲染为标尺图标 + 行下划线。
+
+4. 配置：
+   - `Settings → Language Servers` 页：每语言可配置 server 命令、参数、env、初始化选项；
+   - 默认值：`.ploy` 走自研 `polyls`，C++ 走 `clangd`，Python 走 `pyright`，Rust 走 `rust-analyzer`，Java 走 `jdtls`，C# 走 `omnisharp`；
+   - 对应可执行不在 PATH 时给予非阻塞通知 + 修复指引。
+
+5. 测试：
+   - `tests/unit/polyui/lsp_client_test.cpp`：mock server 收发；
+   - `tests/unit/polyls/lifecycle_test.cpp`：initialize / shutdown / cancel；
+   - `tests/integration/`：打开 `.ploy` 故意语法错，校验诊断出现在 LSP 通道与 IDE gutter。
+
+6. 文档：
+   - `docs/specs/lsp_integration_*.md`（中英双语）；
+   - `docs/api/polyls_*.md`（中英双语）；
+   - USER_GUIDE / tutorial 中英双语新增"语言服务器架构"章节。
+
+7. 版本：根 `CMakeLists.txt` minor 递进。规则 2/3/10 全部生效；不允许任何占位 / TODO；完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-20
+
+[IDE P0-2] 实时诊断 / Problems Panel / 编辑即检查。
+
+1. 新增面板 `tools/ui/common/{src,include}/problems_panel.{h,cpp}`：
+   - 按 (severity, source, file) 聚合；
+   - 支持过滤：error / warning / info / hint，按文件 / 按 LSP 来源 / 按正则；
+   - 双击跳转源码并高亮范围；
+   - 状态栏新增"E:N W:N H:N"统计与一键打开 Problems Panel 的入口。
+
+2. 实时检查：
+   - 编辑停顿 ≥ 200ms 触发 `didChange`；
+   - 全工作区背景检查：保存或文件创建/删除/重命名时，对受影响文件做增量；
+   - 大型工作区（>2000 文件）首检异步分批，进度显示在状态栏。
+
+3. 与编译器联动：
+   - `polyc --check <file>` 在无 LSP 可用时作为 fallback；
+   - 编译产生的诊断（spec / sema / lowering）转换为 LSP `Diagnostic` 上送 Problems Panel。
+
+4. 测试：
+   - `problems_panel_model_test.cpp`：聚合 / 过滤 / 排序；
+   - 集成：构造含错样例，校验 Problems 面板内容与 gutter 一致。
+
+5. 文档：
+   - `docs/realization/problems_panel_*.md`（中英双语）；
+   - USER_GUIDE / tutorial 同步。
+
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-21
+
+[IDE P0-3] 代码补全（Completion）+ 签名帮助（Signature Help）+ 悬浮（Hover）。
+
+1. 编辑器：
+   - 触发器：`.` `:` `::` `(` 字符 + 手动 `Ctrl+Space`；
+   - UI 弹窗：图标 / 类型 / 文档摘要 / 详情面板（左半选择，右半 detail）；
+   - Snippet 占位符 + Tab 跳转；
+   - 模糊匹配 + 评分（前缀 > 子序列 > 模糊），可在设置中切换策略。
+
+2. Hover：
+   - 鼠标悬停 / `Ctrl+K Ctrl+I` 调出；
+   - 渲染 Markdown，含签名 + 文档 + 跨语言来源（例如悬停 `.ploy` 中 `cpp::math::add` 时，显示 C++ 端真实签名 + 文件链接）。
+
+3. Signature Help：
+   - 输入 `(` 自动出现；
+   - 高亮当前参数；
+   - 显示重载列表（来自 LSP `signatureHelp`），上下键切换。
+
+4. polyls 能力：
+   - 实现 `textDocument/completion`、`completionItem/resolve`、`textDocument/hover`、`textDocument/signatureHelp`；
+   - `.ploy` 端给出关键字 / 已声明符号 / 已 `IMPORT` 模块的成员补全；
+   - 跨语言：当上下文是 `LINK <lang>::` 时，列出该语言已索引模块。
+
+5. 测试：
+   - polyls 单测：`completion_test.cpp` `hover_test.cpp` `signature_help_test.cpp`；
+   - UI 单测：补全弹窗模型；
+   - 集成：在 `.ploy` 输入 `LINK cpp::` 弹出补全 ≥ N 项。
+
+6. 文档：USER_GUIDE / tutorial 中英双语。
+7. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-22
+
+[IDE P0-4] 跳转：Definition / Declaration / Implementation / References / Type Definition。
+
+1. polyls：
+   - `textDocument/definition` / `declaration` / `implementation` / `typeDefinition` / `references`；
+   - 索引：在 sema 阶段产出 `SymbolIndex`（持久化到 `.polyc-cache/`），覆盖 `.ploy` 与已 `IMPORT` 模块；
+   - 增量更新：`didChange` 增量重建。
+
+2. 编辑器：
+   - 快捷键：`F12` 跳转定义；`Ctrl+F12` 实现；`Shift+F12` 引用；`Ctrl+K F12` 在侧栏 Peek；
+   - Peek 视图：行内嵌入式预览（不离开当前文件）。
+
+3. 跨语言：
+   - 在 `.ploy` 跳转 `LINK` 目标符号 → 直接打开宿主语言文件并定位；
+   - 反向：宿主语言中"被哪些 `.ploy` LINK 引用"通过 `references` 返回。
+
+4. 测试：
+   - 单测：索引正确性、增量正确性、跨语言映射；
+   - 集成：`tests/samples/09_mixed_pipeline` 上端到端跳转矩阵。
+
+5. 文档：`docs/realization/symbol_index_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-23
+
+[IDE P0-5] 重构（Refactor）：rename / extract function / inline / move file / change signature。
+
+1. polyls 能力：
+   - `textDocument/prepareRename` / `rename`；
+   - `textDocument/codeAction`：extract function、inline variable、inline function、change signature、move file；
+   - 返回 `WorkspaceEdit` 跨文件原子应用。
+
+2. 编辑器：
+   - Rename 双重确认：弹窗显示影响列表（按文件分组），可逐项勾选；
+   - Extract function：选中区域 → `Ctrl+Shift+R` → 输入新函数名 + 自动推断参数 / 返回；
+   - 撤销栈：所有重构进单步 undo。
+
+3. 跨语言重命名：
+   - `.ploy` 中重命名 `LINK` 名 → 同步更新 LINK / EXPORT / 引用；
+   - 宿主语言端重命名（若 LSP 支持）→ polyls 监听变更，自动更新 `.ploy`。
+
+4. 测试：
+   - 单测：rename 范围正确性、不该改的不被改；
+   - 集成：跨语言 rename 端到端。
+
+5. 文档：`docs/realization/refactoring_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-24
+
+[IDE P0-6] 语义级语法高亮 + Tree-sitter 集成。
+
+1. 接入 tree-sitter：
+   - `tools/ui/common/syntax/tree_sitter_runtime.{h,cpp}`：runtime 加载 / 解析 / 增量重解析；
+   - 引入 grammar：`tree-sitter-ploy`（自研，新增到 `tools/polyls/grammar/`）+ 第三方 grammar 仓子模块（cpp / python / rust / java / c-sharp）；
+   - 解析结果用于：① 折叠区间；② 大纲；③ 选区扩展（Smart Select）；④ 语义高亮。
+
+2. LSP `textDocument/semanticTokens`：
+   - polyls 实现完整 token 类型 + modifier；
+   - 高亮主题与 `theme_manager` 颜色变量统一。
+
+3. 编辑器：
+   - 旧 `syntax_highlighter`（正则版）保留作为 LSP 不可用时的 fallback；
+   - 设置项："Use LSP semantic tokens"（默认 on）。
+
+4. 测试：
+   - tree-sitter parser 加载 / 增量；
+   - semanticTokens 单测；
+   - 视觉对比快照（仅 token 类型序列）。
+
+5. 文档：`docs/realization/semantic_highlight_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-25
+
+[IDE P1-1] 多标签 / 分屏 / 拖拽分组 / Quick Open / 全局搜索 / Outline / Breadcrumbs / Minimap。
+
+1. 多标签 + 分屏：
+   - `tools/ui/common/editor/editor_group.{h,cpp}`、`editor_grid.{h,cpp}`；
+   - 支持横/纵分屏、最多 4×4 网格；
+   - 标签拖拽到分组 / 拆分 / 合并；
+   - 标签固定 / pin / 关闭其他 / 关闭右侧。
+
+2. Quick Open：
+   - `Ctrl+P`：模糊文件名（VS Code 风格 ranking），含最近文件优先；
+   - `Ctrl+Shift+P` 已有命令面板（保留）。
+
+3. Symbol Search：
+   - `Ctrl+T`：跨工程符号（`workspace/symbol`）；
+   - `Ctrl+Shift+O`：当前文件符号（`documentSymbol`）。
+
+4. 全局搜索 / 替换：
+   - `Ctrl+Shift+F`：正则 / 大小写 / 全词 / glob include / glob exclude；
+   - 替换支持捕获组；
+   - 流式渲染结果（不阻塞 UI）。
+
+5. Outline / Breadcrumbs / Minimap：
+   - Outline 面板：树视图 + 折叠 + 过滤；
+   - Breadcrumbs：文件路径 + 当前符号；
+   - Minimap：右侧迷你图（可关闭）。
+
+6. 测试：
+   - editor group 模型；
+   - quick open ranker；
+   - 全局搜索结果模型；
+   - outline 模型。
+
+7. 文档：USER_GUIDE / tutorial 中英双语集中一节。
+8. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-26
+
+[IDE P1-2] 多光标 / 列编辑 / 折叠 / 自动格式化 / Snippets / EditorConfig。
+
+1. 多光标：
+   - `Alt+Click` 加光标；`Ctrl+Alt+↑/↓` 上下扩展；`Ctrl+D` 选下一个相同；`Ctrl+Shift+L` 全选相同；
+   - 矩形选区：`Shift+Alt+拖拽`。
+
+2. 折叠：
+   - 基于 tree-sitter 的语义折叠（函数 / 块 / 注释 / 区域 `// region` `// endregion`）；
+   - `Ctrl+K Ctrl+0/J` 折叠所有 / 展开所有。
+
+3. Formatter：
+   - LSP `textDocument/formatting` / `rangeFormatting` / `onTypeFormatting`；
+   - polyls 集成内建 `.ploy` 格式化器；外部语言走对应 LSP；
+   - 设置："Format on save" / "Format on paste"。
+
+4. Snippets：
+   - 用户片段（JSON）+ 内建片段库；
+   - 占位符 / 选项 / 变量（`$CURRENT_DATE` 等）；
+   - 自动出现在补全列表。
+
+5. EditorConfig：
+   - 解析 `.editorconfig`：缩进 / 行尾 / 编码 / 末行换行；
+   - 状态栏显示当前生效配置。
+
+6. 测试：
+   - 多光标编辑；折叠区间；Format on save；Snippet 展开；EditorConfig 解析。
+
+7. 文档：USER_GUIDE / tutorial 中英双语。
+8. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-27
+
+[IDE P1-3] Git 进阶：diff 视图 / blame / merge resolver / SCM 抽象。
+
+1. Diff 视图：
+   - 行内 / 并排两种模式；
+   - Hunk 接受 / 拒绝（stage / unstage）；
+   - 与 LSP / 编辑器共存（diff 区域内仍可悬浮 / 跳转）。
+
+2. Blame：
+   - gutter 显示最近一次提交者 / 时间 / 提交标题；
+   - 行级悬浮显示完整 commit 信息；可一键打开 commit 详情面板。
+
+3. Merge Conflict Resolver：
+   - 三向视图（current / incoming / result）；
+   - 一键 Accept current / incoming / both；手动编辑结果区。
+
+4. SCM 抽象：
+   - `tools/ui/common/scm/scm_provider.{h,cpp}`：抽象 status / diff / commit / branch / log / blame；
+   - 默认实现 `GitProvider`（替换/继承现有 `git_panel`）；
+   - 预留 `MercurialProvider` / `SubversionProvider` 接口。
+
+5. 测试：diff 算法对齐、blame 解析、merge resolver 操作完备。
+6. 文档：USER_GUIDE / tutorial 中英双语。
+7. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-28
+
+[IDE P2-1] DAP（Debug Adapter Protocol）适配 + 通用调试 UI。
+
+1. `tools/ui/common/dap/`：
+   - `dap_client.{h,cpp}`：JSON-RPC over stdio；
+   - 完整覆盖 `initialize` `launch` `attach` `setBreakpoints` `setExceptionBreakpoints` `setDataBreakpoints` `setFunctionBreakpoints` `configurationDone` `threads` `stackTrace` `scopes` `variables` `evaluate` `continue` `next` `stepIn` `stepOut` `pause` `disconnect` `terminate`；
+   - 事件：`stopped` `continued` `exited` `terminated` `output` `breakpoint` `thread`。
+
+2. 调试视图：
+   - Call Stack / Threads / Variables / Watch / Scope / Debug Console；
+   - 行内变量值（inline values）；
+   - 日志点 / 条件断点 / 命中计数 / 异常断点。
+
+3. 启动配置：
+   - `polyui.launch.json` 等价物（位于 `.polyc/launch.json`），多配置切换；
+   - 默认提供：`.ploy` Run/Debug、Python（debugpy）、C++（lldb/gdb/codelldb）、Rust（codelldb/lldb）、Java（jdtls/jdwp）、.NET（vsdbg/netcoredbg）。
+
+4. 旧 `debug_panel` 重构：
+   - 抽出共享接口供 DAP 与本地 polyrt 调试共用；
+   - 不破坏现有最小调试能力。
+
+5. 测试：
+   - DAP mock 服务器；
+   - 全套调试动作端到端（针对 sample 09/15）。
+
+6. 文档：`docs/realization/dap_integration_*.md`（中英双语）+ USER_GUIDE 中英双语。
+7. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-29
+
+[IDE P2-2] 任务系统 + Run/Debug 配置 + Hot Reload。
+
+1. 任务系统：
+   - `.polyc/tasks.json`：build / test / lint / format / custom shell / compound 依赖；
+   - 任务输出归类到 `output_panel` 子频道；
+   - 终止 / 重跑 / "watch 模式（受 problemMatcher 解析）"。
+
+2. Run/Debug 配置：
+   - 与上一条 launch.json 协同；
+   - 状态栏快捷选择 + 一键运行 / 调试。
+
+3. Hot Reload / Edit-and-continue：
+   - 对 `.ploy` 与 Python：增量重编 + 替换运行进程的相应模块；
+   - 对 C++ / Rust：与 polyrt 配合，在调试态修改 → 编译 → 替换函数符号（仅在调试支持时）；
+   - 对 Java / .NET：JDI / EnC 适配。
+
+4. 测试：
+   - 任务依赖图调度；
+   - hot reload 单语言 + 跨语言；
+   - launch 配置切换。
+
+5. 文档：USER_GUIDE / tutorial 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-30
+
+[IDE P3-1] Test Explorer + Coverage 视图 + Inline Run-Test。
+
+1. Test Explorer：
+   - 树形（项目 → 套件 → 用例）；状态彩色（pass / fail / skip / pending）；
+   - 单点重跑 / 套件重跑 / 失败优先；
+   - 适配 CTest（PolyglotCompiler 现有）+ pytest + cargo test + JUnit + xUnit/NUnit；
+   - LSP `testing` 协议（VS Code Testing API 等价）抽象层。
+
+2. 行内运行：
+   - 在测试函数上方显示 ▶ Run / 🐞 Debug 行内按钮（CodeLens 风格）；
+   - 单测失败时行号上挂诊断 + 一键打开 Test Explorer 详情。
+
+3. Coverage：
+   - gutter 红绿条 + 百分比；
+   - 加载 lcov / cobertura / coverage.py / cargo-tarpaulin / dotnet coverlet 报告；
+   - 工作区视图：按文件 / 目录树 + 阈值报警。
+
+4. 测试：
+   - 解析 5 种报告格式；
+   - 行内 CodeLens 渲染。
+
+5. 文档：USER_GUIDE / tutorial 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-31
+
+[IDE P3-2] 包管理 UI + 依赖图 + 漏洞扫描 + REPL/Notebook。
+
+1. 包管理 UI（与 demand 2026-04-28-12 `CONFIG` 字符串化呼应）：
+   - 一处管理 venv / conda / uv / pipenv / poetry / cargo / npm / maven / gradle / nuget / gem / gomod；
+   - 安装 / 升级 / 移除 / 锁文件查看 / 与 `.ploy CONFIG` 双向同步；
+   - 状态栏显示当前激活环境。
+
+2. 依赖图：
+   - 树 + 图两种视图；版本冲突高亮；可导出 SVG。
+
+3. 漏洞扫描：
+   - 接入开源 advisory 数据源（osv.dev / GitHub Advisory）；
+   - 行内 + 面板告警；可关闭。
+
+4. REPL / Notebook：
+   - 内置 `.ploy` REPL（基于 `polyc --repl`，需 `polyc` 同步实现）；
+   - Python REPL / IRust / IRB / dotnet-script 嵌入；
+   - 简易 Notebook 视图（cell + 输出 + 跨语言 `LINK` 单元）。
+
+5. 测试：
+   - 各包管理器抽象层端到端；
+   - REPL / Notebook 子集。
+
+6. 文档：USER_GUIDE / tutorial 中英双语。
+7. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-32
+
+[IDE P4-1] 跨语言独有：跳转 / Hover / 重命名 / Bridge 视图 / Marshalling 可视化。
+
+1. 跨语言跳转 / Hover / 重命名：
+   - 在 `2026-04-28-22` / `-23` 基础上做"跨语言加强"：
+     * `.ploy` 中 `LINK cpp::math::add` 直接 F12 跳到 C++ 源；
+     * 反向：宿主语言函数定义处显示"X .ploy LINK references"CodeLens；
+     * 跨语言 rename 通过 polyls 协调多个 LSP 一致提交 `WorkspaceEdit`。
+
+2. Bridge 视图：
+   - 新面板 `tools/ui/common/bridge_panel.{h,cpp}`：
+     * 列出当前工作区所有跨语言桥；
+     * 显示生成的 stub 名 / marshalling 策略 / 调用次数（运行期来自 polyrt calltrace）；
+     * 双击跳源。
+
+3. Marshalling 可视化：
+   - 选中 `LINK` / `CALL` / `METHOD` 时，侧栏渲染参数 / 返回值的转换链路（IR 层 → marshalling helper → 目标 ABI）；
+   - 链路上每一步可点开看代码片段（来自 lowering 输出）。
+
+4. 测试：
+   - bridge 列表与编译产物一致；
+   - marshalling 链路渲染对 5 种宿主语言均可用。
+
+5. 文档：`docs/realization/cross_language_ide_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-33
+
+[IDE P4-2] Compile Pipeline Inspector + IR Viewer / Diff + Asm Viewer + Source↔Asm 联动。
+
+1. Pipeline Inspector：
+   - 新面板 `pipeline_inspector_panel`：分阶段（frontend / sema / IR-pre-opt / IR-post-opt / backend asm / link）展示 `aux/` 产物；
+   - 阶段间耗时直方图；点开任一阶段查看相关产物。
+
+2. IR Viewer / Diff：
+   - 文本 + 折叠（按函数 / 基本块）；
+   - 同函数 pre/post 优化对比（diff 视图，不可编辑）；
+   - 跳转：源行 ↔ IR 行 ↔ 资产行三向联动。
+
+3. Asm Viewer：
+   - Compiler Explorer 风格：左源右汇编；hover 行高亮对端；
+   - 支持 x86_64 / arm64 / wasm；
+   - 与 `polyasm` / backend disassembler 联动。
+
+4. 测试：
+   - 联动定位精度（行 ↔ IR ↔ asm 误差 ≤ 1）；
+   - 大文件分块加载性能（≥ 10MB IR 渲染流畅）。
+
+5. 文档：USER_GUIDE / tutorial 中英双语 + `docs/realization/pipeline_inspector_*.md`。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-34
+
+[IDE P4-3] Sample / Tutorial Browser + Topology Live + 类型推断浮层。
+
+1. Sample / Tutorial Browser：
+   - 新面板：内置 `tests/samples/` 与 `docs/tutorial/` 索引；
+   - 一键"打开为工作区副本"（避免污染源）；
+   - 标签筛选（语言 / 主题 / 难度）；
+   - 与 `2026-04-28-4` 新增的 17–30 样例联动。
+
+2. Topology Live：
+   - `topology_panel` 已有静态视图；本条加：
+     * 实时跟随当前编辑文件 / 当前选中函数；
+     * 鼠标悬停拓扑节点 → 编辑器跳转；
+     * 编辑后 debounce 重算并增量更新拓扑。
+
+3. 类型推断浮层（Inlay Hints）：
+   - LSP `textDocument/inlayHint`；
+   - polyls：`LET m = NEW(python, ...)` 行尾以灰字显示推断 `: HANDLE<python::torch::nn::Linear>`；
+   - 参数名 hint：`f(/*x:*/ 1, /*y:*/ 2)`；
+   - 设置可关。
+
+4. 测试：
+   - sample browser 模型；
+   - topology 实时增量正确；
+   - inlay hint 正确性。
+
+5. 文档：USER_GUIDE / tutorial 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-35
+
+[IDE P5-1] Remote Development（SSH / WSL / Container / Dev Container）。
+
+1. 架构：
+   - 引入 `tools/ui/common/remote/`：
+     * `remote_session.{h,cpp}`：抽象远端文件系统 / 进程 / 端口转发；
+     * 实现 `SshRemote` / `WslRemote` / `ContainerRemote`（docker / podman）；
+   - polyls / DAP / 任务系统 / 终端 全部走 remote_session 抽象，本地视为 `LocalRemote`。
+
+2. Dev Container：
+   - 解析 `.devcontainer/devcontainer.json`；
+   - 一键"在容器中重新打开"；
+   - 容器内自动安装 polyls / 必要 LSP / 包管理工具。
+
+3. 端口转发 / 文件同步 / 远端终端 完整可用。
+
+4. 测试：
+   - 单测：抽象层；
+   - 集成（CI 中 SSH 与容器场景）：在远端跑 sample 09 全链路。
+
+5. 文档：`docs/realization/remote_dev_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-36
+
+[IDE P5-2] AI 助手集成（行内补全 / 聊天 / 解释 / 重构建议）+ 协作 / PR 集成。
+
+1. AI 助手框架：
+   - `tools/ui/common/ai/`：
+     * `ai_provider.{h,cpp}`：抽象 chat / completion / inline-suggest / refactor-suggest；
+     * 适配器：本地 ollama、OpenAI 兼容 API、Azure、Anthropic（仅 SDK 转发，不内置 key）；
+   - 隐私：默认本地优先；任何外送都需用户显式同意；
+   - 提示模板与"项目上下文采集"可在设置中配置（哪些目录可上送 / 哪些禁止）。
+
+2. UI：
+   - 行内灰字建议（Tab 接受 / Esc 拒绝 / Alt+] 切换备选）；
+   - Chat 面板（带文件 / 选区 / Diagnostics 上下文一键插入）；
+   - Refactor Diff 面板（建议变更以 diff 形式呈现，逐 hunk 接受）。
+
+3. 协作 / PR：
+   - GitHub / GitLab / Gitea 三套 provider；
+   - PR 列表 / 评论 / Diff Review / Push to PR；
+   - Issue 视图：列表 / 创建 / 关联 commit / 引用文件行。
+
+4. 测试：
+   - mock provider 单测；
+   - 协作 provider 适配层单测；
+   - 集成：本地 ollama 端到端聊天 + 行内建议接受。
+
+5. 文档：`docs/realization/ai_integration_*.md`、`docs/realization/collab_*.md`（中英双语）+ USER_GUIDE 中英双语 + 隐私声明。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-37
+
+[IDE P6-1] 插件系统（Extension API + 本地 Marketplace 雏形）+ Workspace / Multi-root。
+
+1. Extension API：
+   - `tools/ui/common/ext/`：
+     * 加载形态：动态库（C/C++）+ JavaScript/TypeScript（嵌入式 QuickJS / V8 视构建条件可选）；
+     * Manifest：`extension.json`（id / name / version / activation / contributes）；
+     * 贡献点：commands / keybindings / menus / panels / views / status-bar items / themes / language-clients / debug-adapters / file-icon-themes / formatters / snippets / tasks / refactor-providers；
+   - 安全：沙箱 + 能力授权（fs / network / process）显式声明 + 用户审批。
+
+2. 本地 Marketplace：
+   - 文件系统 / HTTP 索引；
+   - 安装 / 卸载 / 更新 / 版本回滚；
+   - 签名校验（可选）。
+
+3. Workspace / Multi-root：
+   - `polyui.code-workspace` 等价：多根 + 每根独立设置 + 跨根搜索 / 跳转；
+   - 与 LSP / DAP / 任务系统协同。
+
+4. 测试：
+   - 加载 / 卸载 / 重载；
+   - 贡献点注册去重；
+   - 多根工作区下的 LSP 实例隔离。
+
+5. 文档：`docs/api/extension_api_*.md`（中英双语，是大型文档）+ `docs/realization/marketplace_*.md`（中英双语）+ USER_GUIDE 中英双语。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-38
+
+[IDE P6-2] Welcome / Notifications / Status Bar 可定制 / Recent / 会话恢复 / Bookmarks / TODO 索引。
+
+1. Welcome Page：
+   - 启动展示：最近工作区、教程入口、样例入口、新特性提示；
+   - 可关闭 / 可固定。
+
+2. Notification Center：
+   - 持久化 + 分级 + action 按钮 + 不打扰模式；
+   - 状态栏图标显示未读数。
+
+3. Status Bar 可定制：
+   - 用户可拖拽显示 / 隐藏：分支 / 编码 / 行尾 / 缩进 / 当前语言 / 语言服务器状态 / 包管理器 / Profiler 状态 / 错误警告统计；
+   - 第三方插件可注册。
+
+4. Recent Files / Workspaces：
+   - `Ctrl+R` 切换最近工作区；
+   - `Ctrl+E` 最近文件。
+
+5. 会话恢复：
+   - 重启后还原：标签 / 滚动 / 光标 / 折叠 / 分屏布局 / 面板大小 / 调试视图状态；
+   - 可关闭。
+
+6. Bookmarks：
+   - `Ctrl+Alt+K` 加 / 去；
+   - 书签面板：跨文件列表 + 标签 + 颜色。
+
+7. TODO / FIXME 索引：
+   - 后台扫描 + 面板汇总 + 自定义关键字（如 `XXX` `HACK`）。
+
+8. 测试：
+   - 各面板模型；
+   - 会话序列化 / 反序列化；
+   - 通知不打扰策略。
+
+9. 文档：USER_GUIDE / tutorial 中英双语集中一节。
+10. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-39
+
+[IDE P6-3] i18n 多语言 UI + 无障碍（Accessibility）+ 遥测 / 反馈 / 崩溃报告（可关闭）。
+
+1. i18n：
+   - `tools/ui/common/i18n/`：基于 Qt `QTranslator` + 自有字符串目录；
+   - 内建语言：中文（简/繁）/ 英文 / 日文 / 韩文；
+   - 字符串 ID 化，禁止源码硬编码 UI 字串；
+   - 文档：贡献指南 `docs/realization/i18n_*.md`（中英双语）。
+
+2. 无障碍：
+   - 所有可聚焦控件键盘可达；
+   - 屏幕阅读器（NVDA / JAWS / VoiceOver / Orca）兼容；
+   - 高对比度主题 / 大字体模式 / 减少动效；
+   - 文档：`docs/realization/accessibility_*.md`（中英双语）。
+
+3. 遥测 / 反馈 / 崩溃：
+   - 默认**关闭**；启用需用户同意 + 可随时撤回；
+   - 收集字段最小化 + 本地预览（用户可见）+ 端到端透明；
+   - 崩溃报告本地落盘 → 可选上传；
+   - 隐私文档 `docs/realization/telemetry_*.md`（中英双语）。
+
+4. 测试：
+   - 切换语言、屏幕阅读器 smoke、崩溃模拟、遥测开关；
+   - i18n 缺失字串扫描器作为 CI 检查。
+
+5. 文档：USER_GUIDE / tutorial 中英双语；隐私声明合规中英双语单独成档。
+6. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-40
+
+[IDE P6-4] 文件类型查看器：Image / Hex / Binary / 数据库客户端 / SQL Console。
+
+1. Image Viewer：
+   - PNG / JPEG / WebP / GIF / SVG / BMP；缩放 / 平移 / 通道分离 / 像素拾取。
+
+2. Hex Viewer：
+   - 大文件分块（≥ 1GB）；定位 / 检索 / 跳转 / 高亮区段；
+   - 与 `aux/` 二进制产物（`.ir.bin` / `.asm.bin` / `.obj`）联动，按已知 schema 渲染字段。
+
+3. Binary 类型识别 / 反汇编：
+   - 识别 ELF / PE / Mach-O / WASM；
+   - 简化反汇编（与 `polyasm` 共享）。
+
+4. 数据库客户端 / SQL Console：
+   - 支持 SQLite（首批，与 `samples/22_database_access` 联动）；
+   - 表浏览 / 行编辑 / SQL 执行 / 结果分页 / 导出 CSV。
+
+5. 测试：
+   - 图像渲染、Hex 大文件性能、二进制识别、SQL 端到端。
+
+6. 文档：USER_GUIDE / tutorial 中英双语。
+7. 版本：minor。完成后追加 `--end -done`。
+
+--end
+
+
+
+2026-04-28-41
+
+[BIN-1] 二进制容器统一抽象与 target triple 解析（Container / TargetTriple）。
+
+背景：当前 polyld 的 `OutputFormat::kExecutable` 在 `GenerateOutput()` 里硬编码调用 `GenerateELFExecutable()`，从不查 `target_os`；`pe_writer.cpp` 已实现 PE32+ 但完全未接入；`GenerateMachOExecutable()` 仅被 `GenerateMachODylib()` 内部调用一次，对外不可达。结果 Windows 宿主跑出来的 `.exe` 实际是 ELF（≈ 423 字节，魔数 7F 45 4C 46），双击报"不是有效 Win32 应用"。本条建立统一抽象，后续条目在其上派发。
+
+1. `common/include/target_triple.h` + `common/src/target_triple.cpp`：
+   - 新增 `struct TargetTriple { Arch arch; Vendor vendor; OS os; Env env; SubArch sub; };`
+   - 解析 `x86_64-pc-windows-msvc` / `aarch64-apple-darwin` / `x86_64-unknown-linux-gnu` / `wasm32-wasi` / `aarch64-pc-windows-msvc` 等全部主流 triple；非法输入 `Result<TargetTriple, ParseError>` 返回（不抛、不退出）。
+   - 提供 `TargetTriple HostTriple()`：从 `_WIN32 / __APPLE__ / __linux__ / __aarch64__ / _M_X64` 推导。
+   - 同时提供 `std::string TargetTriple::str() const`、`bool operator==`、`hash`。
+
+2. `common/include/binary_container.h`：
+   - `enum class BinaryContainer { kAuto, kELF, kPE, kMachO, kWasm };`
+   - `BinaryContainer ContainerForOS(OS)` 与逆向 `OS DefaultOSForContainer(BinaryContainer)`。
+   - `BinaryContainer ResolveContainer(const TargetTriple& triple, BinaryContainer requested)`：`requested != kAuto` 优先；否则按 triple.os 推导；wasm32-wasi → kWasm。
+
+3. polyc / polyld / 后端 都改用上述抽象：
+   - polyld 的 `LinkerConfig` 增加 `BinaryContainer container{kAuto}; TargetTriple target_triple;`，与 `target_os` 字段双向兼容（旧字段保留，setter 解析 triple 后回填）。
+   - polyc 命令行新增 `--container=auto|elf|pe|macho|wasm`（默认 auto），并把 `--target=<triple>` 透传给 polyld；现有 `--target-os=windows` 等仍旧可用，内部映射成 triple。
+   - 后端 `EmitObjectCode()` 接受 `TargetTriple` 替代裸 `TargetArch`（保留旧重载，标记为转发到新 API，禁止出现 `[[deprecated]]` 之外的占位）。
+
+4. 测试：`tests/unit/common/test_target_triple.cpp` 全表测试 50+ triple；`tests/unit/common/test_binary_container.cpp` 派发表测试。CI 在三平台上各跑一遍 host 推导。
+
+5. 文档：`docs/realization/binary_containers_zh.md` + `_en.md`，包含 triple 解析表、派发规则、迁移指南、已知限制。同步更新 `README` 与 `tools/polyc/README` / `tools/polyld/README` 的中英双语段落。
+6. 版本：根 `CMakeLists.txt` + `VERSION.txt`：`1.4.1` → `1.5.0-pre.1`（开启 1.5.0 周期；进入 release 时改为 `1.5.0`）。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-42
+
+[BIN-2] polyld 输出派发：`Linker::GenerateOutput()` 真正按 Container 分发。
+
+依赖：41。
+
+1. `tools/polyld/include/linker.h`：
+   - 保留 `OutputFormat`（语义"是 exe / 是 so / 是 .o / 是 .a"）不变；
+   - 新增成员声明 `bool GeneratePEExecutable(); bool GeneratePEDll(); bool GenerateMachOExecutable(); bool GenerateMachODylib(); bool GenerateWasmModule();`（其中 Mach-O 两个已有声明，需迁移并补齐实现）；
+   - `Linker` 内部维护 `BinaryContainer effective_container_`，由 `LinkerConfig.container` + `target_triple` 在 `Initialize()` 阶段解析一次。
+
+2. `tools/polyld/src/linker.cpp` 改派发：
+   - `GenerateOutput()` 查表：(`output_format`, `effective_container_`) → 具体生成函数；
+   - 不可达分支返回结构化错误（沿用现有 `ReportError` 机制），不静默回退到 ELF；
+   - 删除 `GenerateELFSharedLibrary()` 内部直接转 `GenerateELFExecutable()` 的伪实现，写真正的 `ET_DYN` 生成（保留旧函数符号但内部调真实现，不破坏 ABI）。
+
+3. `polyc` 在透传到 polyld 时，按 container 决定文件后缀策略：
+   - PE：`.exe / .dll / .lib`；
+   - ELF：`(无后缀) / .so / .a`；
+   - Mach-O：`(无后缀) / .dylib / .a`；
+   - Wasm：`.wasm`。
+   - 用户显式指定的 `-o` 路径不被覆写，但若后缀与 container 不匹配，发 `polyc-warn-W2101`。
+
+4. 测试：`tests/unit/polyld/test_output_dispatch.cpp` 用 fake writer 注入，验证 (container, output_format) → 调用了对的写出函数；多 triple 矩阵（含 wasm32-wasi）。
+
+5. 文档：在 41 的 `binary_containers_*.md` 追加"派发表"章节（中英双语）；更新 polyld README。
+6. 版本：`1.5.0-pre.1` → `1.5.0-pre.2`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-43
+
+[BIN-3] PE32+ 写出器加固：多节、真实重定位、子系统、arm64-windows。
+
+依赖：41 / 42。
+
+1. `tools/polyld/src/pe_writer.cpp` 在现有 `BuildPE32PlusImage` 基础上扩展（不重写、不删旧 API）：
+   - 多节支持：`.text / .data / .rdata / .bss / .pdata / .reloc / .xdata`；按现有 `output_sections_` 排布；正确填 `Characteristics`（`MEM_EXECUTE / MEM_READ / MEM_WRITE / CNT_CODE / CNT_INITIALIZED_DATA / CNT_UNINITIALIZED_DATA`）。
+   - 真实 base relocation：把 `.text / .data` 内的绝对地址重定位收集成 `.reloc` 节，按页分块（4KB）写 `IMAGE_BASE_RELOCATION + WORD[]`；类型 `IMAGE_REL_BASED_DIR64`（x64）/ `IMAGE_REL_BASED_HIGHLOW`（x86）；arm64 `IMAGE_REL_BASED_ARM64_BRANCH26 / IMAGE_REL_BASED_ARM64_PAGEBASE_REL21 / IMAGE_REL_BASED_ARM64_PAGEOFFSET_12L / 12A`。
+   - 子系统可配置：`BuildRequest.subsystem ∈ {Console, GUI, EFI_App, Driver}`；`polyc --subsystem=<...>` 透传；默认 Console。
+   - `Machine` 字段按 triple.arch 选择：`IMAGE_FILE_MACHINE_AMD64 (0x8664)` / `IMAGE_FILE_MACHINE_ARM64 (0xAA64)` / `IMAGE_FILE_MACHINE_I386 (0x014C)`。
+   - `DllCharacteristics`：默认开 `DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE | HIGH_ENTROPY_VA`（x64 / arm64）。
+   - 异常处理表：x64 的 `.pdata`（`RUNTIME_FUNCTION[]`）+ `.xdata`（`UNWIND_INFO`）骨架，配合后端 emit 的 unwind 元信息（如后端尚未 emit，则按"无 unwind"模式正确填零长度，但仍生成空 `.pdata` directory entry，绝不省略）。
+   - `.idata` / IAT：保留并增强为多 DLL 多函数；`HintNameTable` 正确写入；`BoundImport` 留为可选。
+
+2. arm64-windows 端到端：smoke 测试在 host 是 x64 时也能通过 PE 头解析 + 反汇编工具识别（`dumpbin /headers /disasm:nobytes` 期望 `machine (ARM64)`）。
+
+3. 测试：`tests/unit/polyld/test_pe_writer.cpp` 覆盖：
+   - 多节布局正确（虚拟地址 / 文件偏移 / 对齐）；
+   - `.reloc` 解码后回灌等于原始 RVA 集合；
+   - 子系统 / Machine / DllCharacteristics 字段精确匹配；
+   - 异常表/导入表交叉引用一致；
+   - `dumpbin` 子进程断言（仅 Windows runner）。
+
+4. 文档：`docs/realization/pe_writer_zh.md` + `_en.md`（新文档），含字段地图与调试 cheat sheet。
+5. 版本：`1.5.0-pre.2` → `1.5.0-pre.3`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-44
+
+[BIN-4] `Linker::GeneratePEExecutable()` / `GeneratePEDll()` 实装并接入 pe_writer。
+
+依赖：41 / 42 / 43。
+
+1. 新增 `tools/polyld/src/linker_pe.cpp`，与 `linker.cpp` 同风格、同命名空间、同诊断/Trace 机制：
+   - `Linker::GeneratePEExecutable()`：把 `output_sections_` 翻译成 `pe_writer::SectionLayout[]`；从 `imports_` 构建 `IATBuilder`；解析入口符号（`mainCRTStartup` / 用户 `--entry`）→ entry RVA；调 `BuildPE32PlusImage`；写文件；填 `stats_.total_output_size`。
+   - `Linker::GeneratePEDll()`：`IMAGE_FILE_DLL` + 入口 `_DllMainCRTStartup`；导出表 EAT 由 `exports_`（`__declspec(dllexport)` / 命令行 `/EXPORT:` / `.def` 文件）构建；正确生成 `.edata` 节、`Name Pointer Table` / `Ordinal Table` / `Export Address Table`。
+
+2. `.def` 文件支持：polyld 接受 `--def <file>`，解析 `LIBRARY / EXPORTS` 段；与命令行 `/EXPORT` 合并去重；冲突报错 `polyld-err-E3201`。
+
+3. 重定位翻译层：把 polyld 内部 `RelocationEntry` 翻译为 PE base relocation 集合；所有不可在 PE 上表达的 reloc（如 ELF GOT/PLT 专属类型）转成等价的 IAT 引用，否则抛 `polyld-err-E3210`（绝不静默丢弃）。
+
+4. 测试：
+   - `tests/integration/e2e_pe_smoke.cpp`：用 polyc 编译 `samples/01_basic_linking/main.ploy` → 真 `.exe`，`CreateProcessW` 启动并断言退出码；`dumpbin /headers /imports` 解析断言。
+   - `tests/integration/e2e_pe_dll_smoke.cpp`：编译一个导出 `int Add(int,int)` 的 `.dll`，宿主测试程序 `LoadLibraryW` + `GetProcAddress` + 调用断言返回值。
+   - 非 Windows runner 上仅做"PE 字节合法性"断言（解析头），不执行。
+
+5. 文档：在 `docs/realization/binary_containers_*.md` 追加 "PE 路径细节" 章节（双语）。
+6. 版本：`1.5.0-pre.3` → `1.5.0-pre.4`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-45
+
+[BIN-5] Mach-O 写出器真实化：可执行 + dylib + bundle，覆盖 x86_64 / arm64。
+
+依赖：41 / 42。
+
+1. 现有 `Linker::GenerateMachOExecutable()` 仅写 64-bit header 骨架，需扩展（不破坏旧 API）：
+   - 完整 load command 集合：`LC_SEGMENT_64` × N（`__PAGEZERO / __TEXT / __DATA_CONST / __DATA / __LINKEDIT`）、`LC_SYMTAB`、`LC_DYSYMTAB`、`LC_LOAD_DYLINKER`（`/usr/lib/dyld`）、`LC_MAIN`（含 entryoff）、`LC_LOAD_DYLIB`（`libSystem.B.dylib` 等）、`LC_BUILD_VERSION`（含 platform / minos / sdk）、`LC_SOURCE_VERSION`、`LC_UUID`（按节内容 SHA-256 截断 16B）。
+   - 重定位：`X86_64_RELOC_*` 与 `ARM64_RELOC_*` 完整翻译表（branch26 / page21 / pageoff12 / got_load / unsigned）。
+   - 字符串表 / 符号表 / 间接符号表 全部真实生成；`__LINKEDIT` 段内布局严格按苹果工具链顺序。
+
+2. 新增 `Linker::GenerateMachOBundle()`（`MH_BUNDLE`）作为附加产物形态。`GenerateMachODylib()` 真正生成 `MH_DYLIB` + `LC_ID_DYLIB`，不再转给 executable。
+
+3. 新增 `tools/polyld/src/linker_macho.cpp`，把以上逻辑从 `linker.cpp` 拆出，与 `linker_pe.cpp` 平级。
+
+4. 代码签名：保留可选的 ad-hoc `LC_CODE_SIGNATURE` 占位段（仅生成段表项 + 空 superblob），便于在 macOS 上后续 `codesign --force --sign -` 注入；不引入私钥逻辑。
+
+5. 测试：
+   - `tests/integration/e2e_macho_smoke.cpp`：macOS runner 上端到端运行；
+   - 其他平台上做 magic / load command 表结构断言（解析自写 reader）；
+   - dylib + 加载（macOS）：`dlopen / dlsym` 调用断言。
+   - 用 `otool -hlLR` 输出与本地解析对账。
+
+6. 文档：`docs/realization/macho_writer_zh.md` + `_en.md`，含 load command 速查与调试方法。
+7. 版本：`1.5.0-pre.4` → `1.5.0-pre.5`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-46
+
+[BIN-6] Wasm 容器在 polyld 派发链中的一等公民化（wasm32-wasi）。
+
+依赖：41 / 42。
+
+1. 现状：`backends/wasm` 已可输出 wasm bytes，但 polyld 完全不参与；`OutputFormat::kExecutable + container=kWasm` 在新派发表里需要明确路径。
+
+2. 实装 `Linker::GenerateWasmModule()`：
+   - 输入：后端产出的 `.wasm` 模块字节（多 section `type / import / func / table / memory / global / export / start / element / code / data / custom`）；
+   - polyld 行为：合并多个 `.wasm` 输入（多模块 link，按 wasm-ld 风格），处理 `import` / `export` / `name` custom 节；产出单一 `.wasm`。
+   - 仅在 multi-module 输入时启用合并；单模块直通时仍校验头并写出。
+   - 对 `wasm32-wasi`：补 `_start` 入口存在性检查；缺失时 `polyld-err-E3320`。
+
+3. 命令行：`polyc --target=wasm32-wasi -o app.wasm`；polyld 透传不变。
+
+4. 测试：
+   - `tests/integration/e2e_wasm_smoke.cpp`：用 wasmtime（若 PATH 可用）或自带轻量 runtime（`runtime/wasm`）真跑，断言 stdout / 退出码；
+   - 多模块合并测试：两个 `.wasm` 模块互相 `import`/`export`，链接后单模块运行。
+
+5. 文档：`docs/realization/wasm_pipeline_zh.md` + `_en.md`（如已存在则增补"polyld 接入"章节，双语）。
+6. 版本：`1.5.0-pre.5` → `1.5.0-pre.6`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-47
+
+[BIN-7] polyc / driver 透传与文件后缀策略 + 全工具链 triple 一致性。
+
+依赖：41 / 42 / 44 / 45 / 46。
+
+1. `tools/polyc/src/driver.cpp`：
+   - 解析 `--target=<triple>` / `--container=<...>` / `--subsystem=<...>` / `--entry=<sym>`；
+   - host 自动推导：未指定 `--target` 时使用 `common::HostTriple()`；
+   - 透传给 polyld：`-T <triple> --container <...> --subsystem <...> --entry <sym>`；
+   - 文件后缀策略（实现 42-3，但放在 driver 收口）。
+
+2. `tools/polyc/src/compilation_pipeline.cpp`：
+   - `target_os` / `target_triple` 字段对齐 `common::TargetTriple`；
+   - 旧字段保留并由 setter 自动同步，避免破坏既有调用方。
+
+3. polyasm / polyopt / polybench / polyrt：
+   - 全部接入 `common::TargetTriple`；输出/输入头里写入 triple 字段，下游工具校验匹配，不匹配 `*-warn-W1101`。
+
+4. 测试：
+   - `tests/integration/e2e_triple_propagation.cpp`：在 4 个 host 上跑 6 种 target，端到端校验产物 magic 与 triple 一致。
+
+5. 文档：USER_GUIDE 中英双语补 "Cross compilation" 一节（target triple 表 / 默认行为 / 后缀策略 / 常见错误码）。
+6. 版本：`1.5.0-pre.6` → `1.5.0-pre.7`。完成后追加 `--end -done`。
+
+--end
+
+
+2026-04-28-48
+
+[BIN-8] 端到端验证、回归矩阵、CI 集成、文档收口与 1.5.0 发布。
+
+依赖：41 ~ 47。
+
+1. 端到端测试矩阵 `tests/integration/binary_matrix/`：
+   - 输入：`samples/01_basic_linking` / `samples/05_polymorphism` / `samples/22_database_access` 等 6 个代表性样例；
+   - 目标：`x86_64-pc-windows-msvc / aarch64-pc-windows-msvc / x86_64-unknown-linux-gnu / aarch64-unknown-linux-gnu / x86_64-apple-darwin / aarch64-apple-darwin / wasm32-wasi`；
+   - 每格断言：产物 magic、容器结构（解析 header / 节表）、能在对应 runner 上启动并退出码正确（不可用 runner 上仅做静态断言）。
+
+2. CI：
+   - GitHub Actions / 本地 `scripts/ci/run_binary_matrix.{ps1,sh}`；
+   - 引入 `dumpbin` / `otool` / `readelf` / `wasm-objdump` 的可用性探测，缺失时 fall back 到自带 reader；
+   - 矩阵失败时落产物到 `artifacts/binary_matrix/` 便于事后分析。
+
+3. 性能基线：`polybench` 加 `pe_link_time` / `macho_link_time` / `elf_link_time` / `wasm_link_time` 四个 case；与 1.4.x ELF 基线对比，回归阈值 ≤ +15%。
+
+4. 回归：
+   - `samples/build_all_samples.{ps1,sh}` 在 Win / Linux / macOS 三宿主上分别确认产物可执行；
+   - 旧的"假 .exe (实际 ELF)" 行为在 1.5.0 里**绝不可复现**，添加专门的反向断言测试。
+
+5. 文档收口：
+   - `docs/realization/binary_containers_zh.md` + `_en.md` 总文档；
+   - 子文档：`pe_writer_*.md` / `macho_writer_*.md` / `wasm_pipeline_*.md`（双语）；
+   - `README` 中英双语首屏更新"支持的目标平台 / 容器格式"表；
+   - `CHANGELOG_zh.md` + `CHANGELOG_en.md` 追加 1.5.0 章节，列出 41~48 全部对外可见变化（不出现需求管理过程相关字样）。
+
+6. 版本：`1.5.0-pre.7` → `1.5.0`（正式发布）；同步 `VERSION.txt`、`tools/*/CMakeLists.txt` 的版本宏（如有）、安装包脚本 `scripts/package_*.{ps1,sh}` 内嵌版本（如有）。完成后追加 `--end -done`。
+
+--end

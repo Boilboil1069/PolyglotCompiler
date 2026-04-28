@@ -25,6 +25,7 @@ add_library(polyc_lib STATIC
     polyc/src/stage_backend.cpp
     polyc/src/stage_packaging.cpp
     polyc/src/foreign_signature_extractor.cpp
+    polyc/src/linker_probe.cpp
 )
 
 target_include_directories(polyc_lib PUBLIC ${CMAKE_SOURCE_DIR})
@@ -80,6 +81,7 @@ target_link_libraries(polyasm
 add_library(linker_lib
     polyld/src/linker.cpp
     polyld/src/polyglot_linker.cpp
+    polyld/src/pe_writer.cpp
 )
 
 target_include_directories(linker_lib PUBLIC ${CMAKE_SOURCE_DIR})
@@ -103,6 +105,13 @@ target_link_libraries(polyld
     frontend_ploy
     polyglot_tools_settings
 )
+
+# -- pe_smoke (throwaway PE writer harness, only useful on Windows hosts) ------
+
+add_executable(pe_smoke
+    polyld/src/pe_writer_smoke.cpp
+)
+target_link_libraries(pe_smoke linker_lib polyglot_common)
 
 # -- polyopt (standalone optimizer) --------------------------------------------
 

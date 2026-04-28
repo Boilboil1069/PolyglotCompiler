@@ -70,6 +70,7 @@ enum class ErrorCode {
   kABIIncompatible = 3021,
   kOpaqueTypeFallback = 3022,
   kSignatureMissing = 3023,
+  kDeprecatedKeyword = 3024, // soft warning: keyword recognized but discouraged
   kGenericWarning = 3099,
 
   // Lowering errors (4xxx)

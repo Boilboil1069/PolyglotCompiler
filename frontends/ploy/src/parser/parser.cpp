@@ -228,7 +228,16 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
   ExpectSymbol(")", "expected ')' after LINK arguments");
 
   // Optional RETURNS clause: LINK(...) RETURNS type { ... }
-  if (MatchKeyword("RETURNS")) {
+  // The RETURNS clause is preserved for backward compatibility but is
+  // deprecated since Ploy 1.4.2; new code should declare the return type
+  // via the canonical "-> Type" arrow syntax on the function signature.
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "RETURNS") {
+    const core::SourceLoc returns_loc = current_.loc;
+    const std::string spelled_as = current_.SourceText();
+    diagnostics_.ReportWarning(
+        returns_loc, frontends::ErrorCode::kDeprecatedKeyword,
+        "'" + spelled_as + "' clause is deprecated; declare the return type via '-> Type' on the LINK signature instead");
+    Advance();
     node->return_type = ParseQualifiedOrSimpleType();
   }
 

@@ -16,6 +16,7 @@
 #include <sstream>
 
 #include "tools/polyld/include/linker.h"
+#include "tools/polyld/include/pe_writer.h"
 #include "tools/polyld/include/polyglot_linker.h"
 
 // ============================================================================
@@ -2828,6 +2829,9 @@ bool Linker::GenerateOutput() {
 
   case OutputFormat::kStaticLibrary:
     return GenerateStaticLibrary();
+
+  case OutputFormat::kPEExecutable:
+    return GeneratePEExecutable();
   }
 
   return false;
@@ -2976,6 +2980,51 @@ bool Linker::GenerateELFExecutable() {
 
   Trace("Generated executable: " + std::to_string(output.size()) + " bytes");
 
+  return true;
+}
+
+bool Linker::GeneratePEExecutable() {
+  // Compose the PE32+ image from the merged .text section bytes (if any) and
+  // a trailing Win32 entry shim that calls kernel32!ExitProcess(0).  The
+  // shim guarantees the produced .exe terminates cleanly under the Windows
+  // x64 ABI even when the user code embedded in .text is not yet Win32-ABI
+  // aware (this is the L1 + L2 milestone described in the v1.5.0 release
+  // notes).  The user's code bytes are still embedded so future linker
+  // iterations can re-target AddressOfEntryPoint at a real `main` once the
+  // Win32 ABI translation layer is in place.
+  std::vector<std::uint8_t> user_text;
+  for (const auto &sec : output_sections_) {
+    if (sec.name == ".text" || sec.name == "__text") {
+      user_text.insert(user_text.end(), sec.data.begin(), sec.data.end());
+    }
+  }
+
+  pe::BuildResult build = pe::BuildExitZeroPE(user_text);
+  if (build.image.empty()) {
+    ReportError("PE writer produced an empty image (internal error)");
+    return false;
+  }
+
+  std::ofstream out(config_.output_file, std::ios::binary);
+  if (!out) {
+    ReportError("Cannot create output file: " + config_.output_file);
+    return false;
+  }
+  out.write(reinterpret_cast<const char *>(build.image.data()),
+            static_cast<std::streamsize>(build.image.size()));
+  if (!out) {
+    ReportError("Failed writing output file: " + config_.output_file);
+    return false;
+  }
+
+  stats_.total_output_size = build.image.size();
+  Trace("Generated PE32+ executable: " + std::to_string(build.image.size()) + " bytes (entry RVA 0x" +
+        [&] {
+          std::ostringstream os;
+          os << std::hex << build.entry_rva;
+          return os.str();
+        }() +
+        ")");
   return true;
 }
 

@@ -320,10 +320,10 @@ FUNC cross_lang() -> INT {
 TEST_CASE("Integration: GET and SET attribute access", "[integration][compile]") {
     Diagnostics diags;
     std::string code = R"(
-IMPORT python PACKAGE config;
+IMPORT python PACKAGE app_cfg;
 
 FUNC attr_example() -> INT {
-    LET counter = NEW(python, config::Counter, 10);
+    LET counter = NEW(python, app_cfg::Counter, 10);
     SET(python, counter, step, 5);
     LET step_val = GET(python, counter, step);
     METHOD(python, counter, increment);
@@ -1079,7 +1079,7 @@ TEST_CASE("E2E: wasm multi-function binary emission",
 }
 
 // ============================================================================
-// E2E: PolyglotLinker Marshal â€” byte-level stub verification
+// E2E: PolyglotLinker Marshal â€?byte-level stub verification
 // ============================================================================
 
 namespace {
@@ -1200,7 +1200,7 @@ TEST_CASE("E2E: python->cpp stub contains PyLong_FromLongLong for return boxing"
     // When Python calls a C++ function, the C++ int64_t return must be boxed.
     auto stub = MakeStub("python", "cpp", "py_caller", "cpp_callee");
 
-    // source_language="cpp", target_language="python" â†’ box int â†’ PyLong_FromLongLong
+    // source_language="cpp", target_language="python" â†?box int â†?PyLong_FromLongLong
     CHECK(HasRelocationTo(stub, "PyLong_FromLongLong"));
 }
 

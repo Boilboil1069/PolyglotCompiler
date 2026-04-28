@@ -9,6 +9,7 @@
 // polyld standalone entry point
 // Links against linker_lib for core Linker / PolyglotLinker functionality.
 
+#include <cctype>
 #include <iostream>
 #include <string>
 
@@ -51,6 +52,10 @@ int main(int argc, char **argv) {
       config.static_link = false;
     } else if (arg == "-r" || arg == "--relocatable") {
       config.output_format = OutputFormat::kRelocatable;
+    } else if (arg == "--pe" || arg == "--output-format=pe") {
+      config.output_format = OutputFormat::kPEExecutable;
+    } else if (arg == "--elf" || arg == "--output-format=elf") {
+      config.output_format = OutputFormat::kExecutable;
     } else if (arg == "--strip-all" || arg == "-s") {
       config.strip_all = true;
     } else if (arg == "--strip-debug" || arg == "-S") {
@@ -95,6 +100,8 @@ int main(int argc, char **argv) {
                 << "  -static          Create static executable\n"
                 << "  -shared          Create shared library\n"
                 << "  -r               Create relocatable output\n"
+                << "  --pe             Emit Windows PE32+ executable (.exe)\n"
+                << "  --elf            Emit ELF executable (Linux default)\n"
                 << "  -s, --strip-all  Strip all symbols\n"
                 << "  -S, --strip-debug Strip debug symbols\n"
                 << "  --gc-sections    Garbage collect unused sections\n"
@@ -119,6 +126,27 @@ int main(int argc, char **argv) {
               << "Usage: polyld [options] files...\n"
               << "Try 'polyld --help' for more information.\n";
     return 1;
+  }
+
+  // Auto-select PE32+ output when the user asked for an .exe but did not
+  // explicitly pick a format.  This makes `polyld foo.o -o foo.exe` produce
+  // a Windows-runnable image without requiring an additional --pe flag.
+  if (config.output_format == OutputFormat::kExecutable) {
+    const std::string &ofile = config.output_file;
+    if (ofile.size() >= 4) {
+      std::string suffix = ofile.substr(ofile.size() - 4);
+      for (auto &c : suffix)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (suffix == ".exe")
+        config.output_format = OutputFormat::kPEExecutable;
+    }
+#ifdef _WIN32
+    // Even without an .exe suffix, default to PE on Windows hosts so the
+    // produced artefact is loadable by the host loader.  Users who really
+    // want a foreign-format executable can pass --elf explicitly.
+    if (config.output_format == OutputFormat::kExecutable)
+      config.output_format = OutputFormat::kPEExecutable;
+#endif
   }
 
   // Create and run linker

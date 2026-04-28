@@ -92,7 +92,7 @@ const std::string kMediumProgram = R"(
     MAP_TYPE(cpp::double, python::float);
     MAP_TYPE(cpp::int, python::int);
 
-    STRUCT Config {
+    STRUCT MyConfig {
         width_c: INT;
         height_c: INT;
         scale_c: FLOAT;

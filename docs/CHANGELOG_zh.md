@@ -7,8 +7,132 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.4.0 (2026-04-28)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.0 (2026-04-28)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.5.0 (2026-04-28)
+
+**原生 Windows PE32+ 可执行文件生成 —— `polyc tiny.ploy -o tiny.exe` 终于能产出能跑的 `.exe`**
+
+在本次发布之前，内置的 `polyld` 始终输出 ELF 格式的可执行文件，
+即便 `-o` 后缀是 `.exe`、即便宿主就是 Windows。结果是一个 423 字节、
+内部却是 ELF 的 `tiny.exe`，Windows 加载器拒绝执行（`'tiny.exe' 不是
+有效的 Win32 应用程序`）。想拿到能跑的 `.exe` 必须装 MSVC `link.exe`
+或 LLVM `lld-link`，依赖 v1.4.1 引入的“先探测后调用”回退；宿主上完全
+没有系统链接器时则毫无办法。
+
+本次发布在仓内自带一个 PE32+ 镜像写入器，让自带的 `polyld` 能端到端
+产出真正的 Windows AMD64 控制台可执行文件：
+
+- 新增模块 `tools/polyld/{include,src}/pe_writer.{h,cpp}` 完整布局
+  PE32+ 镜像：64 字节 DOS 头加常规 stub、`PE\0\0` 签名、COFF File
+  Header（Machine = `IMAGE_FILE_MACHINE_AMD64`，
+  `Characteristics` = `RELOCS_STRIPPED | EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE`），
+  240 字节的 PE32+ 可选头（Magic = `0x020B`、Subsystem = Windows
+  控制台、`DllCharacteristics` = `NX_COMPAT | TERMINAL_SERVER_AWARE`、
+  16 个数据目录）、节表、对齐填充后的头部，以及 `.text`（RX）与
+  `.idata`（RW）两节。`.idata` 内含 `IMAGE_IMPORT_DESCRIPTOR` 数组、
+  ILT、IAT、`IMAGE_IMPORT_BY_NAME` 记录与 DLL 名字串，并把数据目录
+  `[1]`（Import）与 `[12]`（IAT）正确指向各自 RVA。
+- 新增入口跳板生成器 `BuildExitProcessShim()`，输出标准 13 字节
+  AMD64 序列：
+  `48 83 EC 28  31 C9  FF 15 disp32  CC`
+  （`sub rsp, 0x28; xor ecx, ecx; call qword ptr [rip+disp32]; int3`）。
+  `sub rsp, 0x28` 同时完成 32 字节 shadow space 预留与 16 字节栈对齐，
+  这是 Windows x64 ABI 调用任意导入函数前的强制要求。
+- 新增便捷封装 `BuildExitZeroPE(user_text_bytes)`，把调用方传入的
+  `.text` 字节缓冲与跳板拼成完整镜像。用户字节仍嵌入磁盘镜像
+  （便于后续把 `AddressOfEntryPoint` 重新指向真正的 `main`，等 Win32
+  ABI 翻译层就绪后），但当前入口仍是跳板，保证镜像通过
+  `kernel32!ExitProcess(0)` 干净退出。
+- 链接器枚举新增 `OutputFormat::kPEExecutable`，对应实现
+  `Linker::GeneratePEExecutable()` 取出合并后的 `.text` 输出节字节，
+  经 `BuildExitZeroPE` 包装后写入 `config_.output_file`。
+- `polyld` 在 `-o` 以 `.exe` 结尾时（大小写不敏感）自动选择
+  `kPEExecutable`；Windows 宿主上即使没有 `.exe` 后缀也默认 PE。
+  显式开关也已加入：`--pe` / `--output-format=pe` 与
+  `--elf` / `--output-format=elf`。
+
+合入前已通过的质量门禁：
+
+- 新增 Catch2 单元用例集
+  `tests/unit/linker/pe_writer_test.cpp`（4 个用例、47 个断言），
+  覆盖 MZ/PE magic、e_lfanew、COFF Characteristics、可选头 Magic、
+  AddressOfEntryPoint、Subsystem、`DllCharacteristics`、16 个数据目录、
+  Import + IAT 目录非空、13 字节跳板形状、`BuildExitZeroPE` 对用户
+  `.text` 字节的回环嵌入，以及 `BuildExitZeroPE({})` 与
+  `BuildMinimalExitZeroImage()` 字节级等价。
+- 新增 Windows 专用集成用例
+  `tests/integration/pe_runtime_smoke_test.cpp`（2 个用例、8 个断言）：
+  进程内构建 PE，落到临时文件，用 `std::system` 启动子进程，
+  断言退出码为 0；分别测试最小镜像与包装了 256 字节用户代码的镜像。
+- 端到端复现：`polyc tests/samples/01_basic_linking/basic_linking.ploy
+  -o tests/samples/01_basic_linking/test_bin.exe` 现在产出 1536 字节
+  的 PE32+（`MZ` magic、`dumpbin /imports` 显示
+  `kernel32.dll: ExitProcess` 已正确解析），退出码 0。
+- 既有回归保持绿色：`test_linker` 39/39，`test_e2e` 54/54。
+
+本轮已知限制（已纳入后续版本规划）：
+
+- 暂未生成基址重定位表。设置了 `IMAGE_FILE_RELOCS_STRIPPED`，因此
+  加载器会按首选 `ImageBase`（`0x140000000`）加载。
+- 暂无导出表、资源表、TLS 表与调试目录。
+- `AddressOfEntryPoint` 仍指向尾部跳板；用户的 ELF 风格 `.text`
+  字节虽已嵌入磁盘但暂未被调用。把入口重新指向真正的 `main` 会与
+  COFF 对象加载器以及 Win32 ABI 翻译层一并落地。
+
+## v1.4.1 (2026-04-28)
+
+**链接器“先探测后调用”——消除原始 shell 噪声**
+
+此前，`polyc` 的分阶段编译流水线与遗留单遍驱动都通过 `std::system()`
+无条件调用 `link.exe`，失败后再调用 `lld-link`。当两者都不在
+`PATH` 上时（用户未在 MSVC“开发者命令提示符”中运行 `polyc` 时的常见情况），
+Windows CMD 自身会向 `stderr` 输出
+`'link' 不是内部或外部命令，也不是可运行的程序或批处理文件。`，
+即便流水线整体报告成功且 `.obj` 已正确产出，原始 shell 噪声仍会泄露到
+`polyc` 的输出中。
+
+- ✅ 新增共享模块 `tools/polyc/include/linker_probe.h` +
+  `tools/polyc/src/linker_probe.cpp`，导出
+  `polyglot::tools::linker_probe::{IsExecutableOnPath, ShellQuote,
+  LinkerChoice, SelectAvailableLinker, ExpandLinkCommand}`。
+  探测使用 `where`（Windows）/ `command -v`（POSIX），并将
+  `stdout`、`stderr` 同时重定向到平台空设备，因此探测过程本身完全静默。
+- ✅ 按目标格式排序的候选优先级：
+  - `pobj`  → 内置 `polyld`（标准消费者；无原生回退）；
+  - `coff`  → MSVC `link` → LLVM `lld-link` → 内置 `polyld`；
+  - `macho` → `clang` → `ld` → 内置 `polyld`；
+  - `elf`   → `clang` → `gcc` → `ld` → 内置 `polyld`。
+  内置 `polyld` 之所以能作为通用回退，是因为其加载器
+  （`tools/polyld/src/linker.cpp`）会按魔数识别 COFF / ELF / Mach-O
+  输入并产出对应原生可执行文件，从而保证只装了 Polyglot 工具链的主机
+  上 `polyc` 始终能成功链接。
+- ✅ 两个调用点统一改用新模块：
+  `tools/polyc/src/compilation_pipeline.cpp`（分阶段流水线
+  `mode == "link"` 分支）以及 `tools/polyc/src/stage_packaging.cpp`
+  （遗留单遍驱动 `emit_and_link` lambda）。
+- ✅ Verbose 模式现在记录的是真正被选中的链接器：
+  `[polyc] Invoking polyld (fallback) -> a.out`（之前即便从未真正
+  调用 `link.exe`，也会硬编码输出 `Invoking link.exe`）。
+- ✅ `ShellQuote` 用平台对应的引用规则处理含空格路径
+  （Windows 用 `"…"`；POSIX 用 `'…'`，对内嵌单引号采用 `'\''` 转义）；
+  不含空格的路径原样透传。
+- ✅ 新增单元测试 `tests/unit/tools/linker_probe_test.cpp`
+  （7 个用例、23 个断言）：覆盖 `ShellQuote` 引用规则；空名/伪造名
+  的拒绝；现存绝对路径走 stat 快路径的接受；`pobj` 在 `polyld` 伪造
+  时返回空 `LinkerChoice`；`pobj` 在 `polyld` 可达时返回非空 `LinkerChoice`；
+  以及 `ExpandLinkCommand` 占位符替换与 polyld 专属标志门控。
+- ✅ 复现命令 `polyc.exe tests/samples/03_pipeline/pipeline.ploy`
+  在主机 `PATH` 上没有 `link.exe` / `lld-link.exe` 的情况下，
+  现在以退出码 0 结束、输出零条 shell 噪声行；链接阶段自动透明回退到
+  内置 `polyld`。
+
+> 不破坏源/ABI：根 `CMakeLists.txt` 的工程版本仍为 **1.4.0**；本条
+> 之所以以 v1.4.1 段落形式出现在更新日志，是因为用户可见行为已发生
+> 变化（噪声行已消失）。
 
 ---
 

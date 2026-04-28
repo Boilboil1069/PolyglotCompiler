@@ -108,13 +108,6 @@ struct DriverSettings {
   bool package_index{true};
   int package_index_timeout_ms{10000};
 
-  // Per-language preprocessing overrides
-  std::unordered_map<std::string, bool> pp_overrides{
-      {"cpp", true},
-      {"rust", false},
-      {"python", false},
-  };
-
   // Include search paths
   std::vector<std::string> include_paths{"."};
   std::vector<std::string> system_include_paths{}; // -isystem

@@ -129,7 +129,7 @@ LINK(rust, python, transform::compress, decoder::decode) {
     MAP_TYPE(rust::i32, python::int);
 }
 
-FUNC pipeline(data: i32) -> i32 {
+FUNC run_pipeline(data: i32) -> i32 {
     LET encoded = CALL(cpp, encoder::encode, data);
     LET compressed = CALL(rust, transform::compress, data);
     RETURN encoded;
@@ -236,10 +236,10 @@ FUNC multi_object() -> INT {
 TEST_CASE("Interop: GET reads remote attribute", "[integration][interop]") {
     Diagnostics diags;
     std::string code = R"(
-IMPORT python PACKAGE config;
+IMPORT python PACKAGE app_cfg;
 
 FUNC read_attr() -> INT {
-    LET cfg = NEW(python, config::AppConfig, "production");
+    LET cfg = NEW(python, app_cfg::AppConfig, "production");
     LET port = GET(python, cfg, port);
     LET workers = GET(python, cfg, num_workers);
     RETURN port;
@@ -254,10 +254,10 @@ FUNC read_attr() -> INT {
 TEST_CASE("Interop: SET writes remote attribute", "[integration][interop]") {
     Diagnostics diags;
     std::string code = R"(
-IMPORT python PACKAGE config;
+IMPORT python PACKAGE app_cfg;
 
 FUNC write_attr() -> INT {
-    LET cfg = NEW(python, config::AppConfig, "staging");
+    LET cfg = NEW(python, app_cfg::AppConfig, "staging");
     SET(python, cfg, port, 8080);
     SET(python, cfg, debug, TRUE);
     LET port = GET(python, cfg, port);

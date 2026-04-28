@@ -32,6 +32,7 @@ tests/samples/env/
 *.ilk
 *.meta
 *.idb
+*.out
 *.txt
 !VERSION.txt
 tests/samples/*/*.png
@@ -43,3 +44,4 @@ tests/samples/*/*.json
 *.bat
 *.ps1
 !package_windows.ps1
+!fetch_deps.ps1

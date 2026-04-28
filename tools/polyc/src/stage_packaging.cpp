@@ -22,6 +22,7 @@
 
 #include "middle/include/lto/link_time_optimizer.h"
 
+#include "tools/polyc/include/linker_probe.h"
 #include "tools/polyc/src/stage_packaging.h"
 
 #if __has_include(<elf.h>)
@@ -1198,24 +1199,31 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
                                   "polyld failed (rc=" + std::to_string(rc) + ")");
         return false;
       }
-    } else if (settings.obj_format == "coff") {
-      std::string cmd = "link /NOLOGO /OUT:" + out_exe + " " + obj_path;
-      if (V)
-        std::cerr << "[polyc] Invoking link.exe -> " << out_exe << "\n";
-      int rc = std::system(cmd.c_str());
-      if (rc != 0) {
-        cmd = "lld-link /OUT:" + out_exe + " " + obj_path;
-        rc = std::system(cmd.c_str());
-      }
-      if (rc != 0)
-        std::cerr << "[warn] system linker not available; object at: " << obj_path << "\n";
     } else {
-      std::string cmd = "clang -o " + out_exe + " " + obj_path;
-      if (V)
-        std::cerr << "[polyc] Invoking system linker -> " << out_exe << "\n";
-      int rc = std::system(cmd.c_str());
-      if (rc != 0)
-        std::cerr << "[warn] system linker not available; object at: " << obj_path << "\n";
+      // Probe-then-invoke linker selection: never spawn a system command for
+      // a tool we have not first verified is on PATH (otherwise CMD itself
+      // would print `'link' is not recognized as an internal or external
+      // command` and similar localized messages to stderr, leaking raw
+      // shell noise into polyc output).  See tools/polyc/include/linker_probe.h.
+      using polyglot::tools::linker_probe::ExpandLinkCommand;
+      using polyglot::tools::linker_probe::LinkerChoice;
+      using polyglot::tools::linker_probe::SelectAvailableLinker;
+
+      LinkerChoice choice = SelectAvailableLinker(settings.obj_format, settings.polyld_path);
+      if (choice.command_template.empty()) {
+        std::cerr << "[warn] no linker available for format '" << settings.obj_format
+                  << "' (tried platform tools and bundled polyld); object kept at: " << obj_path
+                  << "\n";
+      } else {
+        std::string cmd =
+            ExpandLinkCommand(choice, obj_path, out_exe, bridge.descriptor_file, aux_dir);
+        if (V)
+          std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_exe << "\n";
+        int rc = std::system(cmd.c_str());
+        if (rc != 0)
+          std::cerr << "[warn] linker '" << choice.display_name
+                    << "' returned non-zero; object kept at: " << obj_path << "\n";
+      }
     }
     result.output_path = out_exe;
     if (V)

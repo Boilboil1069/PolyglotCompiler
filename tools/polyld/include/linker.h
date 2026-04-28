@@ -391,10 +391,11 @@ struct PLTEntry {
 // Output format
 /** @brief OutputFormat enumeration. */
 enum class OutputFormat {
-  kExecutable,    // Static executable
+  kExecutable,    // Static executable (ELF on Linux, default native ELF emit)
   kSharedLibrary, // Dynamic shared object (.so, .dylib)
   kRelocatable,   // Relocatable object file (partial link)
-  kStaticLibrary  // Static library archive
+  kStaticLibrary, // Static library archive
+  kPEExecutable   // Windows PE32+ console executable (.exe)
 };
 
 // Target architecture
@@ -602,6 +603,7 @@ private:
   bool GenerateMachODylib();
   bool GenerateRelocatable();
   bool GenerateStaticLibrary();
+  bool GeneratePEExecutable();
 
   // GOT/PLT generation
   void CreateGOT();

@@ -89,10 +89,11 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
   if (settings.language != "ploy") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
     if (fe && fe->NeedsPreprocessing()) {
-      bool pp_enabled = true;
-      auto it = settings.pp_overrides.find(settings.language);
-      if (it != settings.pp_overrides.end())
-        pp_enabled = it->second;
+      // Built-in per-language preprocessing defaults: C/C++ goes through the
+      // preprocessor by default; Rust and Python skip it because their own
+      // toolchains own that step.  The Rust default can be force-enabled via
+      // the POLYC_PREPROCESS_RUST environment variable for diagnostics work.
+      bool pp_enabled = !(settings.language == "rust" || settings.language == "python");
       if (settings.language == "rust" && HasEnvVar("POLYC_PREPROCESS_RUST"))
         pp_enabled = true;
 

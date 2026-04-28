@@ -12,6 +12,40 @@ if(NOT DEFINED FETCHCONTENT_BASE_DIR)
 endif()
 file(MAKE_DIRECTORY "${FETCHCONTENT_BASE_DIR}")
 
+# ---------------------------------------------------------------------------
+# Offline dependency cache.
+#
+# When a third-party dependency has been pre-fetched into
+# "<repo>/.cache/deps/<name>/" (typically by running
+# scripts/fetch_deps.ps1 or scripts/fetch_deps.sh), redirect FetchContent to
+# that local directory by populating FETCHCONTENT_SOURCE_DIR_<UPPER>. This
+# allows every consumer of this file (IDE, CLI build, packaging script) to
+# skip the network entirely without touching any other call site, and avoids
+# repeated git-clone timeouts on flaky connections.
+#
+# A user-provided value of FETCHCONTENT_SOURCE_DIR_<UPPER> always wins.
+# ---------------------------------------------------------------------------
+set(_POLYGLOT_DEPS_CACHE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.cache/deps")
+
+function(_polyglot_use_cached_dep dep_dir fc_name)
+    string(TOUPPER "${fc_name}" _upper)
+    set(_var "FETCHCONTENT_SOURCE_DIR_${_upper}")
+    if(DEFINED ${_var} AND NOT "${${_var}}" STREQUAL "")
+        # Caller pinned a source directory; respect it without modification.
+        return()
+    endif()
+    set(_cache_dir "${_POLYGLOT_DEPS_CACHE_ROOT}/${dep_dir}")
+    if(IS_DIRECTORY "${_cache_dir}" AND EXISTS "${_cache_dir}/CMakeLists.txt")
+        set(${_var} "${_cache_dir}" CACHE PATH "Local cached source for ${fc_name}" FORCE)
+        message(STATUS "[deps] Using cached source for ${fc_name}: ${_cache_dir}")
+    endif()
+endfunction()
+
+_polyglot_use_cached_dep(fmt           fmt)
+_polyglot_use_cached_dep(nlohmann_json nlohmann_json)
+_polyglot_use_cached_dep(Catch2        Catch2)
+_polyglot_use_cached_dep(mimalloc      mimalloc)
+
 # fmt
 set(FMT_DOC OFF CACHE BOOL "" FORCE)
 set(FMT_TEST OFF CACHE BOOL "" FORCE)

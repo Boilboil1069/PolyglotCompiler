@@ -130,10 +130,6 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --print-targets[=json|text]            List registered backends and exit\n"
           << "  --print-target-info=<triple>[:json]    Print one backend's info and exit\n"
           << "\n"
-          << "  --pp-cpp / --no-pp-cpp\n"
-          << "  --pp-rust / --no-pp-rust\n"
-          << "  --pp-python / --no-pp-python\n"
-          << "\n"
           << "External-package options:\n"
           << "  -I<path> / --I=<path>     C/C++ user header search path\n"
           << "  -isystem <path>           C/C++ system header search path\n"
@@ -320,30 +316,6 @@ DriverSettings ParseArgs(int argc, char **argv) {
       s.regalloc = (m == "graph" || m == "graph-coloring" || m == "coloring")
                        ? RegAllocChoice::kGraphColoring
                        : RegAllocChoice::kLinearScan;
-      continue;
-    }
-    if (arg == "--pp-cpp") {
-      s.pp_overrides["cpp"] = true;
-      continue;
-    }
-    if (arg == "--no-pp-cpp") {
-      s.pp_overrides["cpp"] = false;
-      continue;
-    }
-    if (arg == "--pp-rust") {
-      s.pp_overrides["rust"] = true;
-      continue;
-    }
-    if (arg == "--no-pp-rust") {
-      s.pp_overrides["rust"] = false;
-      continue;
-    }
-    if (arg == "--pp-python") {
-      s.pp_overrides["python"] = true;
-      continue;
-    }
-    if (arg == "--no-pp-python") {
-      s.pp_overrides["python"] = false;
       continue;
     }
     if (arg.rfind("--I=", 0) == 0) {

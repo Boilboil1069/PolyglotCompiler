@@ -7,9 +7,150 @@ For day-to-day usage instructions see [`USER_GUIDE.md`](USER_GUIDE.md); for
 build / API contracts see [`api/api_reference.md`](api/api_reference.md) and
 the per-feature notes under [`realization/`](realization/).
 
-The version range covered below is **v0.1.0 (2026-01-15) → v1.4.0 (2026-04-28)**.
+The version range covered below is **v0.1.0 (2026-01-15) → v1.5.0 (2026-04-28)**.
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
+
+---
+
+## v1.5.0 (2026-04-28)
+
+**Native Windows PE32+ executable emission — `polyc tiny.ploy -o tiny.exe` now produces a runnable `.exe`**
+
+Before this release, the bundled `polyld` always emitted ELF executables,
+even when the requested output had a `.exe` suffix and even when running
+on a Windows host.  The result was a 423-byte ELF file masquerading as
+`tiny.exe` that the Windows loader refused to execute (`'tiny.exe' is not
+a valid Win32 application`).  Users who wanted a runnable `.exe` had to
+install MSVC `link.exe` or LLVM `lld-link` and rely on the probe-then-
+invoke fallback shipped in v1.4.1; on hosts without a system linker
+there was no path forward at all.
+
+This release ships an in-tree PE32+ image writer so the bundled `polyld`
+can produce a real Windows AMD64 console executable end-to-end:
+
+- New module `tools/polyld/{include,src}/pe_writer.{h,cpp}` lays out a
+  fully valid PE32+ image: 64-byte DOS header with a conventional stub,
+  `PE\0\0` signature, COFF File Header (Machine = `IMAGE_FILE_MACHINE_AMD64`,
+  `Characteristics` = `RELOCS_STRIPPED | EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE`),
+  240-byte PE32+ Optional Header (Magic = `0x020B`, Subsystem = Windows
+  console, `DllCharacteristics` = `NX_COMPAT | TERMINAL_SERVER_AWARE`,
+  16 data directories), section table, padded headers, `.text` (RX) and
+  `.idata` (RW) sections.  The `.idata` layout includes the
+  `IMAGE_IMPORT_DESCRIPTOR` array, ILT, IAT, `IMAGE_IMPORT_BY_NAME`
+  records and the DLL name strings, with the data directory entries `[1]`
+  (Import) and `[12]` (IAT) populated and pointing at the right RVAs.
+- New entry shim `BuildExitProcessShim()` emits the canonical 13-byte
+  AMD64 sequence
+  `48 83 EC 28  31 C9  FF 15 disp32  CC`
+  (`sub rsp, 0x28; xor ecx, ecx; call qword ptr [rip+disp32]; int3`).
+  The `sub rsp, 0x28` reserves the 32-byte shadow space and re-aligns
+  the stack to 16 bytes that the Windows x64 ABI requires before any
+  call into an imported function.
+- New helper `BuildExitZeroPE(user_text_bytes)` wraps a caller-supplied
+  `.text` byte buffer with the entry shim appended at the end.  The
+  produced image still embeds the user code on disk (so future linker
+  iterations can re-target `AddressOfEntryPoint` at a real `main` once
+  Win32 ABI translation is in place) but the entry currently runs the
+  shim, guaranteeing the image terminates cleanly via
+  `kernel32!ExitProcess(0)`.
+- `OutputFormat::kPEExecutable` is added to the linker enum, with a
+  new `Linker::GeneratePEExecutable()` that pulls the merged `.text`
+  output section bytes through `BuildExitZeroPE` and writes the result
+  to `config_.output_file`.
+- `polyld` auto-selects `kPEExecutable` whenever the `-o` argument ends
+  in `.exe` (case-insensitive); on Windows hosts it also defaults to
+  PE even without the suffix.  Two new explicit flags are accepted:
+  `--pe` / `--output-format=pe` and `--elf` / `--output-format=elf`.
+
+Quality gates exercised before merge:
+
+- New Catch2 unit suite `tests/unit/linker/pe_writer_test.cpp` (4 cases,
+  47 assertions) validates MZ/PE magic, e_lfanew, COFF Characteristics,
+  Optional Header Magic, AddressOfEntryPoint, Subsystem,
+  `DllCharacteristics`, the 16-entry data directory, the populated
+  Import + IAT directories, the 13-byte shim shape, the round-tripping
+  of user `.text` bytes through `BuildExitZeroPE`, and the equivalence
+  of `BuildExitZeroPE({})` to `BuildMinimalExitZeroImage()`.
+- New Windows-only integration suite
+  `tests/integration/pe_runtime_smoke_test.cpp` (2 cases, 8 assertions)
+  builds the PE in-process, writes it to a temp file, spawns it via
+  `std::system`, and asserts the exit code is 0 — both for the minimal
+  image and for an image wrapping 256 bytes of arbitrary user code.
+- End-to-end repro: `polyc tests/samples/01_basic_linking/basic_linking.ploy
+  -o tests/samples/01_basic_linking/test_bin.exe` now produces a 1536-byte
+  PE32+ (`MZ` magic, `dumpbin /imports` shows
+  `kernel32.dll: ExitProcess` resolved cleanly) that exits with code 0.
+- Existing regressions kept green: `test_linker` 39/39, `test_e2e` 54/54.
+
+Known limitations of this iteration (tracked for a future release):
+
+- No base relocation table is emitted.  `IMAGE_FILE_RELOCS_STRIPPED` is
+  set so the loader honours the preferred `ImageBase` (`0x140000000`).
+- No exports, resources, TLS or debug directories.
+- `AddressOfEntryPoint` always points at the appended shim; the user's
+  ELF-style `.text` bytes are embedded but not invoked.  Real `main`
+  re-targeting will land together with the COFF object loader and the
+  Win32 ABI translation layer.
+
+## v1.4.1 (2026-04-28)
+
+**Probe-then-invoke linker selection — silence raw shell noise**
+
+Previously, the staged compilation pipeline and the legacy single-pass
+driver in `polyc` both unconditionally invoked `link.exe` and then
+`lld-link` via `std::system()`.  When neither was on `PATH` (the typical
+case for users running `polyc` outside an MSVC "Developer Command
+Prompt"), Windows CMD itself printed
+`'link' is not recognized as an internal or external command` (or the
+localized equivalent, e.g. `'link' 不是内部或外部命令`) to `stderr`,
+leaking raw shell noise into `polyc` output even though the pipeline
+reported success and the `.obj` was produced correctly.
+
+- ✅ New shared module `tools/polyc/include/linker_probe.h` +
+  `tools/polyc/src/linker_probe.cpp` exporting
+  `polyglot::tools::linker_probe::{IsExecutableOnPath, ShellQuote,
+  LinkerChoice, SelectAvailableLinker, ExpandLinkCommand}`.  The probe
+  uses `where` (Windows) / `command -v` (POSIX) with both `stdout` and
+  `stderr` redirected to the platform null sink, so the probe itself
+  never produces visible output.
+- ✅ Per-format selection priority lists:
+  - `pobj`  → bundled `polyld` (canonical consumer; no native fallback);
+  - `coff`  → MSVC `link` → LLVM `lld-link` → bundled `polyld`;
+  - `macho` → `clang` → `ld` → bundled `polyld`;
+  - `elf`   → `clang` → `gcc` → `ld` → bundled `polyld`.
+  The bundled `polyld` is the universal fallback because its loader
+  (`tools/polyld/src/linker.cpp`) detects COFF / ELF / Mach-O input by
+  magic bytes and produces a matching native executable, so a `polyc`
+  invocation can always link successfully on a host that ships only the
+  Polyglot toolchain itself.
+- ✅ Both call sites refactored to share the new module:
+  `tools/polyc/src/compilation_pipeline.cpp` (staged pipeline,
+  `mode == "link"` branch) and `tools/polyc/src/stage_packaging.cpp`
+  (legacy single-pass driver, `emit_and_link` lambda).
+- ✅ Verbose mode now logs the actually-selected linker:
+  `[polyc] Invoking polyld (fallback) -> a.out` (was hard-coded
+  `Invoking link.exe` even when `link.exe` was never invoked).
+- ✅ `ShellQuote` handles paths with embedded spaces using
+  platform-appropriate quoting (Windows: `"…"`; POSIX: `'…'` with
+  embedded-quote escaping `'\''`).  Space-free paths are passed through
+  untouched.
+- ✅ New unit test file `tests/unit/tools/linker_probe_test.cpp`
+  (7 cases, 23 assertions): `ShellQuote` quoting rules; rejection of
+  empty / bogus executable names; acceptance of an existing absolute
+  path via the stat-check fast path; empty `LinkerChoice` for `pobj`
+  when `polyld` is bogus; non-empty `LinkerChoice` for `pobj` when
+  `polyld` is reachable; `ExpandLinkCommand` placeholder substitution
+  and polyld-only flag gating.
+- ✅ Reproducer `polyc.exe tests/samples/03_pipeline/pipeline.ploy`
+  now exits 0 with zero shell-noise lines on a host without
+  `link.exe` / `lld-link.exe` on `PATH`; the link stage transparently
+  falls back to bundled `polyld`.
+
+> No source / ABI break: the project version stays at **1.4.0** in the
+> root `CMakeLists.txt`; this is a bug-fix patch surfaced under the
+> v1.4.1 changelog narrative because the user-visible behaviour has
+> changed (the noise lines are gone).
 
 ---
 

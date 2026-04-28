@@ -59,7 +59,13 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
     lexeme.push_back(Get());
   }
 
-  static const std::unordered_set<std::string> keywords = {
+  // Canonical (upper-case) spellings of every reserved word.  Keyword matching
+  // is *case-insensitive* by language design: `LINK`, `link`, `Link` and
+  // `LiNk` all map to the canonical `LINK` keyword.  Identifiers, on the
+  // other hand, remain case-sensitive (handled by the fall-through path
+  // below).  Any addition / removal here must be mirrored in
+  // docs/specs/language_spec_{zh,en}.md and in the parser's Sync() set.
+  static const std::unordered_set<std::string> kCanonicalKeywords = {
       "LINK",     "IMPORT",  "EXPORT", "MAP_TYPE", "PIPELINE", "FUNC",   "LET",    "VAR",
       "RETURN",   "RETURNS", "IF",     "ELSE",     "WHILE",    "FOR",    "IN",     "MATCH",
       "CASE",     "DEFAULT", "BREAK",  "CONTINUE", "AS",       "TRUE",   "FALSE",  "NULL",
@@ -69,9 +75,27 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
       // language-version pinning keyword.
       "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND", "LANG"};
 
-  frontends::TokenKind kind =
-      keywords.count(lexeme) ? frontends::TokenKind::kKeyword : frontends::TokenKind::kIdentifier;
-  return frontends::Token{kind, lexeme, loc};
+  // ASCII upper-case fold.  Reserved words are intentionally restricted to
+  // the ASCII range, so a per-byte fold is correct without a Unicode pass.
+  std::string folded;
+  folded.reserve(lexeme.size());
+  for (char ch : lexeme) {
+    folded.push_back(static_cast<char>(
+        std::toupper(static_cast<unsigned char>(ch))));
+  }
+
+  if (kCanonicalKeywords.count(folded) != 0) {
+    frontends::Token tok{};
+    tok.kind = frontends::TokenKind::kKeyword;
+    tok.lexeme = folded;            // canonical (upper-case) form for parser comparison
+    tok.loc = loc;
+    if (folded != lexeme) {
+      tok.raw_lexeme = lexeme;       // preserve source spelling when case differs
+    }
+    return tok;
+  }
+
+  return frontends::Token{frontends::TokenKind::kIdentifier, lexeme, loc};
 }
 
 frontends::Token PloyLexer::LexNumber() {

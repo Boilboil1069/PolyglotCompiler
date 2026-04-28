@@ -725,8 +725,11 @@ STRUCT Point {
 
 TEST_CASE("Ploy parser parses STRUCT with multiple fields", "[ploy][parser][complex]") {
     Diagnostics diags;
+    // NOTE: 'Config' would collide with the CONFIG keyword (case-insensitive
+    // keyword recognition since Ploy 1.4.2), so the struct is named
+    // 'MyConfig' to keep this test focused on the multi-field shape.
     auto module = Parse(R"(
-STRUCT Config {
+STRUCT MyConfig {
     width: i32,
     height: i32,
     title: str
@@ -1072,8 +1075,11 @@ FUNC test() -> void {
 
 TEST_CASE("Ploy parser enforces semicolons on LINK", "[ploy][parser][syntax]") {
     Diagnostics diags;
+    // NOTE: the symbol after the qualifier is named 'getter' rather than
+    // 'get' because GET is a reserved keyword (case-insensitive recognition
+    // since Ploy 1.4.2).
     auto module = Parse(R"(
-LINK(cpp, python, math::add, utils::get);
+LINK(cpp, python, math::add, utils::getter);
 )", diags);
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
@@ -1264,7 +1270,7 @@ FUNC test() -> void {
 TEST_CASE("Ploy parser parses selective import", "[ploy][parser][selective]") {
     Diagnostics diags;
     auto module = Parse(R"(
-IMPORT python PACKAGE numpy::(array, mean, std);
+IMPORT python PACKAGE numpy::(np_array, mean, std);
 )", diags);
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
@@ -1273,7 +1279,7 @@ IMPORT python PACKAGE numpy::(array, mean, std);
     REQUIRE(import->language == "python");
     REQUIRE(import->package_name == "numpy");
     REQUIRE(import->selected_symbols.size() == 3);
-    REQUIRE(import->selected_symbols[0] == "array");
+    REQUIRE(import->selected_symbols[0] == "np_array");
     REQUIRE(import->selected_symbols[1] == "mean");
     REQUIRE(import->selected_symbols[2] == "std");
 }
@@ -1294,7 +1300,7 @@ IMPORT python PACKAGE os::(path);
 TEST_CASE("Ploy parser parses selective import with version", "[ploy][parser][selective]") {
     Diagnostics diags;
     auto module = Parse(R"(
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
+IMPORT python PACKAGE numpy::(np_array, mean) >= 1.20;
 )", diags);
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
@@ -1309,7 +1315,7 @@ TEST_CASE("Ploy parser parses selective import with alias", "[ploy][parser][sele
     // Parser accepts this syntax, but sema will reject it
     Diagnostics diags;
     auto module = Parse(R"(
-IMPORT python PACKAGE numpy::(array, mean) AS np;
+IMPORT python PACKAGE numpy::(np_array, mean) AS np;
 )", diags);
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
@@ -1324,7 +1330,7 @@ TEST_CASE("Ploy sema rejects selective import with alias", "[ploy][sema][selecti
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
-IMPORT python PACKAGE numpy::(array, mean) AS np;
+IMPORT python PACKAGE numpy::(np_array, mean) AS np;
 )", diags, sema);
     REQUIRE(!ok);
 }
@@ -1333,12 +1339,12 @@ TEST_CASE("Ploy sema validates selective import", "[ploy][sema][selective]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
-IMPORT python PACKAGE numpy::(array, mean);
+IMPORT python PACKAGE numpy::(np_array, mean);
 )", diags, sema);
     REQUIRE(ok);
     // The selected symbols should be registered individually
-    auto it_array = sema.Symbols().find("array");
-    REQUIRE(it_array != sema.Symbols().end());
+    auto it_np_array = sema.Symbols().find("np_array");
+    REQUIRE(it_np_array != sema.Symbols().end());
     auto it_mean = sema.Symbols().find("mean");
     REQUIRE(it_mean != sema.Symbols().end());
     // The package itself should also be registered
@@ -1350,18 +1356,18 @@ TEST_CASE("Ploy sema rejects duplicate symbols in selective import", "[ploy][sem
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
-IMPORT python PACKAGE numpy::(array, array);
+IMPORT python PACKAGE numpy::(np_array, np_array);
 )", diags, sema);
     // Should report a warning/error about duplicate but still succeed structurally
     // The sema reports the duplicate but doesn't fail the analysis entirely
-    // (the redefinition error for the second "array" symbol makes it fail)
+    // (the redefinition error for the second "np_array" symbol makes it fail)
     REQUIRE(!ok);
 }
 
 TEST_CASE("Ploy lowering generates selective import metadata", "[ploy][lowering][selective]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
-IMPORT python PACKAGE numpy::(array, mean);
+IMPORT python PACKAGE numpy::(np_array, mean);
 FUNC test() -> void {
     RETURN;
 }
@@ -1465,7 +1471,7 @@ TEST_CASE("Ploy full pipeline: VENV + versioned import + selective", "[ploy][int
     std::string ir = LowerAndGetIR(R"(
 CONFIG VENV python "C:/envs/ml";
 
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
+IMPORT python PACKAGE numpy::(np_array, mean) >= 1.20;
 
 FUNC compute() -> void {
     LET data = [1, 2, 3];
@@ -1736,7 +1742,7 @@ TEST_CASE("Ploy full pipeline: CONDA + versioned imports + selective", "[ploy][i
     std::string ir = LowerAndGetIR(R"(
 CONFIG CONDA python "data_science";
 
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
+IMPORT python PACKAGE numpy::(np_array, mean) >= 1.20;
 IMPORT python PACKAGE pandas >= 2.0;
 
 LINK(cpp, python, compute, numpy::mean);
@@ -3118,7 +3124,7 @@ FUNC main() {
 }
 )", diags, sema);
     // MAP_TYPE entries declare type-conversion rules, not parameter counts.
-    // Calling with any number of args is valid — arity is not checked via MAP_TYPE.
+    // Calling with any number of args is valid �?arity is not checked via MAP_TYPE.
     CHECK(ok);
     CHECK_FALSE(diags.HasErrors());
 }
@@ -3233,7 +3239,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// End-to-end failure path tests — param count, type mismatch, unregistered
+// End-to-end failure path tests �?param count, type mismatch, unregistered
 // symbols, cross-language ABI violations.
 //
 // Every test here must end with diags.HasErrors() == true and ideally
@@ -3279,7 +3285,7 @@ E2EFailureResult RunAndExpectFailure(const std::string &code,
 } // namespace
 
 // ============================================================================
-// Param count mismatch — local function calls
+// Param count mismatch �?local function calls
 // ============================================================================
 
 TEST_CASE("E2E failure: too few args to local function produces error with count hint",
@@ -3318,7 +3324,7 @@ FUNC main() { LET x = no_args(42, 99); }
 
 TEST_CASE("E2E failure: error count equals number of mismatched call sites",
           "[ploy][e2e][failure][param-count]") {
-    // Two call sites with wrong arg counts → two separate diagnostics
+    // Two call sites with wrong arg counts �?two separate diagnostics
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3333,7 +3339,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// Type mismatch — incompatible argument types
+// Type mismatch �?incompatible argument types
 // ============================================================================
 
 TEST_CASE("E2E failure: passing STRING to INT parameter produces type-mismatch error",
@@ -3399,7 +3405,7 @@ FUNC main() {
 
 TEST_CASE("E2E failure: CALL to unlinked cross-lang symbol produces error",
           "[ploy][e2e][failure][unregistered]") {
-    // math::add is never declared via LINK — must be rejected
+    // math::add is never declared via LINK �?must be rejected
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
     LET result = CALL(cpp, math::add, 1, 2);

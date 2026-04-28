@@ -35,12 +35,16 @@
 #include "frontends/ploy/include/ploy_lowering.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "tools/polyc/include/compilation_pipeline.h"
+#include "tools/polyc/include/linker_probe.h"
 
 namespace polyglot::compilation {
 namespace {
 
 using std::chrono::high_resolution_clock;
 using std::chrono::milliseconds;
+using polyglot::tools::linker_probe::ExpandLinkCommand;
+using polyglot::tools::linker_probe::LinkerChoice;
+using polyglot::tools::linker_probe::SelectAvailableLinker;
 
 constexpr std::uint32_t kPobjSectionFlagBss = 1u << 1;
 
@@ -172,37 +176,9 @@ std::string ObjectExtension(const std::string &fmt) {
   return ".o";
 }
 
-// Build the linker command for the given format.  Returns an empty string when
-// no external link step is required (e.g. compile/assemble mode).
-std::string BuildLinkCommand(const std::string &format, const std::string &polyld_path,
-                             const std::string &obj_path, const std::string &out_path,
-                             const std::string &ploy_desc_file, const std::string &aux_dir) {
-  std::string cmd;
-  if (format == "pobj") {
-    cmd = polyld_path + " " + obj_path + " -o " + out_path;
-    if (!ploy_desc_file.empty())
-      cmd += " --ploy-desc " + ploy_desc_file;
-    if (!aux_dir.empty())
-      cmd += " --aux-dir " + aux_dir;
-  } else if (format == "coff") {
-    // Prefer MSVC link.exe, fall back to lld-link
-    cmd = "link /NOLOGO /OUT:" + out_path + " " + obj_path;
-  } else if (format == "macho") {
-    // Use system linker (ld via clang driver) on macOS.
-    // -e __start: entry point is __start (Mach-O adds underscore prefix).
-    // -undefined dynamic_lookup: allow unresolved external symbols from
-    // foreign language modules that will be provided at final link time.
-    cmd = "clang -o " + out_path + " " + obj_path + " -Wl,-e,__start -Wl,-undefined,dynamic_lookup";
-  } else {
-    // ELF / other: use clang as linker driver.
-    // --entry=_start: entry point is _start.
-    // --allow-shlib-undefined / --unresolved-symbols=ignore-all:
-    // foreign symbols resolved at final link time.
-    cmd = "clang -o " + out_path + " " + obj_path +
-          " -Wl,--entry=_start -Wl,--unresolved-symbols=ignore-all -nostdlib";
-  }
-  return cmd;
-}
+// Probe-then-invoke linker discovery is shared with stage_packaging.cpp via
+// the helpers in tools/polyc/include/linker_probe.h.  See that header for
+// the v1.4.1 rationale and selection priority lists.
 
 std::vector<std::uint8_t> BuildPobjBinary(const std::vector<InternalSection> &sections,
                                           const std::vector<InternalSymbol> &symbols) {
@@ -939,20 +915,29 @@ public:
     }
 
     if (config.mode == "link") {
-      std::string cmd = BuildLinkCommand(effective_fmt, config.polyld_path, obj_out, out_path,
-                                         config.ploy_desc_file, config.aux_dir);
-      int rc = std::system(cmd.c_str());
-      if (rc != 0) {
-        // For COFF, try lld-link as fallback before giving up
-        if (effective_fmt == "coff") {
-          cmd = "lld-link /OUT:" + out_path + " " + obj_out;
-          rc = std::system(cmd.c_str());
+      LinkerChoice choice = SelectAvailableLinker(effective_fmt, config.polyld_path);
+      if (choice.command_template.empty()) {
+        // No linker available at all — keep the .obj and emit a clean
+        // structured diagnostic.  We deliberately did NOT call std::system()
+        // for any unavailable tool, so the user sees no shell noise here.
+        diagnostics.ReportWarning(
+            core::SourceLoc{"<packaging>", 1, 1}, frontends::ErrorCode::kUnresolvedSymbol,
+            "no linker available for format '" + effective_fmt +
+                "' (tried platform tools and bundled polyld); object kept at: " + obj_out);
+      } else {
+        std::string cmd =
+            ExpandLinkCommand(choice, obj_out, out_path, config.ploy_desc_file, config.aux_dir);
+        if (config.verbose) {
+          std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_path << "\n";
         }
-      }
-      if (rc != 0) {
-        diagnostics.ReportWarning(core::SourceLoc{"<packaging>", 1, 1},
-                                  frontends::ErrorCode::kUnresolvedSymbol,
-                                  "linker invocation failed (object file was generated): " + cmd);
+        int rc = std::system(cmd.c_str());
+        if (rc != 0) {
+          diagnostics.ReportWarning(core::SourceLoc{"<packaging>", 1, 1},
+                                    frontends::ErrorCode::kUnresolvedSymbol,
+                                    "linker '" + choice.display_name +
+                                        "' returned non-zero (object kept at " + obj_out +
+                                        "): " + cmd);
+        }
       }
     }
 

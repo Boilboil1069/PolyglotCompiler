@@ -14,15 +14,31 @@
     If set, skip the CMake configure+build step and package an existing build.
 .PARAMETER SkipInstaller
     If set, skip NSIS installer generation (only produce portable ZIP).
+.PARAMETER RefreshDeps
+    Re-fetch every third-party dependency into "<repo>/.cache/deps/" even if
+    already cached. Use this when bumping a dependency tag.
+.PARAMETER Offline
+    Force fully-offline configure: pass -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+    to CMake. Requires that the dependency cache is already populated.
+.PARAMETER SkipDeps
+    Do not invoke scripts/fetch_deps.ps1. Useful in CI when a previous job
+    already pre-populated the cache.
+.PARAMETER DepsMirror
+    Optional GitHub mirror URL prefix forwarded to scripts/fetch_deps.ps1
+    (example: "https://gitclone.com/github.com/").
 #>
 
 [CmdletBinding()]
 param(
-    [string]$QtRoot    = "D:\Qt",
-    [string]$BuildDir  = "build-release",
-    [string]$OutputDir = "dist",
+    [string]$QtRoot      = "D:\Qt",
+    [string]$BuildDir    = "build-release",
+    [string]$OutputDir   = "dist",
     [switch]$SkipBuild,
-    [switch]$SkipInstaller
+    [switch]$SkipInstaller,
+    [switch]$RefreshDeps,
+    [switch]$Offline,
+    [switch]$SkipDeps,
+    [string]$DepsMirror  = ""
 )
 
 Set-StrictMode -Version Latest
@@ -178,6 +194,37 @@ if (-not (Get-Command "cl" -ErrorAction SilentlyContinue)) {
 }
 
 # ============================================================================
+# Step 0.5 — Populate third-party dependency cache (offline-first)
+# ============================================================================
+# This avoids re-downloading fmt / json / Catch2 / mimalloc on every build,
+# which is the only network-touching step of the configure phase. The cache
+# lives under "<repo>/.cache/deps/" and is honoured by Dependencies.cmake
+# via FETCHCONTENT_SOURCE_DIR_<UPPER> redirection.
+$DepsCache = Join-Path $ProjectRoot ".cache/deps"
+$FetchScript = Join-Path $PSScriptRoot "fetch_deps.ps1"
+
+if ($SkipBuild -or $SkipDeps) {
+    Write-Host "[SKIP] Dependency cache step skipped"
+} elseif (-not (Test-Path $FetchScript)) {
+    Write-Host "[!] fetch_deps.ps1 not found, falling back to network FetchContent"
+} else {
+    Write-Step "Populating dependency cache"
+    $fetchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $FetchScript)
+    if ($RefreshDeps) { $fetchArgs += '-Refresh' }
+    if ($DepsMirror)  { $fetchArgs += @('-Mirror', $DepsMirror) }
+    & powershell @fetchArgs
+    if ($LASTEXITCODE -ne 0) {
+        if ($Offline) {
+            Write-Error "Dependency cache could not be populated and -Offline was requested."
+            exit 1
+        }
+        Write-Host "[!] fetch_deps.ps1 failed (exit $LASTEXITCODE); CMake will try the network."
+    } else {
+        Write-Host "[OK] Dependency cache ready: $DepsCache"
+    }
+}
+
+# ============================================================================
 # Step 1 — Build in Release mode
 # ============================================================================
 if (-not $SkipBuild) {
@@ -190,18 +237,27 @@ if (-not $SkipBuild) {
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
 
+    # When -Offline is requested, instruct FetchContent to refuse any network
+    # access. This requires every dependency to be present in the local cache.
+    $extraCfg = @()
+    if ($Offline) {
+        $extraCfg += "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
+    }
+
     if ($Generator) {
         & cmake -S . -B $BuildDir -G $Generator `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=ON `
             "-DCMAKE_PREFIX_PATH=$QtPrefixPath" `
-            "-DQT_ROOT=$QtRoot"
+            "-DQT_ROOT=$QtRoot" `
+            @extraCfg
     } else {
         & cmake -S . -B $BuildDir `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_SHARED_LIBS=ON `
             "-DCMAKE_PREFIX_PATH=$QtPrefixPath" `
-            "-DQT_ROOT=$QtRoot"
+            "-DQT_ROOT=$QtRoot" `
+            @extraCfg
     }
     if ($LASTEXITCODE -ne 0) { $ErrorActionPreference = $prevEAP; Pop-Location; exit 1 }
 

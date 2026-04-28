@@ -96,6 +96,8 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/loop_optimization_test.cpp
     unit/frontends/ploy/sema_strict_mode_test.cpp
     unit/frontends/ploy/lang_version_pin_test.cpp
+    unit/frontends/ploy/lexer_case_insensitive_test.cpp
+    unit/frontends/ploy/keyword_alias_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -155,10 +157,12 @@ set(UNIT_TEST_RUNTIME
 
 set(UNIT_TEST_LINKER
     unit/linker_test.cpp
+    unit/linker/pe_writer_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY
     unit/tools/topology_test.cpp
+    unit/tools/linker_probe_test.cpp
 )
 
 set(UNIT_TEST_SETTINGS
@@ -414,6 +418,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/external_packages/demand_03_test.cpp
     integration/language_versions/lang_versions_test.cpp
     integration/ui/theme_system_test.cpp
+    integration/pe_runtime_smoke_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
