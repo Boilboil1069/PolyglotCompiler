@@ -87,6 +87,7 @@ polyglot
 | `polyglot::ir` | `middle/include/ir/*.h` | `middle/src/ir/*.cpp` |
 | `polyglot::passes::transform` | `middle/include/passes/transform/*.h` | `middle/src/passes/optimizations/*.cpp` |
 | `polyglot::backends::x86_64` | `backends/x86_64/include/*.h` | `backends/x86_64/src/{isel,regalloc,asm_printer}/*.cpp` |
+| `polyglot::backends::common::machine_ir` | `backends/common/include/machine_ir/{machine_ir,verifier}.h` | 模板实例化定义在 `backends/{x86_64,arm64}/src/{regalloc,asm_printer}/*.cpp` |
 | `polyglot::runtime::interop` | `runtime/include/interop/*.h` | `runtime/src/interop/*.cpp` |
 | `polyglot::linker` | `tools/polyld/include/*.h` | `tools/polyld/src/{linker,polyglot_linker}.cpp` |
 
@@ -134,7 +135,7 @@ Ploy 独有职责：
 | x86_64 | `X86Target`、`SelectInstructions`、`ScheduleFunction`、`LinearScan/GraphColoring` | `backends/x86_64/src/{isel,regalloc,asm_printer}/*.cpp` |
 | arm64 | `Arm64Target`、`SelectInstructions`、`ScheduleFunction`、`LinearScan/GraphColoring` | `backends/arm64/src/{isel,regalloc,asm_printer}/*.cpp` |
 | wasm | `WasmTarget`、`EmitWasmBinary` | `backends/wasm/src/wasm_target.cpp` |
-| 公共后端 | `TargetMachine`、`ObjectFileBuilder`、`DebugEmitter` | `backends/common/include/*.h`、`backends/common/src/*.cpp` |
+| 公共后端 | `ITargetBackend`、`BackendRegistry`（含 `TargetOptions` / `TargetArtifacts` / `BackendCapabilities` / `BackendInfo` / `MCRelocation` / `MCSymbol` / `MCSection` / `CompileStats` / `BackendDiagnostic` / `CompileResult`）、`TargetMachine`、`ObjectFileBuilder`、`DebugEmitter` | `backends/common/include/*.h`、`backends/common/src/*.cpp` |
 
 ### 3.5 `runtime`（运行时层）
 | 子域 | 关键接口 | 关键实现 |

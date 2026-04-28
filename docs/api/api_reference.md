@@ -729,7 +729,96 @@ Each language frontend exposes the same four-phase pipeline:
 
 ---
 
-# 8. Diagnostics
+# 7.10 Backend Registry & ITargetBackend
+
+**Headers**: `backends/common/include/target_backend.h`, `backends/common/include/backend_registry.h`
+**Namespace**: `polyglot::backends`
+
+Process-wide registry that lets `polyc`, `polyasm` and external tools resolve a code generator
+by triple or alias. Mirrors the shape of `polyglot::frontends::FrontendRegistry`. Shipped in
+1.3.3 (sub-need 2026-04-28-2a). See `docs/realization/backend_registry.md` for the full
+contract; this section lists only the public surface.
+
+## 7.10.1 ITargetBackend
+
+```cpp
+class ITargetBackend {
+ public:
+    virtual ~ITargetBackend() = default;
+    virtual std::string              TargetTriple() const = 0;
+    virtual std::string              Description()  const = 0;
+    virtual std::vector<std::string> Aliases()      const = 0;
+    virtual bool                     IsAvailable()  const = 0;
+    virtual BackendCapabilities      Capabilities() const = 0;
+    virtual CompileResult Compile     (const middle::ir::Module&, const TargetOptions&) = 0;
+    virtual CompileResult EmitAssembly(const middle::ir::Module&, const TargetOptions&);
+    virtual CompileResult EmitObject  (const middle::ir::Module&, const TargetOptions&);
+    virtual CompileResult EmitBitcode (const middle::ir::Module&, const TargetOptions&);
+};
+```
+
+`EmitAssembly` / `EmitObject` default to `Compile()` and slice the returned artifact.
+`EmitBitcode` defaults to a typed `unsupported` diagnostic (lifted by sub-need 2026-04-28-2e).
+
+## 7.10.2 TargetOptions / TargetArtifacts
+
+```cpp
+struct TargetOptions {
+    EmitKind            emit              = EmitKind::kObject;
+    RegAllocStrategy    reg_alloc         = RegAllocStrategy::kLinearScan;
+    SchedulerStrategy   scheduler         = SchedulerStrategy::kList;
+    VerifyLevel         verify            = VerifyLevel::kOn;
+    DebugInfoLevel      debug_info        = DebugInfoLevel::kFull;
+    int                 optimization_level = 0;
+    bool                position_independent = false;
+    std::string         relocation_model;
+    std::string         cpu;
+    std::vector<std::string> features;
+    std::string         module_name;
+    std::string         source_path;
+};
+
+struct TargetArtifacts {
+    std::string                 assembly_text;
+    std::vector<std::uint8_t>   object_bytes;
+    std::vector<MCRelocation>   relocations;
+    std::vector<MCSymbol>       symbols;
+    std::vector<MCSection>      sections;
+    std::vector<std::uint8_t>   debug_sections;
+    CompileStats                stats;
+};
+```
+
+Boolean fields on `MCSymbol` use the `is_` prefix: `is_global`, `is_defined`, `is_weak`.
+`MCSection::is_bss` follows the same convention.
+
+## 7.10.3 BackendRegistry
+
+```cpp
+class BackendRegistry {
+ public:
+    static BackendRegistry&       Instance();
+    RegisterStatus                Register(std::unique_ptr<ITargetBackend>);
+    ITargetBackend*               Find(std::string_view triple_or_alias) const;
+    ITargetBackend*               FindOrDiagnose(std::string_view triple_or_alias,
+                                                 BackendDiagnostic* out_diag) const;
+    std::vector<BackendInfo>      List() const;       // sorted by canonical triple
+    std::size_t                   Size() const;
+    void                          Clear();            // tests only
+};
+
+enum class RegisterStatus { kOk, kNullBackend, kDuplicateTriple, kAliasConflict };
+
+#define REGISTER_TARGET_BACKEND(factory) /* TU-local registrar; see header */
+
+std::string ToHumanReadable(const std::vector<BackendInfo>&);
+std::string ToJson         (const std::vector<BackendInfo>&);
+```
+
+All public methods are thread-safe. `Find` is case-insensitive; `FindOrDiagnose` populates
+`out_diag` with an error listing the available backends when the lookup fails.
+
+---
 
 **Header**: `frontends/common/include/diagnostics.h`  
 **Namespace**: `polyglot::frontends`

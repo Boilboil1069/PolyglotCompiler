@@ -26,6 +26,8 @@
 
 #include "common/include/version.h"
 #include "frontends/common/include/frontend_registry.h"
+#include "backends/common/include/backend_registry.h"
+#include "backends/common/include/target_backend.h"
 #include "runtime/include/libs/base.h"
 #include "tools/common/include/effective_settings_loader.h"
 #include "tools/polyc/include/compilation_cache.h"
@@ -125,6 +127,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --dump-token-pool   Write <stem>.pool_stats.json with frontend pool counters\n"
           << "  -j<N>               Parallelism hint\n"
           << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
+          << "  --print-targets[=json|text]            List registered backends and exit\n"
+          << "  --print-target-info=<triple>[:json]    Print one backend's info and exit\n"
           << "\n"
           << "  --pp-cpp / --no-pp-cpp\n"
           << "  --pp-rust / --no-pp-rust\n"
@@ -709,6 +713,56 @@ int main(int argc, char **argv) {
   if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv);
       rc.has_value()) {
     return *rc;
+  }
+
+  // ── Backend registry introspection ──────────────────────────────────────
+  // Both flags terminate the driver before any compilation work begins.
+  // They surface the BackendRegistry contents either as machine-readable
+  // JSON (when "=json" is appended) or as a human-readable block.
+  for (int i = 1; i < argc; ++i) {
+    std::string arg = argv[i];
+    if (arg == "--print-targets" || arg == "--print-targets=json" ||
+        arg == "--print-targets=text") {
+      const bool as_json = (arg == "--print-targets=json");
+      auto infos = polyglot::backends::BackendRegistry::Instance().List();
+      if (as_json) {
+        std::cout << polyglot::backends::ToJson(infos) << "\n";
+      } else {
+        std::cout << "polyc registered code-generation backends ("
+                  << infos.size() << "):\n";
+        for (const auto &info : infos) {
+          std::cout << polyglot::backends::ToHumanReadable(info);
+          std::cout << "\n";
+        }
+      }
+      return 0;
+    }
+    if (arg.rfind("--print-target-info=", 0) == 0) {
+      std::string spec = arg.substr(std::string("--print-target-info=").size());
+      bool as_json = false;
+      auto colon = spec.find(':');
+      if (colon != std::string::npos) {
+        std::string suffix = spec.substr(colon + 1);
+        spec = spec.substr(0, colon);
+        if (suffix == "json")
+          as_json = true;
+      }
+      std::string diag;
+      auto *backend =
+          polyglot::backends::BackendRegistry::Instance().FindOrDiagnose(spec, &diag);
+      if (!backend) {
+        std::cerr << "[polyc] " << diag << "\n";
+        return 2;
+      }
+      auto info = polyglot::backends::MakeBackendInfo(*backend);
+      if (as_json) {
+        std::cout << polyglot::backends::ToJson(info) << "\n";
+      } else {
+        std::cout << "polyc backend '" << info.triple << "':\n"
+                  << polyglot::backends::ToHumanReadable(info);
+      }
+      return 0;
+    }
   }
 
   auto total_start = std::chrono::high_resolution_clock::now();

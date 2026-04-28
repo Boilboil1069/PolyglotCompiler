@@ -1437,7 +1437,40 @@ polyc [选项] <输入文件>
 | `--progress=json` | 向标准输出发送机器可读 JSON 进度事件（stage_start、stage_end、complete） |
 | `--clean-cache` | 清除增量编译缓存并退出 |
 | `--dump-token-pool` | 把前端 TokenPool 统计（tokens、arena 字节、唯一标识符、intern 命中/未命中）写入 `<aux>/<stem>.pool_stats.json` |
+| `--print-targets[=text\|json]` | 打印当前进程注册的所有后端（triple、别名、能力矩阵）后退出。`text` 为默认；`json` 输出稳定的 JSON 快照。 |
+| `--print-target-info=<triple>[:json]` | 打印单个后端的信息（支持别名查询）后退出。追加 `:json` 切换到 JSON 形式。别名未注册时退出码为 `2`，并向 stderr 写入"available backends"诊断。 |
 | `-h` / `--help` | 显示帮助信息 |
+
+#### 查看可用后端
+
+```text
+$ polyc --print-targets
+arm64-unknown-elf
+  description: ARM64 (AArch64) backend
+  aliases: arm64, aarch64, armv8, aarch64-apple-darwin, aarch64-linux-gnu, aarch64-pc-windows-msvc
+  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
+  register allocators: linear-scan, graph-coloring
+wasm32-unknown-unknown
+  ...
+x86_64-unknown-elf
+  ...
+
+$ polyc --print-target-info=amd64
+x86_64-unknown-elf
+  description: x86_64 backend (System V / Win64)
+  aliases: x86_64, x86-64, amd64, x64, x86_64-pc-windows-msvc, x86_64-apple-darwin, x86_64-linux-gnu
+  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
+  register allocators: linear-scan, graph-coloring
+
+$ polyc --print-targets=json | jq '.[].triple'
+"arm64-unknown-elf"
+"wasm32-unknown-unknown"
+"x86_64-unknown-elf"
+```
+
+查询大小写不敏感，并接受上一条命令列出的所有别名 —— `--arch=AMD64`、`--arch=x86-64`、
+`--arch=x86_64-linux-gnu` 都命中同一个后端。该列表是 `--arch` 接受值的唯一权威来源；
+未来子需求新增的后端（例如 2026-04-28-2e 引入的 RISC-V）会自动出现在此列表中，文档无需手工同步。
 
 > **注意：** Release 构建默认启用严格模式（通过 `POLYC_DEFAULT_STRICT`）。
 > 使用 `--permissive` 覆盖。`--strict` 和 `--force` 互斥。

@@ -157,9 +157,10 @@ Key observation:
 ### 4.4 `backends`: multi-target code generation
 | Namespace | Key Interfaces |
 |---|---|
-| `polyglot::backends` | `TargetMachine`, `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder`, `DebugInfoBuilder`, `DebugEmitter`, `DwarfBuilder` |
-| `polyglot::backends::x86_64` | `X86Target`, `MachineFunction`, `SelectInstructions`, `ScheduleFunction`, linear-scan/graph-coloring register allocation, `InstructionScheduler`, micro-arch optimization family |
-| `polyglot::backends::arm64` | `Arm64Target`, `MachineFunction`, `SelectInstructions`, `ScheduleFunction`, linear-scan/graph-coloring register allocation |
+| `polyglot::backends` | `ITargetBackend`, `BackendRegistry` (+ `TargetOptions` / `TargetArtifacts` / `BackendCapabilities` / `BackendInfo` / `MCRelocation` / `MCSymbol` / `MCSection` / `CompileStats` / `BackendDiagnostic` / `CompileResult`), `TargetMachine`, `ObjectFileBuilder`/`ELFBuilder`/`MachOBuilder`, `DebugInfoBuilder`, `DebugEmitter`, `DwarfBuilder` |
+| `polyglot::backends::common::machine_ir` | `Operand<Traits>`, `MachineInstr<Traits, OpcodeT>`, `MachineBasicBlock<…>`, `MachineFunction<…>`, `LiveInterval<Traits>`, `AllocationResult<Traits>`, `RegAllocStrategy`, `ComputeLiveIntervals` / `LinearScanAllocate` / `GraphColoringAllocate` / `ScheduleFunction` (templates), `Print(MachineFunction)`, `MachineIRVerifier<Traits, OpcodeT>` (+ `VerifierResult` / `VerifierDiagnostic`) |
+| `polyglot::backends::x86_64` | `X86Target`, `X86TargetTraits`, `Opcode`, `CostModel`, `SelectInstructions`; `MachineFunction` / `LiveInterval` / `AllocationResult` and the four code-gen entry points are `using` aliases of the `polyglot::backends::common::machine_ir` templates |
+| `polyglot::backends::arm64` | `Arm64Target`, `Arm64TargetTraits`, `Opcode`, `CostModel`, `SelectInstructions`; `MachineFunction` / `LiveInterval` / `AllocationResult` and the four code-gen entry points are `using` aliases of the `polyglot::backends::common::machine_ir` templates |
 | `polyglot::backends::wasm` | `WasmTarget`, `EmitWasmBinary`, WASM section lowering |
 
 Key observation:

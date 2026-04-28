@@ -1,178 +1,74 @@
 /**
  * @file     machine_ir.h
- * @brief    x86-64 code generation
+ * @brief    x86-64 MachineIR public surface: the per-target Opcode enum, the
+ *           X86TargetTraits hook used to instantiate the common MachineIR
+ *           templates, the x86-64 cost model, and declarations of the four
+ *           target-namespace free functions whose definitions live in
+ *           `backends/x86_64/src/regalloc/*.cpp` and `asm_printer/scheduler.cpp`.
  *
  * @ingroup  Backend / x86-64
  * @author   Manning Cyrus
- * @date     2026-04-10
+ * @date     2026-04-28
  */
 #pragma once
 
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "middle/include/ir/cfg.h"
 
+#include "backends/common/include/machine_ir/machine_ir.h"
 #include "backends/x86_64/include/x86_register.h"
 
 namespace polyglot::backends::x86_64 {
 
-/** @brief Opcode enumeration. */
+/// @brief x86-64 opcode enumeration.
 enum class Opcode {
-  kMov,
-  kAdd,
-  kSub,
-  kMul,
-  kDiv,
-  kSDiv,
-  kUDiv,
-  kRem,
-  kSRem,
-  kURem,
-  kAnd,
-  kOr,
-  kXor,
-  kShl,
-  kLShr,
-  kAShr,
-  kCmp,
-  // Floating-point operations
-  kMovsd, // movsd (scalar double)
-  kMovss, // movss (scalar single)
-  kAddsd, // addsd
-  kSubsd, // subsd
-  kMulsd, // mulsd
-  kDivsd, // divsd
-  kCmpsd, // comisd (compare scalar double)
-  // SIMD operations
-  kAddps,  // addps (packed single)
-  kSubps,  // subps
-  kMulps,  // mulps
-  kDivps,  // divps
-  kShufps, // shufps
-  kMovaps, // movaps (aligned packed single)
-  kMovups, // movups (unaligned packed single)
-  // General
-  kLoad,
-  kStore,
-  kLea,
-  kCall,
-  kRet,
-  kJmp,
-  kJcc
+    kMov, kAdd, kSub, kMul, kDiv, kSDiv, kUDiv, kRem, kSRem, kURem,
+    kAnd, kOr, kXor, kShl, kLShr, kAShr, kCmp,
+    // Floating-point operations
+    kMovsd, kMovss, kAddsd, kSubsd, kMulsd, kDivsd, kCmpsd,
+    // SIMD operations
+    kAddps, kSubps, kMulps, kDivps, kShufps, kMovaps, kMovups,
+    // General
+    kLoad, kStore, kLea, kCall, kRet, kJmp, kJcc
 };
 
-/** @brief Operand data structure. */
-struct Operand {
-  /** @brief Kind enumeration. */
-  enum class Kind { kVReg, kPhysReg, kImm, kLabel, kStackSlot, kMemVReg, kMemLabel };
-  Kind kind{Kind::kImm};
-  int vreg{-1};
-  Register phys{Register::kRax};
-  long long imm{0};
-  std::string label;
-  int stack_slot{-1};
-  bool is_float{false}; // used for call arg placement
-
-  static Operand VReg(int v, bool is_float = false) {
-    return Operand{Kind::kVReg, v, Register::kRax, 0, "", -1, is_float};
-  }
-  static Operand Phys(Register r, bool is_float = false) {
-    Operand op;
-    op.kind = Kind::kPhysReg;
-    op.phys = r;
-    op.is_float = is_float;
-    return op;
-  }
-  static Operand Imm(long long v) {
-    Operand op;
-    op.kind = Kind::kImm;
-    op.imm = v;
-    return op;
-  }
-  static Operand Label(const std::string &name) {
-    Operand op;
-    op.kind = Kind::kLabel;
-    op.label = name;
-    return op;
-  }
-  static Operand Stack(int slot) {
-    Operand op;
-    op.kind = Kind::kStackSlot;
-    op.stack_slot = slot;
-    return op;
-  }
-  static Operand MemVReg(int v, bool is_float = false) {
-    Operand op;
-    op.kind = Kind::kMemVReg;
-    op.vreg = v;
-    op.is_float = is_float;
-    return op;
-  }
-  static Operand MemLabel(const std::string &name) {
-    Operand op;
-    op.kind = Kind::kMemLabel;
-    op.label = name;
-    return op;
-  }
+/// @brief Traits hook required by the common MachineIR templates.
+struct X86TargetTraits {
+    using Register                              = ::polyglot::backends::x86_64::Register;
+    static constexpr Register kDefaultRegister  = Register::kRax;
 };
 
-/** @brief MachineInstr data structure. */
-struct MachineInstr {
-  Opcode opcode{Opcode::kMov};
-  int def{-1};
-  std::vector<int> uses;
-  std::vector<Operand> operands;
-  int cost{1};
-  int latency{1};
-  bool terminator{false};
-};
+// ---- Aliases over the common templates -------------------------------------
 
-/** @brief MachineBasicBlock data structure. */
-struct MachineBasicBlock {
-  std::string name;
-  std::vector<MachineInstr> instructions;
-};
+using Operand            = common::machine_ir::Operand<X86TargetTraits>;
+using MachineInstr       = common::machine_ir::MachineInstr<X86TargetTraits, Opcode>;
+using MachineBasicBlock  = common::machine_ir::MachineBasicBlock<X86TargetTraits, Opcode>;
+using MachineFunction    = common::machine_ir::MachineFunction<X86TargetTraits, Opcode>;
+using LiveInterval       = common::machine_ir::LiveInterval<X86TargetTraits>;
+using AllocationResult   = common::machine_ir::AllocationResult<X86TargetTraits>;
+using common::machine_ir::RegAllocStrategy;
 
-/** @brief MachineFunction data structure. */
-struct MachineFunction {
-  std::string name;
-  std::vector<MachineBasicBlock> blocks;
-};
-
-/** @brief CostModel data structure. */
+/// @brief x86-64 cost model (target-specific Cost / Latency tables).
 struct CostModel {
-  int Cost(Opcode op) const;
-  int Latency(Opcode op) const;
+    int Cost(Opcode op) const;
+    int Latency(Opcode op) const;
 };
 
-/** @brief LiveInterval data structure. */
-struct LiveInterval {
-  int vreg{-1};
-  int start{0};
-  int end{0};
-  bool spilled{false};
-  Register phys{Register::kRax};
-  int stack_slot{-1};
-};
+// ---- Free-function entry points (definitions in src/regalloc, asm_printer) -
 
-/** @brief AllocationResult data structure. */
-struct AllocationResult {
-  std::unordered_map<int, Register> vreg_to_phys;
-  std::unordered_map<int, int> vreg_to_slot;
-  int stack_slots{0};
-};
+std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction& fn);
 
-/** @brief RegAllocStrategy enumeration. */
-enum class RegAllocStrategy { kLinearScan, kGraphColoring };
+AllocationResult LinearScanAllocate(const MachineFunction&        fn,
+                                    const std::vector<Register>&  available);
 
-MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost_model);
-void ScheduleFunction(MachineFunction &fn);
-std::vector<LiveInterval> ComputeLiveIntervals(const MachineFunction &fn);
-AllocationResult LinearScanAllocate(const MachineFunction &fn,
-                                    const std::vector<Register> &available);
-AllocationResult GraphColoringAllocate(const MachineFunction &fn,
-                                       const std::vector<Register> &available);
+AllocationResult GraphColoringAllocate(const MachineFunction&        fn,
+                                       const std::vector<Register>&  available);
 
-} // namespace polyglot::backends::x86_64
+void ScheduleFunction(MachineFunction& fn);
+
+// ---- Target-specific entry point implemented in isel/isel.cpp --------------
+
+MachineFunction SelectInstructions(const ir::Function& fn, const CostModel& cost_model);
+
+}  // namespace polyglot::backends::x86_64

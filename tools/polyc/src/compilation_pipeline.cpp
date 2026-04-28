@@ -24,7 +24,9 @@
 #include "middle/include/passes/pass_manager.h"
 
 #include "backends/arm64/include/arm64_target.h"
+#include "backends/common/include/backend_registry.h"
 #include "backends/common/include/object_file.h"
+#include "backends/common/include/target_backend.h"
 #include "backends/wasm/include/wasm_target.h"
 #include "backends/x86_64/include/x86_target.h"
 #include "frontends/common/include/frontend_registry.h"
@@ -644,11 +646,20 @@ public:
       pm.RunOnModule(ir_module, config.verbose);
     }
 
-    auto absorb_mc = [&](const auto &mc, const std::string &triple, const std::string &asm_text) {
+    // Translate a TargetArtifacts result from any backend (registered via
+    // backends::BackendRegistry) into the pipeline's CompiledObject /
+    // linker::{Symbol,Relocation} representation.  Replaces the previous
+    // per-architecture if/else dispatch.
+    auto absorb_artifacts = [&](const backends::TargetArtifacts &art,
+                                const std::string &triple) {
       out.target_triple = triple;
-      out.assembly_text = asm_text;
-      // One CompiledObject per section for deterministic packaging.
-      for (const auto &sec : mc.sections) {
+      out.assembly_text = art.assembly_text;
+
+      // For backends that produce a single self-contained binary (e.g. wasm)
+      // the section list contains exactly one ".text" section that already
+      // holds the final bytes.  Native targets produce one section per
+      // emitted MC section.
+      for (const auto &sec : art.sections) {
         CompiledObject obj;
         obj.name = sec.name;
         if (sec.name == ".text") {
@@ -659,16 +670,17 @@ public:
         out.objects.push_back(std::move(obj));
       }
 
-      for (const auto &sym : mc.symbols) {
+      for (const auto &sym : art.exported_symbols) {
         linker::Symbol ls;
         ls.name = sym.name;
         ls.section = sym.section;
         ls.offset = sym.value;
         ls.size = sym.size;
         ls.value = sym.value;
-        ls.binding = sym.global ? linker::SymbolBinding::kGlobal : linker::SymbolBinding::kLocal;
+        ls.binding = sym.is_global ? linker::SymbolBinding::kGlobal
+                                   : linker::SymbolBinding::kLocal;
         ls.type = linker::SymbolType::kFunction;
-        ls.is_defined = sym.defined;
+        ls.is_defined = sym.is_defined;
 
         for (auto &obj : out.objects) {
           if (obj.name == sym.section || (sym.section.empty() && obj.name == ".text")) {
@@ -678,7 +690,7 @@ public:
         }
       }
 
-      for (const auto &rel : mc.relocs) {
+      for (const auto &rel : art.relocations) {
         linker::Relocation lr;
         lr.section = rel.section;
         lr.offset = rel.offset;
@@ -696,64 +708,63 @@ public:
       }
     };
 
-    const bool use_arm64 = (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
-                            config.target_arch == "armv8");
-    const bool use_wasm = (config.target_arch == "wasm" || config.target_arch == "wasm32" ||
-                           config.target_arch == "wasm64");
-
-    if (use_wasm) {
-      backends::wasm::WasmTarget target(&ir_module);
-      out.target_triple = target.TargetTriple();
-      out.assembly_text = target.EmitAssembly();
-
-      auto bin = target.EmitWasmBinary();
-      if (bin.empty()) {
-        diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
-                                frontends::ErrorCode::kLoweringUndefined,
-                                "WASM backend produced empty binary");
-        AppendDiagnostics(diagnostics, out.backend_diagnostics);
-        out.success = false;
-        return out;
-      }
-      CompiledObject obj;
-      obj.name = ".text";
-      obj.code = std::move(bin);
-      out.objects.push_back(std::move(obj));
-      out.success = true;
-      return out;
-    }
-
-    if (use_arm64) {
-      backends::arm64::Arm64Target target(&ir_module);
-      target.SetRegAllocStrategy(backends::arm64::RegAllocStrategy::kLinearScan);
-      auto asm_text = target.EmitAssembly();
-      auto mc = target.EmitObjectCode();
-      if (mc.sections.empty()) {
-        diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
-                                frontends::ErrorCode::kLoweringUndefined,
-                                "ARM64 backend produced no sections");
-        AppendDiagnostics(diagnostics, out.backend_diagnostics);
-        out.success = false;
-        return out;
-      }
-      absorb_mc(mc, target.TargetTriple(), asm_text);
-      out.success = true;
-      return out;
-    }
-
-    backends::x86_64::X86Target target(&ir_module);
-    target.SetRegAllocStrategy(backends::x86_64::RegAllocStrategy::kLinearScan);
-    auto asm_text = target.EmitAssembly();
-    auto mc = target.EmitObjectCode();
-    if (mc.sections.empty()) {
+    // Resolve the backend through the global registry instead of the
+    // architecture-string if/else chain that used to live here.  The triple
+    // accepted on the command line may be any canonical triple or alias
+    // declared by a registered backend.
+    std::string lookup_diag;
+    backends::ITargetBackend *backend =
+        backends::BackendRegistry::Instance().FindOrDiagnose(config.target_arch, &lookup_diag);
+    if (!backend) {
       diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
-                              frontends::ErrorCode::kLoweringUndefined,
-                              "x86_64 backend produced no sections");
+                              frontends::ErrorCode::kLoweringUndefined, lookup_diag);
       AppendDiagnostics(diagnostics, out.backend_diagnostics);
       out.success = false;
       return out;
     }
-    absorb_mc(mc, target.TargetTriple(), asm_text);
+
+    backends::TargetOptions backend_options;
+    backend_options.emit = backends::EmitKind::kObject;
+    backend_options.opt_level = config.opt_level;
+    backend_options.force = config.force;
+    // The driver-level --regalloc flag is wired into the backend through
+    // CompilationContext::Config in a follow-up sub-need; for now keep the
+    // historical default.
+    backend_options.reg_alloc = backends::RegAllocStrategy::kLinearScan;
+
+    backends::CompileResult bres = backend->Compile(ir_module, backend_options);
+
+    // Surface every backend diagnostic through the driver's diagnostics sink
+    // so that --strict / --force semantics are honoured uniformly.
+    for (const auto &d : bres.diagnostics) {
+      if (d.severity == backends::BackendDiagnostic::Severity::kError) {
+        diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
+                                frontends::ErrorCode::kLoweringUndefined, d.message);
+      } else {
+        // Treat info-level entries as warnings so they remain visible without
+        // failing the build; the Diagnostics interface has no separate info
+        // channel.
+        diagnostics.ReportWarning(core::SourceLoc{"<backend>", 1, 1},
+                                  frontends::ErrorCode::kLoweringUndefined, d.message);
+      }
+    }
+
+    if (!bres.ok) {
+      AppendDiagnostics(diagnostics, out.backend_diagnostics);
+      out.success = false;
+      return out;
+    }
+
+    if (bres.artifacts.sections.empty() && bres.artifacts.object_bytes.empty()) {
+      diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
+                              frontends::ErrorCode::kLoweringUndefined,
+                              backend->TargetTriple() + " backend produced no sections");
+      AppendDiagnostics(diagnostics, out.backend_diagnostics);
+      out.success = false;
+      return out;
+    }
+
+    absorb_artifacts(bres.artifacts, backend->TargetTriple());
     out.success = true;
     return out;
   }

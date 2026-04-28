@@ -10,6 +10,8 @@ add_library(backend_common
     common/src/debug_emitter.cpp
     common/src/dwarf_builder.cpp
     common/src/object_file.cpp
+    common/src/target_backend.cpp
+    common/src/backend_registry.cpp
 )
 
 target_include_directories(backend_common PUBLIC ${CMAKE_SOURCE_DIR})
@@ -21,10 +23,11 @@ add_library(backend_x86_64
     x86_64/src/asm_printer/emit.cpp
     x86_64/src/asm_printer/scheduler.cpp
     x86_64/src/isel/isel.cpp
-    x86_64/src/regalloc/graph_coloring.cpp
-    x86_64/src/regalloc/linear_scan.cpp
     x86_64/src/optimizations.cpp
     x86_64/src/calling_convention.cpp
+    x86_64/src/regalloc/graph_coloring.cpp
+    x86_64/src/regalloc/linear_scan.cpp
+    x86_64/src/x86_target_backend.cpp
 )
 
 target_include_directories(backend_x86_64 PUBLIC ${CMAKE_SOURCE_DIR})
@@ -36,9 +39,10 @@ add_library(backend_arm64
     arm64/src/asm_printer/emit.cpp
     arm64/src/asm_printer/scheduler.cpp
     arm64/src/isel/isel.cpp
+    arm64/src/calling_convention.cpp
     arm64/src/regalloc/graph_coloring.cpp
     arm64/src/regalloc/linear_scan.cpp
-    arm64/src/calling_convention.cpp
+    arm64/src/arm64_target_backend.cpp
 )
 
 target_include_directories(backend_arm64 PUBLIC ${CMAKE_SOURCE_DIR})
@@ -48,6 +52,7 @@ target_link_libraries(backend_arm64 PUBLIC backend_common middle_ir)
 
 add_library(backend_wasm
     wasm/src/wasm_target.cpp
+    wasm/src/wasm_target_backend.cpp
 )
 
 target_include_directories(backend_wasm PUBLIC ${CMAKE_SOURCE_DIR})

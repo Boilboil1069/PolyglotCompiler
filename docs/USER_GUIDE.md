@@ -1449,7 +1449,42 @@ polyc [options] <input_file>
 | `--progress=json` | Emit machine-readable JSON progress events to stdout (stage_start, stage_end, complete) |
 | `--clean-cache` | Purge the incremental compilation cache and exit |
 | `--dump-token-pool` | Write `<aux>/<stem>.pool_stats.json` with frontend token-pool counters (tokens, arena bytes, unique identifiers, intern hits/misses) |
+| `--print-targets[=text\|json]` | Print every registered backend (triple, aliases, capability matrix) and exit. `text` is the default; `json` emits the stable JSON snapshot. |
+| `--print-target-info=<triple>[:json]` | Print one backend's info (alias-aware lookup) and exit. Append `:json` for the JSON form. Exit code `2` when the alias is not registered, with the "available backends" diagnostic on stderr. |
 | `-h` / `--help` | Show usage information |
+
+#### Inspecting available backends
+
+```text
+$ polyc --print-targets
+arm64-unknown-elf
+  description: ARM64 (AArch64) backend
+  aliases: arm64, aarch64, armv8, aarch64-apple-darwin, aarch64-linux-gnu, aarch64-pc-windows-msvc
+  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
+  register allocators: linear-scan, graph-coloring
+wasm32-unknown-unknown
+  ...
+x86_64-unknown-elf
+  ...
+
+$ polyc --print-target-info=amd64
+x86_64-unknown-elf
+  description: x86_64 backend (System V / Win64)
+  aliases: x86_64, x86-64, amd64, x64, x86_64-pc-windows-msvc, x86_64-apple-darwin, x86_64-linux-gnu
+  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
+  register allocators: linear-scan, graph-coloring
+
+$ polyc --print-targets=json | jq '.[].triple'
+"arm64-unknown-elf"
+"wasm32-unknown-unknown"
+"x86_64-unknown-elf"
+```
+
+The lookup is case-insensitive and accepts every alias listed by the previous command, so
+`--arch=AMD64`, `--arch=x86-64` and `--arch=x86_64-linux-gnu` all reach the same backend.
+This list is the single source of truth for what `--arch` accepts; new backends added in future
+releases (e.g. RISC-V via sub-need 2026-04-28-2e) will appear here automatically without any
+documentation drift.
 
 > **Note:** Release builds default to strict mode (via `POLYC_DEFAULT_STRICT`).
 > Use `--permissive` to override.  `--strict` and `--force` are mutually exclusive.

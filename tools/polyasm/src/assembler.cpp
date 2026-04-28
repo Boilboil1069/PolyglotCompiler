@@ -27,6 +27,8 @@
 #include "middle/include/ir/ir_parser.h"
 
 #include "backends/arm64/include/arm64_target.h"
+#include "backends/common/include/backend_registry.h"
+#include "backends/common/include/target_backend.h"
 #include "backends/wasm/include/wasm_target.h"
 #include "backends/x86_64/include/x86_target.h"
 
@@ -697,8 +699,7 @@ void ConvertBackendMC(const BackendT &mc, const std::string &arch,
     ObjSection s;
     s.name = sec.name.empty() ? ".text" : sec.name;
     s.data = sec.data;
-    s.bss = sec.bss;
-    sec_index[s.name] = static_cast<std::uint32_t>(sections.size());
+    s.bss = sec.bss;    sec_index[s.name] = static_cast<std::uint32_t>(sections.size());
     sections.push_back(std::move(s));
   }
 
@@ -765,6 +766,88 @@ void ConvertBackendMC(const BackendT &mc, const std::string &arch,
   }
 }
 
+// Convert a polyglot::backends::TargetArtifacts (the registry-neutral form)
+// into the assembler's ObjSection / ObjSymbol representation.  Mirrors
+// ConvertBackendMC above but consumes the new field names emitted by
+// ITargetBackend::Compile().
+void ConvertArtifacts(const polyglot::backends::TargetArtifacts &art, const std::string &arch,
+                      std::vector<ObjSection> &sections, std::vector<ObjSymbol> &symbols) {
+  sections.clear();
+  symbols.clear();
+  std::unordered_map<std::string, std::uint32_t> sec_index;
+
+  for (const auto &sec : art.sections) {
+    ObjSection s;
+    s.name = sec.name.empty() ? ".text" : sec.name;
+    s.data = sec.data;
+    s.bss = sec.is_bss;
+    sec_index[s.name] = static_cast<std::uint32_t>(sections.size());
+    sections.push_back(std::move(s));
+  }
+
+  if (sections.empty()) {
+    ObjSection text;
+    text.name = ".text";
+    if (arch == "arm64" || arch == "aarch64" || arch == "armv8") {
+      text.data = {0x00, 0x00, 0x80, 0xD2, 0xC0, 0x03, 0x5F, 0xD6};
+    } else {
+      text.data = {0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3};
+    }
+    sec_index[text.name] = 0;
+    sections.push_back(std::move(text));
+  }
+
+  std::uint32_t text_idx = sec_index.count(".text") ? sec_index[".text"] : 0;
+  symbols.push_back({"_start", text_idx, 0,
+                     static_cast<std::uint64_t>(sections[text_idx].data.size()), true, true});
+
+  for (const auto &sym : art.exported_symbols) {
+    ObjSymbol osym;
+    osym.name = sym.name;
+    osym.value = sym.value;
+    osym.size = sym.size;
+    osym.global = sym.is_global;
+    if (sym.is_defined && sec_index.count(sym.section)) {
+      osym.section_index = sec_index[sym.section];
+      osym.defined = true;
+    }
+    symbols.push_back(osym);
+  }
+
+  std::unordered_map<std::string, std::uint32_t> sym_index;
+  for (std::uint32_t i = 0; i < symbols.size(); ++i)
+    sym_index[symbols[i].name] = i;
+
+  for (const auto &r : art.relocations) {
+    std::string sec_name = r.section.empty() ? ".text" : r.section;
+    auto s_it = sec_index.find(sec_name);
+    if (s_it == sec_index.end())
+      continue;
+
+    auto sym_it = sym_index.find(r.symbol);
+    if (sym_it == sym_index.end()) {
+      ObjSymbol ext;
+      ext.name = r.symbol;
+      ext.section_index = 0xFFFFFFFF;
+      ext.value = 0;
+      ext.size = 0;
+      ext.global = true;
+      ext.defined = false;
+      sym_index[ext.name] = static_cast<std::uint32_t>(symbols.size());
+      symbols.push_back(ext);
+      sym_it = sym_index.find(r.symbol);
+    }
+
+    ObjReloc orr{};
+    orr.section_index = s_it->second;
+    orr.offset = r.offset;
+    orr.type = r.type;
+    orr.symbol_index = sym_it->second;
+    orr.addend = r.addend;
+    sections[orr.section_index].relocs.push_back(orr);
+  }
+}
+
 std::string Assemble(const std::string &source, const Options &opts) {
   polyglot::ir::IRContext ir_module;
   std::string msg;
@@ -775,30 +858,43 @@ std::string Assemble(const std::string &source, const Options &opts) {
   std::vector<ObjSection> sections;
   std::vector<ObjSymbol> symbols;
 
-  if (opts.arch == "wasm" || opts.arch == "wasm32" || opts.arch == "wasm64") {
-    // WASM backend emits a binary module directly — no ELF/Mach-O wrapper.
-    polyglot::backends::wasm::WasmTarget target(&ir_module);
-    auto wasm_binary = target.EmitWasmBinary();
-    if (wasm_binary.empty()) {
-      throw std::runtime_error("WASM backend produced empty binary");
+  // Resolve the backend through the global registry; the --arch flag may
+  // be either a canonical triple or any registered alias.
+  std::string lookup_diag;
+  polyglot::backends::ITargetBackend *backend =
+      polyglot::backends::BackendRegistry::Instance().FindOrDiagnose(opts.arch, &lookup_diag);
+  if (!backend) {
+    throw std::runtime_error(lookup_diag);
+  }
+
+  polyglot::backends::TargetOptions backend_options;
+  backend_options.emit = polyglot::backends::EmitKind::kObject;
+  backend_options.reg_alloc = polyglot::backends::RegAllocStrategy::kLinearScan;
+
+  auto compile_result = backend->Compile(ir_module, backend_options);
+  if (!compile_result.ok) {
+    std::ostringstream oss;
+    oss << backend->TargetTriple() << " backend failed:";
+    for (const auto &d : compile_result.diagnostics) {
+      oss << "\n  " << d.component << ": " << d.message;
     }
-    // Write the raw .wasm binary to the output file
+    throw std::runtime_error(oss.str());
+  }
+
+  // WASM backend produces a self-contained binary — write it directly.
+  if (!compile_result.artifacts.object_bytes.empty() &&
+      backend->Capabilities().emits_object &&
+      backend->TargetTriple().rfind("wasm", 0) == 0) {
     std::ofstream out_file(opts.output, std::ios::binary);
     if (!out_file) {
       throw std::runtime_error("failed to open output file: " + opts.output);
     }
-    out_file.write(reinterpret_cast<const char *>(wasm_binary.data()),
-                   static_cast<std::streamsize>(wasm_binary.size()));
+    out_file.write(reinterpret_cast<const char *>(compile_result.artifacts.object_bytes.data()),
+                   static_cast<std::streamsize>(compile_result.artifacts.object_bytes.size()));
     return opts.output;
-  } else if (opts.arch == "arm64" || opts.arch == "aarch64" || opts.arch == "armv8") {
-    polyglot::backends::arm64::Arm64Target target(&ir_module);
-    auto mc = target.EmitObjectCode();
-    ConvertBackendMC(mc, opts.arch, sections, symbols);
-  } else {
-    polyglot::backends::x86_64::X86Target target(&ir_module);
-    auto mc = target.EmitObjectCode();
-    ConvertBackendMC(mc, opts.arch, sections, symbols);
   }
+
+  ConvertArtifacts(compile_result.artifacts, opts.arch, sections, symbols);
 
   auto written = EmitObject(opts, sections, symbols);
   if (written.empty()) {

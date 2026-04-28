@@ -2074,3 +2074,93 @@ Error: Process completed with exit code 1.
    - 因引入 `ITargetBackend` / `BackendRegistry` / 新增 RISC-V 目标 / Reloc 模型重写 / WASM 目录结构变更（对外是新能力，对内是较大重构），建议版本号 `1.3.0 → 1.4.0`（次版本号 +1，向后兼容；CLI 旧 `--target=x86-64` 等别名通过 `BackendRegistry` 的 alias 机制保持有效）。
 
 --end
+
+注：2026-04-28-2 作为伞形需求条目，覆盖面过大（约 70 个文件、~20K LOC 代码 + 6 篇双语文档），单次会话无法在不违背"禁止最小实现/占位"约束的前提下完整交付。经与 MC 协商，按 Plan A 拆为 7 个串行子需求 2026-04-28-2a … 2026-04-28-2g（见下方独立条目），每个子需求为可单独编译、测试、文档化、版本化的最小闭环，伞形条目不单独追加 `--end -done`，而是当 2a–2g 全部追加 `--end -done` 时视作伞形完成。版本节奏：2a..2f 走 `1.3.3 → 1.3.8` patch 级递进，2g 收口时统一 `1.3.8 → 1.4.0` 次版本跃迁。
+
+2026-04-28-2a
+
+背景：从伞形 2026-04-28-2 中拆出，对应原 §1。先行打通"目标机抽象 + 后端注册中心 + 工具链分发"骨架，作为后续所有子需求（MachineIR 上提、ABI/Reloc 重写、WASM 拆分、RISC-V 接入、Debug 归一化）的注册基座。本子需求只增不删现有后端实现，零回归切换 polyc/polyasm 的分发路径。
+
+1.目标机抽象与后端注册中心：
+   - 新增 `backends/common/include/target_backend.h`：定义 `ITargetBackend` 抽象接口，及 `TargetOptions` / `TargetArtifacts` / `BackendCapabilities` / `BackendInfo` / `MCRelocation` / `MCSymbol` / `MCSection` / `CompileStats` / `BackendDiagnostic` / `CompileResult` 完整数据模型；提供 `EmitAssembly` / `EmitObject` / `EmitBitcode` 三个发射入口（`EmitBitcode` 默认返回 `unsupported` 诊断，留待 2026-04-28-2e 启用）。
+   - 新增 `backends/common/include/backend_registry.h` + `src/backend_registry.cpp`：进程级单例，提供 `Register` / `Find` / `FindOrDiagnose` / `List` / `Size` / `Clear`、`RegisterStatus` 错误枚举、`BackendRegistrar` RAII、`REGISTER_TARGET_BACKEND` 宏，以及 `ToJson` / `ToHumanReadable` 序列化器。
+   - 三个现有后端 (x86_64 / arm64 / wasm) 必须通过 adapter（`x86_target_backend.cpp` / `arm64_target_backend.cpp` / `wasm_target_backend.cpp`）实现 `ITargetBackend` 并在静态注册期自注册；不允许修改现有 `X86Target` / `Arm64Target` / `WasmTarget` 的对外接口（避免引入横向回归，留给后续子需求处理）。
+   - 别名解析必须大小写不敏感（与 `FrontendRegistry` 一致），至少覆盖：x86_64 → `[x86_64, x86-64, amd64, x64, x86_64-pc-windows-msvc, x86_64-apple-darwin, x86_64-linux-gnu]`；arm64 → `[arm64, aarch64, armv8, aarch64-apple-darwin, aarch64-linux-gnu, aarch64-pc-windows-msvc]`；wasm → `[wasm, wasm32, wasm64, wasm32-wasi, wasm-unknown-unknown]`。
+
+2.工具链分发改造：
+   - `tools/polyc/src/compilation_pipeline.cpp`：删除按 `arch` 字符串走 if/else 的分发链，统一改为 `BackendRegistry::Instance().FindOrDiagnose(target, &diag)` → `backend->Compile(ir_module, opts)` → `TargetArtifacts` 翻译为现有 `CompiledObject` / `linker::Symbol` / `linker::Relocation`；查找失败必须给出"available backends"列表诊断。
+   - `tools/polyasm/src/assembler.cpp`：同步改造，禁止保留独立的架构枚举分支（WASM 二进制直接落盘的快路径可保留）。
+   - `tools/polyc/src/driver.cpp`：在 `main()` 入口提供 `--print-targets[=json|text]` 与 `--print-target-info=<triple>[:json]` 两个 CLI，输出注册表快照（人类可读 + JSON 两种），用法仿 LLVM `--print-targets`；`--help` 文本同步更新。
+
+3.测试：
+   - 新增 `tests/unit/backends/target_backend_registry_test.cpp`：≥ 7 个用例覆盖：三后端自注册、大小写不敏感的别名解析、`List()` 排序快照与能力矩阵断言、重复 triple/别名冲突/空指针注册的拒绝路径、`FindOrDiagnose` 失败诊断的内容、JSON + 人类可读序列化、`EmitBitcode` 默认 unsupported 诊断。
+   - 现有 `test_backends` / `test_core` / `test_middle` / `test_runtime` / `test_linker` 全部不得回归。
+
+4.文档（中英双语）：
+   - 新增 `docs/realization/backend_registry.md` 与 `docs/realization/backend_registry_zh.md`，覆盖：`ITargetBackend` 契约与生命周期、`BackendRegistry` 与 `FrontendRegistry` 对照、别名解析规则、能力矩阵、JSON schema、polyc/polyasm 分发迁移路径、`--print-targets` / `--print-target-info` 输出示例与故障排查。
+   - 更新 `docs/specs/namespace_architecture.md` / `_zh.md`：在 `polyglot::backends` 行补齐 `ITargetBackend` / `BackendRegistry`。
+   - 更新 `docs/USER_GUIDE.md` / `_zh.md`：在 "Backends" / "后端" 章节加入 `--print-targets` 与 `--print-target-info` 的使用说明与示例输出。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：新增 `ITargetBackend` / `BackendRegistry` / `TargetOptions` / `TargetArtifacts` / `BackendInfo` / `BackendCapabilities` 公共 API 表项。
+
+5.约束：
+   - 不允许最小实现 / 占位 / 空函数体；
+   - C++ 代码注释一律英文；
+   - 公共类型一律 `polyglot::backends` 命名空间，目标特异 adapter 放 `polyglot::backends::<target>`，文件命名小写下划线；
+   - `ITargetBackend` 与 `BackendRegistry` 的设计必须与 `polyglot::frontends::FrontendRegistry` 风格一致，便于未来工具复用；
+   - 现有 x86_64 / arm64 / wasm 后端的 .cpp 文件不得删除（留给 2b / 2c / 2d 子需求处置）；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅新增基础设施 + 改造分发路径，对外 CLI 仅新增 `--print-targets` / `--print-target-info`（向后兼容），版本号 `1.3.2 → 1.3.3`（patch 级）。
+
+--end -done
+
+2026-04-28-2b
+
+背景：从伞形 2026-04-28-2 中拆出，对应原 §2。基线审查显示 `backends/x86_64/include/machine_ir.h` (178 行) 与 `backends/arm64/include/machine_ir.h` (160 行) 除目标特定的 `Opcode` 与 `Register` 默认值外完全同源；`linear_scan.cpp` (各 121 行) / `graph_coloring.cpp` (各 84 行) / `asm_printer/scheduler.cpp` (各 84 行) 在两个后端中字节级一致（仅命名空间不同）。这意味着任何 regalloc / scheduler 修复都要改两遍，且没有任何机制保证两份不漂移。本子需求把这些算法上提到 `backends/common/`，删除重复实现，并加入 MachineIR Verifier，作为后续 2c (ABI/Reloc) 与 2d (WASM 拆分) 的清洁基座。
+
+1.通用 MachineIR 模板：
+   - 新增 `backends/common/include/machine_ir/machine_ir.h`，提供与目标无关的模板：`Operand<TargetTraits>` / `MachineInstr<TargetTraits, OpcodeT>` / `MachineBasicBlock<TargetTraits, OpcodeT>` / `MachineFunction<TargetTraits, OpcodeT>` / `LiveInterval<TargetTraits>` / `AllocationResult<TargetTraits>` 与 `enum class RegAllocStrategy`。`TargetTraits` 至少暴露 `using Register = ...;` 与 `static constexpr Register kDefaultRegister = ...;`。
+   - 上述头文件中以函数模板形式同时提供 `ComputeLiveIntervals`、`LinearScanAllocate`、`GraphColoringAllocate`、`ScheduleFunction` 的实现 —— 算法与目标无关，只通过 `Register` 的值传递使用。实现必须与原 x86_64 版本字节等价，回归保护必须可由现有测试套件确认。
+   - 新增 `MachineFunction::Print()` 自由模板函数：渲染 `function name {... bb name: instr [opcode-index def=N uses=[…] term=Y/N] …}` 的人类可读快照，供 Verifier 失败诊断使用。
+
+2.per-target `machine_ir.h` 改造：
+   - x86_64 与 arm64 的 `machine_ir.h` 仅保留：目标特定 `Opcode` 枚举、`<Target>TargetTraits`、`CostModel` 与 `SelectInstructions` 声明，其余类型一律 `using` 自 `backends/common/include/machine_ir/machine_ir.h` 的模板实例。
+   - 为保持现有 `isel.cpp` / `emit.cpp` / `calling_convention.cpp` / `arm64_target_backend.cpp` / `x86_target_backend.cpp` 等消费者**调用点零变更**，必须以薄 inline 包装函数桥接 `ComputeLiveIntervals` / `LinearScanAllocate` / `GraphColoringAllocate` / `ScheduleFunction`（保留与旧版完全一致的非模板签名）。
+
+3.MachineIR Verifier：
+   - 新增 `backends/common/include/machine_ir/verifier.h` 与对应（如有需要的）实现：`MachineIRVerifier<TargetTraits, OpcodeT>` 提供 `std::vector<Diagnostic> Verify(const MachineFunction&)`，覆盖 (a) use 必须在同一 BB 的某条 def 之后或来自函数入口；(b) 每个 BB 必须以 `terminator==true` 的指令结尾；(c) `MachineInstr::def < 0` 与 `terminator==true` 不可同时既无 def 也无 uses 且非 `kRet/kJmp/kJcc` 等终止 opcode。
+   - 失败诊断必须携带 `function_name`、`block_name`、`instruction_index` 与一条 `MachineFunction::Print()` 快照位置标记。
+   - ABI / register-class 兼容性 / stack slot 尺寸合法性等更深检查留给后续子需求 2c（依赖新的 ABI 模型）；本子需求只交付与 ABI 解耦的两条核心规则与一条结构性规则。
+
+4.重复源码删除：
+   - 强制 `git rm`：
+     - `backends/x86_64/src/regalloc/linear_scan.cpp`
+     - `backends/x86_64/src/regalloc/graph_coloring.cpp`
+     - `backends/x86_64/src/asm_printer/scheduler.cpp`
+     - `backends/arm64/src/regalloc/linear_scan.cpp`
+     - `backends/arm64/src/regalloc/graph_coloring.cpp`
+     - `backends/arm64/src/asm_printer/scheduler.cpp`
+   - `backends/CMakeLists.txt` 同步移除上述源文件，加入新的 common 头文件依赖（如 verifier 需 .cpp 实现则一并加入 `backend_common`）。
+   - 不允许保留 deprecated wrapper 或备份；删除即彻底删除。
+
+5.测试：
+   - 新增 `tests/unit/backends/machine_ir_verifier_test.cpp`：≥ 5 用例覆盖：(a) 合法函数零诊断；(b) 缺 terminator 的 BB 命中规则 (b)；(c) 同 BB use-before-def 命中规则 (a)；(d) 跨 BB 的 use 视为已定义不报；(e) 空函数/空 BB 不崩溃。
+   - 新增 `tests/unit/backends/machine_ir_template_test.cpp`：≥ 4 用例验证模板实例化在 x86_64 / arm64 两种 traits 下均能编译并产出与原算法字节等价的 `LinearScanAllocate` / `GraphColoringAllocate` / `ScheduleFunction` 结果（用刻意构造的小函数对比 vreg→phys 映射）。
+   - 既有 `test_backends` / `test_core` / `test_middle` / `test_runtime` / `test_linker` 全部不得回归。
+
+6.文档（中英双语）：
+   - 新增 `docs/realization/machine_ir.md` 与 `docs/realization/machine_ir_zh.md`，覆盖：模板设计与 `TargetTraits` 协议、保留 per-target `Opcode` 与 `CostModel` 的理由、Verifier 规则、为什么删除 6 份 .cpp、新增后端如何接入、故障排查（verify 失败 / 模板实例化错误）。
+   - 更新 `docs/specs/namespace_architecture.md` / `_zh.md`：在 `polyglot::backends` 行追加 `polyglot::backends::common::machine_ir` 子命名空间与新模板类型。
+   - 更新 `docs/api/api_reference.md` / `_zh.md`：在 §7.10 之后新增 §7.11 "Common MachineIR & Verifier"。
+
+7.约束：
+   - 不允许最小实现 / 占位 / 空函数体；
+   - C++ 代码注释一律英文；
+   - 公共类型一律 `polyglot::backends::common::machine_ir`，目标层 `using` 别名置于 `polyglot::backends::<target>`，文件命名小写下划线；
+   - 算法必须与原 x86_64 / arm64 版本字节等价（回归测试保护）；
+   - 6 份 .cpp 必须 `git rm`，禁止保留 deprecated 备份；
+   - 文档须中英双语两份；
+   - 完成后在本条目末尾追加 `--end -done`；
+   - 因仅做内部结构重构 + 新增 Verifier 公共接口（向后兼容），版本号 `1.3.3 → 1.3.4`（patch 级）。
+
+--end -done
