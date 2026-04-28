@@ -806,4 +806,228 @@ BuildResult BuildHelloWorldPE(const std::string &message) {
   return BuildPE32PlusImage(req);
 }
 
+// ============================================================================
+// BuildPrintlnSequencePE  (Stage B4 of demand 2026-04-28-49)
+// ============================================================================
+//
+// Same overall shape as BuildHelloWorldPE, but issues N WriteFile calls
+// against a single shared stdout handle instead of one.  Pseudocode:
+//
+//     HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+//     for (i = 0; i < N; ++i)
+//         WriteFile(h, msg_ptr[i], msg_len[i], &dummy, NULL);
+//     ExitProcess(0);
+//
+// AMD64 / Win64 ABI implementation notes:
+//   - We reuse the proven 0x38-byte stack frame from the hello shim:
+//       [rsp+0x00..0x1F] shadow space (Win64 mandates 32 bytes for any call)
+//       [rsp+0x20]       lpOverlapped slot (must be NULL for synchronous
+//                        WriteFile)
+//       [rsp+0x28]       lpNumberOfBytesWritten slot (we never read it back)
+//       [rsp+0x30]       saved stdout handle
+//   - The handle save uses a stack slot rather than a callee-saved register
+//     so we don't have to push/pop RBX/R12/R13 (and so the prologue / epilogue
+//     bytes stay easy to count and unit-test).
+//   - The `lpOverlapped` slot is zeroed once during the prologue; WriteFile
+//     reads it but never writes it, so the value is reused across all N calls.
+//
+// Per-message block (29 bytes — see BuildPrintlnBlock below):
+//     mov rcx, [rsp+0x30]           ; arg0 = saved handle
+//     lea rdx, [rip + msg_i]        ; arg1 = pointer into .rdata
+//     mov r8d, len_i                ; arg2 = length (DWORD)
+//     lea r9, [rsp+0x28]            ; arg3 = &lpNumberOfBytesWritten
+//     call qword ptr [rip + WriteFile_IAT]
+//
+// .rdata layout: identical messages share their bytes (we dedupe by content,
+// matching the IR-layer interning contract).
+
+namespace {
+
+constexpr std::uint32_t kPrintlnPrologueSize = 0x25; // 37 bytes
+constexpr std::uint32_t kPrintlnPerMessageSize = 0x1D; // 29 bytes
+constexpr std::uint32_t kPrintlnEpilogueSize = 0x09;   // 9 bytes
+
+// Emit the one-time prologue: stack frame + zero-out lpOverlapped & written-
+// count slots + GetStdHandle(STD_OUTPUT_HANDLE) + save returned handle in
+// [rsp+0x30].
+void EncodePrintlnPrologue(std::vector<std::uint8_t> &b, std::uint32_t shim_rva,
+                           std::uint32_t getstdhandle_iat_rva) {
+  // 0x00: sub rsp, 0x38                       (4)
+  Append8(b, 0x48); Append8(b, 0x83); Append8(b, 0xEC); Append8(b, 0x38);
+
+  // 0x04: mov dword [rsp+0x28], 0             (8)
+  Append8(b, 0xC7); Append8(b, 0x44); Append8(b, 0x24); Append8(b, 0x28);
+  Append8(b, 0x00); Append8(b, 0x00); Append8(b, 0x00); Append8(b, 0x00);
+
+  // 0x0C: mov qword [rsp+0x20], 0             (9)
+  Append8(b, 0x48); Append8(b, 0xC7); Append8(b, 0x44); Append8(b, 0x24);
+  Append8(b, 0x20); Append8(b, 0x00); Append8(b, 0x00); Append8(b, 0x00);
+  Append8(b, 0x00);
+
+  // 0x15: mov ecx, -11                        (5)
+  Append8(b, 0xB9); Append8(b, 0xF5); Append8(b, 0xFF); Append8(b, 0xFF); Append8(b, 0xFF);
+
+  // 0x1A: call qword ptr [rip+GetStdHandle]   (6)
+  Append8(b, 0xFF); Append8(b, 0x15);
+  {
+    const std::uint32_t rip_after = shim_rva + 0x20;
+    Append32(b, getstdhandle_iat_rva - rip_after);
+  }
+
+  // 0x20: mov [rsp+0x30], rax                 (5: 48 89 44 24 30)
+  Append8(b, 0x48); Append8(b, 0x89); Append8(b, 0x44); Append8(b, 0x24); Append8(b, 0x30);
+  // Now at offset 0x25 == kPrintlnPrologueSize.
+}
+
+// Emit a single per-message block.  `block_rva` is the RVA of the *first*
+// byte of this block; the disp32 fields are computed against it.
+void EncodePrintlnBlock(std::vector<std::uint8_t> &b, std::uint32_t block_rva,
+                        std::uint32_t message_rva, std::uint32_t message_len,
+                        std::uint32_t writefile_iat_rva) {
+  // +0x00: mov rcx, [rsp+0x30]                (5: 48 8B 4C 24 30)
+  Append8(b, 0x48); Append8(b, 0x8B); Append8(b, 0x4C); Append8(b, 0x24); Append8(b, 0x30);
+
+  // +0x05: lea rdx, [rip + msg]               (7: 48 8D 15 disp32)
+  Append8(b, 0x48); Append8(b, 0x8D); Append8(b, 0x15);
+  {
+    const std::uint32_t rip_after = block_rva + 0x0C;
+    Append32(b, message_rva - rip_after);
+  }
+
+  // +0x0C: mov r8d, len                       (6: 41 B8 LL LL LL LL)
+  Append8(b, 0x41); Append8(b, 0xB8);
+  Append32(b, message_len);
+
+  // +0x12: lea r9, [rsp+0x28]                 (5: 4C 8D 4C 24 28)
+  Append8(b, 0x4C); Append8(b, 0x8D); Append8(b, 0x4C); Append8(b, 0x24); Append8(b, 0x28);
+
+  // +0x17: call qword ptr [rip+WriteFile]     (6: FF 15 disp32)
+  Append8(b, 0xFF); Append8(b, 0x15);
+  {
+    const std::uint32_t rip_after = block_rva + 0x1D;
+    Append32(b, writefile_iat_rva - rip_after);
+  }
+  // Now at +0x1D == kPrintlnPerMessageSize.
+}
+
+// Emit the final epilogue: ExitProcess(0) + int3.
+void EncodePrintlnEpilogue(std::vector<std::uint8_t> &b, std::uint32_t epilogue_rva,
+                           std::uint32_t exitprocess_iat_rva) {
+  // +0x00: xor ecx, ecx                       (2)
+  Append8(b, 0x31); Append8(b, 0xC9);
+  // +0x02: call qword ptr [rip+ExitProcess]   (6)
+  Append8(b, 0xFF); Append8(b, 0x15);
+  {
+    const std::uint32_t rip_after = epilogue_rva + 0x08;
+    Append32(b, exitprocess_iat_rva - rip_after);
+  }
+  // +0x08: int3                               (1)
+  Append8(b, 0xCC);
+  // Now at +0x09 == kPrintlnEpilogueSize.
+}
+
+} // namespace
+
+BuildResult BuildPrintlnSequencePE(const std::vector<std::string> &call_messages) {
+  BuildResult err;
+
+  // No PRINTLN calls ⇒ behaviourally identical to BuildExitZeroPE.  Forwarding
+  // keeps the contract crystal-clear and avoids a degenerate empty-shim case.
+  if (call_messages.empty())
+    return BuildExitZeroPE({});
+
+  // Reject any single message that won't fit in a DWORD (WriteFile API
+  // constraint).  Practical messages are small; this is purely defensive.
+  for (const auto &m : call_messages) {
+    if (m.size() > 0xFFFFFFFFu)
+      return err;
+  }
+
+  // Dedupe message contents to mirror the IR-layer interning contract.  We
+  // keep the *call* order intact for the shim, but each unique payload is
+  // embedded in .rdata exactly once.  `unique_offsets[content] = byte offset
+  // within .rdata`; `rdata_blob` accumulates the concatenated unique bytes.
+  std::vector<std::uint8_t> rdata_blob;
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> per_call;  // (rdata_off, len)
+  per_call.reserve(call_messages.size());
+  // Linear lookup is fine: even programs with hundreds of PRINTLNs have
+  // tractable message counts and content comparison is cheap; we trade O(N²)
+  // for the absence of an extra <unordered_map> include in this header-light
+  // module.
+  std::vector<std::pair<std::string, std::uint32_t>> unique_table;
+  for (const auto &m : call_messages) {
+    bool found = false;
+    std::uint32_t off = 0;
+    for (const auto &kv : unique_table) {
+      if (kv.first == m) {
+        off = kv.second;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      off = static_cast<std::uint32_t>(rdata_blob.size());
+      rdata_blob.insert(rdata_blob.end(), m.begin(), m.end());
+      unique_table.emplace_back(m, off);
+    }
+    per_call.emplace_back(off, static_cast<std::uint32_t>(m.size()));
+  }
+
+  // Plan the layout the same way BuildHelloWorldPE does.
+  const std::uint32_t shim_rva = kTextRVA;
+  const std::uint32_t text_size =
+      kPrintlnPrologueSize +
+      static_cast<std::uint32_t>(per_call.size()) * kPrintlnPerMessageSize +
+      kPrintlnEpilogueSize;
+  const std::uint32_t rdata_rva = AlignUp(kTextRVA + text_size, kSectionAlignment);
+  const std::uint32_t rdata_size = static_cast<std::uint32_t>(rdata_blob.size());
+  const std::uint32_t after_rdata = rdata_size == 0 ? rdata_rva : rdata_rva + rdata_size;
+  const std::uint32_t idata_rva = AlignUp(after_rdata, kSectionAlignment);
+
+  std::vector<DllImport> imports = {
+      DllImport{"kernel32.dll", {"GetStdHandle", "WriteFile", "ExitProcess"}}};
+  ImportLayout layout = BuildImportSection(imports, idata_rva);
+
+  std::uint32_t getstdhandle_iat = 0;
+  std::uint32_t writefile_iat = 0;
+  std::uint32_t exitprocess_iat = 0;
+  for (const auto &kv : layout.iat_slot_rva) {
+    if (kv.first == "kernel32.dll!GetStdHandle")
+      getstdhandle_iat = kv.second;
+    else if (kv.first == "kernel32.dll!WriteFile")
+      writefile_iat = kv.second;
+    else if (kv.first == "kernel32.dll!ExitProcess")
+      exitprocess_iat = kv.second;
+  }
+  if (getstdhandle_iat == 0 || writefile_iat == 0 || exitprocess_iat == 0)
+    return err;
+
+  // Emit the .text bytes: prologue, then one block per call, then epilogue.
+  std::vector<std::uint8_t> text;
+  text.reserve(text_size);
+  EncodePrintlnPrologue(text, shim_rva, getstdhandle_iat);
+
+  std::uint32_t cursor_rva = shim_rva + kPrintlnPrologueSize;
+  for (const auto &pc : per_call) {
+    const std::uint32_t msg_rva = rdata_rva + pc.first;
+    EncodePrintlnBlock(text, cursor_rva, msg_rva, pc.second, writefile_iat);
+    cursor_rva += kPrintlnPerMessageSize;
+  }
+  EncodePrintlnEpilogue(text, cursor_rva, exitprocess_iat);
+
+  // Sanity check: total size must match the planned text_size exactly so the
+  // .rdata RVA we computed remains valid.  A mismatch indicates a per-message
+  // / prologue / epilogue size constant drift; surfacing it as an empty
+  // result here is much cheaper to debug than a crashing PE on Windows.
+  if (text.size() != text_size)
+    return err;
+
+  BuildRequest req;
+  req.text_bytes = std::move(text);
+  req.rdata_bytes = std::move(rdata_blob);
+  req.entry_offset_in_text = 0;
+  req.imports = std::move(imports);
+  return BuildPE32PlusImage(req);
+}
+
 } // namespace polyglot::linker::pe

@@ -285,3 +285,132 @@ TEST_CASE("BuildPE32PlusImage with rdata + no imports lays out 2 sections",
   // rdata_rva should be exposed and point past .text.
   REQUIRE(r.rdata_rva == 0x2000);
 }
+
+// ----------------------------------------------------------------------------
+// Stage B4 — BuildPrintlnSequencePE  (demand 2026-04-28-49)
+// ----------------------------------------------------------------------------
+
+TEST_CASE("BuildPrintlnSequencePE on empty input forwards to BuildExitZeroPE",
+          "[pe_writer][println][b4]") {
+  BuildResult empty_seq = BuildPrintlnSequencePE({});
+  BuildResult exit_zero = BuildExitZeroPE({});
+  // Forwarding contract: the two byte streams must be identical.
+  REQUIRE(empty_seq.image == exit_zero.image);
+}
+
+TEST_CASE("BuildPrintlnSequencePE single-message: 3 sections + one WriteFile",
+          "[pe_writer][println][b4]") {
+  const std::string msg = "hello\r\n";
+  BuildResult r = BuildPrintlnSequencePE({msg});
+  REQUIRE_FALSE(r.image.empty());
+
+  const auto &b = r.image;
+  const std::uint32_t e_lfanew = LoadLE<std::uint32_t>(b, kDosELFAnewOffset);
+  const std::size_t coff = e_lfanew + 4;
+
+  // .text + .rdata + .idata.
+  REQUIRE(LoadLE<std::uint16_t>(b, coff + 2) == 3);
+  REQUIRE(r.rdata_rva == 0x2000);
+
+  // All three kernel32 IAT slots must be present.
+  bool seen_get = false, seen_write = false, seen_exit = false;
+  for (const auto &kv : r.iat_slot_rva) {
+    if (kv.first == "kernel32.dll!GetStdHandle") seen_get = true;
+    else if (kv.first == "kernel32.dll!WriteFile") seen_write = true;
+    else if (kv.first == "kernel32.dll!ExitProcess") seen_exit = true;
+  }
+  REQUIRE((seen_get && seen_write && seen_exit));
+
+  // .text shape: prologue (0x25) + 1 block (0x1D) + epilogue (0x09) = 0x4B.
+  const std::size_t section_table = e_lfanew + 4 + 20 + 240;
+  std::size_t text_sect = 0;
+  std::size_t rdata_sect = 0;
+  for (int i = 0; i < 3; ++i) {
+    const std::size_t hdr = section_table + i * 40;
+    if (b[hdr] == '.' && b[hdr + 1] == 't') text_sect = hdr;
+    else if (b[hdr] == '.' && b[hdr + 1] == 'r') rdata_sect = hdr;
+  }
+  REQUIRE(text_sect != 0);
+  REQUIRE(rdata_sect != 0);
+
+  // Virtual size of .text equals the planned shim length.
+  const std::uint32_t text_vsize = LoadLE<std::uint32_t>(b, text_sect + 8);
+  REQUIRE(text_vsize == 0x25u + 0x1Du + 0x09u);
+
+  // Prologue first instruction: sub rsp, 0x38  →  48 83 EC 38.
+  const std::uint32_t text_raw_off = LoadLE<std::uint32_t>(b, text_sect + 20);
+  REQUIRE(b[text_raw_off + 0] == 0x48);
+  REQUIRE(b[text_raw_off + 1] == 0x83);
+  REQUIRE(b[text_raw_off + 2] == 0xEC);
+  REQUIRE(b[text_raw_off + 3] == 0x38);
+  // Last byte of the shim is int3.
+  REQUIRE(b[text_raw_off + text_vsize - 1] == 0xCC);
+
+  // .rdata payload byte-for-byte.
+  const std::uint32_t rdata_raw_off = LoadLE<std::uint32_t>(b, rdata_sect + 20);
+  for (std::size_t i = 0; i < msg.size(); ++i)
+    REQUIRE(b[rdata_raw_off + i] == static_cast<std::uint8_t>(msg[i]));
+}
+
+TEST_CASE("BuildPrintlnSequencePE three messages = three WriteFile blocks",
+          "[pe_writer][println][b4]") {
+  const std::vector<std::string> msgs = {"line one\r\n", "line two\r\n", "third\r\n"};
+  BuildResult r = BuildPrintlnSequencePE(msgs);
+  REQUIRE_FALSE(r.image.empty());
+
+  // .text size must be prologue + 3*block + epilogue.
+  const auto &b = r.image;
+  const std::uint32_t e_lfanew = LoadLE<std::uint32_t>(b, kDosELFAnewOffset);
+  const std::size_t section_table = e_lfanew + 4 + 20 + 240;
+  std::size_t text_sect = 0;
+  std::size_t rdata_sect = 0;
+  for (int i = 0; i < 3; ++i) {
+    const std::size_t hdr = section_table + i * 40;
+    if (b[hdr] == '.' && b[hdr + 1] == 't') text_sect = hdr;
+    else if (b[hdr] == '.' && b[hdr + 1] == 'r') rdata_sect = hdr;
+  }
+  REQUIRE(text_sect != 0);
+  REQUIRE(rdata_sect != 0);
+
+  const std::uint32_t text_vsize = LoadLE<std::uint32_t>(b, text_sect + 8);
+  REQUIRE(text_vsize == 0x25u + 3u * 0x1Du + 0x09u);
+
+  // .rdata virtual size equals the sum of distinct message lengths (no
+  // dedup possible here — all three are unique).
+  const std::uint32_t rdata_vsize = LoadLE<std::uint32_t>(b, rdata_sect + 8);
+  std::size_t expected_rdata = 0;
+  for (const auto &m : msgs) expected_rdata += m.size();
+  REQUIRE(rdata_vsize == expected_rdata);
+}
+
+TEST_CASE("BuildPrintlnSequencePE deduplicates identical messages in .rdata",
+          "[pe_writer][println][b4][dedup]") {
+  // Three calls but only two unique payloads — .rdata must shrink to the
+  // unique-byte-sum, matching the IR-layer interning contract.
+  const std::string a = "hello\r\n";
+  const std::string b_msg = "world\r\n";
+  BuildResult r = BuildPrintlnSequencePE({a, b_msg, a});
+  REQUIRE_FALSE(r.image.empty());
+
+  const auto &img = r.image;
+  const std::uint32_t e_lfanew = LoadLE<std::uint32_t>(img, kDosELFAnewOffset);
+  const std::size_t section_table = e_lfanew + 4 + 20 + 240;
+  std::size_t rdata_sect = 0;
+  for (int i = 0; i < 3; ++i) {
+    const std::size_t hdr = section_table + i * 40;
+    if (img[hdr] == '.' && img[hdr + 1] == 'r') { rdata_sect = hdr; break; }
+  }
+  REQUIRE(rdata_sect != 0);
+  const std::uint32_t rdata_vsize = LoadLE<std::uint32_t>(img, rdata_sect + 8);
+  REQUIRE(rdata_vsize == a.size() + b_msg.size());
+
+  // .text still has 3 WriteFile blocks (one per *call*, not per unique payload).
+  std::size_t text_sect = 0;
+  for (int i = 0; i < 3; ++i) {
+    const std::size_t hdr = section_table + i * 40;
+    if (img[hdr] == '.' && img[hdr + 1] == 't') { text_sect = hdr; break; }
+  }
+  REQUIRE(text_sect != 0);
+  const std::uint32_t text_vsize = LoadLE<std::uint32_t>(img, text_sect + 8);
+  REQUIRE(text_vsize == 0x25u + 3u * 0x1Du + 0x09u);
+}

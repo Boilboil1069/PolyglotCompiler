@@ -18,8 +18,8 @@
 // --- Semantic version components --------------------------------------------
 #define POLYGLOT_VERSION_MAJOR 1
 #define POLYGLOT_VERSION_MINOR 5
-#define POLYGLOT_VERSION_PATCH 4
-#define POLYGLOT_VERSION_STRING "1.5.4"
+#define POLYGLOT_VERSION_PATCH 5
+#define POLYGLOT_VERSION_STRING "1.5.5"
 
 // --- Derived convenience strings --------------------------------------------
 #define POLYGLOT_VERSION_BANNER POLYGLOT_PROJECT_NAME " v" POLYGLOT_VERSION_STRING

@@ -321,9 +321,28 @@ ObjectFormat DetectObjectFormat(const std::vector<std::uint8_t> &data) {
     return ObjectFormat::kMachO;
   }
 
-  // Check COFF/PE magic
+  // Check PE image (MZ DOS stub) — a *linked image*, not a raw object.
   if (data.size() >= 2 && data[0] == 'M' && data[1] == 'Z') {
     return ObjectFormat::kCOFF;
+  }
+
+  // Check raw COFF object: the first two bytes are the IMAGE_FILE_HEADER
+  // Machine field. Recognise the common targets we actually emit / consume.
+  // (PE images already matched above via the MZ branch.)
+  if (data.size() >= 2) {
+    const std::uint16_t machine =
+        static_cast<std::uint16_t>(data[0]) | (static_cast<std::uint16_t>(data[1]) << 8);
+    switch (machine) {
+    case 0x8664: // IMAGE_FILE_MACHINE_AMD64
+    case 0xAA64: // IMAGE_FILE_MACHINE_ARM64
+    case 0x014C: // IMAGE_FILE_MACHINE_I386
+    case 0x01C0: // IMAGE_FILE_MACHINE_ARM
+    case 0x01C4: // IMAGE_FILE_MACHINE_ARMNT (Thumb-2)
+    case 0x0200: // IMAGE_FILE_MACHINE_IA64
+      return ObjectFormat::kCOFF;
+    default:
+      break;
+    }
   }
 
   // Check archive magic

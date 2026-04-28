@@ -125,6 +125,24 @@ BuildResult BuildExitZeroPE(const std::vector<std::uint8_t> &user_text_bytes);
 /// (the WriteFile API's count argument is a 32-bit DWORD).
 BuildResult BuildHelloWorldPE(const std::string &message);
 
+/// Produce a self-contained runnable PE32+ image that issues one
+/// `kernel32!WriteFile` call per entry of `call_messages` (in the supplied
+/// order) against the standard-output handle, then terminates the process via
+/// `kernel32!ExitProcess(0)`.  This is Stage B4 of the runtime-stdout
+/// pipeline (demand `2026-04-28-49`): it accepts the byte sequences extracted
+/// from `polyrt_println` IR call sites and lays them out as a real PE32+ that
+/// drives stdout end-to-end.
+///
+/// Identical messages are deduplicated inside `.rdata` so a program that
+/// PRINTLNs the same literal twice still pays for only one global, matching
+/// the IR-layer interning contract.  An empty `call_messages` vector is
+/// equivalent to `BuildExitZeroPE({})` — the image just exits with code 0.
+///
+/// Each message is bounded by 4 GiB (WriteFile's DWORD count); any oversized
+/// entry causes the call to return an empty `BuildResult`.  Total `.rdata`
+/// size is bounded only by the PE section-size DWORD field.
+BuildResult BuildPrintlnSequencePE(const std::vector<std::string> &call_messages);
+
 /// Generate the AMD64 byte sequence for the entry shim:
 ///   sub  rsp, 0x28                     ; 48 83 EC 28   (shadow space + align)
 ///   xor  ecx, ecx                      ; 31 C9         (arg0 = 0)

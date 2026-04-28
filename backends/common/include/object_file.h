@@ -87,4 +87,26 @@ private:
   std::vector<Symbol> symbols_;
 };
 
+// COFF object file builder (Windows / PE world).
+//
+// Emits a structurally valid IMAGE_FILE_HEADER + section headers + raw
+// section data + relocation tables + symbol table + string table that
+// MS link.exe and lld-link both accept as a member of a future PE link.
+//
+// Covers AMD64 and ARM64 today; other Machine values can be added in
+// the same Build() switch without touching call sites.
+class COFFBuilder : public ObjectFileBuilder {
+public:
+  explicit COFFBuilder(bool is_arm64 = false) : is_arm64_(is_arm64) {}
+
+  void AddSection(const Section &section) override;
+  void AddSymbol(const Symbol &symbol) override;
+  std::vector<std::uint8_t> Build() override;
+
+private:
+  bool is_arm64_;
+  std::vector<Section> sections_;
+  std::vector<Symbol> symbols_;
+};
+
 } // namespace polyglot::backends

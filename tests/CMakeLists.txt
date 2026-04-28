@@ -147,6 +147,7 @@ set(UNIT_TEST_BACKENDS
     unit/backends/emit_bitcode_roundtrip_test.cpp
     unit/backends/debug_emitter_normalization_test.cpp
     unit/backends/wasm_target_test.cpp
+    unit/backends/coff_builder_test.cpp
 )
 
 set(UNIT_TEST_RUNTIME
@@ -160,6 +161,7 @@ set(UNIT_TEST_RUNTIME
 set(UNIT_TEST_LINKER
     unit/linker_test.cpp
     unit/linker/pe_writer_test.cpp
+    unit/linker/object_format_detect_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY

@@ -135,9 +135,14 @@ std::vector<std::uint8_t> BuildNativeObjectBinary(const std::string &format,
   std::unique_ptr<backends::ObjectFileBuilder> builder;
   if (format == "macho") {
     builder = std::make_unique<backends::MachOBuilder>(is_arm64);
-  } else {
-    // Default to ELF for "elf" or any other format
+  } else if (format == "coff") {
+    // Windows / PE-style COFF translation unit.
+    builder = std::make_unique<backends::COFFBuilder>(is_arm64);
+  } else if (format == "elf") {
     builder = std::make_unique<backends::ELFBuilder>(!is_arm64);
+  } else {
+    // Unknown format string: refuse rather than silently mis-emitting.
+    return {};
   }
 
   for (const auto &sec : sections) {

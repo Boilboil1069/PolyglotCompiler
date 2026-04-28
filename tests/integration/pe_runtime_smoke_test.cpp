@@ -142,6 +142,56 @@ TEST_CASE("Hello-world PE32+ writes its message to stdout and exits 0",
   REQUIRE(captured_text == message);
 }
 
+TEST_CASE("BuildPrintlnSequencePE: multi-message PE prints all lines in order",
+          "[pe_writer][integration][windows][println][b4]") {
+  // Stage B4 — demand 2026-04-28-49.  Build a PE that issues three WriteFile
+  // calls (with one duplicated payload) then ExitProcess(0).  Capture stdout
+  // and assert both the exit code AND the byte sequence match the
+  // concatenation of the message vector — including the duplicate.
+  const std::vector<std::string> msgs = {
+      "println alpha\r\n",
+      "println beta\r\n",
+      "println alpha\r\n", // dup of #0 — must dedupe in .rdata, still print
+  };
+  BuildResult r = BuildPrintlnSequencePE(msgs);
+  REQUIRE_FALSE(r.image.empty());
+
+  fs::path exe = UniqueTempExePath("println_seq");
+  fs::path captured = exe;
+  captured.replace_extension(".out");
+  {
+    std::ofstream out(exe, std::ios::binary);
+    REQUIRE(out.good());
+    out.write(reinterpret_cast<const char *>(r.image.data()),
+              static_cast<std::streamsize>(r.image.size()));
+    REQUIRE(out.good());
+  }
+
+  // Same double-outer-quote redirect trick as the hello-world test above —
+  // see the long-form comment there for the rationale.
+  std::string cmd = "\"\"" + exe.string() + "\" > \"" + captured.string() + "\"\"";
+  int rc = std::system(cmd.c_str());
+
+  std::string captured_text;
+  {
+    std::ifstream in(captured, std::ios::binary);
+    if (in.good()) {
+      captured_text.assign((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    }
+  }
+
+  std::error_code ec;
+  fs::remove(exe, ec);
+  fs::remove(captured, ec);
+
+  std::string expected;
+  for (const auto &m : msgs) expected += m;
+
+  REQUIRE(rc == 0);
+  REQUIRE(captured_text == expected);
+}
+
 #else // !_WIN32
 
 TEST_CASE("PE runtime smoke test (Windows-only)", "[pe_writer][integration][windows][.]") {

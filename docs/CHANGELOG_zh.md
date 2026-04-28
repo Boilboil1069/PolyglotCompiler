@@ -7,8 +7,130 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.3 (2026-04-28)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.5 (2026-04-29)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.5.5 (2026-04-29)
+
+**`BuildPrintlnSequencePE` 上线——运行时标准输出管线 B4 阶段（demand `2026-04-28-49`）。**
+
+### 新增内容
+
+- 新增公开 PE 写入入口 `polyglot::linker::pe::BuildPrintlnSequencePE(const std::vector<std::string> &call_messages)`，
+  生成可独立运行的 PE32+ 镜像：按入参顺序对 `STD_OUTPUT_HANDLE` 依次发起
+  `kernel32!WriteFile`，最后通过 `kernel32!ExitProcess(0)` 终止进程。
+  这是该管线中**首个真正发射 AMD64 机器码驱动 Windows 标准输出**的阶段，
+  消费的正是 v1.5.4 在 IR 层产出的 `polyrt_println(i8*, i64)` 调用所携带的字节流。
+
+### Win64 ABI shim 契约
+
+- `.text` 布局为 `序言（0x25 字节）+ N × 单条消息块（0x1D 字节）+ 尾声（0x09 字节）`。
+  所有偏移字节稳定，单元测试逐字节校验。
+- 序言：`sub rsp, 0x38` 一次性预留 Win64 强制的 32 字节影子空间 +
+  8 字节 `lpOverlapped` 槽（清零）+ 8 字节 `lpNumberOfBytesWritten` 槽（清零）+
+  8 字节 stdout 句柄缓存。随后 `GetStdHandle(-11)` 仅调用一次，返回值缓存到
+  `[rsp+0x30]`，后续 WriteFile 调用直接重新加载，无需额外押栈被调用者保存寄存器。
+- 单条消息块：`mov rcx, [rsp+0x30]; lea rdx, [rip+msg_i];
+  mov r8d, len_i; lea r9, [rsp+0x28]; call qword ptr [rip+WriteFile]`。
+  所有 RIP 相对位移基于本块自身 RVA 计算，前面无论挂多少消息块，shim 都自洽。
+- 尾声：`xor ecx, ecx; call qword ptr [rip+ExitProcess]; int3`
+  （`int3` 不可达，仅用于把 shim 长度对齐到确定值）。
+
+### 去重与布局契约
+
+- 字节相同的消息共享同一段 `.rdata` 存储（线性扫描的唯一表），
+  与 v1.5.4 中 `IRBuilder::MakeStringLiteral` 的 IR 层 interning 契约严格对齐。
+  `PRINTLN "hello\n";` 调用十次，对应十个 `WriteFile` 块，但 `.rdata` 仅一份。
+- `call_messages.empty()` 时直接转发 `BuildExitZeroPE({})`，产出字节级一致的镜像，
+  绝不会发射退化的空 shim。
+- 单条消息长度上界为 `0xFFFFFFFFu`（WriteFile 的 `nNumberOfBytesToWrite` 是 DWORD），
+  超界时返回空 `BuildResult`。
+- 三段式布局（`.text` + `.rdata` + `.idata`）以及 `BuildPE32PlusImage` 全套管线
+  与 `BuildHelloWorldPE` 完全复用，所以 v1.5.1 起的所有节头 / IAT / 导入描述符
+  不变量继续有效。
+
+### 新增测试
+
+- `tests/unit/linker/pe_writer_test.cpp`（+4 用例 / +30 断言）——
+  空入参转发、单消息结构、三消息展开后 `.text` 长度、重复消息触发 `.rdata` 收缩。
+- `tests/integration/pe_runtime_smoke_test.cpp`（+1 用例 / +5 断言）——
+  生成包含一条重复消息的 3 条 PE，重定向 stdout 到临时文件，
+  按字节比对 `"alpha\r\nbeta\r\nalpha\r\n"`。
+- `tools/polyld/src/pe_writer_smoke.cpp`（+1 手工片段）——端到端肉眼验证：
+  生成的 `pe_smoke_println.exe` 在宿主加载器上打印三行并以 0 退出。
+
+### 回归结果
+
+- `test_linker`：56 用例 / 284 断言 ✅（v1.5.4 为 52 用例）。
+- `test_frontend_ploy`：310 用例 / 1907 断言 ✅（不变）。
+- `test_e2e`：54 用例 / 171 断言 ✅（不变）。
+- `integration_tests`：130 用例 / 552 断言 ✅（v1.5.4 为 129 用例）。
+
+### 后续
+
+- **B5**：让 polyld 从对象文件中提取 `polyrt_println` 调用点及其 interned 字符串载荷，
+  作为 `call_messages` 喂给 `BuildPrintlnSequencePE`，替换今天还在发射的占位 exit-zero shim。
+- **B6**：端到端 `.ploy → .obj → .exe` 管线；扩展 demand-04 的 expected_output 校验
+  以按字节比对真实 stdout。
+
+---
+
+## v1.5.4 (2026-04-29)
+
+**`PrintlnStmt` 现已降级为 IR——运行时标准输出管线 B3 阶段（demand `2026-04-28-49`）。**
+
+### 降级契约
+
+- `PRINTLN "literal";` 会降级为两件 IR 产物：
+  1. 一个类型为 `[N x i8]` 的全局常量，其内容是 **解码后** 的字节
+     （前端刻意保留了反斜杠转义，因此解码表——`\n`、`\r`、`\t`、`\\`、
+     `\"`、`\0`、`\xHH` ——位于降级层，作为解释器、IR 文本回环和代码生成
+     共同遵循的唯一权威）。
+  2. 在当前基本块中直接发射一条
+     `call void @polyrt_println(i8* msg, i64 len)` 指令。被调方刻意保留
+     为外部符号；B5 阶段会通过 polyld 的运行时 DLL 导入表完成解析。
+- 选择「指针 + 长度」而非 NUL 结尾，是为了让内嵌 `\0` 字节能干净往返，
+  也让空字面量（`PRINTLN "";`）能直接降级为单条
+  `polyrt_println(ptr, 0)` 调用，无需在下游做特殊处理。
+- 同样内容的字面量会通过 `IRBuilder::MakeStringLiteral` 的「按内容键控
+  去重」共享同一个全局，从而让 `.rdata` 在所有目标格式下都保持紧凑。
+- 顶层 `PRINTLN` 会按既有 `IRContext::DefaultBlock` 约定落到自动创建的
+  `entry_fn` 中；位于 `FUNC` 体内的 `PRINTLN` 则落到所在函数的基本块，
+  这是 B4 代码生成阶段保证栈帧正确性的关键性质。
+- 未知或畸形的转义序列（如 `\q`、`\xZZ`）会触发
+  `kGenericWarning` 诊断并把原始字节按字面保留——降级永不因坏转义而中断，
+  以便其余模块仍可被检查。
+
+### 实现
+
+- `frontends/ploy/include/ploy_lowering.h` —— 新增
+  `LowerPrintlnStatement(const std::shared_ptr<PrintlnStmt> &)` 声明。
+- `frontends/ploy/src/lowering/lowering.cpp`：
+  - `LowerStatement` 分发器识别 `PrintlnStmt`。
+  - 新增匿名命名空间内的 `DecodePrintlnLiteral(...)` 辅助函数承担
+    转义解码工作；结构上让未来扩展（`\u{…}`、`\u00XX`、`\b`、`\f`）
+    只需新增一个 `case`。
+  - `LowerPrintlnStatement` 通过 `builder_.MakeStringLiteral(...)`
+    内化解码字节，然后发射 `polyrt_println` 调用。
+- 除新增的一个方法外，公共头文件没有任何接口变化；现有前端调用方
+  保持二进制兼容。
+
+### 测试
+
+- `tests/unit/frontends/ploy/println_lowering_test.cpp`（5 用例 /
+  21 断言）：覆盖 IR 级解码契约、空消息边界、全局去重、函数体基本块
+  落点，以及未知转义只警告不中断的路径。
+- Ploy 前端整套测试保持全绿：310 用例 / 1907 断言。
+- `test_linker`（43/245）、`test_e2e`（54/171）、`integration_tests`
+  （129/547）全部通过——`polyrt_println` 在目标文件中目前是未解析的
+  外部符号，但尚无任何端到端测试链接含 PRINTLN 的模块（这是 B5 的工作）。
+
+### 需求追踪
+
+- demand `2026-04-28-49` 阶段 B3 标记为 `[done]`；下一里程碑为 B4
+  （`polyrt_println` 调用点的 AMD64 代码生成 + Win64 ABI 影子空间）。
 
 ---
 

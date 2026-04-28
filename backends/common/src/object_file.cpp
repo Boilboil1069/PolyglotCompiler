@@ -627,6 +627,287 @@ std::vector<std::uint8_t> MachOBuilder::Build() {
   return result;
 }
 
+// ===========================================================================
+// COFFBuilder
+//
+// Emits a Microsoft COFF object file (IMAGE_FILE_HEADER + IMAGE_SECTION_HEADER
+// array + raw section data + per-section relocation tables + symbol table +
+// string table). Layout exactly follows §3 of the Microsoft PE/COFF spec
+// (revision 11) so MS link.exe and lld-link both treat the result as a
+// first-class translation-unit input.
+// ===========================================================================
+
+namespace {
+
+#pragma pack(push, 1)
+struct CoffFileHeader {
+  std::uint16_t Machine;
+  std::uint16_t NumberOfSections;
+  std::uint32_t TimeDateStamp;
+  std::uint32_t PointerToSymbolTable;
+  std::uint32_t NumberOfSymbols;
+  std::uint16_t SizeOfOptionalHeader;
+  std::uint16_t Characteristics;
+};
+struct CoffSectionHeader {
+  char Name[8];
+  std::uint32_t VirtualSize;
+  std::uint32_t VirtualAddress;
+  std::uint32_t SizeOfRawData;
+  std::uint32_t PointerToRawData;
+  std::uint32_t PointerToRelocations;
+  std::uint32_t PointerToLinenumbers;
+  std::uint16_t NumberOfRelocations;
+  std::uint16_t NumberOfLinenumbers;
+  std::uint32_t Characteristics;
+};
+struct CoffSymbol {
+  union {
+    char ShortName[8];
+    struct {
+      std::uint32_t Zeroes;
+      std::uint32_t Offset;
+    } LongName;
+  } Name;
+  std::uint32_t Value;
+  std::int16_t SectionNumber;
+  std::uint16_t Type;
+  std::uint8_t StorageClass;
+  std::uint8_t NumberOfAuxSymbols;
+};
+struct CoffRelocation {
+  std::uint32_t VirtualAddress;
+  std::uint32_t SymbolTableIndex;
+  std::uint16_t Type;
+};
+#pragma pack(pop)
+
+constexpr std::uint16_t kCoffMachineAMD64 = 0x8664;
+constexpr std::uint16_t kCoffMachineARM64 = 0xAA64;
+
+// IMAGE_SCN_*
+constexpr std::uint32_t kCoffSecText = 0x60000020; // CNT_CODE | MEM_EXECUTE | MEM_READ
+constexpr std::uint32_t kCoffSecData = 0xC0000040; // CNT_INITIALIZED_DATA | MEM_READ | MEM_WRITE
+constexpr std::uint32_t kCoffSecRData = 0x40000040; // CNT_INITIALIZED_DATA | MEM_READ
+constexpr std::uint32_t kCoffSecBss = 0xC0000080;  // CNT_UNINITIALIZED_DATA | MEM_READ | MEM_WRITE
+
+// IMAGE_SYM_CLASS_*
+constexpr std::uint8_t kCoffSymExternal = 2;
+constexpr std::uint8_t kCoffSymStatic = 3; // also used for section symbols
+
+// IMAGE_REL_AMD64_*
+constexpr std::uint16_t kCoffRelocAMD64Addr64 = 0x0001;
+constexpr std::uint16_t kCoffRelocAMD64Addr32NB = 0x0003;
+constexpr std::uint16_t kCoffRelocAMD64Rel32 = 0x0004;
+// IMAGE_REL_ARM64_*
+constexpr std::uint16_t kCoffRelocARM64Branch26 = 0x0003;
+
+constexpr std::uint16_t kCoffCharLargeAddr = 0x0020; // IMAGE_FILE_LARGE_ADDRESS_AWARE
+
+// Map a backends::Section name to the appropriate IMAGE_SCN_* characteristics.
+std::uint32_t CoffSectionFlags(const std::string &name, bool is_bss) {
+  if (is_bss)
+    return kCoffSecBss;
+  if (name == ".text" || name == ".code" || name == "__text")
+    return kCoffSecText;
+  if (name == ".rdata" || name == ".rodata" || name == "__const")
+    return kCoffSecRData;
+  return kCoffSecData;
+}
+
+bool LooksLikeBss(const Section &sec) {
+  return sec.name == ".bss" || sec.name == "__bss";
+}
+
+} // namespace
+
+void COFFBuilder::AddSection(const Section &section) {
+  sections_.push_back(section);
+}
+
+void COFFBuilder::AddSymbol(const Symbol &symbol) {
+  symbols_.push_back(symbol);
+}
+
+std::vector<std::uint8_t> COFFBuilder::Build() {
+  // ── 1. Section headers (data offsets are filled in below) ────────────────
+  std::vector<CoffSectionHeader> sec_headers;
+  sec_headers.reserve(sections_.size());
+
+  // String table grows as we encounter long names. The first 4 bytes hold
+  // its own size (including the size field).
+  std::string strtab(4, '\0');
+
+  std::unordered_map<std::string, std::uint16_t> name_to_idx;
+
+  for (std::size_t i = 0; i < sections_.size(); ++i) {
+    const auto &sec = sections_[i];
+    CoffSectionHeader sh{};
+    std::memset(&sh, 0, sizeof(sh));
+
+    if (sec.name.size() <= 8) {
+      std::memcpy(sh.Name, sec.name.data(), sec.name.size());
+    } else {
+      // COFF long-name encoding: '/' followed by the decimal string-table offset.
+      const auto offset = static_cast<std::uint32_t>(strtab.size());
+      strtab.append(sec.name);
+      strtab.push_back('\0');
+      std::string encoded = "/" + std::to_string(offset);
+      std::memcpy(sh.Name, encoded.data(), std::min<std::size_t>(encoded.size(), 8));
+    }
+
+    const bool bss = LooksLikeBss(sec);
+    sh.Characteristics = CoffSectionFlags(sec.name, bss);
+    if (bss) {
+      sh.SizeOfRawData = 0;
+      sh.VirtualSize = static_cast<std::uint32_t>(sec.data.size());
+    } else {
+      sh.SizeOfRawData = static_cast<std::uint32_t>(sec.data.size());
+    }
+
+    name_to_idx[sec.name] = static_cast<std::uint16_t>(sec_headers.size());
+    sec_headers.push_back(sh);
+  }
+
+  // ── 2. Symbol table ──────────────────────────────────────────────────────
+  std::vector<CoffSymbol> coff_syms;
+  std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
+
+  // 2a. Section symbols (one per section, each followed by an aux record).
+  for (std::size_t i = 0; i < sections_.size(); ++i) {
+    const auto &sec = sections_[i];
+    CoffSymbol cs{};
+    std::memset(&cs, 0, sizeof(cs));
+    if (sec.name.size() <= 8) {
+      std::memcpy(cs.Name.ShortName, sec.name.data(), sec.name.size());
+    } else {
+      cs.Name.LongName.Zeroes = 0;
+      cs.Name.LongName.Offset = static_cast<std::uint32_t>(strtab.size());
+      strtab.append(sec.name);
+      strtab.push_back('\0');
+    }
+    cs.Value = 0;
+    cs.SectionNumber = static_cast<std::int16_t>(i + 1);
+    cs.Type = 0;
+    cs.StorageClass = kCoffSymStatic;
+    cs.NumberOfAuxSymbols = 1;
+    coff_syms.push_back(cs);
+
+    // Auxiliary section record: Length, NumberOfRelocations, NumberOfLinenumbers,
+    // CheckSum (4), Number (2), Selection (1), then 3 bytes of zero padding.
+    CoffSymbol aux{};
+    std::memset(&aux, 0, sizeof(aux));
+    auto raw = reinterpret_cast<std::uint8_t *>(&aux);
+    auto len = static_cast<std::uint32_t>(sec.data.size());
+    std::memcpy(raw, &len, 4);
+    auto nrelocs = static_cast<std::uint16_t>(sec.relocations.size());
+    std::memcpy(raw + 4, &nrelocs, 2);
+    coff_syms.push_back(aux);
+  }
+
+  // 2b. User symbols (functions / data labels).
+  for (const auto &sym : symbols_) {
+    CoffSymbol cs{};
+    std::memset(&cs, 0, sizeof(cs));
+    if (sym.name.size() <= 8) {
+      std::memcpy(cs.Name.ShortName, sym.name.data(), sym.name.size());
+    } else {
+      cs.Name.LongName.Zeroes = 0;
+      cs.Name.LongName.Offset = static_cast<std::uint32_t>(strtab.size());
+      strtab.append(sym.name);
+      strtab.push_back('\0');
+    }
+    cs.Value = static_cast<std::uint32_t>(sym.offset);
+    auto it = name_to_idx.find(sym.section);
+    cs.SectionNumber =
+        (it != name_to_idx.end()) ? static_cast<std::int16_t>(it->second + 1) : 0;
+    cs.Type = sym.is_function ? 0x20 : 0x00;
+    cs.StorageClass = sym.is_global ? kCoffSymExternal : kCoffSymStatic;
+    sym_name_to_idx[sym.name] = static_cast<std::uint32_t>(coff_syms.size());
+    coff_syms.push_back(cs);
+  }
+
+  // Patch the string-table prefix (first 4 bytes = total size including itself).
+  const auto strtab_size = static_cast<std::uint32_t>(strtab.size());
+  std::memcpy(strtab.data(), &strtab_size, 4);
+
+  // ── 3. Per-section relocation tables ─────────────────────────────────────
+  std::vector<std::vector<CoffRelocation>> sec_relocs(sec_headers.size());
+  for (std::size_t i = 0; i < sections_.size(); ++i) {
+    for (const auto &r : sections_[i].relocations) {
+      CoffRelocation cr{};
+      cr.VirtualAddress = static_cast<std::uint32_t>(r.offset);
+      auto it = sym_name_to_idx.find(r.symbol);
+      cr.SymbolTableIndex = (it != sym_name_to_idx.end()) ? it->second : 0u;
+      if (is_arm64_) {
+        cr.Type = kCoffRelocARM64Branch26;
+      } else {
+        // r.type 0 -> 64-bit absolute, 1 -> rel32 (PC-relative).
+        cr.Type = (r.type == 0) ? kCoffRelocAMD64Addr64 : kCoffRelocAMD64Rel32;
+      }
+      sec_relocs[i].push_back(cr);
+    }
+  }
+
+  // ── 4. Compute file offsets ──────────────────────────────────────────────
+  std::size_t cursor =
+      sizeof(CoffFileHeader) + sec_headers.size() * sizeof(CoffSectionHeader);
+
+  for (std::size_t i = 0; i < sec_headers.size(); ++i) {
+    const auto &sec = sections_[i];
+    if (LooksLikeBss(sec)) {
+      sec_headers[i].PointerToRawData = 0;
+    } else {
+      sec_headers[i].PointerToRawData = static_cast<std::uint32_t>(cursor);
+      cursor += sec.data.size();
+    }
+  }
+  for (std::size_t i = 0; i < sec_headers.size(); ++i) {
+    if (!sec_relocs[i].empty()) {
+      sec_headers[i].PointerToRelocations = static_cast<std::uint32_t>(cursor);
+      sec_headers[i].NumberOfRelocations =
+          static_cast<std::uint16_t>(sec_relocs[i].size());
+      cursor += sec_relocs[i].size() * sizeof(CoffRelocation);
+    }
+  }
+
+  CoffFileHeader fh{};
+  std::memset(&fh, 0, sizeof(fh));
+  fh.Machine = is_arm64_ ? kCoffMachineARM64 : kCoffMachineAMD64;
+  fh.NumberOfSections = static_cast<std::uint16_t>(sec_headers.size());
+  fh.PointerToSymbolTable = static_cast<std::uint32_t>(cursor);
+  fh.NumberOfSymbols = static_cast<std::uint32_t>(coff_syms.size());
+  fh.Characteristics = kCoffCharLargeAddr;
+
+  // ── 5. Serialise ─────────────────────────────────────────────────────────
+  std::vector<std::uint8_t> out;
+  const std::size_t total = static_cast<std::size_t>(fh.PointerToSymbolTable) +
+                            coff_syms.size() * sizeof(CoffSymbol) + strtab.size();
+  out.reserve(total);
+
+  auto append = [&](const void *src, std::size_t n) {
+    const auto *p = static_cast<const std::uint8_t *>(src);
+    out.insert(out.end(), p, p + n);
+  };
+
+  append(&fh, sizeof(fh));
+  append(sec_headers.data(), sec_headers.size() * sizeof(CoffSectionHeader));
+  for (std::size_t i = 0; i < sections_.size(); ++i) {
+    if (!LooksLikeBss(sections_[i]) && !sections_[i].data.empty()) {
+      append(sections_[i].data.data(), sections_[i].data.size());
+    }
+  }
+  for (std::size_t i = 0; i < sec_relocs.size(); ++i) {
+    if (!sec_relocs[i].empty()) {
+      append(sec_relocs[i].data(), sec_relocs[i].size() * sizeof(CoffRelocation));
+    }
+  }
+  append(coff_syms.data(), coff_syms.size() * sizeof(CoffSymbol));
+  append(strtab.data(), strtab.size());
+
+  return out;
+}
+
 } // namespace polyglot::backends
 
 /** @} */

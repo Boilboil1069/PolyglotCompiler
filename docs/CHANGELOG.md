@@ -7,9 +7,90 @@ For day-to-day usage instructions see [`USER_GUIDE.md`](USER_GUIDE.md); for
 build / API contracts see [`api/api_reference.md`](api/api_reference.md) and
 the per-feature notes under [`realization/`](realization/).
 
-The version range covered below is **v0.1.0 (2026-01-15) → v1.5.4 (2026-04-29)**.
+The version range covered below is **v0.1.0 (2026-01-15) → v1.5.5 (2026-04-29)**.
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
+
+---
+
+## v1.5.5 (2026-04-29)
+
+**`BuildPrintlnSequencePE` ships — Stage B4 of the runtime-stdout pipeline (demand `2026-04-28-49`).**
+
+### What's new
+
+- New public PE writer entry point `polyglot::linker::pe::BuildPrintlnSequencePE(const std::vector<std::string> &call_messages)`
+  produces a runnable, self-contained PE32+ image that issues one
+  `kernel32!WriteFile` call per entry of `call_messages` (in the supplied
+  order) against `STD_OUTPUT_HANDLE`, then terminates the process via
+  `kernel32!ExitProcess(0)`.  This is the first stage of the pipeline that
+  emits **real AMD64 machine code driving Windows stdout** for the
+  artefacts produced by the IR-layer `polyrt_println(i8*, i64)` calls
+  shipped in v1.5.4.
+
+### Win64 ABI shim contract
+
+- The `.text` payload is laid out as `prologue (0x25 B) + N × per-message
+  block (0x1D B) + epilogue (0x09 B)`.  All offsets are byte-stable and
+  unit-tested.
+- Prologue: `sub rsp, 0x38` reserves Win64-mandated 32-byte shadow space
+  + an 8-byte `lpOverlapped` slot (zeroed once) + an 8-byte
+  `lpNumberOfBytesWritten` slot (zeroed once) + an 8-byte stdout-handle
+  cache.  Then `GetStdHandle(-11)` is invoked once and the returned
+  handle is parked in `[rsp+0x30]` so subsequent WriteFile calls can
+  reload it without spilling additional callee-saved registers.
+- Per-message block: `mov rcx, [rsp+0x30]; lea rdx, [rip+msg_i];
+  mov r8d, len_i; lea r9, [rsp+0x28]; call qword ptr [rip+WriteFile]`.
+  All RIP-relative displacements are computed from the block's own RVA
+  so the shim is position-correct regardless of how many messages
+  precede it.
+- Epilogue: `xor ecx, ecx; call qword ptr [rip+ExitProcess]; int3`
+  (the `int3` is unreachable but pads the shim to a deterministic length).
+
+### Dedup & layout contract
+
+- Identical message bytes share their `.rdata` storage (linear scan over
+  the unique-payload table), exactly mirroring the IR-layer
+  `IRBuilder::MakeStringLiteral` interning contract from v1.5.4.  A
+  program that calls `PRINTLN "hello\n";` ten times pays for ten
+  `WriteFile` blocks but only one `.rdata` payload.
+- `call_messages.empty()` forwards to `BuildExitZeroPE({})`, producing a
+  byte-identical image — a degenerate empty shim is never emitted.
+- Each message size is bounded by `0xFFFFFFFFu` (WriteFile's `nNumberOfBytesToWrite`
+  DWORD); oversized entries cause the call to return an empty `BuildResult`.
+- The 3-section layout (`.text` + `.rdata` + `.idata`) and the
+  `BuildPE32PlusImage` plumbing are reused verbatim from
+  `BuildHelloWorldPE`, so all the section-header / IAT / import-descriptor
+  invariants exercised by the existing v1.5.1 tests continue to hold.
+
+### Tests added
+
+- `tests/unit/linker/pe_writer_test.cpp` (+4 cases, +30 assertions) —
+  empty-input forwarding, single-message structural shape, three-message
+  unrolled `.text` size, and dedup `.rdata` shrinkage.
+- `tests/integration/pe_runtime_smoke_test.cpp` (+1 case, +5 assertions) —
+  spawns a 3-message PE with one duplicated payload, redirects stdout to
+  a temp file, and byte-compares against the expected `"alpha\r\nbeta\r\nalpha\r\n"`
+  concatenation.
+- `tools/polyld/src/pe_writer_smoke.cpp` (+1 manual harness block) —
+  end-to-end visual confirmation: the produced `pe_smoke_println.exe`
+  prints all three lines and exits 0 on the host loader.
+
+### Regression results
+
+- `test_linker`: 56 cases / 284 assertions ✅ (up from 52 cases in v1.5.4).
+- `test_frontend_ploy`: 310 cases / 1907 assertions ✅ (unchanged).
+- `test_e2e`: 54 cases / 171 assertions ✅ (unchanged).
+- `integration_tests`: 130 cases / 552 assertions ✅ (up from 129 in v1.5.4).
+
+### What's next
+
+- **B5**: teach polyld to extract `polyrt_println` callsites and their
+  interned string payloads from object files and feed them as
+  `call_messages` into `BuildPrintlnSequencePE`, replacing the dummy
+  exit-zero shim it emits today.
+- **B6**: end-to-end `.ploy → .obj → .exe` pipeline; extend the
+  demand-04 expected_output harness to byte-compare actual stdout.
 
 ---
 
