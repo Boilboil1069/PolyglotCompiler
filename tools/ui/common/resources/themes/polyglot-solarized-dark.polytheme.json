@@ -1,0 +1,86 @@
+{
+  "name": "Polyglot Solarized Dark",
+  "id": "polyglot.solarized-dark",
+  "type": "dark",
+  "version": "1.0.0",
+  "author": "Polyglot Compiler Project",
+  "description": "Solarized Dark by Ethan Schoonover, ported to the polyglot color-key namespace.",
+  "colors": {
+    "workbench.background": "#002b36",
+    "workbench.surface": "#073642",
+    "workbench.surfaceAlt": "#003847",
+    "workbench.border": "#586e75",
+
+    "foreground": "#839496",
+    "descriptionForeground": "#657b83",
+    "disabledForeground": "#586e75",
+
+    "focusBorder": "#268bd2",
+    "selectionBackground": "#073642",
+    "selectionForeground": "#93a1a1",
+
+    "errorForeground": "#dc322f",
+    "editorWarning.foreground": "#b58900",
+    "testing.iconPassed": "#859900",
+    "editorInfo.foreground": "#268bd2",
+
+    "editor.background": "#002b36",
+    "editor.foreground": "#839496",
+    "editor.selectionBackground": "#073642",
+    "editor.lineHighlightBackground": "#073642",
+    "editorLineNumber.foreground": "#586e75",
+    "editorGutter.background": "#002b36",
+
+    "tab.inactiveBackground": "#073642",
+    "tab.activeBackground": "#002b36",
+    "tab.activeBorder": "#268bd2",
+    "tab.hoverBackground": "#003847",
+    "tab.inactiveForeground": "#657b83",
+    "tab.activeForeground": "#93a1a1",
+
+    "statusBar.background": "#268bd2",
+    "statusBar.foreground": "#fdf6e3",
+
+    "menu.background": "#073642",
+    "menu.foreground": "#839496",
+    "menu.selectionBackground": "#003847",
+    "menu.separatorBackground": "#586e75",
+
+    "button.secondaryBackground": "#073642",
+    "button.secondaryForeground": "#839496",
+    "button.secondaryHoverBackground": "#003847",
+    "button.background": "#268bd2",
+    "button.foreground": "#fdf6e3",
+    "button.hoverBackground": "#2aa198",
+
+    "input.background": "#073642",
+    "input.foreground": "#839496",
+    "input.border": "#586e75",
+    "input.placeholderForeground": "#657b83",
+
+    "scrollbar.shadow": "#002b36",
+    "scrollbarSlider.background": "#073642",
+    "scrollbarSlider.hoverBackground": "#586e75",
+
+    "progressBar.background": "#002b36",
+    "progressBar.foreground": "#268bd2",
+
+    "topology.node.background": "#073642",
+    "topology.edge.valid": "#859900",
+    "topology.edge.incompatible": "#dc322f"
+  },
+  "tokenColors": [
+    { "name": "Comment",  "scope": ["comment"],
+      "settings": { "foreground": "#586e75", "fontStyle": "italic" } },
+    { "name": "String",   "scope": ["string"],
+      "settings": { "foreground": "#2aa198" } },
+    { "name": "Number",   "scope": ["constant.numeric"],
+      "settings": { "foreground": "#d33682" } },
+    { "name": "Keyword",  "scope": ["keyword.control"],
+      "settings": { "foreground": "#859900", "fontStyle": "bold" } },
+    { "name": "Function", "scope": ["entity.name.function"],
+      "settings": { "foreground": "#268bd2" } },
+    { "name": "Type",     "scope": ["entity.name.type"],
+      "settings": { "foreground": "#b58900" } }
+  ]
+}

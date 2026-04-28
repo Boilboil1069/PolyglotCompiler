@@ -63,6 +63,10 @@
   "polyc.progressFormat": "ascii",
   "polyc.cacheEnabled": true,
 
+  "frontend.tokenPool.arenaChunkBytes": 65536,
+  "frontend.tokenPool.shared": true,
+  "frontend.tokenPool.dumpStats": false,
+
   "toolchains.cpp.default": "",
   "toolchains.python.default": "",
   "toolchains.java.default": "",

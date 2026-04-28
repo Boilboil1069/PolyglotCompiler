@@ -121,6 +121,14 @@ public:
   // Return all registered theme names.
   QStringList AvailableThemes() const;
 
+  // Register or replace a theme by name.  Used by ThemeService to inject
+  // themes loaded from external .polytheme.json files at runtime.
+  void RegisterTheme(const QString &name, const ThemeColors &colors);
+
+  // Remove a previously registered theme.  Built-in themes can be removed
+  // too — callers should re-register them if needed.
+  void UnregisterTheme(const QString &name);
+
   // ── Stylesheet generation helpers ────────────────────────────────────
   QString MenuBarStylesheet() const;
   QString ToolBarStylesheet() const;

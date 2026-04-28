@@ -1,0 +1,18 @@
+// Fixture: per-callsite language version pinning.
+// Demonstrates that two LINKs to the same target language can request
+// different dialects via @LANG, and that each call carries its own
+// `lang_version_pin` through to the bridge layer.
+
+LANG cpp = "c++17";
+
+LINK(cpp, ploy, math17::add, host::add17);
+
+@LANG (cpp="c++23")
+LINK(cpp, ploy, math23::add, host::add23);
+
+FUNC mix(a: INT, b: INT) -> INT {
+    LET r17 = CALL(cpp, math17::add, a, b);
+    @LANG (cpp="c++23")
+    LET r23 = CALL(cpp, math23::add, a, b);
+    RETURN r17 + r23;
+}

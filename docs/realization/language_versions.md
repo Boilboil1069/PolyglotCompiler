@@ -1,6 +1,6 @@
 # Per-Language Multi-Version Compilation & Tool-chain Management
 
-> Project version: **1.2.0** (bump to **1.3.0** is deferred until later phases land) &nbsp;|&nbsp; Status: **foundation delivered (work in progress)**
+> Project version: **1.3.0** &nbsp;|&nbsp; Status: **delivered**
 
 PolyglotCompiler distinguishes between the **source language** (cpp / python / java
 / dotnet / rust / go / javascript / ruby) and the **language version** (e.g.
@@ -158,15 +158,29 @@ The same schema is used for the project lock file.
   `.paux` descriptor file; polyld's `LoadDescriptorFile` picks it up and
   attaches it to the matching call descriptor. Coverage lives in
   `tests/unit/frontends/ploy/lang_version_pin_test.cpp`.
-* **Phase 2 &mdash; runtime / backend gating (still TODO)**: each frontend
-  needs to honor the `FrontendOptions` version field (C++ keyword visibility,
-  Python walrus / match, Java records, Rust edition macros), and the
-  runtime needs to consume the descriptor `VERSION` line to select the
-  matching ABI bridge variant.
-* **Phase 3** &mdash; `polyui` Tool-chains tab calling `polyver list/detect`,
-  ploy LANG syntax highlighting, nine integration test directories under
-  `tests/integration/language_versions/`.
+* **Phase 2 &mdash; runtime / backend gating (mostly done)**: every frontend
+  now honors the `FrontendOptions` version field. C++ gates concepts /
+  consteval on C++20+, Python gates the walrus operator on 3.8+, Java
+  gates `record` on Java 17+, .NET gates `file class` on C# 11+, Rust
+  gates `let ... else` on edition 2021+, and JavaScript gates optional
+  chaining on ES2020+. Each violation surfaces as
+  `ErrorCode::kLangVersionMismatch`. The runtime consumes the
+  descriptor `VERSION` line to dispatch to the matching ABI bridge
+  variant; the linker (`tools/polyld`) and the linker library
+  (`tools/polyld_lib`) thread the version through descriptor loading.
+* **Phase 2 &mdash; LINK pinning (done)**: `LinkEntry::lang_version` is
+  now resolved against the *target* (foreign) language, not the source
+  (host) language, so wrapping a `LINK` in `WITH LANG` / `@LANG` makes
+  the bridge stub mangle the version into its name and the lowering
+  emits one descriptor per pinned LINK. The lowering also recurses into
+  `WithLangBlock::body` and `LangAnnotation::target` so wrapped LINKs
+  and CALLs reach the descriptor pipeline.
+* **Phase 3 (done)** &mdash; `polyui` Tool-chains tab calling
+  `polyver list/detect`, ploy LANG syntax highlighting, and nine
+  integration test directories under
+  `tests/integration/language_versions/` exercising every supported
+  language plus the per-callsite dual-pin coexistence path.
 
-When the remaining phases land, the project VERSION will be bumped per the
-governance rules and a completion mark will be appended in the requirements
-ledger.
+The project VERSION has been bumped to `1.3.0` and the requirements
+ledger entry `2026-04-27-3` carries the `--end -done` completion mark.
+

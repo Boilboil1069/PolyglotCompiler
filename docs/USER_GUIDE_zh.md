@@ -1436,6 +1436,7 @@ polyc [选项] <输入文件>
 | `--permissive` | 宽松模式：允许占位类型（覆盖 Release 默认设置） |
 | `--progress=json` | 向标准输出发送机器可读 JSON 进度事件（stage_start、stage_end、complete） |
 | `--clean-cache` | 清除增量编译缓存并退出 |
+| `--dump-token-pool` | 把前端 TokenPool 统计（tokens、arena 字节、唯一标识符、intern 命中/未命中）写入 `<aux>/<stem>.pool_stats.json` |
 | `-h` / `--help` | 显示帮助信息 |
 
 > **注意：** Release 构建默认启用严格模式（通过 `POLYC_DEFAULT_STRICT`）。
@@ -1744,6 +1745,7 @@ CMake 会根据当前操作系统自动选择正确的平台专用 `main.cpp`。
 | **自动缩进** | 新行自动保持当前缩进级别 |
 | **缩放** | `Ctrl+加号` / `Ctrl+减号` 调整编辑器字体大小 |
 | **暗色主题** | 通过 ThemeManager 统一管理主题，内置 4 套配色方案（暗色、亮色、Monokai、Solarized Dark），所有面板统一切换 |
+| **外部主题系统** | VS Code 风格的外部主题 — `.polytheme.json` 文件（可附带同名 `.qss` 兜底），按 3 层目录契约发现：内置 qrc（`:/polyglot/themes/`）、用户级 `~/.polyglot/themes/`、工作区级 `<ws>/.polyglot/themes/`。开箱即用 5 套内置主题（`polyglot.dark`、`polyglot.light`、`polyglot.hc`、`solarized.light`、`solarized.dark`）。使用 `Ctrl+K, Ctrl+T`（或 *视图 → 主题管理器…*）打开 **主题管理器** 对话框，可安装 / 卸载 / 预览 / 导出主题。开发者命令：`workbench.action.selectTheme`、`workbench.action.openColorTheme`、`workbench.action.generateColorTheme`、`editor.action.inspectTMScopes`、`workbench.action.inspectColorTheme`。命令行参数：`--theme <id|path>`、`--list-themes`、`--validate-theme <path>`、`--headless --screenshot <out.png>`。完整规范见 [主题系统](realization/theme_system_zh.md) |
 | **编译与运行** | 一键编译并运行当前文件（`Ctrl+R`），自动查找输出二进制文件并通过 QProcess 启动，stdout/stderr 实时输出至日志面板；支持停止运行中的进程（`Ctrl+Shift+R`） |
 | **设置对话框** | 7 类偏好设置（外观、编辑器、编译器、环境、构建、调试、键绑定），通过 `QSettings` 持久化存储。外观页包含 *显示工具栏*、*显示状态栏* 和 *显示资源管理器* 开关（默认均为**开启**） |
 | **自定义快捷键** | 在设置对话框的键绑定页中使用 QKeySequenceEdit 编辑快捷键，支持应用、重置，自定义快捷键通过 QSettings 持久化存储并在启动时自动加载 |
@@ -1903,8 +1905,8 @@ IDE 将 Markdown 文档（`.md`、`.markdown`、`.mdown`、`.mkd`）以排版后
 
 ### 设置（VS Code 风格 JSON）
 
-> 自需求 **2026-04-27-4** 起，所有偏好以单一 JSON 文件存储 —— 与 VS Code
-> 完全一致。原 `QSettings` 存储在首次启动时自动迁移。
+> 所有偏好以单一 JSON 文件存储 —— 与 VS Code 完全一致。
+> 原 `QSettings` 存储在首次启动时自动迁移。
 
 **三层覆盖（优先级由低到高）：**
 

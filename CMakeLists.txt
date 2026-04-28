@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(PolyglotCompiler VERSION 1.2.0 LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.3.2 LANGUAGES C CXX)
 
 # ============================================================================
 # Central version header — generated from common/include/version.h.in
@@ -63,6 +63,11 @@ endif()
 # Platform-portable compile options
 if(MSVC)
     add_compile_options(/W3 /utf-8)
+    # Silence MSVC's CRT-deprecation noise for portable C standard APIs
+    # such as getenv/strncpy/strcpy. The codebase uses these functions in
+    # a controlled way (bounded sizes, validated inputs) and relies on the
+    # ISO C semantics that are available on every supported platform.
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 else()
     add_compile_options(-Wall -Wextra -Wpedantic -Wno-unused-parameter)
     # Suppress macOS linker warnings about duplicate libraries from transitive deps

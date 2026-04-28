@@ -148,9 +148,15 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
   entry.target_symbol = link->target_symbol;
   entry.source_symbol = link->source_symbol;
   entry.defined_at = link->loc;
-  // Pin the source-side language version (the foreign side) to whatever
-  // LANG / WITH LANG / @LANG scope the LINK statement is enclosed in.
-  entry.lang_version = ResolveLangVersion(link->source_language);
+  // Pin the foreign-side language version to whatever LANG / WITH LANG /
+  // @LANG scope the LINK statement is enclosed in.  Conventionally a LINK
+  // is written `LINK(<foreign>, <ploy|host>, <foreign_sym>, <local_sym>)`,
+  // so the version that matters for the bridge ABI is `target_language`.
+  // Fall back to source_language only when target has no active pin.
+  entry.lang_version = ResolveLangVersion(link->target_language);
+  if (entry.lang_version.empty()) {
+    entry.lang_version = ResolveLangVersion(link->source_language);
+  }
 
   // Process MAP_TYPE directives in body
   for (const auto &body_stmt : link->body) {

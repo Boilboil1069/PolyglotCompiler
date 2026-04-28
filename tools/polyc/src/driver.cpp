@@ -122,6 +122,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --pkg-timeout=<ms>  Per-command timeout for package indexing\n"
           << "  --progress=json     Emit machine-readable JSON progress events\n"
           << "  --clean-cache       Purge incremental compilation cache\n"
+          << "  --dump-token-pool   Write <stem>.pool_stats.json with frontend pool counters\n"
           << "  -j<N>               Parallelism hint\n"
           << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
           << "\n"
@@ -284,6 +285,10 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg == "--progress=json") {
       s.progress_json = true;
+      continue;
+    }
+    if (arg == "--dump-token-pool") {
+      s.dump_token_pool = true;
       continue;
     }
     if (arg == "--clean-cache") {
@@ -848,6 +853,18 @@ int main(int argc, char **argv) {
     StageTimer t("frontend", V, JP, 1, 6);
     frontend = RunFrontendStage(settings);
     stage_ms[0] = t.Stop();
+  }
+  // Token-pool stats dump (--dump-token-pool).  Written before any potential
+  // error short-circuit so the user always sees it when explicitly asked.
+  if (settings.dump_token_pool && !frontend.token_pool_stats_json.empty() &&
+      !aux_dir.empty()) {
+    fs::path stats_path = fs::path(aux_dir) / (stem + ".pool_stats.json");
+    std::ofstream ofs(stats_path);
+    if (ofs.is_open()) {
+      ofs << frontend.token_pool_stats_json;
+      if (V)
+        std::cerr << "[polyc] wrote " << stats_path.string() << "\n";
+    }
   }
   if (!frontend.success && !settings.force) {
     std::cerr << "[error] Frontend stage failed.\n";

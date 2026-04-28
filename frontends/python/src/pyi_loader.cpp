@@ -169,7 +169,7 @@ public:
 
       // Identifiers / keywords
       if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
-        int start = pos_;
+        std::size_t start = pos_;
         int cstart = column_;
         while (pos_ < src_.size() &&
                (std::isalnum(static_cast<unsigned char>(src_[pos_])) || src_[pos_] == '_')) {
@@ -182,7 +182,7 @@ public:
 
       // Numeric
       if (std::isdigit(static_cast<unsigned char>(c))) {
-        int start = pos_;
+        std::size_t start = pos_;
         int cstart = column_;
         while (pos_ < src_.size() && (std::isalnum(static_cast<unsigned char>(src_[pos_])) ||
                                       src_[pos_] == '.' || src_[pos_] == '_')) {
@@ -234,7 +234,7 @@ private:
     char quote = src_[pos_];
     bool triple = (pos_ + 2 < src_.size() && src_[pos_ + 1] == quote && src_[pos_ + 2] == quote);
     int cstart = column_;
-    int start = pos_;
+    std::size_t start = pos_;
 
     if (triple) {
       pos_ += 3;

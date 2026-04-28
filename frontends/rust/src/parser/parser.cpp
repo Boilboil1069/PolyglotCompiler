@@ -1284,6 +1284,23 @@ std::shared_ptr<Statement> RustParser::ParseLet() {
   if (MatchSymbol("=")) {
     stmt->init = ParseExpression();
   }
+  // `let ... else { diverging-block };` (RFC 3137) is only legal from Rust
+  // edition 2021 onwards.  We detect the `else` keyword that immediately
+  // follows the initializer expression and either consume the diverging
+  // block (newer editions) or emit `kLangVersionMismatch` while still
+  // recovering by skipping the block so subsequent items continue parsing.
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
+    if (!frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2021)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               std::string("'let ... else' requires Rust edition 2021 "
+                                           "or newer (current: ") +
+                                   frontends::RustEditionToString(rust_edition_) + ")");
+    }
+    Consume(); // 'else'
+    if (IsSymbol("{")) {
+      ParseDelimitedBody("{", "}");
+    }
+  }
   MatchSymbol(";");
   return stmt;
 }

@@ -297,6 +297,10 @@ private:
   // MarkdownViewer tab between rendered preview and raw source.
   QAction *action_toggle_markdown_preview_{nullptr};
 
+  // Theme Manager dialog action (Ctrl+K Ctrl+T) — opens the VS Code-style
+  // 3-pane Theme Manager browser.
+  QAction *action_open_theme_manager_{nullptr};
+
   QMenu *terminal_menu_{nullptr};
 
   // ── Compiler Service ─────────────────────────────────────────────────

@@ -70,6 +70,10 @@
     "polyc.progressFormat":      { "type": "string",  "enum": ["ascii","json","none"], "default": "ascii", "description": "Progress reporter format.", "descriptionZh": "进度输出格式。" },
     "polyc.cacheEnabled":        { "type": "boolean", "default": true, "description": "Enable compilation cache.", "descriptionZh": "启用编译缓存。" },
 
+    "frontend.tokenPool.arenaChunkBytes": { "type": "integer", "minimum": 4096, "maximum": 16777216, "default": 65536, "description": "Default StringArena chunk size used by the shared frontend token pool.", "descriptionZh": "前端共享 TokenPool 中 StringArena 的默认块大小（字节）。" },
+    "frontend.tokenPool.shared":          { "type": "boolean", "default": true, "description": "Use the multi-threaded SharedTokenPool variant.", "descriptionZh": "启用多线程 SharedTokenPool 变体。" },
+    "frontend.tokenPool.dumpStats":       { "type": "boolean", "default": false, "description": "Write <stem>.pool_stats.json after each compilation.", "descriptionZh": "每次编译后写出 <stem>.pool_stats.json 统计文件。" },
+
     "toolchains.cpp.default":    { "type": "string",  "default": "", "description": "Default C++ toolchain id.", "descriptionZh": "默认 C++ 工具链 id。" },
     "toolchains.python.default": { "type": "string",  "default": "", "description": "Default Python toolchain id.", "descriptionZh": "默认 Python 工具链 id。" },
     "toolchains.java.default":   { "type": "string",  "default": "", "description": "Default Java toolchain id.", "descriptionZh": "默认 Java 工具链 id。" },

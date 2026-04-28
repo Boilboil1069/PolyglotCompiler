@@ -128,7 +128,7 @@ Key observation:
 ### 4.2 `frontends`: language frontends and shared base
 | Namespace | Key Interfaces |
 |---|---|
-| `polyglot::frontends` | `Token`, `LexerBase`, `ParserBase`, `Diagnostics`, `Preprocessor`, `SemaContext`, `TokenPool` |
+| `polyglot::frontends` | `Token`, `LexerBase`, `ParserBase`, `Diagnostics`, `Preprocessor`, `SemaContext`, `TokenPool`, `SharedTokenPool`, `StringArena`, `IdentifierTable` |
 | `polyglot::cpp` | `CppLexer`, `CppParser`, `AnalyzeModule`, `LowerToIR`, `ConstexprEvaluator` |
 | `polyglot::rust` | `RustLexer`, `RustParser`, `AnalyzeModule`, `LowerToIR` |
 | `polyglot::python` | `PythonLexer`, `PythonParser`, `AnalyzeModule`, `LowerToIR` |

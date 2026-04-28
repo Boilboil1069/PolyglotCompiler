@@ -22,6 +22,7 @@
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/language_frontend.h"
 #include "frontends/common/include/preprocessor.h"
+#include "frontends/common/include/token_pool.h"
 #include "frontends/ploy/include/command_runner.h"
 #include "frontends/ploy/include/package_discovery_cache.h"
 #include "frontends/ploy/include/package_indexer.h"
@@ -77,6 +78,13 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
 
   const bool V = settings.verbose;
 
+  // Per-session shared token pool.  Always created so downstream stages may
+  // record stats even when --dump-token-pool is off.
+  const std::size_t arena_chunk = settings.token_pool_arena_chunk_bytes != 0
+                                      ? settings.token_pool_arena_chunk_bytes
+                                      : frontends::StringArena::kDefaultChunkBytes;
+  auto session_pool = std::make_unique<frontends::SharedTokenPool>(arena_chunk);
+
   // 鈹€鈹€ Stage 1a: Preprocessing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (settings.language != "ploy") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
@@ -90,6 +98,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
 
       if (pp_enabled) {
         frontends::Preprocessor pp(result.diagnostics);
+        pp.SetTokenPool(session_pool.get());
         ApplyIncludePaths(pp, settings.include_paths);
         ApplyIncludePaths(pp, settings.system_include_paths);
         // Apply -D / -U flags
@@ -151,21 +160,40 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     fe_opts.go_version              = settings.go_version;
     fe_opts.ecma_version            = settings.ecma_version;
     fe_opts.ruby_version            = settings.ruby_version;
+    fe_opts.token_pool              = session_pool.get();
+    fe_opts.dump_token_pool_stats   = settings.dump_token_pool;
 
     auto fe_result = fe->Lower(result.processed_source, result.source_label, *result.ir_ctx,
                                result.diagnostics, fe_opts);
     result.success = fe_result.lowered;
+    if (settings.dump_token_pool) {
+      const auto stats = session_pool->Stats();
+      std::ostringstream js;
+      js << "{\n"
+         << "  \"language\": \"" << settings.language << "\",\n"
+         << "  \"tokens\": " << stats.tokens << ",\n"
+         << "  \"arena_bytes\": " << stats.arena_bytes << ",\n"
+         << "  \"arena_capacity\": " << stats.arena_capacity << ",\n"
+         << "  \"unique_identifiers\": " << stats.unique_identifiers << ",\n"
+         << "  \"intern_hits\": " << stats.intern_hits << ",\n"
+         << "  \"intern_misses\": " << stats.intern_misses << "\n"
+         << "}\n";
+      result.token_pool_stats_json = js.str();
+    }
     return result;
   }
 
   // 鈹€鈹€ Stage 1c: .ploy 鈥?Lexing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   {
     ploy::PloyLexer token_lexer(result.processed_source, result.source_label);
+    token_lexer.SetTokenPool(session_pool.get());
     std::ostringstream toss;
     while (true) {
       auto tok = token_lexer.NextToken();
       if (tok.kind == frontends::TokenKind::kEndOfFile)
         break;
+      // Mirror to pool (PloyLexer doesn't yet call EmitToken internally).
+      session_pool->Add(tok);
       toss << "L" << tok.loc.line << ":" << tok.loc.column << "  [" << static_cast<int>(tok.kind)
            << "] " << tok.lexeme << "\n";
       result.tokens.push_back(std::move(tok));
@@ -243,6 +271,20 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
   }
 
   result.success = true;
+  if (settings.dump_token_pool) {
+    const auto stats = session_pool->Stats();
+    std::ostringstream js;
+    js << "{\n"
+       << "  \"language\": \"" << settings.language << "\",\n"
+       << "  \"tokens\": " << stats.tokens << ",\n"
+       << "  \"arena_bytes\": " << stats.arena_bytes << ",\n"
+       << "  \"arena_capacity\": " << stats.arena_capacity << ",\n"
+       << "  \"unique_identifiers\": " << stats.unique_identifiers << ",\n"
+       << "  \"intern_hits\": " << stats.intern_hits << ",\n"
+       << "  \"intern_misses\": " << stats.intern_misses << "\n"
+       << "}\n";
+    result.token_pool_stats_json = js.str();
+  }
   return result;
 }
 

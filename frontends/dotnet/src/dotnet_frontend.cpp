@@ -101,7 +101,7 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€?parse C# source and extract method signatures
+// ExtractSignatures â€”parse C# source and extract method signatures
 // ============================================================================
 
 namespace {

@@ -293,10 +293,13 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/build_panel.cpp
         ui/common/src/debug_panel.cpp
         ui/common/src/theme_manager.cpp
+        ui/common/src/theme_service.cpp
+        ui/common/src/theme_manager_view.cpp
         ui/common/src/action_manager.cpp
         ui/common/src/panel_manager.cpp
         ui/common/src/topology_panel.cpp
         ui/common/src/markdown_viewer.cpp
+        ui/common/src/polyui_cli.cpp
         polyc/src/foreign_signature_extractor.cpp
     )
 
@@ -320,6 +323,8 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/include/panel_manager.h
         ui/common/include/topology_panel.h
         ui/common/include/markdown_viewer.h
+        ui/common/include/theme_service.h
+        ui/common/include/theme_manager_view.h
     )
 
     add_executable(polyui

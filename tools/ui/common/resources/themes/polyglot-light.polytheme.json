@@ -1,0 +1,97 @@
+{
+  "name": "Polyglot Light",
+  "id": "polyglot.light",
+  "type": "light",
+  "version": "1.0.0",
+  "author": "Polyglot Compiler Project",
+  "description": "Default light theme for polyui, mirrors the classic VS Code Light+ palette.",
+  "colors": {
+    "workbench.background": "#ffffff",
+    "workbench.surface": "#f3f3f3",
+    "workbench.surfaceAlt": "#e8e8e8",
+    "workbench.border": "#c8c8c8",
+
+    "foreground": "#333333",
+    "descriptionForeground": "#616161",
+    "disabledForeground": "#a0a0a0",
+
+    "focusBorder": "#0078d7",
+    "selectionBackground": "#cce5ff",
+    "selectionForeground": "#000000",
+
+    "errorForeground": "#e51400",
+    "editorWarning.foreground": "#e6a200",
+    "testing.iconPassed": "#16825d",
+    "editorInfo.foreground": "#0078d7",
+
+    "editor.background": "#ffffff",
+    "editor.foreground": "#1e1e1e",
+    "editor.selectionBackground": "#add6ff",
+    "editor.lineHighlightBackground": "#f0f0f0",
+    "editorLineNumber.foreground": "#999999",
+    "editorGutter.background": "#ffffff",
+
+    "tab.inactiveBackground": "#ececec",
+    "tab.activeBackground": "#ffffff",
+    "tab.activeBorder": "#0078d7",
+    "tab.hoverBackground": "#e0e0e0",
+    "tab.inactiveForeground": "#616161",
+    "tab.activeForeground": "#333333",
+
+    "statusBar.background": "#0078d7",
+    "statusBar.foreground": "#ffffff",
+
+    "menu.background": "#f3f3f3",
+    "menu.foreground": "#333333",
+    "menu.selectionBackground": "#cce5ff",
+    "menu.separatorBackground": "#d4d4d4",
+
+    "button.secondaryBackground": "#e0e0e0",
+    "button.secondaryForeground": "#333333",
+    "button.secondaryHoverBackground": "#d0d0d0",
+    "button.background": "#0078d7",
+    "button.foreground": "#ffffff",
+    "button.hoverBackground": "#1a8cff",
+
+    "input.background": "#ffffff",
+    "input.foreground": "#333333",
+    "input.border": "#c8c8c8",
+    "input.placeholderForeground": "#999999",
+
+    "scrollbar.shadow": "#f3f3f3",
+    "scrollbarSlider.background": "#c1c1c1",
+    "scrollbarSlider.hoverBackground": "#a8a8a8",
+
+    "progressBar.background": "#e8e8e8",
+    "progressBar.foreground": "#0078d7",
+
+    "panel.border": "#80808059",
+    "sideBar.background": "#f3f3f3",
+    "topology.node.background": "#fafafa",
+    "topology.edge.valid": "#16825d",
+    "topology.edge.incompatible": "#e51400"
+  },
+  "tokenColors": [
+    { "name": "Comment",  "scope": ["comment", "punctuation.definition.comment"],
+      "settings": { "foreground": "#008000", "fontStyle": "italic" } },
+    { "name": "String",   "scope": ["string.quoted", "string.single", "string.double"],
+      "settings": { "foreground": "#a31515" } },
+    { "name": "Number",   "scope": ["constant.numeric"],
+      "settings": { "foreground": "#098658" } },
+    { "name": "Keyword",  "scope": ["keyword.control", "keyword.control.ploy", "storage.modifier"],
+      "settings": { "foreground": "#af00db", "fontStyle": "bold" } },
+    { "name": "Storage",  "scope": ["storage.type"],
+      "settings": { "foreground": "#0000ff" } },
+    { "name": "Function", "scope": ["entity.name.function", "entity.name.function.cpp",
+                                    "entity.name.function.python", "entity.name.function.ploy"],
+      "settings": { "foreground": "#795e26" } },
+    { "name": "Type",     "scope": ["entity.name.type", "support.type"],
+      "settings": { "foreground": "#267f99" } },
+    { "name": "Variable", "scope": ["variable", "variable.other"],
+      "settings": { "foreground": "#001080" } },
+    { "name": "Constant", "scope": ["constant.language", "constant.other"],
+      "settings": { "foreground": "#0070c1" } },
+    { "name": "Operator", "scope": ["keyword.operator"],
+      "settings": { "foreground": "#000000" } }
+  ]
+}

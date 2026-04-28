@@ -46,6 +46,8 @@
 #include "tools/ui/common/include/syntax_highlighter.h"
 #include "tools/ui/common/include/terminal_widget.h"
 #include "tools/ui/common/include/theme_manager.h"
+#include "tools/ui/common/include/theme_manager_view.h"
+#include "tools/ui/common/include/theme_service.h"
 #include "tools/ui/common/include/topology_panel.h"
 
 namespace polyglot::tools::ui {
@@ -338,6 +340,12 @@ void MainWindow::SetupMenuBar() {
   action_toggle_markdown_preview_->setStatusTip(
       "Switch the current Markdown tab between rendered preview and raw source");
 
+  view_menu_->addSeparator();
+  action_open_theme_manager_ = view_menu_->addAction("&Theme Manager…");
+  action_open_theme_manager_->setShortcut(QKeySequence(QStringLiteral("Ctrl+K, Ctrl+T")));
+  action_open_theme_manager_->setStatusTip(
+      "Browse, install, preview and activate JSON / QSS color themes");
+
   // ── Build Menu ────────────────────────────────────────────────────
   build_menu_ = mb->addMenu("&Build");
 
@@ -558,6 +566,15 @@ void MainWindow::SetupConnections() {
       if (auto *md = MarkdownViewerAt(editor_tabs_->currentIndex())) {
         md->TogglePreview();
       }
+    });
+  }
+
+  // Theme Manager — opens the 3-pane VS Code-style theme browser dialog.
+  if (action_open_theme_manager_) {
+    connect(action_open_theme_manager_, &QAction::triggered, this, [this]() {
+      auto *dlg = new ThemeManagerView(this);
+      dlg->setAttribute(Qt::WA_DeleteOnClose);
+      dlg->show();
     });
   }
 
@@ -2157,6 +2174,77 @@ void MainWindow::RegisterBuiltinCommands() {
                        }
                      },
                      tr("Markdown: Toggle Preview"));
+
+  // ── Theme system commands (VS Code parity) ───────────────────────────
+  // Both Quick-Pick variants are aliased to the Theme Manager dialog,
+  // which provides a richer 3-pane preview/install/export flow.
+  auto open_theme_manager = [this]() {
+    auto *dlg = new ThemeManagerView(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->show();
+  };
+  kb.RegisterCommand("workbench.action.selectTheme", open_theme_manager,
+                     tr("Preferences: Color Theme"));
+  kb.RegisterCommand("workbench.action.openColorTheme", open_theme_manager,
+                     tr("Preferences: Manage Themes"));
+
+  // Developer: Generate Color Theme From Current Settings — exports the
+  // currently active theme (with all `extends` chains flattened) into a
+  // user-writable .polytheme.json file, so authors can fork it.
+  kb.RegisterCommand(
+      "workbench.action.generateColorTheme",
+      [this]() {
+        auto *current = ThemeService::Instance().CurrentTheme();
+        const QString cur_id = current ? current->id : QStringLiteral("polyglot.dark");
+        const QString suggested =
+            ThemeService::Instance().UserThemesDir() + QStringLiteral("/") +
+            cur_id + QStringLiteral("-fork.polytheme.json");
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Generate Color Theme"), suggested,
+            tr("Polyglot Theme (*.polytheme.json)"));
+        if (path.isEmpty()) return;
+        QString err;
+        if (!ThemeService::Instance().ExportToFile(cur_id, path, &err)) {
+          QMessageBox::warning(this, tr("Generate Color Theme"), err);
+          return;
+        }
+        // Trigger a rescan so the forked theme appears immediately.
+        ThemeService::Instance().Scan();
+        QMessageBox::information(
+            this, tr("Generate Color Theme"),
+            tr("Theme written to:\n%1").arg(path));
+      },
+      tr("Developer: Generate Color Theme From Current Settings"));
+
+  // Developer: Inspect Editor Token / UI Color Key — minimal pop-ups
+  // that print the active theme's resolved value for the requested key.
+  kb.RegisterCommand(
+      "editor.action.inspectTMScopes",
+      [this]() {
+        const QString key = QInputDialog::getText(
+            this, tr("Inspect Editor Token"),
+            tr("tokenColors scope (e.g. comment, keyword, string):"));
+        if (key.isEmpty()) return;
+        const QString value = ThemeService::Instance().ResolveTokenColor(key);
+        QMessageBox::information(
+            this, tr("Inspect Editor Token"),
+            tr("Scope: %1\nForeground: %2").arg(key, value.isEmpty() ? tr("(unset)") : value));
+      },
+      tr("Developer: Inspect Editor Token"));
+
+  kb.RegisterCommand(
+      "workbench.action.inspectColorTheme",
+      [this]() {
+        const QString key = QInputDialog::getText(
+            this, tr("Inspect UI Color Key"),
+            tr("color key (e.g. editor.background, statusBar.background):"));
+        if (key.isEmpty()) return;
+        const QString value = ThemeService::Instance().ResolveColor(key);
+        QMessageBox::information(
+            this, tr("Inspect UI Color Key"),
+            tr("Key: %1\nValue: %2").arg(key, value.isEmpty() ? tr("(unset)") : value));
+      },
+      tr("Developer: Inspect UI Color Key"));
 }
 
 // ============================================================================

@@ -7,6 +7,9 @@
 
 add_library(frontend_common
     common/src/token_pool.cpp
+    common/src/string_arena.cpp
+    common/src/identifier_table.cpp
+    common/src/lexer_base.cpp
     common/src/preprocessor.cpp
     common/src/frontend_registry.cpp
     common/src/language_versions.cpp

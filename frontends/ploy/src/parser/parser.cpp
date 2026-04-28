@@ -2176,7 +2176,15 @@ void PloyParser::ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins) {
     // accept either an identifier OR a string literal OR a number; we then
     // gather any trailing punctuation that forms a contiguous version token.
     if (current_.kind == frontends::TokenKind::kString) {
+      // The ploy lexer keeps the surrounding quote characters as part of
+      // the string lexeme.  Version pins are pure ASCII tokens, so strip
+      // the outer quotes so downstream sema gets `c++23` rather than
+      // `"c++23"`.
       pin.version = current_.lexeme;
+      if (pin.version.size() >= 2 && pin.version.front() == '"' &&
+          pin.version.back() == '"') {
+        pin.version = pin.version.substr(1, pin.version.size() - 2);
+      }
       Advance();
     } else if (current_.kind == frontends::TokenKind::kIdentifier ||
                current_.kind == frontends::TokenKind::kKeyword ||
@@ -2221,7 +2229,12 @@ std::shared_ptr<Statement> PloyParser::ParseLangPragma() {
   Advance();
   ExpectSymbol("=", "expected '=' after language name in LANG pragma");
   if (current_.kind == frontends::TokenKind::kString) {
+    // Strip surrounding quotes the lexer preserves on string literals.
     node->version = current_.lexeme;
+    if (node->version.size() >= 2 && node->version.front() == '"' &&
+        node->version.back() == '"') {
+      node->version = node->version.substr(1, node->version.size() - 2);
+    }
     Advance();
   } else if (current_.kind == frontends::TokenKind::kIdentifier ||
              current_.kind == frontends::TokenKind::kKeyword ||

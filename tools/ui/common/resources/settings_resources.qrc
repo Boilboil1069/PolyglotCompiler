@@ -3,4 +3,12 @@
     <file>default_settings.json</file>
     <file>settings_schema.json</file>
   </qresource>
+  <qresource prefix="/polyglot/themes">
+    <file>theme_schema.json</file>
+    <file alias="polyglot.dark.polytheme.json">themes/polyglot-dark.polytheme.json</file>
+    <file alias="polyglot.light.polytheme.json">themes/polyglot-light.polytheme.json</file>
+    <file alias="polyglot.high-contrast.polytheme.json">themes/polyglot-high-contrast.polytheme.json</file>
+    <file alias="polyglot.solarized-dark.polytheme.json">themes/polyglot-solarized-dark.polytheme.json</file>
+    <file alias="polyglot.solarized-light.polytheme.json">themes/polyglot-solarized-light.polytheme.json</file>
+  </qresource>
 </RCC>

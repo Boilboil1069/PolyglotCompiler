@@ -140,7 +140,7 @@ size_t GVNPass::GetValueNumber(const std::string &operand) {
   // Check if it's a constant
   try {
     size_t idx = 0;
-    std::stoll(operand, &idx, 0);
+    (void)std::stoll(operand, &idx, 0);
     if (idx == operand.size()) {
       // It's a constant - create a unique value number based on the value
       auto it = value_numbers_.find(operand);

@@ -1311,7 +1311,7 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
     // Determine alignment from characteristics (bits 20-23)
     std::uint32_t align_bits = (sh.characteristics >> 20) & 0xF;
     if (align_bits > 0 && align_bits <= 14) {
-      isec.alignment = 1u << (align_bits - 1);
+      isec.alignment = static_cast<std::uint64_t>(1) << (align_bits - 1);
     }
 
     // Flags
@@ -3440,8 +3440,8 @@ bool Linker::Link() {
   }
 
   auto end_time = std::chrono::high_resolution_clock::now();
-  stats_.link_time_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+  stats_.link_time_ms = static_cast<double>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
 
   if (config_.verbose) {
     std::cout << "Link completed in " << stats_.link_time_ms << "ms\n";

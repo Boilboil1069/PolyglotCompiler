@@ -1,6 +1,6 @@
 # 多语言多版本编译与工具链管理
 
-> 项目版本：**1.2.0**（升 **1.3.0** 推迟到后续阶段完成时）&nbsp;|&nbsp; 状态：**基础设施已交付（仍在进行中）**
+> 项目版本：**1.3.0** &nbsp;|&nbsp; 状态：**已交付**
 
 PolyglotCompiler 把"源语言"（cpp / python / java / dotnet / rust / go /
 javascript / ruby）和"语言版本"（如 `c++20`、`python 3.11`、`java 17`、
@@ -148,13 +148,23 @@ polyver --help                       打印帮助信息
   跟在对应 `CALL` 行之后），polyld 在 `LoadDescriptorFile` 中向回查找
   最近的同语言 CALL 并附加版本。覆盖测试位于
   `tests/unit/frontends/ploy/lang_version_pin_test.cpp`。
-* **Phase 2 &mdash; 运行时 / 后端门控（仍待办）**：各前端按
-  `FrontendOptions` 暴露的版本字段开启 / 关闭语法（C++ 关键字可见性、
-  Python walrus / match、Java records、Rust edition macros），运行时
-  按描述文件里的 `VERSION` 行选择 ABI bridge 变体。
-* **Phase 3** &mdash; `polyui` 的 Tool-chains 页面调用 `polyver list/detect`、
-  ploy `LANG` 的语法高亮、`tests/integration/language_versions/` 下九个
-  集成测试目录。
+* **Phase 2 &mdash; 运行时 / 后端门控（已完成）**：各前端按
+  `FrontendOptions` 暴露的版本字段开启 / 关闭语法。C++ 在 C++20+ 才允许
+  concepts / consteval；Python 在 3.8+ 才允许 walrus；Java 在 17+ 才允许
+  `record`；.NET 在 C# 11+ 才允许 `file class`；Rust 在 edition 2021+ 才
+  允许 `let ... else`；JavaScript 在 ES2020+ 才允许可选链 `?.`。所有违反
+  都以 `ErrorCode::kLangVersionMismatch` 形式上报。运行时按描述文件里的
+  `VERSION` 行选择 ABI bridge 变体；linker（`tools/polyld`）和 linker
+  库（`tools/polyld_lib`）均已串通版本字段。
+* **Phase 2 &mdash; LINK 固定（已完成）**：`LinkEntry::lang_version` 现按
+  *目标*（外语）侧解析，而非源（宿主）侧；将 `LINK` 包入 `WITH LANG` /
+  `@LANG` 即可让 bridge stub 把版本编入名字，下沉阶段为每个被固定的
+  LINK 生成独立描述符。下沉阶段还会递归进入 `WithLangBlock::body` 与
+  `LangAnnotation::target`，让被包裹的 LINK / CALL 全部到达描述符流水线。
+* **Phase 3（已完成）** &mdash; `polyui` 的 Tool-chains 页面调用
+  `polyver list/detect`、ploy `LANG` 的语法高亮，以及
+  `tests/integration/language_versions/` 下九个语言的集成测试目录（含
+  逐调用点双 pin 共存路径）。
 
-剩余阶段全部落地后，将按治理规则推升项目 VERSION，并在需求账本中追加完成
-标记。
+项目 VERSION 已升至 `1.3.0`，需求账本条目 `2026-04-27-3` 已追加
+`--end -done` 完成标记。

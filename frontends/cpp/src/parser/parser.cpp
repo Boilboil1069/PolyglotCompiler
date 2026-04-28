@@ -498,11 +498,11 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
         //                    ident < expr +    ...
         //
         // Strategy:
-        //   1. If the next token is '>' (empty args) â†?template.
-        //   2. If the next token is a type keyword â†?template.
+        //   1. If the next token is '>' (empty args) â†’template.
+        //   2. If the next token is a type keyword â†’template.
         //   3. If the next token is an identifier, peek one more:
-        //      - If the second token is '>' or ',' â†?template.
-        //      - Otherwise â†?comparison (relational operator).
+        //      - If the second token is '>' or ',' â†’template.
+        //      - Otherwise â†’comparison (relational operator).
         auto la = lexer_.NextToken();
         pushback_.push_back(la);
         bool looks_template = false;
@@ -515,10 +515,10 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
                     la.lexeme == "auto" || la.lexeme == "long" || la.lexeme == "short" ||
                     la.lexeme == "unsigned" || la.lexeme == "signed" || la.lexeme == "typename" ||
                     la.lexeme == "class" || la.lexeme == "const" || la.lexeme == "volatile")) {
-          // Type keyword after '<' â†?definitely template args.
+          // Type keyword after '<' â†’definitely template args.
           looks_template = true;
         } else if (la.kind == frontends::TokenKind::kIdentifier) {
-          // Identifier after '<' â€?ambiguous.  Look at the token
+          // Identifier after '<' â€”ambiguous.  Look at the token
           // AFTER the identifier to disambiguate.
           auto la2 = lexer_.NextToken();
           // Push in reverse order: la2 first, then la, so that
@@ -532,7 +532,7 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
             looks_template = true;
           }
           // Otherwise: 'ident < ident )', 'ident < ident ;', etc.
-          // â†?treat as relational comparison.
+          // â†’treat as relational comparison.
         }
         if (looks_template) {
           auto args = ParseTemplateArgs();
@@ -1043,7 +1043,7 @@ std::shared_ptr<Statement> CppParser::ParseUsing() {
     std::string name = current_.lexeme;
     Consume();
     if (MatchSymbol("=")) {
-      // "using Name = Type;" â€?produce UsingDeclaration for simple
+      // "using Name = Type;" â€”produce UsingDeclaration for simple
       // aliases and UsingAliasDeclaration for template aliases.
       auto type = ParseType();
       std::string type_text;
@@ -1399,7 +1399,7 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
         }
         continue;
       }
-      // Not a constructor â€?push back and fall through to normal member
+      // Not a constructor â€”push back and fall through to normal member
       pushback_.push_back(current_);
       current_ = saved;
     }

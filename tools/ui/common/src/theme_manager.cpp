@@ -54,6 +54,14 @@ QStringList ThemeManager::AvailableThemes() const {
   return themes_.keys();
 }
 
+void ThemeManager::RegisterTheme(const QString &name, const ThemeColors &colors) {
+  themes_.insert(name, colors);
+}
+
+void ThemeManager::UnregisterTheme(const QString &name) {
+  themes_.remove(name);
+}
+
 // ============================================================================
 // Built-in Themes
 // ============================================================================

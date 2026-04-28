@@ -81,6 +81,17 @@ struct CompileResult {
   std::string assembly;
   std::vector<DiagnosticInfo> diagnostics;
   double elapsed_ms{0.0};
+
+  // Frontend token-pool counters captured by the most recent Compile() call.
+  // Populated by CompilerService::Compile when a SharedTokenPool was attached
+  // to the frontend.  Zero-initialised when no pool was used.
+  struct TokenPoolStats {
+    std::size_t tokens{0};
+    std::size_t arena_bytes{0};
+    std::size_t unique_identifiers{0};
+    std::size_t intern_hits{0};
+    std::size_t intern_misses{0};
+  } token_pool_stats;
 };
 
 // ============================================================================

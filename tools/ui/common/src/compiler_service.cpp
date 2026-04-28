@@ -22,6 +22,8 @@
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 
+#include "frontends/common/include/token_pool.h"
+
 // Individual frontend headers — we pull in the concrete adapter classes so
 // that the linker is forced to keep the translation units containing the
 // static REGISTER_FRONTEND() auto-registrars.  Without an explicit reference
@@ -246,8 +248,26 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   CompileResult result;
   auto start = std::chrono::high_resolution_clock::now();
 
-  // Run analysis first
-  result.diagnostics = Analyze(source, language, filename);
+  // Allocate a session-scoped shared pool.  We dispatch through the registry
+  // a second time here (instead of reusing Analyze) so we can pass the pool
+  // into FrontendOptions and surface its stats on CompileResult.
+  frontends::SharedTokenPool pool;
+  frontends::Diagnostics      diags;
+  auto                       *fe = frontends::FrontendRegistry::Instance().GetFrontend(language);
+  if (fe) {
+    frontends::FrontendOptions opts;
+    opts.strict     = true;
+    opts.token_pool = &pool;
+    fe->Analyze(source, filename, diags, opts);
+  }
+  result.diagnostics = ConvertDiagnostics(diags);
+
+  const auto stats             = pool.Stats();
+  result.token_pool_stats.tokens             = stats.tokens;
+  result.token_pool_stats.arena_bytes        = stats.arena_bytes;
+  result.token_pool_stats.unique_identifiers = stats.unique_identifiers;
+  result.token_pool_stats.intern_hits        = stats.intern_hits;
+  result.token_pool_stats.intern_misses      = stats.intern_misses;
 
   // Check for errors
   bool has_errors = false;
@@ -268,7 +288,9 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
         << "  Language:     " << language << "\n"
         << "  Target:       " << target_arch << "\n"
         << "  Opt Level:    O" << opt_level << "\n"
-        << "  Diagnostics:  " << result.diagnostics.size() << " warning(s)";
+        << "  Diagnostics:  " << result.diagnostics.size() << " warning(s)\n"
+        << "  TokenPool:    " << stats.tokens << " tokens, " << stats.unique_identifiers
+        << " uniq id(s), " << stats.arena_bytes << " arena B";
     result.output = oss.str();
   }
 

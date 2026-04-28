@@ -1268,7 +1268,17 @@ std::shared_ptr<Expression> JsParser::ParseCallTail(std::shared_ptr<Expression> 
         Advance();
       }
       expr = m;
-    } else if (MatchSymbol("?.")) {
+    } else if (IsSymbol("?.")) {
+      // Optional chaining (`?.`) requires ES2020 or newer.  We gate the
+      // feature here so older targets emit `kLangVersionMismatch` rather
+      // than silently accepting it.
+      if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2020)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("optional chaining ('?.') requires ES2020 "
+                                             "or newer (current: ") +
+                                     frontends::EcmaVersionToString(ecma_version_) + ")");
+      }
+      Advance(); // consume '?.'
       auto m = std::make_shared<MemberExpr>();
       m->loc = expr ? expr->loc : current_.loc;
       m->object = expr;

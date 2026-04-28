@@ -53,6 +53,7 @@ set(UNIT_TEST_PLUGINS
 
 set(UNIT_TEST_FRONTEND_COMMON
     unit/frontend/preprocessor_tests.cpp
+    unit/frontend/token_pool_test.cpp
     unit/frontends/frontend_registry_test.cpp
 )
 
@@ -402,6 +403,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/object_format_test.cpp
     integration/external_packages/external_packages_test.cpp
     integration/external_packages/demand_03_test.cpp
+    integration/language_versions/lang_versions_test.cpp
+    integration/ui/theme_system_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})

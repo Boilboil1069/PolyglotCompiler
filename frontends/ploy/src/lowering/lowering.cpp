@@ -107,6 +107,18 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     LowerWithStatement(with_stmt);
   } else if (auto extend = std::dynamic_pointer_cast<ExtendDecl>(stmt)) {
     LowerExtendDecl(extend);
+  } else if (auto with_lang = std::dynamic_pointer_cast<WithLangBlock>(stmt)) {
+    // The pins inside `with_lang` were already pushed onto inner CALL /
+    // NEW / METHOD / GETATTR / SETATTR / DELETE / EXTEND nodes by sema.
+    // Lowering only needs to recurse into the body so the inner cross-
+    // language nodes get translated into call descriptors.
+    LowerBlockStatements(with_lang->body);
+  } else if (auto lang_anno = std::dynamic_pointer_cast<LangAnnotation>(stmt)) {
+    // Same story: sema stamped the per-call pin onto the wrapped statement;
+    // lowering must descend through the wrapper.
+    if (lang_anno->target) {
+      LowerStatement(lang_anno->target);
+    }
   }
   // BREAK and CONTINUE are handled at a higher level (loop lowering)
   // MAP_TYPE is metadata only, no IR generation needed

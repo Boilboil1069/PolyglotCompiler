@@ -35,7 +35,9 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 - **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
 - **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration. Per-language runtime bridges: `python_rt`, `cpp_rt`, `rust_rt`, `java_rt`, `dotnet_rt`, `go_rt`, `javascript_rt`, `ruby_rt`
 - **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
+- **Shared Frontend Token Pool** — Arena-backed lexeme storage (`StringArena`), open-addressing identifier interning (`IdentifierTable`), snapshot/restore for parser lookahead, and a thread-safe `SharedTokenPool` shared by every language frontend.  Stats can be dumped via `polyc --dump-token-pool` and tuned via `frontend.tokenPool.*` settings
 - **VS Code-style Settings** — JSON-first 3-layer settings (default / user / `<workspace>/.polyglot/settings.json`) with schema validation, hot reload, command palette (`Ctrl+Shift+P`) and `keybindings.json`; the same `settings.json` is honoured by every CLI tool via `--settings` / `--print-effective-settings`
+- **External Theme System** — VS Code-style `.polytheme.json` themes (with optional sibling `.qss`) discovered from a 3-layer contract (built-in qrc / user `~/.polyglot/themes/` / workspace `<ws>/.polyglot/themes/`); 5 built-in themes (`polyglot.dark`, `polyglot.light`, `polyglot.hc`, `solarized.light`, `solarized.dark`); a graphical Theme Manager (`Ctrl+K, Ctrl+T`); developer commands (`workbench.action.selectTheme`, `generateColorTheme`, `editor.action.inspectTMScopes`, …); and CLI flags `--theme`, `--list-themes`, `--validate-theme`, `--headless --screenshot` for CI
 - **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
 - **1084 Test Cases** — Unit (960), Integration (106), Benchmark (18) across 23 CTest targets
 

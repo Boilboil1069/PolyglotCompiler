@@ -14,6 +14,9 @@
 
 namespace polyglot::frontends {
 
+class SharedTokenPool; // forward decl — see token_pool.h
+
+
 /** @brief TokenKind enumeration. */
 enum class TokenKind {
   kEndOfFile,
@@ -48,11 +51,25 @@ public:
 
   virtual Token NextToken() = 0;
 
+  /// Optionally attach a shared token pool that will receive every token this
+  /// lexer emits via @c EmitToken().  Pass @c nullptr to detach.  The pool
+  /// must outlive the lexer.
+  void SetTokenPool(SharedTokenPool *pool) noexcept { token_pool_ = pool; }
+
+  /// Returns the currently attached pool (may be @c nullptr).
+  SharedTokenPool *TokenPool() const noexcept { return token_pool_; }
+
 protected:
   LexerBase(std::string source, std::string file) :
       source_(std::move(source)), file_(std::move(file)) {}
 
+  /// Mirror @p t into the attached pool (if any) and return @p t unchanged.
+  /// Lexer subclasses may call this from their @c NextToken() implementations
+  /// to opt into shared-pool indexing without changing their return type.
+  Token EmitToken(Token t);
+
   char Peek() const { return position_ < source_.size() ? source_[position_] : '\0'; }
+
   char PeekNext() const { return (position_ + 1) < source_.size() ? source_[position_ + 1] : '\0'; }
 
   char Get() {
@@ -101,6 +118,7 @@ protected:
   size_t line_{1};
   size_t column_{1};
   size_t tab_width_{4};
+  SharedTokenPool *token_pool_{nullptr};
 };
 
 } // namespace polyglot::frontends

@@ -17,6 +17,7 @@
 #include <unordered_set>
 
 #include "frontends/common/include/preprocessor.h"
+#include "frontends/common/include/token_pool.h"
 
 namespace polyglot::frontends {
 
@@ -220,10 +221,21 @@ Preprocessor::Preprocessor(Diagnostics &diagnostics) : diagnostics_(diagnostics)
 
 void Preprocessor::Define(const std::string &name, const std::string &value) {
   macros_[name] = Macro{false, {}, value};
+  if (token_pool_ != nullptr) {
+    (void)token_pool_->InternIdentifier(name);
+    (void)token_pool_->InternLexeme(value);
+  }
 }
 
 void Preprocessor::DefineFunction(const std::string &name, std::vector<std::string> params,
                                   const std::string &value) {
+  if (token_pool_ != nullptr) {
+    (void)token_pool_->InternIdentifier(name);
+    for (const auto &p : params) {
+      (void)token_pool_->InternIdentifier(p);
+    }
+    (void)token_pool_->InternLexeme(value);
+  }
   macros_[name] = Macro{true, std::move(params), value};
 }
 

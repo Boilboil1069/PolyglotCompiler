@@ -101,7 +101,7 @@ frontends::FrontendResult JavaLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€?parse Java source and extract method signatures
+// ExtractSignatures â€”parse Java source and extract method signatures
 // ============================================================================
 
 namespace {
@@ -178,7 +178,7 @@ std::vector<frontends::ForeignFunctionSignature> JavaLanguageFrontend::ExtractSi
   if (!module)
     return result;
 
-  // Walk declarations â€?Java top-level is usually a class
+  // Walk declarations â€”Java top-level is usually a class
   for (const auto &decl : module->declarations) {
     if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
       for (const auto &member : cls->members) {

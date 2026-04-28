@@ -81,7 +81,7 @@ polyglot
 ### 2.3 命名空间到目录映射（细化）
 | 命名空间 | 头文件主入口 | 关键实现文件 |
 |---|---|---|
-| `polyglot::frontends` | `frontends/common/include/*.h` | `frontends/common/src/preprocessor.cpp` |
+| `polyglot::frontends` | `frontends/common/include/*.h` | `frontends/common/src/preprocessor.cpp`、`frontends/common/src/token_pool.cpp`、`frontends/common/src/string_arena.cpp`、`frontends/common/src/identifier_table.cpp`、`frontends/common/src/lexer_base.cpp` |
 | `polyglot::cpp` | `frontends/cpp/include/*.h` | `frontends/cpp/src/{lexer,parser,sema,lowering}/*.cpp` |
 | `polyglot::rust` | `frontends/rust/include/*.h` | `frontends/rust/src/{lexer,parser,sema,lowering}/*.cpp` |
 | `polyglot::ir` | `middle/include/ir/*.h` | `middle/src/ir/*.cpp` |

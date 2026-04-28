@@ -87,6 +87,23 @@ struct FrontendOptions {
   GoVersion             go_version{GoVersion::kAuto};
   EcmaVersion           ecma_version{EcmaVersion::kAuto};
   RubyVersion           ruby_version{RubyVersion::kAuto};
+
+  // -------------------------------------------------------------------------
+  // Shared frontend infrastructure (optional).
+  //
+  // When a non-null token_pool is provided, the frontend may intern lexemes
+  // and identifiers into the caller-owned pool, sharing storage across the
+  // entire compilation session.  When null, the frontend allocates its own
+  // private pool whose lifetime ends with the call.  See
+  // `frontends/common/include/token_pool.h`.
+  // -------------------------------------------------------------------------
+  class SharedTokenPool *token_pool{nullptr};
+
+  // When true, polyc / polyui will write `pool_stats.json` (and a verbose
+  // `tokens.tsv`) into the aux directory at end of session.  Equivalent to
+  // the polyc CLI flag `--dump-token-pool` and the
+  // `frontend.tokenPool.dumpStats` setting.
+  bool dump_token_pool_stats{false};
 };
 
 // ============================================================================

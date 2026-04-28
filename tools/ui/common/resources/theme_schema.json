@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polyglot-compiler.dev/schemas/theme.json",
+  "title": "Polyglot Compiler Color Theme",
+  "description": "Schema for a single .polytheme.json color theme file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "id", "type"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable theme name shown in the Theme Manager UI."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Unique reverse-DNS-style theme id, e.g. 'polyglot.dark-plus'."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["dark", "light", "high-contrast"],
+      "description": "Coarse category used for icon themes and OS-side hints."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?(-[A-Za-z0-9.-]+)?$",
+      "description": "Semantic version of this theme."
+    },
+    "author": {
+      "type": "string",
+      "description": "Author or organisation that maintains this theme."
+    },
+    "description": {
+      "type": "string",
+      "description": "Long-form description shown in the Theme Manager metadata pane."
+    },
+    "extends": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Optional parent theme id; inherited colors are applied first, then this theme's colors override them."
+    },
+    "qss": {
+      "type": "string",
+      "description": "Optional path (relative to the theme file) to a sibling Qt Style Sheet that further customises individual widgets."
+    },
+    "colors": {
+      "type": "object",
+      "description": "Workbench color tokens. Keys follow VS Code dotted naming. Values must be 6- or 8-digit hex colors with leading '#'.",
+      "patternProperties": {
+        "^[a-zA-Z][a-zA-Z0-9.]*$": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tokenColors": {
+      "type": "array",
+      "description": "Editor syntax tokens. Each entry maps one or more TextMate-style scopes to color/font settings.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope", "settings"],
+        "properties": {
+          "name": { "type": "string" },
+          "scope": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "foreground": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+              },
+              "background": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$"
+              },
+              "fontStyle": {
+                "type": "string",
+                "description": "Space-separated combination of: normal, bold, italic, underline."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

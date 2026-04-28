@@ -1448,6 +1448,7 @@ polyc [options] <input_file>
 | `--permissive` | Permissive mode: allow placeholder types (override Release default) |
 | `--progress=json` | Emit machine-readable JSON progress events to stdout (stage_start, stage_end, complete) |
 | `--clean-cache` | Purge the incremental compilation cache and exit |
+| `--dump-token-pool` | Write `<aux>/<stem>.pool_stats.json` with frontend token-pool counters (tokens, arena bytes, unique identifiers, intern hits/misses) |
 | `-h` / `--help` | Show usage information |
 
 > **Note:** Release builds default to strict mode (via `POLYC_DEFAULT_STRICT`).
@@ -1754,6 +1755,7 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | **Auto-indent** | Maintains indentation level on new lines |
 | **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
 | **Dark Theme** | Unified theme management via ThemeManager with 4 built-in colour schemes (Dark, Light, Monokai, Solarized Dark); all panels switch in unison |
+| **External Theme System** | VS Code-style external themes — `.polytheme.json` files (with optional sibling `.qss`) discovered from a 3-layer contract: built-in qrc (`:/polyglot/themes/`), user `~/.polyglot/themes/`, workspace `<ws>/.polyglot/themes/`. 5 built-in themes ship out of the box (`polyglot.dark`, `polyglot.light`, `polyglot.hc`, `solarized.light`, `solarized.dark`). Open the **Theme Manager** dialog with `Ctrl+K, Ctrl+T` (or *View → Theme Manager…*) to install / uninstall / preview / export themes. Developer commands: `workbench.action.selectTheme`, `workbench.action.openColorTheme`, `workbench.action.generateColorTheme`, `editor.action.inspectTMScopes`, `workbench.action.inspectColorTheme`. CLI flags: `--theme <id|path>`, `--list-themes`, `--validate-theme <path>`, `--headless --screenshot <out.png>`. See [Theme System](realization/theme_system.md) for the full spec |
 | **Compile & Run** | One-click compile and run (`Ctrl+R`) — automatically locates the output binary and launches it via QProcess with stdout/stderr streamed to the log panel; stop a running process with `Ctrl+Shift+R` |
 | **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage. Appearance page includes *Show Toolbar*, *Show Status Bar*, and *Show Explorer* toggles (all default to **on**) |
 | **Custom Keybindings** | Edit shortcuts in the Key Bindings settings page via QKeySequenceEdit; apply, reset per-action; custom shortcuts are persisted via QSettings and loaded at startup |
@@ -1913,9 +1915,8 @@ The IDE renders Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`) as for
 
 ### Settings (VS Code-style JSON)
 
-> Since demand **2026-04-27-4**, all preferences are stored in a single
-> JSON file — exactly like VS Code. The legacy `QSettings` storage is
-> auto-migrated on first launch.
+> All preferences are stored in a single JSON file — exactly like VS Code.
+> The legacy `QSettings` storage is auto-migrated on first launch.
 
 **Three layers, lowest priority first:**
 

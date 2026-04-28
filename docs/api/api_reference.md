@@ -273,6 +273,12 @@ public:
   virtual ~LexerBase() = default;
   virtual Token NextToken() = 0;
 
+  // Optional shared token-pool injection (see §3.5).  When attached, lexers
+  // may call EmitToken(t) from inside NextToken() to mirror every emitted
+  // token into the pool without changing their return type.
+  void SetTokenPool(SharedTokenPool *pool) noexcept;
+  SharedTokenPool *TokenPool() const noexcept;
+
   // Save/restore state for parser lookahead
   struct LexerState { size_t position, line, column; };
   LexerState SaveState() const;
@@ -280,6 +286,8 @@ public:
 
 protected:
   LexerBase(std::string source, std::string file);
+
+  Token EmitToken(Token t);   // mirrors to attached pool, returns t
 
   char Peek() const;       // Look at current character without advancing
   char PeekNext() const;   // Look at next character
@@ -326,6 +334,64 @@ public:
   Diagnostics&       Diags();
 };
 ```
+
+## 3.5 TokenPool, SharedTokenPool, StringArena, IdentifierTable
+
+**Header**: `frontends/common/include/token_pool.h`,
+`string_arena.h`, `identifier_table.h`
+
+Shared, arena-backed storage for tokens, lexemes, and identifier ids,
+used by every language frontend.
+
+```cpp
+using TokenHandle                                = std::uint32_t;
+inline constexpr TokenHandle kInvalidTokenHandle = 0xffffffffu;
+
+using SymbolId                              = std::uint32_t;
+inline constexpr SymbolId kInvalidSymbolId = 0xffffffffu;
+
+struct TokenPoolStats {
+  std::size_t tokens, arena_bytes, arena_capacity;
+  std::size_t unique_identifiers, intern_hits, intern_misses;
+};
+
+class TokenPool {
+public:
+  explicit TokenPool(std::size_t arena_chunk_bytes = 65536);
+  TokenHandle      Add(Token token);
+  const Token     &Get(TokenHandle handle) const;          // throws on invalid
+  std::string_view InternLexeme(std::string_view text);
+  SymbolId         InternIdentifier(std::string_view name);
+  SymbolId         FindIdentifier(std::string_view name) const;
+  std::string_view IdentifierName(SymbolId id) const;
+  Token            MakeToken(TokenKind kind, std::string_view lex,
+                             const core::SourceLoc &loc);
+
+  struct Snapshot { std::size_t token_count;
+                    StringArena::Mark arena_mark;
+                    IdentifierTable::Snapshot identifier_snapshot; };
+  Snapshot Save() const noexcept;
+  void     Restore(const Snapshot &snap);
+
+  void           Reset();      // alias: Clear()
+  TokenPoolStats Stats() const noexcept;
+};
+
+// Same API, plus shared_mutex and atomic helpers.
+class SharedTokenPool {
+public:
+  explicit SharedTokenPool(std::size_t arena_chunk_bytes = 65536);
+  // ... mirrors TokenPool ...
+  template <typename Fn> auto WithExclusive(Fn &&fn);
+  template <typename Fn> auto WithShared(Fn &&fn) const;
+};
+```
+
+`StringArena` is a chunked monotonic byte arena (default 64 KiB chunks,
+clamped to `[4 KiB, 16 MiB]`).  `IdentifierTable` is a FNV-1a +
+open-addressing dedup table backed by a caller-supplied arena.
+
+See `docs/realization/token_pool.md` for the full design rationale.
 
 ---
 
@@ -919,7 +985,7 @@ struct VerifyOptions {
     //   - Functions with I64 placeholder return types (is_placeholder flag).
     //   - "undef" operands in non-bridge-stub functions.
     // In the driver, this flag is set to true whenever --dev is NOT active
-    // (demand 2026-04-09-12: non-dev mode enforces -Werror-placeholder-ir).
+    // (non-dev mode enforces -Werror-placeholder-ir).
     bool strict{false};
 };
 ```
@@ -1192,3 +1258,115 @@ class SettingsPage : public QDialog {
 
 See `docs/realization/settings_system.md` for the layer model, JSON schema
 and migration table.
+
+---
+
+# 14. Theme System
+
+**Headers**:
+- `tools/ui/common/include/theme_service.h` — Qt singleton (`ThemeService::Instance()`)
+- `tools/ui/common/include/theme_manager_view.h` — graphical Theme Manager dialog
+- `tools/ui/common/include/theme_manager.h` — legacy palette/QSS provider (composed under)
+
+**Library**: `polyglot_polyui_common` (shared; PUBLIC-links Qt6::Widgets, Qt6::Network, `polyglot_tools_settings`).
+
+**Resources**: `:/polyglot/themes/theme_schema.json`, `:/polyglot/themes/<id>.polytheme.json` for the 5 built-in themes.
+
+## 14.1 ThemeMeta / ThemeDiagnostic
+
+**Namespace**: `polyglot::tools::ui`
+
+```cpp
+struct ThemeMeta {
+  QString id;            // reverse-DNS id, e.g. "polyglot.dark"
+  QString name;          // human-readable display name
+  QString type;          // "dark" | "light" | "high-contrast"
+  QString version;       // semver
+  QString author;
+  QString description;
+  QString source_path;   // absolute path or qrc URI
+  QString layer;         // "builtin" | "user" | "workspace"
+  QString extends;       // parent theme id (may be empty)
+  QString qss;           // optional sibling .qss content
+};
+
+struct ThemeDiagnostic {
+  QString file;
+  QString message;
+  bool    is_error{true};
+};
+```
+
+## 14.2 ThemeService
+
+```cpp
+class ThemeService : public QObject {
+  Q_OBJECT
+ public:
+  static ThemeService& Instance();
+
+  void Scan();                                            // discover all 3 layers
+  void SetWorkspaceRoot(const QString& root);
+
+  std::vector<ThemeMeta> Themes() const;
+  const ThemeMeta*       FindById(const QString& id) const;
+  const ThemeMeta*       CurrentTheme() const;
+
+  bool Activate(const QString& theme_id);
+  bool ValidateFile (const QString& path,      QStringList* errors = nullptr) const;
+  bool ValidateString(const QString& json_text, QStringList* errors = nullptr) const;
+
+  bool    ExportToFile  (const QString& theme_id, const QString& out_path,
+                         QString* error = nullptr) const;
+  QString InstallFromFile(const QString& source_path, QString* error = nullptr);
+  bool    Uninstall      (const QString& theme_id,    QString* error = nullptr);
+
+  QString ResolveColor     (const QString& key)   const; // e.g. "editor.background"
+  QString ResolveTokenColor(const QString& scope) const; // e.g. "keyword.control"
+
+  std::vector<ThemeDiagnostic> LastDiagnostics() const;
+  QString UserThemesDir()      const;
+  QString WorkspaceThemesDir() const;
+  QString SchemaJson()         const;
+
+ signals:
+  void themeChanged(const QString& theme_id);
+  void themesScanned();
+  void themeError(const QString& message);
+};
+```
+
+**Discovery layers** (later wins):
+
+| Layer | Path |
+|-------|------|
+| builtin | `:/polyglot/themes/*.polytheme.json` (qrc) |
+| user | `~/.polyglot/themes/*.polytheme.json` |
+| workspace | `<workspace>/.polyglot/themes/*.polytheme.json` |
+
+**Hot reload**: Both user and workspace directories are watched via `QFileSystemWatcher`; rescans are debounced (500 ms) and emit `themesScanned`.
+
+## 14.3 ThemeManagerView
+
+```cpp
+class ThemeManagerView : public QDialog {
+  Q_OBJECT
+ public:
+  explicit ThemeManagerView(QWidget* parent = nullptr);
+};
+```
+
+A 3-column dialog (theme list / preview / token colors) that wraps every public `ThemeService` method behind buttons (Install…, Uninstall, Export…, Reload, Activate). Opened via *View → Theme Manager…* (`Ctrl+K, Ctrl+T`) or by command IDs `workbench.action.selectTheme` / `workbench.action.openColorTheme`.
+
+## 14.4 polyui CLI
+
+| Flag | Effect |
+|------|--------|
+| `--theme <id|path>` | Activate the given theme by id, or install + activate a `.polytheme.json` path |
+| `--list-themes` | Print every discovered theme to stdout (`id\tname\ttype\tlayer\tsource`) and exit 0 |
+| `--validate-theme <path>` | Validate a `.polytheme.json` and print a JSON `{file, valid, errors[]}` report; exit 0 if valid |
+| `--headless` | Use the offscreen QPA platform (CI-friendly) |
+| `--screenshot <out.png>` | Render the main window once, save a PNG and exit |
+
+See `docs/realization/theme_system.md` for the file format, JSON schema, 5 built-in themes, developer commands and authoring workflow.
+

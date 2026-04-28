@@ -19,6 +19,8 @@
 
 namespace polyglot::frontends {
 
+class SharedTokenPool; // forward decl — see token_pool.h
+
 /** @brief Preprocessor class. */
 class Preprocessor {
 public:
@@ -46,6 +48,13 @@ public:
   // Custom file loader hook for testing or virtual FS.
   void SetFileLoader(std::function<std::optional<std::string>(const std::string &)> loader);
 
+  /// Optionally attach a shared token pool.  When attached, every macro name
+  /// passed to @c Define/@c DefineFunction is also interned into the pool's
+  /// identifier table, and macro bodies are mirrored into the pool's arena
+  /// so downstream lexers can compare against canonicalised text views.
+  void SetTokenPool(SharedTokenPool *pool) noexcept { token_pool_ = pool; }
+  SharedTokenPool *TokenPool() const noexcept { return token_pool_; }
+
   // Expand macros in-place (no directive handling). Mostly internal but exposed for tests.
   std::string Expand(const std::string &source);
   // Full preprocessing with directives. "file" is used for #line bookkeeping and relative
@@ -72,6 +81,7 @@ private:
   std::function<std::optional<std::string>(const std::string &)> file_loader_;
   std::unordered_set<std::string> pragma_once_files_{};
   std::unordered_map<std::string, std::string> guard_to_file_{};
+  SharedTokenPool *token_pool_{nullptr};
 };
 
 } // namespace polyglot::frontends

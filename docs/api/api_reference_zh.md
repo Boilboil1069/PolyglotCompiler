@@ -46,7 +46,7 @@ enum class TypeKind {
   kModule,         // 模块类型
   kAny,            // 动态 / any 类型（显式声明的通配符类型）
   kUnknown,        // 跨语言边界处的未解析类型 — 在严格模式下触发编译错误；
-                   // 需要显式类型注解或 MAP_TYPE（需求 2026-04-09-12）
+                   // 需要显式类型注解或 MAP_TYPE
   kStruct,         // 结构体类型
   kUnion,          // 联合体类型
   kEnum,           // 枚举类型
@@ -273,6 +273,12 @@ public:
   virtual ~LexerBase() = default;
   virtual Token NextToken() = 0;
 
+  // 可选的共享 TokenPool 注入（见 §3.5）。挂接后，词法器可在
+  // NextToken() 内部调用 EmitToken(t) 把每个发出的 token 镜像到池中，
+  // 不需要修改返回类型。
+  void SetTokenPool(SharedTokenPool *pool) noexcept;
+  SharedTokenPool *TokenPool() const noexcept;
+
   // 保存/恢复状态用于解析器前瞻
   struct LexerState { size_t position, line, column; };
   LexerState SaveState() const;
@@ -280,6 +286,8 @@ public:
 
 protected:
   LexerBase(std::string source, std::string file);
+
+  Token EmitToken(Token t);   // 镜像写入挂接的池后原样返回 t
 
   char Peek() const;       // 查看当前字符但不推进
   char PeekNext() const;   // 查看下一个字符
@@ -326,6 +334,60 @@ public:
   Diagnostics&       Diags();    // 诊断信息访问
 };
 ```
+
+## 3.5 TokenPool / SharedTokenPool / StringArena / IdentifierTable
+
+**头文件**：`frontends/common/include/token_pool.h`、
+`string_arena.h`、`identifier_table.h`
+
+为所有语言前端共享的、基于竞技场的 token / lexeme / 标识符 id 存储。
+
+```cpp
+using TokenHandle                                = std::uint32_t;
+inline constexpr TokenHandle kInvalidTokenHandle = 0xffffffffu;
+
+using SymbolId                              = std::uint32_t;
+inline constexpr SymbolId kInvalidSymbolId = 0xffffffffu;
+
+struct TokenPoolStats {
+  std::size_t tokens, arena_bytes, arena_capacity;
+  std::size_t unique_identifiers, intern_hits, intern_misses;
+};
+
+class TokenPool {
+public:
+  explicit TokenPool(std::size_t arena_chunk_bytes = 65536);
+  TokenHandle      Add(Token token);
+  const Token     &Get(TokenHandle handle) const;          // 越界抛 std::out_of_range
+  std::string_view InternLexeme(std::string_view text);
+  SymbolId         InternIdentifier(std::string_view name);
+  SymbolId         FindIdentifier(std::string_view name) const;
+  std::string_view IdentifierName(SymbolId id) const;
+  Token            MakeToken(TokenKind kind, std::string_view lex,
+                             const core::SourceLoc &loc);
+
+  struct Snapshot { /* token_count, arena_mark, identifier_snapshot */ };
+  Snapshot Save() const noexcept;
+  void     Restore(const Snapshot &snap);
+
+  void           Reset();      // 别名：Clear()
+  TokenPoolStats Stats() const noexcept;
+};
+
+// 同样的接口，再加 shared_mutex 保护与原子 Helper。
+class SharedTokenPool {
+public:
+  explicit SharedTokenPool(std::size_t arena_chunk_bytes = 65536);
+  template <typename Fn> auto WithExclusive(Fn &&fn);
+  template <typename Fn> auto WithShared(Fn &&fn) const;
+};
+```
+
+`StringArena` 是分块单调字节竞技场（默认块 64 KiB，强制夹紧到
+`[4 KiB, 16 MiB]`）。`IdentifierTable` 基于 FNV-1a + 开放寻址，由调用方
+提供其底层 arena。
+
+完整设计说明见 `docs/realization/token_pool_zh.md`。
 
 ---
 
@@ -924,7 +986,7 @@ struct VerifyOptions {
     //   - 返回类型为 I64 占位符（is_placeholder 标志）的函数。
     //   - 非桥接存根函数中的 "undef" 操作数。
     // 在驱动程序中，只要 --dev 未激活，该标志就会被设置为 true
-    // （需求 2026-04-09-12：非开发模式下强制执行 -Werror-placeholder-ir）。
+    // （非开发模式下强制执行 -Werror-placeholder-ir）。
     bool strict{false};
 };
 ```
@@ -1043,7 +1105,7 @@ struct SourceLoc {
 
 ---
 
-# 13. 设置系统（需求 2026-04-27-4）
+# 13. 设置系统
 
 **头文件**：
 - `tools/common/include/effective_settings_loader.h` — 纯 C++ 共享加载器（CLI + UI 共用）
@@ -1057,3 +1119,92 @@ struct SourceLoc {
 
 完整 API 签名与英文版一致，请参见 `api_reference.md` 第 13 章；
 三层模型、Schema 字段表与迁移规则见 `docs/realization/settings_system_zh.md`。
+
+---
+
+# 14. 主题系统
+
+**头文件**：
+- `tools/ui/common/include/theme_service.h` — Qt 单例（`ThemeService::Instance()`）
+- `tools/ui/common/include/theme_manager_view.h` — 图形化「主题管理器」对话框
+- `tools/ui/common/include/theme_manager.h` — 既有的调色板 / QSS 提供者（被组合在下层）
+
+**库**：`polyglot_polyui_common`（共享库，`PUBLIC` 链接 Qt6::Widgets、Qt6::Network、`polyglot_tools_settings`）。
+
+**资源**：`:/polyglot/themes/theme_schema.json`、5 套内置 `:/polyglot/themes/<id>.polytheme.json`。
+
+## 14.1 ThemeMeta / ThemeDiagnostic
+
+**命名空间**：`polyglot::tools::ui`
+
+```cpp
+struct ThemeMeta {
+  QString id;            // 反向 DNS 形式 id，如 "polyglot.dark"
+  QString name;          // 人类可读显示名
+  QString type;          // "dark" | "light" | "high-contrast"
+  QString version;       // semver
+  QString author;
+  QString description;
+  QString source_path;   // 绝对路径或 qrc URI
+  QString layer;         // "builtin" | "user" | "workspace"
+  QString extends;       // 父主题 id（可空）
+  QString qss;           // 同名 .qss 兜底内容（可空）
+};
+
+struct ThemeDiagnostic {
+  QString file;
+  QString message;
+  bool    is_error{true};
+};
+```
+
+## 14.2 ThemeService
+
+完整 API 签名与英文版一致，请参见 `api_reference.md` 第 14.2 节；以下列出关键方法：
+
+| 方法 | 说明 |
+|------|------|
+| `Scan()` | 扫描三层目录并注册全部合法主题（幂等） |
+| `Themes()` / `FindById()` / `CurrentTheme()` | 查询全部主题 / 按 id 查 / 当前激活项 |
+| `Activate(id)` | 激活某主题，写入 `workbench.colorTheme`，发出 `themeChanged` |
+| `ValidateFile()` / `ValidateString()` | 按内嵌 JSON Schema 校验 |
+| `ExportToFile()` | 将主题导出为规范化 `.polytheme.json` |
+| `InstallFromFile()` / `Uninstall()` | 安装到用户层 / 卸载用户层主题（内置不可卸载） |
+| `ResolveColor(key)` | 解析扁平 UI 配色键，如 `"editor.background"` |
+| `ResolveTokenColor(scope)` | 按点分作用域逐级回退解析 token 颜色 |
+
+**信号**：`themeChanged(QString)`、`themesScanned()`、`themeError(QString)`。
+
+**发现层级**（后者覆盖前者）：
+
+| 层级 | 路径 |
+|------|------|
+| builtin | `:/polyglot/themes/*.polytheme.json`（qrc） |
+| user | `~/.polyglot/themes/*.polytheme.json` |
+| workspace | `<workspace>/.polyglot/themes/*.polytheme.json` |
+
+**热重载**：用户与工作区目录均通过 `QFileSystemWatcher` 监听，500 ms 防抖后重扫并发出 `themesScanned`。
+
+## 14.3 ThemeManagerView
+
+```cpp
+class ThemeManagerView : public QDialog {
+  Q_OBJECT
+ public:
+  explicit ThemeManagerView(QWidget* parent = nullptr);
+};
+```
+
+3 列对话框（主题列表 / 预览 / token 颜色），将 `ThemeService` 的全部公共方法封装为按钮（安装… / 卸载 / 导出… / 重新扫描 / 激活）。通过 *视图 → 主题管理器…*（`Ctrl+K, Ctrl+T`）或命令 `workbench.action.selectTheme` / `workbench.action.openColorTheme` 打开。
+
+## 14.4 polyui 命令行
+
+| 参数 | 作用 |
+|------|------|
+| `--theme <id|路径>` | 按 id 激活，或安装并激活给定 `.polytheme.json` 文件 |
+| `--list-themes` | 输出全部已发现主题（`id\t名称\t类型\t层\t路径`），退出码 0 |
+| `--validate-theme <路径>` | 校验 `.polytheme.json` 并输出 `{file, valid, errors[]}` JSON 报告，合法时退出码 0 |
+| `--headless` | 使用 offscreen QPA 平台（适合 CI） |
+| `--screenshot <out.png>` | 渲染主窗口一次，保存 PNG 后退出 |
+
+文件格式、JSON Schema、5 套内置主题、开发者命令与作者工作流详见 `docs/realization/theme_system_zh.md`。

@@ -10,7 +10,7 @@
 6.不允许删库操作；
 7.每次修改后都要检查是否需要修改文档，如有需要请修改相关的所有文档；
 8.每次完成需求后要增加完成标记；
-9.根据修改判断版本号的变化；
+9.根据修改判断版本号的变化，对版本的修改在项目最原始目录的cmakelist中实现；
 10.所有生成的注释与文档中不要出现与该文档相关的内容；
 
 日期次数分割线示例如下：
@@ -1621,7 +1621,7 @@ Error: Process completed with exit code 1.
    - 完成后在本条目末尾追加 `--end -done`；
    - 因引入 ploy 新语法、CLI 新选项与新工具 `polyver`，版本号建议从 `1.0.0` 升级为 `1.1.0`（次版本号 +1，向后兼容）。
 
---end
+--end -done
 
 2026-04-27-4
 
@@ -1831,7 +1831,7 @@ Error: Process completed with exit code 1.
    - 完成后在本条目末尾追加 `--end -done`；
    - 与 2026-04-27-4 同属设置/外观体系扩展，建议在同一发布周期内合并发布；版本号在 2026-04-27-4 的基础上由 `1.2.0 → 1.3.0`（次版本号 +1，向后兼容）。
 
---end
+--end -done
 
 2026-04-28-1
 
@@ -1930,7 +1930,7 @@ Error: Process completed with exit code 1.
    - 完成后在本条目末尾追加 `--end -done`；
    - 因引入新的公共类型 (`TokenHandle` / `SymbolId` / `SharedTokenPool` / `StringArena` / `IdentifierTable`) 与 `Token::lexeme` 类型变更（`std::string` → `string_view`，对前端是不兼容修改，对外只是 ABI 内部细节），视作内部 API 重构而非用户面向变更；建议版本号在 `1.2.0 → 1.2.1`（patch 级；若与 2026-04-27-5 同发布周期合并，则统一为 `1.3.1`）。
 
---end
+--end -done
 
 2026-04-28-2
 

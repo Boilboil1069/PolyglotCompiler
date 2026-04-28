@@ -150,6 +150,13 @@ struct DriverSettings {
   // Progress output
   bool progress_json{false}; // --progress=json: emit machine-readable events
 
+  // ----- Token pool (shared frontend lexeme/identifier interning) ---------
+  // See docs/realization/token_pool.md.  When dump_token_pool is true the
+  // driver writes <stem>.pool_stats.json next to the aux artefacts.
+  bool        dump_token_pool{false};        // --dump-token-pool
+  bool        token_pool_shared{true};       // settings: frontend.tokenPool.shared
+  std::size_t token_pool_arena_chunk_bytes{0}; // 0 = use library default (64 KiB)
+
   // Incremental compilation cache
   bool clean_cache{false}; // --clean-cache: purge incremental cache
 
@@ -228,6 +235,10 @@ struct FrontendResult {
   // Aux artefacts
   std::string token_dump; // raw token listing for aux file
   std::string ast_dump;   // AST summary for aux file
+
+  // Token-pool diagnostics: serialised JSON dumped by stage_packaging when
+  // DriverSettings::dump_token_pool is true.  Empty otherwise.
+  std::string token_pool_stats_json;
 
   // Package discovery cache (built during package-index phase)
   std::shared_ptr<ploy::PackageDiscoveryCache> pkg_cache;

@@ -842,7 +842,8 @@ PGOOptimizer::OptimizationReport PGOOptimizer::GenerateReport() const {
   }
 
   report.estimated_speedup_percent =
-      total_benefit / std::max<double>(1.0, profile_.GetTotalInvocationCount()) * 100.0;
+      total_benefit /
+      std::max<double>(1.0, static_cast<double>(profile_.GetTotalInvocationCount())) * 100.0;
 
   return report;
 }

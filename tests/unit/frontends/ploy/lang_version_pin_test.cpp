@@ -114,6 +114,7 @@ TEST_CASE("LANG pragma stamps version on subsequent cross-lang calls",
     const std::string code = R"PLOY(
 LANG python = "3.11";
 
+LINK(python, ploy, math::sqrt, host_sqrt);
 CALL(python, math::sqrt, 4.0);
 )PLOY";
     auto r = RunPipeline(code);
@@ -132,6 +133,8 @@ TEST_CASE("LANG pragma only affects matching language",
     const std::string code = R"PLOY(
 LANG python = "3.11";
 
+LINK(cpp, ploy, compute, host_compute);
+LINK(python, ploy, len, host_len);
 CALL(cpp, compute, 1);
 CALL(python, len, "abc");
 )PLOY";
@@ -157,6 +160,9 @@ CALL(python, len, "abc");
 TEST_CASE("WITH LANG block scopes pins to body only",
           "[ploy][lang][pin][with]") {
     const std::string code = R"PLOY(
+LINK(python, ploy, math::sqrt, host_sqrt);
+LINK(cpp, ploy, std::abs, host_abs);
+LINK(python, ploy, len, host_len);
 WITH LANG (python="3.12", cpp="c++23") {
     CALL(python, math::sqrt, 4.0);
     CALL(cpp, std::abs, -1);
@@ -182,6 +188,9 @@ TEST_CASE("WITH LANG inner block shadows outer pragma",
     const std::string code = R"PLOY(
 LANG python = "3.11";
 
+LINK(python, ploy, before, host_before);
+LINK(python, ploy, inside, host_inside);
+LINK(python, ploy, after, host_after);
 CALL(python, before, 1);
 WITH LANG (python="3.12") {
     CALL(python, inside, 2);
@@ -209,6 +218,9 @@ TEST_CASE("@LANG annotation pins exactly one statement",
     const std::string code = R"PLOY(
 LANG python = "3.11";
 
+LINK(python, ploy, first, host_first);
+LINK(python, ploy, annotated, host_annotated);
+LINK(python, ploy, third, host_third);
 CALL(python, first, 1);
 @LANG (python="3.12")
 CALL(python, annotated, 2);
@@ -235,10 +247,12 @@ TEST_CASE("Lowering propagates AST pin into CrossLangCallDescriptor::lang_versio
     const std::string code = R"PLOY(
 LANG python = "3.11";
 
+LINK(python, ploy, math::sqrt, host_sqrt);
+@LANG (python="3.12")
+LINK(python, ploy, len, host_len);
 CALL(python, math::sqrt, 4.0);
-WITH LANG (python="3.12") {
-    CALL(python, len, "abc");
-}
+@LANG (python="3.12")
+CALL(python, len, "abc");
 )PLOY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
@@ -249,13 +263,15 @@ WITH LANG (python="3.12") {
     REQUIRE(lowering.Lower(r->module));
 
     const auto &descs = lowering.CallDescriptors();
-    // Find the two cross-language CALL descriptors (filter out internal
-    // bridge stubs by matching source_language=="python").
+    // Each LINK becomes one bridge descriptor; the per-LINK pin must reach
+    // CrossLangCallDescriptor::lang_version so the linker can emit the
+    // correct ABI shim for that exact version.
     std::vector<CrossLangCallDescriptor> py_calls;
     for (const auto &d : descs) {
         if (d.source_language == "python") py_calls.push_back(d);
     }
     REQUIRE(py_calls.size() == 2);
+    // Order is source order: math::sqrt LINK is first (3.11), len is second (3.12).
     CHECK(py_calls[0].lang_version == "3.11");
     CHECK(py_calls[1].lang_version == "3.12");
 }

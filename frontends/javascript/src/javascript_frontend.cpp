@@ -157,7 +157,7 @@ frontends::FrontendResult JsLanguageFrontend::Lower(
 }
 
 // ============================================================================
-// ExtractSignatures â€?JSDoc-driven, with conservative inference.
+// ExtractSignatures â€”JSDoc-driven, with conservative inference.
 // ============================================================================
 
 namespace {
