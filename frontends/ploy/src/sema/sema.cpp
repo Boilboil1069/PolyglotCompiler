@@ -73,6 +73,13 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
     AnalyzeMatchStatement(match_stmt);
   } else if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
     AnalyzeReturnStatement(ret);
+  } else if (auto println = std::dynamic_pointer_cast<PrintlnStmt>(stmt)) {
+    // PRINTLN "literal";  — Stage B2 of the runtime-stdout pipeline.
+    // The parser already guarantees that `message` came from a well-formed
+    // string literal, so there is nothing to validate semantically. An empty
+    // message is intentionally allowed (it lowers to a zero-byte WriteFile
+    // call once B3/B4 land). Suppress unused-variable warnings explicitly.
+    (void) println;
   } else if (auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
     if (expr_stmt->expr) {
       AnalyzeExpression(expr_stmt->expr);

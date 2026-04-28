@@ -2614,7 +2614,7 @@ done (74.8ms)
 6. 版本：根 `CMakeLists.txt` patch 递进（语法兼容增强，无破坏）。
    完成后追加 `--end -done`。规则 2 / 3 / 10 全部生效。
 
---end
+--end -done
 
 
 2026-04-28-7
@@ -3913,5 +3913,55 @@ done (74.8ms)
    - `CHANGELOG_zh.md` + `CHANGELOG_en.md` 追加 1.5.0 章节，列出 41~48 全部对外可见变化（不出现需求管理过程相关字样）。
 
 6. 版本：`1.5.0-pre.7` → `1.5.0`（正式发布）；同步 `VERSION.txt`、`tools/*/CMakeLists.txt` 的版本宏（如有）、安装包脚本 `scripts/package_*.{ps1,sh}` 内嵌版本（如有）。完成后追加 `--end -done`。
+
+--end
+
+2026-04-28-49
+
+为支撑后续样例集（demand-04）真正可在 Windows 宿主上做 stdout 字节级比对，
+需要把 .ploy 源文件与产出 .exe 之间的运行时-IO 通路打通。该工作横跨
+front end / IR / backend / linker / runtime 五层，无法在单条 demand 内一次落地，
+现拆分为以下 8 个有界阶段（B1..B8）逐次推进，每阶段独立完成、独立通过回归、
+独立追加 --end -done：
+
+- **B1（已完成 v1.5.1）**：pe_writer 支持 `.rdata` 节 + 多 import；新增工厂
+  `BuildHelloWorldPE(message)` 产出可直接打印消息并 `ExitProcess(0)` 的
+  PE32+；单元 4 case + 集成 1 case 全绿。
+- **B2**：`.ploy` 顶层语句新增 `PRINTLN "literal";`（lexer / parser /
+  sema / AST round-trip 测试）。
+- **B3**：middle IR 新增 `kCallRuntime` opcode + 字符串字面量到 `.rdata`
+  的 lowering；IR-printer 测试。
+- **B4**：x86_64 backend 把 `kCallRuntime` 译成
+  `lea rcx,[rip+disp]; mov rdx,len; call qword ptr [iat]` 字节序列；
+  obj 字节级比对测试。
+- **B5**：polyld 把用户 `.text` 真实拼到 PE，合成 `_start` 入口
+  （call user_main → ExitProcess(0)），重定位 `.rdata` 与 IAT 引用；
+  端到端 smoke：用 .ploy 写 PRINTLN 程序跑通。
+- **B6**：现有 16 个旧样例每个补一条 PRINTLN 给出真实可验证输出
+  + `README_zh.md` + `expected_output.txt`；`build_all_samples.ps1` 雏形通过。
+- **B7**：14 个新样例（`17_..30_`）按 demand-04 主题逐一补齐。
+- **B8**：`scripts/build_all_samples.{ps1,sh}` + `samples_regression_test.cpp`
+  + USER_GUIDE / README / CHANGELOG 双语收口 + 版本跃迁
+  （patch 累积后跃 minor）+ 在 demand-04 与 demand-49 末尾同时追加
+  `--end -done`。
+
+约束：
+- 每个阶段都必须是真实实现，不允许占位（顶端规则 3）。
+- 阶段间不得破坏现有测试套；每阶段完成时 `test_linker / integration_tests
+  / test_e2e` 必须保持全绿。
+- 所有新增源代码注释一律英文（顶端规则 2）；新增文档双语成对（顶端规则 5）。
+- 新增源文件 / 文档不得出现与本条目自身相关的字样（顶端规则 10）。
+- 阶段完成在本条目对应 `Bx` 行末标注 `[done]`；8 个阶段全部 `[done]`
+  时在条目末尾追加 `--end -done`。
+
+阶段进度：
+- B1 [done]
+- B2 [done]
+- B3 [done]
+- B4
+- B5
+- B6
+- B7
+- B8
 
 --end

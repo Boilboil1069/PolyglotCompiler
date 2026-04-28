@@ -22,12 +22,12 @@
 
 | Language | Frontend | File Extensions | Versions | Status |
 |----------|----------|-----------------|----------|--------|
-| C++ | `frontend_cpp` | `.cpp`, `.cxx`, `.cc`, `.h`, `.hpp` | C++11–C++23 | ✅ |
-| Python | `frontend_python` | `.py`, `.pyi` | 3.8+ | ✅ |
-| Rust | `frontend_rust` | `.rs` | 2018/2021 edition | ✅ |
-| Java | `frontend_java` | `.java` | 8, 17, 21, 23 | ✅ |
-| C# (.NET) | `frontend_dotnet` | `.cs`, `.vb` | .NET 6, 7, 8, 9 | ✅ |
-| .ploy | `frontend_ploy` | `.ploy` | 1.0 | ✅ |
+| C++ | `frontend_cpp` | `.cpp`, `.cxx`, `.cc`, `.h`, `.hpp` | C++11–C++23 | �?|
+| Python | `frontend_python` | `.py`, `.pyi` | 3.8+ | �?|
+| Rust | `frontend_rust` | `.rs` | 2018/2021 edition | �?|
+| Java | `frontend_java` | `.java` | 8, 17, 21, 23 | �?|
+| C# (.NET) | `frontend_dotnet` | `.cs`, `.vb` | .NET 6, 7, 8, 9 | �?|
+| .ploy | `frontend_ploy` | `.ploy` | 1.0 | �?|
 
 ## 1.2 Detection Rules
 
@@ -52,25 +52,52 @@ Manual override: `polyc --lang=<language> input_file`
 
 `.ploy` is a domain-specific language for expressing cross-language function-level linking, object-oriented interop, type mapping, and pipeline orchestration between heterogeneous source languages.
 
-## 2.2 Keywords (54 total)
+## 2.2 Keywords (57 total — case-insensitive)
+
+Since `Ploy 1.5.2`, all reserved words are recognised **case-insensitively**.
+The lexer normalises every keyword to its canonical UPPER-case spelling
+before passing it to the parser, while the original source spelling is
+retained on the token (`Token::raw_lexeme`) so that diagnostics and
+source-faithful formatters keep printing what the user actually typed.
+Identifiers remain *case-sensitive* — only the keyword set is folded.
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
-FUNC        LET         VAR         RETURN      IF
-ELSE        WHILE       FOR         IN          MATCH
-CASE        DEFAULT     BREAK       CONTINUE    AS
-TRUE        FALSE       NULL        AND         OR
-NOT         CALL        VOID        INT         FLOAT
-STRING      BOOL        ARRAY       STRUCT      PACKAGE
-LIST        TUPLE       DICT        OPTION      MAP_FUNC
-CONVERT     CONFIG      VENV        CONDA       UV
-PIPENV      POETRY      NEW         METHOD      GET
-SET         WITH        DELETE      EXTEND
+FUNC        LET         VAR         RETURN      RETURNS*
+IF          ELSE        WHILE       FOR         IN
+MATCH       CASE        DEFAULT     BREAK       CONTINUE
+AS          TRUE        FALSE       NULL        AND
+OR          NOT         CALL        VOID        INT
+FLOAT       STRING      BOOL        ARRAY       STRUCT
+PACKAGE     LIST        TUPLE       DICT        OPTION
+MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
+UV          PIPENV      POETRY      NEW         METHOD
+GET         SET         WITH        DELETE      EXTEND
+LANG        PRINTLN
 ```
+
+`*` `RETURNS` is **deprecated** since `Ploy 1.5.2`.  The legacy
+`LINK(...) RETURNS Type { ... }` syntax is still parsed and still produces
+the same AST, but the parser emits a `kDeprecatedKeyword` warning that
+echoes the user's source spelling.  New code should declare the return
+type via the canonical `-> Type` arrow on the LINK signature instead.
+
+> **Casing recommendation.**  All examples in this document use UPPER-case
+> for keywords purely for legibility.  New `.ploy` programs are encouraged
+> to follow the canonical lower-case convention common to general-purpose
+> programming languages �?`link`, `func`, `var`, `return`, `if`, `else` �?
+> which the lexer accepts identically.  Mixed-case spellings such as
+> `If` / `Func` are also accepted but discouraged for consistency.
+
+> **Identifier collisions.**  Because keyword recognition is now case
+> -insensitive, identifiers that previously differed from a keyword only
+> by case (`config`, `array`, `get`, `set`, `pipeline`, `new`, �? are now
+> reserved.  Migrate such identifiers to non-keyword names (for example
+> `app_config`, `np_array`, `getter`).
 
 ## 2.3 Declarations
 
-### LINK — Cross-Language Function Linking
+### LINK �?Cross-Language Function Linking
 
 ```ploy
 LINK <target_lang>::<module>::<function> AS FUNC(<param_types>) -> <return_type>;
@@ -82,13 +109,13 @@ LINK cpp::math::add AS FUNC(INT, INT) -> INT;
 LINK python::utils::format_string AS FUNC(STRING) -> STRING;
 ```
 
-### IMPORT — Module Import
+### IMPORT �?Module Import
 
 ```ploy
 IMPORT <language> MODULE <module_path>;
 ```
 
-### IMPORT PACKAGE — Package Import with Version Constraints
+### IMPORT PACKAGE �?Package Import with Version Constraints
 
 ```ploy
 IMPORT <language> PACKAGE <package_name>;
@@ -98,20 +125,20 @@ IMPORT <language> PACKAGE <package_name>::(<symbol1>, <symbol2>) >= <version>;
 
 **Version operators**: `>=`, `<=`, `>`, `<`, `==`, `!=`
 
-### EXPORT — Symbol Export
+### EXPORT �?Symbol Export
 
 ```ploy
 EXPORT <symbol_name>;
 EXPORT <symbol_name> AS <alias>;
 ```
 
-### MAP_TYPE — Cross-Language Type Mapping
+### MAP_TYPE �?Cross-Language Type Mapping
 
 ```ploy
 MAP_TYPE <ploy_type> = <lang>::<type_name>;
 ```
 
-### CONFIG — Package Manager Configuration
+### CONFIG �?Package Manager Configuration
 
 ```ploy
 CONFIG VENV "<path>";
@@ -242,13 +269,46 @@ PIPELINE <name> {
 |----------|----------|
 | Arithmetic | `+`, `-`, `*`, `/`, `%` |
 | Comparison | `==`, `!=`, `<`, `>`, `<=`, `>=` |
-| Logical | `AND`, `OR`, `NOT` |
+| Logical | `&&`, `\|\|`, `!` (preferred) �?`AND`, `OR`, `NOT` (alias since 1.5.1) |
 | Assignment | `=` |
 | Member Access | `.`, `::` |
+
+> **Logical operator aliases (Ploy 1.5.2+).**  The keyword forms `AND`,
+> `OR`, `NOT` are accepted as exact aliases of the symbolic `&&`, `||`,
+> `!` operators and produce identical AST nodes.  Both forms are
+> permanent, but the symbolic spellings are preferred for new code so
+> that source files mix more naturally with the C/C++/Rust/JavaScript
+> idioms used by the cross-language ecosystem this language targets.
 
 ## 2.11 Statement Termination
 
 All statements are terminated with a semicolon (`;`).
+
+## 2.12 PRINTLN — Standard-Output Statement (since `Ploy 1.5.3`)
+
+```
+PRINTLN STRING_LITERAL ';'
+```
+
+`PRINTLN` writes a single string literal to the host process's standard
+output stream. It is intentionally minimal: only one literal is accepted —
+no expressions, no concatenation, no formatting placeholders. Richer
+forms will be added once the runtime-IO pipeline (demand `2026-04-28-49`)
+reaches its later stages.
+
+Semantics:
+
+- The literal's content is taken **verbatim** between the quotes; no line
+  terminator is appended automatically. To emit a CRLF, write the escapes
+  inside the source: `PRINTLN "Hello\r\n";`.
+- Backslash escape sequences (`\r`, `\n`, `\t`, `\\`, `\"`, …) are *not*
+  decoded by the front-end. The decoded byte sequence is produced by the
+  codegen stage, ensuring a single canonical interpretation across the
+  interpreter, IR text round-trip and the emitted `.rdata` payload.
+- Empty literals (`PRINTLN "";`) are legal and emit zero bytes.
+
+The `PRINTLN` keyword obeys the same case-insensitive rule as every other
+Ploy keyword (`println`, `Println`, `PRINTLN` are equivalent).
 
 ---
 
@@ -273,7 +333,7 @@ The IR uses a low-level type system independent of source languages:
 | `[N x T]` | N × sizeof(T) | Fixed-size array |
 | `<N x T>` | N × sizeof(T) | SIMD vector |
 | `{T1, T2, ...}` | sum of fields | Struct type |
-| `fn(T1, T2) -> R` | — | Function type |
+| `fn(T1, T2) -> R` | �?| Function type |
 
 ## 3.2 Instructions
 
@@ -376,13 +436,13 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 ## 4.2 Calling Convention Table
 
-| Source → Target | Convention | Bridge |
+| Source �?Target | Convention | Bridge |
 |----------------|------------|--------|
-| .ploy → C++ | cdecl | Direct FFI |
-| .ploy → Python | CPython C API | `__ploy_python_*` runtime |
-| .ploy → Rust | Rust ABI (extern "C") | Direct FFI |
-| .ploy → Java | JNI | `__ploy_java_*` runtime |
-| .ploy → .NET | CoreCLR Hosting | `__ploy_dotnet_*` runtime |
+| .ploy �?C++ | cdecl | Direct FFI |
+| .ploy �?Python | CPython C API | `__ploy_python_*` runtime |
+| .ploy �?Rust | Rust ABI (extern "C") | Direct FFI |
+| .ploy �?Java | JNI | `__ploy_java_*` runtime |
+| .ploy �?.NET | CoreCLR Hosting | `__ploy_dotnet_*` runtime |
 
 ## 4.3 Runtime Bridge Functions
 
@@ -401,19 +461,19 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 ## 5.1 Primitive Marshalling
 
-| .ploy → C++ | Rule |
+| .ploy �?C++ | Rule |
 |-------------|------|
-| `INT` → `int` | Direct (same ABI representation) |
-| `FLOAT` → `double` | Direct |
-| `STRING` → `std::string` | Copy string data |
-| `BOOL` → `bool` | Direct (i1 ↔ i8) |
+| `INT` �?`int` | Direct (same ABI representation) |
+| `FLOAT` �?`double` | Direct |
+| `STRING` �?`std::string` | Copy string data |
+| `BOOL` �?`bool` | Direct (i1 �?i8) |
 
-| .ploy → Python | Rule |
+| .ploy �?Python | Rule |
 |----------------|------|
-| `INT` → `int` | Convert to/from `PyLong` |
-| `FLOAT` → `float` | Convert to/from `PyFloat` |
-| `STRING` → `str` | Convert to/from `PyUnicode` |
-| `BOOL` → `bool` | Convert to/from `PyBool` |
+| `INT` �?`int` | Convert to/from `PyLong` |
+| `FLOAT` �?`float` | Convert to/from `PyFloat` |
+| `STRING` �?`str` | Convert to/from `PyUnicode` |
+| `BOOL` �?`bool` | Convert to/from `PyBool` |
 
 ## 5.2 Container Marshalling
 
@@ -439,7 +499,7 @@ Objects created via `NEW` are managed by opaque handles:
 ## 6.1 Compilation Pipeline
 
 ```
-Source → Frontend → IR → Optimization → Backend → Assembly → Binary
+Source �?Frontend �?IR �?Optimization �?Backend �?Assembly �?Binary
 ```
 
 ## 6.2 Output Artifacts
@@ -471,6 +531,6 @@ aux/
 
 | Architecture | Instruction Set | Status |
 |-------------|-----------------|--------|
-| x86_64 | SSE2/AVX/AVX2/AVX-512 | ✅ |
-| ARM64 (AArch64) | NEON/SVE | ✅ |
-| WebAssembly | MVP + SIMD | ✅ |
+| x86_64 | SSE2/AVX/AVX2/AVX-512 | �?|
+| ARM64 (AArch64) | NEON/SVE | �?|
+| WebAssembly | MVP + SIMD | �?|

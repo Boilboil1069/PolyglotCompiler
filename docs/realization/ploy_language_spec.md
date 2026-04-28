@@ -25,19 +25,35 @@ The `.ploy` file is processed by a dedicated frontend (`frontend_ploy`) that pro
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
-FUNC        LET         VAR         RETURN      IF
-ELSE        WHILE       FOR         IN          MATCH
-CASE        DEFAULT     BREAK       CONTINUE    AS
-TRUE        FALSE       NULL        AND         OR
-NOT         CALL        VOID        INT         FLOAT
-STRING      BOOL        ARRAY       STRUCT      PACKAGE
-LIST        TUPLE       DICT        OPTION      MAP_FUNC
-CONVERT     CONFIG      VENV        CONDA       UV
-PIPENV      POETRY      NEW         METHOD      GET
-SET         WITH        DELETE      EXTEND
+FUNC        LET         VAR         RETURN      RETURNS*
+IF          ELSE        WHILE       FOR         IN
+MATCH       CASE        DEFAULT     BREAK       CONTINUE
+AS          TRUE        FALSE       NULL        AND
+OR          NOT         CALL        VOID        INT
+FLOAT       STRING      BOOL        ARRAY       STRUCT
+PACKAGE     LIST        TUPLE       DICT        OPTION
+MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
+UV          PIPENV      POETRY      NEW         METHOD
+GET         SET         WITH        DELETE      EXTEND
+LANG
 ```
 
-Total: 54 keywords.
+Total: 56 keywords (including the deprecated `RETURNS` and the
+language-version-pinning `LANG`).
+
+**Case-insensitivity (Ploy 1.5.2+).** Reserved words are matched
+case-insensitively at the lexer level: `link`, `Link`, `LINK`, `LiNk`
+all yield the same `kKeyword` token.  `Token::lexeme` is normalised to
+the canonical UPPER spelling for downstream comparison; the original
+source spelling is retained on `Token::raw_lexeme` and exposed via
+`Token::SourceText()`.  Identifiers remain case-sensitive — only the
+keyword set is folded.  Identifiers that previously differed from a
+keyword only by case (`config`, `array`, `get`, …) are now reserved.
+
+`*` `RETURNS` is parsed for backward compatibility but the parser
+emits a non-fatal `kDeprecatedKeyword` warning (ErrorCode = 3024) at
+the token's source location.  New code should use the `-> Type` arrow
+on the LINK signature.
 
 ### 3.2 Identifiers
 
@@ -426,7 +442,7 @@ Legacy code that cannot be annotated immediately may pass `PloySemaOptions{.stri
     │
     ▼
 ┌──────────┐
-│  Lexer   │  → Token stream (54 keywords + operators + literals)
+│  Lexer   │  → Token stream (56 keywords, case-insensitive + operators + literals)
 └──────────┘
     │
     ▼

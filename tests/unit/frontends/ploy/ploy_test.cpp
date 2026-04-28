@@ -726,7 +726,7 @@ STRUCT Point {
 TEST_CASE("Ploy parser parses STRUCT with multiple fields", "[ploy][parser][complex]") {
     Diagnostics diags;
     // NOTE: 'Config' would collide with the CONFIG keyword (case-insensitive
-    // keyword recognition since Ploy 1.4.2), so the struct is named
+    // keyword recognition since Ploy 1.5.2), so the struct is named
     // 'MyConfig' to keep this test focused on the multi-field shape.
     auto module = Parse(R"(
 STRUCT MyConfig {
@@ -1077,7 +1077,7 @@ TEST_CASE("Ploy parser enforces semicolons on LINK", "[ploy][parser][syntax]") {
     Diagnostics diags;
     // NOTE: the symbol after the qualifier is named 'getter' rather than
     // 'get' because GET is a reserved keyword (case-insensitive recognition
-    // since Ploy 1.4.2).
+    // since Ploy 1.5.2).
     auto module = Parse(R"(
 LINK(cpp, python, math::add, utils::getter);
 )", diags);
@@ -3124,7 +3124,7 @@ FUNC main() {
 }
 )", diags, sema);
     // MAP_TYPE entries declare type-conversion rules, not parameter counts.
-    // Calling with any number of args is valid ï¿½?arity is not checked via MAP_TYPE.
+    // Calling with any number of args is valid ï¿?arity is not checked via MAP_TYPE.
     CHECK(ok);
     CHECK_FALSE(diags.HasErrors());
 }
@@ -3239,7 +3239,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// End-to-end failure path tests ï¿½?param count, type mismatch, unregistered
+// End-to-end failure path tests ï¿?param count, type mismatch, unregistered
 // symbols, cross-language ABI violations.
 //
 // Every test here must end with diags.HasErrors() == true and ideally
@@ -3285,7 +3285,7 @@ E2EFailureResult RunAndExpectFailure(const std::string &code,
 } // namespace
 
 // ============================================================================
-// Param count mismatch ï¿½?local function calls
+// Param count mismatch ï¿?local function calls
 // ============================================================================
 
 TEST_CASE("E2E failure: too few args to local function produces error with count hint",
@@ -3324,7 +3324,7 @@ FUNC main() { LET x = no_args(42, 99); }
 
 TEST_CASE("E2E failure: error count equals number of mismatched call sites",
           "[ploy][e2e][failure][param-count]") {
-    // Two call sites with wrong arg counts ï¿½?two separate diagnostics
+    // Two call sites with wrong arg counts ï¿?two separate diagnostics
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3339,7 +3339,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// Type mismatch ï¿½?incompatible argument types
+// Type mismatch ï¿?incompatible argument types
 // ============================================================================
 
 TEST_CASE("E2E failure: passing STRING to INT parameter produces type-mismatch error",
@@ -3405,7 +3405,7 @@ FUNC main() {
 
 TEST_CASE("E2E failure: CALL to unlinked cross-lang symbol produces error",
           "[ploy][e2e][failure][unregistered]") {
-    // math::add is never declared via LINK ï¿½?must be rejected
+    // math::add is never declared via LINK ï¿?must be rejected
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
     LET result = CALL(cpp, math::add, 1, 2);

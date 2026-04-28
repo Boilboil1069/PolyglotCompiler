@@ -27,21 +27,34 @@
 
 ### 3.1 关键字
 
-`.ploy` 语言共有 **54 个保留关键字**：
+`.ploy` 语言共有 **56 个保留关键字**（含弃用的 `RETURNS` 与版本钉桩用的 `LANG`）：
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
-FUNC        LET         VAR         RETURN      IF
-ELSE        WHILE       FOR         IN          MATCH
-CASE        DEFAULT     BREAK       CONTINUE    AS
-TRUE        FALSE       NULL        AND         OR
-NOT         CALL        VOID        INT         FLOAT
-STRING      BOOL        ARRAY       STRUCT      PACKAGE
-LIST        TUPLE       DICT        OPTION      MAP_FUNC
-CONVERT     CONFIG      VENV        CONDA       UV
-PIPENV      POETRY      NEW         METHOD      GET
-SET         WITH        DELETE      EXTEND
+FUNC        LET         VAR         RETURN      RETURNS*
+IF          ELSE        WHILE       FOR         IN
+MATCH       CASE        DEFAULT     BREAK       CONTINUE
+AS          TRUE        FALSE       NULL        AND
+OR          NOT         CALL        VOID        INT
+FLOAT       STRING      BOOL        ARRAY       STRUCT
+PACKAGE     LIST        TUPLE       DICT        OPTION
+MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
+UV          PIPENV      POETRY      NEW         METHOD
+GET         SET         WITH        DELETE      EXTEND
+LANG
 ```
+
+**大小写不敏感（Ploy 1.5.2+）。** 自该版本起，所有保留字在词法层
+按大小写不敏感识别：`link`、`Link`、`LINK`、`LiNk` 都识别为同一个
+LINK 关键字。`Token::lexeme` 始终被规范化为标准的 UPPER 大写拼写以
+便下游统一比较；用户在源码中真正写下的拼写则保留在
+`Token::raw_lexeme` 字段并通过 `Token::SourceText()` 暴露。**标识符
+仍然大小写敏感**——只有关键字集合参与折叠。过去仅在大小写上与关键字
+不同的标识符（`config`、`array`、`get`、…）现在变为保留字。
+
+`*` `RETURNS` 仍然为了向后兼容而被解析，但语法分析器会在该 token
+所在位置发出非致命的 `kDeprecatedKeyword` 警告（ErrorCode = 3024）。
+新代码请使用 LINK 签名上的 `-> Type` 箭头来声明返回类型。
 
 > **关键字分类：**
 > - **链接相关**：`LINK`、`IMPORT`、`EXPORT`、`MAP_TYPE`、`PACKAGE` — 用于定义跨语言链接关系
@@ -555,7 +568,7 @@ LINK(cpp, python, process(x: f64) -> f64, np::process);
     │
     ▼
 ┌──────────┐
-│  词法器   │  → Token 流（54 个关键字 + 运算符 + 字面量）
+│  词法器   │  → Token 流（56 个关键字，大小写不敏感 + 运算符 + 字面量）
 │  Lexer   │     识别关键字、标识符、数字、字符串、符号、注释
 └──────────┘
     │

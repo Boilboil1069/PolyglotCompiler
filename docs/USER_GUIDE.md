@@ -440,19 +440,20 @@ All language frontends are managed through a **FrontendRegistry** — a singleto
 | Semantic Analyser | `ploy_sema.h` | `sema.cpp` | ~1950 | Type checking, param validation, package discovery, version verification |
 | IR Generator | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR transformation |
 
-### Keyword List (54)
+### Keyword List (56, case-insensitive since Ploy 1.5.2)
 
 ```
 // Declaration keywords
 LINK      IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC      CONFIG
+LANG
 
 // Variables and types
 LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
 BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
 
 // Control flow
-RETURN    IF        ELSE      WHILE      FOR        IN        MATCH
-CASE      DEFAULT   BREAK     CONTINUE
+RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
+MATCH     CASE      DEFAULT   BREAK      CONTINUE
 
 // Operators
 AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
@@ -466,6 +467,23 @@ TRUE      FALSE     NULL      PACKAGE
 // Package managers
 VENV      CONDA     UV        PIPENV     POETRY
 ```
+
+> **Case-insensitive lexing (Ploy 1.5.2+).** Every reserved word above is
+> recognised regardless of casing — `link`, `Link`, `LINK`, `LiNk` all map
+> to the same `LINK` token. The lexer normalises `Token::lexeme` to the
+> canonical UPPER spelling shown above; the original source spelling is
+> preserved in `Token::raw_lexeme` and exposed via `Token::SourceText()`.
+> **Identifiers remain case-sensitive** — only the keyword set folds.
+> Identifiers that previously differed only in case from a keyword
+> (`config`, `array`, `get`, `pipeline`, …) are now reserved; rename
+> them (e.g. `app_cfg`, `np_array`, `getter`, `run_pipeline`).
+>
+> `*` `RETURNS` is still parsed for backward compatibility but the parser
+> emits a non-fatal `kDeprecatedKeyword` warning (ErrorCode = 3024) at
+> the offending token. New code should use the `-> Type` arrow on the
+> LINK signature instead. The logical operators `AND` / `OR` / `NOT`
+> are exact aliases of `&&` / `||` / `!`; the symbolic forms are
+> preferred for new code.
 
 ## 4.2 Core Syntax
 
@@ -2382,7 +2400,7 @@ The project uses the **Catch2** testing framework. There are three test executab
 
 | Category | Tag | Count | Coverage |
 |----------|-----|-------|----------|
-| Lexer | `[ploy][lexer]` | 17 | Keywords (54), identifiers, numbers, strings, operators |
+| Lexer | `[ploy][lexer]` | 17 | Keywords (56, case-insensitive), identifiers, numbers, strings, operators |
 | Parser | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
 | Semantic Analysis | `[ploy][sema]` | 40 | Type checking, scoping, version verification, package discovery, OOP interop, error checking |
 | IR Generation | `[ploy][lowering]` | 29 | Functions/pipelines/linking/expressions/control flow/OOP interop/DELETE/EXTEND |

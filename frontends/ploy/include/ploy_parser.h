@@ -64,6 +64,7 @@ private:
   std::shared_ptr<Statement> ParseForStatement();
   std::shared_ptr<Statement> ParseMatchStatement();
   std::shared_ptr<Statement> ParseReturnStatement();
+  std::shared_ptr<Statement> ParsePrintlnStatement();
   std::shared_ptr<Statement> ParseBlock();
   std::vector<std::shared_ptr<Statement>> ParseBlockBody();
 

@@ -7,9 +7,273 @@ For day-to-day usage instructions see [`USER_GUIDE.md`](USER_GUIDE.md); for
 build / API contracts see [`api/api_reference.md`](api/api_reference.md) and
 the per-feature notes under [`realization/`](realization/).
 
-The version range covered below is **v0.1.0 (2026-01-15) → v1.5.0 (2026-04-28)**.
+The version range covered below is **v0.1.0 (2026-01-15) → v1.5.4 (2026-04-29)**.
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
+
+---
+
+## v1.5.4 (2026-04-29)
+
+**`PrintlnStmt` is now lowered to IR — Stage B3 of the runtime-stdout pipeline (demand `2026-04-28-49`).**
+
+### Lowering contract
+
+- `PRINTLN "literal";` lowers to two IR artefacts:
+  1. An interned global of type `[N x i8]` holding the **decoded** bytes
+     (the front-end deliberately preserves backslash escapes, so the
+     decoding table — `\n`, `\r`, `\t`, `\\`, `\"`, `\0`, `\xHH` — lives
+     here in the lowering layer, the single source of truth that the
+     interpreter, IR text round-trip, and codegen all agree on).
+  2. A direct `call void @polyrt_println(i8* msg, i64 len)` instruction
+     emitted into the active basic block.  The callee is intentionally
+     external; B5 will resolve it through polyld's runtime DLL import.
+- The pointer + length convention (rather than NUL-termination) lets
+  embedded `\0` bytes round-trip cleanly and lets the empty-literal case
+  (`PRINTLN "";`) lower to a single `polyrt_println(ptr, 0)` call with
+  no special-casing downstream.
+- Identical literals share their interned global thanks to
+  `IRBuilder::MakeStringLiteral` content-keyed deduplication, so
+  `.rdata` stays compact across all object formats.
+- Top-level `PRINTLN` lands in the auto-created `entry_fn` per the
+  existing `IRContext::DefaultBlock` convention; `PRINTLN` inside a
+  `FUNC` body lands in that function's basic block, which is the
+  property B4 codegen depends on for stack-frame correctness.
+- Unknown / malformed escape sequences (e.g. `\q`, `\xZZ`) raise a
+  `kGenericWarning` diagnostic and the offending bytes are preserved
+  verbatim — lowering never aborts on bad escapes so the rest of the
+  module can still be inspected.
+
+### Implementation
+
+- `frontends/ploy/include/ploy_lowering.h` — new
+  `LowerPrintlnStatement(const std::shared_ptr<PrintlnStmt> &)` declaration.
+- `frontends/ploy/src/lowering/lowering.cpp`:
+  - `LowerStatement` dispatcher recognises `PrintlnStmt`.
+  - New `DecodePrintlnLiteral(...)` helper (anonymous namespace) owns the
+    escape-decoding table; designed so future additions (`\u{…}`,
+    `\u00XX`, `\b`, `\f`) are a single `case` away.
+  - `LowerPrintlnStatement` interns the decoded bytes via
+    `builder_.MakeStringLiteral(...)` and emits the `polyrt_println` call.
+- No header surface change beyond the one new method; binary-compat for
+  existing front-end consumers preserved.
+
+### Tests
+
+- `tests/unit/frontends/ploy/println_lowering_test.cpp` (5 cases / 21
+  assertions): IR-level decoding contract, empty-message corner, global
+  deduplication, in-function basic-block placement, and the
+  warning-but-no-abort path for unknown escapes.
+- Full ploy frontend suite stays green: 310 cases / 1907 assertions.
+- `test_linker` (43/245), `test_e2e` (54/171), `integration_tests`
+  (129/547) all green — `polyrt_println` is currently an unresolved
+  external in object files, but no existing test exercises an end-to-end
+  link of a PRINTLN-bearing module yet (that wiring is B5).
+
+### Demand tracking
+
+- demand `2026-04-28-49` Stage B3 marked `[done]`.  Stage B4 (AMD64
+  codegen for `polyrt_println` callsites + Win64 ABI shadow space) is
+  the next milestone.
+
+---
+
+## v1.5.3 (2026-04-28)
+
+**Ploy front-end gains the `PRINTLN "literal";` statement — Stage B2 of the runtime-stdout pipeline (demand `2026-04-28-49`).**
+
+### Language
+
+- New top-level / in-block statement: `PRINTLN STRING ';'` writes a single
+  string literal to the host's standard output.  This is intentionally the
+  smallest possible runtime-IO primitive; expressions, concatenation and
+  formatting will land in later stages.  The trailing `';'` is mandatory.
+- The literal's bytes are stored verbatim on the AST node — surrounding
+  double-quotes are stripped, but backslash escapes (`\r`, `\n`, `\t`,
+  `\\`, `\"`, …) are *not* decoded by the front-end.  The single canonical
+  decoder will live in the codegen stage (B4) so that interpreters,
+  IR-text round-trips and the .rdata payload all agree on one
+  interpretation.
+- The `PRINTLN` keyword follows the same case-insensitive rule as every
+  other Ploy keyword (`println`, `Println`, `PRINTLN` are equivalent),
+  thanks to the lexer canonicalisation introduced in v1.5.2.
+
+### Front-end plumbing
+
+- `frontends/ploy/include/ploy_ast.h` — new `PrintlnStmt : Statement`
+  struct carrying a single `std::string message` field.
+- `frontends/ploy/src/lexer/lexer.cpp` — added `"PRINTLN"` to the
+  canonical keyword set.
+- `frontends/ploy/src/parser/parser.cpp` — `ParseTopLevel` and
+  `ParseStatement` both dispatch the new keyword to the new
+  `ParsePrintlnStatement()` helper, which emits a `PrintlnStmt` and
+  reports a diagnostic (and resyncs) if the next token is not a string.
+  `Sync()`'s recovery keyword set now includes `PRINTLN`.
+- `frontends/ploy/src/sema/sema.cpp` — `AnalyzeStatement` accepts
+  `PrintlnStmt` as a no-op; the parser already enforces the shape and
+  empty messages are intentionally legal.
+
+### Tests
+
+- `tests/unit/frontends/ploy/println_stmt_test.cpp` (6 cases, 37 assertions):
+  top-level parsing, escape-byte preservation, case-insensitive keyword,
+  in-function dispatch through `ParseStatement`, error recovery on
+  non-string operand, and sema acceptance of the empty-message corner case.
+- Full ploy frontend suite stays green (305 cases / 1886 assertions).
+- Linker (43/245), end-to-end (54/171) and integration (129/547) regression
+  suites continue to pass with no behaviour changes — `PrintlnStmt` is
+  ignored by the lowering stage until B3 wires it into IR.
+
+### Compatibility
+
+- `PRINTLN` was previously parsed as an identifier; any program using it
+  as a variable / function / pipeline name must rename that identifier.
+  The bundled samples and test fixtures do not use it.
+- No public API removed; `PrintlnStmt` is purely additive.
+
+### Demand tracking
+
+- demand `2026-04-28-49` Stage B2 marked `[done]`.  Stage B3 (lowering to
+  IR) is the next milestone.
+
+---
+
+## v1.5.2 (2026-04-28)
+
+**Ploy lexer cleanup — keywords are now recognised case-insensitively, the legacy `RETURNS` clause is deprecated, and `AND` / `OR` / `NOT` are formal aliases of `&&` / `||` / `!`.**
+
+### Lexical rules
+
+- The Ploy lexer accepts every reserved word in any letter-casing
+  (`link`, `Link`, `LINK`, `LiNk`).  The token's `Token::lexeme` is
+  always normalised to the canonical UPPER-case spelling so the parser
+  stays a single string-comparison without per-call folding.  The
+  user's original spelling is preserved on a new `Token::raw_lexeme`
+  field and surfaced through `Token::SourceText()` so diagnostics and
+  source-faithful formatters keep printing what the user typed.
+- Identifiers remain *case-sensitive*: only the keyword set is folded.
+  This is a deliberate trade-off to keep the parser logic uniform and
+  the diagnostics actionable.
+- **Reserved-word collisions.** Identifiers that previously differed
+  from a keyword only by case (`config`, `array`, `get`, `set`,
+  `pipeline`, `new`, …) are now reserved.  Migrate them to non-keyword
+  names (for example `app_config`, `np_array`, `getter`).  The bundled
+  unit / integration / benchmark test fixtures have been updated
+  accordingly; user-facing samples under `tests/samples/` already use
+  UPPER-case keywords and required no change.
+
+### Operator aliases
+
+- `AND` / `OR` / `NOT` keywords parse to *exactly* the same AST nodes
+  as the symbolic `&&` / `||` / `!` operators (`BinaryExpression::op
+  == "||"`, `UnaryExpression::op == "!"`).  No downstream stage has to
+  branch on spelling.
+- The symbolic forms are documented as the preferred style for new
+  code; both forms remain permanent.
+
+### `RETURNS` deprecation
+
+- The legacy `LINK(...) RETURNS Type { ... }` syntax still parses and
+  still populates `LinkDecl::return_type`, but the parser now emits a
+  `kDeprecatedKeyword` warning (`ErrorCode = 3024`) that echoes the
+  user's source spelling so the warning is greppable in their tree.
+- New code should declare the return type via the canonical `-> Type`
+  arrow on the LINK signature.  No automatic rewrite is performed; the
+  warning is the migration signal.
+
+### Compatibility
+
+- Existing `tests/samples/01_basic_linking..16_*` programs continue to
+  parse, semantically analyse and lower exactly as before — they all
+  use UPPER-case keywords already.
+- The shared `frontends/common::Token` struct gains a single new
+  string field (`raw_lexeme`) at the *end* of the struct so every
+  three- and four-argument aggregate-initialisation call site in the
+  C++/Java/Python/Rust/.NET/JavaScript lexers compiles unchanged.
+- The new `frontends::ErrorCode::kDeprecatedKeyword = 3024` slot sits
+  between `kSignatureMissing = 3023` and `kGenericWarning = 3099` and
+  is a non-fatal warning category.
+
+### Tests
+
+- `tests/unit/frontends/ploy/lexer_case_insensitive_test.cpp` — covers
+  every one of the 56 keywords in lower / mixed / UPPER spellings,
+  asserts identifiers stay case-sensitive, and verifies that words
+  beginning with a keyword-prefix (`letter`, `iffy`, `linker`, …) are
+  not split.
+- `tests/unit/frontends/ploy/keyword_alias_test.cpp` — proves that
+  `AND/OR/NOT` and `&&/||/!` produce structurally identical ASTs and
+  that the `RETURNS` clause emits exactly one `kDeprecatedKeyword`
+  warning whose message echoes the source spelling for both UPPER and
+  lower-case inputs.
+
+---
+
+## v1.5.1 (2026-04-28)
+
+**Runtime-IO milestone for the PE32+ writer — produced `.exe` images can now write to standard output before exiting.**
+
+The v1.5.0 PE writer could only emit a self-terminating image whose entry
+shim called `kernel32!ExitProcess(0)`.  Real samples need to drive at
+least one user-visible side effect before terminating, so this patch
+extends the writer with the minimum surface required to perform a
+synchronous `WriteFile` against the host's standard output handle.
+
+What ships:
+
+- **`.rdata` section support in `BuildPE32PlusImage`.**  `BuildRequest`
+  gained an optional `rdata_bytes` field; `BuildResult` reports the
+  resulting section's RVA back to the caller via `rdata_rva`.  When
+  `rdata_bytes` is non-empty the writer lays out
+  `[.text][.rdata][.idata]` (3 sections) instead of `[.text][.idata]`
+  (2 sections).  `SizeOfInitializedData` accumulates both `.rdata` and
+  `.idata` raw sizes per the PE/COFF spec.
+
+- **New factory `BuildHelloWorldPE(message)`** in
+  `tools/polyld/include/pe_writer.h`.  Produces a fully runnable PE32+
+  whose entry executes the AMD64 sequence
+  `GetStdHandle(STD_OUTPUT_HANDLE) → WriteFile(handle, msg, len, &n, NULL)
+  → ExitProcess(0)`.  The 68-byte entry shim is constant-size so
+  `.rdata` and `.idata` RVAs can be fully resolved before code emission.
+  Stack frame `sub rsp, 0x38` provides the 32-byte shadow space, the
+  WriteFile ARG5 slot at `[rsp+0x20]`, and the bytes-written DWORD slot
+  at `[rsp+0x28]` while preserving the Win64 ABI's 16-byte alignment
+  requirement before each child `CALL`.
+
+- **Three-import support is wire-tested.**  `BuildImportSection` already
+  supported N functions per DLL; this release exercises that path with
+  `kernel32.dll!{GetStdHandle, WriteFile, ExitProcess}` and validates
+  every IAT slot RVA is reported back through `BuildResult::iat_slot_rva`.
+
+- **`pe_smoke` harness extended** to also build, write, spawn, and
+  validate a hello-world image alongside the existing minimal-exit one.
+
+- **New unit tests** in `tests/unit/linker/pe_writer_test.cpp`:
+  3-section layout assertion, IAT slot enumeration for all three kernel32
+  imports, on-disk byte-for-byte preservation of the `.rdata` payload,
+  shim prologue (`48 83 EC 38`) and trailing `int3`, and an empty-text
+  rejection guard for `BuildPE32PlusImage`.
+
+- **New integration test** in
+  `tests/integration/pe_runtime_smoke_test.cpp`: builds a hello-world PE
+  in-process, writes it to a temp path, spawns it under `cmd /c` with
+  stdout redirected to a temp `.out` file, and asserts both the exit code
+  and the captured bytes equal the injected message.  Required an extra
+  outer pair of quotes around the redirected command — `std::system`
+  forwards to `cmd /c <string>`, which strips one layer of quotes before
+  re-tokenising.
+
+Validated regression: `test_linker` 43/43 (245 assertions),
+`integration_tests` 129/129 (547 assertions), `test_e2e` 54/54 (171
+assertions).  No public API of `Linker` changed; the new pe_writer surface
+is purely additive.
+
+Known not-yet-shipped: the `polyc → polyld` pipeline still passes an
+empty `.text` to `BuildExitZeroPE` for `.ploy` inputs, so `polyc
+hello.ploy -o hello.exe` produces an exit-zero image rather than a
+hello-world image.  Connecting `BuildHelloWorldPE` (and a generalised
+runtime-IO emitter) to the front end is the next milestone in the
+multi-stage runtime-stdout roadmap.
 
 ---
 

@@ -8,6 +8,7 @@
  */
 #include <cctype>
 #include <cstdlib>
+#include <functional>
 
 #include "common/include/core/types.h"
 #include "frontends/ploy/include/ploy_lowering.h"
@@ -93,6 +94,8 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     LowerMatchStatement(match_stmt);
   } else if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
     LowerReturnStatement(ret);
+  } else if (auto println = std::dynamic_pointer_cast<PrintlnStmt>(stmt)) {
+    LowerPrintlnStatement(println);
   } else if (auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
     if (expr_stmt->expr) {
       LowerExpression(expr_stmt->expr);
@@ -550,6 +553,118 @@ void PloyLowering::LowerReturnStatement(const std::shared_ptr<ReturnStatement> &
     builder_.MakeReturn();
   }
   terminated_ = true;
+}
+
+// PRINTLN "literal";  — Stage B3 of the runtime-stdout pipeline
+// (demand 2026-04-28-49).
+//
+// We lower a `PrintlnStmt` into:
+//   1. A *decoded* interned string constant in the global pool (the front-end
+//      kept escape sequences verbatim by design — the codegen-side decoder
+//      lives here so the IR carries true bytes, not source spellings).
+//   2. A direct call into the runtime: `polyrt_println(i8* msg, i64 len)`.
+//      The callee is intentionally external; B5 will wire it up to the real
+//      runtime DLL via polyld's import table.
+//
+// Pointer + length is preferred over a NUL-terminated convention so embedded
+// `\0` bytes round-trip cleanly and so empty literals (`PRINTLN "";`) still
+// produce a single, unambiguous zero-length WriteFile call downstream.
+namespace {
+
+// Decode the small, fixed set of backslash escapes that .ploy promises to
+// support today (\n, \r, \t, \\, \", \0, plus `\xHH` two-digit hex). Any
+// unrecognised escape after a backslash is preserved verbatim so the IR
+// dump still resembles the source — the alternative (silently dropping
+// the backslash) would mask front-end bugs. Diagnostics are reported on
+// the supplied `report` callback so the lowering layer can attach the
+// PRINTLN's source location uniformly.
+std::string DecodePrintlnLiteral(const std::string &raw,
+                                 const std::function<void(const std::string &)> &report) {
+  std::string out;
+  out.reserve(raw.size());
+  for (size_t i = 0; i < raw.size(); ++i) {
+    char c = raw[i];
+    if (c != '\\' || i + 1 >= raw.size()) {
+      out.push_back(c);
+      continue;
+    }
+    char esc = raw[++i];
+    switch (esc) {
+    case 'n':
+      out.push_back('\n');
+      break;
+    case 'r':
+      out.push_back('\r');
+      break;
+    case 't':
+      out.push_back('\t');
+      break;
+    case '\\':
+      out.push_back('\\');
+      break;
+    case '"':
+      out.push_back('"');
+      break;
+    case '0':
+      out.push_back('\0');
+      break;
+    case 'x': {
+      // Exactly two hex digits required.
+      if (i + 2 >= raw.size() || !std::isxdigit(static_cast<unsigned char>(raw[i + 1])) ||
+          !std::isxdigit(static_cast<unsigned char>(raw[i + 2]))) {
+        report("malformed \\xHH escape in PRINTLN literal");
+        out.push_back('\\');
+        out.push_back(esc);
+        break;
+      }
+      auto hex_val = [](char h) -> int {
+        if (h >= '0' && h <= '9')
+          return h - '0';
+        if (h >= 'a' && h <= 'f')
+          return 10 + (h - 'a');
+        return 10 + (h - 'A');
+      };
+      int byte = (hex_val(raw[i + 1]) << 4) | hex_val(raw[i + 2]);
+      out.push_back(static_cast<char>(byte));
+      i += 2;
+      break;
+    }
+    default:
+      report("unknown escape '\\" + std::string(1, esc) + "' in PRINTLN literal");
+      out.push_back('\\');
+      out.push_back(esc);
+      break;
+    }
+  }
+  return out;
+}
+
+} // namespace
+
+void PloyLowering::LowerPrintlnStatement(const std::shared_ptr<PrintlnStmt> &println) {
+  if (!println)
+    return;
+
+  const std::string decoded = DecodePrintlnLiteral(
+      println->message, [&](const std::string &msg) {
+        // Unknown / malformed escape: emit a non-fatal warning so the program
+        // still lowers (the bytes are preserved verbatim) but the user sees
+        // the issue. We piggy-back on the generic warning code rather than
+        // mint a new one for B3.
+        diagnostics_.ReportWarning(println->loc,
+                                   frontends::ErrorCode::kGenericWarning, msg);
+      });
+
+  // 1) Intern the bytes as a global; MakeStringLiteral returns the i8* symbol.
+  const std::string ptr_name = builder_.MakeStringLiteral(decoded, "println.msg");
+
+  // 2) Emit the runtime call. Length is passed as an integer immediate using
+  //    the literal-as-name convention shared with LowerLiteral(kInteger); the
+  //    callee_type is left invalid since the symbol is resolved by the linker.
+  std::vector<std::string> args;
+  args.push_back(ptr_name);
+  args.push_back(std::to_string(decoded.size()));
+  builder_.MakeCall("polyrt_println", args, ir::IRType::Void());
 }
 
 void PloyLowering::LowerBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts) {

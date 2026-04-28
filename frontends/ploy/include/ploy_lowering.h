@@ -102,6 +102,7 @@ private:
   void LowerForStatement(const std::shared_ptr<ForStatement> &for_stmt);
   void LowerMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
   void LowerReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
+  void LowerPrintlnStatement(const std::shared_ptr<PrintlnStmt> &println);
   void LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
   void LowerBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
   void LowerStructDecl(const std::shared_ptr<StructDecl> &struct_decl);

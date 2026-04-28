@@ -73,7 +73,7 @@ void PloyParser::Sync() {
       if (kw == "LINK" || kw == "IMPORT" || kw == "EXPORT" || kw == "MAP_TYPE" ||
           kw == "PIPELINE" || kw == "FUNC" || kw == "LET" || kw == "VAR" || kw == "IF" ||
           kw == "WHILE" || kw == "FOR" || kw == "MATCH" || kw == "RETURN" || kw == "STRUCT" ||
-          kw == "MAP_FUNC") {
+          kw == "MAP_FUNC" || kw == "PRINTLN") {
         return;
       }
     }
@@ -146,6 +146,10 @@ void PloyParser::ParseTopLevel() {
     }
     if (kw == "EXTEND") {
       module_->declarations.push_back(ParseExtendDecl());
+      return;
+    }
+    if (kw == "PRINTLN") {
+      module_->declarations.push_back(ParsePrintlnStatement());
       return;
     }
   }
@@ -229,7 +233,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
 
   // Optional RETURNS clause: LINK(...) RETURNS type { ... }
   // The RETURNS clause is preserved for backward compatibility but is
-  // deprecated since Ploy 1.4.2; new code should declare the return type
+  // deprecated since Ploy 1.5.2; new code should declare the return type
   // via the canonical "-> Type" arrow syntax on the function signature.
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "RETURNS") {
     const core::SourceLoc returns_loc = current_.loc;
@@ -265,7 +269,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
     }
     ExpectSymbol("}", "expected '}' to close LINK body");
   } else {
-    // Simple LINK without body 闁?expect semicolon
+    // Simple LINK without body �?expect semicolon
     ExpectSymbol(";", "expected ';' after LINK directive");
   }
 
@@ -688,6 +692,8 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
       return ParsePipelineDecl();
     if (kw == "FUNC")
       return ParseFuncDecl();
+    if (kw == "PRINTLN")
+      return ParsePrintlnStatement();
   }
 
   // Expression statement
@@ -741,7 +747,7 @@ std::shared_ptr<Statement> PloyParser::ParseIfStatement() {
   // Optional ELSE / ELSE IF
   if (MatchKeyword("ELSE")) {
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "IF") {
-      // ELSE IF 闁?nest as a single statement in else_body
+      // ELSE IF �?nest as a single statement in else_body
       auto elif = ParseIfStatement();
       node->else_body.push_back(elif);
     } else {
@@ -833,6 +839,40 @@ std::shared_ptr<Statement> PloyParser::ParseReturnStatement() {
   }
 
   ExpectSymbol(";", "expected ';' after RETURN");
+  return node;
+}
+
+// PRINTLN "literal" ;
+//
+// Minimal runtime-IO statement (Stage B2 of the stdout pipeline). Accepts a
+// *single* string literal — no expressions, no concatenation, no formatting —
+// in order to keep the front-end change small while later stages (B3/B4)
+// build the IR / codegen path. The lexer hands us the literal lexeme with
+// the surrounding double-quote characters still attached and any backslash
+// escapes preserved verbatim; we strip the quotes here but leave escape
+// sequences as-is so that downstream codegen owns the single canonical
+// decoder. The trailing ';' is mandatory for grammar uniformity.
+std::shared_ptr<Statement> PloyParser::ParsePrintlnStatement() {
+  auto node = std::make_shared<PrintlnStmt>();
+  node->loc = current_.loc;
+  ExpectKeyword("PRINTLN", "expected 'PRINTLN'");
+
+  if (current_.kind != frontends::TokenKind::kString) {
+    diagnostics_.Report(current_.loc,
+                        "expected string literal after PRINTLN, got '" +
+                            current_.lexeme + "'");
+    Sync();
+    return node;
+  }
+
+  std::string raw = current_.lexeme;
+  if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+    raw = raw.substr(1, raw.size() - 2);
+  }
+  node->message = std::move(raw);
+  Advance(); // consume the string literal token
+
+  ExpectSymbol(";", "expected ';' after PRINTLN literal");
   return node;
 }
 
@@ -1253,7 +1293,7 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
       ExpectSymbol(")", "expected ')' after tuple literal");
       return tuple;
     }
-    // Single expression in parens 闁?grouped expression
+    // Single expression in parens �?grouped expression
     ExpectSymbol(")", "expected ')' after grouped expression");
     return first;
   }
@@ -1580,7 +1620,7 @@ std::vector<std::shared_ptr<Expression>> PloyParser::ParseArguments() {
     auto expr = ParseExpression();
 
     // Check if the parsed expression is a named argument pattern:
-    //   name = value  闁? BinaryExpression(op="=", left=Identifier, right=value)
+    //   name = value  �? BinaryExpression(op="=", left=Identifier, right=value)
     if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
       if (bin->op == "=") {
         if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {

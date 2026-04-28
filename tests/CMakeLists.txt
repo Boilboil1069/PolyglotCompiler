@@ -98,6 +98,8 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/lang_version_pin_test.cpp
     unit/frontends/ploy/lexer_case_insensitive_test.cpp
     unit/frontends/ploy/keyword_alias_test.cpp
+    unit/frontends/ploy/println_stmt_test.cpp
+    unit/frontends/ploy/println_lowering_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA

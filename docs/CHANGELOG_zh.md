@@ -7,8 +7,183 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.0 (2026-04-28)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.3 (2026-04-28)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.5.3 (2026-04-28)
+
+**Ploy 前端新增 `PRINTLN "字面量";` 语句——运行时标准输出管线 B2 阶段（demand `2026-04-28-49`）。**
+
+### 语言层
+
+- 新增顶层 / 块内语句：`PRINTLN STRING ';'`，将一个字符串字面量原样写入宿主标准输出。
+  这是有意为之的最小运行时-IO 原语；表达式、字符串拼接与格式化将在后续阶段陆续登场。
+  末尾的 `';'` 是必填项。
+- 字面量字节会按原样存放到 AST 节点上——前后双引号会被剥除，
+  但反斜杠转义（`\r`、`\n`、`\t`、`\\`、`\"` 等）**不**由前端解码。
+  唯一的标准解码器将在代码生成阶段（B4）实现，从而保证解释器、IR 文本回环
+  以及 `.rdata` 段三方对同一份字面量的诠释完全一致。
+- `PRINTLN` 关键字遵循与其它 Ploy 关键字一致的大小写不敏感规则
+  （`println`、`Println`、`PRINTLN` 等价），承袭 v1.5.2 引入的词法折叠机制。
+
+### 前端管线
+
+- `frontends/ploy/include/ploy_ast.h` —— 新增 `PrintlnStmt : Statement`
+  结构，仅含一个 `std::string message` 字段。
+- `frontends/ploy/src/lexer/lexer.cpp` —— 将 `"PRINTLN"` 加入规范关键字集合。
+- `frontends/ploy/src/parser/parser.cpp` —— `ParseTopLevel` 与
+  `ParseStatement` 两处分发位置都把新关键字交给新增的
+  `ParsePrintlnStatement()` 助手；该助手生成 `PrintlnStmt`，
+  若其后不是字符串则报告诊断并触发 `Sync()` 恢复。
+  `Sync()` 的恢复关键字集合也已加入 `PRINTLN`。
+- `frontends/ploy/src/sema/sema.cpp` —— `AnalyzeStatement` 将
+  `PrintlnStmt` 视为无操作；解析器已经强制了形态，且空字符串是合法的。
+
+### 测试
+
+- `tests/unit/frontends/ploy/println_stmt_test.cpp`（6 用例 / 37 断言）：
+  顶层解析、转义字节保留、关键字大小写不敏感、`ParseStatement` 分发、
+  非字符串操作数错误恢复、空消息边界条件下的语义接受。
+- Ploy 前端整套测试保持全绿（305 用例 / 1886 断言）。
+- 链接器（43/245）、端到端（54/171）与集成（129/547）回归套件继续通过，
+  行为无任何变化——`PrintlnStmt` 在降级阶段仍被忽略，直到 B3 将其接入 IR。
+
+### 兼容性
+
+- `PRINTLN` 此前会被识别为标识符；任何把它当作变量/函数/管线名称的程序
+  需要改名。捆绑的样例与测试夹具均未使用此名。
+- 无任何公共 API 被移除；`PrintlnStmt` 完全是新增内容。
+
+### 需求追踪
+
+- demand `2026-04-28-49` 阶段 B2 标记为 `[done]`；下一里程碑为 B3
+  （将 PRINTLN 降级为 IR）。
+
+---
+
+## v1.5.2 (2026-04-28)
+
+**Ploy 词法层清理——关键字大小写不敏感、`RETURNS` 子句弃用、`AND` / `OR` / `NOT` 正式成为 `&&` / `||` / `!` 的别名。**
+
+### 词法规则
+
+- Ploy 词法器现在以任意大小写接受所有保留字（`link`、`Link`、
+  `LINK`、`LiNk` 都识别为同一个 LINK 关键字）。`Token::lexeme`
+  始终被规范化为标准的 UPPER 大写拼写，使语法分析器无需逐次折叠
+  即可保持单一字符串比较的写法；用户在源码中真正写下的拼写则被
+  保留在新增的 `Token::raw_lexeme` 字段上，并通过
+  `Token::SourceText()` 暴露，让诊断信息和"忠于源码"的格式化器
+  仍然可以打印出用户原本写下的字面量。
+- **标识符仍然是大小写敏感的**：只有关键字集合参与折叠，这是
+  为了保持语法分析逻辑统一、诊断可执行的有意权衡。
+- **保留字冲突。** 过去仅在大小写上与关键字不同的标识符
+  （`config`、`array`、`get`、`set`、`pipeline`、`new` ……）
+  现在变成保留字。请将其迁移到非关键字命名（如 `app_config`、
+  `np_array`、`getter`）。本仓库内的单元 / 集成 / 基准测试
+  fixture 均已同步更新；`tests/samples/` 下面向用户的样例本就
+  使用 UPPER 关键字，无需改动。
+
+### 运算符别名
+
+- `AND` / `OR` / `NOT` 关键字解析得到的 AST 与符号形式 `&&` /
+  `||` / `!` **完全相同**（`BinaryExpression::op == "||"`，
+  `UnaryExpression::op == "!"`），下游阶段无须按拼写分支。
+- 文档将符号形式登记为新代码的推荐风格，但两种写法都长期保留。
+
+### `RETURNS` 弃用
+
+- 遗留的 `LINK(...) RETURNS Type { ... }` 写法仍然能解析并照常
+  填入 `LinkDecl::return_type`，但语法分析器现在会发出
+  `kDeprecatedKeyword` 警告（`ErrorCode = 3024`），警告文本中
+  会回显用户源码中真实写下的拼写，方便在源码树中 grep。
+- 新代码请通过 LINK 签名上的标准 `-> Type` 箭头来声明返回类型。
+  我们不做自动改写，警告本身就是迁移信号。
+
+### 兼容性
+
+- 现有 `tests/samples/01_basic_linking..16_*` 程序仍按既有方式
+  解析、语义分析与下沉——它们本就使用 UPPER 关键字。
+- 共享的 `frontends/common::Token` 结构体只在 **末尾** 新增了
+  一个 `raw_lexeme` 字符串字段，因此 C++/Java/Python/Rust/
+  .NET/JavaScript 各前端中所有三参 / 四参聚合初始化的调用点
+  都不需要改动即可继续编译。
+- 新增的 `frontends::ErrorCode::kDeprecatedKeyword = 3024`
+  位于 `kSignatureMissing = 3023` 与 `kGenericWarning = 3099`
+  之间，属于非致命警告类别。
+
+### 测试
+
+- `tests/unit/frontends/ploy/lexer_case_insensitive_test.cpp`
+  覆盖 56 个关键字在 lower / mixed / UPPER 各拼写下的识别，
+  验证标识符仍然大小写敏感，并验证以关键字为前缀的较长标识符
+  （`letter`、`iffy`、`linker` ……）不会被切分。
+- `tests/unit/frontends/ploy/keyword_alias_test.cpp` 证明
+  `AND/OR/NOT` 与 `&&/||/!` 产生结构上完全相同的 AST，并验证
+  `RETURNS` 子句对 UPPER 与 lower 两种输入都恰好发出一条
+  `kDeprecatedKeyword` 警告，警告文本中回显用户的源码拼写。
+
+---
+
+## v1.5.1 (2026-04-28)
+
+**PE32+ 写入器接入运行时 IO ——产出的 `.exe` 现在能在退出前向标准输出写入数据。**
+
+v1.5.0 的 PE 写入器只能产出"入口直接调用 `kernel32!ExitProcess(0)`"
+的自终止映像。真实样例至少需要在退出前驱动一次用户可见的副作用，
+本补丁因此把写入器扩展到能对宿主标准输出句柄做一次同步 `WriteFile`
+所需的最小表面。
+
+本次落地：
+
+- **`BuildPE32PlusImage` 支持可选 `.rdata` 节。**`BuildRequest` 新增
+  `rdata_bytes` 字段，`BuildResult` 通过 `rdata_rva` 把该节的 RVA
+  回送给调用方。当 `rdata_bytes` 非空时写入器布局为
+  `[.text][.rdata][.idata]`（3 节）而不是 `[.text][.idata]`（2 节），
+  `SizeOfInitializedData` 按 PE/COFF 规范累加 `.rdata` 与 `.idata`
+  的对齐后大小。
+
+- **新工厂 `BuildHelloWorldPE(message)`**（位于
+  `tools/polyld/include/pe_writer.h`）。产出可直接运行的 PE32+，
+  入口顺序执行 AMD64 序列
+  `GetStdHandle(STD_OUTPUT_HANDLE) → WriteFile(handle, msg, len, &n, NULL)
+  → ExitProcess(0)`。68 字节入口 shim 大小固定，
+  使 `.rdata`、`.idata` RVA 在代码生成前即可完全确定。
+  `sub rsp, 0x38` 同时分配 32 字节阴影空间、`[rsp+0x20]` 处的
+  WriteFile ARG5 槽位与 `[rsp+0x28]` 处的字节数 DWORD 槽位，
+  并在每次子 `CALL` 之前保持 Win64 ABI 要求的 16 字节栈对齐。
+
+- **3 函数 import 通路全程实测。**`BuildImportSection` 早已支持每个
+  DLL 的 N 个函数；本次以
+  `kernel32.dll!{GetStdHandle, WriteFile, ExitProcess}` 走通该路径，
+  并验证每个 IAT 槽 RVA 都通过 `BuildResult::iat_slot_rva` 回送。
+
+- **`pe_smoke` 哨兵程序扩展**：除原有最小退出映像外，再构建、写盘、
+  spawn 并校验一份 hello-world 映像。
+
+- **新单元测试**位于 `tests/unit/linker/pe_writer_test.cpp`：
+  3 节布局断言、3 个 kernel32 import 的 IAT 槽枚举、
+  `.rdata` 负载在磁盘上的逐字节保留、shim prologue（`48 83 EC 38`）
+  与尾部 `int3`，以及对 `BuildPE32PlusImage` 的空 `text_bytes` 拒绝守卫。
+
+- **新集成测试**位于 `tests/integration/pe_runtime_smoke_test.cpp`：
+  在进程内构建 hello-world PE，写入临时路径，
+  通过 `cmd /c` 重定向 stdout 到临时 `.out` 文件后 spawn，
+  并断言退出码与捕获字节等于注入消息。
+  重定向命令需要再裹一层外引号——`std::system` 会转发给
+  `cmd /c <string>`，cmd 在重新解析前会剥掉一层引号。
+
+回归：`test_linker` 43/43（245 断言）、
+`integration_tests` 129/129（547 断言）、
+`test_e2e` 54/54（171 断言）。`Linker` 公共 API 未变；
+新增的 pe_writer 表面纯属增量。
+
+尚未落地：`polyc → polyld` 流水线对 `.ploy` 输入仍向
+`BuildExitZeroPE` 传递空 `.text`，因此 `polyc hello.ploy -o hello.exe`
+当前产出的是退出零映像而非 hello-world 映像。把
+`BuildHelloWorldPE`（以及更通用的运行时-IO 发射器）接到前端是
+多阶段运行时-stdout 路线图的下一个里程碑。
 
 ---
 

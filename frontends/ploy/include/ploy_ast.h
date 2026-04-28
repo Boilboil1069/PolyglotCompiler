@@ -349,6 +349,18 @@ struct ExprStatement : Statement {
   std::shared_ptr<Expression> expr;
 };
 
+// PRINTLN "literal";
+//
+// Writes a single string literal verbatim to the host's standard output and
+// (per current language definition) appends no automatic line terminator —
+// the literal must include any desired CRLF/LF inside the source program.
+// `message` carries the *decoded* string (the lexer has already stripped
+// quotes and resolved escape sequences); a trailing NUL is NOT included.
+/** @brief PrintlnStmt data structure. */
+struct PrintlnStmt : Statement {
+  std::string message;
+};
+
 // RETURN expr;
 /** @brief ReturnStatement data structure. */
 struct ReturnStatement : Statement {

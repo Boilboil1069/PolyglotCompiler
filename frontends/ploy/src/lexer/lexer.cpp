@@ -73,7 +73,9 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
       "BOOL",     "ARRAY",   "STRUCT", "PACKAGE",  "LIST",     "TUPLE",  "DICT",   "OPTION",
       "MAP_FUNC", "CONVERT", "CONFIG", "VENV",     "CONDA",    "UV",     "PIPENV", "POETRY",
       // language-version pinning keyword.
-      "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND", "LANG"};
+      "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND", "LANG",
+      // runtime-IO statement: writes a literal message to standard output.
+      "PRINTLN"};
 
   // ASCII upper-case fold.  Reserved words are intentionally restricted to
   // the ASCII range, so a per-byte fold is correct without a Unicode pass.

@@ -439,19 +439,20 @@ Source Code
 | 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1950 | 类型检查、包发现、版本验证、错误检查 |
 | IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR 转换 |
 
-### 关键字列表（54 个）
+### 关键字列表（56 个，自 Ploy 1.5.2 起大小写不敏感）
 
 ```
 // 声明关键字
 LINK      IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC      CONFIG
+LANG
 
 // 变量与类型
 LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
 BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
 
 // 控制流
-RETURN    IF        ELSE      WHILE      FOR        IN        MATCH
-CASE      DEFAULT   BREAK     CONTINUE
+RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
+MATCH     CASE      DEFAULT   BREAK      CONTINUE
 
 // 运算符
 AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
@@ -465,6 +466,21 @@ TRUE      FALSE     NULL      PACKAGE
 // 包管理器
 VENV      CONDA     UV        PIPENV     POETRY
 ```
+
+> **大小写不敏感（Ploy 1.5.2+）。** 上表中所有保留字均按大小写不敏感
+> 识别——`link`、`Link`、`LINK`、`LiNk` 都映射到同一个 `LINK` token。
+> 词法器会把 `Token::lexeme` 规范化为表中所示的 UPPER 拼写；用户在
+> 源代码里真正写下的拼写则保留在 `Token::raw_lexeme` 字段，并通过
+> `Token::SourceText()` 暴露。**标识符仍然大小写敏感**——只有关键字
+> 集合参与折叠。过去仅在大小写上与关键字不同的标识符（`config`、
+> `array`、`get`、`pipeline`、…）现在变为保留字，请改名（例如
+> `app_cfg`、`np_array`、`getter`、`run_pipeline`）。
+>
+> `*` `RETURNS` 仍然为了向后兼容而被解析，但语法分析器会在该 token
+> 处发出非致命的 `kDeprecatedKeyword` 警告（ErrorCode = 3024）。新代码
+> 请使用 LINK 签名上的 `-> Type` 箭头来声明返回类型。逻辑运算符
+> `AND` / `OR` / `NOT` 是 `&&` / `||` / `!` 的精确别名；新代码推荐使用
+> 符号形式。
 
 ## 4.2 核心语法
 
@@ -2366,7 +2382,7 @@ GC 策略选择: `gc_strategy.cpp`
 
 | 类别 | 标签 | 数量 | 覆盖内容 |
 |------|------|------|---------|
-| 词法分析 | `[ploy][lexer]` | 17 | 关键字(54)、标识符、数字、字符串、运算符 |
+| 词法分析 | `[ploy][lexer]` | 17 | 关键字(56，大小写不敏感)、标识符、数字、字符串、运算符 |
 | 语法分析 | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
 | 语义分析 | `[ploy][sema]` | 40 | 类型检查、作用域、版本验证、包发现、OOP互操作、错误检查 |
 | IR 生成 | `[ploy][lowering]` | 29 | 函数/管道/链接/表达式/控制流/OOP互操作/DELETE/EXTEND |
