@@ -43,7 +43,23 @@ frontends::Token PloyParser::Consume() {
 }
 
 void PloyParser::Advance() {
-  current_ = lexer_.NextToken();
+  if (peeked_.has_value()) {
+    current_ = *peeked_;
+    peeked_.reset();
+  } else {
+    current_ = lexer_.NextToken();
+  }
+}
+
+// Returns the token immediately after `current_` without consuming it.
+// Lazily fills the one-token lookahead buffer on first call between two
+// Advance()s.  Subsequent Advance() will promote the peeked token into
+// `current_` and clear the buffer.
+const frontends::Token &PloyParser::Peek() {
+  if (!peeked_.has_value()) {
+    peeked_ = lexer_.NextToken();
+  }
+  return *peeked_;
 }
 
 bool PloyParser::IsSymbol(const std::string &symbol) const {
@@ -729,6 +745,11 @@ std::vector<FuncDecl::Param> PloyParser::ParseParams() {
   if (IsSymbol(")"))
     return params;
 
+  // Track whether a defaulted parameter has been seen so we can reject any
+  // following non-defaulted parameter at parse time (matches the language
+  // rule that required parameters must precede defaulted ones).
+  bool seen_default = false;
+
   do {
     FuncDecl::Param param;
     if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -741,6 +762,18 @@ std::vector<FuncDecl::Param> PloyParser::ParseParams() {
 
     ExpectSymbol(":", "expected ':' after parameter name");
     param.type = ParseType();
+
+    // Optional default value: `= <expr>`.
+    if (IsSymbol("=")) {
+      Advance();
+      param.default_value = ParseExpression();
+      seen_default = true;
+    } else if (seen_default) {
+      diagnostics_.Report(param.type ? param.type->loc : current_.loc,
+                          "required parameter '" + param.name +
+                              "' cannot follow a parameter with a default value");
+    }
+
     params.push_back(std::move(param));
   } while (MatchSymbol(","));
 
@@ -988,7 +1021,13 @@ std::shared_ptr<Statement> PloyParser::ParseMatchStatement() {
     MatchStatement::Case match_case;
 
     if (MatchKeyword("CASE")) {
-      match_case.pattern = ParseExpression();
+      // Pattern grammar (demand 2026-04-28-10): an or-pattern, optionally
+      // followed by an `IF expr` guard.  See ParsePattern() for the full
+      // sub-grammar.
+      match_case.pattern = ParsePattern();
+      if (MatchKeyword("IF")) {
+        match_case.guard = ParseExpression();
+      }
     } else if (MatchKeyword("DEFAULT")) {
       match_case.pattern = nullptr; // default case
     } else {
@@ -1006,6 +1045,248 @@ std::shared_ptr<Statement> PloyParser::ParseMatchStatement() {
 
   ExpectSymbol("}", "expected '}' to close MATCH");
   return node;
+}
+
+// Top-level pattern: an or-pattern of one or more primary patterns.
+//   pattern  ::= pattern_primary ('|' pattern_primary)*
+std::shared_ptr<Pattern> PloyParser::ParsePattern() {
+  auto first = ParsePatternPrimary();
+  if (!IsSymbol("|")) {
+    return first;
+  }
+  auto node = std::make_shared<OrPattern>();
+  node->loc = first ? first->loc : current_.loc;
+  node->alternatives.push_back(first);
+  while (MatchSymbol("|")) {
+    node->alternatives.push_back(ParsePatternPrimary());
+  }
+  return node;
+}
+
+// Primary pattern. Order matters because some prefixes overlap.
+//   pattern_primary ::= '_'
+//                     | literal_or_range
+//                     | identifier_pattern
+//                     | tuple_or_grouped
+namespace {
+// Parse a literal token in a pattern position. Recognises integer / float /
+// string / TRUE / FALSE / NULL plus an optional unary minus on numerics so
+// patterns like `CASE -1` parse cleanly.
+std::shared_ptr<Literal> ParsePatternLiteralFrom(PloyParser & /*self*/) {
+  // Implemented inline below via lambda capture; this NS exists only to
+  // hide a couple of small helpers without cluttering the class header.
+  return nullptr;
+}
+} // namespace
+
+std::shared_ptr<Pattern> PloyParser::ParsePatternPrimary() {
+  // Local helper: parse a literal token (with optional leading '-') and
+  // return it as a shared Literal; nullptr if the current token does not
+  // begin a literal.
+  auto try_parse_literal = [this]() -> std::shared_ptr<Literal> {
+    bool negate = false;
+    core::SourceLoc start = current_.loc;
+    if (IsSymbol("-")) {
+      negate = true;
+      Advance();
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        (current_.lexeme == "TRUE" || current_.lexeme == "FALSE")) {
+      auto lit = std::make_shared<Literal>();
+      lit->loc = start;
+      lit->kind = Literal::Kind::kBool;
+      lit->value = (current_.lexeme == "TRUE") ? "true" : "false";
+      Advance();
+      return lit;
+    }
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "NULL") {
+      auto lit = std::make_shared<Literal>();
+      lit->loc = start;
+      lit->kind = Literal::Kind::kNull;
+      lit->value = "null";
+      Advance();
+      return lit;
+    }
+    if (current_.kind == frontends::TokenKind::kNumber) {
+      auto lit = std::make_shared<Literal>();
+      lit->loc = start;
+      bool has_dot = current_.lexeme.find('.') != std::string::npos;
+      bool has_exp = current_.lexeme.find('e') != std::string::npos ||
+                     current_.lexeme.find('E') != std::string::npos;
+      lit->kind = (has_dot || has_exp) ? Literal::Kind::kFloat : Literal::Kind::kInteger;
+      lit->value = (negate ? "-" : "") + current_.lexeme;
+      Advance();
+      return lit;
+    }
+    if (current_.kind == frontends::TokenKind::kString) {
+      auto lit = std::make_shared<Literal>();
+      lit->loc = start;
+      lit->kind = Literal::Kind::kString;
+      lit->value = current_.lexeme;
+      Advance();
+      return lit;
+    }
+    return nullptr;
+  };
+
+  core::SourceLoc loc = current_.loc;
+
+  // Wildcard `_` is lexed as an identifier.
+  if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == "_") {
+    Advance();
+    auto node = std::make_shared<WildcardPattern>();
+    node->loc = loc;
+    return node;
+  }
+
+  // Tuple or grouped: `(p)` is just `p`; `(p1, p2, ...)` is a tuple.
+  if (IsSymbol("(")) {
+    Advance();
+    if (IsSymbol(")")) {
+      // Empty tuple pattern.
+      Advance();
+      auto node = std::make_shared<TuplePattern>();
+      node->loc = loc;
+      return node;
+    }
+    std::vector<std::shared_ptr<Pattern>> elems;
+    elems.push_back(ParsePattern());
+    bool is_tuple = false;
+    while (MatchSymbol(",")) {
+      is_tuple = true;
+      if (IsSymbol(")")) break; // trailing comma allowed
+      elems.push_back(ParsePattern());
+    }
+    ExpectSymbol(")", "expected ')' to close tuple pattern");
+    if (!is_tuple) {
+      return elems.front();
+    }
+    auto node = std::make_shared<TuplePattern>();
+    node->loc = loc;
+    node->elements = std::move(elems);
+    return node;
+  }
+
+  // Identifier-headed forms: bare identifier, `name @ sub`, `name : Type`,
+  // `Name(...)` constructor, `Name { ... }` struct.  We accept either a
+  // raw identifier or a few canonical keywords (`Some`/`None` etc. are
+  // user-space identifiers, but this branch also has to cope with
+  // `TRUE`/`FALSE` falling through from try_parse_literal above).
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
+    std::string name = current_.lexeme;
+    core::SourceLoc id_loc = current_.loc;
+    Advance();
+
+    // Constructor pattern: Name(p1, p2, ...)  — used for OPTION's Some/None
+    // and any nominal constructor.
+    if (IsSymbol("(")) {
+      Advance();
+      auto node = std::make_shared<ConstructorPattern>();
+      node->loc = id_loc;
+      node->name = name;
+      if (!IsSymbol(")")) {
+        node->args.push_back(ParsePattern());
+        while (MatchSymbol(",")) {
+          if (IsSymbol(")")) break;
+          node->args.push_back(ParsePattern());
+        }
+      }
+      ExpectSymbol(")", "expected ')' to close constructor pattern");
+      return node;
+    }
+
+    // Struct pattern: Name { f1, f2: sub, .. }
+    if (IsSymbol("{")) {
+      Advance();
+      auto node = std::make_shared<StructPattern>();
+      node->loc = id_loc;
+      node->struct_name = name;
+      while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        if (IsSymbol("..")) {
+          Advance();
+          node->has_rest = true;
+          MatchSymbol(","); // trailing comma after `..` allowed
+          break;
+        }
+        if (current_.kind != frontends::TokenKind::kIdentifier) {
+          diagnostics_.Report(current_.loc,
+                              "expected field name in struct pattern, got '" +
+                                  current_.lexeme + "'");
+          Sync();
+          break;
+        }
+        StructPattern::FieldPattern fp;
+        fp.name = current_.lexeme;
+        Advance();
+        if (MatchSymbol(":")) {
+          fp.sub = ParsePattern();
+        }
+        node->fields.push_back(std::move(fp));
+        if (!MatchSymbol(",")) break;
+      }
+      ExpectSymbol("}", "expected '}' to close struct pattern");
+      return node;
+    }
+
+    // Binding pattern: name @ sub
+    if (IsSymbol("@")) {
+      Advance();
+      auto node = std::make_shared<BindingPattern>();
+      node->loc = id_loc;
+      node->name = name;
+      node->sub = ParsePatternPrimary();
+      return node;
+    }
+
+    // Type-guard pattern: name : Type
+    if (IsSymbol(":")) {
+      Advance();
+      auto node = std::make_shared<TypePattern>();
+      node->loc = id_loc;
+      node->name = name;
+      node->type_node = ParseType();
+      return node;
+    }
+
+    // Plain identifier: bare bind.
+    auto node = std::make_shared<IdentifierPattern>();
+    node->loc = id_loc;
+    node->name = name;
+    return node;
+  }
+
+  // Literal-headed forms (with optional negative sign, see helper). These
+  // may participate in a range pattern: `lo .. hi` or `lo ..= hi`.
+  if (auto lit = try_parse_literal()) {
+    if (IsSymbol("..") || IsSymbol("..=")) {
+      bool inclusive = IsSymbol("..=");
+      Advance();
+      auto rhs = try_parse_literal();
+      if (!rhs) {
+        diagnostics_.Report(current_.loc,
+                            "expected literal after range operator in pattern, got '" +
+                                current_.lexeme + "'");
+        rhs = lit; // fall back so subsequent recovery does not crash
+      }
+      auto node = std::make_shared<RangePattern>();
+      node->loc = loc;
+      node->low = lit;
+      node->high = rhs;
+      node->inclusive = inclusive;
+      return node;
+    }
+    auto node = std::make_shared<LiteralPattern>();
+    node->loc = loc;
+    node->literal = lit;
+    return node;
+  }
+
+  diagnostics_.Report(current_.loc,
+                      "expected pattern, got '" + current_.lexeme + "'");
+  Advance(); // consume offending token to make progress
+  auto fallback = std::make_shared<WildcardPattern>();
+  fallback->loc = loc;
+  return fallback;
 }
 
 std::shared_ptr<Statement> PloyParser::ParseReturnStatement() {
@@ -1796,10 +2077,31 @@ std::vector<std::shared_ptr<Expression>> PloyParser::ParseArguments() {
   bool seen_named = false;
 
   do {
+    // Look ahead for the canonical `name: value` named-argument form.  We
+    // only consume the colon form when the next two tokens are exactly
+    // <Identifier> <:>, so that nested type annotations inside expressions
+    // (e.g. struct literals) cannot be mis-parsed as named args.
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+      const auto &next = Peek();
+      if (next.kind == frontends::TokenKind::kSymbol && next.lexeme == ":") {
+        auto label = current_;
+        Advance(); // consume identifier
+        Advance(); // consume ':'
+        auto value = ParseExpression();
+        auto named = std::make_shared<NamedArgument>();
+        named->loc = label.loc;
+        named->name = label.lexeme;
+        named->value = value;
+        args.push_back(named);
+        seen_named = true;
+        continue;
+      }
+    }
+
     auto expr = ParseExpression();
 
-    // Check if the parsed expression is a named argument pattern:
-    //   name = value  �? BinaryExpression(op="=", left=Identifier, right=value)
+    // Legacy named-argument pattern:
+    //   name = value  ->  BinaryExpression(op="=", left=Identifier, right=value)
     if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
       if (bin->op == "=") {
         if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {

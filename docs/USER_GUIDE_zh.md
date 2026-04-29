@@ -907,6 +907,53 @@ SET(python, model, weight, CALL(python, np::zeros, 784));
 
 **IR 生成：** 属性赋值桥接桩命名为 `__ploy_bridge_ploy_<lang>___setattr__<attr_name>`，对象和值作为参数传入。
 
+### 4.2.13b CLASS / HANDLE — 静态类型化对象互操作 *（自 1.9.0 起）*
+
+`CLASS` 模式把过去全是 `Any` 类型的 `NEW` / `METHOD` / `GET` / `SET`
+四件套变成了静态类型检查的表层语法，而 `HANDLE<lang::Class>` 在类型
+系统中承载外语对象的身份。
+
+```ploy
+// 1. 每个外语类只需声明一次模式。
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+    ATTR out_features: i32;
+}
+
+// 2. 实例从此具有精确类型。
+LET model: HANDLE<python::torch::nn::Linear> =
+    NEW(python, torch::nn::Linear, 128, 10);
+
+// 3. METHOD / GET / SET 按模式类型检查。
+LET y: f32 = METHOD(python, model, forward, 0.5);   // 实参与返回都被检查
+LET dim: i32 = GET(python, model, in_features);     // 解析到属性类型
+SET(python, model, in_features, 256);               // 写入值类型被检查
+```
+
+**诊断**
+
+| 情形                                         | 严重度 | 备注                                            |
+| -------------------------------------------- | ------ | ----------------------------------------------- |
+| `NEW` / `METHOD` 实参个数不匹配              | 错误   | 与普通函数调用一致。                            |
+| 实参类型不匹配                               | 错误   | 与普通函数调用一致。                            |
+| `SET` 写入值类型不匹配                       | 错误   | 否则会破坏外语对象的不变量。                    |
+| 类型化 handle 上的未知方法                   | 警告   | 外语对象常会动态挂载方法。                      |
+| 类型化 handle 上的未知属性                   | 警告   | 同上。                                          |
+| 跨语言 handle 赋值                           | 错误   | 请使用 `CONVERT` + `MAP_FUNC` 显式桥接。       |
+
+**兼容性说明**
+
+* `CLASS`、`HANDLE`、`ATTR` 是**上下文关键字**：把它们用作普通标识
+  符的现有程序仍能正常词法化与解析。
+* 若目标没有声明 `CLASS` 模式，`NEW` / `METHOD` / `GET` / `SET` 会回
+  退到旧的动态 `Any` 路径 —— 31 个既有样例的 1.9.0 之前行为保持不变。
+* 构造方法可命名为 `__init__`（Python 习惯）、`new`（Rust 习惯）或
+  `ctor`；模式记录第一个匹配项，并由 `NEW(...)` 取用。
+* 样例 `tests/samples/32_typed_handles/` 是规范化参考流程；实现说明
+  见 [`realization/cross_language_oop_zh.md`](realization/cross_language_oop_zh.md)。
+
 ### 4.2.14 WITH — 跨语言资源管理
 
 `WITH` 关键字提供自动资源管理，类似于 Python 的 `with` 语句。生成 `__enter__` 和 `__exit__` 桥接桩函数，确保资源被正确清理。

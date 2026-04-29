@@ -891,6 +891,59 @@ SET(python, model, weight, CALL(python, np::zeros, 784));
 
 **IR generation:** Attribute assignment bridge stubs are named `__ploy_bridge_ploy_<lang>___setattr__<attr_name>`. Both the object and value are passed as arguments.
 
+### 4.2.13b CLASS / HANDLE — Statically-Typed Object Interop *(since 1.9.0)*
+
+`CLASS` schemas turn the previously `Any`-typed `NEW` / `METHOD` /
+`GET` / `SET` quartet into a statically type-checked surface, while
+`HANDLE<lang::Class>` carries the foreign object's identity through the
+type system.
+
+```ploy
+// 1. Declare a schema once per foreign class.
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+    ATTR out_features: i32;
+}
+
+// 2. Instances now have a precise type.
+LET model: HANDLE<python::torch::nn::Linear> =
+    NEW(python, torch::nn::Linear, 128, 10);
+
+// 3. METHOD / GET / SET are type-checked against the schema.
+LET y: f32 = METHOD(python, model, forward, 0.5);   // arg + return checked
+LET dim: i32 = GET(python, model, in_features);     // attr type resolved
+SET(python, model, in_features, 256);               // value type checked
+```
+
+**Diagnostics**
+
+| Situation                                       | Severity | Notes                                              |
+| ----------------------------------------------- | -------- | -------------------------------------------------- |
+| Argument count mismatch (`NEW` / `METHOD`)      | error    | Same rule as ordinary function calls.              |
+| Argument type mismatch                          | error    | Same rule as ordinary function calls.              |
+| `SET` value type mismatch                       | error    | Would corrupt the foreign object's invariant.      |
+| Unknown method on a typed handle                | warning  | Foreign objects often expose dynamic methods.      |
+| Unknown attribute on a typed handle             | warning  | Same reason as above.                              |
+| Cross-language handle assignment                | error    | Use `CONVERT` + `MAP_FUNC` for explicit bridging. |
+
+**Compatibility notes**
+
+* `CLASS`, `HANDLE` and `ATTR` are **contextual** keywords: existing
+  programs that use `class`, `handle`, or `attr` as identifiers
+  continue to lex and parse unchanged.
+* If no `CLASS` schema is declared for a target, `NEW` / `METHOD` /
+  `GET` / `SET` fall back to the legacy dynamic-`Any` path — the
+  pre-1.9.0 behaviour of all 31 existing samples is preserved.
+* Constructor methods can be named `__init__` (Python convention),
+  `new` (Rust convention) or `ctor`; the schema records the first one
+  found and consults it from `NEW(...)`.
+* Sample `tests/samples/32_typed_handles/` is the canonical reference
+  walk-through; the realisation note
+  [`realization/cross_language_oop.md`](realization/cross_language_oop.md)
+  documents the design.
+
 ### 4.2.14 WITH — Cross-Language Resource Management
 
 The `WITH` keyword provides automatic resource management, similar to Python's `with` statement. It generates `__enter__` and `__exit__` bridge stubs, ensuring the resource is properly cleaned up.

@@ -289,6 +289,12 @@ frontends::Token PloyLexer::LexOperator() {
   case '.':
     if (Peek() == '.') {
       lexeme.push_back(Get());
+      // Inclusive-range suffix `..=` is a distinct symbol used by patterns
+      // and range expressions.  Emit the three characters as a single token
+      // so downstream consumers do not have to peek past `..`.
+      if (Peek() == '=') {
+        lexeme.push_back(Get());
+      }
     }
     break;
 

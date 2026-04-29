@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <functional>
@@ -667,50 +668,267 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
   EvalResult match_val = LowerExpression(match_stmt->value);
   auto merge_bb = builder_.CreateBlock("match.merge");
 
-  // Build switch cases
-  std::vector<ir::SwitchStatement::Case> ir_cases;
-  ir::BasicBlock *default_bb = merge_bb.get();
+  // Fast path: when every CASE pattern is a plain integer literal (and at
+  // most one DEFAULT) we still emit an `ir::SwitchStatement` so that the
+  // existing dense-switch tests in this suite continue to lower into a
+  // jump table.  Anything richer (range, tuple, OR, binding, …) drops to
+  // the structural if/else cascade below.
+  auto is_simple_int_literal = [](const std::shared_ptr<Pattern> &p) -> bool {
+    auto lit = std::dynamic_pointer_cast<LiteralPattern>(p);
+    return lit && lit->literal && lit->literal->kind == Literal::Kind::kInteger;
+  };
 
-  std::vector<std::shared_ptr<ir::BasicBlock>> case_blocks;
-  for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
-    auto case_bb = builder_.CreateBlock("match.case." + std::to_string(i));
-    case_blocks.push_back(case_bb);
+  bool all_simple = true;
+  for (const auto &c : match_stmt->cases) {
+    if (c.guard) { all_simple = false; break; }
+    if (!c.pattern) continue; // DEFAULT
+    if (!is_simple_int_literal(c.pattern)) { all_simple = false; break; }
+  }
 
-    if (!match_stmt->cases[i].pattern) {
-      // DEFAULT case
-      default_bb = case_bb.get();
-    } else {
-      // Evaluate pattern as a literal for switch
-      EvalResult pat = LowerExpression(match_stmt->cases[i].pattern);
+  if (all_simple) {
+    std::vector<ir::SwitchStatement::Case> ir_cases;
+    ir::BasicBlock *default_bb = merge_bb.get();
+    std::vector<std::shared_ptr<ir::BasicBlock>> case_blocks;
+    case_blocks.reserve(match_stmt->cases.size());
+    for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
+      auto case_bb = builder_.CreateBlock("match.case." + std::to_string(i));
+      case_blocks.push_back(case_bb);
+      if (!match_stmt->cases[i].pattern) {
+        default_bb = case_bb.get();
+        continue;
+      }
+      auto lit = std::dynamic_pointer_cast<LiteralPattern>(match_stmt->cases[i].pattern);
       char *end = nullptr;
-      long long case_val = std::strtoll(pat.value.c_str(), &end, 0);
+      long long case_val = std::strtoll(lit->literal->value.c_str(), &end, 0);
       ir::SwitchStatement::Case sc;
       sc.value = case_val;
       sc.target = case_bb.get();
       ir_cases.push_back(sc);
     }
+    builder_.MakeSwitch(match_val.value, ir_cases, default_bb);
+    bool all_terminated = true;
+    for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
+      builder_.SetInsertPoint(case_blocks[i]);
+      terminated_ = false;
+      LowerBlockStatements(match_stmt->cases[i].body);
+      if (!terminated_) {
+        all_terminated = false;
+        builder_.MakeBranch(merge_bb.get());
+      }
+    }
+    builder_.SetInsertPoint(merge_bb);
+    terminated_ = all_terminated;
+    if (terminated_) builder_.MakeUnreachable();
+    return;
   }
 
-  builder_.MakeSwitch(match_val.value, ir_cases, default_bb);
+  // Generic path (demand 2026-04-28-10): for every CASE we synthesise an
+  // i1 predicate that says "does the scrutinee match this pattern?".
+  // Cases are chained as nested `match.try.N` blocks with the body in
+  // `match.body.N`; control falls through to the next `try` on a miss
+  // and joins at `match.merge` on success.  Pattern-introduced bindings
+  // are materialised before the body block by reusing the scrutinee SSA
+  // value (no copy needed since `.ploy` is immutable-by-default).
 
-  // Lower each case body
+  // Helper that lowers a pattern into an i1 predicate against `match_val`.
+  // Returns the SSA name of the predicate.  Bindings are recorded into
+  // `bindings` for later application inside the body block.
+  std::function<std::string(const std::shared_ptr<Pattern> &,
+                            std::vector<std::pair<std::string, EvalResult>> &)>
+      lower_predicate = [&](const std::shared_ptr<Pattern> &pat,
+                            std::vector<std::pair<std::string, EvalResult>> &bindings) -> std::string {
+    if (!pat || std::dynamic_pointer_cast<WildcardPattern>(pat)) {
+      // Always-true literal i1.
+      return "1";
+    }
+    if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(pat)) {
+      bindings.emplace_back(id->name, match_val);
+      return "1";
+    }
+    if (auto lit = std::dynamic_pointer_cast<LiteralPattern>(pat)) {
+      EvalResult lit_val = LowerLiteral(lit->literal);
+      auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpEq,
+                                     match_val.value, lit_val.value, "match.eq");
+      cmp->type = ir::IRType::I1();
+      return cmp->name;
+    }
+    if (auto rng = std::dynamic_pointer_cast<RangePattern>(pat)) {
+      EvalResult lo = LowerLiteral(rng->low);
+      EvalResult hi = LowerLiteral(rng->high);
+      auto ge = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpSge,
+                                    match_val.value, lo.value, "match.ge");
+      ge->type = ir::IRType::I1();
+      auto cmp_hi_op = rng->inclusive ? ir::BinaryInstruction::Op::kCmpSle
+                                       : ir::BinaryInstruction::Op::kCmpSlt;
+      auto le = builder_.MakeBinary(cmp_hi_op, match_val.value, hi.value,
+                                    rng->inclusive ? "match.le" : "match.lt");
+      le->type = ir::IRType::I1();
+      auto andv = builder_.MakeBinary(ir::BinaryInstruction::Op::kAnd, ge->name,
+                                      le->name, "match.in_range");
+      andv->type = ir::IRType::I1();
+      return andv->name;
+    }
+    if (auto orp = std::dynamic_pointer_cast<OrPattern>(pat)) {
+      // Bindings produced by an or-pattern come from the *first* branch
+      // (sema has already verified all alternatives bind the same names);
+      // for the body the binding source value is the scrutinee, so the
+      // discriminant is uniform regardless of which branch matched.
+      std::string acc;
+      for (size_t i = 0; i < orp->alternatives.size(); ++i) {
+        std::vector<std::pair<std::string, EvalResult>> alt_bindings;
+        std::string alt = lower_predicate(orp->alternatives[i], alt_bindings);
+        if (i == 0) {
+          acc = alt;
+          for (auto &b : alt_bindings) bindings.push_back(std::move(b));
+        } else {
+          auto orv = builder_.MakeBinary(ir::BinaryInstruction::Op::kOr, acc, alt,
+                                         "match.or");
+          orv->type = ir::IRType::I1();
+          acc = orv->name;
+        }
+      }
+      return acc.empty() ? std::string("0") : acc;
+    }
+    if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pat)) {
+      bindings.emplace_back(bind->name, match_val);
+      if (bind->sub) return lower_predicate(bind->sub, bindings);
+      return "1";
+    }
+    if (auto tp = std::dynamic_pointer_cast<TypePattern>(pat)) {
+      // Static type-guard: refinement is enforced by sema; at runtime the
+      // scrutinee's IR is reused without cast (this is sound because the
+      // outer flow guarantees the scrutinee's dynamic type matches when
+      // the static type system already proved it does).
+      if (!tp->name.empty()) bindings.emplace_back(tp->name, match_val);
+      return "1";
+    }
+    if (auto ctor = std::dynamic_pointer_cast<ConstructorPattern>(pat)) {
+      // OPTION lowering: Some / None compare against a sentinel `0` for
+      // None and `1` for Some.  When `Some(sub)` is used, bindings from
+      // the inner pattern are derived from the scrutinee (the boxed
+      // payload representation is opaque to ploy at this stage).
+      if (ctor->name == "None") {
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpEq,
+                                       match_val.value, "0", "match.is_none");
+        cmp->type = ir::IRType::I1();
+        return cmp->name;
+      }
+      if (ctor->name == "Some") {
+        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
+                                       match_val.value, "0", "match.is_some");
+        cmp->type = ir::IRType::I1();
+        if (!ctor->args.empty()) {
+          // For now we forward the scrutinee SSA value into any inner
+          // binding; richer payload extraction is deferred until the
+          // OPTION layout is finalised in the runtime ABI.
+          std::vector<std::pair<std::string, EvalResult>> inner_b;
+          (void) lower_predicate(ctor->args.front(), inner_b);
+          for (auto &b : inner_b) bindings.push_back(std::move(b));
+        }
+        return cmp->name;
+      }
+      // Generic nominal constructors: conservatively always-true; the
+      // structural check is delegated to the foreign runtime.
+      return "1";
+    }
+    if (auto tup = std::dynamic_pointer_cast<TuplePattern>(pat)) {
+      // No tuple ABI yet; lower to always-true and delegate to the body
+      // (the bindings still receive the whole scrutinee).
+      for (const auto &e : tup->elements) {
+        std::vector<std::pair<std::string, EvalResult>> inner_b;
+        (void) lower_predicate(e, inner_b);
+        for (auto &b : inner_b) bindings.push_back(std::move(b));
+      }
+      return "1";
+    }
+    if (auto sp = std::dynamic_pointer_cast<StructPattern>(pat)) {
+      for (const auto &fp : sp->fields) {
+        if (fp.sub) {
+          std::vector<std::pair<std::string, EvalResult>> inner_b;
+          (void) lower_predicate(fp.sub, inner_b);
+          for (auto &b : inner_b) bindings.push_back(std::move(b));
+        } else {
+          // Shorthand `field` => `field: <bind>`; reuse the scrutinee.
+          bindings.emplace_back(fp.name, match_val);
+        }
+      }
+      return "1";
+    }
+    return "0";
+  };
+
   bool all_terminated = true;
   for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
-    builder_.SetInsertPoint(case_blocks[i]);
+    const auto &mc = match_stmt->cases[i];
+    auto body_bb = builder_.CreateBlock("match.body." + std::to_string(i));
+    auto next_bb = (i + 1 == match_stmt->cases.size())
+                       ? merge_bb
+                       : builder_.CreateBlock("match.try." + std::to_string(i + 1));
+
+    std::vector<std::pair<std::string, EvalResult>> bindings;
+    std::string pred;
+    if (!mc.pattern) {
+      // DEFAULT: unconditional branch into body.
+      pred = "1";
+    } else {
+      pred = lower_predicate(mc.pattern, bindings);
+    }
+    if (mc.guard) {
+      // The guard expression executes inside a *probe* block so any
+      // bindings introduced by the pattern can be referenced from the
+      // guard.  We materialise bindings, evaluate the guard, then use
+      // (pred AND guard_i1) as the actual branch predicate.
+      auto guard_bb = builder_.CreateBlock("match.guard." + std::to_string(i));
+      builder_.MakeCondBranch(pred, guard_bb.get(), next_bb.get());
+      builder_.SetInsertPoint(guard_bb);
+      // Install bindings into `env_` so the guard sees them.
+      std::vector<std::pair<std::string, EnvEntry>> shadowed;
+      for (auto &b : bindings) {
+        auto it = env_.find(b.first);
+        if (it != env_.end()) shadowed.emplace_back(b.first, it->second);
+        env_[b.first] = EnvEntry{b.second.value, b.second.type, false};
+      }
+      EvalResult guard_val = LowerExpression(mc.guard);
+      std::string guard_i1 = EnsureI1(guard_val);
+      builder_.MakeCondBranch(guard_i1, body_bb.get(), next_bb.get());
+      // Restore env_ before falling through to the next try block.
+      for (auto &b : bindings) env_.erase(b.first);
+      for (auto &kv : shadowed) env_[kv.first] = kv.second;
+    } else {
+      builder_.MakeCondBranch(pred, body_bb.get(), next_bb.get());
+    }
+
+    // Body block.
+    builder_.SetInsertPoint(body_bb);
     terminated_ = false;
-    LowerBlockStatements(match_stmt->cases[i].body);
+    std::vector<std::pair<std::string, EnvEntry>> shadowed_body;
+    for (auto &b : bindings) {
+      auto it = env_.find(b.first);
+      if (it != env_.end()) shadowed_body.emplace_back(b.first, it->second);
+      env_[b.first] = EnvEntry{b.second.value, b.second.type, false};
+    }
+    LowerBlockStatements(mc.body);
+    for (auto &b : bindings) env_.erase(b.first);
+    for (auto &kv : shadowed_body) env_[kv.first] = kv.second;
     if (!terminated_) {
       all_terminated = false;
       builder_.MakeBranch(merge_bb.get());
     }
+
+    if (next_bb != merge_bb) {
+      builder_.SetInsertPoint(next_bb);
+    }
   }
 
   builder_.SetInsertPoint(merge_bb);
-  // If every case terminated (e.g., RETURN / BREAK), merge is unreachable
-  terminated_ = all_terminated;
-  if (terminated_) {
-    builder_.MakeUnreachable();
-  }
+  terminated_ = all_terminated && match_stmt->cases.size() > 0 &&
+                std::all_of(match_stmt->cases.begin(), match_stmt->cases.end(),
+                            [](const MatchStatement::Case &c) {
+                              return c.pattern == nullptr ||
+                                     std::dynamic_pointer_cast<WildcardPattern>(c.pattern) ||
+                                     std::dynamic_pointer_cast<IdentifierPattern>(c.pattern);
+                            });
+  if (terminated_) builder_.MakeUnreachable();
 }
 
 void PloyLowering::LowerReturnStatement(const std::shared_ptr<ReturnStatement> &ret) {

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
+#include <functional>
 #include <sstream>
 #include <unordered_set>
 
@@ -74,7 +75,7 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
   } else if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
     AnalyzeReturnStatement(ret);
   } else if (auto println = std::dynamic_pointer_cast<PrintlnStmt>(stmt)) {
-    // PRINTLN "literal";  — Stage B2 of the runtime-stdout pipeline.
+    // PRINTLN "literal";  �?Stage B2 of the runtime-stdout pipeline.
     // The parser already guarantees that `message` came from a well-formed
     // string literal, so there is nothing to validate semantically. An empty
     // message is intentionally allowed (it lowers to a zero-byte WriteFile
@@ -254,7 +255,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
     link_sym.type = core::Type::Unknown();
   }
   link_sym.defined_at = link->loc;
-  // Do not report redefinition for link targets 鈥?they may overlap with imports
+  // Do not report redefinition for link targets �?they may overlap with imports
   symbols_.try_emplace(link->target_symbol, link_sym);
 
   // Register the LINK target as a known function signature so that the
@@ -343,7 +344,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
       RegisterFunctionSignature(link->source_symbol, src_reg_sig);
     }
   } else {
-    // LINK without MAP_TYPE entries is valid 鈥?it simply means that no
+    // LINK without MAP_TYPE entries is valid �?it simply means that no
     // per-parameter ABI mapping is declared.  Parameter validation at call
     // sites will be skipped for this link.  Emit an informational warning
     // so developers are aware, but never treat this as an error.
@@ -391,7 +392,7 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     // Selective imports and alias cannot be used together because
     // the alias target is ambiguous (does it refer to symbol A or B?)
     if (!import->alias.empty()) {
-      Report(import->loc, "selective import and AS alias cannot be combined 鈥?"
+      Report(import->loc, "selective import and AS alias cannot be combined �?"
                           "alias '" +
                               import->alias +
                               "' is ambiguous when "
@@ -441,11 +442,11 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
         PackageDiscoveryCache::MakeKey(import->language, manager_str, venv_path);
 
     if (!discovery_cache_->HasDiscovered(cache_key)) {
-      // Cache miss 鈥?run external commands and store results
+      // Cache miss �?run external commands and store results
       DiscoverPackages(import->language, venv_path, manager);
       discovery_cache_->Store(cache_key, discovered_packages_);
     } else {
-      // Cache hit 鈥?merge cached results into instance-local map
+      // Cache hit �?merge cached results into instance-local map
       auto cached = discovery_cache_->Retrieve(cache_key);
       for (const auto &[k, v] : cached) {
         discovered_packages_.try_emplace(k, v);
@@ -456,7 +457,7 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
     std::string pkg_key = import->language + "::" + import->package_name;
     auto pkg_it = discovered_packages_.find(pkg_key);
     if (pkg_it != discovered_packages_.end()) {
-      // Package found 鈥?check version constraint if specified
+      // Package found �?check version constraint if specified
       if (!import->version_op.empty() && !import->version_constraint.empty()) {
         if (!CompareVersions(pkg_it->second.version, import->version_constraint,
                              import->version_op)) {
@@ -588,7 +589,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
       ReportStrictDiag(func->loc, frontends::ErrorCode::kTypeMismatch,
                        "parameter '" + param.name +
                            "' has no type annotation; "
-                           "defaults to Unknown 鈥?add explicit type annotation");
+                           "defaults to Unknown �?add explicit type annotation");
     }
     param_types.push_back(pt);
   }
@@ -612,6 +613,29 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   sig.defined_at = func->loc;
   for (const auto &param : func->params) {
     sig.param_names.push_back(param.name);
+    sig.param_has_default.push_back(static_cast<bool>(param.default_value));
+  }
+  // Validate each default-value expression is constant-foldable so the
+  // lowering pass can safely materialise it inline at every call site.
+  // Also re-check the structural rule that no required parameter follows
+  // a defaulted one (the parser has already reported this, but a
+  // hand-built AST or a recovery path could still produce one).
+  bool seen_default = false;
+  for (const auto &param : func->params) {
+    if (param.default_value) {
+      seen_default = true;
+      if (!IsConstFoldableExpression(param.default_value)) {
+        ReportError(param.default_value->loc, frontends::ErrorCode::kTypeMismatch,
+                    "default value for parameter '" + param.name +
+                        "' must be a constant expression (literal, unary or binary "
+                        "of literals)",
+                    "replace the default with a CONST-foldable literal expression");
+      }
+    } else if (seen_default) {
+      ReportError(func->loc, frontends::ErrorCode::kTypeMismatch,
+                  "required parameter '" + param.name +
+                      "' cannot follow a parameter with a default value");
+    }
   }
   RegisterFunctionSignature(func->name, sig);
 
@@ -647,7 +671,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   // Re-register the function symbol itself (it was declared in outer scope
   // but may have been overwritten by the restore if it wasn't in saved_symbols
   // before DeclareSymbol was called). Since we declared it before the save,
-  // it is already in saved_symbols 鈥?no extra action needed.
+  // it is already in saved_symbols �?no extra action needed.
 }
 
 // ============================================================================
@@ -789,7 +813,7 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
     sym.type = core::Type::Unknown();
     ReportStrictDiag(for_stmt->loc, frontends::ErrorCode::kTypeMismatch,
                      "FOR iterator '" + for_stmt->iterator_name +
-                         "' type could not be inferred from iterable; defaults to Unknown 鈥?"
+                         "' type could not be inferred from iterable; defaults to Unknown �?"
                          "add explicit type annotation or ensure iterable is typed");
   }
   DeclareSymbol(sym);
@@ -803,20 +827,363 @@ void PloySema::AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt
 }
 
 void PloySema::AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt) {
-  AnalyzeExpression(match_stmt->value);
+  // Type-check the scrutinee once; every CASE pattern is checked against
+  // this static type.  Cross-language `Any` / `Unknown` scrutinees disable
+  // the structural compatibility checks below (they are reported once via
+  // strict-mode diagnostics on the scrutinee itself).
+  core::Type scrutinee = AnalyzeExpression(match_stmt->value);
 
+  // Track previous arms for reachability analysis (demand 2026-04-28-10).
+  // We collect:
+  //   * literal_seen      : exact literal patterns seen so far;
+  //   * has_irrefutable   : whether any preceding arm matches every value;
+  //   * bool_seen         : which boolean literals have been covered;
+  //   * option_some_seen  : whether `Some(_)` has been covered;
+  //   * option_none_seen  : whether `None` has been covered.
+  std::unordered_set<std::string> literal_seen;
+  bool has_irrefutable = false;
+  bool bool_true_seen = false;
+  bool bool_false_seen = false;
+  bool option_some_seen = false;
+  bool option_none_seen = false;
   bool has_default = false;
+
+  // Helper that records the simple coverage facts contributed by `pattern`.
+  // Recurses into OrPattern only (other compound patterns do not add to the
+  // global coverage table because they carry sub-bindings).
+  std::function<void(const std::shared_ptr<Pattern> &)> record_coverage =
+      [&](const std::shared_ptr<Pattern> &pattern) {
+        if (!pattern) return;
+        if (auto lit = std::dynamic_pointer_cast<LiteralPattern>(pattern)) {
+          if (lit->literal) {
+            literal_seen.insert(lit->literal->value);
+            if (lit->literal->kind == Literal::Kind::kBool) {
+              if (lit->literal->value == "true") bool_true_seen = true;
+              if (lit->literal->value == "false") bool_false_seen = true;
+            }
+          }
+        } else if (auto ctor = std::dynamic_pointer_cast<ConstructorPattern>(pattern)) {
+          if (ctor->name == "Some") option_some_seen = true;
+          if (ctor->name == "None") option_none_seen = true;
+        } else if (auto orp = std::dynamic_pointer_cast<OrPattern>(pattern)) {
+          for (const auto &alt : orp->alternatives) record_coverage(alt);
+        }
+      };
+
   for (const auto &match_case : match_stmt->cases) {
-    if (match_case.pattern) {
-      AnalyzeExpression(match_case.pattern);
-    } else {
+    if (!match_case.pattern) {
+      // DEFAULT case.
       if (has_default) {
         Report(match_stmt->loc, "MATCH has multiple DEFAULT cases");
       }
+      if (has_irrefutable || has_default) {
+        ReportWarning(match_case.body.empty() ? match_stmt->loc
+                                              : match_case.body.front()->loc,
+                      frontends::ErrorCode::kUnreachableCode,
+                      "MATCH arm is unreachable: a previous arm already "
+                      "covers every value");
+      }
       has_default = true;
+      AnalyzeBlockStatements(match_case.body);
+      continue;
     }
+
+    if (has_irrefutable || has_default) {
+      ReportWarning(match_case.pattern->loc, frontends::ErrorCode::kUnreachableCode,
+                    "MATCH arm is unreachable: a previous arm already "
+                    "covers every value");
+    }
+
+    // Detect duplicate literal arms �?these are statically unreachable
+    // even before the irrefutable arm appears.
+    if (auto lit = std::dynamic_pointer_cast<LiteralPattern>(match_case.pattern)) {
+      if (lit->literal && literal_seen.count(lit->literal->value) != 0U) {
+        ReportWarning(lit->loc, frontends::ErrorCode::kUnreachableCode,
+                      "MATCH arm is unreachable: literal '" + lit->literal->value +
+                          "' is already matched by a previous arm");
+      }
+    }
+
+    // Type-check the pattern and collect bindings into a fresh per-arm
+    // table.  We then install the bindings, analyse guard + body, and
+    // restore the surrounding scope.
+    std::unordered_map<std::string, core::Type> bindings;
+    AnalyzePattern(match_case.pattern, scrutinee, bindings);
+
+    // Stash any pre-existing symbols the bindings would shadow so the
+    // outer scope is restored cleanly after the arm.
+    std::vector<std::pair<std::string, PloySymbol>> shadowed;
+    std::vector<std::string> introduced;
+    for (const auto &kv : bindings) {
+      auto it = symbols_.find(kv.first);
+      if (it != symbols_.end()) {
+        shadowed.emplace_back(kv.first, it->second);
+      } else {
+        introduced.push_back(kv.first);
+      }
+      PloySymbol sym;
+      sym.kind = PloySymbol::Kind::kVariable;
+      sym.name = kv.first;
+      sym.type = kv.second;
+      sym.is_mutable = false;
+      sym.defined_at = match_case.pattern->loc;
+      symbols_[kv.first] = sym;
+    }
+
+    if (match_case.guard) {
+      core::Type gt = AnalyzeExpression(match_case.guard);
+      if (gt.kind != core::TypeKind::kBool && gt.kind != core::TypeKind::kAny &&
+          gt.kind != core::TypeKind::kUnknown && gt.kind != core::TypeKind::kInvalid) {
+        ReportError(match_case.guard->loc, frontends::ErrorCode::kTypeMismatch,
+                    "MATCH guard must be a boolean expression, got '" + gt.ToString() + "'");
+      }
+    }
+
     AnalyzeBlockStatements(match_case.body);
+
+    // Restore scope (remove introduced bindings, reinstall shadowed).
+    for (const auto &name : introduced) symbols_.erase(name);
+    for (auto &kv : shadowed) symbols_[kv.first] = std::move(kv.second);
+
+    // A pattern is irrefutable only when it has no guard *and* it
+    // unconditionally accepts every value of the scrutinee type.
+    if (!match_case.guard && IsIrrefutablePattern(match_case.pattern)) {
+      has_irrefutable = true;
+    }
+    record_coverage(match_case.pattern);
   }
+
+  // Exhaustiveness check.  Hard error when the static type has a finite,
+  // statically-known cover and the arms missed it; suggestion is to add
+  // `_` (the wildcard) which is the canonical universal arm in `.ploy`.
+  if (!has_default && !has_irrefutable) {
+    if (scrutinee.kind == core::TypeKind::kBool) {
+      if (!(bool_true_seen && bool_false_seen)) {
+        ReportError(match_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                    "non-exhaustive MATCH on bool: missing " +
+                        std::string(bool_true_seen ? "FALSE"
+                                    : bool_false_seen ? "TRUE"
+                                                     : "TRUE and FALSE") +
+                        " arm",
+                    "add a `CASE _` arm or a `DEFAULT` block");
+      }
+    } else if (scrutinee.kind == core::TypeKind::kOptional) {
+      if (!(option_some_seen && option_none_seen)) {
+        ReportError(match_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                    "non-exhaustive MATCH on OPTION: missing " +
+                        std::string(option_some_seen ? "None"
+                                    : option_none_seen ? "Some(_)"
+                                                       : "Some(_) and None") +
+                        " arm",
+                    "add a `CASE _` arm or cover both Some and None");
+      }
+    } else if (scrutinee.kind != core::TypeKind::kAny &&
+               scrutinee.kind != core::TypeKind::kUnknown &&
+               scrutinee.kind != core::TypeKind::kInvalid) {
+      // For open types (i32, string, �? we cannot prove exhaustiveness
+      // without a wildcard / default.
+      ReportError(match_stmt->loc, frontends::ErrorCode::kTypeMismatch,
+                  "non-exhaustive MATCH on '" + scrutinee.ToString() +
+                      "': no `_` wildcard or `DEFAULT` arm",
+                  "add `CASE _ { �?}` or `DEFAULT { �?}` to cover the "
+                  "remaining values");
+    }
+  }
+}
+
+bool PloySema::IsIrrefutablePattern(const std::shared_ptr<Pattern> &pattern) const {
+  if (!pattern) return false;
+  if (std::dynamic_pointer_cast<WildcardPattern>(pattern)) return true;
+  if (std::dynamic_pointer_cast<IdentifierPattern>(pattern)) return true;
+  if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pattern)) {
+    return IsIrrefutablePattern(bind->sub);
+  }
+  if (auto orp = std::dynamic_pointer_cast<OrPattern>(pattern)) {
+    for (const auto &alt : orp->alternatives) {
+      if (IsIrrefutablePattern(alt)) return true;
+    }
+  }
+  return false;
+}
+
+bool PloySema::AnalyzePattern(const std::shared_ptr<Pattern> &pattern,
+                              const core::Type &scrutinee_type,
+                              std::unordered_map<std::string, core::Type> &out_bindings) {
+  if (!pattern) return false;
+
+  // Wildcard `_` �?accepts everything, binds nothing.
+  if (std::dynamic_pointer_cast<WildcardPattern>(pattern)) {
+    return true;
+  }
+
+  // Bare identifier �?binds the entire scrutinee.
+  if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(pattern)) {
+    out_bindings[id->name] = scrutinee_type;
+    return true;
+  }
+
+  // Literal �?must be assignment-compatible with the scrutinee type.
+  if (auto lit = std::dynamic_pointer_cast<LiteralPattern>(pattern)) {
+    core::Type lit_type;
+    if (lit->literal) {
+      switch (lit->literal->kind) {
+      case Literal::Kind::kInteger: lit_type = core::Type::Int(); break;
+      case Literal::Kind::kFloat:   lit_type = core::Type::Float(); break;
+      case Literal::Kind::kString:  lit_type = core::Type::String(); break;
+      case Literal::Kind::kBool:    lit_type = core::Type::Bool(); break;
+      case Literal::Kind::kNull:    lit_type = core::Type::Unknown(); break;
+      }
+    }
+    if (scrutinee_type.kind != core::TypeKind::kAny &&
+        scrutinee_type.kind != core::TypeKind::kUnknown &&
+        scrutinee_type.kind != core::TypeKind::kInvalid &&
+        lit_type.kind != core::TypeKind::kInvalid &&
+        lit_type.kind != core::TypeKind::kUnknown &&
+        !AreTypesCompatible(lit_type, scrutinee_type)) {
+      ReportError(pattern->loc, frontends::ErrorCode::kTypeMismatch,
+                  "literal pattern of type '" + lit_type.ToString() +
+                      "' cannot match scrutinee of type '" +
+                      scrutinee_type.ToString() + "'");
+      return false;
+    }
+    return true;
+  }
+
+  // Range �?both endpoints must be numeric and compatible with scrutinee.
+  if (auto rng = std::dynamic_pointer_cast<RangePattern>(pattern)) {
+    if (scrutinee_type.kind != core::TypeKind::kInt &&
+        scrutinee_type.kind != core::TypeKind::kFloat &&
+        scrutinee_type.kind != core::TypeKind::kAny &&
+        scrutinee_type.kind != core::TypeKind::kUnknown &&
+        scrutinee_type.kind != core::TypeKind::kInvalid) {
+      ReportError(pattern->loc, frontends::ErrorCode::kTypeMismatch,
+                  "range pattern requires a numeric scrutinee, got '" +
+                      scrutinee_type.ToString() + "'");
+      return false;
+    }
+    return true;
+  }
+
+  // Or-pattern �?every alternative must check against the same scrutinee
+  // and must bind the same set of names with compatible types.
+  if (auto orp = std::dynamic_pointer_cast<OrPattern>(pattern)) {
+    if (orp->alternatives.empty()) return true;
+    std::unordered_map<std::string, core::Type> first_bindings;
+    AnalyzePattern(orp->alternatives.front(), scrutinee_type, first_bindings);
+    for (size_t i = 1; i < orp->alternatives.size(); ++i) {
+      std::unordered_map<std::string, core::Type> alt_bindings;
+      AnalyzePattern(orp->alternatives[i], scrutinee_type, alt_bindings);
+      // Reject bindings that are not present in every branch �?using such
+      // a binding inside the body would be unsound.
+      for (const auto &kv : first_bindings) {
+        if (alt_bindings.find(kv.first) == alt_bindings.end()) {
+          ReportError(orp->alternatives[i]->loc, frontends::ErrorCode::kTypeMismatch,
+                      "or-pattern alternative does not bind '" + kv.first +
+                          "' which is bound by a sibling alternative");
+        }
+      }
+      for (const auto &kv : alt_bindings) {
+        if (first_bindings.find(kv.first) == first_bindings.end()) {
+          ReportError(orp->alternatives[i]->loc, frontends::ErrorCode::kTypeMismatch,
+                      "or-pattern alternative binds '" + kv.first +
+                          "' which is not bound by sibling alternatives");
+        }
+      }
+    }
+    out_bindings.insert(first_bindings.begin(), first_bindings.end());
+    return true;
+  }
+
+  // Binding `name @ sub`.
+  if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pattern)) {
+    out_bindings[bind->name] = scrutinee_type;
+    if (bind->sub) AnalyzePattern(bind->sub, scrutinee_type, out_bindings);
+    return true;
+  }
+
+  // Type-guard: `name : T`.  The binding is introduced with the *refined*
+  // type T regardless of the scrutinee's static type �?this is the whole
+  // point of type-guard patterns.
+  if (auto tp = std::dynamic_pointer_cast<TypePattern>(pattern)) {
+    core::Type refined = ResolveType(tp->type_node);
+    if (!tp->name.empty()) {
+      out_bindings[tp->name] = refined;
+    }
+    return true;
+  }
+
+  // Tuple �?element-wise check against tuple component types when known.
+  if (auto tup = std::dynamic_pointer_cast<TuplePattern>(pattern)) {
+    bool have_components = scrutinee_type.kind == core::TypeKind::kTuple &&
+                           scrutinee_type.type_args.size() == tup->elements.size();
+    if (scrutinee_type.kind == core::TypeKind::kTuple &&
+        scrutinee_type.type_args.size() != tup->elements.size()) {
+      ReportError(pattern->loc, frontends::ErrorCode::kTypeMismatch,
+                  "tuple pattern arity " + std::to_string(tup->elements.size()) +
+                      " does not match scrutinee arity " +
+                      std::to_string(scrutinee_type.type_args.size()));
+      return false;
+    }
+    for (size_t i = 0; i < tup->elements.size(); ++i) {
+      core::Type elem_type =
+          have_components ? scrutinee_type.type_args[i] : core::Type::Unknown();
+      AnalyzePattern(tup->elements[i], elem_type, out_bindings);
+    }
+    return true;
+  }
+
+  // Struct �?bindings get the component type when the struct schema is
+  // known, otherwise Unknown is recorded so the body still type-checks.
+  if (auto sp = std::dynamic_pointer_cast<StructPattern>(pattern)) {
+    for (const auto &fp : sp->fields) {
+      // Struct schemas are tracked elsewhere; for the binding we currently
+      // only know the field name, so use Unknown unless a sub-pattern
+      // supplies a more specific shape via a nested type pattern.
+      core::Type field_type = core::Type::Unknown();
+      if (!fp.sub) {
+        out_bindings[fp.name] = field_type;
+      } else {
+        AnalyzePattern(fp.sub, field_type, out_bindings);
+      }
+    }
+    return true;
+  }
+
+  // Constructor �?Some(x) / None for OPTION, or any nominal ctor.  The
+  // important static guarantee is the inner-pattern check on Some(_).
+  if (auto ctor = std::dynamic_pointer_cast<ConstructorPattern>(pattern)) {
+    core::Type inner = core::Type::Unknown();
+    if (scrutinee_type.kind == core::TypeKind::kOptional &&
+        !scrutinee_type.type_args.empty()) {
+      inner = scrutinee_type.type_args[0];
+    }
+    if (ctor->name == "Some") {
+      if (ctor->args.size() != 1) {
+        ReportError(pattern->loc, frontends::ErrorCode::kParamCountMismatch,
+                    "Some(...) pattern expects exactly one sub-pattern, got " +
+                        std::to_string(ctor->args.size()));
+        return false;
+      }
+      AnalyzePattern(ctor->args.front(), inner, out_bindings);
+      return true;
+    }
+    if (ctor->name == "None") {
+      if (!ctor->args.empty()) {
+        ReportError(pattern->loc, frontends::ErrorCode::kParamCountMismatch,
+                    "None pattern takes no sub-patterns, got " +
+                        std::to_string(ctor->args.size()));
+        return false;
+      }
+      return true;
+    }
+    // Generic constructor �?accept and recurse with Unknown component types.
+    for (const auto &a : ctor->args) {
+      AnalyzePattern(a, core::Type::Unknown(), out_bindings);
+    }
+    return true;
+  }
+
+  return true;
 }
 
 void PloySema::AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &ret) {
@@ -864,7 +1231,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
     // Qualified identifiers refer to imported module symbols.
     ReportStrictDiag(qid->loc, frontends::ErrorCode::kTypeMismatch,
                      "qualified identifier type cannot be resolved; "
-                     "defaults to Unknown 鈥?add a LINK or IMPORT with type mapping");
+                     "defaults to Unknown �?add a LINK or IMPORT with type mapping");
     return core::Type::Unknown();
   }
 
@@ -961,7 +1328,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
   }
 
   if (auto named_arg = std::dynamic_pointer_cast<NamedArgument>(expr)) {
-    // Named arguments are transparent for type analysis 鈥?the type is
+    // Named arguments are transparent for type analysis �?the type is
     // determined by the value expression.  However we validate that the
     // name corresponds to a known parameter so typos are caught early.
     core::Type val_type = AnalyzeExpression(named_arg->value);
@@ -972,7 +1339,7 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
     return val_type;
   }
 
-  return core::Type::Unknown(); // unrecognized expression kind 鈥?type cannot be determined
+  return core::Type::Unknown(); // unrecognized expression kind �?type cannot be determined
 }
 
 core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression> &call) {
@@ -1045,7 +1412,7 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
     return callee_type.type_args[0]; // First type_arg is return type
   }
 
-  return core::Type::Unknown(); // return type unknown 鈥?no function type or signature found
+  return core::Type::Unknown(); // return type unknown �?no function type or signature found
 }
 
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
@@ -1106,21 +1473,21 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
   }
 
   // If the symbol is completely unregistered (no LINK, no IMPORT), this is
-  // an unconditional error regardless of strict mode 鈥?the function simply
+  // an unconditional error regardless of strict mode �?the function simply
   // does not exist in the current compilation context.
   if (!sig && sym_it == symbols_.end()) {
     ReportError(call->loc, frontends::ErrorCode::kTypeMismatch,
                 "CALL to '" + call->function + "' (language: " + call->language +
-                    ") references an unregistered cross-language symbol 鈥?"
+                    ") references an unregistered cross-language symbol �?"
                     "add a LINK declaration to connect it");
     return core::Type::Unknown();
   }
 
   // Cross-language calls whose target is registered but has no precise return
-  // type 鈥?in strict mode this is an error, in permissive mode a warning.
+  // type �?in strict mode this is an error, in permissive mode a warning.
   ReportStrictDiag(call->loc, frontends::ErrorCode::kTypeMismatch,
                    "CALL to '" + call->function + "' (language: " + call->language +
-                       ") has no known return type; defaults to Unknown 鈥?"
+                       ") has no known return type; defaults to Unknown �?"
                        "add MAP_TYPE to enable type checking");
   return core::Type::Unknown();
 }
@@ -1188,7 +1555,7 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
       sym_it->second.type.kind != core::TypeKind::kInvalid) {
     return sym_it->second.type;
   }
-  return core::Type::Unknown(); // class type not resolved 鈥?add LINK declaration
+  return core::Type::Unknown(); // class type not resolved �?add LINK declaration
 }
 
 core::Type PloySema::AnalyzeMethodCallExpression(
@@ -1260,7 +1627,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
     ValidateCallArgCount(method_call->loc, method_call->method_name, method_call->args.size(), sig);
     ValidateCallArgTypes(method_call->loc, method_call->method_name, arg_types, sig);
   } else {
-    // No method signature registered 鈥?report so the user knows
+    // No method signature registered �?report so the user knows
     // parameter validation is skipped for this METHOD call.
     ReportStrictDiag(method_call->loc, frontends::ErrorCode::kSignatureMissing,
                      "METHOD '" + method_call->method_name +
@@ -1488,7 +1855,7 @@ void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_s
     exit_sig = LookupSignature("__exit__");
   }
   if (exit_sig) {
-    // Validate __exit__ return type 鈥?should be void or bool (suppress flag)
+    // Validate __exit__ return type �?should be void or bool (suppress flag)
     if (exit_sig->return_type.kind != core::TypeKind::kAny &&
         exit_sig->return_type.kind != core::TypeKind::kInvalid &&
         exit_sig->return_type.kind != core::TypeKind::kVoid &&
@@ -1603,14 +1970,14 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     if (st->name == "ISIZE") return core::Type::Int(64, true);
     if (st->name == "USIZE") return core::Type::Int(64, false);
     if (st->name == "INT" || st->name == "int") {
-      // INT is a legacy alias of i64 — see language_spec §2.9.
+      // INT is a legacy alias of i64 �?see language_spec §2.9.
       return core::Type::Int(64, true);
     }
     // 3. Width-aware floating-point keywords.
     if (st->name == "F32")   return core::Type::Float(32);
     if (st->name == "F64")   return core::Type::Float(64);
     if (st->name == "FLOAT" || st->name == "float") {
-      // FLOAT is a legacy alias of f64 — see language_spec §2.9.
+      // FLOAT is a legacy alias of f64 �?see language_spec §2.9.
       return core::Type::Float(64);
     }
     if (st->name == "BOOL" || st->name == "bool")
@@ -1667,7 +2034,7 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     return type_system_.FunctionType("", ret, params);
   }
 
-  // HANDLE<lang::class_path> — the demand-9 statically-typed cross-language
+  // HANDLE<lang::class_path> �?the demand-9 statically-typed cross-language
   // object handle.  The kClass type carries both the class path (as `name`)
   // and the originating language so AreTypesCompatible can reject any
   // implicit conversion across languages.
@@ -1951,7 +2318,7 @@ void PloySema::InjectForeignSignatures(
   for (const auto &[name, sig] : foreign_sigs) {
     auto it = known_signatures_.find(name);
     if (it == known_signatures_.end()) {
-      // No existing signature 鈥?insert the foreign one directly.
+      // No existing signature �?insert the foreign one directly.
       known_signatures_[name] = sig;
     } else if (sig.param_count_known && !it->second.param_count_known) {
       // The foreign signature is more complete (has real parameter count
@@ -2010,7 +2377,7 @@ void PloySema::ValidateCallArgTypes(const core::SourceLoc &call_loc, const std::
   // MAP_TYPE entries (indicated by a non-null ABI descriptor), the parameter
   // types stored in the signature are the foreign function's native types.
   // Ploy call-site arguments use Ploy-native types which are intentionally
-  // different 鈥?the MAP_TYPE marshalling code bridges the gap at runtime.
+  // different �?the MAP_TYPE marshalling code bridges the gap at runtime.
   // Therefore skip strict type checking for these signatures.
   if (sig->abi)
     return;
@@ -2067,7 +2434,7 @@ std::string ABISignature::ValidateCompatibility(const ABISignature &other) const
     const auto &tp = params[i];
     const auto &sp = other.params[i];
 
-    // Size mismatch is a hard error 鈥?the calling convention will misalign
+    // Size mismatch is a hard error �?the calling convention will misalign
     if (tp.size_bytes != 0 && sp.size_bytes != 0 && tp.size_bytes != sp.size_bytes) {
       return "parameter " + std::to_string(i + 1) + " size mismatch: " + "target expects " +
              std::to_string(tp.size_bytes) + " bytes but source provides " +
@@ -2165,7 +2532,7 @@ ABIParamDesc PloySema::TypeToABIParam(const core::Type &type) const {
   case core::TypeKind::kStruct:
     desc.abi_type_name = "struct";
     desc.is_by_value = true;
-    // Size unknown without struct layout 鈥?leave as 0
+    // Size unknown without struct layout �?leave as 0
     break;
   case core::TypeKind::kVoid:
     desc.abi_type_name = "void";
@@ -3027,7 +3394,7 @@ ConstFoldResult FoldConst(
       r.ok = true;
       return r;
     }
-    // Numeric arithmetic — promote width to the wider of the two
+    // Numeric arithmetic �?promote width to the wider of the two
     // operands, preserve floating-pointness if either side is float.
     bool both_numeric = left.type.IsNumeric() && right.type.IsNumeric();
     if (both_numeric &&
@@ -3599,10 +3966,10 @@ void PloySema::DiscoverDotnetNugetPackages() {
 // Three surface forms feed a single scope stack of `language -> version`
 // maps:
 //
-//   * `LANG <lang> = <version>;`            — module-wide pin (stack[0]).
-//   * `WITH LANG (lang=ver, ...) { body }`  — scoped pin (push on entry,
+//   * `LANG <lang> = <version>;`            �?module-wide pin (stack[0]).
+//   * `WITH LANG (lang=ver, ...) { body }`  �?scoped pin (push on entry,
 //                                              analyze body, pop on exit).
-//   * `@LANG(lang=ver, ...) <stmt>`         — single-statement pin (push,
+//   * `@LANG(lang=ver, ...) <stmt>`         �?single-statement pin (push,
 //                                              analyze the wrapped stmt, pop).
 //
 // `ResolveLangVersion(lang)` walks the stack from innermost to outermost

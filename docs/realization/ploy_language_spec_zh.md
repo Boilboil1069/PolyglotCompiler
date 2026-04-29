@@ -491,6 +491,48 @@ primary         ::= identifier | literal | '(' expression ')'
 
 > **优先级从低到高：** 赋值 < 逻辑或 < 逻辑与 < 相等 < 比较 < 加减 < 乘除 < 一元运算 < 调用
 
+### 4.15 CLASS 模式与 `HANDLE<>` 类型 *（自 1.9.0 起）*
+
+跨语言对象可通过声明**类模式**并以 `HANDLE<lang::class_path>` 引用其
+实例的方式，纳入静态类型系统。
+
+```
+class_decl   ::= "CLASS" lang "::" class_path "{" class_row* "}"
+class_row    ::= "METHOD" name "(" param_list? ")" ("->" type)? ";"
+              |  "ATTR"   name ":" type ";"
+handle_type  ::= "HANDLE" "<" lang "::" class_path ">"
+```
+
+* `CLASS`、`HANDLE` 与 `ATTR` 是**上下文关键字**：在非模式位置上拼写
+  相同的标识符仍按标识符返回词法层，因此把 `handle`、`class`、`attr`
+  当作变量名使用的现有代码不受影响。
+* 名为 `__init__`、`new` 或 `ctor` 的方法填充模式的构造签名，被
+  `NEW(lang, class_path, ...)` 取用。
+* 对接收者类型为 `HANDLE<lang::T>` 的 `METHOD(lang, recv, name, ...)`、
+  `GET(lang, recv, attr)` 与 `SET(lang, recv, attr, value)`，编译期
+  会按模式类型检查；未知方法名或属性名产生**警告**（外语对象通常会
+  动态挂载成员），而实参个数、实参类型与 `SET` 写入值类型不匹配则是
+  硬**错误**。
+* 即便类名相同，`HANDLE<a::T>` 与 `HANDLE<b::U>` 在静态类型上也是
+  互不相等的；跨语言 handle 赋值属于错误，必须通过 `CONVERT` +
+  `MAP_FUNC` 显式转换。
+
+```ploy
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+}
+
+LET model: HANDLE<python::torch::nn::Linear> =
+    NEW(python, torch::nn::Linear, 128, 10);
+LET y: f32 = METHOD(python, model, forward, 0.5);
+LET in_dim: i32 = GET(python, model, in_features);
+```
+
+若 `NEW`/`METHOD`/`GET`/`SET` 的目标**没有**已注册模式，则回退到
+1.8.x 的动态 `Any` 类型路径，保留对现有样例的向后兼容。
+
 ## 5. 类型系统
 
 ### 5.1 内置原始类型

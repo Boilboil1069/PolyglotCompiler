@@ -7,8 +7,56 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.8.0 (2026-04-29)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.9.1 (2026-04-29)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.9.1 (2026-04-29)
+
+**真实后端 PRINTLN 流水线收尾：`polyc → polyld → exe` 现在能产出
+一个 Win32 可执行文件，其 stdout 与源代码中 `PRINTLN` 字面量的字节
+完全一致；任何含 PRINTLN 的程序都不再走 `BuildExitZeroPE` 兜底路径。**
+
+### Fixed
+
+- **COFF 重定位记录的盘上步长。** COFF 加载器之前按照
+  `sizeof(struct{u32,u32,u16})`（自然对齐后为 12 字节）读取每条重定位
+  记录，而盘上的实际步长正好是 10 字节，导致除第一条以外的所有
+  重定位都偏移 2 字节，符号下标、类型与偏移全部错乱。所有 COFF
+  重定位记录现在都通过 `std::memcpy` 从固定的 10 字节缓冲区中
+  逐字段读取。
+- **COFF 符号表 aux 记录的下标对齐。** 解析器之前会跳过 aux 辅助
+  记录，但同时把生成的 `obj.symbols` 向量也*压缩*掉（不为 aux
+  保留槽位），而盘上的重定位记录仍然引用*未压缩*的盘上下标。
+  解析器现在为每条被吞掉的 aux 记录都向 `obj.symbols` 追加一个
+  占位 `Symbol`（空名、未定义），从而让盘上下标与 `obj.symbols`
+  位置一一对齐，恢复正确的重定位回填。
+- **`CollectPolyrtPrintlnSequence` 适配新的 IR 实习池命名。**
+  恢复 pass 之前只识别历史的 `println.msg<N>` 前缀；当前
+  `IRBuilder::MakeStringLiteral` 路径会同时发出 `str<N>` 符号，导致
+  恢复 pass 返回空序列，链接器退化到 `BuildExitZeroPE`。该 pass
+  现在两种前缀都识别，并要求前缀后必须紧跟数字以严格收口；当
+  COFF 符号尺寸为 0 时还能根据同段内下一个已定义符号的偏移
+  （或段尾 NUL）反推消息长度。
+
+### Added
+
+- `tests/integration/printf_pipeline_e2e_test.cpp` —
+  `[printf][pe7][integration]` 用例。它驱动一段顶层包含两条 `PRINTLN`
+  的 `.ploy` 源码穿过 `polyc → polyld`，运行产出的可执行文件，
+  在 Win32 上通过 `cmd /c >` 捕获 stdout、在 POSIX 上通过
+  `fork/pipe/dup2` 捕获 stdout，然后断言捕获到的字节与
+  `"alpha\r\nbeta\r\n"` 完全一致。
+- `scripts/build_all_samples.{ps1,sh}` 新增 `--require-min-ok N` /
+  `-RequireMinOk N` 参数。逐样本循环结束后，OK 桶中的样本数若少于
+  `N`，脚手架进程退出码非零，方便 CI 在不解析 JSON 报告的前提下
+  把"可工作样本数下限"作为发布门闸。
+
+### Changed
+
+- 根 `CMakeLists.txt` 的 `project(... VERSION 1.9.1 ...)` 与 `VERSION.txt`
+  从 `1.8.0` 升级到 `1.9.1`。
 
 ---
 

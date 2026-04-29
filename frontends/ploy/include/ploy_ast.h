@@ -32,6 +32,8 @@ struct Statement : AstNode {};
 struct Expression : AstNode {};
 /** @brief TypeNode data structure. */
 struct TypeNode : AstNode {};
+/** @brief Pattern data structure (base for MATCH/CASE patterns). */
+struct Pattern : AstNode {};
 
 // ============================================================================
 // Type Nodes
@@ -383,6 +385,11 @@ struct FuncDecl : Statement {
   struct Param {
     std::string name;
     std::shared_ptr<TypeNode> type;
+    // Optional compile-time default value used to fill the slot when the
+    // call site omits this parameter.  Sema validates that the expression
+    // is a constant-foldable literal/unary/binary so the lowering pass can
+    // safely materialise it as an inline constant at every call site.
+    std::shared_ptr<Expression> default_value;
   };
   std::string name;
   std::vector<Param> params;
@@ -452,13 +459,104 @@ struct ForStatement : Statement {
   std::vector<std::shared_ptr<Statement>> body;
 };
 
+// ============================================================================
+// MATCH patterns (demand 2026-04-28-10)
+// ============================================================================
+//
+// `Pattern` is a separate AST family from `Expression` because pattern
+// grammar overlaps but is not a subset of expression grammar (binding
+// `name @ sub`, struct rest `..`, type guard `name: T`, etc.).  The
+// MatchStatement::Case keeps each pattern alongside an optional `IF`
+// guard and a list of body statements.
+
+// Wildcard pattern: `_` — matches any value, binds nothing.
+/** @brief WildcardPattern data structure. */
+struct WildcardPattern : Pattern {};
+
+// Literal pattern: a constant scrutinised by structural equality.
+/** @brief LiteralPattern data structure. */
+struct LiteralPattern : Pattern {
+  std::shared_ptr<Literal> literal;
+};
+
+// Identifier pattern: a single bare name binds the scrutinee unconditionally.
+// (Unlike Rust we do not have a `const` shadowing rule — bare names always
+// bind, mirroring the rest of `.ploy`'s let-style introduction.)
+/** @brief IdentifierPattern data structure. */
+struct IdentifierPattern : Pattern {
+  std::string name;
+};
+
+// Range pattern: `lo..hi` (exclusive) or `lo..=hi` (inclusive).
+/** @brief RangePattern data structure. */
+struct RangePattern : Pattern {
+  std::shared_ptr<Literal> low;
+  std::shared_ptr<Literal> high;
+  bool inclusive{false};
+};
+
+// Tuple destructuring: `(p1, p2, ...)`.
+/** @brief TuplePattern data structure. */
+struct TuplePattern : Pattern {
+  std::vector<std::shared_ptr<Pattern>> elements;
+};
+
+// Struct destructuring: `Point { x, y, .. }`. A field with no explicit
+// sub-pattern is shorthand for `field: <IdentifierPattern field>`.
+/** @brief StructPattern data structure. */
+struct StructPattern : Pattern {
+  /** @brief FieldPattern data structure (one row inside a struct pattern). */
+  struct FieldPattern {
+    std::string name;
+    std::shared_ptr<Pattern> sub; // nullptr means shorthand `field` => `field: field`
+  };
+  std::string struct_name;
+  std::vector<FieldPattern> fields;
+  bool has_rest{false}; // trailing `..`
+};
+
+// Or-pattern: `p1 | p2 | ...`. All alternatives must bind the same set of
+// names (sema-enforced) so that a uniform body can refer to them.
+/** @brief OrPattern data structure. */
+struct OrPattern : Pattern {
+  std::vector<std::shared_ptr<Pattern>> alternatives;
+};
+
+// Binding pattern: `name @ sub` — bind `name` to the whole scrutinee while
+// also asserting the sub-pattern matches.
+/** @brief BindingPattern data structure. */
+struct BindingPattern : Pattern {
+  std::string name;
+  std::shared_ptr<Pattern> sub;
+};
+
+// Constructor pattern: `Some(x)`, `None`, generally `Name(p1, p2, ...)`.
+// Used for `OPTION` destructuring and (forward-compatibly) any nominal
+// algebraic constructor.
+/** @brief ConstructorPattern data structure. */
+struct ConstructorPattern : Pattern {
+  std::string name;
+  std::vector<std::shared_ptr<Pattern>> args;
+};
+
+// Type-guard binding pattern: `name : Type`. The scrutinee must be
+// runtime-assignable to `Type`; on success, `name` is bound with that
+// refined static type. Combined with the case-level `IF` guard this gives
+// the demand's `CASE x: i32 IF x > 0` form.
+/** @brief TypePattern data structure. */
+struct TypePattern : Pattern {
+  std::string name;                     // empty allowed: anonymous type test
+  std::shared_ptr<TypeNode> type_node;
+};
+
 // MATCH value { CASE pattern { ... } ... DEFAULT { ... } }
 /** @brief MatchStatement data structure. */
 struct MatchStatement : Statement {
   std::shared_ptr<Expression> value;
   /** @brief Case data structure. */
   struct Case {
-    std::shared_ptr<Expression> pattern; // nullptr for DEFAULT
+    std::shared_ptr<Pattern> pattern;       // nullptr for DEFAULT
+    std::shared_ptr<Expression> guard;      // optional `IF expr` clause
     std::vector<std::shared_ptr<Statement>> body;
   };
   std::vector<Case> cases;

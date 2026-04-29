@@ -1,8 +1,8 @@
-# Runtime stdout pipeline
+﻿# Runtime stdout pipeline
 
 This document describes the end-to-end pipeline that turns a `.ploy`
 `PRINTLN "literal";` statement into bytes on the host process's standard
-output.  The pipeline is built incrementally as eight stages B1–B8 tracked by
+output.  The pipeline is built incrementally as eight stages B1鈥揃8 tracked by
 demand `2026-04-28-49`; stages **B1 through B4** are shipped, the rest are
 referenced here only to anchor the contracts the shipped layers must keep
 satisfying.
@@ -42,7 +42,7 @@ earlier ones.
 
 ---
 
-## 2. B2 — ploy front-end (shipped in v1.5.3)
+## 2. B2 鈥?ploy front-end (shipped in v1.5.3)
 
 The lexer recognises the keyword `PRINTLN`, the parser produces a
 `PrintlnStmt` AST node carrying the **raw** literal bytes (escape sequences
@@ -58,7 +58,7 @@ one place.
 
 ---
 
-## 3. B3 — IR lowering (shipped in v1.5.4)
+## 3. B3 鈥?IR lowering (shipped in v1.5.4)
 
 A `PrintlnStmt` lowers to two IR artefacts:
 
@@ -81,7 +81,7 @@ that function's basic block.
 
 ---
 
-## 4. B4 — `BuildPrintlnSequencePE` (shipped in v1.5.5)
+## 4. B4 鈥?`BuildPrintlnSequencePE` (shipped in v1.5.5)
 
 `polyglot::linker::pe::BuildPrintlnSequencePE(call_messages)` produces a
 runnable, self-contained PE32+ image that issues one `kernel32!WriteFile`
@@ -97,7 +97,7 @@ continue to hold.
 
 ### 4.1 Win64 ABI shim layout
 
-The `.text` payload is laid out as **prologue (0x25 B)** + N × **per-message
+The `.text` payload is laid out as **prologue (0x25 B)** + N 脳 **per-message
 block (0x1D B)** + **epilogue (0x09 B)**.  All offsets are byte-stable and
 unit-tested.
 
@@ -108,7 +108,7 @@ unit-tested.
 | Epilogue | 0x09 B | `xor ecx, ecx; call qword ptr [rip+ExitProcess]; int3`.  The `int3` is unreachable but pads the shim to a deterministic length. |
 
 The handle is cached in a stack slot rather than a callee-saved register so the
-prologue / epilogue do not need to push and pop RBX / R12 / R13 — keeping the
+prologue / epilogue do not need to push and pop RBX / R12 / R13 鈥?keeping the
 byte-counted invariants above easy to maintain and unit-test.
 
 ### 4.2 Dedup and rdata layout
@@ -122,27 +122,27 @@ times pays for ten WriteFile blocks but only one `.rdata` payload.
 
 | Input | Behaviour |
 | --- | --- |
-| `call_messages.empty()` | Forwards to `BuildExitZeroPE({})`, producing a byte-identical image — a degenerate empty shim is never emitted. |
-| Single message ≤ 4 GiB | Behavioural equivalent of `BuildHelloWorldPE` (different prologue / per-message split, same observable stdout + exit code). |
+| `call_messages.empty()` | Forwards to `BuildExitZeroPE({})`, producing a byte-identical image 鈥?a degenerate empty shim is never emitted. |
+| Single message 鈮?4 GiB | Behavioural equivalent of `BuildHelloWorldPE` (different prologue / per-message split, same observable stdout + exit code). |
 | Single message > 4 GiB | `BuildResult` is empty (WriteFile's `nNumberOfBytesToWrite` is a DWORD). |
 | Duplicate payloads | `.rdata` shrinks to the unique-byte sum; `.text` still holds one block per *call*. |
 
 ### 4.4 Tests
 
-* `tests/unit/linker/pe_writer_test.cpp` — four `[pe_writer][println][b4]`
+* `tests/unit/linker/pe_writer_test.cpp` 鈥?four `[pe_writer][println][b4]`
   cases covering empty-input forwarding, single-message structural shape,
   three-message unrolled `.text` size, and dedup `.rdata` shrinkage.
-* `tests/integration/pe_runtime_smoke_test.cpp` — one
+* `tests/integration/pe_runtime_smoke_test.cpp` 鈥?one
   `[pe_writer][integration][windows][println][b4]` case that spawns a
   3-message PE with one duplicated payload, redirects stdout to a temp file,
   and byte-compares against the expected concatenation.
-* `tools/polyld/src/pe_writer_smoke.cpp` — manual harness producing
+* `tools/polyld/src/pe_writer_smoke.cpp` 鈥?manual harness producing
   `pe_smoke_println.exe`, used during bring-up to confirm visually that the
   Windows loader accepts the image and the three lines reach the console.
 
 ---
 
-## 5. B5 — `polyld` callsite recovery (shipped in v1.5.7)
+## 5. B5 鈥?`polyld` callsite recovery (shipped in v1.5.7)
 
 `polyld` no longer emits a dummy `ExitProcess(0)` shim when the input
 objects already carry `polyrt_println` calls.  A new public free function
@@ -177,7 +177,7 @@ For every loaded `ObjectFile`, for every section flagged
      every loaded `ObjectFile`, the bytes
      `data[symbol.offset .. +symbol.size)` are read from its containing
      section, and the decoded payload is appended to the result.
-3. Calls without a preceding pending cursor are silently skipped — they
+3. Calls without a preceding pending cursor are silently skipped 鈥?they
    describe a runtime-computed message pointer that B5 does not yet
    handle (e.g. `PRINTLN string_var;`).
 4. Pending cursors that reach the end of a section without a paired
@@ -188,7 +188,7 @@ For every loaded `ObjectFile`, for every section flagged
 Per B3 the IR builder produces *two* globals per literal:
 `println.msg<N>` (type `[N x i8]` storing the bytes) and
 `println.msg<N>.ptr` (a `ConstantGEP` alias used as `i8*`).  The lowering
-hands the `.ptr` alias to `MakeCall("polyrt_println", …)`, so the
+hands the `.ptr` alias to `MakeCall("polyrt_println", 鈥?`, so the
 analysis pass strips a trailing `.ptr` before the symbol-table lookup.
 Either spelling is accepted, so a back-end that collapses the alias into
 a direct reference still works.
@@ -202,7 +202,7 @@ translation units (e.g. via LTO or a shared runtime archive).
 
 ### 5.4 Faithfulness to call-order semantics
 
-The recovered vector mirrors source-order semantics — duplicate payloads
+The recovered vector mirrors source-order semantics 鈥?duplicate payloads
 from an interned global are emitted at every call site.  Storage
 deduplication is the responsibility of `BuildPrintlnSequencePE` (B4),
 which intern-folds the recovered messages into `.rdata` while still
@@ -210,13 +210,13 @@ issuing one `WriteFile` per call.
 
 ### 5.5 Tests
 
-- `tests/unit/linker/polyrt_println_collect_test.cpp` — 10 Catch2 cases
+- `tests/unit/linker/polyrt_println_collect_test.cpp` 鈥?10 Catch2 cases
   tagged `[b5]` covering empty input, no-PRINTLN object, single call,
   multi-call ordering, interned-duplicate emission, `.ptr` GEP-alias
   resolution, cross-object data-global lookup, unsorted-reloc auto-sort,
   defensive filtering of mis-flagged `.text` sections, and orphan-call
   skipping.
-- `tests/integration/pe_runtime_smoke_test.cpp` — new `[b5]` end-to-end
+- `tests/integration/pe_runtime_smoke_test.cpp` 鈥?new `[b5]` end-to-end
   case that builds the ObjectFile shape `polyc` would emit, runs the
   recovered image on the host Windows loader, and asserts both the exit
   code (0) and the captured stdout (`alpha\r\nbeta\r\nalpha\r\n`,
@@ -224,7 +224,7 @@ issuing one `WriteFile` per call.
 
 ---
 
-## 6. B6 — sample matrix supplements (shipped in v1.5.8)
+## 6. B6 鈥?sample matrix supplements (shipped in v1.5.8)
 
 The 16 pre-existing `tests/samples/<NN>_<name>/` folders each gained:
 
@@ -240,7 +240,7 @@ The 16 pre-existing `tests/samples/<NN>_<name>/` folders each gained:
 
 The harness `scripts/build_all_samples.ps1` (POSIX twin
 `scripts/build_all_samples.sh`) then walks every folder, runs
-`polyc --emit-obj=…` followed by `polyld … -o …`, executes the binary
+`polyc --emit-obj=鈥 followed by `polyld 鈥?-o 鈥, executes the binary
 under the current shell's stdout-capture, and classifies each sample into
 one of seven status buckets:
 
@@ -261,13 +261,13 @@ report can document toolchain maturity without gating the build; the
 `-FailOnMismatch` (PowerShell) / `--fail-on-mismatch` (bash) switch makes
 it gate.
 
-## 7. B7 — extended sample matrix (shipped in v1.5.8)
+## 7. B7 鈥?extended sample matrix (shipped in v1.5.8)
 
 Fourteen new themed samples were authored in
 `tests/samples/17_string_processing/` through
 `tests/samples/30_game_loop_demo/`.  Each folder follows the same
 contract as the B6 supplements: a `.ploy` entry, two host-language source
-files (real, compilable code — no placeholders), bilingual READMEs and an
+files (real, compilable code 鈥?no placeholders), bilingual READMEs and an
 `expected_output.txt` whose bytes match the closing PRINTLN marker.
 
 | Sample | Languages | Theme |
@@ -287,8 +287,8 @@ files (real, compilable code — no placeholders), bilingual READMEs and an
 | `29_data_analytics` | Python, Java | Data analytics |
 | `30_game_loop_demo` | C++, Rust | Game loop skeleton |
 
-The matrix now covers seven host languages — C++, Python, Rust, Java,
-C#, Go and JavaScript — across a deliberate spread of theme verticals so
+The matrix now covers seven host languages 鈥?C++, Python, Rust, Java,
+C#, Go and JavaScript 鈥?across a deliberate spread of theme verticals so
 any future backend regression that breaks one theme cannot silently
 regress the rest.
 
@@ -308,4 +308,85 @@ through.
 | --- | --- |
 | **B8** | Tighten the harness into a release gate once the backend can round-trip every PRINTLN literal end-to-end; bump the version with a coordinated `--end -done` on demand-04 + demand-49. |
 
-The B2 – B7 contracts are stable and will not be revisited.
+The B2 鈥?B7 contracts are stable and will not be revisited.
+
+
+---
+
+## 9. PE-7 — real-backend `polyrt_println` round-trip
+
+**Status:** shipped (v1.9.1, 2026-04-29).
+
+PE-7 is the staging that closes the gap between B4 (`BuildPrintlnSequencePE`
+synthesises a hand-rolled PE that prints a precomputed message vector) and
+B7 (the harness expects the *real* backend pipeline to produce that PE for
+arbitrary user PRINTLN bytes).  Before PE-7, `polyld` could only recover
+the message bytes from a hand-crafted object set: feeding it a real
+`polyc --emit-obj=…` produced no recovered messages and the linker
+silently fell back to `BuildExitZeroPE`, leaving the program's stdout
+empty.  PE-7 makes the recovery path unconditional for any
+PRINTLN-bearing program emitted by the production lowering chain.
+
+### 9.1  COFF on-disk reloc record stride
+
+Each on-disk COFF relocation record is exactly **10 bytes**
+(`u32 VirtualAddress + u32 SymbolTableIndex + u16 Type`), but the loader
+in `tools/polyld/src/linker.cpp` was reading them via the C++ struct's
+`sizeof`, which is **12 bytes** because of the trailing `u16`'s natural
+alignment.  Every record after the first drifted by 2 bytes, so the
+relocation table was almost entirely garbage past index 0.  The loader
+now reads each field individually through `std::memcpy` against a fixed
+`buf[10]`, matching the on-disk layout byte-for-byte.
+
+### 9.2  Aux-record alignment in the COFF symbol table
+
+COFF places one auxiliary record after each section symbol (the aux
+carries the section's length and relocation count).  The loader skipped
+each aux on disk but did **not** reserve a slot in `obj.symbols`, so the
+in-memory vector was *compressed* while the on-disk relocation records
+still cite *uncompressed* on-disk indices.  The relocation backpatch step
+(`r.symbol = obj.symbols[r.symbol_index].name`) was therefore reading
+shifted entries and assigning wrong symbol names to every reloc in the
+file.  The loader now appends a placeholder `Symbol` (empty name,
+`is_defined == false`) for every consumed aux record so the on-disk
+index space lines up one-to-one with `obj.symbols`.  The placeholders
+are guaranteed never to match a downstream lookup because all
+recovery / resolution paths key off non-empty `name` and only consider
+`is_defined == true` candidates.
+
+### 9.3  Generalising `CollectPolyrtPrintlnSequence`
+
+The recovery pass keyed exclusively off the legacy `println.msg<N>`
+hint prefix that the early ploy lowering used.  Today
+`IRBuilder::MakeStringLiteral` is generic and emits `str<N>` symbols for
+any string literal (PRINTLN included), so the recovery returned an empty
+sequence and the linker fell through to `BuildExitZeroPE`.  The pass
+now:
+
+- Accepts both `println.msg<N>` (legacy) and `str<N>` (current) prefixes,
+  and requires a digit immediately after the prefix to keep the gate
+  tight against unrelated user globals such as `stride` or
+  `string_table`.
+- Resolves a relocation symbol's bytes by stripping an optional `.ptr`
+  GEP-alias suffix and locating the bare data symbol in any object's
+  `.rdata`.
+- Tolerates COFF objects that record a per-symbol size of zero by
+  inferring the message length from the next defined sibling symbol's
+  offset in the same section, falling back to a NUL-terminator scan and
+  finally the section's end as the upper bound.
+
+### 9.4  End-to-end gate
+
+`tests/integration/printf_pipeline_e2e_test.cpp`
+(`[printf][pe7][integration]`) writes a top-level two-`PRINTLN` `.ploy`
+source, runs `polyc --emit-obj --obj-format=coff` and `polyld`, executes
+the produced image, and captures stdout via `cmd /c >` (Win32) or
+`fork/pipe/dup2` (POSIX).  The test fails unless the captured bytes
+equal `"alpha\r\nbeta\r\n"` byte-for-byte.
+
+The companion sample-harness gate `--require-min-ok N` /
+`-RequireMinOk N` (added to `scripts/build_all_samples.{ps1,sh}`) gives
+CI a release-gate hook: once the backend can round-trip every PRINTLN
+literal in the sample matrix, raising the floor to `33` (the sample
+count) makes any regression in the lowering or the recovery pass break
+the build immediately.

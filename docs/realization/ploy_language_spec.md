@@ -398,6 +398,52 @@ primary         ::= identifier | literal | '(' expression ')'
                    | convert_expr
 ```
 
+### 4.15 CLASS Schema and `HANDLE<>` Type *(since 1.9.0)*
+
+Cross-language objects can be lifted into the static type system by
+declaring a **class schema** and referring to instances as
+`HANDLE<lang::class_path>`.
+
+```
+class_decl   ::= "CLASS" lang "::" class_path "{" class_row* "}"
+class_row    ::= "METHOD" name "(" param_list? ")" ("->" type)? ";"
+              |  "ATTR"   name ":" type ";"
+handle_type  ::= "HANDLE" "<" lang "::" class_path ">"
+```
+
+* `CLASS`, `HANDLE` and `ATTR` are **contextual keywords**: identifiers
+  with the same spelling continue to lex as identifiers in non-schema
+  positions, so existing code using `handle`, `class`, or `attr` as
+  variable names is unaffected.
+* Methods named `__init__`, `new`, or `ctor` populate the schema's
+  constructor signature consulted by `NEW(lang, class_path, ...)`.
+* `METHOD(lang, recv, name, ...)`, `GET(lang, recv, attr)` and
+  `SET(lang, recv, attr, value)` against a `HANDLE<lang::T>` receiver
+  are type-checked against the schema; an unknown method or attribute
+  name produces a **warning** (foreign objects can expose dynamic
+  members), while argument-count, argument-type and `SET`-value-type
+  mismatches are hard **errors**.
+* `HANDLE<a::T>` and `HANDLE<b::U>` are statically distinct even when
+  the class names coincide; cross-language handle assignment is an
+  error and must go through `CONVERT` + `MAP_FUNC`.
+
+```ploy
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+}
+
+LET model: HANDLE<python::torch::nn::Linear> =
+    NEW(python, torch::nn::Linear, 128, 10);
+LET y: f32 = METHOD(python, model, forward, 0.5);
+LET in_dim: i32 = GET(python, model, in_features);
+```
+
+A `NEW`/`METHOD`/`GET`/`SET` whose target has **no** registered schema
+falls back to the dynamic `Any`-typed path (1.8.x semantics), preserving
+backward compatibility with existing samples.
+
 ## 5. Type System
 
 ### 5.1 Built-in Primitive Types

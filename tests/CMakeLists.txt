@@ -107,6 +107,7 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/link_deprecation_test.cpp
     unit/frontends/ploy/stage_misuse_test.cpp
     unit/frontends/ploy/typed_handle_test.cpp
+    unit/frontends/ploy/pattern_matching_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA

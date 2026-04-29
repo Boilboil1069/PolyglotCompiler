@@ -179,6 +179,11 @@ struct FunctionSignature {
   std::string language;                          // Source language
   std::vector<core::Type> param_types;           // Parameter types (empty if unknown)
   std::vector<std::string> param_names;          // Parameter names (for named-arg matching)
+  // Per-parameter has-default flag, parallel to param_types/param_names.
+  // The number of trailing `true` entries is the maximum number of
+  // arguments that may be omitted at a call site.  Required parameters
+  // may not appear after a defaulted one (enforced at parse + sema time).
+  std::vector<bool> param_has_default;
   core::Type return_type{core::Type::Unknown()}; // Return type (Unknown until resolved)
   size_t param_count{0};                         // Number of parameters
   bool param_count_known{false};                 // Whether param count is statically known
@@ -312,6 +317,16 @@ private:
   void AnalyzeWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt);
   void AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt);
   void AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
+  // MATCH/CASE pattern analysis (demand 2026-04-28-10).  Type-checks the
+  // pattern against the scrutinee's static type and registers any
+  // bindings the pattern introduces into `out_bindings`.  Returns false
+  // if the pattern is structurally incompatible with the scrutinee.
+  bool AnalyzePattern(const std::shared_ptr<Pattern> &pattern,
+                      const core::Type &scrutinee_type,
+                      std::unordered_map<std::string, core::Type> &out_bindings);
+  // Whether the pattern always matches its scrutinee regardless of value
+  // (wildcard, plain identifier, or an irrefutable nested pattern).
+  bool IsIrrefutablePattern(const std::shared_ptr<Pattern> &pattern) const;
   void AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
   void AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
   void AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);

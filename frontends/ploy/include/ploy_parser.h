@@ -9,6 +9,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "frontends/common/include/parser_base.h"
 #include "frontends/ploy/include/ploy_ast.h"
@@ -29,6 +30,9 @@ private:
   // Token management
   frontends::Token Consume();
   void Advance();
+  // One-token lookahead.  Returned reference remains valid until the next
+  // Advance() or Peek() call.
+  const frontends::Token &Peek();
   bool IsSymbol(const std::string &symbol) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
@@ -70,6 +74,9 @@ private:
   std::shared_ptr<Statement> ParseWhileStatement();
   std::shared_ptr<Statement> ParseForStatement();
   std::shared_ptr<Statement> ParseMatchStatement();
+  // MATCH/CASE pattern grammar (demand 2026-04-28-10).
+  std::shared_ptr<Pattern> ParsePattern();
+  std::shared_ptr<Pattern> ParsePatternPrimary();
   std::shared_ptr<Statement> ParseReturnStatement();
   std::shared_ptr<Statement> ParsePrintlnStatement();
   std::shared_ptr<Statement> ParseBlock();
@@ -112,6 +119,12 @@ private:
   PloyLexer &lexer_;
   std::shared_ptr<Module> module_{std::make_shared<Module>()};
   frontends::Token current_{};
+  // One-token lookahead buffer.  When non-empty, Advance() pulls from this
+  // buffer instead of the lexer.  Used by Peek() to inspect the next token
+  // without permanently consuming it (e.g. to disambiguate named-argument
+  // syntax `name: value` from a parenthesised expression starting with an
+  // identifier).
+  std::optional<frontends::Token> peeked_{};
 };
 
 } // namespace polyglot::ploy
