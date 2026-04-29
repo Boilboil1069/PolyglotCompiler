@@ -29,6 +29,7 @@
 #include "common/include/version.h"
 #include "tools/ui/common/include/action_manager.h"
 #include "tools/ui/common/include/build_panel.h"
+#include "tools/ui/common/include/call_analyzer_panel.h"
 #include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/command_palette.h"
 #include "tools/ui/common/include/compiler_service.h"
@@ -40,6 +41,8 @@
 #include "tools/ui/common/include/markdown_viewer.h"
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/panel_manager.h"
+#include "tools/ui/common/include/profile_session.h"
+#include "tools/ui/common/include/profiler_panel.h"
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/settings_page.h"
 #include "tools/ui/common/include/settings_service.h"
@@ -170,6 +173,14 @@ void MainWindow::SetupDockWidgets() {
   // Topology panel
   topology_panel_ = new TopologyPanel();
 
+  // Profiler panel (Performance Profiler).  Owns its own ProfileSession.
+  profiler_panel_ = new ProfilerPanel();
+
+  // Call Analyzer panel — share the Profiler's session so the call-graph
+  // table and the runtime overlay live in a single source of truth.
+  call_analyzer_panel_ = new CallAnalyzerPanel();
+  call_analyzer_panel_->SetSession(profiler_panel_->Session());
+
   // Create PanelManager to manage bottom panel tabs
   panel_manager_ = new PanelManager(bottom_tabs_, this);
   panel_manager_->RegisterPanel("output", output_panel_, "Output");
@@ -178,6 +189,8 @@ void MainWindow::SetupDockWidgets() {
   panel_manager_->RegisterPanel("build", build_panel_, "Build");
   panel_manager_->RegisterPanel("debug", debug_panel_, "Debug");
   panel_manager_->RegisterPanel("topology", topology_panel_, "Topology");
+  panel_manager_->RegisterPanel("profiler", profiler_panel_, "Profiler");
+  panel_manager_->RegisterPanel("call_analyzer", call_analyzer_panel_, "Call Analyzer");
 
   // Settings dialog (lazily shown, but create now for signal wiring)
   settings_dialog_ = new SettingsDialog(this);
@@ -333,6 +346,19 @@ void MainWindow::SetupMenuBar() {
   action_toggle_topology_->setCheckable(true);
   action_toggle_topology_->setChecked(false);
   action_toggle_topology_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
+
+  // Performance Profiler — Ctrl+Alt+P (Ctrl+Shift+P is reserved by the
+  // VS Code-style command palette, see SetupShortcuts()).
+  action_toggle_profiler_ = view_menu_->addAction("Toggle &Profiler Panel");
+  action_toggle_profiler_->setCheckable(true);
+  action_toggle_profiler_->setChecked(false);
+  action_toggle_profiler_->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_P));
+
+  // Call Analyzer — Ctrl+Alt+G (Ctrl+Shift+G is reserved for the Git panel).
+  action_toggle_call_analyzer_ = view_menu_->addAction("Toggle &Call Analyzer Panel");
+  action_toggle_call_analyzer_->setCheckable(true);
+  action_toggle_call_analyzer_->setChecked(false);
+  action_toggle_call_analyzer_->setShortcut(QKeySequence(Qt::CTRL | Qt::ALT | Qt::Key_G));
 
   view_menu_->addSeparator();
   action_toggle_markdown_preview_ = view_menu_->addAction("Toggle &Markdown Preview");
@@ -558,6 +584,54 @@ void MainWindow::SetupConnections() {
   connect(action_toggle_build_, &QAction::triggered, this, &MainWindow::ToggleBuildPanel);
   connect(action_toggle_debug_, &QAction::triggered, this, &MainWindow::ToggleDebugPanel);
   connect(action_toggle_topology_, &QAction::triggered, this, &MainWindow::ToggleTopologyPanel);
+  connect(action_toggle_profiler_, &QAction::triggered, this, &MainWindow::ToggleProfilerPanel);
+  connect(action_toggle_call_analyzer_, &QAction::triggered, this,
+          &MainWindow::ToggleCallAnalyzerPanel);
+
+  // Cross-panel: clicking a function in either Profiler or Call Analyzer
+  // opens its source file in the editor.
+  if (profiler_panel_) {
+    connect(profiler_panel_, &ProfilerPanel::OpenFileRequested, this,
+            [this](const QString &file, int line) {
+              const int idx = OpenFileInTab(file);
+              if (idx >= 0) {
+                if (CodeEditor *ed = EditorAt(idx)) {
+                  QTextCursor cursor = ed->textCursor();
+                  cursor.movePosition(QTextCursor::Start);
+                  cursor.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor,
+                                      std::max(0, line - 1));
+                  ed->setTextCursor(cursor);
+                }
+              }
+            });
+    connect(profiler_panel_, &ProfilerPanel::StatusMessage, this,
+            [this](const QString &msg) {
+              if (status_message_) {
+                status_message_->setText(msg);
+              }
+            });
+  }
+  if (call_analyzer_panel_) {
+    connect(call_analyzer_panel_, &CallAnalyzerPanel::OpenFileRequested, this,
+            [this](const QString &file, int line) {
+              const int idx = OpenFileInTab(file);
+              if (idx >= 0) {
+                if (CodeEditor *ed = EditorAt(idx)) {
+                  QTextCursor cursor = ed->textCursor();
+                  cursor.movePosition(QTextCursor::Start);
+                  cursor.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor,
+                                      std::max(0, line - 1));
+                  ed->setTextCursor(cursor);
+                }
+              }
+            });
+    connect(call_analyzer_panel_, &CallAnalyzerPanel::StatusMessage, this,
+            [this](const QString &msg) {
+              if (status_message_) {
+                status_message_->setText(msg);
+              }
+            });
+  }
 
   // Markdown preview toggle: only meaningful when the active tab is a
   // MarkdownViewer; silently no-ops otherwise.
@@ -2330,6 +2404,16 @@ void MainWindow::ToggleTopologyPanel() {
   UpdateViewActionChecks();
 }
 
+void MainWindow::ToggleProfilerPanel() {
+  panel_manager_->TogglePanel("profiler");
+  UpdateViewActionChecks();
+}
+
+void MainWindow::ToggleCallAnalyzerPanel() {
+  panel_manager_->TogglePanel("call_analyzer");
+  UpdateViewActionChecks();
+}
+
 void MainWindow::OpenTopologyForCurrentFile() {
   CodeEditor *editor = CurrentEditor();
   if (!editor)
@@ -2617,6 +2701,12 @@ void MainWindow::UpdateViewActionChecks() {
   }
   if (action_toggle_topology_) {
     action_toggle_topology_->setChecked(panel_manager_->IsPanelActive("topology"));
+  }
+  if (action_toggle_profiler_) {
+    action_toggle_profiler_->setChecked(panel_manager_->IsPanelActive("profiler"));
+  }
+  if (action_toggle_call_analyzer_) {
+    action_toggle_call_analyzer_->setChecked(panel_manager_->IsPanelActive("call_analyzer"));
   }
 }
 

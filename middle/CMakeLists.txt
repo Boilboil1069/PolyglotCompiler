@@ -24,6 +24,7 @@ add_library(middle_ir
     src/passes/optimizations/loop_optimization.cpp
     src/passes/optimizations/gvn.cpp
     src/passes/optimizations/advanced_optimizations.cpp
+    src/passes/optimizations/instrument_call_trace.cpp
     src/pgo/profile_data.cpp
     src/lto/link_time_optimizer.cpp
 )

@@ -1,0 +1,33 @@
+// ============================================================================
+// numeric_kernels.ploy — Numeric kernels (BLAS-style).
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Rust.
+// ============================================================================
+
+// Numeric kernels: a C++ AXPY routine fused with a Rust dot-product
+// reduction.  Demonstrates passing fixed-size double buffers across the FFI
+// boundary via MAP_TYPE.
+
+IMPORT cpp::blas_kernels;
+IMPORT rust::reduce_kernels;
+
+LINK(cpp, rust, blas_kernels::axpy, reduce_kernels::dot) {
+    MAP_TYPE(cpp::double, rust::f64);
+    MAP_TYPE(cpp::std::vector_double, rust::Vec_f64);
+}
+
+PIPELINE numeric_demo {
+    STAGE cpp  CALL blas_kernels::axpy;
+    STAGE rust CALL reduce_kernels::dot;
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "18_numeric_kernels: ok\r\n";

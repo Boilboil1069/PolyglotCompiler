@@ -1804,6 +1804,8 @@ CMake 会根据当前操作系统自动选择正确的平台专用 `main.cpp`。
 | **调试器** | 集成调试面板，支持 lldb 和 gdb，包括断点、单步执行、完整的调用栈帧解析（模块、函数、文件、行号）、变量类型/值解析、监视表达式实时求值与结果更新、监视右键菜单（删除/全部删除/求值）、入口断点选项和调试控制台 |
 | **模板创建** | 通过 *文件 → 从模板新建*（`Ctrl+Shift+N`）从内置语言模板创建新文件。模板包括：Ploy 链接器、C++ hello-world / 类骨架、Python 脚本 / 类、Rust hello-world / 结构体、Java hello-world / 类、C# hello-world / 类 |
 | **拓扑图动态连线** | 拓扑面板中的连接线随节点移动实时跟随 — 拖拽节点时所有关联的贝塞尔曲线路径即时重新计算 |
+| **性能分析器面板** | 停靠面板（`Ctrl+Alt+P`），驱动 `polybench` / `polyrt` 并可视化火焰图、热点、时间线（每线程一条泳道）、按语言耗时占比及工具日志。由共享的 `ProfileSession` 提供数据。详见 [realization/profiler_zh.md](realization/profiler_zh.md) |
+| **调用分析器面板** | 停靠面板（`Ctrl+Alt+G`），渲染 `polyc --emit=call-graph:<path>` 生成的静态调用图，提供 caller/callee 树、分层 DAG 布局、语言对过滤与有界 DFS 路径搜索。与 Profiler 共享同一个 `ProfileSession`，因此运行时调用计数会自动叠加。详见 [realization/call_analyzer_zh.md](realization/call_analyzer_zh.md) |
 
 ### 快捷键
 

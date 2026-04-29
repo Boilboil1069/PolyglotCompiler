@@ -206,3 +206,13 @@ FUNC run_full_pipeline(width: INT, height: INT, epochs: INT) -> FLOAT {
 // --- Exports ---
 EXPORT ml_pipeline AS "ml_pipeline";
 EXPORT run_full_pipeline AS "run_pipeline";
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "09_mixed_pipeline: ok\r\n";

@@ -1,0 +1,32 @@
+// ============================================================================
+// image_processing.ploy — Image processing kernels.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Rust.
+// ============================================================================
+
+// Image processing: a C++ greyscale converter feeds a Rust 3x3 box-blur.
+// Pixel buffers are exchanged as flat byte vectors via MAP_TYPE.
+
+IMPORT cpp::greyscale_kernel;
+IMPORT rust::box_blur;
+
+LINK(cpp, rust, greyscale_kernel::to_grey, box_blur::blur) {
+    MAP_TYPE(cpp::std::vector_uint8, rust::Vec_u8);
+    MAP_TYPE(cpp::int, rust::u32);
+}
+
+PIPELINE image_demo {
+    STAGE cpp  CALL greyscale_kernel::to_grey;
+    STAGE rust CALL box_blur::blur;
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "21_image_processing: ok\r\n";

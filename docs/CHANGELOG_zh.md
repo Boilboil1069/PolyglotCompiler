@@ -7,8 +7,264 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.5.5 (2026-04-29)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.6.0 (2026-04-29)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.6.0 (2026-04-29)
+
+**IDE 新增性能分析器与调用分析器面板，由共享的 `ProfileSession`、运行时
+call-trace + profile sink 服务以及 `polyc`/`polyrt` 发射器共同驱动。**
+
+### 新增内容
+
+- 运行时服务
+  - `runtime/include/services/call_trace.h` — `CallTracer` 单例，提供
+    `Enter` / `Exit` / `Drain` / `Peek` / `SerializeJson`，及 C-ABI
+    钩子 `__ploy_rt_call_enter` / `__ploy_rt_call_exit` / `_enable` /
+    `_is_enabled`。默认关闭；relaxed-load 短路使 LTO 可裁剪。
+  - `runtime/include/services/profile_sink.h` — `ProfileSink::Open(path,
+    stream_mode)`，支持文档模式（`polyglot.profile.v1`）与 NDJSON 流式模式。
+- 中端
+  - 中端新增 `InstrumentCallTrace` Pass，按需在非桥接函数前后插入上述钩子。
+- polyc 命令行
+  - `--emit=call-graph:<path>` 写出 `polyglot.callgraph.v1` 文档。
+  - `--emit=profile-symbols:<path>` 写出 id ↔ 全限定名映射。
+  - `--profile-instrument` 启用上述 IR Pass。
+- polyrt 命令行
+  - `polyrt profile [--json|--stream] --duration-ms ... --interval-ms ...`
+    采样运行中的进程。
+  - `polyrt calltrace --json <path>` 排空当前快照。
+- IDE（`polyui`）
+  - 新增 **Profiler** 停靠面板 — Flame / Hotspots / Timeline / Languages /
+    Log 标签页，由 `ProfileSession` 驱动。`Ctrl+Alt+P` 切换。
+  - 新增 **Call Analyzer** 停靠面板 — caller/callee 树 + 分层 DAG 图视图 +
+    节点表 + 语言对过滤 + 有界 DFS 路径搜索。`Ctrl+Alt+G` 切换。
+  - 两个面板共享同一个 `ProfileSession`，加载 profile 时运行时调用计数会
+    自动叠加到 Call Analyzer。
+  - 三个新的共享数据模型：`FlameTreeModel`、`CallGraphModel`、
+    `TimelineModel`（位于 `tools/ui/common/include/data_models/`）。
+- 测试
+  - `tests/unit/runtime/call_trace_runtime_test.cpp`：6 用例覆盖 enter/exit、
+    嵌套计时、开关、JSON schema、drain 语义、profile sink 文档/流模式。
+  - `tests/unit/tools/call_graph_model_test.cpp`：6 用例覆盖邻接表、DFS、
+    运行时叠加语义。
+  - `tests/unit/tools/profile_session_test.cpp`：3 用例覆盖 JSON 加载器。
+  - `tests/unit/tools/profiler_panel_smoke_test.cpp`：3 用例实例化两个面板
+    并验证会话共享。
+  - `tests/integration/profiler_e2e_test.cpp`：2 用例对 `09_mixed_pipeline`
+    和 `15_full_stack` 真实驱动 `polyc` 二进制。
+- 文档
+  - `docs/realization/{profiler,call_analyzer}{,_zh}.md`
+  - `docs/specs/{call_graph_schema,profile_stream_schema}{,_zh}.md`
+  - `docs/api/profile_api{,_zh}.md`
+  - `docs/tutorial/{profiling,call_analyzer}_quickstart{,_zh}.md`
+
+### 兼容性
+
+- Schema：`polyglot.calltrace.v1`、`polyglot.profile.v1`、
+  `polyglot.callgraph.v1`、`polyglot.profilesymbols.v1`。新增字段非破坏性；
+  升版后缀保留给布局变更。
+- 快捷键有意避开 `Ctrl+Shift+P/G`（IDE 已绑定为命令面板与 Git 面板）。
+
+---
+
+## v1.5.8 (2026-04-29)
+
+**样例矩阵扩展至 30 个主题示例，并交付回归脚本与 Catch2 集成测试。**
+
+### 新增内容
+
+- `tests/samples/` 下原有的 16 个样例（`01_basic_linking` 到
+  `16_config_and_venv`）一律补全：
+  - 每个 `.ploy` 文件末尾追加 `PRINTLN "<目录名>: ok\r\n";` 标记语句，
+    使得每个样例都能向 stdout 输出确定的、可逐字节比对的一行。
+  - 每个目录新增 `expected_output.txt`，内容正是上述那一行。
+  - 双语 `README.md` / `README_zh.md`，描述涉及的语言、关键字、构建命令
+    与预期运行输出。
+- 新增 14 个主题样例：`17_string_processing`、`18_numeric_kernels`、
+  `19_file_io`、`20_json_pipeline`、`21_image_processing`、
+  `22_database_access`、`23_http_client`、`24_concurrency`、
+  `25_event_loop`、`26_state_machine`、`27_plugin_system`、
+  `28_ml_inference`、`29_data_analytics`、`30_game_loop_demo`。每个目录
+  均含 `.ploy` 入口文件、两个可编译的宿主语言源文件（真实代码，无占位）、
+  双语 README 与 `expected_output.txt`。
+- `scripts/build_all_samples.ps1` 与 `scripts/build_all_samples.sh` 会遍
+  历所有样例目录，依次执行 `polyc --emit-obj=…` 与 `polyld … -o …`，
+  运行产物并捕获 stdout，按字节与目录下的 `expected_output.txt` 对比，
+  最终写出 `build/samples_report.json`。每个样例的状态取自
+  `OK / OUTPUT_MISMATCH / EMPTY_STDOUT / RUN_FAIL / LINK_FAIL / COMPILE_FAIL / SKIP`
+  其中之一。脚本默认以 0 退出；如需严格门禁，可使用 PowerShell 的
+  `-FailOnMismatch` 或 bash 的 `--fail-on-mismatch` 开关。
+- 集成测试 `tests/integration/samples_regression_test.cpp`（Catch2 标签
+  `[samples][b6][integration]`，注册于 `integration_tests` 二进制下）会
+  驱动该脚本并断言生成的 JSON 报告结构合法：覆盖全部样例、所有状态字符
+  串都属于上述 7 种枚举之一，且记录的总数与目录中实际计数一致。
+- 重写了 `tests/samples/README.md`（及其中文版）以一张目录矩阵列出全部
+  30 个样例，并附「按主题分组」「按语言组合分组」两份索引。
+
+### 备注
+
+- 后端流水线尚未在每个样例上做到端到端可执行，因此脚本默认采取宽松
+  策略：JSON 报告本身才是该版本的契约。随着越来越多样例的状态收敛到
+  `OK`，将自然演变为正式发版门禁。
+- 现有测试套件（`test_linker`、`test_frontend_ploy`、`test_e2e`、
+  `integration_tests`）不受本版本影响。
+
+---
+
+## v1.5.7 (2026-04-29)
+
+**`polyld` 现在能从输入目标文件中识别 `polyrt_println` 调用点，并产出
+带多条消息的 Windows PE 可执行文件。**
+
+### 新增内容
+
+- 新增公开的自由函数
+  `polyglot::linker::CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &)`，
+  对链接器已加载的目标文件状态执行一次纯分析过程，返回 IR 层
+  `polyrt_println` 下沉所留下的、按源代码顺序排列的解码后消息字节
+  序列——这些调用点在每个可执行输入节中表现为
+  `(lea message-global, call polyrt_println)` 的成对重定位。该过程：
+  - 遍历每个 `ObjectFile` 以及每个带有 `SectionFlags::kExecInstr`
+    标志的节。
+  - 按 `offset` 字段对每个节的重定位排序，保证那些以文件序而非
+    指令序暴露重定位的加载器同样得到正确的调用顺序。
+  - 跟踪「最近一次的 `println.msg<N>(.ptr)?` 重定位」作为待配对的
+    消息游标，在下一次 `polyrt_println` 重定位出现时与之配对；
+    IR 字符串内联器引入的尾缀 `.ptr` GEP 别名会在符号查找前剥离。
+  - 通过线性扫描所有已加载 `ObjectFile` 解析消息全局符号（跨翻译单元
+    共享同样可用），从其所属节中读取
+    `data[symbol.offset .. +symbol.size)` 字节区间，并把解码后的
+    内容追加到结果中。
+  - 静默跳过孤立调用（之前没有消息重定位）以及无法解析的符号，
+    其余有效序列保持完整。
+  - 严格保留调用顺序语义——内联器复用同一全局所产生的重复消息会
+    在每个调用点都输出一次；底层 `.rdata` 的去重由
+    `BuildPrintlnSequencePE` 那一层统一负责。
+
+- `polyglot::linker::Linker::GeneratePEExecutable` 现在调用上述新分析
+  过程；当结果向量非空时，转入 `pe::BuildPrintlnSequencePE` 产出真实
+  的多行标准输出二进制；否则原样保留既有的
+  `pe::BuildExitZeroPE(user_text)` 路径，确保非 PRINTLN 程序行为不变。
+
+### 可观测行为
+
+如下这样最小的 `.ploy` 源：
+
+```ploy
+PRINTLN "alpha\r\n";
+PRINTLN "beta\r\n";
+PRINTLN "alpha\r\n";
+```
+
+经 `polyc … && polyld … -o demo.exe` 之后产出的 `demo.exe` 实际写入
+标准输出的字节序列正好是
+
+```
+alpha
+beta
+alpha
+```
+
+——通过三次真实的 `WriteFile` 写入 `STD_OUTPUT_HANDLE`，随后调用
+`ExitProcess(0)`。集成测试
+`tests/integration/pe_runtime_smoke_test.cpp`（`[b5]` 标签）会构造
+`polyc` 应当产出的 `ObjectFile` 形态、把恢复出的镜像在主机加载器上运行，
+并断言退出码与捕获到的字节序列均与预期一致。
+
+### 新增公开 API
+
+- `polyglot::linker::CollectPolyrtPrintlnSequence`
+  （位于 `tools/polyld/include/linker.h`）。
+
+### 测试
+
+- `tests/unit/linker/polyrt_println_collect_test.cpp` —— 10 个 Catch2
+  用例覆盖：空输入、无 PRINTLN 目标、单次调用、多次调用顺序保持、
+  内联器复用全局产生的重复输出、`.ptr` GEP 别名解析、跨目标文件
+  数据全局查找、未排序重定位的内部排序、对错误标志节的防御性过滤、
+  以及孤立调用的静默跳过。
+- `tests/integration/pe_runtime_smoke_test.cpp` —— 新增 `[b5]` 端到端
+  用例，对一段含三次调用、其中两次共享同一消息的程序，断言退出码
+  为 0 且捕获到的标准输出与源代码顺序的拼接完全相符。
+
+### 已验证的测试套件
+
+`test_linker`（337 断言 / 68 用例）、`test_frontend_ploy`（1907 断言
+/ 310 用例）、`test_e2e`（171 断言 / 54 用例）、`integration_tests`
+（`[b5]` 过滤，6 断言 / 1 用例）——全部通过。
+
+---
+
+## v1.5.6 (2026-04-29)
+
+**`.ploy` -> `.obj` -> `.exe` -> 真实进程退出码这条链路全部打通。**
+
+### 新增内容
+
+- `polyc` 在 `--obj-format=coff` 下现在产出货真价实的 AMD64 / ARM64
+  COFF 目标文件。此前该分支会静默回落到 ELF 写入器，导致 Microsoft
+  链接器以 `LNK1107: invalid or corrupt file` 拒绝读取。新增的
+  `polyglot::backends::COFFBuilder` 完整铺设 `IMAGE_FILE_HEADER`、
+  各节头（`.text`、`.rdata`、`.bss` 等）、节原始数据、按节重定位表、
+  COFF 符号表（同时支持 8 字符短名与字符串表长名两种形式）以及字符串
+  表，可被 MS `link.exe` 字节级接受。
+- `polyld` 的 `DetectObjectFormat` 现在通过 `IMAGE_FILE_HEADER.Machine`
+  字段（`0x8664`、`0xAA64`、`0x014C`、`0x01C0`、`0x01C4`、`0x0200`）
+  识别 raw COFF 目标。先前的 MZ DOS Stub 启发式只能识别完整 PE 镜像，
+  会将 raw `.obj` 误判后回落到 POBJ 分支并丢弃节内容。
+- `polyld` 的 Win32 PE 写入器会按 `_start` -> `__ploy_main` -> `main`
+  的优先级查找用户入口符号，通过节贡献映射换算出其在合并后 `.text`
+  中的偏移，并产出一个 `.exe`：其 `AddressOfEntryPoint` 指向一段
+  18 字节的 Win64 ABI shim，由该 shim 调用用户 `main` 并将其 `int`
+  返回值（RAX 低 32 位）转交给 `kernel32!ExitProcess`。先前无论源
+  程序返回什么，入口都恒指向旧的 `ExitProcess(0)` shim。
+
+### 可观察行为
+
+简单到 `FUNC main() -> i32 { RETURN 42; }` 的 `.ploy` 源代码，经过
+`polyc audit_hello.ploy --emit-obj=audit_hello.obj --obj-format=coff
+&& polyld audit_hello.obj -o audit_hello.exe` 编译链接后，所产出的
+可执行文件在 Windows 下 `GetExitCodeProcess` 返回 **42**；同样的
+契约也适用于 `RETURN 0` 与 `RETURN 7`，已在
+`tests/integration/ploy_e2e_real_exit_code_test.cpp` 三个用例中
+锁定。
+
+### 新增公开 API
+
+- `polyglot::backends::COFFBuilder` —— `ObjectFileBuilder` 的子类，
+  发射 AMD64（`is_arm64=false`）或 ARM64（`is_arm64=true`）raw COFF
+  目标。
+- `polyglot::linker::pe::BuildExeWithUserEntry(user_text_bytes,
+  user_main_offset_in_text)` —— 用「先调用用户 main、再
+  `ExitProcess(eax)`」的 shim 包裹调用方提供的 `.text`。
+- `polyglot::linker::pe::BuildUserMainExitShim(shim_rva, user_main_rva,
+  exit_process_iat_rva)` —— 将那 18 字节的 AMD64 shim 编码逻辑暴露
+  给单元测试。
+
+### 测试覆盖
+
+- `tests/unit/linker/object_format_detect_test.cpp`（9 个用例）：
+  锁定 `DetectObjectFormat` 对 raw COFF（六个识别 Machine 值）、
+  带 MZ Stub 的 PE 镜像、ELF、Mach-O 与 POBJ 的处理。
+- `tests/unit/backends/coff_builder_test.cpp`（4 个用例）：在字节
+  层校验 AMD64/ARM64 头、外部符号在 COFF 符号表中的布局以及通过
+  字符串表实现的长节名编码。
+- `tests/unit/linker/section_merge_test.cpp`（2 个用例）：回归锁定
+  来自真实 COFF 目标的用户 `.text` 字节经过 load -> resolve -> layout
+  管线后字节级保留，且多目标 `.text` 输入会被拼接、两段都完整存在。
+- `tests/integration/ploy_e2e_real_exit_code_test.cpp`（3 个用例）：
+  对字面值 42、0、7 完整跑 `.ploy` -> `.obj` -> `.exe` -> 进程
+  生成 -> `GetExitCodeProcess` 烟雾测试。
+
+### 兼容性
+
+- `BuildExitZeroPE` 仍旧导出，并作为「未定义用户入口符号」时的回落
+  路径；依赖此前「永远退出码 0」行为的调用方不受影响。
+- COFF 检测变化是先前 MZ 规则的真子集，原本被识别为 PE 镜像的
+  输入仍然被识别。
 
 ---
 

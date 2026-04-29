@@ -153,6 +153,16 @@ struct DriverSettings {
   // Incremental compilation cache
   bool clean_cache{false}; // --clean-cache: purge incremental cache
 
+  // ----- Profiling / call-tracing emission --------------------------------
+  // See docs/specs/call_graph_schema_en.md and profile_stream_schema_en.md.
+  // emit_call_graph_path / emit_profile_symbols_path are activated by
+  // --emit=call-graph:<path> and --emit=profile-symbols:<path>.  When
+  // profile_instrument is true the middle-end inserts call-trace hooks
+  // around every non-bridge function.
+  std::string emit_call_graph_path{};
+  std::string emit_profile_symbols_path{};
+  bool profile_instrument{false};
+
   // -------------------------------------------------------------------------
   // Per-language version selection.
   //
@@ -327,6 +337,10 @@ struct BackendResult {
   std::string assembly_text; // textual asm for aux/emit-asm
   std::string target_triple;
   std::string ir_text; // IR text for --emit-ir
+  // The fully-lowered IR context kept alive for downstream consumers
+  // (call-graph emitter, profile-symbols emitter, instrumentation
+  // accountancy).  Null when the backend did not run a lowering step.
+  std::shared_ptr<ir::IRContext> ir_ctx;
   frontends::Diagnostics diagnostics;
   bool success{false};
 };

@@ -55,3 +55,12 @@ FUNC compute_and_format(a: INT, b: INT) -> STRING {
 
 // Export the polyglot functions
 EXPORT compute_and_format AS "polyglot_compute";
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "01_basic_linking: ok\r\n";

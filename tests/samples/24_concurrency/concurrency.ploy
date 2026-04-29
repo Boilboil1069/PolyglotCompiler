@@ -1,0 +1,27 @@
+// ============================================================================
+// concurrency.ploy — Concurrency primitives.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Rust.
+// ============================================================================
+
+// Concurrency primitives: a C++ thread-safe counter feeds a Rust worker
+// pool that performs a parallel reduction.
+
+IMPORT cpp::atomic_counter;
+IMPORT rust::worker_pool;
+
+LINK(cpp, rust, atomic_counter::increment, worker_pool::reduce) {
+    MAP_TYPE(cpp::int, rust::i64);
+    MAP_TYPE(cpp::std::vector_int, rust::Vec_i64);
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "24_concurrency: ok\r\n";

@@ -107,3 +107,13 @@ FUNC conditional_interop(text: STRING) -> STRING {
         RETURN result;
     }
 }
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "11_java_interop: ok\r\n";

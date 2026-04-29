@@ -113,3 +113,13 @@ FUNC attribute_workflow() -> STRING {
 EXPORT read_attributes AS "demo_read_attrs";
 EXPORT write_attributes AS "demo_write_attrs";
 EXPORT attribute_workflow AS "demo_attr_workflow";
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "06_attribute_access: ok\r\n";

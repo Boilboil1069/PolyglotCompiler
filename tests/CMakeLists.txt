@@ -156,12 +156,15 @@ set(UNIT_TEST_RUNTIME
     unit/runtime/polyrt_test.cpp
     unit/runtime/runtime_tests.cpp
     unit/runtime/threading_services_test.cpp
+    unit/runtime/call_trace_runtime_test.cpp
 )
 
 set(UNIT_TEST_LINKER
     unit/linker_test.cpp
     unit/linker/pe_writer_test.cpp
     unit/linker/object_format_detect_test.cpp
+    unit/linker/section_merge_test.cpp
+    unit/linker/polyrt_println_collect_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY
@@ -178,6 +181,9 @@ set(UNIT_TEST_TOPOLOGY_UI
     unit/tools/drilldown_window_test.cpp
     unit/tools/topology_ui_extended_test.cpp
     unit/tools/topology_layout_test.cpp
+    unit/tools/call_graph_model_test.cpp
+    unit/tools/profile_session_test.cpp
+    unit/tools/profiler_panel_smoke_test.cpp
 )
 
 set(UNIT_TEST_E2E
@@ -274,7 +280,7 @@ target_link_libraries(test_runtime PRIVATE
 # -- Linker ------------------------------------------------------------------
 add_executable(test_linker ${UNIT_TEST_LINKER})
 target_link_libraries(test_linker PRIVATE
-    linker_lib frontend_ploy ${CATCH2_LIBS})
+    linker_lib frontend_ploy backend_common ${CATCH2_LIBS})
 
 # -- Topology ----------------------------------------------------------------
 add_executable(test_topology ${UNIT_TEST_TOPOLOGY})
@@ -298,6 +304,18 @@ if(Qt6_FOUND OR Qt5_FOUND)
     add_executable(test_topology_ui ${UNIT_TEST_TOPOLOGY_UI}
         ${CMAKE_SOURCE_DIR}/tools/ui/common/src/topology_panel.cpp
         ${CMAKE_SOURCE_DIR}/tools/ui/common/include/topology_panel.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/profiler_panel.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/profiler_panel.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/call_analyzer_panel.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/call_analyzer_panel.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/profile_session.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/profile_session.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/data_models/flame_node.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/data_models/flame_node.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/data_models/call_graph_model.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/data_models/call_graph_model.h
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/src/data_models/timeline_model.cpp
+        ${CMAKE_SOURCE_DIR}/tools/ui/common/include/data_models/timeline_model.h
         ${CMAKE_SOURCE_DIR}/tools/polyc/src/foreign_signature_extractor.cpp
     )
     target_include_directories(test_topology_ui PRIVATE ${CMAKE_SOURCE_DIR})
@@ -423,6 +441,9 @@ set(INTEGRATION_TEST_SOURCES
     integration/language_versions/lang_versions_test.cpp
     integration/ui/theme_system_test.cpp
     integration/pe_runtime_smoke_test.cpp
+    integration/ploy_e2e_real_exit_code_test.cpp
+    integration/samples_regression_test.cpp
+    integration/profiler_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})

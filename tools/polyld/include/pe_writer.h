@@ -110,6 +110,44 @@ BuildResult BuildMinimalExitZeroImage();
 /// `BuildMinimalExitZeroImage()`.
 BuildResult BuildExitZeroPE(const std::vector<std::uint8_t> &user_text_bytes);
 
+/// Wrap a caller-supplied `.text` byte buffer with an appended Win32 entry
+/// shim that:
+///
+///   1. invokes the user's `main` function (located at
+///      `user_main_offset_in_text` bytes into `user_text_bytes`) using the
+///      Windows AMD64 ABI (32 bytes of shadow space, RSP 16-byte aligned);
+///   2. captures the user's `int` return value (low 32 bits of RAX) into
+///      ECX as the first argument to `kernel32!ExitProcess`;
+///   3. terminates the process via `kernel32!ExitProcess(exit_code)`.
+///
+/// The produced image's `AddressOfEntryPoint` is set to the SHIM (so the
+/// OS first runs our ABI prologue), and the shim then `call`s into the user
+/// `main` at its real RVA.  This is the path that lets a `.ploy` program
+/// such as `FUNC main() -> i32 { RETURN 42; }` produce a `.exe` whose
+/// `GetExitCodeProcess` returns `42`.
+///
+/// On invalid input (`user_text_bytes` empty, or `user_main_offset_in_text`
+/// out of range) the function returns a `BuildResult` with
+/// `image.empty() == true`.
+BuildResult BuildExeWithUserEntry(const std::vector<std::uint8_t> &user_text_bytes,
+                                  std::uint32_t user_main_offset_in_text);
+
+/// Generate the AMD64 byte sequence for the **user-entry** shim: invoke the
+/// user `main` at `user_main_rva`, then forward its return value (low 32
+/// bits of RAX) to `kernel32!ExitProcess`.
+///
+///   sub  rsp, 0x28                     ; 48 83 EC 28
+///   call user_main                     ; E8 disp32
+///   mov  ecx, eax                      ; 89 C1
+///   call qword ptr [rip + disp32]      ; FF 15 disp32
+///   int3                               ; CC
+///
+/// Total: 18 bytes.  All disp32 fields are encoded against `shim_rva` so
+/// the returned bytes can be appended verbatim into `.text` at that RVA.
+std::vector<std::uint8_t> BuildUserMainExitShim(std::uint32_t shim_rva,
+                                                std::uint32_t user_main_rva,
+                                                std::uint32_t exit_process_iat_rva);
+
 /// Produce a self-contained runnable PE32+ image whose only behaviour is to
 /// write `message` to the standard output handle and then call
 /// `kernel32!ExitProcess(0)`.  This is the first runtime-IO milestone of the

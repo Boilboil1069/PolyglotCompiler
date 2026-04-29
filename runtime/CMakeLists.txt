@@ -31,6 +31,8 @@ add_library(runtime
     src/services/exception.cpp
     src/services/reflection.cpp
     src/services/threading.cpp
+    src/services/call_trace.cpp
+    src/services/profile_sink.cpp
 )
 
 target_include_directories(runtime PUBLIC

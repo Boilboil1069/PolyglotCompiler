@@ -253,7 +253,7 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 | Runtime Tool | `polyrt` | GC / FFI / Thread management |
 | Topology Analyser | `polytopo` | Function I/O topology visualisation, link validation, and graph export (text / DOT / JSON). Supports `--view-mode` and `--filter-language` filtering. |
 | Benchmark | `polybench` | Performance evaluation suite |
-| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel (with grouping and batch operations), file templates, and compilation |
+| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel (with grouping and batch operations), Profiler panel (`Ctrl+Alt+P` — flame / hotspots / timeline / per-language breakdown driven by `polybench`+`polyrt`), Call Analyzer panel (`Ctrl+Alt+G` — static call graph from `polyc --emit=call-graph` with caller/callee trees and bounded DFS path search), file templates, and compilation |
 
 ---
 

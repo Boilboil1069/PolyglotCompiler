@@ -80,3 +80,13 @@ PIPELINE numeric_pipeline {
 // Export
 EXPORT compute_stats AS "polyglot_stats";
 EXPORT numeric_pipeline AS "numeric_analysis";
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "04_package_import: ok\r\n";

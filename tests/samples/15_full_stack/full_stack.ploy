@@ -125,3 +125,13 @@ PIPELINE full_stack_pipeline {
 EXPORT register_user;
 EXPORT analyse_scores;
 EXPORT full_stack_pipeline;
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "15_full_stack: ok\r\n";

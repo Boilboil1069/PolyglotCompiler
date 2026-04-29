@@ -38,6 +38,8 @@
 #include "runtime/include/services/advanced_threading.h"
 #include "runtime/include/services/exception.h"
 #include "runtime/include/services/threading.h"
+#include "runtime/include/services/call_trace.h"
+#include "runtime/include/services/profile_sink.h"
 
 namespace polyglot::tools {
 
@@ -142,6 +144,8 @@ void PrintUsage() {
   std::cout << "  thread              Thread pool management\n";
   std::cout << "  bench               Run runtime benchmarks\n";
   std::cout << "  info                Show runtime information\n";
+  std::cout << "  profile             Sample runtime profile (calls + memory)\n";
+  std::cout << "  calltrace           Drain the call-trace ring buffer\n";
   std::cout << "  help                Show this help message\n";
   std::cout << "  version             Show version information\n";
   std::cout << "\n";
@@ -1051,6 +1055,180 @@ int CmdInfo(int argc, char **argv) {
 }
 
 // ============================================================================
+// Profile / CallTrace commands
+// ============================================================================
+
+void PrintProfileHelp() {
+  std::cout << "Usage: " << kToolName << " profile [options]\n\n";
+  std::cout << "Sample the runtime call tracer and emit a JSON profile.\n\n";
+  std::cout << "Options:\n";
+  std::cout << "  --json                  Emit JSON to stdout (default human format)\n";
+  std::cout << "  --out=<file>            Write JSON to file instead of stdout\n";
+  std::cout << "  --stream=<file>         Append newline-delimited JSON samples to file\n";
+  std::cout << "  --duration-ms=<n>       Total duration in milliseconds (default 1000)\n";
+  std::cout << "  --interval-ms=<n>       Sampling interval in milliseconds (default 200)\n";
+  std::cout << "  --enable                Enable the runtime tracer before sampling\n";
+}
+
+int CmdProfile(int argc, char **argv) {
+  bool json_output = false;
+  bool enable_tracer = false;
+  std::string out_path;
+  std::string stream_path;
+  int duration_ms = 1000;
+  int interval_ms = 200;
+  for (int i = 2; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--help" || a == "-h") {
+      PrintProfileHelp();
+      return 0;
+    }
+    if (a == "--json")
+      json_output = true;
+    else if (a.rfind("--out=", 0) == 0)
+      out_path = a.substr(6);
+    else if (a.rfind("--stream=", 0) == 0)
+      stream_path = a.substr(9);
+    else if (a.rfind("--duration-ms=", 0) == 0)
+      duration_ms = std::max(1, std::atoi(a.substr(14).c_str()));
+    else if (a.rfind("--interval-ms=", 0) == 0)
+      interval_ms = std::max(1, std::atoi(a.substr(14).c_str()));
+    else if (a == "--enable")
+      enable_tracer = true;
+  }
+  if (enable_tracer) {
+    __ploy_rt_call_trace_enable(1);
+  }
+
+  std::unique_ptr<runtime::services::ProfileSink> sink;
+  if (!stream_path.empty()) {
+    sink = runtime::services::ProfileSink::Open(stream_path, /*stream_mode=*/true);
+    if (!sink) {
+      std::cerr << "polyrt profile: cannot open stream file '" << stream_path << "'\n";
+      return 2;
+    }
+  }
+
+  auto &tracer = runtime::services::CallTracer::Instance();
+  const auto t0 = std::chrono::steady_clock::now();
+  std::ostringstream all_samples;
+  all_samples << '[';
+  bool first_sample = true;
+  while (true) {
+    runtime::services::ProfileSample sample;
+    sample.timestamp_ns = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count());
+    sample.window_ns = static_cast<std::uint64_t>(interval_ms) * 1000000ull;
+    sample.calls = tracer.DrainSnapshot();
+    sample.live_threads = std::thread::hardware_concurrency();
+    sample.resident_bytes = runtime::gc::GlobalHeap().GetStats().current_heap_bytes;
+
+    const std::string serialized = runtime::services::ProfileSink::SerializeSample(sample);
+    if (sink) {
+      sink->Push(sample);
+    }
+    if (!first_sample)
+      all_samples << ',';
+    first_sample = false;
+    all_samples << serialized;
+
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
+    if (elapsed_ms >= duration_ms)
+      break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+  }
+  all_samples << ']';
+
+  if (sink) {
+    sink->Close();
+  }
+
+  const std::string final_doc =
+      "{\"schema\":\"polyglot.profile.v1\",\"samples\":" + all_samples.str() + "}";
+  if (!out_path.empty()) {
+    std::ofstream ofs(out_path, std::ios::trunc);
+    if (!ofs.is_open()) {
+      std::cerr << "polyrt profile: cannot open '" << out_path << "'\n";
+      return 2;
+    }
+    ofs << final_doc;
+  } else if (json_output) {
+    std::cout << final_doc << '\n';
+  } else {
+    std::cout << "polyrt profile: collected " << (sink ? sink->WrittenSamples() : 0)
+              << " streamed samples over " << duration_ms << " ms (interval "
+              << interval_ms << " ms)\n";
+    std::cout << "  tracer enabled: " << (__ploy_rt_call_trace_is_enabled() ? "yes" : "no")
+              << '\n';
+  }
+  return 0;
+}
+
+void PrintCallTraceHelp() {
+  std::cout << "Usage: " << kToolName << " calltrace [options]\n\n";
+  std::cout << "Drain the per-function call-trace ring buffer and print stats.\n\n";
+  std::cout << "Options:\n";
+  std::cout << "  --json              Emit JSON to stdout\n";
+  std::cout << "  --out=<file>        Write JSON to file\n";
+  std::cout << "  --enable            Enable tracer (no-op if already enabled)\n";
+  std::cout << "  --disable           Disable tracer after drain\n";
+  std::cout << "  --peek              Snapshot without clearing the buffer\n";
+}
+
+int CmdCallTrace(int argc, char **argv) {
+  bool json_output = false;
+  bool peek = false;
+  bool do_disable = false;
+  std::string out_path;
+  for (int i = 2; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--help" || a == "-h") {
+      PrintCallTraceHelp();
+      return 0;
+    }
+    if (a == "--json")
+      json_output = true;
+    else if (a == "--peek")
+      peek = true;
+    else if (a == "--enable")
+      __ploy_rt_call_trace_enable(1);
+    else if (a == "--disable")
+      do_disable = true;
+    else if (a.rfind("--out=", 0) == 0)
+      out_path = a.substr(6);
+  }
+  auto &tracer = runtime::services::CallTracer::Instance();
+  auto snap = peek ? tracer.PeekSnapshot() : tracer.DrainSnapshot();
+  if (do_disable) {
+    __ploy_rt_call_trace_enable(0);
+  }
+  const std::string doc = runtime::services::CallTracer::SerializeJson(snap);
+  if (!out_path.empty()) {
+    std::ofstream ofs(out_path, std::ios::trunc);
+    if (!ofs.is_open()) {
+      std::cerr << "polyrt calltrace: cannot open '" << out_path << "'\n";
+      return 2;
+    }
+    ofs << doc;
+  } else if (json_output) {
+    std::cout << doc << '\n';
+  } else {
+    std::cout << "polyrt calltrace: " << snap.entries.size() << " function(s), "
+              << snap.total_events << " total events, " << snap.dropped_events
+              << " dropped\n";
+    for (const auto &e : snap.entries) {
+      std::cout << "  " << e.qualified_name << " [" << e.language << "] calls=" << e.call_count
+                << " inclusive_ns=" << e.inclusive_ns << " self_ns=" << e.self_ns << '\n';
+    }
+  }
+  return 0;
+}
+
+// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -1094,6 +1272,14 @@ int Run(int argc, char **argv) {
 
   if (command == "info") {
     return CmdInfo(argc, argv);
+  }
+
+  if (command == "profile") {
+    return CmdProfile(argc, argv);
+  }
+
+  if (command == "calltrace") {
+    return CmdCallTrace(argc, argv);
   }
 
   std::cerr << "Unknown command: " << command << "\n";

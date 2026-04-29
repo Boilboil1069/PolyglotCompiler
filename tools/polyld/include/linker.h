@@ -707,4 +707,30 @@ SectionType GetSectionTypeFromName(const std::string &name);
 // Get default section flags from name
 SectionFlags GetDefaultSectionFlags(const std::string &name);
 
+// ============================================================================
+// Polyglot runtime stdout pipeline — call-site recovery
+// ============================================================================
+
+/// Walk the supplied object files, locate every relocation that targets the
+/// runtime symbol `polyrt_println`, pair each call-site with the most recent
+/// preceding relocation that targets one of the IR-layer interned message
+/// globals (whose names follow the convention `println.msg<N>` with an
+/// optional `.ptr` GEP-alias suffix produced by `IRBuilder::MakeStringLiteral`),
+/// and read the message bytes back out of the data global's section payload.
+///
+/// The returned vector preserves **call-site order** (i.e. lowest `.text`
+/// offset first, scanning each loaded object in load order), so a program
+/// that calls PRINTLN three times with the second message duplicated will
+/// produce a 3-element vector with two identical entries — exactly the
+/// shape expected by `pe::BuildPrintlnSequencePE`.
+///
+/// Pure analysis pass: no diagnostics are produced and the input is
+/// unmodified.  Call-sites whose preceding message-global reloc cannot be
+/// resolved (e.g. because the data global lives in a different translation
+/// unit that wasn't supplied) are silently skipped — the caller can detect
+/// the loss by comparing the returned vector size against the
+/// `polyrt_println` reloc count if it cares.
+std::vector<std::string>
+CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects);
+
 } // namespace polyglot::linker

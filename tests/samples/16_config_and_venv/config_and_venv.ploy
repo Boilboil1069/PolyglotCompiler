@@ -140,3 +140,13 @@ EXPORT prepare_dataset;
 EXPORT json_round_trip;
 EXPORT explicit_conversion;
 EXPORT config_demo_pipeline;
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "16_config_and_venv: ok\r\n";

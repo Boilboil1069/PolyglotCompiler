@@ -1,0 +1,33 @@
+// ============================================================================
+// file_io.ploy — Streaming file I/O.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Python, C++.
+// ============================================================================
+
+// Streaming file I/O: a C++ binary reader feeding a Python text decoder.
+// Demonstrates how PolyglotCompiler bridges raw byte buffers with native
+// Python str objects via MAP_TYPE.
+
+IMPORT cpp::binary_reader;
+IMPORT python::text_decoder;
+
+LINK(cpp, python, binary_reader::read_chunk, text_decoder::decode) {
+    MAP_TYPE(cpp::std::vector_uint8, python::bytes);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+PIPELINE read_text {
+    STAGE cpp    CALL binary_reader::read_chunk;
+    STAGE python CALL text_decoder::decode;
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "19_file_io: ok\r\n";

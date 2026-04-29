@@ -7,9 +7,306 @@ For day-to-day usage instructions see [`USER_GUIDE.md`](USER_GUIDE.md); for
 build / API contracts see [`api/api_reference.md`](api/api_reference.md) and
 the per-feature notes under [`realization/`](realization/).
 
-The version range covered below is **v0.1.0 (2026-01-15) → v1.5.5 (2026-04-29)**.
+The version range covered below is **v0.1.0 (2026-01-15) → v1.6.0 (2026-04-29)**.
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
+
+---
+
+## v1.6.0 (2026-04-29)
+
+**IDE gains a Performance Profiler and a Call Analyzer panel powered by a
+shared `ProfileSession`, runtime call-trace + profile sink services and
+`polyc`/`polyrt` emitters.**
+
+### What's new
+
+- Runtime services
+  - `runtime/include/services/call_trace.h` — `CallTracer` singleton with
+    `Enter` / `Exit` / `Drain` / `Peek` / `SerializeJson`, plus C-ABI
+    hooks `__ploy_rt_call_enter` / `__ploy_rt_call_exit` / `_enable` /
+    `_is_enabled`.  Disabled by default; relaxed-load short-circuit so
+    LTO can dead-strip the calls.
+  - `runtime/include/services/profile_sink.h` — `ProfileSink::Open(path,
+    stream_mode)` with both document mode (`polyglot.profile.v1`) and
+    NDJSON streaming mode.
+- Middle-end
+  - `InstrumentCallTrace` IR pass inserts the C-ABI hooks around every
+    non-bridge function when requested.
+- polyc CLI
+  - `--emit=call-graph:<path>` writes a `polyglot.callgraph.v1` document.
+  - `--emit=profile-symbols:<path>` writes the parallel id ↔ qualified
+    name map.
+  - `--profile-instrument` enables the IR pass above.
+- polyrt CLI
+  - `polyrt profile [--json|--stream] --duration-ms ... --interval-ms ...`
+    samples the running process via the call tracer.
+  - `polyrt calltrace --json <path>` drains the current snapshot.
+- IDE (`polyui`)
+  - New **Profiler** dock panel — Flame / Hotspots / Timeline / Languages
+    / Log tabs, driven by `ProfileSession`.  Toggle with `Ctrl+Alt+P`.
+  - New **Call Analyzer** dock panel — callers/callees trees + layered
+    DAG graph view + nodes table + language-pair filter + bounded DFS
+    path search.  Toggle with `Ctrl+Alt+G`.
+  - Both panels share a single `ProfileSession`, so loading a profile
+    automatically overlays runtime call counts onto the Call Analyzer.
+  - Three new shared data models: `FlameTreeModel`, `CallGraphModel`,
+    `TimelineModel` (under `tools/ui/common/include/data_models/`).
+- Tests
+  - `tests/unit/runtime/call_trace_runtime_test.cpp` — 6 cases covering
+    enter/exit, nested timing, gating, JSON schema, drain semantics and
+    profile sink doc/stream modes.
+  - `tests/unit/tools/call_graph_model_test.cpp` — 6 cases for the
+    adjacency, DFS and runtime-overlay semantics.
+  - `tests/unit/tools/profile_session_test.cpp` — 3 cases for the JSON
+    loaders.
+  - `tests/unit/tools/profiler_panel_smoke_test.cpp` — 3 cases that
+    instantiate both panels and confirm session sharing.
+  - `tests/integration/profiler_e2e_test.cpp` — 2 cases that drive the
+    real `polyc` binary against `09_mixed_pipeline` and `15_full_stack`.
+- Documentation
+  - `docs/realization/{profiler,call_analyzer}{,_zh}.md`
+  - `docs/specs/{call_graph_schema,profile_stream_schema}{,_zh}.md`
+  - `docs/api/profile_api{,_zh}.md`
+  - `docs/tutorial/{profiling,call_analyzer}_quickstart{,_zh}.md`
+
+### Compatibility
+
+- Schemas: `polyglot.calltrace.v1`, `polyglot.profile.v1`,
+  `polyglot.callgraph.v1`, `polyglot.profilesymbols.v1`.  Adding fields
+  is non-breaking; bumping the suffix is reserved for layout changes.
+- Shortcuts intentionally avoid `Ctrl+Shift+P/G` (which the IDE already
+  binds to the command palette and the git panel).
+
+---
+
+## v1.5.8 (2026-04-29)
+
+**Sample matrix grows to 30 themed programs and ships a regression harness
+plus a Catch2 integration test.**
+
+### What's new
+
+- Every existing sample under `tests/samples/` (`01_basic_linking` through
+  `16_config_and_venv`) gained:
+  - A trailing `PRINTLN "<folder>: ok\r\n";` marker statement so each
+    program emits a deterministic, byte-comparable line on stdout.
+  - An `expected_output.txt` file containing exactly that line.
+  - Bilingual `README.md` / `README_zh.md` describing the languages,
+    keywords, build commands and expected runtime output.
+- Fourteen brand-new themed samples were authored (`17_string_processing`,
+  `18_numeric_kernels`, `19_file_io`, `20_json_pipeline`,
+  `21_image_processing`, `22_database_access`, `23_http_client`,
+  `24_concurrency`, `25_event_loop`, `26_state_machine`,
+  `27_plugin_system`, `28_ml_inference`, `29_data_analytics`,
+  `30_game_loop_demo`).  Each contains a `.ploy` entry, two host-language
+  source files (real, compilable code — no placeholders), bilingual
+  READMEs and `expected_output.txt`.
+- `scripts/build_all_samples.ps1` and `scripts/build_all_samples.sh` walk
+  every sample folder, run `polyc --emit-obj=…` then `polyld … -o …`,
+  execute the binary, capture stdout, byte-compare it against the
+  sample's `expected_output.txt`, and write `build/samples_report.json`.
+  Per-sample status is one of
+  `OK / OUTPUT_MISMATCH / EMPTY_STDOUT / RUN_FAIL / LINK_FAIL / COMPILE_FAIL / SKIP`.
+  The harness exits 0 by default; pass `-FailOnMismatch` (PowerShell) or
+  `--fail-on-mismatch` (bash) to switch to strict gating.
+- `tests/integration/samples_regression_test.cpp` (Catch2 tag
+  `[samples][b6][integration]`, registered in `integration_tests`) drives
+  the harness and asserts the produced JSON report is well-formed:
+  every sample is represented, every status string is one of the seven
+  enum values above, and the recorded total matches the on-disk folder
+  count.
+- The root `tests/samples/README.md` (and Chinese twin) was rebuilt to
+  list all 30 samples in a directory matrix, plus by-theme and
+  by-language-combination indices.
+
+### Notes
+
+- The harness is intentionally tolerant by default because parts of the
+  end-to-end backend pipeline are still maturing; the JSON report itself
+  is the contract under test.  As more samples reach `OK` the strict mode
+  becomes the natural release gate.
+- Existing test suites (`test_linker`, `test_frontend_ploy`, `test_e2e`,
+  `integration_tests`) are unaffected by this release.
+
+---
+
+## v1.5.7 (2026-04-29)
+
+**`polyld` recovers `polyrt_println` call sites from input objects and
+emits a multi-message Windows PE.**
+
+### What's new
+
+- New public free function
+  `polyglot::linker::CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &)`
+  performs a pure analysis pass over the linker's loaded object state and
+  returns the source-order vector of decoded message payloads that the
+  IR-layer `polyrt_println` lowering left as `(lea message-global,
+  call polyrt_println)` reloc pairs inside every executable input section.
+  The pass:
+  - Walks each `ObjectFile` and every section flagged
+    `SectionFlags::kExecInstr`.
+  - Sorts each section's relocations by `offset` so loaders that surface
+    relocs in file order rather than instruction order still produce a
+    correct sequence.
+  - Tracks the most-recent `println.msg<N>(.ptr)?` reloc as the pending
+    message cursor and pairs it with the next `polyrt_println` reloc;
+    the trailing `.ptr` GEP-alias suffix introduced by the IR string
+    interner is stripped before symbol lookup.
+  - Resolves the message global by linear-scanning every loaded
+    `ObjectFile` (cross-translation-unit sharing works), reads
+    `data[symbol.offset .. +symbol.size)` from its containing section,
+    and appends the decoded bytes to the result.
+  - Silently skips orphan calls (no preceding message reloc) and
+    unresolvable symbols, leaving the rest of the recovered sequence
+    intact.
+  - Faithfully mirrors call-order semantics — duplicate payloads from
+    an interned global are emitted at every call site; the
+    `BuildPrintlnSequencePE` layer is the one that re-deduplicates the
+    underlying `.rdata` storage.
+
+- `polyglot::linker::Linker::GeneratePEExecutable` now invokes the new
+  pass; when the recovered vector is non-empty it routes through
+  `pe::BuildPrintlnSequencePE` to produce a real multi-line stdout
+  binary, otherwise it preserves the legacy
+  `pe::BuildExitZeroPE(user_text)` path bit-for-bit so non-PRINTLN
+  programs are unaffected.
+
+### Observable behaviour
+
+A `.ploy` source as small as
+
+```ploy
+PRINTLN "alpha\r\n";
+PRINTLN "beta\r\n";
+PRINTLN "alpha\r\n";
+```
+
+now produces, after `polyc … && polyld … -o demo.exe`, an executable
+whose captured stdout is exactly
+
+```
+alpha
+beta
+alpha
+```
+
+with three real `WriteFile` calls into `STD_OUTPUT_HANDLE` followed by
+`ExitProcess(0)`.  The integration test
+`tests/integration/pe_runtime_smoke_test.cpp` (`[b5]` tag) builds the
+ObjectFile shape `polyc` would emit, runs the recovered image on the
+host loader, and pins both the exit code and the captured byte
+sequence.
+
+### New public APIs
+
+- `polyglot::linker::CollectPolyrtPrintlnSequence`
+  (`tools/polyld/include/linker.h`).
+
+### Tests
+
+- `tests/unit/linker/polyrt_println_collect_test.cpp` — 10 Catch2 cases
+  covering empty input, no-PRINTLN object, single call, multi-call
+  ordering, interned-duplicate emission, `.ptr` GEP-alias resolution,
+  cross-object data globals, unsorted-reloc auto-sort, defensive
+  filtering of mis-flagged sections, and orphan-call skipping.
+- `tests/integration/pe_runtime_smoke_test.cpp` — new `[b5]` end-to-end
+  case asserts exit code 0 and exact stdout match for a three-call
+  duplicate-bearing program after running it on the host Windows
+  loader.
+
+### Verified suites
+
+`test_linker` (337 assertions / 68 cases), `test_frontend_ploy` (1907
+assertions / 310 cases), `test_e2e` (171 assertions / 54 cases),
+`integration_tests` (`[b5]` filter, 6 assertions / 1 case) — all
+green.
+
+---
+
+## v1.5.6 (2026-04-29)
+
+**`.ploy` -> `.obj` -> `.exe` -> live process exit code is now real.**
+
+### What's new
+
+- `polyc` now emits genuine AMD64 / ARM64 COFF object files when invoked
+  with `--obj-format=coff` (previously the writer silently fell through
+  to the ELF builder, which produced bytes the Microsoft linker
+  rejected with `LNK1107: invalid or corrupt file`).  The new
+  `polyglot::backends::COFFBuilder` lays down a complete `IMAGE_FILE_HEADER`,
+  per-section headers (`.text`, `.rdata`, `.bss`, …), raw section
+  contents, per-section relocations, a COFF symbol table (with
+  short-name and long-name string-table forms) and a string table that
+  MS `link.exe` accepts byte-for-byte.
+- `polyld`'s `DetectObjectFormat` now identifies a raw COFF object via
+  its `IMAGE_FILE_HEADER.Machine` field (`0x8664`, `0xAA64`, `0x014C`,
+  `0x01C0`, `0x01C4`, `0x0200`).  The earlier MZ-stub heuristic
+  recognised only fully-linked PE images and silently misclassified raw
+  `.obj` files, leaving the loader to fall through to the POBJ branch
+  and discard the section contents.
+- `polyld`'s Win32 PE writer now resolves a user entry symbol
+  (`_start` -> `__ploy_main` -> `main`, in priority order), translates
+  it through the section-contribution map to its merged-`.text` offset,
+  and produces an `.exe` whose `AddressOfEntryPoint` runs an 18-byte
+  Win64-ABI shim that invokes the user `main` and forwards its `int`
+  return value (low 32 bits of `RAX`) to `kernel32!ExitProcess`.  The
+  previous build always pointed entry at the legacy
+  `ExitProcess(0)` shim regardless of what the source program returned.
+
+### Observable behaviour
+
+A `.ploy` source as small as
+
+```ploy
+FUNC main() -> i32 { RETURN 42; }
+```
+
+now produces, after `polyc audit_hello.ploy --emit-obj=audit_hello.obj
+--obj-format=coff && polyld audit_hello.obj -o audit_hello.exe`, an
+executable whose Windows `GetExitCodeProcess` returns **42**.  The same
+contract holds for `RETURN 0` and `RETURN 7`; the integration test
+`tests/integration/ploy_e2e_real_exit_code_test.cpp` pins all three.
+
+### New public APIs
+
+- `polyglot::backends::COFFBuilder` — `ObjectFileBuilder` subclass that
+  emits AMD64 (`is_arm64=false`) or ARM64 (`is_arm64=true`) raw COFF
+  objects.
+- `polyglot::linker::pe::BuildExeWithUserEntry(user_text_bytes,
+  user_main_offset_in_text)` — wraps caller-supplied `.text` with a
+  user-entry-then-`ExitProcess(eax)` shim.
+- `polyglot::linker::pe::BuildUserMainExitShim(shim_rva, user_main_rva,
+  exit_process_iat_rva)` — exposes the 18-byte AMD64 shim encoder for
+  unit testing.
+
+### Test coverage
+
+- `tests/unit/linker/object_format_detect_test.cpp` (9 cases): pins
+  `DetectObjectFormat`'s handling of raw COFF (all six recognised
+  Machine values), MZ-stubbed PE images, ELF, Mach-O and POBJ magic.
+- `tests/unit/backends/coff_builder_test.cpp` (4 cases): byte-level
+  validation of AMD64 + ARM64 headers, external symbol layout in the
+  COFF symbol table, and long-section-name encoding via the string
+  table.
+- `tests/unit/linker/section_merge_test.cpp` (2 cases): regression
+  pinning that user `.text` bytes from a real COFF object survive the
+  load -> resolve -> layout pipeline byte-for-byte and that
+  multi-object `.text` inputs are concatenated with both blobs
+  preserved.
+- `tests/integration/ploy_e2e_real_exit_code_test.cpp` (3 cases): full
+  `.ploy` -> `.obj` -> `.exe` -> spawn -> `GetExitCodeProcess`
+  smoke for the literals 42, 0 and 7.
+
+### Compatibility
+
+- `BuildExitZeroPE` is still exported and is the fallback used when no
+  user entry symbol is defined; existing callers that relied on the
+  previous "always exits 0" behaviour are unaffected.
+- The COFF detection change is a strict superset of the previous MZ
+  rule, so any input that was previously recognised as a PE image still
+  is.
 
 ---
 

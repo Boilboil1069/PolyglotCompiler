@@ -45,3 +45,5 @@ tests/samples/*/*.json
 *.ps1
 !package_windows.ps1
 !fetch_deps.ps1
+
+scripts/dist/*

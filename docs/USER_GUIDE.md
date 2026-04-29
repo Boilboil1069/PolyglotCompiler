@@ -1818,6 +1818,8 @@ CMake automatically selects the correct platform-specific `main.cpp` based on th
 | **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, full call-stack frame parsing (module, function, file, line), variable type/value parsing, live watch-expression evaluation with result updates, watch context menu (Remove / Remove All / Evaluate), break-on-entry option, and debug console |
 | **Template Creation** | Create new files from built-in language templates via *File → New From Template* (`Ctrl+Shift+N`). Templates include: Ploy linker, C++ hello-world / class skeleton, Python script / class, Rust hello-world / struct, Java hello-world / class, and C# hello-world / class |
 | **Dynamic Topology Edges** | Topology panel edges automatically follow node movement in real time — dragging a node recalculates all connected Bézier edge paths instantly |
+| **Performance Profiler Panel** | Dock panel (`Ctrl+Alt+P`) driving `polybench` / `polyrt` and visualising flame graph, hotspots, timeline (one swimlane per thread), per-language breakdown, and a tool log. Powered by a shared `ProfileSession`. See [realization/profiler.md](realization/profiler.md) |
+| **Call Analyzer Panel** | Dock panel (`Ctrl+Alt+G`) rendering the static call graph from `polyc --emit=call-graph:<path>` with callers/callees trees, layered DAG layout, language-pair filter, and bounded DFS path search. Shares the same `ProfileSession` as the Profiler so runtime call counts overlay automatically. See [realization/call_analyzer.md](realization/call_analyzer.md) |
 
 ### Keyboard Shortcuts
 

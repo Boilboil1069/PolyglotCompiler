@@ -21,6 +21,7 @@
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
 #include "middle/include/passes/pass_manager.h"
+#include "middle/include/passes/transform/instrument_call_trace.h"
 #include "middle/include/pgo/profile_data.h"
 
 #include "backends/arm64/include/arm64_target.h"
@@ -181,6 +182,18 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
   }
 
   // ── SSA + Verify ─────────────────────────────────────────────────────────
+  // Inject call-trace hooks (if requested) before SSA conversion so the
+  // resulting calls go through the standard SSA renamer and become
+  // visible to LTO dead-code stripping when the runtime sink is unused.
+  if (settings.profile_instrument && ir_ctx) {
+    auto stats = passes::transform::RunInstrumentCallTrace(*ir_ctx, "ploy");
+    if (V) {
+      std::cerr << "[stage/backend]  call-trace instrumented "
+                << stats.functions_instrumented << "/" << stats.functions_visited
+                << " functions, +" << stats.enter_calls_inserted << " enter, +"
+                << stats.exit_calls_inserted << " exit\n";
+    }
+  }
   for (auto &fn : ir_ctx->Functions()) {
     ir::ConvertToSSA(*fn);
   }
@@ -308,6 +321,7 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
                               static_cast<std::uint64_t>(result.sections.front().data.size()), true,
                               true});
     result.success = true;
+    result.ir_ctx = ir_ctx;
     return result;
   }
 
@@ -357,6 +371,11 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
     std::cerr << "[stage/backend]  " << result.sections.size() << " section(s), "
               << result.symbols.size() << " symbol(s)\n";
   }
+  // Retain the IR context so downstream consumers (call-graph emitter,
+  // profile-symbols emitter) can walk the lowered module without
+  // re-running the frontend.  The pointer is shared, so the cost is a
+  // single refcount bump.
+  result.ir_ctx = ir_ctx;
   return result;
 }
 

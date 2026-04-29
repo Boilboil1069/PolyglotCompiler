@@ -41,6 +41,8 @@ class SettingsDialog;
 class SyntaxHighlighter;
 class TerminalWidget;
 class TopologyPanel;
+class ProfilerPanel;
+class CallAnalyzerPanel;
 
 // ============================================================================
 // MainWindow — top-level IDE window
@@ -124,6 +126,12 @@ private slots:
   // Topology panel
   void ToggleTopologyPanel();
   void OpenTopologyForCurrentFile();
+
+  // Profiler panel (Performance Profiler — Ctrl+Shift+P)
+  void ToggleProfilerPanel();
+
+  // Call Analyzer panel (Static + Dynamic Call Graph — Ctrl+Shift+G)
+  void ToggleCallAnalyzerPanel();
 
   // Help menu actions
   void ShowAbout();
@@ -292,6 +300,8 @@ private:
 
   QAction *action_toggle_topology_{nullptr};
   QAction *action_open_topology_{nullptr};
+  QAction *action_toggle_profiler_{nullptr};
+  QAction *action_toggle_call_analyzer_{nullptr};
 
   // Markdown preview toggle (Ctrl+Shift+M) — switches the current
   // MarkdownViewer tab between rendered preview and raw source.
@@ -315,6 +325,8 @@ private:
   BuildPanel *build_panel_{nullptr};
   DebugPanel *debug_panel_{nullptr};
   TopologyPanel *topology_panel_{nullptr};
+  ProfilerPanel *profiler_panel_{nullptr};
+  CallAnalyzerPanel *call_analyzer_panel_{nullptr};
   // ── Panel Manager ────────────────────────────────────────────────────
   PanelManager *panel_manager_{nullptr};
   // ── Action Manager ───────────────────────────────────────────────────

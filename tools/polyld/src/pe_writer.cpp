@@ -635,6 +635,95 @@ BuildResult BuildExitZeroPE(const std::vector<std::uint8_t> &user_text_bytes) {
   return BuildPE32PlusImage(req);
 }
 
+// ---------------------------------------------------------------------------
+// User-entry shim: invoke user main, propagate its return value as exit code.
+//
+//   off    bytes  asm
+//   0x00   4      sub  rsp, 0x28                       ; shadow space + align
+//   0x04   5      call user_main                       ; E8 disp32
+//   0x09   2      mov  ecx, eax                        ; arg0 = user return
+//   0x0B   6      call qword ptr [rip + d_ExitProcess] ; ExitProcess(eax)
+//   0x11   1      int3                                 ; unreachable
+// Total: 18 bytes.
+// ---------------------------------------------------------------------------
+std::vector<std::uint8_t> BuildUserMainExitShim(std::uint32_t shim_rva,
+                                                std::uint32_t user_main_rva,
+                                                std::uint32_t exit_process_iat_rva) {
+  std::vector<std::uint8_t> bytes;
+  bytes.reserve(18);
+
+  // sub rsp, 0x28
+  Append8(bytes, 0x48);
+  Append8(bytes, 0x83);
+  Append8(bytes, 0xEC);
+  Append8(bytes, 0x28);
+
+  // call user_main : E8 disp32, where disp32 = user_main_rva - (RIP after E8 imm)
+  // RIP after the 5-byte CALL = shim_rva + 4 + 5 = shim_rva + 9
+  Append8(bytes, 0xE8);
+  const std::uint32_t rip_after_call_user = shim_rva + 4 + 5;
+  Append32(bytes, user_main_rva - rip_after_call_user);
+
+  // mov ecx, eax
+  Append8(bytes, 0x89);
+  Append8(bytes, 0xC1);
+
+  // call qword ptr [rip + disp32] : FF 15 disp32
+  // RIP after this 6-byte CALL = shim_rva + 0x0B + 6 = shim_rva + 0x11 (17)
+  Append8(bytes, 0xFF);
+  Append8(bytes, 0x15);
+  const std::uint32_t rip_after_call_exit = shim_rva + 0x0B + 6;
+  Append32(bytes, exit_process_iat_rva - rip_after_call_exit);
+
+  // int3
+  Append8(bytes, 0xCC);
+  return bytes;
+}
+
+BuildResult BuildExeWithUserEntry(const std::vector<std::uint8_t> &user_text_bytes,
+                                  std::uint32_t user_main_offset_in_text) {
+  BuildResult R;
+  if (user_text_bytes.empty())
+    return R;
+  if (user_main_offset_in_text >= user_text_bytes.size())
+    return R;
+
+  // Layout: [user_text_bytes][user-entry shim (18 bytes)] inside .text.
+  constexpr std::uint32_t kShimSize = 18;
+  const std::uint32_t user_size = static_cast<std::uint32_t>(user_text_bytes.size());
+  const std::uint32_t text_size = user_size + kShimSize;
+  const std::uint32_t shim_rva = kTextRVA + user_size;
+  const std::uint32_t user_main_rva = kTextRVA + user_main_offset_in_text;
+  const std::uint32_t idata_rva = AlignUp(kTextRVA + text_size, kSectionAlignment);
+
+  // Resolve the ExitProcess IAT slot RVA at the planned .idata location.
+  std::vector<DllImport> imports = {DllImport{"kernel32.dll", {"ExitProcess"}}};
+  ImportLayout layout = BuildImportSection(imports, idata_rva);
+  std::uint32_t exit_iat_rva = 0;
+  for (const auto &kv : layout.iat_slot_rva) {
+    if (kv.first == "kernel32.dll!ExitProcess") {
+      exit_iat_rva = kv.second;
+      break;
+    }
+  }
+  if (exit_iat_rva == 0)
+    return R; // import layout failed to resolve ExitProcess
+
+  // Encode shim and concatenate [user_text][shim].
+  std::vector<std::uint8_t> shim =
+      BuildUserMainExitShim(shim_rva, user_main_rva, exit_iat_rva);
+  std::vector<std::uint8_t> text_bytes;
+  text_bytes.reserve(text_size);
+  text_bytes.insert(text_bytes.end(), user_text_bytes.begin(), user_text_bytes.end());
+  text_bytes.insert(text_bytes.end(), shim.begin(), shim.end());
+
+  BuildRequest req;
+  req.text_bytes = std::move(text_bytes);
+  req.entry_offset_in_text = user_size; // entry = first byte of shim
+  req.imports = std::move(imports);
+  return BuildPE32PlusImage(req);
+}
+
 // ===========================================================================
 // BuildHelloWorldPE
 //

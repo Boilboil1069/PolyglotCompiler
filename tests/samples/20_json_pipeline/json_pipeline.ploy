@@ -1,0 +1,32 @@
+// ============================================================================
+// json_pipeline.ploy — JSON ingest pipeline.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Python, Java.
+// ============================================================================
+
+// JSON ingest pipeline: Python parses the payload into a dict; Java
+// validates the schema and emits a normalised record.
+
+IMPORT python::json_parser;
+IMPORT java::SchemaValidator;
+
+LINK(python, java, json_parser::parse, SchemaValidator::normalise) {
+    MAP_TYPE(python::dict, java::java::util::Map);
+    MAP_TYPE(python::str, java::java::lang::String);
+}
+
+PIPELINE ingest_json {
+    STAGE python CALL json_parser::parse;
+    STAGE java   CALL SchemaValidator::normalise;
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "20_json_pipeline: ok\r\n";

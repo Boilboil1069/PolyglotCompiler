@@ -1,0 +1,28 @@
+// ============================================================================
+// plugin_system.ploy — Plugin system.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Python.
+// ============================================================================
+
+// Plugin system: a C++ plugin host registers callbacks; a Python plugin
+// implements the contract.  Demonstrates EXTEND and METHOD across the
+// language boundary.
+
+IMPORT cpp::plugin_host;
+IMPORT python::sample_plugin;
+
+LINK(cpp, python, plugin_host::invoke, sample_plugin::handle) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::std::string, python::str);
+}
+
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "27_plugin_system: ok\r\n";

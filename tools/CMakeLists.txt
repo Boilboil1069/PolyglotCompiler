@@ -26,6 +26,7 @@ add_library(polyc_lib STATIC
     polyc/src/stage_packaging.cpp
     polyc/src/foreign_signature_extractor.cpp
     polyc/src/linker_probe.cpp
+    polyc/src/call_graph_emitter.cpp
 )
 
 target_include_directories(polyc_lib PUBLIC ${CMAKE_SOURCE_DIR})
@@ -309,6 +310,12 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/topology_panel.cpp
         ui/common/src/markdown_viewer.cpp
         ui/common/src/polyui_cli.cpp
+        ui/common/src/profile_session.cpp
+        ui/common/src/profiler_panel.cpp
+        ui/common/src/call_analyzer_panel.cpp
+        ui/common/src/data_models/flame_node.cpp
+        ui/common/src/data_models/call_graph_model.cpp
+        ui/common/src/data_models/timeline_model.cpp
         polyc/src/foreign_signature_extractor.cpp
     )
 
@@ -334,6 +341,12 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/include/markdown_viewer.h
         ui/common/include/theme_service.h
         ui/common/include/theme_manager_view.h
+        ui/common/include/profile_session.h
+        ui/common/include/profiler_panel.h
+        ui/common/include/call_analyzer_panel.h
+        ui/common/include/data_models/flame_node.h
+        ui/common/include/data_models/call_graph_model.h
+        ui/common/include/data_models/timeline_model.h
     )
 
     add_executable(polyui

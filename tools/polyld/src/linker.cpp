@@ -12,6 +12,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <optional>
 #include <regex>
 #include <sstream>
 
@@ -3002,23 +3003,222 @@ bool Linker::GenerateELFExecutable() {
   return true;
 }
 
-bool Linker::GeneratePEExecutable() {
-  // Compose the PE32+ image from the merged .text section bytes (if any) and
-  // a trailing Win32 entry shim that calls kernel32!ExitProcess(0).  The
-  // shim guarantees the produced .exe terminates cleanly under the Windows
-  // x64 ABI even when the user code embedded in .text is not yet Win32-ABI
-  // aware (this is the L1 + L2 milestone described in the v1.5.0 release
-  // notes).  The user's code bytes are still embedded so future linker
-  // iterations can re-target AddressOfEntryPoint at a real `main` once the
-  // Win32 ABI translation layer is in place.
-  std::vector<std::uint8_t> user_text;
-  for (const auto &sec : output_sections_) {
-    if (sec.name == ".text" || sec.name == "__text") {
-      user_text.insert(user_text.end(), sec.data.begin(), sec.data.end());
+// ============================================================================
+// Polyglot runtime stdout pipeline — call-site recovery analysis pass
+// ============================================================================
+//
+// Walks every loaded ObjectFile, scans each executable section's relocations
+// in offset order, and reconstructs the call-order sequence of message bytes
+// fed to `polyrt_println` at IR-lowering time.  The recovered vector flows
+// straight into `pe::BuildPrintlnSequencePE` to drive a multi-line stdout
+// PE.  See the header comment in linker.h for the full contract.
+//
+// Algorithm (all object files are scanned in load order):
+//   1. Build a global content table mapping every defined `println.msg<N>`
+//      data symbol to its raw bytes.  These are the IR interner's storage
+//      globals; the GEP-alias `println.msg<N>.ptr` symbols are NOT indexed
+//      here — they are resolved by stripping the `.ptr` suffix and looking
+//      up the data global at scan time.
+//   2. For each ObjectFile, for each executable input section, sort the
+//      relocations by offset and walk them.  Maintain a "last-seen message
+//      reloc" cursor; when a `polyrt_println` call reloc is encountered,
+//      append the bytes of the most recent prior message global into the
+//      result.
+std::vector<std::string>
+CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
+  static constexpr const char kCalleeSymbol[] = "polyrt_println";
+  static constexpr const char kMsgPrefix[]    = "println.msg";
+  static constexpr const char kPtrSuffix[]    = ".ptr";
+
+  // Returns the message bytes for an interned-string symbol name, accepting
+  // both the data global (`println.msg<N>`) and the GEP-alias pointer global
+  // (`println.msg<N>.ptr`).  Returns nullopt if the symbol does not match
+  // the IR-layer interner contract or its bytes cannot be located.
+  auto resolve_message_bytes =
+      [&objects](const std::string &raw_symbol) -> std::optional<std::string> {
+    // Strip the optional `.ptr` GEP alias suffix.
+    std::string data_name = raw_symbol;
+    const std::size_t suf_len = std::char_traits<char>::length(kPtrSuffix);
+    if (data_name.size() > suf_len &&
+        data_name.compare(data_name.size() - suf_len, suf_len, kPtrSuffix) == 0) {
+      data_name.resize(data_name.size() - suf_len);
+    }
+    // Must still match the IR interner prefix.
+    const std::size_t pref_len = std::char_traits<char>::length(kMsgPrefix);
+    if (data_name.size() < pref_len ||
+        data_name.compare(0, pref_len, kMsgPrefix) != 0) {
+      return std::nullopt;
+    }
+    // Locate the data global in any object file.
+    for (const auto &obj : objects) {
+      for (const auto &sym : obj.symbols) {
+        if (!sym.is_defined || sym.name != data_name)
+          continue;
+        if (sym.section_index < 0 ||
+            sym.section_index >= static_cast<int>(obj.sections.size()))
+          continue;
+        const auto &sec = obj.sections[static_cast<std::size_t>(sym.section_index)];
+        const std::size_t off = static_cast<std::size_t>(sym.offset);
+        const std::size_t len = static_cast<std::size_t>(sym.size);
+        if (off > sec.data.size() || len == 0 || off + len > sec.data.size())
+          continue;
+        return std::string(reinterpret_cast<const char *>(sec.data.data() + off), len);
+      }
+    }
+    return std::nullopt;
+  };
+
+  // Pre-classify a relocation symbol once per scan-step.
+  enum class RelocKind { kOther, kCallee, kMessage };
+  auto classify = [](const std::string &symbol) -> RelocKind {
+    if (symbol == kCalleeSymbol)
+      return RelocKind::kCallee;
+    const std::size_t pref_len = std::char_traits<char>::length(kMsgPrefix);
+    if (symbol.size() >= pref_len && symbol.compare(0, pref_len, kMsgPrefix) == 0)
+      return RelocKind::kMessage;
+    return RelocKind::kOther;
+  };
+
+  std::vector<std::string> sequence;
+
+  for (const auto &obj : objects) {
+    for (const auto &sec : obj.sections) {
+      // Only executable code sections can host `call polyrt_println`
+      // instructions; skip data / BSS to avoid spurious matches against
+      // accidentally-named symbols that share the IR prefix.
+      if ((static_cast<std::uint64_t>(sec.flags) &
+           static_cast<std::uint64_t>(SectionFlags::kExecInstr)) == 0)
+        continue;
+      if (sec.relocations.empty())
+        continue;
+
+      // Snapshot + sort by offset so we read relocations in instruction
+      // order regardless of the object format's natural ordering.
+      std::vector<Relocation> sorted_relocs = sec.relocations;
+      std::sort(sorted_relocs.begin(), sorted_relocs.end(),
+                [](const Relocation &a, const Relocation &b) {
+                  return a.offset < b.offset;
+                });
+
+      std::string pending_message_symbol; // most recent message reloc seen
+      for (const auto &reloc : sorted_relocs) {
+        switch (classify(reloc.symbol)) {
+        case RelocKind::kMessage:
+          pending_message_symbol = reloc.symbol;
+          break;
+        case RelocKind::kCallee:
+          if (!pending_message_symbol.empty()) {
+            if (auto bytes = resolve_message_bytes(pending_message_symbol)) {
+              sequence.push_back(std::move(*bytes));
+            }
+            // Each call consumes its own (lea, call) pair; clear the cursor
+            // so a stray downstream call without a preceding message reloc
+            // is not silently bound to the previous message.
+            pending_message_symbol.clear();
+          }
+          break;
+        case RelocKind::kOther:
+          break;
+        }
+      }
     }
   }
 
-  pe::BuildResult build = pe::BuildExitZeroPE(user_text);
+  return sequence;
+}
+
+bool Linker::GeneratePEExecutable() {
+  // Compose the PE32+ image from the merged .text bytes plus a Win32
+  // entry shim.  When the linker can locate a user-defined entry symbol
+  // (`_start`, `__ploy_main`, then `main`, in that priority order) inside
+  // `.text`, the produced image's AddressOfEntryPoint is set to a shim
+  // that invokes that user symbol via the Win64 ABI and forwards the
+  // user's `int` return value (low 32 bits of RAX) to
+  // `kernel32!ExitProcess` as the process exit code.  This is what lets
+  // a `.ploy` program such as `RETURN 42` produce an `.exe` whose
+  // `GetExitCodeProcess` returns 42.  When no user entry symbol is
+  // available the writer falls back to the historical `ExitProcess(0)`
+  // shim so the produced image still runs cleanly under Windows AMD64.
+  std::vector<std::uint8_t> user_text;
+  const OutputSection *text_sec = nullptr;
+  for (const auto &sec : output_sections_) {
+    if (sec.name == ".text" || sec.name == "__text") {
+      text_sec = &sec;
+      user_text.insert(user_text.end(), sec.data.begin(), sec.data.end());
+      break; // pe writer expects a single contiguous .text buffer
+    }
+  }
+
+  // Locate a user entry symbol within the merged .text. We translate the
+  // symbol's (object_file_index, section_index, offset) triple into the
+  // merged section's output offset using the contribution map so the
+  // mapping stays correct even when several objects contribute to .text.
+  auto resolve_user_entry_offset = [&](std::uint32_t &out_offset) -> bool {
+    if (text_sec == nullptr) {
+      return false;
+    }
+    static const char *const kEntryNames[] = {"_start", "__ploy_main", "main"};
+    for (const char *name : kEntryNames) {
+      auto it = symbol_table_.find(name);
+      if (it == symbol_table_.end()) {
+        continue;
+      }
+      const Symbol &sym = it->second;
+      if (!sym.is_defined) {
+        continue;
+      }
+      for (const auto &c : text_sec->contributions) {
+        if (c.object_index == sym.object_file_index &&
+            c.section_index == sym.section_index) {
+          const std::uint64_t merged = c.output_offset + sym.offset;
+          if (merged < text_sec->data.size()) {
+            out_offset = static_cast<std::uint32_t>(merged);
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  std::uint32_t user_entry_offset = 0;
+  const bool have_user_entry = resolve_user_entry_offset(user_entry_offset);
+
+  // If the input objects carry any `polyrt_println` call sites, recover the
+  // ordered message-byte sequence and emit a real multi-line stdout PE
+  // through `pe::BuildPrintlnSequencePE` instead of the generic exit-zero
+  // shim.  The recovered vector is empty when no PRINTLN-bearing object
+  // contributed to the link, so the legacy code-path is preserved
+  // bit-for-bit for non-PRINTLN programs.
+  const std::vector<std::string> println_messages =
+      CollectPolyrtPrintlnSequence(objects_);
+
+  pe::BuildResult build;
+  const char *path_tag = "exit-zero shim";
+  if (!println_messages.empty()) {
+    build = pe::BuildPrintlnSequencePE(println_messages);
+    path_tag = "println sequence";
+    if (build.image.empty()) {
+      ReportError("PE writer produced an empty image while encoding " +
+                  std::to_string(println_messages.size()) +
+                  " polyrt_println message(s) (internal error)");
+      return false;
+    }
+    Trace("Recovered " + std::to_string(println_messages.size()) +
+          " polyrt_println call site(s) from input objects");
+  } else if (have_user_entry) {
+    build = pe::BuildExeWithUserEntry(user_text, user_entry_offset);
+    path_tag = "user entry";
+    if (build.image.empty()) {
+      // Defensive fallback: the user-entry path can fail if .text is empty
+      // or the offset turned out to be out of range; still produce a
+      // runnable image rather than aborting the link.
+      build = pe::BuildExitZeroPE(user_text);
+      path_tag = "exit-zero shim (user-entry fallback)";
+    }
+  } else {
+    build = pe::BuildExitZeroPE(user_text);
+  }
   if (build.image.empty()) {
     ReportError("PE writer produced an empty image (internal error)");
     return false;
@@ -3043,7 +3243,7 @@ bool Linker::GeneratePEExecutable() {
           os << std::hex << build.entry_rva;
           return os.str();
         }() +
-        ")");
+        ", " + std::string(path_tag) + ")");
   return true;
 }
 

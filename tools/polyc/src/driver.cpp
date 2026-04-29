@@ -33,6 +33,7 @@
 #include "tools/polyc/include/compilation_cache.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/driver_stages.h"
+#include "tools/polyc/include/call_graph_emitter.h"
 #include "tools/polyc/src/stage_backend.h"
 #include "tools/polyc/src/stage_bridge.h"
 #include "tools/polyc/src/stage_frontend.h"
@@ -109,6 +110,9 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --emit-ir=<path>    Write IR to file\n"
           << "  --emit-asm=<path>   Write assembly to file\n"
           << "  --emit-obj=<path>   Write object to file\n"
+          << "  --emit=call-graph:<path>      Write static call graph JSON\n"
+          << "  --emit=profile-symbols:<path> Write profile-symbol map JSON\n"
+          << "  --profile-instrument          Insert call-trace hooks (LTO removable)\n"
           << "  --obj-format=<fmt>  pobj|coff|elf|macho\n"
           << "  --quiet             Suppress progress output\n"
           << "  --no-aux            Do not emit auxiliary files\n"
@@ -236,6 +240,18 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg.rfind("--emit-ir=", 0) == 0) {
       s.emit_ir_path = arg.substr(10);
+      continue;
+    }
+    if (arg.rfind("--emit=call-graph:", 0) == 0) {
+      s.emit_call_graph_path = arg.substr(std::string("--emit=call-graph:").size());
+      continue;
+    }
+    if (arg.rfind("--emit=profile-symbols:", 0) == 0) {
+      s.emit_profile_symbols_path = arg.substr(std::string("--emit=profile-symbols:").size());
+      continue;
+    }
+    if (arg == "--profile-instrument") {
+      s.profile_instrument = true;
       continue;
     }
     if (arg.rfind("--arch=", 0) == 0) {
@@ -955,6 +971,37 @@ int main(int argc, char **argv) {
     PrintErrorSummary(backend.diagnostics, JP);
     polyglot_gc_unregister_root(&scratch);
     return 1;
+  }
+
+  // Optional emission: static call-graph + profile-symbol map.  Both are
+  // pure side outputs; failure to write the file does not abort the
+  // build, only logs a warning.
+  if (backend.ir_ctx) {
+    if (!settings.emit_call_graph_path.empty()) {
+      const std::string json = polyglot::tools::polyc::EmitCallGraphJson(
+          *backend.ir_ctx, settings.source_path);
+      std::ofstream ofs(settings.emit_call_graph_path);
+      if (ofs.is_open()) {
+        ofs << json;
+        if (V)
+          std::cerr << "[polyc] wrote call graph: " << settings.emit_call_graph_path << "\n";
+      } else if (V) {
+        std::cerr << "[warn] could not open " << settings.emit_call_graph_path << "\n";
+      }
+    }
+    if (!settings.emit_profile_symbols_path.empty()) {
+      const std::string json = polyglot::tools::polyc::EmitProfileSymbolsJson(
+          *backend.ir_ctx, settings.source_path);
+      std::ofstream ofs(settings.emit_profile_symbols_path);
+      if (ofs.is_open()) {
+        ofs << json;
+        if (V)
+          std::cerr << "[polyc] wrote profile symbols: " << settings.emit_profile_symbols_path
+                    << "\n";
+      } else if (V) {
+        std::cerr << "[warn] could not open " << settings.emit_profile_symbols_path << "\n";
+      }
+    }
   }
 
   // Stage 6

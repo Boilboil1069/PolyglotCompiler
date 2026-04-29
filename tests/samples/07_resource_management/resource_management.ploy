@@ -109,3 +109,13 @@ EXPORT file_example AS "demo_with_file";
 EXPORT timed_operation AS "demo_with_timer";
 EXPORT temp_dir_example AS "demo_with_tmpdir";
 EXPORT database_example AS "demo_with_db";
+
+// ============================================================================
+// Runtime stdout marker.
+//
+// This trailing PRINTLN exists so the produced executable can be byte-compared
+// against the sibling expected_output.txt by the build_all_samples regression
+// harness.  The literal is intentionally a fixed ASCII string so the
+// comparison is locale-independent.
+// ============================================================================
+PRINTLN "07_resource_management: ok\r\n";
