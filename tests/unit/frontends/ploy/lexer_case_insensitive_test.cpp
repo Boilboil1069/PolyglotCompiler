@@ -49,7 +49,12 @@ const std::vector<std::string> &CanonicalKeywords() {
         "LIST",     "TUPLE",   "DICT",   "OPTION",   "MAP_FUNC", "CONVERT",
         "CONFIG",   "VENV",    "CONDA",  "UV",       "PIPENV",   "POETRY",
         "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE",
-        "EXTEND",   "LANG"};
+        "EXTEND",   "LANG",    "PRINTLN",
+        // Demand 2026-04-28-7: explicit-width primitive types and the
+        // TYPE / CONST declaration keywords.
+        "I8",  "I16",  "I32",  "I64", "U8",  "U16", "U32", "U64",
+        "F32", "F64",  "USIZE","ISIZE",
+        "TYPE", "CONST"};
     return kKeywords;
 }
 

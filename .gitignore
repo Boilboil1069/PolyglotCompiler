@@ -43,7 +43,13 @@ tests/samples/*/*.json
 
 *.bat
 *.ps1
+*.sh
 !package_windows.ps1
 !fetch_deps.ps1
+!scripts\build_all_samples.ps1
+!scripts\build_all_samples.sh
+!scripts\fetch_deps.sh
+!scripts\package_linux.sh
+!scripts\package_macos.sh
 
 scripts/dist/*

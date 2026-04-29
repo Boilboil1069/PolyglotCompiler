@@ -294,6 +294,30 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       }
 
       if (auto *call = dynamic_cast<ir::CallInstruction *>(inst_ptr.get())) {
+        // PE-7-C: An argument name that is neither an immediate nor an SSA
+        // value defined inside this function must be an external/global
+        // symbol (e.g. the `.ptr` alias materialised by
+        // `IRBuilder::MakeStringLiteral` for `polyrt_println`). For each
+        // such reference we synthesise a `lea reg, [rip+0]` defining
+        // instruction so the register allocator sees a producer for the
+        // call's vreg, and so the asm emitter can attach a REL32
+        // relocation that polyld will resolve against the corresponding
+        // `.rdata` symbol.
+        for (const auto &arg : call->operands) {
+          long long imm{};
+          if (ParseImmediate(arg, &imm))
+            continue;
+          if (value_types.count(arg))
+            continue;
+          if (vreg_for_name.count(arg))
+            continue;
+          MachineInstr lea_mi;
+          lea_mi.opcode = Opcode::kLea;
+          lea_mi.def = get_vreg(arg);
+          lea_mi.operands = {Operand::Label(arg)};
+          SetCost(lea_mi, cost_model);
+          mbb.instructions.push_back(std::move(lea_mi));
+        }
         MachineInstr mi;
         mi.opcode = Opcode::kCall;
         for (auto &arg : call->operands) {

@@ -5,7 +5,7 @@
 //   1. A top-level `PRINTLN "Hello\r\n";` interns the *decoded* bytes
 //      (4-char `\r\n` source becomes the 2-byte CRLF sequence in IR) as a
 //      `.rdata` global with a `.ptr` GEP, and emits a `polyrt_println(ptr,
-//      len)` call into the auto-created `entry_fn`.
+//      len)` call into the synthesised `__ploy_main` entry function.
 //   2. The pointer + length convention is honoured, so empty literals still
 //      compile to a single `polyrt_println(ptr, 0)` call (no special case in
 //      the codegen pipeline downstream).

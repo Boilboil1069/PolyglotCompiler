@@ -9,6 +9,22 @@
 
 ---
 
+> **通告（v1.8.0）。** 旧的 `LINK(target_lang, source_lang, target, source);`
+> 逗号形式语法已被**弃用**。语义分析器在遇到该形式时会发出
+> `kDeprecatedKeyword` 警告。请改用标准的带签名形式：
+>
+> ```ploy
+> LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret>;
+> ```
+>
+> 本指南其他位置的示例出于历史叙述需要可能仍使用旧形式；
+> 新代码应改用带签名形式。完整迁移示例见
+> [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)。
+>
+> 同一版本将 `STAGE` 提升为保留关键字，且只能出现在 `PIPELINE` 体内。
+
+---
+
 ## 目录
 
 1. [项目概述](#1-项目概述)
@@ -450,6 +466,13 @@ LANG
 LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
 BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
 
+// 显式宽度原始类型 + TYPE 别名 + CONST（自 v1.7.0 起）
+TYPE      CONST
+I8        I16       I32       I64
+U8        U16       U32       U64
+F32       F64
+USIZE     ISIZE
+
 // 控制流
 RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
 MATCH     CASE      DEFAULT   BREAK      CONTINUE
@@ -622,6 +645,10 @@ EXPORT compute;                                // 使用原始名称
 | 类别 | 类型 | 语法 |
 |------|------|------|
 | 原始类型 | 整数、浮点、布尔、字符串、空 | `INT`, `FLOAT`, `BOOL`, `STRING`, `VOID` |
+| 显式宽度整型（v1.7.0） | 8/16/32/64 位有/无符号 + 指针宽 | `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `usize` `isize` |
+| 显式宽度浮点（v1.7.0） | 32/64 位 IEEE-754 | `f32` `f64` |
+| 类型别名（v1.7.0）     | 任意类型表达式的命名同义符号 | `TYPE Pixel = i32;` |
+| 编译期常量（v1.7.0）   | 折叠后的不可变值，必须显式标注类型 | `CONST KMaxRetry: i32 = 5;` |
 | 容器类型 | 列表、元组、字典、可选 | `LIST(T)`, `TUPLE(T1, T2)`, `DICT(K, V)`, `OPTION(T)` |
 | 结构体 | 用户定义复合类型 | `STRUCT Point { x: f64, y: f64 }` |
 | 数组 | 定长数组 | `ARRAY(INT)` |
@@ -2871,11 +2898,12 @@ void polyglot_plugin_shutdown(void) {
 
 | 关键字 | 用途 | 示例 |
 |--------|------|------|
-| `LINK` | 跨语言函数链接 | `LINK(cpp, python, f, g);` |
+| `LINK` | 跨语言函数链接（带签名形式） | `LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;` |
 | `IMPORT` | 模块/包导入 | `IMPORT python PACKAGE numpy >= 1.20;` |
 | `EXPORT` | 符号导出 | `EXPORT func AS "name";` |
 | `MAP_TYPE` | 类型映射 | `MAP_TYPE(cpp::int, python::int);` |
 | `PIPELINE` | 多阶段管道 | `PIPELINE name { ... }` |
+| `STAGE` | 管道阶段标记（仅在 `PIPELINE` 内有效） | `STAGE preprocess CALL python::utils::normalize;` |
 | `FUNC` | 函数声明 | `FUNC f(x: INT) -> INT { ... }` |
 | `LET` / `VAR` | 变量声明 | `LET x = 42;` / `VAR y = 0;` |
 | `CALL` | 跨语言调用 | `CALL(python, np::mean, data)` |

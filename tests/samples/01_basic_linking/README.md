@@ -1,5 +1,10 @@
 # Sample `01_basic_linking`
 
+> **Legacy form.** This sample uses the original comma-style `LINK(target_lang, source_lang, ...)` syntax.
+> The semantic analyzer now reports this form with a deprecation warning.
+> A mirror sample using the recommended **signed** form is available at
+> [`../01_basic_linking_v2/`](../01_basic_linking_v2/).
+
 Basic LINK / CALL / IMPORT / EXPORT directives between C++ math operations and Python string utilities.
 
 | Field | Value |

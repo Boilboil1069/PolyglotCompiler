@@ -74,8 +74,34 @@ frontends::Token PloyLexer::LexIdentifierOrKeyword() {
       "MAP_FUNC", "CONVERT", "CONFIG", "VENV",     "CONDA",    "UV",     "PIPENV", "POETRY",
       // language-version pinning keyword.
       "NEW",      "METHOD",  "GET",    "SET",      "WITH",     "DELETE", "EXTEND", "LANG",
-      // runtime-IO statement: writes a literal message to standard output.
-      "PRINTLN"};
+  // runtime-IO statement: writes a literal message to standard output.
+  "PRINTLN",
+  // Pipeline stage marker keyword (demand 2026-04-28-8).
+  // STAGE is reserved and treated as a keyword so IDEs can provide
+  // consistent highlighting inside PIPELINE blocks.  Parser enforces
+  // that STAGE is only valid within PIPELINE bodies.
+  "STAGE",
+      // Explicit-width primitive type keywords (demand 2026-04-28-7).
+      // These canonical entries are upper-case because the lexer folds the
+      // source spelling to upper-case before lookup; user code typically
+      // writes them lower-case (`i32`, `u64`, `f32`) per the recommended
+      // style, but `I32`, `U64`, `F32` are equally accepted.
+      "I8",  "I16",  "I32",  "I64", "U8",  "U16", "U32", "U64",
+      "F32", "F64",  "USIZE","ISIZE",
+      // Type-system declaration keywords (demand 2026-04-28-7):
+      //   TYPE  <name> = <type_expr>;          -- type alias
+      //   CONST <name>: <type> = <const_expr>; -- compile-time constant
+      "TYPE", "CONST"};
+
+      // NOTE — Static-typed cross-language object interop tokens
+      // (CLASS / HANDLE / ATTR, demand 2026-04-28-9) are intentionally
+      // *NOT* listed above.  They are handled as **contextual keywords**
+      // by the parser: an ordinary identifier with that exact (case-
+      // insensitive) spelling is recognised in the appropriate position
+      // (top-level declaration, type expression, CLASS body row).  Adding
+      // them to the global keyword set was rejected because common
+      // English words like `handle` are widely used as variable names in
+      // existing samples and would otherwise be silently shadowed.
 
   // ASCII upper-case fold.  Reserved words are intentionally restricted to
   // the ASCII range, so a per-byte fold is correct without a Unicode pass.

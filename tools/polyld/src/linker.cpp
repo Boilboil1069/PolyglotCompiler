@@ -7,6 +7,7 @@
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -1366,23 +1367,33 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
     if (sh.number_of_relocations > 0 && sh.relocation_offset > 0) {
       auto saved = file.tellg();
       file.seekg(sh.relocation_offset);
+      // Each on-disk COFF relocation record is exactly 10 bytes:
+      //   uint32 VirtualAddress + uint32 SymbolTableIndex + uint16 Type.
+      // Reading via `sizeof(CoffReloc)` would consume 12 bytes per record
+      // (the struct's natural alignment pads after the trailing uint16),
+      // drifting 2 bytes per entry and corrupting every reloc past the
+      // first.  Read each field individually instead so the record stride
+      // exactly matches the file format.
+      constexpr std::size_t kCoffRelocOnDiskSize = 10;
       for (std::uint16_t r = 0; r < sh.number_of_relocations; ++r) {
-        struct CoffReloc {
-          std::uint32_t virtual_address;
-          std::uint32_t symbol_index;
-          std::uint16_t type;
-        } cr{};
-        file.read(reinterpret_cast<char *>(&cr), sizeof(cr));
+        std::uint8_t buf[kCoffRelocOnDiskSize] = {};
+        file.read(reinterpret_cast<char *>(buf), kCoffRelocOnDiskSize);
+        std::uint32_t virtual_address = 0;
+        std::uint32_t symbol_index = 0;
+        std::uint16_t type = 0;
+        std::memcpy(&virtual_address, buf + 0, 4);
+        std::memcpy(&symbol_index,    buf + 4, 4);
+        std::memcpy(&type,            buf + 8, 2);
 
         Relocation reloc;
-        reloc.offset = cr.virtual_address;
-        reloc.type = cr.type;
-        reloc.symbol_index = static_cast<int>(cr.symbol_index);
+        reloc.offset = virtual_address;
+        reloc.type = type;
+        reloc.symbol_index = static_cast<int>(symbol_index);
         reloc.section = isec.name;
         // x86_64 COFF relocation types
         // IMAGE_REL_AMD64_ADDR64=1, REL32=4, etc.
-        reloc.is_pc_relative = (cr.type == 4);
-        reloc.size = (cr.type == 1) ? 8 : 4;
+        reloc.is_pc_relative = (type == 4);
+        reloc.size = (type == 1) ? 8 : 4;
         isec.relocations.push_back(reloc);
         obj.relocations.push_back(reloc);
       }
@@ -1459,10 +1470,26 @@ bool Linker::LoadCOFF(const std::string &path, ObjectFile &obj) {
       sym.object_file_index = static_cast<int>(objects_.size());
       obj.symbols.push_back(std::move(sym));
 
-      // Skip auxiliary symbol entries
+      // Skip auxiliary symbol entries on disk, but reserve matching slots
+      // in `obj.symbols` so on-disk symbol indices (which include aux
+      // records) stay aligned with `obj.symbols` positions.  Without these
+      // placeholders, relocation backpatching reads `obj.symbols[N]` for an
+      // on-disk index `N` that points to a logically-different entry,
+      // silently smearing every reloc symbol name by the cumulative aux
+      // count of all preceding symbols.  The placeholders carry empty
+      // names and `is_defined == false`, so they never match any lookup
+      // performed by downstream passes (resolution, recovery, etc.).
       for (std::uint8_t a = 0; a < cs.aux_count; ++a) {
         char aux[18];
         file.read(aux, 18);
+        Symbol pad;
+        pad.name.clear();
+        pad.is_defined = false;
+        pad.section_index = -1;
+        pad.binding = SymbolBinding::kLocal;
+        pad.type = SymbolType::kNoType;
+        pad.object_file_index = static_cast<int>(objects_.size());
+        obj.symbols.push_back(std::move(pad));
       }
       i += 1 + cs.aux_count;
     }
@@ -3027,15 +3054,40 @@ bool Linker::GenerateELFExecutable() {
 std::vector<std::string>
 CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
   static constexpr const char kCalleeSymbol[] = "polyrt_println";
-  static constexpr const char kMsgPrefix[]    = "println.msg";
+  // The IR string-literal interner has used multiple hint prefixes across
+  // the project's lifetime: the legacy `println.msg<N>` shape (pre-PE-7
+  // direct-lowering era) and the current `str<N>` shape produced by the
+  // generalized `MakeStringLiteral` helper that backs PRINT/PRINTLN/format
+  // call sites alike.  Both are interner-managed `.rdata` data globals
+  // whose `.ptr` GEP-alias variant lands at every call site as the message
+  // pointer argument.  Accepting either prefix keeps the call-site
+  // recovery pass robust against further hint renames while still gating
+  // tightly against accidentally-named user globals.
+  static constexpr const char *kMsgPrefixes[] = {"println.msg", "str"};
   static constexpr const char kPtrSuffix[]    = ".ptr";
 
+  auto has_msg_prefix = [](const std::string &name) -> bool {
+    for (const char *prefix : kMsgPrefixes) {
+      const std::size_t pref_len = std::char_traits<char>::length(prefix);
+      if (name.size() > pref_len &&
+          name.compare(0, pref_len, prefix) == 0 &&
+          // Require an `<N>` digit immediately after the hint to keep the
+          // gate tight against unrelated user globals such as `stride` or
+          // `string_table` that happen to share the leading characters.
+          std::isdigit(static_cast<unsigned char>(name[pref_len]))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Returns the message bytes for an interned-string symbol name, accepting
-  // both the data global (`println.msg<N>`) and the GEP-alias pointer global
-  // (`println.msg<N>.ptr`).  Returns nullopt if the symbol does not match
-  // the IR-layer interner contract or its bytes cannot be located.
+  // both the raw data global (`<hint><N>`) and the GEP-alias pointer global
+  // (`<hint><N>.ptr`).  Returns nullopt if the symbol does not match the
+  // IR-layer interner contract or its bytes cannot be located.
   auto resolve_message_bytes =
-      [&objects](const std::string &raw_symbol) -> std::optional<std::string> {
+      [&objects, &has_msg_prefix](const std::string &raw_symbol)
+      -> std::optional<std::string> {
     // Strip the optional `.ptr` GEP alias suffix.
     std::string data_name = raw_symbol;
     const std::size_t suf_len = std::char_traits<char>::length(kPtrSuffix);
@@ -3043,10 +3095,8 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
         data_name.compare(data_name.size() - suf_len, suf_len, kPtrSuffix) == 0) {
       data_name.resize(data_name.size() - suf_len);
     }
-    // Must still match the IR interner prefix.
-    const std::size_t pref_len = std::char_traits<char>::length(kMsgPrefix);
-    if (data_name.size() < pref_len ||
-        data_name.compare(0, pref_len, kMsgPrefix) != 0) {
+    // Must still match one of the IR interner's hint prefixes.
+    if (!has_msg_prefix(data_name)) {
       return std::nullopt;
     }
     // Locate the data global in any object file.
@@ -3059,8 +3109,32 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
           continue;
         const auto &sec = obj.sections[static_cast<std::size_t>(sym.section_index)];
         const std::size_t off = static_cast<std::size_t>(sym.offset);
-        const std::size_t len = static_cast<std::size_t>(sym.size);
-        if (off > sec.data.size() || len == 0 || off + len > sec.data.size())
+        if (off >= sec.data.size())
+          continue;
+        std::size_t len = static_cast<std::size_t>(sym.size);
+        if (len == 0) {
+          // Some object formats (notably COFF) do not record a per-symbol
+          // size in the symbol table itself.  Recover the length by
+          // scanning the data section forward from the symbol's offset
+          // until a NUL byte (the IR interner stores NUL-terminated C
+          // strings) or until a sibling defined symbol's offset is hit
+          // (whichever comes first).  Falling back to "section end" keeps
+          // the recovery resilient against pathological objects that omit
+          // the terminator.
+          std::size_t boundary = sec.data.size();
+          for (const auto &peer : obj.symbols) {
+            if (!peer.is_defined || peer.section_index != sym.section_index)
+              continue;
+            const std::size_t poff = static_cast<std::size_t>(peer.offset);
+            if (poff > off && poff < boundary)
+              boundary = poff;
+          }
+          std::size_t scan = off;
+          while (scan < boundary && sec.data[scan] != 0)
+            ++scan;
+          len = scan - off;
+        }
+        if (len == 0 || off + len > sec.data.size())
           continue;
         return std::string(reinterpret_cast<const char *>(sec.data.data() + off), len);
       }
@@ -3070,11 +3144,19 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
 
   // Pre-classify a relocation symbol once per scan-step.
   enum class RelocKind { kOther, kCallee, kMessage };
-  auto classify = [](const std::string &symbol) -> RelocKind {
+  auto classify = [&has_msg_prefix](const std::string &symbol) -> RelocKind {
     if (symbol == kCalleeSymbol)
       return RelocKind::kCallee;
-    const std::size_t pref_len = std::char_traits<char>::length(kMsgPrefix);
-    if (symbol.size() >= pref_len && symbol.compare(0, pref_len, kMsgPrefix) == 0)
+    // Strip an optional `.ptr` GEP alias before testing the prefix list so
+    // both the raw `<hint><N>` and the alias `<hint><N>.ptr` are recognized
+    // as message-carrying relocations.
+    std::string base = symbol;
+    const std::size_t suf_len = std::char_traits<char>::length(kPtrSuffix);
+    if (base.size() > suf_len &&
+        base.compare(base.size() - suf_len, suf_len, kPtrSuffix) == 0) {
+      base.resize(base.size() - suf_len);
+    }
+    if (has_msg_prefix(base))
       return RelocKind::kMessage;
     return RelocKind::kOther;
   };

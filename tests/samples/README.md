@@ -32,7 +32,8 @@ strict gating mode.
 
 | Folder | Languages | Theme | Description |
 | --- | --- | --- | --- |
-| `01_basic_linking/` | C++, Python | Cross-language linking | LINK / CALL / IMPORT / EXPORT basics. |
+| `01_basic_linking/` | C++, Python | Cross-language linking | LINK / CALL / IMPORT / EXPORT basics (legacy comma-form `LINK(...)`). |
+| `01_basic_linking_v2/` | C++, Python | Cross-language linking | Same as `01_basic_linking` but uses the recommended signed `LINK ... AS FUNC(...) -> ...` form. |
 | `02_type_mapping/` | C++, Python | Type mapping | MAP_TYPE with structs and containers. |
 | `03_pipeline/` | C++, Python | Control flow | PIPELINE with IF / WHILE / FOR / MATCH. |
 | `04_package_import/` | C++, Python | Package import | IMPORT PACKAGE with version constraints. |
@@ -62,12 +63,14 @@ strict gating mode.
 | `28_ml_inference/` | Python, Rust | ML inference pipeline | Tokenizer + softmax scorer. |
 | `29_data_analytics/` | Python, Java | Data analytics | Loader + count/min/max/mean aggregator. |
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
+| `31_explicit_widths/` | Ploy, C++ | Width-aware numeric types + CONST | Demonstrates `i32` / `u32` / `i64`, `TYPE` aliases and folded `CONST`. |
+| `32_typed_handles/` | Ploy, Python, C++ | Statically-typed cross-language handles | `CLASS` schemas + `HANDLE<lang::T>` for type-checked `NEW` / `METHOD` / `GET` / `SET`. |
 
 ## By theme
 
 - **Concurrency primitives** — `24_concurrency`
 - **Control flow** — `03_pipeline`
-- **Cross-language linking** — `01_basic_linking`
+- **Cross-language linking** — `01_basic_linking` (legacy form), `01_basic_linking_v2` (signed form, recommended)
 - **Data analytics** — `29_data_analytics`
 - **Database access layer** — `22_database_access`
 - **Diagnostics** — `10_error_handling`
@@ -86,6 +89,8 @@ strict gating mode.
 - **Streaming file I/O** — `19_file_io`
 - **String processing pipeline** — `17_string_processing`
 - **Type mapping** — `02_type_mapping`, `13_generic_containers`
+- **Width-aware numeric types + CONST** — `31_explicit_widths`
+- **Statically-typed cross-language handles** — `32_typed_handles`
 
 ## By language combination
 
@@ -93,13 +98,15 @@ strict gating mode.
 - **C#, Python** — `12_dotnet_interop`, `16_config_and_venv`
 - **C++, Java** — `26_state_machine`
 - **C++, Java, Python** — `13_generic_containers`
-- **C++, Python** — `01_basic_linking`, `02_type_mapping`, `03_pipeline`, `04_package_import`, `05_class_instantiation`, `06_attribute_access`, `07_resource_management`, `08_delete_extend`, `10_error_handling`, `19_file_io`, `27_plugin_system`
+- **C++, Python** — `01_basic_linking`, `01_basic_linking_v2`, `02_type_mapping`, `03_pipeline`, `04_package_import`, `05_class_instantiation`, `06_attribute_access`, `07_resource_management`, `08_delete_extend`, `10_error_handling`, `19_file_io`, `27_plugin_system`
 - **C++, Python, Rust** — `09_mixed_pipeline`, `14_async_pipeline`
 - **C++, Rust** — `18_numeric_kernels`, `21_image_processing`, `24_concurrency`, `30_game_loop_demo`
 - **Go, Python** — `23_http_client`
 - **Java, Python** — `11_java_interop`, `20_json_pipeline`, `22_database_access`, `29_data_analytics`
 - **JavaScript, Python** — `25_event_loop`
 - **Python, Rust** — `17_string_processing`, `28_ml_inference`
+- **Ploy, C++** — `31_explicit_widths`
+- **Ploy, Python, C++** — `32_typed_handles`
 
 ## Build a single sample
 

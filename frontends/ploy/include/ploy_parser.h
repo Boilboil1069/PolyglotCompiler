@@ -39,16 +39,22 @@ private:
   // Top-level declarations
   void ParseTopLevel();
   std::shared_ptr<Statement> ParseLinkDecl();
+  std::shared_ptr<Statement> ParseSignedLinkDecl();
   std::shared_ptr<Statement> ParseImportDecl();
   std::shared_ptr<Statement> ParseExportDecl();
   std::shared_ptr<Statement> ParseMapTypeDecl();
   std::shared_ptr<Statement> ParsePipelineDecl();
+  std::shared_ptr<Statement> ParseStageDecl();
   std::shared_ptr<Statement> ParseFuncDecl();
   std::shared_ptr<Statement> ParseStructDecl();
   std::shared_ptr<Statement> ParseMapFuncDecl();
   std::shared_ptr<Statement> ParseConfigDecl();
   std::shared_ptr<Statement> ParseExtendDecl();
-
+  // Foreign-class signature block (demand 2026-04-28-9).
+  std::shared_ptr<Statement> ParseClassDecl();
+  // Type alias and compile-time constant (demand 2026-04-28-7).
+  std::shared_ptr<Statement> ParseTypeAliasDecl();
+  std::shared_ptr<Statement> ParseConstDecl();
   // Language version pinning.
   std::shared_ptr<Statement> ParseLangPragma();              // top-level: LANG cpp = c++23;
   std::shared_ptr<Statement> ParseWithLangBlock();           // WITH LANG (cpp=c++23, ...) { ... }
@@ -58,6 +64,7 @@ private:
 
   // Statements
   std::shared_ptr<Statement> ParseStatement();
+  bool in_pipeline_context_{false};
   std::shared_ptr<Statement> ParseVarDecl(bool is_mutable);
   std::shared_ptr<Statement> ParseIfStatement();
   std::shared_ptr<Statement> ParseWhileStatement();

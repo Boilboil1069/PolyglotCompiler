@@ -51,9 +51,150 @@ std::string MangleStubName(const std::string &target_lang, const std::string &so
 // Public Interface
 // ============================================================================
 
-bool PloyLowering::Lower(const std::shared_ptr<Module> &module) {
+namespace {
+
+// Top-level executable statements (PRINTLN, IF, WHILE, FOR, MATCH, RETURN,
+// VAR, ExprStatement, raw blocks, WITH, WITH LANG, @LANG-wrapped statements)
+// must live inside a function body before the IR verifier accepts them — an
+// orphan PRINTLN at file scope used to land in the implicit `entry_fn`
+// fallback whose entry block was never properly terminated, which made the
+// "block missing terminator" verifier rule reject the module and aborted the
+// whole polyc → polyld → exe pipeline before any backend got a chance to emit
+// the literal bytes. Definitional declarations (FUNC / PIPELINE / STRUCT /
+// EXTEND / MAPFUNC / LINK / IMPORT / EXPORT / @LANG wrapping a definition)
+// stay at the top level and are lowered as before.
+bool IsTopLevelExecutable(const std::shared_ptr<Statement> &stmt) {
+  if (!stmt)
+    return false;
+  if (std::dynamic_pointer_cast<FuncDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<PipelineDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<StructDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<ExtendDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<MapFuncDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<LinkDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<ImportDecl>(stmt))
+    return false;
+  if (std::dynamic_pointer_cast<ExportDecl>(stmt))
+    return false;
+  // TYPE alias is sema-only metadata — definitional, never executable.
+  if (std::dynamic_pointer_cast<TypeAliasDecl>(stmt))
+    return false;
+  // CLASS schema (demand 2026-04-28-9) is also sema-only metadata: it
+  // populates the foreign-class signature registry and emits no IR, so
+  // it must NOT be hoisted into the synthetic __ploy_main wrapper.
+  if (std::dynamic_pointer_cast<ClassDecl>(stmt))
+    return false;
+  // A @LANG annotation that wraps a FUNC/STRUCT/etc. is itself definitional;
+  // when it wraps an executable statement (e.g. a cross-language CALL) we
+  // recurse into the target's classification.
+  if (auto anno = std::dynamic_pointer_cast<LangAnnotation>(stmt))
+    return IsTopLevelExecutable(anno->target);
+  return true;
+}
+
+// True iff the user already provided a function with a name we recognise as
+// an entry point. We treat `main` and `__ploy_main` as the two canonical
+// spellings; the latter exists so a hand-written .ploy that wants to spell
+// out the synthetic wrapper itself is still respected.
+bool ModuleDefinesEntryPoint(const std::shared_ptr<Module> &module) {
   for (const auto &decl : module->declarations) {
-    LowerStatement(decl);
+    if (auto fn = std::dynamic_pointer_cast<FuncDecl>(decl)) {
+      if (fn->name == "main" || fn->name == "__ploy_main")
+        return true;
+    }
+  }
+  return false;
+}
+
+} // anonymous namespace
+
+bool PloyLowering::Lower(const std::shared_ptr<Module> &module) {
+  // Decide up-front whether we need to synthesise a `__ploy_main` wrapper.
+  // The synthesis is conditional on two facts:
+  //   * the module does NOT already declare a `main` / `__ploy_main`
+  //     function (we never overwrite a user-supplied entry point);
+  //   * the module contains at least one top-level executable statement
+  //     that would otherwise be orphaned outside any function body.
+  // Both must hold; otherwise we lower exactly as before.
+  const bool has_user_entry = ModuleDefinesEntryPoint(module);
+  bool needs_synthetic_entry = false;
+  if (!has_user_entry) {
+    for (const auto &decl : module->declarations) {
+      if (IsTopLevelExecutable(decl)) {
+        needs_synthetic_entry = true;
+        break;
+      }
+    }
+  }
+
+  if (!needs_synthetic_entry) {
+    for (const auto &decl : module->declarations) {
+      LowerStatement(decl);
+    }
+  } else {
+    // Phase 1: lower every definitional declaration first so the synthetic
+    // entry's body can call into user-defined functions / reference
+    // user-defined globals without forward-declaration headaches.
+    std::vector<std::shared_ptr<Statement>> deferred;
+    deferred.reserve(module->declarations.size());
+    for (const auto &decl : module->declarations) {
+      if (IsTopLevelExecutable(decl)) {
+        deferred.push_back(decl);
+      } else {
+        LowerStatement(decl);
+      }
+    }
+
+    // Phase 2: synthesise `i32 __ploy_main()` and lower the deferred
+    // statements into its entry block. The function is created via the
+    // standard CreateFunction path so it shows up in `ctx.Functions()`
+    // and participates in every downstream pass (verifier, LTO, backend
+    // emit) on equal footing with user-written functions.
+    auto synth_fn = ir_ctx_.CreateFunction("__ploy_main", ir::IRType::I32(true), {});
+    auto saved_fn = current_function_;
+    auto saved_insert = builder_.GetInsertPoint();
+    bool saved_terminated = terminated_;
+
+    current_function_ = synth_fn;
+    builder_.SetCurrentFunction(synth_fn);
+    terminated_ = false;
+    auto entry = builder_.CreateBlock("entry");
+    builder_.SetInsertPoint(entry);
+
+    for (const auto &stmt : deferred) {
+      LowerStatement(stmt);
+      if (terminated_) {
+        // A top-level RETURN already terminated the block; further
+        // statements would be unreachable, mirroring the behaviour of
+        // user-written `FUNC main` bodies.
+        break;
+      }
+    }
+
+    // Always close the block with `RETURN i32 0` when the user's code
+    // didn't terminate it explicitly. We pass the literal text "0"
+    // directly because the IR uses the literal-as-name convention for
+    // integer constants (mirroring LowerLiteral's kInteger branch); the
+    // verifier accepts this without requiring a defining instruction.
+    if (!terminated_) {
+      builder_.MakeReturn("0");
+      terminated_ = true;
+    }
+
+    current_function_ = saved_fn;
+    if (saved_fn) {
+      builder_.SetCurrentFunction(saved_fn);
+    } else {
+      builder_.ClearCurrentFunction();
+    }
+    builder_.SetInsertPoint(saved_insert);
+    terminated_ = saved_terminated;
   }
 
   // Generate link stubs for all LINK entries registered in sema
@@ -84,6 +225,33 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     LowerFuncDecl(func);
   } else if (auto var = std::dynamic_pointer_cast<VarDecl>(stmt)) {
     LowerVarDecl(var);
+  } else if (auto const_decl = std::dynamic_pointer_cast<ConstDecl>(stmt)) {
+    // CONST lowers as an immutable VAR: sema has already folded the
+    // initializer and validated its type, so we re-use the existing
+    // VarDecl path to emit a single LocalDecl + assignment.  This keeps
+    // the IR shape identical to a `LET` declaration, which is exactly
+    // what the middle-layer const-propagation pass expects.
+    auto synthetic_var = std::make_shared<VarDecl>();
+    synthetic_var->loc = const_decl->loc;
+    synthetic_var->name = const_decl->name;
+    synthetic_var->is_mutable = false;
+    synthetic_var->type = const_decl->type;
+    synthetic_var->init = const_decl->value;
+    LowerVarDecl(synthetic_var);
+  } else if (auto alias_decl = std::dynamic_pointer_cast<TypeAliasDecl>(stmt)) {
+    // TYPE alias is a sema-only construct: ResolveType has already
+    // substituted the aliased type at every use-site, so lowering needs
+    // to emit nothing.  Suppress the unused-variable warning explicitly.
+    (void) alias_decl;
+  } else if (auto cls_decl = std::dynamic_pointer_cast<ClassDecl>(stmt)) {
+    // CLASS schema (demand 2026-04-28-9) is sema-only: it populates the
+    // foreign-class signature registry that NEW / METHOD / GET / SET
+    // expressions consult during lowering, but it emits no IR of its
+    // own.  Reaching this branch in LowerStatement is rare (the top-
+    // level loop already filters via IsTopLevelExecutable), but we
+    // still no-op explicitly so a stray reachable path can't drop into
+    // the unhandled-statement diagnostic below.
+    (void) cls_decl;
   } else if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
     LowerIfStatement(if_stmt);
   } else if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {

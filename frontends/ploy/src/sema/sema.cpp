@@ -100,12 +100,34 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
     AnalyzeStructDecl(struct_decl);
   } else if (auto map_func = std::dynamic_pointer_cast<MapFuncDecl>(stmt)) {
     AnalyzeMapFuncDecl(map_func);
+  } else if (auto stage = std::dynamic_pointer_cast<StageDecl>(stmt)) {
+    // Validate stage declaration (only semantic-level checks here).
+    if (stage->call_target.empty()) {
+      ReportError(stage->loc, frontends::ErrorCode::kEmptySymbolName, "STAGE call target is empty");
+    }
+    // Register stage as a pipeline-local symbol so later stages can
+    // reference it via the pipeline symbol table if needed. For now we
+    // expose it as a PloySymbol of kind kPipeline (name + location).
+    PloySymbol sym;
+    sym.kind = PloySymbol::Kind::kPipeline;
+    sym.name = stage->name.empty() ? stage->call_target : stage->name;
+    sym.type = core::Type::Void();
+    sym.defined_at = stage->loc;
+    // Declare symbol in the current scope.
+    DeclareSymbol(sym);
   } else if (auto venv_config = std::dynamic_pointer_cast<VenvConfigDecl>(stmt)) {
     AnalyzeVenvConfigDecl(venv_config);
   } else if (auto with_stmt = std::dynamic_pointer_cast<WithStatement>(stmt)) {
     AnalyzeWithStatement(with_stmt);
   } else if (auto extend = std::dynamic_pointer_cast<ExtendDecl>(stmt)) {
     AnalyzeExtendDecl(extend);
+  } else if (auto cls_decl = std::dynamic_pointer_cast<ClassDecl>(stmt)) {
+    // Foreign-class signature block (demand 2026-04-28-9).
+    AnalyzeClassDecl(cls_decl);
+  } else if (auto alias_decl = std::dynamic_pointer_cast<TypeAliasDecl>(stmt)) {
+    AnalyzeTypeAliasDecl(alias_decl);
+  } else if (auto const_decl = std::dynamic_pointer_cast<ConstDecl>(stmt)) {
+    AnalyzeConstDecl(const_decl);
   } else if (auto lang_pragma = std::dynamic_pointer_cast<LangPragma>(stmt)) {
     // Module-wide language version pin.
     AnalyzeLangPragma(lang_pragma);
@@ -148,6 +170,13 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
   }
 
   // Build link entry
+
+  // Deprecation: the legacy comma-style LINK(...) form is deprecated.
+  // Prefer the signed/canonical form: LINK lang::module::func AS FUNC(...) -> ...;
+  if (link->is_legacy_form) {
+    ReportWarning(link->loc, frontends::ErrorCode::kDeprecatedKeyword,
+                  "legacy LINK(...) form is deprecated; use 'LINK <lang>::<module>::<func> AS FUNC(...) -> <ret>' instead");
+  }
   LinkEntry entry;
   entry.kind = link->link_kind;
   entry.target_language = link->target_language;
@@ -1117,6 +1146,22 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
     arg_types.push_back(AnalyzeExpression(arg));
   }
 
+  // Demand 2026-04-28-9: when a CLASS schema is registered for this
+  // language+path, validate the constructor against it and return a
+  // statically-typed HANDLE<lang::T>.  The schema-aware path runs
+  // BEFORE the legacy LINK-based lookup so that explicit class blocks
+  // always win over LINK-derived signatures.
+  const std::string schema_key = new_expr->language + "::" + new_expr->class_name;
+  if (const ForeignClassSchema *schema = LookupClassSchema(schema_key)) {
+    if (schema->has_constructor) {
+      ValidateCallArgCount(new_expr->loc, schema_key + " constructor",
+                           new_expr->args.size(), &schema->constructor_sig);
+      ValidateCallArgTypes(new_expr->loc, schema_key + " constructor", arg_types,
+                           &schema->constructor_sig);
+    }
+    return core::Type::Class(new_expr->class_name, new_expr->language);
+  }
+
   // Check constructor signature if known (e.g. via LINK declaration)
   std::string ctor_name = new_expr->class_name + "::__init__";
   const FunctionSignature *sig = LookupSignature(ctor_name);
@@ -1175,6 +1220,29 @@ core::Type PloySema::AnalyzeMethodCallExpression(
   std::vector<core::Type> arg_types;
   for (const auto &arg : method_call->args) {
     arg_types.push_back(AnalyzeExpression(arg));
+  }
+
+  // Demand 2026-04-28-9: when the receiver is a statically-typed
+  // HANDLE<lang::T>, prefer the registered CLASS schema over any
+  // legacy LookupSignature() result.  Unknown methods on a typed
+  // handle become a *warning* (not an error) so existing dynamic
+  // dispatch code keeps compiling without retrofitting every method.
+  if (receiver_type.kind == core::TypeKind::kClass && !receiver_type.name.empty()) {
+    const std::string schema_key = receiver_type.language + "::" + receiver_type.name;
+    if (const ForeignClassSchema *schema = LookupClassSchema(schema_key)) {
+      auto m_it = schema->methods.find(method_call->method_name);
+      if (m_it != schema->methods.end()) {
+        const FunctionSignature &msig = m_it->second;
+        ValidateCallArgCount(method_call->loc, method_call->method_name,
+                             method_call->args.size(), &msig);
+        ValidateCallArgTypes(method_call->loc, method_call->method_name, arg_types, &msig);
+        return msig.return_type;
+      }
+      ReportWarning(method_call->loc, frontends::ErrorCode::kSignatureMissing,
+                    "unknown method '" + method_call->method_name + "' on HANDLE<" +
+                        schema_key + ">; falling back to dynamic dispatch");
+      return core::Type::Unknown();
+    }
   }
 
   // Check method signature if known (e.g. via LINK declaration)
@@ -1251,6 +1319,23 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
     }
   }
 
+  // Demand 2026-04-28-9: typed-handle attribute lookup via CLASS schema.
+  // Unknown attributes on a typed handle warn rather than error so existing
+  // dynamic-attribute code keeps compiling.
+  if (obj_type.kind == core::TypeKind::kClass && !obj_type.name.empty()) {
+    const std::string schema_key = obj_type.language + "::" + obj_type.name;
+    if (const ForeignClassSchema *schema = LookupClassSchema(schema_key)) {
+      auto a_it = schema->attributes.find(get_attr->attr_name);
+      if (a_it != schema->attributes.end()) {
+        return a_it->second;
+      }
+      ReportWarning(get_attr->loc, frontends::ErrorCode::kUnknownField,
+                    "HANDLE<" + schema_key + "> has no declared ATTR '" +
+                        get_attr->attr_name + "'; falling back to dynamic lookup");
+      return core::Type::Unknown();
+    }
+  }
+
   // Try getter signature lookup: qualified ClassName::__getattr__::attr_name
   // first, then unqualified __getattr__::attr_name.
   std::string getter_name;
@@ -1302,11 +1387,37 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
   }
 
   // Analyze the value expression
+  core::Type value_type = core::Type::Unknown();
   if (set_attr->value) {
-    AnalyzeExpression(set_attr->value);
+    value_type = AnalyzeExpression(set_attr->value);
   } else {
     ReportError(set_attr->loc, frontends::ErrorCode::kMissingExpression,
                 "SET requires a value expression");
+  }
+
+  // Demand 2026-04-28-9: typed-handle attribute write via CLASS schema.
+  // When both the receiver is a HANDLE<lang::T> with a registered schema
+  // and the attribute name is declared, validate that the value is
+  // assignment-compatible with the declared attribute type.  Unknown
+  // attributes downgrade to a warning to preserve dynamic-attribute
+  // ergonomics.
+  if (obj_type.kind == core::TypeKind::kClass && !obj_type.name.empty()) {
+    const std::string schema_key = obj_type.language + "::" + obj_type.name;
+    if (const ForeignClassSchema *schema = LookupClassSchema(schema_key)) {
+      auto a_it = schema->attributes.find(set_attr->attr_name);
+      if (a_it != schema->attributes.end()) {
+        if (!AreTypesCompatible(value_type, a_it->second)) {
+          ReportError(set_attr->loc, frontends::ErrorCode::kTypeMismatch,
+                      "cannot assign value of type '" + value_type.ToString() +
+                          "' to ATTR '" + set_attr->attr_name + "' of HANDLE<" +
+                          schema_key + "> declared as '" + a_it->second.ToString() + "'");
+        }
+        return a_it->second;
+      }
+      ReportWarning(set_attr->loc, frontends::ErrorCode::kUnknownField,
+                    "HANDLE<" + schema_key + "> has no declared ATTR '" +
+                        set_attr->attr_name + "'; falling back to dynamic assignment");
+    }
   }
 
   // SET returns the assigned value type (Unknown since we cannot know the attribute type)
@@ -1464,10 +1575,44 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     return core::Type::Invalid();
 
   if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
-    if (st->name == "INT" || st->name == "i32" || st->name == "i64" || st->name == "int")
-      return core::Type::Int();
-    if (st->name == "FLOAT" || st->name == "f32" || st->name == "f64" || st->name == "float")
-      return core::Type::Float();
+    // 1. Type-alias lookup takes precedence over every built-in below.
+    //    Aliases for built-in primitives (e.g. `TYPE Length = i64;`) thus
+    //    correctly inherit width information from the aliased type rather
+    //    than re-folding through the primitive branch.
+    {
+      auto it = type_aliases_.find(st->name);
+      if (it != type_aliases_.end()) {
+        return it->second;
+      }
+    }
+    // 2. Width-aware integer keywords (canonicalised by the lexer to
+    //    upper-case).  `INT` and `int` are kept as legacy aliases of
+    //    `i64` per the language spec §2.9 (demand 2026-04-28-7).
+    if (st->name == "I8")    return core::Type::Int(8,  true);
+    if (st->name == "I16")   return core::Type::Int(16, true);
+    if (st->name == "I32")   return core::Type::Int(32, true);
+    if (st->name == "I64")   return core::Type::Int(64, true);
+    if (st->name == "U8")    return core::Type::Int(8,  false);
+    if (st->name == "U16")   return core::Type::Int(16, false);
+    if (st->name == "U32")   return core::Type::Int(32, false);
+    if (st->name == "U64")   return core::Type::Int(64, false);
+    // ISIZE / USIZE follow the host pointer width; we model them as 64-bit
+    // since every supported host (x86_64, arm64, wasm64) uses a 64-bit
+    // address space.  The IR emitters re-stamp them with the actual
+    // pointer size when the target is 32-bit.
+    if (st->name == "ISIZE") return core::Type::Int(64, true);
+    if (st->name == "USIZE") return core::Type::Int(64, false);
+    if (st->name == "INT" || st->name == "int") {
+      // INT is a legacy alias of i64 — see language_spec §2.9.
+      return core::Type::Int(64, true);
+    }
+    // 3. Width-aware floating-point keywords.
+    if (st->name == "F32")   return core::Type::Float(32);
+    if (st->name == "F64")   return core::Type::Float(64);
+    if (st->name == "FLOAT" || st->name == "float") {
+      // FLOAT is a legacy alias of f64 — see language_spec §2.9.
+      return core::Type::Float(64);
+    }
     if (st->name == "BOOL" || st->name == "bool")
       return core::Type::Bool();
     if (st->name == "STRING" || st->name == "str" || st->name == "string")
@@ -1522,6 +1667,14 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     return type_system_.FunctionType("", ret, params);
   }
 
+  // HANDLE<lang::class_path> — the demand-9 statically-typed cross-language
+  // object handle.  The kClass type carries both the class path (as `name`)
+  // and the originating language so AreTypesCompatible can reject any
+  // implicit conversion across languages.
+  if (auto ht = std::dynamic_pointer_cast<HandleType>(type_node)) {
+    return core::Type::Class(ht->class_path, ht->language);
+  }
+
   return core::Type::Invalid();
 }
 
@@ -1539,6 +1692,14 @@ bool PloySema::AreTypesCompatible(const core::Type &from, const core::Type &to) 
   // Unknown is treated as compatible during sema; boundary checking happens in lowering.
   if (from.kind == core::TypeKind::kUnknown || to.kind == core::TypeKind::kUnknown) {
     return true;
+  }
+  // Cross-language object handles are statically distinct (demand
+  // 2026-04-28-9): HANDLE<a::T> never silently converts to HANDLE<b::U>.
+  // Both the qualified class path (carried in `name`) and the originating
+  // language must match; explicit conversion has to go through CONVERT +
+  // MAP_FUNC, which produces a fresh kClass value with the target tag.
+  if (from.kind == core::TypeKind::kClass && to.kind == core::TypeKind::kClass) {
+    return from.name == to.name && from.language == to.language;
   }
   return type_system_.IsCompatible(from, to);
 }
@@ -2724,6 +2885,438 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
                   "only FUNC declarations are allowed inside EXTEND body");
     }
   }
+}
+
+// ============================================================================
+// TYPE alias and CONST analysis (demand 2026-04-28-7)
+// ============================================================================
+
+namespace {
+
+// Render a width-aware type as the user would write it.  Falls back to
+// `core::Type::ToString()` for non-width types so that diagnostics keep
+// the existing wording for structs, generics, etc.
+std::string FormatTypeForDiag(const core::Type &t) {
+  if (t.kind == core::TypeKind::kInt && t.bit_width != 0) {
+    return std::string(t.is_signed ? "i" : "u") + std::to_string(t.bit_width);
+  }
+  if (t.kind == core::TypeKind::kFloat && t.bit_width != 0) {
+    return "f" + std::to_string(t.bit_width);
+  }
+  return t.ToString();
+}
+
+// Try to fold an expression to its constant textual representation.  The
+// folder is intentionally limited to what the spec calls a "compile-time
+// constant initializer": literals, the unary `-` / `!` operators, binary
+// arithmetic and comparison on integer / floating-point operands, string
+// concatenation via `+`, and references to previously declared CONSTs.
+//
+// Returns `true` and writes the folded text into `out_text` plus the
+// inferred type into `out_type` on success.  On failure the reason is
+// written to `out_reason` so the caller can produce a precise diagnostic.
+struct ConstFoldResult {
+  bool ok{false};
+  core::Type type{core::Type::Invalid()};
+  std::string text;
+  std::string reason;
+};
+
+ConstFoldResult FoldConst(
+    const std::shared_ptr<polyglot::ploy::Expression> &expr,
+    const std::unordered_map<std::string, polyglot::ploy::PloySema::ConstValue> &consts);
+
+ConstFoldResult FoldConst(
+    const std::shared_ptr<polyglot::ploy::Expression> &expr,
+    const std::unordered_map<std::string, polyglot::ploy::PloySema::ConstValue> &consts) {
+  using namespace polyglot::ploy;
+  ConstFoldResult r;
+  if (!expr) {
+    r.reason = "missing initializer expression";
+    return r;
+  }
+  if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
+    switch (lit->kind) {
+    case Literal::Kind::kInteger:
+      r.type = core::Type::Int(64, true);
+      r.text = lit->value;
+      r.ok = true;
+      return r;
+    case Literal::Kind::kFloat:
+      r.type = core::Type::Float(64);
+      r.text = lit->value;
+      r.ok = true;
+      return r;
+    case Literal::Kind::kString:
+      r.type = core::Type::String();
+      r.text = lit->value;
+      r.ok = true;
+      return r;
+    case Literal::Kind::kBool:
+      r.type = core::Type::Bool();
+      r.text = lit->value;
+      r.ok = true;
+      return r;
+    case Literal::Kind::kNull:
+      r.type = core::Type::Any();
+      r.text = "NULL";
+      r.ok = true;
+      return r;
+    }
+    r.reason = "unsupported literal kind in CONST initializer";
+    return r;
+  }
+  if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
+    auto it = consts.find(id->name);
+    if (it == consts.end()) {
+      r.reason = "CONST initializer references '" + id->name +
+                 "' which is not a previously declared CONST";
+      return r;
+    }
+    r.type = it->second.type;
+    r.text = it->second.folded_text;
+    r.ok = true;
+    return r;
+  }
+  if (auto un = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
+    auto inner = FoldConst(un->operand, consts);
+    if (!inner.ok) {
+      r.reason = inner.reason;
+      return r;
+    }
+    if (un->op == "-") {
+      if (inner.type.kind != core::TypeKind::kInt &&
+          inner.type.kind != core::TypeKind::kFloat) {
+        r.reason = "unary '-' requires a numeric CONST operand";
+        return r;
+      }
+      r.type = inner.type;
+      r.text = "-" + inner.text;
+      r.ok = true;
+      return r;
+    }
+    if (un->op == "!" || un->op == "NOT") {
+      if (inner.type.kind != core::TypeKind::kBool) {
+        r.reason = "unary '!' requires a boolean CONST operand";
+        return r;
+      }
+      r.type = core::Type::Bool();
+      r.text = (inner.text == "true" || inner.text == "TRUE") ? "false" : "true";
+      r.ok = true;
+      return r;
+    }
+    r.reason = "unsupported unary operator '" + un->op + "' in CONST";
+    return r;
+  }
+  if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
+    auto left = FoldConst(bin->left, consts);
+    if (!left.ok) {
+      r.reason = left.reason;
+      return r;
+    }
+    auto right = FoldConst(bin->right, consts);
+    if (!right.ok) {
+      r.reason = right.reason;
+      return r;
+    }
+    // String concatenation via `+`.
+    if (bin->op == "+" && left.type.kind == core::TypeKind::kString &&
+        right.type.kind == core::TypeKind::kString) {
+      r.type = core::Type::String();
+      r.text = left.text + right.text;
+      r.ok = true;
+      return r;
+    }
+    // Numeric arithmetic — promote width to the wider of the two
+    // operands, preserve floating-pointness if either side is float.
+    bool both_numeric = left.type.IsNumeric() && right.type.IsNumeric();
+    if (both_numeric &&
+        (bin->op == "+" || bin->op == "-" || bin->op == "*" || bin->op == "/" ||
+         bin->op == "%")) {
+      bool result_float =
+          left.type.kind == core::TypeKind::kFloat ||
+          right.type.kind == core::TypeKind::kFloat;
+      int bits = std::max(left.type.bit_width != 0 ? left.type.bit_width : 64,
+                          right.type.bit_width != 0 ? right.type.bit_width : 64);
+      r.type = result_float ? core::Type::Float(bits)
+                             : core::Type::Int(bits, left.type.is_signed && right.type.is_signed);
+      r.text = "(" + left.text + " " + bin->op + " " + right.text + ")";
+      r.ok = true;
+      return r;
+    }
+    if ((bin->op == "==" || bin->op == "!=" || bin->op == "<" || bin->op == "<=" ||
+         bin->op == ">" || bin->op == ">=") && both_numeric) {
+      r.type = core::Type::Bool();
+      r.text = "(" + left.text + " " + bin->op + " " + right.text + ")";
+      r.ok = true;
+      return r;
+    }
+    if ((bin->op == "&&" || bin->op == "||" || bin->op == "AND" || bin->op == "OR") &&
+        left.type.kind == core::TypeKind::kBool &&
+        right.type.kind == core::TypeKind::kBool) {
+      r.type = core::Type::Bool();
+      r.text = "(" + left.text + " " + bin->op + " " + right.text + ")";
+      r.ok = true;
+      return r;
+    }
+    r.reason = "unsupported binary operator '" + bin->op +
+               "' or operand types in CONST initializer";
+    return r;
+  }
+  r.reason = "CONST initializer is not a compile-time constant expression";
+  return r;
+}
+
+} // namespace
+
+// ============================================================================
+// Foreign Class Schema Registration (demand 2026-04-28-9)
+// ============================================================================
+
+void PloySema::RegisterClassSchema(const std::string &qualified_name,
+                                   ForeignClassSchema schema) {
+  class_schemas_[qualified_name] = std::move(schema);
+}
+
+const ForeignClassSchema *
+PloySema::LookupClassSchema(const std::string &qualified_name) const {
+  auto it = class_schemas_.find(qualified_name);
+  return it == class_schemas_.end() ? nullptr : &it->second;
+}
+
+void PloySema::AnalyzeClassDecl(const std::shared_ptr<ClassDecl> &cls_decl) {
+  if (!cls_decl) {
+    return;
+  }
+  // Header-level validation.
+  if (cls_decl->language.empty()) {
+    ReportError(cls_decl->loc, frontends::ErrorCode::kInvalidLanguage,
+                "CLASS declaration is missing a language qualifier");
+    return;
+  }
+  if (!IsValidLanguage(cls_decl->language)) {
+    ReportError(cls_decl->loc, frontends::ErrorCode::kInvalidLanguage,
+                "unknown language '" + cls_decl->language + "' in CLASS");
+  }
+  if (cls_decl->class_path.empty()) {
+    ReportError(cls_decl->loc, frontends::ErrorCode::kEmptySymbolName,
+                "CLASS declaration is missing a class path");
+    return;
+  }
+  // Stamp any active language-version pin so backends can route the
+  // schema to the correct interpreter / runtime version.
+  cls_decl->lang_version_pin = ResolveLangVersion(cls_decl->language);
+
+  // The qualified key uses the same form that AnalyzeNewExpression and
+  // AnalyzeMethodCallExpression produce when consulting the registry.
+  const std::string qualified_name = cls_decl->language + "::" + cls_decl->class_path;
+
+  // Reject duplicate schemas; otherwise multiple definitions silently
+  // overwrite each other and produce confusing dispatch behavior.
+  if (class_schemas_.count(qualified_name)) {
+    ReportError(cls_decl->loc, frontends::ErrorCode::kRedefinedSymbol,
+                "redefinition of CLASS schema '" + qualified_name + "'");
+    return;
+  }
+
+  ForeignClassSchema schema;
+  schema.class_name = cls_decl->class_path;
+  schema.language = cls_decl->language;
+  schema.defined_at = cls_decl->loc;
+
+  // Resolve attribute rows.
+  std::unordered_set<std::string> seen_attrs;
+  for (const auto &attr : cls_decl->attrs) {
+    if (attr.name.empty()) {
+      ReportError(attr.loc, frontends::ErrorCode::kEmptySymbolName,
+                  "ATTR row in CLASS '" + qualified_name + "' has no name");
+      continue;
+    }
+    if (!seen_attrs.insert(attr.name).second) {
+      ReportError(attr.loc, frontends::ErrorCode::kDuplicateField,
+                  "duplicate ATTR '" + attr.name + "' in CLASS '" + qualified_name + "'");
+      continue;
+    }
+    core::Type t = attr.type ? ResolveType(attr.type) : core::Type::Unknown();
+    schema.attributes[attr.name] = t;
+  }
+
+  // Resolve method rows.  Each method becomes a FunctionSignature and is
+  // also published to the global signature registry under both the
+  // qualified (`lang::Class::method`) and short (`Class::method`) names
+  // so existing LookupSignature paths in AnalyzeMethodCallExpression
+  // keep working without special-casing.
+  std::unordered_set<std::string> seen_methods;
+  for (const auto &m : cls_decl->methods) {
+    if (m.name.empty()) {
+      ReportError(m.loc, frontends::ErrorCode::kEmptySymbolName,
+                  "METHOD row in CLASS '" + qualified_name + "' has no name");
+      continue;
+    }
+    if (!seen_methods.insert(m.name).second) {
+      ReportError(m.loc, frontends::ErrorCode::kRedefinedSymbol,
+                  "duplicate METHOD '" + m.name + "' in CLASS '" + qualified_name + "'");
+      continue;
+    }
+    FunctionSignature sig;
+    sig.name = qualified_name + "::" + m.name;
+    sig.language = cls_decl->language;
+    sig.defined_at = m.loc;
+    for (const auto &p : m.params) {
+      sig.param_names.push_back(p.first);
+      sig.param_types.push_back(p.second ? ResolveType(p.second) : core::Type::Unknown());
+    }
+    sig.param_count = sig.param_types.size();
+    sig.param_count_known = true;
+    sig.return_type = m.return_type ? ResolveType(m.return_type) : core::Type::Void();
+
+    if (m.name == "__init__" || m.name == "new" || m.name == "ctor") {
+      schema.has_constructor = true;
+      schema.constructor_sig = sig;
+    }
+    schema.methods[m.name] = sig;
+
+    // Publish to the signature registry under both qualified and short
+    // names.  This lets the existing LookupSignature() inside
+    // AnalyzeMethodCallExpression continue to find the method without
+    // a schema-specific code path.
+    RegisterFunctionSignature(sig.name, sig);
+    RegisterFunctionSignature(cls_decl->class_path + "::" + m.name, sig);
+  }
+
+  RegisterClassSchema(qualified_name, std::move(schema));
+}
+
+void PloySema::AnalyzeTypeAliasDecl(const std::shared_ptr<TypeAliasDecl> &alias_decl) {
+  if (!alias_decl) {
+    return;
+  }
+  if (alias_decl->name.empty()) {
+    Report(alias_decl->loc, "TYPE alias name cannot be empty");
+    return;
+  }
+  // Reject collisions with existing aliases, structs, and built-in
+  // primitive keywords (the latter would shadow language fundamentals).
+  if (type_aliases_.count(alias_decl->name) != 0) {
+    ReportError(alias_decl->loc, frontends::ErrorCode::kRedefinedSymbol,
+                "redefinition of TYPE alias '" + alias_decl->name + "'");
+    return;
+  }
+  if (struct_defs_.count(alias_decl->name) != 0) {
+    ReportError(alias_decl->loc, frontends::ErrorCode::kRedefinedSymbol,
+                "TYPE alias '" + alias_decl->name +
+                    "' conflicts with a struct of the same name");
+    return;
+  }
+  static const std::unordered_set<std::string> kReservedTypeNames = {
+      "I8",  "I16", "I32",   "I64",   "U8",  "U16", "U32",   "U64", "F32", "F64",
+      "INT", "FLOAT","BOOL", "STRING","VOID","ANY", "USIZE","ISIZE"};
+  if (kReservedTypeNames.count(alias_decl->name) != 0) {
+    ReportError(alias_decl->loc, frontends::ErrorCode::kRedefinedSymbol,
+                "TYPE alias '" + alias_decl->name +
+                    "' shadows a built-in primitive type keyword");
+    return;
+  }
+  core::Type resolved = ResolveType(alias_decl->aliased_type);
+  if (resolved.kind == core::TypeKind::kInvalid) {
+    Report(alias_decl->loc, "TYPE alias '" + alias_decl->name +
+                                "' refers to an unresolvable type expression");
+    return;
+  }
+  type_aliases_[alias_decl->name] = resolved;
+  // Remember the alias-target relationship so width-mismatch diagnostics
+  // can render `T (alias of i32)` rather than a bare `i32`.
+  type_alias_origin_[FormatTypeForDiag(resolved)] = alias_decl->name;
+}
+
+void PloySema::AnalyzeConstDecl(const std::shared_ptr<ConstDecl> &const_decl) {
+  if (!const_decl) {
+    return;
+  }
+  if (const_decl->name.empty()) {
+    Report(const_decl->loc, "CONST name cannot be empty");
+    return;
+  }
+  if (constants_.count(const_decl->name) != 0 ||
+      symbols_.count(const_decl->name) != 0) {
+    ReportError(const_decl->loc, frontends::ErrorCode::kRedefinedSymbol,
+                "redefinition of CONST '" + const_decl->name + "'");
+    return;
+  }
+  if (!const_decl->type) {
+    ReportError(const_decl->loc, frontends::ErrorCode::kMissingTypeAnnotation,
+                "CONST '" + const_decl->name +
+                    "' requires an explicit ': <type>' annotation");
+    return;
+  }
+  core::Type declared = ResolveType(const_decl->type);
+  if (declared.kind == core::TypeKind::kInvalid) {
+    Report(const_decl->loc, "CONST '" + const_decl->name +
+                                "' has an unresolvable declared type");
+    return;
+  }
+  ConstFoldResult fold = FoldConst(const_decl->value, constants_);
+  if (!fold.ok) {
+    ReportError(const_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                "CONST '" + const_decl->name +
+                    "' initializer is not a compile-time constant: " + fold.reason,
+                "rewrite the initializer using only literals, previously "
+                "declared CONSTs, and the supported arithmetic/boolean operators");
+    return;
+  }
+  // Width-mismatch diagnostic: when both declared and folded types are
+  // integers (or both floats) but their bit widths differ, surface the
+  // mismatch.  Emit a warning rather than an error so that the common
+  // pattern `CONST K: i32 = 1;` (literal folds to i64) keeps compiling.
+  if (declared.kind == core::TypeKind::kInt && fold.type.kind == core::TypeKind::kInt &&
+      declared.bit_width != 0 && fold.type.bit_width != 0 &&
+      (declared.bit_width != fold.type.bit_width ||
+       declared.is_signed != fold.type.is_signed)) {
+    std::string declared_text = FormatTypeForDiag(declared);
+    auto orig = type_alias_origin_.find(declared_text);
+    if (orig != type_alias_origin_.end()) {
+      declared_text = orig->second + " (alias of " + FormatTypeForDiag(declared) + ")";
+    }
+    ReportWarning(const_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                  "CONST '" + const_decl->name + "' declared as '" + declared_text +
+                      "' but initializer folds to '" + FormatTypeForDiag(fold.type) +
+                      "'; the value will be narrowed at lowering",
+                  "annotate the literal explicitly or change the declared width");
+  }
+  if (declared.kind == core::TypeKind::kFloat && fold.type.kind == core::TypeKind::kFloat &&
+      declared.bit_width != 0 && fold.type.bit_width != 0 &&
+      declared.bit_width != fold.type.bit_width) {
+    ReportWarning(const_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                  "CONST '" + const_decl->name + "' declared as '" +
+                      FormatTypeForDiag(declared) + "' but initializer folds to '" +
+                      FormatTypeForDiag(fold.type) +
+                      "'; the value will be rounded at lowering");
+  }
+  // Hard error when the folded type is incompatible at all (e.g. string
+  // assigned to an integer CONST).
+  if (!AreTypesCompatible(fold.type, declared)) {
+    ReportError(const_decl->loc, frontends::ErrorCode::kTypeMismatch,
+                "CONST '" + const_decl->name + "' declared as '" +
+                    FormatTypeForDiag(declared) +
+                    "' but initializer has incompatible type '" +
+                    FormatTypeForDiag(fold.type) + "'");
+    return;
+  }
+  // Register both as a regular (immutable) symbol so identifier lookup in
+  // expression analysis succeeds, and as a foldable constant for the
+  // const-propagation table consumed by the middle layer.
+  PloySymbol sym;
+  sym.kind = PloySymbol::Kind::kVariable;
+  sym.name = const_decl->name;
+  sym.type = declared;
+  sym.is_mutable = false;
+  sym.defined_at = const_decl->loc;
+  DeclareSymbol(sym);
+
+  ConstValue cv;
+  cv.type = declared;
+  cv.folded_text = fold.text;
+  constants_[const_decl->name] = cv;
 }
 
 // ============================================================================

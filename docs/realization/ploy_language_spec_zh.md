@@ -27,7 +27,9 @@
 
 ### 3.1 关键字
 
-`.ploy` 语言共有 **56 个保留关键字**（含弃用的 `RETURNS` 与版本钉桩用的 `LANG`）：
+`.ploy` 语言共有 **71 个保留关键字**（含弃用的 `RETURNS`、版本钉桩用的
+`LANG`、标准输出语句 `PRINTLN`，以及 `Ploy 1.7.0` 引入的显式宽度类型与
+`TYPE` / `CONST`）：
 
 ```
 LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
@@ -41,7 +43,10 @@ PACKAGE     LIST        TUPLE       DICT        OPTION
 MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
 UV          PIPENV      POETRY      NEW         METHOD
 GET         SET         WITH        DELETE      EXTEND
-LANG
+LANG        PRINTLN     TYPE        CONST       I8
+I16         I32         I64         U8          U16
+U32         U64         F32         F64         USIZE
+ISIZE
 ```
 
 **大小写不敏感（Ploy 1.5.2+）。** 自该版本起，所有保留字在词法层
@@ -168,48 +173,57 @@ top_level_decl  ::= link_decl | import_decl | export_decl | map_type_decl
 
 > **这是 .ploy 最核心的指令。** `LINK` 声明跨语言函数级链接关系，告诉编译器"目标语言的某个函数需要调用源语言的某个函数"。
 
-语法使用 **括号化的4参数形式**：
+解析器现在识别 **两种** 表面形式：
+
+#### 4.2.1 标准 / 带签名形式（v1.8.0 起推荐）
 
 ```ploy
-LINK(target_language, source_language, target_function, source_function);
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type>;
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type> {
+    MAP_TYPE(<target_type>, <source_type>);
+    // ... 每个参数一条 MAP_TYPE
+}
 ```
 
-> **参数说明：**
-> - `target_language`：目标语言标识符（`cpp`、`python`、`rust`、`c`、`ploy`）
-> - `source_language`：源语言标识符
-> - `target_function`：目标端的函数名（可用 `::` 限定，如 `math::add`）
-> - `source_function`：源端的函数名
+> 带签名形式把目标符号写成完全限定的 `lang::module::func`，并把
+> 函数签名直接嵌入语法，便于 sema 静态校验，也更接近自然阅读
+> "把这个符号 *作为* 这种签名的函数链接进来"。
 
-#### 扩展形式 1：带类型映射体
+示例：
 
 ```ploy
-// 当链接的函数间需要特定的类型转换规则时使用
-LINK(cpp, python, math::process, data::load) {
+// 简单签名链接（无 body）
+LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;
+
+// 带 MAP_TYPE body 的签名链接
+LINK cpp::math::process AS FUNC(cpp::double, cpp::int) -> cpp::double {
     MAP_TYPE(cpp::double, python::float);
     MAP_TYPE(cpp::int, python::int);
 }
 ```
 
-> **说明：** 花括号内的 `MAP_TYPE` 指令仅对此 `LINK` 生效，定义参数和返回值的类型转换。
-
-#### 扩展形式 2：变量链接
+#### 4.2.2 旧的逗号形式（已弃用，仍可解析）
 
 ```ploy
+LINK(target_language, source_language, target_function, source_function);
+
+// 带 body
+LINK(cpp, python, math::process, data::load) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// AS VAR / AS STRUCT 修饰符（目前仍只作用于旧形式）
 LINK(cpp, python, config_data, py_config) AS VAR;
-```
-
-> **说明：** `AS VAR` 表示这是一个全局变量的链接，而不是函数链接。用于在不同语言间共享全局数据。
-
-#### 扩展形式 3：结构体链接
-
-```ploy
 LINK(cpp, rust, Point, RustPoint) AS STRUCT {
     MAP_TYPE(cpp::double, rust::f64);
     MAP_TYPE(cpp::int, rust::i32);
 }
 ```
 
-> **说明：** `AS STRUCT` 表示链接的是结构体类型，花括号内定义字段类型的映射关系。
+语义分析器会对每条旧形式的 `LINK(...)` 发出 `kDeprecatedKeyword` 警告。
+**新代码应使用带签名形式**；现有示例在 `tests/samples/<n>_v2/` 下提供
+镜像版本（参见 `01_basic_linking_v2/`）。
 
 ### 4.3 IMPORT 指令
 
@@ -568,7 +582,7 @@ LINK(cpp, python, process(x: f64) -> f64, np::process);
     │
     ▼
 ┌──────────┐
-│  词法器   │  → Token 流（56 个关键字，大小写不敏感 + 运算符 + 字面量）
+│  词法器   │  → Token 流（71 个关键字，大小写不敏感 + 运算符 + 字面量）
 │  Lexer   │     识别关键字、标识符、数字、字符串、符号、注释
 └──────────┘
     │

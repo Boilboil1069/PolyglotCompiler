@@ -1,0 +1,44 @@
+// ============================================================================
+// explicit_widths.ploy — Explicit-width primitives, TYPE alias, and CONST.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++ (host kernel consumes width-aware buffers).
+//
+// Demonstrates demand 2026-04-28-7 features:
+//   * Explicit-width integer primitives (i32 / u64 / f32).
+//   * TYPE aliases (Pixel = i32, ChannelCount = u32) which the toolchain
+//     renders as `Pixel (alias of i32)` in diagnostics.
+//   * Compile-time CONST declarations whose initializers are folded by the
+//     ploy frontend, then propagated as immutable variables to lowering.
+// ============================================================================
+
+IMPORT cpp::width_kernel;
+
+LINK(cpp, ploy, width_kernel::sum_pixels, builtin::noop) {
+    MAP_TYPE(cpp::int32_t, ploy::i32);
+    MAP_TYPE(cpp::uint32_t, ploy::u32);
+}
+
+// Width-aware aliases.  Both surfaces resolve to the same underlying
+// primitive but carry the alias name through diagnostics and IR metadata.
+TYPE Pixel = i32;
+TYPE ChannelCount = u32;
+
+// CONST declarations: literal, alias-typed, and folded arithmetic.
+CONST KMaxRetry: i32 = 5;
+CONST KDefaultPixel: Pixel = 0;
+CONST KChannels: ChannelCount = 3;
+CONST KArea: i64 = 10 * 20;
+
+PIPELINE width_demo {
+    STAGE cpp CALL width_kernel::sum_pixels;
+}
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the host language toolchains being available
+// during sample execution.
+// ============================================================================
+PRINTLN "31_explicit_widths: ok\r\n";

@@ -64,6 +64,18 @@ struct FunctionType : TypeNode {
   std::shared_ptr<TypeNode> return_type;
 };
 
+// Cross-language object handle type: HANDLE<lang::module::ClassName>.
+//
+// `language` carries the originating foreign language, `class_path` the
+// fully qualified class path inside that language (e.g. "torch::nn::Linear").
+// Resolved by sema to a `core::Type::Class(class_path, language)` instance,
+// which is statically distinct from any class produced by another language.
+/** @brief HandleType data structure. */
+struct HandleType : TypeNode {
+  std::string language;
+  std::string class_path;
+};
+
 // ============================================================================
 // Expression Nodes
 // ============================================================================
@@ -194,6 +206,38 @@ struct ExtendDecl : Statement {
   std::string lang_version_pin; // Resolved by sema.
 };
 
+// Foreign-class signature block: CLASS lang::module::Name { METHOD ...; ATTR ...; }
+//
+// Registers an explicit type schema for a foreign-language class so that
+// cross-language NEW / METHOD / GET / SET expressions can be statically
+// type-checked.  Without a class block, sema falls back to dynamic
+// dispatch and emits a single warning per unknown method (kept warning,
+// not error, to preserve backward compatibility for existing code that
+// has no class blocks).
+/** @brief ClassMethodSig data structure (one row inside a CLASS body). */
+struct ClassMethodSig {
+  std::string name;                                                    // method name
+  std::vector<std::pair<std::string, std::shared_ptr<TypeNode>>> params; // (name, type) pairs
+  std::shared_ptr<TypeNode> return_type;                                // nullptr => VOID
+  core::SourceLoc loc{};
+};
+
+/** @brief ClassAttrSig data structure (one row inside a CLASS body). */
+struct ClassAttrSig {
+  std::string name;
+  std::shared_ptr<TypeNode> type;
+  core::SourceLoc loc{};
+};
+
+/** @brief ClassDecl data structure. */
+struct ClassDecl : Statement {
+  std::string language;            // e.g. "python", "cpp"
+  std::string class_path;          // qualified name, e.g. "torch::nn::Linear"
+  std::vector<ClassMethodSig> methods;
+  std::vector<ClassAttrSig> attrs;
+  std::string lang_version_pin;    // Resolved by sema.
+};
+
 // Member access: obj.member
 /** @brief MemberExpression data structure. */
 struct MemberExpression : Expression {
@@ -275,6 +319,7 @@ struct LinkDecl : Statement {
   std::shared_ptr<TypeNode> return_type; // nullptr if not specified
   // Optional body containing MAP_TYPE directives
   std::vector<std::shared_ptr<Statement>> body;
+  bool is_legacy_form{false};
 };
 
 // IMPORT "path" AS alias; or IMPORT lang::module; or IMPORT lang PACKAGE pkg AS alias;
@@ -318,6 +363,17 @@ struct MapTypeDecl : Statement {
 struct PipelineDecl : Statement {
   std::string name;
   std::vector<std::shared_ptr<Statement>> body;
+};
+
+// STAGE <name> CALL <lang>::<func>;
+/** @brief StageDecl data structure. */
+struct StageDecl : Statement {
+  std::string name;
+  // Language-qualified call target, e.g. cpp::math::add
+  std::string call_target;
+  // Optional language label for the stage (redundant with call_target,
+  // kept for clarity in tools).
+  std::string language;
 };
 
 // FUNC name(params) -> return_type { ... }
@@ -447,6 +503,38 @@ struct MapFuncDecl : Statement {
   std::vector<FuncDecl::Param> params;
   std::shared_ptr<TypeNode> return_type;
   std::vector<std::shared_ptr<Statement>> body;
+};
+
+// TYPE <name> = <type_expr>;
+//
+// Declares a name that is a textual alias for an existing type expression.
+// The alias has no run-time representation of its own; sema substitutes the
+// aliased type at every use-site, but remembers the original alias name for
+// diagnostics so an error message can read e.g.
+//   "type mismatch: expected `Pixel` (alias of `i32`) but got `f32`".
+//
+// Aliases are resolved eagerly at the point of declaration; forward
+// references to types declared later in the module are NOT supported in
+// this version (mirrors C++'s `using` rule rather than Rust's `type`).
+/** @brief TypeAliasDecl data structure. */
+struct TypeAliasDecl : Statement {
+  std::string name;
+  std::shared_ptr<TypeNode> aliased_type;
+};
+
+// CONST <name>: <type> = <const_expr>;
+//
+// Declares a compile-time constant.  The initializer must be foldable by
+// the sema's constant-evaluation pass: integer / float / boolean / string
+// literals, references to previously declared CONSTs, and the unary `-`,
+// `!`, plus binary arithmetic / comparison operators.  The declared type
+// is mandatory (no inference) because CONSTs participate in const-
+// propagation across modules and need a stable interface.
+/** @brief ConstDecl data structure. */
+struct ConstDecl : Statement {
+  std::string name;
+  std::shared_ptr<TypeNode> type;       ///< Declared type — mandatory.
+  std::shared_ptr<Expression> value;    ///< Constant initializer expression.
 };
 
 // CONFIG VENV "path/to/venv";

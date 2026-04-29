@@ -265,6 +265,26 @@ MachineFunction SelectInstructions(const ir::Function &fn, const CostModel &cost
       }
 
       if (auto *call = dynamic_cast<ir::CallInstruction *>(inst_ptr.get())) {
+        // PE-7-C: Same trick as the x86-64 backend — synthesise an
+        // address-materialisation MI (ADRP+ADD on AArch64) for any call
+        // argument that is neither an immediate nor a function-local SSA
+        // value, so polyld can patch the runtime address of the global
+        // (e.g. the `.ptr` alias of an interned string) at link time.
+        for (const auto &arg : call->operands) {
+          long long imm{};
+          if (ParseImmediate(arg, &imm))
+            continue;
+          if (value_types.count(arg))
+            continue;
+          if (vreg_for_name.count(arg))
+            continue;
+          MachineInstr lea_mi;
+          lea_mi.opcode = Opcode::kLea;
+          lea_mi.def = get_vreg(arg);
+          lea_mi.operands = {Operand::Label(arg)};
+          SetCost(lea_mi, cost_model);
+          mbb.instructions.push_back(std::move(lea_mi));
+        }
         MachineInstr mi;
         mi.opcode = Opcode::kCall;
         for (auto &arg : call->operands) {

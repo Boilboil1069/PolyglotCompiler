@@ -1,5 +1,9 @@
 # 示例 `01_basic_linking`
 
+> **Legacy 形式。** 本示例使用最初的逗号风格 `LINK(target_lang, source_lang, ...)` 语法，
+> 语义分析器现在会对它发出弃用警告。推荐的**带签名**形式的镜像示例见
+> [`../01_basic_linking_v2/`](../01_basic_linking_v2/)。
+
 C++ 数学操作与 Python 字符串工具之间的 LINK / CALL / IMPORT / EXPORT 基础联通。
 
 | 项目 | 值 |

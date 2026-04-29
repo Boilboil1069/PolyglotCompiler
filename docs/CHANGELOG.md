@@ -7,9 +7,130 @@ For day-to-day usage instructions see [`USER_GUIDE.md`](USER_GUIDE.md); for
 build / API contracts see [`api/api_reference.md`](api/api_reference.md) and
 the per-feature notes under [`realization/`](realization/).
 
-The version range covered below is **v0.1.0 (2026-01-15) → v1.6.0 (2026-04-29)**.
+The version range covered below is **v0.1.0 (2026-01-15) → v1.8.0 (2026-04-29)**.
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
+
+---
+
+## v1.8.0 (2026-04-29)
+
+**Ploy syntax cleanup: a canonical / signed `LINK` form is now the
+recommended cross-language linking syntax, and `STAGE` is promoted to
+a reserved keyword that may only appear inside a `PIPELINE` body.**
+
+### Added
+
+- Canonical signed `LINK` form:
+
+  ```ploy
+  LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type>;
+  LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type> {
+      MAP_TYPE(<target>, <source>);
+  }
+  ```
+
+  Parsed by a new `PloyParser::ParseSignedLinkDecl()` and dispatched from
+  the existing `ParseLinkDecl()` based on whether `(` follows the `LINK`
+  keyword (legacy form) or an identifier does (signed form).
+
+- New `STAGE` keyword (canonical keyword count rises from 71 → 72).
+  `ParseStatement` accepts `STAGE [name] CALL <lang>::<module>::<func>;`
+  only when the parser is currently inside a `PIPELINE` body
+  (`PloyParser::in_pipeline_context_`); it reports a parse diagnostic
+  otherwise.
+
+- `LinkDecl::is_legacy_form` boolean discriminator and a new
+  `StageDecl{name, call_target, language}` AST node.
+
+- Mirror sample [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)
+  rewriting the v1 cross-language linking sample with the signed form;
+  the v1 README is annotated as *legacy form*.
+
+- Two new unit tests under `tests/unit/frontends/ploy/`:
+  `link_deprecation_test.cpp` (verifies the `kDeprecatedKeyword` warning
+  is emitted) and `stage_misuse_test.cpp` (verifies `STAGE` outside a
+  `PIPELINE` is rejected by the parser).
+
+### Changed
+
+- `PloySema::AnalyzeLinkDecl` now emits a `kDeprecatedKeyword` warning
+  whenever it encounters a `LinkDecl` whose `is_legacy_form` flag is
+  true.
+- `docs/realization/ploy_language_spec.md` (and `_zh.md`) §4.2 now
+  documents both forms with the signed form listed first as the
+  recommendation.
+- `docs/USER_GUIDE.md` (and `_zh.md`): top-of-file notice describing the
+  deprecation; keyword quick-reference table updated to use the signed
+  `LINK` example and to list the new `STAGE` keyword.
+- `tests/samples/README.md` (and `_zh.md`): index now lists the v2
+  mirror sample and tags the v1 sample as *legacy form*.
+
+### Compatibility
+
+- All 19 per-module test binaries remain green (1215 cases, ~89k
+  assertions) on Windows / MSVC.  No source-level break for existing
+  Ploy programs: legacy-form `LINK(...)` continues to compile, only
+  with an additional warning diagnostic.
+
+---
+
+## v1.7.0 (2026-04-29)
+
+**Ploy gains explicit-width primitive types, `TYPE` aliases, and
+compile-time `CONST` declarations with semantic constant folding and
+width-mismatch warnings.**
+
+### Added
+
+- 14 new Ploy keywords: `i8` / `i16` / `i32` / `i64`, `u8` / `u16` /
+  `u32` / `u64`, `f32` / `f64`, `usize` / `isize`, plus `TYPE` and
+  `CONST`.  All keywords participate in the existing case-insensitive
+  lexer fold; the canonical keyword count rises from 56 to 71.
+- Width-aware primitive resolution in `PloySema::ResolveType`, mapping
+  the new keywords to `core::Type::Int(N, sign)` / `core::Type::Float(N)`
+  factories that already shipped with the type system.
+- `TYPE <name> = <type_expr>;` declarations register named aliases that
+  participate in lookup alongside structs.  The reverse map
+  `formatted_type → alias_name` lets diagnostics render messages such as
+  `Pixel (alias of i32)`.
+- `CONST <name>: <type> = <expr>;` declarations are folded by a new
+  recursive evaluator covering literals, references to previously
+  declared `CONST`s, unary `-` / `!` / `NOT`, and binary arithmetic,
+  comparison, and logical operators (string concatenation via `+` is
+  also folded).  Width mismatches between the declared type and the
+  folded value emit a warning at the `kTypeMismatch` level.
+- `INT` and `FLOAT` are now official aliases of `i64` and `f64`
+  respectively; existing programs continue to compile unchanged.
+- New sample `tests/samples/31_explicit_widths/` exercising `i32` /
+  `u32` / `i64` cross-language linking with companion C++ kernel,
+  bilingual `README.md` / `README_zh.md`, and the standard
+  `expected_output.txt` regression artefact.
+- New unit suites `type_alias_test.cpp`, `const_decl_test.cpp`,
+  `width_mismatch_diag_test.cpp` (18 cases / 73 assertions) plus an
+  integration test `explicit_widths_e2e_test.cpp` that drives the full
+  lexer + parser + sema pipeline against an inline program.
+
+### Changed
+
+- `PloySema` now exposes `TypeAliases()`, `ConstantCount()`, and
+  `LookupConstantText(name)` accessors so IDE / tooling layers can
+  surface alias and constant tables without reflection.
+- `PloyLowering` forwards `ConstDecl` through the immutable `VarDecl`
+  path and treats `TypeAliasDecl` as a non-executable declaration in
+  the synthetic-`main` classifier.
+- `docs/specs/language_spec.md{,_zh}` and
+  `docs/realization/ploy_language_spec.md{,_zh}` document the new
+  keyword set, alias rules, constant-folding contract, and updated
+  primitive type table.
+- `tests/samples/README.md{,_zh}` index lists the new sample under the
+  width-aware-numeric-types theme.
+
+### Compatibility
+
+- Backward compatible.  All pre-existing programs that used `INT` /
+  `FLOAT` continue to compile and produce identical IR; the new
+  surface keywords resolve through additional lookup paths only.
 
 ---
 

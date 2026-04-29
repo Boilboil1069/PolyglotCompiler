@@ -26,6 +26,7 @@ SAMPLES_DIR="$REPO_ROOT/tests/samples"
 BUILD_DIR="$REPO_ROOT/build"
 REPORT=""
 FAIL_ON_MISMATCH=0
+REQUIRE_MIN_OK=-1
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -33,6 +34,7 @@ while [ $# -gt 0 ]; do
         --build-dir)         BUILD_DIR="$2";   shift 2 ;;
         --report)            REPORT="$2";      shift 2 ;;
         --fail-on-mismatch)  FAIL_ON_MISMATCH=1; shift ;;
+        --require-min-ok)    REQUIRE_MIN_OK="$2"; shift 2 ;;
         -h|--help)
             sed -n '2,18p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
@@ -164,6 +166,19 @@ if [ "$FAIL_ON_MISMATCH" -eq 1 ]; then
     done
     if [ "$bad" -gt 0 ]; then
         echo "[samples] --fail-on-mismatch: $bad sample(s) not OK"
+        exit 1
+    fi
+fi
+
+# --require-min-ok: enforce a minimum number of samples in the OK bucket.
+# Exits 1 when the OK count is strictly below the requested threshold.
+if [ "$REQUIRE_MIN_OK" -ge 0 ]; then
+    ok_count=0
+    for st in "${STATUSES[@]}"; do
+        if [ "$st" = "OK" ]; then ok_count=$((ok_count + 1)); fi
+    done
+    if [ "$ok_count" -lt "$REQUIRE_MIN_OK" ]; then
+        echo "[samples] --require-min-ok $REQUIRE_MIN_OK not met: only $ok_count OK"
         exit 1
     fi
 fi

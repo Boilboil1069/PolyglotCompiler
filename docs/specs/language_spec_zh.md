@@ -72,7 +72,10 @@ PACKAGE     LIST        TUPLE       DICT        OPTION
 MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
 UV          PIPENV      POETRY      NEW         METHOD
 GET         SET         WITH        DELETE      EXTEND
-LANG        PRINTLN
+LANG        PRINTLN     TYPE        CONST       I8
+I16         I32         I64         U8          U16
+U32         U64         F32         F64         USIZE
+ISIZE
 ```
 
 `*` `RETURNS` �?`Ploy 1.5.2` 起已 **弃用**。遗留的
@@ -160,6 +163,39 @@ LET <名称>: <类型> = <表达�?;   // 不可�?
 VAR <名称>: <类型> = <表达�?;   // 可变
 ```
 
+### TYPE —— 类型别名（自 `Ploy 1.7.0` 起）
+
+```ploy
+TYPE <别名> = <类型表达式>;
+```
+
+`TYPE` 声明把 `别名` 注册为右侧类型表达式的同义符号；别名进入与 struct
+声明相同的命名空间，重复定义或屏蔽内置宽度关键字会以 `kRedefinedSymbol`
+报错。诊断信息触及别名时会同时打印底层类型，例如 `Pixel (alias of i32)`。
+
+```ploy
+TYPE Pixel        = i32;           // 宽度感知的整型别名
+TYPE ChannelCount = u32;
+TYPE PixelBuffer  = LIST(Pixel);   // 别名透传到泛型实参
+```
+
+### CONST —— 编译期常量（自 `Ploy 1.7.0` 起）
+
+```ploy
+CONST <名称>: <类型> = <表达式>;
+```
+
+`CONST` 声明必须显式标注类型，初始化器由 ploy 语义分析器折叠：支持字面量、
+对此前 `CONST` 的引用、一元 `-` / `!` / `NOT` 以及二元的算术、比较、逻辑
+运算符。声明类型与折叠结果出现宽度不匹配时发出警告。折叠后的常量会作为
+不可变变量注册到符号表，下游各阶段通过常规符号查找即可消费。
+
+```ploy
+CONST KMaxRetry: i32 = 5;
+CONST KAlias:    i32 = KMaxRetry;   // CONST 引用 CONST
+CONST KArea:     i64 = 10 * 20;     // 由 sema 折叠
+```
+
 ## 2.6 控制�?
 
 ### 条件语句
@@ -241,6 +277,25 @@ PIPELINE <名称> {
 ## 2.9 类型系统
 
 ### 原始类型
+
+自 `Ploy 1.7.0`（需求 2026-04-28-7）起，原始类型扩展为显式宽度的有/无符号
+整型与浮点型关键字。旧式拼写继续可用并按别名解析：
+
+- `INT` ≡ `i64`
+- `FLOAT` ≡ `f64`
+
+赋值或初始化时位宽不匹配（例如把 `i64` 表达式赋给 `i32` 槽位）会以
+`kTypeMismatch` 等级发出 **警告**；当诊断信息触及用户 `TYPE` 别名时，
+会同步打印底层原始类型，例如 `Pixel (alias of i32)`。
+
+| .ploy 关键字 | 底层 `core::Type` | 位宽 | 符号 |
+| --- | --- | --- | --- |
+| `i8` / `i16` / `i32` / `i64` | `Int(N, true)` | 8 / 16 / 32 / 64 | 有符号 |
+| `u8` / `u16` / `u32` / `u64` | `Int(N, false)` | 8 / 16 / 32 / 64 | 无符号 |
+| `f32` / `f64` | `Float(N)` | 32 / 64 | 不适用 |
+| `usize` / `isize` | 指针宽整数 | 平台原生 | 与名称一致 |
+| `INT`（`i64` 旧别名） | `Int(64, true)` | 64 | 有符号 |
+| `FLOAT`（`f64` 旧别名） | `Float(64)` | 64 | 不适用 |
 
 | .ploy 类型 | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
 |-----------|-----|--------|------|------|-----|------|-----------|------|

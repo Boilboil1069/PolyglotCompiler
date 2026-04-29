@@ -142,6 +142,17 @@ struct Type {
     t.language = std::move(lang);
     return t;
   }
+  /// Create a class type used for cross-language object handles.
+  /// `name` is the qualified class path (e.g. "torch::nn::Linear"),
+  /// `lang` is the originating foreign language (e.g. "python").  Two
+  /// class types compare equal only when both `name` and `language`
+  /// match, which is what `HANDLE<lang::T>` static type checking relies
+  /// on to forbid silent cross-language handle mixing.
+  static Type Class(std::string name, std::string lang = {}) {
+    Type t{TypeKind::kClass, std::move(name)};
+    t.language = std::move(lang);
+    return t;
+  }
   static Type Union(std::string name, std::string lang = {}) {
     Type t{TypeKind::kUnion, std::move(name)};
     t.language = std::move(lang);

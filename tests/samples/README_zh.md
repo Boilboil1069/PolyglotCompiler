@@ -28,7 +28,8 @@
 
 | Folder | Languages | Theme | Description |
 | --- | --- | --- | --- |
-| `01_basic_linking/` | C++, Python | Cross-language linking | LINK / CALL / IMPORT / EXPORT basics. |
+| `01_basic_linking/` | C++, Python | Cross-language linking | LINK / CALL / IMPORT / EXPORT 基础（旧的逗号形式 `LINK(...)`，已弃用）。 |
+| `01_basic_linking_v2/` | C++, Python | Cross-language linking | 与 `01_basic_linking` 等价，但使用推荐的带签名形式 `LINK ... AS FUNC(...) -> ...`。 |
 | `02_type_mapping/` | C++, Python | Type mapping | MAP_TYPE with structs and containers. |
 | `03_pipeline/` | C++, Python | Control flow | PIPELINE with IF / WHILE / FOR / MATCH. |
 | `04_package_import/` | C++, Python | Package import | IMPORT PACKAGE with version constraints. |
@@ -58,12 +59,14 @@
 | `28_ml_inference/` | Python, Rust | ML inference pipeline | Tokenizer + softmax scorer. |
 | `29_data_analytics/` | Python, Java | Data analytics | Loader + count/min/max/mean aggregator. |
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
+| `31_explicit_widths/` | Ploy, C++ | 显式宽度数值类型 + CONST | 演示 `i32` / `u32` / `i64`、`TYPE` 别名与折叠后的 `CONST`。 |
+| `32_typed_handles/` | Ploy, Python, C++ | 静态类型化的跨语言句柄 | `CLASS` 模式 + `HANDLE<lang::T>`，对 `NEW` / `METHOD` / `GET` / `SET` 进行编译期类型检查。 |
 
 ## 按主题分组
 
 - **Concurrency primitives**：`24_concurrency`
 - **Control flow**：`03_pipeline`
-- **Cross-language linking**：`01_basic_linking`
+- **Cross-language linking**：`01_basic_linking`（旧形式）、`01_basic_linking_v2`（带签名形式，推荐）
 - **Data analytics**：`29_data_analytics`
 - **Database access layer**：`22_database_access`
 - **Diagnostics**：`10_error_handling`
@@ -82,6 +85,8 @@
 - **Streaming file I/O**：`19_file_io`
 - **String processing pipeline**：`17_string_processing`
 - **Type mapping**：`02_type_mapping`、`13_generic_containers`
+- **显式宽度数值类型 + CONST**：`31_explicit_widths`
+- **静态类型化的跨语言句柄**：`32_typed_handles`
 
 ## 按语言组合分组
 
@@ -89,13 +94,15 @@
 - **C#, Python**：`12_dotnet_interop`、`16_config_and_venv`
 - **C++, Java**：`26_state_machine`
 - **C++, Java, Python**：`13_generic_containers`
-- **C++, Python**：`01_basic_linking`、`02_type_mapping`、`03_pipeline`、`04_package_import`、`05_class_instantiation`、`06_attribute_access`、`07_resource_management`、`08_delete_extend`、`10_error_handling`、`19_file_io`、`27_plugin_system`
+- **C++, Python**：`01_basic_linking`、`01_basic_linking_v2`、`02_type_mapping`、`03_pipeline`、`04_package_import`、`05_class_instantiation`、`06_attribute_access`、`07_resource_management`、`08_delete_extend`、`10_error_handling`、`19_file_io`、`27_plugin_system`
 - **C++, Python, Rust**：`09_mixed_pipeline`、`14_async_pipeline`
 - **C++, Rust**：`18_numeric_kernels`、`21_image_processing`、`24_concurrency`、`30_game_loop_demo`
 - **Go, Python**：`23_http_client`
 - **Java, Python**：`11_java_interop`、`20_json_pipeline`、`22_database_access`、`29_data_analytics`
 - **JavaScript, Python**：`25_event_loop`
 - **Python, Rust**：`17_string_processing`、`28_ml_inference`
+- **Ploy, C++**：`31_explicit_widths`
+- **Ploy, Python, C++**：`32_typed_handles`
 
 ## 构建单个样例
 

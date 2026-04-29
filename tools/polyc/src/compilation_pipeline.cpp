@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -98,6 +99,64 @@ struct InternalSymbol {
   bool global{true};
   bool defined{false};
 };
+
+// PE-7-D: result of folding a single CompiledObject's section bytes into the
+// running per-name section table. We hand it back to the symbol / relocation
+// passes so they can shift their offsets by `base_offset` (the size the
+// merged section had right before this object's bytes were appended).
+struct ObjAbsorbInfo {
+  std::string canonical_name;
+  std::uint32_t section_index{0xFFFFFFFF};
+  std::uint64_t base_offset{0};
+};
+
+// PE-7-D: merge one CompiledObject's bytes into the per-name section table.
+// Each CompiledObject corresponds to exactly one MC section (the backend's
+// `absorb_artifacts` path materialises one per emitted section), so this
+// function picks `obj.code` for `.text` and `obj.data` for everything else,
+// then either appends to the existing same-name InternalSection or registers
+// a fresh entry. The selector-style `sec.data = !obj.code.empty() ? ... :
+// obj.data;` shortcut that used to live here silently dropped any non-`.text`
+// payload of objects whose `obj.code` happened to be non-empty (none today,
+// but a footgun for any future backend that mixes both fields in one object).
+ObjAbsorbInfo AbsorbObjectSections(const CompiledObject &obj,
+                                   std::vector<InternalSection> &sections,
+                                   std::unordered_map<std::string, std::uint32_t> &sec_index) {
+  ObjAbsorbInfo info;
+  info.canonical_name = obj.name.empty() ? std::string(".text") : obj.name;
+  const auto &payload = (info.canonical_name == ".text" && !obj.code.empty()) ? obj.code
+                                                                              : obj.data;
+
+  auto it = sec_index.find(info.canonical_name);
+  if (it == sec_index.end()) {
+    InternalSection sec;
+    sec.name = info.canonical_name;
+    sec.data = payload;
+    info.section_index = static_cast<std::uint32_t>(sections.size());
+    info.base_offset = 0;
+    sec_index[info.canonical_name] = info.section_index;
+    sections.push_back(std::move(sec));
+  } else {
+    info.section_index = it->second;
+    auto &dst = sections[info.section_index];
+    info.base_offset = static_cast<std::uint64_t>(dst.data.size());
+    dst.data.insert(dst.data.end(), payload.begin(), payload.end());
+  }
+  return info;
+}
+
+// PE-7-D: stable section ordering used by the packaging pass. The ABI-fixed
+// loaders downstream (polyld + the native COFF/ELF/Mach-O writers) all expect
+// `.text` first, then read-only data, then writable data, then BSS. Anything
+// else keeps its original first-seen order so backends that emit custom
+// sections stay deterministic.
+int SectionPriority(const std::string &name) {
+  if (name == ".text") return 0;
+  if (name == ".rdata" || name == ".rodata") return 1;
+  if (name == ".data") return 2;
+  if (name == ".bss") return 3;
+  return 4;
+}
 
 void AppendDiagnostics(frontends::Diagnostics &src, std::vector<frontends::Diagnostic> &dst) {
   const auto &all = src.All();
@@ -791,12 +850,13 @@ public:
 
     std::vector<InternalSection> sections;
     std::unordered_map<std::string, std::uint32_t> sec_index;
+    // PE-7-D: per-CompiledObject absorption record so the symbol and
+    // relocation passes below can shift offsets when two objects target the
+    // same merged section (e.g. two `.text` translation units).
+    std::vector<ObjAbsorbInfo> absorb_log;
+    absorb_log.reserve(input.objects.size());
     for (const auto &obj : input.objects) {
-      InternalSection sec;
-      sec.name = obj.name.empty() ? ".text" : obj.name;
-      sec.data = !obj.code.empty() ? obj.code : obj.data;
-      sec_index[sec.name] = static_cast<std::uint32_t>(sections.size());
-      sections.push_back(std::move(sec));
+      absorb_log.push_back(AbsorbObjectSections(obj, sections, sec_index));
     }
 
     std::vector<InternalSymbol> symbols;
@@ -807,32 +867,42 @@ public:
     std::unordered_map<std::string, std::uint32_t> sym_index;
     sym_index["_start"] = 0;
 
-    for (const auto &obj : input.objects) {
+    for (std::size_t oi = 0; oi < input.objects.size(); ++oi) {
+      const auto &obj = input.objects[oi];
+      const auto &log = absorb_log[oi];
       for (const auto &sym : obj.symbols) {
+        // PE-7-D: a symbol's section may be `.text`/`.rdata`/... — look up
+        // the merged section by *name*, not by the owning object's slot,
+        // and shift the offset by the object-local base.
+        const std::string sym_section = sym.section.empty() ? std::string(".text") : sym.section;
+        const auto sec_it = sec_index.find(sym_section);
+        const std::uint64_t section_base =
+            (sec_it != sec_index.end() && sec_it->second == log.section_index) ? log.base_offset
+                                                                                : 0;
         auto existing = sym_index.find(sym.name);
         if (existing != sym_index.end()) {
           // If the existing entry is undefined but this one is
           // defined, upgrade it so the object correctly marks
           // the symbol as a local definition.
           auto &prev = symbols[existing->second];
-          if (!prev.defined && sym.is_defined && sec_index.count(sym.section) != 0) {
-            prev.section_index = sec_index[sym.section];
+          if (!prev.defined && sym.is_defined && sec_it != sec_index.end()) {
+            prev.section_index = sec_it->second;
             prev.defined = true;
-            prev.value = sym.offset;
+            prev.value = sym.offset + section_base;
             prev.size = sym.size;
           }
           continue;
         }
         InternalSymbol s;
         s.name = sym.name;
-        if (sym.is_defined && sec_index.count(sym.section) != 0) {
-          s.section_index = sec_index[sym.section];
+        if (sym.is_defined && sec_it != sec_index.end()) {
+          s.section_index = sec_it->second;
           s.defined = true;
         } else {
           s.section_index = 0xFFFFFFFF;
           s.defined = false;
         }
-        s.value = sym.offset;
+        s.value = sym.offset + section_base;
         s.size = sym.size;
         s.global = sym.is_global();
         sym_index[s.name] = static_cast<std::uint32_t>(symbols.size());
@@ -840,12 +910,19 @@ public:
       }
     }
 
-    for (const auto &obj : input.objects) {
-      const auto si_it = sec_index.find(obj.name.empty() ? ".text" : obj.name);
-      if (si_it == sec_index.end())
-        continue;
-      auto &dst_relocs = sections[si_it->second].relocs;
+    for (std::size_t oi = 0; oi < input.objects.size(); ++oi) {
+      const auto &obj = input.objects[oi];
+      const auto &log = absorb_log[oi];
       for (auto rel : obj.relocations) {
+        // PE-7-D: a relocation belongs to whatever section the backend says
+        // it does (typically `.text`). Resolve via section name, then shift
+        // its byte offset by this object's base inside the merged section.
+        const std::string rel_section = rel.section.empty() ? std::string(".text") : rel.section;
+        const auto si_it = sec_index.find(rel_section);
+        if (si_it == sec_index.end())
+          continue;
+        const std::uint64_t section_base =
+            (si_it->second == log.section_index) ? log.base_offset : 0;
         if (sym_index.count(rel.symbol) == 0) {
           InternalSymbol ext;
           ext.name = rel.symbol;
@@ -856,7 +933,46 @@ public:
           symbols.push_back(std::move(ext));
         }
         rel.symbol_index = static_cast<int>(sym_index[rel.symbol]);
-        dst_relocs.push_back(std::move(rel));
+        rel.offset += section_base;
+        sections[si_it->second].relocs.push_back(std::move(rel));
+      }
+    }
+
+    // PE-7-D: stable-sort the merged sections into the canonical loader
+    // order (`.text → .rdata → .data → .bss → others`) and rewrite both
+    // `sec_index` and every `InternalSymbol::section_index` so consumers
+    // that key off raw indices stay correct after the reordering. Stable
+    // sort preserves insertion order inside each priority bucket, which is
+    // what backends that emit several custom sections rely on.
+    std::vector<std::uint32_t> permutation(sections.size());
+    for (std::size_t i = 0; i < permutation.size(); ++i)
+      permutation[i] = static_cast<std::uint32_t>(i);
+    std::stable_sort(permutation.begin(), permutation.end(),
+                     [&](std::uint32_t a, std::uint32_t b) {
+                       return SectionPriority(sections[a].name) <
+                              SectionPriority(sections[b].name);
+                     });
+    bool needs_reorder = false;
+    for (std::size_t i = 0; i < permutation.size(); ++i) {
+      if (permutation[i] != i) {
+        needs_reorder = true;
+        break;
+      }
+    }
+    if (needs_reorder) {
+      std::vector<InternalSection> sorted_sections;
+      sorted_sections.reserve(sections.size());
+      std::vector<std::uint32_t> old_to_new(sections.size(), 0xFFFFFFFFu);
+      for (std::size_t i = 0; i < permutation.size(); ++i) {
+        old_to_new[permutation[i]] = static_cast<std::uint32_t>(i);
+        sorted_sections.push_back(std::move(sections[permutation[i]]));
+      }
+      sections = std::move(sorted_sections);
+      for (auto &kv : sec_index)
+        kv.second = old_to_new[kv.second];
+      for (auto &sym : symbols) {
+        if (sym.section_index != 0xFFFFFFFFu)
+          sym.section_index = old_to_new[sym.section_index];
       }
     }
 

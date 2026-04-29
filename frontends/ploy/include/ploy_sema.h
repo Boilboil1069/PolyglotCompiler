@@ -262,6 +262,21 @@ public:
     return struct_defs_;
   }
 
+  // Type alias and compile-time constant accessors (demand 2026-04-28-7).
+  const std::unordered_map<std::string, core::Type> &TypeAliases() const {
+    return type_aliases_;
+  }
+  /// Number of compile-time constants successfully folded.  Tests that
+  /// only need a count (rather than the full table) can use this without
+  /// having to forward-declare the private ConstValue struct.
+  size_t ConstantCount() const { return constants_.size(); }
+  /// Look up the folded textual value of a CONST symbol.  Returns nullptr
+  /// when the name is not a successfully folded constant.
+  const std::string *LookupConstantText(const std::string &name) const {
+    auto it = constants_.find(name);
+    if (it == constants_.end()) return nullptr;
+    return &it->second.folded_text;
+  }
   /// Inject foreign function signatures extracted from external source files.
   /// Signatures already present (e.g. from LINK declarations) are NOT overwritten.
   void InjectForeignSignatures(
@@ -281,6 +296,16 @@ private:
   void AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
   void AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config);
   void AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
+
+  // Foreign-class signature block analysis (demand 2026-04-28-9). Builds a
+  // ForeignClassSchema from the declared METHOD / ATTR rows and registers it
+  // so that subsequent NEW / METHOD / GET / SET expressions can resolve to
+  // statically-typed HANDLE<lang::T> values rather than Any.
+  void AnalyzeClassDecl(const std::shared_ptr<ClassDecl> &cls_decl);
+
+  // Type alias and compile-time constant analysis (demand 2026-04-28-7).
+  void AnalyzeTypeAliasDecl(const std::shared_ptr<TypeAliasDecl> &alias_decl);
+  void AnalyzeConstDecl(const std::shared_ptr<ConstDecl> &const_decl);
 
   // Statement analysis
   void AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
@@ -447,6 +472,38 @@ private:
   // pushed by `WITH LANG (...)` blocks and `@LANG(...)` annotations.
   std::vector<std::unordered_map<std::string, std::string>> lang_pin_stack_{
       std::unordered_map<std::string, std::string>{}};
-};
 
+  // ==========================================================================
+  // Type alias and compile-time constant tables (demand 2026-04-28-7).
+  // ==========================================================================
+
+  /// Type alias table: alias_name -> aliased core::Type.  Aliases are
+  /// resolved eagerly at declaration; ResolveType consults this map before
+  /// falling through to the built-in primitive / struct branches so that
+  /// alias names take precedence over user-defined struct names with the
+  /// same spelling (a redefinition error is reported at declaration time).
+  std::unordered_map<std::string, core::Type> type_aliases_{};
+
+  /// Reverse lookup `type.ToString() -> alias_name`, used purely for
+  /// diagnostic rendering: when a width-mismatch error refers to a type
+  /// that came from an alias, the message reads `T (alias of i32)`.
+  std::unordered_map<std::string, std::string> type_alias_origin_{};
+
+  /// Compile-time constant table.  Populated by AnalyzeConstDecl after
+  /// successful constant folding; consumed by AnalyzeExpression so that
+  /// references to declared constants resolve to their declared type.
+  /// `ConstValue` is intentionally a public nested type so that the
+  /// translation-unit-local constant folder in sema.cpp can reference it
+  /// without needing privileged access to private members.
+public:
+  struct ConstValue {
+    core::Type type{core::Type::Invalid()};
+    /// Folded textual representation of the value — preserved verbatim so
+    /// the IR-emission stage can re-parse it without re-running the folder.
+    std::string folded_text;
+  };
+
+private:
+  std::unordered_map<std::string, ConstValue> constants_{};
+};
 } // namespace polyglot::ploy

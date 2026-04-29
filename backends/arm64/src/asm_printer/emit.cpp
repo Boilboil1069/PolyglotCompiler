@@ -781,6 +781,39 @@ Arm64Target::MCResult Arm64Target::EmitObjectCode() {
           Emit32(text_sec.data, 0xD65F03C0); // RET
           break;
         }
+        case Opcode::kLea: {
+          // PE-7-C: Materialise the address of an external/global symbol
+          // using the canonical AArch64 PIC pair `ADRP Rd, sym@PAGE` +
+          // `ADD  Rd, Rd, #sym@PAGEOFF`. The two relocations (types 2 and
+          // 3 — PAGE21 / PAGEOFF12) are emitted into the `.text` reloc
+          // table so polyld can patch both pieces against the resolved
+          // address of the global at link time.
+          if (mi.operands.empty() || mi.def < 0)
+            break;
+          const auto &src = mi.operands[0];
+          if (src.kind != Operand::Kind::kLabel)
+            break;
+          Register dst_reg = Resolve(Operand::VReg(mi.def), alloc);
+          std::size_t adrp_off = text_sec.data.size();
+          Emit32(text_sec.data, 0x90000000u | RegCode(dst_reg)); // ADRP Rd, sym@PAGE
+          result.relocs.push_back({.section = ".text",
+                                   .offset = static_cast<std::uint32_t>(adrp_off),
+                                   .type = 2,
+                                   .symbol = src.label,
+                                   .addend = 0});
+          std::size_t add_off = text_sec.data.size();
+          // ADD Xd, Xd, #0 (12-bit immediate) — opcode 0x91000000
+          Emit32(text_sec.data,
+                 0x91000000u | (static_cast<std::uint32_t>(RegCode(dst_reg)) << 5) |
+                     RegCode(dst_reg));
+          result.relocs.push_back({.section = ".text",
+                                   .offset = static_cast<std::uint32_t>(add_off),
+                                   .type = 3,
+                                   .symbol = src.label,
+                                   .addend = 0});
+          result.symbols.push_back({src.label, "", 0, 0, true, false});
+          break;
+        }
         default: {
           Emit32(text_sec.data, 0xD503201F); // NOP
           break;
@@ -806,6 +839,60 @@ Arm64Target::MCResult Arm64Target::EmitObjectCode() {
   }
 
   result.sections.push_back(std::move(text_sec));
+
+  // Emit IR-level read-only globals into a real `.rdata` section, mirroring
+  // the x86_64 contract bit-for-bit so polyld's section-driven message
+  // recovery pass treats both architectures uniformly.
+  //   * `ConstantString` initializers are emitted as their decoded bytes
+  //     plus a trailing NUL when the IR marked them null-terminated.
+  //   * `ConstantGEP` initializers whose base is one of the above strings
+  //     materialise an 8-byte ABS64 slot plus a relocation against the base
+  //     so the runtime address is patched in at link time.
+  // Strings are emitted before aliases so the alias relocs can name a
+  // symbol that already exists in `result.symbols`.
+  if (module_) {
+    MCSection rodata;
+    rodata.name = ".rdata";
+    for (const auto &gv : module_->Globals()) {
+      if (!gv || !gv->initializer)
+        continue;
+      auto cs = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(gv->initializer);
+      if (!cs)
+        continue;
+      std::uint64_t off = static_cast<std::uint64_t>(rodata.data.size());
+      rodata.data.insert(rodata.data.end(), cs->data.begin(), cs->data.end());
+      if (cs->null_terminated) {
+        rodata.data.push_back(0x00);
+      }
+      std::uint64_t total = static_cast<std::uint64_t>(cs->data.size()) +
+                            (cs->null_terminated ? 1u : 0u);
+      result.symbols.push_back({gv->name, ".rdata", off, total, true, true});
+    }
+    for (const auto &gv : module_->Globals()) {
+      if (!gv || !gv->initializer)
+        continue;
+      auto gep = std::dynamic_pointer_cast<polyglot::ir::ConstantGEP>(gv->initializer);
+      if (!gep || !gep->base)
+        continue;
+      auto base_gv = std::dynamic_pointer_cast<polyglot::ir::GlobalValue>(gep->base);
+      if (!base_gv)
+        continue;
+      std::uint64_t off = static_cast<std::uint64_t>(rodata.data.size());
+      rodata.data.insert(rodata.data.end(), 8, 0x00);
+      result.symbols.push_back({gv->name, ".rdata", off, 8u, true, true});
+      MCReloc r{.section = ".rdata",
+                .offset = static_cast<std::uint32_t>(off),
+                .type = 0u, // ABS64 — polyld patches the slot with the
+                            // runtime address of the underlying string.
+                .symbol = base_gv->name,
+                .addend = 0};
+      result.relocs.push_back(r);
+    }
+    if (!rodata.data.empty()) {
+      result.sections.push_back(std::move(rodata));
+    }
+  }
+
   return result;
 }
 

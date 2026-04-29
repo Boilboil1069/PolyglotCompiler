@@ -9,6 +9,25 @@
 
 ---
 
+> **Notice (v1.8.0).** The legacy `LINK(target_lang, source_lang, target, source);`
+> comma-form syntax is now **deprecated**.  Sema emits a
+> `kDeprecatedKeyword` warning whenever it is used.  Please prefer the
+> canonical signed form:
+>
+> ```ploy
+> LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret>;
+> ```
+>
+> Examples elsewhere in this guide may still use the legacy form for
+> historical context; new code SHOULD use the signed form.  See sample
+> [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)
+> for a full mirror in the new form.
+>
+> The same release also promotes `STAGE` to a reserved keyword that may
+> only appear inside a `PIPELINE` body.
+
+---
+
 ## Table of Contents
 
 1. [Project Overview](#1-project-overview)
@@ -451,6 +470,13 @@ LANG
 LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
 BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
 
+// Explicit-width primitives + TYPE alias + CONST (since v1.7.0)
+TYPE      CONST
+I8        I16       I32       I64
+U8        U16       U32       U64
+F32       F64
+USIZE     ISIZE
+
 // Control flow
 RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
 MATCH     CASE      DEFAULT   BREAK      CONTINUE
@@ -625,6 +651,10 @@ EXPORT compute;                                // Use original name
 | Category | Types | Syntax |
 |----------|-------|--------|
 | Primitives | Integer, Float, Boolean, String, Void | `INT`, `FLOAT`, `BOOL`, `STRING`, `VOID` |
+| Width-aware integers (v1.7.0) | Signed/unsigned 8/16/32/64-bit + pointer-width | `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `usize` `isize` |
+| Width-aware floats (v1.7.0)   | 32/64-bit IEEE-754 | `f32` `f64` |
+| Type alias (v1.7.0)           | Named synonym for any type expression | `TYPE Pixel = i32;` |
+| Compile-time constant (v1.7.0)| Folded immutable value, requires explicit type | `CONST KMaxRetry: i32 = 5;` |
 | Containers | List, Tuple, Dict, Optional | `LIST(T)`, `TUPLE(T1, T2)`, `DICT(K, V)`, `OPTION(T)` |
 | Struct | User-defined composite type | `STRUCT Point { x: f64, y: f64 }` |
 | Array | Fixed-length array | `ARRAY(INT)` |
@@ -2893,11 +2923,12 @@ For the complete specification, see [`docs/specs/plugin_specification.md`](specs
 
 | Keyword | Purpose | Example |
 |---------|---------|---------|
-| `LINK` | Cross-language function linking | `LINK(cpp, python, f, g);` |
+| `LINK` | Cross-language function linking (signed form) | `LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;` |
 | `IMPORT` | Module/package import | `IMPORT python PACKAGE numpy >= 1.20;` |
 | `EXPORT` | Symbol export | `EXPORT func AS "name";` |
 | `MAP_TYPE` | Type mapping | `MAP_TYPE(cpp::int, python::int);` |
 | `PIPELINE` | Multi-stage pipeline | `PIPELINE name { ... }` |
+| `STAGE` | Pipeline stage marker (only inside `PIPELINE`) | `STAGE preprocess CALL python::utils::normalize;` |
 | `FUNC` | Function declaration | `FUNC f(x: INT) -> INT { ... }` |
 | `LET` / `VAR` | Variable declaration | `LET x = 42;` / `VAR y = 0;` |
 | `CALL` | Cross-language call | `CALL(python, np::mean, data)` |

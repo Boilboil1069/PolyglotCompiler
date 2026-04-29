@@ -100,6 +100,13 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/keyword_alias_test.cpp
     unit/frontends/ploy/println_stmt_test.cpp
     unit/frontends/ploy/println_lowering_test.cpp
+    unit/frontends/ploy/synthetic_main_test.cpp
+    unit/frontends/ploy/type_alias_test.cpp
+    unit/frontends/ploy/const_decl_test.cpp
+    unit/frontends/ploy/width_mismatch_diag_test.cpp
+    unit/frontends/ploy/link_deprecation_test.cpp
+    unit/frontends/ploy/stage_misuse_test.cpp
+    unit/frontends/ploy/typed_handle_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -148,6 +155,8 @@ set(UNIT_TEST_BACKENDS
     unit/backends/debug_emitter_normalization_test.cpp
     unit/backends/wasm_target_test.cpp
     unit/backends/coff_builder_test.cpp
+    unit/backends/globals_emit_test.cpp
+    unit/backends/printf_lea_reloc_test.cpp
 )
 
 set(UNIT_TEST_RUNTIME
@@ -190,6 +199,7 @@ set(UNIT_TEST_E2E
     unit/e2e/e2e_compilation_test.cpp
     unit/e2e/compilation_behavior_test.cpp
     unit/e2e/polyc_cli_e2e_test.cpp
+    unit/polyc/section_passthrough_test.cpp
     unit/e2e/expansion_features_test.cpp
 )
 
@@ -444,6 +454,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/ploy_e2e_real_exit_code_test.cpp
     integration/samples_regression_test.cpp
     integration/profiler_e2e_test.cpp
+    integration/explicit_widths_e2e_test.cpp
+    integration/printf_pipeline_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})

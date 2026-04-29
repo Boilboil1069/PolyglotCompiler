@@ -1,0 +1,72 @@
+// ============================================================================
+// typed_handles.ploy — Statically-typed cross-language object handles.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Python (modelled), C++ (modelled).
+//
+// Demonstrates demand 2026-04-28-9 features:
+//   * CLASS schema declaration for foreign classes (METHOD + ATTR rows).
+//   * NEW(...) yielding a statically-typed HANDLE<lang::T> instead of Any.
+//   * METHOD / GET / SET routed through the schema for static argument-
+//     and return-type checking.
+//   * Cross-language handle inequality: HANDLE<a::T> never silently
+//     converts to HANDLE<b::U>.
+//   * Backward-compatible dynamic dispatch (warning, not error) when a
+//     method or attribute is not declared in the schema.
+// ============================================================================
+
+// --- Foreign-class signature blocks ---
+//
+// Each CLASS block registers an explicit type schema for a foreign-language
+// class.  Without these blocks the cross-language NEW / METHOD / GET / SET
+// expressions fall back to dynamic dispatch and the handle type degrades
+// to Any.  With the blocks, the sema can validate every cross-boundary
+// call at compile time.
+
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+    ATTR out_features: i32;
+}
+
+CLASS cpp::matrix::Matrix {
+    METHOD __init__(rows: i32, cols: i32, fill: f64);
+    METHOD assign(row: i32, col: i32, value: f64);
+    METHOD fetch(row: i32, col: i32) -> f64;
+}
+
+// ============================================================================
+// Demo: typed construction and method dispatch via the registered schemas.
+// All four call sites below are statically validated against the CLASS
+// schemas above; an arity or type mismatch would be reported at compile
+// time, before any host-language tool-chain is invoked.
+// ============================================================================
+FUNC build_model() -> i32 {
+    // NEW returns HANDLE<python::torch::nn::Linear> (not Any) because the
+    // CLASS schema is registered.  The HANDLE annotation is optional but
+    // recommended for clarity; sema would infer the same type without it.
+    LET model: HANDLE<python::torch::nn::Linear> = NEW(python, torch::nn::Linear, 128, 10);
+
+    // METHOD argument types are checked against the schema row above.
+    LET out: f32 = METHOD(python, model, forward, 1.0);
+
+    // GET / SET resolve attribute types from the ATTR rows.
+    LET in_count: i32 = GET(python, model, in_features);
+
+    // A second handle in a different language — statically distinct from
+    // the first and not assignable to it.
+    LET mat: HANDLE<cpp::matrix::Matrix> = NEW(cpp, matrix::Matrix, 3, 3, 0.0);
+    METHOD(cpp, mat, assign, 0, 0, 1.5);
+    LET cell: f64 = METHOD(cpp, mat, fetch, 0, 0);
+
+    RETURN in_count;
+}
+
+// ============================================================================
+// Runtime stdout marker.
+// Emitting a deterministic line lets the build_all_samples regression
+// harness compare stdout byte-for-byte against expected_output.txt without
+// taking a hard dependency on the foreign tool-chains being installed.
+// ============================================================================
+PRINTLN "32_typed_handles: ok\r\n";

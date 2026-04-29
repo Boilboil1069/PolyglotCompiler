@@ -7,8 +7,113 @@
 [`api/api_reference_zh.md`](api/api_reference_zh.md) 以及 [`realization/`](realization/)
 下的逐特性说明。
 
-下述版本范围为 **v0.1.0 (2026-01-15) → v1.6.0 (2026-04-29)**，新版本在前。
+下述版本范围为 **v0.1.0 (2026-01-15) → v1.8.0 (2026-04-29)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
+
+---
+
+## v1.8.0 (2026-04-29)
+
+**Ploy 语法清理：跨语言链接采用全新的标准 / 带签名 `LINK` 形式作为推荐写法，
+`STAGE` 升级为保留关键字且只能出现在 `PIPELINE` 体内。**
+
+### 新增
+
+- 标准带签名 `LINK` 形式：
+
+  ```ploy
+  LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type>;
+  LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type> {
+      MAP_TYPE(<target>, <source>);
+  }
+  ```
+
+  由新增的 `PloyParser::ParseSignedLinkDecl()` 解析；现有的
+  `ParseLinkDecl()` 现在作为分发器，依据 `LINK` 之后是 `(`（旧形式）
+  还是标识符（带签名形式）路由到对应实现。
+
+- 新增 `STAGE` 关键字（规范关键字总数 71 → 72）。`ParseStatement`
+  仅在解析器当前处于 `PIPELINE` 体内（`PloyParser::in_pipeline_context_`）
+  时才接受 `STAGE [name] CALL <lang>::<module>::<func>;`，否则报告
+  解析诊断。
+
+- 在 AST 中新增 `LinkDecl::is_legacy_form` 布尔标志和
+  `StageDecl{name, call_target, language}` 节点。
+
+- 镜像示例 [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)
+  使用带签名形式重写 v1 跨语言链接示例；v1 的 README 现被标注为
+  *legacy form*。
+
+- `tests/unit/frontends/ploy/` 新增两个单元测试：
+  `link_deprecation_test.cpp`（验证 `kDeprecatedKeyword` 警告会被发出）
+  与 `stage_misuse_test.cpp`（验证 `STAGE` 出现在 `PIPELINE` 之外
+  会被解析器拒绝）。
+
+### 变更
+
+- `PloySema::AnalyzeLinkDecl` 在遇到 `is_legacy_form` 为 true 的
+  `LinkDecl` 时会发出 `kDeprecatedKeyword` 警告。
+- `docs/realization/ploy_language_spec.md`（含 `_zh.md`）§4.2 同时收录
+  两种形式，且把带签名形式列在前面作为推荐写法。
+- `docs/USER_GUIDE.md`（含 `_zh.md`）：在文档顶部新增弃用通告；
+  关键字速查表的 `LINK` 示例更新为带签名形式，并新增 `STAGE` 行。
+- `tests/samples/README.md`（含 `_zh.md`）：示例索引收录 v2 镜像示例，
+  v1 示例标注为 *legacy form*。
+
+### 兼容性
+
+- Windows / MSVC 上 19 个分模块测试二进制全部通过（1215 用例，
+  约 89,000 个断言），现有 Ploy 程序无源码级破坏：旧形式
+  `LINK(...)` 仍然能编译，只是会多一条警告诊断。
+
+---
+
+## v1.7.0 (2026-04-29)
+
+**Ploy 新增显式宽度原始类型、`TYPE` 别名以及带常量折叠和宽度警告的编译期
+`CONST` 声明。**
+
+### 新增
+
+- 14 个 Ploy 关键字：`i8` / `i16` / `i32` / `i64`、`u8` / `u16` / `u32` /
+  `u64`、`f32` / `f64`、`usize` / `isize`，以及 `TYPE` 与 `CONST`。
+  全部关键字遵循原有的大小写不敏感词法折叠；规范关键字总数由 56 增至 71。
+- `PloySema::ResolveType` 中加入宽度感知的原始类型解析，将新关键字映射
+  到类型系统已有的 `core::Type::Int(N, sign)` / `core::Type::Float(N)`
+  工厂。
+- `TYPE <name> = <type_expr>;` 声明注册命名别名，与 struct 共享查找路径；
+  反向映射 `formatted_type → alias_name` 让诊断文本可输出
+  `Pixel (alias of i32)` 之类的提示。
+- `CONST <name>: <type> = <expr>;` 声明由新的递归折叠器处理，覆盖字面量、
+  对此前 `CONST` 的引用、一元 `-` / `!` / `NOT` 以及二元算术、比较、逻辑
+  运算（同时支持 `+` 作为字符串拼接）。声明类型与折叠结果出现宽度不匹配
+  时按 `kTypeMismatch` 等级发出警告。
+- `INT` 与 `FLOAT` 现作为 `i64` / `f64` 的官方别名；旧程序无需改动即可
+  继续编译。
+- 新增样例 `tests/samples/31_explicit_widths/`，演示 `i32` / `u32` / `i64`
+  的跨语言链接（带 C++ 内核），并提供双语 `README.md` / `README_zh.md`
+  与标准 `expected_output.txt` 回归产物。
+- 新增单元测试集 `type_alias_test.cpp`、`const_decl_test.cpp`、
+  `width_mismatch_diag_test.cpp`（18 用例 / 73 断言），以及驱动完整
+  lexer + parser + sema 流水线的集成测试 `explicit_widths_e2e_test.cpp`。
+
+### 变更
+
+- `PloySema` 暴露 `TypeAliases()`、`ConstantCount()`、
+  `LookupConstantText(name)` 访问器，IDE / 工具层无需反射即可查询别名和
+  常量表。
+- `PloyLowering` 将 `ConstDecl` 转交不可变 `VarDecl` 路径处理；并在合成
+  `main` 分类器中把 `TypeAliasDecl` 视为非执行声明。
+- `docs/specs/language_spec.md{,_zh}` 与
+  `docs/realization/ploy_language_spec.md{,_zh}` 同步记录新关键字集、
+  别名规则、常量折叠契约与原始类型表的更新。
+- `tests/samples/README.md{,_zh}` 索引在“显式宽度数值类型”主题下列出
+  新样例。
+
+### 兼容性
+
+- 完全向后兼容。所有使用 `INT` / `FLOAT` 的旧程序保持编译通过且 IR 输出
+  一致；新表层关键字仅通过额外的查找路径解析。
 
 ---
 

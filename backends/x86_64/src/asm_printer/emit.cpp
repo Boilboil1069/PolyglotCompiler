@@ -844,6 +844,36 @@ X86Target::MCResult X86Target::EmitObjectCode() {
           result.symbols.push_back({target.label, "", 0, 0, true, false});
           break;
         }
+        case Opcode::kLea: {
+          // PE-7-C: Materialise the address of an external/global symbol
+          // into a register via `lea reg, [rip + 0]` plus a REL32
+          // relocation that polyld will patch with the correct
+          // PC-relative displacement at link time. The 32-bit field uses
+          // addend `-4` because the CPU evaluates `[rip+disp32]` after
+          // the instruction has been fetched, so the displacement must be
+          // measured from the byte right after the disp32 itself.
+          if (mi.operands.empty() || mi.def < 0)
+            break;
+          const auto &src = mi.operands[0];
+          if (src.kind != Operand::Kind::kLabel)
+            break;
+          Register dst_reg = Resolve(Operand::VReg(mi.def), alloc);
+          text_sec.data.push_back(0x48);                               // REX.W
+          text_sec.data.push_back(0x8D);                               // lea
+          text_sec.data.push_back(ModRM(0b00, RegCode(dst_reg), 0b101)); // [rip+disp32]
+          std::size_t reloc_offset = text_sec.data.size();
+          for (int i = 0; i < 4; ++i)
+            text_sec.data.push_back(0x00);
+          MCReloc r;
+          r.section = ".text";
+          r.offset = static_cast<std::uint32_t>(reloc_offset);
+          r.type = 1;
+          r.symbol = src.label;
+          r.addend = -4;
+          result.relocs.push_back(r);
+          result.symbols.push_back({src.label, "", 0, 0, true, false});
+          break;
+        }
         case Opcode::kRet: {
           if (!mi.operands.empty()) {
             const auto &src = mi.operands[0];
@@ -875,28 +905,65 @@ X86Target::MCResult X86Target::EmitObjectCode() {
     std::size_t func_end = text_sec.data.size();
     if (!result.symbols.empty())
       result.symbols.back().size = func_end - func_start;
-
-    // Append an unreachable lea to data symbol to exercise data relocations.
-    std::size_t reloc_disp_off = text_sec.data.size() + 3;
-    text_sec.data.insert(text_sec.data.end(), {0x48, 0x8D, 0x05, 0x00, 0x00, 0x00, 0x00});
-    MCReloc dr;
-    dr.section = ".text";
-    dr.offset = static_cast<std::uint32_t>(reloc_disp_off);
-    dr.type = 1;
-    dr.symbol = "msg";
-    dr.addend = 0;
-    result.relocs.push_back(dr);
   }
 
-  // Emit a tiny rodata section for demonstration
+  // Emit IR-level read-only globals into a real `.rdata` section. The two
+  // shapes we recognise are:
+  //   * `ConstantString` initializers — the bytes interned by
+  //     `IRBuilder::MakeStringLiteral` plus a trailing NUL so legacy CRT
+  //     consumers that still expect C-strings keep working alongside the
+  //     pointer+length runtime contract.
+  //   * `ConstantGEP` initializers whose base is one of the above strings —
+  //     these are the `.ptr` aliases the lowering layer hands to
+  //     `polyrt_println` calls. We materialise an 8-byte ABS64 slot and add
+  //     a relocation so that polyld patches the slot with the runtime
+  //     address of the underlying string at link time.
+  // The two sub-passes are emitted in dependency order (strings first,
+  // then aliases) so the alias relocations can name a symbol that already
+  // exists in `result.symbols`.
   MCSection rodata;
-  rodata.name = ".data";
-  const char msg[] = "hello\0";
-  rodata.data.insert(rodata.data.end(), msg, msg + sizeof(msg));
-  result.symbols.push_back({"msg", rodata.name, 0, sizeof(msg), true, true});
+  rodata.name = ".rdata";
+  for (const auto &gv : module_->Globals()) {
+    if (!gv || !gv->initializer)
+      continue;
+    auto cs = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(gv->initializer);
+    if (!cs)
+      continue;
+    std::uint64_t off = static_cast<std::uint64_t>(rodata.data.size());
+    rodata.data.insert(rodata.data.end(), cs->data.begin(), cs->data.end());
+    if (cs->null_terminated) {
+      rodata.data.push_back(0x00);
+    }
+    std::uint64_t total = static_cast<std::uint64_t>(cs->data.size()) +
+                          (cs->null_terminated ? 1u : 0u);
+    result.symbols.push_back({gv->name, ".rdata", off, total, true, true});
+  }
+  for (const auto &gv : module_->Globals()) {
+    if (!gv || !gv->initializer)
+      continue;
+    auto gep = std::dynamic_pointer_cast<polyglot::ir::ConstantGEP>(gv->initializer);
+    if (!gep || !gep->base)
+      continue;
+    auto base_gv = std::dynamic_pointer_cast<polyglot::ir::GlobalValue>(gep->base);
+    if (!base_gv)
+      continue;
+    std::uint64_t off = static_cast<std::uint64_t>(rodata.data.size());
+    rodata.data.insert(rodata.data.end(), 8, 0x00);
+    result.symbols.push_back({gv->name, ".rdata", off, 8u, true, true});
+    MCReloc r;
+    r.section = ".rdata";
+    r.offset = static_cast<std::uint32_t>(off);
+    r.type = 0; // ABS64 — polyld patches the 8-byte slot with the runtime
+                // address of the underlying string symbol.
+    r.symbol = base_gv->name;
+    r.addend = 0;
+    result.relocs.push_back(r);
+  }
 
   result.sections.push_back(std::move(text_sec));
-  result.sections.push_back(std::move(rodata));
+  if (!rodata.data.empty()) {
+    result.sections.push_back(std::move(rodata));
+  }
   return result;
 }
 

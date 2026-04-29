@@ -35,11 +35,16 @@ PACKAGE     LIST        TUPLE       DICT        OPTION
 MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
 UV          PIPENV      POETRY      NEW         METHOD
 GET         SET         WITH        DELETE      EXTEND
-LANG
+LANG        PRINTLN     TYPE        CONST       I8
+I16         I32         I64         U8          U16
+U32         U64         F32         F64         USIZE
+ISIZE
 ```
 
-Total: 56 keywords (including the deprecated `RETURNS` and the
-language-version-pinning `LANG`).
+Total: 71 keywords (including the deprecated `RETURNS`, the
+language-version-pinning `LANG`, the standard-output statement `PRINTLN`,
+and the explicit-width primitives + `TYPE` / `CONST` introduced in
+`Ploy 1.7.0`).
 
 **Case-insensitivity (Ploy 1.5.2+).** Reserved words are matched
 case-insensitively at the lexer level: `link`, `Link`, `LINK`, `LiNk`
@@ -137,30 +142,61 @@ top_level_decl  ::= link_decl | import_decl | export_decl | map_type_decl
 
 ### 4.2 LINK Directive
 
-The core construct for cross-language function-level linking. Uses a **parenthesized 4-argument form**:
+The core construct for cross-language function-level linking.  Two surface
+forms are recognised by the parser:
+
+#### 4.2.1 Canonical / signed form (recommended, since v1.8.0)
+
+```ploy
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type>;
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type> {
+    MAP_TYPE(<target_type>, <source_type>);
+    // ... one MAP_TYPE per parameter
+}
+```
+
+The signed form embeds a real function signature so that:
+
+* the target symbol is fully qualified (`lang::module::func`) and unambiguous;
+* parameter and return types are statically declared and checked by sema;
+* the form reads naturally as "link this symbol *as* a function of this signature".
+
+Examples:
+
+```ploy
+// Simple signed link (no body)
+LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;
+
+// Signed link with MAP_TYPE body
+LINK cpp::math::process AS FUNC(cpp::double, cpp::int) -> cpp::double {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+```
+
+#### 4.2.2 Legacy comma form (deprecated, still parsed)
 
 ```ploy
 LINK(target_language, source_language, target_function, source_function);
-```
 
-Extended forms:
-
-```ploy
-// Link with explicit type mapping body (no trailing semicolon)
+// with body
 LINK(cpp, python, math::process, data::load) {
     MAP_TYPE(cpp::double, python::float);
     MAP_TYPE(cpp::int, python::int);
 }
 
-// Link a variable (global data sharing)
+// AS VAR / AS STRUCT modifiers (still apply to legacy form only)
 LINK(cpp, python, config_data, py_config) AS VAR;
-
-// Link a struct/class
 LINK(cpp, rust, Point, RustPoint) AS STRUCT {
     MAP_TYPE(cpp::double, rust::f64);
     MAP_TYPE(cpp::int, rust::i32);
 }
 ```
+
+The semantic analyzer emits a `kDeprecatedKeyword` warning for every
+legacy-form `LINK(...)` it encounters.  New code SHOULD use the signed form;
+existing samples are mirrored under `tests/samples/<n>_v2/` where the
+canonical form has been adopted (see `01_basic_linking_v2/`).
 
 ### 4.3 IMPORT Directive
 
@@ -442,7 +478,7 @@ Legacy code that cannot be annotated immediately may pass `PloySemaOptions{.stri
     │
     ▼
 ┌──────────┐
-│  Lexer   │  → Token stream (56 keywords, case-insensitive + operators + literals)
+│  Lexer   │  → Token stream (71 keywords, case-insensitive + operators + literals)
 └──────────┘
     │
     ▼

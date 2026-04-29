@@ -12,6 +12,26 @@
 
 namespace polyglot::ploy {
 
+namespace {
+
+// Case-insensitive ASCII string equality.  Used to recognise contextual
+// keywords (CLASS / HANDLE / ATTR — demand 2026-04-28-9) without
+// promoting them to canonical lexer keywords, which would silently
+// shadow common identifiers like `handle` in user code.
+bool IEqualsAscii(const std::string &a, const std::string &b) {
+  if (a.size() != b.size())
+    return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    unsigned char ca = static_cast<unsigned char>(a[i]);
+    unsigned char cb = static_cast<unsigned char>(b[i]);
+    if (std::toupper(ca) != std::toupper(cb))
+      return false;
+  }
+  return true;
+}
+
+} // namespace
+
 // ============================================================================
 // Token Management
 // ============================================================================
@@ -73,7 +93,8 @@ void PloyParser::Sync() {
       if (kw == "LINK" || kw == "IMPORT" || kw == "EXPORT" || kw == "MAP_TYPE" ||
           kw == "PIPELINE" || kw == "FUNC" || kw == "LET" || kw == "VAR" || kw == "IF" ||
           kw == "WHILE" || kw == "FOR" || kw == "MATCH" || kw == "RETURN" || kw == "STRUCT" ||
-          kw == "MAP_FUNC" || kw == "PRINTLN") {
+          kw == "MAP_FUNC" || kw == "PRINTLN" || kw == "TYPE" || kw == "CONST" ||
+          kw == "CLASS") {
         return;
       }
     }
@@ -105,6 +126,8 @@ void PloyParser::ParseTopLevel() {
   if (current_.kind == frontends::TokenKind::kKeyword) {
     const std::string &kw = current_.lexeme;
     if (kw == "LINK") {
+      // ParseLinkDecl is a dispatcher: it consumes 'LINK' and then chooses
+      // between the legacy comma form and the canonical signed form.
       module_->declarations.push_back(ParseLinkDecl());
       return;
     }
@@ -152,6 +175,27 @@ void PloyParser::ParseTopLevel() {
       module_->declarations.push_back(ParsePrintlnStatement());
       return;
     }
+    if (kw == "TYPE") {
+      module_->declarations.push_back(ParseTypeAliasDecl());
+      return;
+    }
+    if (kw == "CONST") {
+      module_->declarations.push_back(ParseConstDecl());
+      return;
+    }
+    if (kw == "CLASS") {
+      module_->declarations.push_back(ParseClassDecl());
+      return;
+    }
+  }
+  // Contextual top-level keyword: CLASS (demand 2026-04-28-9).  Recognised
+  // when the current token is an identifier whose case-insensitive spelling
+  // is "CLASS".  Kept contextual rather than a true keyword so existing
+  // identifier uses of `class` (rare but legal) keep parsing as identifiers.
+  if (current_.kind == frontends::TokenKind::kIdentifier &&
+      IEqualsAscii(current_.lexeme, "CLASS")) {
+    module_->declarations.push_back(ParseClassDecl());
+    return;
   }
   // Fallback: parse as a statement
   module_->declarations.push_back(ParseStatement());
@@ -163,8 +207,15 @@ void PloyParser::ParseTopLevel() {
 
 std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
   auto node = std::make_shared<LinkDecl>();
+  node->is_legacy_form = true;
   node->loc = current_.loc;
   Advance(); // consume 'LINK'
+
+  // Dispatch to canonical signed form when no '(' follows the LINK keyword.
+  // The signed form is: LINK <lang>::<module>::<func> AS FUNC(...) -> <ret>;
+  if (!IsSymbol("(")) {
+    return ParseSignedLinkDecl();
+  }
 
   ExpectSymbol("(", "expected '(' after LINK");
 
@@ -270,6 +321,78 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
     ExpectSymbol("}", "expected '}' to close LINK body");
   } else {
     // Simple LINK without body �?expect semicolon
+    ExpectSymbol(";", "expected ';' after LINK directive");
+  }
+
+  return node;
+}
+
+// ============================================================================
+// Signed / canonical LINK form:
+//   LINK <lang>::<module>::<function> AS FUNC(<types>) -> <ret_type> { ... }
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseSignedLinkDecl() {
+  // Caller (ParseLinkDecl dispatcher) has already consumed the LINK keyword.
+  auto node = std::make_shared<LinkDecl>();
+  node->is_legacy_form = false;
+  node->loc = current_.loc;
+
+  // target symbol: lang::module::func
+  if (current_.kind == frontends::TokenKind::kIdentifier ||
+      current_.kind == frontends::TokenKind::kKeyword) {
+    node->target_symbol = current_.lexeme;
+    Advance();
+    while (IsSymbol("::")) {
+      node->target_symbol += "::";
+      Advance();
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->target_symbol += current_.lexeme;
+        Advance();
+      }
+    }
+  } else {
+    diagnostics_.Report(current_.loc, "expected target symbol after LINK");
+    Sync();
+    return node;
+  }
+
+  // Optional AS FUNC(...) -> ret
+  if (MatchKeyword("AS")) {
+    if (MatchKeyword("FUNC")) {
+      ExpectSymbol("(", "expected '(' after FUNC");
+      // parse parameter types (simple form)
+      std::vector<std::shared_ptr<TypeNode>> params;
+      if (!IsSymbol(")")) {
+        do {
+          params.push_back(ParseType());
+        } while (MatchSymbol(","));
+      }
+      ExpectSymbol(")", "expected ')' after FUNC parameter list");
+
+      // optional return type arrow
+      if (IsSymbol("->")) {
+        Advance();
+        node->return_type = ParseType();
+      }
+    } else {
+      diagnostics_.Report(current_.loc, "expected FUNC after AS in LINK");
+    }
+  }
+
+  // Optional body with MAP_TYPE directives
+  if (IsSymbol("{")) {
+    Advance();
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "MAP_TYPE") {
+        node->body.push_back(ParseMapTypeDecl());
+      } else {
+        diagnostics_.Report(current_.loc, "expected MAP_TYPE inside LINK body");
+        Sync();
+      }
+    }
+    ExpectSymbol("}", "expected '}' to close LINK body");
+  } else {
     ExpectSymbol(";", "expected ';' after LINK directive");
   }
 
@@ -510,9 +633,55 @@ std::shared_ptr<Statement> PloyParser::ParsePipelineDecl() {
   }
 
   ExpectSymbol("{", "expected '{' after pipeline name");
+  in_pipeline_context_ = true;
   node->body = ParseBlockBody();
+  in_pipeline_context_ = false;
   ExpectSymbol("}", "expected '}' to close pipeline");
 
+  return node;
+}
+
+// ============================================================================
+// STAGE Declaration (only valid inside PIPELINE)
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseStageDecl() {
+  auto node = std::make_shared<StageDecl>();
+  node->loc = current_.loc;
+  Advance(); // consume 'STAGE'
+
+  // optional identifier name
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
+    node->name = current_.lexeme;
+    Advance();
+  }
+
+  // Expect CALL keyword then language-qualified target
+  if (MatchKeyword("CALL") || (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "CALL")) {
+    // already consumed by MatchKeyword if present
+  } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "CALL") {
+    Advance();
+  }
+
+  // Parse language-qualified target like cpp::module::func
+  if (current_.kind == frontends::TokenKind::kIdentifier || current_.kind == frontends::TokenKind::kKeyword) {
+    node->call_target = current_.lexeme;
+    Advance();
+    while (IsSymbol("::")) {
+      node->call_target += "::";
+      Advance();
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->call_target += current_.lexeme;
+        Advance();
+      }
+    }
+  } else {
+    diagnostics_.Report(current_.loc, "expected call target after CALL in STAGE");
+    Sync();
+    return node;
+  }
+
+  ExpectSymbol(";", "expected ';' after STAGE declaration");
   return node;
 }
 
@@ -694,6 +863,16 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
       return ParseFuncDecl();
     if (kw == "PRINTLN")
       return ParsePrintlnStatement();
+    if (kw == "TYPE")
+      return ParseTypeAliasDecl();
+    if (kw == "CONST")
+      return ParseConstDecl();
+    if (kw == "STAGE") {
+      if (!in_pipeline_context_) {
+        diagnostics_.Report(current_.loc, "unexpected keyword 'STAGE' outside PIPELINE");
+      }
+      return ParseStageDecl();
+    }
   }
 
   // Expression statement
@@ -2058,6 +2237,49 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
   core::SourceLoc loc = current_.loc;
   Advance();
 
+  // HANDLE<lang::module::ClassName> — typed cross-language object handle.
+  // HANDLE is a *contextual* keyword (demand 2026-04-28-9): we recognise
+  // any identifier whose case-insensitive spelling is "HANDLE" provided
+  // it's followed by '<', so existing variable names like `handle` are
+  // still parsed as identifiers in expression positions.  The angle-
+  // bracket grammar is restricted to this single contextual spelling to
+  // avoid colliding with the comparison operators '<' and '>'.
+  if (IEqualsAscii(name, "HANDLE") && IsSymbol("<")) {
+    auto ht = std::make_shared<HandleType>();
+    ht->loc = loc;
+    Advance(); // consume '<'
+
+    if (current_.kind != frontends::TokenKind::kIdentifier &&
+        current_.kind != frontends::TokenKind::kKeyword) {
+      diagnostics_.Report(current_.loc, "expected language identifier inside HANDLE<...>");
+      ExpectSymbol(">", "expected '>' to close HANDLE<...>");
+      return ht;
+    }
+    ht->language = current_.lexeme;
+    Advance();
+    ExpectSymbol("::", "expected '::' after language inside HANDLE<...>");
+
+    if (current_.kind != frontends::TokenKind::kIdentifier &&
+        current_.kind != frontends::TokenKind::kKeyword) {
+      diagnostics_.Report(current_.loc, "expected qualified class path inside HANDLE<...>");
+      ExpectSymbol(">", "expected '>' to close HANDLE<...>");
+      return ht;
+    }
+    ht->class_path = current_.lexeme;
+    Advance();
+    while (IsSymbol("::")) {
+      ht->class_path += "::";
+      Advance();
+      if (current_.kind == frontends::TokenKind::kIdentifier ||
+          current_.kind == frontends::TokenKind::kKeyword) {
+        ht->class_path += current_.lexeme;
+        Advance();
+      }
+    }
+    ExpectSymbol(">", "expected '>' to close HANDLE<...>");
+    return ht;
+  }
+
   // Check for qualified type: lang::type
   if (IsSymbol("::")) {
     auto qt = std::make_shared<QualifiedType>();
@@ -2194,6 +2416,210 @@ std::shared_ptr<Statement> PloyParser::ParseExtendDecl() {
   }
   ExpectSymbol("}", "expected '}' after EXTEND body");
 
+  return node;
+}
+
+// ============================================================================
+// CLASS Declaration (demand 2026-04-28-9)
+//
+// Grammar:
+//   CLASS <lang>::<module>::<Name> {
+//       METHOD <name> ( <param_list> ) [ -> <type> ] ;
+//       ATTR   <name> : <type> ;
+//       ...
+//   }
+//
+// Registers an explicit type schema for a foreign-language class so that
+// cross-language NEW / METHOD / GET / SET expressions can be statically
+// type-checked.  The body intentionally accepts only METHOD and ATTR
+// signature lines; full bodies live in the foreign language.
+// ============================================================================
+
+std::shared_ptr<Statement> PloyParser::ParseClassDecl() {
+  auto node = std::make_shared<ClassDecl>();
+  node->loc = current_.loc;
+  Advance(); // consume 'CLASS' (canonical keyword OR contextual identifier)
+
+  // Header: language identifier, then '::' separated qualified class path.
+  if (current_.kind != frontends::TokenKind::kIdentifier &&
+      current_.kind != frontends::TokenKind::kKeyword) {
+    diagnostics_.Report(current_.loc, "expected language identifier after CLASS");
+    Sync();
+    return node;
+  }
+  node->language = current_.lexeme;
+  Advance();
+  ExpectSymbol("::", "expected '::' after language in CLASS header");
+
+  // Qualified class path (one or more identifiers separated by '::').
+  if (current_.kind == frontends::TokenKind::kIdentifier ||
+      current_.kind == frontends::TokenKind::kKeyword) {
+    node->class_path = current_.lexeme;
+    Advance();
+    while (IsSymbol("::")) {
+      node->class_path += "::";
+      Advance();
+      if (current_.kind == frontends::TokenKind::kIdentifier ||
+          current_.kind == frontends::TokenKind::kKeyword) {
+        node->class_path += current_.lexeme;
+        Advance();
+      }
+    }
+  } else {
+    diagnostics_.Report(current_.loc, "expected qualified class path in CLASS header");
+    Sync();
+    return node;
+  }
+
+  ExpectSymbol("{", "expected '{' to begin CLASS body");
+
+  // Body rows: each line is either METHOD or ATTR.  METHOD is a real
+  // canonical keyword (cross-language method-call form predates this
+  // demand and is reused here).  ATTR is a *contextual* keyword
+  // recognised by case-insensitive identifier match so common variable
+  // names like `attr` keep working in user code outside CLASS bodies.
+  // Any other token at row start is a diagnostic; the parser advances
+  // one token to make progress.
+  auto IsMethodRow = [&]() {
+    return (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "METHOD") ||
+           (current_.kind == frontends::TokenKind::kIdentifier &&
+            IEqualsAscii(current_.lexeme, "METHOD"));
+  };
+  auto IsAttrRow = [&]() {
+    return (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "ATTR") ||
+           (current_.kind == frontends::TokenKind::kIdentifier &&
+            IEqualsAscii(current_.lexeme, "ATTR"));
+  };
+
+  while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    if (IsMethodRow()) {
+      ClassMethodSig m;
+      m.loc = current_.loc;
+      Advance(); // consume METHOD
+      // Method names can clash with existing canonical keywords (e.g.
+      // `set`, `get`, `new`).  We accept either an identifier or a
+      // keyword so the schema can faithfully describe foreign APIs.
+      if (current_.kind != frontends::TokenKind::kIdentifier &&
+          current_.kind != frontends::TokenKind::kKeyword) {
+        diagnostics_.Report(current_.loc, "expected method name after METHOD in CLASS body");
+        Sync();
+        continue;
+      }
+      m.name = current_.lexeme;
+      Advance();
+
+      ExpectSymbol("(", "expected '(' after method name");
+      // Parameter list: name : type, ... (names are optional but recommended).
+      if (!IsSymbol(")")) {
+        do {
+          std::string pname;
+          if (current_.kind == frontends::TokenKind::kIdentifier) {
+            pname = current_.lexeme;
+            Advance();
+            ExpectSymbol(":", "expected ':' after parameter name in METHOD signature");
+          }
+          auto pty = ParseType();
+          m.params.emplace_back(std::move(pname), std::move(pty));
+        } while (MatchSymbol(","));
+      }
+      ExpectSymbol(")", "expected ')' to close METHOD parameter list");
+
+      // Optional return type after '->'.  Absence implies VOID.
+      if (IsSymbol("->")) {
+        Advance();
+        m.return_type = ParseType();
+      }
+      ExpectSymbol(";", "expected ';' after METHOD signature");
+      node->methods.push_back(std::move(m));
+      continue;
+    }
+
+    if (IsAttrRow()) {
+      ClassAttrSig a;
+      a.loc = current_.loc;
+      Advance(); // consume ATTR
+      // Same lenient rule as for methods: accept identifiers and
+      // keywords so foreign attribute names like `type`, `class`,
+      // `new` can be modelled.
+      if (current_.kind != frontends::TokenKind::kIdentifier &&
+          current_.kind != frontends::TokenKind::kKeyword) {
+        diagnostics_.Report(current_.loc, "expected attribute name after ATTR in CLASS body");
+        Sync();
+        continue;
+      }
+      a.name = current_.lexeme;
+      Advance();
+      ExpectSymbol(":", "expected ':' after attribute name");
+      a.type = ParseType();
+      ExpectSymbol(";", "expected ';' after ATTR declaration");
+      node->attrs.push_back(std::move(a));
+      continue;
+    }
+
+    diagnostics_.Report(current_.loc,
+                        "only METHOD and ATTR declarations are allowed inside CLASS body");
+    Advance();
+  }
+
+  ExpectSymbol("}", "expected '}' to close CLASS body");
+  return node;
+}
+
+// ============================================================================
+// Type alias and compile-time constant declarations (demand 2026-04-28-7)
+// ============================================================================
+
+// Grammar:
+//   TYPE <ident> = <type_expr> ;
+//
+// The right-hand side is parsed by `ParseType`, so any type expression that
+// can appear in a parameter or LET position is also legal here (including
+// qualified types like `python::numpy::ndarray` and parameterised types
+// like `LIST(I32)`).  Forward references to later-declared types are not
+// supported in this version (mirrors C++ `using`).
+std::shared_ptr<Statement> PloyParser::ParseTypeAliasDecl() {
+  auto node = std::make_shared<TypeAliasDecl>();
+  node->loc = current_.loc;
+  Advance(); // consume 'TYPE'
+
+  if (current_.kind != frontends::TokenKind::kIdentifier) {
+    diagnostics_.Report(current_.loc, "expected identifier after TYPE");
+    Sync();
+    return node;
+  }
+  node->name = current_.lexeme;
+  Advance();
+
+  ExpectSymbol("=", "expected '=' after TYPE alias name");
+  node->aliased_type = ParseType();
+  ExpectSymbol(";", "expected ';' after TYPE alias declaration");
+  return node;
+}
+
+// Grammar:
+//   CONST <ident> : <type_expr> = <const_expr> ;
+//
+// The type annotation is mandatory.  The initializer must be foldable by
+// the sema's constant-evaluation pass; the parser does not validate
+// foldability — it only constructs the AST.
+std::shared_ptr<Statement> PloyParser::ParseConstDecl() {
+  auto node = std::make_shared<ConstDecl>();
+  node->loc = current_.loc;
+  Advance(); // consume 'CONST'
+
+  if (current_.kind != frontends::TokenKind::kIdentifier) {
+    diagnostics_.Report(current_.loc, "expected identifier after CONST");
+    Sync();
+    return node;
+  }
+  node->name = current_.lexeme;
+  Advance();
+
+  ExpectSymbol(":", "CONST declaration requires an explicit ': <type>' annotation");
+  node->type = ParseType();
+  ExpectSymbol("=", "CONST declaration requires an initializer");
+  node->value = ParseExpression();
+  ExpectSymbol(";", "expected ';' after CONST declaration");
   return node;
 }
 

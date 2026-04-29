@@ -73,7 +73,10 @@ PACKAGE     LIST        TUPLE       DICT        OPTION
 MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
 UV          PIPENV      POETRY      NEW         METHOD
 GET         SET         WITH        DELETE      EXTEND
-LANG        PRINTLN
+LANG        PRINTLN     TYPE        CONST       I8
+I16         I32         I64         U8          U16
+U32         U64         F32         F64         USIZE
+ISIZE
 ```
 
 `*` `RETURNS` is **deprecated** since `Ploy 1.5.2`.  The legacy
@@ -163,6 +166,43 @@ LET <name>: <type> = <expression>;   // Immutable
 VAR <name>: <type> = <expression>;   // Mutable
 ```
 
+### TYPE — Type Aliases (since Ploy 1.7.0)
+
+```ploy
+TYPE <alias_name> = <type_expression>;
+```
+
+A `TYPE` declaration registers `alias_name` as a synonym for the resolved
+type expression.  Aliases participate in name lookup the same way struct
+declarations do; redefining or shadowing a primitive keyword is rejected
+with `kRedefinedSymbol`.  Examples:
+
+```ploy
+TYPE Pixel        = i32;           // width-aware integer
+TYPE ChannelCount = u32;
+TYPE PixelBuffer  = LIST(Pixel);   // alias propagates into generics
+```
+
+### CONST — Compile-time Constants (since Ploy 1.7.0)
+
+```ploy
+CONST <name>: <type> = <expression>;
+```
+
+`CONST` declarations require an explicit type annotation; the initializer
+is folded by the ploy semantic analyser, which supports literals,
+references to previously declared `CONST`s, unary `-` / `!` / `NOT`, and
+the binary arithmetic, comparison, and logical operators.  Width-mismatch
+between the declared type and the folded value emits a warning.  The
+folded constant is registered as an immutable variable so the rest of
+the pipeline can consume it via the standard symbol-table lookup path.
+
+```ploy
+CONST KMaxRetry: i32 = 5;
+CONST KAlias:    i32 = KMaxRetry;   // CONST referencing CONST
+CONST KArea:     i64 = 10 * 20;     // folded by sema
+```
+
 ## 2.6 Control Flow
 
 ### Conditional
@@ -244,6 +284,27 @@ PIPELINE <name> {
 ## 2.9 Type System
 
 ### Primitive Types
+
+Since `Ploy 1.7.0` (demand 2026-04-28-7) the primitive set is widened with
+explicit-width signed/unsigned integer and floating-point keywords.  The
+legacy spellings continue to work and now resolve as aliases:
+
+- `INT` ≡ `i64`
+- `FLOAT` ≡ `f64`
+
+Width-mismatched assignments and initializers (e.g. assigning an `i64`
+expression to an `i32` slot) emit a `kTypeMismatch`-class **warning**;
+diagnostics that touch a user `TYPE` alias render the underlying
+primitive too, e.g. `Pixel (alias of i32)`.
+
+| .ploy keyword                  | Underlying `core::Type`        | Width | Sign     |
+| ------------------------------ | ------------------------------ | ----- | -------- |
+| `i8` / `i16` / `i32` / `i64`   | `Int(N, true)`                 | 8 / 16 / 32 / 64 | signed   |
+| `u8` / `u16` / `u32` / `u64`   | `Int(N, false)`                | 8 / 16 / 32 / 64 | unsigned |
+| `f32` / `f64`                  | `Float(N)`                     | 32 / 64 | n/a   |
+| `usize` / `isize`              | pointer-width integer          | platform | as named |
+| `INT` (legacy alias of `i64`)  | `Int(64, true)`                | 64    | signed   |
+| `FLOAT` (legacy alias of `f64`)| `Float(64)`                    | 64    | n/a      |
 
 | .ploy Type | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
 |-----------|-----|--------|------|------|-----|------|-----------|------|
