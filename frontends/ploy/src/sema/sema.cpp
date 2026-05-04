@@ -19,6 +19,42 @@
 
 namespace polyglot::ploy {
 
+namespace {
+
+// Returns true when `expr` is a constant-foldable expression — i.e. a
+// literal, a unary/binary expression whose operands are themselves
+// constant-foldable, or a pure CallExpression whose callee resolves to a
+// plain identifier and whose every argument is itself constant-foldable.
+// Used by AnalyzeFuncDecl to validate that named-parameter default
+// values can be safely materialised inline at every call site without
+// observing runtime state.
+bool IsConstFoldableExpression(const std::shared_ptr<Expression> &expr) {
+  if (!expr)
+    return false;
+  if (std::dynamic_pointer_cast<Literal>(expr))
+    return true;
+  if (auto un = std::dynamic_pointer_cast<UnaryExpression>(expr))
+    return IsConstFoldableExpression(un->operand);
+  if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr))
+    return IsConstFoldableExpression(bin->left) &&
+           IsConstFoldableExpression(bin->right);
+  if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
+    // Only intra-Ploy calls qualify; cross-language calls observe
+    // foreign runtime state and may have side effects.
+    if (!std::dynamic_pointer_cast<Identifier>(call->callee) &&
+        !std::dynamic_pointer_cast<QualifiedIdentifier>(call->callee))
+      return false;
+    for (const auto &arg : call->args) {
+      if (!IsConstFoldableExpression(arg))
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+} // namespace
+
 // ============================================================================
 // Constructor
 // ============================================================================
@@ -66,6 +102,8 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
     AnalyzeVarDecl(var);
   } else if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
     AnalyzeIfStatement(if_stmt);
+  } else if (auto if_let = std::dynamic_pointer_cast<IfLetStatement>(stmt)) {
+    AnalyzeIfLetStatement(if_let);
   } else if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
     AnalyzeWhileStatement(while_stmt);
   } else if (auto for_stmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
@@ -138,6 +176,10 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
   } else if (auto lang_anno = std::dynamic_pointer_cast<LangAnnotation>(stmt)) {
     // Single-statement language version pin.
     AnalyzeLangAnnotation(lang_anno);
+  } else if (auto try_stmt = std::dynamic_pointer_cast<TryStatement>(stmt)) {
+    AnalyzeTryStatement(try_stmt);
+  } else if (auto throw_stmt = std::dynamic_pointer_cast<ThrowStatement>(stmt)) {
+    AnalyzeThrowStatement(throw_stmt);
   }
 }
 
@@ -518,6 +560,26 @@ void PloySema::AnalyzeExportDecl(const std::shared_ptr<ExportDecl> &export_decl)
     return;
   }
 
+  // Visibility check (since v1.16.0): only PUB symbols may be EXPORTed.
+  // An *explicit* PRIVATE on the declaration is a hard error; a symbol
+  // that still carries the default kPrivate (no PUB / PRIVATE keyword in
+  // the source) is auto-promoted to kPub with a deprecation warning so
+  // pre-v1.16.0 sources keep compiling.
+  if (it->second.visibility != Visibility::kPub) {
+    if (it->second.visibility_explicit) {
+      ReportError(export_decl->loc, frontends::ErrorCode::kUnknown,
+                  "EXPORT requires the symbol '" + export_decl->symbol_name +
+                      "' to be declared PUB; remove PRIVATE or change it to PUB");
+      return;
+    }
+    diagnostics_.ReportWarning(
+        export_decl->loc, frontends::ErrorCode::kDeprecatedKeyword,
+        "EXPORT of symbol '" + export_decl->symbol_name +
+            "' without an explicit PUB modifier; mark the declaration "
+            "PUB to silence this warning (auto-promoted for compatibility)");
+    it->second.visibility = Visibility::kPub;
+  }
+
   // Mark the symbol as exported
   it->second.external_name =
       export_decl->external_name.empty() ? export_decl->symbol_name : export_decl->external_name;
@@ -578,6 +640,19 @@ void PloySema::AnalyzePipelineDecl(const std::shared_ptr<PipelineDecl> &pipeline
 // ============================================================================
 
 void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
+  // Validate annotations and type parameter bounds before resolving any
+  // signature/body types so unknown attributes surface as a warning and
+  // unknown bounds as an error (since v1.15.0 / v1.16.0).
+  ValidateAttributes(func->attributes);
+  ValidateTypeParamBounds(func->type_params);
+  std::vector<std::string> tp_added;
+  tp_added.reserve(func->type_params.size());
+  for (const auto &tp : func->type_params) {
+    if (active_type_params_.insert(tp.name).second) {
+      tp_added.push_back(tp.name);
+    }
+  }
+
   // Resolve return type
   core::Type ret_type = func->return_type ? ResolveType(func->return_type) : core::Type::Void();
 
@@ -599,6 +674,8 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   sym.kind = PloySymbol::Kind::kFunction;
   sym.name = func->name;
   sym.type = type_system_.FunctionType(func->name, ret_type, param_types);
+  sym.visibility = func->visibility;
+  sym.visibility_explicit = func->visibility_explicit;
   sym.defined_at = func->loc;
   DeclareSymbol(sym);
 
@@ -614,6 +691,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   for (const auto &param : func->params) {
     sig.param_names.push_back(param.name);
     sig.param_has_default.push_back(static_cast<bool>(param.default_value));
+    sig.param_default_values.push_back(param.default_value);
   }
   // Validate each default-value expression is constant-foldable so the
   // lowering pass can safely materialise it inline at every call site.
@@ -627,9 +705,10 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
       if (!IsConstFoldableExpression(param.default_value)) {
         ReportError(param.default_value->loc, frontends::ErrorCode::kTypeMismatch,
                     "default value for parameter '" + param.name +
-                        "' must be a constant expression (literal, unary or binary "
-                        "of literals)",
-                    "replace the default with a CONST-foldable literal expression");
+                        "' must be a constant expression (literal, unary or "
+                        "binary of literals, or a pure intra-Ploy call)",
+                    "replace the default with a CONST-foldable expression or "
+                    "a pure function call");
       }
     } else if (seen_default) {
       ReportError(func->loc, frontends::ErrorCode::kTypeMismatch,
@@ -659,7 +738,9 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   // Analyze body
   auto saved_return = current_return_type_;
   current_return_type_ = ret_type;
+  if (func->is_async) ++async_depth_;
   AnalyzeBlockStatements(func->body);
+  if (func->is_async) --async_depth_;
   current_return_type_ = saved_return;
 
   // Restore the symbol table to the state before entering the function body.
@@ -667,6 +748,11 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   // the module scope, so the same variable name can be reused across
   // different FUNC declarations.
   symbols_ = saved_symbols;
+
+  // Pop the generic type-parameter names brought into scope above.
+  for (const auto &name : tp_added) {
+    active_type_params_.erase(name);
+  }
 
   // Re-register the function symbol itself (it was declared in outer scope
   // but may have been overwritten by the restore if it wasn't in saved_symbols
@@ -688,6 +774,18 @@ void PloySema::AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var) {
 
   // Check initializer
   if (var->init) {
+    // NULL is reserved for raw-pointer interop; using it to initialise an
+    // OPTION<T> is a common bug ported from null-pointer languages.  Emit
+    // a targeted diagnostic suggesting `None` (since v1.18.0).
+    if (var->type && var_type.kind == core::TypeKind::kOptional) {
+      if (auto lit = std::dynamic_pointer_cast<Literal>(var->init)) {
+        if (lit->kind == Literal::Kind::kNull) {
+          ReportError(var->loc, frontends::ErrorCode::kTypeMismatch,
+                      "cannot initialise OPTION<T> with NULL; use 'None' instead",
+                      "OPTION<T> is a tagged union — NULL is reserved for raw-pointer interop");
+        }
+      }
+    }
     core::Type init_type = AnalyzeExpression(var->init);
 
     if (var->type) {
@@ -776,6 +874,55 @@ void PloySema::AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt) {
   }
   AnalyzeBlockStatements(if_stmt->then_body);
   AnalyzeBlockStatements(if_stmt->else_body);
+}
+
+void PloySema::AnalyzeIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let) {
+  core::Type scrutinee = AnalyzeExpression(if_let->scrutinee);
+
+  // Scrutinee must be OPTION<T> (or fall back to Any/Unknown for cross-
+  // language values that did not resolve statically).
+  if (scrutinee.kind != core::TypeKind::kOptional &&
+      scrutinee.kind != core::TypeKind::kAny &&
+      scrutinee.kind != core::TypeKind::kUnknown) {
+    ReportError(if_let->loc, frontends::ErrorCode::kTypeMismatch,
+                "IF LET scrutinee must be an OPTION<T> value; got '" +
+                    scrutinee.ToString() + "'");
+  }
+
+  core::Type inner = core::Type::Unknown();
+  if (scrutinee.kind == core::TypeKind::kOptional && !scrutinee.type_args.empty()) {
+    inner = scrutinee.type_args[0];
+  }
+
+  // Constructor must be Some / None.  Some takes one binding; None takes none.
+  std::vector<std::string> introduced;
+  if (if_let->ctor == "Some") {
+    if (if_let->bindings.size() != 1) {
+      ReportError(if_let->loc, frontends::ErrorCode::kTypeMismatch,
+                  "IF LET Some(...) requires exactly one binding name");
+    } else {
+      PloySymbol sym;
+      sym.kind = PloySymbol::Kind::kVariable;
+      sym.name = if_let->bindings[0];
+      sym.type = inner;
+      sym.is_mutable = false;
+      sym.defined_at = if_let->loc;
+      DeclareSymbol(sym);
+      introduced.push_back(sym.name);
+    }
+  } else if (if_let->ctor == "None") {
+    if (!if_let->bindings.empty()) {
+      ReportError(if_let->loc, frontends::ErrorCode::kTypeMismatch,
+                  "IF LET None takes no bindings");
+    }
+  } else {
+    ReportError(if_let->loc, frontends::ErrorCode::kTypeMismatch,
+                "IF LET constructor must be 'Some' or 'None'; got '" + if_let->ctor + "'");
+  }
+
+  AnalyzeBlockStatements(if_let->then_body);
+  for (const auto &name : introduced) symbols_.erase(name);
+  AnalyzeBlockStatements(if_let->else_body);
 }
 
 void PloySema::AnalyzeWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt) {
@@ -995,6 +1142,11 @@ bool PloySema::IsIrrefutablePattern(const std::shared_ptr<Pattern> &pattern) con
   if (!pattern) return false;
   if (std::dynamic_pointer_cast<WildcardPattern>(pattern)) return true;
   if (std::dynamic_pointer_cast<IdentifierPattern>(pattern)) return true;
+  // Type-guard pattern (`name : Type`) is statically refined: at this
+  // point sema has already validated the scrutinee type, so the runtime
+  // check is always satisfied for the matched arm and the pattern is
+  // irrefutable for the scrutinee's static type.
+  if (std::dynamic_pointer_cast<TypePattern>(pattern)) return true;
   if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pattern)) {
     return IsIrrefutablePattern(bind->sub);
   }
@@ -1002,6 +1154,25 @@ bool PloySema::IsIrrefutablePattern(const std::shared_ptr<Pattern> &pattern) con
     for (const auto &alt : orp->alternatives) {
       if (IsIrrefutablePattern(alt)) return true;
     }
+  }
+  // Tuple destructuring `(a, b, ...)` is irrefutable iff every element
+  // sub-pattern is itself irrefutable.  A single literal element is
+  // enough to make the whole tuple pattern refutable.
+  if (auto tup = std::dynamic_pointer_cast<TuplePattern>(pattern)) {
+    for (const auto &elt : tup->elements) {
+      if (!IsIrrefutablePattern(elt)) return false;
+    }
+    return true;
+  }
+  // Struct destructuring `Name { f1, f2, ... }` is irrefutable iff every
+  // field sub-pattern is irrefutable (shorthand bindings without an
+  // explicit sub are always irrefutable).  The `..` rest specifier does
+  // not affect irrefutability.
+  if (auto st = std::dynamic_pointer_cast<StructPattern>(pattern)) {
+    for (const auto &fp : st->fields) {
+      if (fp.sub && !IsIrrefutablePattern(fp.sub)) return false;
+    }
+    return true;
   }
   return false;
 }
@@ -1208,6 +1379,95 @@ void PloySema::AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statemen
 }
 
 // ============================================================================
+// Structured Exception Handling (since v1.13.0)
+// ============================================================================
+
+void PloySema::AnalyzeTryStatement(const std::shared_ptr<TryStatement> &try_stmt) {
+  if (!try_stmt) return;
+
+  // Analyse the protected body first.  Any THROW inside lowers to a
+  // runtime call; from sema's point of view the body is just a sequence
+  // of statements that must individually type-check.
+  AnalyzeBlockStatements(try_stmt->body);
+
+  // Each CATCH clause introduces a fresh binding for the caught Error
+  // handle.  We accept either the canonical built-in `Error` or a
+  // user-declared subtype name; further refinement is left to future
+  // work (typed-catch dispatch is tracked separately).
+  for (auto &clause : try_stmt->catches) {
+    if (clause.var_name.empty()) {
+      ReportError(clause.loc, frontends::ErrorCode::kEmptySymbolName,
+                  "CATCH requires a binding name");
+      continue;
+    }
+    std::string type_name = "Error";
+    if (auto simple = std::dynamic_pointer_cast<SimpleType>(clause.var_type)) {
+      if (!simple->name.empty()) type_name = simple->name;
+    }
+    if (type_name != "Error") {
+      ReportWarning(clause.loc, frontends::ErrorCode::kTypeMismatch,
+                    "CATCH binding type '" + type_name +
+                        "' is not the built-in Error; treating as Error");
+    }
+
+    PloySymbol sym;
+    sym.kind = PloySymbol::Kind::kVariable;
+    sym.name = clause.var_name;
+    // The Error handle surface is opaque at the type-system level; we
+    // mark it as Any so attribute access (`.message`, `.source_lang`,
+    // `.stacktrace`) does not produce spurious diagnostics until the
+    // dedicated handle type is wired through demand 2026-04-28-9's
+    // typed-handle pipeline.
+    sym.type = core::Type::Any();
+    sym.is_mutable = false;
+    sym.defined_at = clause.loc;
+    DeclareSymbol(sym);
+
+    AnalyzeBlockStatements(clause.body);
+  }
+
+  if (try_stmt->has_finally) {
+    AnalyzeBlockStatements(try_stmt->finally_body);
+  }
+}
+
+void PloySema::AnalyzeThrowStatement(const std::shared_ptr<ThrowStatement> &throw_stmt) {
+  if (!throw_stmt) return;
+  if (!throw_stmt->value) {
+    ReportError(throw_stmt->loc, frontends::ErrorCode::kMissingExpression,
+                "THROW requires a value (Error handle, string, or Error-shaped struct)");
+    return;
+  }
+  // The expression must type-check; the runtime accepts anything that
+  // can be coerced to an `Error` handle (string literal, existing
+  // Error, or struct with a `message` field).  Accepting a wider set
+  // here keeps THROW ergonomic for early users; a stricter check is
+  // tracked under future work.
+  (void) AnalyzeExpression(throw_stmt->value);
+}
+
+// AWAIT analysis: enforces that the expression appears inside an
+// `ASYNC FUNC` body and returns the inner type of the awaited future.
+// The current type system does not yet model `Future<T>` parametrically,
+// so the inner type is returned as `core::Type::Any()` while the value
+// flows through; future work tightens this once generics land.
+core::Type PloySema::AnalyzeAwaitExpression(const std::shared_ptr<AwaitExpression> &await) {
+  if (!await) return core::Type::Invalid();
+  if (async_depth_ <= 0) {
+    ReportError(await->loc, frontends::ErrorCode::kTypeMismatch,
+                "AWAIT may only appear inside an ASYNC function body",
+                "wrap the surrounding FUNC with the ASYNC keyword");
+  }
+  if (!await->operand) {
+    ReportError(await->loc, frontends::ErrorCode::kMissingExpression,
+                "AWAIT requires an operand expression");
+    return core::Type::Invalid();
+  }
+  (void) AnalyzeExpression(await->operand);
+  return core::Type::Any();
+}
+
+// ============================================================================
 // Expression Analysis
 // ============================================================================
 
@@ -1251,12 +1511,45 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
     return core::Type::Unknown(); // unrecognized literal kind
   }
 
+  // Template (interpolated) string literal (since v1.17.0).  Each
+  // interpolated expression must have a *formattable* type — currently
+  // Int / Float / String / Bool — and the overall expression types as
+  // String.  Unknown / Any / Invalid are accepted so unresolved cross-
+  // language references do not block compilation.
+  if (auto tmpl = std::dynamic_pointer_cast<TemplateString>(expr)) {
+    for (const auto &part : tmpl->parts) {
+      if (part.is_text || !part.expr) continue;
+      core::Type pt = AnalyzeExpression(part.expr);
+      switch (pt.kind) {
+      case core::TypeKind::kInt:
+      case core::TypeKind::kFloat:
+      case core::TypeKind::kString:
+      case core::TypeKind::kBool:
+      case core::TypeKind::kAny:
+      case core::TypeKind::kUnknown:
+      case core::TypeKind::kInvalid:
+        break;
+      default:
+        ReportError(part.loc, frontends::ErrorCode::kTypeMismatch,
+                    "template string interpolation has non-formattable type '" +
+                        pt.ToString() +
+                        "'; only Int / Float / String / Bool may be interpolated");
+        break;
+      }
+    }
+    return core::Type::String();
+  }
+
   if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
     return AnalyzeBinaryExpression(bin);
   }
 
   if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
     return AnalyzeUnaryExpression(unary);
+  }
+
+  if (auto await_expr = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
+    return AnalyzeAwaitExpression(await_expr);
   }
 
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
@@ -1384,11 +1677,48 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
           }
         }
       }
+
+      // Coverage check: count positional args, then make sure every
+      // required (no-default) parameter is either supplied positionally
+      // or named explicitly.  Without this, `f(y: 5)` for
+      // `FUNC f(x: i32, y: i32 = 0)` would silently lose the required
+      // `x` and only get caught at lowering / runtime.
+      size_t positional = 0;
+      std::vector<std::string> named_keys;
+      for (const auto &arg : call->args) {
+        if (auto na = std::dynamic_pointer_cast<NamedArgument>(arg))
+          named_keys.push_back(na->name);
+        else
+          ++positional;
+      }
+      for (size_t i = positional; i < sig->param_names.size(); ++i) {
+        bool has_default =
+            i < sig->param_has_default.size() && sig->param_has_default[i];
+        bool named = false;
+        for (const auto &k : named_keys) {
+          if (k == sig->param_names[i]) {
+            named = true;
+            break;
+          }
+        }
+        if (!has_default && !named) {
+          ReportError(call->loc, frontends::ErrorCode::kParamCountMismatch,
+                      "required parameter '" + sig->param_names[i] +
+                          "' of '" + func_name +
+                          "' is not supplied (no positional argument and no "
+                          "matching named argument)");
+        }
+      }
     }
   }
 
-  // If the callee is a function type, validate against function type signature
-  if (callee_type.kind == core::TypeKind::kFunction && !callee_type.type_args.empty()) {
+  // If the callee is a function type AND no signature was found above,
+  // fall back to validating against the function-type's parameter list.
+  // (When a signature is registered, ValidateCallArgCount/Types is the
+  // authoritative check and already handles default values + named args.)
+  bool sig_already_checked = !func_name.empty() && LookupSignature(func_name) != nullptr;
+  if (!sig_already_checked && callee_type.kind == core::TypeKind::kFunction &&
+      !callee_type.type_args.empty()) {
     // type_args layout: [return_type, param_type_0, param_type_1, ...]
     size_t expected_params = callee_type.type_args.size() - 1;
     if (call->args.size() != expected_params) {
@@ -1410,6 +1740,14 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
     }
 
     return callee_type.type_args[0]; // First type_arg is return type
+  }
+
+  // Recover the return type from the registered signature when available.
+  if (sig_already_checked) {
+    if (const FunctionSignature *sig = LookupSignature(func_name)) {
+      if (sig->return_type.kind != core::TypeKind::kInvalid)
+        return sig->return_type;
+    }
   }
 
   return core::Type::Unknown(); // return type unknown �?no function type or signature found
@@ -1942,6 +2280,13 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
     return core::Type::Invalid();
 
   if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
+    // 0. Generic type parameter currently in scope (since v1.15.0).
+    //    Type-erased to `Any` for the MVP lowering path; full
+    //    monomorphisation per concrete instantiation is tracked in the
+    //    realization document as follow-up work.
+    if (active_type_params_.count(st->name)) {
+      return core::Type::Any();
+    }
     // 1. Type-alias lookup takes precedence over every built-in below.
     //    Aliases for built-in primitives (e.g. `TYPE Length = i64;`) thus
     //    correctly inherit width information from the aliased type rather
@@ -2017,6 +2362,16 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
       core::Type inner = ResolveType(pt->type_args[0]);
       return core::Type::Optional(inner);
     }
+    // User-defined generic struct instantiation (since v1.15.0): resolve
+    // every type argument so any unknown bound or out-of-scope name is
+    // surfaced, then collapse to the underlying struct identity.  Full
+    // monomorphisation is recorded as follow-up work.
+    if (struct_defs_.count(pt->name)) {
+      for (const auto &arg : pt->type_args) {
+        (void)ResolveType(arg);
+      }
+      return core::Type::Struct(pt->name);
+    }
     return core::Type::GenericInstance(pt->name, {});
   }
 
@@ -2087,6 +2442,20 @@ void PloySema::AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl)
     return;
   }
 
+  // Validate annotations, type parameter bounds, and bring each parameter
+  // name into scope before resolving field types so a SimpleType named
+  // `T` inside a field annotation resolves to `Any` (since v1.15.0 /
+  // v1.16.0).
+  ValidateAttributes(struct_decl->attributes);
+  ValidateTypeParamBounds(struct_decl->type_params);
+  std::vector<std::string> tp_added;
+  tp_added.reserve(struct_decl->type_params.size());
+  for (const auto &tp : struct_decl->type_params) {
+    if (active_type_params_.insert(tp.name).second) {
+      tp_added.push_back(tp.name);
+    }
+  }
+
   // Validate fields
   std::vector<std::pair<std::string, core::Type>> resolved_fields;
   std::unordered_set<std::string> field_names;
@@ -2117,8 +2486,53 @@ void PloySema::AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl)
   sym.kind = PloySymbol::Kind::kVariable; // Struct types act as type symbols
   sym.name = struct_decl->name;
   sym.type = core::Type::Struct(struct_decl->name);
+  sym.visibility = struct_decl->visibility;
+  sym.visibility_explicit = struct_decl->visibility_explicit;
   sym.defined_at = struct_decl->loc;
   DeclareSymbol(sym);
+
+  // Pop the generic type-parameter names brought into scope above.
+  for (const auto &name : tp_added) {
+    active_type_params_.erase(name);
+  }
+}
+
+// Validates each declared bound name against the built-in trait registry
+// and reports unknown bounds as a `kTypeMismatch` diagnostic
+// (since v1.15.0).
+void PloySema::ValidateTypeParamBounds(const std::vector<FuncDecl::TypeParam> &params) {
+  static const std::unordered_set<std::string> kBuiltInBounds = {
+      "Comparable", "Hashable", "Numeric", "Iterable", "Display"};
+  for (const auto &tp : params) {
+    for (const auto &bound : tp.bounds) {
+      if (!kBuiltInBounds.count(bound)) {
+        ReportError(tp.loc, frontends::ErrorCode::kTypeMismatch,
+                    "unknown trait bound '" + bound + "' on type parameter '" +
+                        tp.name +
+                        "'; built-in bounds are Comparable, Hashable, "
+                        "Numeric, Iterable, Display");
+      }
+    }
+  }
+}
+
+// Validates `@name(args)` annotations against the built-in attribute
+// catalog (since v1.16.0).  Unknown annotations produce a warning;
+// recognised ones are accepted as inert metadata at this stage.
+void PloySema::ValidateAttributes(const std::vector<Attribute> &attrs) {
+  static const std::unordered_set<std::string> kBuiltInAttrs = {
+      "inline",     "noinline",   "always_inline", "hot",       "cold",
+      "profile",    "no_profile", "deprecated",    "link_name", "target"};
+  for (const auto &attr : attrs) {
+    if (!kBuiltInAttrs.count(attr.name)) {
+      diagnostics_.ReportWarning(
+          attr.loc, frontends::ErrorCode::kGenericWarning,
+          "unknown attribute '@" + attr.name +
+              "'; recognised attributes are @inline, @noinline, "
+              "@always_inline, @hot, @cold, @profile, @no_profile, "
+              "@deprecated, @link_name, @target");
+    }
+  }
 }
 
 // ============================================================================
@@ -2353,11 +2767,25 @@ void PloySema::ValidateCallArgCount(const core::SourceLoc &call_loc, const std::
   if (!sig || !sig->param_count_known)
     return;
 
-  if (actual_args != sig->param_count) {
-    std::string msg = "function '" + func_name + "' expects " + std::to_string(sig->param_count) +
-                      " argument(s), but " + std::to_string(actual_args) + " argument(s) provided";
-    std::string suggestion =
-        "check the function signature and provide the correct number of arguments";
+  // Compute the minimum required argument count: total parameters minus
+  // the number of trailing parameters that carry a default value.
+  size_t required = sig->param_count;
+  for (auto it = sig->param_has_default.rbegin();
+       it != sig->param_has_default.rend(); ++it) {
+    if (*it)
+      --required;
+    else
+      break;
+  }
+
+  if (actual_args < required || actual_args > sig->param_count) {
+    std::string range = (required == sig->param_count)
+                            ? std::to_string(sig->param_count)
+                            : std::to_string(required) + ".." +
+                                  std::to_string(sig->param_count);
+    std::string msg = "function '" + func_name + "' expects " + range +
+                      " argument(s), but " + std::to_string(actual_args) +
+                      " argument(s) provided";
     ReportErrorWithTraceback(call_loc, frontends::ErrorCode::kParamCountMismatch, msg,
                              sig->defined_at,
                              "'" + func_name + "' declared here with " +
@@ -2665,6 +3093,30 @@ void PloySema::AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv
   if (!IsValidLanguage(venv_config->language)) {
     Report(venv_config->loc, "unknown language '" + venv_config->language + "' in CONFIG");
     return;
+  }
+
+  // Validate the (language, manager) pair against the registry.  An
+  // unresolved pair surfaces as a hard error pointing at the canonical
+  // form so authors do not silently lose package discovery.
+  if (venv_config->manager == VenvConfigDecl::ManagerKind::kUnknown) {
+    std::string msg = "unknown package manager '" + venv_config->manager_name +
+                      "' for language '" + venv_config->language +
+                      "' in CONFIG; canonical form is `CONFIG <lang> "
+                      "\"<package_manager>\" \"<path_or_env>\";`";
+    Report(venv_config->loc, msg);
+    return;
+  }
+
+  // Legacy keyword-driven form was used — surface a deprecation warning
+  // pointing at the new stringified form so users have a concrete
+  // rewrite target.  Every legacy keyword maps to a Python manager so
+  // the suggestion is mechanical.
+  if (venv_config->is_legacy_form) {
+    std::string suggestion = "rewrite as `CONFIG " + venv_config->language + " \"" +
+                             venv_config->manager_name + "\" \"" + venv_config->venv_path +
+                             "\";` (since v1.12.0)";
+    ReportWarning(venv_config->loc, frontends::ErrorCode::kDeprecatedKeyword,
+                  "legacy `CONFIG <KEYWORD>` form is deprecated", suggestion);
   }
 
   // Check for duplicate venv config for the same language
@@ -3159,9 +3611,33 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
   if (!extend->language.empty() && !IsValidLanguage(extend->language)) {
     ReportError(extend->loc, frontends::ErrorCode::kInvalidLanguage,
                 "unknown language '" + extend->language + "' in EXTEND declaration",
-                "supported languages: python, cpp, rust");
+                "supported languages: python, ruby, javascript");
     return;
   }
+
+  // EXTEND is restricted to dynamically-typed host languages where
+  // monkey-patching is a first-class concept.  Static languages
+  // (C, C++, Rust, Java, .NET / C#, Go) cannot have a class extended
+  // from outside their own type system without breaking soundness, so
+  // sema rejects EXTEND on them and points the user at the local
+  // wrapper-function workflow instead.
+  static const auto is_dynamic_host = [](const std::string &lang) {
+    return lang == "python" || lang == "ruby" || lang == "rb" ||
+           lang == "javascript" || lang == "js" || lang == "typescript" ||
+           lang == "ts";
+  };
+  if (!extend->language.empty() && !is_dynamic_host(extend->language)) {
+    ReportError(extend->loc, frontends::ErrorCode::kInvalidLanguage,
+                "EXTEND is not allowed on statically-typed language '" +
+                    extend->language +
+                    "' — its type system cannot accept an out-of-source "
+                    "subclass without breaking soundness",
+                "wrap the foreign API in a local Ploy FUNC and use "
+                "CALL / METHOD instead, or move the EXTEND target to a "
+                "dynamic host (python / ruby / javascript)");
+    return;
+  }
+
   // Stamp the resolved language version, if any.
   extend->lang_version_pin = ResolveLangVersion(extend->language);
 

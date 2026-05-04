@@ -555,6 +555,32 @@ FUNC process(data: LIST<INT>) -> VOID {
 - 不能直接用 `cpp::int` 等语言特定类型作为参数类型；
 - 容器类型参数使用泛型语法：`LIST<INT>`、`DICT<STRING, INT>` 等。
 
+## 7.5 默认参数值与命名实参 *（自 1.11.0 起）*
+
+末尾形参可以通过 `=` 携带默认表达式，调用点也可按名字传任意实参：
+
+```ploy
+FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
+
+LET a = add(10);          // y 取默认值 0
+LET b = add(x: 7);        // 单个命名实参
+LET c = add(2, y: 5);     // 位置 + 命名 混合
+```
+
+默认表达式必须是常量可折叠的字面量 / 一元 / 二元表达式，**或者**
+一次纯的 ploy 内 `FUNC` 调用：
+
+```ploy
+FUNC one() -> i32 { RETURN 1; }
+FUNC scale(value: i32, factor: i32 = one()) -> i32 {
+    RETURN value * factor;
+}
+```
+
+跨语言 `CALL`、闭包捕获、以及在默认值里读取另一个形参都会被拒绝。
+位置实参不可出现在命名实参**之后**；每个必需（无默认值）的形参
+必须由位置或名字提供。
+
 ---
 
 # 8. 控制流
@@ -619,7 +645,8 @@ FOR item IN collection {
 
 ## 8.4 MATCH — 模式匹配
 
-`MATCH` 根据一个值的不同情况执行不同的分支（仅支持等值匹配）：
+`MATCH` 对单个被检值进行派发；每个 `CASE` 携带一个**模式**与可选的
+`IF` 守卫，兑底使用 `DEFAULT` 或通配 `CASE _`。
 
 ```ploy
 MATCH mode {
@@ -640,7 +667,42 @@ MATCH mode {
 }
 ```
 
-> **注意**：每个 `CASE` 块执行完后会**自动退出** MATCH，不需要 `break`（无 C 的 fallthrough）。
+除了字面量分支，`.ploy` 的 `MATCH` 收录了完整的模式语法：
+
+```ploy
+MATCH value {
+    CASE 0                    { RETURN 100; }     // 字面量
+    CASE 2 | 4 | 8 | 16       { RETURN 102; }     // OR 模式
+    CASE 10..20               { RETURN 103; }     // 半开范围
+    CASE 20..=29              { RETURN 104; }     // 闭合范围
+    CASE n @ 100..=199        { RETURN n + 200; } // 在范围上绑定名字
+    CASE x: i32 IF x > 1000   { RETURN x - 1000; }// 类型守卫 + IF 守卫
+    CASE _                    { RETURN -1; }      // 通配兑底
+}
+```
+
+元组、结构体与 `OPTION` 解构同样可用：
+
+```ploy
+MATCH point {
+    CASE Point { x: 0, y: 0, .. } { RETURN "origin"; }
+    CASE Point { x, y, .. }       { RETURN "general"; }
+}
+
+MATCH opt {
+    CASE Some(x) { RETURN x; }
+    CASE None    { RETURN -1; }
+}
+```
+
+> **说明**：
+> * 每个 `CASE` 分支执行完毕后会**自动退出** `MATCH`，不会贯穿。
+> * 对 `bool` 与 `OPTION`，只要覆盖了所有变体，即使没有 `DEFAULT`
+>   也认为详尽。
+> * 模式与分支体之间的箭头（`->` 或 `=>`）可选，标准写法不带
+>   箭头。
+> * 扩展模式语义、lowering 策略与诊断列表参见
+>   [`docs/realization/pattern_matching_zh.md`](../realization/pattern_matching_zh.md)。
 
 ## 8.5 BREAK 和 CONTINUE
 
@@ -865,6 +927,14 @@ EXTEND python::torch.nn.Module AS MyModel {
 ```
 
 `MyModel` 可被 Python 代码当作标准 `nn.Module` 使用，同时其 `forward` 由 `.ploy` 定义并调用 C++。
+
+> **使用限制（自 1.11.0 起）。** `EXTEND` 现在**只**接受动态宿主
+> 语言 `python`、`ruby`、`javascript`（以及标签别名 `rb`、`js`、
+> `typescript`、`ts`）。在静态类型语言 —— `cpp`、`c`、`rust`、
+> `java`、`dotnet` / `csharp`、`go` / `golang` —— 上使用 `EXTEND`
+> 会被 sema 拒绝；推荐改写为本地 ploy `FUNC` 包装，再用 `CALL` /
+> `METHOD` 调用外部 API。完整迁移示例参见
+> [`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)。
 
 ---
 
@@ -1172,6 +1242,142 @@ x = 20;   // ❌ LET 变量不可修改，应使用 VAR
 ```
 
 > **参见**：[示例 10: error_handling](../../tests/samples/10_error_handling/)
+
+## 16.7 结构化异常处理 — TRY / CATCH / FINALLY / THROW *(v1.13.0 起)*
+
+使用 `TRY` / `CATCH` / `FINALLY` 处理运行时失败，使用 `THROW` 抛出
+Error。捕获绑定的类型为内建 `Error` 句柄，公开 `message: String`、
+`source_lang: String`、`stacktrace: List<String>` 三个字段。
+
+```ploy
+FUNC main() {
+    TRY {
+        THROW "boom";
+    }
+    CATCH (e: Error) {
+        PRINTLN "caught\r\n";
+    }
+    FINALLY {
+        PRINTLN "cleanup\r\n";
+    }
+}
+```
+
+不带任何 `CATCH` 与 `FINALLY` 的裸 `TRY` 会被拒绝。允许多个 `CATCH`
+子句，按声明顺序派发；只带 `FINALLY` 而无 `CATCH` 的形式被允许。
+
+运行时桥把宿主语言异常（Python `Exception`、C++ `std::exception`、
+Java `Throwable`、.NET `Exception`、Rust `Result::Err`）映射到统一
+的 `Error` 句柄，因此一个 `CATCH` 子句即可拦截源自任意接入语言的
+失败。
+
+> 参见 [示例 36: try_catch](../../tests/samples/36_try_catch/) 与
+> `docs/realization/error_handling_zh.md`。
+
+## 16.8 协作式异步与 Await — ASYNC FUNC / AWAIT *(v1.14.0 起)*
+
+使用 `ASYNC FUNC` 声明协作式异步函数，使用 `AWAIT` 暂停直至 future
+解析完成。`ASYNC FUNC` 声明的返回类型 `T` 在 ABI 边界被隐式包装为
+`Future<T>`。`AWAIT <expr>` 仅允许出现在 `ASYNC FUNC` 体内，其它
+位置由 sema 拒绝。
+
+```ploy
+ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
+ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
+
+ASYNC FUNC chained() -> i32 {
+    LET a = AWAIT fetch_one();
+    LET b = AWAIT fetch_two();
+    RETURN 0;
+}
+```
+
+协作式事件循环（默认单线程；基于 `runtime/threading.{h,cpp}` 的
+work-stealing 线程池为后续工作）实现位于
+`runtime/services/async_bridge.cpp` 与
+`runtime/services/event_loop.cpp`。各宿主语言适配器把宿主 awaitable
+（Python `asyncio` 协程、Rust `Future`、C++20 `std::coroutine`、
+Java `CompletableFuture`、.NET `Task<T>`）通过
+`__ploy_rt_future_resolve` 映射到同一个 `Future<T>` 句柄。
+
+`polyrt async` CLI 输出协作式事件循环的快照；
+`polyrt async --json` 以 JSON 输出同一负载，
+`polyrt async --run[=N]` 在汇报前最多驱动 `N` 个 tick。
+
+> 参见 [示例 37: async_await](../../tests/samples/37_async_await/) 与
+> `docs/realization/async_model_zh.md`。
+
+## 16.9 泛型 — 带 bound 的 FUNC<T> / STRUCT<T> *(v1.15.0 起)*
+
+在 `FUNC` 或 `STRUCT` 名后使用 `<T: Bound1 + Bound2, U>` 引入
+带可选 trait bound 的泛型类型参数。可选的 `WHERE` 子句位于
+返回类型与函数体之间，并入对应参数的 bound。
+
+```ploy
+FUNC max<T: Comparable>(a: T, b: T) -> T {
+    IF (a > b) { RETURN a; } ELSE { RETURN b; }
+}
+
+STRUCT Pair<A, B> { first: A, second: B }
+
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
+    RETURN a + b;
+}
+```
+
+内建 trait 注册表为 `Comparable`、`Hashable`、`Numeric`、
+`Iterable`、`Display`，sema 拒绝未知 bound。v1.15.0 的下沉路径是
+类型擦除 — 每个类型参数解析为 `Any`，函数或结构体仅下沉一次 —
+单一体服务所有调用点。
+
+> 参见 [示例 38: generics](../../tests/samples/38_generics/) 与
+> `docs/realization/generics_zh.md`。
+
+## 16.10 可见性（PUB / PRIVATE）与属性（@name） *(v1.16.0 起)*
+
+使用 `PUB` 将顶层 `FUNC`、`ASYNC FUNC` 或 `STRUCT` 导出至其他模块；
+默认为 `PRIVATE`（模块本地），可显式书写。`EXPORT` 要求目标为 `PUB`
+— 显式 `PRIVATE` 为硬错误，而仍携默认值的符号会被自动升级并
+发出弃用警告，以保证 v1.16.0 之前的源码可编译。
+
+```ploy
+@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
+PRIVATE STRUCT Internal { x: i32 }
+PUB FUNC api() -> i32 { RETURN fast(1, 2); }
+EXPORT api AS "api_external";
+```
+
+属性形式为 `@name` 或 `@name(arg, ...)`；内建注册表为 `@inline`、
+`@noinline`、`@always_inline`、`@hot`、`@cold`、`@profile`、
+`@no_profile`、`@deprecated`、`@link_name`、`@target`。未知属性以
+sema 警告接受，便于第三方工具在不改动编译器的情况下扩展目录。
+v1.16.0 MVP 把属性以惰性元数据形式留在 AST 上；接入优化器与
+链接器作为后续工作跟踪。
+
+> 参见 [示例 39: visibility_attrs](../../tests/samples/39_visibility_attrs/) 与
+> `docs/realization/visibility_attrs_zh.md`、
+> `docs/specs/attribute_catalog_zh.md`。
+
+## 16.11 扩展字符串字面量 *(v1.17.0 起)*
+
+Ploy 1.17.0 引入四种字符串字面量形式，全部共享 `String` 值类型：
+
+```ploy
+LET reg  = "hello\n";                                  // 普通
+LET path = r"C:\path\no\escape";                       // 原始
+LET sql  = r#"SELECT "name" FROM users"#;              // 带 `#` 填充的原始
+LET poem = """line one
+line two""";                                           // 多行
+LET msg  = f"answer = {42}, pi = {3.14}";              // 模板
+```
+
+模板字符串（`f"..."`）以大括号包裹插值表达式；`{{` / `}}` 表示
+字面大括号。Sema 要求每个插值表达式为 `Int`、`Float`、`String` 或
+`Bool`。v1.17.0 的下沉层在所有插值都是编译期 `Literal` 时进行
+立即折叠；用于运行时变量插值的格式化辅助函数作为后续工作跟踪。
+
+> 参见 [示例 40: string_literals](../../tests/samples/40_string_literals/) 与
+> `docs/realization/string_literals_zh.md`。
 
 ---
 

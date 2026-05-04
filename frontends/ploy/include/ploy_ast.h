@@ -36,6 +36,26 @@ struct TypeNode : AstNode {};
 struct Pattern : AstNode {};
 
 // ============================================================================
+// Visibility and Attributes (since v1.16.0)
+// ============================================================================
+
+// Module-boundary visibility for top-level declarations.  `kPrivate` is the
+// default; only `kPub` symbols may be referenced by `EXPORT` or imported
+// from other modules.
+enum class Visibility { kPrivate, kPub };
+
+// `@name(arg, arg, ...)` annotation prefix on a top-level declaration.
+// Recognised names are validated by sema against a built-in catalog;
+// unknown names produce a warning.  Arguments are captured verbatim as
+// strings (literal text, including any surrounding quotes); built-in
+// attributes that need richer payloads parse the strings in sema.
+struct Attribute {
+  std::string name;
+  std::vector<std::string> args;
+  core::SourceLoc loc{};
+};
+
+// ============================================================================
 // Type Nodes
 // ============================================================================
 
@@ -104,10 +124,45 @@ struct Literal : Expression {
   std::string value;
 };
 
+// Template (interpolated) string literal (since v1.17.0).
+//
+// Syntax: f"text {expr} more {expr2}".  At parse time the lexer hands the
+// parser a single `kString` token whose lexeme starts with `f"`; the parser
+// splits the body into an alternating sequence of literal text segments
+// and interpolated expression segments.  Sema verifies each interpolated
+// expression has a formattable type (Int / Float / String / Bool); the
+// expression result type is always String.  Lowering eagerly assembles
+// the formatted bytes when every interpolated expression is a constant
+// literal; the runtime-formatting helper is tracked as future work.
+/** @brief TemplateString data structure. */
+struct TemplateString : Expression {
+  /** @brief One segment of a template string. */
+  struct Part {
+    bool is_text{true};                       ///< true = literal text, false = interpolated expression
+    std::string text;                          ///< populated when is_text == true
+    std::shared_ptr<Expression> expr;          ///< populated when is_text == false
+    core::SourceLoc loc{};
+  };
+  std::vector<Part> parts;
+};
+
 // Unary expression: -x, !x, NOT x
 /** @brief UnaryExpression data structure. */
 struct UnaryExpression : Expression {
   std::string op;
+  std::shared_ptr<Expression> operand;
+};
+
+// AWAIT <expr>
+//
+// Suspends the surrounding ASYNC function until the awaited future is
+// resolved.  The operand must evaluate to a `Future<T>` value (typically
+// the result of calling another ASYNC function or a cross-language
+// asynchronous bridge); the await expression then evaluates to `T`.
+// Sema rejects use outside an `ASYNC FUNC`.  Lowering emits a call to
+// `__ploy_rt_await` (since v1.14.0).
+/** @brief AwaitExpression data structure. */
+struct AwaitExpression : Expression {
   std::shared_ptr<Expression> operand;
 };
 
@@ -391,10 +446,39 @@ struct FuncDecl : Statement {
     // safely materialise it as an inline constant at every call site.
     std::shared_ptr<Expression> default_value;
   };
+  // Generic type parameter declared in `<T: Bound1+Bound2, U>` after the
+  // function name (since v1.15.0).  WHERE clauses are merged into the
+  // bounds of the matching parameter during parsing.  An empty
+  // `type_params` vector marks a non-generic function.
+  struct TypeParam {
+    std::string name;
+    std::vector<std::string> bounds;
+    core::SourceLoc loc{};
+  };
   std::string name;
+  std::vector<TypeParam> type_params;
   std::vector<Param> params;
   std::shared_ptr<TypeNode> return_type; // nullptr means VOID
   std::vector<std::shared_ptr<Statement>> body;
+  // Set when the declaration is prefixed with the `ASYNC` keyword.  The
+  // declared return type `T` is implicitly wrapped as `Future<T>` at the
+  // ABI boundary; tooling continues to surface the raw `T` per the
+  // language specification.  Resolved by sema and consumed by lowering
+  // to emit cooperative-scheduler intrinsics (since v1.14.0).
+  bool is_async{false};
+  // Module-boundary visibility (since v1.16.0).  Defaults to kPrivate;
+  // sema requires `EXPORT` targets to carry kPub.
+  Visibility visibility{Visibility::kPrivate};
+  // True when the source explicitly wrote `PUB` or `PRIVATE`; pre-v1.16.0
+  // sources leave this false and are treated leniently by EXPORT sema.
+  bool visibility_explicit{false};
+  // `@name(args)` annotations recognised by sema (since v1.16.0).
+  std::vector<Attribute> attributes;
+  // `///` doc-comment block attached to this declaration (since v1.18.0).
+  // One entry per source line, in source order, with the leading marker
+  // and one optional space already stripped by the lexer.  Empty when no
+  // doc comment was present immediately above the declaration.
+  std::vector<std::string> doc_comment;
 };
 
 // LET x: TYPE = expr; or VAR y: TYPE = expr;
@@ -404,6 +488,8 @@ struct VarDecl : Statement {
   bool is_mutable{false};         // VAR = true, LET = false
   std::shared_ptr<TypeNode> type; // nullptr for type inference
   std::shared_ptr<Expression> init;
+  // `///` doc-comment block (since v1.18.0); see FuncDecl::doc_comment.
+  std::vector<std::string> doc_comment;
 };
 
 // Expression statement: expr;
@@ -442,6 +528,20 @@ struct IfStatement : Statement {
   std::shared_ptr<Expression> condition;
   std::vector<std::shared_ptr<Statement>> then_body;
   std::vector<std::shared_ptr<Statement>> else_body; // may contain another IfStatement
+};
+
+// IF LET Some(x) = opt { ... } ELSE { ... }   (since v1.18.0)
+//
+// Conditional binding-and-unwrap of an OPTION<T> value.  When `scrutinee`
+// matches the constructor named `ctor` (currently `Some` or `None`), the
+// `bindings` are introduced into the THEN-body's scope.  `Some` requires
+// exactly one binding; `None` requires zero.  ELSE-body is optional.
+struct IfLetStatement : Statement {
+  std::string ctor;                                  // "Some" or "None"
+  std::vector<std::string> bindings;                 // names introduced
+  std::shared_ptr<Expression> scrutinee;             // the OPTION<T> value
+  std::vector<std::shared_ptr<Statement>> then_body;
+  std::vector<std::shared_ptr<Statement>> else_body;
 };
 
 // WHILE condition { ... }
@@ -570,6 +670,40 @@ struct BreakStatement : Statement {};
 /** @brief ContinueStatement data structure. */
 struct ContinueStatement : Statement {};
 
+// THROW <expression>;
+//
+// Raises a polyglot Error.  The expression must evaluate to either an
+// existing `Error` handle (re-throw) or a value convertible to one
+// (string literal, user-defined Error-shaped struct).  Lowering
+// translates this to a call to `__ploy_rt_throw`.
+/** @brief ThrowStatement data structure. */
+struct ThrowStatement : Statement {
+  std::shared_ptr<Expression> value;
+};
+
+// TRY { body } CATCH (name: Error) { handler } FINALLY { cleanup }
+//
+// Structured exception handling.  Both `catches` and `finally_body`
+// are optional — `TRY { … } FINALLY { … }` (no catch) and
+// `TRY { … } CATCH (…) { … }` (no finally) are both valid.  Multiple
+// `CATCH` clauses are supported in the AST so future demands can add
+// type-discriminating handlers without an AST change.
+/** @brief TryStatement data structure. */
+struct TryStatement : Statement {
+  /** @brief CatchClause data structure. */
+  struct CatchClause {
+    core::SourceLoc loc;
+    std::string var_name;                 // bound name for the caught Error
+    std::shared_ptr<TypeNode> var_type;   // declared type (defaults to Error)
+    std::vector<std::shared_ptr<Statement>> body;
+  };
+
+  std::vector<std::shared_ptr<Statement>> body;
+  std::vector<CatchClause> catches;
+  std::vector<std::shared_ptr<Statement>> finally_body;
+  bool has_finally{false};
+};
+
 // WITH(language, expression) AS name { body }
 // Automatic resource management: calls __enter__ before and __exit__ after the body
 /** @brief WithStatement data structure. */
@@ -585,14 +719,23 @@ struct WithStatement : Statement {
 /** @brief StructDecl data structure. */
 struct StructDecl : Statement {
   std::string name;
+  // Generic type parameter declared in `<A, B>` after the struct name
+  // (since v1.15.0).  An empty vector marks a non-generic struct.
+  std::vector<FuncDecl::TypeParam> type_params;
   /** @brief Field data structure. */
   struct Field {
     std::string name;
     std::shared_ptr<TypeNode> type;
   };
   std::vector<Field> fields;
+  // Module-boundary visibility (since v1.16.0).
+  Visibility visibility{Visibility::kPrivate};
+  bool visibility_explicit{false};
+  // `@name(args)` annotations recognised by sema (since v1.16.0).
+  std::vector<Attribute> attributes;
+  // `///` doc-comment block (since v1.18.0); see FuncDecl::doc_comment.
+  std::vector<std::string> doc_comment;
 };
-
 // MAP_FUNC name(params) -> ReturnType { body }
 // A specialised function for type mapping between languages
 /** @brief MapFuncDecl data structure. */
@@ -635,25 +778,54 @@ struct ConstDecl : Statement {
   std::shared_ptr<Expression> value;    ///< Constant initializer expression.
 };
 
-// CONFIG VENV "path/to/venv";
-// CONFIG CONDA env_name;
-// CONFIG UV "path/to/venv";
-// CONFIG PIPENV "path/to/project";
-// CONFIG POETRY "path/to/project";
-// Specifies a virtual environment or package manager to use for package resolution
+// Legacy form (kept for backward compatibility, sema emits a deprecation
+// warning suggesting the new stringified form):
+//   CONFIG VENV "path/to/venv";
+//   CONFIG CONDA env_name;
+//   CONFIG UV "path/to/venv";
+//   CONFIG PIPENV "path/to/project";
+//   CONFIG POETRY "path/to/project";
+//
+// Canonical form (since 1.12.0):
+//   CONFIG <language> "<package_manager>" "<path_or_env>";
+// e.g.
+//   CONFIG python "venv"   ".venv";
+//   CONFIG python "conda"  "myenv";
+//   CONFIG rust   "cargo"  ".";
+//   CONFIG javascript "npm"     "./node_modules";
+//   CONFIG java       "maven"   "./pom.xml";
+//   CONFIG dotnet     "nuget"   "./packages";
+//   CONFIG ruby       "bundler" "./Gemfile";
+//   CONFIG go         "gomod"   "./go.mod";
+//
+// Both forms produce a `VenvConfigDecl` AST node.  `is_legacy_form` is
+// `true` for any node parsed via the legacy keyword-driven path; sema
+// uses that flag to decide whether to surface the deprecation warning.
+// `manager_name` always carries the canonical lower-case manager string
+// (`"venv"`, `"conda"`, `"npm"`, ...) so downstream consumers do not
+// need to switch on the enum to recover the human-readable spelling.
 /** @brief VenvConfigDecl data structure. */
 struct VenvConfigDecl : Statement {
   /** @brief ManagerKind enumeration. */
   enum class ManagerKind {
-    kVenv,   // Standard Python venv / virtualenv
-    kConda,  // Conda environment
-    kUv,     // uv-managed virtual environment
-    kPipenv, // Pipenv project
-    kPoetry  // Poetry project
+    kVenv,    // Standard Python venv / virtualenv
+    kConda,   // Conda environment
+    kUv,      // uv-managed virtual environment
+    kPipenv,  // Pipenv project
+    kPoetry,  // Poetry project
+    kNpm,     // JavaScript / TypeScript node_modules tree
+    kCargo,   // Rust cargo workspace
+    kMaven,   // Java maven project (pom.xml)
+    kNuget,   // .NET nuget package directory
+    kBundler, // Ruby bundler Gemfile
+    kGoMod,   // Go go.mod-rooted module
+    kUnknown  // Resolution failed / unregistered manager
   };
   ManagerKind manager{ManagerKind::kVenv};
-  std::string language;  // e.g. "python"
-  std::string venv_path; // path to the virtual environment / project / env name
+  std::string language;     // canonical short language name (e.g. "python")
+  std::string venv_path;    // path to the virtual environment / project / env name
+  std::string manager_name; // canonical manager string ("venv", "npm", ...)
+  bool is_legacy_form{false}; // true when parsed from `CONFIG VENV "..."` etc.
 };
 
 // ============================================================================

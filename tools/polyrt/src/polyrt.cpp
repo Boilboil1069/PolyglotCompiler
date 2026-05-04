@@ -40,6 +40,7 @@
 #include "runtime/include/services/threading.h"
 #include "runtime/include/services/call_trace.h"
 #include "runtime/include/services/profile_sink.h"
+#include "runtime/include/services/async_bridge.h"
 
 namespace polyglot::tools {
 
@@ -146,6 +147,7 @@ void PrintUsage() {
   std::cout << "  info                Show runtime information\n";
   std::cout << "  profile             Sample runtime profile (calls + memory)\n";
   std::cout << "  calltrace           Drain the call-trace ring buffer\n";
+  std::cout << "  async               Inspect the cooperative async scheduler\n";
   std::cout << "  help                Show this help message\n";
   std::cout << "  version             Show version information\n";
   std::cout << "\n";
@@ -1229,7 +1231,75 @@ int CmdCallTrace(int argc, char **argv) {
 }
 
 // ============================================================================
-// Main Entry Point
+// Async Command
+// ============================================================================
+//
+// Inspects the cooperative async scheduler installed by
+// `runtime/services/async_bridge.cpp`.  The default invocation prints
+// the current snapshot in a human-readable form; `--json` emits the
+// same payload as a single-line JSON object suitable for tooling.
+// `--run[=N]` drives the loop for at most N ticks before reporting.
+void PrintAsyncHelp() {
+  std::cout << "Usage: " << kToolName << " async [options]\n\n";
+  std::cout << "Inspect the cooperative async scheduler.\n\n";
+  std::cout << "Options:\n";
+  std::cout << "  --json           Output the snapshot as JSON\n";
+  std::cout << "  --run[=N]        Drive the loop for at most N ticks (default 1024)\n";
+  std::cout << "  --help           Show this help message\n";
+}
+
+int CmdAsync(int argc, char **argv) {
+  bool json_output = false;
+  bool drive = false;
+  std::size_t max_ticks = 1024;
+  for (int i = 2; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--help" || a == "-h") {
+      PrintAsyncHelp();
+      return 0;
+    }
+    if (a == "--json") {
+      json_output = true;
+    } else if (a == "--run") {
+      drive = true;
+    } else if (a.rfind("--run=", 0) == 0) {
+      drive = true;
+      try {
+        max_ticks = static_cast<std::size_t>(std::stoul(a.substr(6)));
+      } catch (...) {
+        std::cerr << "polyrt async: invalid --run value\n";
+        return 2;
+      }
+    }
+  }
+  std::size_t completed = 0;
+  if (drive) {
+    completed = polyglot::runtime::services::RunUntilIdle(max_ticks);
+  }
+  auto snap = polyglot::runtime::services::SnapshotScheduler();
+  if (json_output) {
+    std::cout << "{"
+              << "\"pending\":" << snap.pending_tasks
+              << ",\"suspended\":" << snap.suspended_tasks
+              << ",\"completed\":" << snap.completed_tasks
+              << ",\"loop_iterations\":" << snap.loop_iterations
+              << ",\"active_async_frames\":" << snap.active_async_frames
+              << ",\"drive_completed\":" << completed
+              << "}\n";
+  } else {
+    std::cout << "polyrt async: cooperative scheduler snapshot\n";
+    std::cout << "  pending tasks       : " << snap.pending_tasks << "\n";
+    std::cout << "  suspended tasks     : " << snap.suspended_tasks << "\n";
+    std::cout << "  completed tasks     : " << snap.completed_tasks << "\n";
+    std::cout << "  loop iterations     : " << snap.loop_iterations << "\n";
+    std::cout << "  active async frames : " << snap.active_async_frames << "\n";
+    if (drive) {
+      std::cout << "  driven this call    : " << completed << "\n";
+    }
+  }
+  return 0;
+}
+
 // ============================================================================
 
 int Run(int argc, char **argv) {
@@ -1280,6 +1350,10 @@ int Run(int argc, char **argv) {
 
   if (command == "calltrace") {
     return CmdCallTrace(argc, argv);
+  }
+
+  if (command == "async") {
+    return CmdAsync(argc, argv);
   }
 
   std::cerr << "Unknown command: " << command << "\n";

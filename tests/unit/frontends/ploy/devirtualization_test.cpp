@@ -298,10 +298,10 @@ FUNC run_concrete() -> INT {
 }
 
 // ============================================================================
-// 6. Cross-language devirtualisation: EXTEND on a Rust base class
+// 6. EXTEND on a statically-typed language is rejected by sema
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND on Rust base generates Rust-language bridge",
+TEST_CASE("Ploy devirt: EXTEND on Rust base is rejected (static-language guard)",
           "[ploy][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
@@ -310,27 +310,20 @@ IMPORT rust PACKAGE tokio;
 EXTEND(rust, tokio::Task) AS MyTask {
     FUNC run(id: INT) -> INT { RETURN id; }
 }
-
-FUNC execute() -> INT {
-    LET task = NEW(rust, MyTask);
-    LET result = METHOD(rust, task, run, 42);
-    RETURN 0;
-}
 )", diags);
 
-    REQUIRE(result.success);
-    REQUIRE(!diags.HasErrors());
-
-    // Bridge must use Rust language
-    CHECK(result.ir_text.find("__ploy_extend_MyTask_run") != std::string::npos);
-
-    bool found_rust = false;
-    for (const auto &d : result.descriptors) {
-        if (d.source_function.find("run") != std::string::npos) {
-            found_rust = (d.source_language == "rust");
+    // Compilation must surface a sema error and not proceed to bridge
+    // generation: EXTEND is reserved for dynamic host languages.
+    REQUIRE(diags.HasErrors());
+    bool mentions_static = false;
+    for (const auto &d : diags.All()) {
+        if (d.message.find("EXTEND is not allowed on statically-typed") !=
+            std::string::npos) {
+            mentions_static = true;
+            break;
         }
     }
-    CHECK(found_rust);
+    CHECK(mentions_static);
 }
 
 // ============================================================================

@@ -1,0 +1,29 @@
+// String-literal showcase (since v1.17.0): regular, raw (r"..."),
+// triple-quoted multiline, and template (f"...") forms.
+
+PUB FUNC make_path() -> STRING {
+    // Raw string — backslashes are not escape sequences.
+    RETURN r"C:\projects\polyglot\samples\40_string_literals";
+}
+
+PUB FUNC make_sql() -> STRING {
+    // Raw string with `#` padding so embedded double-quotes pass through.
+    RETURN r#"SELECT "name", "age" FROM users WHERE city = 'Beijing'"#;
+}
+
+PUB FUNC make_haiku() -> STRING {
+    // Triple-quoted multiline — newlines are preserved.
+    RETURN """An old silent pond
+A frog jumps into the pond
+splash silence again""";
+}
+
+PUB FUNC make_greeting() -> STRING {
+    // Template (interpolated) string with literal interpolation.
+    RETURN f"answer = {42}, pi = {3.14}";
+}
+
+FUNC main() -> i32 {
+    PRINTLN "40_string_literals: ok\r\n";
+    RETURN 0;
+}

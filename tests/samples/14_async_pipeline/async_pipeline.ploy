@@ -125,6 +125,38 @@ EXPORT classify_signal;
 EXPORT signal_processing_pipeline;
 
 // ============================================================================
+// Real ASYNC / AWAIT pipeline (since v1.14.0).
+//
+// The original pipeline above issues fully synchronous CALLs — the
+// "async" in the sample name historically referred to the staged data
+// flow rather than to language-level concurrency.  The block below
+// demonstrates the genuine cooperative async model introduced by
+// v1.14.0: every stage runs as a Future<T> on the runtime event loop
+// driven by `runtime/services/async_bridge.cpp`.
+// ============================================================================
+
+ASYNC FUNC load_async(source: STRING) -> STRING {
+    RETURN source;
+}
+
+ASYNC FUNC filter_async(payload: STRING) -> STRING {
+    RETURN payload;
+}
+
+ASYNC FUNC visualize_async(payload: STRING) -> STRING {
+    RETURN payload;
+}
+
+ASYNC FUNC async_pipeline(source: STRING) -> STRING {
+    LET raw      = AWAIT load_async(source);
+    LET filtered = AWAIT filter_async(raw);
+    LET chart    = AWAIT visualize_async(filtered);
+    RETURN chart;
+}
+
+EXPORT async_pipeline;
+
+// ============================================================================
 // Runtime stdout marker.
 //
 // This trailing PRINTLN exists so the produced executable can be byte-compared

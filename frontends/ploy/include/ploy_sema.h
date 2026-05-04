@@ -73,6 +73,9 @@ struct PloySymbol {
   bool is_mutable{false};
   std::string language;      // For imported symbols
   std::string external_name; // For exported symbols
+  // Module-boundary visibility (since v1.16.0).  EXPORT requires kPub.
+  Visibility visibility{Visibility::kPrivate};
+  bool visibility_explicit{false};
   core::SourceLoc defined_at{};
 };
 
@@ -184,6 +187,11 @@ struct FunctionSignature {
   // arguments that may be omitted at a call site.  Required parameters
   // may not appear after a defaulted one (enforced at parse + sema time).
   std::vector<bool> param_has_default;
+  // Parallel vector of default-value expressions.  Slots whose
+  // `param_has_default[i]` is `false` carry a `nullptr` here.  The
+  // lowering pass materialises a copy of the expression at every call
+  // site that omits the corresponding argument.
+  std::vector<std::shared_ptr<Expression>> param_default_values;
   core::Type return_type{core::Type::Unknown()}; // Return type (Unknown until resolved)
   size_t param_count{0};                         // Number of parameters
   bool param_count_known{false};                 // Whether param count is statically known
@@ -298,6 +306,16 @@ private:
   void AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func);
   void AnalyzeVarDecl(const std::shared_ptr<VarDecl> &var);
   void AnalyzeStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
+  // Validates each declared bound name against the built-in trait
+  // registry (Comparable / Hashable / Numeric / Iterable / Display) and
+  // reports unknown bounds as a `kTypeMismatch` diagnostic
+  // (since v1.15.0).
+  void ValidateTypeParamBounds(const std::vector<FuncDecl::TypeParam> &params);
+  // Validates `@name(args)` annotations against the built-in attribute
+  // catalog (since v1.16.0).  Unknown annotations produce a warning
+  // (kGenericWarning) and are otherwise ignored; recognised ones are
+  // accepted.  See `docs/specs/attribute_catalog.md` for the full list.
+  void ValidateAttributes(const std::vector<Attribute> &attrs);
   void AnalyzeMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
   void AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config);
   void AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
@@ -314,6 +332,8 @@ private:
 
   // Statement analysis
   void AnalyzeIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
+  // IF LET Some(x) = expr { … } ELSE { … }   (since v1.18.0)
+  void AnalyzeIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let);
   void AnalyzeWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt);
   void AnalyzeForStatement(const std::shared_ptr<ForStatement> &for_stmt);
   void AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
@@ -330,6 +350,9 @@ private:
   void AnalyzeReturnStatement(const std::shared_ptr<ReturnStatement> &ret);
   void AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
   void AnalyzeBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
+  // Structured exception handling (since v1.13.0).
+  void AnalyzeTryStatement(const std::shared_ptr<TryStatement> &try_stmt);
+  void AnalyzeThrowStatement(const std::shared_ptr<ThrowStatement> &throw_stmt);
 
   // Language-version pinning support.
   void AnalyzeLangPragma(const std::shared_ptr<LangPragma> &pragma);
@@ -351,6 +374,9 @@ private:
   core::Type AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr);
   core::Type AnalyzeBinaryExpression(const std::shared_ptr<BinaryExpression> &bin);
   core::Type AnalyzeUnaryExpression(const std::shared_ptr<UnaryExpression> &unary);
+  // AWAIT operand analysis: enforces use only inside ASYNC FUNC and
+  // returns the inner type of the awaited future (since v1.14.0).
+  core::Type AnalyzeAwaitExpression(const std::shared_ptr<AwaitExpression> &await);
   core::Type AnalyzeConvertExpression(const std::shared_ptr<ConvertExpression> &conv);
   core::Type AnalyzeListLiteral(const std::shared_ptr<ListLiteral> &list);
   core::Type AnalyzeTupleLiteral(const std::shared_ptr<TupleLiteral> &tuple);
@@ -466,6 +492,14 @@ private:
   // Foreign class schemas for NEW/METHOD/GET/SET validation
   std::unordered_map<std::string, ForeignClassSchema> class_schemas_{};
   int loop_depth_{0};
+  // Depth counter for surrounding ASYNC FUNC bodies; AWAIT is rejected
+  // when this counter is zero (since v1.14.0).
+  int async_depth_{0};
+  // Currently in-scope generic type parameter names (since v1.15.0).
+  // ResolveType resolves a SimpleType whose name is in this set to
+  // `core::Type::Any()` (type-erased lowering).  Populated for the
+  // duration of `AnalyzeFuncDecl` / `AnalyzeStructDecl`.
+  std::unordered_set<std::string> active_type_params_{};
   core::Type current_return_type_{core::Type::Invalid()};
   // Track whether code is unreachable (after RETURN, BREAK, CONTINUE)
   bool unreachable_{false};

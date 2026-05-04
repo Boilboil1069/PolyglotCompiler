@@ -8,6 +8,7 @@
  */
 #include <stdexcept>
 
+#include "frontends/ploy/include/ploy_config_registry.h"
 #include "frontends/ploy/include/ploy_parser.h"
 
 namespace polyglot::ploy {
@@ -134,13 +135,34 @@ std::shared_ptr<Module> PloyParser::TakeModule() {
 }
 
 void PloyParser::ParseTopLevel() {
-  // `@LANG(...)` annotation can prefix any top-level statement.
-  if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
+  // `@LANG(...)` annotation can prefix any top-level statement.  All other
+  // `@<name>(...)` annotations are visibility/attribute prefixes (since
+  // v1.16.0) and are routed through ParseAttributesAndVisibility below.
+  if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@" &&
+      Peek().kind == frontends::TokenKind::kKeyword && Peek().lexeme == "LANG") {
     module_->declarations.push_back(ParseLangAnnotation());
     return;
   }
+
+  // Visibility / attribute prefix (since v1.16.0).  Captures any `@name(...)`
+  // annotations and at most one `PUB` / `PRIVATE` keyword.  Attached below
+  // to FUNC / ASYNC FUNC / STRUCT declarations; rejected with a diagnostic
+  // when followed by any other top-level form.
+  std::vector<Attribute> attrs;
+  Visibility vis = Visibility::kPrivate;
+  bool has_explicit_vis = false;
+  core::SourceLoc prefix_loc = current_.loc;
+  ParseAttributesAndVisibility(attrs, vis, has_explicit_vis);
+
   if (current_.kind == frontends::TokenKind::kKeyword) {
     const std::string &kw = current_.lexeme;
+    // Reject prefixes on declaration kinds that do not yet support them.
+    if ((!attrs.empty() || has_explicit_vis) && kw != "FUNC" && kw != "ASYNC" &&
+        kw != "STRUCT") {
+      diagnostics_.Report(prefix_loc,
+                          "PUB / PRIVATE / @attribute prefix is only allowed on FUNC, "
+                          "ASYNC FUNC, or STRUCT declarations");
+    }
     if (kw == "LINK") {
       // ParseLinkDecl is a dispatcher: it consumes 'LINK' and then chooses
       // between the legacy comma form and the canonical signed form.
@@ -168,11 +190,33 @@ void PloyParser::ParseTopLevel() {
       return;
     }
     if (kw == "FUNC") {
-      module_->declarations.push_back(ParseFuncDecl());
+      auto stmt = ParseFuncDecl();
+      if (auto fn = std::dynamic_pointer_cast<FuncDecl>(stmt)) {
+        fn->visibility = vis;
+        fn->visibility_explicit = has_explicit_vis;
+        fn->attributes = std::move(attrs);
+      }
+      module_->declarations.push_back(std::move(stmt));
+      return;
+    }
+    if (kw == "ASYNC") {
+      auto stmt = ParseAsyncFuncDecl();
+      if (auto fn = std::dynamic_pointer_cast<FuncDecl>(stmt)) {
+        fn->visibility = vis;
+        fn->visibility_explicit = has_explicit_vis;
+        fn->attributes = std::move(attrs);
+      }
+      module_->declarations.push_back(std::move(stmt));
       return;
     }
     if (kw == "STRUCT") {
-      module_->declarations.push_back(ParseStructDecl());
+      auto stmt = ParseStructDecl();
+      if (auto sd = std::dynamic_pointer_cast<StructDecl>(stmt)) {
+        sd->visibility = vis;
+        sd->visibility_explicit = has_explicit_vis;
+        sd->attributes = std::move(attrs);
+      }
+      module_->declarations.push_back(std::move(stmt));
       return;
     }
     if (kw == "MAP_FUNC") {
@@ -210,8 +254,18 @@ void PloyParser::ParseTopLevel() {
   // identifier uses of `class` (rare but legal) keep parsing as identifiers.
   if (current_.kind == frontends::TokenKind::kIdentifier &&
       IEqualsAscii(current_.lexeme, "CLASS")) {
+    if (!attrs.empty() || has_explicit_vis) {
+      diagnostics_.Report(prefix_loc,
+                          "PUB / PRIVATE / @attribute prefix is only allowed on FUNC, "
+                          "ASYNC FUNC, or STRUCT declarations");
+    }
     module_->declarations.push_back(ParseClassDecl());
     return;
+  }
+  if (!attrs.empty() || has_explicit_vis) {
+    diagnostics_.Report(prefix_loc,
+                        "PUB / PRIVATE / @attribute prefix is only allowed on FUNC, "
+                        "ASYNC FUNC, or STRUCT declarations");
   }
   // Fallback: parse as a statement
   module_->declarations.push_back(ParseStatement());
@@ -708,6 +762,9 @@ std::shared_ptr<Statement> PloyParser::ParseStageDecl() {
 std::shared_ptr<Statement> PloyParser::ParseFuncDecl() {
   auto node = std::make_shared<FuncDecl>();
   node->loc = current_.loc;
+  // Pull any `///` doc-comment lines that the lexer accumulated
+  // immediately above this declaration (since v1.18.0).
+  node->doc_comment = lexer_.TakePendingDoc();
   Advance(); // consume 'FUNC'
 
   if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -717,6 +774,11 @@ std::shared_ptr<Statement> PloyParser::ParseFuncDecl() {
     diagnostics_.Report(current_.loc, "expected function name");
     Sync();
     return node;
+  }
+
+  // Optional generic parameter list `<T: Bound, U>` (since v1.15.0).
+  if (IsSymbol("<")) {
+    node->type_params = ParseTypeParams();
   }
 
   ExpectSymbol("(", "expected '(' after function name");
@@ -729,11 +791,134 @@ std::shared_ptr<Statement> PloyParser::ParseFuncDecl() {
     node->return_type = ParseType();
   }
 
+  // Optional WHERE clause that augments existing type-parameter bounds
+  // (since v1.15.0).
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "WHERE") {
+    ParseWhereClause(node->type_params);
+  }
+
   ExpectSymbol("{", "expected '{' for function body");
   node->body = ParseBlockBody();
   ExpectSymbol("}", "expected '}' to close function");
 
   return node;
+}
+
+// ASYNC FUNC name(params) -> return_type { ... }
+//
+// Consumes the leading `ASYNC` keyword then defers to `ParseFuncDecl`
+// for the actual signature/body grammar, marking the resulting node so
+// downstream phases can wrap the return type as `Future<T>` and emit
+// cooperative-scheduler intrinsics (since v1.14.0).
+std::shared_ptr<Statement> PloyParser::ParseAsyncFuncDecl() {
+  auto loc = current_.loc;
+  Advance(); // consume 'ASYNC'
+
+  if (!(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "FUNC")) {
+    diagnostics_.Report(current_.loc, "expected 'FUNC' after 'ASYNC'");
+    Sync();
+    auto node = std::make_shared<FuncDecl>();
+    node->loc = loc;
+    node->is_async = true;
+    return node;
+  }
+
+  auto stmt = ParseFuncDecl();
+  if (auto fn = std::dynamic_pointer_cast<FuncDecl>(stmt)) {
+    fn->is_async = true;
+    fn->loc = loc;
+  }
+  return stmt;
+}
+
+// ============================================================================
+// Generics — type parameter list and WHERE clause
+// ============================================================================
+
+// Parses `<T: Bound1+Bound2, U>` from the position of the opening `<`.
+// Bounds are recorded as plain identifier names; sema validates each
+// against the built-in trait registry (since v1.15.0).
+std::vector<FuncDecl::TypeParam> PloyParser::ParseTypeParams() {
+  std::vector<FuncDecl::TypeParam> params;
+  if (!IsSymbol("<")) return params;
+  Advance(); // consume '<'
+
+  if (IsSymbol(">")) {
+    diagnostics_.Report(current_.loc, "type parameter list '<>' must declare at least one parameter");
+    Advance();
+    return params;
+  }
+
+  do {
+    FuncDecl::TypeParam tp;
+    tp.loc = current_.loc;
+    if (current_.kind != frontends::TokenKind::kIdentifier) {
+      diagnostics_.Report(current_.loc, "expected type parameter name");
+      Sync();
+      break;
+    }
+    tp.name = current_.lexeme;
+    Advance();
+
+    // Optional `: Bound1 + Bound2 + ...`
+    if (IsSymbol(":")) {
+      Advance();
+      do {
+        if (current_.kind != frontends::TokenKind::kIdentifier &&
+            current_.kind != frontends::TokenKind::kKeyword) {
+          diagnostics_.Report(current_.loc, "expected bound name after ':'");
+          break;
+        }
+        tp.bounds.push_back(current_.lexeme);
+        Advance();
+      } while (MatchSymbol("+"));
+    }
+
+    params.push_back(std::move(tp));
+  } while (MatchSymbol(","));
+
+  ExpectSymbol(">", "expected '>' to close type parameter list");
+  return params;
+}
+
+// Parses `WHERE T: Bound1 + Bound2, U: Bound3` and merges each constraint
+// into the bounds vector of the matching parameter.  Constraints that
+// reference an unknown parameter are reported here so sema only sees a
+// well-formed list.
+void PloyParser::ParseWhereClause(std::vector<FuncDecl::TypeParam> &type_params) {
+  Advance(); // consume 'WHERE'
+
+  do {
+    if (current_.kind != frontends::TokenKind::kIdentifier) {
+      diagnostics_.Report(current_.loc, "expected type parameter name in WHERE clause");
+      break;
+    }
+    std::string name = current_.lexeme;
+    auto loc = current_.loc;
+    Advance();
+
+    FuncDecl::TypeParam *target = nullptr;
+    for (auto &tp : type_params) {
+      if (tp.name == name) {
+        target = &tp;
+        break;
+      }
+    }
+    if (target == nullptr) {
+      diagnostics_.Report(loc, "WHERE clause references unknown type parameter '" + name + "'");
+    }
+
+    ExpectSymbol(":", "expected ':' after type parameter in WHERE clause");
+    do {
+      if (current_.kind != frontends::TokenKind::kIdentifier &&
+          current_.kind != frontends::TokenKind::kKeyword) {
+        diagnostics_.Report(current_.loc, "expected bound name after ':' in WHERE clause");
+        break;
+      }
+      if (target != nullptr) target->bounds.push_back(current_.lexeme);
+      Advance();
+    } while (MatchSymbol("+"));
+  } while (MatchSymbol(","));
 }
 
 // ============================================================================
@@ -894,6 +1079,8 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
       return ParsePipelineDecl();
     if (kw == "FUNC")
       return ParseFuncDecl();
+    if (kw == "ASYNC")
+      return ParseAsyncFuncDecl();
     if (kw == "PRINTLN")
       return ParsePrintlnStatement();
     if (kw == "TYPE")
@@ -905,6 +1092,12 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
         diagnostics_.Report(current_.loc, "unexpected keyword 'STAGE' outside PIPELINE");
       }
       return ParseStageDecl();
+    }
+    if (kw == "TRY") {
+      return ParseTryStatement();
+    }
+    if (kw == "THROW") {
+      return ParseThrowStatement();
     }
   }
 
@@ -920,6 +1113,8 @@ std::shared_ptr<Statement> PloyParser::ParseVarDecl(bool is_mutable) {
   auto node = std::make_shared<VarDecl>();
   node->loc = current_.loc;
   node->is_mutable = is_mutable;
+  // Attach pending `///` doc lines (since v1.18.0).
+  node->doc_comment = lexer_.TakePendingDoc();
 
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     node->name = current_.lexeme;
@@ -947,10 +1142,23 @@ std::shared_ptr<Statement> PloyParser::ParseVarDecl(bool is_mutable) {
 }
 
 std::shared_ptr<Statement> PloyParser::ParseIfStatement() {
-  auto node = std::make_shared<IfStatement>();
-  node->loc = current_.loc;
+  core::SourceLoc if_loc = current_.loc;
   Advance(); // consume 'IF'
 
+  // IF LET destructuring (since v1.18.0).  Lexed as a separate AST node
+  // so sema can introduce the bound names into the THEN-body's scope
+  // without colliding with the boolean-condition path.  We do not back-
+  // track over IF; once we see `LET` here we are committed.
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "LET") {
+    return ParseIfLetStatement(if_loc);
+  }
+
+  auto node = std::make_shared<IfStatement>();
+  node->loc = if_loc;
+
+  // The expression-grammar already accepts `(cond)` as a grouped
+  // expression, so `IF (cond) { … }` parses identically to
+  // `IF cond { … }` (since v1.18.0).
   node->condition = ParseExpression();
   ExpectSymbol("{", "expected '{' after IF condition");
   node->then_body = ParseBlockBody();
@@ -959,7 +1167,7 @@ std::shared_ptr<Statement> PloyParser::ParseIfStatement() {
   // Optional ELSE / ELSE IF
   if (MatchKeyword("ELSE")) {
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "IF") {
-      // ELSE IF �?nest as a single statement in else_body
+      // ELSE IF nests as a single statement in else_body
       auto elif = ParseIfStatement();
       node->else_body.push_back(elif);
     } else {
@@ -972,11 +1180,64 @@ std::shared_ptr<Statement> PloyParser::ParseIfStatement() {
   return node;
 }
 
+std::shared_ptr<Statement> PloyParser::ParseIfLetStatement(core::SourceLoc if_loc) {
+  auto node = std::make_shared<IfLetStatement>();
+  node->loc = if_loc;
+  Advance(); // consume 'LET'
+
+  // Constructor: must be an identifier (`Some` or `None` for the MVP).
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
+    node->ctor = current_.lexeme;
+    Advance();
+  } else {
+    diagnostics_.Report(current_.loc, "expected constructor name (Some / None) after IF LET");
+    Sync();
+    return node;
+  }
+
+  // Bindings: `Some(x)` requires one; `None` takes no arguments.
+  if (MatchSymbol("(")) {
+    if (!IsSymbol(")")) {
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->bindings.push_back(current_.lexeme);
+        Advance();
+      } else {
+        diagnostics_.Report(current_.loc, "expected binding name in IF LET pattern");
+      }
+      while (MatchSymbol(",")) {
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+          node->bindings.push_back(current_.lexeme);
+          Advance();
+        } else {
+          diagnostics_.Report(current_.loc, "expected binding name in IF LET pattern");
+          break;
+        }
+      }
+    }
+    ExpectSymbol(")", "expected ')' to close IF LET pattern");
+  }
+
+  ExpectSymbol("=", "expected '=' after IF LET pattern");
+  node->scrutinee = ParseExpression();
+  ExpectSymbol("{", "expected '{' after IF LET scrutinee");
+  node->then_body = ParseBlockBody();
+  ExpectSymbol("}", "expected '}' to close IF LET body");
+
+  if (MatchKeyword("ELSE")) {
+    ExpectSymbol("{", "expected '{' after ELSE");
+    node->else_body = ParseBlockBody();
+    ExpectSymbol("}", "expected '}' to close ELSE body");
+  }
+  return node;
+}
+
 std::shared_ptr<Statement> PloyParser::ParseWhileStatement() {
   auto node = std::make_shared<WhileStatement>();
   node->loc = current_.loc;
   Advance(); // consume 'WHILE'
 
+  // `WHILE (cond) { … }` parses identically because parens are part of
+  // the expression grammar (since v1.18.0).
   node->condition = ParseExpression();
   ExpectSymbol("{", "expected '{' after WHILE condition");
   node->body = ParseBlockBody();
@@ -990,6 +1251,9 @@ std::shared_ptr<Statement> PloyParser::ParseForStatement() {
   node->loc = current_.loc;
   Advance(); // consume 'FOR'
 
+  // Optional outer parens: `FOR (i IN xs) { … }` (since v1.18.0).
+  bool wrapped = MatchSymbol("(");
+
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     node->iterator_name = current_.lexeme;
     Advance();
@@ -1001,6 +1265,10 @@ std::shared_ptr<Statement> PloyParser::ParseForStatement() {
 
   ExpectKeyword("IN", "expected 'IN' in FOR statement");
   node->iterable = ParseExpression();
+
+  if (wrapped) {
+    ExpectSymbol(")", "expected ')' to close FOR header");
+  }
 
   ExpectSymbol("{", "expected '{' after FOR iterable");
   node->body = ParseBlockBody();
@@ -1034,6 +1302,15 @@ std::shared_ptr<Statement> PloyParser::ParseMatchStatement() {
       diagnostics_.Report(current_.loc, "expected CASE or DEFAULT in MATCH");
       Sync();
       continue;
+    }
+
+    // Optional arm separator. Both `->` and `=>` are accepted between the
+    // pattern (or guard) and the arm body so source written against any of
+    // the historically-published surface syntaxes parses identically.  The
+    // canonical form documented in the user-facing material omits the
+    // arrow; the arrow is preserved here for backward compatibility.
+    if (!MatchSymbol("->")) {
+      MatchSymbol("=>");
     }
 
     ExpectSymbol("{", "expected '{' after CASE/DEFAULT");
@@ -1196,36 +1473,54 @@ std::shared_ptr<Pattern> PloyParser::ParsePatternPrimary() {
     }
 
     // Struct pattern: Name { f1, f2: sub, .. }
+    //
+    // Lookahead disambiguation: a bare identifier followed by `{` could
+    // either be a struct pattern (`Point { x, y }`) or a plain identifier
+    // pattern that captures the scrutinee, with `{` opening the arm body
+    // (`CASE None { RETURN ...; }`).  We peek past the `{` and only
+    // commit to the struct-pattern branch when the next token is a
+    // syntactic field-list element: an identifier, `..`, or the
+    // immediate closer `}`.  Anything else (statement-starting keyword,
+    // literal, expression token, ...) means the `{` opens the arm body
+    // and we fall through to the identifier-pattern branch below.
     if (IsSymbol("{")) {
-      Advance();
-      auto node = std::make_shared<StructPattern>();
-      node->loc = id_loc;
-      node->struct_name = name;
-      while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
-        if (IsSymbol("..")) {
-          Advance();
-          node->has_rest = true;
-          MatchSymbol(","); // trailing comma after `..` allowed
-          break;
-        }
-        if (current_.kind != frontends::TokenKind::kIdentifier) {
-          diagnostics_.Report(current_.loc,
-                              "expected field name in struct pattern, got '" +
-                                  current_.lexeme + "'");
-          Sync();
-          break;
-        }
-        StructPattern::FieldPattern fp;
-        fp.name = current_.lexeme;
+      const auto &next = Peek();
+      bool looks_like_struct =
+          (next.kind == frontends::TokenKind::kIdentifier) ||
+          (next.kind == frontends::TokenKind::kSymbol &&
+           (next.lexeme == ".." || next.lexeme == "}"));
+      if (looks_like_struct) {
         Advance();
-        if (MatchSymbol(":")) {
-          fp.sub = ParsePattern();
+        auto node = std::make_shared<StructPattern>();
+        node->loc = id_loc;
+        node->struct_name = name;
+        while (!IsSymbol("}") &&
+               current_.kind != frontends::TokenKind::kEndOfFile) {
+          if (IsSymbol("..")) {
+            Advance();
+            node->has_rest = true;
+            MatchSymbol(","); // trailing comma after `..` allowed
+            break;
+          }
+          if (current_.kind != frontends::TokenKind::kIdentifier) {
+            diagnostics_.Report(current_.loc,
+                                "expected field name in struct pattern, got '" +
+                                    current_.lexeme + "'");
+            Sync();
+            break;
+          }
+          StructPattern::FieldPattern fp;
+          fp.name = current_.lexeme;
+          Advance();
+          if (MatchSymbol(":")) {
+            fp.sub = ParsePattern();
+          }
+          node->fields.push_back(std::move(fp));
+          if (!MatchSymbol(",")) break;
         }
-        node->fields.push_back(std::move(fp));
-        if (!MatchSymbol(",")) break;
+        ExpectSymbol("}", "expected '}' to close struct pattern");
+        return node;
       }
-      ExpectSymbol("}", "expected '}' to close struct pattern");
-      return node;
     }
 
     // Binding pattern: name @ sub
@@ -1248,7 +1543,18 @@ std::shared_ptr<Pattern> PloyParser::ParsePatternPrimary() {
       return node;
     }
 
-    // Plain identifier: bare bind.
+    // Plain identifier: bare bind.  One historical exception: the unit
+    // variant `None` of the built-in `OPTION` type is universally written
+    // without parentheses (`CASE None { ... }`), to match the way the
+    // value-side spells it (`RETURN None;`).  Promote that single name to
+    // a zero-arg ConstructorPattern so the OPTION exhaustiveness checker
+    // sees the case as a None-arm rather than as an irrefutable bind.
+    if (name == "None") {
+      auto node = std::make_shared<ConstructorPattern>();
+      node->loc = id_loc;
+      node->name = name;
+      return node;
+    }
     auto node = std::make_shared<IdentifierPattern>();
     node->loc = id_loc;
     node->name = name;
@@ -1342,6 +1648,77 @@ std::shared_ptr<Statement> PloyParser::ParseBlock() {
   ExpectSymbol("{", "expected '{'");
   node->statements = ParseBlockBody();
   ExpectSymbol("}", "expected '}'");
+  return node;
+}
+
+// ----------------------------------------------------------------------------
+// Structured exception handling (since v1.13.0).
+// ----------------------------------------------------------------------------
+
+std::shared_ptr<Statement> PloyParser::ParseThrowStatement() {
+  auto node = std::make_shared<ThrowStatement>();
+  node->loc = current_.loc;
+  ExpectKeyword("THROW", "expected 'THROW'");
+  node->value = ParseExpression();
+  ExpectSymbol(";", "expected ';' after THROW expression");
+  return node;
+}
+
+std::shared_ptr<Statement> PloyParser::ParseTryStatement() {
+  auto node = std::make_shared<TryStatement>();
+  node->loc = current_.loc;
+  ExpectKeyword("TRY", "expected 'TRY'");
+  ExpectSymbol("{", "expected '{' after TRY");
+  node->body = ParseBlockBody();
+  ExpectSymbol("}", "expected '}' to close TRY block");
+
+  // Zero or more CATCH clauses.  At least one of CATCH/FINALLY is
+  // required to make the construct meaningful.
+  while (current_.kind == frontends::TokenKind::kKeyword &&
+         current_.lexeme == "CATCH") {
+    TryStatement::CatchClause clause;
+    clause.loc = current_.loc;
+    Advance();
+    ExpectSymbol("(", "expected '(' after CATCH");
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+      clause.var_name = current_.lexeme;
+      Advance();
+    } else {
+      diagnostics_.Report(current_.loc,
+                          "expected identifier for caught Error binding");
+      Sync();
+      return node;
+    }
+    if (IsSymbol(":")) {
+      Advance();
+      clause.var_type = ParseType();
+    } else {
+      // Implicit `Error` type when the user omits the annotation.
+      auto t = std::make_shared<SimpleType>();
+      t->name = "Error";
+      clause.var_type = t;
+    }
+    ExpectSymbol(")", "expected ')' after CATCH binding");
+    ExpectSymbol("{", "expected '{' to open CATCH body");
+    clause.body = ParseBlockBody();
+    ExpectSymbol("}", "expected '}' to close CATCH body");
+    node->catches.push_back(std::move(clause));
+  }
+
+  // Optional FINALLY clause.
+  if (current_.kind == frontends::TokenKind::kKeyword &&
+      current_.lexeme == "FINALLY") {
+    Advance();
+    ExpectSymbol("{", "expected '{' after FINALLY");
+    node->finally_body = ParseBlockBody();
+    node->has_finally = true;
+    ExpectSymbol("}", "expected '}' to close FINALLY block");
+  }
+
+  if (node->catches.empty() && !node->has_finally) {
+    diagnostics_.Report(node->loc,
+                        "TRY must be followed by at least one CATCH or a FINALLY clause");
+  }
   return node;
 }
 
@@ -1491,6 +1868,16 @@ std::shared_ptr<Expression> PloyParser::ParseUnary() {
     auto node = std::make_shared<UnaryExpression>();
     node->loc = current_.loc;
     node->op = "!";
+    Advance();
+    node->operand = ParseUnary();
+    return node;
+  }
+  // AWAIT <expr>: suspend the surrounding ASYNC function until the
+  // operand future resolves.  Sema enforces that AWAIT only appears
+  // inside an ASYNC FUNC body (since v1.14.0).
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "AWAIT") {
+    auto node = std::make_shared<AwaitExpression>();
+    node->loc = current_.loc;
     Advance();
     node->operand = ParseUnary();
     return node;
@@ -1705,14 +2092,12 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
     return lit;
   }
 
-  // String literal
+  // String literal (regular / raw / multiline / template — see helper).
   if (current_.kind == frontends::TokenKind::kString) {
-    auto lit = std::make_shared<Literal>();
-    lit->loc = current_.loc;
-    lit->kind = Literal::Kind::kString;
-    lit->value = current_.lexeme;
+    core::SourceLoc s_loc = current_.loc;
+    std::string s_lex = current_.lexeme;
     Advance();
-    return lit;
+    return BuildStringExpression(s_lex, s_loc);
   }
 
   // List literal: [expr, expr, ...]
@@ -2133,6 +2518,8 @@ std::vector<std::shared_ptr<Expression>> PloyParser::ParseArguments() {
 std::shared_ptr<Statement> PloyParser::ParseStructDecl() {
   auto node = std::make_shared<StructDecl>();
   node->loc = current_.loc;
+  // Attach pending `///` doc lines (since v1.18.0).
+  node->doc_comment = lexer_.TakePendingDoc();
   Advance(); // consume 'STRUCT'
 
   // Struct name
@@ -2143,6 +2530,11 @@ std::shared_ptr<Statement> PloyParser::ParseStructDecl() {
     diagnostics_.Report(current_.loc, "expected struct name after 'STRUCT'");
     Sync();
     return node;
+  }
+
+  // Optional generic parameter list `<A, B>` (since v1.15.0).
+  if (IsSymbol("<")) {
+    node->type_params = ParseTypeParams();
   }
 
   // Body: { field1: Type1, field2: Type2, ... }
@@ -2222,171 +2614,121 @@ std::shared_ptr<Statement> PloyParser::ParseConfigDecl() {
   auto loc = current_.loc;
   Advance(); // consume 'CONFIG'
 
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "VENV") {
-    // CONFIG VENV "path/to/venv";
-    // CONFIG VENV python "path/to/venv";
-    auto node = std::make_shared<VenvConfigDecl>();
-    node->loc = loc;
-    node->manager = VenvConfigDecl::ManagerKind::kVenv;
-    Advance(); // consume 'VENV'
-
-    // Optional language specifier
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      node->language = current_.lexeme;
-      Advance();
-    } else {
-      // Default to python if no language specified
-      node->language = "python";
+  // ------------------------------------------------------------------
+  // Helper: extract the unquoted body of a string-literal token.
+  // ------------------------------------------------------------------
+  auto strip_quotes = [](const std::string &raw) {
+    if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
+      return raw.substr(1, raw.size() - 2);
     }
+    return raw;
+  };
 
-    // Expect the venv path as a string literal
-    if (current_.kind == frontends::TokenKind::kString) {
-      std::string raw = current_.lexeme;
-      if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
-        raw = raw.substr(1, raw.size() - 2);
+  // ------------------------------------------------------------------
+  // Legacy form (kept for backward compatibility, sema emits a
+  // deprecation diagnostic):
+  //
+  //   CONFIG VENV   ["python"] "<path>";
+  //   CONFIG CONDA  ["python"] "<env_name>";
+  //   CONFIG UV     ["python"] "<path>";
+  //   CONFIG PIPENV ["python"] "<path>";
+  //   CONFIG POETRY ["python"] "<path>";
+  // ------------------------------------------------------------------
+  if (current_.kind == frontends::TokenKind::kKeyword) {
+    auto legacy = LegacyConfigKeywordToManagerName(current_.lexeme);
+    if (legacy.has_value()) {
+      const std::string keyword_lex = current_.lexeme;
+      auto node = std::make_shared<VenvConfigDecl>();
+      node->loc = loc;
+      node->is_legacy_form = true;
+      node->manager_name = *legacy;
+      Advance(); // consume legacy keyword
+
+      // Optional language specifier (defaults to "python" — every
+      // legacy keyword maps to a Python package manager).
+      if (current_.kind == frontends::TokenKind::kIdentifier) {
+        node->language = current_.lexeme;
+        Advance();
+      } else {
+        node->language = "python";
       }
-      node->venv_path = raw;
-      Advance();
-    } else {
-      diagnostics_.Report(current_.loc, "expected string path after CONFIG VENV");
-    }
 
-    ExpectSymbol(";", "expected ';' after CONFIG VENV");
-    return node;
+      if (current_.kind == frontends::TokenKind::kString) {
+        node->venv_path = strip_quotes(current_.lexeme);
+        Advance();
+      } else {
+        diagnostics_.Report(current_.loc,
+                            "expected string path after CONFIG " + keyword_lex);
+      }
+
+      // Resolve the manager kind via the registry so sema sees the
+      // same canonical representation as for the new form.
+      if (auto entry = ResolveConfigManager(node->language, node->manager_name)) {
+        node->manager = entry->kind;
+      } else {
+        // Legacy keyword paired with an unsupported language (e.g.
+        // `CONFIG VENV rust "..."`).  Still emit the AST node so sema
+        // can produce a precise diagnostic.
+        node->manager = VenvConfigDecl::ManagerKind::kUnknown;
+      }
+
+      ExpectSymbol(";", "expected ';' after CONFIG " + keyword_lex);
+      return node;
+    }
   }
 
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "CONDA") {
-    // CONFIG CONDA "env_name";
-    // CONFIG CONDA python "env_name";
+  // ------------------------------------------------------------------
+  // Canonical (stringified) form, since v1.12.0:
+  //
+  //   CONFIG <language> "<package_manager>" "<path_or_env>";
+  // ------------------------------------------------------------------
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
     auto node = std::make_shared<VenvConfigDecl>();
     node->loc = loc;
-    node->manager = VenvConfigDecl::ManagerKind::kConda;
-    Advance(); // consume 'CONDA'
+    node->is_legacy_form = false;
+    node->language = current_.lexeme;
+    Advance(); // consume language identifier
 
-    // Optional language specifier
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      node->language = current_.lexeme;
-      Advance();
-    } else {
-      node->language = "python";
-    }
-
-    // Expect the conda environment name or path as a string literal
-    if (current_.kind == frontends::TokenKind::kString) {
-      std::string raw = current_.lexeme;
-      if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
-        raw = raw.substr(1, raw.size() - 2);
-      }
-      node->venv_path = raw;
-      Advance();
-    } else {
+    if (current_.kind != frontends::TokenKind::kString) {
       diagnostics_.Report(current_.loc,
-                          "expected string environment name or path after CONFIG CONDA");
+                          "expected string package-manager name after CONFIG " +
+                              node->language +
+                              " (e.g. CONFIG python \"venv\" \".venv\";)");
+      Sync();
+      auto dummy = std::make_shared<ExprStatement>();
+      dummy->loc = loc;
+      return dummy;
     }
+    node->manager_name = strip_quotes(current_.lexeme);
+    Advance();
 
-    ExpectSymbol(";", "expected ';' after CONFIG CONDA");
-    return node;
-  }
+    if (current_.kind != frontends::TokenKind::kString) {
+      diagnostics_.Report(current_.loc,
+                          "expected string path after CONFIG " + node->language +
+                              " \"" + node->manager_name + "\"");
+      Sync();
+      auto dummy = std::make_shared<ExprStatement>();
+      dummy->loc = loc;
+      return dummy;
+    }
+    node->venv_path = strip_quotes(current_.lexeme);
+    Advance();
 
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "UV") {
-    // CONFIG UV "path/to/venv";
-    // CONFIG UV python "path/to/venv";
-    auto node = std::make_shared<VenvConfigDecl>();
-    node->loc = loc;
-    node->manager = VenvConfigDecl::ManagerKind::kUv;
-    Advance(); // consume 'UV'
-
-    // Optional language specifier
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      node->language = current_.lexeme;
-      Advance();
+    if (auto entry = ResolveConfigManager(node->language, node->manager_name)) {
+      node->manager = entry->kind;
     } else {
-      node->language = "python";
+      node->manager = VenvConfigDecl::ManagerKind::kUnknown;
     }
 
-    // Expect the uv venv path as a string literal
-    if (current_.kind == frontends::TokenKind::kString) {
-      std::string raw = current_.lexeme;
-      if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
-        raw = raw.substr(1, raw.size() - 2);
-      }
-      node->venv_path = raw;
-      Advance();
-    } else {
-      diagnostics_.Report(current_.loc, "expected string path after CONFIG UV");
-    }
-
-    ExpectSymbol(";", "expected ';' after CONFIG UV");
-    return node;
-  }
-
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "PIPENV") {
-    // CONFIG PIPENV "path/to/project";
-    // CONFIG PIPENV python "path/to/project";
-    auto node = std::make_shared<VenvConfigDecl>();
-    node->loc = loc;
-    node->manager = VenvConfigDecl::ManagerKind::kPipenv;
-    Advance(); // consume 'PIPENV'
-
-    // Optional language specifier
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      node->language = current_.lexeme;
-      Advance();
-    } else {
-      node->language = "python";
-    }
-
-    // Expect the pipenv project path as a string literal
-    if (current_.kind == frontends::TokenKind::kString) {
-      std::string raw = current_.lexeme;
-      if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
-        raw = raw.substr(1, raw.size() - 2);
-      }
-      node->venv_path = raw;
-      Advance();
-    } else {
-      diagnostics_.Report(current_.loc, "expected string path after CONFIG PIPENV");
-    }
-
-    ExpectSymbol(";", "expected ';' after CONFIG PIPENV");
-    return node;
-  }
-
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "POETRY") {
-    // CONFIG POETRY "path/to/project";
-    // CONFIG POETRY python "path/to/project";
-    auto node = std::make_shared<VenvConfigDecl>();
-    node->loc = loc;
-    node->manager = VenvConfigDecl::ManagerKind::kPoetry;
-    Advance(); // consume 'POETRY'
-
-    // Optional language specifier
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
-      node->language = current_.lexeme;
-      Advance();
-    } else {
-      node->language = "python";
-    }
-
-    // Expect the poetry project path as a string literal
-    if (current_.kind == frontends::TokenKind::kString) {
-      std::string raw = current_.lexeme;
-      if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"') {
-        raw = raw.substr(1, raw.size() - 2);
-      }
-      node->venv_path = raw;
-      Advance();
-    } else {
-      diagnostics_.Report(current_.loc, "expected string path after CONFIG POETRY");
-    }
-
-    ExpectSymbol(";", "expected ';' after CONFIG POETRY");
+    ExpectSymbol(";", "expected ';' after CONFIG declaration");
     return node;
   }
 
   diagnostics_.Report(
       current_.loc,
-      "expected configuration directive after CONFIG (e.g., VENV, CONDA, UV, PIPENV, POETRY)");
+      "expected language name or legacy keyword (VENV / CONDA / UV / PIPENV / POETRY) "
+      "after CONFIG; canonical form is `CONFIG <language> \"<package_manager>\" "
+      "\"<path_or_env>\";`");
   Sync();
   // Return a dummy statement so parsing can continue
   auto dummy = std::make_shared<ExprStatement>();
@@ -2617,6 +2959,25 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
       pt->type_args.push_back(ParseType());
     }
     ExpectSymbol("]", "expected ']' after type arguments");
+    return pt;
+  }
+
+  // Generic instantiation: Pair<i32, String>, Box<T>, etc. (since v1.15.0).
+  // We are unconditionally inside a type-position here, so the angle
+  // brackets cannot be confused with comparison operators.  HANDLE<...>
+  // is handled earlier and does not reach this branch.
+  if (IsSymbol("<")) {
+    auto pt = std::make_shared<ParameterizedType>();
+    pt->loc = loc;
+    pt->name = name;
+    Advance(); // consume '<'
+    if (!IsSymbol(">")) {
+      pt->type_args.push_back(ParseType());
+      while (MatchSymbol(",")) {
+        pt->type_args.push_back(ParseType());
+      }
+    }
+    ExpectSymbol(">", "expected '>' after generic type arguments");
     return pt;
   }
 
@@ -3073,6 +3434,173 @@ std::shared_ptr<Statement> PloyParser::ParseLangAnnotation() {
   // Body is a single subsequent statement.
   node->target = ParseStatement();
   return node;
+}
+
+// ============================================================================
+// Visibility / attribute prefix (since v1.16.0)
+// ============================================================================
+
+void PloyParser::ParseAttributesAndVisibility(std::vector<Attribute> &out_attrs,
+                                              Visibility &out_vis,
+                                              bool &has_explicit_vis) {
+  while (true) {
+    // `@<name>(arg, arg, ...)` annotation.  `@LANG(...)` is intentionally
+    // not consumed here; the top-level dispatcher routes it elsewhere.
+    if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "@") {
+      const auto &peek = Peek();
+      if (peek.kind == frontends::TokenKind::kKeyword && peek.lexeme == "LANG") {
+        break; // belongs to ParseLangAnnotation
+      }
+      Attribute attr;
+      attr.loc = current_.loc;
+      Advance(); // consume '@'
+      if (current_.kind != frontends::TokenKind::kIdentifier) {
+        diagnostics_.Report(current_.loc, "expected attribute name after '@'");
+        Sync();
+        break;
+      }
+      attr.name = current_.lexeme;
+      Advance();
+      if (IsSymbol("(")) {
+        Advance(); // consume '('
+        if (!IsSymbol(")")) {
+          while (true) {
+            // Capture the argument's source spelling verbatim — string,
+            // identifier, or numeric literal — and keep enclosing quotes
+            // for string args so sema can recover the original text.
+            attr.args.push_back(current_.lexeme);
+            Advance();
+            if (!MatchSymbol(",")) {
+              break;
+            }
+          }
+        }
+        ExpectSymbol(")", "expected ')' after attribute arguments");
+      }
+      out_attrs.push_back(std::move(attr));
+      continue;
+    }
+    // PUB / PRIVATE visibility keyword.
+    if (current_.kind == frontends::TokenKind::kKeyword &&
+        (current_.lexeme == "PUB" || current_.lexeme == "PRIVATE")) {
+      if (has_explicit_vis) {
+        diagnostics_.Report(current_.loc,
+                            "duplicate visibility modifier; PUB / PRIVATE may "
+                            "appear at most once per declaration");
+      }
+      out_vis = (current_.lexeme == "PUB") ? Visibility::kPub : Visibility::kPrivate;
+      has_explicit_vis = true;
+      Advance();
+      continue;
+    }
+    break;
+  }
+}
+
+// ============================================================================
+// String literal helper (since v1.17.0)
+// ============================================================================
+
+std::shared_ptr<Expression> PloyParser::BuildStringExpression(
+    const std::string &lexeme, core::SourceLoc loc) {
+  // Detect the template-string prefix `f"` (single-quote form) or `f"""`
+  // (triple-quote form).  Anything else is a regular / raw / multiline
+  // literal — the lexer has already canonicalised these into a `"..."`
+  // form, so the existing kString lowering path handles them unchanged.
+  bool is_template = lexeme.size() >= 2 && lexeme[0] == 'f' && lexeme[1] == '"';
+  if (!is_template) {
+    auto lit = std::make_shared<Literal>();
+    lit->loc = loc;
+    lit->kind = Literal::Kind::kString;
+    lit->value = lexeme;
+    return lit;
+  }
+
+  // Carve the body out of `f"..."` or `f"""..."""`.
+  std::string body;
+  bool triple = lexeme.size() >= 4 && lexeme[1] == '"' && lexeme[2] == '"' &&
+                lexeme[3] == '"';
+  if (triple && lexeme.size() >= 7 && lexeme.substr(lexeme.size() - 3) == "\"\"\"") {
+    body = lexeme.substr(4, lexeme.size() - 4 - 3);
+  } else {
+    // Strip the leading f" and the trailing ".
+    if (lexeme.size() >= 3 && lexeme.back() == '"') {
+      body = lexeme.substr(2, lexeme.size() - 3);
+    }
+  }
+
+  auto tmpl = std::make_shared<TemplateString>();
+  tmpl->loc = loc;
+
+  // Walk the body character by character, splitting on `{` / `}`.  A literal
+  // brace is written `{{` / `}}` (Python f-string compatible).  Backslash
+  // escapes that survive into a template literal are preserved verbatim
+  // here — the lowering layer's existing escape decoder handles them.
+  std::string text_buf;
+  for (size_t i = 0; i < body.size(); ++i) {
+    char c = body[i];
+    if (c == '{' && i + 1 < body.size() && body[i + 1] == '{') {
+      text_buf.push_back('{');
+      ++i;
+      continue;
+    }
+    if (c == '}' && i + 1 < body.size() && body[i + 1] == '}') {
+      text_buf.push_back('}');
+      ++i;
+      continue;
+    }
+    if (c == '{') {
+      // Flush the accumulated literal text (re-quoted so downstream sees
+      // a canonical `"..."` Literal value).
+      if (!text_buf.empty()) {
+        TemplateString::Part p;
+        p.is_text = true;
+        p.text = "\"" + text_buf + "\"";
+        p.loc = loc;
+        tmpl->parts.push_back(std::move(p));
+        text_buf.clear();
+      }
+      // Find the matching `}` (single-level — nested template strings are
+      // not supported in this MVP).
+      size_t end = body.find('}', i + 1);
+      if (end == std::string::npos) {
+        diagnostics_.Report(loc,
+                            "unterminated interpolation in template string; "
+                            "expected matching '}'");
+        return tmpl;
+      }
+      std::string inner = body.substr(i + 1, end - i - 1);
+      i = end;
+      // Sub-parse the inner expression by spinning up a fresh lexer / parser
+      // pair over the carved substring.  Diagnostics flow through the
+      // surrounding parser's diagnostics sink.
+      PloyLexer sub_lex(inner, "<template>");
+      PloyParser sub_parser(sub_lex, diagnostics_);
+      sub_parser.Advance();
+      auto expr = sub_parser.ParseExpression();
+      if (!expr) {
+        diagnostics_.Report(loc,
+                            "failed to parse interpolated expression in "
+                            "template string");
+        continue;
+      }
+      TemplateString::Part p;
+      p.is_text = false;
+      p.expr = expr;
+      p.loc = loc;
+      tmpl->parts.push_back(std::move(p));
+      continue;
+    }
+    text_buf.push_back(c);
+  }
+  if (!text_buf.empty()) {
+    TemplateString::Part p;
+    p.is_text = true;
+    p.text = "\"" + text_buf + "\"";
+    p.loc = loc;
+    tmpl->parts.push_back(std::move(p));
+  }
+  return tmpl;
 }
 
 } // namespace polyglot::ploy

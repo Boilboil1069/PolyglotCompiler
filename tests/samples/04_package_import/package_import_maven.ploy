@@ -1,0 +1,19 @@
+// ============================================================================
+// package_import_maven.ploy — Java/Maven mirror of package_import.ploy
+//
+// Demonstrates the v1.12.0 stringified CONFIG form for the Java/Maven
+// package manager and IMPORT PACKAGE pulling from a Maven project.
+// ============================================================================
+
+// --- Package Manager Configuration (canonical stringified form) ---
+CONFIG java "maven" "./pom.xml";
+
+// --- Package Imports with Version Constraints ---
+IMPORT java PACKAGE org.apache.commons.lang3 >= 3.12 AS lang3;
+IMPORT java PACKAGE com.google.guava >= 31.0;
+
+// --- Selective Imports ---
+IMPORT java PACKAGE org.junit.jupiter::(api, params);
+
+// Runtime stdout marker.
+PRINTLN "04_package_import_maven: ok\r\n";

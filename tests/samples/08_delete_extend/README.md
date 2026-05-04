@@ -33,3 +33,23 @@ end-to-end on the host loader.
 ## Chinese version
 
 See [`README_zh.md`](./README_zh.md) for the Chinese counterpart.
+
+## Limitations
+
+`EXTEND` is intentionally restricted to **dynamic host languages**
+(`python`, `ruby`, `javascript` and their tag aliases).  The two
+`EXTEND` blocks in this sample target `python` because:
+
+* the override is installed by patching the foreign runtime's method
+  dispatch table at load time;
+* the foreign object **does not** enter the Ploy static type system,
+  so an out-of-source subclass cannot break the host's soundness.
+
+Writing `EXTEND(cpp, ...)`, `EXTEND(rust, ...)`, `EXTEND(java, ...)`
+or any other statically-typed target is rejected by sema with the
+diagnostic
+`EXTEND is not allowed on statically-typed language '<lang>'`.
+The recommended alternative is a local Ploy `FUNC` wrapper that
+uses `CALL` / `METHOD` to invoke the foreign API; see sample
+[`35_extend_dynamic`](../35_extend_dynamic/) for the full migration
+pattern.

@@ -50,7 +50,23 @@ private:
   std::shared_ptr<Statement> ParsePipelineDecl();
   std::shared_ptr<Statement> ParseStageDecl();
   std::shared_ptr<Statement> ParseFuncDecl();
+  // Parses `ASYNC FUNC … { … }` and forwards body parsing to ParseFuncDecl
+  // after marking the resulting node `is_async = true` (since v1.14.0).
+  std::shared_ptr<Statement> ParseAsyncFuncDecl();
   std::shared_ptr<Statement> ParseStructDecl();
+  // Generic parameter list `<T: Bound1+Bound2, U>` (since v1.15.0).  The
+  // caller has already verified the leading `<` is present.  WHERE clauses
+  // are merged into the matching parameter's bounds vector by
+  // `ParseWhereClause`.
+  std::vector<FuncDecl::TypeParam> ParseTypeParams();
+  void ParseWhereClause(std::vector<FuncDecl::TypeParam> &type_params);
+  // Visibility / attribute prefix on a top-level declaration (since
+  // v1.16.0).  Consumes any leading `@name(args)` annotations and at
+  // most one `PUB` / `PRIVATE` keyword.  `@LANG(...)` is *not* matched
+  // here; the caller routes that case to `ParseLangAnnotation` first.
+  void ParseAttributesAndVisibility(std::vector<Attribute> &out_attrs,
+                                    Visibility &out_vis,
+                                    bool &has_explicit_vis);
   std::shared_ptr<Statement> ParseMapFuncDecl();
   std::shared_ptr<Statement> ParseConfigDecl();
   std::shared_ptr<Statement> ParseExtendDecl();
@@ -71,6 +87,11 @@ private:
   bool in_pipeline_context_{false};
   std::shared_ptr<Statement> ParseVarDecl(bool is_mutable);
   std::shared_ptr<Statement> ParseIfStatement();
+  // IF LET Some(x) = expr { … } ELSE { … }   (since v1.18.0)
+  // Called from ParseIfStatement after the IF keyword has been consumed
+  // and the `LET` look-ahead is confirmed.  `if_loc` is the source
+  // location of the IF token to attach to the resulting node.
+  std::shared_ptr<Statement> ParseIfLetStatement(core::SourceLoc if_loc);
   std::shared_ptr<Statement> ParseWhileStatement();
   std::shared_ptr<Statement> ParseForStatement();
   std::shared_ptr<Statement> ParseMatchStatement();
@@ -81,6 +102,9 @@ private:
   std::shared_ptr<Statement> ParsePrintlnStatement();
   std::shared_ptr<Statement> ParseBlock();
   std::vector<std::shared_ptr<Statement>> ParseBlockBody();
+  // Structured exception handling (since v1.13.0).
+  std::shared_ptr<Statement> ParseTryStatement();
+  std::shared_ptr<Statement> ParseThrowStatement();
 
   // Expressions
   std::shared_ptr<Expression> ParseExpression();
@@ -104,6 +128,13 @@ private:
   std::shared_ptr<Expression> ParseListLiteral();
   std::shared_ptr<Expression> ParseDictLiteral();
   std::shared_ptr<Expression> ParseStructLiteral(const std::string &struct_name);
+  // Build a string-literal expression from a raw lexer token (since v1.17.0).
+  // The lexer hands the parser a single `kString` token whose lexeme is one
+  // of `"..."` (regular / raw / multiline — all canonicalised by the lexer)
+  // or `f"..."` / `f"""..."""` (template).  This helper returns either a
+  // plain `Literal` or a `TemplateString` AST node accordingly.
+  std::shared_ptr<Expression> BuildStringExpression(const std::string &lexeme,
+                                                    core::SourceLoc loc);
   std::vector<std::shared_ptr<Expression>> ParseArguments();
 
   // Statements

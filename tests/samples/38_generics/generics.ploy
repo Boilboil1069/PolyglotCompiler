@@ -1,0 +1,35 @@
+// Sample 38: generic FUNC and STRUCT (since v1.15.0).
+//
+// Demonstrates the surface syntax for type parameters with bounds, the
+// WHERE clause, and a generic struct instantiation.  Runtime semantics
+// follow the type-erasure MVP path documented in
+// docs/realization/generics.md; full per-instantiation monomorphisation
+// is tracked as follow-up work.
+
+STRUCT Pair<A, B> {
+    first: A,
+    second: B
+}
+
+FUNC max<T: Comparable>(a: T, b: T) -> T {
+    IF (a > b) {
+        RETURN a;
+    } ELSE {
+        RETURN b;
+    }
+}
+
+FUNC identity<T>(x: T) -> T {
+    RETURN x;
+}
+
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
+    RETURN a + b;
+}
+
+FUNC main() {
+    LET hi = max(10, 20);
+    LET pi = identity(314);
+    LET total = sum(1, 2);
+    PRINTLN "38_generics: ok\r\n";
+}

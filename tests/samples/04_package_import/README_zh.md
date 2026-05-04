@@ -1,12 +1,13 @@
 # 示例 `04_package_import`
 
-IMPORT PACKAGE 配合 semver 版本约束以及 CONFIG VENV 锁定 Python 虚拟环境。
+IMPORT PACKAGE 配合 semver 版本约束，以及字符串化的 `CONFIG <语言> "<包管理器>" "<路径>";` 声明锁定 Python 虚拟环境。
 
 | 项目 | 值 |
 | --- | --- |
-| 涉及语言 | C++, Python |
-| 关键字   | IMPORT PACKAGE, CONFIG VENV |
+| 涉及语言 | C++, Python（镜像样例：JavaScript、Rust、Java） |
+| 关键字   | IMPORT PACKAGE, CONFIG（v1.12.0 起字符串形式） |
 | 入口文件 | `package_import.ploy` |
+| 镜像文件 | `package_import_npm.ploy`、`package_import_cargo.ploy`、`package_import_maven.ploy` |
 
 ## 编译
 

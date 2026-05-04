@@ -154,6 +154,19 @@ target_link_libraries(polyver
     nlohmann_json::nlohmann_json
 )
 
+# -- polydoc (.ploy doc-comment extractor) -------------------------------------
+
+add_executable(polydoc
+    polydoc/src/polydoc.cpp
+)
+
+target_include_directories(polydoc PUBLIC ${CMAKE_SOURCE_DIR})
+
+target_link_libraries(polydoc
+    frontend_ploy
+    polyglot_common
+)
+
 # -- polybench (benchmark suite) -----------------------------------------------
 
 add_executable(polybench

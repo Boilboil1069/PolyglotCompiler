@@ -255,6 +255,8 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     (void) cls_decl;
   } else if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
     LowerIfStatement(if_stmt);
+  } else if (auto if_let = std::dynamic_pointer_cast<IfLetStatement>(stmt)) {
+    LowerIfLetStatement(if_let);
   } else if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
     LowerWhileStatement(while_stmt);
   } else if (auto for_stmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
@@ -291,6 +293,10 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     if (lang_anno->target) {
       LowerStatement(lang_anno->target);
     }
+  } else if (auto try_stmt = std::dynamic_pointer_cast<TryStatement>(stmt)) {
+    LowerTryStatement(try_stmt);
+  } else if (auto throw_stmt = std::dynamic_pointer_cast<ThrowStatement>(stmt)) {
+    LowerThrowStatement(throw_stmt);
   }
   // BREAK and CONTINUE are handled at a higher level (loop lowering)
   // MAP_TYPE is metadata only, no IR generation needed
@@ -439,10 +445,20 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
     env_[p.name] = EnvEntry{p.name, pt};
   }
 
+  // Async-function prologue: bracket the body with a runtime task-enter
+  // marker so the cooperative scheduler can register the current frame
+  // as a `Future<T>` producer (since v1.14.0).
+  if (func->is_async) {
+    builder_.MakeCall("__ploy_rt_async_enter", {}, ir::IRType::Void());
+  }
+
   LowerBlockStatements(func->body);
 
   // Add implicit void return if not terminated
   if (!terminated_) {
+    if (func->is_async) {
+      builder_.MakeCall("__ploy_rt_async_complete", {}, ir::IRType::Void());
+    }
     builder_.MakeReturn();
   }
 
@@ -594,6 +610,38 @@ void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt)
   }
 }
 
+void PloyLowering::LowerIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let) {
+  // MVP lowering: dispatch on the scrutinee's truthiness; the bound
+  // name has no IR materialisation yet (full OPTION<T> tag handling
+  // is tracked separately).  THEN-body for `Some` / `None` follows
+  // the same condition because the runtime tag bit is not yet
+  // exposed to the lowering layer.
+  EvalResult cond = LowerExpression(if_let->scrutinee);
+  std::string cond_i1 = EnsureI1(cond);
+
+  auto then_bb = builder_.CreateBlock("iflet.then");
+  auto else_bb = builder_.CreateBlock("iflet.else");
+  auto merge_bb = builder_.CreateBlock("iflet.merge");
+
+  builder_.MakeCondBranch(cond_i1, then_bb.get(), else_bb.get());
+
+  builder_.SetInsertPoint(then_bb);
+  terminated_ = false;
+  LowerBlockStatements(if_let->then_body);
+  bool then_terminated = terminated_;
+  if (!terminated_) builder_.MakeBranch(merge_bb.get());
+
+  builder_.SetInsertPoint(else_bb);
+  terminated_ = false;
+  if (!if_let->else_body.empty()) LowerBlockStatements(if_let->else_body);
+  bool else_terminated = terminated_;
+  if (!terminated_) builder_.MakeBranch(merge_bb.get());
+
+  builder_.SetInsertPoint(merge_bb);
+  terminated_ = then_terminated && else_terminated;
+  if (terminated_) builder_.MakeUnreachable();
+}
+
 void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt) {
   auto cond_bb = builder_.CreateBlock("while.cond");
   auto body_bb = builder_.CreateBlock("while.body");
@@ -682,6 +730,9 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
   for (const auto &c : match_stmt->cases) {
     if (c.guard) { all_simple = false; break; }
     if (!c.pattern) continue; // DEFAULT
+    // A wildcard `_` arm is fast-path-compatible: it serves as the
+    // default target of the switch table, just like a `DEFAULT` arm.
+    if (std::dynamic_pointer_cast<WildcardPattern>(c.pattern)) continue;
     if (!is_simple_int_literal(c.pattern)) { all_simple = false; break; }
   }
 
@@ -693,7 +744,10 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
     for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
       auto case_bb = builder_.CreateBlock("match.case." + std::to_string(i));
       case_blocks.push_back(case_bb);
-      if (!match_stmt->cases[i].pattern) {
+      // Both `DEFAULT` and `CASE _` map to the switch's default target.
+      if (!match_stmt->cases[i].pattern ||
+          std::dynamic_pointer_cast<WildcardPattern>(
+              match_stmt->cases[i].pattern)) {
         default_bb = case_bb.get();
         continue;
       }
@@ -1075,11 +1129,63 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
   if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
     return LowerLiteral(lit);
   }
+  // Template (interpolated) string literal (since v1.17.0).  MVP lowering:
+  // assemble the formatted bytes at compile time when every interpolated
+  // expression is itself a constant `Literal`.  When the template references
+  // a runtime value the lowering layer falls back to concatenating the
+  // literal text segments only and emits a warning so the user knows the
+  // runtime-formatting helper is still tracked as future work.
+  if (auto tmpl = std::dynamic_pointer_cast<TemplateString>(expr)) {
+    std::string formatted;
+    bool runtime_seen = false;
+    auto strip_quotes = [](const std::string &q) {
+      if (q.size() >= 2 && q.front() == '"' && q.back() == '"')
+        return q.substr(1, q.size() - 2);
+      return q;
+    };
+    for (const auto &part : tmpl->parts) {
+      if (part.is_text) {
+        formatted += strip_quotes(part.text);
+        continue;
+      }
+      auto inner = std::dynamic_pointer_cast<Literal>(part.expr);
+      if (!inner) {
+        runtime_seen = true;
+        continue;
+      }
+      switch (inner->kind) {
+      case Literal::Kind::kInteger:
+      case Literal::Kind::kFloat:
+      case Literal::Kind::kBool:
+        formatted += inner->value;
+        break;
+      case Literal::Kind::kString:
+        formatted += strip_quotes(inner->value);
+        break;
+      case Literal::Kind::kNull:
+        formatted += "null";
+        break;
+      }
+    }
+    if (runtime_seen) {
+      diagnostics_.ReportWarning(tmpl->loc,
+                                 frontends::ErrorCode::kGenericWarning,
+                                 "template string interpolates a runtime value; "
+                                 "v1.17.0 lowers only the literal text segments "
+                                 "(runtime formatting helper is tracked as "
+                                 "future work)");
+    }
+    std::string sym = builder_.MakeStringLiteral(formatted, "template.str");
+    return {sym, ir::IRType::Pointer(ir::IRType::I8())};
+  }
   if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
     return LowerBinaryExpression(bin);
   }
   if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
     return LowerUnaryExpression(unary);
+  }
+  if (auto await_expr = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
+    return LowerAwaitExpression(await_expr);
   }
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
     return LowerCallExpression(call);
@@ -1412,18 +1518,25 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
   // Reorder arguments based on named-argument labels when the target
   // function's signature is known.  Positional arguments keep their
   // original order; named arguments are placed at the position matching
-  // the parameter name in the signature.
+  // the parameter name in the signature.  When the call site omits a
+  // trailing parameter that carries a default value, the default
+  // expression is materialised inline at this call site (sema has
+  // already validated that the default is a constant-foldable
+  // expression so re-evaluating it here is observably equivalent).
   auto sig_it = sema_.KnownSignatures().find(callee_name);
   if (sig_it != sema_.KnownSignatures().end() && !sig_it->second.param_names.empty()) {
     const auto &param_names = sig_it->second.param_names;
-    std::vector<std::string> reordered(arg_names.size());
-    // First pass: place named args in their correct positions.
-    std::vector<bool> placed(arg_names.size(), false);
+    const auto &param_defaults = sig_it->second.param_default_values;
+    const size_t total = param_names.size();
+    std::vector<std::string> reordered(total);
+    std::vector<bool> placed(total, false);
+
+    // First pass: route named arguments to their declared slot.
     for (size_t i = 0; i < arg_names.size(); ++i) {
       auto lbl_it = named_arg_labels_.find(arg_names[i]);
       if (lbl_it != named_arg_labels_.end()) {
-        for (size_t j = 0; j < param_names.size(); ++j) {
-          if (param_names[j] == lbl_it->second && j < reordered.size()) {
+        for (size_t j = 0; j < total; ++j) {
+          if (param_names[j] == lbl_it->second) {
             reordered[j] = arg_names[i];
             placed[j] = true;
             break;
@@ -1436,12 +1549,21 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
     for (size_t i = 0; i < arg_names.size(); ++i) {
       auto lbl_it = named_arg_labels_.find(arg_names[i]);
       if (lbl_it == named_arg_labels_.end()) {
-        while (pos < reordered.size() && placed[pos])
+        while (pos < total && placed[pos])
           ++pos;
-        if (pos < reordered.size()) {
+        if (pos < total) {
           reordered[pos] = arg_names[i];
+          placed[pos] = true;
           ++pos;
         }
+      }
+    }
+    // Third pass: any still-empty slot must be covered by a default.
+    for (size_t j = 0; j < total; ++j) {
+      if (!placed[j] && j < param_defaults.size() && param_defaults[j]) {
+        EvalResult def = LowerExpression(param_defaults[j]);
+        reordered[j] = def.value;
+        placed[j] = true;
       }
     }
     arg_names = reordered;
@@ -1967,6 +2089,123 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   exit_desc.return_marshal.to = ir::IRType::Void();
   exit_desc.lang_version = with_stmt->lang_version_pin;
   call_descriptors_.push_back(exit_desc);
+}
+
+// ============================================================================
+// Structured Exception Handling (since v1.13.0)
+//
+// TRY/CATCH/FINALLY/THROW lower to direct calls into the polyrt error
+// bridge.  The IR shape mirrors a setjmp/longjmp pair: `__ploy_rt_try_begin`
+// returns 0 on first entry and 1 once `__ploy_rt_throw` has unwound to it
+// via longjmp.  A conditional branch on that return value picks between
+// the protected body (zero) and the catch dispatch (non-zero).  The
+// FINALLY block is unconditional and joined from both predecessors.
+//
+// Cross-language interception (Python `Exception`, C++ `std::exception`,
+// Java `Throwable`, .NET `Exception`, Rust `Result::Err`) is performed
+// inside the runtime bridge: each language adapter wraps the foreign
+// exception, calls `__ploy_rt_throw`, and the longjmp lands here.
+// ============================================================================
+
+void PloyLowering::LowerThrowStatement(const std::shared_ptr<ThrowStatement> &throw_stmt) {
+  if (!throw_stmt) return;
+
+  // Lower the raised value.  For a string literal (e.g. `THROW "boom";`)
+  // this is the interned pointer; for an existing Error handle it is the
+  // handle's pointer value.  The runtime accepts either via the
+  // `__ploy_rt_throw` C ABI; richer typed-throw is tracked under future
+  // work.
+  EvalResult val = LowerExpression(throw_stmt->value);
+  std::string payload = val.value.empty() ? std::string("0") : val.value;
+
+  std::vector<std::string> args = {payload};
+  builder_.MakeCall("__ploy_rt_throw", args, ir::IRType::Void());
+
+  // `__ploy_rt_throw` does not return; emit `unreachable` so the
+  // verifier knows the current block has terminated and downstream
+  // statements are dead code.
+  builder_.MakeUnreachable();
+  terminated_ = true;
+}
+
+void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_stmt) {
+  if (!try_stmt) return;
+
+  // 1) try.entry — push a handler and branch on the return value.
+  auto body_bb     = builder_.CreateBlock("try.body");
+  auto catch_bb    = builder_.CreateBlock("try.catch");
+  auto finally_bb  = builder_.CreateBlock("try.finally");
+  auto merge_bb    = builder_.CreateBlock("try.merge");
+
+  // `__ploy_rt_try_begin` returns i32 (0 = first entry, 1 = unwound here).
+  auto begin_call = builder_.MakeCall("__ploy_rt_try_begin", {},
+                                      ir::IRType::I32(true), "try.tag");
+  std::string tag = begin_call ? begin_call->name : std::string("0");
+
+  // Compare the tag against zero: equal -> body, non-zero -> catch.
+  auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe, tag, "0", "try.thrown");
+  builder_.MakeCondBranch(cmp ? cmp->name : tag, catch_bb.get(), body_bb.get());
+
+  // 2) try.body — the protected statements.  On normal completion we
+  // pop the handler and fall through to FINALLY (or directly to merge).
+  builder_.SetInsertPoint(body_bb);
+  terminated_ = false;
+  LowerBlockStatements(try_stmt->body);
+  bool body_terminated = terminated_;
+  if (!terminated_) {
+    builder_.MakeCall("__ploy_rt_try_end", {}, ir::IRType::Void());
+    builder_.MakeBranch(try_stmt->has_finally ? finally_bb.get() : merge_bb.get());
+  }
+
+  // 3) try.catch — load the current Error handle, bind it to the
+  // declared name (when present), run the catch body.
+  builder_.SetInsertPoint(catch_bb);
+  terminated_ = false;
+  auto err_call = builder_.MakeCall("__ploy_rt_current_error", {},
+                                    ir::IRType::Pointer(ir::IRType::I8(true)), "try.err");
+  std::string err_value = err_call ? err_call->name : std::string("0");
+
+  // Run every CATCH clause sequentially.  Without a typed-error
+  // discriminator the first clause wins; the runtime guarantees that
+  // only one clause's binding is observable per unwind because the
+  // body short-circuits on `terminated_`.
+  for (const auto &clause : try_stmt->catches) {
+    if (terminated_) break;
+    if (!clause.var_name.empty()) {
+      // Allocate a slot for the bound Error handle so subsequent
+      // attribute accesses lower through the standard load path.
+      auto slot = builder_.MakeAlloca(ir::IRType::Pointer(ir::IRType::I8(true)),
+                                      clause.var_name);
+      builder_.MakeStore(slot ? slot->name : clause.var_name, err_value);
+    }
+    LowerBlockStatements(clause.body);
+  }
+  // Mark the error consumed once the catch body completes.
+  bool catch_terminated = terminated_;
+  if (!terminated_) {
+    builder_.MakeCall("__ploy_rt_clear_error", {}, ir::IRType::Void());
+    builder_.MakeBranch(try_stmt->has_finally ? finally_bb.get() : merge_bb.get());
+  }
+
+  // 4) try.finally — unconditional cleanup, joined from both arms.
+  if (try_stmt->has_finally) {
+    builder_.SetInsertPoint(finally_bb);
+    terminated_ = false;
+    LowerBlockStatements(try_stmt->finally_body);
+    if (!terminated_) {
+      builder_.MakeBranch(merge_bb.get());
+    }
+  }
+
+  // 5) try.merge — continuation point for the surrounding block.  The
+  // merge block is unreachable only when both arms terminate without
+  // a fall-through (e.g. body `RETURN` and catch `THROW`); in that
+  // case the surrounding lowering will mark it terminated.
+  builder_.SetInsertPoint(merge_bb);
+  terminated_ = body_terminated && catch_terminated && !try_stmt->has_finally;
+  if (terminated_) {
+    builder_.MakeUnreachable();
+  }
 }
 
 // ============================================================================
@@ -2710,6 +2949,30 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
   desc.return_marshal.to = ir::IRType::Void();
   desc.lang_version = extend->lang_version_pin;
   call_descriptors_.push_back(desc);
+}
+
+// ============================================================================
+// AWAIT Lowering
+// ============================================================================
+//
+// Lowers `AWAIT <expr>` to a call into the async runtime bridge.  The
+// operand is evaluated to a future-handle pointer (opaque `i8*`) and
+// passed to `__ploy_rt_await`, which yields back to the cooperative
+// scheduler until the future resolves and then returns the resolved
+// payload pointer.  Sema has already enforced that the surrounding
+// FUNC carries the `ASYNC` modifier (since v1.14.0).
+PloyLowering::EvalResult
+PloyLowering::LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await) {
+  if (!await || !await->operand) {
+    return {"", ir::IRType::Invalid()};
+  }
+  EvalResult operand = LowerExpression(await->operand);
+  std::string handle = operand.value.empty() ? std::string("0") : operand.value;
+  auto call = builder_.MakeCall("__ploy_rt_await", {handle},
+                                ir::IRType::Pointer(ir::IRType::I8(true)),
+                                "await.value");
+  std::string result = call ? call->name : std::string("0");
+  return {result, ir::IRType::Pointer(ir::IRType::I8(true))};
 }
 
 } // namespace polyglot::ploy

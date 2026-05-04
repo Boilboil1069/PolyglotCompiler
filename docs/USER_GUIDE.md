@@ -593,23 +593,34 @@ IMPORT <language> PACKAGE <package_name>[::(<symbol_list>)] [<version_operator> 
 
 Configure a specific package manager environment for package discovery.
 
+> **Since v1.12.0** — the canonical form is fully stringified:
+> `CONFIG <language> "<package_manager>" "<path_or_env>";`.  The
+> `(language, package_manager)` pair must be registered in
+> `frontends/ploy/src/sema/config_registry.cpp`.  See
+> [Realization → Package Management](realization/package_management.md#registering-a-custom-package-manager)
+> for the registration recipe.
+
 ```ploy
-// ---- pip / venv / virtualenv ----
+// Canonical stringified form (since v1.12.0)
+CONFIG python     "venv"    "/opt/ml-env";
+CONFIG python     "conda"   "ml_env";
+CONFIG python     "uv"      "D:/venvs/uv_env";
+CONFIG python     "pipenv"  "C:/projects/myapp";
+CONFIG python     "poetry"  "C:/projects/poetry_app";
+CONFIG rust       "cargo"   ".";
+CONFIG javascript "npm"     "./node_modules";
+CONFIG java       "maven"   "./pom.xml";
+CONFIG dotnet     "nuget"   "./packages";
+CONFIG ruby       "bundler" "./Gemfile";
+CONFIG go         "gomod"   "./go.mod";
+```
+
+Legacy keyword form (deprecated, parsed for source compatibility):
+
+```ploy
+// Old keyword form — emits a deprecation warning at sema time.
 CONFIG VENV python "/opt/ml-env";
-CONFIG VENV "/home/user/.virtualenvs/ml";     // Default language: python
-
-// ---- Conda environment ----
-CONFIG CONDA python "ml_env";                 // Conda environment name
-CONFIG CONDA "data_science";                  // Default language: python
-
-// ---- uv-managed virtual environment ----
-CONFIG UV python "D:/venvs/uv_env";
-
-// ---- Pipenv project ----
-CONFIG PIPENV python "C:/projects/myapp";
-
-// ---- Poetry project ----
-CONFIG POETRY python "C:/projects/poetry_app";
+CONFIG CONDA "data_science";    // Defaults language to python
 ```
 
 **Rules:**
@@ -645,6 +656,176 @@ PIPELINE image_pipeline {
 EXPORT image_pipeline AS "classify_images";   // Export with alias
 EXPORT compute;                                // Use original name
 ```
+
+### 4.2.5b Error Handling (since v1.13.0)
+
+Use `TRY` / `CATCH` / `FINALLY` / `THROW` for structured exception
+handling.  The catch binding has the built-in `Error` handle type
+exposing `message`, `source_lang`, and `stacktrace`.
+
+```ploy
+TRY {
+    LET row = CALL(python, db::fetch_one, query);
+}
+CATCH (e: Error) {
+    PRINTLN "fetch failed: " + e.message;
+}
+FINALLY {
+    CALL(python, db::close);
+}
+```
+
+`THROW <expr>;` raises an Error.  A bare `THROW "boom";` is wrapped
+into the unified `Error` handle by the runtime bridge.  Multiple
+`CATCH` clauses are dispatched in declaration order.  A standalone
+`FINALLY` (no `CATCH`) is allowed for guaranteed cleanup.
+
+The runtime bridge maps host-language exceptions (Python `Exception`,
+C++ `std::exception`, Java `Throwable`, .NET `Exception`, Rust
+`Result::Err`) onto the same `Error` handle so a single `CATCH` clause
+can intercept failures originating from any linked language.  See
+`docs/realization/error_handling.md` for the IR / ABI model and
+`tests/samples/36_try_catch/` for an end-to-end example.
+
+### 4.2.5c Async / Await (since v1.14.0)
+
+Use `ASYNC FUNC` and `AWAIT` for cooperative asynchronous functions.
+The return type `T` of an `ASYNC FUNC` is implicitly wrapped as
+`Future<T>` at the ABI boundary; tooling continues to surface the raw
+`T`.  `AWAIT <expr>` is only legal inside an `ASYNC FUNC` body — sema
+rejects every other use.
+
+```ploy
+ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
+ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
+
+ASYNC FUNC chained() -> i32 {
+    LET a = AWAIT fetch_one();
+    LET b = AWAIT fetch_two();
+    RETURN 0;
+}
+```
+
+The cooperative event loop (single thread by default, work-stealing
+pool optional) is implemented in `runtime/services/async_bridge.cpp`
+and `runtime/services/event_loop.cpp`.  Per-language adapters bridge
+host awaitables (Python `asyncio` coroutines, Rust `Future`, C++20
+`std::coroutine`, Java `CompletableFuture`, .NET `Task<T>`) onto the
+same `Future<T>` handle through `__ploy_rt_future_resolve`.
+
+The `polyrt async` CLI prints a snapshot of the cooperative event
+loop; `polyrt async --json` emits the same payload as JSON, and
+`polyrt async --run[=N]` drives the loop for at most `N` ticks before
+reporting.  See `docs/realization/async_model.md` for the IR / ABI
+model and `tests/samples/37_async_await/` for an end-to-end example.
+
+### 4.2.5d Generics (since v1.15.0)
+
+`FUNC` and `STRUCT` declarations may carry a generic type parameter
+list with optional trait bounds:
+
+```ploy
+FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
+STRUCT Pair<A, B> { first: A, second: B }
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
+```
+
+* **Type parameter list** — `<T: Bound1 + Bound2, U>` follows the
+  declared name.  Bounds are plain identifier names; sema validates
+  each against the built-in trait registry.
+* **WHERE clause** — `WHERE T: Bound1 + Bound2, U: Bound3` between
+  the return type and the body augments the matching parameter's
+  bounds.  References to undeclared parameters are rejected.
+* **Built-in trait registry** — `Comparable`, `Hashable`, `Numeric`,
+  `Iterable`, `Display`.  Unknown bound names trigger a sema
+  `kTypeMismatch` diagnostic.
+* **Generic instantiation** — `Pair<i32, String>` in a type
+  position is parsed as a parameterised type and resolved by sema.
+
+The v1.15.0 lowering path is type-erased (every parameter resolves
+to `Any`); per-instantiation monomorphisation, bound enforcement
+against concrete types, and parametric generics in `LINK`
+declarations are tracked as follow-up work.  See
+`docs/realization/generics.md` for the IR / ABI model and
+`tests/samples/38_generics/` for an end-to-end example.
+
+### 4.2.5e Visibility and Attributes (since v1.16.0)
+
+Top-level `FUNC`, `ASYNC FUNC`, and `STRUCT` declarations may carry
+an attribute / visibility prefix:
+
+```ploy
+@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
+PRIVATE STRUCT Internal { x: i32 }
+```
+
+* **`PUB` / `PRIVATE`** — module-boundary visibility.  `PRIVATE` is
+  the default and may be written explicitly for documentation.
+* **`EXPORT` requires `PUB`** — an explicit `PRIVATE` is a hard
+  error; a symbol that still carries the default is auto-promoted
+  with a deprecation warning so pre-v1.16.0 sources keep compiling.
+* **`@name` / `@name(args)`** — declaration attributes.  The
+  built-in registry is `@inline`, `@noinline`, `@always_inline`,
+  `@hot`, `@cold`, `@profile`, `@no_profile`, `@deprecated`,
+  `@link_name`, `@target`.  Unknown attributes are accepted with a
+  sema warning so third-party tooling can extend the set without
+  modifying the compiler.
+
+The v1.16.0 MVP keeps attributes and visibility as inert metadata on
+the AST; wiring `@inline` / `@hot` / `@profile` into the optimiser
+and `@link_name` / `@target` into the linker is tracked as follow-up
+work.  See `docs/realization/visibility_attrs.md` and
+`docs/specs/attribute_catalog.md` for the model and
+`tests/samples/39_visibility_attrs/` for an end-to-end example.
+
+### 4.2.5f Extended String Literals (since v1.17.0)
+
+Ploy 1.17.0 ships four string-literal forms:
+
+```ploy
+LET reg  = "hello\n";                                  // regular
+LET path = r"C:\path\no\escape";                       // raw
+LET sql  = r#"SELECT "name", "age" FROM users"#;       // raw with `#` padding
+LET poem = """An old silent pond
+A frog jumps in
+splash silence again""";                               // multiline (newlines preserved)
+LET msg  = f"answer = {42}, pi = {3.14}";              // template / interpolated
+```
+
+Sema requires every interpolated expression in an `f"..."` literal to
+have a *formattable* type — `Int`, `Float`, `String`, or `Bool`.  The
+v1.17.0 lowering layer folds template strings whose interpolated parts
+are all compile-time `Literal` expressions; runtime variable
+interpolation is recorded as future work in
+`docs/realization/string_literals.md`.
+
+See `tests/samples/40_string_literals/` for an end-to-end example.
+
+### 4.2.5g Grammar polish bundle (since v1.18.0)
+
+A small collection of source-level refinements that reduce friction
+when porting code from Rust / Python / TypeScript:
+
+- **Optional outer parens on `IF` / `WHILE` / `FOR`.** `IF (cond) { … }`
+  parses identically to `IF cond { … }`; same for `WHILE` and
+  `FOR (i IN xs) { … }`.
+- **`IF LET` `OPTION<T>` destructuring.**
+  `IF LET Some(x) = opt { … } ELSE { … }` unwraps a `Some` and
+  binds `x: T` for the THEN-body. `IF LET None = opt { … }` matches
+  the empty case and takes no bindings.
+- **`NULL` vs. `None`.** `NULL` is reserved for raw-pointer interop;
+  use `None` for empty `OPTION<T>` values. Sema rejects
+  `LET o: OPTION<T> = NULL;`.
+- **`///` documentation comments.** Lines beginning with exactly
+  three slashes attach to the immediately following `FUNC` / `STRUCT`
+  / `LET` / `VAR` declaration. Plain `//` and `////` remain ordinary
+  comments. The `polydoc` tool extracts these blocks to Markdown or
+  JSON — see [`docs/api/polydoc.md`](api/polydoc.md).
+- **`LIST<T>` is `Vec<T>`.** `LIST<T>` is a contiguous-sequence
+  container, equivalent to Rust `Vec<T>` and C++ `std::vector<T>` —
+  not a linked list.
+
+See `tests/samples/41_grammar_polish/` for an end-to-end example.
 
 ### 4.2.6 Type System
 
@@ -701,11 +882,23 @@ FOR i IN 0..10 {
     ...
 }
 
-// MATCH pattern matching
+// MATCH pattern matching — supports literals, wildcard, ranges,
+// tuples, structs, OR-patterns, bindings, type guards and OPTION
+// constructors.  Each arm exits the MATCH after its body runs;
+// there is no fall-through.
 MATCH value {
-    CASE 1 { ... }
-    CASE 2 { ... }
-    DEFAULT { ... }
+    CASE 1 { ... }                      // literal
+    CASE 2 | 3 | 5 | 7 { ... }          // OR-pattern
+    CASE 10..=20 { ... }                // inclusive range
+    CASE n @ 100..200 { ... }           // bound name on a range
+    CASE x: i32 IF x > 0 { ... }        // type guard + IF guard
+    CASE _ { ... }                      // wildcard catch-all
+}
+
+// MATCH on bool / OPTION is exhaustive without DEFAULT.
+MATCH opt {
+    CASE Some(x) { ... }
+    CASE None    { ... }
 }
 
 // BREAK / CONTINUE
@@ -1124,6 +1317,77 @@ PIPELINE neural_net {
     }
 }
 ```
+
+**Restriction (since 1.11.0).**  `EXTEND` is now accepted **only** on
+the dynamic host languages `python`, `ruby`, and `javascript` (with
+the tag aliases `rb`, `js`, `typescript`, `ts`).  Targeting any
+statically-typed language — `cpp`, `c`, `rust`, `java`, `dotnet` /
+`csharp`, `go` / `golang` — is rejected by sema with:
+
+```
+EXTEND is not allowed on statically-typed language '<lang>'
+  — its type system cannot accept an out-of-source subclass without
+    breaking soundness
+suggestion: wrap the foreign API in a local Ploy FUNC and use
+            CALL / METHOD instead, or move the EXTEND target to a
+            dynamic host (python / ruby / javascript)
+```
+
+The recommended migration is a local `FUNC` wrapper that delegates
+to the foreign API via `CALL` / `METHOD`.  Sample
+[`tests/samples/35_extend_dynamic`](../tests/samples/35_extend_dynamic/)
+shows the full pattern.
+
+### 4.2.7b Default Parameter Values & Named Arguments *(since 1.11.0)*
+
+Function declarations may give **trailing** parameters a default
+expression introduced by `=`, and call sites may name any argument:
+
+```ploy
+FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
+
+add(10);            // y defaults to 0
+add(x: 7);          // single named argument; y defaults to 0
+add(2, y: 5);       // mixed positional + named
+```
+
+Default expressions must be either a constant-foldable literal /
+unary / binary expression, or a pure intra-Ploy `FUNC` call (no
+cross-language `CALL`, no closure capture, no read of another
+parameter):
+
+```ploy
+FUNC one() -> i32 { RETURN 1; }
+FUNC scale(value: i32, factor: i32 = one()) -> i32 {
+    RETURN value * factor;          // pure-call default is allowed
+}
+```
+
+Call-site rules: a positional argument may not appear **after** a
+named argument, every parameter may be supplied at most once, and
+every required parameter must be supplied either by position or by
+name.  See sample
+[`tests/samples/34_default_args`](../tests/samples/34_default_args/)
+for an end-to-end demonstration.
+
+### 4.2.7c Unified `AS` Usages — One-Page Reference *(since 1.11.0)*
+
+`AS` appears at five distinct binding sites; the central rules live
+in the language spec
+([`docs/realization/ploy_language_spec.md` §4.17](realization/ploy_language_spec.md))
+but the table is repeated here for convenience.
+
+| # | Form                                                          | Role of `AS`                          |
+|---|---------------------------------------------------------------|---------------------------------------|
+| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                    | Local alias for an imported package.  |
+| 2 | `EXPORT <symbol> AS <"external_name">;`                       | External name for an exported symbol. |
+| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`       | Separator before the foreign signature. |
+| 4 | `IMPORT <lang> AS <alias>;`                                   | Language-level alias.                 |
+| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                | Local handle name for the patched class. |
+
+`AS` is **not** a general "as-cast" operator: writes such as
+`LET y = 3 AS i64;` or `CALL(...) AS Handle` are rejected.  Use
+`CONVERT` for type conversions.
 
 ### 4.2.8 Error Checking
 

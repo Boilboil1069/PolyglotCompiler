@@ -459,6 +459,34 @@ FUNC log_message(msg: STRING) -> VOID {
 }
 ```
 
+## 7.4 Default Parameter Values & Named Arguments *(since 1.11.0)*
+
+Trailing parameters may carry a default expression introduced by `=`,
+and call sites may name any argument:
+
+```ploy
+FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
+
+LET a = add(10);          // y defaults to 0
+LET b = add(x: 7);        // single named argument
+LET c = add(2, y: 5);     // mixed positional + named
+```
+
+A default expression must be a constant-foldable literal/unary/binary
+expression, **or** a pure intra-Ploy `FUNC` call:
+
+```ploy
+FUNC one() -> i32 { RETURN 1; }
+FUNC scale(value: i32, factor: i32 = one()) -> i32 {
+    RETURN value * factor;
+}
+```
+
+Cross-language `CALL`, closure capture, and reading another parameter
+inside a default are all rejected.  Positional arguments may not
+appear after a named argument, and every required (no-default)
+parameter must be supplied either by position or by name.
+
 ---
 
 # 8. Control Flow
@@ -517,6 +545,10 @@ FOR item IN collection {
 
 ## 8.4 MATCH — Pattern Matching
 
+`MATCH` dispatches on a single scrutinee.  Each `CASE` carries a
+*pattern* and an optional `IF` guard; the catch-all is either
+`DEFAULT` or the wildcard `CASE _`.
+
 ```ploy
 MATCH mode {
     CASE 0 {
@@ -535,6 +567,46 @@ MATCH mode {
     }
 }
 ```
+
+Beyond literal arms, the `.ploy` `MATCH` accepts the full pattern
+grammar:
+
+```ploy
+MATCH value {
+    CASE 0                    { RETURN 100; }     // literal
+    CASE 2 | 4 | 8 | 16       { RETURN 102; }     // OR-pattern
+    CASE 10..20               { RETURN 103; }     // half-open range
+    CASE 20..=29              { RETURN 104; }     // inclusive range
+    CASE n @ 100..=199        { RETURN n + 200; } // binding on a range
+    CASE x: i32 IF x > 1000   { RETURN x - 1000; }// type-guard + IF guard
+    CASE _                    { RETURN -1; }      // wildcard catch-all
+}
+```
+
+Tuple, struct and `OPTION` destructuring also work:
+
+```ploy
+MATCH point {
+    CASE Point { x: 0, y: 0, .. } { RETURN "origin"; }
+    CASE Point { x, y, .. }       { RETURN "general"; }
+}
+
+MATCH opt {
+    CASE Some(x) { RETURN x; }
+    CASE None    { RETURN -1; }
+}
+```
+
+> **Notes**:
+> * Each `CASE` body executes and **automatically exits** the
+>   `MATCH` — there is no C-style fall-through.
+> * `MATCH` on `bool` and `OPTION` is exhaustive when every variant
+>   is covered, even without `DEFAULT`.
+> * The arrow between the pattern and the body (`->` or `=>`) is
+>   optional; the canonical form omits it.
+> * Extended pattern semantics, the lowering strategy and the
+>   diagnostic catalogue live in
+>   [`docs/realization/pattern_matching.md`](../realization/pattern_matching.md).
 
 ## 8.5 BREAK and CONTINUE
 
@@ -767,6 +839,16 @@ EXTEND(python, base_classes::Component) {
     }
 }
 ```
+
+> **Restriction (since 1.11.0).** `EXTEND` is accepted **only** on
+> the dynamic host languages `python`, `ruby`, and `javascript`
+> (with the tag aliases `rb`, `js`, `typescript`, `ts`).  Targeting
+> any statically-typed language — `cpp`, `c`, `rust`, `java`,
+> `dotnet` / `csharp`, `go` / `golang` — is rejected by sema; the
+> recommended alternative is a local Ploy `FUNC` wrapper that uses
+> `CALL` / `METHOD` to invoke the foreign API.  See sample
+> [`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)
+> for the migration pattern.
 
 ---
 
@@ -1017,6 +1099,159 @@ CONFIG VENV python "env2";  // Error: Duplicate CONFIG for language 'python'
 ```
 
 > See [Sample 10: error_handling](../../tests/samples/10_error_handling/) for a complete error scenario catalogue.
+
+## 16.5 Structured Exception Handling — TRY / CATCH / FINALLY / THROW *(since v1.13.0)*
+
+Use `TRY` / `CATCH` / `FINALLY` to handle runtime failures, and
+`THROW` to raise an Error.  The catch binding has the built-in
+`Error` handle type with `message: String`, `source_lang: String`,
+and `stacktrace: List<String>`.
+
+```ploy
+FUNC main() {
+    TRY {
+        THROW "boom";
+    }
+    CATCH (e: Error) {
+        PRINTLN "caught\r\n";
+    }
+    FINALLY {
+        PRINTLN "cleanup\r\n";
+    }
+}
+```
+
+A bare `TRY` without any `CATCH` or `FINALLY` is rejected.  Multiple
+`CATCH` clauses are accepted and dispatched in declaration order.  A
+standalone `FINALLY` (no `CATCH`) is allowed for guaranteed cleanup.
+
+The runtime bridge maps host-language exceptions (Python `Exception`,
+C++ `std::exception`, Java `Throwable`, .NET `Exception`, Rust
+`Result::Err`) onto the unified `Error` handle, so a single `CATCH`
+clause can intercept failures originating from any linked language.
+
+> See [Sample 36: try_catch](../../tests/samples/36_try_catch/) for the
+> end-to-end example and `docs/realization/error_handling.md` for the
+> IR / ABI model.
+
+## 16.6 Cooperative Async / Await — ASYNC FUNC / AWAIT *(since v1.14.0)*
+
+Use `ASYNC FUNC` to declare a cooperative asynchronous function and
+`AWAIT` to suspend until a future resolves.  An `ASYNC FUNC` whose
+declared return type is `T` is implicitly wrapped as `Future<T>` at
+the ABI boundary.  `AWAIT <expr>` is only legal inside an `ASYNC
+FUNC` body — sema rejects every other use.
+
+```ploy
+ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
+ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
+
+ASYNC FUNC chained() -> i32 {
+    LET a = AWAIT fetch_one();
+    LET b = AWAIT fetch_two();
+    RETURN 0;
+}
+```
+
+The cooperative event loop (single thread by default; a
+work-stealing pool layered on top of `runtime/threading.{h,cpp}` is
+the planned follow-up) lives in `runtime/services/async_bridge.cpp`
+and `runtime/services/event_loop.cpp`.  Per-language adapters bridge
+host awaitables (Python `asyncio` coroutines, Rust `Future`, C++20
+`std::coroutine`, Java `CompletableFuture`, .NET `Task<T>`) onto the
+same `Future<T>` handle through `__ploy_rt_future_resolve`.
+
+The `polyrt async` CLI prints a snapshot of the cooperative event
+loop; `polyrt async --json` emits the same payload as JSON, and
+`polyrt async --run[=N]` drives the loop for at most `N` ticks before
+reporting.
+
+> See [Sample 37: async_await](../../tests/samples/37_async_await/)
+> for the end-to-end example and
+> `docs/realization/async_model.md` for the IR / ABI model.
+
+## 16.7 Generics — FUNC<T> / STRUCT<T> with bounds *(since v1.15.0)*
+
+Use `<T: Bound1 + Bound2, U>` after a `FUNC` or `STRUCT` name to
+introduce generic type parameters with optional trait bounds.  The
+optional `WHERE` clause between the return type and the body augments
+the matching parameter's bounds.
+
+```ploy
+FUNC max<T: Comparable>(a: T, b: T) -> T {
+    IF (a > b) { RETURN a; } ELSE { RETURN b; }
+}
+
+STRUCT Pair<A, B> { first: A, second: B }
+
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
+    RETURN a + b;
+}
+```
+
+The built-in trait registry is `Comparable`, `Hashable`, `Numeric`,
+`Iterable`, `Display`; sema rejects unknown bound names.  The
+v1.15.0 lowering path is type-erased — every type parameter
+resolves to `Any` and the function or struct is lowered once — so
+a single body services every call site.
+
+> See [Sample 38: generics](../../tests/samples/38_generics/) for the
+> end-to-end example and `docs/realization/generics.md` for the
+> IR / ABI model.
+
+## 16.8 Visibility (PUB / PRIVATE) and Attributes (@name) *(since v1.16.0)*
+
+Use `PUB` to export a top-level `FUNC`, `ASYNC FUNC`, or `STRUCT` to
+other modules; the default is `PRIVATE` (module-local) and may be
+written explicitly.  `EXPORT` requires a `PUB` target — an explicit
+`PRIVATE` is a hard error, while a symbol that still carries the
+default is auto-promoted with a deprecation warning so pre-v1.16.0
+sources keep compiling.
+
+```ploy
+@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
+PRIVATE STRUCT Internal { x: i32 }
+PUB FUNC api() -> i32 { RETURN fast(1, 2); }
+EXPORT api AS "api_external";
+```
+
+Attributes have the shape `@name` or `@name(arg, ...)`; the built-in
+registry is `@inline`, `@noinline`, `@always_inline`, `@hot`,
+`@cold`, `@profile`, `@no_profile`, `@deprecated`, `@link_name`,
+`@target`.  Unknown attributes are accepted with a sema warning so
+third-party tooling can extend the catalog without modifying the
+compiler.  The v1.16.0 MVP keeps attributes as inert metadata; wiring
+them into the optimiser and linker is tracked as follow-up work.
+
+> See [Sample 39: visibility_attrs](../../tests/samples/39_visibility_attrs/)
+> for the end-to-end example,
+> `docs/realization/visibility_attrs.md` for the IR / ABI model, and
+> `docs/specs/attribute_catalog.md` for the full attribute catalog.
+
+## 16.9 Extended String Literals *(since v1.17.0)*
+
+Ploy 1.17.0 ships four string-literal forms, all sharing the same
+`String` value type:
+
+```ploy
+LET reg  = "hello\n";                                  // regular
+LET path = r"C:\path\no\escape";                       // raw
+LET sql  = r#"SELECT "name" FROM users"#;              // raw with `#` padding
+LET poem = """line one
+line two""";                    // multiline
+LET msg  = f"answer = {42}, pi = {3.14}";              // template
+```
+
+Template strings (`f"..."`) take brace-delimited interpolation
+expressions; `{{` / `}}` are literal braces.  Sema requires every
+interpolated expression to be `Int`, `Float`, `String`, or `Bool`.
+The v1.17.0 lowering layer folds template strings whose interpolated
+parts are all compile-time `Literal` expressions; the runtime
+formatting helper for variable interpolation is tracked as future work.
+
+> See [Sample 40: string_literals](../../tests/samples/40_string_literals/)
+> for the end-to-end example and
+> `docs/realization/string_literals.md` for the IR / ABI model.
 
 ---
 

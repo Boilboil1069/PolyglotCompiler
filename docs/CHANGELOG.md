@@ -13,6 +13,433 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.18.0 (2026-05-05)
+
+**P3 grammar polish bundle.**  A small collection of source-level
+refinements that reduce friction for users porting from Rust / Python /
+TypeScript: optional outer parens on control-flow heads, `IF LET`
+`OPTION<T>` destructuring, a `///` documentation-comment lane, and a
+new `polydoc` extractor tool.
+
+* **Parser.**  `IF` / `WHILE` / `FOR` accept optional outer parens.
+  `IF (cond) { … }` parses identically to `IF cond { … }` because the
+  expression grammar already treats `(cond)` as a grouped expression;
+  `FOR (i IN xs) { … }` is taught explicitly to consume the surrounding
+  parens.
+* **AST + Parser.**  New `IfLetStatement` node and
+  `ParseIfLetStatement` entry: `IF LET Some(x) = opt { … } ELSE { … }`
+  and `IF LET None = opt { … }` destructure an `OPTION<T>` scrutinee
+  and introduce the binding into the THEN-body's scope.
+* **Sema.**  `AnalyzeIfLetStatement` enforces that the scrutinee is
+  `OPTION<T>` (or `Any` / `Unknown` for cross-language values), checks
+  the constructor name (`Some` requires one binding; `None` takes
+  none), and registers the binding as a fresh `kVariable` symbol.
+* **Sema.**  `LET x: OPTION<T> = NULL;` now produces a targeted
+  `kTypeMismatch` diagnostic suggesting `None`.  `NULL` remains
+  reserved for raw-pointer interop.
+* **Lexer + AST.**  `///`-prefixed line comments are captured into
+  `pending_doc_` and attached as `doc_comment: vector<string>` to the
+  immediately following `FUNC` / `STRUCT` / `LET` / `VAR` declaration.
+  Plain `//` and `////` continue to be plain line comments.
+* **Tooling.**  New `polydoc` executable (`tools/polydoc/`) reads
+  `.ploy` source, walks the parsed module, and emits doc blocks as
+  Markdown (default) or JSON (`--json`).  Output may be redirected via
+  `-o OUT`.
+* **Spec.**  `LIST<T>` is documented as a contiguous-sequence
+  container equivalent to Rust `Vec<T>` / C++ `std::vector<T>` — not a
+  linked list.
+* **Tests.**  `tests/unit/frontends/ploy/polish_grammar_test.cpp` adds
+  11 new cases covering optional parens, `IF LET`, the NULL-with-OPTION
+  diagnostic, and `///` capture.  Sample 41 (`tests/samples/41_grammar_polish/`)
+  exercises every new construct end-to-end.
+
+---
+
+## v1.17.0 (2026-05-04)
+
+**Extended string literal forms: raw `r"..."` / `r#"..."#`,
+multiline `"""..."""`, and template `f"..."` interpolation.**  All
+four forms share the existing `kString` token type and lower through
+the established `polyrt_println`-style interning path.
+
+* **Lexer.**  `LexRawString`, `LexMultilineString`, and
+  `LexTemplateString` helpers join the existing `LexString`; raw and
+  multiline bodies are re-encoded into the canonical `"..."` form so
+  the existing escape-decoding pipeline keeps working unchanged.  The
+  `r` / `f` prefix is recognised only when the next character is `"`
+  (or `#` for raw), so identifiers like `result` and `foo` are not
+  mis-lexed.
+* **AST.**  New `polyglot::ploy::TemplateString` node carrying
+  `parts: vector<Part>`, where each `Part` is either a literal text
+  fragment or an interpolated `Expression`.
+* **Parser.**  `BuildStringExpression(lexeme, loc)` centralises
+  string-literal handling, splits `f"..."` bodies on `{` / `}` (with
+  `{{` / `}}` escapes), and sub-parses each interpolation through a
+  fresh `PloyLexer` + `PloyParser` pair.
+* **Sema.**  `AnalyzeExpression` learns a `TemplateString` branch.
+  Each interpolated expression must have a *formattable* type — `Int`,
+  `Float`, `String`, or `Bool` (with `Any` / `Unknown` accepted so
+  unresolved cross-language references do not block compilation).  The
+  expression result type is always `String`.
+* **Lowering (MVP).**  Template strings whose interpolated parts are
+  all compile-time `Literal` expressions are folded eagerly into a
+  single interned global.  When the template references a runtime
+  value, the lowering layer concatenates the literal text segments
+  only and emits a `kGenericWarning`; the runtime-formatting helper is
+  tracked as follow-up work.
+* **Tests.** `tests/unit/frontends/ploy/string_literals_test.cpp`
+  (13 cases / 18 assertions) all pass; full regression
+  `test_frontend_ploy` 437 / 2603.
+* **Sample.** `tests/samples/40_string_literals/` with bilingual READMEs.
+* **Docs.** Bilingual realization
+  `docs/realization/string_literals{,_zh}.md`, language spec
+  "String Literals" subsection, USER_GUIDE 4.2.5f, tutorial 16.9 (en) /
+  16.11 (zh).
+* **Future work.** Runtime-formatting helper for variable
+  interpolation; indented multiline dedenting; format-spec suffixes
+  inside template braces (`{value:.3f}`); nested template strings.
+
+## v1.16.0 (2026-05-04)
+
+**Module-boundary visibility (`PUB` / `PRIVATE`) and the
+`@name(args)` attribute prefix on top-level `FUNC` and `STRUCT`
+declarations.**  Visibility and attributes survive parsing and sema
+as metadata on the AST; the IR builder, optimiser, and runtime are
+unchanged in this MVP.
+
+* **Surface syntax.** Two new keywords are recognised by the lexer:
+  `PUB` and `PRIVATE`.  The parser accepts an optional prefix of the
+  form `@name @name(arg, ...) PUB|PRIVATE` before `FUNC`,
+  `ASYNC FUNC`, and `STRUCT`.  Other top-level forms reject the
+  prefix with a parser diagnostic.
+* **AST.** `Visibility { kPrivate, kPub }`, `Attribute { name, args }`,
+  and `visibility` / `visibility_explicit` / `attributes` fields on
+  `FuncDecl` and `StructDecl`.
+* **Sema.** `PloySymbol` carries the visibility pair so `EXPORT`
+  analysis can consult it.  `PloySema::ValidateAttributes` warns on
+  any name outside the built-in registry (`inline`, `noinline`,
+  `always_inline`, `hot`, `cold`, `profile`, `no_profile`,
+  `deprecated`, `link_name`, `target`).  `AnalyzeExportDecl` requires
+  `kPub`: an explicit `PRIVATE` is a hard error, while a symbol that
+  still carries the default `kPrivate` is auto-promoted with a
+  deprecation warning so pre-v1.16.0 sources keep compiling.
+* **Lowering.** Unchanged; attributes and visibility are inert
+  metadata on the AST in this release.  Wiring `@inline` / `@hot` /
+  `@profile` into the optimiser and `@link_name` / `@target` into
+  the linker is recorded as follow-up work.
+* **Tests.** `tests/unit/frontends/ploy/visibility_attrs_test.cpp`
+  (13 cases / 41 assertions) all pass; full regression
+  `test_frontend_ploy` 424 / 2585.
+* **Sample.** `tests/samples/39_visibility_attrs/` is the canonical
+  end-to-end demo with bilingual READMEs.
+* **Docs.** Bilingual realization doc
+  `docs/realization/visibility_attrs{,_zh}.md`, attribute catalog
+  `docs/specs/attribute_catalog{,_zh}.md`, language spec keyword
+  roster + "Visibility and Attributes" subsection, USER_GUIDE
+  4.2.5e, tutorial 16.8 (en) / 16.10 (zh).
+* **Future work.** Optimiser / linker integration for each built-in
+  attribute; visibility / attribute prefix on `CLASS`, `CONST`,
+  `TYPE`, `MAP_FUNC`, and module-scope `LET`; nested `MODULE name {
+  ... }` blocks for finer-grained scopes; promote the `EXPORT`-
+  without-`PUB` deprecation warning to a hard error in a future
+  major release.
+
+## v1.15.0 (2026-05-04)
+
+**Generic `FUNC` and `STRUCT` declarations with bounded type
+parameters and a type-erased MVP lowering path.**  Ploy gains
+`<T: Bound, U>` parameter lists, `WHERE` clauses, and a built-in
+trait registry; sema validates every bound name and brings each
+parameter into scope while resolving signature/body types.
+
+* **Surface syntax.** One new keyword is recognised by the lexer:
+  `WHERE`.  The parser accepts `<T: Bound1 + Bound2, U>` after the
+  declared name on `FUNC` and `STRUCT`, and an optional `WHERE T:
+  Bound1 + Bound2, U: Bound3` between the return type and the body
+  on `FUNC`.  Generic instantiations such as `Pair<i32, String>` are
+  parsed as `ParameterizedType` in any type position.
+* **AST.** `FuncDecl::TypeParam { name, bounds }` and
+  `FuncDecl::type_params` / `StructDecl::type_params` carry the
+  declared parameters.  WHERE clauses merge into the matching
+  parameter's `bounds` during parsing.
+* **Sema.** `PloySema::active_type_params_` is consulted by
+  `ResolveType(SimpleType)` so a parameter name resolves to `Any`
+  inside the declaration.  `PloySema::ValidateTypeParamBounds`
+  validates every declared bound against the built-in registry
+  (`Comparable`, `Hashable`, `Numeric`, `Iterable`, `Display`).
+* **Lowering.** Generic declarations are lowered once with each
+  parameter resolved to `Any` (type erasure); a single body services
+  every call site.  Per-instantiation monomorphisation is recorded
+  as follow-up work.
+* **Tests.** `tests/unit/frontends/ploy/generics_test.cpp`
+  (8 cases / 35 assertions) all pass; full regression
+  `test_frontend_ploy` 411 / 2544.
+* **Sample.** `tests/samples/38_generics/` is the canonical
+  end-to-end demo with bilingual READMEs.
+* **Docs.** Bilingual realization doc
+  `docs/realization/generics{,_zh}.md`, language spec keyword
+  roster + "Generics" subsection, USER_GUIDE 4.2.5d, tutorial
+  16.7 (en) / 16.9 (zh).
+* **Future work.** Per-instantiation monomorphisation; bound
+  enforcement against concrete types at call sites; parametric
+  generics in `LINK` declarations; generic methods on `CLASS`
+  blocks; user-defined traits and higher-kinded bounds.
+
+## v1.14.0 (2026-05-04)
+
+**Cooperative async / await for Ploy and the cross-language
+`Future<T>` runtime bridge.**  Ploy gains the `ASYNC` / `AWAIT`
+constructs; the runtime exposes a cooperative event loop and a stable
+C ABI that any host-language adapter can call to forward Python
+`asyncio` coroutines, Rust `Future`, C++20 `std::coroutine`, Java
+`CompletableFuture`, or .NET `Task<T>` into the unified `Future<T>`
+handle.
+
+* **Surface syntax.** Two new keywords are recognised by the lexer:
+  `ASYNC` and `AWAIT`.  The parser accepts `ASYNC FUNC name(...) -> T
+  { ... }` (top level, statement, class method) and `AWAIT <expr>` at
+  unary precedence.  `ASYNC FUNC` carries `is_async = true` on the
+  `FuncDecl` AST node and `AwaitExpression` is a dedicated AST node.
+* **Sema.** AWAIT outside an `ASYNC FUNC` body is rejected with
+  `kTypeMismatch`; the implicit return wraps `T` as `Future<T>` at
+  the ABI boundary.
+* **Lowering.** Each `ASYNC FUNC` body is bracketed by
+  `__ploy_rt_async_enter` and `__ploy_rt_async_complete`; every
+  `AWAIT <expr>` site lowers to `__ploy_rt_await(<handle>)`.
+* **Runtime.** `runtime/services/async_bridge.{h,cpp}` and
+  `runtime/services/event_loop.{h,cpp}` implement the cooperative
+  scheduler.  C ABI: `__ploy_rt_async_enter`, `__ploy_rt_async_complete`,
+  `__ploy_rt_async_spawn`, `__ploy_rt_await`, `__ploy_rt_future_resolve`,
+  `__ploy_rt_async_run`, `__ploy_rt_async_pending`,
+  `__ploy_rt_async_suspended`, `__ploy_rt_async_completed`,
+  `__ploy_rt_async_active_frames`.  C++ surface in
+  `polyglot::runtime::services`: `SpawnPloyTask`, `ResolveFuture`,
+  `RunUntilIdle`, `SnapshotScheduler`, `ResetScheduler`.
+* **Tooling.** `polyrt async` prints a snapshot of the cooperative
+  event loop; `--json` emits the same payload as JSON, and
+  `--run[=N]` drives the loop for at most `N` ticks before reporting.
+* **Tests.** `tests/unit/frontends/ploy/async_await_test.cpp`
+  (6 cases / 18 assertions) and
+  `tests/unit/runtime/async_bridge_test.cpp`
+  (5 cases / 14 assertions) all pass; full regression
+  `test_frontend_ploy` 403 / 2509 and `test_runtime` 117 / 35257.
+* **Samples.** `tests/samples/37_async_await/` is the canonical
+  end-to-end demo; `tests/samples/14_async_pipeline/` is upgraded to
+  use real `ASYNC FUNC` / `AWAIT` instead of placeholder shapes.
+* **Docs.** Bilingual realization doc
+  `docs/realization/async_model{,_zh}.md`, language spec keyword
+  roster + "Async / Await" subsection, USER_GUIDE 4.2.5c, tutorial
+  16.6 (en) / 16.8 (zh).
+* **Future work.** True coroutine suspension via the IR-level
+  `invoke` / `landingpad` machinery; multi-thread work-stealing pool
+  layered on top of `runtime/threading.{h,cpp}`; cancellation
+  propagation; cross-language reverse-path adapters
+  (`pyloy_async_resolve`, `cppploy_async_resolve`, `jloy_async_resolve`,
+  `clrloy_async_resolve`, `rsloy_async_resolve`); `Future<T>`
+  parametric typing once generics (demand 2026-04-28-15) land.
+
+## v1.13.0 (2026-05-04)
+
+**Structured exception handling for Ploy and the cross-language
+runtime error bridge.**  Ploy gains the `TRY` / `CATCH` / `FINALLY` /
+`THROW` constructs and a built-in `Error` handle type; the runtime
+exposes a stable C ABI that any host-language adapter can call to
+forward Python `Exception`, C++ `std::exception`, Java `Throwable`,
+.NET `Exception`, or Rust `Result::Err` into the unified `Error`.
+
+* **Surface syntax.** Five new keywords are recognised by the lexer:
+  `TRY`, `CATCH`, `FINALLY`, `THROW`, `ERROR`.  Sema validates that
+  every `TRY` carries at least one `CATCH` clause or a `FINALLY`
+  clause, that each `CATCH` declares a binding name, and that
+  `THROW` carries a value.
+* **Built-in `Error` handle.** The catch binding has the built-in
+  handle type `Error` exposing `message: String`, `source_lang:
+  String`, and `stacktrace: List<String>`.
+* **Runtime bridge.** New `runtime/include/services/error_bridge.h`
+  C ABI: `__ploy_rt_try_begin`, `__ploy_rt_try_end`, `__ploy_rt_throw`,
+  `__ploy_rt_throw_from`, `__ploy_rt_current_error`,
+  `__ploy_rt_current_error_message`,
+  `__ploy_rt_current_error_source_lang`,
+  `__ploy_rt_current_error_stacktrace_count`,
+  `__ploy_rt_current_error_stacktrace_at`, `__ploy_rt_clear_error`.
+  The data plane is thread-local; raising an Error throws a C++
+  `RuntimeError` so any enclosing native frame can catch it.
+* **Lowering.** TRY lowers to a runtime-call shape with explicit
+  body / catch / finally / merge basic blocks dispatched on the
+  return value of `__ploy_rt_try_begin`.  THROW lowers to a single
+  call to `__ploy_rt_throw` followed by `unreachable`.
+* **Tests.** `tests/unit/frontends/ploy/try_catch_throw_test.cpp`
+  (8 cases / 30 assertions) covers parser + sema; `tests/unit/runtime/
+  error_bridge_test.cpp` (5 cases / 19 assertions) covers the C ABI
+  data plane via C++ `try` / `catch`.
+* **Sample.** `tests/samples/36_try_catch/` demonstrates the syntax
+  with bilingual READMEs.
+* **Docs.** New realization note `docs/realization/error_handling.md`
+  (and `_zh.md`); new "Error Handling" subsections in the language
+  spec, `USER_GUIDE.md`, and the tutorial — both English and Chinese.
+* **Future work.** Typed-catch dispatch, IR-level `invoke` /
+  `landingpad` integration, postfix `?` short-circuit propagation,
+  and full cross-language reverse-path interception of foreign
+  exceptions are tracked as follow-up demands.
+
+---
+
+## v1.12.0 (2026-05-04)
+
+**Stringified `CONFIG` form and registry-driven package-manager
+dispatch.**  The `.ploy` `CONFIG` declaration now uses a uniform
+`CONFIG <language> "<package_manager>" "<path_or_env>";` syntax that
+covers every supported package manager without the need for a new
+keyword per manager.
+
+* **Canonical stringified form.** Both the package-manager name and
+  the path are now ordinary string literals, e.g.
+  `CONFIG python "venv" "/opt/envs/ml";`,
+  `CONFIG rust "cargo" ".";`,
+  `CONFIG javascript "npm" "./node_modules";`,
+  `CONFIG java "maven" "./pom.xml";`,
+  `CONFIG dotnet "nuget" "./packages";`,
+  `CONFIG ruby "bundler" "./Gemfile";`,
+  `CONFIG go "gomod" "./go.mod";`.
+
+* **Registry.** A new central table at
+  `frontends/ploy/src/sema/config_registry.cpp` owns every accepted
+  `(language, package_manager)` pair.  Adding a new manager is a
+  single-line table edit — the lexer and parser do not need to
+  change.  See
+  [Realization → Package Management → Registering a Custom Package
+  Manager](realization/package_management.md#registering-a-custom-package-manager).
+
+* **Legacy keyword compatibility.** The old keyword form
+  (`CONFIG VENV / CONDA / UV / PIPENV / POETRY`) still parses for
+  source compatibility; sema emits a `kDeprecatedKeyword` warning
+  with a fix-it pointing at the canonical rewrite, and auto-translates
+  the declaration to the new internal representation.
+
+* **Diagnostics.** An unregistered `(language, package_manager)`
+  pair (e.g. `CONFIG python "npm" …`) is now rejected at sema time
+  with a diagnostic naming the offending pair.
+
+* **Samples.** `tests/samples/04_package_import/` ships three new
+  mirror entry files demonstrating the canonical form for the
+  npm / cargo / maven managers; existing samples (`04`, `09`, `16`)
+  have been migrated to the canonical syntax.
+
+* **Tests.** A new `tests/unit/frontends/ploy/config_stringification_test.cpp`
+  unit suite covers the registry, every documented
+  `(language, package_manager)` pair, the legacy deprecation path,
+  unknown-manager rejection, and parser-level malformed inputs.
+
+* **Docs.** `docs/specs/language_spec*.md`, `docs/USER_GUIDE*.md`,
+  and `docs/realization/package_management*.md` have all been
+  updated to lead with the canonical form and document the
+  registration recipe.
+
+## v1.11.0 (2026-05-04)
+
+**Named-parameter default values, EXTEND restriction, and a unified
+`AS`-semantics chapter.**  This release tightens two long-standing
+ambiguities in `.ploy` and adds the matching documentation /
+samples.
+
+* **Default parameter values.** `FUNC` declarations may now give
+  trailing parameters a default expression introduced by `=`.
+  Defaults must be either constant-foldable literal / unary / binary
+  expressions or a pure intra-Ploy `FUNC` call; cross-language
+  `CALL`, closure capture, and reads of other parameters are
+  rejected with a precise diagnostic.  Lowering injects a copy of
+  the default expression at every call site that omits the
+  argument, so the back-end never observes a short call.
+
+* **Named arguments at call sites.** Any argument may be supplied as
+  `name: value`.  Positional arguments may not appear after a named
+  argument; every formal may be supplied at most once; every
+  required (no-default) parameter must be supplied either by
+  position or by name.  Sema reports
+  `"required parameter 'X' of 'F' is not supplied"` otherwise.
+
+* **EXTEND restricted to dynamic hosts.** `EXTEND(<lang>, ...)` is
+  now accepted only on `python`, `ruby`, and `javascript` (with
+  the tag aliases `rb`, `js`, `typescript`, `ts`).  Static-language
+  targets (`cpp`, `c`, `rust`, `java`, `dotnet` / `csharp`, `go` /
+  `golang`) are rejected with a fix-it suggesting a local Ploy
+  `FUNC` wrapper that uses `CALL` / `METHOD` instead.
+
+* **Central `AS`-semantics chapter.** `docs/realization/ploy_language_spec.md`
+  §4.17 (and its Chinese mirror) lists the five binding sites
+  (`IMPORT … AS`, `EXPORT … AS`, `LINK … AS`, language-level
+  `IMPORT … AS`, and `EXTEND … AS`) plus a set of anti-examples
+  spelling out the forbidden / ambiguous shapes.
+
+* **Samples.** New `tests/samples/34_default_args/` (default values
+  + named call sites + pure-call defaults) and
+  `tests/samples/35_extend_dynamic/` (accepted `EXTEND` on Python +
+  rejection-and-migration narrative).  `tests/samples/08_delete_extend/`
+  README gains a "Limitations" section pointing at the new rule.
+
+* **Tests.** New `tests/unit/frontends/ploy/default_args_and_extend_test.cpp`
+  (15 cases covering signature recording, positional / named /
+  mixed call shapes, the parser ordering rule, the const /
+  pure-call default rule, the required-argument coverage check, and
+  the EXTEND rejection set).  The existing
+  `devirtualization_test` "EXTEND on Rust base" case is rewritten
+  to assert the new rejection diagnostic.  Full ploy frontend
+  suite: 371 cases / 2348 assertions.
+
+* **Docs.** `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`,
+  `docs/tutorial/ploy_language_tutorial.md` /
+  `docs/tutorial/ploy_language_tutorial_zh.md` and
+  `docs/realization/ploy_language_spec.md` /
+  `docs/realization/ploy_language_spec_zh.md` updated for the new
+  defaults / named-arg syntax, the EXTEND restriction, and the
+  unified `AS` table.
+
+## v1.10.0 (2026-05-04)
+
+**Pattern matching for `MATCH`.** `.ploy` `MATCH` arms now accept
+the full pattern grammar — wildcard, ranges, tuple / struct
+destructuring, OR-patterns, bindings (`n @ ...`), type guards
+(`x: i32 IF ...`) and `OPTION` constructors (`Some(x)` / `None`) —
+backed by exhaustiveness checking, reachability warnings and a
+two-strategy lowering pass.
+
+* AST: existing `Pattern` hierarchy (`WildcardPattern`,
+  `LiteralPattern`, `IdentifierPattern`, `RangePattern`,
+  `TuplePattern`, `StructPattern`, `OrPattern`, `BindingPattern`,
+  `ConstructorPattern`, `TypePattern`) is now exercised end to end
+  by the parser, sema and lowering passes.
+* Syntax: the arrow between the pattern (or guard) and the arm
+  body is optional; both `->` and `=>` remain accepted.  The bare
+  identifier `None` is parsed as a zero-argument
+  `ConstructorPattern` so that `CASE None` participates in OPTION
+  exhaustiveness.  `Name { ... }` after `CASE` is disambiguated
+  via one-token lookahead so `CASE None { ... }` no longer eats
+  the arm body.
+* Sema: type compatibility, binding scoping, exhaustiveness on
+  `bool` / `OPTION(T)` / arbitrary types, and reachability
+  diagnostics for arms that follow an irrefutable arm or
+  duplicate a previous literal.  Tuple / struct / type-guard
+  patterns now correctly count as irrefutable when their
+  components are irrefutable.
+* Lowering: `LowerMatchStatement` chooses between a dense
+  `ir::SwitchStatement` fast path (all-literal arms with no
+  guards, wildcard allowed) and a structural `match.try.N` →
+  `match.body.N` → `match.merge` cascade for every other shape.
+* Tests: [`tests/unit/frontends/ploy/pattern_matching_test.cpp`](../tests/unit/frontends/ploy/pattern_matching_test.cpp)
+  exercises every pattern shape end to end;
+  [`tests/unit/frontends/ploy/pattern_matching_lowering_test.cpp`](../tests/unit/frontends/ploy/pattern_matching_lowering_test.cpp)
+  locks in the dispatch decision and the basic-block shape.
+* Sample: [`tests/samples/33_pattern_matching/`](../tests/samples/33_pattern_matching/)
+  is a runnable end-to-end demo with a deterministic stdout
+  marker.
+* Docs: new [`docs/realization/pattern_matching.md`](realization/pattern_matching.md)
+  / [`pattern_matching_zh.md`](realization/pattern_matching_zh.md);
+  the MATCH section in the language spec, USER_GUIDE and tutorial
+  is expanded in both languages.  Demand 2026-04-28-10 marked
+  `--end -done`.
+
+---
+
 ## v1.9.0 (2026-04-29)
 
 **Statically-typed cross-language object handles.** `.ploy` programs can

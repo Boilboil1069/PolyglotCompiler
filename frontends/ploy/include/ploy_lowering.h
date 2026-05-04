@@ -98,6 +98,11 @@ private:
   void LowerFuncDecl(const std::shared_ptr<FuncDecl> &func);
   void LowerVarDecl(const std::shared_ptr<VarDecl> &var);
   void LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
+  // IF LET Some(x) = expr { … } ELSE { … }   (since v1.18.0)
+  // Lowered as a conditional branch on the scrutinee's truthiness.  The
+  // bound name is currently a no-op placeholder; full OPTION<T> tag
+  // dispatch lands with the OPTION lowering work track.
+  void LowerIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let);
   void LowerWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt);
   void LowerForStatement(const std::shared_ptr<ForStatement> &for_stmt);
   void LowerMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt);
@@ -105,6 +110,9 @@ private:
   void LowerPrintlnStatement(const std::shared_ptr<PrintlnStmt> &println);
   void LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt);
   void LowerBlockStatements(const std::vector<std::shared_ptr<Statement>> &stmts);
+  // Structured exception handling (since v1.13.0).
+  void LowerTryStatement(const std::shared_ptr<TryStatement> &try_stmt);
+  void LowerThrowStatement(const std::shared_ptr<ThrowStatement> &throw_stmt);
   void LowerStructDecl(const std::shared_ptr<StructDecl> &struct_decl);
   void LowerMapFuncDecl(const std::shared_ptr<MapFuncDecl> &map_func);
   void LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend);
@@ -125,6 +133,10 @@ private:
   EvalResult LowerSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr);
   EvalResult LowerBinaryExpression(const std::shared_ptr<BinaryExpression> &bin);
   EvalResult LowerUnaryExpression(const std::shared_ptr<UnaryExpression> &unary);
+  // AWAIT operand lowering: emits `__ploy_rt_await(operand) -> i8*`
+  // to suspend the current task until the awaited future resolves
+  // (since v1.14.0).
+  EvalResult LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await);
   EvalResult LowerIdentifier(const std::shared_ptr<Identifier> &id);
   EvalResult LowerLiteral(const std::shared_ptr<Literal> &lit);
   EvalResult LowerConvertExpression(const std::shared_ptr<ConvertExpression> &conv);

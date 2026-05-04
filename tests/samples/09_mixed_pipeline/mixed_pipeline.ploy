@@ -15,7 +15,7 @@
 // ============================================================================
 
 // --- Package Manager Configuration ---
-CONFIG VENV python "/usr/local/venvs/ml";
+CONFIG python "venv" "/usr/local/venvs/ml";
 
 // --- Module Imports ---
 IMPORT cpp::image_processor;

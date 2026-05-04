@@ -368,6 +368,45 @@ FUNC add(a: i32, b: i32) -> i32 {
 > - `-> i32` — 返回类型声明
 > - `{ ... }` — 函数体
 
+#### 4.9.1 默认参数值 *（自 1.11.0 起）*
+
+末尾的形参可以通过 `=` 携带**默认表达式**：
+
+```ploy
+FUNC add(x: i32, y: i32 = 0) -> i32 {
+    RETURN x + y;
+}
+```
+
+parser 与 sema 强制以下规则：
+
+* 所有带默认值的参数必须出现在所有无默认值参数**之后**；顺序颠倒
+  是 parse 期错误。
+* 默认表达式必须是常量可折叠的字面量 / 一元 / 二元表达式，**或者**
+  一次纯的 ploy 内部 FUNC 调用（同模块的 FUNC）。跨语言 `CALL`、
+  读取其他形参以及闭包捕获都会被拒绝，错误信息为
+  `"must be a constant expression (literal, unary or binary of
+  literals, or a pure intra-Ploy call)"`。
+* lowering 会在每一个省略对应实参的调用点物化默认表达式的副本，
+  后端永远看不到"短调用"。
+
+#### 4.9.2 调用点的命名参数 *（自 1.11.0 起）*
+
+任何实参都可以通过 `名字: 值` 的语法按**名字**传递：
+
+```ploy
+add(x: 7);          // y 取默认值 0
+add(2, y: 5);       // 位置 + 命名 混合
+add(x: 1, y: 2);    // 全部按名字传
+```
+
+规则：
+
+* 位置实参不可出现在命名实参**之后**。
+* 同一个形参至多被提供一次。
+* 每个必需（无默认值）的形参都必须由位置或名字提供，否则 sema 报告
+  `"required parameter 'X' of 'F' is not supplied"`。
+
 ### 4.10 变量声明
 
 > **LET 和 VAR 分别声明不可变和可变变量。**
@@ -421,21 +460,44 @@ FOR item IN collection {
 
 #### MATCH — 模式匹配
 
+`MATCH` 对单个被检值进行派发；每个 `CASE` 携带一个**模式**与
+可选的 `IF` 守卫。模式与分支体之间的箭头（`->` 或 `=>`）可选，
+标准写法不带箭头。
+
 ```ploy
 MATCH value {
-    CASE 0 => {
-        RETURN "zero";
-    }
-    CASE 1 => {
-        RETURN "one";
-    }
-    DEFAULT => {
-        RETURN "other";
-    }
+    CASE 0 { RETURN "zero"; }
+    CASE 1 { RETURN "one"; }
+    DEFAULT { RETURN "other"; }
 }
 ```
 
-> **说明：** 类似于 C 的 `switch` 或 Rust 的 `match`。每个 `CASE` 后跟 `=>` 和花括号体。`DEFAULT` 分支处理所有未匹配的情况。
+支持的模式形态：
+
+| 模式                | 示例                                 |
+| ------------------- | ------------------------------------ |
+| 字面量              | `CASE 0`、`CASE "hi"`、`CASE TRUE`    |
+| 通配                | `CASE _`                             |
+| 半开范围            | `CASE 1..10`                         |
+| 闭合范围            | `CASE 1..=10`                        |
+| 元组解构            | `CASE (a, b)`、`CASE (_, b)`          |
+| 结构体解构          | `CASE Point { x, y, .. }`            |
+| OR 模式             | `CASE 1 \| 2 \| 3`                   |
+| 绑定                | `CASE n @ 0..=100`                   |
+| 类型守卫            | `CASE x: i32 IF x > 0`               |
+| `OPTION` 构造子     | `CASE Some(x)`、`CASE None`           |
+
+语义规则：
+
+* `MATCH` 不会贯穿，分支执行完毕后立即跳到 `MATCH` 之后的汇合点。
+* 对 `bool` 必须同时覆盖 `TRUE` 与 `FALSE`（或使用 `CASE _` /
+  `DEFAULT`）；对 `OPTION` 必须同时覆盖 `Some(_)` 与 `None`；
+  对其他类型必须包含 `CASE _` 或 `DEFAULT`，除非有不可拒绝分支
+  覆盖了所有取值。
+* 出现在不可拒绝分支或 `DEFAULT` 之后的分支，以及字面量重复的
+  分支，都会被标记为不可达警告。
+* 完整实现说明请见 [`pattern_matching_zh.md`](pattern_matching_zh.md)，
+  其中包括降级策略与诊断列表。
 
 ### 4.12 CALL 表达式
 
@@ -532,6 +594,80 @@ LET in_dim: i32 = GET(python, model, in_features);
 
 若 `NEW`/`METHOD`/`GET`/`SET` 的目标**没有**已注册模式，则回退到
 1.8.x 的动态 `Any` 类型路径，保留对现有样例的向后兼容。
+
+### 4.16 EXTEND 的使用限制 *（自 1.11.0 起）*
+
+`EXTEND(<lang>, <class_path>) AS <Name> { ... }` 在加载时通过修补宿
+主运行时的方法派发表来安装一个覆写。由于外部对象**不会**进入
+ploy 的静态类型系统，这种 monkey-patch 模型只在宿主语言本身允许
+临时方法替换的前提下才是健全的。因此 sema 把 language 参数限制在
+**动态宿主**集合：
+
+| 接受的宿主语言 | 同时接受的标签别名         |
+| -------------- | -------------------------- |
+| `python`       | —                          |
+| `ruby`         | `rb`                       |
+| `javascript`   | `js`、`typescript`、`ts`   |
+
+其他已注册语言 —— `cpp`、`c`、`rust`、`java`、`dotnet` / `csharp`、
+`go` / `golang` —— 都会被**拒绝**，诊断信息为：
+
+```
+EXTEND is not allowed on statically-typed language '<lang>'
+  — its type system cannot accept an out-of-source subclass without
+    breaking soundness
+suggestion: wrap the foreign API in a local Ploy FUNC and use
+            CALL / METHOD instead, or move the EXTEND target to a
+            dynamic host (python / ruby / javascript)
+```
+
+推荐的替代写法是用一个本地 ploy `FUNC` 通过 `CALL` / `METHOD` 委托
+给外部 API，这样扩展点保留在 ploy 的类型系统内，也不需要修改外部
+模块。完整迁移示例参见
+[`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)。
+
+### 4.17 `AS` 关键字的统一用法 *（自 1.11.0 起）*
+
+同一个 `AS` 关键字在五个不同的绑定位置被复用。本节集中列出全部
+五种用法，便于作者和工具一眼区分。
+
+| # | 形式                                                             | `AS` 的角色                                       | 示例 |
+|---|------------------------------------------------------------------|---------------------------------------------------|------|
+| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                       | 导入包的本地**别名**。                            | `IMPORT python PACKAGE numpy AS np;` |
+| 2 | `EXPORT <symbol> AS <"external_name">;`                          | ploy 符号被对外暴露时使用的**外部名**。           | `EXPORT f AS "fn";` |
+| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`          | 引出外部符号**已声明签名**的分隔符。              | `LINK cpp::math::add AS FUNC(i32, i32) -> i32;` |
+| 4 | `IMPORT <lang> AS <alias>;` / `PACKAGE` 形式的别名               | 与 (1) 同，只是作用在**语言**层级。               | `IMPORT cpp AS C;` |
+| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                   | 被修补类的本地**句柄名**。                        | `EXTEND(python, base::Component) AS HealthComponent { ... }` |
+
+> 虽然 `CONVERT(value, T)` 直觉上读作"把这个值当作 T 来转"，但
+> 表面语法用的是逗号而不是 `AS`；并不存在 `CONVERT value AS T`
+> 这种写法。这是唯一一处值得专门指出的"缺席的 AS 绑定"。
+
+#### 反例（被禁 / 歧义）
+
+下列写法**不被**接受，会触发 parser 或 sema 错误：
+
+```ploy
+// (a) 把 AS 当作绑定位置之外的二元运算符：
+LET y = 3 AS i64;                 // 拒绝 —— 请用 CONVERT(3, i64)
+
+// (b) 用 AS 给 CALL 结果起别名：
+LET v = CALL(python, work) AS Handle;   // 拒绝 —— 先绑定到变量，
+                                        //    再显式 CONVERT
+
+// (c) 在一条 LINK 里出现两次 AS 绑定：
+LINK cpp::f AS FUNC(i32) -> i32 AS g;   // 拒绝 —— 每条 LINK 只允许
+                                        //    一个尾随 AS 块（签名）
+
+// (d) IMPORT 后的 AS 没有标识符：
+IMPORT python PACKAGE numpy AS;         // 拒绝 —— 缺别名
+
+// (e) EXTEND 没有函数体：
+EXTEND(python, m::C) AS Sub;            // 拒绝 —— 必须给 { ... } 体
+```
+
+需要"as-cast"语义时请使用 `CONVERT`；需要给值改名时请使用
+`LET` + `CONVERT` 的组合。
 
 ## 5. 类型系统
 

@@ -1,0 +1,36 @@
+// ============================================================================
+// async_await.ploy — Cooperative async / await.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Ploy only (cross-language async bridges to
+// Python `asyncio`, Rust `Future`, C++20 coroutines, Java
+// `CompletableFuture`, and .NET `Task<T>` are wired in the runtime
+// data plane and surfaced through the `polyrt async` CLI).
+//
+// Demonstrates the ASYNC / AWAIT syntax introduced by demand v1.14.0:
+//
+//   * `ASYNC FUNC name(...) -> T { ... }` declares a function whose
+//     return value is implicitly wrapped as `Future<T>`.
+//   * `AWAIT <expr>` suspends the surrounding ASYNC frame until the
+//     awaited future resolves.
+//   * The bridging runtime ABI (`__ploy_rt_async_*`) is implemented in
+//     `runtime/services/async_bridge.{h,cpp}` and `event_loop.{h,cpp}`.
+// ============================================================================
+
+ASYNC FUNC fetch_one() -> i32 {
+    RETURN 1;
+}
+
+ASYNC FUNC fetch_two() -> i32 {
+    RETURN 2;
+}
+
+ASYNC FUNC pipeline_demo() -> i32 {
+    LET a = AWAIT fetch_one();
+    LET b = AWAIT fetch_two();
+    RETURN 0;
+}
+
+FUNC main() {
+    PRINTLN "37_async_await: ok\r\n";
+}

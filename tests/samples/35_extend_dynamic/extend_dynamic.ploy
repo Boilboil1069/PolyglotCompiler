@@ -1,0 +1,32 @@
+// ============================================================================
+// extend_dynamic.ploy — Dynamic-language EXTEND.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Ploy + Python (any Python interpreter is accepted —
+// the EXTEND target is registered in the foreign monkey-patch table at
+// runtime; no static type assertion is added to the Ploy type system).
+//
+// Demonstrates the "EXTEND is restricted to dynamic host languages"
+// rule introduced by demand 2026-04-28-11:
+//
+//   * EXTEND on python / ruby / javascript continues to be accepted —
+//     the foreign class gets a host-language monkey-patch installed at
+//     load time.
+//   * EXTEND on cpp / rust / java / dotnet / csharp / go is rejected by
+//     sema with a fix-it that suggests wrapping the foreign API in a
+//     local Ploy FUNC instead.  See companion sample
+//     `35_extend_dynamic/README.md` for the failing example.
+// ============================================================================
+
+IMPORT python PACKAGE torch;
+
+EXTEND(python, torch::nn::Module) AS LinearReLU {
+    FUNC forward(x: f64) -> f64 {
+        // The override body runs in the Python host; here we just return
+        // the scrutinee verbatim so the sample exercises the bridge
+        // generation rather than the full forward-pass mathematics.
+        RETURN x;
+    }
+}
+
+PRINTLN "35_extend_dynamic: ok\r\n";

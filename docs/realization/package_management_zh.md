@@ -134,11 +134,15 @@ IMPORT python PACKAGE torch >= 2.0 AS pt;
 
 配置用于包解析和发现的特定虚拟环境。
 
-**语法：**
+**语法（规范形式，自 v1.12.0 起）：**
 
 ```ploy
-CONFIG VENV [<语言>] "<虚拟环境路径>";
+CONFIG <语言> "<包管理器>" "<路径或环境名>";
 ```
+
+旧的关键字形式 `CONFIG VENV [<语言>] "<路径>";`（以及 `CONDA` /
+`UV` / `PIPENV` / `POETRY`）仍然能被解析以保持源码兼容，但 sema
+阶段会发出弃用警告。
 
 **示例：**
 
@@ -217,3 +221,35 @@ EXPORT data_analysis AS "data_analysis_pipeline";
 1. 在链接时验证包兼容性
 2. 仅为选择的符号生成目标绑定代码
 3. 为运行时执行配置正确的虚拟环境
+
+## 注册自定义包管理器
+
+`CONFIG` 接受的所有 `(语言, 包管理器)` 组合都集中维护在
+[`frontends/ploy/src/sema/config_registry.cpp`](../../frontends/ploy/src/sema/config_registry.cpp)
+中的一张静态注册表里。新增包管理器（例如 Python 的 `pdm`、
+JavaScript 的 `pnpm`）只需修改一行表项，无需触动词法或语法分析器。
+
+**步骤：**
+
+1. 在 [`frontends/ploy/include/ploy_ast.h`](../../frontends/ploy/include/ploy_ast.h)
+   的 `VenvConfigDecl::ManagerKind` 枚举中追加新成员（例如 `kPdm`）。
+2. 在 `config_registry.cpp` 的 `ConfigManagerKindName()` 中映射新枚举
+   到其规范的小写名字。
+3. 在 `Table()` 静态向量末尾追加一行：
+
+   ```cpp
+   {VenvConfigDecl::ManagerKind::kPdm, "python", "pdm"},
+   ```
+
+4.（可选）如果新包管理器需要自定义的发现命令，可在
+   `frontends/ploy/src/sema/sema.cpp` 的 `Discover…Packages` 分发逻辑
+   里增加对应分支；否则会回落到该语言的默认发现路径。
+
+完成上述改动后，源码可立即使用新的规范形式：
+
+```ploy
+CONFIG python "pdm" "./pyproject.toml";
+```
+
+由于解析器对包管理器名和路径都按字符串字面量处理，整个流程无需任何
+语法变更。

@@ -141,11 +141,15 @@ imports against the discovered packages.
 
 Configure a specific virtual environment to use for package resolution and discovery.
 
-**Syntax:**
+**Syntax (canonical, since v1.12.0):**
 
 ```ploy
-CONFIG VENV [<language>] "<path/to/venv>";
+CONFIG <language> "<package_manager>" "<path_or_env>";
 ```
+
+The legacy keyword form `CONFIG VENV [<language>] "<path>";` (and
+`CONDA` / `UV` / `PIPENV` / `POETRY`) is still parsed for source
+compatibility but emits a deprecation warning at sema time.
 
 **Examples:**
 
@@ -225,3 +229,41 @@ This metadata is consumed by the polyglot linker to:
 1. Verify package compatibility at link time
 2. Generate targeted binding code for only the selected symbols
 3. Configure the correct virtual environment for runtime execution
+
+## Registering a Custom Package Manager
+
+The set of accepted `(language, package_manager)` pairs accepted by
+`CONFIG` is owned by a single registry table in
+[`frontends/ploy/src/sema/config_registry.cpp`](../../frontends/ploy/src/sema/config_registry.cpp).
+Adding a brand-new manager (for example `pdm` for Python or `pnpm` for
+JavaScript) is a single-line table edit — no lexer or parser change
+required.
+
+**Recipe:**
+
+1. Add a new enumerator to `VenvConfigDecl::ManagerKind` in
+   [`frontends/ploy/include/ploy_ast.h`](../../frontends/ploy/include/ploy_ast.h)
+   (e.g. `kPdm`).
+2. Map the enumerator to its canonical lower-case manager name in
+   `ConfigManagerKindName()` inside `config_registry.cpp`.
+3. Append a row to the static `Table()` vector in `config_registry.cpp`:
+
+   ```cpp
+   {VenvConfigDecl::ManagerKind::kPdm, "python", "pdm"},
+   ```
+
+4. (Optional) If the package manager needs a custom discovery command,
+   extend the per-language `Discover…Packages` dispatch in
+   `frontends/ploy/src/sema/sema.cpp` to handle the new
+   `ManagerKind`.  Existing handlers fall back to the per-language
+   default when the manager is unknown to them.
+
+After the table edit a source file may use the canonical form
+immediately:
+
+```ploy
+CONFIG python "pdm" "./pyproject.toml";
+```
+
+No grammar change is required because the parser treats both the
+manager name and the path as ordinary string literals.

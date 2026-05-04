@@ -29,6 +29,9 @@ add_library(runtime
     src/libs/ruby_rt.c
     src/memory/polyglot_alloc.cpp
     src/services/exception.cpp
+    src/services/error_bridge.cpp
+    src/services/async_bridge.cpp
+    src/services/event_loop.cpp
     src/services/reflection.cpp
     src/services/threading.cpp
     src/services/call_trace.cpp

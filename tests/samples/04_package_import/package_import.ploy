@@ -13,7 +13,7 @@
 // ============================================================================
 
 // --- Package Manager Configuration ---
-CONFIG VENV python "/usr/local/venvs/science";
+CONFIG python "venv" "/usr/local/venvs/science";
 
 // --- Module Imports ---
 IMPORT cpp::numeric_ops;

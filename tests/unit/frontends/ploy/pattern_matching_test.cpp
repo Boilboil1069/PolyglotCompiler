@@ -60,7 +60,7 @@ TEST_CASE("MATCH wildcard pattern is irrefutable",
           "[ploy][sema][pattern_matching]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 5
+    VAR x: i32 = 5;
     MATCH x {
         CASE 0 -> { }
         CASE _ -> { }
@@ -80,7 +80,7 @@ TEST_CASE("MATCH range patterns accept numeric scrutinee",
           "[ploy][sema][pattern_matching]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 7
+    VAR x: i32 = 7;
     MATCH x {
         CASE 0..10 -> { }
         CASE 10..=20 -> { }
@@ -101,7 +101,7 @@ TEST_CASE("MATCH OR pattern accepts multiple literal alternatives",
           "[ploy][sema][pattern_matching]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 2
+    VAR x: i32 = 2;
     MATCH x {
         CASE 1 | 2 | 3 -> { }
         CASE _ -> { }
@@ -121,9 +121,9 @@ TEST_CASE("MATCH binding pattern introduces a bound name",
           "[ploy][sema][pattern_matching]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 42
+    VAR x: i32 = 42;
     MATCH x {
-        CASE n @ 0..=100 -> { VAR y: i32 = n }
+        CASE n @ 0..=100 -> { VAR y: i32 = n; }
         CASE _ -> { }
     }
 }
@@ -141,7 +141,7 @@ TEST_CASE("MATCH type guard with IF refinement type-checks",
           "[ploy][sema][pattern_matching]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 5
+    VAR x: i32 = 5;
     MATCH x {
         CASE n: i32 IF n > 0 -> { }
         CASE _ -> { }
@@ -161,7 +161,7 @@ TEST_CASE("Non-exhaustive boolean MATCH reports an error",
           "[ploy][sema][pattern_matching][exhaustiveness]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR flag: bool = TRUE
+    VAR flag: bool = TRUE;
     MATCH flag {
         CASE TRUE -> { }
     }
@@ -175,7 +175,7 @@ TEST_CASE("Exhaustive boolean MATCH succeeds when both arms present",
           "[ploy][sema][pattern_matching][exhaustiveness]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR flag: bool = TRUE
+    VAR flag: bool = TRUE;
     MATCH flag {
         CASE TRUE -> { }
         CASE FALSE -> { }
@@ -195,7 +195,7 @@ TEST_CASE("Duplicate literal arm emits unreachable warning",
           "[ploy][sema][pattern_matching][unreachable]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 1
+    VAR x: i32 = 1;
     MATCH x {
         CASE 1 -> { }
         CASE 1 -> { }
@@ -218,7 +218,7 @@ TEST_CASE("Arms following wildcard are flagged unreachable",
           "[ploy][sema][pattern_matching][unreachable]") {
   auto r = AnalyzeSource(R"PLOY(
 PIPELINE main {
-    VAR x: i32 = 1
+    VAR x: i32 = 1;
     MATCH x {
         CASE _ -> { }
         CASE 5 -> { }

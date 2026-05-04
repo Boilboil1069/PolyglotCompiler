@@ -48,7 +48,7 @@ strict gating mode.
 | `13_generic_containers/` | C++, Java, Python | Type mapping | Generic container interop (vector / ArrayList / list). |
 | `14_async_pipeline/` | C++, Rust, Python | Full pipeline | Multi-stage signal processing pipeline. |
 | `15_full_stack/` | C++, Python, Rust, Java, C# | Full pipeline | Five-language full-stack analytics demo. |
-| `16_config_and_venv/` | Python, C# | Package import | CONFIG VENV + IMPORT PACKAGE + CONVERT. |
+| `16_config_and_venv/` | Python, C# | Package import | Stringified CONFIG (since v1.12.0) + IMPORT PACKAGE + CONVERT. |
 | `17_string_processing/` | Python, Rust | String processing pipeline | Tokenize + case-fold across Rust and Python. |
 | `18_numeric_kernels/` | C++, Rust | Numeric kernels (BLAS-style) | AXPY + dot/mean reductions. |
 | `19_file_io/` | Python, C++ | Streaming file I/O | Binary chunk reader + UTF-8 decoder. |
@@ -65,6 +65,15 @@ strict gating mode.
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
 | `31_explicit_widths/` | Ploy, C++ | Width-aware numeric types + CONST | Demonstrates `i32` / `u32` / `i64`, `TYPE` aliases and folded `CONST`. |
 | `32_typed_handles/` | Ploy, Python, C++ | Statically-typed cross-language handles | `CLASS` schemas + `HANDLE<lang::T>` for type-checked `NEW` / `METHOD` / `GET` / `SET`. |
+| `33_pattern_matching/` | Ploy | Pattern matching dispatch | Literals, ranges, OR-patterns, bindings, type guards, tuple / struct destructuring and `OPTION` constructors in a single MATCH. |
+| `34_default_args/` | Ploy | Named-parameter default values | Trailing parameters with constant defaults; positional / named / mixed call sites; pure-call defaults. |
+| `35_extend_dynamic/` | Ploy, Python | EXTEND restricted to dynamic hosts | EXTEND is accepted on python / ruby / javascript only; static-language targets get a sema fix-it. |
+| `36_try_catch/` | Ploy | Structured exception handling | TRY / CATCH / FINALLY / THROW with the built-in `Error` handle and the cross-language runtime bridge. |
+| `37_async_await/` | Ploy | Cooperative async / await | `ASYNC FUNC` + `AWAIT` driving the cooperative event loop in `runtime/services/async_bridge.cpp`. |
+| `38_generics/` | Ploy | Generic FUNC / STRUCT | Type parameters with bounds + WHERE clause; type-erased MVP lowering. |
+| `39_visibility_attrs/` | Ploy | PUB / PRIVATE + `@name` attributes | Module-boundary visibility, EXPORT-requires-PUB rule, built-in attribute catalog (`@inline`, `@hot`, `@deprecated`, ...). |
+| `40_string_literals/` | Ploy | Raw / multiline / template string literals | `r"..."`, `r#"..."#`, `"""..."""`, and `f"..."` interpolation; sema validates formattable types. |
+| `41_grammar_polish/` | Ploy | Optional parens on IF/WHILE/FOR, `IF LET Some(x)`, `///` doc comments | v1.18.0 P3 polish bundle; `polydoc` extracts doc blocks to Markdown/JSON. |
 
 ## By theme
 
@@ -91,6 +100,15 @@ strict gating mode.
 - **Type mapping** — `02_type_mapping`, `13_generic_containers`
 - **Width-aware numeric types + CONST** — `31_explicit_widths`
 - **Statically-typed cross-language handles** — `32_typed_handles`
+- **Pattern matching dispatch** — `33_pattern_matching`
+- **Named-parameter default values** — `34_default_args`
+- **EXTEND restricted to dynamic hosts** — `35_extend_dynamic`
+- **Structured exception handling** — `36_try_catch`
+- **Cooperative async / await** — `37_async_await`
+- **Generic FUNC / STRUCT** — `38_generics`
+- **Visibility (PUB / PRIVATE) and attributes (@name)** — `39_visibility_attrs`
+- **Extended string literals (raw / multiline / template)** — `40_string_literals`
+- **Grammar polish (optional parens, IF LET, /// docs)** — `41_grammar_polish`
 
 ## By language combination
 
@@ -107,6 +125,8 @@ strict gating mode.
 - **Python, Rust** — `17_string_processing`, `28_ml_inference`
 - **Ploy, C++** — `31_explicit_widths`
 - **Ploy, Python, C++** — `32_typed_handles`
+- **Ploy** — `33_pattern_matching`, `34_default_args`, `36_try_catch`, `37_async_await`, `38_generics`, `39_visibility_attrs`, `40_string_literals`, `41_grammar_polish`
+- **Ploy, Python** — `35_extend_dynamic`
 
 ## Build a single sample
 

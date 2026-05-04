@@ -1,0 +1,35 @@
+// Sample 39: PUB / PRIVATE visibility and `@name(args)` attributes
+// (since v1.16.0).
+//
+// Demonstrates the visibility / attribute prefix on FUNC and STRUCT
+// declarations, the EXPORT-requires-PUB rule, and the built-in attribute
+// catalog (@inline, @hot, @deprecated, @link_name).  The sample is
+// runtime-trivial; it exercises sema acceptance.
+
+PUB STRUCT Point {
+    x: i32,
+    y: i32
+}
+
+PRIVATE FUNC inner_helper() -> i32 {
+    RETURN 7;
+}
+
+@inline @hot PUB FUNC fast_path(a: i32, b: i32) -> i32 {
+    RETURN a + b;
+}
+
+@deprecated("use fast_path") PUB FUNC slow_path(a: i32, b: i32) -> i32 {
+    RETURN a + b;
+}
+
+@link_name("ploy_run") PUB FUNC run() -> i32 {
+    RETURN fast_path(inner_helper(), 1);
+}
+
+EXPORT run AS "ploy_run";
+
+FUNC main() {
+    LET _r = run();
+    PRINTLN "39_visibility_attrs: ok\r\n";
+}

@@ -1,12 +1,13 @@
 # Sample `04_package_import`
 
-IMPORT PACKAGE with semver constraints and CONFIG VENV pinning a Python virtualenv.
+IMPORT PACKAGE with semver constraints and a stringified `CONFIG <lang> "<package_manager>" "<path>";` declaration pinning a Python virtualenv.
 
 | Field | Value |
 | --- | --- |
-| Languages | C++, Python |
-| Keywords  | IMPORT PACKAGE, CONFIG VENV |
+| Languages | C++, Python (mirrors: JavaScript, Rust, Java) |
+| Keywords  | IMPORT PACKAGE, CONFIG (stringified, since v1.12.0) |
 | Entry     | `package_import.ploy` |
+| Mirrors   | `package_import_npm.ploy`, `package_import_cargo.ploy`, `package_import_maven.ploy` |
 
 ## Build
 

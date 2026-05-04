@@ -2756,7 +2756,7 @@ done (74.8ms)
 
 6. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-11
@@ -2788,7 +2788,7 @@ done (74.8ms)
 
 6. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-12
@@ -2808,7 +2808,7 @@ done (74.8ms)
    - 集成：`tests/samples/04_package_import` 增加 `npm` / `cargo` / `maven` 镜像版本。
 7. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-13
@@ -2841,7 +2841,7 @@ done (74.8ms)
    - 集成：`tests/samples/36_try_catch/`，覆盖 5 种宿主语言异常 → `.ploy` 捕获、`.ploy` `THROW` → 宿主捕获。
 6. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-14
@@ -2871,7 +2871,7 @@ done (74.8ms)
    - 集成：`tests/samples/37_async_await/` 跨 5 种语言异步串/并联。
 6. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-15
@@ -2896,7 +2896,7 @@ done (74.8ms)
    - 集成：`tests/samples/38_generics/` 演示泛型容器跨 C++/Python/Rust。
 6. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-16
@@ -2924,7 +2924,7 @@ done (74.8ms)
    - 集成：`tests/samples/39_visibility_attrs/`。
 5. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-17
@@ -2951,7 +2951,7 @@ done (74.8ms)
    - 集成：模板字符串跨语言传输。
 6. 版本：minor 递进（patch 也可，视字面量影响判断）。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-18

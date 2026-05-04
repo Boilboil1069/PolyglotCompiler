@@ -44,7 +44,7 @@
 | `13_generic_containers/` | C++, Java, Python | Type mapping | Generic container interop (vector / ArrayList / list). |
 | `14_async_pipeline/` | C++, Rust, Python | Full pipeline | Multi-stage signal processing pipeline. |
 | `15_full_stack/` | C++, Python, Rust, Java, C# | Full pipeline | Five-language full-stack analytics demo. |
-| `16_config_and_venv/` | Python, C# | Package import | CONFIG VENV + IMPORT PACKAGE + CONVERT. |
+| `16_config_and_venv/` | Python, C# | Package import | 字符串化 CONFIG（v1.12.0 起） + IMPORT PACKAGE + CONVERT。 |
 | `17_string_processing/` | Python, Rust | String processing pipeline | Tokenize + case-fold across Rust and Python. |
 | `18_numeric_kernels/` | C++, Rust | Numeric kernels (BLAS-style) | AXPY + dot/mean reductions. |
 | `19_file_io/` | Python, C++ | Streaming file I/O | Binary chunk reader + UTF-8 decoder. |
@@ -61,6 +61,15 @@
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
 | `31_explicit_widths/` | Ploy, C++ | 显式宽度数值类型 + CONST | 演示 `i32` / `u32` / `i64`、`TYPE` 别名与折叠后的 `CONST`。 |
 | `32_typed_handles/` | Ploy, Python, C++ | 静态类型化的跨语言句柄 | `CLASS` 模式 + `HANDLE<lang::T>`，对 `NEW` / `METHOD` / `GET` / `SET` 进行编译期类型检查。 |
+| `33_pattern_matching/` | Ploy | 模式匹配派发 | 在同一个 MATCH 中演示字面量、范围、OR 模式、绑定、类型守卫、元组 / 结构体解构以及 `OPTION` 构造子。 |
+| `34_default_args/` | Ploy | 命名参数与默认值 | 带常量默认值的尾部参数；位置 / 命名 / 混合调用点；以及以纯调用作为默认值。 |
+| `35_extend_dynamic/` | Ploy, Python | EXTEND 仅限动态宿主 | EXTEND 只在 python / ruby / javascript 上被接受；静态语言目标会得到 sema 给出的修正提示。 |
+| `36_try_catch/` | Ploy | 结构化异常处理 | TRY / CATCH / FINALLY / THROW 以及内建 `Error` 句柄与跨语言运行时桥。 |
+| `37_async_await/` | Ploy | 协作式异步 / await | `ASYNC FUNC` + `AWAIT` 驱动 `runtime/services/async_bridge.cpp` 中的协作事件循环。 |
+| `38_generics/` | Ploy | 泛型 FUNC / STRUCT | 带 bound 的类型参数与 WHERE 子句；类型擦除的 MVP 下沉。 |
+| `39_visibility_attrs/` | Ploy | PUB / PRIVATE 与 `@name` 注解 | 模块边界可见性、EXPORT 要求 PUB 规则、内建属性目录（`@inline`、`@hot`、`@deprecated` 等）。 |
+| `40_string_literals/` | Ploy | 原始 / 多行 / 模板字符串字面量 | `r"..."`、`r#"..."#`、`"""..."""` 与 `f"..."` 插值；sema 校验可格式化类型。 |
+| `41_grammar_polish/` | Ploy | IF/WHILE/FOR 可选括号、`IF LET Some(x)`、`///` 文档注释 | v1.18.0 P3 收尾包；`polydoc` 抽取文档块为 Markdown/JSON。 |
 
 ## 按主题分组
 
@@ -87,6 +96,15 @@
 - **Type mapping**：`02_type_mapping`、`13_generic_containers`
 - **显式宽度数值类型 + CONST**：`31_explicit_widths`
 - **静态类型化的跨语言句柄**：`32_typed_handles`
+- **模式匹配派发**：`33_pattern_matching`
+- **命名参数与默认值**：`34_default_args`
+- **EXTEND 仅限动态宿主**：`35_extend_dynamic`
+- **结构化异常处理**：`36_try_catch`
+- **协作式异步 / await**：`37_async_await`
+- **泛型 FUNC / STRUCT**：`38_generics`
+- **可见性 PUB / PRIVATE 与属性 @name**：`39_visibility_attrs`
+- **扩展字符串字面量（原始 / 多行 / 模板）**：`40_string_literals`
+- **语法收尾（可选括号、IF LET、`///` 文档注释）**：`41_grammar_polish`
 
 ## 按语言组合分组
 
@@ -103,6 +121,8 @@
 - **Python, Rust**：`17_string_processing`、`28_ml_inference`
 - **Ploy, C++**：`31_explicit_widths`
 - **Ploy, Python, C++**：`32_typed_handles`
+- **Ploy**：`33_pattern_matching`、`34_default_args`、`36_try_catch`、`37_async_await`、`38_generics`、`39_visibility_attrs`、`40_string_literals`、`41_grammar_polish`
+- **Ploy, Python**：`35_extend_dynamic`
 
 ## 构建单个样例
 

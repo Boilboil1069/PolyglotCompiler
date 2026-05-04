@@ -300,6 +300,50 @@ FUNC greet(name: STRING) -> void {
 }
 ```
 
+#### 4.9.1 Default Parameter Values *(since 1.11.0)*
+
+A trailing parameter may carry a **default expression** introduced by
+`=`:
+
+```ploy
+FUNC add(x: i32, y: i32 = 0) -> i32 {
+    RETURN x + y;
+}
+```
+
+Rules enforced by the parser and by sema:
+
+* All defaulted parameters must come **after** every non-defaulted
+  parameter; mixing is a parse-time error.
+* The default expression must be either a constant-foldable literal /
+  unary / binary expression **or** a pure intra-Ploy call (a call to
+  another `FUNC` defined in the same module).  Cross-language `CALL`,
+  reads of other parameters, and closure captures are rejected with
+  `"must be a constant expression (literal, unary or binary of
+  literals, or a pure intra-Ploy call)"`.
+* Lowering injects a copy of the default expression at every call site
+  that omits the corresponding argument, so the back-end never sees a
+  short call.
+
+#### 4.9.2 Named Arguments at Call Sites *(since 1.11.0)*
+
+Any argument may be supplied by **name** using the `name: value`
+syntax:
+
+```ploy
+add(x: 7);          // y defaults to 0
+add(2, y: 5);       // mixed positional + named
+add(x: 1, y: 2);    // all named
+```
+
+Rules:
+
+* A positional argument may not appear **after** a named argument.
+* Each formal parameter may be supplied at most once.
+* Every required (no-default) parameter must be supplied either by
+  position or by name; otherwise sema reports
+  `"required parameter 'X' of 'F' is not supplied"`.
+
 ### 4.10 Variable Declarations
 
 ```ploy
@@ -341,19 +385,48 @@ FOR item IN collection {
 
 #### MATCH
 
+The `MATCH` statement dispatches on a single scrutinee, with each
+`CASE` carrying a *pattern* and an optional `IF` guard.  The arrow
+between the pattern and the body (`->` or `=>`) is optional; the
+canonical form omits it.
+
 ```ploy
 MATCH value {
-    CASE 0 => {
-        RETURN "zero";
-    }
-    CASE 1 => {
-        RETURN "one";
-    }
-    DEFAULT => {
-        RETURN "other";
-    }
+    CASE 0 { RETURN "zero"; }
+    CASE 1 { RETURN "one"; }
+    DEFAULT { RETURN "other"; }
 }
 ```
+
+Supported pattern forms:
+
+| Pattern                  | Example                            |
+| ------------------------ | ---------------------------------- |
+| Literal                  | `CASE 0`, `CASE "hi"`, `CASE TRUE` |
+| Wildcard                 | `CASE _`                           |
+| Half-open range          | `CASE 1..10`                       |
+| Inclusive range          | `CASE 1..=10`                      |
+| Tuple destructuring      | `CASE (a, b)`, `CASE (_, b)`       |
+| Struct destructuring     | `CASE Point { x, y, .. }`          |
+| OR-pattern               | `CASE 1 \| 2 \| 3`                 |
+| Binding                  | `CASE n @ 0..=100`                 |
+| Type guard               | `CASE x: i32 IF x > 0`             |
+| `OPTION` constructor     | `CASE Some(x)`, `CASE None`        |
+
+Semantic rules:
+
+* The `MATCH` does not fall through; each arm exits to the join
+  point that follows it.
+* `MATCH` on `bool` requires both `TRUE` and `FALSE` arms (or
+  `CASE _` / `DEFAULT`); `MATCH` on `OPTION` requires both
+  `Some(_)` and `None` arms; any other type requires `CASE _` or
+  `DEFAULT` unless an irrefutable arm covers everything.
+* Arms that follow an irrefutable arm or `DEFAULT`, and arms whose
+  literal value duplicates an earlier arm, are flagged as
+  unreachable warnings.
+* See [`pattern_matching.md`](pattern_matching.md) for the full
+  realization document, including the lowering strategy and the
+  diagnostic catalogue.
 
 ### 4.12 CALL Expression
 
@@ -443,6 +516,90 @@ LET in_dim: i32 = GET(python, model, in_features);
 A `NEW`/`METHOD`/`GET`/`SET` whose target has **no** registered schema
 falls back to the dynamic `Any`-typed path (1.8.x semantics), preserving
 backward compatibility with existing samples.
+
+### 4.16 EXTEND Restriction *(since 1.11.0)*
+
+`EXTEND(<lang>, <class_path>) AS <Name> { ... }` installs an
+override on a foreign class **at load time** by patching the host
+runtime's method dispatch table.  Because the foreign object never
+enters the Ploy static type system, this monkey-patch model is only
+sound when the host language itself accepts ad-hoc method
+replacement.  Sema therefore restricts the language argument to the
+**dynamic host** set:
+
+| Accepted host languages | Tag aliases also accepted |
+| ----------------------- | ------------------------- |
+| `python`                | —                         |
+| `ruby`                  | `rb`                      |
+| `javascript`            | `js`, `typescript`, `ts`  |
+
+Every other registered language — `cpp`, `c`, `rust`, `java`,
+`dotnet` / `csharp`, `go` / `golang` — is **rejected** with the
+diagnostic:
+
+```
+EXTEND is not allowed on statically-typed language '<lang>'
+  — its type system cannot accept an out-of-source subclass without
+    breaking soundness
+suggestion: wrap the foreign API in a local Ploy FUNC and use
+            CALL / METHOD instead, or move the EXTEND target to a
+            dynamic host (python / ruby / javascript)
+```
+
+The recommended replacement pattern is a local Ploy `FUNC` that
+delegates to the foreign API via `CALL` / `METHOD`; this keeps the
+extension point inside Ploy's type system and avoids any change to
+the foreign module.  See sample
+[`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)
+for the migration example.
+
+### 4.17 Unified Usages of the `AS` Keyword *(since 1.11.0)*
+
+The single keyword `AS` is reused across five different binding
+sites.  This section centralises all five so authors and tooling can
+disambiguate them at a glance.
+
+| # | Form                                                          | Role of `AS`                                        | Example |
+|---|---------------------------------------------------------------|-----------------------------------------------------|---------|
+| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                    | Local **alias** for an imported package.            | `IMPORT python PACKAGE numpy AS np;` |
+| 2 | `EXPORT <symbol> AS <"external_name">;`                       | The **external name** under which a Ploy symbol is exposed. | `EXPORT f AS "fn";` |
+| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`       | Separator that introduces the **declared signature** of a foreign symbol. | `LINK cpp::math::add AS FUNC(i32, i32) -> i32;` |
+| 4 | `IMPORT <lang> AS <alias>;` / `PACKAGE`-form alias            | Same as (1), but at the **language** level.         | `IMPORT cpp AS C;` |
+| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                | Local **handle name** for the patched class.        | `EXTEND(python, base::Component) AS HealthComponent { ... }` |
+
+> Although `CONVERT(value, T)` reads naturally as "convert this value
+> as type T", the surface syntax uses a comma rather than `AS`; a
+> hypothetical `CONVERT value AS T` form is **not** part of the
+> grammar.  This is the only "missing" AS-binding worth calling out
+> explicitly.
+
+#### Anti-examples (forbidden / ambiguous)
+
+The following shapes are **not** accepted and trigger parser or sema
+errors:
+
+```ploy
+// (a) AS used as a binary operator outside a binding site:
+LET y = 3 AS i64;                 // rejected — use CONVERT(3, i64)
+
+// (b) AS introducing an alias for a CALL result:
+LET v = CALL(python, work) AS Handle;   // rejected — bind first,
+                                        //    then CONVERT explicitly
+
+// (c) Two consecutive AS bindings on a single LINK:
+LINK cpp::f AS FUNC(i32) -> i32 AS g;   // rejected — every LINK has
+                                        //    exactly one trailing AS
+                                        //    block (the signature)
+
+// (d) AS in IMPORT without an identifier:
+IMPORT python PACKAGE numpy AS;         // rejected — alias missing
+
+// (e) AS in EXTEND with no body:
+EXTEND(python, m::C) AS Sub;            // rejected — block required
+```
+
+Authors who need an "as-cast" should reach for `CONVERT`; authors who
+need to rename a value should use a `LET` + `CONVERT` pair.
 
 ## 5. Type System
 

@@ -1,0 +1,19 @@
+// ============================================================================
+// package_import_npm.ploy — JavaScript/npm mirror of package_import.ploy
+//
+// Demonstrates the v1.12.0 stringified CONFIG form for the JavaScript/npm
+// package manager and IMPORT PACKAGE pulling from a node_modules root.
+// ============================================================================
+
+// --- Package Manager Configuration (canonical stringified form) ---
+CONFIG javascript "npm" "./node_modules";
+
+// --- Package Imports with Version Constraints ---
+IMPORT javascript PACKAGE express >= 4.18 AS app;
+IMPORT javascript PACKAGE lodash >= 4.17;
+
+// --- Selective Imports ---
+IMPORT javascript PACKAGE rxjs::(Observable, map);
+
+// Runtime stdout marker.
+PRINTLN "04_package_import_npm: ok\r\n";

@@ -66,6 +66,7 @@ add_library(frontend_ploy
     ploy/src/sema/package_discovery_cache.cpp
     ploy/src/sema/command_runner.cpp
     ploy/src/sema/package_indexer.cpp
+    ploy/src/sema/config_registry.cpp
     ploy/src/lowering/lowering.cpp
     ploy/src/ploy_frontend.cpp
 )

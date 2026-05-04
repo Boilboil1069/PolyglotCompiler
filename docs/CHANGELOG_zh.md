@@ -12,6 +12,375 @@
 
 ---
 
+## v1.18.0 (2026-05-05)
+
+**P3 收尾：小语法瑕疵集合。** 一组源码层面的细节打磨，便于从
+Rust / Python / TypeScript 迁移过来的用户：控制流头部可省略外层
+括号、引入 `IF LET` 解构 `OPTION<T>`、`///` 文档注释专用通道，
+以及新的 `polydoc` 抽取工具。
+
+* **解析器**：`IF` / `WHILE` / `FOR` 外层括号可选。`IF (cond) { … }`
+  与 `IF cond { … }` 等价（表达式语法已把 `(cond)` 视为分组表达式）；
+  `FOR (i IN xs) { … }` 显式吸收外层括号。
+* **AST + 解析器**：新增 `IfLetStatement` 节点与
+  `ParseIfLetStatement` 入口：`IF LET Some(x) = opt { … } ELSE { … }`
+  与 `IF LET None = opt { … }` 用于解构 `OPTION<T>`，并将绑定引入
+  THEN 体作用域。
+* **Sema**：`AnalyzeIfLetStatement` 校验被检查值类型为 `OPTION<T>`
+  （或跨语言场景下退化为 `Any` / `Unknown`），核对构造子名称
+  （`Some` 需要恰好一个绑定，`None` 不带绑定），并将绑定注册为
+  新的 `kVariable` 符号。
+* **Sema**：`LET x: OPTION<T> = NULL;` 现在会产生定向
+  `kTypeMismatch` 诊断并建议改用 `None`。`NULL` 保留给裸指针互操作。
+* **词法 + AST**：以 `///` 开头的行注释会进入 `pending_doc_` 缓冲，
+  并作为 `doc_comment: vector<string>` 挂到紧邻的 `FUNC` / `STRUCT`
+  / `LET` / `VAR` 声明上。普通 `//` 与 `////` 仍为普通行注释。
+* **工具链**：新增 `polydoc` 可执行文件（`tools/polydoc/`），读取
+  `.ploy` 源码、遍历已解析模块，将文档块渲染为 Markdown（默认）或
+  JSON（`--json`）。可通过 `-o OUT` 写入文件。
+* **规范**：明确 `LIST<T>` 为连续序列容器，等价 Rust `Vec<T>` /
+  C++ `std::vector<T>`，**不是**链表。
+* **测试**：`tests/unit/frontends/ploy/polish_grammar_test.cpp` 新增
+  11 条用例，覆盖可选括号、`IF LET`、NULL-with-OPTION 诊断与 `///`
+  捕获。示例 41（`tests/samples/41_grammar_polish/`）端到端演练全部
+  新构造。
+
+---
+
+## v1.17.0 (2026-05-04)
+
+**扩展字符串字面量形式：原始 `r"..."` / `r#"..."#`、多行
+`"""..."""`、以及模板 `f"..."` 插值。** 四种形式共用现有的
+`kString` token 类型，并通过既有的 `polyrt_println`
+风格驻留路径下沉。
+
+* **词法器。** 新增 `LexRawString`、`LexMultilineString`、
+  `LexTemplateString` 辅助方法与原有的 `LexString` 并列；raw 与
+  multiline 字面量会被重新编码为规范的 `"..."` 形式，以保证
+  既有转义解码管线无须修改。仅在 `r` / `f` 之后紧跟 `"`
+  （raw 还允许 `#`）时才将其识别为字符串字面量前缀，
+  从而避免 `result`、`foo` 等普通标识符被误识别。
+* **AST。** 新节点 `polyglot::ploy::TemplateString` 携带
+  `parts: vector<Part>`，每个 `Part` 要么是字面文本片段，要么
+  是一个被插值的 `Expression`。
+* **解析器。** `BuildStringExpression(lexeme, loc)` 集中处理字符串
+  字面量，以 `{` / `}` （支持 `{{` / `}}` 转义）切分 `f"..."`
+  主体，并使用一对新的 `PloyLexer` + `PloyParser` 子解析每个
+  插值。
+* **Sema。** `AnalyzeExpression` 增加 `TemplateString` 分支。每个
+  插值表达式需具备**可格式化**类型 — `Int`、`Float`、
+  `String` 或 `Bool`（同时接受 `Any` / `Unknown`，以避免未解
+  析的跨语言引用阻塞编译）。整体表达式类型恒为 `String`。
+* **下沉（MVP）。** 当所有插值都是编译期 `Literal` 时，
+  模板字符串在编译期折叠为单个驻留全局常量。一旦模板引用
+  运行时值，下沉层仅拼接字面文本片段并发出 `kGenericWarning`
+  警告；运行时格式化辅助函数作为后续工作跟踪。
+* **测试。** `tests/unit/frontends/ploy/string_literals_test.cpp`
+  （13 个用例 / 18 条断言）全部通过；完整回归
+  `test_frontend_ploy` 437 / 2603。
+* **示例。** `tests/samples/40_string_literals/` 附双语 README。
+* **文档。** 双语 realization 文档
+  `docs/realization/string_literals{,_zh}.md`、语言规范
+  「字符串字面量」子章节、USER_GUIDE 4.2.5f、tutorial 16.9
+  （英） / 16.11（中）。
+* **未来工作。** 引入运行时格式化辅助函数支持变量插值；
+  缩进感知多行去缩进；模板大括号内的格式说明后缀
+  （`{value:.3f}`）；插值段内嵌套模板字符串。
+
+## v1.16.0 (2026-05-04)
+
+**模块边界可见性（`PUB` / `PRIVATE`）与顶层 `FUNC` / `STRUCT`
+声明的 `@name(args)` 属性前缀。** 可见性与属性以元数据形式穿过
+解析与 sema；MVP 不改动 IR 构建器、优化器与运行时。
+
+* **表层语法。** 词法器新增两个保留字：`PUB` 与 `PRIVATE`。解析器
+  在 `FUNC`、`ASYNC FUNC`、`STRUCT` 之前接受
+  `@name @name(arg, ...) PUB|PRIVATE` 形式的可选前缀。其他顶层
+  形式由解析器报告诊断。
+* **AST。** `Visibility { kPrivate, kPub }`、
+  `Attribute { name, args }`，以及 `FuncDecl` / `StructDecl` 上的
+  `visibility` / `visibility_explicit` / `attributes` 字段。
+* **Sema。** `PloySymbol` 同步持有可见性，供 `EXPORT` 分析查询。
+  `PloySema::ValidateAttributes` 对内建注册表（`inline`、
+  `noinline`、`always_inline`、`hot`、`cold`、`profile`、
+  `no_profile`、`deprecated`、`link_name`、`target`）外的名称发出
+  警告。`AnalyzeExportDecl` 要求 `kPub`：显式 `PRIVATE` 为硬错误，
+  仍带默认 `kPrivate` 的符号会被自动升级并发出弃用警告，以保持
+  v1.16.0 之前源码可编译。
+* **下沉。** 未变；本版本中属性与可见性是 AST 上的惰性元数据。把
+  `@inline` / `@hot` / `@profile` 接入优化器、把 `@link_name` /
+  `@target` 接入链接器记入后续工作。
+* **测试。** `tests/unit/frontends/ploy/visibility_attrs_test.cpp`
+  （13 个用例 / 41 条断言）全部通过；完整回归
+  `test_frontend_ploy` 424 / 2585。
+* **示例。** `tests/samples/39_visibility_attrs/` 为标准端到端示例，
+  附双语 README。
+* **文档。** 双语 realization 文档
+  `docs/realization/visibility_attrs{,_zh}.md`、属性目录
+  `docs/specs/attribute_catalog{,_zh}.md`、语言规范关键字花名册与
+  「可见性与属性」子章节、USER_GUIDE 4.2.5e、tutorial 16.8（英）/
+  16.10（中）。
+* **未来工作。** 把每个内建属性接入优化器 / 链接器；把可见性 /
+  属性前缀扩展到 `CLASS`、`CONST`、`TYPE`、`MAP_FUNC` 与模块作用域
+  `LET`；引入嵌套 `MODULE name { ... }` 以提供更细粒度的作用域；
+  在未来主版本中将 `EXPORT` 缺少 `PUB` 的弃用警告升级为硬错误。
+
+## v1.15.0 (2026-05-04)
+
+**Ploy 泛型 `FUNC` / `STRUCT` 与带 bound 的类型参数，类型擦除的 MVP
+下沉路径。** Ploy 新增 `<T: Bound, U>` 参数列表、`WHERE` 子句与
+内建 trait 注册表；sema 校验每个 bound 名并在解析签名/函数体类型时
+把每个参数引入作用域。
+
+* **表层语法。** 词法器新增一个保留字：`WHERE`。解析器在 `FUNC`
+  与 `STRUCT` 声明名后接受 `<T: Bound1 + Bound2, U>`，并在 `FUNC`
+  返回类型与函数体之间接受可选的
+  `WHERE T: Bound1 + Bound2, U: Bound3`。类型位置的 `Pair<i32,
+  String>` 等泛型实例化被解析为 `ParameterizedType`。
+* **AST。** `FuncDecl::TypeParam { name, bounds }` 与
+  `FuncDecl::type_params` / `StructDecl::type_params` 持有声明的
+  参数。WHERE 子句在解析阶段并入对应参数的 `bounds`。
+* **Sema。** `PloySema::active_type_params_` 由
+  `ResolveType(SimpleType)` 优先查询，使得声明内的参数名解析为
+  `Any`。`PloySema::ValidateTypeParamBounds` 对照内建注册表
+  （`Comparable`、`Hashable`、`Numeric`、`Iterable`、`Display`）
+  校验每个声明的 bound。
+* **下沉。** 泛型声明仅下沉一次，每个参数解析为 `Any`（类型擦除）；
+  单一体服务所有调用点。按实例化的单态化记录为后续工作。
+* **测试。** `tests/unit/frontends/ploy/generics_test.cpp`
+  （8 个用例 / 35 条断言）全部通过；完整回归
+  `test_frontend_ploy` 411 / 2544。
+* **示例。** `tests/samples/38_generics/` 为标准端到端示例，附双语
+  README。
+* **文档。** 双语 realization 文档
+  `docs/realization/generics{,_zh}.md`、语言规范关键字花名册与
+  「泛型」子章节、USER_GUIDE 4.2.5d、tutorial 16.7（英）/ 16.9
+  （中）。
+* **未来工作。** 按实例化单态化；调用点上对具体类型的 bound 强校验；
+  `LINK` 声明中的参数化泛型；`CLASS` 块的泛型方法；用户自定义 trait
+  与高阶 bound。
+
+## v1.14.0 (2026-05-04)
+
+**Ploy 协作式异步与跨语言 `Future<T>` 运行时桥。** Ploy 新增
+`ASYNC` / `AWAIT` 构造；运行时公开协作式事件循环与稳定 C ABI，
+任意宿主语言适配器均可调用，把 Python `asyncio` 协程、Rust
+`Future`、C++20 `std::coroutine`、Java `CompletableFuture`、.NET
+`Task<T>` 转发到统一的 `Future<T>` 句柄。
+
+* **表层语法。** 词法器新增两个保留字：`ASYNC` 与 `AWAIT`。
+  解析器在顶层、语句、类方法位置接受 `ASYNC FUNC name(...) -> T
+  { ... }`，在一元优先级层接受 `AWAIT <expr>`。`ASYNC FUNC` 在
+  `FuncDecl` AST 节点上携带 `is_async = true`，`AwaitExpression`
+  是独立 AST 节点。
+* **Sema。** `ASYNC FUNC` 体外的 AWAIT 以 `kTypeMismatch` 拒绝；
+  隐式回填把 `T` 在 ABI 边界包装为 `Future<T>`。
+* **下沉。** 每个 `ASYNC FUNC` 体被 `__ploy_rt_async_enter` 与
+  `__ploy_rt_async_complete` 包夹；每个 `AWAIT <expr>` 处下沉为
+  `__ploy_rt_await(<handle>)`。
+* **运行时。** `runtime/services/async_bridge.{h,cpp}` 与
+  `runtime/services/event_loop.{h,cpp}` 实现协作式调度器。
+  C ABI：`__ploy_rt_async_enter`、`__ploy_rt_async_complete`、
+  `__ploy_rt_async_spawn`、`__ploy_rt_await`、
+  `__ploy_rt_future_resolve`、`__ploy_rt_async_run`、
+  `__ploy_rt_async_pending`、`__ploy_rt_async_suspended`、
+  `__ploy_rt_async_completed`、`__ploy_rt_async_active_frames`。
+  C++ 接口位于 `polyglot::runtime::services`：`SpawnPloyTask`、
+  `ResolveFuture`、`RunUntilIdle`、`SnapshotScheduler`、
+  `ResetScheduler`。
+* **工具链。** `polyrt async` 输出协作式事件循环的快照；
+  `--json` 以 JSON 输出同一负载，`--run[=N]` 在汇报前最多驱动
+  `N` 个 tick。
+* **测试。** `tests/unit/frontends/ploy/async_await_test.cpp`
+  （6 个用例 / 18 条断言）与
+  `tests/unit/runtime/async_bridge_test.cpp`
+  （5 个用例 / 14 条断言）全部通过；完整回归
+  `test_frontend_ploy` 403 / 2509、`test_runtime` 117 / 35257。
+* **示例。** `tests/samples/37_async_await/` 为标准端到端示例；
+  `tests/samples/14_async_pipeline/` 升级为真实的 `ASYNC FUNC` /
+  `AWAIT` 实现，替换原占位形态。
+* **文档。** 双语 realization 文档
+  `docs/realization/async_model{,_zh}.md`、语言规范关键字花名册与
+  「异步 / Await」子章节、USER_GUIDE 4.2.5c、tutorial 16.6
+  （英）/ 16.8（中）。
+* **未来工作。** 通过 IR 层 `invoke` / `landingpad` 机制实现真正
+  的协程挂起；基于 `runtime/threading.{h,cpp}` 的多线程
+  work-stealing 线程池；取消传播；跨语言反向适配器
+  （`pyloy_async_resolve`、`cppploy_async_resolve`、
+  `jloy_async_resolve`、`clrloy_async_resolve`、
+  `rsloy_async_resolve`）；待泛型（demand 2026-04-28-15）落地后赋予
+  `Future<T>` 参数化类型。
+
+## v1.13.0 (2026-05-04)
+
+**Ploy 结构化异常处理与跨语言运行时错误桥。**Ploy 新增 `TRY` /
+`CATCH` / `FINALLY` / `THROW` 构造与内建 `Error` 句柄类型；运行时
+公开稳定的 C ABI，任意宿主语言适配器均可调用，把 Python
+`Exception`、C++ `std::exception`、Java `Throwable`、.NET `Exception`
+或 Rust `Result::Err` 转发为统一的 `Error`。
+
+* **表层语法。**词法新识别五个关键字：`TRY`、`CATCH`、`FINALLY`、
+  `THROW`、`ERROR`。Sema 校验每个 `TRY` 至少携带一个 `CATCH` 子句
+  或一个 `FINALLY` 子句，每个 `CATCH` 都声明绑定名，`THROW` 携带
+  值。
+* **内建 `Error` 句柄。**捕获绑定的类型为内建句柄 `Error`，公开
+  `message: String`、`source_lang: String`、`stacktrace: List<String>`
+  三个字段。
+* **运行时桥。**新增 `runtime/include/services/error_bridge.h` C
+  ABI：`__ploy_rt_try_begin`、`__ploy_rt_try_end`、`__ploy_rt_throw`、
+  `__ploy_rt_throw_from`、`__ploy_rt_current_error`、
+  `__ploy_rt_current_error_message`、
+  `__ploy_rt_current_error_source_lang`、
+  `__ploy_rt_current_error_stacktrace_count`、
+  `__ploy_rt_current_error_stacktrace_at`、`__ploy_rt_clear_error`。
+  数据平面线程局部；抛出 Error 通过抛出 C++ `RuntimeError` 实现，
+  外层任意原生帧均可捕获。
+* **下沉。**TRY 下沉为带显式 body / catch / finally / merge 基本块
+  的运行时调用形态，依据 `__ploy_rt_try_begin` 返回值进行派发。
+  THROW 下沉为单次 `__ploy_rt_throw` 调用后接 `unreachable`。
+* **测试。**`tests/unit/frontends/ploy/try_catch_throw_test.cpp`
+ （8 个用例 / 30 个断言）覆盖解析与 sema；`tests/unit/runtime/
+  error_bridge_test.cpp`（5 个用例 / 19 个断言）通过 C++ `try` /
+  `catch` 覆盖 C ABI 数据平面。
+* **样例。**`tests/samples/36_try_catch/` 演示该语法，并提供中英双
+  语 README。
+* **文档。**新增实现说明 `docs/realization/error_handling.md`
+ （及 `_zh.md`）；语言规范、`USER_GUIDE.md` 与教程的中英双语版均
+  新增"错误处理"子节。
+* **未来工作。**类型化 catch 派发、IR 级 `invoke` / `landingpad`
+  集成、后缀 `?` 短路传播以及外语异常的完整反向拦截作为后续 demand
+  跟踪。
+
+---
+
+## v1.12.0 (2026-05-04)
+
+**字符串化的 `CONFIG` 形式与基于注册表的包管理器分发。**
+`.ploy` 中的 `CONFIG` 声明改为统一的
+`CONFIG <语言> "<包管理器>" "<路径或环境名>";`，使用同一种语法覆盖
+所有受支持的包管理器，无需为每个新管理器引入新关键字。
+
+* **规范字符串形式。** 包管理器名与路径都改为普通字符串字面量，例如
+  `CONFIG python "venv" "/opt/envs/ml";`、
+  `CONFIG rust "cargo" ".";`、
+  `CONFIG javascript "npm" "./node_modules";`、
+  `CONFIG java "maven" "./pom.xml";`、
+  `CONFIG dotnet "nuget" "./packages";`、
+  `CONFIG ruby "bundler" "./Gemfile";`、
+  `CONFIG go "gomod" "./go.mod";`。
+
+* **注册表。** 新增的中心化注册表
+  `frontends/ploy/src/sema/config_registry.cpp` 维护所有受支持的
+  `(语言, 包管理器)` 组合。新增包管理器只需修改一行表项，词法和语法
+  分析器无需变动。详见
+  [实现 → 包管理 → 注册自定义包管理器](realization/package_management_zh.md#注册自定义包管理器)。
+
+* **旧关键字兼容。** 旧的关键字形式
+  （`CONFIG VENV / CONDA / UV / PIPENV / POETRY`）仍可解析，sema 阶段
+  会发出 `kDeprecatedKeyword` 警告并给出指向新形式的改写建议，同时自动
+  按新形式重写为内部 IR。
+
+* **诊断。** 未注册的 `(语言, 包管理器)` 组合（如
+  `CONFIG python "npm" …`）会在 sema 阶段被精确拒绝，错误信息会指出
+  违规的组合。
+
+* **样例。** `tests/samples/04_package_import/` 新增三个镜像入口文件，
+  分别演示 npm / cargo / maven 三个包管理器在新形式下的写法；现有样例
+  （`04`、`09`、`16`）已迁移到字符串形式。
+
+* **测试。** 新增 `tests/unit/frontends/ploy/config_stringification_test.cpp`
+  单元测试套件，覆盖注册表、所有受支持的 `(语言, 包管理器)` 组合、旧形式
+  弃用警告、未知管理器拒绝以及格式错误的解析器路径。
+
+* **文档。** `docs/specs/language_spec*.md`、`docs/USER_GUIDE*.md` 与
+  `docs/realization/package_management*.md` 均已更新为以规范形式为先，
+  并补充了自定义包管理器的注册指南。
+
+## v1.11.0 (2026-05-04)
+
+**命名参数默认值、EXTEND 使用限制，以及集中化的 `AS` 语义专章。**
+本版本收紧 `.ploy` 中两处长期存在的歧义，并补齐对应的文档与样例。
+
+* **默认参数值。** `FUNC` 声明现在可以为末尾形参提供 `=` 引出的
+  默认表达式。默认值必须是常量可折叠的字面量 / 一元 / 二元表达式，
+  或一次纯的 ploy 内 `FUNC` 调用；跨语言 `CALL`、闭包捕获、读取
+  其他形参都会被拒绝并给出精确诊断。lowering 在每一个省略对应实参
+  的调用点物化默认表达式的副本，后端永远看不到"短调用"。
+
+* **调用点的命名实参。** 任何实参都可以按 `name: value` 传递。
+  位置实参不可出现在命名实参之后；同一个形参至多被提供一次；每个
+  必需（无默认值）的形参必须由位置或名字提供。否则 sema 报告
+  `"required parameter 'X' of 'F' is not supplied"`。
+
+* **EXTEND 仅限动态宿主。** `EXTEND(<lang>, ...)` 现在只接受
+  `python`、`ruby`、`javascript`（以及标签别名 `rb`、`js`、
+  `typescript`、`ts`）。在静态类型语言（`cpp`、`c`、`rust`、
+  `java`、`dotnet` / `csharp`、`go` / `golang`）上使用会被拒绝，
+  并给出"改为本地 ploy `FUNC` 包装并使用 `CALL` / `METHOD`"的
+  修正提示。
+
+* **集中化的 `AS` 语义专章。** `docs/realization/ploy_language_spec_zh.md`
+  §4.17（及英文镜像）列出五个绑定位置（`IMPORT … AS`、
+  `EXPORT … AS`、`LINK … AS`、语言级 `IMPORT … AS`、以及
+  `EXTEND … AS`），并给出一组反例，明确哪些写法属于歧义 / 被禁。
+
+* **样例。** 新增 `tests/samples/34_default_args/`（默认值 + 命名
+  调用 + 纯调用默认值）与 `tests/samples/35_extend_dynamic/`
+  （Python 上被接受的 `EXTEND` + 静态语言的拒绝与迁移说明）。
+  `tests/samples/08_delete_extend/` README 增补"使用限制"小节，
+  指向新的规则。
+
+* **测试。** 新增 `tests/unit/frontends/ploy/default_args_and_extend_test.cpp`
+  （15 个用例，覆盖签名记录、位置 / 命名 / 混合调用、parser 顺序
+  规则、默认值的常量 / 纯调用规则、必需参数覆盖检查，以及 EXTEND
+  拒绝集合）。原 `devirtualization_test` 中"EXTEND on Rust base"
+  用例改写为断言新拒绝诊断。完整 ploy 前端套件：371 用例 / 2348
+  断言。
+
+* **文档。** `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`、
+  `docs/tutorial/ploy_language_tutorial.md` /
+  `docs/tutorial/ploy_language_tutorial_zh.md` 与
+  `docs/realization/ploy_language_spec.md` /
+  `docs/realization/ploy_language_spec_zh.md` 同步更新默认值 /
+  命名实参语法、EXTEND 使用限制以及统一 `AS` 表格。
+
+## v1.10.0 (2026-05-04)
+
+**`MATCH` 模式匹配。** `.ploy` 的 `MATCH` 分支现已支持完整的模式
+语法 —— 通配、范围、元组 / 结构体解构、OR 模式、绑定（`n @ ...`）、
+类型守卫（`x: i32 IF ...`）以及 `OPTION` 构造子（`Some(x)` / `None`），
+并配套了详尽性检查、可达性警告与一套两策略 lowering 通路。
+
+* AST：现有 `Pattern` 体系（`WildcardPattern`、`LiteralPattern`、
+  `IdentifierPattern`、`RangePattern`、`TuplePattern`、
+  `StructPattern`、`OrPattern`、`BindingPattern`、
+  `ConstructorPattern`、`TypePattern`）现在被 parser、sema 与
+  lowering 端到端地驱动。
+* 语法：模式（或守卫）与分支体之间的箭头可选，`->` 与 `=>` 均
+  接受。裸标识符 `None` 解析为零参数的 `ConstructorPattern`，
+  `CASE None` 才能参与 OPTION 详尽性。`CASE` 后 `Name { ... }`
+  通过一字符前瞻消歧，因此 `CASE None { ... }` 不再吞掉分支体。
+* Sema：类型相容性、绑定作用域、对 `bool` / `OPTION(T)` 与任意
+  类型的详尽性检查、紧跟在不可拒绝分支或重复字面量之后的可达
+  性诊断。元组 / 结构体 / 类型守卫模式在其子部分均不可拒绝时
+  也被正确识别为不可拒绝。
+* Lowering：`LowerMatchStatement` 在两条路径间二选一 —— 全字面量
+  且无守卫的快路径生成一条 `ir::SwitchStatement`（允许通配），
+  其他形态走 `match.try.N` → `match.body.N` → `match.merge` 的
+  结构化级联。
+* 测试：[`tests/unit/frontends/ploy/pattern_matching_test.cpp`](../tests/unit/frontends/ploy/pattern_matching_test.cpp)
+  端到端覆盖每种模式形态；
+  [`tests/unit/frontends/ploy/pattern_matching_lowering_test.cpp`](../tests/unit/frontends/ploy/pattern_matching_lowering_test.cpp)
+  锁定派发决策与基本块结构。
+* 样例：[`tests/samples/33_pattern_matching/`](../tests/samples/33_pattern_matching/)
+  是一个端到端可运行的演示，附带确定性的 stdout 标记。
+* 文档：新增 [`docs/realization/pattern_matching.md`](realization/pattern_matching.md)
+  / [`pattern_matching_zh.md`](realization/pattern_matching_zh.md)；
+  language spec、USER_GUIDE 与 tutorial 中的 MATCH 章节已在中
+  英两种文档中扩展同步。需求 2026-04-28-10 标记为 `--end -done`。
+
+---
+
 ## v1.9.1 (2026-04-29)
 
 **真实后端 PRINTLN 流水线收尾：`polyc → polyld → exe` 现在能产出

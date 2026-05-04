@@ -18,10 +18,10 @@
 // ============================================================================
 
 // Point Python to a specific virtual-environment path
-CONFIG VENV python "env/python";
+CONFIG python "venv" "env/python";
 
 // Point .NET to a specific SDK root
-CONFIG VENV dotnet "env/dotnet";
+CONFIG dotnet "nuget" "env/dotnet";
 
 // ============================================================================
 // Section 2: Package imports with version constraints

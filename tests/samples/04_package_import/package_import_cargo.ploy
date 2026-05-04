@@ -1,0 +1,19 @@
+// ============================================================================
+// package_import_cargo.ploy — Rust/cargo mirror of package_import.ploy
+//
+// Demonstrates the v1.12.0 stringified CONFIG form for the Rust/cargo
+// package manager and IMPORT PACKAGE pulling from a Cargo workspace.
+// ============================================================================
+
+// --- Package Manager Configuration (canonical stringified form) ---
+CONFIG rust "cargo" ".";
+
+// --- Package Imports with Version Constraints ---
+IMPORT rust PACKAGE serde >= 1.0 AS s;
+IMPORT rust PACKAGE tokio >= 1.30;
+
+// --- Selective Imports ---
+IMPORT rust PACKAGE rayon::(prelude, ThreadPoolBuilder);
+
+// Runtime stdout marker.
+PRINTLN "04_package_import_cargo: ok\r\n";

@@ -76,7 +76,9 @@ GET         SET         WITH        DELETE      EXTEND
 LANG        PRINTLN     TYPE        CONST       I8
 I16         I32         I64         U8          U16
 U32         U64         F32         F64         USIZE
-ISIZE
+ISIZE       TRY         CATCH       FINALLY     THROW
+ERROR       ASYNC       AWAIT       WHERE       PUB
+PRIVATE
 ```
 
 `*` `RETURNS` is **deprecated** since `Ploy 1.5.2`.  The legacy
@@ -97,6 +99,30 @@ type via the canonical `-> Type` arrow on the LINK signature instead.
 > by case (`config`, `array`, `get`, `set`, `pipeline`, `new`, �? are now
 > reserved.  Migrate such identifiers to non-keyword names (for example
 > `app_config`, `np_array`, `getter`).
+
+### String Literals (since v1.17.0)
+
+Ploy recognises four string-literal forms.  All four flow through the
+same `kString` token type and lower to a NUL-free `(ptr, len)` pair via
+the existing `polyrt_println`-style interning path.
+
+| Form          | Syntax                                  | Notes                                     |
+| ------------- | --------------------------------------- | ----------------------------------------- |
+| Regular       | `"hello\n"`                             | Backslash escapes (`\n`, `\r`, `\t`, `\\`, `\"`, `\0`, `\xHH`). |
+| Raw           | `r"C:\path\no\escape"`                  | Backslashes are literal.                  |
+| Raw padded    | `r#"contains "quotes""#` / `r##"..."##` | The number of `#`s sets the closing-quote padding. |
+| Multiline     | `"""line1\nline2"""`                    | Newlines preserved verbatim.              |
+| Template      | `f"x = {expr}"`                         | Brace-delimited interpolation; `{{` / `}}` for literal braces. |
+
+Sema requires every interpolated expression in a template string to have
+a *formattable* type — `Int`, `Float`, `String`, or `Bool` (with `Any`
+/ `Unknown` accepted so unresolved cross-language references do not
+block compilation).  The expression result type is always `String`.
+
+The v1.17.0 lowering layer eagerly folds template strings whose
+interpolated parts are all compile-time `Literal` expressions.  Runtime
+variable interpolation is recorded as a follow-up item; see
+`docs/realization/string_literals.md` for the full plan.
 
 ## 2.3 Declarations
 
@@ -143,6 +169,27 @@ MAP_TYPE <ploy_type> = <lang>::<type_name>;
 
 ### CONFIG �?Package Manager Configuration
 
+Canonical stringified form (since v1.12.0):
+
+```ploy
+CONFIG <language> "<package_manager>" "<path_or_env>";
+
+// Examples
+CONFIG python   "venv"    "/opt/envs/ml";
+CONFIG python   "conda"   "ml_env";
+CONFIG python   "uv"      "/opt/envs/uv_env";
+CONFIG python   "pipenv"  "/proj/myapp";
+CONFIG python   "poetry"  "/proj/myapp";
+CONFIG rust     "cargo"   ".";
+CONFIG javascript "npm"   "./node_modules";
+CONFIG java     "maven"   "./pom.xml";
+CONFIG dotnet   "nuget"   "./packages";
+CONFIG ruby     "bundler" "./Gemfile";
+CONFIG go       "gomod"   "./go.mod";
+```
+
+Legacy keyword form (deprecated, still parsed for source compatibility):
+
 ```ploy
 CONFIG VENV "<path>";
 CONFIG CONDA "<environment_name>";
@@ -150,6 +197,12 @@ CONFIG UV "<project_path>";
 CONFIG PIPENV "<project_path>";
 CONFIG POETRY "<project_path>";
 ```
+
+The legacy form emits a `kDeprecatedKeyword` warning suggesting the
+canonical rewrite.  The set of registered `(language, package_manager)`
+pairs is owned by `frontends/ploy/src/sema/config_registry.cpp` —
+adding a new manager is a single-line table edit, no lexer change
+required.
 
 ## 2.4 Functions
 
@@ -228,6 +281,98 @@ MATCH (<expression>) {
     DEFAULT => { <body> }
 }
 ```
+
+### Error Handling
+
+Since `Ploy 1.13.0`, structured exception handling is available via
+the `TRY` / `CATCH` / `FINALLY` / `THROW` constructs:
+
+```ploy
+TRY {
+    <protected_body>
+}
+CATCH (<binding>: Error) {
+    <handler_body>
+}
+FINALLY {
+    <cleanup_body>
+}
+
+THROW <expression>;
+```
+
+A bare `TRY` without any `CATCH` or `FINALLY` is rejected.  Multiple
+`CATCH` clauses are accepted and dispatched in declaration order.  The
+catch binding has the built-in handle type `Error` exposing `message:
+String`, `source_lang: String`, and `stacktrace: List<String>`.  The
+runtime bridge maps host-language exceptions (Python `Exception`, C++
+`std::exception`, Java `Throwable`, .NET `Exception`, Rust
+`Result::Err`) onto the unified `Error` handle; see
+`docs/realization/error_handling.md` for the model.
+
+### Async / Await
+
+Since `Ploy 1.14.0`, cooperative asynchronous functions are available
+via the `ASYNC` / `AWAIT` constructs:
+
+```ploy
+ASYNC FUNC fetch() -> i32 {
+    LET v = AWAIT load_value();
+    RETURN v;
+}
+```
+
+`ASYNC FUNC name(...) -> T { ... }` declares a function whose return
+value is implicitly wrapped as `Future<T>` at the ABI boundary; the
+developer-facing type stays `T`.  `AWAIT <expr>` is only legal inside
+an `ASYNC FUNC` body — sema rejects every other use.  The runtime
+bridge exposes a cooperative event loop (single thread by default,
+work-stealing pool optional) and adapts host-language awaitables
+(Python `asyncio` coroutines, Rust `Future`, C++20 `std::coroutine`,
+Java `CompletableFuture`, .NET `Task<T>`) onto unified `Future<T>`
+handles; see `docs/realization/async_model.md` for the model.
+
+### Generics
+
+Since `Ploy 1.15.0`, `FUNC` and `STRUCT` declarations may carry a
+generic type parameter list with optional trait bounds:
+
+```ploy
+FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
+STRUCT Pair<A, B> { first: A, second: B }
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
+```
+
+The parameter list `<T: Bound1 + Bound2, U>` follows the declared
+name; the optional `WHERE` clause between the return type and the
+body augments existing bounds.  The built-in trait registry is
+`Comparable`, `Hashable`, `Numeric`, `Iterable`, `Display`; sema
+rejects unknown bound names.  The v1.15.0 lowering path is
+type-erased (every parameter resolves to `Any`); per-instantiation
+monomorphisation is documented as follow-up work.  See
+`docs/realization/generics.md` for the model.
+
+### Visibility and Attributes
+
+Since `Ploy 1.16.0`, top-level `FUNC`, `ASYNC FUNC`, and `STRUCT`
+declarations may carry an attribute / visibility prefix:
+
+```ploy
+@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
+PRIVATE STRUCT Internal { x: i32 }
+```
+
+`PUB` exports the symbol across module boundaries; `PRIVATE` is the
+default and may be written explicitly.  `EXPORT` requires its target
+to be `PUB` (an explicit `PRIVATE` is a hard error; a symbol that
+still carries the default is auto-promoted with a deprecation
+warning so pre-v1.16.0 sources keep compiling).  Attributes have the
+shape `@name` or `@name(arg, ...)`; the built-in registry is
+`inline`, `noinline`, `always_inline`, `hot`, `cold`, `profile`,
+`no_profile`, `deprecated`, `link_name`, `target`.  Unknown
+attributes are accepted with a sema warning.  See
+`docs/realization/visibility_attrs.md` and
+`docs/specs/attribute_catalog.md` for the model.
 
 ## 2.7 Cross-Language OOP
 
@@ -323,6 +468,45 @@ primitive too, e.g. `Pixel (alias of i32)`.
 | `DICT<K,V>`      | `std::unordered_map<K,V>`  | `dict[K,V]`   | `HashMap<K,V>`  | `map[K]V`        | `Object` / `Map`| `Hash`      |
 | `ARRAY<T,N>`     | `T[N]`                     | `list[T]`     | `[T; N]`        | `[N]T`           | `Array`         | `Array`     |
 | `OPTION<T>`      | `std::optional<T>`         | `Optional[T]` | `Option<T>`     | `*T` (nullable)  | `T \| null`    | `T \| nil` |
+
+> **Naming note (since v1.18.0).**  `LIST<T>` is a contiguous-sequence
+> container — semantically equivalent to Rust `Vec<T>` and C++
+> `std::vector<T>`.  It is **not** a linked list.
+
+> **`NULL` vs. `None` (since v1.18.0).**  `NULL` is reserved for raw
+> pointer interop with foreign code.  Use `None` when you need an empty
+> `OPTION<T>`.  Sema rejects `LET x: OPTION<T> = NULL;` with a targeted
+> diagnostic.
+
+### Optional outer parens on control flow (since v1.18.0)
+
+`IF` / `WHILE` / `FOR` accept an optional set of outer parens around
+the head, so the following pairs parse identically:
+
+```ploy
+IF cond { … }            IF (cond) { … }
+WHILE cond { … }         WHILE (cond) { … }
+FOR i IN xs { … }        FOR (i IN xs) { … }
+```
+
+### `IF LET` `OPTION<T>` destructuring (since v1.18.0)
+
+```ploy
+IF LET Some(x) = opt { use(x); } ELSE { fallback(); }
+IF LET None    = opt { … }
+```
+
+`Some` requires exactly one binding; `None` takes none.  The binding
+is visible only inside the THEN-body and has type `T` (the inner
+type argument of the `OPTION`).
+
+### `///` documentation comments (since v1.18.0)
+
+A line beginning with **exactly three** slashes is a doc comment.
+Lines accumulate and attach to the immediately following `FUNC` /
+`STRUCT` / `LET` / `VAR` declaration.  Plain `//` line comments and
+`////` four-slash banners are ordinary line comments.  See
+[`docs/api/polydoc.md`](../api/polydoc.md) for the extractor tool.
 
 ## 2.10 Operators
 

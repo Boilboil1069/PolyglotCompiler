@@ -1,0 +1,47 @@
+// Sample 41: Grammar polish (since v1.18.0)
+//
+// Demonstrates the small grammar refinements introduced as a P3 cleanup
+// bundle: optional outer parens on IF / WHILE / FOR, IF LET destructuring
+// of OPTION<T>, and `///` doc comments harvested by the `polydoc` tool.
+
+/// Returns the absolute value of `n`.
+/// Wrapping behaviour at i32::MIN follows the host backend.
+FUNC abs(n: i32) -> i32 {
+    IF (n < 0) {
+        RETURN -n;
+    }
+    RETURN n;
+}
+
+/// Sums every integer in `xs` and returns the running total.
+FUNC sum_all(xs: LIST<i32>) -> i32 {
+    LET VAR total: i32 = 0;
+    FOR (x IN xs) {
+        total = total + x;
+    }
+    RETURN total;
+}
+
+/// Reads the first element of an optional list, defaulting to zero
+/// when the option is empty.
+FUNC head_or_zero(opt: OPTION<i32>) -> i32 {
+    IF LET Some(x) = opt {
+        RETURN x;
+    } ELSE {
+        RETURN 0;
+    }
+}
+
+/// A 2-D point in screen coordinates.
+STRUCT Point { x: i32, y: i32 }
+
+/// Maximum number of retries before giving up.
+LET MAX_RETRY: i32 = 5;
+
+FUNC main() -> i32 {
+    LET VAR i: i32 = 0;
+    WHILE (i < 3) {
+        i = i + 1;
+    }
+    RETURN abs(-7);
+}

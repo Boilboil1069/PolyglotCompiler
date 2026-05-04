@@ -108,6 +108,15 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/stage_misuse_test.cpp
     unit/frontends/ploy/typed_handle_test.cpp
     unit/frontends/ploy/pattern_matching_test.cpp
+    unit/frontends/ploy/pattern_matching_lowering_test.cpp
+    unit/frontends/ploy/default_args_and_extend_test.cpp
+    unit/frontends/ploy/config_stringification_test.cpp
+    unit/frontends/ploy/try_catch_throw_test.cpp
+    unit/frontends/ploy/async_await_test.cpp
+    unit/frontends/ploy/generics_test.cpp
+    unit/frontends/ploy/visibility_attrs_test.cpp
+    unit/frontends/ploy/string_literals_test.cpp
+    unit/frontends/ploy/polish_grammar_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -167,6 +176,8 @@ set(UNIT_TEST_RUNTIME
     unit/runtime/runtime_tests.cpp
     unit/runtime/threading_services_test.cpp
     unit/runtime/call_trace_runtime_test.cpp
+    unit/runtime/error_bridge_test.cpp
+    unit/runtime/async_bridge_test.cpp
 )
 
 set(UNIT_TEST_LINKER
