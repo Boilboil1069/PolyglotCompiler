@@ -377,6 +377,12 @@ private:
   // AWAIT operand analysis: enforces use only inside ASYNC FUNC and
   // returns the inner type of the awaited future (since v1.14.0).
   core::Type AnalyzeAwaitExpression(const std::shared_ptr<AwaitExpression> &await);
+  // Postfix `?` short-circuit unwrap on an `OPTION<T>` operand
+  // (since v1.19.0).  Emits diagnostics when the operand is not an
+  // optional, when used outside any FUNC body, and when the enclosing
+  // function does not return an `OPTION<U>` whose `U` is assignment-
+  // compatible with `T`.
+  core::Type AnalyzeOptionUnwrapExpression(const std::shared_ptr<OptionUnwrapExpression> &unwrap);
   core::Type AnalyzeConvertExpression(const std::shared_ptr<ConvertExpression> &conv);
   core::Type AnalyzeListLiteral(const std::shared_ptr<ListLiteral> &list);
   core::Type AnalyzeTupleLiteral(const std::shared_ptr<TupleLiteral> &tuple);

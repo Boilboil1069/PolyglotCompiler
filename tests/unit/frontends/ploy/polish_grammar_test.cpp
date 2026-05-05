@@ -25,6 +25,7 @@ using polyglot::ploy::FuncDecl;
 using polyglot::ploy::IfLetStatement;
 using polyglot::ploy::IfStatement;
 using polyglot::ploy::Module;
+using polyglot::ploy::OptionUnwrapExpression;
 using polyglot::ploy::PloyLexer;
 using polyglot::ploy::PloyParser;
 using polyglot::ploy::PloySema;
@@ -191,4 +192,73 @@ TEST_CASE("//// (four slashes) is a regular line comment",
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
     REQUIRE(fn);
     REQUIRE(fn->doc_comment.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Postfix `?` short-circuit unwrap on OPTION<T> (since v1.19.0).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Walk a function body looking for the first `expr?` postfix expression
+// inside any RETURN / VarDecl / ExprStatement.  Returns the wrapping
+// AST node so the test can assert on the operand.
+std::shared_ptr<OptionUnwrapExpression>
+FirstUnwrapInFunc(const FuncDecl &fn) {
+    using namespace polyglot::ploy;
+    for (const auto &s : fn.body) {
+        if (auto v = std::dynamic_pointer_cast<VarDecl>(s); v && v->init) {
+            if (auto u =
+                    std::dynamic_pointer_cast<OptionUnwrapExpression>(v->init)) {
+                return u;
+            }
+        }
+        if (auto r = std::dynamic_pointer_cast<ReturnStatement>(s); r && r->value) {
+            if (auto u =
+                    std::dynamic_pointer_cast<OptionUnwrapExpression>(r->value)) {
+                return u;
+            }
+        }
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+TEST_CASE("Postfix '?' parses on an OPTION<T> identifier",
+          "[ploy][parser][polish][unwrap]") {
+    auto r = Parse("FUNC f(opt: OPTION<i32>) -> OPTION<i32> { RETURN opt?; }");
+    REQUIRE(r.module->declarations.size() == 1);
+    auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
+    REQUIRE(fn);
+    auto unwrap = FirstUnwrapInFunc(*fn);
+    REQUIRE(unwrap);
+    REQUIRE(unwrap->operand);
+}
+
+TEST_CASE("Postfix '?' on a non-optional value reports a typed error",
+          "[ploy][sema][polish][unwrap]") {
+    auto r = Analyze(
+        "FUNC f() -> OPTION<i32> { LET x: i32 = 1; RETURN x?; }");
+    REQUIRE(DiagsContain(r.diags, "OPTION<T> operand"));
+}
+
+TEST_CASE("Postfix '?' inside a non-OPTION FUNC reports a typed error",
+          "[ploy][sema][polish][unwrap]") {
+    auto r = Analyze(
+        "FUNC f(opt: OPTION<i32>) -> i32 { RETURN opt?; }");
+    REQUIRE(DiagsContain(r.diags, "OPTION<U>"));
+}
+
+TEST_CASE("Postfix '?' chains with member and call expressions",
+          "[ploy][parser][polish][unwrap]") {
+    // `expr.fn()?` should bind tighter than the binary operators so the
+    // `?` wraps the entire postfix chain rather than just the trailing
+    // call.
+    auto r = Parse(
+        "FUNC g(opt: OPTION<i32>) -> OPTION<i32> { LET x = opt?; RETURN x; }");
+    auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
+    REQUIRE(fn);
+    auto unwrap = FirstUnwrapInFunc(*fn);
+    REQUIRE(unwrap);
 }

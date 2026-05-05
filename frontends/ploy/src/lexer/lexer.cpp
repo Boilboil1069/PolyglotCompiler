@@ -540,6 +540,15 @@ frontends::Token PloyLexer::LexOperator() {
   case '*':
     break;
 
+  case '?':
+    // Postfix `?` short-circuits an OPTION<T> value: when the operand is
+    // `Some(v)` the expression evaluates to `v`, otherwise the enclosing
+    // function returns the zero / `None` value of its declared return
+    // type.  Lexed as a stand-alone single-character symbol so the
+    // parser's postfix loop can pick it up after primary / call / member
+    // / index expressions (since v1.19.0).
+    break;
+
   case '~':
     if (Peek() == '=') {
       lexeme.push_back(Get());

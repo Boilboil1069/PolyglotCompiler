@@ -80,6 +80,47 @@
   "ploy.packageDiscoveryEnabled": true,
   "ploy.langDirectiveAutoInfer": true,
 
+  "languageServers.enabled": true,
+  "languageServers.changeDebounceMs": 200,
+  "languageServers.logCapacity": 2000,
+  "languageServers.servers": {
+    "ploy": {
+      "command": "polyls",
+      "args": [],
+      "env": {},
+      "initializationOptions": {}
+    },
+    "cpp": {
+      "command": "clangd",
+      "args": ["--background-index", "--clang-tidy"],
+      "env": {},
+      "initializationOptions": {}
+    },
+    "python": {
+      "command": "pyright-langserver",
+      "args": ["--stdio"],
+      "env": {},
+      "initializationOptions": {}
+    },
+    "rust": {
+      "command": "rust-analyzer",
+      "args": [],
+      "env": {},
+      "initializationOptions": {}
+    },
+    "java": {
+      "command": "jdtls",
+      "args": [],
+      "env": {},
+      "initializationOptions": {}
+    },
+    "csharp": {
+      "command": "omnisharp",
+      "args": ["-lsp"],
+      "env": {},
+      "initializationOptions": {}
+    }
+  },
   "keybindings.workbench.action.files.save": "Ctrl+S",
   "keybindings.workbench.action.files.saveAs": "Ctrl+Shift+S",
   "keybindings.workbench.action.files.openFile": "Ctrl+O",

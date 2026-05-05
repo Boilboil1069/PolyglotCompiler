@@ -197,6 +197,25 @@ set(UNIT_TEST_SETTINGS
     unit/tools/settings_loader_test.cpp
 )
 
+set(UNIT_TEST_LSP
+    unit/polyui/lsp_client_test.cpp
+)
+
+set(UNIT_TEST_PROBLEMS
+    unit/polyui/problems_panel_model_test.cpp
+)
+
+set(UNIT_TEST_POLYLS
+    unit/polyls/lifecycle_test.cpp
+    unit/polyls/completion_test.cpp
+    unit/polyls/hover_test.cpp
+    unit/polyls/signature_help_test.cpp
+)
+
+set(UNIT_TEST_COMPLETION_RANKER
+    unit/polyui/completion_ranker_test.cpp
+)
+
 set(UNIT_TEST_TOPOLOGY_UI
     unit/tools/topology_ui_main.cpp
     unit/tools/drilldown_window_test.cpp
@@ -314,6 +333,40 @@ add_executable(test_settings ${UNIT_TEST_SETTINGS})
 target_include_directories(test_settings PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(test_settings PRIVATE
     polyglot_tools_settings ${CATCH2_LIBS})
+
+# -- LSP client core (Qt-free) -----------------------------------------------
+add_executable(test_lsp ${UNIT_TEST_LSP})
+target_include_directories(test_lsp PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_lsp PRIVATE
+    lsp_lib ${CATCH2_LIBS})
+
+# -- Problems aggregator (Qt-free) -------------------------------------------
+# Builds the aggregator translation unit straight into the test binary so we
+# don't have to depend on the Qt-heavy polyui executable target.  The
+# aggregator only needs DiagnosticInfo from compiler_service.h plus the
+# core::SourceLoc type from polyglot_common (transitively via
+# frontends/common/include/diagnostics.h).
+add_executable(test_problems
+    ${UNIT_TEST_PROBLEMS}
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/problems_aggregator.cpp
+)
+target_include_directories(test_problems PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_problems PRIVATE
+    polyglot_common ${CATCH2_LIBS})
+
+# -- polyls (server-side lifecycle / sync / diagnostics) ---------------------
+add_executable(test_polyls ${UNIT_TEST_POLYLS})
+target_include_directories(test_polyls PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_polyls PRIVATE
+    polyls_core ${CATCH2_LIBS})
+
+# -- Completion ranker (Qt-free helper) --------------------------------------
+add_executable(test_completion_ranker
+    ${UNIT_TEST_COMPLETION_RANKER}
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/completion_ranker.cpp
+)
+target_include_directories(test_completion_ranker PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(test_completion_ranker PRIVATE ${CATCH2_LIBS})
 
 # -- Topology UI (requires Qt) -----------------------------------------------
 # DrillDownWindow / BreadcrumbBar tests need a QApplication and Qt widgets.
@@ -435,11 +488,17 @@ set(ALL_UNIT_TEST_SOURCES
     ${UNIT_TEST_LINKER}
     ${UNIT_TEST_TOPOLOGY}
     ${UNIT_TEST_SETTINGS}
+    ${UNIT_TEST_LSP}
+    ${UNIT_TEST_POLYLS}
+    ${UNIT_TEST_PROBLEMS}
+    ${UNIT_TEST_COMPLETION_RANKER}
     ${UNIT_TEST_E2E}
 )
 
-add_executable(unit_tests ${ALL_UNIT_TEST_SOURCES})
-target_link_libraries(unit_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
+add_executable(unit_tests ${ALL_UNIT_TEST_SOURCES}
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/problems_aggregator.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/completion_ranker.cpp)
+target_link_libraries(unit_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 
 # ============================================================================
 # Integration Tests
@@ -468,9 +527,10 @@ set(INTEGRATION_TEST_SOURCES
     integration/profiler_e2e_test.cpp
     integration/explicit_widths_e2e_test.cpp
     integration/printf_pipeline_e2e_test.cpp
+    integration/lsp_diagnostics_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
-target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS})
+target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 target_compile_definitions(integration_tests PRIVATE
     POLYGLOT_TESTS_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/external_packages")
 
@@ -507,6 +567,10 @@ add_test(NAME test_runtime           COMMAND test_runtime)
 add_test(NAME test_linker            COMMAND test_linker)
 add_test(NAME test_topology          COMMAND test_topology)
 add_test(NAME test_settings          COMMAND test_settings)
+add_test(NAME test_lsp               COMMAND test_lsp)
+add_test(NAME test_polyls            COMMAND test_polyls)
+add_test(NAME test_problems          COMMAND test_problems)
+add_test(NAME test_completion_ranker COMMAND test_completion_ranker)
 if(TARGET test_topology_ui)
     add_test(NAME test_topology_ui   COMMAND test_topology_ui)
 endif()
@@ -523,6 +587,10 @@ set_tests_properties(test_runtime PROPERTIES LABELS "unit;runtime")
 set_tests_properties(test_linker PROPERTIES LABELS "unit;linker")
 set_tests_properties(test_topology PROPERTIES LABELS "unit;topology")
 set_tests_properties(test_settings PROPERTIES LABELS "unit;tools;settings")
+set_tests_properties(test_lsp PROPERTIES LABELS "unit;polyui;lsp")
+set_tests_properties(test_polyls PROPERTIES LABELS "unit;polyls;lsp")
+set_tests_properties(test_problems PROPERTIES LABELS "unit;polyui;problems")
+set_tests_properties(test_completion_ranker PROPERTIES LABELS "unit;polyui;completion")
 if(TARGET test_topology_ui)
     set_tests_properties(test_topology_ui PROPERTIES LABELS "unit;topology;ui")
 endif()

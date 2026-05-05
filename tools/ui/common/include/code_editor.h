@@ -20,9 +20,15 @@
 
 #include "tools/ui/common/include/compiler_service.h"
 
+class QTimer;
+
 namespace polyglot::tools::ui {
 
 class CompilerService;
+class IdeLspBridge;
+class SnippetExpander;
+class HoverTooltip;
+class SignatureHelpWidget;
 
 // Forward declaration of helper widgets
 class LineNumberArea;
@@ -81,6 +87,20 @@ public:
   void SetLanguage(const std::string &lang) { language_ = lang; }
   void TriggerCompletion();
 
+  // ── Language-server integration (demand 2026-04-28-21) ──────────────
+  void SetLspBridge(IdeLspBridge *bridge) { lsp_bridge_ = bridge; }
+  IdeLspBridge *LspBridge() const { return lsp_bridge_; }
+  /// Match strategy used to filter / rank completion candidates.
+  /// Values: 0=Prefix, 1=Subsequence, 2=Fuzzy.
+  void SetCompletionMatchStrategy(int strategy) {
+    completion_match_strategy_ = strategy;
+  }
+  int CompletionMatchStrategy() const { return completion_match_strategy_; }
+  /// Manual hover request bound to Ctrl+K Ctrl+I.
+  void RequestHoverAtCursor();
+  /// Manual signature help request bound to Ctrl+Shift+Space.
+  void RequestSignatureHelpAtCursor();
+
   // ── Diagnostics overlay (squiggly lines + inline hints) ──────────────
   void SetDiagnostics(const std::vector<DiagnosticInfo> &diagnostics);
   void ClearDiagnostics();
@@ -134,6 +154,14 @@ private:
   MinimapWidget *minimap_{nullptr};
   CompletionPopup *completion_popup_{nullptr};
   CompilerService *compiler_service_{nullptr};
+  IdeLspBridge *lsp_bridge_{nullptr};
+  SnippetExpander *snippet_expander_{nullptr};
+  HoverTooltip *hover_tooltip_{nullptr};
+  SignatureHelpWidget *signature_widget_{nullptr};
+  QTimer *hover_timer_{nullptr};
+  QPoint last_hover_pos_;
+  bool waiting_ctrl_k_chord_{false};
+  int completion_match_strategy_{1};  // Subsequence by default.
   std::string language_;
 
   bool line_numbers_visible_{true};

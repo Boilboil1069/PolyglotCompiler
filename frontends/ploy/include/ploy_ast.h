@@ -166,6 +166,28 @@ struct AwaitExpression : Expression {
   std::shared_ptr<Expression> operand;
 };
 
+// Postfix `?` operator: short-circuit unwrap of an OPTION<T> (since v1.19.0).
+//
+// Semantics:
+//   * `expr?` evaluates `expr`; when the value is `Some(v)` the whole
+//     expression evaluates to `v`.
+//   * When the value is `None`, the enclosing function returns the
+//     zero/`None` value of its declared return type, mirroring Rust's
+//     `?` short-hand for early returns out of an `Option`-shaped pipeline.
+//
+// Sema enforces that the operand has type `OPTION<T>` and that the
+// enclosing function's return type is also some `OPTION<U>` whose `U` is
+// assignment-compatible with `T`; lowering emits a single conditional
+// branch on the OPTION tag (currently the operand's truthiness, matching
+// the `IF LET` lowering shape).  Disambiguation against the future
+// error-propagation form on `Result/Error` returning calls is by operand
+// type — once the error-propagation work track lands the same token will
+// resolve to the propagation variant when the operand is an `Error`.
+/** @brief OptionUnwrapExpression data structure. */
+struct OptionUnwrapExpression : Expression {
+  std::shared_ptr<Expression> operand;
+};
+
 // Binary expression: a + b, x == y, p AND q
 /** @brief BinaryExpression data structure. */
 struct BinaryExpression : Expression {

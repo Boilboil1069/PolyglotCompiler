@@ -824,6 +824,13 @@ when porting code from Rust / Python / TypeScript:
 - **`LIST<T>` is `Vec<T>`.** `LIST<T>` is a contiguous-sequence
   container, equivalent to Rust `Vec<T>` and C++ `std::vector<T>` —
   not a linked list.
+- **Postfix `?` short-circuit unwrap (since v1.19.0).** Inside a
+  `FUNC` whose return type is `OPTION<U>`, writing `expr?` on an
+  operand of type `OPTION<T>` evaluates to the inner `T` when the
+  value is `Some`, and otherwise returns `None` from the enclosing
+  function immediately. Sema rejects `?` on non-optional operands
+  and inside non-`OPTION` functions; `T` must be assignment-
+  compatible with `U`.
 
 See `tests/samples/41_grammar_polish/` for an end-to-end example.
 
@@ -3320,3 +3327,113 @@ entry from v0.1.0 (2026-01-15) through the latest release.
 *Last Updated: 2026-04-28*  
 *Document Version: v1.2.0*
 <!-- END:version_footer_en -->
+
+
+# 12. Language Server Architecture
+
+> Introduced in 1.20.0 (demand 2026-04-28-19).  Detailed reference:
+> [`docs/specs/lsp_integration.md`](./specs/lsp_integration.md) and
+> [`docs/api/polyls.md`](./api/polyls.md).
+
+The polyui IDE talks to language servers through the standard
+**Language Server Protocol** (LSP).  An in-tree server, **polyls**,
+ships with the project and exposes the polyglot frontends; third-party
+servers (clangd, pyright, rust-analyzer, jdtls, omnisharp) can be slot
+in per language through the **Settings -> Language Servers** page.
+
+## 12.1 Components
+
+| Layer | Code |
+|-------|------|
+| Wire types & framing                       | `tools/ui/common/lsp/lsp_message.{h,cpp}` |
+| JSON-RPC client + transport abstraction    | `tools/ui/common/lsp/lsp_client.{h,cpp}` |
+| Session registry (workspace + language id) | `tools/ui/common/lsp/lsp_session.{h,cpp}` |
+| Capability cache                           | `tools/ui/common/lsp/lsp_capability_registry.{h,cpp}` |
+| LSP traffic viewer                         | `tools/ui/common/lsp/lsp_log_panel.{h,cpp}` |
+| Editor glue (debounce, didOpen/Save/Close) | `tools/ui/common/{include,src}/lsp_bridge.{h,cpp}` |
+| Headless server                            | `tools/polyls/polyls_core/` + `tools/polyls/polyls.cpp` |
+
+## 12.2 Workflow inside polyui
+
+1. `MainWindow::OpenFileInTab(path)` opens the file and, after the
+   editor is created, calls `IdeLspBridge::TrackEditor(editor, lang)`.
+2. The bridge looks up `languageServers.servers.<lang>` from
+   `SettingsService`, spawns the configured executable through
+   `StdioTransport` (a `QProcess`-backed `ILspTransport`) and runs the
+   `initialize` -> `initialized` handshake.
+3. A 200 ms debounce timer (configurable via
+   `languageServers.changeDebounceMs`) sends `didChange` notifications
+   in response to `QTextDocument::contentsChanged`.
+4. Inbound `publishDiagnostics` are translated to `DiagnosticInfo` and
+   forwarded to `CodeEditor::SetDiagnostics`, which paints the
+   squiggly underlines and gutter markers.
+5. `Save()` issues `didSave`; `CloseTab()` issues `didClose`;
+   `~MainWindow()` performs `shutdown` + `exit` on every active session.
+
+## 12.3 Configuration
+
+All settings live under the `languageServers.*` namespace and appear
+automatically in the Settings dialog because the schema is namespace-
+driven.  Defaults:
+
+- `languageServers.enabled = true`
+- `languageServers.changeDebounceMs = 200`
+- `languageServers.logCapacity = 2000`
+- `languageServers.servers.ploy = { command: "polyls", args: [] }`
+- `languageServers.servers.cpp = { command: "clangd", args: [] }`
+- `languageServers.servers.python = { command: "pyright-langserver", args: ["--stdio"] }`
+- `languageServers.servers.rust = { command: "rust-analyzer", args: [] }`
+- `languageServers.servers.java = { command: "jdtls", args: [] }`
+- `languageServers.servers.csharp = { command: "omnisharp", args: ["-lsp"] }`
+
+When the configured executable is missing from `PATH`, the bridge
+silently disables the language server for that session and surfaces a
+non-blocking status-bar notification with the resolution hint.
+
+## 12.4 Inspecting traffic
+
+Open the **LSP** tab in the bottom panel to view every JSON-RPC frame
+exchanged with the active sessions.  Filters: direction (tx/rx), kind
+(request/response/notification) and method-name substring.
+
+## 13. Real-time Diagnostics & Problems Panel
+
+Since v1.21.0 the IDE ships an always-on Problems Panel paired with a real-time diagnostics pipeline.
+
+### 13.1 Opening the panel
+
+- Click the colour-coded `E:N W:N H:N` counter in the right of the status bar.
+- Or use the panel manager: **View -> Panels -> Problems**.
+
+### 13.2 Filters
+
+- Severity toggle buttons: Error / Warning / Info / Hint (multi-select).
+- File substring (case-insensitive, matches the basename).
+- Source substring (matches `polyls:<lang>` / `polyc` / `polyc-bg`).
+- Message regex (ECMAScript). An invalid pattern is silently ignored.
+
+### 13.3 Navigation
+
+Double-click any row to open the file at the reported position.
+
+### 13.4 Sources
+
+| Source label   | Producer                                                  |
+|----------------|-----------------------------------------------------------|
+| `polyls:<lang>` | LSP server, mirrored from `publishDiagnostics`.         |
+| `polyc`        | Foreground in-process compile / analyze.                  |
+| `polyc-bg`     | Background workspace scan (batched 50 files / 50 ms).     |
+
+Workspaces above 2000 files trigger an asynchronous first-scan with
+a `Scanning N/M ...` progress message in the status bar.
+
+### 13.5 `polyc --check` (CLI fallback)
+
+```
+polyc --check <file> [--lang=<id>]
+```
+
+Writes a single LSP-shaped JSON document to stdout (`uri` + `diagnostics`).
+Exit code: `0` clean, `1` errors present, `2` usage / I/O failure.
+Useful when wiring Polyglot diagnostics into editors that are not LSP-aware.
+

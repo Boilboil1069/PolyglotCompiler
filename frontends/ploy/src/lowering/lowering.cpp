@@ -1187,6 +1187,9 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
   if (auto await_expr = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
     return LowerAwaitExpression(await_expr);
   }
+  if (auto unwrap_expr = std::dynamic_pointer_cast<OptionUnwrapExpression>(expr)) {
+    return LowerOptionUnwrapExpression(unwrap_expr);
+  }
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
     return LowerCallExpression(call);
   }
@@ -2973,6 +2976,58 @@ PloyLowering::LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await
                                 "await.value");
   std::string result = call ? call->name : std::string("0");
   return {result, ir::IRType::Pointer(ir::IRType::I8(true))};
+}
+
+// Postfix `?` short-circuit unwrap of an `OPTION<T>` operand
+// (since v1.19.0).
+//
+// Lowering shape (matching the `IF LET` pattern's MVP scrutinee
+// truthiness dispatch):
+//
+//     %v   = <operand>
+//     %c   = truthy(%v)              ; i1
+//     condbr %c, unwrap.cont, unwrap.none
+//   unwrap.none:
+//     ret  0                         ; or `ret void` when the
+//                                    ; enclosing FUNC returns void
+//   unwrap.cont:
+//     ; result == %v
+//
+// The result value of the expression is the operand value itself; the
+// runtime OPTION<T> tag will be teased apart by the dedicated OPTION
+// lowering work track once it lands.
+PloyLowering::EvalResult
+PloyLowering::LowerOptionUnwrapExpression(
+    const std::shared_ptr<OptionUnwrapExpression> &unwrap) {
+  if (!unwrap || !unwrap->operand) {
+    return {"", ir::IRType::Invalid()};
+  }
+  EvalResult operand = LowerExpression(unwrap->operand);
+  std::string cond_i1 = EnsureI1(operand);
+
+  auto none_bb = builder_.CreateBlock("unwrap.none");
+  auto cont_bb = builder_.CreateBlock("unwrap.cont");
+
+  builder_.MakeCondBranch(cond_i1, cont_bb.get(), none_bb.get());
+
+  // None branch: synthesise an early return matching the enclosing
+  // function's declared return type.  Void / Invalid emit a bare
+  // `ret`; every other type uses `0` which is the canonical zero
+  // for the i64-collapsed OPTION layout used everywhere else in
+  // this lowering.
+  builder_.SetInsertPoint(none_bb);
+  bool void_return = !current_function_ ||
+                     current_function_->ret_type.kind == ir::IRTypeKind::kVoid ||
+                     current_function_->ret_type.kind == ir::IRTypeKind::kInvalid;
+  if (void_return) {
+    builder_.MakeReturn();
+  } else {
+    builder_.MakeReturn("0");
+  }
+
+  // Continue with the unwrapped value in the success block.
+  builder_.SetInsertPoint(cont_bb);
+  return operand;
 }
 
 } // namespace polyglot::ploy

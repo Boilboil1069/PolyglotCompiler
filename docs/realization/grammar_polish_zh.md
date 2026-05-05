@@ -83,17 +83,47 @@ Markdown 形式为每个条目合成一行签名（`FUNC name(params) -> R`、
 `STRUCT Name`、`LET name: T`）。JSON 形式记录同样的数据并附上源
 文件路径，便于下游工具链索引。
 
-## 6. `LIST<T>` 命名澄清
+## 6. 后缀 `?` 短路解包（自 v1.19.0 起）
+
+`expr?` 是后缀表达式，对 `OPTION<T>` 操作数解包：
+
+```ploy
+FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
+    LET v = opt?;        // opt 为 None 时立即返回 None
+    RETURN Some(v + 1);
+}
+```
+
+实现细节：
+
+- 词法器将 `?` 作为单字符 `kSymbol` token 输出。
+- 解析器在 `ParsePostfix` 末端捕获 `?`，把前面的表达式包装为新的
+  `OptionUnwrapExpression` AST 节点。
+- 语义分析（`AnalyzeOptionUnwrapExpression`）要求操作数为
+  `OPTION<T>`、外层函数返回 `OPTION<U>`，并在 `T` 与 `U` 不
+  赋值兼容时给出 strict 模式诊断；表达式结果类型为内部 `T`。
+- 降级（`LowerOptionUnwrapExpression`）发出一次基于操作数真值的
+  条件分支：`Some` 分支沿用解包后的值，`None` 分支根据外层函数
+  `ret_type` 合成早返（void 用裸 `ret`，其它返回 `0`，与本降级
+  其他位置使用的 i64 折叠 OPTION 布局一致）。
+
+未来错误传播形式（在 `Result<T, E>` / `Error` 类调用上复用同一
+`?` token）通过**操作数类型**与本节区分：操作数为 `OPTION` 时按上
+文规则解析；操作数为 `Error` 形态（后续版本引入）时进入错误传播
+分支。
+
+## 7. `LIST<T>` 命名澄清
 
 `LIST<T>` 是连续序列容器，等价于 Rust `Vec<T>` 与 C++
 `std::vector<T>`，**不是**链表。规范、本文以及 IDE 悬浮提示均使用
 统一表述，避免与链表 API 混淆。
 
-## 7. 测试
+## 8. 测试
 
-- `tests/unit/frontends/ploy/polish_grammar_test.cpp`（11 例）：
+- `tests/unit/frontends/ploy/polish_grammar_test.cpp`：
   IF/WHILE/FOR 可选括号、`IF LET Some` / `IF LET None`、
-  NULL-with-OPTION 诊断、FUNC / STRUCT / LET 的 `///` 捕获，
-  以及 `//` 与 `///` 的边界判定。
+  NULL-with-OPTION 诊断、FUNC / STRUCT / LET 的 `///` 捕获、
+  `//` 与 `///` 的边界判定，以及（自 v1.19.0 起）后缀 `?` 解析
+  / 语义分析的成功路径与类型错误路径用例。
 - `tests/samples/41_grammar_polish/` 端到端演示新构造，并已在
   samples README 中引用。

@@ -87,6 +87,10 @@
     "ploy.packageDiscoveryEnabled": { "type": "boolean", "default": true, "description": "Enable package discovery.", "descriptionZh": "启用包发现。" },
     "ploy.langDirectiveAutoInfer": { "type": "boolean", "default": true, "description": "Auto-infer #lang directive.", "descriptionZh": "自动推断 #lang 指令。" },
 
+    "languageServers.enabled":         { "type": "boolean", "default": true, "description": "Master switch for the LSP integration layer.", "descriptionZh": "LSP 集成层总开关。" },
+    "languageServers.changeDebounceMs":{ "type": "integer", "default": 200, "minimum": 0, "maximum": 5000, "description": "Debounce window before forwarding editor changes as didChange.", "descriptionZh": "编辑变更转发为 didChange 前的 debounce 窗口（毫秒）。" },
+    "languageServers.logCapacity":     { "type": "integer", "default": 2000, "minimum": 0, "maximum": 100000, "description": "Maximum number of LSP traffic entries kept in memory.", "descriptionZh": "LSP 通信日志在内存中保留的最大条目数。" },
+    "languageServers.servers":         { "type": "object",  "default": {}, "description": "Per-language server config: command / args / env / initializationOptions.", "descriptionZh": "按语言配置的服务器：command / args / env / initializationOptions。" },
     "files.associations":        { "type": "object",  "default": {}, "description": "Glob → language id map.", "descriptionZh": "文件名通配符到语言 id 的映射。" },
     "files.exclude":             { "type": "array",   "items": { "type": "string" }, "default": [], "description": "Glob patterns to exclude in explorer.", "descriptionZh": "资源管理器中排除的通配符。" },
     "files.encoding":            { "type": "string",  "default": "UTF-8", "description": "Default file encoding.", "descriptionZh": "默认文件编码。" },

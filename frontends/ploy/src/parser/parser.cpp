@@ -1921,6 +1921,16 @@ std::shared_ptr<Expression> PloyParser::ParsePostfix() {
       index->index = ParseExpression();
       ExpectSymbol("]", "expected ']' after index");
       expr = index;
+    } else if (IsSymbol("?")) {
+      // Postfix `?` short-circuits an OPTION<T> unwrap (since v1.19.0).
+      // Wraps the preceding postfix expression as a single
+      // `OptionUnwrapExpression` AST node so sema can validate the
+      // operand type and lowering can synthesise the early-return.
+      auto unwrap = std::make_shared<OptionUnwrapExpression>();
+      unwrap->loc = current_.loc;
+      unwrap->operand = expr;
+      Advance();
+      expr = unwrap;
     } else {
       break;
     }

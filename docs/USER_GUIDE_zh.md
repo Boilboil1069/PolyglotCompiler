@@ -3246,3 +3246,109 @@ v0.1.0 (2026-01-15) 起的全部版本条目。
 *最后更新: 2026-04-28*  
 *文档版本: v1.2.0*
 <!-- END:version_footer_zh -->
+
+
+# 12. 语言服务器架构
+
+> 1.20.0 引入（需求条目 2026-04-28-19）。详细参考：
+> [`docs/specs/lsp_integration_zh.md`](./specs/lsp_integration_zh.md) 与
+> [`docs/api/polyls_zh.md`](./api/polyls_zh.md)。
+
+polyui IDE 通过标准 **Language Server Protocol** (LSP) 与语言服务器
+通信。仓库自带 **polyls** 服务器，把内置前端暴露为 LSP；其他语言
+（C++ / Python / Rust / Java / C#）默认走 clangd / pyright /
+rust-analyzer / jdtls / omnisharp，可在 **设置 -> Language Servers**
+页面按语言逐项替换。
+
+## 12.1 组件
+
+| 层级 | 代码位置 |
+|------|----------|
+| 线类型 + 分帧                 | `tools/ui/common/lsp/lsp_message.{h,cpp}` |
+| JSON-RPC 客户端 + 传输抽象    | `tools/ui/common/lsp/lsp_client.{h,cpp}` |
+| 会话注册表（工作区 + 语言）   | `tools/ui/common/lsp/lsp_session.{h,cpp}` |
+| 能力缓存                       | `tools/ui/common/lsp/lsp_capability_registry.{h,cpp}` |
+| LSP 通信日志面板               | `tools/ui/common/lsp/lsp_log_panel.{h,cpp}` |
+| 编辑器胶水（防抖 + 同步事件）  | `tools/ui/common/{include,src}/lsp_bridge.{h,cpp}` |
+| 无头服务器                     | `tools/polyls/polyls_core/` + `tools/polyls/polyls.cpp` |
+
+## 12.2 polyui 内的工作流
+
+1. `MainWindow::OpenFileInTab(path)` 打开文件后调用
+   `IdeLspBridge::TrackEditor(editor, lang)`。
+2. 桥接器从 `SettingsService` 读取
+   `languageServers.servers.<lang>`，用 `StdioTransport`（基于
+   `QProcess` 的 `ILspTransport`）启动可执行文件，依次发送
+   `initialize` -> `initialized`。
+3. 200 ms 防抖（可在 `languageServers.changeDebounceMs` 调整）将
+   `QTextDocument::contentsChanged` 翻译为 `didChange`。
+4. 收到的 `publishDiagnostics` 被转换成 `DiagnosticInfo` 并交给
+   `CodeEditor::SetDiagnostics`，渲染为波浪下划线 + gutter 图标。
+5. `Save()` 发送 `didSave`；`CloseTab()` 发送 `didClose`；
+   `~MainWindow()` 对每个已初始化会话发送 `shutdown` + `exit`。
+
+## 12.3 配置
+
+所有设置位于 `languageServers.*` 命名空间，因为 schema 是按命名空间
+自动构建页面的，所以 Settings 对话框会自动出现 Language Servers 分页。
+默认值：
+
+- `languageServers.enabled = true`
+- `languageServers.changeDebounceMs = 200`
+- `languageServers.logCapacity = 2000`
+- `languageServers.servers.ploy = { command: "polyls", args: [] }`
+- `languageServers.servers.cpp = { command: "clangd", args: [] }`
+- `languageServers.servers.python = { command: "pyright-langserver", args: ["--stdio"] }`
+- `languageServers.servers.rust = { command: "rust-analyzer", args: [] }`
+- `languageServers.servers.java = { command: "jdtls", args: [] }`
+- `languageServers.servers.csharp = { command: "omnisharp", args: ["-lsp"] }`
+
+当配置的可执行文件不在 `PATH` 中时，桥接器会静默地为该会话禁用语言
+服务器，并在状态栏发出非阻塞提示与修复指引。
+
+## 12.4 查看通信
+
+底部面板新增 **LSP** 标签页，展示与活动会话之间的全部 JSON-RPC 帧。
+支持过滤：方向（tx/rx）、类型（request/response/notification）以及
+方法名子串。
+
+## 13. 实时诊断与 Problems 面板
+
+自 v1.21.0 起，IDE 自带常驻 Problems 面板与实时诊断管线。
+
+### 13.1 打开面板
+
+- 点击状态栏右侧的彩色 `E:N W:N H:N` 计数器。
+- 或通过面板管理：**视图 -> 面板 -> Problems**。
+
+### 13.2 过滤器
+
+- 严重级别开关：Error / Warning / Info / Hint（多选）。
+- 文件子串（大小写不敏感，匹配文件名）。
+- 来源子串（匹配 `polyls:<lang>` / `polyc` / `polyc-bg`）。
+- 消息正则（ECMAScript）。非法正则会被静默忽略。
+
+### 13.3 跳转
+
+双击任一行可在编辑器中打开对应位置。
+
+### 13.4 来源
+
+| 来源标签         | 生产者                                                |
+|------------------|-------------------------------------------------------|
+| `polyls:<lang>`  | LSP 服务器，由 `publishDiagnostics` 镜像而来。        |
+| `polyc`          | 前台进程内编译 / 分析。                               |
+| `polyc-bg`       | 工作区后台扫描（每节拍 50 文件、节拍 50 ms）。        |
+
+工作区文件数超过 2000 时，会触发异步首检，状态栏显示
+`Scanning N/M ...` 进度提示。
+
+### 13.5 `polyc --check`（CLI 回退）
+
+```
+polyc --check <file> [--lang=<id>]
+```
+
+向 stdout 写出一份与 LSP 同形的 JSON（`uri` + `diagnostics`）。
+退出码：`0` 干净，`1` 存在 error，`2` 用法 / I/O 失败。
+适合把 Polyglot 诊断接入不支持 LSP 的编辑器。

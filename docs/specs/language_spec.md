@@ -500,6 +500,41 @@ IF LET None    = opt { … }
 is visible only inside the THEN-body and has type `T` (the inner
 type argument of the `OPTION`).
 
+### Postfix `?` short-circuit unwrap (since v1.19.0)
+
+```ploy
+FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
+    LET v = opt?;        // returns None early when `opt` is None
+    RETURN Some(v + 1);
+}
+```
+
+Applying `?` to a value of type `OPTION<T>` evaluates the operand and:
+
+* on `Some(v)`, the expression evaluates to `v` (with type `T`);
+* on `None`, the enclosing function returns its zero / `None` value
+  immediately, mirroring Rust's `?` shorthand for early-return on
+  `Option`-shaped pipelines.
+
+The operator is **postfix** and binds tighter than every binary operator,
+so `obj.method()?.field` first evaluates `obj.method()`, unwraps it, and
+then walks the `.field` access on the inner value.
+
+Static checks (sema, since v1.19.0):
+
+* the operand must have type `OPTION<T>`; otherwise sema reports a
+  hard `OPTION<T> operand` error;
+* the enclosing function must return `OPTION<U>` whose `U` is
+  assignment-compatible with `T`; otherwise sema reports an
+  `OPTION<U>` mismatch error;
+* `?` may not appear at module scope.
+
+Disambiguation against the future error-propagation form (which will
+share the same `?` token on `Result<T, E>` / `Error`-returning calls)
+is by operand type: if the operand is an `OPTION`, the OPTION-unwrap
+rules above apply; the propagation rules will fire only when the
+operand resolves to `Error`-shaped types added in a later release.
+
 ### `///` documentation comments (since v1.18.0)
 
 A line beginning with **exactly three** slashes is a doc comment.

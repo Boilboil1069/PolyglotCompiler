@@ -1467,6 +1467,81 @@ core::Type PloySema::AnalyzeAwaitExpression(const std::shared_ptr<AwaitExpressio
   return core::Type::Any();
 }
 
+// Postfix `?` short-circuit unwrap of an `OPTION<T>` operand
+// (since v1.19.0).  Verifies that the operand is actually an
+// `OPTION<T>` value, that the use site lives inside a function
+// body, and that the enclosing function returns an `OPTION<U>`
+// whose `U` is assignment-compatible with `T`.  The analysis
+// returns the inner `T` type (or `Unknown` if it cannot be
+// resolved) so further uses participate in normal type checking.
+core::Type PloySema::AnalyzeOptionUnwrapExpression(
+    const std::shared_ptr<OptionUnwrapExpression> &unwrap) {
+  if (!unwrap || !unwrap->operand) return core::Type::Invalid();
+
+  core::Type operand_ty = AnalyzeExpression(unwrap->operand);
+
+  // The operand must be an OPTION<T>.  Unknown / Any propagate without
+  // a hard error so unresolved cross-language calls remain compilable
+  // in permissive mode while still surfacing a strict-mode diagnostic.
+  if (operand_ty.kind != core::TypeKind::kOptional) {
+    if (operand_ty.kind != core::TypeKind::kUnknown &&
+        operand_ty.kind != core::TypeKind::kAny &&
+        operand_ty.kind != core::TypeKind::kInvalid) {
+      ReportError(unwrap->loc, frontends::ErrorCode::kTypeMismatch,
+                  "postfix '?' requires an OPTION<T> operand, got '" +
+                      operand_ty.ToString() + "'",
+                  "wrap the value with Some(...) or change the function "
+                  "signature to return OPTION<T>");
+      return core::Type::Invalid();
+    }
+    ReportStrictDiag(unwrap->loc, frontends::ErrorCode::kTypeMismatch,
+                     "postfix '?' applied to value of type '" +
+                         operand_ty.ToString() +
+                         "' falls back to Unknown; provide a typed OPTION<T>");
+    return core::Type::Unknown();
+  }
+
+  core::Type inner =
+      operand_ty.type_args.empty() ? core::Type::Unknown() : operand_ty.type_args.front();
+
+  // The enclosing function must itself return an OPTION<U>; otherwise the
+  // implicit early-return cannot be synthesised.  Use of `?` at module
+  // scope (no enclosing function) is rejected outright.
+  if (current_return_type_.kind == core::TypeKind::kInvalid) {
+    ReportError(unwrap->loc, frontends::ErrorCode::kTypeMismatch,
+                "postfix '?' may only appear inside a function body",
+                "move the expression into a FUNC that returns OPTION<T>");
+    return inner;
+  }
+  if (current_return_type_.kind != core::TypeKind::kOptional) {
+    ReportError(unwrap->loc, frontends::ErrorCode::kTypeMismatch,
+                "postfix '?' requires the enclosing function to return "
+                "OPTION<U>, but it returns '" +
+                    current_return_type_.ToString() + "'",
+                "change the FUNC return type to OPTION<U> or replace '?' "
+                "with an explicit IF LET pattern");
+    return inner;
+  }
+  // Best-effort compatibility check between T and U.  Unknown / Any on
+  // either side simply skips the warning so partially typed code is
+  // not blocked.
+  if (!current_return_type_.type_args.empty() &&
+      inner.kind != core::TypeKind::kUnknown &&
+      inner.kind != core::TypeKind::kAny &&
+      current_return_type_.type_args.front().kind != core::TypeKind::kUnknown &&
+      current_return_type_.type_args.front().kind != core::TypeKind::kAny &&
+      !AreTypesCompatible(inner, current_return_type_.type_args.front())) {
+    ReportStrictDiag(unwrap->loc, frontends::ErrorCode::kTypeMismatch,
+                     "postfix '?' inner type '" + inner.ToString() +
+                         "' is not assignment-compatible with the enclosing "
+                         "function's OPTION<" +
+                         current_return_type_.type_args.front().ToString() +
+                         "> return type");
+  }
+
+  return inner;
+}
+
 // ============================================================================
 // Expression Analysis
 // ============================================================================
@@ -1550,6 +1625,10 @@ core::Type PloySema::AnalyzeExpression(const std::shared_ptr<Expression> &expr) 
 
   if (auto await_expr = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
     return AnalyzeAwaitExpression(await_expr);
+  }
+
+  if (auto unwrap_expr = std::dynamic_pointer_cast<OptionUnwrapExpression>(expr)) {
+    return AnalyzeOptionUnwrapExpression(unwrap_expr);
   }
 
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {

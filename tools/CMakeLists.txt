@@ -167,6 +167,46 @@ target_link_libraries(polydoc
     polyglot_common
 )
 
+# -- lsp_lib (Qt-free LSP client core, shared by polyui + polyls + tests) -----
+# Introduced by demand 2026-04-28-19.  The library defines the JSON-RPC
+# framing, the LSP message types, the abstract transport interface, the
+# loopback transport (for unit tests) and the session/capability registry.
+# Anything Qt-specific (log panel, stdio-via-QProcess transport) lives in
+# the polyui target instead.
+
+add_library(lsp_lib STATIC
+    ui/common/lsp/lsp_message.cpp
+    ui/common/lsp/lsp_capability_registry.cpp
+    ui/common/lsp/lsp_client.cpp
+    ui/common/lsp/lsp_session.cpp
+)
+
+target_include_directories(lsp_lib PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(lsp_lib PUBLIC nlohmann_json::nlohmann_json)
+
+# -- polyls_core (server-side library, shared by polyls + tests) --------------
+
+add_library(polyls_core STATIC
+    polyls/polyls_core/polyls_server.cpp
+    polyls/polyls_core/polyls_features.cpp
+)
+
+target_include_directories(polyls_core PUBLIC ${CMAKE_SOURCE_DIR})
+target_link_libraries(polyls_core PUBLIC
+    lsp_lib
+    frontend_ploy
+)
+
+# -- polyls (PolyglotCompiler self-hosted Language Server) --------------------
+
+add_executable(polyls
+    polyls/polyls.cpp
+)
+
+target_link_libraries(polyls
+    polyls_core
+)
+
 # -- polybench (benchmark suite) -----------------------------------------------
 
 add_executable(polybench
@@ -329,6 +369,13 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/data_models/flame_node.cpp
         ui/common/src/data_models/call_graph_model.cpp
         ui/common/src/data_models/timeline_model.cpp
+        ui/common/lsp/lsp_log_panel.cpp
+        ui/common/src/lsp_bridge.cpp
+        ui/common/src/code_assist.cpp
+        ui/common/src/completion_ranker.cpp
+        ui/common/src/problems_aggregator.cpp
+        ui/common/src/problems_panel.cpp
+        ui/common/src/workspace_scanner.cpp
         polyc/src/foreign_signature_extractor.cpp
     )
 
@@ -360,6 +407,12 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/include/data_models/flame_node.h
         ui/common/include/data_models/call_graph_model.h
         ui/common/include/data_models/timeline_model.h
+        ui/common/lsp/lsp_log_panel.h
+        ui/common/include/lsp_bridge.h
+        ui/common/include/code_assist.h
+        ui/common/include/problems_aggregator.h
+        ui/common/include/problems_panel.h
+        ui/common/include/workspace_scanner.h
     )
 
     add_executable(polyui
@@ -395,6 +448,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         runtime
         topo_lib
         polyglot_tools_settings
+        lsp_lib
         nlohmann_json::nlohmann_json
     )
 

@@ -95,18 +95,54 @@ The Markdown form pairs each entry with a synthesised signature line
 form records the same data plus the source file path so downstream
 toolchains can index it.
 
-## 6. `LIST<T>` naming clarification
+## 6. Postfix `?` short-circuit unwrap (since v1.19.0)
+
+`expr?` is a postfix expression that unwraps an `OPTION<T>` operand:
+
+```ploy
+FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
+    LET v = opt?;        // returns None early when `opt` is None
+    RETURN Some(v + 1);
+}
+```
+
+Implementation:
+
+- The lexer emits `?` as a single-character `kSymbol` token.
+- The parser handles `?` at the end of every postfix chain in
+  `ParsePostfix`, wrapping the preceding expression in a new
+  `OptionUnwrapExpression` AST node.
+- Sema (`AnalyzeOptionUnwrapExpression`) requires the operand to be
+  `OPTION<T>`, requires the enclosing function to return some
+  `OPTION<U>`, and reports a strict-mode warning if `T` is not
+  assignment-compatible with `U`.  The expression result type is the
+  inner `T`.
+- Lowering (`LowerOptionUnwrapExpression`) emits one conditional
+  branch on the operand's truthiness: `Some` continues with the
+  unwrapped value, `None` synthesises an early return matching the
+  enclosing function's `ret_type` (bare `ret` for void, `ret 0`
+  otherwise — matching the i64-collapsed OPTION layout used elsewhere
+  in this lowering).
+
+Disambiguation against the future error-propagation form (which will
+share the same `?` token on `Result<T, E>` / `Error`-returning calls)
+is by operand type: `OPTION` triggers the rules above, `Error`-shaped
+operands will trigger the propagation rules in a later release.
+
+## 7. `LIST<T>` naming clarification
 
 `LIST<T>` is a contiguous-sequence container — equivalent to Rust
 `Vec<T>` and C++ `std::vector<T>`.  It is **not** a linked list.  The
 spec, this document, and the IDE tooltips all carry the same wording
 to avoid confusion with linked-list APIs.
 
-## 7. Tests
+## 8. Tests
 
-- `tests/unit/frontends/ploy/polish_grammar_test.cpp` (11 cases):
+- `tests/unit/frontends/ploy/polish_grammar_test.cpp`:
   optional parens on IF/WHILE/FOR, `IF LET Some` / `IF LET None`,
   `NULL`-with-OPTION diagnostic, `///` capture for FUNC / STRUCT /
-  LET, and the `//`-vs-`///` boundary.
+  LET, the `//`-vs-`///` boundary, and (since v1.19.0) the postfix
+  `?` parser / sema cases for both happy paths and the typed-error
+  branches.
 - `tests/samples/41_grammar_polish/` exercises the new constructs
   end-to-end and is referenced from the samples README.

@@ -37,12 +37,15 @@
 #include "tools/ui/common/include/file_browser.h"
 #include "tools/ui/common/include/git_panel.h"
 #include "tools/ui/common/include/keybinding_service.h"
+#include "tools/ui/common/include/lsp_bridge.h"
 #include "tools/ui/common/include/mainwindow.h"
 #include "tools/ui/common/include/markdown_viewer.h"
 #include "tools/ui/common/include/output_panel.h"
 #include "tools/ui/common/include/panel_manager.h"
 #include "tools/ui/common/include/profile_session.h"
 #include "tools/ui/common/include/profiler_panel.h"
+#include "tools/ui/common/include/problems_aggregator.h"
+#include "tools/ui/common/include/problems_panel.h"
 #include "tools/ui/common/include/settings_dialog.h"
 #include "tools/ui/common/include/settings_page.h"
 #include "tools/ui/common/include/settings_service.h"
@@ -52,6 +55,8 @@
 #include "tools/ui/common/include/theme_manager_view.h"
 #include "tools/ui/common/include/theme_service.h"
 #include "tools/ui/common/include/topology_panel.h"
+#include "tools/ui/common/include/workspace_scanner.h"
+#include "tools/ui/common/lsp/lsp_log_panel.h"
 
 namespace polyglot::tools::ui {
 
@@ -96,6 +101,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+  if (lsp_bridge_) {
+    lsp_bridge_->Shutdown();
+  }
   SaveState();
 }
 
@@ -181,6 +189,55 @@ void MainWindow::SetupDockWidgets() {
   call_analyzer_panel_ = new CallAnalyzerPanel();
   call_analyzer_panel_->SetSession(profiler_panel_->Session());
 
+  // LSP log panel — shows JSON-RPC traffic for every active language server
+  // session.  The IdeLspBridge is constructed alongside it so it can route
+  // log handlers + diagnostics to this widget and to the editors.
+  lsp_log_panel_ = new lsp::LspLogPanel();
+  lsp_bridge_ = new IdeLspBridge(&SettingsService::Instance(), lsp_log_panel_, this);
+
+  // Workspace-wide diagnostics aggregator (LSP + compiler + polyc --check)
+  // and the matching Problems panel.  Aggregator is owned by MainWindow,
+  // panel borrows the pointer.  Wired before any panel registration so
+  // the LSP bridge can publish from its first didOpen onwards.
+  problems_aggregator_ = std::make_unique<ProblemsAggregator>();
+  lsp_bridge_->SetProblemsAggregator(problems_aggregator_.get());
+  problems_panel_ = new ProblemsPanel(problems_aggregator_.get());
+
+  // Background workspace scanner — pushes diagnostics for every source
+  // file under the workspace root into the aggregator under the
+  // dedicated "polyc-bg" source so the panel can distinguish background
+  // results from on-demand compile output.  Reacts to settings reloads
+  // (workspace switch) and to file-system events for incremental
+  // updates.  Implements demand 2026-04-28-20 §2.
+  workspace_scanner_ =
+      new WorkspaceScanner(problems_aggregator_.get(), compiler_service_.get(), this);
+  connect(workspace_scanner_, &WorkspaceScanner::ProgressUpdated, this,
+          [this](int done, int total) {
+            if (status_message_ && total > 0) {
+              status_message_->setText(
+                  tr("Indexing workspace: %1 / %2").arg(done).arg(total));
+            }
+          });
+  connect(workspace_scanner_, &WorkspaceScanner::ScanFinished, this,
+          [this](int total) {
+            if (status_message_) {
+              status_message_->setText(
+                  total > 0 ? tr("Workspace indexed (%1 files)").arg(total)
+                            : tr("Ready"));
+            }
+          });
+  connect(&SettingsService::Instance(), &SettingsService::settingsReloaded,
+          workspace_scanner_, [this]() {
+            if (workspace_scanner_) {
+              workspace_scanner_->SetWorkspaceRoot(
+                  SettingsService::Instance().WorkspaceRoot());
+            }
+          });
+  // Kick off an initial scan if a root is already configured.
+  if (!SettingsService::Instance().WorkspaceRoot().isEmpty()) {
+    workspace_scanner_->SetWorkspaceRoot(SettingsService::Instance().WorkspaceRoot());
+  }
+
   // Create PanelManager to manage bottom panel tabs
   panel_manager_ = new PanelManager(bottom_tabs_, this);
   panel_manager_->RegisterPanel("output", output_panel_, "Output");
@@ -191,6 +248,8 @@ void MainWindow::SetupDockWidgets() {
   panel_manager_->RegisterPanel("topology", topology_panel_, "Topology");
   panel_manager_->RegisterPanel("profiler", profiler_panel_, "Profiler");
   panel_manager_->RegisterPanel("call_analyzer", call_analyzer_panel_, "Call Analyzer");
+  panel_manager_->RegisterPanel("lsp", lsp_log_panel_, "LSP");
+  panel_manager_->RegisterPanel("problems", problems_panel_, "Problems");
 
   // Settings dialog (lazily shown, but create now for signal wiring)
   settings_dialog_ = new SettingsDialog(this);
@@ -512,6 +571,27 @@ void MainWindow::SetupStatusBar() {
   status_message_ = new QLabel("Ready");
   sb->addWidget(status_message_, 1);
 
+  // Problems counter — clickable label showing aggregated severity
+  // counts.  Activating it surfaces the Problems panel.  Implements the
+  // status-bar item from demand 2026-04-28-20 §1.
+  status_problems_ = new QLabel("E:0  W:0  I:0  H:0");
+  status_problems_->setToolTip(tr("Click to open the Problems panel"));
+  status_problems_->setCursor(Qt::PointingHandCursor);
+  status_problems_->setContentsMargins(8, 0, 8, 0);
+  // Use the QLabel::linkActivated signal as a portable, subclass-free
+  // click hook: render the counter as rich text whose only content is a
+  // self-link and react when the user activates it.
+  static const auto open_problems = [this]() {
+    if (panel_manager_) panel_manager_->ShowPanel("problems");
+  };
+  status_problems_->setTextFormat(Qt::RichText);
+  status_problems_->setText(QStringLiteral(
+      "<a href=\"#problems\" style=\"color:inherit;text-decoration:none\">"
+      "E:0&nbsp;&nbsp;W:0&nbsp;&nbsp;I:0&nbsp;&nbsp;H:0</a>"));
+  connect(status_problems_, &QLabel::linkActivated, this,
+          [](const QString &) { open_problems(); });
+  sb->addPermanentWidget(status_problems_);
+
   status_language_ = new QLabel("Ploy");
   sb->addPermanentWidget(status_language_);
 
@@ -520,6 +600,44 @@ void MainWindow::SetupStatusBar() {
 
   status_position_ = new QLabel("Ln 1, Col 1");
   sb->addPermanentWidget(status_position_);
+
+  // Live counter refresh: ProblemsPanel emits AggregatorChanged after
+  // every aggregator-driven rebuild.  We subscribe here so the status
+  // label and the panel stay perfectly in sync.
+  if (problems_panel_) {
+    connect(problems_panel_, &ProblemsPanel::AggregatorChanged, this, [this]() {
+      if (!status_problems_ || !problems_aggregator_) return;
+      const auto c = problems_aggregator_->CountAll();
+      status_problems_->setText(
+          QStringLiteral(
+              "<a href=\"#problems\" style=\"color:inherit;text-decoration:none\">"
+              "E:%1&nbsp;&nbsp;W:%2&nbsp;&nbsp;I:%3&nbsp;&nbsp;H:%4</a>")
+              .arg(c.errors)
+              .arg(c.warnings)
+              .arg(c.information)
+              .arg(c.hints));
+    });
+    connect(problems_panel_, &ProblemsPanel::OpenFileRequested, this,
+            [this](const QString &file, int line, int column) {
+              if (file.isEmpty()) return;
+              const int idx = OpenFileInTab(file);
+              if (idx < 0) return;
+              if (CodeEditor *ed = EditorAt(idx)) {
+                QTextCursor cursor = ed->textCursor();
+                cursor.movePosition(QTextCursor::Start);
+                if (line > 0) {
+                  cursor.movePosition(QTextCursor::Down, QTextCursor::MoveAnchor,
+                                      std::max(0, line - 1));
+                }
+                if (column > 0) {
+                  cursor.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor,
+                                      std::max(0, column - 1));
+                }
+                ed->setTextCursor(cursor);
+                ed->setFocus();
+              }
+            });
+  }
 }
 
 // ============================================================================
@@ -1294,6 +1412,9 @@ void MainWindow::Save() {
                                             editor->toPlainText().toStdString(),
                                             it->second.language.toStdString());
     }
+    if (lsp_bridge_) {
+      lsp_bridge_->NotifySaved(editor);
+    }
   } else {
     QMessageBox::warning(this, "Save Error", "Could not save file: " + it->second.file_path);
   }
@@ -1366,6 +1487,22 @@ void MainWindow::CloseTab(int index) {
   if (!MaybeSave(index))
     return;
 
+  if (lsp_bridge_) {
+    if (CodeEditor *editor = EditorAt(index)) {
+      lsp_bridge_->Untrack(editor);
+    }
+  }
+
+  // Drop any aggregated diagnostics keyed by this file path.  The
+  // (untitled:*) URI used by the LSP bridge for unsaved buffers does
+  // not survive tab close, so clearing by file_path is sufficient.
+  if (problems_aggregator_) {
+    auto info_it = tab_info_.find(index);
+    if (info_it != tab_info_.end() && !info_it->second.file_path.isEmpty()) {
+      problems_aggregator_->ClearFile(info_it->second.file_path.toStdString());
+    }
+  }
+
   tab_info_.erase(index);
   editor_tabs_->removeTab(index);
 
@@ -1429,6 +1566,12 @@ int MainWindow::OpenFileInTab(const QString &path) {
   if (editor && compiler_service_) {
     compiler_service_->IndexWorkspaceFile(path.toStdString(), content.toStdString(),
                                           language.toStdString());
+  }
+
+  // Hand off to the LSP bridge: opens the file with the configured server
+  // for this language and arms the debounced didChange pipeline.
+  if (editor && lsp_bridge_) {
+    lsp_bridge_->TrackEditor(editor, language);
   }
 
   return index;
@@ -1781,7 +1924,7 @@ void MainWindow::Compile() {
   output_panel_->AppendOutput(QString::fromStdString(result.output));
   output_panel_->AppendOutput(QString("Elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
-  output_panel_->ShowDiagnostics(result.diagnostics, it->second.file_path);
+  ShowDiagnostics(result.diagnostics, it->second.file_path);
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(result.diagnostics);
@@ -1833,7 +1976,7 @@ void MainWindow::CompileAndRun() {
   output_panel_->AppendOutput(
       QString("Compilation elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
-  output_panel_->ShowDiagnostics(result.diagnostics, it->second.file_path);
+  ShowDiagnostics(result.diagnostics, it->second.file_path);
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(result.diagnostics);
@@ -1971,7 +2114,7 @@ void MainWindow::AnalyzeCode() {
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
 
-  output_panel_->ShowDiagnostics(diagnostics, it->second.file_path);
+  ShowDiagnostics(diagnostics, it->second.file_path);
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(diagnostics);
@@ -2569,7 +2712,7 @@ void MainWindow::OnAnalysisTimerTimeout() {
   std::string filename = filename_qt.toStdString();
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
-  output_panel_->ShowDiagnostics(diagnostics, it->second.file_path);
+  ShowDiagnostics(diagnostics, it->second.file_path);
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(diagnostics);
@@ -3030,6 +3173,15 @@ void MainWindow::AppendOutput(const QString &text) {
 void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
                                  const QString &file) {
   output_panel_->ShowDiagnostics(diagnostics, file);
+  // Mirror compile / analyse diagnostics into the workspace-wide
+  // Problems aggregator so the panel and the status-bar counter stay in
+  // sync with the Output panel.  Every call replaces the previous slice
+  // for this (file, "polyc") pair, including the empty case which
+  // clears stale entries when the build now succeeds.
+  if (problems_aggregator_ && !file.isEmpty()) {
+    problems_aggregator_->ReplaceFromDiagnosticInfo(
+        file.toStdString(), std::string("polyc"), diagnostics);
+  }
 }
 
 // ============================================================================

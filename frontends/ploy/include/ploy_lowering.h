@@ -137,6 +137,12 @@ private:
   // to suspend the current task until the awaited future resolves
   // (since v1.14.0).
   EvalResult LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await);
+  // Postfix `?` short-circuit unwrap of an `OPTION<T>` operand
+  // (since v1.19.0).  Lowered as a single conditional branch on the
+  // operand's truthiness: `Some` continues with the unwrapped value,
+  // `None` triggers an early return synthesised against the enclosing
+  // function's `ret_type`.
+  EvalResult LowerOptionUnwrapExpression(const std::shared_ptr<OptionUnwrapExpression> &unwrap);
   EvalResult LowerIdentifier(const std::shared_ptr<Identifier> &id);
   EvalResult LowerLiteral(const std::shared_ptr<Literal> &lit);
   EvalResult LowerConvertExpression(const std::shared_ptr<ConvertExpression> &conv);

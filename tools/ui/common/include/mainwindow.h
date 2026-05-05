@@ -34,15 +34,22 @@ class CompilerService;
 class DebugPanel;
 class FileBrowser;
 class GitPanel;
+class IdeLspBridge;
 class MarkdownViewer;
 class OutputPanel;
 class PanelManager;
-class SettingsDialog;
-class SyntaxHighlighter;
+class ProblemsAggregator;
+class ProblemsPanel;
+class SettingsDialog;class SyntaxHighlighter;
 class TerminalWidget;
 class TopologyPanel;
 class ProfilerPanel;
 class CallAnalyzerPanel;
+class WorkspaceScanner;
+
+namespace lsp {
+class LspLogPanel;
+}
 
 // ============================================================================
 // MainWindow — top-level IDE window
@@ -154,8 +161,6 @@ private slots:
 
   // Real-time analysis
   void OnAnalysisTimerTimeout();
-
-  // Language combo changed
   void OnLanguageChanged(int index);
   void OnEditorTabMoved(int from, int to);
 
@@ -243,6 +248,7 @@ private:
   QLabel *status_language_{nullptr};
   QLabel *status_encoding_{nullptr};
   QLabel *status_message_{nullptr};
+  QLabel *status_problems_{nullptr};   ///< "E:N W:N I:N H:N"; click → Problems panel
 
   // ── Actions ──────────────────────────────────────────────────────────
   QAction *action_new_{nullptr};
@@ -329,6 +335,13 @@ private:
   CallAnalyzerPanel *call_analyzer_panel_{nullptr};
   // ── Panel Manager ────────────────────────────────────────────────────
   PanelManager *panel_manager_{nullptr};
+  // ── LSP Bridge (per demand 2026-04-28-19) ────────────────────────────
+  IdeLspBridge *lsp_bridge_{nullptr};
+  lsp::LspLogPanel *lsp_log_panel_{nullptr};
+  // ── Problems aggregator + panel (real-time diagnostics) ──────────────
+  std::unique_ptr<ProblemsAggregator> problems_aggregator_;
+  ProblemsPanel *problems_panel_{nullptr};
+  WorkspaceScanner *workspace_scanner_{nullptr};
   // ── Action Manager ───────────────────────────────────────────────────
   ActionManager *action_manager_{nullptr};
   // ── Analysis timer (real-time error checking) ────────────────────────

@@ -17,14 +17,17 @@
 // ============================================================================
 
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include "common/include/version.h"
+#include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/frontend_registry.h"
 #include "backends/common/include/backend_registry.h"
 #include "backends/common/include/target_backend.h"
@@ -133,6 +136,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --regalloc=<mode>   linear-scan|graph-coloring\n"
           << "  --print-targets[=json|text]            List registered backends and exit\n"
           << "  --print-target-info=<triple>[:json]    Print one backend's info and exit\n"
+          << "  --check <file>      Run frontend analysis only and emit LSP-style JSON diagnostics\n"
           << "\n"
           << "External-package options:\n"
           << "  -I<path> / --I=<path>     C/C++ user header search path\n"
@@ -750,6 +754,134 @@ int main(int argc, char **argv) {
                   << polyglot::backends::ToHumanReadable(info);
       }
       return 0;
+    }
+    // ── --check <file> [--lang=<id>] ─────────────────────────────────
+    // Frontend-only diagnostics in LSP-style JSON for the IDE Problems
+    // panel.  Used as a fallback when no language server is configured
+    // for a file's language.  Implements demand 2026-04-28-20 §3.
+    //
+    // Accepts both `--check <file>` and `--check=<file>`; an optional
+    // `--lang=<id>` overrides language auto-detection.  Output schema is
+    // a single JSON object on stdout:
+    //   {"uri":"file:///abs/path","diagnostics":[
+    //     {"range":{"start":{"line":L,"character":C},
+    //               "end":{"line":L,"character":C}},
+    //      "severity":1|2|3|4,"code":"E1234","source":"polyc",
+    //      "message":"...","suggestion":"..."}, ...]}
+    // Exit code: 0 when no diagnostics has severity=error, 1 otherwise,
+    // 2 on usage / I/O errors.
+    if (arg == "--check" || arg.rfind("--check=", 0) == 0) {
+      std::string check_path;
+      if (arg == "--check") {
+        if (i + 1 >= argc) {
+          std::cerr << "[polyc] --check requires a file path\n";
+          return 2;
+        }
+        check_path = argv[++i];
+      } else {
+        check_path = arg.substr(std::string("--check=").size());
+      }
+      std::string lang_override;
+      for (int j = 1; j < argc; ++j) {
+        std::string a = argv[j];
+        if (a.rfind("--lang=", 0) == 0) {
+          lang_override = a.substr(std::string("--lang=").size());
+          break;
+        }
+      }
+      const std::string source = ReadFileContent(check_path);
+      if (source.empty() && !fs::exists(check_path)) {
+        std::cerr << "[polyc] --check: cannot read file: " << check_path << "\n";
+        return 2;
+      }
+      const std::string language =
+          lang_override.empty() ? DetectLanguage(check_path) : lang_override;
+      auto *frontend =
+          polyglot::frontends::FrontendRegistry::Instance().Get(language);
+      if (!frontend) {
+        std::cerr << "[polyc] --check: no frontend registered for language '"
+                  << language << "'\n";
+        return 2;
+      }
+      polyglot::frontends::Diagnostics diags;
+      polyglot::frontends::FrontendOptions opts;
+      (void)frontend->Analyze(source, check_path, diags, opts);
+
+      // Emit LSP-style JSON.  We hand-format to avoid a dependency on the
+      // nlohmann::json header from this early exit point.
+      auto escape = [](const std::string &in) {
+        std::string out;
+        out.reserve(in.size() + 8);
+        for (char c : in) {
+          switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\b': out += "\\b";  break;
+            case '\f': out += "\\f";  break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:
+              if (static_cast<unsigned char>(c) < 0x20) {
+                char buf[8];
+                std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+                out += buf;
+              } else {
+                out += c;
+              }
+          }
+        }
+        return out;
+      };
+      auto file_uri = [](const std::string &p) -> std::string {
+        std::error_code ec;
+        fs::path abs = fs::weakly_canonical(p, ec);
+        if (ec) abs = fs::absolute(p, ec);
+        std::string s = abs.generic_string();
+        if (!s.empty() && s.front() != '/') s.insert(s.begin(), '/');
+        return std::string("file://") + s;
+      };
+      auto severity_code = [](polyglot::frontends::DiagnosticSeverity s) -> int {
+        switch (s) {
+          case polyglot::frontends::DiagnosticSeverity::kError:   return 1;
+          case polyglot::frontends::DiagnosticSeverity::kWarning: return 2;
+          case polyglot::frontends::DiagnosticSeverity::kNote:    return 3;
+        }
+        return 1;
+      };
+
+      std::ostringstream js;
+      js << "{\"uri\":\"" << escape(file_uri(check_path)) << "\","
+         << "\"diagnostics\":[";
+      bool first = true;
+      bool any_error = false;
+      for (const auto &d : diags.All()) {
+        if (!first) js << ',';
+        first = false;
+        // LSP positions are 0-based.
+        const std::size_t line_zero = d.loc.line > 0 ? d.loc.line - 1 : 0;
+        const std::size_t col_zero  = d.loc.column > 0 ? d.loc.column - 1 : 0;
+        js << "{\"range\":{\"start\":{\"line\":" << line_zero
+           << ",\"character\":" << col_zero << "},"
+           << "\"end\":{\"line\":" << line_zero
+           << ",\"character\":" << col_zero << "}},"
+           << "\"severity\":" << severity_code(d.severity) << ","
+           << "\"code\":\"E" << static_cast<int>(d.code) << "\","
+           << "\"source\":\"polyc\","
+           << "\"message\":\"" << escape(d.message) << "\"";
+        if (!d.suggestion.empty()) {
+          js << ",\"suggestion\":\"" << escape(d.suggestion) << "\"";
+        }
+        js << '}';
+        if (d.severity == polyglot::frontends::DiagnosticSeverity::kError) {
+          any_error = true;
+        }
+      }
+      js << "]}";
+      // Need <sstream> + <cstdio>; both already included transitively
+      // via standard headers above.
+      std::cout << js.str() << "\n";
+      return any_error ? 1 : 0;
     }
   }
 

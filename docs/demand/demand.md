@@ -2983,7 +2983,7 @@ done (74.8ms)
    - polydoc：抽取与渲染。
 8. 版本：minor 递进。完成后追加 `--end -done`。
 
---end
+--end -done
 
 2026-04-28-19
 
@@ -3023,7 +3023,7 @@ done (74.8ms)
 
 7. 版本：根 `CMakeLists.txt` minor 递进。规则 2/3/10 全部生效；不允许任何占位 / TODO；完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-20
@@ -3055,7 +3055,7 @@ done (74.8ms)
 
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-21
@@ -3090,7 +3090,7 @@ done (74.8ms)
 6. 文档：USER_GUIDE / tutorial 中英双语。
 7. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-22

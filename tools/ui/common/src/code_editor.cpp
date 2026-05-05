@@ -15,15 +15,20 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QRegularExpression>
 #include <QScrollBar>
 #include <QTextBlock>
+#include <QTimer>
 #include <QToolTip>
 #include <algorithm>
 #include <cmath>
 #include <unordered_set>
 
+#include "tools/ui/common/include/code_assist.h"
 #include "tools/ui/common/include/code_editor.h"
 #include "tools/ui/common/include/compiler_service.h"
+#include "tools/ui/common/include/completion_ranker.h"
+#include "tools/ui/common/include/lsp_bridge.h"
 #include "tools/ui/common/include/theme_manager.h"
 
 namespace polyglot::tools::ui {
@@ -58,6 +63,40 @@ CodeEditor::CodeEditor(QWidget *parent) : QPlainTextEdit(parent) {
   // Completion popup
   completion_popup_ = new CompletionPopup(this);
   connect(completion_popup_, &QListView::clicked, this, &CodeEditor::OnCompletionAccepted);
+
+  // Snippet + hover + signature help (demand 2026-04-28-21).
+  snippet_expander_ = new SnippetExpander(this, this);
+  hover_tooltip_ = new HoverTooltip(this);
+  signature_widget_ = new SignatureHelpWidget(this);
+  hover_timer_ = new QTimer(this);
+  hover_timer_->setSingleShot(true);
+  hover_timer_->setInterval(450);
+  connect(hover_timer_, &QTimer::timeout, this, [this]() {
+    if (!lsp_bridge_) return;
+    QTextCursor tc = cursorForPosition(viewport()->mapFromGlobal(last_hover_pos_));
+    const int line = tc.blockNumber();
+    const int character = tc.positionInBlock();
+    QPoint anchor = last_hover_pos_;
+    lsp_bridge_->RequestHover(this, line, character,
+        [this, anchor](const lsp::Json &result) {
+          if (result.is_null()) {
+            hover_tooltip_->HideTooltip();
+            return;
+          }
+          QString text;
+          try {
+            const auto &contents = result.at("contents");
+            if (contents.is_object() && contents.contains("value")) {
+              text = QString::fromStdString(contents.at("value").get<std::string>());
+            } else if (contents.is_string()) {
+              text = QString::fromStdString(contents.get<std::string>());
+            }
+          } catch (...) {
+          }
+          hover_tooltip_->ShowMarkdown(text, anchor);
+        });
+  });
+  setMouseTracking(true);
 
   connect(this, &CodeEditor::blockCountChanged, this, &CodeEditor::UpdateLineNumberAreaWidth);
   connect(this, &CodeEditor::updateRequest, this, &CodeEditor::UpdateLineNumberArea);
@@ -367,6 +406,58 @@ void CodeEditor::ApplyTheme() {
 // ============================================================================
 
 void CodeEditor::keyPressEvent(QKeyEvent *event) {
+  // Two-stroke chord: Ctrl+K Ctrl+I → manual hover request.
+  if (waiting_ctrl_k_chord_) {
+    waiting_ctrl_k_chord_ = false;
+    if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_I) {
+      RequestHoverAtCursor();
+      return;
+    }
+    // Fall through — chord not recognised, treat the second key normally.
+  }
+  if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_K) {
+    waiting_ctrl_k_chord_ = true;
+    return;
+  }
+
+  // Ctrl+Space → manual completion.
+  if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_Space) {
+    TriggerCompletion();
+    return;
+  }
+  // Ctrl+Shift+Space → manual signature help.
+  if ((event->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier)) ==
+          (Qt::ControlModifier | Qt::ShiftModifier) &&
+      event->key() == Qt::Key_Space) {
+    RequestSignatureHelpAtCursor();
+    return;
+  }
+
+  // Snippet Tab navigation (when the expander has live stops).
+  if (event->key() == Qt::Key_Tab && snippet_expander_->Active() &&
+      !(event->modifiers() & Qt::ShiftModifier)) {
+    if (snippet_expander_->AdvanceToNextStop()) return;
+  }
+  if (event->key() == Qt::Key_Escape) {
+    snippet_expander_->Cancel();
+    hover_tooltip_->HideTooltip();
+    signature_widget_->HideHelp();
+    // Keep going so the popup branch below can also handle Esc.
+  }
+
+  // Signature-help overload navigation (only when the popup is visible
+  // and the editor has no other modal context).
+  if (signature_widget_->IsActive() && !completion_popup_->isVisible()) {
+    if (event->key() == Qt::Key_Up) {
+      signature_widget_->PrevOverload();
+      return;
+    }
+    if (event->key() == Qt::Key_Down) {
+      signature_widget_->NextOverload();
+      return;
+    }
+  }
+
   // If the completion popup is visible, handle navigation keys
   if (completion_popup_->isVisible()) {
     if (event->key() == Qt::Key_Escape) {
@@ -466,6 +557,13 @@ void CodeEditor::keyPressEvent(QKeyEvent *event) {
     QChar ch = event->text().at(0);
     if (ch.isLetterOrNumber() || ch == '_') {
       TriggerCompletion();
+    } else if (ch == QLatin1Char('.') || ch == QLatin1Char(':')) {
+      // `.` and `::` are language-server trigger characters per
+      // demand 2026-04-28-21 §1.1.
+      TriggerCompletion();
+    } else if (ch == QLatin1Char('(')) {
+      RequestSignatureHelpAtCursor();
+      completion_popup_->Hide();
     } else {
       completion_popup_->Hide();
     }
@@ -544,6 +642,62 @@ std::vector<CompletionItem> CodeEditor::CollectIdentifierCompletions(
 
 void CodeEditor::TriggerCompletion() {
   QString prefix = WordUnderCursor();
+
+  // Prefer the language server when configured.
+  if (lsp_bridge_) {
+    QTextCursor tc = textCursor();
+    const int line = tc.blockNumber();
+    const int character = tc.positionInBlock();
+    const QPoint anchor = mapToGlobal(cursorRect(tc).bottomLeft() + QPoint(0, 2));
+    const std::string needle = prefix.toStdString();
+    const int strategy = completion_match_strategy_;
+    lsp_bridge_->RequestCompletion(this, line, character,
+        [this, anchor, needle, strategy](const lsp::Json &result) {
+          std::vector<CompletionItem> items;
+          try {
+            const lsp::Json &arr = result.is_array() ? result
+                                                     : result.value("items", lsp::Json::array());
+            for (const auto &it : arr) {
+              CompletionItem ci;
+              ci.label = it.value("label", std::string());
+              ci.detail = it.value("detail", std::string());
+              ci.insert_text = it.value("insertText", ci.label);
+              const int kind = it.value("kind", 0);
+              switch (kind) {
+                case 3: ci.kind = "function"; break;
+                case 6: ci.kind = "variable"; break;
+                case 9: ci.kind = "module"; break;
+                case 14: ci.kind = "keyword"; break;
+                case 22: ci.kind = "type"; break;
+                default: ci.kind = "identifier"; break;
+              }
+              items.push_back(std::move(ci));
+            }
+          } catch (...) {
+          }
+
+          // Rank with the active match strategy.
+          const auto strat = static_cast<CompletionMatchStrategy>(strategy);
+          std::vector<std::pair<int, CompletionItem>> ranked;
+          ranked.reserve(items.size());
+          for (auto &ci : items) {
+            const int score = ScoreCompletion(ci.label, needle, strat);
+            if (score >= 0) ranked.emplace_back(score, std::move(ci));
+          }
+          std::stable_sort(ranked.begin(), ranked.end(),
+                           [](const auto &a, const auto &b) { return a.first > b.first; });
+          std::vector<CompletionItem> filtered;
+          filtered.reserve(ranked.size());
+          for (auto &pr : ranked) filtered.push_back(std::move(pr.second));
+          if (filtered.empty()) {
+            completion_popup_->Hide();
+            return;
+          }
+          completion_popup_->ShowCompletions(filtered, anchor);
+        });
+    return;
+  }
+
   if (prefix.length() < 1) {
     completion_popup_->Hide();
     return;
@@ -603,14 +757,104 @@ void CodeEditor::OnCompletionAccepted(const QModelIndex &index) {
     return;
 
   const CompletionItem &item = completion_popup_->Model()->ItemAt(index.row());
-
-  // Replace the current prefix with the completion text
-  QTextCursor tc = textCursor();
-  tc.movePosition(QTextCursor::StartOfWord, QTextCursor::KeepAnchor);
-  tc.insertText(QString::fromStdString(item.label));
-  setTextCursor(tc);
+  const QString insert_text =
+      QString::fromStdString(item.insert_text.empty() ? item.label : item.insert_text);
 
   completion_popup_->Hide();
+
+  // Snippet items contain LSP-style placeholders (`${1:name}` or `$1`).
+  if (insert_text.contains(QStringLiteral("${")) ||
+      insert_text.contains(QRegularExpression(QStringLiteral("\\$\\d")))) {
+    snippet_expander_->ExpandAtCursor(insert_text, /*replace_word=*/true);
+    return;
+  }
+
+  // Plain replacement.
+  QTextCursor tc = textCursor();
+  tc.movePosition(QTextCursor::StartOfWord, QTextCursor::KeepAnchor);
+  tc.insertText(insert_text);
+  setTextCursor(tc);
+}
+
+// ============================================================================
+// LSP-driven hover / signature help (demand 2026-04-28-21)
+// ============================================================================
+
+void CodeEditor::RequestHoverAtCursor() {
+  if (!lsp_bridge_) return;
+  QTextCursor tc = textCursor();
+  const int line = tc.blockNumber();
+  const int character = tc.positionInBlock();
+  const QPoint anchor = mapToGlobal(cursorRect(tc).bottomLeft());
+  lsp_bridge_->RequestHover(this, line, character,
+      [this, anchor](const lsp::Json &result) {
+        if (result.is_null()) {
+          hover_tooltip_->HideTooltip();
+          return;
+        }
+        QString text;
+        try {
+          const auto &contents = result.at("contents");
+          if (contents.is_object() && contents.contains("value")) {
+            text = QString::fromStdString(contents.at("value").get<std::string>());
+          } else if (contents.is_string()) {
+            text = QString::fromStdString(contents.get<std::string>());
+          }
+        } catch (...) {
+        }
+        hover_tooltip_->ShowMarkdown(text, anchor);
+      });
+}
+
+void CodeEditor::RequestSignatureHelpAtCursor() {
+  if (!lsp_bridge_) {
+    signature_widget_->HideHelp();
+    return;
+  }
+  QTextCursor tc = textCursor();
+  const int line = tc.blockNumber();
+  const int character = tc.positionInBlock();
+  const QPoint anchor = mapToGlobal(cursorRect(tc).topLeft());
+  lsp_bridge_->RequestSignatureHelp(this, line, character,
+      [this, anchor](const lsp::Json &result) {
+        if (result.is_null()) {
+          signature_widget_->HideHelp();
+          return;
+        }
+        QVector<SignatureRecord> sigs;
+        int active_sig = 0;
+        int active_param = 0;
+        try {
+          if (result.contains("activeSignature"))
+            active_sig = result.at("activeSignature").get<int>();
+          if (result.contains("activeParameter"))
+            active_param = result.at("activeParameter").get<int>();
+          for (const auto &s : result.at("signatures")) {
+            SignatureRecord r;
+            r.label = QString::fromStdString(s.value("label", std::string()));
+            if (s.contains("documentation")) {
+              const auto &doc = s.at("documentation");
+              if (doc.is_string())
+                r.documentation = QString::fromStdString(doc.get<std::string>());
+              else if (doc.is_object() && doc.contains("value"))
+                r.documentation =
+                    QString::fromStdString(doc.at("value").get<std::string>());
+            }
+            if (s.contains("parameters") && s.at("parameters").is_array()) {
+              for (const auto &p : s.at("parameters")) {
+                r.parameter_labels.append(
+                    QString::fromStdString(p.value("label", std::string())));
+              }
+            }
+            sigs.append(r);
+          }
+        } catch (...) {
+        }
+        if (sigs.isEmpty())
+          signature_widget_->HideHelp();
+        else
+          signature_widget_->ShowSignatures(sigs, active_sig, active_param, anchor);
+      });
 }
 
 // ============================================================================
@@ -779,6 +1023,12 @@ void CodeEditor::mouseMoveEvent(QMouseEvent *event) {
     }
   } else {
     viewport()->setCursor(Qt::IBeamCursor);
+  }
+  // Schedule a hover request when the cursor stops moving over an
+  // identifier (debounced via hover_timer_).
+  if (lsp_bridge_) {
+    last_hover_pos_ = event->globalPosition().toPoint();
+    hover_timer_->start();
   }
   QPlainTextEdit::mouseMoveEvent(event);
 }
