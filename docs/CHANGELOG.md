@@ -13,6 +13,515 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.42.0-pre.4 (2026-05-05)
+
+**PE linker glue (BIN-4): real `Linker::GeneratePEDll`, `.def` files, export tables, relocation translation.**
+
+- New `tools/polyld/include/linker_pe.h` + `tools/polyld/src/linker_pe.cpp` carrying the PE-side linker plumbing in the same `polyglot::linker` family as `linker.cpp`.
+- `Linker::GeneratePEDll()` is a real implementation: sets `IMAGE_FILE_DLL` (0x2000) via `BuildRequest::extra_file_characteristics`, embeds an `IMAGE_EXPORT_DIRECTORY` built by `pe::BuildExportSection` (EAT + Name Pointer Table + Ordinal Table + DLL name + per-export name strings), and post-patches the Optional Header's Export Data Directory entry. Default DLL preferred base is 0x180000000.
+- `pe::ParseDefFile` parses Microsoft `.def` files (`LIBRARY` + `EXPORTS` sections, including `name=internal`, `@N`, `NONAME`, `DATA`, `PRIVATE` decorations, `;`/`#` comments). `pe::ParseCliExportSpec` accepts the same right-hand-side grammar from `--def`-less command lines. `pe::MergeExports` deduplicates by public name and reports incompatible re-declarations as `polyld-err-E3201`.
+- `pe::TranslateRelocationsToPEBaseRelocs` converts neutral `Relocation` codes into PE base-relocation entries (DIR64 / HIGHLOW / ARM64 page family). Unsupported codes — including ELF-only `R_X86_64_GOTPCREL` and friends — raise `polyld-err-E3210` and the call returns `false` while still finishing translation of the rest.
+- New polyld driver flags: `--def <file>`, `/EXPORT:<spec>` (cl-style), `--export <spec>` (GNU-style), `--dll-name <name>`. `LinkerConfig` grows `def_files`, `cli_export_specs`, `dll_name`.
+- New unit tests under `tests/unit/linker/linker_pe_test.cpp` cover `.def` parsing, `/EXPORT` parsing, conflict reporting, byte-level export-section layout assertions, and the relocation translator's success / E3210 paths.
+- Bilingual `docs/realization/binary_containers_{en,zh}.md` gain a "PE path details" section documenting export sources, the `.edata` byte layout, the relocation translation table, and the new error codes.
+- Test-suite baselines: `test_core "[common]"` 133/9, `test_linker` 503/87 (was 452/82 — +51/+5), `unit_tests "[polyui]"` 1304/238.
+
+---
+
+## v1.42.0-pre.3 (2026-05-05)
+
+**Hardened PE32+ writer (BIN-3).**
+
+- `BuildPE32PlusImage` now plans a multi-section layout in the canonical
+  order `.text / .data / .rdata / .bss / .pdata / .xdata / .idata /
+  .reloc`, emitting only those sections whose corresponding request
+  fields are non-empty. `.bss` is virtual-only (`SizeOfRawData = 0`).
+- `BaseRelocation` + `BuildBaseRelocSection` / `DecodeBaseRelocSection`:
+  encode page-grouped `IMAGE_BASE_RELOCATION` blocks (4 KiB pages,
+  4-byte aligned `SizeOfBlock` via `IMAGE_REL_BASED_ABSOLUTE` padding).
+  Non-empty `.reloc` clears `IMAGE_FILE_RELOCS_STRIPPED` and sets
+  `DYNAMIC_BASE` (+ `HIGH_ENTROPY_VA` for x64 / arm64).
+- `BuildRequest::machine` selects `IMAGE_FILE_MACHINE_AMD64 / ARM64 /
+  I386`. `BuildRequest::subsystem` selects `WindowsCui / WindowsGui /
+  EfiApplication / NativeDriver`. `BuildRequest::dll_characteristics`
+  overrides the writer's default; `extra_file_characteristics` is OR-ed
+  into the COFF Characteristics field (use `0x2000` for
+  `IMAGE_FILE_DLL`).
+- Data Directory[3] (Exception) and Data Directory[5] (Base Relocation)
+  are wired to `.pdata` and `.reloc` respectively when present.
+- New unit tests under `tests/unit/linker/pe_writer_hardened_test.cpp`
+  cover encoder round-trips, multi-section ordering, characteristics
+  toggling, and per-field overrides. Existing legacy `pe_writer_test`
+  cases pass byte-identically.
+- New realisation docs `docs/realization/pe_writer_{en,zh}.md`.
+
+---
+
+## v1.42.0-pre.2 (2026-05-05)
+
+**Linker container dispatch (BIN-2).**
+`Linker::GenerateOutput()` now switches on the resolved
+`(OutputFormat, BinaryContainer)` pair instead of hard-coding ELF.
+`Linker::ResolveContainerAndTriple()` runs in the constructor and
+folds the legacy `target_os` string into the canonical
+`target_triple` (so existing call sites keep working) and pins
+`effective_container_` once via
+[`ResolveContainer`](../common/include/binary_container.h).  Shared
+libraries become real images: ELF emits `ET_DYN` and Mach-O emits
+`MH_DYLIB` with `LC_ID_DYLIB` carrying the install name.  A new
+`Linker::GenerateWasmModule()` writes a structurally valid
+WebAssembly 1.0 module (preamble + Type / Function / Export / Code
+sections, exporting `_start`) and embeds the merged `.text`
+payload as a `polyglot.text` custom section.  PE shared libraries
+route through a new `Linker::GeneratePEDll()` (forwards to the
+PE32+ writer until BIN-4 wires the export directory).
+
+[`SuffixesFor`](../common/include/binary_container.h) /
+[`SuffixMatchesContainer`](../common/include/binary_container.h)
+expose the canonical container suffixes (`.exe / .dll / .lib` for
+PE, `.dylib` for Mach-O, `.so` for ELF, `.wasm` for Wasm) so the
+compiler driver can emit `polyc-warn-W2101` when a user-supplied
+`-o` path contradicts the resolved container.
+
+### Verified suites
+
+* `test_linker` — 75 cases / 381 assertions (incl. 6 dispatch cases).
+* `test_core "[common]"` — 9 cases / 133 assertions.
+* `unit_tests "[polyui]"` — 238 cases / 1304 assertions (regression).
+
+---
+
+## v1.42.0-pre.1 (2026-05-05)
+
+**Binary container & target-triple abstraction (BIN-1).**
+`polyglot::common::TargetTriple`
+([`common/include/target_triple.h`](../common/include/target_triple.h))
+is a strongly-typed `arch-vendor-os-env[-sub]` value with a
+non-throwing `ParseTargetTriple()`, host detection via
+`HostTriple()`, deterministic `str()` round-trip, equality and
+`std::hash`.  The parser covers the major triples
+(`x86_64-pc-windows-msvc`, `aarch64-apple-darwin`,
+`x86_64-unknown-linux-{gnu,musl}`, `aarch64-linux-android`,
+`riscv64-unknown-linux-gnu`, `wasm32-wasi`, …) and folds common
+aliases (`amd64 / x64`, `arm64`, `mingw32`, `gnueabihf`, `elf`).
+`polyglot::common::BinaryContainer`
+([`common/include/binary_container.h`](../common/include/binary_container.h))
+adds `kAuto / kELF / kPE / kMachO / kWasm` plus
+`ContainerForOS`, `DefaultOSForContainer` and
+`ResolveContainer(triple, requested)` (explicit request wins;
+`wasm32-*` always maps to `kWasm`).  `LinkerConfig` gains
+`target_triple`, `container` and a back-compatible `target_os`
+field so existing call sites keep compiling.  Triple-aware
+backend overloads and the real container dispatch in
+`Linker::GenerateOutput()` follow in BIN-2.
+
+This release opens the **1.5.0 pre-release cycle** on the
+unified version line — the pre-release suffix is encoded in
+`POLYGLOT_VERSION_SUFFIX` / `POLYGLOT_VERSION_STRING` and the
+emitted `VERSION.txt` reads `1.42.0-pre.1`.
+
+### Verified suites
+
+* `test_core "[common]"` — 9 cases / 133 assertions.
+* `unit_tests "[polyui]"` — 238 cases / 1304 assertions (regression).
+
+---
+
+## v1.41.0 (2026-05-05)
+[`ImageViewer`](../tools/ui/common/viewer/image_viewer.h) sniffs
+PNG / JPEG / WebP / GIF / SVG / BMP from leading magic bytes
+(falling back to the file extension for text-y formats),
+clamps zoom to 5 – 6400 %, supports pan, RGBA pixel pick on
+the row-major buffer and per-channel split (red / green / blue
+/ alpha).
+[`HexViewer`](../tools/ui/common/viewer/hex_viewer.h) is built
+for ≥ 1 GiB files: it reads through a chunked `HexReader`
+callback, bounds the search overlap to `needle.size() - 1`
+bytes so cross-chunk matches still hit, snaps `JumpTo` down to
+a row boundary, and tracks named highlights for tools like the
+linker's segment map.
+[`IdentifyBinary`](../tools/ui/common/viewer/binary_inspector.h)
+recognises ELF / PE / Mach-O / WASM containers and reports
+architecture (`x86_64`, `aarch64`, `wasm32`, ...), bitness,
+endianness and subsystem; `DisassemblerFacade` plugs into
+`polyasm` and emits a `.byte` placeholder for unsupported
+architectures so the panel never blanks out.
+[`SqlConsole`](../tools/ui/common/dbclient/sql_console.h)
+sits behind the abstract `SqlDriver` interface (the Qt build
+binds the SQLite driver, tests use a fake), records bounded
+history, surfaces driver errors verbatim, and pairs with
+`ResultPager` (fixed-size pages, computed page count) and
+`ExportCsv` (RFC-4180 quoting for commas, quotes and newlines).
+User-facing tutorial:
+[`tutorial/viewers_en.md`](tutorial/viewers_en.md) /
+[`tutorial/viewers_zh.md`](tutorial/viewers_zh.md), with a
+bilingual chapter in [`USER_GUIDE.md`](USER_GUIDE.md) and
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md).  Tests:
+[`tests/unit/polyui/viewers_test.cpp`](../tests/unit/polyui/viewers_test.cpp)
+(1304 polyui assertions across 238 cases, all green).
+
+---
+
+## v1.40.0 (2026-05-05)
+
+**i18n, accessibility and opt-in telemetry / crash reports.**
+[`StringCatalog`](../tools/ui/common/i18n/i18n.h) holds
+per-id, per-locale UI strings for the five built-in locales
+(`zh-CN`, `zh-TW`, `en`, `ja`, `ko`); lookups fall back through
+the configured fallback locale and finally the id itself, so
+the UI never blanks out on a missing string.  `Translator`
+binds a catalog to a current locale; the Qt layer plugs it
+into `QTranslator`.  `MissingStringScanner` is the CI gate
+that scans `tr("...")` calls and rejects hardcoded literals
+or unknown ids.
+[`FocusOrder`](../tools/ui/common/a11y/accessibility.h)
+maintains a deterministic keyboard tab chain that wraps around
+and skips disabled widgets; `ScreenReaderQueue` drains
+assertive announcements before polite ones for the platform
+accessibility bridge (UIA / AT-SPI / NSAccessibility);
+`AccessibilityProfile` aggregates the high-contrast, large-font
+(clamped 80–300 %) and reduce-motion switches and round-trips
+to JSON.
+[`ConsentManager`](../tools/ui/common/telemetry/telemetry.h)
+is off by default and can be revoked at any time;
+`FieldAllowList` strips every field not on the per-event
+allow-list before the event ever reaches the local preview;
+`TelemetryBuffer` is the bounded, user-inspectable log; and
+`CrashReportStore` always lands reports on disk first, with
+upload a separate gate.  Bilingual realisation docs:
+[`realization/i18n_en.md`](realization/i18n_en.md) /
+[`realization/i18n_zh.md`](realization/i18n_zh.md),
+[`realization/accessibility_en.md`](realization/accessibility_en.md) /
+[`realization/accessibility_zh.md`](realization/accessibility_zh.md),
+[`realization/telemetry_en.md`](realization/telemetry_en.md) /
+[`realization/telemetry_zh.md`](realization/telemetry_zh.md).
+User-facing chapter in [`USER_GUIDE.md`](USER_GUIDE.md) and
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md).  Tests:
+[`tests/unit/polyui/localization_test.cpp`](../tests/unit/polyui/localization_test.cpp)
+(1244 polyui assertions across 232 cases, all green).
+
+---
+
+## v1.39.0 (2026-05-05)
+
+**IDE shell: welcome page, notifications, customisable status
+bar, recent list, session restore, bookmarks and TODO index.**
+[`WelcomePage`](../tools/ui/common/shell/welcome.h) tracks recent
+workspaces (path-deduplicated, newest first), tutorial / sample
+entries and version-pinned what's-new tips; the page can be
+closed or pinned and serialises to JSON.
+[`NotificationCenter`](../tools/ui/common/shell/notifications.h)
+posts persistent notifications with severity (`info`, `warning`,
+`error`, `progress`), action buttons, an unread counter and a
+do-not-disturb mode that suppresses non-critical posts while
+letting warnings and errors through.
+[`StatusBar`](../tools/ui/common/shell/status_bar.h) seeds nine
+built-in slots (branch, problems, language, language-server,
+encoding, EOL, indent, package manager, profiler) and accepts
+third-party registrations; users can show / hide every slot,
+move it between left / right with a priority, and the layout
+round-trips to JSON.
+[`RecentList`](../tools/ui/common/shell/recent.h) is the bounded,
+pin-aware backing store for `Ctrl+R` (workspaces) and `Ctrl+E`
+(files): touching an entry promotes it, pinned entries always
+float above unpinned ones, and trimming preserves every pinned
+entry.
+[`SessionStore`](../tools/ui/common/shell/session.h) serialises
+the full editor session — split orientation, panes, tabs (with
+cursor / scroll / folds), panel sizes and visibility, debug view
+state (configuration, watch expressions, open views) and
+arbitrary string extras — and parses it back losslessly.
+[`BookmarkStore`](../tools/ui/common/shell/bookmarks.h) toggles
+labelled, colourable bookmarks per `(path, line)` and exposes
+per-file and global views.
+[`TodoIndex`](../tools/ui/common/shell/todo_index.h) rescans a
+file against a configurable keyword set (default: `TODO`,
+`FIXME`; user-extensible to `XXX`, `HACK`, ...), enforces word
+boundaries so `TODOMARKER` does not match, and aggregates counts
+per keyword for the summary panel.
+User-facing chapter in [`USER_GUIDE.md`](USER_GUIDE.md) and
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md); tutorial walkthrough
+in [`tutorial/shell_en.md`](tutorial/shell_en.md) /
+[`tutorial/shell_zh.md`](tutorial/shell_zh.md).  Tests:
+[`tests/unit/polyui/shell_test.cpp`](../tests/unit/polyui/shell_test.cpp)
+(1180 polyui assertions across 223 cases, all green).
+
+---
+
+## v1.38.0 (2026-05-05)
+
+**Extension system + local marketplace + multi-root workspace.**
+[`ExtensionHost`](../tools/ui/common/ext/extension_api.h) loads
+extensions described by an `extension.json` manifest (id, name,
+version, publisher, entry point, loader — native dynamic library
+or JavaScript / TypeScript bundle, activation events, required
+capabilities, contributions).  Contributions cover commands,
+keybindings, menus, panels, views, status-bar items, themes,
+language clients, debug adapters, file-icon themes, formatters,
+snippets, tasks and refactor providers; the registry dedupes per
+`(kind, id)` so re-activation never leaves stale entries.
+[`CapabilityGate`](../tools/ui/common/ext/extension_api.h) enforces
+explicit user grants for `filesystem`, `network`, `process`,
+`clipboard` and `secrets`; activation fails fast when any
+required capability is missing.
+[`Marketplace`](../tools/ui/common/ext/marketplace.h) parses a
+filesystem or HTTP index, picks the highest semver per id, and
+implements install / uninstall / update / rollback with a per-id
+history; `SignaturePolicy` optionally requires every install to
+carry a trusted signature.
+[`Workspace`](../tools/ui/common/workspace/workspace.h) parses /
+serialises `polyui.code-workspace`, manages multiple roots with
+per-root settings (folder value wins, otherwise workspace value),
+performs cross-root search and exposes `LanguageServerPool` so
+that polyls / DAP / task instances are isolated per
+`(folder, language, version)`.  Design notes:
+[`api/extension_api_en.md`](api/extension_api_en.md),
+[`realization/marketplace_en.md`](realization/marketplace_en.md);
+user-facing chapter in [`USER_GUIDE.md`](USER_GUIDE.md).  Tests:
+[`tests/unit/polyui/extension_api_test.cpp`](../tests/unit/polyui/extension_api_test.cpp),
+[`marketplace_test.cpp`](../tests/unit/polyui/marketplace_test.cpp),
+[`workspace_test.cpp`](../tests/unit/polyui/workspace_test.cpp)
+(1096 polyui assertions across 216 cases, all green).
+
+---
+
+## v1.37.0 (2026-05-05)
+
+**AI assistant integration + collaboration / PR.**
+[`AiProvider`](../tools/ui/common/ai/ai_provider.h) is the unified
+surface every IDE-side AI feature talks to: chat, FIM completion,
+inline ghost-text suggestion and refactor proposals.  Adapters
+ship for local Ollama, OpenAI-compatible HTTP, Azure OpenAI and
+Anthropic; no API key is ever embedded in the binary.  Privacy is
+enforced through `AiPrivacyPolicy` (master switch + workspace
+allow / deny lists + diagnostics / open-files toggles), and every
+remote call short-circuits with `finish_reason = "consent_denied"`
+until the user opts in.  Prompt templates support `{{name}}`
+substitution and `FilterContextPaths` / `PathPassesPolicy` gate
+the project-context collector.
+[`InlineSuggestionSession`](../tools/ui/common/ai/inline_suggestion.h)
+implements the Tab-accept / Esc-dismiss / Alt+] cycle state
+machine.
+[`RefactorReviewSession`](../tools/ui/common/ai/refactor_diff.h)
+tracks per-hunk accept / reject decisions and renders a unified
+diff for the accepted hunks.
+[`CollabProvider`](../tools/ui/common/collab/collab_provider.h)
+unifies pull-request listing, diff retrieval, review submission,
+branch push, issue creation, commit linking and file-line
+references across GitHub, GitLab and Gitea, with a deterministic
+`kInMemory` adapter for tests and offline mode.  See the design
+notes in
+[`realization/ai_integration_en.md`](realization/ai_integration_en.md)
+and
+[`realization/collab_en.md`](realization/collab_en.md);
+user-facing chapters live in [`USER_GUIDE.md`](USER_GUIDE.md).
+Tests:
+[`tests/unit/polyui/ai_provider_test.cpp`](../tests/unit/polyui/ai_provider_test.cpp),
+[`inline_suggestion_test.cpp`](../tests/unit/polyui/inline_suggestion_test.cpp),
+[`refactor_diff_test.cpp`](../tests/unit/polyui/refactor_diff_test.cpp)
+and
+[`collab_provider_test.cpp`](../tests/unit/polyui/collab_provider_test.cpp)
+(986 polyui assertions across 199 cases, all green).
+
+---
+
+## v1.36.0 (2026-05-05)
+
+**Remote Development — SSH / WSL / Container / Dev Container.**
+PolyUI now talks to remote workspaces through a single
+[`RemoteSession`](../tools/ui/common/remote/remote_session.h)
+abstraction.  `LocalRemote`, `SshRemote`, `WslRemote` and
+`ContainerRemote` (docker / podman) implement the same filesystem,
+process, port-forward and terminal API; polyls, the DAP, the task
+runner and the integrated terminal all consume the same
+interface.  `ParseConnectionString` recognises `local:`,
+`ssh://[user@]host[:port]/path`, `wsl://distro/path` and
+`container://[runtime/]image-or-id/path`.  Process spawning wraps
+every command in the matching transport invocation
+(`ssh -p <port> user@host -- <cmd>`, `wsl -d <distro> -- <cmd>`,
+`docker exec -u <user> <container> <cmd>`).
+[`DevContainer`](../tools/ui/common/remote/dev_container.h) parses
+`.devcontainer/devcontainer.json` (image, dockerFile,
+workspaceFolder, remoteUser, forwardPorts, postCreateCommand,
+features, remoteEnv), produces the matching `RemoteDescriptor`
+and a `ProvisionPlan` that always provisions polyls plus the LSP
+for every recognised dev-container feature (Python, Node, Java,
+Go, Rust, .NET, Ruby, C++).
+[`PlanSync`](../tools/ui/common/remote/file_sync.h) diffs a local
+and a remote file index and emits an upload / download / delete
+plan, with push-only and pull-only modes for the unidirectional
+cases.  See
+[`realization/remote_dev_en.md`](realization/remote_dev_en.md) for
+design notes; the user-facing chapter lives in
+[`USER_GUIDE.md`](USER_GUIDE.md).  Tests:
+[`tests/unit/polyui/remote_session_test.cpp`](../tests/unit/polyui/remote_session_test.cpp),
+[`dev_container_test.cpp`](../tests/unit/polyui/dev_container_test.cpp)
+and [`file_sync_test.cpp`](../tests/unit/polyui/file_sync_test.cpp)
+(875 polyui assertions across 178 cases, all green).
+
+---
+
+## v1.35.0 (2026-05-05)
+
+**Sample / Tutorial Browser, Topology Live and Inlay Hints.**
+PolyUI gains an in-tree sample/tutorial catalogue
+([`tools/ui/common/samples/sample_browser.h`](../tools/ui/common/samples/sample_browser.h))
+that indexes `tests/samples/` and `docs/tutorial/`, filters by
+language / topic / difficulty / free-text, and produces an
+*open-as-workspace-copy* `CopyPlan` so the IDE clones an entry into
+a destination directory without touching the source tree.
+[`LiveTopologyTracker`](../tools/ui/common/topology_live/topology_live.h)
+layers a focus-following view on top of the static topology graph:
+it subgraphs the project topology around the current symbol (or
+falls back to the active file), debounces edits, and resolves
+clicks on topology nodes back to source positions for instant
+editer→topology and topology→editor jumps.
+[`InlayHintProvider`](../tools/ui/common/inlay_hints/inlay_hints.h)
+backs polyls' `textDocument/inlayHint` response: type hints render
+as `: HANDLE<python::torch::nn::Linear>` after `LET ... = NEW(...)`
+declarations, parameter-name hints render as `x:` before each
+argument, and each family is independently toggleable through
+settings.  See
+[`realization/sample_topology_inlay_en.md`](realization/sample_topology_inlay_en.md)
+for design notes; the user-facing chapter lives in
+[`USER_GUIDE.md`](USER_GUIDE.md).  Tests:
+[`tests/unit/polyui/sample_browser_test.cpp`](../tests/unit/polyui/sample_browser_test.cpp),
+[`topology_live_test.cpp`](../tests/unit/polyui/topology_live_test.cpp)
+and [`inlay_hints_test.cpp`](../tests/unit/polyui/inlay_hints_test.cpp)
+(737 polyui assertions across 162 cases, all green).
+
+---
+
+## v1.34.0 (2026-05-05)
+
+**Compile Pipeline Inspector, IR Viewer / Diff and Asm Viewer with
+source↔asm linkage.**  PolyUI gains a Compiler-Explorer-style
+inspection stack under [`tools/ui/common/pipeline/`](../tools/ui/common/pipeline).
+[`PipelineRun`](../tools/ui/common/pipeline/pipeline_inspector.h)
+ingests `aux/pipeline.json` and exposes the six canonical stages
+(frontend, sema, IR pre-opt, IR post-opt, backend asm, link) with
+per-stage artefact paths and a histogram normalised against the
+longest stage so users can spot the bottleneck at a glance.
+[`IrModule`](../tools/ui/common/pipeline/ir_viewer.h) parses LLVM /
+MLIR style dumps into foldable function and basic-block trees,
+`DiffFunctions` produces a line-level LCS diff between pre-opt and
+post-opt versions, and `LineBindingTable` maintains the three-way
+source↔IR↔asset binding.
+[`AsmModule`](../tools/ui/common/pipeline/asm_viewer.h) parses
+textual disassembly for x86_64, arm64 and wasm, recognises DWARF
+`.file`/`.loc` directives and inline polyasm `; src=file:line`
+hints, and offers `AsmForSource` / `SourceForAsm` to drive the
+bidirectional source↔asm jump.  See
+[`realization/compile_pipeline_inspector_en.md`](realization/compile_pipeline_inspector_en.md)
+for design notes; the user-facing chapter lives in
+[`USER_GUIDE.md`](USER_GUIDE.md).  Tests:
+[`tests/unit/polyui/pipeline_inspector_test.cpp`](../tests/unit/polyui/pipeline_inspector_test.cpp),
+[`ir_viewer_test.cpp`](../tests/unit/polyui/ir_viewer_test.cpp) and
+[`asm_viewer_test.cpp`](../tests/unit/polyui/asm_viewer_test.cpp)
+(678 polyui assertions across 149 cases, all green).
+
+---
+
+## v1.33.0 (2026-05-05)
+
+**Cross-language navigation, Bridge panel and Marshalling
+visualisation.**  PolyUI consolidates the cross-language IDE
+features under [`tools/ui/common/cross_language/`](../tools/ui/common/cross_language).
+[`LinkRegistry`](../tools/ui/common/cross_language/cross_language_navigator.h)
+catalogues every `.ploy` `LINK` site alongside the host-language
+definitions resolved by polyls, so F12 from `LINK cpp::math::add`
+jumps directly to the C++ source and host-language definitions
+render a *X `.ploy` LINK references* CodeLens above their
+declaration.
+[`RenamePlanner`](../tools/ui/common/cross_language/cross_language_navigator.h)
+produces a single coordinated `WorkspaceEdit` plan that touches
+the `.ploy` link sites, the host-language definition and any
+LSP-discovered references in lockstep, ready for atomic submission
+through polyls.
+[`BridgePanelModel`](../tools/ui/common/cross_language/bridge_panel.h)
+ingests `aux/bridges.json` produced by polyc, listing every
+generated stub with its marshalling strategy, source location and
+live call count fed from the polyrt calltrace stream — re-imports
+preserve runtime counts.
+[`MarshallingViewBuilder`](../tools/ui/common/cross_language/marshalling_view.h)
+renders the IR-lowering → helper → ABI-adapter chain for every
+parameter and return value, either by parsing the
+`aux/marshalling.json` document or by synthesising the canonical
+three-stage pipeline from the bridge metadata for any of the five
+host languages (C++, Rust, Python, Java, .NET). See
+[`realization/cross_language_ide_en.md`](realization/cross_language_ide_en.md)
+for full design notes; the user-facing chapter lives in
+[`USER_GUIDE.md`](USER_GUIDE.md). Tests:
+[`tests/unit/polyui/cross_language_navigator_test.cpp`](../tests/unit/polyui/cross_language_navigator_test.cpp),
+[`bridge_panel_test.cpp`](../tests/unit/polyui/bridge_panel_test.cpp)
+and [`marshalling_view_test.cpp`](../tests/unit/polyui/marshalling_view_test.cpp)
+(626 polyui assertions across 139 cases, all green).
+
+---
+
+## v1.32.0 (2026-05-05)
+
+**Package management, dependency graph, vulnerability scan, REPL and
+Notebook.**  PolyUI gains a unified package surface under
+[`tools/ui/common/packages/`](../tools/ui/common/packages) covering
+twelve ecosystems through a single
+[`PackageManagerService`](../tools/ui/common/packages/package_manager.h):
+venv, conda, uv, pipenv, poetry, cargo, npm, maven, gradle, nuget,
+gem and go-mod. Each backend declares its manifest and lockfile
+names, the argv for install / upgrade / remove, and a parser that
+turns the lockfile into a `Package` list; the service runs commands
+through an injected `CommandExecutor`, so the value model is fully
+unit-testable. `SyncWithConfig` reconciles the resolved lockfile
+with the `.ploy CONFIG` block, reporting both directions of drift.
+[`DependencyGraph`](../tools/ui/common/packages/dependency_graph.h)
+backs the new dual tree + force-directed graph view, highlights
+version conflicts, and exports a self-contained SVG.
+[`VulnerabilityScanner`](../tools/ui/common/packages/vulnerability_scanner.h)
+parses both osv.dev and GitHub Advisory documents, matches resolved
+versions through `>=`, `<=`, `>`, `<`, `==` and comma-joined
+conjunctions, and supports per-id suppressions for accepted-risk
+decisions. The Notebook stack lives under
+[`tools/ui/common/notebook/`](../tools/ui/common/notebook):
+[`ReplSession`](../tools/ui/common/notebook/repl_session.h) wraps a
+long-lived engine through a pluggable `ReplTransport`, with default
+specs for `polyc --repl`, Python, IRust, IRB and dotnet-script;
+[`Notebook`](../tools/ui/common/notebook/notebook.h) carries code,
+markdown and cross-language `LINK` cells and round-trips through a
+`.polynb` JSON envelope. See
+[`realization/polyui_package_management_en.md`](realization/polyui_package_management_en.md)
+for full design notes; the user-facing chapter lives in
+[`USER_GUIDE.md`](USER_GUIDE.md). Tests:
+[`tests/unit/polyui/package_manager_test.cpp`](../tests/unit/polyui/package_manager_test.cpp),
+[`dependency_graph_test.cpp`](../tests/unit/polyui/dependency_graph_test.cpp),
+[`vulnerability_scanner_test.cpp`](../tests/unit/polyui/vulnerability_scanner_test.cpp)
+and [`notebook_test.cpp`](../tests/unit/polyui/notebook_test.cpp)
+(545 polyui assertions, all green).
+
+---
+
+## v1.31.0 (2026-05-05)
+
+**Test Explorer, Inline Run-Test, and Coverage View.**  PolyUI now
+ships a unified test surface under
+[`tools/ui/common/testing/`](../tools/ui/common/testing): the
+[`TestModel`](../tools/ui/common/testing/test_model.h) value tree
+(project → suite → case) backs the new Test Explorer panel and is
+fed by five `Parse*Report` adapters covering CTest CDash XML,
+JUnit/pytest XML, the cargo libtest JSON line stream, xUnit v2 XML
+and NUnit 3 XML. Status colouring, *failed-first* sort and
+per-suite aggregation are first-class.
+[`InlineTestLens`](../tools/ui/common/testing/inline_test_lens.h)
+provides ▶ Run / 🐞 Debug CodeLens entries above Catch2, pytest,
+Rust `#[test]`, JUnit `@Test`, xUnit `[Fact]`/`[Theory]` and NUnit
+`[Test]` declarations, and accepts failure messages back from the
+runner for inline diagnostics.
+[`CoverageModel`](../tools/ui/common/testing/coverage_model.h)
+loads lcov, Cobertura, coverage.py, cargo-tarpaulin and dotnet
+coverlet reports into per-file `line → hits` maps with workspace
+aggregate and `BelowThreshold` filtering for the gutter view.
+
+---
+
 ## v1.30.0 (2026-05-05)
 
 **Tasks, Run/Debug picker, and Hot Reload.**  PolyUI gains a

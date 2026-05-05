@@ -78,6 +78,17 @@ int main(int argc, char **argv) {
       config.aux_dir = argv[++i];
     } else if (arg == "--allow-adhoc-link") {
       config.allow_adhoc_link = true;
+    } else if (arg == "--def" && i + 1 < argc) {
+      // BIN-4: load exports from a .def file.
+      config.def_files.push_back(argv[++i]);
+    } else if (arg.rfind("/EXPORT:", 0) == 0) {
+      // BIN-4: cl-style export descriptor on the command line.
+      config.cli_export_specs.push_back(arg.substr(8));
+    } else if (arg == "--export" && i + 1 < argc) {
+      // GNU-style equivalent of /EXPORT: for cross-platform driver scripts.
+      config.cli_export_specs.push_back(argv[++i]);
+    } else if (arg == "--dll-name" && i + 1 < argc) {
+      config.dll_name = argv[++i];
     } else if (arg == "-v" || arg == "--verbose") {
       config.verbose = true;
     } else if (arg == "--trace") {
@@ -110,6 +121,10 @@ int main(int argc, char **argv) {
                 << "  --ploy-desc <f>  Load cross-language descriptors from file\n"
                 << "  --aux-dir <dir>  Auto-discover descriptors from aux directory\n"
                 << "  --allow-adhoc-link  Allow ad-hoc cross-language stubs\n"
+                << "  --def <file>     Load PE exports from a .def file\n"
+                << "  /EXPORT:<spec>   Add one PE export (cl-style)\n"
+                << "  --export <spec>  Add one PE export (GNU-style)\n"
+                << "  --dll-name <name> Override DLL name in export directory\n"
                 << "  -v, --verbose    Verbose output\n"
                 << "  --trace          Trace file loading\n"
                 << "  -h, --help       Show this help\n";

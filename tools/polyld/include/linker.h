@@ -8,6 +8,9 @@
  */
 #pragma once
 
+#include "common/include/binary_container.h"
+#include "common/include/target_triple.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -411,6 +414,19 @@ struct LinkerConfig {
   OutputFormat output_format{OutputFormat::kExecutable};
   TargetArch target_arch{TargetArch::kX86_64};
 
+  // ---- BIN-1 abstraction ------------------------------------------------
+  // `target_triple` is the canonical target descriptor.  When the legacy
+  // string fields are set instead the linker resolves them into this on
+  // `Initialize()`.  `container` defaults to kAuto: the linker derives the
+  // effective container from `target_triple` (or `target_os`) at link time
+  // via `polyglot::common::ResolveContainer`.
+  ::polyglot::common::TargetTriple    target_triple{};
+  ::polyglot::common::BinaryContainer container{::polyglot::common::BinaryContainer::kAuto};
+  // Legacy field kept for backwards compatibility ("linux"/"macos"/
+  // "windows").  When non-empty it is folded into `target_triple` if the
+  // latter is still default-constructed.
+  std::string target_os;
+
   // Memory layout
   std::uint64_t base_address{0x400000}; // ELF default base for x86_64
   std::uint64_t text_segment_addr{0};   // 0 = auto
@@ -465,6 +481,17 @@ struct LinkerConfig {
   std::vector<std::string> ploy_descriptor_files; // --ploy-desc files (aux descriptors)
   std::string aux_dir;                            // --aux-dir path for auto-discovery
   bool allow_adhoc_link{false};                   // --allow-adhoc-link: permit ad-hoc stubs
+
+  // ---- BIN-4: PE export plumbing ---------------------------------------
+  // `def_files` enumerate `--def <file>` arguments and are parsed by the
+  // PE codepath; `cli_export_specs` carry raw `/EXPORT:` strings from the
+  // command line and are parsed in the same pass.  `dll_name` overrides
+  // the export-directory NAME field (defaults to the basename of
+  // `output_file`).  Conflicting export descriptors are reported as
+  // `polyld-err-E3201` by `linker_pe.cpp::MergeExports`.
+  std::vector<std::string> def_files;
+  std::vector<std::string> cli_export_specs;
+  std::string dll_name;
 };
 
 // ============================================================================
@@ -604,6 +631,21 @@ private:
   bool GenerateRelocatable();
   bool GenerateStaticLibrary();
   bool GeneratePEExecutable();
+  bool GeneratePEDll();
+  bool GenerateWasmModule();
+
+  // Container abstraction (BIN-2): resolve `target_triple`,
+  // `target_os` and `container` into a single dispatch decision
+  // before `GenerateOutput()` is called.
+  bool ResolveContainerAndTriple();
+
+  // Image-type knobs shared between executable and shared-library
+  // codepaths so that ELF / Mach-O writers stay single-implementation.
+  unsigned elf_image_type_{2};      ///< ET_EXEC by default; ET_DYN for shared.
+  unsigned macho_filetype_{2};      ///< MH_EXECUTE by default; MH_DYLIB=6.
+  bool     macho_emit_id_dylib_{false};
+  ::polyglot::common::BinaryContainer effective_container_{
+      ::polyglot::common::BinaryContainer::kAuto};
 
   // GOT/PLT generation
   void CreateGOT();

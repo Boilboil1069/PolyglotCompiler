@@ -8,6 +8,8 @@ add_library(polyglot_common
     src/core/symbol_table.cpp
     src/plugins/plugin_manager.cpp
     src/debug/dwarf5.cpp
+    src/target_triple.cpp
+    src/binary_container.cpp
 )
 
 target_include_directories(polyglot_common PUBLIC

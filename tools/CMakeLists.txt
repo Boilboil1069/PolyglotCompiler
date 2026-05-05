@@ -81,6 +81,7 @@ target_link_libraries(polyasm
 
 add_library(linker_lib
     polyld/src/linker.cpp
+    polyld/src/linker_pe.cpp
     polyld/src/polyglot_linker.cpp
     polyld/src/pe_writer.cpp
 )
@@ -374,6 +375,47 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/tasks/task_runner.cpp
         ui/common/runtime/run_debug_picker.cpp
         ui/common/runtime/hot_reload.cpp
+        ui/common/testing/test_model.cpp
+        ui/common/testing/inline_test_lens.cpp
+        ui/common/testing/coverage_model.cpp
+        ui/common/packages/package_manager.cpp
+        ui/common/packages/dependency_graph.cpp
+        ui/common/packages/vulnerability_scanner.cpp
+        ui/common/notebook/repl_session.cpp
+        ui/common/notebook/notebook.cpp
+        ui/common/cross_language/cross_language_navigator.cpp
+        ui/common/cross_language/bridge_panel.cpp
+        ui/common/cross_language/marshalling_view.cpp
+        ui/common/pipeline/pipeline_inspector.cpp
+        ui/common/pipeline/ir_viewer.cpp
+        ui/common/pipeline/asm_viewer.cpp
+        ui/common/samples/sample_browser.cpp
+        ui/common/topology_live/topology_live.cpp
+        ui/common/inlay_hints/inlay_hints.cpp
+        ui/common/remote/remote_session.cpp
+        ui/common/remote/dev_container.cpp
+        ui/common/remote/file_sync.cpp
+        ui/common/ai/ai_provider.cpp
+        ui/common/ai/inline_suggestion.cpp
+        ui/common/ai/refactor_diff.cpp
+        ui/common/collab/collab_provider.cpp
+        ui/common/ext/extension_api.cpp
+        ui/common/ext/marketplace.cpp
+        ui/common/workspace/workspace.cpp
+        ui/common/shell/welcome.cpp
+        ui/common/shell/notifications.cpp
+        ui/common/shell/status_bar.cpp
+        ui/common/shell/recent.cpp
+        ui/common/shell/session.cpp
+        ui/common/shell/bookmarks.cpp
+        ui/common/shell/todo_index.cpp
+        ui/common/i18n/i18n.cpp
+        ui/common/a11y/accessibility.cpp
+        ui/common/telemetry/telemetry.cpp
+        ui/common/viewer/image_viewer.cpp
+        ui/common/viewer/hex_viewer.cpp
+        ui/common/viewer/binary_inspector.cpp
+        ui/common/dbclient/sql_console.cpp
         ui/common/src/file_browser.cpp
         ui/common/src/output_panel.cpp
         ui/common/src/compiler_service.cpp

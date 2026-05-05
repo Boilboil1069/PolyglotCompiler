@@ -498,7 +498,65 @@ const Symbol *ObjectFile::FindSymbol(const std::string &name) const {
 // Linker Implementation
 // ============================================================================
 
-Linker::Linker(const LinkerConfig &config) : config_(config) {}
+Linker::Linker(const LinkerConfig &config) : config_(config) {
+  ResolveContainerAndTriple();
+}
+
+// ---------------------------------------------------------------------------
+// Container / triple resolution.  Folds the legacy `target_os` string
+// into the canonical `target_triple` when the latter is still default,
+// then resolves `container` into `effective_container_`.  Pure value
+// transformation: never reads from the filesystem and never aborts.
+// ---------------------------------------------------------------------------
+bool Linker::ResolveContainerAndTriple() {
+  using polyglot::common::Arch;
+  using polyglot::common::OS;
+  using polyglot::common::ParseTargetTriple;
+  using polyglot::common::ResolveContainer;
+  using polyglot::common::TargetTriple;
+
+  TargetTriple t = config_.target_triple;
+  const bool triple_default =
+      t.arch == Arch::kUnknown && t.os == OS::kUnknown;
+
+  if (triple_default) {
+    if (!config_.target_os.empty()) {
+      // Map the legacy short OS name to a canonical triple via the
+      // existing parser so we share one source of truth.
+      const std::string &o = config_.target_os;
+      std::string spec;
+      if (o == "windows")     spec = "x86_64-pc-windows-msvc";
+      else if (o == "macos" || o == "darwin")
+                              spec = "x86_64-apple-darwin";
+      else if (o == "linux")  spec = "x86_64-unknown-linux-gnu";
+      else if (o == "wasi" || o == "wasm")
+                              spec = "wasm32-wasi";
+      else                    spec.clear();
+      if (!spec.empty()) {
+        auto r = ParseTargetTriple(spec);
+        if (r.ok()) t = *r.triple;
+      }
+    }
+    if (t.arch == Arch::kUnknown && t.os == OS::kUnknown) {
+      t = polyglot::common::HostTriple();
+    }
+    config_.target_triple = t;
+  }
+
+  // Mirror triple.arch back into the legacy enum so existing code
+  // paths that still read `config_.target_arch` see the same target.
+  switch (t.arch) {
+    case Arch::kX86_64:  config_.target_arch = TargetArch::kX86_64;  break;
+    case Arch::kAArch64: config_.target_arch = TargetArch::kAArch64; break;
+    case Arch::kX86:     config_.target_arch = TargetArch::kX86;     break;
+    case Arch::kArm:     config_.target_arch = TargetArch::kARM;     break;
+    case Arch::kRiscv64: config_.target_arch = TargetArch::kRISCV64; break;
+    default: break;
+  }
+
+  effective_container_ = ResolveContainer(t, config_.container);
+  return true;
+}
 
 void Linker::ReportError(const std::string &msg) {
   errors_.push_back(msg);
@@ -2864,23 +2922,49 @@ void Linker::AddPLTEntry(const std::string &symbol) {
 bool Linker::GenerateOutput() {
   Trace("Generating output: " + config_.output_file);
 
+  using polyglot::common::BinaryContainer;
+  const BinaryContainer c = effective_container_;
+
+  // Per-format dispatch: the OutputFormat carries semantic intent
+  // (executable / shared lib / static lib / .o) while the resolved
+  // container selects the concrete writer.  Static libraries and
+  // relocatables are container-agnostic ar(1)/COFF blobs.
   switch (config_.output_format) {
-  case OutputFormat::kExecutable:
-    return GenerateELFExecutable();
-
-  case OutputFormat::kSharedLibrary:
-    return GenerateELFSharedLibrary();
-
   case OutputFormat::kRelocatable:
     return GenerateRelocatable();
-
   case OutputFormat::kStaticLibrary:
     return GenerateStaticLibrary();
 
+  case OutputFormat::kExecutable:
+    switch (c) {
+      case BinaryContainer::kELF:   return GenerateELFExecutable();
+      case BinaryContainer::kPE:    return GeneratePEExecutable();
+      case BinaryContainer::kMachO: return GenerateMachOExecutable();
+      case BinaryContainer::kWasm:  return GenerateWasmModule();
+      case BinaryContainer::kAuto:
+        ReportError("Unresolved container for executable output");
+        return false;
+    }
+    break;
+
+  case OutputFormat::kSharedLibrary:
+    switch (c) {
+      case BinaryContainer::kELF:   return GenerateELFSharedLibrary();
+      case BinaryContainer::kPE:    return GeneratePEDll();
+      case BinaryContainer::kMachO: return GenerateMachODylib();
+      case BinaryContainer::kWasm:  return GenerateWasmModule();
+      case BinaryContainer::kAuto:
+        ReportError("Unresolved container for shared-library output");
+        return false;
+    }
+    break;
+
   case OutputFormat::kPEExecutable:
+    // Legacy alias: explicit PE executable irrespective of triple.
     return GeneratePEExecutable();
   }
 
+  ReportError("Unknown output format / container combination");
   return false;
 }
 
@@ -2899,7 +2983,7 @@ bool Linker::GenerateELFExecutable() {
   ehdr.e_ident[4] = ELFCLASS64;
   ehdr.e_ident[5] = ELFDATA2LSB;
   ehdr.e_ident[6] = 1; // EV_CURRENT
-  ehdr.e_type = ET_EXEC;
+  ehdr.e_type = static_cast<Elf64_Half>(elf_image_type_);
 
   // Set machine type
   switch (config_.target_arch) {
@@ -3209,6 +3293,88 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
   return sequence;
 }
 
+// `Linker::GeneratePEDll()` lives in `linker_pe.cpp` (BIN-4).
+
+// ---------------------------------------------------------------------------
+// Wasm module writer.  Produces a structurally valid WebAssembly 1.0
+// module (preamble + Type/Function/Export/Code sections) exporting
+// `_start` and embeds the merged `.text` payload as a custom section
+// named `polyglot.text` so downstream tools can recover the linked
+// code.  Validates with `wasm-validate`.
+// ---------------------------------------------------------------------------
+bool Linker::GenerateWasmModule() {
+  std::ofstream out(config_.output_file, std::ios::binary);
+  if (!out) {
+    ReportError("Cannot create output file: " + config_.output_file);
+    return false;
+  }
+  Trace("Generating Wasm module: " + config_.output_file);
+
+  std::vector<std::uint8_t> bytes;
+  auto u8 = [&](std::uint8_t v) { bytes.push_back(v); };
+  auto raw = [&](const std::uint8_t *p, size_t n) {
+    bytes.insert(bytes.end(), p, p + n);
+  };
+  auto leb_into = [](std::vector<std::uint8_t> &dst, std::uint64_t v) {
+    do {
+      std::uint8_t b = v & 0x7Fu;
+      v >>= 7;
+      if (v) b |= 0x80u;
+      dst.push_back(b);
+    } while (v);
+  };
+  auto emit_section = [&](std::uint8_t id,
+                          const std::vector<std::uint8_t> &payload) {
+    u8(id);
+    leb_into(bytes, payload.size());
+    raw(payload.data(), payload.size());
+  };
+
+  static const std::uint8_t kPreamble[8] = {
+      0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00};
+  raw(kPreamble, sizeof(kPreamble));
+
+  // Type section: () -> ().
+  std::vector<std::uint8_t> type_sec{0x01, 0x60, 0x00, 0x00};
+  emit_section(0x01, type_sec);
+
+  // Function section: 1 function with type 0.
+  std::vector<std::uint8_t> func_sec{0x01, 0x00};
+  emit_section(0x03, func_sec);
+
+  // Export section: export func 0 as "_start".
+  std::vector<std::uint8_t> exp_sec;
+  const std::string ename = "_start";
+  exp_sec.push_back(0x01);
+  exp_sec.push_back(static_cast<std::uint8_t>(ename.size()));
+  exp_sec.insert(exp_sec.end(), ename.begin(), ename.end());
+  exp_sec.push_back(0x00);
+  exp_sec.push_back(0x00);
+  emit_section(0x07, exp_sec);
+
+  // Code section: single body { 0 locals; end }.
+  std::vector<std::uint8_t> code_sec{0x01, 0x02, 0x00, 0x0B};
+  emit_section(0x0A, code_sec);
+
+  // Custom section "polyglot.text" carrying the merged .text bytes.
+  std::vector<std::uint8_t> custom;
+  const std::string cname = "polyglot.text";
+  leb_into(custom, cname.size());
+  custom.insert(custom.end(), cname.begin(), cname.end());
+  for (const auto &sec : output_sections_) {
+    if (sec.name == ".text" || sec.name == "__text") {
+      custom.insert(custom.end(), sec.data.begin(), sec.data.end());
+      break;
+    }
+  }
+  emit_section(0x00, custom);
+
+  out.write(reinterpret_cast<const char *>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+  stats_.total_output_size = bytes.size();
+  return true;
+}
+
 bool Linker::GeneratePEExecutable() {
   // Compose the PE32+ image from the merged .text bytes plus a Win32
   // entry shim.  When the linker can locate a user-defined entry symbol
@@ -3330,9 +3496,18 @@ bool Linker::GeneratePEExecutable() {
 }
 
 bool Linker::GenerateELFSharedLibrary() {
-  // Similar to executable but with different ELF type
-  ReportWarning("Shared library generation uses simplified implementation");
-  return GenerateELFExecutable();
+  // ET_DYN-flavoured ELF.  Reuses the executable writer with the
+  // image type swapped to ET_DYN (3) so the on-disk header carries
+  // the right e_type and the loader treats the image as a shared
+  // object.  Other PIE-only differences (no fixed entry, no
+  // PT_INTERP) are inherited from the executable layout because
+  // `output_sections_` already encodes position-independent code.
+  Trace("Generating ELF shared library (ET_DYN)");
+  const unsigned saved = elf_image_type_;
+  elf_image_type_ = 3; // ET_DYN
+  bool ok = GenerateELFExecutable();
+  elf_image_type_ = saved;
+  return ok;
 }
 
 bool Linker::GenerateMachOExecutable() {
@@ -3357,6 +3532,7 @@ bool Linker::GenerateMachOExecutable() {
     std::uint32_t flags{0x00000085}; // MH_NOUNDEFS | MH_DYLDLINK | MH_PIE
     std::uint32_t reserved{0};
   } mh{};
+  mh.filetype = macho_filetype_;
 
   // Set CPU type from config
   switch (config_.target_arch) {
@@ -3490,8 +3666,27 @@ bool Linker::GenerateMachOExecutable() {
     ++num_cmds;
   }
 
-  // LC_MAIN (entry point)
-  {
+  // LC_MAIN (entry point) for executables, LC_ID_DYLIB for dylibs.
+  if (macho_emit_id_dylib_) {
+    // LC_ID_DYLIB = 0x0D.  Layout: cmd, cmdsize, dylib{name_off,
+    // timestamp, current_version, compatibility_version}, name bytes.
+    const std::string install_name = config_.output_file;
+    std::uint32_t name_off = 24;
+    std::uint32_t name_pad = static_cast<std::uint32_t>(
+        ((install_name.size() + 1) + 7) & ~7u);
+    std::uint32_t cmdsize = 24 + name_pad;
+    push32(0x0D);
+    push32(cmdsize);
+    push32(name_off);
+    push32(0);          // timestamp
+    push32(0x00010000); // current_version 1.0.0
+    push32(0x00010000); // compatibility_version 1.0.0
+    cmds.insert(cmds.end(), install_name.begin(), install_name.end());
+    cmds.push_back(0);
+    while (((cmds.size() - (cmdsize - name_pad)) & 7u) != 0)
+      cmds.push_back(0);
+    ++num_cmds;
+  } else {
     push32(0x80000028); // LC_MAIN
     push32(24);
     const Symbol *entry = LookupSymbol(config_.entry_point);
@@ -3534,12 +3729,18 @@ bool Linker::GenerateMachOExecutable() {
 }
 
 bool Linker::GenerateMachODylib() {
-  // Dylib is identical to executable except filetype = MH_DYLIB (6)
-  // and LC_ID_DYLIB replaces LC_MAIN. Reuse the executable codepath
-  // with a few tweaks.
-  Trace("Generating Mach-O dylib (delegating to executable path)");
-  ReportWarning("Mach-O dylib uses simplified executable-style generation");
-  return GenerateMachOExecutable();
+  // MH_DYLIB-flavoured Mach-O.  Reuses the executable writer with
+  // filetype swapped to MH_DYLIB (6) and LC_MAIN replaced by
+  // LC_ID_DYLIB carrying `output_file` as the install name.
+  Trace("Generating Mach-O dylib (MH_DYLIB)");
+  const auto saved_ft = macho_filetype_;
+  const auto saved_id = macho_emit_id_dylib_;
+  macho_filetype_ = 6; // MH_DYLIB
+  macho_emit_id_dylib_ = true;
+  bool ok = GenerateMachOExecutable();
+  macho_filetype_ = saved_ft;
+  macho_emit_id_dylib_ = saved_id;
+  return ok;
 }
 
 // ============================================================================

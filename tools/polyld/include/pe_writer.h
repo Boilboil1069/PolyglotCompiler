@@ -46,6 +46,51 @@ struct DllImport {
   std::vector<std::string> function_names; ///< e.g. {"ExitProcess"}
 };
 
+// ===========================================================================
+// BIN-3 hardening: extended PE32+ feature set
+//
+// The fields below extend `BuildRequest` additively.  All defaults reproduce
+// the legacy single-section AMD64-only console layout, so callers that do
+// not opt in see byte-identical output to pre-BIN-3 behaviour.
+// ===========================================================================
+
+/// PE Optional Header `Subsystem` field (selected canonical values).
+enum class PESubsystem : std::uint16_t {
+  kWindowsCui = 3,    ///< Console subsystem (default)
+  kWindowsGui = 2,    ///< GUI subsystem (no console window)
+  kEfiApplication = 10, ///< EFI application
+  kNativeDriver = 1,  ///< Native / driver (NT Native API)
+};
+
+/// COFF File Header `Machine` field.  Drives the Optional Header magic
+/// only indirectly: this writer always emits PE32+ (Magic = 0x20B), so the
+/// `kI386` value here exists primarily for compatibility metadata; the
+/// resulting image will still be a 64-bit PE.  arm64-windows uses
+/// `IMAGE_FILE_MACHINE_ARM64` (0xAA64).
+enum class PEMachine : std::uint16_t {
+  kAmd64 = 0x8664,    ///< x86_64 (default)
+  kArm64 = 0xAA64,    ///< AArch64 / arm64-windows
+  kI386  = 0x014C,    ///< 32-bit metadata; image still PE32+
+};
+
+/// Single base-relocation entry: the `rva` is the address of a value inside
+/// the produced image whose stored bytes encode an absolute virtual address
+/// based on `BuildRequest::image_base` and which therefore must be patched
+/// by the loader if the image is rebased.  `type` is one of the PE
+/// `IMAGE_REL_BASED_*` 4-bit codes:
+///
+///   0  IMAGE_REL_BASED_ABSOLUTE                (padding only)
+///   3  IMAGE_REL_BASED_HIGHLOW                 (x86 32-bit absolute)
+///   10 IMAGE_REL_BASED_DIR64                   (x64 64-bit absolute)
+///   3  IMAGE_REL_BASED_ARM64_BRANCH26          (arm64-only, value reused)
+///   4  IMAGE_REL_BASED_ARM64_PAGEBASE_REL21    (arm64 ADRP)
+///   7  IMAGE_REL_BASED_ARM64_PAGEOFFSET_12A    (arm64 ADD imm12)
+///   9  IMAGE_REL_BASED_ARM64_PAGEOFFSET_12L    (arm64 LDR/STR imm12)
+struct BaseRelocation {
+  std::uint32_t rva{0}; ///< RVA of the patched location
+  std::uint8_t  type{10}; ///< IMAGE_REL_BASED_* (defaults to DIR64 for x64)
+};
+
 /// Result of a PE32+ build.  `image` is the file bytes ready to be written to
 /// disk.  `entry_rva` echoes back the entry RVA passed in so callers can
 /// double-check.  `iat_slot_rva` exposes the runtime-IAT slot RVA for each
@@ -82,12 +127,87 @@ struct BuildRequest {
   /// Optional override of the produced image's preferred load address.
   /// Default 0x140000000 matches the standard Windows AMD64 console base.
   std::uint64_t image_base{0x140000000ULL};
+
+  // -------------------------------------------------------------------------
+  // BIN-3 additions (all default-quiet: empty / Console / AMD64).
+  // -------------------------------------------------------------------------
+
+  /// Optional read-write `.data` section bytes (initialised data).  Laid
+  /// out between `.rdata` and `.bss` when present.  Empty ⇒ no `.data`.
+  std::vector<std::uint8_t> data_bytes;
+
+  /// Size in bytes of the `.bss` section (uninitialised, zero-filled at
+  /// load time).  Zero ⇒ no `.bss`.  No raw bytes are written for `.bss`.
+  std::uint32_t bss_size{0};
+
+  /// Optional x64 exception unwind tables.  When non-empty, `.pdata` is
+  /// emitted with `pdata_bytes` (an array of `RUNTIME_FUNCTION` records,
+  /// 12 bytes each) and `.xdata` with `xdata_bytes` (the matching
+  /// `UNWIND_INFO` blocks).  The PE Optional Header's Exception Table
+  /// directory entry (index 3) is populated to point at `.pdata`.  An
+  /// empty `.pdata` still emits a zero-sized directory entry per spec.
+  std::vector<std::uint8_t> pdata_bytes;
+  std::vector<std::uint8_t> xdata_bytes;
+
+  /// Base relocations to be packed into a `.reloc` section.  Each entry
+  /// is grouped by its 4 KiB page; per-page blocks are emitted as an
+  /// `IMAGE_BASE_RELOCATION` header followed by an array of WORDs whose
+  /// high 4 bits are `type` and low 12 bits are the offset within the
+  /// page.  The block size is rounded up to a 4-byte boundary by
+  /// appending an `IMAGE_REL_BASED_ABSOLUTE` (type=0) padding entry as
+  /// needed.  Non-empty implies `IMAGE_FILE_RELOCS_STRIPPED` is cleared
+  /// and `IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE` is set.
+  std::vector<BaseRelocation> base_relocations;
+
+  /// Target machine.  Drives the COFF File Header `Machine` field as well
+  /// as the default `IMAGE_REL_BASED_*` reloc type chosen by callers.
+  /// Defaults to AMD64 to preserve legacy behaviour.
+  PEMachine machine{PEMachine::kAmd64};
+
+  /// Optional Header `Subsystem`.  Defaults to Windows console (CUI).
+  PESubsystem subsystem{PESubsystem::kWindowsCui};
+
+  /// Optional Header `DllCharacteristics`.  Zero ⇒ writer picks a
+  /// platform-appropriate default:
+  ///   * AMD64 / ARM64 ⇒ DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE
+  ///                     | HIGH_ENTROPY_VA
+  ///   * I386          ⇒ DYNAMIC_BASE | NX_COMPAT | TERMINAL_SERVER_AWARE
+  /// When `base_relocations` is empty the writer additionally falls back
+  /// to the legacy "no DYNAMIC_BASE / no HIGH_ENTROPY_VA" default so that
+  /// pre-BIN-3 callers still produce byte-identical output.  Pass an
+  /// explicit non-zero value to override completely.
+  std::uint16_t dll_characteristics{0};
+
+  /// Optional Image File Header `Characteristics` to OR into the writer's
+  /// computed value.  Useful for callers that need `IMAGE_FILE_DLL`
+  /// (0x2000) without rerouting through a separate writer.  Bit
+  /// `IMAGE_FILE_RELOCS_STRIPPED` (0x0001) is automatically cleared by
+  /// the writer when `base_relocations` is non-empty.
+  std::uint16_t extra_file_characteristics{0};
 };
 
 /// Build a complete PE32+ image from a code buffer and an import description.
 /// On any malformed input (e.g. entry offset out of range) returns a
 /// `BuildResult` with `image.empty() == true`.
 BuildResult BuildPE32PlusImage(const BuildRequest &req);
+
+/// Encode the on-disk byte sequence for the `.reloc` section corresponding
+/// to a flat list of `BaseRelocation` entries.  The output groups entries by
+/// their 4 KiB virtual page, sorts within each page by offset, and emits one
+/// `IMAGE_BASE_RELOCATION` block per non-empty page.  Each block's
+/// `SizeOfBlock` is rounded up to a 4-byte boundary by appending an
+/// `IMAGE_REL_BASED_ABSOLUTE` padding entry when the entry count is odd.
+/// Returns an empty vector if `relocs` is empty.
+std::vector<std::uint8_t>
+BuildBaseRelocSection(const std::vector<BaseRelocation> &relocs);
+
+/// Decode a `.reloc` section byte buffer back into the equivalent
+/// `BaseRelocation` list (skipping `IMAGE_REL_BASED_ABSOLUTE` padding
+/// entries).  Used by tests to round-trip the encoder.  Returns an empty
+/// vector when the buffer is malformed (e.g. truncated header / inconsistent
+/// `SizeOfBlock`).
+std::vector<BaseRelocation>
+DecodeBaseRelocSection(const std::vector<std::uint8_t> &bytes);
 
 /// Convenience: produce a self-contained runnable PE32+ image whose only
 /// behaviour is to call `kernel32!ExitProcess(0)`.  Used both by the smoke

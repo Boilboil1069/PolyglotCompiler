@@ -45,6 +45,7 @@ set(POLYGLOT_TEST_ALL_LIBS
 set(UNIT_TEST_CORE
     unit/type_system_test.cpp
     unit/dwarf5_test.cpp
+    unit/target_triple_test.cpp
 )
 
 set(UNIT_TEST_PLUGINS
@@ -183,9 +184,12 @@ set(UNIT_TEST_RUNTIME
 set(UNIT_TEST_LINKER
     unit/linker_test.cpp
     unit/linker/pe_writer_test.cpp
+    unit/linker/pe_writer_hardened_test.cpp
+    unit/linker/linker_pe_test.cpp
     unit/linker/object_format_detect_test.cpp
     unit/linker/section_merge_test.cpp
     unit/linker/polyrt_println_collect_test.cpp
+    unit/linker/output_dispatch_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY
@@ -245,6 +249,35 @@ set(UNIT_TEST_POLYUI_PANELS
     unit/polyui/task_runner_test.cpp
     unit/polyui/run_debug_picker_test.cpp
     unit/polyui/hot_reload_test.cpp
+    unit/polyui/test_model_test.cpp
+    unit/polyui/inline_test_lens_test.cpp
+    unit/polyui/coverage_model_test.cpp
+    unit/polyui/package_manager_test.cpp
+    unit/polyui/dependency_graph_test.cpp
+    unit/polyui/vulnerability_scanner_test.cpp
+    unit/polyui/notebook_test.cpp
+    unit/polyui/cross_language_navigator_test.cpp
+    unit/polyui/bridge_panel_test.cpp
+    unit/polyui/marshalling_view_test.cpp
+    unit/polyui/pipeline_inspector_test.cpp
+    unit/polyui/ir_viewer_test.cpp
+    unit/polyui/asm_viewer_test.cpp
+    unit/polyui/sample_browser_test.cpp
+    unit/polyui/topology_live_test.cpp
+    unit/polyui/inlay_hints_test.cpp
+    unit/polyui/remote_session_test.cpp
+    unit/polyui/dev_container_test.cpp
+    unit/polyui/file_sync_test.cpp
+    unit/polyui/ai_provider_test.cpp
+    unit/polyui/inline_suggestion_test.cpp
+    unit/polyui/refactor_diff_test.cpp
+    unit/polyui/collab_provider_test.cpp
+    unit/polyui/extension_api_test.cpp
+    unit/polyui/marketplace_test.cpp
+    unit/polyui/workspace_test.cpp
+    unit/polyui/shell_test.cpp
+    unit/polyui/localization_test.cpp
+    unit/polyui/viewers_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY_UI
@@ -551,7 +584,48 @@ add_executable(unit_tests ${ALL_UNIT_TEST_SOURCES}
     ${CMAKE_SOURCE_DIR}/tools/ui/common/tasks/problem_matcher.cpp
     ${CMAKE_SOURCE_DIR}/tools/ui/common/tasks/task_runner.cpp
     ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/run_debug_picker.cpp
-    ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/hot_reload.cpp)
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/hot_reload.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/testing/test_model.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/testing/inline_test_lens.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/testing/coverage_model.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/packages/package_manager.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/packages/dependency_graph.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/packages/vulnerability_scanner.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/notebook/repl_session.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/notebook/notebook.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/cross_language/cross_language_navigator.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/cross_language/bridge_panel.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/cross_language/marshalling_view.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/pipeline/pipeline_inspector.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/pipeline/ir_viewer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/pipeline/asm_viewer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/samples/sample_browser.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/topology_live/topology_live.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/inlay_hints/inlay_hints.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/remote/remote_session.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/remote/dev_container.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/remote/file_sync.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/ai/ai_provider.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/ai/inline_suggestion.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/ai/refactor_diff.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/collab/collab_provider.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/ext/extension_api.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/ext/marketplace.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/workspace/workspace.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/welcome.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/notifications.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/status_bar.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/recent.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/session.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/bookmarks.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/shell/todo_index.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/i18n/i18n.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/a11y/accessibility.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/telemetry/telemetry.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/viewer/image_viewer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/viewer/hex_viewer.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/viewer/binary_inspector.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/dbclient/sql_console.cpp)
 target_link_libraries(unit_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 
 # ============================================================================

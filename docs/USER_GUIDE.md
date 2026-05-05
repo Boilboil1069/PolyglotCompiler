@@ -3629,3 +3629,352 @@ status-bar Run/Debug menu.
 
 Architecture details:
 [`realization/tasks_runtime_en.md`](realization/tasks_runtime_en.md).
+
+## Test Explorer, Inline Run-Test, and Coverage View
+
+PolyUI consolidates every test framework — CTest, pytest, cargo
+test, JUnit, xUnit, NUnit — into a single Test Explorer panel and
+renders coverage information directly on the editor gutter.
+
+* **Tree view** — project → suite → case, colour-coded by status
+  (passed, failed, errored, skipped, pending, running). Right-click
+  any node to rerun a single case or an entire suite; toggle the
+  *failed-first* sort to focus on regressions.
+* **Report adapters** — drop a CTest CDash XML, JUnit/pytest XML,
+  cargo `--format json` log, xUnit v2 XML or NUnit 3 XML into the
+  panel and the runner-agnostic
+  [`TestModel`](../tools/ui/common/testing/test_model.h) ingests it.
+  The same model backs the LSP testing protocol abstraction.
+* **Inline ▶ Run / 🐞 Debug CodeLens** — built-in detectors light
+  up Catch2 (`TEST_CASE`), pytest (`def test_*`), Rust
+  (`#[test]`), JUnit (`@Test`), xUnit (`[Fact]` / `[Theory]`) and
+  NUnit (`[Test]`) declarations. Failures captured by the runner
+  are stamped back onto the lens for inline diagnostics.
+* **Coverage gutter** — bars + percentages render from lcov,
+  Cobertura, coverage.py, cargo-tarpaulin, and dotnet coverlet
+  reports. The workspace tree lists per-file percentages and the
+  threshold badge fires when any file dips below the configured
+  coverage floor.
+
+Architecture details:
+[`realization/test_explorer_en.md`](realization/test_explorer_en.md).
+
+## Package Management, Dependency Graph, Vulnerability Scan, REPL & Notebook
+
+PolyUI consolidates package management for twelve ecosystems —
+venv, conda, uv, pipenv, poetry, cargo, npm, maven, gradle, nuget,
+gem and go-mod — into one panel, surfaces the resolved dependency
+graph alongside it, scans for known vulnerabilities, and ships an
+embedded REPL plus Notebook for live exploration.
+
+* **Unified package panel** — install, upgrade and remove packages
+  through a single command palette regardless of the underlying
+  ecosystem. The status bar shows the active environment per
+  ecosystem; switching between, say, two virtualenvs or two
+  Cargo workspaces is a one-click action. Lockfiles are decoded
+  in-place so you can browse `Cargo.lock`, `uv.lock`,
+  `Pipfile.lock`, `package-lock.json`, `pom.xml`,
+  `gradle.lockfile`, `packages.lock.json`, `Gemfile.lock` and
+  `go.sum` in a uniform table view. The `.ploy CONFIG` block and
+  the resolved lockfile sync both ways: the panel highlights
+  requirements that are missing from either side.
+* **Dependency graph** — the same panel offers a hierarchical tree
+  view (one node per direct dependency, children for transitives)
+  and a force-directed graph view. Version conflicts (the same
+  logical package pinned to different versions along disjoint
+  paths) are highlighted in red; roots are highlighted in blue.
+  The current view exports to a self-contained SVG suitable for
+  documentation and PR review.
+* **Vulnerability scanning** — advisories are pulled from osv.dev
+  and the GitHub Advisory database, matched against the resolved
+  versions, and rendered both as inline editor diagnostics and as
+  a panel list. Each finding carries severity, summary, affected
+  range and first-patched version. Per-id suppressions live in
+  `.polyc/security.json` so accepted-risk decisions survive
+  re-scans.
+* **REPL panel** — a built-in `.ploy` REPL hosts `polyc --repl`;
+  Python, IRust, IRB and dotnet-script are embedded under the same
+  surface. Each session keeps its own transcript so reloading the
+  workspace replays previous interactions.
+* **Notebook view** — `.polynb` files are first-class. Cells are
+  code, markdown or cross-language `LINK` cells; a `LINK` cell
+  binds a target symbol in one language to a source symbol in
+  another, and execution drives both engines so the value flow is
+  recorded end-to-end. The on-disk format is plain JSON and is
+  diff-friendly.
+
+Architecture details:
+[`realization/polyui_package_management_en.md`](realization/polyui_package_management_en.md).
+
+## Cross-language Navigation, Bridge Panel and Marshalling View
+
+PolyUI brings the cross-language story to the foreground: jump,
+hover and rename from `.ploy` into any of the five supported host
+languages — and back — through a single coordinated edit, with a
+dedicated panel for the bridges polyc generates and a side panel
+that reveals their marshalling pipeline.
+
+* **Cross-language goto / hover / rename** — pressing F12 on a
+  `LINK <lang>::<symbol>` reference jumps directly to the host
+  source. Host-language definitions display an *X `.ploy` LINK
+  references* CodeLens above the declaration; clicking it opens the
+  list of every `.ploy` site referencing that symbol. Renaming a
+  symbol on either side is coordinated through polyls: a single
+  `WorkspaceEdit` plan touches the host-language definition, every
+  `.ploy` LINK site and every reference reported by the host-side
+  LSP, and the underlying language servers commit it atomically.
+* **Bridge panel** — every cross-language bridge generated by polyc
+  appears in a single panel with the generated stub name, the
+  marshalling strategy in effect, the source declaration site and
+  the runtime call count fed live from the polyrt calltrace stream.
+  Double-click a row to jump to the source. Re-importing the build
+  output preserves the live counts so dashboards stay continuous.
+* **Marshalling visualisation** — selecting a `LINK`, `CALL` or
+  `METHOD` opens the marshalling side panel, which renders the
+  conversion chain for every parameter and the return value as
+  three sequential steps: IR lowering, marshalling helper, target
+  ABI adapter. Each step shows the helper name, a snippet of the
+  lowering output and a click-through to the source. The view
+  works for all five host languages (C++, Rust, Python, Java,
+  .NET); when polyc has not emitted a chain document yet, a
+  canonical pipeline is synthesised from the bridge metadata so
+  the panel is always populated.
+
+Architecture details:
+[`realization/cross_language_ide_en.md`](realization/cross_language_ide_en.md).
+
+## Compile Pipeline Inspector, IR Viewer/Diff and Asm Viewer
+
+PolyUI now ships a Compiler-Explorer-style inspection stack so you
+can see exactly what polyc is doing at every stage of the build.
+
+* **Pipeline Inspector** — open the *Pipeline* panel after a build
+  to see the six canonical stages (frontend, sema, IR pre-opt, IR
+  post-opt, backend asm, link) with per-stage duration and the
+  artefacts polyc dropped under `aux/`. A normalised histogram makes
+  the bottleneck obvious at a glance; clicking a row hands the
+  underlying artefact off to the IR or Asm viewer.
+* **IR Viewer / Diff** — the IR view folds the dump by function and
+  basic block, with line-number gutters that stay in sync with the
+  source view. The *Compare optimisation* button opens a side-by-side
+  diff between the pre-opt and post-opt IR for the same function;
+  the diff is read-only and uses LCS so unchanged regions stay
+  aligned. Source ↔ IR ↔ asset jumps are wired through the same line
+  binding table so cursors stay in sync across all three panes.
+* **Asm Viewer** — the asm view renders disassembly for x86_64,
+  arm64 and wasm targets and binds every instruction back to the
+  source line that generated it. Hovering a source line highlights
+  every emitted instruction; hovering an instruction highlights the
+  originating source line. polyasm and the backend disassemblers
+  feed both DWARF `.file`/`.loc` directives and inline `; src=` hints,
+  so the binding works even on hand-written prologues.
+
+Architecture details:
+[`realization/compile_pipeline_inspector_en.md`](realization/compile_pipeline_inspector_en.md).
+
+## Sample / Tutorial Browser, Topology Live and Inlay Hints
+
+PolyUI now ships three discoverability features that make the IDE
+easier to learn and faster to navigate.
+
+* **Sample / Tutorial Browser** — open the *Samples* panel to
+  browse every example under `tests/samples/` and every walkthrough
+  under `docs/tutorial/`. Filter the list by language, topic,
+  difficulty or free text, then click *Open as workspace copy* to
+  clone the chosen entry into a destination of your choice. The
+  source tree is never modified — every copy lands in the
+  destination root only.
+* **Topology Live** — the topology panel now follows the editor.
+  Move the caret onto a symbol and the panel zooms to that symbol's
+  neighbourhood (configurable radius); clear the selection and the
+  panel falls back to nodes anchored at the active file. Click any
+  node to jump back to its source position. Edits trigger a
+  debounced incremental rebuild so the topology stays in sync
+  without recomputing on every keystroke.
+* **Inlay hints** — polyls now answers `textDocument/inlayHint`.
+  Lines like `LET m = NEW(python, "torch.nn.Linear", 8, 4)` get a
+  trailing `: HANDLE<python::torch::nn::Linear>` annotation;
+  call-site arguments display the formal parameter name as
+  `f(x: 1, y: 2)`. Both families can be toggled independently in
+  *Settings → Inlay Hints*.
+
+Architecture details:
+[`realization/sample_topology_inlay_en.md`](realization/sample_topology_inlay_en.md).
+
+## Remote Development — SSH / WSL / Container / Dev Container
+
+PolyUI now lets you develop against any host through a single
+abstraction. polyls, the debugger, the task runner and the
+integrated terminal all run through the same `RemoteSession`
+plumbing, so working on a remote box feels indistinguishable from
+working locally.
+
+* **Connect anywhere** — *Connect To…* in the command palette
+  accepts `ssh://[user@]host[:port]/path`, `wsl://distro/path`,
+  `container://[runtime/]image-or-id/path` and plain
+  `local:/path`. Once connected, every IDE feature (open file,
+  start debug, run a build task, open a terminal) operates on the
+  remote workspace transparently.
+* **Dev Container** — when a workspace contains
+  `.devcontainer/devcontainer.json`, the *Reopen In Container*
+  command parses the spec, builds or reuses the matching
+  container, and provisions polyls plus the language server for
+  every recognised feature (Python, Node, Java, Go, Rust, .NET,
+  Ruby, C++). Any explicit `postCreateCommand` runs afterwards.
+* **Port forwarding / file sync / terminal** — the *Forwarded
+  Ports* view lists every active rule; *Sync Workspace* shows the
+  upload / download / delete plan before applying it (push-only and
+  pull-only are available for one-way sync); the integrated
+  terminal opens against the active session so a single keystroke
+  drops you into a shell on the remote box.
+
+Architecture details:
+[`realization/remote_dev_en.md`](realization/remote_dev_en.md).
+
+## AI Assistant — Chat, Inline Suggestions, Refactor, Privacy
+
+PolyUI ships a unified AI surface that powers chat, code
+completion, inline ghost-text and refactor suggestions through the
+same provider abstraction.
+
+* **Provider choice.** Pick a provider in *Settings → AI*: local
+  Ollama (no consent required), OpenAI-compatible HTTP, Azure
+  OpenAI, or Anthropic. API keys are entered in the settings UI
+  and live in your user keychain — no key is ever embedded in the
+  binary or written to a project file.
+* **Privacy first.** Remote providers stay disabled until you
+  toggle *Allow remote calls*. The *Project Context* panel lets
+  you list which directories may be sent (allow-list) and which
+  must never leave your machine (deny-list); diagnostics and
+  open-file contents are individual switches. Until consent is
+  granted, every remote call short-circuits and the chat panel
+  shows *Consent required*.
+* **Inline suggestions.** Press Tab to accept, Esc to dismiss,
+  Alt+] / Alt+[ to cycle alternatives.
+* **Chat panel.** Drop the current file, the current selection or
+  the active diagnostics into the prompt with one click.
+* **Refactor diff.** Refactor proposals open in a per-hunk diff
+  view; accept hunks individually and the IDE applies only what
+  you approved.
+
+## Collaboration — Pull Requests, Reviews, Issues
+
+The *Collab* sidebar lists pull requests and issues for the
+current repository through a provider that abstracts GitHub,
+GitLab and Gitea. The diff view supports line comments and the
+*Approve / Request Changes / Comment* verdicts. *Push to PR*
+pushes the active branch and, on a fresh branch, opens a draft PR
+in one step. The *Issues* view supports create, label, close,
+linking commits and attaching `file:line` references pulled from
+the editor.
+
+Architecture details:
+[`realization/ai_integration_en.md`](realization/ai_integration_en.md),
+[`realization/collab_en.md`](realization/collab_en.md).
+
+### Privacy statement
+
+PolyUI never embeds API keys in the binary, never sends source
+code to a remote endpoint without explicit user consent, and
+applies the workspace allow / deny list to every project-context
+request. Local providers (Ollama) operate entirely on your
+machine and require no consent.
+
+## Extensions, Marketplace and Workspaces
+
+PolyUI ships a first-class extension system, a local marketplace
+and a multi-root workspace model.
+
+* **Install / update / rollback.** *Marketplace* lists every
+  extension known to your configured indexes (filesystem or
+  HTTP). One click installs; a second click updates to the latest
+  semver; *Rollback* reverts to the version installed just before
+  the most recent update.
+* **Capability prompts.** When an extension declares
+  `filesystem`, `network`, `process`, `clipboard` or `secrets`,
+  PolyUI asks you to grant each capability before activation.
+  Refused capabilities surface in *Settings → Extensions* with a
+  *Grant* button so you can change your mind later.
+* **Optional signing.** Toggle *Require signed extensions* in
+  settings to refuse installs whose signature is missing or
+  unknown.
+* **Multi-root workspaces.** Open a `polyui.code-workspace` file
+  to load multiple roots side by side. Each root has its own
+  settings (with workspace-wide defaults), search and jump work
+  across all roots, and language-server / debugger / task
+  instances are isolated per `(folder, language, version)` so
+  pinning one root to a different language version never
+  contaminates another.
+
+Architecture details:
+[`api/extension_api_en.md`](api/extension_api_en.md),
+[`realization/marketplace_en.md`](realization/marketplace_en.md).
+
+## Shell: Welcome, Notifications, Status Bar, Recent, Sessions, Bookmarks, TODO
+
+PolyUI's shell wraps the editor with a complete workbench:
+
+* **Welcome page** — recent workspaces, tutorials, samples and
+  what's-new tips. Closeable and pinnable.
+* **Notification centre** — persistent, levelled, action-aware.
+  *Do not disturb* mutes `info` / `progress` while letting
+  warnings and errors through. The status bar shows the unread
+  count.
+* **Customisable status bar** — drag any of the built-in slots
+  (branch, problems, language, language server, encoding, EOL,
+  indent, package manager, profiler) between left and right;
+  show / hide each slot; extensions register their own.
+* **Recent files / workspaces** — `Ctrl+R` opens recent
+  workspaces, `Ctrl+E` opens recent files. Both honour pinning.
+* **Session restore** — restart and find every tab, scroll
+  position, cursor, fold, split layout, panel size and debug
+  view exactly as you left them. Disable in settings.
+* **Bookmarks** — `Ctrl+Alt+K` toggles. The panel lists every
+  bookmark across the workspace with labels and colours.
+* **TODO / FIXME index** — background scanner; configurable
+  keywords (`TODO`, `FIXME` by default; add `XXX`, `HACK`, ...);
+  per-keyword counts in the summary panel.
+
+Walk-through: [`tutorial/shell_en.md`](tutorial/shell_en.md).
+
+## i18n, Accessibility, Telemetry
+
+**Languages.** PolyUI ships with five built-in locales:
+Simplified Chinese, Traditional Chinese, English, Japanese and
+Korean. Switch in *Settings → General → Language*. Every UI
+string is looked up by id, so locale changes are immediate and
+complete.
+
+**Accessibility.** Every focusable widget is reachable from the
+keyboard alone; tab order is deterministic and wraps around,
+disabled widgets are skipped without breaking the chain. Screen
+readers (NVDA, JAWS, VoiceOver, Orca) receive assertive
+announcements ahead of polite ones via the platform
+accessibility bridge. Visual aids: high-contrast theme, large
+font (80–300 %) and reduced motion are toggleable per profile.
+
+**Telemetry, feedback and crash reports.** Off by default;
+require explicit consent and may be revoked at any time. Every
+event must declare a field allow-list — anything else is
+stripped before the event reaches the local preview, and
+therefore can never be uploaded. Crash reports always land on
+disk first; upload is a separate gate that requires explicit
+confirmation. Realisation:
+[`realization/i18n_en.md`](realization/i18n_en.md),
+[`realization/accessibility_en.md`](realization/accessibility_en.md),
+[`realization/telemetry_en.md`](realization/telemetry_en.md).
+
+## File-Type Viewers
+
+* **Image viewer** — PNG / JPEG / WebP / GIF / SVG / BMP with
+  zoom, pan, RGBA pixel pick and per-channel split.
+* **Hex viewer** — chunked I/O for files ≥ 1 GiB; jump to
+  offset, hex search that handles cross-chunk matches, named
+  highlights for linker / IR / object schemas.
+* **Binary inspector** — identifies ELF / PE / Mach-O / WASM
+  with arch and subsystem; disassembly delegates to `polyasm`.
+* **SQLite client + SQL console** — schema browser, paged
+  results, CSV export, bounded query history. Drivers plug
+  into the same `SqlDriver` interface.
+
+Walk-through: [`tutorial/viewers_en.md`](tutorial/viewers_en.md).

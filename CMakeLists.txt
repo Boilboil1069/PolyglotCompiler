@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(PolyglotCompiler VERSION 1.30.0 LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.42.0 LANGUAGES C CXX)
+# Pre-release tag appended to the canonical version when emitting files
+# and headers (e.g. "1.42.0-pre.1").  Empty for stable releases.
+set(POLYGLOT_VERSION_SUFFIX "-pre.4")
+set(POLYGLOT_VERSION_FULL "${PROJECT_VERSION}${POLYGLOT_VERSION_SUFFIX}")
 
 # ============================================================================
 # Central version header — generated from common/include/version.h.in
@@ -15,7 +19,7 @@ configure_file(
 # NOTE: named VERSION.txt (not VERSION) to avoid collision with the C++
 # standard library <version> header when CMAKE_SOURCE_DIR is on -I.
 file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/VERSION.txt"
-    "${PROJECT_VERSION}\n${PROJECT_NAME}\n")
+    "${POLYGLOT_VERSION_FULL}\n${PROJECT_NAME}\n")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

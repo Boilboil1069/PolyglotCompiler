@@ -3367,7 +3367,7 @@ done (74.8ms)
 5. 文档：USER_GUIDE / tutorial 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-31
@@ -3398,7 +3398,7 @@ done (74.8ms)
 6. 文档：USER_GUIDE / tutorial 中英双语。
 7. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-32
@@ -3428,7 +3428,7 @@ done (74.8ms)
 5. 文档：`docs/realization/cross_language_ide_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-33
@@ -3456,7 +3456,7 @@ done (74.8ms)
 5. 文档：USER_GUIDE / tutorial 中英双语 + `docs/realization/pipeline_inspector_*.md`。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-34
@@ -3489,7 +3489,7 @@ done (74.8ms)
 5. 文档：USER_GUIDE / tutorial 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-35
@@ -3516,7 +3516,7 @@ done (74.8ms)
 5. 文档：`docs/realization/remote_dev_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-36
@@ -3548,7 +3548,7 @@ done (74.8ms)
 5. 文档：`docs/realization/ai_integration_*.md`、`docs/realization/collab_*.md`（中英双语）+ USER_GUIDE 中英双语 + 隐私声明。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-37
@@ -3579,7 +3579,7 @@ done (74.8ms)
 5. 文档：`docs/api/extension_api_*.md`（中英双语，是大型文档）+ `docs/realization/marketplace_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-38
@@ -3621,7 +3621,7 @@ done (74.8ms)
 9. 文档：USER_GUIDE / tutorial 中英双语集中一节。
 10. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-39
@@ -3653,7 +3653,7 @@ done (74.8ms)
 5. 文档：USER_GUIDE / tutorial 中英双语；隐私声明合规中英双语单独成档。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-40
@@ -3681,7 +3681,7 @@ done (74.8ms)
 6. 文档：USER_GUIDE / tutorial 中英双语。
 7. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 
@@ -3712,7 +3712,7 @@ done (74.8ms)
 5. 文档：`docs/realization/binary_containers_zh.md` + `_en.md`，包含 triple 解析表、派发规则、迁移指南、已知限制。同步更新 `README` 与 `tools/polyc/README` / `tools/polyld/README` 的中英双语段落。
 6. 版本：根 `CMakeLists.txt` + `VERSION.txt`：`1.4.1` → `1.5.0-pre.1`（开启 1.5.0 周期；进入 release 时改为 `1.5.0`）。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-42
@@ -3743,7 +3743,7 @@ done (74.8ms)
 5. 文档：在 41 的 `binary_containers_*.md` 追加"派发表"章节（中英双语）；更新 polyld README。
 6. 版本：`1.5.0-pre.1` → `1.5.0-pre.2`。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-43
@@ -3773,7 +3773,7 @@ done (74.8ms)
 4. 文档：`docs/realization/pe_writer_zh.md` + `_en.md`（新文档），含字段地图与调试 cheat sheet。
 5. 版本：`1.5.0-pre.2` → `1.5.0-pre.3`。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-44
@@ -3798,7 +3798,7 @@ done (74.8ms)
 5. 文档：在 `docs/realization/binary_containers_*.md` 追加 "PE 路径细节" 章节（双语）。
 6. 版本：`1.5.0-pre.3` → `1.5.0-pre.4`。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-45

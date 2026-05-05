@@ -36,6 +36,8 @@ constexpr std::uint32_t kTextRVA = 0x1000;
 
 // COFF File Header machine value for AMD64.
 constexpr std::uint16_t kImageFileMachineAmd64 = 0x8664;
+constexpr std::uint16_t kImageFileMachineArm64 = 0xAA64;
+constexpr std::uint16_t kImageFileMachineI386  = 0x014C;
 
 // COFF Characteristics flags (relevant subset).
 constexpr std::uint16_t kImageFileRelocsStripped = 0x0001;
@@ -43,18 +45,21 @@ constexpr std::uint16_t kImageFileExecutableImage = 0x0002;
 constexpr std::uint16_t kImageFileLargeAddressAware = 0x0020;
 
 // DllCharacteristics flags (relevant subset).
+constexpr std::uint16_t kImageDllCharHighEntropyVa = 0x0020;
+constexpr std::uint16_t kImageDllCharDynamicBase   = 0x0040;
 constexpr std::uint16_t kImageDllCharNxCompat = 0x0100;
 constexpr std::uint16_t kImageDllCharTerminalServerAware = 0x8000;
 
 // PE Optional Header magic for PE32+.
 constexpr std::uint16_t kImageNtOptionalHdr64Magic = 0x020B;
 
-// Subsystem: Windows console.
-constexpr std::uint16_t kImageSubsystemWindowsCui = 3;
+// Subsystem values are exposed via `PESubsystem` in the public header.
 
 // Section header characteristics.
 constexpr std::uint32_t kImageScnCntCode = 0x00000020;
 constexpr std::uint32_t kImageScnCntInitializedData = 0x00000040;
+constexpr std::uint32_t kImageScnCntUninitializedData = 0x00000080;
+constexpr std::uint32_t kImageScnMemDiscardable = 0x02000000;
 constexpr std::uint32_t kImageScnMemExecute = 0x20000000;
 constexpr std::uint32_t kImageScnMemRead = 0x40000000;
 constexpr std::uint32_t kImageScnMemWrite = 0x80000000;
@@ -62,9 +67,10 @@ constexpr std::uint32_t kImageScnMemWrite = 0x80000000;
 // Number of Optional Header data directories (the standard 16).
 constexpr std::uint32_t kNumberOfDataDirectories = 16;
 
-// Index of the Import Directory inside the data-directory array.
+// Indices of selected data directories used by this writer.
 constexpr std::uint32_t kImportDirectoryIndex = 1;
-// Index of the Import Address Table directory.
+constexpr std::uint32_t kExceptionDirectoryIndex = 3;
+constexpr std::uint32_t kBaseRelocDirectoryIndex = 5;
 constexpr std::uint32_t kIATDirectoryIndex = 12;
 
 // Sizes of the fixed-shape PE structures we manually lay out.
@@ -340,8 +346,134 @@ ImportLayout BuildImportSection(const std::vector<DllImport> &imports,
 } // namespace
 
 // ===========================================================================
-// Public API
+// .reloc section encoder / decoder (BIN-3)
 // ===========================================================================
+
+std::vector<std::uint8_t>
+BuildBaseRelocSection(const std::vector<BaseRelocation> &relocs) {
+  std::vector<std::uint8_t> out;
+  if (relocs.empty())
+    return out;
+
+  // Group entries by 4 KiB page.  We sort a copy of the input so callers can
+  // pass relocations in any order; within a page we sort by offset to keep
+  // the produced bytes stable across runs (the loader does not require
+  // ordering, but it makes round-trip tests deterministic).
+  std::vector<BaseRelocation> sorted = relocs;
+  std::sort(sorted.begin(), sorted.end(), [](const BaseRelocation &a, const BaseRelocation &b) {
+    return a.rva < b.rva;
+  });
+
+  std::size_t i = 0;
+  while (i < sorted.size()) {
+    const std::uint32_t page_rva = sorted[i].rva & ~0xFFFu;
+    std::size_t j = i;
+    while (j < sorted.size() && (sorted[j].rva & ~0xFFFu) == page_rva)
+      ++j;
+
+    const std::size_t entry_count = j - i;
+    // Each entry is a WORD; round entries up to an even count so the block
+    // size is a multiple of 4 bytes (PE spec requirement).
+    const std::size_t padded_count = entry_count + (entry_count & 1u);
+    const std::uint32_t block_size =
+        8u /* IMAGE_BASE_RELOCATION header */ +
+        static_cast<std::uint32_t>(padded_count) * 2u;
+
+    Append32(out, page_rva);
+    Append32(out, block_size);
+    for (std::size_t k = i; k < j; ++k) {
+      const std::uint16_t off = static_cast<std::uint16_t>(sorted[k].rva - page_rva);
+      const std::uint16_t entry =
+          static_cast<std::uint16_t>(((sorted[k].type & 0xF) << 12) | (off & 0x0FFF));
+      Append16(out, entry);
+    }
+    if (padded_count != entry_count) {
+      // Pad with IMAGE_REL_BASED_ABSOLUTE (type=0, offset=0).
+      Append16(out, 0);
+    }
+    i = j;
+  }
+  return out;
+}
+
+std::vector<BaseRelocation>
+DecodeBaseRelocSection(const std::vector<std::uint8_t> &bytes) {
+  std::vector<BaseRelocation> out;
+  std::size_t pos = 0;
+  while (pos + 8 <= bytes.size()) {
+    const std::uint32_t page_rva = static_cast<std::uint32_t>(bytes[pos]) |
+                                   (static_cast<std::uint32_t>(bytes[pos + 1]) << 8) |
+                                   (static_cast<std::uint32_t>(bytes[pos + 2]) << 16) |
+                                   (static_cast<std::uint32_t>(bytes[pos + 3]) << 24);
+    const std::uint32_t block_size = static_cast<std::uint32_t>(bytes[pos + 4]) |
+                                     (static_cast<std::uint32_t>(bytes[pos + 5]) << 8) |
+                                     (static_cast<std::uint32_t>(bytes[pos + 6]) << 16) |
+                                     (static_cast<std::uint32_t>(bytes[pos + 7]) << 24);
+    if (block_size < 8 || pos + block_size > bytes.size())
+      return {};
+    const std::size_t entries_bytes = block_size - 8u;
+    if (entries_bytes % 2u != 0)
+      return {};
+    const std::size_t entry_count = entries_bytes / 2u;
+    for (std::size_t k = 0; k < entry_count; ++k) {
+      const std::size_t off = pos + 8 + k * 2;
+      const std::uint16_t w = static_cast<std::uint16_t>(bytes[off]) |
+                              (static_cast<std::uint16_t>(bytes[off + 1]) << 8);
+      const std::uint8_t type = static_cast<std::uint8_t>((w >> 12) & 0xF);
+      if (type == 0)
+        continue; // padding
+      const std::uint16_t offset_in_page = static_cast<std::uint16_t>(w & 0x0FFF);
+      out.push_back(BaseRelocation{page_rva + offset_in_page, type});
+    }
+    pos += block_size;
+  }
+  return out;
+}
+
+namespace {
+
+// Per-section emission plan used by the multi-section build path.  Each
+// entry maps directly onto one IMAGE_SECTION_HEADER + an associated raw
+// payload.  `bytes` is empty for `.bss` (zero-fill); `roff`/`rsize` are
+// also zero in that case so the loader allocates VirtualSize bytes of
+// zero-initialised memory without consuming any disk space.
+struct PESectionPlan {
+  char name[8]{};
+  const std::uint8_t *bytes{nullptr};
+  std::uint32_t bytes_size{0};
+  std::uint32_t vsize{0};
+  std::uint32_t rsize{0};
+  std::uint32_t rva{0};
+  std::uint32_t roff{0};
+  std::uint32_t characteristics{0};
+};
+
+void SetSectionName(PESectionPlan &p, const char *n) {
+  std::memset(p.name, 0, 8);
+  for (int i = 0; i < 8 && n[i]; ++i)
+    p.name[i] = n[i];
+}
+
+std::uint16_t MachineToCoff(PEMachine m) {
+  switch (m) {
+  case PEMachine::kArm64: return kImageFileMachineArm64;
+  case PEMachine::kI386:  return kImageFileMachineI386;
+  case PEMachine::kAmd64:
+  default:                return kImageFileMachineAmd64;
+  }
+}
+
+std::uint16_t DefaultDllCharacteristics(PEMachine m, bool dynamic_base) {
+  std::uint16_t v = kImageDllCharNxCompat | kImageDllCharTerminalServerAware;
+  if (dynamic_base) {
+    v = static_cast<std::uint16_t>(v | kImageDllCharDynamicBase);
+    if (m != PEMachine::kI386)
+      v = static_cast<std::uint16_t>(v | kImageDllCharHighEntropyVa);
+  }
+  return v;
+}
+
+} // namespace
 
 std::vector<std::uint8_t> BuildExitProcessShim(std::uint32_t shim_rva,
                                                std::uint32_t exit_process_iat_rva) {
@@ -385,63 +517,177 @@ BuildResult BuildPE32PlusImage(const BuildRequest &req) {
     return R;
 
   // ---------------------------------------------------------------------
-  // Section layout planning (RVA + file offsets).
+  // 1. Pre-encode auxiliary section payloads that depend solely on the
+  //    request (no RVA/file-offset feedback needed):
+  //       - Imports (.idata) need their own RVA, deferred to step 2.
+  //       - Base relocations (.reloc) are RVA-stable; we encode now.
   // ---------------------------------------------------------------------
+  std::vector<std::uint8_t> reloc_bytes = BuildBaseRelocSection(req.base_relocations);
+  const bool has_reloc = !reloc_bytes.empty();
+  const bool has_data  = !req.data_bytes.empty();
   const bool has_rdata = !req.rdata_bytes.empty();
+  const bool has_bss   = req.bss_size != 0;
+  const bool has_pdata = !req.pdata_bytes.empty();
+  const bool has_xdata = !req.xdata_bytes.empty();
   const bool has_idata = !req.imports.empty();
-  std::uint32_t num_sections = 1u; // .text
-  if (has_rdata)
-    ++num_sections;
-  if (has_idata)
-    ++num_sections;
 
-  // Headers region (DOS hdr+stub + PE sig + COFF hdr + Optional Hdr +
-  // section table) gets rounded up to file alignment to form
-  // SizeOfHeaders.
+  // ---------------------------------------------------------------------
+  // 2. Plan section list in canonical order:
+  //       .text .data .rdata .bss .pdata .xdata .idata .reloc
+  //
+  //    Each plan entry records its VirtualSize, RVA and (for non-bss)
+  //    file offset & raw size.  RVAs/offsets are computed sequentially.
+  // ---------------------------------------------------------------------
+  std::vector<PESectionPlan> plans;
+  plans.reserve(8);
+
+  auto add_plan = [&](const char *name, const std::uint8_t *bytes,
+                      std::uint32_t vsize, std::uint32_t characteristics,
+                      bool zero_fill) {
+    PESectionPlan p;
+    SetSectionName(p, name);
+    p.bytes = bytes;
+    p.bytes_size = zero_fill ? 0u : vsize;
+    p.vsize = vsize;
+    p.characteristics = characteristics;
+    plans.push_back(p);
+  };
+
+  add_plan(".text", req.text_bytes.data(),
+           static_cast<std::uint32_t>(req.text_bytes.size()),
+           kImageScnCntCode | kImageScnMemExecute | kImageScnMemRead,
+           /*zero_fill=*/false);
+  if (has_data)
+    add_plan(".data", req.data_bytes.data(),
+             static_cast<std::uint32_t>(req.data_bytes.size()),
+             kImageScnCntInitializedData | kImageScnMemRead | kImageScnMemWrite,
+             /*zero_fill=*/false);
+  if (has_rdata)
+    add_plan(".rdata", req.rdata_bytes.data(),
+             static_cast<std::uint32_t>(req.rdata_bytes.size()),
+             kImageScnCntInitializedData | kImageScnMemRead,
+             /*zero_fill=*/false);
+  if (has_bss)
+    add_plan(".bss", nullptr, req.bss_size,
+             kImageScnCntUninitializedData | kImageScnMemRead | kImageScnMemWrite,
+             /*zero_fill=*/true);
+  if (has_pdata)
+    add_plan(".pdata", req.pdata_bytes.data(),
+             static_cast<std::uint32_t>(req.pdata_bytes.size()),
+             kImageScnCntInitializedData | kImageScnMemRead,
+             /*zero_fill=*/false);
+  if (has_xdata)
+    add_plan(".xdata", req.xdata_bytes.data(),
+             static_cast<std::uint32_t>(req.xdata_bytes.size()),
+             kImageScnCntInitializedData | kImageScnMemRead,
+             /*zero_fill=*/false);
+
+  // .idata is laid out after the user-controlled sections so we know its
+  // RVA before building the import bytes.
+  std::size_t idata_plan_index = static_cast<std::size_t>(-1);
+  if (has_idata) {
+    add_plan(".idata", nullptr, /*vsize=*/0,
+             kImageScnCntInitializedData | kImageScnMemRead | kImageScnMemWrite,
+             /*zero_fill=*/false);
+    idata_plan_index = plans.size() - 1;
+  }
+  if (has_reloc) {
+    add_plan(".reloc", reloc_bytes.data(),
+             static_cast<std::uint32_t>(reloc_bytes.size()),
+             kImageScnCntInitializedData | kImageScnMemDiscardable | kImageScnMemRead,
+             /*zero_fill=*/false);
+  }
+
+  // ---------------------------------------------------------------------
+  // 3. Headers region size and SizeOfHeaders.  Now that we know how many
+  //    sections will appear, compute the headers region size.
+  // ---------------------------------------------------------------------
+  const std::uint32_t num_sections = static_cast<std::uint32_t>(plans.size());
   const std::uint32_t headers_unaligned = kDosHeaderSize + kDosStubSize + kPeSignatureSize +
                                           kCoffFileHeaderSize + kOptionalHeader64Size +
                                           num_sections * kSectionHeaderSize;
   const std::uint32_t size_of_headers = AlignUp(headers_unaligned, kFileAlignment);
 
-  // .text section
-  const std::uint32_t text_rva = kTextRVA;
-  const std::uint32_t text_virtual_size = static_cast<std::uint32_t>(req.text_bytes.size());
-  const std::uint32_t text_raw_size = AlignUp(text_virtual_size, kFileAlignment);
-  const std::uint32_t text_raw_offset = size_of_headers;
-
-  // .rdata section (only if rdata_bytes is non-empty).
-  const std::uint32_t rdata_rva =
-      has_rdata ? AlignUp(text_rva + text_virtual_size, kSectionAlignment) : 0u;
-  const std::uint32_t rdata_virtual_size =
-      has_rdata ? static_cast<std::uint32_t>(req.rdata_bytes.size()) : 0u;
-  const std::uint32_t rdata_raw_size = has_rdata ? AlignUp(rdata_virtual_size, kFileAlignment) : 0u;
-  const std::uint32_t rdata_raw_offset = has_rdata ? text_raw_offset + text_raw_size : 0u;
-
-  // .idata section (only if there are imports).  Sits after .rdata when
-  // both are present, otherwise immediately after .text.
-  const std::uint32_t after_rdata_rva =
-      has_rdata ? rdata_rva + rdata_virtual_size : text_rva + text_virtual_size;
-  const std::uint32_t idata_rva =
-      has_idata ? AlignUp(after_rdata_rva, kSectionAlignment) : 0u;
-  ImportLayout import_layout =
-      has_idata ? BuildImportSection(req.imports, idata_rva) : ImportLayout{};
-  const std::uint32_t idata_virtual_size =
-      static_cast<std::uint32_t>(import_layout.bytes.size());
-  const std::uint32_t idata_raw_size = AlignUp(idata_virtual_size, kFileAlignment);
-  const std::uint32_t idata_raw_offset =
-      has_idata ? (has_rdata ? rdata_raw_offset + rdata_raw_size
-                             : text_raw_offset + text_raw_size)
-                : 0u;
-
-  std::uint32_t end_rva = text_rva + text_virtual_size;
-  if (has_rdata)
-    end_rva = rdata_rva + rdata_virtual_size;
-  if (has_idata)
-    end_rva = idata_rva + idata_virtual_size;
-  const std::uint32_t size_of_image = AlignUp(end_rva, kSectionAlignment);
+  // ---------------------------------------------------------------------
+  // 4. Walk plans in order assigning RVAs and file offsets.  RVA cursor
+  //    starts at kTextRVA; file cursor starts at size_of_headers.  Each
+  //    section is rounded up to file/section alignment.  `.bss` consumes
+  //    no disk bytes (rsize == 0) but still advances the RVA cursor.
+  // ---------------------------------------------------------------------
+  std::uint32_t rva_cursor = kTextRVA;
+  std::uint32_t file_cursor = size_of_headers;
+  for (auto &p : plans) {
+    p.rva = rva_cursor;
+    if (p.bytes_size == 0) {
+      // .bss or pre-import placeholder — no disk footprint yet.
+      p.rsize = 0;
+      p.roff = 0;
+    } else {
+      p.rsize = AlignUp(p.bytes_size, kFileAlignment);
+      p.roff = file_cursor;
+      file_cursor += p.rsize;
+    }
+    rva_cursor = AlignUp(rva_cursor + p.vsize, kSectionAlignment);
+  }
 
   // ---------------------------------------------------------------------
-  // Emit headers
+  // 5. Build .idata now that we know its RVA, and patch the placeholder
+  //    plan entry with the resulting size + raw region.
+  // ---------------------------------------------------------------------
+  ImportLayout import_layout;
+  if (has_idata) {
+    import_layout = BuildImportSection(req.imports, plans[idata_plan_index].rva);
+    auto &p = plans[idata_plan_index];
+    p.bytes = import_layout.bytes.data();
+    p.bytes_size = static_cast<std::uint32_t>(import_layout.bytes.size());
+    p.vsize = p.bytes_size;
+    p.rsize = AlignUp(p.bytes_size, kFileAlignment);
+    p.roff = file_cursor;
+    file_cursor += p.rsize;
+    // Re-cascade RVA cursor for any sections that follow .idata (.reloc).
+    std::uint32_t cursor = AlignUp(p.rva + p.vsize, kSectionAlignment);
+    for (std::size_t k = idata_plan_index + 1; k < plans.size(); ++k) {
+      plans[k].rva = cursor;
+      cursor = AlignUp(cursor + plans[k].vsize, kSectionAlignment);
+    }
+  }
+
+  // SizeOfImage = aligned end of the highest-RVA section.
+  std::uint32_t size_of_image = AlignUp(kTextRVA, kSectionAlignment);
+  for (const auto &p : plans)
+    size_of_image = std::max(size_of_image, AlignUp(p.rva + p.vsize, kSectionAlignment));
+
+  // SizeOfCode = sum of raw sizes of code sections; SizeOfInitializedData =
+  // sum of raw sizes of initialized data sections; SizeOfUninitializedData =
+  // sum of virtual sizes of bss-style sections.
+  std::uint32_t size_of_code = 0, size_of_init_data = 0, size_of_uninit_data = 0;
+  for (const auto &p : plans) {
+    if (p.characteristics & kImageScnCntCode)
+      size_of_code += p.rsize;
+    else if (p.characteristics & kImageScnCntUninitializedData)
+      size_of_uninit_data += p.vsize;
+    else if (p.characteristics & kImageScnCntInitializedData)
+      size_of_init_data += p.rsize;
+  }
+
+  // ---------------------------------------------------------------------
+  // 6. Resolve Machine / Subsystem / Characteristics / DllCharacteristics.
+  //    `IMAGE_FILE_RELOCS_STRIPPED` is set only when no base relocations
+  //    are present — otherwise the loader must be free to rebase us.
+  // ---------------------------------------------------------------------
+  const std::uint16_t coff_machine = MachineToCoff(req.machine);
+  std::uint16_t coff_characteristics =
+      static_cast<std::uint16_t>(kImageFileExecutableImage | kImageFileLargeAddressAware);
+  if (!has_reloc)
+    coff_characteristics = static_cast<std::uint16_t>(coff_characteristics | kImageFileRelocsStripped);
+  coff_characteristics = static_cast<std::uint16_t>(coff_characteristics | req.extra_file_characteristics);
+
+  std::uint16_t dll_characteristics = req.dll_characteristics;
+  if (dll_characteristics == 0)
+    dll_characteristics = DefaultDllCharacteristics(req.machine, /*dynamic_base=*/has_reloc);
+
+  // ---------------------------------------------------------------------
+  // 7. Emit headers.
   // ---------------------------------------------------------------------
   std::vector<std::uint8_t> &out = R.image;
   EmitDosHeaderAndStub(out, kDosHeaderSize + kDosStubSize); // e_lfanew = 0x80
@@ -453,28 +699,27 @@ BuildResult BuildPE32PlusImage(const BuildRequest &req) {
   Append8(out, 0);
 
   // IMAGE_FILE_HEADER (COFF File Header).
-  Append16(out, kImageFileMachineAmd64); // Machine
-  Append16(out, static_cast<std::uint16_t>(num_sections));      // NumberOfSections
-  Append32(out, 0);                                             // TimeDateStamp
-  Append32(out, 0);                                             // PointerToSymbolTable
-  Append32(out, 0);                                             // NumberOfSymbols
+  Append16(out, coff_machine);                                   // Machine
+  Append16(out, static_cast<std::uint16_t>(num_sections));       // NumberOfSections
+  Append32(out, 0);                                              // TimeDateStamp
+  Append32(out, 0);                                              // PointerToSymbolTable
+  Append32(out, 0);                                              // NumberOfSymbols
   Append16(out, static_cast<std::uint16_t>(kOptionalHeader64Size)); // SizeOfOptionalHeader
-  Append16(out, kImageFileRelocsStripped | kImageFileExecutableImage | kImageFileLargeAddressAware); // Characteristics
+  Append16(out, coff_characteristics);                           // Characteristics
 
   // IMAGE_OPTIONAL_HEADER64 (240 bytes total).
   Append16(out, kImageNtOptionalHdr64Magic); // Magic = 0x20B
   Append8(out, 14);                          // MajorLinkerVersion (any)
   Append8(out, 0);                           // MinorLinkerVersion
-  Append32(out, text_raw_size);              // SizeOfCode
-  Append32(out, rdata_raw_size + idata_raw_size); // SizeOfInitializedData
-  Append32(out, 0);                          // SizeOfUninitializedData
-  // AddressOfEntryPoint
-  R.entry_rva = text_rva + req.entry_offset_in_text;
-  Append32(out, R.entry_rva);
-  Append32(out, text_rva); // BaseOfCode
-  Append64(out, req.image_base); // ImageBase
-  Append32(out, kSectionAlignment); // SectionAlignment
-  Append32(out, kFileAlignment);    // FileAlignment
+  Append32(out, size_of_code);               // SizeOfCode
+  Append32(out, size_of_init_data);          // SizeOfInitializedData
+  Append32(out, size_of_uninit_data);        // SizeOfUninitializedData
+  R.entry_rva = kTextRVA + req.entry_offset_in_text;
+  Append32(out, R.entry_rva);                // AddressOfEntryPoint
+  Append32(out, kTextRVA);                   // BaseOfCode
+  Append64(out, req.image_base);             // ImageBase
+  Append32(out, kSectionAlignment);          // SectionAlignment
+  Append32(out, kFileAlignment);             // FileAlignment
   Append16(out, 6); // MajorOperatingSystemVersion
   Append16(out, 0); // MinorOperatingSystemVersion
   Append16(out, 0); // MajorImageVersion
@@ -485,12 +730,8 @@ BuildResult BuildPE32PlusImage(const BuildRequest &req) {
   Append32(out, size_of_image);   // SizeOfImage
   Append32(out, size_of_headers); // SizeOfHeaders
   Append32(out, 0);               // CheckSum (loader does not require)
-  Append16(out, kImageSubsystemWindowsCui); // Subsystem
-  // DllCharacteristics: NX_COMPAT + TerminalServerAware. We deliberately do
-  // NOT set DYNAMIC_BASE because we have no .reloc section; the loader honors
-  // the preferred ImageBase (we also set IMAGE_FILE_RELOCS_STRIPPED above so
-  // the loader will not attempt to rebase this image).
-  Append16(out, kImageDllCharNxCompat | kImageDllCharTerminalServerAware);
+  Append16(out, static_cast<std::uint16_t>(req.subsystem)); // Subsystem
+  Append16(out, dll_characteristics);                       // DllCharacteristics
   Append64(out, 0x100000); // SizeOfStackReserve
   Append64(out, 0x1000);   // SizeOfStackCommit
   Append64(out, 0x100000); // SizeOfHeapReserve
@@ -498,7 +739,20 @@ BuildResult BuildPE32PlusImage(const BuildRequest &req) {
   Append32(out, 0);        // LoaderFlags (reserved)
   Append32(out, kNumberOfDataDirectories); // NumberOfRvaAndSizes
 
-  // Data directories array (16 entries x 8 bytes = 128 bytes).
+  // Data directories (16 entries x 8 bytes).  Populate Import / IAT /
+  // Exception (.pdata) / BaseReloc (.reloc) per-feature; everything else
+  // is zero.
+  std::uint32_t pdata_rva = 0, pdata_size = 0;
+  std::uint32_t reloc_rva = 0, reloc_size = 0;
+  for (const auto &p : plans) {
+    if (std::strncmp(p.name, ".pdata", 6) == 0) {
+      pdata_rva = p.rva;
+      pdata_size = p.vsize;
+    } else if (std::strncmp(p.name, ".reloc", 6) == 0) {
+      reloc_rva = p.rva;
+      reloc_size = p.vsize;
+    }
+  }
   for (std::uint32_t i = 0; i < kNumberOfDataDirectories; ++i) {
     if (i == kImportDirectoryIndex) {
       Append32(out, import_layout.import_directory_rva);
@@ -506,55 +760,52 @@ BuildResult BuildPE32PlusImage(const BuildRequest &req) {
     } else if (i == kIATDirectoryIndex) {
       Append32(out, import_layout.iat_rva);
       Append32(out, import_layout.iat_size);
+    } else if (i == kExceptionDirectoryIndex) {
+      Append32(out, pdata_rva);
+      Append32(out, pdata_size);
+    } else if (i == kBaseRelocDirectoryIndex) {
+      Append32(out, reloc_rva);
+      Append32(out, reloc_size);
     } else {
       Append32(out, 0);
       Append32(out, 0);
     }
   }
 
-  // Section table (one IMAGE_SECTION_HEADER per section, 40 bytes each).
-  auto emit_section = [&](const char name[8], std::uint32_t vsize, std::uint32_t rva,
-                          std::uint32_t rsize, std::uint32_t roff,
-                          std::uint32_t characteristics) {
-    AppendBytes(out, reinterpret_cast<const std::uint8_t *>(name), 8);
-    Append32(out, vsize); // VirtualSize
-    Append32(out, rva);   // VirtualAddress
-    Append32(out, rsize); // SizeOfRawData
-    Append32(out, roff);  // PointerToRawData
-    Append32(out, 0);     // PointerToRelocations
-    Append32(out, 0);     // PointerToLinenumbers
-    Append16(out, 0);     // NumberOfRelocations
-    Append16(out, 0);     // NumberOfLinenumbers
-    Append32(out, characteristics);
-  };
-
-  emit_section(".text\0\0\0", text_virtual_size, text_rva, text_raw_size, text_raw_offset,
-               kImageScnCntCode | kImageScnMemExecute | kImageScnMemRead);
-  if (has_rdata) {
-    emit_section(".rdata\0\0", rdata_virtual_size, rdata_rva, rdata_raw_size, rdata_raw_offset,
-                 kImageScnCntInitializedData | kImageScnMemRead);
-  }
-  if (has_idata) {
-    emit_section(".idata\0\0", idata_virtual_size, idata_rva, idata_raw_size, idata_raw_offset,
-                 kImageScnCntInitializedData | kImageScnMemRead | kImageScnMemWrite);
+  // Section table.
+  for (const auto &p : plans) {
+    AppendBytes(out, reinterpret_cast<const std::uint8_t *>(p.name), 8);
+    Append32(out, p.vsize);
+    Append32(out, p.rva);
+    Append32(out, p.rsize);
+    Append32(out, p.roff);
+    Append32(out, 0); // PointerToRelocations
+    Append32(out, 0); // PointerToLinenumbers
+    Append16(out, 0); // NumberOfRelocations
+    Append16(out, 0); // NumberOfLinenumbers
+    Append32(out, p.characteristics);
   }
 
-  // Pad headers up to SizeOfHeaders.
+  // Pad headers to SizeOfHeaders.
   PadTo(out, size_of_headers);
 
-  // Section data, in section-table order.
-  AppendBytes(out, req.text_bytes.data(), req.text_bytes.size());
-  PadTo(out, text_raw_offset + text_raw_size);
-  if (has_rdata) {
-    AppendBytes(out, req.rdata_bytes.data(), req.rdata_bytes.size());
-    PadTo(out, rdata_raw_offset + rdata_raw_size);
-  }
-  if (has_idata) {
-    AppendBytes(out, import_layout.bytes.data(), import_layout.bytes.size());
-    PadTo(out, idata_raw_offset + idata_raw_size);
+  // Section payloads.  `.bss`-style entries (bytes_size == 0) contribute
+  // nothing to the on-disk image; everything else is appended at its
+  // planned file offset and zero-padded up to its raw size.
+  for (const auto &p : plans) {
+    if (p.bytes_size == 0)
+      continue;
+    AppendBytes(out, p.bytes, p.bytes_size);
+    PadTo(out, p.roff + p.rsize);
   }
 
-  R.rdata_rva = rdata_rva;
+  // Caller-visible result fields.
+  for (const auto &p : plans) {
+    if (std::strncmp(p.name, ".rdata", 6) == 0) {
+      R.rdata_rva = p.rva;
+      break;
+    }
+  }
   R.iat_slot_rva = std::move(import_layout.iat_slot_rva);
   return R;
 }

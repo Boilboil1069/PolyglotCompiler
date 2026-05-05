@@ -3507,3 +3507,273 @@ PolyUI 新增完整的任务编排层与统一的状态栏 Run/Debug 菜单。
 
 架构详情：
 [`realization/tasks_runtime_zh.md`](realization/tasks_runtime_zh.md)。
+
+## 测试浏览器、Inline Run-Test 与覆盖率视图
+
+PolyUI 把 CTest、pytest、cargo test、JUnit、xUnit、NUnit 等测试框架
+汇总到统一的「测试浏览器」面板，并把覆盖率信息直接绘制到编辑器行号槽
+位上。
+
+* **树视图**：项目 → 套件 → 用例，按状态着色（通过、失败、错误、跳过、
+  待运行、运行中）。右键节点可单测重跑或整套件重跑；切换「失败优先」
+  排序聚焦回归。
+* **报告适配**：将 CTest CDash XML、JUnit/pytest XML、cargo
+  `--format json` 日志、xUnit v2 XML、NUnit 3 XML 导入面板，
+  框架无关的 [`TestModel`](../tools/ui/common/testing/test_model.h)
+  会统一吸收，亦可作为 LSP 测试协议的抽象层。
+* **行内 ▶ 运行 / 🐞 调试 CodeLens**：内建检测器识别 Catch2
+  （`TEST_CASE`）、pytest（`def test_*`）、Rust（`#[test]`）、
+  JUnit（`@Test`）、xUnit（`[Fact]` / `[Theory]`）、NUnit（`[Test]`）
+  声明。运行器捕获到的失败会回写到 lens 上，作为行内诊断展示。
+* **覆盖率行号槽位**：从 lcov、Cobertura、coverage.py、
+  cargo-tarpaulin、dotnet coverlet 报告渲染颜色条与百分比。工作区
+  树列出每个文件的百分比；任意文件低于阈值即触发徽标告警。
+
+架构详情：
+[`realization/test_explorer_zh.md`](realization/test_explorer_zh.md)。
+
+## 包管理、依赖图、漏洞扫描、REPL 与 Notebook
+
+PolyUI 把十二种生态——venv、conda、uv、pipenv、poetry、cargo、
+npm、maven、gradle、nuget、gem、go-mod——统一到同一面板，旁边并列
+解析依赖图，扫描已知漏洞，并内嵌 REPL 与 Notebook 用于实时探索。
+
+* **统一的包管理面板**——无论底层生态如何，都通过同一组命令完成
+  install/upgrade/remove。状态栏按生态显示当前激活的环境；在两个
+  虚拟环境或两个 Cargo 工作区之间切换只需一次点击。锁文件原地解码
+  为统一的表格视图，覆盖 `Cargo.lock`、`uv.lock`、`Pipfile.lock`、
+  `package-lock.json`、`pom.xml`、`gradle.lockfile`、
+  `packages.lock.json`、`Gemfile.lock`、`go.sum`。`.ploy CONFIG`
+  与解析锁文件双向同步，面板标出任一侧缺失的需求。
+* **依赖图**——同一面板提供层级树视图（每个直接依赖一个节点，
+  传递依赖作为子节点）与力导向图视图。版本冲突（同一逻辑包在
+  不同路径上被解析到不同版本）以红色高亮；根节点以蓝色高亮。
+  当前视图可导出为自洽的 SVG，便于写文档和提 PR 时引用。
+* **漏洞扫描**——告警从 osv.dev 与 GitHub Advisory 数据库拉取，
+  匹配解析后的版本，结果同时呈现为编辑器内联诊断与面板列表，
+  每条结果带严重等级、摘要、影响范围与首个修复版本。按 id 的
+  抑制列表保存在 `.polyc/security.json`，已接受的风险决策在重新
+  扫描后保留。
+* **REPL 面板**——内置 `.ploy` REPL 由 `polyc --repl` 驱动；
+  Python、IRust、IRB、dotnet-script 也内嵌在同一面板下。每个会话
+  独立保存转录，工作区重载后可回放上次的交互。
+* **Notebook 视图**——`.polynb` 是一等公民。单元类型为代码、
+  Markdown 或跨语言 `LINK`；`LINK` 单元把一种语言的目标符号绑定
+  到另一种语言的源符号，执行时同时驱动两个引擎，端到端记录数据
+  流动。落盘格式为纯 JSON，对 diff 友好。
+
+架构详情：
+[`realization/polyui_package_management_zh.md`](realization/polyui_package_management_zh.md)。
+
+## 跨语言导航、Bridge 面板与 Marshalling 视图
+
+PolyUI 把跨语言能力推到台前：在 `.ploy` 与五种宿主语言之间双向
+跳转、Hover、协调重命名；专设面板列出 polyc 生成的所有 bridge；
+侧栏视图揭示它们的 marshalling 流水线。
+
+* **跨语言跳转 / Hover / 重命名**——在 `LINK <lang>::<symbol>` 上
+  按 F12 直接跳转到宿主源；宿主语言定义上方显示
+  *X `.ploy` LINK references* CodeLens，点击展开所有引用该符号的
+  `.ploy` 点位列表。任意一侧的重命名都通过 polyls 协调：一次
+  `WorkspaceEdit` 计划同时改写宿主语言定义、所有 `.ploy` LINK
+  点位以及宿主端 LSP 报告的引用，由各 LSP 原子提交。
+* **Bridge 面板**——polyc 生成的每个跨语言 bridge 都出现在统一
+  面板中，列出生成的 stub 名、marshalling 策略、源声明位置以及
+  来自 polyrt calltrace 的实时调用次数。双击跳源；重新导入构建
+  产物会保留运行期计数，看板保持连续。
+* **Marshalling 可视化**——选中 `LINK` / `CALL` / `METHOD` 时，
+  侧栏渲染参数与返回值的转换链路：IR 下降、marshalling helper、
+  目标 ABI 适配器三段顺序步骤。每一步显示 helper 名、来自下降
+  输出的代码片段，并支持点开源。该视图覆盖五种宿主语言（C++、
+  Rust、Python、Java、.NET）；当 polyc 尚未输出链路文档时，会从
+  bridge 元数据合成标准流水线，确保面板始终有内容。
+
+架构详情：
+[`realization/cross_language_ide_zh.md`](realization/cross_language_ide_zh.md)。
+
+## 编译流水线 Inspector、IR Viewer/Diff 与 Asm Viewer
+
+PolyUI 现已提供类 Compiler Explorer 的检视栈，可清晰看到 polyc
+在每个构建阶段做了什么。
+
+* **Pipeline Inspector**——构建结束后打开 *Pipeline* 面板，可看
+  到六个标准阶段（frontend、sema、IR pre-opt、IR post-opt、
+  backend asm、link）及各自耗时与 polyc 落在 `aux/` 的产物；归
+  一化直方图让瓶颈一目了然，点击行可把对应产物送入 IR 或 Asm
+  Viewer。
+* **IR Viewer / Diff**——IR 视图按函数与基本块折叠，行号槽与源
+  码视图保持同步。*对比优化* 按钮可在同一函数的 pre-opt /
+  post-opt IR 之间开启 side-by-side diff；diff 只读，基于 LCS
+  保证未变化区域对齐。源码 ↔ IR ↔ 产物的跳转通过同一张行绑定表
+  联动，三栏光标同步。
+* **Asm Viewer**——asm 视图渲染 x86_64 / arm64 / wasm 三种目标
+  的反汇编，并把每条指令绑定回生成它的源行。悬停源行会高亮所
+  有对应指令；悬停指令会高亮源行。polyasm 与各 backend 反汇编
+  器同时输出 DWARF `.file`/`.loc` 指令以及内联的 `; src=` 注释，
+  即使是手写 prologue 也能命中绑定。
+
+架构详情：
+[`realization/compile_pipeline_inspector_zh.md`](realization/compile_pipeline_inspector_zh.md)。
+
+## Sample / Tutorial Browser、Topology Live 与类型推断浮层
+
+PolyUI 新增三项可发现性能力，让 IDE 更易上手、更易导航。
+
+* **Sample / Tutorial Browser**——打开 *Samples* 面板可浏览
+  `tests/samples/` 下所有示例与 `docs/tutorial/` 下所有教程。
+  按语言、主题、难度或全文筛选条目，然后点击 *以工作区副本打开*
+  即可把选中条目克隆到指定目录；源树永远不会被改动——所有副本
+  仅落在目标根目录下。
+* **Topology Live**——拓扑面板会跟随编辑器：把光标移到某个符号
+  上，面板就缩放到该符号的邻域（半径可配）；清除选择则退回到
+  以当前文件为锚的节点。点击任意节点可回跳到其源位置；编辑触发
+  带 debounce 的增量重建，拓扑保持同步而不必每次键入都重算。
+* **类型推断浮层**——polyls 现已回应 `textDocument/inlayHint`。
+  `LET m = NEW(python, "torch.nn.Linear", 8, 4)` 这样的行尾会浮
+  现 `: HANDLE<python::torch::nn::Linear>`；调用处的实参会以
+  `f(x: 1, y: 2)` 形式显示形参名。可在 *设置 → Inlay Hints* 独立
+  开关两类 hint。
+
+架构详情：
+[`realization/sample_topology_inlay_zh.md`](realization/sample_topology_inlay_zh.md)。
+
+## 远程开发 —— SSH / WSL / Container / Dev Container
+
+PolyUI 现已支持通过统一抽象连接任意主机。polyls、调试器、任务
+系统与集成终端都走同一套 `RemoteSession` 管线，远程开发与本地
+开发体验一致。
+
+* **任意连接**——命令面板的 *Connect To…* 接受
+  `ssh://[用户@]主机[:端口]/路径`、`wsl://发行版/路径`、
+  `container://[runtime/]镜像或 id/路径` 与
+  `local:/路径`。连上之后，所有 IDE 能力（打开文件、启动调试、
+  运行构建任务、打开终端）都直接作用于远端工作区。
+* **Dev Container**——工作区含 `.devcontainer/devcontainer.json`
+  时，*在容器中重新打开* 命令会解析 spec、构建或复用对应容器，
+  并自动安装 polyls 以及识别出的 feature 所需 LSP（Python、
+  Node、Java、Go、Rust、.NET、Ruby、C++）；之后再依次执行显式
+  的 `postCreateCommand`。
+* **端口转发 / 文件同步 / 终端**——*Forwarded Ports* 视图列出所
+  有活动转发规则；*Sync Workspace* 在执行前展示 upload /
+  download / delete 计划（也提供 push-only / pull-only 的单向同步
+  模式）；集成终端直接对接当前会话，按下快捷键即可落入远端 shell。
+
+架构详情：
+[`realization/remote_dev_zh.md`](realization/remote_dev_zh.md)。
+
+## AI 助手 —— 聊天、行内补全、重构、隐私
+
+PolyUI 通过同一套 provider 抽象提供 AI 聊天、代码补全、行内灰
+字建议与重构建议。
+
+* **Provider 选择。** 在 *设置 → AI* 中选用本地 Ollama（无需授
+  权）、OpenAI 兼容 HTTP、Azure OpenAI 或 Anthropic。API key 仅
+  在设置面板中输入并保存到用户钥匙串——从不嵌入二进制，也不
+  写入任何项目文件。
+* **隐私优先。** 远程 provider 在你开启 *允许远程调用* 之前一直
+  禁用。*项目上下文* 面板可设定允许上送的目录（白名单）与永不
+  离开本机的目录（黑名单）；diagnostics 与打开文件内容各有独立
+  开关。在授权前，所有远程调用直接短路，聊天面板显示 *需要授
+  权*。
+* **行内建议。** Tab 接受、Esc 拒绝、Alt+] / Alt+[ 切换备选。
+* **聊天面板。** 一键把当前文件、当前选区或诊断信息插入提示。
+* **重构 diff。** 重构建议以逐 hunk diff 展示；逐条接受，IDE 只
+  应用你确认的部分。
+
+## 协作 —— Pull Request、评审、Issue
+
+*Collab* 侧栏通过抽象 provider 列出当前仓库在 GitHub / GitLab /
+Gitea 上的 PR 与 issue。Diff 视图支持逐行评论与 *Approve /
+Request Changes / Comment* 结论。*Push to PR* 推送当前分支，新
+分支会一并开出 draft PR。*Issues* 视图支持创建、打标签、关闭、
+关联 commit，以及从编辑器拉取 `file:line` 引用。
+
+架构详情：
+[`realization/ai_integration_zh.md`](realization/ai_integration_zh.md)、
+[`realization/collab_zh.md`](realization/collab_zh.md)。
+
+### 隐私声明
+
+PolyUI 不在二进制中嵌入 API key，未经用户显式同意不会向远程端
+点发送任何源码，并对所有项目上下文请求强制应用工作区允许 / 拒
+绝名单。本地 provider（Ollama）完全在本机运行，无需授权。
+
+## 扩展、Marketplace 与工作区
+
+PolyUI 内置了一等公民的扩展系统、本地 Marketplace 与多根工作区
+模型。
+
+* **安装 / 更新 / 回滚。** *Marketplace* 列出当前所有索引（本地
+  或 HTTP）中的扩展。点击即装；再次点击升级到最新 semver；*回
+  滚* 退回到最近一次升级前的版本。
+* **能力授权弹窗。** 扩展声明 `filesystem`、`network`、
+  `process`、`clipboard` 或 `secrets` 时，PolyUI 在激活前请你逐
+  项授权。被拒能力会出现在 *设置 → 扩展* 中，附 *授权* 按钮便
+  于事后再开。
+* **可选签名。** 在设置中开启 *仅安装签名扩展* 后，签名缺失或
+  不匹配的安装会被直接拒绝。
+* **多根工作区。** 打开 `polyui.code-workspace` 同时加载多根。
+  每根有独立设置（工作区级为兜底），搜索与跳转跨根可达；
+  polyls / 调试器 / 任务实例按 `(folder, language, version)` 隔
+  离——在某一根锁定不同语言版本不会污染其他根。
+
+架构详情：
+[`api/extension_api_zh.md`](api/extension_api_zh.md)、
+[`realization/marketplace_zh.md`](realization/marketplace_zh.md)。
+
+## 外壳：欢迎页、通知、状态栏、最近、会话、书签、TODO
+
+PolyUI 外壳把编辑器包装成完整工作台：
+
+* **欢迎页**——最近工作区、教程、样例与新特性提示；可关闭可固
+  定。
+* **通知中心**——持久化、分级、带 action。*不打扰* 屏蔽
+  `info` / `progress`，警告与错误透传。状态栏显示未读数。
+* **可定制状态栏**——内建槽位（分支、问题、语言、语言服务器、
+  编码、行尾、缩进、包管理器、Profiler）可在左右两侧拖动，可
+  显隐；扩展可注册自己的槽位。
+* **最近文件 / 工作区**——`Ctrl+R` 打开最近工作区，`Ctrl+E` 打
+  开最近文件；均支持固定。
+* **会话恢复**——重启后，标签 / 滚动 / 光标 / 折叠 / 分屏 / 面
+  板大小 / 调试视图原样回来；可在设置中关闭。
+* **书签**——`Ctrl+Alt+K` 切换；面板按工作区列出所有书签，含
+  标签与颜色。
+* **TODO / FIXME 索引**——后台扫描；关键字可配置（默认
+  `TODO`、`FIXME`，可加 `XXX`、`HACK` 等）；汇总面板按关键字
+  计数。
+
+走查：[`tutorial/shell_zh.md`](tutorial/shell_zh.md)。
+
+## i18n、无障碍与遥测
+
+**语言。** PolyUI 内建五种语言：简体中文、繁体中文、英文、日
+文、韩文。在 *设置 → 通用 → 语言* 切换。所有 UI 字符串均按
+id 查询，切换语言即时生效且覆盖全面。
+
+**无障碍。** 每个可聚焦控件均可仅用键盘到达；Tab 顺序确定，
+循环回绕，禁用控件被跳过且不打断链条。屏幕阅读器（NVDA、
+JAWS、VoiceOver、Orca）通过平台无障碍桥优先收到 assertive
+播报，再收到 polite 播报。视觉辅助：高对比度主题、大字体
+（80–300 %）、减少动效——按配置切换。
+
+**遥测、反馈与崩溃报告。** 默认关闭；启用需显式同意且可随时
+撤回。每个事件必须声明字段白名单——白名单外的字段在事件进入
+本地预览之前即被剥离，因此永远不会被上传。崩溃报告始终先落
+盘；上传是独立闸门，需显式确认。实现：
+[`realization/i18n_zh.md`](realization/i18n_zh.md)、
+[`realization/accessibility_zh.md`](realization/accessibility_zh.md)、
+[`realization/telemetry_zh.md`](realization/telemetry_zh.md)。
+
+## 文件类型查看器
+
+* **图像查看器**——PNG / JPEG / WebP / GIF / SVG / BMP，含缩
+  放、平移、RGBA 像素拾取与单通道分离。
+* **Hex 查看器**——面向 ≥ 1 GiB 大文件的分块 I/O；跳转、可跨
+  块的 hex 查找；为链接器 / IR / 目标文件 schema 提供命名高
+  亮。
+* **二进制识别**——识别 ELF / PE / Mach-O / WASM，报告架构
+  与 subsystem；反汇编委托给 `polyasm`。
+* **SQLite 客户端 + SQL Console**——schema 浏览、结果分页、
+  CSV 导出、有界历史。其他驱动通过同一 `SqlDriver` 接入。
+
+走查：[`tutorial/viewers_zh.md`](tutorial/viewers_zh.md)。

@@ -12,6 +12,450 @@
 
 ---
 
+## v1.42.0-pre.4 (2026-05-05)
+
+**PE 链接胶水（BIN-4）：真正的 `Linker::GeneratePEDll`、`.def` 文件、导出表、重定位翻译。**
+
+- 新增 `tools/polyld/include/linker_pe.h` 与 `tools/polyld/src/linker_pe.cpp`，与 `linker.cpp` 同属 `polyglot::linker` 家族，承载 PE 侧的链接器胶水。
+- `Linker::GeneratePEDll()` 完成真实实现：通过 `BuildRequest::extra_file_characteristics` 写入 `IMAGE_FILE_DLL`（0x2000），由 `pe::BuildExportSection` 构造 `IMAGE_EXPORT_DIRECTORY`（EAT、Name Pointer Table、Ordinal Table、DLL 名、按导出名一一排列的字符串），并在镜像生成后回填可选头中的导出数据目录。DLL 默认首选基地址为 0x180000000。
+- `pe::ParseDefFile` 解析 Microsoft `.def` 文件（含 `LIBRARY` + `EXPORTS` 段、`name=internal`、`@N`、`NONAME`、`DATA`、`PRIVATE` 修饰、`;`/`#` 注释）。`pe::ParseCliExportSpec` 在没有 `.def` 时支持完全相同的右侧语法。`pe::MergeExports` 按公开名去重，互不相容的重复声明上报为 `polyld-err-E3201`。
+- `pe::TranslateRelocationsToPEBaseRelocs` 把中性 `Relocation` 编码翻译为 PE 基址重定位（DIR64 / HIGHLOW / ARM64 page 系列）。不受支持的编码——包括仅在 ELF 上有意义的 `R_X86_64_GOTPCREL` 等——会被记录为 `polyld-err-E3210` 并使函数返回 `false`，同时继续翻译剩余项以一次性暴露完整冲突集。
+- polyld 新增 CLI：`--def <file>`、`/EXPORT:<spec>`（cl 风格）、`--export <spec>`（GNU 风格）、`--dll-name <name>`。`LinkerConfig` 增加 `def_files`、`cli_export_specs`、`dll_name` 字段。
+- 新增单元测试 `tests/unit/linker/linker_pe_test.cpp`，覆盖 `.def` 解析、`/EXPORT` 解析、冲突上报、导出段字节级布局断言以及重定位翻译器的成功 / E3210 路径。
+- 双语文档 `docs/realization/binary_containers_{en,zh}.md` 新增 “PE 路径细节” 章节，详细描述导出来源、`.edata` 字节布局、重定位翻译表与新增错误码。
+- 测试套基线：`test_core "[common]"` 133/9、`test_linker` 503/87（原 452/82，+51/+5）、`unit_tests "[polyui]"` 1304/238。
+
+---
+
+## v1.42.0-pre.3 (2026-05-05)
+
+**PE32+ 写出器加固（BIN-3）。**
+
+- `BuildPE32PlusImage` 现按规范顺序 `.text / .data / .rdata / .bss /
+  .pdata / .xdata / .idata / .reloc` 规划多节布局，仅在对应请求字段
+  非空时才发射；`.bss` 仅占虚拟空间（`SizeOfRawData = 0`）。
+- 新增 `BaseRelocation` 与 `BuildBaseRelocSection` /
+  `DecodeBaseRelocSection`：按 4 KiB 页分组写出
+  `IMAGE_BASE_RELOCATION` 块，必要时追加 `IMAGE_REL_BASED_ABSOLUTE`
+  填充使 `SizeOfBlock` 4 字节对齐。非空 `.reloc` 会清除
+  `IMAGE_FILE_RELOCS_STRIPPED` 并置位 `DYNAMIC_BASE`（x64 / arm64 还
+  会再置 `HIGH_ENTROPY_VA`）。
+- `BuildRequest::machine` 选择 `IMAGE_FILE_MACHINE_AMD64 / ARM64 /
+  I386`；`BuildRequest::subsystem` 选择 `WindowsCui / WindowsGui /
+  EfiApplication / NativeDriver`；`dll_characteristics` 覆盖默认值；
+  `extra_file_characteristics` 与 COFF Characteristics 按位或（DLL 场
+  景请传 `0x2000`，即 `IMAGE_FILE_DLL`）。
+- Data Directory[3]（Exception）与 Data Directory[5]（Base
+  Relocation）在对应节存在时分别接到 `.pdata` 与 `.reloc`。
+- 新增 `tests/unit/linker/pe_writer_hardened_test.cpp` 覆盖编码器回环、
+  多节顺序、Characteristics 切换、字段覆盖；旧 `pe_writer_test` 用例
+  字节级保持不变。
+- 新增实现文档 `docs/realization/pe_writer_{en,zh}.md`。
+
+---
+
+## v1.42.0-pre.2 (2026-05-05)
+
+**链接器容器派发（BIN-2）。**
+`Linker::GenerateOutput()` 现在按解析后的
+`(OutputFormat, BinaryContainer)` 对派发，不再硬编码为
+ELF。`Linker::ResolveContainerAndTriple()` 在构造函数中运行，
+将遗留的 `target_os` 字段折叠到规范 `target_triple`（原
+调用点免改动）并依 [`ResolveContainer`](../common/include/binary_container.h)
+锁定 `effective_container_`。共享库现为真正的镜像：ELF 发
+`ET_DYN`；Mach-O 发 `MH_DYLIB`，并由 `LC_ID_DYLIB` 携带
+ install name。新增 `Linker::GenerateWasmModule()` 写出结构完整
+的 WebAssembly 1.0 模块（前缀 + Type / Function / Export /
+Code 节，导出 `_start`），并将合并后的 `.text` 作为
+`polyglot.text` 自定义节嵌入。PE 共享库走新增的
+`Linker::GeneratePEDll()`（在 BIN-4 接入导出表之前转发给
+PE32+ 写器）。
+
+[`SuffixesFor`](../common/include/binary_container.h) /
+[`SuffixMatchesContainer`](../common/include/binary_container.h)
+导出各容器的规范后缀（PE：`.exe / .dll / .lib`；Mach-O：
+`.dylib`；ELF：`.so`；Wasm：`.wasm`），以供编译器驱动在
+用户 `-o` 路径与解析容器不匹配时发出 `polyc-warn-W2101`。
+
+### 已验证套件
+
+* `test_linker` — 75 例 / 381 断言（包含 6 例派发用例）。
+* `test_core "[common]"` — 9 例 / 133 断言。
+* `unit_tests "[polyui]"` — 238 例 / 1304 断言（回归）。
+
+---
+
+## v1.42.0-pre.1 (2026-05-05)
+
+**二进制容器与目标三元组抽象（BIN-1）。**
+`polyglot::common::TargetTriple`（[`common/include/target_triple.h`](../common/include/target_triple.h)）
+是强类型的 `arch-vendor-os-env[-sub]` 值，提供不抛异常
+的 `ParseTargetTriple()`、`HostTriple()` 宿主推导、确定性
+`str()` 循环、等号与 `std::hash`。解析器覆盖主流
+三元组（`x86_64-pc-windows-msvc`、`aarch64-apple-darwin`、
+`x86_64-unknown-linux-{gnu,musl}`、`aarch64-linux-android`、
+`riscv64-unknown-linux-gnu`、`wasm32-wasi`…）并折叠常见
+别名（`amd64 / x64`、`arm64`、`mingw32`、`gnueabihf`、`elf`）。
+`polyglot::common::BinaryContainer`（[`common/include/binary_container.h`](../common/include/binary_container.h)）
+提供 `kAuto / kELF / kPE / kMachO / kWasm` 以及 `ContainerForOS`、
+`DefaultOSForContainer` 与 `ResolveContainer(triple, requested)`
+（显式请求优先；`wasm32-*` 总是映射到 `kWasm`）。
+`LinkerConfig` 新增 `target_triple`、`container` 与向后兼容的
+`target_os` 字段。后端三元组重载与 `Linker::GenerateOutput()`
+的真正容器派发在 BIN-2 完成。
+
+本版本在统一版号线上开启 **1.5.0 预发布周期**；
+预发布后缀存于 `POLYGLOT_VERSION_SUFFIX` /
+`POLYGLOT_VERSION_STRING`，`VERSION.txt` 输出 `1.42.0-pre.1`。
+
+### 已验证套件
+
+* `test_core "[common]"` — 9 例 / 133 断言。
+* `unit_tests "[polyui]"` — 238 例 / 1304 断言（回归）。
+
+---
+
+## v1.41.0 (2026-05-05)
+[`ImageViewer`](../tools/ui/common/viewer/image_viewer.h) 从魔数
+识别 PNG / JPEG / WebP / GIF / SVG / BMP（文本型回退到扩展
+名），缩放夹紧 5 – 6400 %，支持平移、行主序 RGBA 缓冲上
+的像素拾取与单通道（红 / 绿 / 蓝 / Alpha）分离。
+[`HexViewer`](../tools/ui/common/viewer/hex_viewer.h) 面向 ≥ 1 GiB
+大文件：通过 `HexReader` 回调分块读取，查找时仅保留
+`needle.size() - 1` 字节作为重叠，跨块匹配依然命中；`JumpTo`
+按行对齐向下贴齐；跟踪命名高亮供链接器段映射等工具使用。
+[`IdentifyBinary`](../tools/ui/common/viewer/binary_inspector.h)
+识别 ELF / PE / Mach-O / WASM 容器，报告架构（`x86_64`、
+`aarch64`、`wasm32` …）、位宽、字节序与 subsystem；
+`DisassemblerFacade` 接入 `polyasm`，不支持架构下以 `.byte`
+占位渲染，面板始终有内容。
+[`SqlConsole`](../tools/ui/common/dbclient/sql_console.h)
+构建于抽象 `SqlDriver` 接口（Qt 构建绑 SQLite，测试用伪驱动），
+记录有界历史、完整透传驱动错误，与 `ResultPager`（固定页大小、
+页数计算）及 `ExportCsv`（遵 RFC-4180 对逗号 / 引号 / 换行转义）
+配合使用。面向用户教程：
+[`tutorial/viewers_en.md`](tutorial/viewers_en.md) /
+[`tutorial/viewers_zh.md`](tutorial/viewers_zh.md)；USER_GUIDE 中英
+双语章节见 [`USER_GUIDE.md`](USER_GUIDE.md) 与
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试：
+[`tests/unit/polyui/viewers_test.cpp`](../tests/unit/polyui/viewers_test.cpp)
+（238 例 1304 条 polyui 断言全绿）。
+
+---
+
+## v1.40.0 (2026-05-05)
+
+**i18n、无障碍与选入式遥测 / 崩溃报告。**
+[`StringCatalog`](../tools/ui/common/i18n/i18n.h) 存储按 id
+× locale 的 UI 字符串，内建五种语言（`zh-CN`、`zh-TW`、
+`en`、`ja`、`ko`）；查找依次回退到配置的回退语言与 id 本
+身，因此 UI 不会因缺失翻译变空。`Translator` 绑定目录与当
+前语言；Qt 层接入 `QTranslator`。`MissingStringScanner`
+是 CI 闸门，扫描 `tr("...")` 调用并拒绝硬编码字面量与未
+知 id。
+[`FocusOrder`](../tools/ui/common/a11y/accessibility.h) 维护
+确定性键盘 Tab 链，循环回绕并跳过禁用控件；
+`ScreenReaderQueue` Drain 时先取 assertive 后取 polite，供
+平台无障碍桥（UIA / AT-SPI / NSAccessibility）使用；
+`AccessibilityProfile` 汇总高对比度、大字体（夹紧 80–300%）
+与减少动效开关，以 JSON 往返。
+[`ConsentManager`](../tools/ui/common/telemetry/telemetry.h)
+默认关闭且随时可撤回；`FieldAllowList` 在事件进入本地预
+览之前剀除任何不在允许名单内的字段；`TelemetryBuffer`
+是有界、用户可审的日志；`CrashReportStore` 始终先落盘，
+上传是独立闸门。双语实现文档：
+[`realization/i18n_en.md`](realization/i18n_en.md) /
+[`realization/i18n_zh.md`](realization/i18n_zh.md)、
+[`realization/accessibility_en.md`](realization/accessibility_en.md) /
+[`realization/accessibility_zh.md`](realization/accessibility_zh.md)、
+[`realization/telemetry_en.md`](realization/telemetry_en.md) /
+[`realization/telemetry_zh.md`](realization/telemetry_zh.md)。
+面向用户章节见 [`USER_GUIDE.md`](USER_GUIDE.md) 与
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试：
+[`tests/unit/polyui/localization_test.cpp`](../tests/unit/polyui/localization_test.cpp)
+（232 例 1244 条 polyui 断言全绿）。
+
+---
+
+## v1.39.0 (2026-05-05)
+
+**IDE 外壳：欢迎页、通知中心、可定制状态栏、最近列表、会话恢复、
+书签与 TODO 索引。**
+[`WelcomePage`](../tools/ui/common/shell/welcome.h) 维护最近工作
+区（按路径去重、最新在前）、教程 / 样例入口与按版本归档的新特
+性提示；页面可关闭、可固定，并以 JSON 序列化。
+[`NotificationCenter`](../tools/ui/common/shell/notifications.h)
+推送持久化通知，支持分级（`info` / `warning` / `error` /
+`progress`）、action 按钮、未读计数与不打扰模式——不打扰只屏蔽
+非关键级别，警告与错误始终透传。
+[`StatusBar`](../tools/ui/common/shell/status_bar.h) 内建九个槽
+位（分支、问题、语言、语言服务器、编码、行尾、缩进、包管理器、
+Profiler），接受第三方注册；用户可显隐每个槽位、在左右两侧之
+间按优先级拖动，布局可往返 JSON。
+[`RecentList`](../tools/ui/common/shell/recent.h) 是 `Ctrl+R`（工
+作区）与 `Ctrl+E`（文件）背后的有上限、可固定的存储：访问即提
+顶，固定项永远高于未固定项，裁剪时保留全部固定项。
+[`SessionStore`](../tools/ui/common/shell/session.h) 序列化完整
+编辑器会话——分屏方向、面板列表、标签（含光标 / 滚动 / 折叠）、
+面板大小与显隐、调试视图状态（配置、watch、打开的子视图）以及
+任意字符串 extras——并可无损反序列化。
+[`BookmarkStore`](../tools/ui/common/shell/bookmarks.h) 按
+`(path, line)` 切换可加标签、可着色的书签，提供按文件与全局两
+种视图。
+[`TodoIndex`](../tools/ui/common/shell/todo_index.h) 按可配置关
+键字集合（默认 `TODO`、`FIXME`；可扩展 `XXX`、`HACK` 等）重新
+扫描文件，强制单词边界以避免 `TODOMARKER` 误中，按关键字汇总
+计数供面板使用。
+面向用户的章节见 [`USER_GUIDE.md`](USER_GUIDE.md) 与
+[`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)；教程走查见
+[`tutorial/shell_en.md`](tutorial/shell_en.md) /
+[`tutorial/shell_zh.md`](tutorial/shell_zh.md)。测试：
+[`tests/unit/polyui/shell_test.cpp`](../tests/unit/polyui/shell_test.cpp)
+（223 例 1180 条 polyui 断言全绿）。
+
+---
+
+## v1.38.0 (2026-05-05)
+
+**插件系统 + 本地 Marketplace + 多根工作区。**
+[`ExtensionHost`](../tools/ui/common/ext/extension_api.h) 加载以
+`extension.json` 描述的插件（id、name、version、publisher、
+entry point、loader——原生动态库或 JavaScript / TypeScript bundle、
+activation events、所需 capabilities、contributions）。贡献点覆盖
+commands、keybindings、menus、panels、views、status-bar items、
+themes、语言客户端、调试适配器、文件图标主题、格式化器、
+snippets、任务与重构 provider；注册表以 `(kind, id)` 去重，重
+新激活不会遗留陈旧项。
+[`CapabilityGate`](../tools/ui/common/ext/extension_api.h) 强制
+用户明示授予 `filesystem`、`network`、`process`、`clipboard`、
+`secrets` 能力；任一所需能力未授权时激活直接失败。
+[`Marketplace`](../tools/ui/common/ext/marketplace.h) 解析文件系
+统 / HTTP 索引，按 semver 选取最高版本，提供安装 / 卸载 /
+更新 / 回滚，并按 id 维护安装历史；`SignaturePolicy` 可选地
+强制所有安装携带受信任的签名。
+[`Workspace`](../tools/ui/common/workspace/workspace.h) 解析 / 序
+列化 `polyui.code-workspace`，维护多根及每根独立设置（文件夹值
+优先，其次工作区值），提供跨根搜索，并透过
+`LanguageServerPool` 以 `(folder, language, version)` 为粒度隔离
+polyls / DAP / 任务实例。设计详情：
+[`api/extension_api_zh.md`](api/extension_api_zh.md)、
+[`realization/marketplace_zh.md`](realization/marketplace_zh.md)；
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆
+盖于
+[`tests/unit/polyui/extension_api_test.cpp`](../tests/unit/polyui/extension_api_test.cpp)、
+[`marketplace_test.cpp`](../tests/unit/polyui/marketplace_test.cpp)
+与 [`workspace_test.cpp`](../tests/unit/polyui/workspace_test.cpp)
+（216 例 1096 条 polyui 断言全绿）。
+
+---
+
+## v1.37.0 (2026-05-05)
+
+**AI 助手集成 + 协作 / PR。**
+[`AiProvider`](../tools/ui/common/ai/ai_provider.h) 是 IDE 内所有
+AI 能力的统一接口：聊天、FIM 补全、行内灰字建议与重构提议。
+内置适配器覆盖本地 Ollama、OpenAI 兼容 HTTP、Azure OpenAI 与
+Anthropic；API key 不会嵌入二进制。隐私控制交由
+`AiPrivacyPolicy`（总开关 + 工作区允许 / 拒绝名单 + diagnostics /
+已打开文件开关）负责；在用户明确同意之前，任何远程调用都会以
+`finish_reason = "consent_denied"` 返回。提示词模板支持
+`{{name}}` 替换；`FilterContextPaths` / `PathPassesPolicy` 拦截
+项目上下文采集器。
+[`InlineSuggestionSession`](../tools/ui/common/ai/inline_suggestion.h)
+实现 Tab 接受 / Esc 拒绝 / Alt+] 切换的状态机。
+[`RefactorReviewSession`](../tools/ui/common/ai/refactor_diff.h)
+跟踪逐 hunk 接受 / 拒绝决策，并为已接受的 hunk 输出 unified
+diff。
+[`CollabProvider`](../tools/ui/common/collab/collab_provider.h)
+统一 GitHub / GitLab / Gitea 三家的 PR 列表、diff 获取、Review 提
+交、分支 Push、Issue 创建、关联 commit 与文件行引用；并提供确
+定性的 `kInMemory` 适配器供测试与离线模式使用。设计详情见
+[`realization/ai_integration_zh.md`](realization/ai_integration_zh.md)
+与
+[`realization/collab_zh.md`](realization/collab_zh.md)；面向用户的
+章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆盖于
+[`tests/unit/polyui/ai_provider_test.cpp`](../tests/unit/polyui/ai_provider_test.cpp)、
+[`inline_suggestion_test.cpp`](../tests/unit/polyui/inline_suggestion_test.cpp)、
+[`refactor_diff_test.cpp`](../tests/unit/polyui/refactor_diff_test.cpp)
+与
+[`collab_provider_test.cpp`](../tests/unit/polyui/collab_provider_test.cpp)
+（199 例 986 条 polyui 断言全绿）。
+
+---
+
+## v1.36.0 (2026-05-05)
+
+**远程开发——SSH / WSL / Container / Dev Container。**
+PolyUI 现以统一的
+[`RemoteSession`](../tools/ui/common/remote/remote_session.h)
+抽象托管远程工作区。`LocalRemote`、`SshRemote`、`WslRemote`
+与 `ContainerRemote`（docker / podman）提供同一套文件系统、
+进程、端口转发与终端 API；polyls、DAP、任务系统与集成终
+端全部在同一套接口上运行。`ParseConnectionString`
+识别 `local:`、`ssh://[user@]host[:port]/path`、
+`wsl://distro/path` 与
+`container://[runtime/]image-or-id/path`；进程启动会以匹配的
+传输包装命令（`ssh -p <端口> 用户@主机 -- <命令>`、
+`wsl -d <发行版> -- <命令>`、`docker exec -u <用户> <容器>
+<命令>`）。
+[`DevContainer`](../tools/ui/common/remote/dev_container.h) 解析
+`.devcontainer/devcontainer.json`（image、dockerFile、
+workspaceFolder、remoteUser、forwardPorts、postCreateCommand、
+features、remoteEnv），产出对应的 `RemoteDescriptor` 与
+`ProvisionPlan`（总是包含 polyls 以及识别出的容器 feature 所
+需的 LSP：Python、Node、Java、Go、Rust、.NET、Ruby、C++）。
+[`PlanSync`](../tools/ui/common/remote/file_sync.h) 对本地与远
+端文件索引进行差异运算，产出 upload / download / delete 计
+划，以及面向单向场景的 push-only / pull-only 模式。设计详
+情见 [`realization/remote_dev_zh.md`](realization/remote_dev_zh.md)，
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。
+测试覆盖于
+[`tests/unit/polyui/remote_session_test.cpp`](../tests/unit/polyui/remote_session_test.cpp)、
+[`dev_container_test.cpp`](../tests/unit/polyui/dev_container_test.cpp)
+与 [`file_sync_test.cpp`](../tests/unit/polyui/file_sync_test.cpp)
+（178 例 875 条 polyui 断言全绿）。
+
+---
+
+## v1.35.0 (2026-05-05)
+
+**Sample / Tutorial Browser、Topology Live 与 Inlay Hints。**
+PolyUI 新增一个项目内置的示例 / 教程目录
+([`tools/ui/common/samples/sample_browser.h`](../tools/ui/common/samples/sample_browser.h))，
+索引 `tests/samples/` 与 `docs/tutorial/`，按语言 / 主题 / 难
+度 / 全文筛选，并产出 *以工作区副本打开* 的 `CopyPlan`，
+由 IDE 将条目复制到目标目录而不侵入源树。
+[`LiveTopologyTracker`](../tools/ui/common/topology_live/topology_live.h)
+在静态拓扑图之上叠加跟随当前焦点的视图：它以当前
+符号为中心抽取子拓扑（无符号时以当前文件为锚点），
+对编辑进行 debounce，并能将拓扑节点点击解析回源位置，
+实现编辑器↔拓扑双向即时跳转。
+[`InlayHintProvider`](../tools/ui/common/inlay_hints/inlay_hints.h)
+为 polyls 的 `textDocument/inlayHint` 提供后端：类型 hint
+以 `: HANDLE<python::torch::nn::Linear>` 形式追加于
+`LET ... = NEW(...)` 声明之后，参数名 hint 以 `x:` 形式出
+现于实参之前，两类 hint 可通过设置独立启用 / 关闭。设
+计详情见
+[`realization/sample_topology_inlay_zh.md`](realization/sample_topology_inlay_zh.md)，
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆
+盖于
+[`tests/unit/polyui/sample_browser_test.cpp`](../tests/unit/polyui/sample_browser_test.cpp)、
+[`topology_live_test.cpp`](../tests/unit/polyui/topology_live_test.cpp)
+与 [`inlay_hints_test.cpp`](../tests/unit/polyui/inlay_hints_test.cpp)
+（162 例 737 条 polyui 断言全绿）。
+
+---
+
+## v1.34.0 (2026-05-05)
+
+**编译流水线 Inspector、IR Viewer / Diff 与 Asm Viewer + 源码↔汇
+编联动。**  PolyUI 在 [`tools/ui/common/pipeline/`](../tools/ui/common/pipeline)
+下提供一套类 Compiler Explorer 的档案浏览能力。
+[`PipelineRun`](../tools/ui/common/pipeline/pipeline_inspector.h)
+摄入 `aux/pipeline.json`，呈现六个标准阶段（frontend、sema、
+IR pre-opt、IR post-opt、backend asm、link）及其产出路径，并
+提供以最长阶段为基准归一化的直方图，便于一眼看出瓶颈。
+[`IrModule`](../tools/ui/common/pipeline/ir_viewer.h) 将 LLVM / MLIR
+风格转储解析为可折叠的函数与基本块树，`DiffFunctions`
+在 pre-opt / post-opt 两版本之间产出基于 LCS 的行级别 diff，
+`LineBindingTable` 维护源码↔IR↔产物三者间的双向绑定。
+[`AsmModule`](../tools/ui/common/pipeline/asm_viewer.h) 面向
+x86_64、arm64、wasm 的反汇编文本进行解析，识别 DWARF 的
+`.file`/`.loc` 指令及 polyasm 输出的内联 `; src=文件:行` 注
+释，并提供 `AsmForSource` / `SourceForAsm` 以实现双向跳转。
+设计详情见
+[`realization/compile_pipeline_inspector_zh.md`](realization/compile_pipeline_inspector_zh.md)，
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆盖
+于 [`tests/unit/polyui/pipeline_inspector_test.cpp`](../tests/unit/polyui/pipeline_inspector_test.cpp)、
+[`ir_viewer_test.cpp`](../tests/unit/polyui/ir_viewer_test.cpp) 与
+[`asm_viewer_test.cpp`](../tests/unit/polyui/asm_viewer_test.cpp)
+（149 例 678 条 polyui 断言全绿）。
+
+---
+
+## v1.33.0 (2026-05-05)
+
+**跨语言导航、Bridge 面板与 Marshalling 可视化。**  PolyUI 在
+[`tools/ui/common/cross_language/`](../tools/ui/common/cross_language)
+下统一提供跨语言 IDE 能力。
+[`LinkRegistry`](../tools/ui/common/cross_language/cross_language_navigator.h)
+集中登记所有 `.ploy` `LINK` 点位以及 polyls 解析出的宿主语言
+定义：在 `LINK cpp::math::add` 上按 F12 可直跳 C++ 源；宿主语言
+定义处会渲染「X `.ploy` LINK references」CodeLens。
+[`RenamePlanner`](../tools/ui/common/cross_language/cross_language_navigator.h)
+生成贯穿 `.ploy` 点位、宿主语言定义与 LSP 发现的引用的协调
+`WorkspaceEdit` 计划，交由 polyls 原子提交。
+[`BridgePanelModel`](../tools/ui/common/cross_language/bridge_panel.h)
+摄入 polyc 产出的 `aux/bridges.json`，列出每个生成 stub 的
+marshalling 策略、源码位置，以及来自 polyrt calltrace 的实时调
+用次数——重新导入时运行期计数会被保留。
+[`MarshallingViewBuilder`](../tools/ui/common/cross_language/marshalling_view.h)
+为每个参数与返回值渲染 IR 下降 → helper → ABI 适配器的转
+换链路：如果 `aux/marshalling.json` 已存在则直接解析，否则从
+bridge 元数据合成五种宿主语言（C++、Rust、Python、Java、.NET）
+的标准三阶段流水线。设计细节见
+[`realization/cross_language_ide_zh.md`](realization/cross_language_ide_zh.md)，
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆盖于
+[`tests/unit/polyui/cross_language_navigator_test.cpp`](../tests/unit/polyui/cross_language_navigator_test.cpp)、
+[`bridge_panel_test.cpp`](../tests/unit/polyui/bridge_panel_test.cpp)
+与 [`marshalling_view_test.cpp`](../tests/unit/polyui/marshalling_view_test.cpp)
+（139 例 626 条 polyui 断言全绿）。
+
+---
+
+## v1.32.0 (2026-05-05)
+
+**包管理、依赖图、漏洞扫描、REPL 与 Notebook。**  PolyUI 在
+[`tools/ui/common/packages/`](../tools/ui/common/packages) 下提供
+统一的包管理面：[`PackageManagerService`](../tools/ui/common/packages/package_manager.h)
+通过十二个后端覆盖 venv、conda、uv、pipenv、poetry、cargo、npm、
+maven、gradle、nuget、gem 与 go-mod。每个后端声明清单/锁文件名、
+install / upgrade / remove 的 argv，以及把锁文件解析为 `Package`
+列表的解析器；服务通过注入的 `CommandExecutor` 调度子进程，因此
+整套值模型可以独立做单元测试。`SyncWithConfig` 在解析锁文件与
+`.ploy CONFIG` 之间双向比对漂移。
+[`DependencyGraph`](../tools/ui/common/packages/dependency_graph.h)
+支撑新的「树 + 力导向图」双视图，标记版本冲突，并导出自洽的
+SVG 文件。[`VulnerabilityScanner`](../tools/ui/common/packages/vulnerability_scanner.h)
+同时解析 osv.dev 与 GitHub Advisory 文档，按 `>=`、`<=`、`>`、`<`、
+`==` 及逗号合取匹配版本，并支持按 id 抑制单条告警。Notebook 栈
+位于 [`tools/ui/common/notebook/`](../tools/ui/common/notebook)：
+[`ReplSession`](../tools/ui/common/notebook/repl_session.h) 通过
+可插拔的 `ReplTransport` 包装常驻引擎，默认提供 `polyc --repl`、
+Python、IRust、IRB、dotnet-script 五种规格；
+[`Notebook`](../tools/ui/common/notebook/notebook.h) 承载代码、
+Markdown 与跨语言 `LINK` 单元，并通过 `.polynb` JSON 信封序列化。
+设计细节见
+[`realization/polyui_package_management_zh.md`](realization/polyui_package_management_zh.md)，
+面向用户的章节见 [`USER_GUIDE_zh.md`](USER_GUIDE_zh.md)。测试覆盖于
+[`tests/unit/polyui/package_manager_test.cpp`](../tests/unit/polyui/package_manager_test.cpp)、
+[`dependency_graph_test.cpp`](../tests/unit/polyui/dependency_graph_test.cpp)、
+[`vulnerability_scanner_test.cpp`](../tests/unit/polyui/vulnerability_scanner_test.cpp)
+与 [`notebook_test.cpp`](../tests/unit/polyui/notebook_test.cpp)
+（545 条 polyui 断言全绿）。
+
+---
+
+## v1.31.0 (2026-05-05)
+
+**测试浏览器、Inline Run-Test 与覆盖率视图。**  PolyUI 在
+[`tools/ui/common/testing/`](../tools/ui/common/testing) 下新增统一的
+测试视图层：[`TestModel`](../tools/ui/common/testing/test_model.h) 提供
+项目 → 套件 → 用例三级树，新「测试浏览器」面板基于它工作；五个
+`Parse*Report` 适配器分别解析 CTest CDash XML、JUnit/pytest XML、
+cargo libtest JSON 行流、xUnit v2 XML、NUnit 3 XML，状态着色、失败
+优先排序与套件汇总均为一等公民。
+[`InlineTestLens`](../tools/ui/common/testing/inline_test_lens.h) 在
+Catch2、pytest、Rust `#[test]`、JUnit `@Test`、xUnit
+`[Fact]`/`[Theory]`、NUnit `[Test]` 声明上方渲染 ▶ 运行 / 🐞 调试
+CodeLens，并支持把运行器的失败信息回填为行内诊断。
+[`CoverageModel`](../tools/ui/common/testing/coverage_model.h) 把
+lcov、Cobertura、coverage.py、cargo-tarpaulin、dotnet coverlet 报告
+加载为每文件「行号 → 命中」映射，提供工作区总体百分比与
+`BelowThreshold` 阈值过滤，供行号槽位视图使用。
+
+---
+
 ## v1.30.0 (2026-05-05)
 
 **任务、Run/Debug 选择器与 Hot Reload。**  PolyUI 在
