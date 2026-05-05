@@ -13,6 +13,178 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.30.0 (2026-05-05)
+
+**Tasks, Run/Debug picker, and Hot Reload.**  PolyUI gains a
+VS-Code-grade task orchestrator under
+[`tools/ui/common/tasks/`](../tools/ui/common/tasks): the
+[`TaskDefinition`](../tools/ui/common/tasks/task_config.h) value
+model parses `.polyc/tasks.json` (envelope or bare array),
+[`TaskRunner`](../tools/ui/common/tasks/task_runner.h) builds
+topologically-batched execution plans honouring `dependsOrder`,
+and [`ProblemMatcher`](../tools/ui/common/tasks/problem_matcher.h)
+recognises `$gcc` / `$clang` / `$msbuild` / `$tsc` / `$rustc` /
+`$pylint` / `$polyc` plus watch-mode markers.  A new
+[`RunDebugPicker`](../tools/ui/common/runtime/run_debug_picker.h)
+fuses tasks with `launch.json` configs into a single status-bar
+quick-pick.  [`HotReloadEngine`](../tools/ui/common/runtime/hot_reload.h)
+routes save events to per-language handlers (`.ploy`, Python,
+C++/Rust under polyrt, Java/.NET via JDI/EnC) and coalesces
+overlapping reloads.  See
+[`realization/tasks_runtime_en.md`](realization/tasks_runtime_en.md).
+
+---
+
+## v1.29.0 (2026-05-05)
+
+**Debug Adapter Protocol integration.**  PolyUI gains a Qt-free DAP
+client under [`tools/ui/common/dap/`](../tools/ui/common/dap):
+[`MessageFramer`](../tools/ui/common/dap/dap_client.h) handles
+`Content-Length`-framed JSON; [`DapClient`](../tools/ui/common/dap/dap_client.h)
+routs requests and responses through a sequence-numbered pending
+table and dispatches `stopped`/`continued`/`output`/`thread`/
+`breakpoint`/`exited`/`terminated`/`initialized` events.
+[`DebugSession`](../tools/ui/common/dap/debug_session.h) layers a
+breakpoint table, thread/stack/scope caches, and an inline-value
+map on top, auto-issuing `threads` + `stackTrace` + `scopes` when
+the adapter signals a stop.
+[`launch_config`](../tools/ui/common/dap/launch_config.h) parses
+`.polyc/launch.json` (VS Code schema), expands `${workspaceFolder}`
+/ `${file}` / `${env:…}` / `${command:…}` placeholders, and ships
+built-in templates for `.ploy`, Python, C/C++, Rust, Java and .NET.
+See
+[`realization/dap_integration_en.md`](realization/dap_integration_en.md).
+
+---
+
+## v1.28.0 (2026-05-05)
+
+**SCM advanced: diff, blame, merge resolver and provider abstraction.**
+A new [`ScmProvider`](../tools/ui/common/scm/scm_provider.h)
+interface decouples the IDE from any specific VCS;
+[`GitProvider`](../tools/ui/common/scm/git_provider.h) is the first
+implementation, with porcelain / blame / log parsers exposed as
+free functions for direct unit testing.  The new
+[`diff_engine`](../tools/ui/common/scm/diff_engine.h) computes
+line-level diffs (LCS DP), groups them into context-aware hunks
+and offers `ApplyHunk` / `RevertHunk` for stage / unstage actions.
+The [`merge_resolver`](../tools/ui/common/scm/merge_resolver.h)
+parses three-way conflict markers (including the optional
+`|||||||` base section) and resolves them by current / incoming /
+both or per-conflict custom replacements.  See
+[`realization/scm_advanced_en.md`](realization/scm_advanced_en.md).
+
+---
+
+## v1.27.0 (2026-05-05)
+
+**Multi-cursor, folding, formatter, snippets and EditorConfig.**  PolyUI
+gains a Qt-free [`MultiCursor`](../tools/ui/common/editing/multi_cursor.h)
+model covering `Alt+Click`, `Ctrl+Alt+↑/↓`, `Ctrl+D`,
+`Ctrl+Shift+L` and rectangular `Shift+Alt+drag`.
+[`folding_model`](../tools/ui/common/editing/folding_model.h) computes
+brace, comment and `// region` folds in a single scan.  `polyls` now
+answers `textDocument/formatting`, `rangeFormatting` and
+`onTypeFormatting` by routing through
+[`format_engine`](../tools/ui/common/editing/format_engine.h), which
+re-indents `.ploy` buffers by brace nesting and honours the LSP
+formatting options.  Snippet expansion is implemented in
+[`snippet_engine`](../tools/ui/common/editing/snippet_engine.h) with
+VS Code-style tabstops, choice placeholders and variable
+substitution; user libraries load from JSON.  Project-level
+formatting is steered by
+[`editor_config`](../tools/ui/common/editing/editor_config.h), a
+minimal but spec-conformant `.editorconfig` parser with full glob
+support.  See
+[`realization/power_editing_en.md`](realization/power_editing_en.md).
+
+---
+
+## v1.26.0 (2026-05-05)
+
+**Multi-tab editor, Quick Open and global search.**  PolyUI gains a
+`EditorGroup` / `EditorGrid` model with up to a 4×4 split grid, pinned
+tabs that survive bulk close, and tab drag-and-drop between groups
+([`tools/ui/common/editor/`](../tools/ui/common/editor/)).  `Ctrl+P`
+opens a Quick Open palette driven by
+[`quick_open_ranker`](../tools/ui/common/quickopen/quick_open_ranker.h)
+with VS Code-style sub-sequence scoring and a recent-file boost.
+`polyls` now answers `textDocument/documentSymbol` and
+`workspace/symbol`, advertised via the matching
+`documentSymbolProvider` / `workspaceSymbolProvider` capabilities;
+`Ctrl+T` and `Ctrl+Shift+O` route through them.  `Ctrl+Shift+F` runs
+through
+[`global_search_engine`](../tools/ui/common/search/global_search_engine.h),
+which supports regex / case / whole-word, glob include + exclude,
+capture-group replacement and a streaming `GlobalSearchSink`.  The
+shared
+[`outline_model`](../tools/ui/common/outline/outline_model.h) feeds
+the Outline panel, the Breadcrumbs bar and the Minimap.  See
+[`realization/editor_panels_en.md`](realization/editor_panels_en.md).
+
+---
+
+## v1.25.0 (2026-05-05)
+
+**Semantic syntax highlighting + tree-sitter-shaped runtime.**  A new
+parsing runtime lives at
+[`tools/ui/common/syntax/tree_sitter_runtime.{h,cpp}`](../tools/ui/common/syntax/tree_sitter_runtime.h)
+and exposes a tree-sitter-compatible API surface (`Parse`, `Edit`,
+`Tokens`, `Folds`, `Outline`, `SmartSelect`).  Grammar descriptors for
+Ploy plus the five host languages (C++, Python, Rust, Java, C#) live
+under [`tools/polyls/grammar/`](../tools/polyls/grammar/) and pin the
+shared semantic-token legend.  `polyls` answers
+`textDocument/semanticTokens/full` and
+`textDocument/semanticTokens/range` with an LSP 3.16-conformant
+delta-encoded `uint32` stream.  The editor consumes the stream through
+[`semantic_tokens_client`](../tools/ui/common/syntax/semantic_tokens_client.h)
+which paints colours from `theme_manager`; the regex-based
+`SyntaxHighlighter` is retained as a fallback for offline scenarios.
+A new "Use LSP semantic tokens" setting (default on) governs the
+hand-off.  See
+[`realization/semantic_highlight_en.md`](realization/semantic_highlight_en.md).
+
+---
+
+## v1.24.0 (2026-05-05)
+
+**IDE refactoring: rename / extract function / inline / change
+signature / move file.**  `polyls` now answers
+`textDocument/prepareRename`, `textDocument/rename` and
+`textDocument/codeAction`.  Rename uses the workspace `SymbolIndex` to
+rewrite every reference — across files and across languages — in a
+single atomic `WorkspaceEdit`.  Initiating a rename inside a
+host-language file (C++, Python, Rust, Java, .NET) automatically
+updates the `.ploy` `LINK` / `EXPORT` sites that import the symbol; the
+reverse hop is also covered.  `codeAction` surfaces a refactor
+catalogue with extract-to-FUNC and inline-LET available as concrete
+edits, plus inline-function / change-signature / move-file lightbulb
+entries that cooperate with the editor wizard.  See
+[docs/realization/refactoring_en.md](realization/refactoring_en.md)
+for the full design.
+
+Also restores the lifecycle test expectations to match the new
+`renameProvider` / `codeActionProvider` capability flags.
+
+---
+
+## v1.23.0 (2026-05-05)
+
+**IDE navigation: definition / declaration / implementation /
+typeDefinition / references.**  `polyls` now ships a workspace
+`SymbolIndex` that scans `.ploy` files plus every host-language module
+they `IMPORT` (`cpp`, `python`, `rust`, `java`, `dotnet`).  The five new
+`textDocument/*` requests answer LSP `Location[]` payloads ready to
+drive editor jumps.  The index is rebuilt incrementally on each
+`didOpen` / `didChange` / `didSave` and persisted to
+`<workspace>/.polyc-cache/symbol_index.json` so a fresh server start can
+answer queries before any file is reopened.  Cross-language navigation
+is bidirectional: a click on a `.ploy` `LINK` qualifier hops to the
+host-language target, and a `references` query inside a host file lists
+every `.ploy` `LINK` site that imports it.  See
+[`realization/symbol_index_en.md`](realization/symbol_index_en.md) for
+the design notes.
+
 ## v1.18.0 (2026-05-05)
 
 **P3 grammar polish bundle.**  A small collection of source-level

@@ -268,11 +268,36 @@ struct ServerCapabilities {
   bool completion_provider{false};
   bool signature_help_provider{false};
   bool definition_provider{false};
+  bool declaration_provider{false};
+  bool implementation_provider{false};
+  bool type_definition_provider{false};
   bool references_provider{false};
   bool document_symbol_provider{false};
+  /// `workspace/symbol` (demand 2026-04-28-25 §3).
+  bool workspace_symbol_provider{false};
   bool rename_provider{false};
   bool code_action_provider{false};
   bool diagnostic_provider{true};
+  /// Formatting (demand 2026-04-28-26 §3).
+  bool document_formatting_provider{false};
+  bool document_range_formatting_provider{false};
+  bool document_on_type_formatting_provider{false};
+  std::string on_type_formatting_first_trigger{"\n"};
+  /// Semantic tokens (demand 2026-04-28-24).  When true the server
+  /// answers `textDocument/semanticTokens/full` and
+  /// `textDocument/semanticTokens/range` and the legend below is
+  /// advertised in `initialize.result`.
+  bool semantic_tokens_provider{false};
+  std::vector<std::string> semantic_token_types;
+  std::vector<std::string> semantic_token_modifiers;
+};
+
+/// Wire payload of `textDocument/semanticTokens/full` and
+/// `textDocument/semanticTokens/range`.  Five-tuples per token are
+/// flattened into a single uint32 array as specified by LSP 3.16.
+struct SemanticTokens {
+  std::string result_id;
+  std::vector<std::uint32_t> data;
 };
 
 struct InitializeParams {
@@ -321,6 +346,7 @@ Json ToJson(const PublishDiagnosticsParams &v);
 Json ToJson(const ServerCapabilities &v);
 Json ToJson(const InitializeParams &v);
 Json ToJson(const InitializeResult &v);
+Json ToJson(const SemanticTokens &v);
 
 void FromJson(const Json &j, Position &v);
 void FromJson(const Json &j, Range &v);
@@ -348,6 +374,7 @@ void FromJson(const Json &j, DidSaveParams &v);
 void FromJson(const Json &j, PublishDiagnosticsParams &v);
 void FromJson(const Json &j, ServerCapabilities &v);
 void FromJson(const Json &j, InitializeParams &v);
+void FromJson(const Json &j, SemanticTokens &v);
 
 // ---------------------------------------------------------------------------
 // JSON-RPC framing helpers

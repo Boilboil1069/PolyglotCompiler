@@ -237,9 +237,9 @@ void SignatureHelpWidget::ShowSignatures(
   }
   signatures_ = signatures;
   active_signature_ =
-      std::clamp(active_signature, 0, signatures_.size() - 1);
+      std::clamp(active_signature, 0, static_cast<int>(signatures_.size()) - 1);
   const int param_count =
-      signatures_[active_signature_].parameter_labels.size();
+      static_cast<int>(signatures_[active_signature_].parameter_labels.size());
   active_parameter_ =
       param_count == 0 ? 0 : std::clamp(active_parameter, 0, param_count - 1);
   Render();

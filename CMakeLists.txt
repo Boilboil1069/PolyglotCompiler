@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(PolyglotCompiler VERSION 1.22.0 LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.30.0 LANGUAGES C CXX)
 
 # ============================================================================
 # Central version header — generated from common/include/version.h.in

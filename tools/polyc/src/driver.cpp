@@ -797,7 +797,7 @@ int main(int argc, char **argv) {
       const std::string language =
           lang_override.empty() ? DetectLanguage(check_path) : lang_override;
       auto *frontend =
-          polyglot::frontends::FrontendRegistry::Instance().Get(language);
+          polyglot::frontends::FrontendRegistry::Instance().GetFrontend(language);
       if (!frontend) {
         std::cerr << "[polyc] --check: no frontend registered for language '"
                   << language << "'\n";

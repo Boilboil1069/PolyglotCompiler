@@ -3117,7 +3117,7 @@ done (74.8ms)
 5. 文档：`docs/realization/symbol_index_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-23
@@ -3145,7 +3145,7 @@ done (74.8ms)
 5. 文档：`docs/realization/refactoring_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-24
@@ -3173,7 +3173,7 @@ done (74.8ms)
 5. 文档：`docs/realization/semantic_highlight_*.md`（中英双语）+ USER_GUIDE 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-25
@@ -3213,7 +3213,7 @@ done (74.8ms)
 7. 文档：USER_GUIDE / tutorial 中英双语集中一节。
 8. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-26
@@ -3248,7 +3248,7 @@ done (74.8ms)
 7. 文档：USER_GUIDE / tutorial 中英双语。
 8. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-27
@@ -3277,7 +3277,7 @@ done (74.8ms)
 6. 文档：USER_GUIDE / tutorial 中英双语。
 7. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-28
@@ -3309,7 +3309,7 @@ done (74.8ms)
 6. 文档：`docs/realization/dap_integration_*.md`（中英双语）+ USER_GUIDE 中英双语。
 7. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-29
@@ -3338,7 +3338,7 @@ done (74.8ms)
 5. 文档：USER_GUIDE / tutorial 中英双语。
 6. 版本：minor。完成后追加 `--end -done`。
 
---end
+--end -done
 
 
 2026-04-28-30

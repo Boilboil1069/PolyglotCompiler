@@ -26,13 +26,11 @@ struct Captured {
   std::vector<Json> outbound;
 };
 
-PolylsServer MakeReadyServer(Captured &cap) {
-  PolylsServer s;
+void MakeReadyServer(PolylsServer &s, Captured &cap) {
   s.SetSendHandler([&](const Json &p) { cap.outbound.push_back(p); });
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
   s.HandleIncoming(MakeNotification("initialized", Json::object()));
   cap.outbound.clear();
-  return s;
 }
 
 const Json *FindResponse(const Captured &cap, int id) {
@@ -46,7 +44,7 @@ const Json *FindResponse(const Captured &cap, int id) {
 TEST_CASE("polyls signatureHelp returns matching FUNC and active parameter",
           "[polyls][signature-help]") {
   Captured cap;
-  PolylsServer s = MakeReadyServer(cap);
+  PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{
       {"textDocument",
        {{"uri", "file:///s.ploy"},
@@ -77,7 +75,7 @@ TEST_CASE("polyls signatureHelp returns matching FUNC and active parameter",
 TEST_CASE("polyls signatureHelp returns null outside any call",
           "[polyls][signature-help]") {
   Captured cap;
-  PolylsServer s = MakeReadyServer(cap);
+  PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{{"textDocument",
                           {{"uri", "file:///s2.ploy"},
                            {"languageId", "ploy"},

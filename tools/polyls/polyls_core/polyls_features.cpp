@@ -37,6 +37,7 @@
 
 #include "tools/polyls/polyls_core/polyls_server.h"
 #include "tools/ui/common/lsp/lsp_message.h"
+#include "tools/ui/common/editing/format_engine.h"
 
 namespace polyglot::polyls {
 
@@ -666,6 +667,211 @@ void PolylsServer::HandleSignatureHelp(int id, const Json &params) {
     return;
   }
   SendResponse(id, Json());
+}
+
+// ---------------------------------------------------------------------------
+// Document & workspace symbols (demand 2026-04-28-25 §3)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+int LspSymbolKindForPloy(const std::string &k) {
+  // Mapping aligned with lsp::SymbolKind (numeric wire values).
+  if (k == "func" || k == "pipeline") return 12;   // Function
+  if (k == "struct") return 23;                    // Struct
+  if (k == "let" || k == "var") return 13;         // Variable
+  if (k == "import") return 2;                     // Module
+  return 13;
+}
+
+Json BuildSymbolRange(const PloySymbol &s) {
+  // Single-line span — we only know the start.  Editors that require
+  // an exact range fall back to selection_range identity.
+  Json pos{{"line", s.line}, {"character", s.character}};
+  return Json{{"start", pos}, {"end", pos}};
+}
+
+}  // namespace
+
+void PolylsServer::HandleDocumentSymbol(int id, const Json &params) {
+  if (!params.is_object() || !params.contains("textDocument")) {
+    SendError(id, kInvalidParams, "documentSymbol: missing textDocument");
+    return;
+  }
+  const std::string uri =
+      params["textDocument"].value("uri", std::string{});
+  std::string text;
+  std::string language_id;
+  {
+    std::lock_guard<std::mutex> lock(docs_mu_);
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) {
+      SendResponse(id, Json::array());
+      return;
+    }
+    text = it->second.text;
+    language_id = it->second.language_id;
+  }
+  if (language_id != "ploy" && language_id != "poly") {
+    // Foreign languages: foster the editor's own outline by returning
+    // an empty array (LSP spec permits this).
+    SendResponse(id, Json::array());
+    return;
+  }
+  Json arr = Json::array();
+  for (const auto &sym : CollectDocumentSymbols(text)) {
+    Json node = {
+        {"name", sym.name},
+        {"detail", sym.params},
+        {"kind", LspSymbolKindForPloy(sym.kind)},
+        {"range", BuildSymbolRange(sym)},
+        {"selectionRange", BuildSymbolRange(sym)},
+        {"children", Json::array()},
+    };
+    arr.push_back(std::move(node));
+  }
+  SendResponse(id, arr);
+}
+
+void PolylsServer::HandleWorkspaceSymbol(int id, const Json &params) {
+  std::string query;
+  if (params.is_object() && params.contains("query") &&
+      params["query"].is_string()) {
+    query = params["query"].get<std::string>();
+  }
+  // Lowercase the needle once for case-insensitive substring matching.
+  std::string lneedle;
+  lneedle.reserve(query.size());
+  for (char c : query) lneedle.push_back(
+      static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+  Json arr = Json::array();
+  for (const auto &e : index_->Entries()) {
+    if (!lneedle.empty()) {
+      std::string lname;
+      lname.reserve(e.name.size());
+      for (char c : e.name) lname.push_back(
+          static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+      if (lname.find(lneedle) == std::string::npos) continue;
+    }
+    int kind = 13;  // Variable default
+    switch (e.kind) {
+      case IndexEntryKind::kFunction:
+      case IndexEntryKind::kForeignFunction:
+      case IndexEntryKind::kPipeline:
+        kind = 12; break;
+      case IndexEntryKind::kStruct:
+      case IndexEntryKind::kForeignClass:
+        kind = 23; break;
+      case IndexEntryKind::kImport:
+      case IndexEntryKind::kLink:
+        kind = 2; break;
+      case IndexEntryKind::kVariable:
+        kind = 13; break;
+    }
+    Json start{{"line", e.definition.line},
+               {"character", e.definition.character}};
+    Json end{{"line", e.definition.end_line},
+             {"character", e.definition.end_character}};
+    Json info = {
+        {"name", e.name},
+        {"kind", kind},
+        {"location", Json{
+            {"uri", e.definition.uri},
+            {"range", Json{{"start", start}, {"end", end}}},
+        }},
+        {"containerName", e.qualified_name},
+    };
+    arr.push_back(std::move(info));
+  }
+  SendResponse(id, arr);
+}
+
+namespace {
+
+// Counts the number of lines in `text` (1 + newline count).
+std::uint32_t CountLines(const std::string &text) {
+  std::uint32_t n = 1;
+  for (char c : text) if (c == '\n') ++n;
+  return n;
+}
+
+// Builds a single full-document TextEdit replacing `original` with
+// `formatted`.  Returns an empty array when no change is needed.
+Json BuildFullDocumentEdit(const std::string &original,
+                          const std::string &formatted) {
+  if (original == formatted) return Json::array();
+  std::uint32_t end_line = CountLines(original);
+  Json edit = {
+      {"range", {
+          {"start", {{"line", 0}, {"character", 0}}},
+          {"end",   {{"line", end_line}, {"character", 0}}},
+      }},
+      {"newText", formatted},
+  };
+  return Json::array({edit});
+}
+
+polyglot::tools::ui::FormatOptions OptionsFromJson(const Json &params) {
+  polyglot::tools::ui::FormatOptions o;
+  if (params.is_object() && params.contains("options") &&
+      params["options"].is_object()) {
+    const Json &j = params["options"];
+    if (j.contains("tabSize") && j["tabSize"].is_number_unsigned()) {
+      o.tab_size = j["tabSize"].get<std::uint32_t>();
+    }
+    if (j.contains("insertSpaces") && j["insertSpaces"].is_boolean()) {
+      o.insert_spaces = j["insertSpaces"].get<bool>();
+    }
+    if (j.contains("trimTrailingWhitespace") &&
+        j["trimTrailingWhitespace"].is_boolean()) {
+      o.trim_trailing_whitespace = j["trimTrailingWhitespace"].get<bool>();
+    }
+    if (j.contains("insertFinalNewline") &&
+        j["insertFinalNewline"].is_boolean()) {
+      o.insert_final_newline = j["insertFinalNewline"].get<bool>();
+    }
+  }
+  return o;
+}
+
+}  // namespace
+
+void PolylsServer::HandleFormatting(int id, const Json &params) {
+  if (!params.is_object() || !params.contains("textDocument")) {
+    SendError(id, kInvalidParams, "formatting: missing textDocument");
+    return;
+  }
+  const std::string uri = params["textDocument"].value("uri", std::string{});
+  std::string text;
+  std::string language_id;
+  {
+    std::lock_guard<std::mutex> lock(docs_mu_);
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) { SendResponse(id, Json::array()); return; }
+    text = it->second.text;
+    language_id = it->second.language_id;
+  }
+  if (language_id != "ploy" && language_id != "poly") {
+    // Foreign languages would route through their own LSP — we
+    // return an empty edit list so the editor falls back gracefully.
+    SendResponse(id, Json::array());
+    return;
+  }
+  auto opts = OptionsFromJson(params);
+  std::string formatted = polyglot::tools::ui::FormatPloy(text, opts);
+  SendResponse(id, BuildFullDocumentEdit(text, formatted));
+}
+
+void PolylsServer::HandleRangeFormatting(int id, const Json &params) {
+  // For Ploy we re-format the whole document (range formatting falls
+  // back to full formatting because re-indenting a sub-range without
+  // its enclosing brace context produces unstable results).
+  HandleFormatting(id, params);
+}
+
+void PolylsServer::HandleOnTypeFormatting(int id, const Json &params) {
+  HandleFormatting(id, params);
 }
 
 }  // namespace polyglot::polyls

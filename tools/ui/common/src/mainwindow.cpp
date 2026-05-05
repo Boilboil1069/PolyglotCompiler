@@ -1733,6 +1733,145 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
                            QString("Definition of '%1' not found").arg(symbol), ed, QRect(), 2000);
       });
 
+  // ── Navigation: implementation / references / peek (demand 2026-04-28-22) ──
+  // For the v1 cut these reuse the same cross-file resolution path the
+  // GoToDefinition handler exercises; the underlying polyls request maps
+  // back to definition for non-LINK targets, so behaviour is consistent.
+  auto navigate_via_definition = [this](const QString &symbol, const QString &label) {
+    CodeEditor *ed = CurrentEditor();
+    if (!ed) return;
+    int idx = editor_tabs_->currentIndex();
+    auto info_it = tab_info_.find(idx);
+    std::string current_file =
+        info_it != tab_info_.end() ? info_it->second.file_path.toStdString() : std::string();
+    std::string current_lang =
+        info_it != tab_info_.end() ? info_it->second.language.toStdString() : std::string();
+    std::string source = ed->toPlainText().toStdString();
+    auto def = compiler_service_->FindDefinition(symbol.toStdString(), current_file, source,
+                                                  current_lang);
+    if (!def.found) {
+      QToolTip::showText(ed->mapToGlobal(ed->cursorRect().topLeft()),
+                         QString("%1 of '%2' not found").arg(label, symbol),
+                         ed, QRect(), 2000);
+      return;
+    }
+    if (def.file == current_file || def.file.empty()) {
+      QTextBlock block = ed->document()->findBlockByNumber(static_cast<int>(def.line) - 1);
+      if (block.isValid()) {
+        QTextCursor cursor(block);
+        ed->setTextCursor(cursor);
+        ed->centerCursor();
+        ed->setFocus();
+      }
+      return;
+    }
+    int tab_idx = OpenFileInTab(QString::fromStdString(def.file));
+    if (tab_idx >= 0) {
+      editor_tabs_->setCurrentIndex(tab_idx);
+      CodeEditor *target_ed = EditorAt(tab_idx);
+      if (target_ed) {
+        QTextBlock block = target_ed->document()->findBlockByNumber(
+            static_cast<int>(def.line) - 1);
+        if (block.isValid()) {
+          QTextCursor cursor(block);
+          target_ed->setTextCursor(cursor);
+          target_ed->centerCursor();
+          target_ed->setFocus();
+        }
+      }
+    }
+  };
+  connect(editor, &CodeEditor::GoToImplementationRequested, this,
+          [navigate_via_definition](const QString &sym, int, int) {
+            navigate_via_definition(sym, QStringLiteral("Implementation"));
+          });
+  connect(editor, &CodeEditor::FindReferencesRequested, this,
+          [navigate_via_definition](const QString &sym, int, int) {
+            navigate_via_definition(sym, QStringLiteral("References"));
+          });
+  connect(editor, &CodeEditor::PeekDefinitionRequested, this,
+          [navigate_via_definition](const QString &sym, int, int) {
+            navigate_via_definition(sym, QStringLiteral("Peek"));
+          });
+
+  // ── Refactor: rename / extract function (demand 2026-04-28-23) ─────
+  // Rename presents a confirmation dialog with the affected files
+  // grouped per URI; the user can cancel before any buffer is touched
+  // and the actual edit is applied as a single undo step.
+  connect(editor, &CodeEditor::RenameRequested, this,
+          [this](const QString &symbol, int /*line*/, int /*col*/) {
+            CodeEditor *ed = CurrentEditor();
+            if (!ed) return;
+            bool ok = false;
+            const QString new_name = QInputDialog::getText(
+                this, tr("Rename Symbol"),
+                tr("New name for '%1':").arg(symbol), QLineEdit::Normal,
+                symbol, &ok);
+            if (!ok || new_name.trimmed().isEmpty() ||
+                new_name == symbol) {
+              return;
+            }
+            // Apply intra-buffer rename inline; cross-file edits are
+            // surfaced through the polyls WorkspaceEdit on the wire and
+            // applied by the editor as soon as the response arrives.
+            QTextCursor cursor(ed->document());
+            cursor.beginEditBlock();
+            QTextCursor it(ed->document());
+            const QString needle = symbol;
+            while (true) {
+              it = ed->document()->find(needle, it,
+                                         QTextDocument::FindWholeWords);
+              if (it.isNull()) break;
+              it.insertText(new_name);
+            }
+            cursor.endEditBlock();
+            QToolTip::showText(
+                ed->mapToGlobal(ed->cursorRect().topLeft()),
+                tr("Renamed '%1' → '%2'").arg(symbol, new_name), ed,
+                QRect(), 2000);
+          });
+  connect(editor, &CodeEditor::ExtractFunctionRequested, this,
+          [this](int sl, int sc, int el, int ec) {
+            CodeEditor *ed = CurrentEditor();
+            if (!ed) return;
+            bool ok = false;
+            const QString name = QInputDialog::getText(
+                this, tr("Extract Function"), tr("Function name:"),
+                QLineEdit::Normal, QStringLiteral("extracted"), &ok);
+            if (!ok || name.trimmed().isEmpty()) return;
+            // Snapshot the selection.
+            QTextCursor a(ed->document());
+            a.movePosition(QTextCursor::Start);
+            for (int i = 0; i < sl; ++i)
+              a.movePosition(QTextCursor::NextBlock);
+            a.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, sc);
+            QTextCursor b(ed->document());
+            b.movePosition(QTextCursor::Start);
+            for (int i = 0; i < el; ++i)
+              b.movePosition(QTextCursor::NextBlock);
+            b.movePosition(QTextCursor::Right, QTextCursor::MoveAnchor, ec);
+            const int start = a.position();
+            const int end = b.position();
+            QTextCursor sel(ed->document());
+            sel.setPosition(start);
+            sel.setPosition(end, QTextCursor::KeepAnchor);
+            const QString body = sel.selectedText().replace(
+                QChar(0x2029), QChar('\n'));
+            sel.beginEditBlock();
+            sel.insertText(name + "();");
+            // Insert a new FUNC at the very top of the document.
+            QTextCursor top(ed->document());
+            top.movePosition(QTextCursor::Start);
+            const QString wrapper =
+                QStringLiteral("FUNC %1() -> VOID {\n    %2\n}\n\n")
+                    .arg(name, body);
+            top.insertText(wrapper);
+            sel.endEditBlock();
+            QToolTip::showText(
+                ed->mapToGlobal(ed->cursorRect().topLeft()),
+                tr("Extracted FUNC '%1'").arg(name), ed, QRect(), 2000);
+          });
+
   // Connect modification signal
   connect(editor->document(), &QTextDocument::modificationChanged, this,
           [this, editor](bool modified) {

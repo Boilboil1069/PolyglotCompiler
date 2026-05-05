@@ -3437,3 +3437,195 @@ Writes a single LSP-shaped JSON document to stdout (`uri` + `diagnostics`).
 Exit code: `0` clean, `1` errors present, `2` usage / I/O failure.
 Useful when wiring Polyglot diagnostics into editors that are not LSP-aware.
 
+
+## IDE Navigation (`polyls`)
+
+In addition to diagnostics, completion, hover and signature help,
+`polyls` answers the standard LSP navigation requests:
+
+| Shortcut       | LSP method                          | What it does                                              |
+|----------------|-------------------------------------|-----------------------------------------------------------|
+| `F12`          | `textDocument/definition`           | Jump to the symbol's definition.                          |
+| `Shift+F12`    | `textDocument/references`           | List every use across the workspace.                      |
+| `Ctrl+F12`     | `textDocument/implementation`       | Jump to the host-language implementation of a `LINK`.     |
+| `Ctrl+K F12`   | (peek)                              | Open an inline Peek view at the cursor.                   |
+| `Ctrl+Click`   | `textDocument/definition`           | Same as F12, but mouse-driven.                            |
+
+The handlers run on top of a workspace-level `SymbolIndex` that scans
+`.ploy` files plus every host-language module they `IMPORT` (`cpp`,
+`python`, `rust`, `java`, `dotnet`).  The index is rebuilt
+incrementally on each `didOpen`/`didChange`/`didSave` and persisted to
+`<workspace>/.polyc-cache/symbol_index.json` so a fresh server start
+can answer queries without re-parsing.
+
+Cross-language navigation is bidirectional: a click on a `.ploy`
+`LINK` qualifier hops to the host-language target, and `references`
+issued inside a host-language file also returns every `.ploy` `LINK`
+site that imports the symbol.  See
+[`realization/symbol_index_en.md`](realization/symbol_index_en.md) for
+the full design notes.
+
+
+## IDE Refactoring (`polyls`)
+
+`polyls` answers the standard LSP refactoring requests
+(`textDocument/prepareRename`, `textDocument/rename`,
+`textDocument/codeAction`).  Edits return as a single
+`WorkspaceEdit` so the editor applies them as one undo step.
+
+| Shortcut         | Action                                                              |
+|------------------|---------------------------------------------------------------------|
+| `F2`             | Rename the identifier under the caret across the workspace.         |
+| `Ctrl+Shift+R`   | Extract the current selection into a new `FUNC`.                    |
+| Lightbulb menu   | Inline variable, inline function, change signature, move file.      |
+
+Cross-language rename is bidirectional: renaming a host-language
+function inside a `.cpp` / `.py` / `.rs` / `.java` / `.cs` file
+automatically rewrites every `.ploy` `LINK` / `EXPORT` site that
+imports it, and renaming a `.ploy` LINK qualifier propagates back to
+the host file.  Identifier matches inside string literals and
+`//` / `#` comments are preserved verbatim.  See
+[`realization/refactoring_en.md`](realization/refactoring_en.md) for
+the full design.
+
+
+## Semantic syntax highlighting
+
+PolyUI ships with a tree-sitter-shaped runtime that powers folding,
+the document outline, smart-select and syntax colouring from a single
+parse.  When the embedded `polyls` is reachable, the editor pulls
+colours from the language server through the LSP
+`textDocument/semanticTokens` channel and the regex highlighter steps
+aside.
+
+* **Setting**: `editor/useLspSemanticTokens` (default **on**).  Toggle
+  via *Settings → Editor → Use LSP semantic tokens*.
+* **Fallback**: when the setting is off or no grammar is registered
+  for the file extension, the legacy regex highlighter takes over.
+* **Supported languages**: Ploy, C++, Python, Rust, Java, C#.
+
+See [`realization/semantic_highlight_en.md`](realization/semantic_highlight_en.md)
+for the architecture and the wire format.
+
+## Multi-tab editor, Quick Open and global search
+
+PolyUI's editor surface supports multi-tab buffers, up to a 4×4 split
+grid and tab drag-and-drop between groups.  Pinned tabs survive
+*Close Others* and *Close to the Right*; right-click a tab to toggle
+the pin.
+
+* **`Ctrl+P` Quick Open** — fuzzy file-name search; recently-opened
+  files float to the top.
+* **`Ctrl+Shift+P` Command Palette** — unchanged from earlier
+  releases.
+* **`Ctrl+T` Workspace Symbols** — LSP `workspace/symbol`; queries
+  match anywhere inside the symbol name.
+* **`Ctrl+Shift+O` Document Symbols** — LSP `textDocument/documentSymbol`;
+  feeds the Outline panel and the Breadcrumbs bar.
+* **`Ctrl+Shift+F` Find in Files** — regex / case-sensitive / whole-
+  word; glob include + exclude; capture groups in replacement;
+  results render as they arrive.
+* **Outline / Breadcrumbs / Minimap** — Outline lives in the side
+  panel, Breadcrumbs sit above the active editor, Minimap can be
+  toggled from *View → Minimap*.
+
+Architecture details:
+[`realization/editor_panels_en.md`](realization/editor_panels_en.md).
+
+## Multi-cursor, folding, formatting & EditorConfig
+
+PolyUI's editor supports modern power-editing across every supported
+language:
+
+* **Multi-cursor** — `Alt+Click` adds a cursor at the click point;
+  `Ctrl+Alt+↑` / `Ctrl+Alt+↓` extend cursors above/below; `Ctrl+D`
+  selects the next occurrence; `Ctrl+Shift+L` selects every
+  occurrence.  `Shift+Alt+drag` produces a rectangular column
+  selection.
+* **Folding** — gutter chevrons fold brace-balanced blocks,
+  multi-line C-style comments and explicit `// region NAME` /
+  `// endregion` markers.  `Ctrl+K Ctrl+0` folds everything;
+  `Ctrl+K Ctrl+J` unfolds everything.
+* **Formatter** — `polyls` provides format-on-save / format-on-paste
+  / format-on-type for `.ploy`; foreign languages route through
+  their own LSP.  Toggle the per-trigger settings under
+  *Settings → Editor → Formatting*.
+* **Snippets** — JSON snippet files (`tools/ui/common/resources/`)
+  follow the VS Code schema (`prefix`, `body`, `description`) and
+  support `$1`, `${1:default}`, `${2|a,b|}`, `$CURRENT_DATE`,
+  `$TM_FILENAME` and friends.
+* **EditorConfig** — a `.editorconfig` in the workspace controls
+  indent style/size, end-of-line, charset, trim-trailing-whitespace
+  and final-newline insertion.  The status bar shows the resolved
+  settings for the active buffer.
+
+Architecture details:
+[`realization/power_editing_en.md`](realization/power_editing_en.md).
+
+## SCM: diff, blame and merge resolver
+
+The Source-Control panel routes through a backend-agnostic
+`ScmProvider` so the same UI works against Git today (and Mercurial
+or Subversion in the future):
+
+* **Diff view** — choose inline or side-by-side.  Each hunk has
+  *Stage* / *Unstage* / *Revert* actions; the surrounding LSP
+  features (hover, definition, problems) keep working inside the
+  diff buffer.
+* **Blame** — the gutter shows the most recent commit hash and
+  author per line.  Hover for the full commit message; click to
+  open the commit in the log panel.
+* **Merge conflict resolver** — files containing `<<<<<<<` markers
+  open a three-pane view.  Use *Accept current*, *Accept incoming*,
+  *Accept both* or edit the result pane manually.
+
+Architecture details:
+[`realization/scm_advanced_en.md`](realization/scm_advanced_en.md).
+
+## DAP debugging (any language)
+
+PolyUI now embeds a full Debug Adapter Protocol client, so any
+DAP-compatible adapter — `debugpy`, `lldb-vscode`, `codelldb`,
+`netcoredbg`, the JDI bridge — drives the same debug surface used
+by the bundled `.ploy` runtime debugger.
+
+* **Launch configurations** live in `.polyc/launch.json` (VS Code
+  schema). Built-in starters cover `.ploy` Run/Debug, Python, C/C++
+  (lldb / gdb), Rust (codelldb), Java and .NET.
+* `${workspaceFolder}`, `${file}`, `${fileBasename}`, `${env:NAME}`
+  and `${command:NAME}` substitutions are honoured.
+* **Breakpoints** support conditions, hit counts, log messages
+  (logpoints), exception filters and function breakpoints.
+* **Debug surface** — Call Stack, Threads, Variables, Watch, Scope
+  and Debug Console are wired to the session model; inline values
+  appear in the gutter while paused.
+
+Architecture details:
+[`realization/dap_integration_en.md`](realization/dap_integration_en.md).
+
+## Tasks, Run/Debug picker, and Hot Reload
+
+PolyUI now ships a complete task orchestration layer and a unified
+status-bar Run/Debug menu.
+
+* **`.polyc/tasks.json`** — VS Code 2.0 schema with `dependsOn` /
+  `dependsOrder` (parallel & sequence), `isBackground`,
+  `problemMatcher` (`$gcc`, `$clang`, `$msbuild`, `$tsc`, `$rustc`,
+  `$pylint`, `$polyc`), `group` (`build` / `test` / `clean` /
+  `custom`) and per-task environment overrides. Built-in starters
+  cover `cmake build`, `ctest`, `clang-format`, `clang-tidy` and a
+  background watch task.
+* **Output panel** routes each task to its own subchannel
+  (`task:<label>`); rerun / cancel / "watch mode" boundaries are
+  detected via `problemMatcher.beginsPattern` / `endsPattern`.
+* **Status-bar picker** fuses every task and every `launch.json`
+  configuration into one quick-pick — group defaults appear first.
+* **Hot Reload / Edit-and-Continue** — saves are routed through
+  `HotReloadEngine`. Per-language handlers cover `.ploy` and Python
+  (incremental rebuild + module replacement), C++/Rust under polyrt
+  (function-symbol swap while attached), and Java/.NET (JDI / EnC).
+  Re-saves while a reload is in flight coalesce so only the latest
+  edit re-runs.
+
+Architecture details:
+[`realization/tasks_runtime_en.md`](realization/tasks_runtime_en.md).

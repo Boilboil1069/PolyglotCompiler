@@ -25,10 +25,8 @@ struct Captured {
   std::vector<Json> outbound;
 };
 
-PolylsServer MakeServer(Captured &capture) {
-  PolylsServer s;
+void MakeServer(PolylsServer &s, Captured &capture) {
   s.SetSendHandler([&](const Json &payload) { capture.outbound.push_back(payload); });
-  return s;
 }
 
 const Json *FindResponse(const Captured &cap, int id) {
@@ -50,7 +48,7 @@ const Json *FindNotification(const Captured &cap, const std::string &method) {
 TEST_CASE("polyls rejects non-initialize requests before initialization",
           "[polyls][lifecycle]") {
   Captured cap;
-  PolylsServer s = MakeServer(cap);
+  PolylsServer s; MakeServer(s, cap);
 
   s.HandleIncoming(MakeRequest(1, "shutdown", Json()));
   const Json *resp = FindResponse(cap, 1);
@@ -62,7 +60,7 @@ TEST_CASE("polyls rejects non-initialize requests before initialization",
 TEST_CASE("polyls initialize advertises only sync + diagnostics",
           "[polyls][lifecycle]") {
   Captured cap;
-  PolylsServer s = MakeServer(cap);
+  PolylsServer s; MakeServer(s, cap);
 
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
   const Json *resp = FindResponse(cap, 1);
@@ -75,16 +73,26 @@ TEST_CASE("polyls initialize advertises only sync + diagnostics",
   REQUIRE(caps["hoverProvider"] == true);
   REQUIRE(caps["completionProvider"] == true);
   REQUIRE(caps["signatureHelpProvider"] == true);
-  // Cross-file navigation is not yet implemented.
-  REQUIRE(caps["definitionProvider"] == false);
-  REQUIRE(caps["referencesProvider"] == false);
-  REQUIRE(caps["renameProvider"] == false);
+  // Navigation features added by demand 2026-04-28-22.
+  REQUIRE(caps["definitionProvider"] == true);
+  REQUIRE(caps["declarationProvider"] == true);
+  REQUIRE(caps["implementationProvider"] == true);
+  REQUIRE(caps["typeDefinitionProvider"] == true);
+  REQUIRE(caps["referencesProvider"] == true);
+  REQUIRE(caps["renameProvider"] == true);
+  REQUIRE(caps["codeActionProvider"] == true);
+  // Semantic tokens added by demand 2026-04-28-24.
+  REQUIRE(caps["semanticTokensProvider"].is_object());
+  REQUIRE(caps["semanticTokensProvider"]["full"] == true);
+  REQUIRE(caps["semanticTokensProvider"]["range"] == true);
+  REQUIRE(caps["semanticTokensProvider"]["legend"]["tokenTypes"]
+              .is_array());
 }
 
 TEST_CASE("polyls didOpen + didChange + didClose document store",
           "[polyls][sync]") {
   Captured cap;
-  PolylsServer s = MakeServer(cap);
+  PolylsServer s; MakeServer(s, cap);
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
   s.HandleIncoming(MakeNotification("initialized", Json::object()));
 
@@ -129,7 +137,7 @@ TEST_CASE("polyls didOpen + didChange + didClose document store",
 TEST_CASE("polyls publishDiagnostics carries syntax errors for .ploy",
           "[polyls][diagnostics]") {
   Captured cap;
-  PolylsServer s = MakeServer(cap);
+  PolylsServer s; MakeServer(s, cap);
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
   s.HandleIncoming(MakeNotification("initialized", Json::object()));
 
@@ -157,7 +165,7 @@ TEST_CASE("polyls publishDiagnostics carries syntax errors for .ploy",
 TEST_CASE("polyls shutdown then exit terminates cleanly",
           "[polyls][lifecycle]") {
   Captured cap;
-  PolylsServer s = MakeServer(cap);
+  PolylsServer s; MakeServer(s, cap);
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
 
   s.HandleIncoming(MakeRequest(2, "shutdown", Json()));

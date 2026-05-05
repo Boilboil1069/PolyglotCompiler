@@ -7,14 +7,18 @@
  * @date     2026-05-04
  */
 #include "tools/polyls/polyls_core/polyls_server.h"
+#include "tools/polyls/grammar/grammar_descriptor.h"
 
 #include <cctype>
 #include <cstdio>
+#include <filesystem>
 #include <utility>
 
+#include "common/include/version.h"
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/language_frontend.h"
 #include "frontends/ploy/include/ploy_frontend.h"
+#include "tools/polyls/polyls_core/symbol_index.h"
 
 namespace polyglot::polyls {
 
@@ -128,7 +132,71 @@ void PolylsServer::HandleIncoming(const Json &payload) {
     if (has_id) HandleSignatureHelp(id, params);
     return;
   }
-
+  // ── Navigation features (demand 2026-04-28-22) ─────────────────
+  if (method == "textDocument/definition") {
+    if (has_id) HandleDefinition(id, params);
+    return;
+  }
+  if (method == "textDocument/declaration") {
+    if (has_id) HandleDeclaration(id, params);
+    return;
+  }
+  if (method == "textDocument/implementation") {
+    if (has_id) HandleImplementation(id, params);
+    return;
+  }
+  if (method == "textDocument/typeDefinition") {
+    if (has_id) HandleTypeDefinition(id, params);
+    return;
+  }
+  if (method == "textDocument/references") {
+    if (has_id) HandleReferences(id, params);
+    return;
+  }
+  // ── Refactoring features (demand 2026-04-28-23) ────────────
+  if (method == "textDocument/prepareRename") {
+    if (has_id) HandlePrepareRename(id, params);
+    return;
+  }
+  if (method == "textDocument/rename") {
+    if (has_id) HandleRename(id, params);
+    return;
+  }
+  if (method == "textDocument/codeAction") {
+    if (has_id) HandleCodeAction(id, params);
+    return;
+  }
+  // ── Semantic tokens (demand 2026-04-28-24) ─────────────────
+  if (method == "textDocument/semanticTokens/full") {
+    if (has_id) HandleSemanticTokensFull(id, params);
+    return;
+  }
+  if (method == "textDocument/semanticTokens/range") {
+    if (has_id) HandleSemanticTokensRange(id, params);
+    return;
+  }
+  // ── Symbols & navigation panels (demand 2026-04-28-25) ────
+  if (method == "textDocument/documentSymbol") {
+    if (has_id) HandleDocumentSymbol(id, params);
+    return;
+  }
+  if (method == "workspace/symbol") {
+    if (has_id) HandleWorkspaceSymbol(id, params);
+    return;
+  }
+  // ── Formatting (demand 2026-04-28-26) ─────────────────────
+  if (method == "textDocument/formatting") {
+    if (has_id) HandleFormatting(id, params);
+    return;
+  }
+  if (method == "textDocument/rangeFormatting") {
+    if (has_id) HandleRangeFormatting(id, params);
+    return;
+  }
+  if (method == "textDocument/onTypeFormatting") {
+    if (has_id) HandleOnTypeFormatting(id, params);
+    return;
+  }
   if (has_id) {
     SendError(id, kMethodNotFound, "method not implemented: " + method);
   }
@@ -139,23 +207,69 @@ void PolylsServer::HandleIncoming(const Json &payload) {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-void PolylsServer::HandleInitialize(int id, const Json & /*params*/) {
+void PolylsServer::HandleInitialize(int id, const Json &params) {
   initialized_ = true;
+
+  // Establish workspace cache directory from the client's rootUri.
+  cache_dir_.clear();
+  if (params.is_object() && params.contains("rootUri") &&
+      params["rootUri"].is_string()) {
+    const std::string root_uri = params["rootUri"].get<std::string>();
+    const std::string root_path = UriToPath(root_uri);
+    if (!root_path.empty()) {
+      const std::filesystem::path cache =
+          std::filesystem::path(root_path) / ".polyc-cache";
+      cache_dir_ = cache.string();
+      std::error_code ec;
+      std::filesystem::create_directories(cache, ec);
+      // Best-effort: warm-load any prior snapshot.  Failure is silent
+      // because a fresh workspace simply has no cache file yet.
+      (void)index_->LoadFromCache(cache_dir_);
+    }
+  }
+
   lsp::InitializeResult result;
   result.server_name = "polyls";
-  result.server_version = "1.22.0";
-  // Sync + diagnostics (demand 2026-04-28-19) and language features
-  // (demand 2026-04-28-21): completion, hover, signatureHelp.
+  result.server_version = POLYGLOT_VERSION_STRING;
+  // Sync + diagnostics (demand 2026-04-28-19), language features
+  // (demand 2026-04-28-21), navigation (demand 2026-04-28-22),
+  // refactoring (demand 2026-04-28-23), semantic tokens
+  // (demand 2026-04-28-24).
   result.capabilities.text_document_sync = 1;  // full
   result.capabilities.diagnostic_provider = true;
   result.capabilities.completion_provider = true;
   result.capabilities.hover_provider = true;
   result.capabilities.signature_help_provider = true;
+  result.capabilities.definition_provider = true;
+  result.capabilities.declaration_provider = true;
+  result.capabilities.implementation_provider = true;
+  result.capabilities.type_definition_provider = true;
+  result.capabilities.references_provider = true;
+  result.capabilities.rename_provider = true;
+  result.capabilities.code_action_provider = true;
+  result.capabilities.document_symbol_provider = true;
+  result.capabilities.workspace_symbol_provider = true;
+  result.capabilities.document_formatting_provider = true;
+  result.capabilities.document_range_formatting_provider = true;
+  result.capabilities.document_on_type_formatting_provider = true;
+  result.capabilities.on_type_formatting_first_trigger = "\n";
+  result.capabilities.semantic_tokens_provider = true;
+  result.capabilities.semantic_token_types.assign(
+      polyglot::polyls::grammar::kTokenTypes.begin(),
+      polyglot::polyls::grammar::kTokenTypes.end());
+  result.capabilities.semantic_token_modifiers.assign(
+      polyglot::polyls::grammar::kTokenModifiers.begin(),
+      polyglot::polyls::grammar::kTokenModifiers.end());
   SendResponse(id, lsp::ToJson(result));
 }
 
 void PolylsServer::HandleShutdown(int id) {
   shutdown_requested_ = true;
+  // Persist the latest workspace snapshot on the way out so the next
+  // editor session can answer navigation queries instantly.
+  if (!cache_dir_.empty()) {
+    (void)index_->SaveToCache(cache_dir_);
+  }
   if (id > 0) SendResponse(id, Json());
 }
 
@@ -181,6 +295,7 @@ void PolylsServer::HandleDidOpen(const Json &params) {
     std::lock_guard<std::mutex> lock(docs_mu_);
     documents_[doc.uri] = std::move(doc);
   }
+  RefreshIndexFor(p.text_document.uri);
   RunAndPublishDiagnostics(p.text_document.uri);
 }
 
@@ -204,6 +319,7 @@ void PolylsServer::HandleDidChange(const Json &params) {
       }
     }
   }
+  RefreshIndexFor(p.text_document.uri);
   RunAndPublishDiagnostics(p.text_document.uri);
 }
 
@@ -215,6 +331,9 @@ void PolylsServer::HandleDidClose(const Json &params) {
     std::lock_guard<std::mutex> lock(docs_mu_);
     documents_.erase(p.text_document.uri);
   }
+  // Drop the document from the symbol index too, but keep the cache
+  // file intact so we can answer historical references on next start.
+  index_->RemoveDocument(p.text_document.uri);
   // Publish an empty diagnostics list so the editor clears its overlay.
   lsp::PublishDiagnosticsParams empty;
   empty.uri = p.text_document.uri;
@@ -230,6 +349,7 @@ void PolylsServer::HandleDidSave(const Json &params) {
     auto it = documents_.find(p.text_document.uri);
     if (it != documents_.end()) it->second.text = *p.text;
   }
+  RefreshIndexFor(p.text_document.uri);
   RunAndPublishDiagnostics(p.text_document.uri);
 }
 
@@ -356,6 +476,33 @@ std::vector<OpenDocument> PolylsServer::SnapshotDocuments() const {
   out.reserve(documents_.size());
   for (const auto &kv : documents_) out.push_back(kv.second);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// SymbolIndex bridging
+// ---------------------------------------------------------------------------
+
+std::string PolylsServer::IndexLanguageFor(const std::string &uri) const {
+  std::lock_guard<std::mutex> lock(docs_mu_);
+  auto it = documents_.find(uri);
+  if (it == documents_.end()) return {};
+  return it->second.language_id;
+}
+
+void PolylsServer::RefreshIndexFor(const std::string &uri) {
+  std::string text;
+  std::string language_id;
+  {
+    std::lock_guard<std::mutex> lock(docs_mu_);
+    auto it = documents_.find(uri);
+    if (it == documents_.end()) return;
+    text = it->second.text;
+    language_id = it->second.language_id;
+  }
+  index_->IndexDocument(uri, language_id, text);
+  // Best-effort cache write — swallow filesystem failures because the
+  // editor is the source of truth and the cache is purely a warm path.
+  if (!cache_dir_.empty()) (void)index_->SaveToCache(cache_dir_);
 }
 
 }  // namespace polyglot::polyls

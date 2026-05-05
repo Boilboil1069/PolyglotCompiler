@@ -210,10 +210,41 @@ set(UNIT_TEST_POLYLS
     unit/polyls/completion_test.cpp
     unit/polyls/hover_test.cpp
     unit/polyls/signature_help_test.cpp
+    unit/polyls/symbol_index_test.cpp
+    unit/polyls/navigation_test.cpp
+    unit/polyls/refactor_test.cpp
+    unit/polyls/tree_sitter_runtime_test.cpp
+    unit/polyls/semantic_tokens_test.cpp
+    unit/polyls/workspace_symbol_test.cpp
+    unit/polyls/formatting_test.cpp
 )
 
 set(UNIT_TEST_COMPLETION_RANKER
     unit/polyui/completion_ranker_test.cpp
+)
+
+set(UNIT_TEST_POLYUI_PANELS
+    unit/polyui/editor_group_test.cpp
+    unit/polyui/quick_open_ranker_test.cpp
+    unit/polyui/global_search_engine_test.cpp
+    unit/polyui/outline_model_test.cpp
+    unit/polyui/multi_cursor_test.cpp
+    unit/polyui/folding_model_test.cpp
+    unit/polyui/format_engine_test.cpp
+    unit/polyui/snippet_engine_test.cpp
+    unit/polyui/editor_config_test.cpp
+    unit/polyui/diff_engine_test.cpp
+    unit/polyui/merge_resolver_test.cpp
+    unit/polyui/scm_provider_test.cpp
+    unit/polyui/git_provider_test.cpp
+    unit/polyui/dap_client_test.cpp
+    unit/polyui/launch_config_test.cpp
+    unit/polyui/debug_session_test.cpp
+    unit/polyui/task_config_test.cpp
+    unit/polyui/problem_matcher_test.cpp
+    unit/polyui/task_runner_test.cpp
+    unit/polyui/run_debug_picker_test.cpp
+    unit/polyui/hot_reload_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY_UI
@@ -492,12 +523,35 @@ set(ALL_UNIT_TEST_SOURCES
     ${UNIT_TEST_POLYLS}
     ${UNIT_TEST_PROBLEMS}
     ${UNIT_TEST_COMPLETION_RANKER}
+    ${UNIT_TEST_POLYUI_PANELS}
     ${UNIT_TEST_E2E}
 )
 
 add_executable(unit_tests ${ALL_UNIT_TEST_SOURCES}
     ${CMAKE_SOURCE_DIR}/tools/ui/common/src/problems_aggregator.cpp
-    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/completion_ranker.cpp)
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/src/completion_ranker.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editor/editor_group.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editor/editor_grid.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/quickopen/quick_open_ranker.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/search/global_search_engine.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/outline/outline_model.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editing/multi_cursor.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editing/folding_model.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editing/format_engine.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editing/snippet_engine.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/editing/editor_config.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/scm/scm_provider.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/scm/git_provider.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/scm/diff_engine.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/scm/merge_resolver.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/dap/dap_client.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/dap/launch_config.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/dap/debug_session.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/tasks/task_config.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/tasks/problem_matcher.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/tasks/task_runner.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/run_debug_picker.cpp
+    ${CMAKE_SOURCE_DIR}/tools/ui/common/runtime/hot_reload.cpp)
 target_link_libraries(unit_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 
 # ============================================================================
@@ -528,11 +582,15 @@ set(INTEGRATION_TEST_SOURCES
     integration/explicit_widths_e2e_test.cpp
     integration/printf_pipeline_e2e_test.cpp
     integration/lsp_diagnostics_e2e_test.cpp
+    integration/lsp_navigation_e2e_test.cpp
+    integration/lsp_refactor_e2e_test.cpp
+    integration/lsp_semantic_tokens_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 target_compile_definitions(integration_tests PRIVATE
-    POLYGLOT_TESTS_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/external_packages")
+    POLYGLOT_TESTS_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/external_packages"
+    POLYGLOT_TESTS_SAMPLES_ROOT="${CMAKE_SOURCE_DIR}/tests/samples")
 
 # ============================================================================
 # Benchmark Tests

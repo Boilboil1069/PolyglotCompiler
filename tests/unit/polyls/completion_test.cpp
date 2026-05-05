@@ -26,13 +26,11 @@ struct Captured {
   std::vector<Json> outbound;
 };
 
-PolylsServer MakeReadyServer(Captured &cap) {
-  PolylsServer s;
+void MakeReadyServer(PolylsServer &s, Captured &cap) {
   s.SetSendHandler([&](const Json &p) { cap.outbound.push_back(p); });
   s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
   s.HandleIncoming(MakeNotification("initialized", Json::object()));
   cap.outbound.clear();
-  return s;
 }
 
 void Open(PolylsServer &s, const std::string &uri, const std::string &text) {
@@ -61,7 +59,7 @@ bool ContainsLabel(const Json &items, const std::string &label) {
 TEST_CASE("polyls completion emits .ploy keywords for a bare prefix",
           "[polyls][completion]") {
   Captured cap;
-  PolylsServer s = MakeReadyServer(cap);
+  PolylsServer s; MakeReadyServer(s, cap);
   Open(s, "file:///a.ploy", "FUN\n");
 
   const Json params = Json{
@@ -80,7 +78,7 @@ TEST_CASE("polyls completion emits .ploy keywords for a bare prefix",
 TEST_CASE("polyls completion includes user-declared FUNC names",
           "[polyls][completion]") {
   Captured cap;
-  PolylsServer s = MakeReadyServer(cap);
+  PolylsServer s; MakeReadyServer(s, cap);
   Open(s, "file:///b.ploy",
        "FUNC compute_total(a, b) -> INT { RETURN a; }\n"
        "comp\n");
@@ -99,7 +97,7 @@ TEST_CASE("polyls completion includes user-declared FUNC names",
 TEST_CASE("polyls completion offers cross-language template after `LINK cpp::`",
           "[polyls][completion][cross-language]") {
   Captured cap;
-  PolylsServer s = MakeReadyServer(cap);
+  PolylsServer s; MakeReadyServer(s, cap);
   Open(s, "file:///c.ploy", "LINK cpp::\n");
 
   const Json params = Json{

@@ -26,10 +26,12 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 
+#include "tools/polyls/polyls_core/symbol_index.h"
 #include "tools/ui/common/lsp/lsp_message.h"
 
 namespace polyglot::polyls {
@@ -70,6 +72,16 @@ class PolylsServer {
   /// Snapshot of the currently open documents (test introspection).
   std::vector<OpenDocument> SnapshotDocuments() const;
 
+  /// Read-only view of the underlying workspace symbol index.  Used by
+  /// tests and integration harnesses; production drivers do not need
+  /// this hook because navigation queries flow through the LSP wire.
+  const SymbolIndex &Index() const { return *index_; }
+
+  /// Workspace cache directory (`<root>/.polyc-cache`) negotiated from
+  /// the client's `initialize.rootUri`.  Empty before initialize and
+  /// when no rootUri was supplied.
+  const std::string &CacheDir() const { return cache_dir_; }
+
  private:
   // ── Lifecycle ────────────────────────────────────────────────────────
   void HandleInitialize(int id, const Json &params);
@@ -91,7 +103,38 @@ class PolylsServer {
   void HandleCompletionResolve(int id, const Json &params);
   void HandleHover(int id, const Json &params);
   void HandleSignatureHelp(int id, const Json &params);
+  // ── Navigation features (demand 2026-04-28-22) ─────────────────────────
+  void HandleDefinition(int id, const Json &params);
+  void HandleDeclaration(int id, const Json &params);
+  void HandleImplementation(int id, const Json &params);
+  void HandleTypeDefinition(int id, const Json &params);
+  void HandleReferences(int id, const Json &params);
 
+  // ── Refactoring features (demand 2026-04-28-23) ────────────────────────
+  void HandlePrepareRename(int id, const Json &params);
+  void HandleRename(int id, const Json &params);
+  void HandleCodeAction(int id, const Json &params);
+
+  // ── Semantic tokens (demand 2026-04-28-24) ────────────────────────────
+  void HandleSemanticTokensFull(int id, const Json &params);
+  void HandleSemanticTokensRange(int id, const Json &params);
+
+  // ── Symbols & navigation panels (demand 2026-04-28-25) ────────────────
+  void HandleDocumentSymbol(int id, const Json &params);
+  void HandleWorkspaceSymbol(int id, const Json &params);
+
+  // ── Formatting (demand 2026-04-28-26) ─────────────────────────────────
+  void HandleFormatting(int id, const Json &params);
+  void HandleRangeFormatting(int id, const Json &params);
+  void HandleOnTypeFormatting(int id, const Json &params);
+
+  /// Refresh the symbol index for one document and persist to cache
+  /// (best effort).  Called after every didOpen / didChange / didSave.
+  void RefreshIndexFor(const std::string &uri);
+
+  /// Apply the language identifier the editor sent at `didOpen` time
+  /// (e.g. "ploy", "cpp", "python", "rust", "java", "csharp").
+  std::string IndexLanguageFor(const std::string &uri) const;
   // ── Wire helpers ─────────────────────────────────────────────────────
   void Send(const Json &payload);
   void SendResponse(int id, const Json &result);
@@ -105,6 +148,9 @@ class PolylsServer {
 
   mutable std::mutex docs_mu_;
   std::unordered_map<std::string, OpenDocument> documents_;
+
+  std::shared_ptr<SymbolIndex> index_{std::make_shared<SymbolIndex>()};
+  std::string cache_dir_;
 };
 
 }  // namespace polyglot::polyls

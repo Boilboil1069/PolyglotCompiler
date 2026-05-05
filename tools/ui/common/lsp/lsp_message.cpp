@@ -182,18 +182,47 @@ Json ToJson(const PublishDiagnosticsParams &v) {
 }
 
 Json ToJson(const ServerCapabilities &v) {
-  return Json{
+  Json j = Json{
       {"textDocumentSync", v.text_document_sync},
       {"hoverProvider", v.hover_provider},
       {"completionProvider", v.completion_provider},
       {"signatureHelpProvider", v.signature_help_provider},
       {"definitionProvider", v.definition_provider},
+      {"declarationProvider", v.declaration_provider},
+      {"implementationProvider", v.implementation_provider},
+      {"typeDefinitionProvider", v.type_definition_provider},
       {"referencesProvider", v.references_provider},
       {"documentSymbolProvider", v.document_symbol_provider},
+      {"workspaceSymbolProvider", v.workspace_symbol_provider},
       {"renameProvider", v.rename_provider},
       {"codeActionProvider", v.code_action_provider},
       {"diagnosticProvider", v.diagnostic_provider},
+      {"documentFormattingProvider", v.document_formatting_provider},
+      {"documentRangeFormattingProvider", v.document_range_formatting_provider},
   };
+  if (v.document_on_type_formatting_provider) {
+    j["documentOnTypeFormattingProvider"] = Json{
+        {"firstTriggerCharacter", v.on_type_formatting_first_trigger},
+    };
+  }
+  if (v.semantic_tokens_provider) {
+    Json legend = Json::object();
+    legend["tokenTypes"] = v.semantic_token_types;
+    legend["tokenModifiers"] = v.semantic_token_modifiers;
+    j["semanticTokensProvider"] = Json{
+        {"legend", legend},
+        {"range", true},
+        {"full", true},
+    };
+  }
+  return j;
+}
+
+Json ToJson(const SemanticTokens &v) {
+  Json j = Json::object();
+  if (!v.result_id.empty()) j["resultId"] = v.result_id;
+  j["data"] = v.data;
+  return j;
 }
 
 Json ToJson(const InitializeParams &v) {
@@ -444,11 +473,50 @@ void FromJson(const Json &j, ServerCapabilities &v) {
   v.completion_provider = GetOr<bool>(j, "completionProvider", false);
   v.signature_help_provider = GetOr<bool>(j, "signatureHelpProvider", false);
   v.definition_provider = GetOr<bool>(j, "definitionProvider", false);
+  v.declaration_provider = GetOr<bool>(j, "declarationProvider", false);
+  v.implementation_provider = GetOr<bool>(j, "implementationProvider", false);
+  v.type_definition_provider =
+      GetOr<bool>(j, "typeDefinitionProvider", false);
   v.references_provider = GetOr<bool>(j, "referencesProvider", false);
   v.document_symbol_provider = GetOr<bool>(j, "documentSymbolProvider", false);
+  v.workspace_symbol_provider = GetOr<bool>(j, "workspaceSymbolProvider", false);
   v.rename_provider = GetOr<bool>(j, "renameProvider", false);
   v.code_action_provider = GetOr<bool>(j, "codeActionProvider", false);
   v.diagnostic_provider = GetOr<bool>(j, "diagnosticProvider", true);
+  v.document_formatting_provider =
+      GetOr<bool>(j, "documentFormattingProvider", false);
+  v.document_range_formatting_provider =
+      GetOr<bool>(j, "documentRangeFormattingProvider", false);
+  if (auto it = j.find("documentOnTypeFormattingProvider");
+      it != j.end() && it->is_object()) {
+    v.document_on_type_formatting_provider = true;
+    v.on_type_formatting_first_trigger =
+        GetOr<std::string>(*it, "firstTriggerCharacter", "\n");
+  }
+  if (auto it = j.find("semanticTokensProvider");
+      it != j.end() && it->is_object()) {
+    v.semantic_tokens_provider = true;
+    if (auto lit = it->find("legend");
+        lit != it->end() && lit->is_object()) {
+      if (auto t = lit->find("tokenTypes");
+          t != lit->end() && t->is_array()) {
+        v.semantic_token_types =
+            t->get<std::vector<std::string>>();
+      }
+      if (auto m = lit->find("tokenModifiers");
+          m != lit->end() && m->is_array()) {
+        v.semantic_token_modifiers =
+            m->get<std::vector<std::string>>();
+      }
+    }
+  }
+}
+
+void FromJson(const Json &j, SemanticTokens &v) {
+  v.result_id = GetOr<std::string>(j, "resultId", std::string{});
+  if (auto it = j.find("data"); it != j.end() && it->is_array()) {
+    v.data = it->get<std::vector<std::uint32_t>>();
+  }
 }
 
 void FromJson(const Json &j, InitializeParams &v) {

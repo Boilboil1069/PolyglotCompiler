@@ -12,6 +12,154 @@
 
 ---
 
+## v1.30.0 (2026-05-05)
+
+**任务、Run/Debug 选择器与 Hot Reload。**  PolyUI 在
+[`tools/ui/common/tasks/`](../tools/ui/common/tasks) 下新增 VS Code 级
+别的任务编排器：[`TaskDefinition`](../tools/ui/common/tasks/task_config.h)
+解析 `.polyc/tasks.json`（信封或裸数组），
+[`TaskRunner`](../tools/ui/common/tasks/task_runner.h) 按 `dependsOrder`
+构建拓扑分批执行计划，
+[`ProblemMatcher`](../tools/ui/common/tasks/problem_matcher.h) 识别 `$gcc` /
+`$clang` / `$msbuild` / `$tsc` / `$rustc` / `$pylint` / `$polyc` 及
+watch 模式的起止标记。新增的
+[`RunDebugPicker`](../tools/ui/common/runtime/run_debug_picker.h) 将任务与
+`launch.json` 配置合并为单一状态栏快捷菜单；
+[`HotReloadEngine`](../tools/ui/common/runtime/hot_reload.h) 按语言路由
+保存事件（`.ploy`、Python、走 polyrt 的 C++/Rust、通过 JDI/EnC 的
+Java/.NET）并合并重叠请求。详见
+[`realization/tasks_runtime_zh.md`](realization/tasks_runtime_zh.md)。
+
+---
+
+## v1.29.0 (2026-05-05)
+
+**Debug Adapter Protocol 集成。**  PolyUI 新增位于
+[`tools/ui/common/dap/`](../tools/ui/common/dap) 的与 Qt 无关 DAP
+客户端：[`MessageFramer`](../tools/ui/common/dap/dap_client.h) 处理
+`Content-Length` 帧；[`DapClient`](../tools/ui/common/dap/dap_client.h)
+以序列号待决表路由请求 / 响应，并分发 `stopped` / `continued` /
+`output` / `thread` / `breakpoint` / `exited` / `terminated` /
+`initialized` 事件。[`DebugSession`](../tools/ui/common/dap/debug_session.h)
+在上面叠加断点表、线程/栈/Scope 缓存以及行内变量值映射，适配器
+一旦报告 stop 就自动发起 `threads` + `stackTrace` + `scopes`。
+[`launch_config`](../tools/ui/common/dap/launch_config.h) 解析
+`.polyc/launch.json`（VS Code 规范），展开 `${workspaceFolder}` /
+`${file}` / `${env:…}` / `${command:…}` 变量，并内置 `.ploy`、
+Python、C/C++、Rust、Java、.NET 等默认模板。详见
+[`realization/dap_integration_zh.md`](realization/dap_integration_zh.md)。
+
+---
+
+## v1.28.0 (2026-05-05)
+
+**SCM 进阶：diff / blame / 合并解决器 / 提供者抽象。**  新增与后端
+无关的 [`ScmProvider`](../tools/ui/common/scm/scm_provider.h) 接口，
+将 IDE 与具体 VCS 解耦；
+[`GitProvider`](../tools/ui/common/scm/git_provider.h) 是首个实现，其
+ porcelain / blame / log 解析器均以独立函数形式暴露，便于单元测试。
+新 [`diff_engine`](../tools/ui/common/scm/diff_engine.h) 以 LCS DP 计算
+行级 diff，然后按上下文合并为 hunk，并提供 `ApplyHunk` /
+`RevertHunk` 以支持 stage / unstage。
+[`merge_resolver`](../tools/ui/common/scm/merge_resolver.h) 解析三向冲突
+标记（含可选的 `|||||||` 基准段），支持按 current / incoming /
+both 或逐冲突自定义替换进行解决。详见
+[`realization/scm_advanced_zh.md`](realization/scm_advanced_zh.md)。
+
+---
+
+## v1.27.0 (2026-05-05)
+
+**多光标 / 折叠 / 格式化 / Snippets / EditorConfig。**  PolyUI 新增 Qt
+无关的 [`MultiCursor`](../tools/ui/common/editing/multi_cursor.h)
+模型，覆盖 `Alt+Click`、`Ctrl+Alt+↑/↓`、`Ctrl+D`、`Ctrl+Shift+L` 与
+矩形 `Shift+Alt+拖拽`。[`folding_model`](../tools/ui/common/editing/folding_model.h)
+在一次扫描中计算括号 / 注释 / `// region` 三类折叠。`polyls` 现在由
+[`format_engine`](../tools/ui/common/editing/format_engine.h) 驱动实现
+`textDocument/formatting`、`rangeFormatting` 与 `onTypeFormatting`，按
+括号嵌套重排缩进并尊重 LSP 的格式化选项。Snippet 展开位于
+[`snippet_engine`](../tools/ui/common/editing/snippet_engine.h)，支持 VS
+Code 风格的 tabstop、选项与变量替换；用户库从 JSON 加载。项目级
+格式化由
+[`editor_config`](../tools/ui/common/editing/editor_config.h) 指导——这是
+一份精简但符合规范的 `.editorconfig` 解析器，含完整 glob
+支持。详见
+[`realization/power_editing_zh.md`](realization/power_editing_zh.md)。
+
+---
+
+## v1.26.0 (2026-05-05)
+
+**多标签 / 分屏 / Quick Open / 全局搜索 / Outline。**  PolyUI 新增
+`EditorGroup` / `EditorGrid` 模型，最多 4×4 分屏，pinned 标签对批量
+关闭免疫，分组之间支持标签拖拽
+（[`tools/ui/common/editor/`](../tools/ui/common/editor/)）。`Ctrl+P`
+打开 Quick Open 面板，由
+[`quick_open_ranker`](../tools/ui/common/quickopen/quick_open_ranker.h)
+驱动，使用 VS Code 风格的子序列打分，并对最近文件加权。`polyls`
+实现 `textDocument/documentSymbol` 与 `workspace/symbol`，并在
+`initialize` 中通告 `documentSymbolProvider` /
+`workspaceSymbolProvider`；`Ctrl+T` 与 `Ctrl+Shift+O` 走 LSP。
+`Ctrl+Shift+F` 由
+[`global_search_engine`](../tools/ui/common/search/global_search_engine.h)
+支撑，支持正则 / 大小写 / 全词、glob include + exclude、捕获组替换、
+流式 `GlobalSearchSink`。共享的
+[`outline_model`](../tools/ui/common/outline/outline_model.h) 同时驱动
+Outline 面板、Breadcrumbs 与 Minimap。详见
+[`realization/editor_panels_zh.md`](realization/editor_panels_zh.md)。
+
+---
+
+## v1.25.0 (2026-05-05)
+
+**语义级语法高亮 + tree-sitter 形态运行时。** 新增解析运行时位于
+[`tools/ui/common/syntax/tree_sitter_runtime.{h,cpp}`](../tools/ui/common/syntax/tree_sitter_runtime.h)，对外暴露与 tree-sitter 兼容的接口
+（`Parse` / `Edit` / `Tokens` / `Folds` / `Outline` / `SmartSelect`）。
+Ploy 与五种宿主语言（C++ / Python / Rust / Java / C#）的 grammar
+描述符位于 [`tools/polyls/grammar/`](../tools/polyls/grammar/)，
+并固化共享的语义 token legend。`polyls` 实现了
+`textDocument/semanticTokens/full` 与
+`textDocument/semanticTokens/range`，按 LSP 3.16 规范返回 delta
+编码的 `uint32` 流。编辑器通过新增的
+[`semantic_tokens_client`](../tools/ui/common/syntax/semantic_tokens_client.h)
+消费该流，颜色来自 `theme_manager`；旧的正则版 `SyntaxHighlighter`
+作为离线场景下的 fallback 保留。新设置项 “Use LSP semantic
+tokens”（默认开启）控制两者切换。详见
+[`realization/semantic_highlight_zh.md`](realization/semantic_highlight_zh.md)。
+
+---
+
+## v1.24.0 (2026-05-05)
+
+**IDE 重构：重命名 / 提取函数 / 内联 / 修改签名 / 移动文件。**
+`polyls` 现在应答 `textDocument/prepareRename`、
+`textDocument/rename` 与 `textDocument/codeAction`。重命名基于工作区
+`SymbolIndex` 在单个原子 `WorkspaceEdit` 中重写全部引用——跨文件、跨
+语言都会同步。在宿主语言文件（C++ / Python / Rust / Java / .NET）
+中发起重命名会自动同步更新引入该符号的 `.ploy` `LINK` / `EXPORT`
+位点；反向跳转同样覆盖。`codeAction` 返回重构菜单：提取为 `FUNC`
+与内联 `LET` 为具体编辑；内联函数 / 修改签名 / 移动文件 作为灯泡
+项与编辑器向导协同。详见
+[docs/realization/refactoring_zh.md](realization/refactoring_zh.md)。
+
+同时升级 lifecycle 单测，验证 `renameProvider` / `codeActionProvider` 能力
+标志已全部为 true。
+
+---
+
+## v1.23.0 (2026-05-05)
+
+**IDE 跳转：定义 / 声明 / 实现 / 类型定义 / 引用。** `polyls` 现已内建
+工作区级 `SymbolIndex`，会扫描 `.ploy` 源码以及它们 `IMPORT` 的所有
+宿主语言模块（`cpp` / `python` / `rust` / `java` / `dotnet`）。新增的五个
+`textDocument/*` 请求返回 LSP 标准的 `Location[]`，编辑器可直接驱动跳转。
+索引随 `didOpen` / `didChange` / `didSave` 增量更新，并持久化到
+`<workspace>/.polyc-cache/symbol_index.json`，使下次冷启动无需重新解析
+即可应答查询。跨语言跳转双向支持：点击 `.ploy` 中的 `LINK` 限定名可跳转
+到宿主语言定义；在宿主文件上发起 `references` 会列出每一处引用它的
+`.ploy` `LINK` 位置。设计说明见
+[`realization/symbol_index_zh.md`](realization/symbol_index_zh.md)。
+
 ## v1.18.0 (2026-05-05)
 
 **P3 收尾：小语法瑕疵集合。** 一组源码层面的细节打磨，便于从

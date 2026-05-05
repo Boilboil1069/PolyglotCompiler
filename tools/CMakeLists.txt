@@ -189,6 +189,14 @@ target_link_libraries(lsp_lib PUBLIC nlohmann_json::nlohmann_json)
 add_library(polyls_core STATIC
     polyls/polyls_core/polyls_server.cpp
     polyls/polyls_core/polyls_features.cpp
+    polyls/polyls_core/polyls_navigation.cpp
+    polyls/polyls_core/polyls_refactor.cpp
+    polyls/polyls_core/polyls_semantic.cpp
+    polyls/polyls_core/refactor.cpp
+    polyls/polyls_core/symbol_index.cpp
+    polyls/grammar/grammar_descriptor.cpp
+    ui/common/syntax/tree_sitter_runtime.cpp
+    ui/common/editing/format_engine.cpp
 )
 
 target_include_directories(polyls_core PUBLIC ${CMAKE_SOURCE_DIR})
@@ -343,6 +351,29 @@ if(Qt6_FOUND OR Qt5_FOUND)
         ui/common/src/mainwindow.cpp
         ui/common/src/code_editor.cpp
         ui/common/src/syntax_highlighter.cpp
+        ui/common/syntax/semantic_tokens_client.cpp
+        ui/common/editor/editor_group.cpp
+        ui/common/editor/editor_grid.cpp
+        ui/common/quickopen/quick_open_ranker.cpp
+        ui/common/search/global_search_engine.cpp
+        ui/common/outline/outline_model.cpp
+        ui/common/editing/multi_cursor.cpp
+        ui/common/editing/folding_model.cpp
+        ui/common/editing/format_engine.cpp
+        ui/common/editing/snippet_engine.cpp
+        ui/common/editing/editor_config.cpp
+        ui/common/scm/scm_provider.cpp
+        ui/common/scm/git_provider.cpp
+        ui/common/scm/diff_engine.cpp
+        ui/common/scm/merge_resolver.cpp
+        ui/common/dap/dap_client.cpp
+        ui/common/dap/launch_config.cpp
+        ui/common/dap/debug_session.cpp
+        ui/common/tasks/task_config.cpp
+        ui/common/tasks/problem_matcher.cpp
+        ui/common/tasks/task_runner.cpp
+        ui/common/runtime/run_debug_picker.cpp
+        ui/common/runtime/hot_reload.cpp
         ui/common/src/file_browser.cpp
         ui/common/src/output_panel.cpp
         ui/common/src/compiler_service.cpp
@@ -449,6 +480,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
         topo_lib
         polyglot_tools_settings
         lsp_lib
+        polyls_core
         nlohmann_json::nlohmann_json
     )
 

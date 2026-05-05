@@ -3352,3 +3352,158 @@ polyc --check <file> [--lang=<id>]
 向 stdout 写出一份与 LSP 同形的 JSON（`uri` + `diagnostics`）。
 退出码：`0` 干净，`1` 存在 error，`2` 用法 / I/O 失败。
 适合把 Polyglot 诊断接入不支持 LSP 的编辑器。
+
+## IDE 跳转（`polyls`）
+
+除了诊断、补全、悬停和签名帮助以外，`polyls` 还应答标准的 LSP 跳转请求：
+
+| 快捷键         | LSP 方法                              | 说明                                                      |
+|----------------|---------------------------------------|-----------------------------------------------------------|
+| `F12`          | `textDocument/definition`             | 跳转到符号定义。                                           |
+| `Shift+F12`    | `textDocument/references`             | 列出工作区中所有引用。                                     |
+| `Ctrl+F12`     | `textDocument/implementation`         | 跳转到 `LINK` 的宿主语言实现。                             |
+| `Ctrl+K F12`   | （Peek）                               | 在光标处打开内联 Peek 视图。                               |
+| `Ctrl+Click`   | `textDocument/definition`             | 等价于 F12，鼠标驱动。                                     |
+
+这些处理器构建在工作区级 `SymbolIndex` 之上，它会扫描 `.ploy` 源码以及
+`IMPORT` 进来的所有宿主语言模块（`cpp`、`python`、`rust`、`java`、`dotnet`）。
+索引随 `didOpen` / `didChange` / `didSave` 增量重建，并持久化到
+`<workspace>/.polyc-cache/symbol_index.json`，使服务器冷启动即可应答查询。
+
+跨语言跳转支持双向：点击 `.ploy` 中的 `LINK` 限定名可跳转到宿主语言定义；
+在宿主语言文件中发起 `references` 时，也会列出每一处引用它的 `.ploy`
+`LINK` 位置。完整设计见
+[`realization/symbol_index_zh.md`](realization/symbol_index_zh.md)。
+
+
+## IDE 重构（`polyls`）
+
+`polyls` 应答标准 LSP 重构请求（`textDocument/prepareRename`、
+`textDocument/rename`、`textDocument/codeAction`），编辑以单个
+`WorkspaceEdit` 形式返回，由编辑器以单步 undo 应用。
+
+| 快捷键           | 动作                                                                |
+|------------------|---------------------------------------------------------------------|
+| `F2`             | 在工作区范围重命名光标处标识符。                                      |
+| `Ctrl+Shift+R`   | 将当前选区提取为新 `FUNC`。                                          |
+| 灯泡菜单         | 内联变量、内联函数、修改签名、移动文件。                              |
+
+跨语言重命名支持双向：在宿主语言文件（`.cpp` / `.py` / `.rs` / `.java`
+/ `.cs`）中重命名函数时，所有引用该符号的 `.ploy` `LINK` / `EXPORT`
+站点会自动同步；从 `.ploy` LINK 限定名发起重命名同样会改写宿主文件。
+字符串字面量与 `//` / `#` 注释中的标识符子串保持不变。完整设计见
+[`realization/refactoring_zh.md`](realization/refactoring_zh.md)。
+
+
+## 语义级语法高亮
+
+PolyUI 内置一套 tree-sitter 形态的运行时，由同一棵解析树驱动折叠、
+文档大纲、Smart Select 与语法着色。当内嵌的 `polyls` 可达时，编辑器
+通过 LSP `textDocument/semanticTokens` 通道直接使用语言服务器返回的
+颜色，正则版高亮器自动让位。
+
+* **设置项**：`editor/useLspSemanticTokens`，**默认开启**。可在
+  *Settings → Editor → Use LSP semantic tokens* 中切换。
+* **Fallback**：关闭该设置或文件扩展名未注册 grammar 时，由旧的
+  正则高亮器承担着色。
+* **支持语言**：Ploy、C++、Python、Rust、Java、C#。
+
+架构与 wire 格式详见
+[`realization/semantic_highlight_zh.md`](realization/semantic_highlight_zh.md)。
+
+## 多标签 / Quick Open / 全局搜索
+
+PolyUI 编辑器面支持多标签缓冲区、最多 4×4 分屏，以及跨分组的标签
+拖拽。Pinned 标签对 *关闭其他* 与 *关闭右侧* 免疫；右键单击标签可
+切换 pin 状态。
+
+* **`Ctrl+P` Quick Open**：模糊文件名搜索；最近打开的文件自动靠前。
+* **`Ctrl+Shift+P` 命令面板**：与前序版本一致，保持不变。
+* **`Ctrl+T` 工程符号**：走 LSP `workspace/symbol`，子串匹配。
+* **`Ctrl+Shift+O` 文件符号**：走 LSP `textDocument/documentSymbol`，
+  同时驱动 Outline 面板与 Breadcrumbs。
+* **`Ctrl+Shift+F` 全局查找**：正则 / 大小写 / 全词；glob include /
+  exclude；替换支持捕获组；结果流式刷新。
+* **Outline / Breadcrumbs / Minimap**：Outline 在侧栏，Breadcrumbs
+  在编辑器顶部，Minimap 可在 *View → Minimap* 切换。
+
+架构详情：
+[`realization/editor_panels_zh.md`](realization/editor_panels_zh.md)。
+
+## 多光标 / 折叠 / 格式化 / EditorConfig
+
+PolyUI 编辑器为所有受支持语言提供现代高级编辑能力：
+
+* **多光标**：`Alt+Click` 在点击处加光标；`Ctrl+Alt+↑` / `Ctrl+Alt+↓`
+  上下扩展光标；`Ctrl+D` 选下一个相同；`Ctrl+Shift+L` 选所有相同。
+  `Shift+Alt+拖拽` 生成矩形列选区。
+* **折叠**：边栏箭头可折叠括号匹配的代码块、多行 C 风格注释，以及显式的
+  `// region 名称` / `// endregion` 标记。`Ctrl+K Ctrl+0` 折叠全部；
+  `Ctrl+K Ctrl+J` 展开全部。
+* **格式化**：`polyls` 为 `.ploy` 提供 format-on-save / format-on-paste /
+  format-on-type；外语种走各自 LSP。可在 *设置 → 编辑器 → 格式化* 中切换。
+* **Snippets**：用户 JSON 片段（`tools/ui/common/resources/`）遵循 VS Code
+  规范（`prefix` / `body` / `description`），支持 `$1`、`${1:default}`、
+  `${2|a,b|}`、`$CURRENT_DATE`、`$TM_FILENAME` 等。
+* **EditorConfig**：工程根的 `.editorconfig` 控制缩进、行尾、编码、是否
+  裁剪行尾空白、是否补齐末行换行。状态栏显示当前缓冲区的合成设置。
+
+架构详情：
+[`realization/power_editing_zh.md`](realization/power_editing_zh.md)。
+
+## SCM 进阶：diff / blame / 合并解决器
+
+源代码管理面板通过与后端无关的 `ScmProvider` 接入，今天对接 Git，未来可
+对接 Mercurial 或 Subversion，UI 保持一致：
+
+* **Diff 视图**：行内或并排两种模式；每个 hunk 都带 *Stage* / *Unstage* /
+  *Revert* 操作；diff 缓冲区内的 LSP 悬浮、跳转、问题面板继续工作。
+* **Blame**：边栏按行显示最近一次提交的短哈希与作者；悬浮可看完整提交
+  信息；点击则在 log 面板中打开该提交。
+* **合并冲突解决器**：含 `<<<<<<<` 标记的文件以三向视图打开，可一键
+  *Accept current* / *Accept incoming* / *Accept both*，也可在结果区手动
+  编辑。
+
+架构详情：
+[`realization/scm_advanced_zh.md`](realization/scm_advanced_zh.md)。
+
+## DAP 调试（任意语言）
+
+PolyUI 内嵌完整的 Debug Adapter Protocol 客户端，任何 DAP 适配器——
+`debugpy`、`lldb-vscode`、`codelldb`、`netcoredbg`、JDI 桥接——都能驱动
+与自带 `.ploy` 运行时调试器相同的调试界面。
+
+* **启动配置**位于 `.polyc/launch.json`（VS Code 规范）。内置模板覆盖
+  `.ploy` Run/Debug、Python、C/C++（lldb / gdb）、Rust（codelldb）、Java
+  与 .NET。
+* 支持 `${workspaceFolder}`、`${file}`、`${fileBasename}`、`${env:NAME}`、
+  `${command:NAME}` 等变量替换。
+* **断点**支持条件、命中计数、日志点、异常过滤与函数断点。
+* **调试面板** — Call Stack、Threads、Variables、Watch、Scope 与 Debug
+  Console 接入会话模型；暂停时边栏显示行内变量值。
+
+架构详情：
+[`realization/dap_integration_zh.md`](realization/dap_integration_zh.md)。
+
+## 任务、Run/Debug 选择器与 Hot Reload
+
+PolyUI 新增完整的任务编排层与统一的状态栏 Run/Debug 菜单。
+
+* **`.polyc/tasks.json`** —— VS Code 2.0 规范，支持 `dependsOn` /
+  `dependsOrder`（并行 & 顺序）、`isBackground`、`problemMatcher`
+  （`$gcc`、`$clang`、`$msbuild`、`$tsc`、`$rustc`、`$pylint`、
+  `$polyc`）、`group`（`build` / `test` / `clean` / `custom`）以及
+  每任务的环境变量覆盖。内置模板覆盖 `cmake build`、`ctest`、
+  `clang-format`、`clang-tidy` 与一个后台 watch 任务。
+* **输出面板**将每个任务路由到独立子频道（`task:<label>`），并通过
+  `problemMatcher.beginsPattern` / `endsPattern` 识别 watch 模式的
+  开始 / 结束边界。
+* **状态栏选择器**把所有任务与所有 `launch.json` 配置合并为单一快捷
+  选择菜单 —— 组默认项排在最前。
+* **Hot Reload / Edit-and-Continue** —— 文件保存经 `HotReloadEngine`
+  分发：`.ploy` 与 Python 走增量重编 + 模块替换；C++/Rust 在 polyrt
+  支持下做函数符号热替换（仅调试态）；Java / .NET 接入 JDI / EnC。
+  重载进行中的二次保存会被合并，只跑最新一次。
+
+架构详情：
+[`realization/tasks_runtime_zh.md`](realization/tasks_runtime_zh.md)。

@@ -123,6 +123,19 @@ public:
 
 signals:
   void GoToDefinitionRequested(const QString &symbol, int line, int column);
+  /// Shift+F12 — list all references to the identifier under the caret.
+  void FindReferencesRequested(const QString &symbol, int line, int column);
+  /// Ctrl+F12 — jump to the implementation (host-language target for
+  /// `.ploy` `LINK` declarations).
+  void GoToImplementationRequested(const QString &symbol, int line, int column);
+  /// Ctrl+K F12 — show an inline Peek view of the definition.
+  void PeekDefinitionRequested(const QString &symbol, int line, int column);
+  /// F2 — request a workspace rename of the identifier under the caret.
+  void RenameRequested(const QString &symbol, int line, int column);
+  /// Ctrl+Shift+R — request the extract-function code action over the
+  /// current selection.
+  void ExtractFunctionRequested(int start_line, int start_column,
+                                int end_line, int end_column);
 
 protected:
   void resizeEvent(QResizeEvent *event) override;

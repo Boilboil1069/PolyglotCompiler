@@ -1,0 +1,3363 @@
+{
+  "documents": [
+    {
+      "entries": [
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 27,
+            "endLine": 20,
+            "line": 20,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "import",
+          "language": "cpp",
+          "name": "image_processor",
+          "qualifiedName": "cpp::image_processor"
+        },
+        {
+          "definition": {
+            "character": 15,
+            "endCharacter": 23,
+            "endLine": 21,
+            "line": 21,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "import",
+          "language": "python",
+          "name": "ml_model",
+          "qualifiedName": "python::ml_model"
+        },
+        {
+          "definition": {
+            "character": 13,
+            "endCharacter": 24,
+            "endLine": 22,
+            "line": 22,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "import",
+          "language": "rust",
+          "name": "data_loader",
+          "qualifiedName": "rust::data_loader"
+        },
+        {
+          "definition": {
+            "character": 22,
+            "endCharacter": 27,
+            "endLine": 25,
+            "line": 25,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "import",
+          "language": "python",
+          "name": "numpy",
+          "qualifiedName": "python::package::numpy"
+        },
+        {
+          "definition": {
+            "character": 0,
+            "endCharacter": 4,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "link",
+          "language": "ploy",
+          "linkTargetLanguage": "cpp",
+          "linkTargetQualified": "image_processor::enhance",
+          "name": "enhance",
+          "qualifiedName": "cpp::image_processor::enhance"
+        },
+        {
+          "definition": {
+            "character": 0,
+            "endCharacter": 4,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "link",
+          "language": "ploy",
+          "linkTargetLanguage": "rust",
+          "linkTargetQualified": "data_loader::parallel_map",
+          "name": "parallel_map",
+          "qualifiedName": "rust::data_loader::parallel_map"
+        },
+        {
+          "definition": {
+            "character": 0,
+            "endCharacter": 4,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "link",
+          "language": "ploy",
+          "linkTargetLanguage": "cpp",
+          "linkTargetQualified": "image_processor::edge_detect",
+          "name": "edge_detect",
+          "qualifiedName": "cpp::image_processor::edge_detect"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 21,
+            "endLine": 52,
+            "line": 52,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "struct",
+          "language": "ploy",
+          "name": "PipelineConfig",
+          "qualifiedName": "ploy::PipelineConfig"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 21,
+            "endLine": 60,
+            "line": 60,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "struct",
+          "language": "ploy",
+          "name": "PipelineResult",
+          "qualifiedName": "ploy::PipelineResult"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 23,
+            "endLine": 70,
+            "line": 70,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "custom_forward",
+          "qualifiedName": "ploy::custom_forward",
+          "signature": "custom_forward(x: LIST(FLOAT)) -> LIST(FLOAT) {",
+          "typeDefinitionName": "LIST"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 71,
+            "line": 71,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "output",
+          "qualifiedName": "ploy::output"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 20,
+            "endLine": 75,
+            "line": 75,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "train_epoch",
+          "qualifiedName": "ploy::train_epoch",
+          "signature": "train_epoch(data: LIST(FLOAT), target: FLOAT) -> FLOAT {",
+          "typeDefinitionName": "FLOAT"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 76,
+            "line": 76,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "pred",
+          "qualifiedName": "ploy::pred"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 77,
+            "line": 77,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "loss",
+          "qualifiedName": "ploy::loss"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 20,
+            "endLine": 85,
+            "line": 85,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "pipeline",
+          "language": "ploy",
+          "name": "ml_pipeline",
+          "qualifiedName": "ploy::pipeline::ml_pipeline"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 28,
+            "endLine": 88,
+            "line": 88,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "load_and_preprocess",
+          "qualifiedName": "ploy::load_and_preprocess",
+          "signature": "load_and_preprocess(path: STRING, width: INT, height: INT) -> INT {",
+          "typeDefinitionName": "INT"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 90,
+            "line": 90,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "chunks",
+          "qualifiedName": "ploy::chunks"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 91,
+            "line": 91,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "merged",
+          "qualifiedName": "ploy::merged"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 94,
+            "line": 94,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "buffer",
+          "qualifiedName": "ploy::buffer"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 14,
+            "endLine": 107,
+            "line": 107,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "train",
+          "qualifiedName": "ploy::train",
+          "signature": "train(input_size: INT, epochs: INT) -> FLOAT {",
+          "typeDefinitionName": "FLOAT"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 17,
+            "endLine": 109,
+            "line": 109,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "model",
+          "qualifiedName": "ploy::model"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 22,
+            "endLine": 116,
+            "line": 116,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "total_loss",
+          "qualifiedName": "ploy::total_loss"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 17,
+            "endLine": 117,
+            "line": 117,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "epoch",
+          "qualifiedName": "ploy::epoch"
+        },
+        {
+          "definition": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 120,
+            "line": 120,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "data",
+          "qualifiedName": "ploy::data"
+        },
+        {
+          "definition": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 121,
+            "line": 121,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "loss",
+          "qualifiedName": "ploy::loss"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 23,
+            "endLine": 133,
+            "line": 133,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "param_count",
+          "qualifiedName": "ploy::param_count"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 14,
+            "endLine": 134,
+            "line": 134,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "lr",
+          "qualifiedName": "ploy::lr"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 14,
+            "endLine": 148,
+            "line": 148,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "infer",
+          "qualifiedName": "ploy::infer",
+          "signature": "infer(data: LIST(FLOAT), size: INT) -> FLOAT {",
+          "typeDefinitionName": "FLOAT"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 26,
+            "endLine": 150,
+            "line": 150,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "enhance_result",
+          "qualifiedName": "ploy::enhance_result"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 153,
+            "line": 153,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "scaled",
+          "qualifiedName": "ploy::scaled"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 156,
+            "line": 156,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "result",
+          "qualifiedName": "ploy::result"
+        },
+        {
+          "definition": {
+            "character": 9,
+            "endCharacter": 22,
+            "endLine": 162,
+            "line": 162,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "batch_process",
+          "qualifiedName": "ploy::batch_process",
+          "signature": "batch_process(batch_size: INT, threshold: FLOAT) -> INT {",
+          "typeDefinitionName": "INT"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 21,
+            "endLine": 163,
+            "line": 163,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "processed",
+          "qualifiedName": "ploy::processed"
+        },
+        {
+          "definition": {
+            "character": 12,
+            "endCharacter": 20,
+            "endLine": 164,
+            "line": 164,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "positive",
+          "qualifiedName": "ploy::positive"
+        },
+        {
+          "definition": {
+            "character": 16,
+            "endCharacter": 22,
+            "endLine": 167,
+            "line": 167,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "sample",
+          "qualifiedName": "ploy::sample"
+        },
+        {
+          "definition": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 168,
+            "line": 168,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "pred",
+          "qualifiedName": "ploy::pred"
+        },
+        {
+          "definition": {
+            "character": 5,
+            "endCharacter": 22,
+            "endLine": 188,
+            "line": 188,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "run_full_pipeline",
+          "qualifiedName": "ploy::run_full_pipeline",
+          "signature": "run_full_pipeline(width: INT, height: INT, epochs: INT) -> FLOAT {",
+          "typeDefinitionName": "FLOAT"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 19,
+            "endLine": 190,
+            "line": 190,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "pixel_count",
+          "qualifiedName": "ploy::pixel_count"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 13,
+            "endLine": 193,
+            "line": 193,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "model",
+          "qualifiedName": "ploy::model"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 194,
+            "line": 194,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "pred",
+          "qualifiedName": "ploy::pred"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 197,
+            "line": 197,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "variable",
+          "language": "ploy",
+          "name": "result",
+          "qualifiedName": "ploy::result"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 18,
+            "endLine": 206,
+            "line": 206,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "ml_pipeline",
+          "qualifiedName": "ploy::export::ml_pipeline"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 24,
+            "endLine": 207,
+            "line": 207,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "kind": "function",
+          "language": "ploy",
+          "name": "run_full_pipeline",
+          "qualifiedName": "ploy::export::run_full_pipeline"
+        }
+      ],
+      "references": [
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 27,
+            "endLine": 20,
+            "line": 20,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 15,
+            "endCharacter": 23,
+            "endLine": 21,
+            "line": 21,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 13,
+            "endCharacter": 24,
+            "endLine": 22,
+            "line": 22,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 22,
+            "endCharacter": 27,
+            "endLine": 25,
+            "line": 25,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "numpy"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 18,
+            "endCharacter": 33,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 35,
+            "endCharacter": 42,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "enhance"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 44,
+            "endCharacter": 52,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 54,
+            "endCharacter": 61,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 19,
+            "endCharacter": 30,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 44,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "parallel_map"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 46,
+            "endCharacter": 54,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 56,
+            "endCharacter": 63,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 16,
+            "endCharacter": 31,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 33,
+            "endCharacter": 44,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "edge_detect"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 46,
+            "endCharacter": 57,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 59,
+            "endCharacter": 71,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "merge_chunks"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 21,
+            "endLine": 52,
+            "line": 52,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "PipelineConfig"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 21,
+            "endLine": 60,
+            "line": 60,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "PipelineResult"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 4,
+            "endCharacter": 8,
+            "endLine": 62,
+            "line": 62,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 23,
+            "endLine": 69,
+            "line": 69,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 25,
+            "endCharacter": 38,
+            "endLine": 69,
+            "line": 69,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "NeuralNetwork"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 23,
+            "endLine": 70,
+            "line": 70,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "custom_forward"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 71,
+            "line": 71,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 42,
+            "endCharacter": 49,
+            "endLine": 71,
+            "line": 71,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "forward"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 21,
+            "endLine": 72,
+            "line": 72,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 20,
+            "endLine": 75,
+            "line": 75,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "train_epoch"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 21,
+            "endCharacter": 25,
+            "endLine": 75,
+            "line": 75,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 76,
+            "line": 76,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pred"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 40,
+            "endCharacter": 47,
+            "endLine": 76,
+            "line": 76,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 49,
+            "endCharacter": 53,
+            "endLine": 76,
+            "line": 76,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 77,
+            "line": 77,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 19,
+            "endCharacter": 23,
+            "endLine": 77,
+            "line": 77,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pred"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 19,
+            "endLine": 78,
+            "line": 78,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 20,
+            "endLine": 85,
+            "line": 85,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_pipeline"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 28,
+            "endLine": 88,
+            "line": 88,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "load_and_preprocess"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 90,
+            "line": 90,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 43,
+            "endLine": 90,
+            "line": 90,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 45,
+            "endCharacter": 54,
+            "endLine": 90,
+            "line": 90,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "load_data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 91,
+            "line": 91,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "merged"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 43,
+            "endLine": 91,
+            "line": 91,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 45,
+            "endCharacter": 57,
+            "endLine": 91,
+            "line": 91,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "merge_chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 59,
+            "endCharacter": 65,
+            "endLine": 91,
+            "line": 91,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 94,
+            "line": 94,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "buffer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 30,
+            "endCharacter": 45,
+            "endLine": 94,
+            "line": 94,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 47,
+            "endCharacter": 58,
+            "endLine": 94,
+            "line": 94,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ImageBuffer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 26,
+            "endLine": 95,
+            "line": 95,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "buffer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 18,
+            "endCharacter": 33,
+            "endLine": 98,
+            "line": 98,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 35,
+            "endCharacter": 42,
+            "endLine": 98,
+            "line": 98,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "enhance"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 44,
+            "endCharacter": 50,
+            "endLine": 98,
+            "line": 98,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "merged"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 26,
+            "endLine": 101,
+            "line": 101,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "buffer"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 14,
+            "endLine": 107,
+            "line": 107,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "train"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 17,
+            "endLine": 109,
+            "line": 109,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 25,
+            "endLine": 112,
+            "line": 112,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 25,
+            "endLine": 113,
+            "line": 113,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 22,
+            "endLine": 116,
+            "line": 116,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "total_loss"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 17,
+            "endLine": 117,
+            "line": 117,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "epoch"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 14,
+            "endCharacter": 19,
+            "endLine": 119,
+            "line": 119,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "epoch"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 120,
+            "line": 120,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 121,
+            "line": 121,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 38,
+            "endCharacter": 43,
+            "endLine": 121,
+            "line": 121,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 45,
+            "endCharacter": 56,
+            "endLine": 121,
+            "line": 121,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "train_epoch"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 58,
+            "endCharacter": 62,
+            "endLine": 121,
+            "line": 121,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 22,
+            "endLine": 122,
+            "line": 122,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "total_loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 25,
+            "endCharacter": 35,
+            "endLine": 122,
+            "line": 122,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "total_loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 38,
+            "endCharacter": 42,
+            "endLine": 122,
+            "line": 122,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 19,
+            "endLine": 125,
+            "line": 125,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "loss"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 17,
+            "endLine": 129,
+            "line": 129,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "epoch"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 25,
+            "endLine": 129,
+            "line": 129,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "epoch"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 23,
+            "endLine": 133,
+            "line": 133,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "param_count"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 41,
+            "endCharacter": 46,
+            "endLine": 133,
+            "line": 133,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 48,
+            "endCharacter": 58,
+            "endLine": 133,
+            "line": 133,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "parameters"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 14,
+            "endLine": 134,
+            "line": 134,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "lr"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 29,
+            "endCharacter": 34,
+            "endLine": 134,
+            "line": 134,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 33,
+            "endCharacter": 41,
+            "endLine": 137,
+            "line": 137,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 43,
+            "endCharacter": 56,
+            "endLine": 137,
+            "line": 137,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "NeuralNetwork"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 35,
+            "endCharacter": 39,
+            "endLine": 138,
+            "line": 138,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "save"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 23,
+            "endCharacter": 28,
+            "endLine": 142,
+            "line": 142,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 25,
+            "endLine": 144,
+            "line": 144,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "total_loss"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 14,
+            "endLine": 148,
+            "line": 148,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "infer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 19,
+            "endLine": 148,
+            "line": 148,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 26,
+            "endLine": 150,
+            "line": 150,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "enhance_result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 39,
+            "endCharacter": 54,
+            "endLine": 150,
+            "line": 150,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 56,
+            "endCharacter": 63,
+            "endLine": 150,
+            "line": 150,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "enhance"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 65,
+            "endCharacter": 69,
+            "endLine": 150,
+            "line": 150,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 153,
+            "line": 153,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "scaled"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 43,
+            "endLine": 153,
+            "line": 153,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data_loader"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 45,
+            "endCharacter": 57,
+            "endLine": 153,
+            "line": 153,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "parallel_map"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 59,
+            "endCharacter": 63,
+            "endLine": 153,
+            "line": 153,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 156,
+            "line": 156,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 34,
+            "endCharacter": 42,
+            "endLine": 156,
+            "line": 156,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 44,
+            "endCharacter": 51,
+            "endLine": 156,
+            "line": 156,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 53,
+            "endCharacter": 59,
+            "endLine": 156,
+            "line": 156,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "scaled"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 21,
+            "endLine": 158,
+            "line": 158,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 9,
+            "endCharacter": 22,
+            "endLine": 162,
+            "line": 162,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "batch_process"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 21,
+            "endLine": 163,
+            "line": 163,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "processed"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 12,
+            "endCharacter": 20,
+            "endLine": 164,
+            "line": 164,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "positive"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 16,
+            "endCharacter": 22,
+            "endLine": 167,
+            "line": 167,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "sample"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 16,
+            "endCharacter": 20,
+            "endLine": 168,
+            "line": 168,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pred"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 36,
+            "endCharacter": 44,
+            "endLine": 168,
+            "line": 168,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 46,
+            "endCharacter": 53,
+            "endLine": 168,
+            "line": 168,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 55,
+            "endCharacter": 61,
+            "endLine": 168,
+            "line": 168,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "sample"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 18,
+            "endCharacter": 22,
+            "endLine": 170,
+            "line": 170,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pred"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 28,
+            "endLine": 172,
+            "line": 172,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "positive"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 31,
+            "endCharacter": 39,
+            "endLine": 172,
+            "line": 172,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "positive"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 21,
+            "endLine": 180,
+            "line": 180,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "processed"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 24,
+            "endCharacter": 33,
+            "endLine": 180,
+            "line": 180,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "processed"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 23,
+            "endLine": 183,
+            "line": 183,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "positive"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 5,
+            "endCharacter": 22,
+            "endLine": 188,
+            "line": 188,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "run_full_pipeline"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 19,
+            "endLine": 190,
+            "line": 190,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pixel_count"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 47,
+            "endLine": 190,
+            "line": 190,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "image_processor"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 49,
+            "endCharacter": 56,
+            "endLine": 190,
+            "line": 190,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "enhance"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 13,
+            "endLine": 193,
+            "line": 193,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 28,
+            "endCharacter": 36,
+            "endLine": 193,
+            "line": 193,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 38,
+            "endCharacter": 51,
+            "endLine": 193,
+            "line": 193,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "NeuralNetwork"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 194,
+            "line": 194,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "pred"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 30,
+            "endCharacter": 35,
+            "endLine": 194,
+            "line": 194,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 37,
+            "endCharacter": 44,
+            "endLine": 194,
+            "line": 194,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 197,
+            "line": 197,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 30,
+            "endCharacter": 38,
+            "endLine": 197,
+            "line": 197,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 40,
+            "endCharacter": 47,
+            "endLine": 197,
+            "line": 197,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 19,
+            "endCharacter": 24,
+            "endLine": 200,
+            "line": 200,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 11,
+            "endCharacter": 17,
+            "endLine": 202,
+            "line": 202,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 18,
+            "endLine": 206,
+            "line": 206,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_pipeline"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 23,
+            "endCharacter": 34,
+            "endLine": 206,
+            "line": 206,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "ml_pipeline"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 24,
+            "endLine": 207,
+            "line": 207,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+          },
+          "name": "run_full_pipeline"
+        }
+      ],
+      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+    },
+    {
+      "entries": [
+        {
+          "definition": {
+            "character": 5,
+            "endCharacter": 12,
+            "endLine": 10,
+            "line": 10,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "kind": "foreign_function",
+          "language": "cpp",
+          "name": "enhance",
+          "qualifiedName": "enhance",
+          "signature": "void enhance(double* data, int size) {"
+        },
+        {
+          "definition": {
+            "character": 20,
+            "endCharacter": 31,
+            "endLine": 26,
+            "line": 26,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "kind": "foreign_function",
+          "language": "cpp",
+          "name": "edge_detect",
+          "qualifiedName": "edge_detect",
+          "signature": "std::vector<double> edge_detect(const double* data, int width, int height) {"
+        },
+        {
+          "definition": {
+            "character": 6,
+            "endCharacter": 17,
+            "endLine": 48,
+            "line": 48,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "kind": "foreign_class",
+          "language": "cpp",
+          "name": "ImageBuffer",
+          "qualifiedName": "ImageBuffer",
+          "signature": "class ImageBuffer {"
+        }
+      ],
+      "references": [
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 5,
+            "endCharacter": 12,
+            "endLine": 10,
+            "line": 10,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "enhance"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 21,
+            "endCharacter": 25,
+            "endLine": 10,
+            "line": 10,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 21,
+            "endCharacter": 25,
+            "endLine": 11,
+            "line": 11,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 21,
+            "endCharacter": 25,
+            "endLine": 12,
+            "line": 12,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 14,
+            "line": 14,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 41,
+            "endCharacter": 45,
+            "endLine": 14,
+            "line": 14,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 15,
+            "line": 15,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 41,
+            "endCharacter": 45,
+            "endLine": 15,
+            "line": 15,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 20,
+            "line": 20,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 23,
+            "endCharacter": 27,
+            "endLine": 20,
+            "line": 20,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 20,
+            "endCharacter": 31,
+            "endLine": 26,
+            "line": 26,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "edge_detect"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 46,
+            "endCharacter": 50,
+            "endLine": 26,
+            "line": 26,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 24,
+            "endCharacter": 30,
+            "endLine": 27,
+            "line": 27,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 25,
+            "endCharacter": 29,
+            "endLine": 30,
+            "line": 30,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 31,
+            "line": 31,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 36,
+            "endLine": 32,
+            "line": 32,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 36,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 34,
+            "line": 34,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 35,
+            "line": 35,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 25,
+            "endCharacter": 29,
+            "endLine": 36,
+            "line": 36,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 36,
+            "endLine": 37,
+            "line": 37,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 39,
+            "line": 39,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 32,
+            "endCharacter": 36,
+            "endLine": 40,
+            "line": 40,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 30,
+            "endLine": 41,
+            "line": 41,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 42,
+            "line": 42,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 11,
+            "endCharacter": 17,
+            "endLine": 45,
+            "line": 45,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 6,
+            "endCharacter": 17,
+            "endLine": 48,
+            "line": 48,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "ImageBuffer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 4,
+            "endCharacter": 15,
+            "endLine": 55,
+            "line": 55,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "ImageBuffer"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 5,
+            "endCharacter": 16,
+            "endLine": 58,
+            "line": 58,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+          },
+          "name": "ImageBuffer"
+        }
+      ],
+      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/image_processor.cpp"
+    },
+    {
+      "entries": [
+        {
+          "definition": {
+            "character": 6,
+            "endCharacter": 19,
+            "endLine": 8,
+            "line": 8,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_class",
+          "language": "python",
+          "name": "NeuralNetwork",
+          "qualifiedName": "NeuralNetwork",
+          "signature": "class NeuralNetwork:"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 16,
+            "endLine": 11,
+            "line": 11,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "__init__",
+          "qualifiedName": "__init__",
+          "signature": "    def __init__(self, input_size: int, hidden_size: int, output_size: int):"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 15,
+            "endLine": 23,
+            "line": 23,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "forward",
+          "qualifiedName": "forward",
+          "signature": "    def forward(self, x: List[float]) -> List[float]:"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 15,
+            "endLine": 40,
+            "line": 40,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "predict",
+          "qualifiedName": "predict",
+          "signature": "    def predict(self, data: List[float]) -> float:"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 18,
+            "endLine": 45,
+            "line": 45,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "parameters",
+          "qualifiedName": "parameters",
+          "signature": "    def parameters(self) -> int:"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 50,
+            "line": 50,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "save",
+          "qualifiedName": "save",
+          "signature": "    def save(self, path: str) -> None:"
+        },
+        {
+          "definition": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 54,
+            "line": 54,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "load",
+          "qualifiedName": "load",
+          "signature": "    def load(self, path: str) -> None:"
+        },
+        {
+          "definition": {
+            "character": 4,
+            "endCharacter": 11,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "predict",
+          "qualifiedName": "predict",
+          "signature": "def predict(data: List[float]) -> float:"
+        },
+        {
+          "definition": {
+            "character": 4,
+            "endCharacter": 18,
+            "endLine": 68,
+            "line": 68,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "batch_classify",
+          "qualifiedName": "batch_classify",
+          "signature": "def batch_classify(samples: List[List[float]], threshold: float) -> List[int]:"
+        },
+        {
+          "definition": {
+            "character": 4,
+            "endCharacter": 12,
+            "endLine": 73,
+            "line": 73,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "kind": "foreign_function",
+          "language": "python",
+          "name": "evaluate",
+          "qualifiedName": "evaluate",
+          "signature": "def evaluate(predictions: List[float], targets: List[float]) -> Dict[str, float]:"
+        }
+      ],
+      "references": [
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 6,
+            "endCharacter": 19,
+            "endLine": 8,
+            "line": 8,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "NeuralNetwork"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 21,
+            "endCharacter": 28,
+            "endLine": 9,
+            "line": 9,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "forward"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 16,
+            "endLine": 11,
+            "line": 11,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "__init__"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 15,
+            "endLine": 23,
+            "line": 23,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "forward"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 34,
+            "line": 34,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 16,
+            "endCharacter": 22,
+            "endLine": 37,
+            "line": 37,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 21,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 15,
+            "endLine": 40,
+            "line": 40,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 22,
+            "endCharacter": 26,
+            "endLine": 40,
+            "line": 40,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 45,
+            "endCharacter": 49,
+            "endLine": 41,
+            "line": 41,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 42,
+            "line": 42,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 22,
+            "endCharacter": 29,
+            "endLine": 42,
+            "line": 42,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "forward"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 30,
+            "endCharacter": 34,
+            "endLine": 42,
+            "line": 42,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 15,
+            "endCharacter": 21,
+            "endLine": 43,
+            "line": 43,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 28,
+            "endCharacter": 34,
+            "endLine": 43,
+            "line": 43,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "output"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 18,
+            "endLine": 45,
+            "line": 45,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "parameters"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 50,
+            "line": 50,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "save"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 16,
+            "endCharacter": 21,
+            "endLine": 51,
+            "line": 51,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 54,
+            "line": 54,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "load"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 16,
+            "endCharacter": 21,
+            "endLine": 55,
+            "line": 55,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "model"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 4,
+            "endCharacter": 11,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 48,
+            "endCharacter": 55,
+            "endLine": 60,
+            "line": 60,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "average"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 11,
+            "endCharacter": 15,
+            "endLine": 61,
+            "line": 61,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 48,
+            "endCharacter": 52,
+            "endLine": 63,
+            "line": 63,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 15,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 38,
+            "endCharacter": 42,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 19,
+            "endCharacter": 22,
+            "endLine": 65,
+            "line": 65,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 4,
+            "endCharacter": 18,
+            "endLine": 68,
+            "line": 68,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "batch_classify"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 17,
+            "endCharacter": 24,
+            "endLine": 70,
+            "line": 70,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "predict"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 4,
+            "endCharacter": 12,
+            "endLine": 73,
+            "line": 73,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "evaluate"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 10,
+            "endCharacter": 13,
+            "endLine": 78,
+            "line": 78,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 10,
+            "endCharacter": 13,
+            "endLine": 79,
+            "line": 79,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+          },
+          "name": "sum"
+        }
+      ],
+      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/ml_model.py"
+    },
+    {
+      "entries": [
+        {
+          "definition": {
+            "character": 11,
+            "endCharacter": 20,
+            "endLine": 9,
+            "line": 9,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_class",
+          "language": "rust",
+          "name": "DataChunk",
+          "qualifiedName": "DataChunk",
+          "signature": "pub struct DataChunk {"
+        },
+        {
+          "definition": {
+            "character": 5,
+            "endCharacter": 14,
+            "endLine": 15,
+            "line": 15,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_class",
+          "language": "rust",
+          "name": "DataChunk",
+          "qualifiedName": "DataChunk",
+          "signature": "impl DataChunk {"
+        },
+        {
+          "definition": {
+            "character": 11,
+            "endCharacter": 14,
+            "endLine": 17,
+            "line": 17,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "new",
+          "qualifiedName": "new",
+          "signature": "    pub fn new(label: &str, size: usize) -> Self {"
+        },
+        {
+          "definition": {
+            "character": 11,
+            "endCharacter": 26,
+            "endLine": 26,
+            "line": 26,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "fill_sequential",
+          "qualifiedName": "fill_sequential",
+          "signature": "    pub fn fill_sequential(&mut self) {"
+        },
+        {
+          "definition": {
+            "character": 11,
+            "endCharacter": 14,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "sum",
+          "qualifiedName": "sum",
+          "signature": "    pub fn sum(&self) -> f64 {"
+        },
+        {
+          "definition": {
+            "character": 11,
+            "endCharacter": 18,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "average",
+          "qualifiedName": "average",
+          "signature": "    pub fn average(&self) -> f64 {"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 16,
+            "endLine": 47,
+            "line": 47,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "load_data",
+          "qualifiedName": "load_data",
+          "signature": "pub fn load_data(path: &str, chunk_size: usize) -> Vec<DataChunk> {"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 19,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "parallel_map",
+          "qualifiedName": "parallel_map",
+          "signature": "pub fn parallel_map(data: &[f64], factor: f64) -> Vec<f64> {"
+        },
+        {
+          "definition": {
+            "character": 7,
+            "endCharacter": 19,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "kind": "foreign_function",
+          "language": "rust",
+          "name": "merge_chunks",
+          "qualifiedName": "merge_chunks",
+          "signature": "pub fn merge_chunks(chunks: &[DataChunk]) -> Vec<f64> {"
+        }
+      ],
+      "references": [
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 11,
+            "endCharacter": 20,
+            "endLine": 9,
+            "line": 9,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 12,
+            "endLine": 10,
+            "line": 10,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 5,
+            "endCharacter": 14,
+            "endLine": 15,
+            "line": 15,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 11,
+            "endCharacter": 14,
+            "endLine": 17,
+            "line": 17,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "new"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 17,
+            "endLine": 18,
+            "line": 18,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 16,
+            "endLine": 19,
+            "line": 19,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 11,
+            "endCharacter": 26,
+            "endLine": 26,
+            "line": 26,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "fill_sequential"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 17,
+            "endCharacter": 21,
+            "endLine": 28,
+            "line": 28,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 11,
+            "endCharacter": 14,
+            "endLine": 33,
+            "line": 33,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 13,
+            "endCharacter": 17,
+            "endLine": 34,
+            "line": 34,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 25,
+            "endCharacter": 28,
+            "endLine": 34,
+            "line": 34,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 11,
+            "endCharacter": 18,
+            "endLine": 38,
+            "line": 38,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "average"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 13,
+            "endCharacter": 16,
+            "endLine": 42,
+            "line": 42,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "sum"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 16,
+            "endLine": 47,
+            "line": 47,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "load_data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 55,
+            "endCharacter": 64,
+            "endLine": 47,
+            "line": 47,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 48,
+            "line": 48,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 29,
+            "endLine": 48,
+            "line": 48,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "new"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 24,
+            "endCharacter": 33,
+            "endLine": 51,
+            "line": 51,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 35,
+            "endCharacter": 38,
+            "endLine": 51,
+            "line": 51,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "new"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 14,
+            "endCharacter": 29,
+            "endLine": 52,
+            "line": 52,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "fill_sequential"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 53,
+            "line": 53,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 4,
+            "endCharacter": 10,
+            "endLine": 55,
+            "line": 55,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 19,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "parallel_map"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 24,
+            "endLine": 59,
+            "line": 59,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 4,
+            "endCharacter": 8,
+            "endLine": 60,
+            "line": 60,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": true,
+          "location": {
+            "character": 7,
+            "endCharacter": 19,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "merge_chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 20,
+            "endCharacter": 26,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 30,
+            "endCharacter": 39,
+            "endLine": 64,
+            "line": 64,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "DataChunk"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 12,
+            "endCharacter": 18,
+            "endLine": 65,
+            "line": 65,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 26,
+            "endCharacter": 29,
+            "endLine": 65,
+            "line": 65,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "new"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 17,
+            "endCharacter": 23,
+            "endLine": 66,
+            "line": 66,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "chunks"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 8,
+            "endCharacter": 14,
+            "endLine": 67,
+            "line": 67,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "result"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 40,
+            "endCharacter": 44,
+            "endLine": 67,
+            "line": 67,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "data"
+        },
+        {
+          "isDefinition": false,
+          "location": {
+            "character": 4,
+            "endCharacter": 10,
+            "endLine": 69,
+            "line": 69,
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+          },
+          "name": "result"
+        }
+      ],
+      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/data_loader.rs"
+    }
+  ],
+  "generator": "polyls.symbol_index",
+  "version": 1
+}

@@ -406,17 +406,85 @@ void CodeEditor::ApplyTheme() {
 // ============================================================================
 
 void CodeEditor::keyPressEvent(QKeyEvent *event) {
-  // Two-stroke chord: Ctrl+K Ctrl+I → manual hover request.
+  // Two-stroke chord: Ctrl+K Ctrl+I → manual hover request,
+  //                   Ctrl+K F12   → inline Peek of the definition.
   if (waiting_ctrl_k_chord_) {
     waiting_ctrl_k_chord_ = false;
     if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_I) {
       RequestHoverAtCursor();
       return;
     }
+    if (event->key() == Qt::Key_F12) {
+      QTextCursor cursor = textCursor();
+      cursor.select(QTextCursor::WordUnderCursor);
+      const QString word = cursor.selectedText();
+      if (!word.isEmpty()) {
+        const int line = cursor.blockNumber();
+        const int col = cursor.positionInBlock();
+        emit PeekDefinitionRequested(word, line, col);
+      }
+      return;
+    }
     // Fall through — chord not recognised, treat the second key normally.
   }
   if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_K) {
     waiting_ctrl_k_chord_ = true;
+    return;
+  }
+
+  // ── Navigation shortcuts (demand 2026-04-28-22) ─────────────────────
+  // F12 → definition, Shift+F12 → references, Ctrl+F12 → implementation.
+  if (event->key() == Qt::Key_F12 && goto_def_enabled_) {
+    QTextCursor cursor = textCursor();
+    cursor.select(QTextCursor::WordUnderCursor);
+    const QString word = cursor.selectedText();
+    if (!word.isEmpty()) {
+      const int line = cursor.blockNumber();
+      const int col = cursor.positionInBlock();
+      const Qt::KeyboardModifiers mods = event->modifiers();
+      if (mods & Qt::ShiftModifier) {
+        emit FindReferencesRequested(word, line, col);
+      } else if (mods & Qt::ControlModifier) {
+        emit GoToImplementationRequested(word, line, col);
+      } else {
+        emit GoToDefinitionRequested(word, line, col);
+      }
+    }
+    return;
+  }
+
+  // ── Refactor shortcuts (demand 2026-04-28-23) ───────────────────────
+  // F2 → workspace rename of the identifier under the caret.
+  if (event->key() == Qt::Key_F2 && goto_def_enabled_) {
+    QTextCursor cursor = textCursor();
+    cursor.select(QTextCursor::WordUnderCursor);
+    const QString word = cursor.selectedText();
+    if (!word.isEmpty()) {
+      const int line = cursor.blockNumber();
+      const int col = cursor.positionInBlock();
+      emit RenameRequested(word, line, col);
+    }
+    return;
+  }
+  // Ctrl+Shift+R → extract function over the current selection.
+  if ((event->modifiers() &
+       (Qt::ControlModifier | Qt::ShiftModifier)) ==
+          (Qt::ControlModifier | Qt::ShiftModifier) &&
+      event->key() == Qt::Key_R) {
+    QTextCursor cursor = textCursor();
+    if (cursor.hasSelection()) {
+      const int start = cursor.selectionStart();
+      const int end = cursor.selectionEnd();
+      QTextCursor s(document());
+      s.setPosition(start);
+      const int sl = s.blockNumber();
+      const int sc = s.positionInBlock();
+      QTextCursor e(document());
+      e.setPosition(end);
+      const int el = e.blockNumber();
+      const int ec = e.positionInBlock();
+      emit ExtractFunctionRequested(sl, sc, el, ec);
+    }
     return;
   }
 
@@ -677,7 +745,7 @@ void CodeEditor::TriggerCompletion() {
           }
 
           // Rank with the active match strategy.
-          const auto strat = static_cast<CompletionMatchStrategy>(strategy);
+          const auto strat = static_cast<enum CompletionMatchStrategy>(strategy);
           std::vector<std::pair<int, CompletionItem>> ranked;
           ranked.reserve(items.size());
           for (auto &ci : items) {
