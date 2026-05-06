@@ -15,6 +15,10 @@ polyc 05_class_instantiation\class_instantiation.ploy --emit-obj=class_instantia
 polyld class_instantiation.pobj -o class_instantiation.exe
 ```
 
+## 运行方式
+
+> **当前版本 skip**：依赖 跨语言类实例化的 NEW / METHOD 降级。脚本读取 `expected_output.skip`，把该样例归入 SKIP 桶；待依赖能力落地后重命名回 `expected_output.txt` 即可启用。
+
 ## 运行时预期输出
 
 `expected_output.txt` 中固定的字节序列（CR LF 行尾）：

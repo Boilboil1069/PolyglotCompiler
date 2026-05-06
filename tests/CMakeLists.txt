@@ -193,6 +193,8 @@ set(UNIT_TEST_LINKER
     unit/linker/polyrt_println_collect_test.cpp
     unit/linker/output_dispatch_test.cpp
     unit/polyld/macho_linkedit_data_emit_test.cpp
+    unit/polyld/macho_exports_trie_test.cpp
+    unit/polyld/elf_image_layout_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY
@@ -666,6 +668,8 @@ set(INTEGRATION_TEST_SOURCES
     integration/e2e_wasm_smoke.cpp
     integration/e2e_triple_propagation.cpp
     integration/binary_matrix/binary_matrix_test.cpp
+    integration/macho_exec_smoke_test.cpp
+    integration/elf_exec_smoke_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
@@ -739,6 +743,13 @@ set_tests_properties(test_e2e PROPERTIES LABELS "unit;e2e")
 add_test(NAME unit_tests        COMMAND unit_tests)
 add_test(NAME integration_tests COMMAND integration_tests)
 add_test(NAME benchmark_tests   COMMAND benchmark_tests)
+
+# Dedicated sample-regression entry: filters the Catch2 [samples] tag so
+# `ctest -R samples_regression` runs only the cross-platform sample
+# matrix test, independent of any other integration assertion.
+add_test(NAME samples_regression
+         COMMAND integration_tests "[samples]")
+set_tests_properties(samples_regression PROPERTIES LABELS "integration;samples")
 
 # Benchmark tier targets
 add_test(NAME benchmark_fast COMMAND ${CMAKE_COMMAND} -E env POLYBENCH_MODE=fast $<TARGET_FILE:benchmark_tests>)

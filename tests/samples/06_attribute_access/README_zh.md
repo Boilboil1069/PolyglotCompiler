@@ -15,6 +15,10 @@ polyc 06_attribute_access\attribute_access.ploy --emit-obj=attribute_access.pobj
 polyld attribute_access.pobj -o attribute_access.exe
 ```
 
+## 运行方式
+
+> **当前版本 skip**：依赖 跨语言对象属性 / 字段访问的降级。脚本读取 `expected_output.skip`，把该样例归入 SKIP 桶；待依赖能力落地后重命名回 `expected_output.txt` 即可启用。
+
 ## 运行时预期输出
 
 `expected_output.txt` 中固定的字节序列（CR LF 行尾）：

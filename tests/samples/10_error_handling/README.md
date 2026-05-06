@@ -8,6 +8,10 @@ Diagnostic surface for malformed LINK / MAP_TYPE / IMPORT — exercised via deli
 | Keywords  | diagnostics, error recovery |
 | Entry     | `error_handling.ploy` |
 
+## How to run
+
+> **Current version skip**: depends on TRY / CATCH / THROW lowering and the cross-language error bridge.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

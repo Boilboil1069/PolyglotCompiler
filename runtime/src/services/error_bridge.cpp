@@ -71,7 +71,7 @@ void __ploy_rt_throw(const char *message_ptr) {
   __ploy_rt_throw_from(message_ptr, "ploy");
 }
 
-void __ploy_rt_throw_from(const char *message_ptr, const char *source_lang_ptr) {
+POLYRT_NORETURN void __ploy_rt_throw_from(const char *message_ptr, const char *source_lang_ptr) {
   ErrorPayload payload;
   payload.message = message_ptr ? std::string(message_ptr) : std::string("<unspecified>");
   payload.source_lang = source_lang_ptr ? std::string(source_lang_ptr) : std::string("ploy");

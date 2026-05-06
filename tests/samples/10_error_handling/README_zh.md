@@ -15,6 +15,10 @@ polyc 10_error_handling\error_handling.ploy --emit-obj=error_handling.pobj --obj
 polyld error_handling.pobj -o error_handling.exe
 ```
 
+## 运行方式
+
+> **当前版本 skip**：依赖 TRY / CATCH / THROW 降级与跨语言错误桥。脚本读取 `expected_output.skip`，把该样例归入 SKIP 桶；待依赖能力落地后重命名回 `expected_output.txt` 即可启用。
+
 ## 运行时预期输出
 
 `expected_output.txt` 中固定的字节序列（CR LF 行尾）：

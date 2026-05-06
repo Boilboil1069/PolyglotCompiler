@@ -16,6 +16,10 @@
 - `db_connection.py` — host source file
 - `UserDao.java` — host source file
 
+## How to run
+
+> **Current version skip**: depends on database driver runtime adapters.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

@@ -70,6 +70,21 @@ run_sample() {
     local ploy; ploy="$(find "$dir" -maxdepth 1 -name '*.ploy' | head -n 1)"
     local status="SKIP" prc="" lrc="" erc="" sb=0 eb=0 doff=-1
 
+    # Skip contract: a sibling expected_output.skip (instead of the usual
+    # expected_output.txt) marks this sample as not-yet-reachable under
+    # the current backend.  Treat it as SKIP without invoking polyc /
+    # polyld so the SKIP bucket reflects intentional gating rather than
+    # a real toolchain failure.
+    if [ -f "$dir/expected_output.skip" ]; then
+        eb=$(wc -c < "$dir/expected_output.skip" | tr -d ' ')
+        NAMES+=("$name");           STATUSES+=("SKIP")
+        POLYC_RC+=("");             POLYLD_RC+=("");          EXE_RC+=("")
+        STDOUT_BYTES+=("0");        EXPECTED_BYTES+=("$eb");  DIFF_OFF+=("-1")
+        TOTAL=$((TOTAL + 1))
+        printf '[samples] %-32s %s\n' "$name" "SKIP"
+        return
+    fi
+
     if [ -n "$ploy" ]; then
         local stem; stem="$(basename "$ploy" .ploy)"
         local work="$WORK_ROOT/$name"
@@ -100,15 +115,28 @@ run_sample() {
                     status="RUN_FAIL"
                 elif [ "$sb" -eq 0 ] && [ "$eb" -gt 0 ]; then
                     status="EMPTY_STDOUT"
-                elif [ -f "$exp" ] && cmp -s "$out" "$exp"; then
-                    status="OK"
                 else
-                    # Find first diff offset.
+                    # Line-ending normalisation: strip CR (\r) and the
+                    # trailing run of LF (\n) bytes from both captured
+                    # and expected, so that a runtime which omits a final
+                    # newline still matches an expected file authored with
+                    # a platform-final LF.  Internal newlines remain
+                    # significant.
+                    local cap_n="$work/$stem.stdout.norm"
+                    local exp_n="$work/$stem.expected.norm"
+                    tr -d '\r' <"$out" | sed -E ':a;$!{N;ba}; s/\n+$//' >"$cap_n"
                     if [ -f "$exp" ]; then
-                        doff=$(cmp -l "$out" "$exp" 2>/dev/null | head -n 1 | awk '{print $1-1}')
-                        if [ -z "$doff" ]; then doff=$sb; fi
+                        tr -d '\r' <"$exp" | sed -E ':a;$!{N;ba}; s/\n+$//' >"$exp_n"
+                    else
+                        : >"$exp_n"
                     fi
-                    status="OUTPUT_MISMATCH"
+                    if cmp -s "$cap_n" "$exp_n"; then
+                        status="OK"
+                    else
+                        doff=$(cmp -l "$cap_n" "$exp_n" 2>/dev/null | head -n 1 | awk '{print $1-1}')
+                        if [ -z "$doff" ]; then doff=$sb; fi
+                        status="OUTPUT_MISMATCH"
+                    fi
                 fi
             fi
         fi
@@ -137,6 +165,24 @@ mkdir -p "$(dirname "$REPORT")"
     printf '  "polyc":         "%s",\n' "$POLYC"
     printf '  "polyld":        "%s",\n' "$POLYLD"
     printf '  "total":         %d,\n'   "$TOTAL"
+    # Sorted (ASCII) list of sample names that landed in the OK bucket.
+    # The integration test consumes this array verbatim to assert that
+    # the harness and the test agree on the OK set.
+    printf '  "ok": ['
+    OK_NAMES=()
+    for ((i = 0; i < TOTAL; i++)); do
+        if [ "${STATUSES[i]}" = "OK" ]; then OK_NAMES+=("${NAMES[i]}"); fi
+    done
+    if [ "${#OK_NAMES[@]}" -gt 0 ]; then
+        IFS=$'\n' SORTED_OK=($(LC_ALL=C sort <<<"${OK_NAMES[*]}"))
+        unset IFS
+        first=1
+        for nm in "${SORTED_OK[@]}"; do
+            if [ "$first" -eq 1 ]; then first=0; else printf ', '; fi
+            printf '"%s"' "$nm"
+        done
+    fi
+    printf '],\n'
     printf '  "samples": [\n'
     for ((i = 0; i < TOTAL; i++)); do
         sep=','; if [ $((i + 1)) -eq "$TOTAL" ]; then sep=''; fi

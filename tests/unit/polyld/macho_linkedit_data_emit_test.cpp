@@ -142,9 +142,27 @@ TEST_CASE("polyld emits LC_FUNCTION_STARTS and LC_DATA_IN_CODE in the Mach-O LIN
   auto et_datasize = ReadU32(img, exports_trie->offset + 12);
   auto sym_symoff  = ReadU32(img, symtab->offset + 8);
 
-  // LC_FUNCTION_STARTS — single ULEB terminator padded to 8 bytes.
+  // LC_FUNCTION_STARTS — ULEB128(LC_MAIN.entryoff) + 0x00 terminator
+  // padded to 8 bytes.  For the minimal MH_EXECUTE built above the
+  // entry offset is `text_file_off + req.entry_offset`; we only need
+  // to assert the encoding shape (final terminator + 8-byte size) and
+  // that the raw payload decodes back to a non-zero entry value.
   REQUIRE(fs_datasize == 8u);
-  for (std::uint32_t i = 0; i < 8; ++i) REQUIRE(img[fs_dataoff + i] == 0u);
+  // Decode the leading ULEB128.
+  std::uint64_t decoded = 0;
+  int shift = 0;
+  std::size_t cursor = 0;
+  while (cursor < fs_datasize) {
+    std::uint8_t b = img[fs_dataoff + cursor++];
+    decoded |= static_cast<std::uint64_t>(b & 0x7Fu) << shift;
+    if ((b & 0x80u) == 0) break;
+    shift += 7;
+  }
+  REQUIRE(decoded > 0u);
+  // The ULEB run must be followed by the 0x00 terminator and zero pad.
+  REQUIRE(img[fs_dataoff + cursor] == 0u);
+  for (std::size_t i = cursor + 1; i < fs_datasize; ++i)
+    REQUIRE(img[fs_dataoff + i] == 0u);
 
   // LC_DATA_IN_CODE — empty payload.
   REQUIRE(dic_datasize == 0u);

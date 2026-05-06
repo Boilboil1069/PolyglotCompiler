@@ -16,6 +16,10 @@
 - `HttpTransport.go` — 宿主语言源文件
 - `response_decoder.py` — 宿主语言源文件
 
+## 运行方式
+
+> **当前版本 skip**：依赖 HTTP 客户端运行时适配。脚本读取 `expected_output.skip`，把该样例归入 SKIP 桶；待依赖能力落地后重命名回 `expected_output.txt` 即可启用。
+
 ## 构建
 
 ```powershell

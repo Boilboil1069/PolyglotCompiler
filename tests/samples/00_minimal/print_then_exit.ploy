@@ -1,0 +1,4 @@
+FUNC main() -> i32 {
+    PRINTLN "ok";
+    RETURN 0;
+}

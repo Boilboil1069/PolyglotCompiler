@@ -27,6 +27,7 @@ add_library(runtime
     src/libs/go_rt.c
     src/libs/javascript_rt.c
     src/libs/ruby_rt.c
+    src/libs/polyrt_linux.c
     src/memory/polyglot_alloc.cpp
     src/services/exception.cpp
     src/services/error_bridge.cpp

@@ -13,7 +13,144 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
-## v1.42.5 (2026-05-06)
+## v1.45.0 (2026-05-06)
+
+- Sample regression matrix is now driven by a shared minimum sample
+  `tests/samples/00_minimal/print_then_exit.ploy` whose stdout is
+  byte-pinned in `expected_output.txt`.  Both `build_all_samples.ps1`
+  and `build_all_samples.sh` recognise a sibling `expected_output.skip`
+  marker and route those samples to the SKIP bucket without invoking
+  polyc / polyld; SKIP no longer counts against the
+  `--require-min-ok N` floor.
+- `samples_report.json` gains a top-level `ok` array (sorted ASCII)
+  listing the sample names that landed in the OK bucket.  The
+  integration test `samples_regression_test.cpp` now asserts that the
+  shared minimum sample is in OK and that the harness-emitted `ok`
+  array byte-matches the OK-set walked out of the per-sample status
+  fields, so the harness and the test cannot drift on what "OK"
+  means.
+- The Windows PowerShell harness was reworked to use the call
+  operator (`& $Polyc ...`) rather than `Start-Process`, so absolute
+  `--emit-obj=<path>` arguments now reach polyc verbatim instead of
+  being silently truncated at the `=` boundary.  Per-sample stderr
+  errors are isolated by a scoped `$ErrorActionPreference = 'Continue'`
+  block so a single failure no longer aborts the matrix.
+- A new CI matrix runs the sample regression on three pinned
+  runners: `samples-windows-2022`, `samples-ubuntu-24.04` and
+  `samples-macos-14`.  Each job builds polyc / polyld, executes
+  `ctest -R "samples_regression"`, and uploads `samples_report.json`
+  as an artifact for diagnostics; any one job failing fails the whole
+  workflow.
+- `runtime/include/services/error_bridge.h` and `async_bridge.h` now
+  use a portable `POLYRT_NORETURN` macro and an explicit `<string>`
+  include, restoring a clean MSVC `/TP` build of the polyrt runtime
+  shared library used by polyc and polyld on Windows hosts.
+- Root `CMakeLists.txt` and `VERSION.txt` are bumped to **1.45.0**.
+
+---
+
+## v1.44.0 (2026-05-06)
+
+- polyld now ships a real ELF64 `ET_EXEC` writer in
+  `tools/polyld/src/linker_elf.cpp` (`polyglot::linker::elf::
+  BuildELFImage`).  Each emitted image is structurally complete and
+  loadable by an unmodified Linux kernel via `execve(2)`:
+  - ELF header with `EI_CLASS = ELFCLASS64`, `EI_DATA = ELFDATA2LSB`,
+    `e_type = ET_EXEC`, `e_machine` selected from the build request
+    (`EM_X86_64` or `EM_AARCH64`), and `e_entry` pointing at the
+    polyld-injected `_start` stub at the head of `.text`;
+  - Four program headers in fixed order: `PT_PHDR`, `PT_LOAD(R+X)`
+    spanning ELF header + phdr table + `.text` + `.rodata`,
+    `PT_LOAD(R+W)` for `.data` + `.bss` (collapsed to size 0 when
+    unused), and `PT_GNU_STACK` carrying `PF_R | PF_W` so the kernel
+    enforces a non-executable stack;
+  - Section header table covering at least `.text` and `.shstrtab`,
+    with `.rodata` / `.data` / `.bss` added on demand.  `readelf -S`
+    and `objdump -h` both accept the table.
+- The `_start` stubs are hand-assembled and exposed via
+  `BuildStartStubX86_64` / `BuildStartStubArm64` so unit tests can
+  assert byte-exact equality.  Both stubs are 16 bytes, `call` /
+  `bl` into `main`, forward `main`'s return value into the kernel
+  exit syscall (`__NR_exit = 60` on x86_64, `93` on aarch64), and
+  pad with the architecture's canonical NOP.
+- New runtime shim `runtime/src/libs/polyrt_linux.c` plus header
+  `runtime/include/polyrt_linux.h` provide `polyrt_println` and
+  `polyrt_exit` that talk straight to the kernel through inline
+  `syscall` / `svc #0` sequences (`write(2)` and `exit_group(2)`),
+  with no libc dependency.  A portable libc fallback is kept inside
+  `#else` so the wider `runtime` target still builds on macOS /
+  Windows development hosts.
+- `Linker::GenerateELFExecutable` is now a thin shim that partitions
+  the resolved `output_sections_` table into text / rodata / data /
+  bss buckets and delegates to `BuildELFImage`; the legacy hand-
+  rolled writer is retained inside `#if 0` for reference only.
+- Tests:
+  - `tests/unit/polyld/elf_image_layout_test.cpp` (`[elf][polyld]`)
+    decodes both x86_64 and aarch64 minimal images, asserts the
+    magic / class / machine fields, walks the program headers to
+    locate the `PT_LOAD(R+X)` window covering `e_entry`, asserts
+    `PT_GNU_STACK` carries `PF_R | PF_W`, and compares the first
+    16 bytes of `.text` against the architecture-specific stub
+    template.  A separate case validates the R/W `PT_LOAD` shape
+    when `data` / `bss_size` are non-empty.
+  - `tests/integration/elf_exec_smoke_test.cpp`
+    (`[elf][exec][integration]`) drives `polyc` + `polyld` on the
+    `00_minimal/print_then_exit.ploy` sample, then `fork + execve +
+    waitpid`s the produced `/tmp/polyld_elf_smoke` binary and
+    asserts `WEXITSTATUS == 0` with stdout `"ok\n"`.  Compiled only
+    on `__linux__`; other hosts get a placeholder pass.
+- New CI helper `scripts/ci/run_linux_smoke.sh` configures, builds
+  and runs the ELF-tagged ctest selectors inside an `ubuntu:24.04`
+  container, suitable for invocation from a macOS / Windows
+  workstation via `docker run --rm -v "$PWD":/w -w /w ubuntu:24.04`.
+
+---
+
+## v1.43.0 (2026-05-06)
+
+- polyld Mach-O writer now emits a real `LC_DYLD_EXPORTS_TRIE` payload
+  for every `MH_EXECUTE` image.  The trie carries exactly two regular
+  exports — `_main` (`address = LC_MAIN.entryoff + __TEXT.fileoff`,
+  `flags = EXPORT_SYMBOL_FLAGS_KIND_REGULAR`) and `_mh_execute_header`
+  (`address = 0`, same flags) — sharing the `"_m"` prefix above an
+  inner fan-out node.  Every node is encoded with Apple's ULEB128
+  layout (`terminal_size`, optional `flags + address`, `children_count`,
+  per-child `edge_string + child_offset`) and the whole blob is padded
+  to 8-byte alignment.  `datasize` is now strictly greater than 24,
+  satisfying the AMFI / CoreTrust / AppleSystemPolicy gates that
+  refuse to map images whose trie does not yield a real `_main`.
+- `LC_FUNCTION_STARTS` now carries the actual on-disk function start:
+  for the single-function case the payload is `ULEB128(LC_MAIN.entryoff)
+  + 0x00` padded to 8 bytes; the underlying helper already accepts an
+  ascending vector of starts and emits the canonical differential
+  ULEB128 encoding for multi-function images.
+- `LC_DATA_IN_CODE` continues to ship with `datasize == 0`; its
+  `dataoff` slot still chains into the LINKEDIT byte stream so the
+  segment offsets remain monotonic.
+- Load-command order is now fixed at `... LC_DYLD_CHAINED_FIXUPS →
+  LC_DYLD_EXPORTS_TRIE → LC_FUNCTION_STARTS → LC_DATA_IN_CODE →
+  LC_SYMTAB → LC_DYSYMTAB → LC_LOAD_DYLINKER → LC_LOAD_DYLIB → LC_UUID
+  → LC_BUILD_VERSION → LC_SOURCE_VERSION → LC_MAIN → LC_CODE_SIGNATURE`,
+  and the LINKEDIT byte stream order is `chained_fixups → exports_trie
+  → function_starts → data_in_code → nlist → string → code_signature`,
+  with `__LINKEDIT.filesize` extending exactly to the end of the
+  embedded code-signature blob.
+- New unit test `unit/polyld/macho_exports_trie_test.cpp`
+  (`[macho][exports_trie][polyld]`) builds a minimal `MH_EXECUTE` with
+  `entry_offset = 0x10`, walks the trie with a hand-rolled ULEB128
+  decoder, and asserts the two exports decode to the spec addresses.
+- New integration test `integration/macho_exec_smoke_test.cpp`
+  (`[macho][exec][integration]`, compiled only on `__APPLE__ &&
+  __aarch64__`) drives `polyc` + `polyld` over the new
+  `tests/samples/00_minimal/print_then_exit.ploy` source, `posix_spawn`s
+  the produced `/tmp/polyld_macho_smoke`, and asserts `WEXITSTATUS == 0`
+  with stdout equal to `"ok\n"`.
+- New sample `tests/samples/00_minimal/print_then_exit.ploy` plus
+  bilingual `README.md` / `README_zh.md` and `expected_output.txt`
+  serve as the cross-platform smoke source shared by macOS / Linux /
+  Windows backends.
+
+
 
 - polyld Mach-O writer now also emits `LC_FUNCTION_STARTS`
   (`cmd = 0x26`, 16-byte `linkedit_data_command` pointing at an 8-byte

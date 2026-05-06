@@ -302,3 +302,96 @@ jobs:
         run: |
           cd build
           ctest --output-on-failure -C Release
+
+  # ==========================================================================
+  # Sample regression matrix: build the toolchain, then drive the
+  # `tests/samples/` matrix through `build_all_samples.{ps1,sh}` with
+  # `--require-min-ok 1` so the shared minimum sample stays end-to-end
+  # reachable on every supported host triple.  Any one of the three jobs
+  # going red fails the whole workflow.
+  # ==========================================================================
+  samples-windows-2022:
+    name: Samples Regression (Windows 2022)
+    needs: [format-check]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build polyc / polyld
+        run: cmake --build build --config Release --target polyc polyld
+
+      - name: Run sample regression
+        shell: pwsh
+        run: |
+          ctest --test-dir build -R "samples_regression" --output-on-failure -C Release
+
+      - name: Upload samples_report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samples_report-windows-2022
+          path: build/samples_report.json
+
+  samples-ubuntu-24_04:
+    name: Samples Regression (Ubuntu 24.04)
+    needs: [format-check]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build polyc / polyld
+        run: cmake --build build --target polyc polyld
+
+      - name: Run sample regression
+        run: |
+          ctest --test-dir build -R "samples_regression" --output-on-failure
+
+      - name: Upload samples_report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samples_report-ubuntu-24_04
+          path: build/samples_report.json
+
+  samples-macos-14:
+    name: Samples Regression (macOS 14)
+    needs: [format-check]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Configure CMake
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build polyc / polyld
+        run: cmake --build build --target polyc polyld
+
+      - name: Run sample regression
+        run: |
+          ctest --test-dir build -R "samples_regression" --output-on-failure
+
+      - name: Upload samples_report.json
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: samples_report-macos-14
+          path: build/samples_report.json

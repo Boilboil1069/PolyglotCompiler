@@ -186,6 +186,161 @@ constexpr std::uint64_t kPageZeroSize64 = 0x100000000ULL;
 constexpr std::uint64_t kDefaultExeBase = 0x100000000ULL;
 
 // ---------------------------------------------------------------------------
+// ULEB128 helpers shared by the LC_DYLD_EXPORTS_TRIE and
+// LC_FUNCTION_STARTS encoders below.  Both blobs use Apple's
+// little-endian base-128 variable-length integer encoding exactly as
+// described in `<mach-o/loader.h>`.  `EncodeULEB128` is also exposed
+// publicly so the polyld unit-test suite can spot-check the encoder
+// without re-declaring it.
+// ---------------------------------------------------------------------------
+
+std::size_t ULEB128Size(std::uint64_t v) {
+  std::size_t n = 1;
+  while (v >= 0x80) { v >>= 7; ++n; }
+  return n;
+}
+
+void EncodeULEB128(std::vector<std::uint8_t> &out, std::uint64_t v) {
+  do {
+    std::uint8_t byte = static_cast<std::uint8_t>(v & 0x7Fu);
+    v >>= 7;
+    if (v != 0) byte |= 0x80u;
+    out.push_back(byte);
+  } while (v != 0);
+}
+
+// ---------------------------------------------------------------------------
+// LC_DYLD_EXPORTS_TRIE builder.
+//
+// dyld's exports trie is a packed prefix tree whose nodes carry an
+// optional terminal payload (flags + address) and zero-or-more outgoing
+// edges keyed by the next character substring.  Every child reference
+// is a ULEB128 byte offset measured from the start of the trie blob,
+// so node sizes and node positions are mutually recursive: shrinking
+// one node may shrink the encoded length of another node's child
+// offsets, which may shrink the first node further.  We resolve the
+// fixed point by iterating the layout until no node moves.
+//
+// For polyld's MH_EXECUTE images we materialise exactly two leaves —
+// `_main` (regular export, address = `LC_MAIN.entryoff +
+// __TEXT.fileoff`) and `_mh_execute_header` (regular export at the
+// image base, address = 0) — sharing the `"_m"` prefix above an inner
+// fan-out node.  AMFI / CoreTrust / AppleSystemPolicy on macOS 26
+// (Tahoe) all walk this trie at execve(2) time and refuse to load
+// images that lack a real `_main` entry.
+// ---------------------------------------------------------------------------
+
+constexpr std::uint64_t kExportFlagsRegular = 0x0u; // EXPORT_SYMBOL_FLAGS_KIND_REGULAR
+
+struct TrieNode {
+  bool        terminal = false;
+  std::uint64_t flags  = 0;
+  std::uint64_t address = 0;
+  std::vector<std::pair<std::string, std::size_t>> edges; // (label, child_index)
+  std::uint32_t offset = 0; // computed during layout
+  std::uint32_t size   = 0; // computed during layout
+};
+
+// Compute the on-disk size of a single trie node given the current
+// snapshot of every node's offset (used to size the child-offset
+// ULEB128 fields).
+std::uint32_t TrieNodeSize(const TrieNode &n,
+                           const std::vector<TrieNode> &all) {
+  std::size_t terminal_payload_size = 0;
+  if (n.terminal) {
+    terminal_payload_size =
+        ULEB128Size(n.flags) + ULEB128Size(n.address);
+  }
+  std::size_t total = ULEB128Size(terminal_payload_size) +
+                      terminal_payload_size +
+                      1u; // children_count byte
+  for (const auto &e : n.edges) {
+    total += e.first.size() + 1u; // edge label + NUL terminator
+    total += ULEB128Size(all[e.second].offset);
+  }
+  return static_cast<std::uint32_t>(total);
+}
+
+std::vector<std::uint8_t>
+BuildExecutableExportsTrie(std::uint64_t main_address) {
+  // Node ordering chosen so that parents appear before children in the
+  // serialised stream (matches what ld64 emits and keeps the byte
+  // walker single-pass).
+  std::vector<TrieNode> nodes(4);
+  // 0: root (no terminal, single edge "_m")
+  nodes[0].edges.push_back({"_m", 1});
+  // 1: inner node after consuming "_m" (no terminal, two edges)
+  nodes[1].edges.push_back({"ain", 2});
+  nodes[1].edges.push_back({"h_execute_header", 3});
+  // 2: leaf for "_main" (regular export, address = LC_MAIN.entryoff +
+  // __TEXT.fileoff; the writer passes the already-summed value).
+  nodes[2].terminal = true;
+  nodes[2].flags    = kExportFlagsRegular;
+  nodes[2].address  = main_address;
+  // 3: leaf for "_mh_execute_header" (regular export at image base).
+  nodes[3].terminal = true;
+  nodes[3].flags    = kExportFlagsRegular;
+  nodes[3].address  = 0;
+
+  // Iterate the size/offset fixed point.  Bounded by a hard cap so a
+  // pathological input cannot loop forever; in practice convergence
+  // happens within two iterations for this 4-node trie.
+  for (int iter = 0; iter < 16; ++iter) {
+    std::uint32_t off = 0;
+    bool changed = false;
+    for (auto &n : nodes) {
+      if (n.offset != off) { n.offset = off; changed = true; }
+      std::uint32_t sz = TrieNodeSize(n, nodes);
+      if (n.size != sz) { n.size = sz; changed = true; }
+      off += sz;
+    }
+    if (!changed) break;
+  }
+
+  // Serialise.
+  std::vector<std::uint8_t> out;
+  for (const auto &n : nodes) {
+    std::size_t terminal_payload_size = 0;
+    if (n.terminal) {
+      terminal_payload_size =
+          ULEB128Size(n.flags) + ULEB128Size(n.address);
+    }
+    EncodeULEB128(out, terminal_payload_size);
+    if (n.terminal) {
+      EncodeULEB128(out, n.flags);
+      EncodeULEB128(out, n.address);
+    }
+    out.push_back(static_cast<std::uint8_t>(n.edges.size()));
+    for (const auto &e : n.edges) {
+      for (char c : e.first) out.push_back(static_cast<std::uint8_t>(c));
+      out.push_back(0);
+      EncodeULEB128(out, nodes[e.second].offset);
+    }
+  }
+  // 8-byte alignment as required by every linkedit_data_command payload.
+  while (out.size() % 8 != 0) out.push_back(0);
+  return out;
+}
+
+// LC_FUNCTION_STARTS payload: a sequence of ULEB128 deltas measured
+// from the previous function start (the first delta is from zero, i.e.
+// the absolute value of `LC_MAIN.entryoff`), terminated by a single
+// 0x00 byte and padded to 8-byte alignment.  For a single-function
+// MH_EXECUTE this collapses to `ULEB128(entryoff) + 0x00 + padding`.
+std::vector<std::uint8_t>
+BuildFunctionStartsBlob(const std::vector<std::uint64_t> &starts_in_order) {
+  std::vector<std::uint8_t> out;
+  std::uint64_t prev = 0;
+  for (std::uint64_t s : starts_in_order) {
+    EncodeULEB128(out, s - prev);
+    prev = s;
+  }
+  out.push_back(0); // terminator
+  while (out.size() % 8 != 0) out.push_back(0);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Mach-O code-signature constants (from Apple's cs_blobs.h).  Used to emit
 // a "linker-signed" ad-hoc signature inline so the binary loads on Apple
 // Silicon without requiring a post-link `codesign --force --sign -` step.
@@ -760,22 +915,53 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
 
   const std::uint32_t chained_fileoff =
       static_cast<std::uint32_t>(linkedit_fileoff);
-  // Minimal empty exports-trie blob: a single 0x00 terminator byte
-  // padded to 8-byte alignment.  Modern dyld / CoreTrust expect
-  // LC_DYLD_EXPORTS_TRIE to be present alongside LC_DYLD_CHAINED_FIXUPS.
+  // ----- LC_DYLD_EXPORTS_TRIE payload ------------------------------------
+  // For executables we materialise a real trie carrying `_main` (regular
+  // export, address = LC_MAIN.entryoff + __TEXT.fileoff) and
+  // `_mh_execute_header` (regular export, address = 0).  AMFI /
+  // CoreTrust / AppleSystemPolicy on macOS 26 (Tahoe) refuse to map an
+  // image whose exports trie does not yield a real `_main`.  Dylibs and
+  // bundles still get the minimal placeholder used pre-1.43.0.
+  std::uint64_t lc_main_entryoff_value = 0;
+  std::uint64_t main_export_address    = 0;
+  if (req.filetype == kFileTypeExecute) {
+    const std::uint64_t section_off_in_segment =
+        layouts.empty() || layouts.front().sect_fileoff.empty()
+            ? text_file_off
+            : layouts.front().sect_fileoff.front();
+    lc_main_entryoff_value = section_off_in_segment + req.entry_offset;
+    // __TEXT.fileoff is 0 for the first user segment (it covers the
+    // mach-header pages), so the spec formula `LC_MAIN.entryoff +
+    // __TEXT.fileoff` collapses to `lc_main_entryoff_value`.
+    const std::uint64_t text_fileoff =
+        layouts.empty() ? 0u : layouts.front().fileoff;
+    main_export_address = lc_main_entryoff_value + text_fileoff;
+  }
+
   std::vector<std::uint8_t> exports_trie_bytes;
-  exports_trie_bytes.push_back(0);
-  while (exports_trie_bytes.size() % 8 != 0) exports_trie_bytes.push_back(0);
+  if (req.filetype == kFileTypeExecute) {
+    exports_trie_bytes = BuildExecutableExportsTrie(main_export_address);
+  } else {
+    exports_trie_bytes.push_back(0);
+    while (exports_trie_bytes.size() % 8 != 0) exports_trie_bytes.push_back(0);
+  }
   const std::uint32_t exports_trie_size =
       static_cast<std::uint32_t>(exports_trie_bytes.size());
   const std::uint32_t exports_trie_fileoff = chained_fileoff + chained_size;
-  // LC_FUNCTION_STARTS payload — single 0x00 ULEB128 terminator
-  // padded to 8 bytes.  This produces a well-formed (empty) function
-  // starts table that downstream tools (otool, codesign, dyld) accept
-  // without warning.
+  // ----- LC_FUNCTION_STARTS payload --------------------------------------
+  // Single-function MH_EXECUTE: payload = ULEB128(LC_MAIN.entryoff) +
+  // 0x00 terminator, padded to 8 bytes.  Multi-function support is
+  // already plumbed through the underlying helper via the
+  // `starts_in_order` vector.
   std::vector<std::uint8_t> function_starts_bytes;
-  function_starts_bytes.push_back(0);
-  while (function_starts_bytes.size() % 8 != 0) function_starts_bytes.push_back(0);
+  if (req.filetype == kFileTypeExecute) {
+    function_starts_bytes =
+        BuildFunctionStartsBlob({lc_main_entryoff_value});
+  } else {
+    function_starts_bytes.push_back(0);
+    while (function_starts_bytes.size() % 8 != 0)
+      function_starts_bytes.push_back(0);
+  }
   const std::uint32_t function_starts_size =
       static_cast<std::uint32_t>(function_starts_bytes.size());
   const std::uint32_t function_starts_fileoff =

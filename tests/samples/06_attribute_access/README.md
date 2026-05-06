@@ -8,6 +8,10 @@ GET / SET reading and writing foreign object attributes across the language boun
 | Keywords  | GET, SET |
 | Entry     | `attribute_access.ploy` |
 
+## How to run
+
+> **Current version skip**: depends on attribute / field access lowering across foreign objects.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

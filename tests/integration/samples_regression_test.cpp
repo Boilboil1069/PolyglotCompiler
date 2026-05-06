@@ -29,6 +29,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -170,23 +171,27 @@ TEST_CASE("sample regression harness produces a well-formed JSON report",
 
   fs::path report = build_dir / "samples_report.json";
 
-  // Invoke the platform-appropriate harness.  We rely on the script's
-  // default-tolerant exit code (0) so that backend regressions do not gate
-  // this test; the report itself is the contract under test here.
+  // Invoke the platform-appropriate harness with --require-min-ok 1 so
+  // a regression that drops the OK bucket below the minimum-runnable
+  // contract (`00_minimal/print_then_exit`) surfaces as an exit-code 1
+  // failure here, not just as a quietly degraded report.
 #ifdef _WIN32
   fs::path script = repo / "scripts" / "build_all_samples.ps1";
   REQUIRE(fs::exists(script));
   std::string cmd = std::string("powershell -NoProfile -ExecutionPolicy Bypass -File \"") +
-                    script.string() + "\" > NUL 2>&1";
+                    script.string() + "\" -RequireMinOk 1 > NUL 2>&1";
 #else
   fs::path script = repo / "scripts" / "build_all_samples.sh";
   REQUIRE(fs::exists(script));
   std::string cmd = std::string("bash \"") + script.string() +
-                    "\" > /dev/null 2>&1";
+                    "\" --require-min-ok 1 > /dev/null 2>&1";
 #endif
   int rc = std::system(cmd.c_str());
-  // The harness defaults to exit 0; non-zero indicates a launcher failure.
+  // The --require-min-ok 1 gate must pass: if the shared minimum sample
+  // (`00_minimal/print_then_exit`) is no longer reachable end-to-end,
+  // the harness exits 1 and the test must fail loudly.
   INFO("harness rc=" << rc);
+  REQUIRE(rc == 0);
   REQUIRE(fs::exists(report));
 
   // ---------- JSON well-formedness ----------
@@ -248,4 +253,74 @@ TEST_CASE("sample regression harness produces a well-formed JSON report",
     INFO("unexpected status value: " << s);
     REQUIRE(ok);
   }
+
+  // ---------- Minimum-runnable contract ----------
+  // Walk the per-sample objects in the compacted JSON and collect the
+  // set of names whose status is "OK".  We do this by lock-stepping
+  // "name":"..." with the matching "status":"..." that follows.
+  std::vector<std::string> ok_walk;
+  {
+    size_t cur = 0;
+    const std::string nameTag = "\"name\":\"";
+    const std::string statusTag = "\"status\":\"";
+    while ((cur = compact.find(nameTag, cur)) != std::string::npos) {
+      auto ns = cur + nameTag.size();
+      auto ne = compact.find('"', ns);
+      if (ne == std::string::npos) break;
+      std::string sample_name = compact.substr(ns, ne - ns);
+      auto sp = compact.find(statusTag, ne);
+      if (sp == std::string::npos) break;
+      auto ss = sp + statusTag.size();
+      auto se = compact.find('"', ss);
+      if (se == std::string::npos) break;
+      std::string sample_status = compact.substr(ss, se - ss);
+      if (sample_status == "OK") {
+        ok_walk.push_back(std::move(sample_name));
+      }
+      cur = se + 1;
+    }
+  }
+  // The minimum-runnable contract: the shared sample
+  // `00_minimal` (entry `print_then_exit.ploy`) MUST land in the OK
+  // bucket on every supported platform.  This is the floor for the
+  // `--require-min-ok 1` gate enforced by the harness.
+  REQUIRE_FALSE(ok_walk.empty());
+  bool has_minimum = std::any_of(
+      ok_walk.begin(), ok_walk.end(),
+      [](const std::string &n) { return n == "00_minimal"; });
+  INFO("OK names: " << [&] {
+    std::string acc;
+    for (const auto &n : ok_walk) { acc += n; acc += ' '; }
+    return acc;
+  }());
+  REQUIRE(has_minimum);
+
+  // ---------- ok[] array consistency ----------
+  // The harness emits a sorted `ok` array alongside the `samples`
+  // array.  Parse it and assert that it matches the OK-set we walked
+  // out of the per-sample status fields.  This guards against the
+  // harness and the test drifting on what "OK" means.
+  std::vector<std::string> ok_array;
+  {
+    auto ka = compact.find("\"ok\":[");
+    if (ka != std::string::npos) {
+      auto end_ka = compact.find(']', ka);
+      if (end_ka != std::string::npos) {
+        std::string body = compact.substr(ka + 6, end_ka - (ka + 6));
+        size_t p = 0;
+        while ((p = body.find('"', p)) != std::string::npos) {
+          auto e = body.find('"', p + 1);
+          if (e == std::string::npos) break;
+          ok_array.push_back(body.substr(p + 1, e - (p + 1)));
+          p = e + 1;
+        }
+      }
+    }
+  }
+  REQUIRE_FALSE(ok_array.empty());
+  std::vector<std::string> ok_walk_sorted = ok_walk;
+  std::sort(ok_walk_sorted.begin(), ok_walk_sorted.end());
+  // The `ok` array contract: byte-for-byte equality with the sorted
+  // OK-set walked out of the `samples` array.
+  REQUIRE(ok_array == ok_walk_sorted);
 }

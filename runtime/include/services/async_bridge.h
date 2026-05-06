@@ -21,6 +21,7 @@
 #ifdef __cplusplus
 #include <functional>
 #include <memory>
+#include <string>
 
 namespace polyglot::runtime::services {
 

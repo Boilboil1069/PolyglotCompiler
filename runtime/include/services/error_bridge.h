@@ -17,6 +17,21 @@
 #include <cstddef>
 #include <cstdint>
 
+// Portable noreturn attribute: GCC/Clang use __attribute__((noreturn));
+// MSVC uses __declspec(noreturn).  Define POLYRT_NORETURN as a single
+// token usable on extern "C" function declarations regardless of the
+// host compiler so that public runtime headers compile cleanly under
+// MSVC's /TP path as well as under GCC/Clang.
+#ifndef POLYRT_NORETURN
+#  if defined(_MSC_VER) && !defined(__clang__)
+#    define POLYRT_NORETURN __declspec(noreturn)
+#  elif defined(__GNUC__) || defined(__clang__)
+#    define POLYRT_NORETURN __attribute__((noreturn))
+#  else
+#    define POLYRT_NORETURN
+#  endif
+#endif
+
 #ifdef __cplusplus
 #include <string>
 #include <vector>
@@ -58,14 +73,14 @@ void __ploy_rt_try_end(void);
 // nullptr to raise a sentinel "<unspecified>" error.  Throws a
 // `RuntimeError` C++ exception when invoked inside an active handler
 // scope; aborts otherwise.  Does not return normally.
-void __ploy_rt_throw(const char *message_ptr) __attribute__((noreturn));
+POLYRT_NORETURN void __ploy_rt_throw(const char *message_ptr);
 
 // Raise an Error tagged with a host-language origin label
 // ("python", "cpp", "java", "dotnet", "rust", "ploy").  Used by the
 // per-language adapters to forward foreign exceptions.  Does not
 // return.
-void __ploy_rt_throw_from(const char *message_ptr,
-                          const char *source_lang_ptr) __attribute__((noreturn));
+POLYRT_NORETURN void __ploy_rt_throw_from(const char *message_ptr,
+                                          const char *source_lang_ptr);
 
 // Accessors for the current Error payload, valid only inside a CATCH
 // block (i.e. between `__ploy_rt_try_begin` returning non-zero and

@@ -4354,7 +4354,7 @@ Mach-O 写出器 + 必要的最小动态加载支持，不触动前端 / 中端 
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end
+--end -done
 
 2026-05-06-3
 
@@ -4419,7 +4419,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end
+--end -done
 
 2026-05-06-4
 
@@ -4477,7 +4477,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end
+--end -done
 
 2026-05-06-5
 

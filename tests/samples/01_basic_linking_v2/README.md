@@ -27,6 +27,10 @@ Both forms still parse, but the comma form is now reported by the
 semantic analyzer with a deprecation warning (diagnostic
 `kDeprecatedKeyword`).  New code SHOULD use the signed form.
 
+## How to run
+
+> **Current version skip**: depends on cross-language LINK lowering (variant V2).  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

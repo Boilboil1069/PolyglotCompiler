@@ -16,6 +16,10 @@
 - `HttpTransport.go` — host source file
 - `response_decoder.py` — host source file
 
+## How to run
+
+> **Current version skip**: depends on HTTP client runtime adapter.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

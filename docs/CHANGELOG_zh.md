@@ -12,6 +12,126 @@
 
 ---
 
+## v1.45.0 (2026-05-06)
+
+- 样例回归矩阵新增共享的最小样例
+  `tests/samples/00_minimal/print_then_exit.ploy`，其 stdout 由
+  `expected_output.txt` 字节级固定。`build_all_samples.ps1` 与
+  `build_all_samples.sh` 现在识别同目录下的 `expected_output.skip`
+  标记，把对应样例归入 SKIP 桶，且不再调用 polyc / polyld；SKIP
+  不计入 `--require-min-ok N` 阈值。
+- `samples_report.json` 新增顶层 `ok` 数组（按 ASCII 升序），列出
+  当前矩阵中处于 OK 桶的样例名。集成测试
+  `samples_regression_test.cpp` 现在断言共享的最小样例必须在 OK 桶，
+  并断言 `ok` 数组与从 `samples` 段中走出的 OK 集合字节级一致，避免
+  脚本与测试对 “OK” 的定义出现漂移。
+- Windows PowerShell 端将 `Start-Process` 改为调用运算符
+  （`& $Polyc ...`），让带绝对路径的 `--emit-obj=<path>` 参数原样传给
+  polyc，不再因等号后的反斜杠被静默截断；同时为单样例错误加上
+  `$ErrorActionPreference = 'Continue'` 的局部作用域，避免一个样例
+  失败导致整个矩阵中断。
+- 新增 CI 矩阵：`samples-windows-2022`、`samples-ubuntu-24.04`、
+  `samples-macos-14` 三条 job 各自构建 polyc / polyld，再执行
+  `ctest -R "samples_regression"`，并把 `samples_report.json` 作为
+  artifact 上传；任一 job 失败即整个工作流失败。
+- `runtime/include/services/error_bridge.h` 与 `async_bridge.h` 改用
+  可移植的 `POLYRT_NORETURN` 宏并显式 `#include <string>`，恢复了
+  Windows 下 MSVC `/TP` 路径上 polyrt 共享库的干净构建。
+- 根 `CMakeLists.txt` 与 `VERSION.txt` 递进到 **1.45.0**。
+
+---
+
+## v1.44.0 (2026-05-06)
+
+- polyld 在 `tools/polyld/src/linker_elf.cpp`
+  （`polyglot::linker::elf::BuildELFImage`）中提供了真实的 ELF64
+  `ET_EXEC` 写出器。每一份产出镜像在结构上都自洽，可由未经修改的
+  Linux 内核直接通过 `execve(2)` 加载：
+  - ELF 头：`EI_CLASS = ELFCLASS64`、`EI_DATA = ELFDATA2LSB`、
+    `e_type = ET_EXEC`，`e_machine` 根据请求选择
+    （`EM_X86_64` 或 `EM_AARCH64`），`e_entry` 指向 `.text` 头部
+    polyld 注入的 `_start` 桩；
+  - 固定四条程序头：`PT_PHDR`、覆盖 ELF 头 + phdr 表 + `.text` +
+    `.rodata` 的 `PT_LOAD(R+X)`、覆盖 `.data` + `.bss` 的
+    `PT_LOAD(R+W)`（无内容时尺寸折叠为 0）、以及携带 `PF_R | PF_W`
+    的 `PT_GNU_STACK`，确保内核强制非可执行栈；
+  - 节头表至少包含 `.text` 与 `.shstrtab`，按需追加 `.rodata` /
+    `.data` / `.bss`，能被 `readelf -S` 与 `objdump -h` 正确解析。
+- `_start` 桩由 polyld 直接拼装机器码，并通过
+  `BuildStartStubX86_64` / `BuildStartStubArm64` 暴露给单元测试做
+  逐字节比对。两条桩均为 16 字节，先 `call` / `bl` 进入 `main`，
+  再把 `main` 的返回值送入内核 exit 系统调用
+  （x86_64 上 `__NR_exit = 60`，aarch64 上为 93），尾部以架构
+  对应的 NOP 对齐。
+- 新增运行时垫片 `runtime/src/libs/polyrt_linux.c` 与
+  头文件 `runtime/include/polyrt_linux.h`，以内联 `syscall` /
+  `svc #0` 序列直接调用内核 `write(2)` 与 `exit_group(2)`，提供
+  `polyrt_println` 与 `polyrt_exit`，完全不依赖 libc。在
+  非 Linux 主机上保留 `#else` 分支的 libc 回退实现，使得整个
+  `runtime` 目标在 macOS / Windows 开发机上也能正常构建。
+- `Linker::GenerateELFExecutable` 改造为薄壳：将 `output_sections_`
+  按可执行/只读/可写/BSS 划分后委托给 `BuildELFImage`；旧的手写
+  写出实现被 `#if 0` 圈起作为参考保留。
+- 测试：
+  - `tests/unit/polyld/elf_image_layout_test.cpp`（`[elf][polyld]`）
+    对 x86_64 与 aarch64 的最小镜像分别解码：校验 magic / class /
+    machine、遍历程序头定位覆盖 `e_entry` 的 `PT_LOAD(R+X)`、断言
+    `PT_GNU_STACK` 的 `p_flags == PF_R | PF_W`，并对 `.text` 头
+    16 字节与架构桩模板做完全相等比对。另有一例验证当
+    `data` / `bss_size` 非空时 R/W `PT_LOAD` 的形状与对齐约束。
+  - `tests/integration/elf_exec_smoke_test.cpp`
+    （`[elf][exec][integration]`）以 `00_minimal/print_then_exit.ploy`
+    为输入串联 `polyc` 与 `polyld`，再对 `/tmp/polyld_elf_smoke`
+    执行 `fork + execve + waitpid`，断言 `WEXITSTATUS == 0` 且
+    stdout 捕获到 `"ok\n"`。仅在 `__linux__` 下编译，其他平台
+    输出占位通过用例。
+- 新增 CI 辅助脚本 `scripts/ci/run_linux_smoke.sh`，可在
+  `ubuntu:24.04` 容器内完成配置、构建与 ELF 相关 ctest 选择器
+  的执行；可在 macOS / Windows 工作机上通过
+  `docker run --rm -v "$PWD":/w -w /w ubuntu:24.04` 一键触发。
+
+---
+
+## v1.43.0 (2026-05-06)
+
+- polyld 的 Mach-O 写出器现在为每一个 `MH_EXECUTE` 镜像生成真实的
+  `LC_DYLD_EXPORTS_TRIE` 内容。该 trie 严格携带两个常规导出符号——
+  `_main`（`address = LC_MAIN.entryoff + __TEXT.fileoff`，`flags =
+  EXPORT_SYMBOL_FLAGS_KIND_REGULAR`）与 `_mh_execute_header`
+  （`address = 0`，标志位同上），二者共享 `"_m"` 前缀并在内部分叉节
+  点下展开。每个节点按 Apple 的 ULEB128 格式编码（`terminal_size`、
+  可选的 `flags + address`、`children_count`、每条边的
+  `edge_string + child_offset`），整体按 8 字节对齐。`datasize` 严格
+  大于 24 字节，能够通过 AMFI / CoreTrust / AppleSystemPolicy 在
+  execve(2) 入口处对真实 `_main` 的强校验。
+- `LC_FUNCTION_STARTS` 现在承载真正的函数起始偏移：单函数情形下其
+  payload 为 `ULEB128(LC_MAIN.entryoff) + 0x00` 并填充至 8 字节；底
+  层辅助函数已支持以升序序列输入多函数起始偏移并按差分 ULEB128 编码。
+- `LC_DATA_IN_CODE` 仍保持 `datasize == 0`，但其 `dataoff` 槽位继续按
+  顺序衔接至 LINKEDIT 字节流，确保段偏移单调递增。
+- LC 顺序固定为 `... LC_DYLD_CHAINED_FIXUPS → LC_DYLD_EXPORTS_TRIE →
+  LC_FUNCTION_STARTS → LC_DATA_IN_CODE → LC_SYMTAB → LC_DYSYMTAB →
+  LC_LOAD_DYLINKER → LC_LOAD_DYLIB → LC_UUID → LC_BUILD_VERSION →
+  LC_SOURCE_VERSION → LC_MAIN → LC_CODE_SIGNATURE`；LINKEDIT 字节流
+  顺序为 `chained_fixups → exports_trie → function_starts →
+  data_in_code → nlist → string → code_signature`，
+  `__LINKEDIT.filesize` 恰好覆盖到内嵌代码签名 blob 的尾偏移。
+- 新增单元测试 `unit/polyld/macho_exports_trie_test.cpp`
+  （`[macho][exports_trie][polyld]`）：构造 `entry_offset = 0x10`
+  的最小 `MH_EXECUTE`，使用手写 ULEB128 解码器从 trie root 遍历，断
+  言两个导出符号的解析地址符合规范。
+- 新增集成测试 `integration/macho_exec_smoke_test.cpp`
+  （`[macho][exec][integration]`，仅在 `__APPLE__ && __aarch64__`
+  下编译）：驱动 `polyc` + `polyld` 编译并链接新增的
+  `tests/samples/00_minimal/print_then_exit.ploy`，通过
+  `posix_spawn` 启动 `/tmp/polyld_macho_smoke` 并断言
+  `WEXITSTATUS == 0` 且 stdout 为 `"ok\n"`。
+- 新增样例 `tests/samples/00_minimal/print_then_exit.ploy` 与中英双语
+  `README.md` / `README_zh.md`，以及由真实运行得到的
+  `expected_output.txt`，作为跨平台冒烟用源文件。
+
+---
+
 ## v1.42.5 (2026-05-06)
 
 - polyld 的 Mach-O 写出器新增 `LC_FUNCTION_STARTS`(`cmd = 0x26`,16

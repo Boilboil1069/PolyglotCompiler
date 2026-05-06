@@ -8,6 +8,10 @@ NEW / METHOD instantiating a Python class from .ploy and routing calls through a
 | Keywords  | NEW, METHOD |
 | Entry     | `class_instantiation.ploy` |
 
+## How to run
+
+> **Current version skip**: depends on NEW / METHOD lowering for foreign-language class instantiation.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell

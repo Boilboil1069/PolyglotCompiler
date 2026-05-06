@@ -18,6 +18,7 @@
 #include <sstream>
 
 #include "tools/polyld/include/linker.h"
+#include "tools/polyld/include/linker_elf.h"
 #include "tools/polyld/include/pe_writer.h"
 #include "tools/polyld/include/polyglot_linker.h"
 
@@ -2998,13 +2999,84 @@ bool Linker::GenerateOutput() {
 }
 
 bool Linker::GenerateELFExecutable() {
+  // Delegate to the standalone ELF writer in `linker_elf.cpp` so the
+  // emission path mirrors the Mach-O writer architecture: a small
+  // shim here partitions the resolved `output_sections_` table into
+  // `text / rodata / data / bss` payloads and the writer assembles a
+  // self-contained `ET_EXEC` image around a polyld-injected `_start`
+  // stub that tail-calls `main` and forwards its return value into
+  // the kernel `exit` syscall.  Keeping the writer libc-free is what
+  // makes the produced binary `execve(2)`-loadable on any modern
+  // Linux kernel without dragging in `crt1.o` / `libc.so`.
+  namespace pe = ::polyglot::linker::elf;
+
+  pe::BuildRequest req;
+  req.arch = (config_.target_arch == TargetArch::kAArch64)
+                 ? pe::Arch::kAArch64
+                 : pe::Arch::kX86_64;
+  req.base_address = config_.base_address ? config_.base_address
+                                          : pe::kDefaultExeBase;
+
+  auto has_flag = [](SectionFlags f, SectionFlags bit) {
+    return (static_cast<std::uint64_t>(f) & static_cast<std::uint64_t>(bit)) != 0;
+  };
+
+  for (const auto &sec : output_sections_) {
+    if (sec.data.empty()) continue;
+    const bool exec  = has_flag(sec.flags, SectionFlags::kExecInstr);
+    const bool write = has_flag(sec.flags, SectionFlags::kWrite);
+    if (exec) {
+      req.text.insert(req.text.end(), sec.data.begin(), sec.data.end());
+    } else if (write) {
+      req.data.insert(req.data.end(), sec.data.begin(), sec.data.end());
+    } else {
+      req.rodata.insert(req.rodata.end(), sec.data.begin(), sec.data.end());
+    }
+  }
+
+  // Mach-O writer falls back to a single `ret` when the user code is
+  // empty so the produced image is still a valid self-contained
+  // executable.  Apply the same policy here so a degenerate request
+  // still yields a runnable static binary (the kernel jumps into
+  // `_start`, the stub calls `main` which is a single
+  // architecture-appropriate `ret`, and the exit syscall fires with
+  // whatever value happened to be in the return register at entry).
+  if (req.text.empty()) {
+    if (req.arch == pe::Arch::kAArch64) {
+      req.text = {0xC0, 0x03, 0x5F, 0xD6}; // ret
+    } else {
+      req.text = {0xC3};                   // retq
+    }
+  }
+
+  pe::BuildResult br = pe::BuildELFImage(req);
+  if (br.image.empty()) {
+    ReportError("polyld-err-E3240: ELF writer rejected build request");
+    return false;
+  }
+
   std::ofstream out(config_.output_file, std::ios::binary);
   if (!out) {
     ReportError("Cannot create output file: " + config_.output_file);
     return false;
   }
+  out.write(reinterpret_cast<const char *>(br.image.data()),
+            static_cast<std::streamsize>(br.image.size()));
+  if (!out) {
+    ReportError("Failed writing output file: " + config_.output_file);
+    return false;
+  }
 
-  std::vector<std::uint8_t> output;
+  stats_.total_output_size = br.image.size();
+  Trace("Generated ELF executable: " + std::to_string(br.image.size()) + " bytes");
+  return true;
+}
+
+// Legacy hand-rolled ELF writer kept for reference / fallback testing
+// only.  Disabled with `#if 0` so the linker_lib build does not pull
+// in the `<elf.h>`-dependent struct definitions on Windows hosts.
+#if 0
+bool Linker::GenerateELFExecutableLegacy() {
 
   // Build ELF header
   Elf64_Ehdr ehdr{};
@@ -3142,6 +3214,7 @@ bool Linker::GenerateELFExecutable() {
 
   return true;
 }
+#endif  // legacy ELF writer
 
 // ============================================================================
 // Polyglot runtime stdout pipeline — call-site recovery analysis pass

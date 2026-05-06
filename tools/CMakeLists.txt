@@ -83,6 +83,7 @@ add_library(linker_lib
     polyld/src/linker.cpp
     polyld/src/linker_pe.cpp
     polyld/src/linker_macho.cpp
+    polyld/src/linker_elf.cpp
     polyld/src/linker_wasm.cpp
     polyld/src/polyglot_linker.cpp
     polyld/src/pe_writer.cpp

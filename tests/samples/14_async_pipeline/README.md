@@ -8,6 +8,10 @@ Multi-stage signal processing PIPELINE with C++ DSP, Rust async loader and Pytho
 | Keywords  | PIPELINE, IF / ELSE |
 | Entry     | `async_pipeline.ploy` |
 
+## How to run
+
+> **Current version skip**: depends on ASYNC / AWAIT lowering and the cooperative scheduler bridge.  The harness reads `expected_output.skip` and routes this sample to the SKIP bucket; rename back to `expected_output.txt` once the dependency lands.
+
 ## Build
 
 ```powershell
