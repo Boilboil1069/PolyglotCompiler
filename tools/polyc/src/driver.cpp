@@ -117,6 +117,15 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --emit=profile-symbols:<path> Write profile-symbol map JSON\n"
           << "  --profile-instrument          Insert call-trace hooks (LTO removable)\n"
           << "  --obj-format=<fmt>  pobj|coff|elf|macho\n"
+          << "\n"
+          << "Cross compilation (BIN-7):\n"
+          << "  --target=<triple>   Target triple, e.g. x86_64-pc-windows-msvc,\n"
+          << "                      aarch64-apple-darwin, x86_64-unknown-linux-gnu,\n"
+          << "                      wasm32-wasi.  Defaults to the host triple.\n"
+          << "  --container=<c>     Force binary container: auto|elf|pe|macho|wasm\n"
+          << "  --subsystem=<s>     PE subsystem (console|windows|...); ignored on\n"
+          << "                      non-PE containers\n"
+          << "  --entry=<sym>       Override entry symbol (e.g. _start, mainCRTStartup)\n"
           << "  --quiet             Suppress progress output\n"
           << "  --no-aux            Do not emit auxiliary files\n"
           << "  --force             Continue despite errors\n"
@@ -260,6 +269,33 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg.rfind("--arch=", 0) == 0) {
       s.arch = arg.substr(7);
+      continue;
+    }
+    // ---- BIN-7: cross-compilation flags --------------------------------
+    if (arg.rfind("--target=", 0) == 0) {
+      s.target_spec = arg.substr(9);
+      continue;
+    }
+    if (arg.rfind("--container=", 0) == 0) {
+      std::string c = arg.substr(12);
+      if (c == "auto")        s.container = ::polyglot::common::BinaryContainer::kAuto;
+      else if (c == "elf")    s.container = ::polyglot::common::BinaryContainer::kELF;
+      else if (c == "pe")     s.container = ::polyglot::common::BinaryContainer::kPE;
+      else if (c == "macho")  s.container = ::polyglot::common::BinaryContainer::kMachO;
+      else if (c == "wasm")   s.container = ::polyglot::common::BinaryContainer::kWasm;
+      else {
+        std::cerr << "[error] --container=" << c
+                  << ": polyc-err-E1101 unknown container (auto|elf|pe|macho|wasm)\n";
+        std::exit(1);
+      }
+      continue;
+    }
+    if (arg.rfind("--subsystem=", 0) == 0) {
+      s.subsystem = arg.substr(12);
+      continue;
+    }
+    if (arg.rfind("--entry=", 0) == 0) {
+      s.entry_symbol = arg.substr(8);
       continue;
     }
     if (arg == "--force" || arg == "--ignore-diagnostics") {
@@ -909,6 +945,58 @@ int main(int argc, char **argv) {
     settings.polyld_path = ResolveSiblingTool(argv[0], "polyld");
   }
 
+  // ---- BIN-7: target triple + container resolution ----------------------
+  // 1. If `--target=<spec>` was provided, parse it; reject malformed
+  //    specs early with a structured error code.
+  // 2. Otherwise default to the host triple so a bare `polyc foo.ploy`
+  //    keeps producing host-native artefacts.
+  // 3. Resolve `container` from the triple using the shared helper so
+  //    every tool reaches the same conclusion for the same input.
+  // 4. Walk the user-supplied `-o` path through the suffix policy and
+  //    emit `polyc-warn-W2101` when the suffix contradicts the resolved
+  //    container.  Never abort: the warning is informational and the
+  //    user may have legitimate reasons (e.g. headless integration tests).
+  {
+    using ::polyglot::common::BinaryContainer;
+    using ::polyglot::common::HostTriple;
+    using ::polyglot::common::ParseTargetTriple;
+    using ::polyglot::common::ResolveContainer;
+    using ::polyglot::common::SuffixMatchesContainer;
+
+    if (!settings.target_spec.empty()) {
+      auto parsed = ParseTargetTriple(settings.target_spec);
+      if (!parsed.ok()) {
+        std::cerr << "[error] --target=" << settings.target_spec
+                  << ": polyc-err-E1100 "
+                  << (parsed.error ? parsed.error->message : "invalid triple") << "\n";
+        return 1;
+      }
+      settings.target_triple = *parsed.triple;
+    } else {
+      settings.target_triple = HostTriple();
+    }
+
+    BinaryContainer effective =
+        ResolveContainer(settings.target_triple, settings.container);
+
+    // Pick the artefact kind matched by `--mode`: assemble/compile both
+    // produce object files, while link produces an executable.  Static /
+    // shared library variants are not user-selectable through polyc yet
+    // (polyld is the entry point for those).
+    std::string kind =
+        (settings.mode == "link") ? "executable" : "object";
+    if (!settings.output.empty() && settings.output != "a.out") {
+      if (!SuffixMatchesContainer(settings.output, effective, kind)) {
+        std::cerr << "[warn] polyc-warn-W2101 output suffix does not match "
+                  << "resolved container ("
+                  << ::polyglot::common::BinaryContainerName(effective)
+                  << ") for triple " << settings.target_triple.str()
+                  << ": " << settings.output << "\n";
+      }
+    }
+    settings.container = effective;
+  }
+
   // 鈹€鈹€ Mode validation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   if (settings.mode != "compile" && settings.mode != "assemble" && settings.mode != "link") {
     std::cerr << "[error] Unknown mode: " << settings.mode << " (use compile|assemble|link)\n";
@@ -974,6 +1062,13 @@ int main(int argc, char **argv) {
     cfg.mode = settings.mode;
     cfg.object_format = settings.obj_format;
     cfg.polyld_path = settings.polyld_path;
+    // BIN-7 carry-through: the driver has already resolved the canonical
+    // triple + container; hand them to the pipeline so backend selection
+    // and polyld invocation see the same target.
+    cfg.SetTargetTriple(settings.target_triple);
+    cfg.container = settings.container;
+    cfg.subsystem = settings.subsystem;
+    cfg.entry_symbol = settings.entry_symbol;
     cfg.source_label = source_label;
     cfg.opt_level = settings.opt_level;
     cfg.verbose = settings.verbose;

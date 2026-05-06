@@ -13,6 +13,8 @@
 #include <iostream>
 #include <string>
 
+#include "common/include/binary_container.h"
+#include "common/include/target_triple.h"
 #include "tools/common/include/effective_settings_loader.h"
 #include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/polyglot_linker.h"
@@ -44,7 +46,44 @@ int main(int argc, char **argv) {
     } else if (arg == "--entry" && i + 1 < argc) {
       config.entry_point = argv[++i];
     } else if (arg == "-T" && i + 1 < argc) {
-      config.linker_script = argv[++i];
+      // BIN-7: `-T <triple>` carries an LLVM-style target triple from
+      // polyc through to the linker.  When the value parses as a
+      // recognised triple it is stored on `LinkerConfig::target_triple`
+      // and the legacy linker_script slot is left untouched.  Otherwise
+      // we preserve the historical meaning (linker script path) so old
+      // build scripts using `-T script.ld` keep working.
+      std::string val = argv[++i];
+      auto parse = ::polyglot::common::ParseTargetTriple(val);
+      if (parse.ok()) {
+        config.target_triple = *parse.triple;
+      } else {
+        config.linker_script = val;
+      }
+    } else if (arg.rfind("--target=", 0) == 0) {
+      // BIN-7: explicit triple; rejects unparseable specs early so the
+      // rest of the pipeline never sees a half-resolved target.
+      std::string spec = arg.substr(9);
+      auto parse = ::polyglot::common::ParseTargetTriple(spec);
+      if (!parse.ok()) {
+        std::cerr << "polyld: --target=" << spec << ": polyld-err-E1100 "
+                  << (parse.error ? parse.error->message : "invalid triple") << "\n";
+        return 1;
+      }
+      config.target_triple = *parse.triple;
+    } else if (arg.rfind("--container=", 0) == 0) {
+      std::string c = arg.substr(12);
+      if (c == "auto")        config.container = ::polyglot::common::BinaryContainer::kAuto;
+      else if (c == "elf")    config.container = ::polyglot::common::BinaryContainer::kELF;
+      else if (c == "pe")     config.container = ::polyglot::common::BinaryContainer::kPE;
+      else if (c == "macho")  config.container = ::polyglot::common::BinaryContainer::kMachO;
+      else if (c == "wasm")   config.container = ::polyglot::common::BinaryContainer::kWasm;
+      else {
+        std::cerr << "polyld: --container=" << c
+                  << ": polyld-err-E1101 unknown container (auto|elf|pe|macho|wasm)\n";
+        return 1;
+      }
+    } else if (arg.rfind("--subsystem=", 0) == 0) {
+      config.subsystem = arg.substr(12);
     } else if (arg == "-static") {
       config.static_link = true;
     } else if (arg == "-shared") {
@@ -108,6 +147,11 @@ int main(int argc, char **argv) {
                 << "  -L <dir>         Add library search path\n"
                 << "  -l <lib>         Link with library\n"
                 << "  -T <script>      Use linker script\n"
+                << "  -T <triple>      Set target triple (BIN-7); falls back to script\n"
+                << "                   path when the value does not parse as a triple\n"
+                << "  --target=<t>     Set target triple, e.g. x86_64-pc-windows-msvc\n"
+                << "  --container=<c>  Force binary container: auto|elf|pe|macho|wasm\n"
+                << "  --subsystem=<s>  PE subsystem override (console|windows|...)\n"
                 << "  -static          Create static executable\n"
                 << "  -shared          Create shared library\n"
                 << "  -r               Create relocatable output\n"

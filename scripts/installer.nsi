@@ -129,7 +129,7 @@ SectionEnd
 ; ---------------------------------------------------------------------------
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} \
-        "Core compiler tools (polyc, polyld, polyasm, polyopt, polyrt, polybench) and IDE (polyui)."
+        "Core compiler tools (polyc, polyld, polyasm, polyopt, polyrt, polybench, polyver, polydoc, polyls, polytopo) and IDE (polyui)."
     !insertmacro MUI_DESCRIPTION_TEXT ${SecPath} \
         "Add PolyglotCompiler bin directory to the system PATH so tools can be used from any terminal."
     !insertmacro MUI_DESCRIPTION_TEXT ${SecStartMenu} \

@@ -186,6 +186,8 @@ set(UNIT_TEST_LINKER
     unit/linker/pe_writer_test.cpp
     unit/linker/pe_writer_hardened_test.cpp
     unit/linker/linker_pe_test.cpp
+    unit/linker/linker_macho_test.cpp
+    unit/linker/linker_wasm_test.cpp
     unit/linker/object_format_detect_test.cpp
     unit/linker/section_merge_test.cpp
     unit/linker/polyrt_println_collect_test.cpp
@@ -659,6 +661,10 @@ set(INTEGRATION_TEST_SOURCES
     integration/lsp_navigation_e2e_test.cpp
     integration/lsp_refactor_e2e_test.cpp
     integration/lsp_semantic_tokens_e2e_test.cpp
+    integration/e2e_macho_smoke.cpp
+    integration/e2e_wasm_smoke.cpp
+    integration/e2e_triple_propagation.cpp
+    integration/binary_matrix/binary_matrix_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)

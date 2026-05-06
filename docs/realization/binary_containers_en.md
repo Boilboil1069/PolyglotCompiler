@@ -178,3 +178,48 @@ Auto-assigned ordinals start at 1 and skip values already claimed by explicit `@
 | `R_AARCH64_LDST64_ABS_LO12_NC` | — | ARM64 PAGEOFFSET_12L (9) |
 
 PC-relative entries are skipped (PE base relocations only fix absolute addresses). Anything else — including ELF GOT/PLT-only codes such as `R_X86_64_GOTPCREL` — is reported as `polyld-err-E3210` and the call returns `false`. Translation continues for the remaining entries so a single pass surfaces the entire incompatible set.
+
+## Release matrix and CI
+
+PolyglotCompiler 1.42.0 ships a closed binary-container matrix.  Every
+combination of the seven supported triples and the six representative
+`tests/samples/` programs (`01_basic_linking`, `05_class_instantiation`,
+`22_database_access`, `11_java_interop`, `14_async_pipeline`,
+`19_file_io`) is exercised by `tests/integration/binary_matrix/` in
+three passes:
+
+1. **Static pass** — every cell is checked against
+   `ResolveContainer(triple, kAuto)` and `SuffixesFor(container)` so the
+   helper APIs cannot drift apart.
+2. **Live host column** — the cell whose triple matches the build host
+   actually runs `polyc -o <out>`; the produced file's magic bytes
+   (`\x7FELF`, `MZ`, `\xCF\xFA\xED\xFE`, `\0asm`) must match what the
+   resolver picked.
+3. **Reverse assertion** — on a non-Windows host, asking polyc to
+   produce `*.exe` must (a) flag `polyc-warn-W2101` and (b) write a
+   file whose magic is the host's native container, never PE.  This
+   permanently rules out the "fake .exe (actually ELF / Mach-O)"
+   regression that was possible before 1.5.0.
+
+`scripts/ci/run_binary_matrix.{sh,ps1}` drives the same matrix for CI
+and parks artefacts under `artifacts/binary_matrix/<triple>/`.  The
+scripts probe for `dumpbin` / `otool` / `readelf` / `wasm-objdump` and
+fall back to in-tree byte readers when none of them are available.
+
+`scripts/build_all_samples.{sh,ps1}` is the cross-platform regression
+twin used by `tests/integration/samples_regression_test.cpp`; both
+flavours emit the same `samples_report.json` schema (status buckets:
+`OK`, `OUTPUT_MISMATCH`, `EMPTY_STDOUT`, `RUN_FAIL`, `LINK_FAIL`,
+`COMPILE_FAIL`, `SKIP`).
+
+## Performance baselines
+
+`polybench link` exposes the per-container assembly cost as four
+single-iteration measurements: `pe_link_time`, `macho_link_time`,
+`elf_link_time`, `wasm_link_time`.  Each measurement assembles a
+4 KiB-payload skeleton image identical in shape to what the production
+writer emits for a hello-world program; the JSON is written to
+`benchmark_link_times.json` with the active `target_triple` stamped at
+the top.  Reference numbers on a 2026-vintage Apple-silicon host are
+around 0.08–0.13 ms per iteration for all four containers; CI gates
+regressions at `+15%` against the 1.4.x ELF baseline.

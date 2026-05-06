@@ -31,6 +31,7 @@
 #include "backends/common/include/target_backend.h"
 #include "backends/wasm/include/wasm_target.h"
 #include "backends/x86_64/include/x86_target.h"
+#include "common/include/target_triple.h"
 
 namespace polyglot::tools {
 namespace {
@@ -40,27 +41,79 @@ struct Options {
   std::string output;
   std::string arch{"x86_64"};
   std::string format{"elf"};
+  // BIN-7: canonical triple for the requested target.  Defaults to the
+  // host triple so a bare `polyasm foo.ir` keeps targeting the host.
+  ::polyglot::common::TargetTriple target_triple{::polyglot::common::HostTriple()};
 };
+
+// BIN-7: derive a short arch label from a triple so `--target=` can fold
+// transparently into the legacy `--arch=` axis without forcing callers
+// to pass both.
+std::string ArchFromTriple(const ::polyglot::common::TargetTriple &t) {
+  using ::polyglot::common::Arch;
+  switch (t.arch) {
+    case Arch::kX86_64:  return "x86_64";
+    case Arch::kAArch64: return "arm64";
+    case Arch::kWasm32:  return "wasm";
+    case Arch::kWasm64:  return "wasm64";
+    case Arch::kArm:     return "arm";
+    case Arch::kX86:     return "x86";
+    case Arch::kRiscv32: return "riscv32";
+    case Arch::kRiscv64: return "riscv64";
+    default:             return "x86_64";
+  }
+}
 
 Options ParseArgs(int argc, char **argv) {
   Options opts;
   if (argc < 2) {
-    throw std::invalid_argument("Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64|wasm] "
-                                "[--format=elf|pobj|macho]");
+    throw std::invalid_argument(
+        "Usage: polyasm <input.ir> [output.o] [--arch=x86_64|arm64|wasm] "
+        "[--format=elf|pobj|macho] [--target=<triple>]");
   }
 
   opts.input = argv[1];
+  bool target_explicit = false;
+  bool arch_explicit = false;
   for (int i = 2; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg.rfind("--arch=", 0) == 0) {
       opts.arch = arg.substr(7);
+      arch_explicit = true;
     } else if (arg.rfind("--format=", 0) == 0) {
       opts.format = arg.substr(9);
+    } else if (arg.rfind("--target=", 0) == 0) {
+      // BIN-7: explicit triple; rejects malformed specs early so the
+      // backend never sees a half-resolved target.
+      std::string spec = arg.substr(9);
+      auto parsed = ::polyglot::common::ParseTargetTriple(spec);
+      if (!parsed.ok()) {
+        throw std::invalid_argument(
+            "polyasm: --target=" + spec + ": polyasm-err-E1100 " +
+            (parsed.error ? parsed.error->message : "invalid triple"));
+      }
+      opts.target_triple = *parsed.triple;
+      target_explicit = true;
     } else if (arg == "-o" && i + 1 < argc) {
       opts.output = argv[++i];
     } else if (opts.output.empty()) {
       opts.output = arg;
     }
+  }
+
+  // Reconcile --target / --arch.  Explicit --target wins; otherwise
+  // promote --arch into the canonical triple by combining it with the
+  // host vendor/OS/env so downstream tools still see a well-formed
+  // triple.
+  if (target_explicit) {
+    if (!arch_explicit) opts.arch = ArchFromTriple(opts.target_triple);
+  } else if (arch_explicit) {
+    auto host = ::polyglot::common::HostTriple();
+    using ::polyglot::common::Arch;
+    if (opts.arch == "x86_64") host.arch = Arch::kX86_64;
+    else if (opts.arch == "arm64" || opts.arch == "aarch64") host.arch = Arch::kAArch64;
+    else if (opts.arch == "wasm" || opts.arch == "wasm32") host.arch = Arch::kWasm32;
+    opts.target_triple = host;
   }
 
   if (opts.output.empty()) {
@@ -923,6 +976,37 @@ int main(int argc, char **argv) {
 
   std::ostringstream buffer;
   buffer << input.rdbuf();
+
+  // BIN-7: scan for an upstream `; target-triple: <spec>` annotation
+  // (emitted by polyopt) and warn when it disagrees with our own
+  // resolved target.  We deliberately only inspect the leading lines:
+  // the marker is a header comment, never embedded mid-stream, so this
+  // costs O(few-hundred-bytes) per invocation.
+  {
+    const std::string text = buffer.str();
+    std::istringstream iss(text);
+    std::string line;
+    int peeked = 0;
+    const std::string marker = "; target-triple:";
+    while (peeked < 16 && std::getline(iss, line)) {
+      ++peeked;
+      auto pos = line.find(marker);
+      if (pos == std::string::npos) continue;
+      std::string spec = line.substr(pos + marker.size());
+      // trim leading/trailing whitespace
+      auto a = spec.find_first_not_of(" \t\r");
+      auto b = spec.find_last_not_of(" \t\r");
+      if (a == std::string::npos) break;
+      spec = spec.substr(a, b - a + 1);
+      auto parsed = ::polyglot::common::ParseTargetTriple(spec);
+      if (parsed.ok() && *parsed.triple != opts.target_triple) {
+        std::cerr << "[warn] polyasm-warn-W1101 input target triple '"
+                  << parsed.triple->str() << "' differs from polyasm target '"
+                  << opts.target_triple.str() << "' in " << opts.input << "\n";
+      }
+      break;
+    }
+  }
 
   try {
     const auto object_path = polyglot::tools::Assemble(buffer.str(), opts);

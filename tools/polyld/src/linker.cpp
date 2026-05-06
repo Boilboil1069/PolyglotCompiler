@@ -1123,11 +1123,30 @@ bool Linker::ParseMachOSegments(std::ifstream &file, ObjectFile &obj, std::uint6
     section.object_file_index = static_cast<int>(objects_.size());
     section.original_addr = sect.addr;
 
-    // Convert flags
+    // Convert flags. In Mach-O *object* files the parent segment_command
+    // typically carries an empty segname (everything lives in a single
+    // unnamed segment); the meaningful classification is on each
+    // section_64 record's own `segname` field.  Use the section's
+    // segname first and fall back to the segment-command name only when
+    // the section omits one — otherwise every input section ends up
+    // tagged kAlloc-only and the executable writer routes user code
+    // into __DATA_CONST instead of __TEXT.
+    const std::string sect_seg(sect.segname, strnlen(sect.segname, 16));
+    const std::string &classify_seg =
+        !sect_seg.empty() ? sect_seg : segment_name;
     std::uint32_t section_type = sect.flags & 0xFF;
-    if (segment_name == "__TEXT") {
+    const std::uint32_t section_attrs = sect.flags & 0xFFFFFF00u;
+    const bool is_pure_instr =
+        (section_attrs & macho::S_ATTR_PURE_INSTRUCTIONS) != 0 ||
+        (section_attrs & macho::S_ATTR_SOME_INSTRUCTIONS) != 0;
+    if (classify_seg == "__TEXT" || is_pure_instr) {
       section.flags = SectionFlags::kAlloc | SectionFlags::kExecInstr;
-    } else if (segment_name == "__DATA") {
+    } else if (classify_seg == "__DATA" || classify_seg == "__DATA_DIRTY" ||
+               classify_seg == "__DATA_CONST") {
+      // __DATA_CONST is read-only at runtime but participates in the
+      // writable group during link-time partitioning so its
+      // contributions land in the right output bucket; fix-up is
+      // applied later when the segment's initprot is set.
       section.flags = SectionFlags::kAlloc | SectionFlags::kWrite;
     } else {
       section.flags = SectionFlags::kAlloc;
@@ -2962,6 +2981,16 @@ bool Linker::GenerateOutput() {
   case OutputFormat::kPEExecutable:
     // Legacy alias: explicit PE executable irrespective of triple.
     return GeneratePEExecutable();
+
+  case OutputFormat::kMachOBundle:
+    // MH_BUNDLE is a Mach-O-only product form; reject the request when
+    // the resolved container points elsewhere so that callers do not
+    // silently get an executable.
+    if (c != BinaryContainer::kMachO) {
+      ReportError("MachO bundle requested with non-Mach-O container");
+      return false;
+    }
+    return GenerateMachOBundle();
   }
 
   ReportError("Unknown output format / container combination");
@@ -3302,13 +3331,12 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
 // named `polyglot.text` so downstream tools can recover the linked
 // code.  Validates with `wasm-validate`.
 // ---------------------------------------------------------------------------
-bool Linker::GenerateWasmModule() {
-  std::ofstream out(config_.output_file, std::ios::binary);
-  if (!out) {
-    ReportError("Cannot create output file: " + config_.output_file);
-    return false;
-  }
-  Trace("Generating Wasm module: " + config_.output_file);
+// Wasm writer lives in `linker_wasm.cpp` so the parser, the
+// multi-module merger and the WASI entry-point validator stay
+// separable from the rest of the linker dispatch path.
+
+#if 0  // Legacy in-line wasm writer; superseded by linker_wasm.cpp.
+bool Linker::GenerateWasmModuleLegacy() {
 
   std::vector<std::uint8_t> bytes;
   auto u8 = [&](std::uint8_t v) { bytes.push_back(v); };
@@ -3374,6 +3402,7 @@ bool Linker::GenerateWasmModule() {
   stats_.total_output_size = bytes.size();
   return true;
 }
+#endif  // legacy wasm writer
 
 bool Linker::GeneratePEExecutable() {
   // Compose the PE32+ image from the merged .text bytes plus a Win32
@@ -3510,7 +3539,11 @@ bool Linker::GenerateELFSharedLibrary() {
   return ok;
 }
 
-bool Linker::GenerateMachOExecutable() {
+// Mach-O writers (executable / dylib / bundle) live in linker_macho.cpp.
+// The implementations are not duplicated here.
+
+#if 0  // legacy stub kept for git-blame archaeology only
+bool Linker::GenerateMachOExecutableLegacy() {
   std::ofstream out(config_.output_file, std::ios::binary);
   if (!out) {
     ReportError("Cannot create output file: " + config_.output_file);
@@ -3742,6 +3775,7 @@ bool Linker::GenerateMachODylib() {
   macho_emit_id_dylib_ = saved_id;
   return ok;
 }
+#endif
 
 // ============================================================================
 // Relocatable Output (partial link, -r)

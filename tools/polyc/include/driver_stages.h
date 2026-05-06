@@ -40,6 +40,8 @@
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
 #include "tools/polyld/include/linker.h"
+#include "common/include/binary_container.h"
+#include "common/include/target_triple.h"
 
 namespace polyglot::tools {
 
@@ -83,6 +85,20 @@ struct DriverSettings {
 
   // Toolchain
   std::string polyld_path{"polyld"};
+
+  // ---- BIN-7: target triple + container + PE subsystem + entry symbol ----
+  // `target_spec` is the verbatim text from `--target=<spec>` (empty when
+  // the user did not pass the flag; the driver then auto-fills via
+  // `polyglot::common::HostTriple()`).  `target_triple` is the parsed
+  // canonical form and is what the rest of the toolchain consumes.
+  // `container` is `kAuto` until the driver resolves it from the triple
+  // and any explicit `--container=<...>` override.  `subsystem` carries
+  // the optional PE subsystem name.  `entry_symbol` carries `--entry=<sym>`.
+  std::string                            target_spec{};
+  ::polyglot::common::TargetTriple       target_triple{};
+  ::polyglot::common::BinaryContainer    container{::polyglot::common::BinaryContainer::kAuto};
+  std::string                            subsystem{};
+  std::string                            entry_symbol{};
 
   // Mode flags
   bool force{false};

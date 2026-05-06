@@ -13,6 +13,67 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.42.4 (2026-05-06)
+
+- polyld Mach-O writer now emits `LC_DYLD_CHAINED_FIXUPS` (16-byte command
+  pointing at a 56-byte payload: 32-byte `dyld_chained_fixups_header`
+  followed by an empty `dyld_chained_starts_in_image`, padded to 8 bytes)
+  and `LC_DYLD_EXPORTS_TRIE` (16-byte command pointing at an 8-byte
+  empty trie).  Both load commands are inserted between the segment
+  block and `LC_SYMTAB`, matching the order produced by Apple's linker.
+- `BuildRequest::minos` and `BuildRequest::sdk` defaults bumped from
+  11.0 to 26.0 / 26.4 so the emitted `LC_BUILD_VERSION` matches the
+  current macOS Tahoe SDK on Apple Silicon hosts.
+- LINKEDIT segment `filesize` now equals the exact tail offset of the
+  embedded code-signature blob (previously rounded up to a page); the
+  segment `vmsize` continues to be page-aligned for the kernel mapper.
+- Result: AMFI no longer rejects the produced binary with
+  `"no CMS blob? Unrecoverable CT signature issue"`.  `codesign --verify
+  --strict` reports `valid on disk`.  Known limitation: macOS 26 still
+  blocks execve via `AppleSystemPolicy: ASP: Security policy would not
+  allow process` — a non-empty exports trie containing `_main` plus
+  `_mh_execute_header`, and `LC_FUNCTION_STARTS` / `LC_DATA_IN_CODE`
+  load commands, are likely the remaining gap and are scheduled next.
+- Regression: `[bin8],[bin7],[samples]` integration_tests pass — 151
+  assertions in 8 test cases.
+
+## v1.42.3 (2026-05-06)
+
+**Mach-O writer now emits an inline linker-signed code signature.**
+
+- Added `BuildLinkerSignedSignature` to `tools/polyld/src/linker_macho.cpp`: SHA-256 page-hash CodeDirectory (v=20400) wrapped in an embedded SuperBlob, with the `adhoc | linker-signed` flags and `execSeg` covering the `__TEXT` segment, written into the `LC_CODE_SIGNATURE` region after the rest of the image is laid out.
+- The CodeDirectory identifier defaults to the basename of the output file so `codesign -dvvvv` and `otool -l` report a stable, recognisable name.
+- `codesign -dvvvv` on the produced binary now reports `flags=0x20002(adhoc,linker-signed)`, matching what `clang -arch arm64` produces for an ad-hoc signed image; `codesign --verify --strict` reports `valid on disk`.
+- Known limitation: Apple Silicon's `AppleSystemPolicy` still rejects the produced binary at `execve(2)` because it lacks `LC_DYLD_CHAINED_FIXUPS` / `LC_DYLD_EXPORTS_TRIE`; static binaries without modern dyld metadata are not accepted by the kernel even when the linker-signed CodeDirectory verifies. Adding chained-fixup emission is the next milestone.
+
+## v1.42.2 (2026-05-06)
+
+**macOS Mach-O writer hardening — produced executables now pass `file`, `otool -h/-l/-tv` and `codesign -vv`.**
+
+- `EmitDylinkerCommand` cmdsize is now computed from the actual byte-aligned record length; the previous formula was 4 bytes short, causing the loader to walk into subsequent load commands at a 4-byte offset and read garbage `LC_LOAD_DYLIB` / `LC_BUILD_VERSION` records.
+- ARM64 Mach-O headers now emit `cpusubtype = CPU_SUBTYPE_ARM64_ALL` (0); the previous value (3, X86 `CPU_SUBTYPE_ALL`) caused `bad CPU type in executable` on Apple Silicon.
+- `LC_MAIN.entryoff` is now resolved to the real `__text` file offset; the previous fixed 0 jumped to the Mach header.
+- The Mach-O object parser now classifies section flags by the section's own `segname` instead of the parent segment's (which is empty for object files), so `__TEXT,__text` is correctly tagged `kExecInstr` and contributes user code to the linked image.
+- Mach-O writer now keeps the section data placement aligned with the section record's `offset` field (removed the spurious page pad before section data emission).
+- Known limitation: the produced ad-hoc signed binary is rejected by AMFI with code -423; full `dyld` interop (LINKEDIT capacity for code signature, DYSYMTAB symbol-count parity, bind opcodes to `_write`/`_exit`, backend `GOT_LOAD_PAGE21/PAGEOFF12` relocs) is the next milestone.
+
+---
+
+## v1.42.0 (2026-05-07)
+
+**Binary container release — closed cross-target matrix, CI integration, performance baselines, and "fake .exe" reverse assertion.**
+
+- `polyc --target=<triple>` / `--container=<auto|elf|pe|macho|wasm>` / `--subsystem=` / `--entry=` are first-class flags on every entry point in the toolchain (`polyc`, `polyld`, `polyasm`, `polyopt`, `polybench`, `polyrt`); each tool falls back to `common::HostTriple()` when no triple is given.
+- New `tests/integration/binary_matrix/binary_matrix_test.cpp` (`[bin8][binary_matrix]`) walks the 7 supported triples × 6 representative samples in three passes: a static helper-API consistency check, a live host-column compile that asserts the produced file's magic matches `ResolveContainer`, and a reverse assertion that proves `polyc -o foo.exe` on a non-Windows host emits the host's native magic AND raises `polyc-warn-W2101` (the "fake .exe (actually ELF / Mach-O)" regression is now permanently impossible).
+- `scripts/ci/run_binary_matrix.{sh,ps1}` drives the same matrix in CI, parking artefacts under `artifacts/binary_matrix/<triple>/` and probing for `dumpbin` / `otool` / `readelf` / `wasm-objdump` (gracefully degrading when none are available).
+- `scripts/build_all_samples.{sh,ps1}` are the cross-platform sample regression harnesses consumed by `tests/integration/samples_regression_test.cpp`; both flavours emit the same `samples_report.json` shape.
+- `polybench link` (also folded into `polybench all`) ships the four `pe_link_time` / `macho_link_time` / `elf_link_time` / `wasm_link_time` benchmarks, each writing to `benchmark_link_times.json` with the active `target_triple` stamped at the top.
+- Bilingual `docs/realization/binary_containers_{en,zh}.md` gain a "Release matrix and CI" + "Performance baselines" closure section. Top-level `README.md` ships a "Supported targets and binary containers" table covering all seven triples.
+- Version: `1.42.0-pre.5` → `1.42.0` (stable). `VERSION.txt` is regenerated from `POLYGLOT_VERSION_SUFFIX` (now empty).
+- Test-suite baselines: `integration_tests "[bin8]"` 65/3, `integration_tests "[bin7]"` 70/4, `integration_tests "[samples]"` 16/1.
+
+---
+
 ## v1.42.0-pre.4 (2026-05-05)
 
 **PE linker glue (BIN-4): real `Linker::GeneratePEDll`, `.def` files, export tables, relocation translation.**

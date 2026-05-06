@@ -2446,6 +2446,82 @@ The Debug panel (toggle via **View → Debug Panel**) provides interactive debug
 5. Inspect variables and call stack in the side panels; add watch expressions as needed
 6. Use the console tab to send raw debugger commands
 
+## 6.9 Cross compilation
+
+PolyglotCompiler ships a single canonical target-triple plumbing that runs
+from `polyc` through `polyld`, `polyasm`, `polyopt`, `polybench` and `polyrt`.
+Every entry point accepts the same `--target=<triple>` syntax and falls back
+to the host triple (derived from the build-time host configuration) when the
+flag is omitted.
+
+### 6.9.1 Driver flags
+
+| Flag | Purpose |
+| --- | --- |
+| `--target=<triple>` | Selects the target triple (e.g. `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `wasm32-wasi`). Invalid spec → `polyc-err-E1100`. |
+| `--container=<auto\|elf\|pe\|macho\|wasm>` | Overrides the binary container the driver and linker emit. Unknown name → `polyc-err-E1101`. |
+| `--subsystem=<name>` | PE-only subsystem hint forwarded to `polyld` (e.g. `console`, `windows`). |
+| `--entry=<sym>` | Overrides the linker entry symbol; forwarded to `polyld --entry`. |
+
+### 6.9.2 Default container per OS
+
+| OS family | Default container | Default executable suffix |
+| --- | --- | --- |
+| Linux / FreeBSD / unknown ELF | `elf` | (none) |
+| Windows | `pe` | `.exe` |
+| macOS / iOS | `macho` | (none) |
+| WASI / wasm32 | `wasm` | `.wasm` |
+
+`--container=auto` (the default) picks the row above based on the resolved
+triple; an explicit value always wins, which is the supported way to produce
+a foreign-format object on the local host.
+
+### 6.9.3 File-suffix policy
+
+`polyc` enforces a soft suffix policy at the driver level: when `-o` names an
+output file whose suffix does not match the container that the resolver has
+chosen for the target triple, the driver emits `polyc-warn-W2101` and keeps
+going. The policy applies to executable, shared-library, static-library and
+object outputs.
+
+### 6.9.4 Triple propagation
+
+Each downstream tool re-validates the triple it receives:
+
+* `polyld` accepts `--target=` / `--container=` / `--subsystem=` / `--entry=`
+  on its command line. `polyc` forwards them automatically when its chosen
+  linker is `polyld`.
+* `polyasm` and `polyopt` write `; target-triple: <spec>` as the first line
+  of their textual IR output and check the same marker on input. A mismatch
+  emits `polyasm-warn-W1101` / `polyopt-warn-W1101`.
+* `polybench` stamps the active triple into `target_triple` of every
+  benchmark JSON it writes and accepts `--target=` for cross-platform runs.
+* `polyrt` consumes `--target=` early, validates the spec and prints the
+  effective triple in its `info` table.
+
+### 6.9.5 Diagnostic codes
+
+| Code | Meaning |
+| --- | --- |
+| `polyc-err-E1100`, `polyld-err-E1100`, `polyasm-err-E1100`, `polyopt-err-E1100`, `polybench-err-E1100`, `polyrt-err-E1100` | `--target=` could not be parsed. |
+| `polyc-err-E1101`, `polyld-err-E1101` | `--container=` value was not one of `auto/elf/pe/macho/wasm`. |
+| `polyc-warn-W2101` | Output file suffix disagrees with the resolved container. |
+| `polyasm-warn-W1101`, `polyopt-warn-W1101` | Input artifact carries a triple that disagrees with the active `--target=`. |
+
+### 6.9.6 Example
+
+```bash
+# Build a Windows console binary on a macOS host.
+./polyc \
+    --target=x86_64-pc-windows-msvc \
+    --subsystem=console \
+    --entry=wWinMainCRTStartup \
+    -o app.exe app.ploy
+
+# Run a benchmark suite tagged for the cross-compile target.
+./polybench --target=aarch64-unknown-linux-gnu compilation
+```
+
 ---
 
 # 7. IR Design Specification

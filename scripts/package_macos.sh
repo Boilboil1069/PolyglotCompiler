@@ -34,7 +34,7 @@ SKIP_BUILD=false
 QT_ROOT=""
 
 # Tool executables produced by the build
-TOOL_EXES=(polyc polyld polyasm polyopt polyrt polybench)
+TOOL_EXES=(polyc polyld polyasm polyopt polyrt polybench polyver polydoc polyls polytopo)
 
 REFRESH_DEPS=false
 OFFLINE=false
@@ -173,7 +173,7 @@ else
     [[ "$REFRESH_DEPS" == "true" ]] && fetch_args+=(--refresh)
     [[ -n "$DEPS_MIRROR" ]] && fetch_args+=(--mirror "$DEPS_MIRROR")
     chmod +x "$FETCH_SCRIPT" 2>/dev/null || true
-    if bash "$FETCH_SCRIPT" "${fetch_args[@]}"; then
+    if bash "$FETCH_SCRIPT" ${fetch_args[@]+"${fetch_args[@]}"}; then
         echo "[OK] Dependency cache ready: $DEPS_CACHE"
     else
         if [[ "$OFFLINE" == "true" ]]; then
@@ -214,7 +214,7 @@ BUILD_PATH="${PROJECT_ROOT}/${BUILD_DIR}"
 # ============================================================================
 step "Staging portable distribution"
 
-STAGE_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}/${ARCHIVE_BASE}"/${VERSION}
+STAGE_DIR="${PROJECT_ROOT}/${OUTPUT_DIR}/stage/${ARCHIVE_BASE}"
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR/bin"
 mkdir -p "$STAGE_DIR/lib"
@@ -267,7 +267,7 @@ else
 fi
 
 # Copy top-level files (README and LICENSE only, docs excluded)
-for f in LICENSE; do
+for f in README.md LICENSE; do
     src="${PROJECT_ROOT}/${f}"
     if [[ -f "$src" ]]; then
         cp "$src" "$STAGE_DIR/"
@@ -282,7 +282,7 @@ step "Creating portable tar.gz archive"
 TARBALL="${PROJECT_ROOT}/${OUTPUT_DIR}/${ARCHIVE_BASE}-portable.tar.gz"
 rm -f "$TARBALL"
 
-cd "${PROJECT_ROOT}/${OUTPUT_DIR}"
+cd "${PROJECT_ROOT}/${OUTPUT_DIR}/stage"
 tar czf "$TARBALL" "$ARCHIVE_BASE"
 
 echo "[OK] Portable archive: $TARBALL"

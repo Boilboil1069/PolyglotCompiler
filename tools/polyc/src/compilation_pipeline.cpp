@@ -1048,6 +1048,27 @@ public:
       } else {
         std::string cmd =
             ExpandLinkCommand(choice, obj_out, out_path, config.ploy_desc_file, config.aux_dir);
+        // BIN-7: when the chosen linker is the bundled polyld, forward
+        // the resolved target-triple / container / subsystem / entry
+        // descriptors so the linker reaches the same conclusion as the
+        // driver instead of re-deriving them from the host macros.
+        if (choice.display_name.rfind("polyld", 0) == 0) {
+          cmd += " --target=" + config.target_triple.str();
+          cmd += " --container=";
+          switch (config.container) {
+            case ::polyglot::common::BinaryContainer::kAuto:  cmd += "auto";  break;
+            case ::polyglot::common::BinaryContainer::kELF:   cmd += "elf";   break;
+            case ::polyglot::common::BinaryContainer::kPE:    cmd += "pe";    break;
+            case ::polyglot::common::BinaryContainer::kMachO: cmd += "macho"; break;
+            case ::polyglot::common::BinaryContainer::kWasm:  cmd += "wasm";  break;
+          }
+          if (!config.subsystem.empty()) {
+            cmd += " --subsystem=" + config.subsystem;
+          }
+          if (!config.entry_symbol.empty()) {
+            cmd += " --entry " + config.entry_symbol;
+          }
+        }
         if (config.verbose) {
           std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_path << "\n";
         }
@@ -1071,19 +1092,77 @@ public:
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// BIN-7: bidirectional sync between the canonical target triple and the
+// legacy `target_arch` / `target_os` strings on `Config`.  These exist
+// so old callers that still poke the strings stay valid while the new
+// pipeline + downstream tools converge on `common::TargetTriple`.
+// ---------------------------------------------------------------------------
+void CompilationContext::Config::SetTargetTriple(
+    const ::polyglot::common::TargetTriple &t) {
+  target_triple = t;
+  using ::polyglot::common::Arch;
+  using ::polyglot::common::OS;
+  switch (t.arch) {
+    case Arch::kX86_64:  target_arch = "x86_64"; break;
+    case Arch::kAArch64: target_arch = "arm64";  break;
+    case Arch::kX86:     target_arch = "x86";    break;
+    case Arch::kArm:     target_arch = "arm";    break;
+    case Arch::kRiscv32: target_arch = "riscv32";break;
+    case Arch::kRiscv64: target_arch = "riscv64";break;
+    case Arch::kWasm32:  target_arch = "wasm";   break;
+    case Arch::kWasm64:  target_arch = "wasm64"; break;
+    default: break;
+  }
+  switch (t.os) {
+    case OS::kLinux:   target_os = "linux"; break;
+    case OS::kDarwin:  target_os = "macos"; break;
+    case OS::kWindows: target_os = "windows"; break;
+    case OS::kFreeBSD: target_os = "freebsd"; break;
+    case OS::kWasi:    target_os = "wasi"; break;
+    case OS::kNone:    target_os = "none"; break;
+    case OS::kUnknown: /* leave as-is */ break;
+  }
+}
+
+void CompilationContext::Config::SetTargetOs(const std::string &os) {
+  target_os = os;
+  // Fold the legacy short OS name into a canonical triple via the
+  // shared parser so we never duplicate the OS-name table.  Pick a
+  // sensible default arch when target_arch is empty.
+  std::string arch_part = target_arch.empty() ? std::string{"x86_64"} : target_arch;
+  if (arch_part == "arm64") arch_part = "aarch64";
+  std::string spec;
+  if (os == "windows")     spec = arch_part + "-pc-windows-msvc";
+  else if (os == "macos" || os == "darwin")
+                           spec = arch_part + "-apple-darwin";
+  else if (os == "linux")  spec = arch_part + "-unknown-linux-gnu";
+  else if (os == "wasi" || os == "wasm")
+                           spec = "wasm32-wasi";
+  if (!spec.empty()) {
+    auto r = ::polyglot::common::ParseTargetTriple(spec);
+    if (r.ok()) target_triple = *r.triple;
+  }
+}
+
 CompilationPipeline::CompilationPipeline(CompilationContext::Config config) {
   context_.config = std::move(config);
 
-  if (!context_.config.target_os.empty()) {
-    // keep caller supplied value
+  // ---- BIN-7: keep target_triple / target_os / target_arch in sync.
+  // The driver may have populated any subset of those.  Resolve to a
+  // single canonical triple via the dedicated setters defined just
+  // below, then derive the legacy strings from that.
+  using ::polyglot::common::Arch;
+  using ::polyglot::common::HostTriple;
+  using ::polyglot::common::OS;
+  if (context_.config.target_triple.arch != Arch::kUnknown ||
+      context_.config.target_triple.os   != OS::kUnknown) {
+    // Caller already provided a triple — fold it into legacy fields.
+    context_.config.SetTargetTriple(context_.config.target_triple);
+  } else if (!context_.config.target_os.empty()) {
+    context_.config.SetTargetOs(context_.config.target_os);
   } else {
-#if defined(_WIN32)
-    context_.config.target_os = "windows";
-#elif defined(__APPLE__)
-    context_.config.target_os = "macos";
-#else
-    context_.config.target_os = "linux";
-#endif
+    context_.config.SetTargetTriple(HostTriple());
   }
 
   context_.package_cache = std::make_shared<ploy::PackageDiscoveryCache>();

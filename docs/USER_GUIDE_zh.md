@@ -2367,6 +2367,77 @@ CMakeLists.txt          ← 项目设置、编译选项、依赖项、add_subdir
 5. 在侧边面板中检查变量和调用栈；根据需要添加监视表达式
 6. 使用控制台标签发送原始调试器命令
 
+## 6.9 交叉编译
+
+PolyglotCompiler 提供一套统一的目标三元组（target triple）传递通道，
+贯穿 `polyc`、`polyld`、`polyasm`、`polyopt`、`polybench` 和 `polyrt`。
+所有入口都接受相同的 `--target=<triple>` 语法；未指定时回退到由编译期
+宿主配置推导出的 host triple。
+
+### 6.9.1 驱动选项
+
+| 选项 | 作用 |
+| --- | --- |
+| `--target=<triple>` | 选择目标三元组（如 `x86_64-unknown-linux-gnu`、`aarch64-apple-darwin`、`wasm32-wasi`）。无效格式 → `polyc-err-E1100`。 |
+| `--container=<auto\|elf\|pe\|macho\|wasm>` | 覆盖驱动与链接器使用的二进制容器格式。未知值 → `polyc-err-E1101`。 |
+| `--subsystem=<name>` | PE 专用子系统提示，转发给 `polyld`（如 `console`、`windows`）。 |
+| `--entry=<sym>` | 覆盖链接器入口符号；以 `--entry` 透传到 `polyld`。 |
+
+### 6.9.2 默认容器（按操作系统）
+
+| 操作系统类别 | 默认容器 | 默认可执行后缀 |
+| --- | --- | --- |
+| Linux / FreeBSD / 通用 ELF | `elf` | （无） |
+| Windows | `pe` | `.exe` |
+| macOS / iOS | `macho` | （无） |
+| WASI / wasm32 | `wasm` | `.wasm` |
+
+`--container=auto`（默认值）会按上表依据已解析三元组自动选择；显式指定的
+值始终优先，这是受支持的“在本地宿主上产出异构容器”路径。
+
+### 6.9.3 文件后缀策略
+
+`polyc` 在驱动层施加“软性”后缀策略：当 `-o` 指定的文件后缀与三元组解析
+出的容器不匹配时，驱动会发出 `polyc-warn-W2101` 但继续编译。该策略覆盖
+可执行文件、共享库、静态库与目标文件四类输出。
+
+### 6.9.4 三元组的下游传递
+
+每个下游工具都会再次校验自己收到的三元组：
+
+* `polyld` 接受 `--target=` / `--container=` / `--subsystem=` / `--entry=`；
+  当 `polyc` 选中的链接器是 `polyld` 时这些参数会自动透传。
+* `polyasm` 与 `polyopt` 在文本 IR 输出的首行写入 `; target-triple: <spec>`
+  并在输入侧检查同一标记；不一致时分别发出 `polyasm-warn-W1101` 与
+  `polyopt-warn-W1101`。
+* `polybench` 在每份基准 JSON 中写入顶层 `target_triple` 字段，并接受
+  `--target=` 以支持跨平台跑分。
+* `polyrt` 在最早期消费 `--target=` 并校验，将生效的三元组打印在
+  `info` 表中。
+
+### 6.9.5 诊断码
+
+| 诊断码 | 含义 |
+| --- | --- |
+| `polyc-err-E1100`、`polyld-err-E1100`、`polyasm-err-E1100`、`polyopt-err-E1100`、`polybench-err-E1100`、`polyrt-err-E1100` | `--target=` 无法解析。 |
+| `polyc-err-E1101`、`polyld-err-E1101` | `--container=` 取值不在 `auto/elf/pe/macho/wasm` 中。 |
+| `polyc-warn-W2101` | 输出文件后缀与解析得到的容器不一致。 |
+| `polyasm-warn-W1101`、`polyopt-warn-W1101` | 输入 IR 内的三元组与当前 `--target=` 不一致。 |
+
+### 6.9.6 示例
+
+```bash
+# 在 macOS 宿主上构建一个 Windows 控制台程序
+./polyc \
+    --target=x86_64-pc-windows-msvc \
+    --subsystem=console \
+    --entry=wWinMainCRTStartup \
+    -o app.exe app.ploy
+
+# 为交叉编译目标跑一组基准
+./polybench --target=aarch64-unknown-linux-gnu compilation
+```
+
 ---
 
 # 7. IR 设计规范

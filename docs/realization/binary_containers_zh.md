@@ -170,3 +170,38 @@ DLL 名称                (ASCIZ)
 | `R_AARCH64_LDST64_ABS_LO12_NC` | — | ARM64 PAGEOFFSET_12L (9) |
 
 PC 相对条目直接跳过（PE 基址重定位只修正绝对地址）。其他类型——包括仅在 ELF 上有意义的 `R_X86_64_GOTPCREL` 等 GOT/PLT 编码——会被记录为 `polyld-err-E3210` 并使函数返回 `false`；为了一次性暴露完整的不兼容集合，剩余条目仍会继续翻译。
+
+## 发布矩阵与 CI
+
+PolyglotCompiler 1.42.0 提供一套闭合的二进制容器矩阵：7 个目标三元组
+× 6 个代表性样例（`01_basic_linking`、`05_class_instantiation`、
+`22_database_access`、`11_java_interop`、`14_async_pipeline`、
+`19_file_io`），由 `tests/integration/binary_matrix/` 分三步覆盖：
+
+1. **静态格** — 每个格子都通过 `ResolveContainer(triple, kAuto)` 与
+   `SuffixesFor(container)` 进行交叉校验，确保帮助 API 之间不漂移。
+2. **本机直跑列** — 与宿主三元组匹配的那一列实际调用
+   `polyc -o <out>`；产物 magic（`\x7FELF`、`MZ`、`\xCF\xFA\xED\xFE`、
+   `\0asm`）必须与解析器选定的容器一致。
+3. **反向断言** — 在非 Windows 宿主上要求 polyc 产出 `*.exe` 时，必须
+   (a) 触发 `polyc-warn-W2101`，并且 (b) 文件 magic 必须是宿主原生容器、
+   绝不能是 PE。这条断言永久封死了 1.5.0 之前可能出现的“假 .exe（实
+   际是 ELF/Mach-O）”回归。
+
+`scripts/ci/run_binary_matrix.{sh,ps1}` 用同一矩阵驱动 CI，把产物落到
+`artifacts/binary_matrix/<triple>/`。脚本会探测 `dumpbin` / `otool` /
+`readelf` / `wasm-objdump`，全部缺失时回退到内置字节读取器。
+
+`scripts/build_all_samples.{sh,ps1}` 是 `tests/integration/
+samples_regression_test.cpp` 使用的跨平台回归对应物；两种实现产出同一
+份 `samples_report.json`（状态桶：`OK`、`OUTPUT_MISMATCH`、
+`EMPTY_STDOUT`、`RUN_FAIL`、`LINK_FAIL`、`COMPILE_FAIL`、`SKIP`）。
+
+## 性能基线
+
+`polybench link` 把每种容器的拼装开销暴露为四个单次度量：
+`pe_link_time`、`macho_link_time`、`elf_link_time`、`wasm_link_time`。
+每次度量都拼装一个 4 KiB payload 的骨架镜像，形状与生产写出器对 hello
+world 程序的输出一致；结果以 `benchmark_link_times.json` 保存，并在顶
+层附上当前生效的 `target_triple`。在 2026 年的 Apple Silicon 宿主上参考
+值约为 0.08–0.13 ms/次；CI 以相对 1.4.x ELF 基线 `+15%` 作为回归阈值。

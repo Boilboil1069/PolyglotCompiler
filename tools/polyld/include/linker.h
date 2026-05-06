@@ -398,7 +398,8 @@ enum class OutputFormat {
   kSharedLibrary, // Dynamic shared object (.so, .dylib)
   kRelocatable,   // Relocatable object file (partial link)
   kStaticLibrary, // Static library archive
-  kPEExecutable   // Windows PE32+ console executable (.exe)
+  kPEExecutable,  // Windows PE32+ console executable (.exe)
+  kMachOBundle    // Mach-O MH_BUNDLE loadable plugin (.bundle)
 };
 
 // Target architecture
@@ -426,6 +427,13 @@ struct LinkerConfig {
   // "windows").  When non-empty it is folded into `target_triple` if the
   // latter is still default-constructed.
   std::string target_os;
+
+  // ---- BIN-7: PE/COFF subsystem override -------------------------------
+  // Optional textual subsystem name ("console", "windows", "efi", ...).
+  // When empty the writer picks a sensible default for the resolved
+  // container ("console" on PE, ignored elsewhere).  Used by polyc to
+  // forward `--subsystem=<name>` from the user-facing driver CLI.
+  std::string subsystem;
 
   // Memory layout
   std::uint64_t base_address{0x400000}; // ELF default base for x86_64
@@ -626,8 +634,13 @@ private:
   // Output generation
   bool GenerateELFExecutable();
   bool GenerateELFSharedLibrary();
+  // Mach-O writers (implementation lives in `linker_macho.cpp`).  The
+  // bundle variant carries `MH_BUNDLE` filetype and is exposed as a
+  // direct method rather than via an `OutputFormat` value: it is an
+  // additional product form rather than a different intent.
   bool GenerateMachOExecutable();
   bool GenerateMachODylib();
+  bool GenerateMachOBundle();
   bool GenerateRelocatable();
   bool GenerateStaticLibrary();
   bool GeneratePEExecutable();

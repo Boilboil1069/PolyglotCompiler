@@ -255,6 +255,37 @@ PolyglotCompiler uses its own frontends to compile **all** languages (C++, Pytho
 | Benchmark | `polybench` | Performance evaluation suite |
 | IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel (with grouping and batch operations), Profiler panel (`Ctrl+Alt+P` — flame / hotspots / timeline / per-language breakdown driven by `polybench`+`polyrt`), Call Analyzer panel (`Ctrl+Alt+G` — static call graph from `polyc --emit=call-graph` with caller/callee trees and bounded DFS path search), file templates, and compilation |
 
+### Supported targets and binary containers / 支持的目标平台与容器格式
+
+`polyc --target=<triple>` and `polyc --container=<auto|elf|pe|macho|wasm>`
+let the same toolchain emit native binaries for every cell in the table
+below.  Omitting `--target` falls back to `common::HostTriple()`; the
+container default is derived from the OS family (column 3).  The
+file-suffix policy raises `polyc-warn-W2101` when the `-o` suffix and
+the resolved container disagree.
+
+| Triple | Container | Default exec suffix |
+| --- | --- | --- |
+| `x86_64-pc-windows-msvc`     | PE      | `.exe`  |
+| `aarch64-pc-windows-msvc`    | PE      | `.exe`  |
+| `x86_64-unknown-linux-gnu`   | ELF     | (none)  |
+| `aarch64-unknown-linux-gnu`  | ELF     | (none)  |
+| `x86_64-apple-darwin`        | Mach-O  | (none)  |
+| `aarch64-apple-darwin`       | Mach-O  | (none)  |
+| `wasm32-wasi`                | Wasm    | `.wasm` |
+
+`scripts/ci/run_binary_matrix.{sh,ps1}` exercises every cell in CI;
+`tests/integration/binary_matrix/` keeps the matrix honest in the
+regression suite.
+
+`polyc --target=<triple>` 与 `polyc --container=<auto|elf|pe|macho|wasm>`
+让同一套工具链可以为上表每一格输出原生产物。未指定 `--target` 时回退
+到 `common::HostTriple()`；未指定 `--container` 时按 OS 族自动推导（第
+三列）。当 `-o` 后缀与解析得到的容器不匹配时，驱动会发出
+`polyc-warn-W2101` 警告。`scripts/ci/run_binary_matrix.{sh,ps1}` 在 CI 中
+驱动整个矩阵；`tests/integration/binary_matrix/` 在回归套件里持续守护
+该矩阵。
+
 ---
 
 ## Plugin System / 插件系统

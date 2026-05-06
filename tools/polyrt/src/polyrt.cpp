@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/include/version.h"
+#include "common/include/target_triple.h"
 #include "runtime/include/gc/gc_api.h"
 #include "runtime/include/gc/gc_strategy.h"
 #include "runtime/include/gc/heap.h"
@@ -158,6 +159,37 @@ void PrintVersion() {
   std::cout << kToolName << " version " << kVersion << "\n";
   std::cout << "Part of the Polyglot Compiler Toolchain\n";
   std::cout << "Copyright (c) 2025 Polyglot Project Contributors\n";
+}
+
+// BIN-7: process-wide target triple, set by `--target=<spec>` if the
+// user passed one, otherwise the host triple.  Stamped into the
+// `polyrt info` report so consumers can correlate runtime telemetry
+// across host/target pairs.
+::polyglot::common::TargetTriple g_polyrt_target_triple =
+    ::polyglot::common::HostTriple();
+
+// Strip any `--target=<spec>` occurrences from argv before sub-command
+// dispatch so the CmdXxx handlers stay agnostic to BIN-7 plumbing.
+// Returns true on success; reports + returns false on a malformed spec.
+bool ConsumeTargetFlag(int &argc, char **argv) {
+  int w = 0;
+  for (int r = 0; r < argc; ++r) {
+    std::string a = argv[r];
+    if (a.rfind("--target=", 0) == 0) {
+      auto parsed = ::polyglot::common::ParseTargetTriple(a.substr(9));
+      if (!parsed.ok()) {
+        std::cerr << "polyrt: --target=" << a.substr(9)
+                  << ": polyrt-err-E1100 "
+                  << (parsed.error ? parsed.error->message : "invalid triple") << "\n";
+        return false;
+      }
+      g_polyrt_target_triple = *parsed.triple;
+      continue;
+    }
+    argv[w++] = argv[r];
+  }
+  argc = w;
+  return true;
 }
 
 /** @name - */
@@ -987,6 +1019,11 @@ int CmdInfo(int argc, char **argv) {
       "Unknown"
 #endif
             << "|\n";
+  // BIN-7: surface the resolved target triple alongside the historical
+  // platform / architecture lines so cross-compiled deployments report
+  // their own target rather than the host build macros.
+  std::cout << "| Target Triple:  " << std::left << std::setw(40)
+            << g_polyrt_target_triple.str() << "|\n";
   std::cout << "+==========================================================+\n\n";
 
   if (show_features) {
@@ -1303,6 +1340,11 @@ int CmdAsync(int argc, char **argv) {
 // ============================================================================
 
 int Run(int argc, char **argv) {
+  // BIN-7: peel `--target=<spec>` off argv first so every sub-command
+  // sees an argv free of cross-compilation noise.
+  if (!ConsumeTargetFlag(argc, argv)) {
+    return 1;
+  }
   if (argc < 2) {
     PrintUsage();
     return 1;

@@ -12,6 +12,65 @@
 
 ---
 
+## v1.42.4 (2026-05-06)
+
+- polyld 的 Mach-O 写出器新增 `LC_DYLD_CHAINED_FIXUPS`(16 字节命令指向
+  56 字节负载:32 字节 `dyld_chained_fixups_header` 加一段空的
+  `dyld_chained_starts_in_image`,按 8 字节对齐补零)与
+  `LC_DYLD_EXPORTS_TRIE`(16 字节命令指向 8 字节空 trie)。两条命令插入
+  在段块与 `LC_SYMTAB` 之间,与 Apple 链接器输出的顺序保持一致。
+- `BuildRequest::minos`、`BuildRequest::sdk` 默认值由 11.0 提升至
+  26.0 / 26.4,使 `LC_BUILD_VERSION` 与当前 Apple Silicon 上的 macOS
+  Tahoe SDK 一致。
+- LINKEDIT 段的 `filesize` 改为代码签名 blob 末尾的精确偏移
+  (此前被向上对齐到一页);段 `vmsize` 仍然按页对齐供内核映射使用。
+- 效果:AMFI 不再以 `"no CMS blob? Unrecoverable CT signature issue"`
+  拒绝产物,`codesign --verify --strict` 输出 `valid on disk`。
+  已知限制:macOS 26 内核仍会在 execve 阶段以
+  `AppleSystemPolicy: ASP: Security policy would not allow process`
+  拦截执行。下一步将补齐包含 `_main` 与 `_mh_execute_header` 的真实
+  exports trie,以及 `LC_FUNCTION_STARTS` / `LC_DATA_IN_CODE` 两条
+  Linkedit-data 命令。
+- 回归:`[bin8],[bin7],[samples]` integration_tests 通过 — 8 个用例、
+  151 条断言。
+
+## v1.42.3 (2026-05-06)
+
+**Mach-O 写出器现在内联生成 linker-signed 代码签名。**
+
+- `tools/polyld/src/linker_macho.cpp` 新增 `BuildLinkerSignedSignature`：在镜像其余部分布局完成后，写出一个 SHA-256 page-hash CodeDirectory（v=20400），外层封装为 embedded SuperBlob，flags 为 `adhoc | linker-signed`，`execSeg` 覆盖 `__TEXT` segment，整体写入 `LC_CODE_SIGNATURE` 区域。
+- CodeDirectory identifier 默认取输出文件的 basename，使 `codesign -dvvvv` 与 `otool -l` 报告稳定且可识别的名称。
+- 产出二进制的 `codesign -dvvvv` 现在显示 `flags=0x20002(adhoc,linker-signed)`，与 `clang -arch arm64` 产出的 ad-hoc 签名一致；`codesign --verify --strict` 显示 `valid on disk`。
+- 已知限制：Apple Silicon 的 `AppleSystemPolicy` 在 `execve(2)` 时仍会拒绝该二进制，原因是缺少 `LC_DYLD_CHAINED_FIXUPS` / `LC_DYLD_EXPORTS_TRIE`；缺少现代 dyld 元数据的静态二进制即使 linker-signed CodeDirectory 校验通过也无法被内核接受。下一阶段里程碑是补齐 chained-fixups 发射。
+
+## v1.42.2 (2026-05-06)
+
+**macOS Mach-O 写出器加固 — 产出可执行文件现在能通过 `file`、`otool -h/-l/-tv`、`codesign -vv`。**
+
+- `EmitDylinkerCommand` 的 cmdsize 改为以实际对齐后的记录长度计算；之前的公式少了 4 字节，导致加载器在后续加载命令上偏移 4 字节，把 `LC_LOAD_DYLIB` / `LC_BUILD_VERSION` 读成乱码。
+- ARM64 Mach-O 头现在写 `cpusubtype = CPU_SUBTYPE_ARM64_ALL`（0）；之前是 X86 的 `CPU_SUBTYPE_ALL`（3），在 Apple Silicon 上被内核判为 `bad CPU type in executable`。
+- `LC_MAIN.entryoff` 现在指向真实的 `__text` 文件偏移；之前固定为 0，跳入 Mach 头。
+- Mach-O 目标文件解析器现在按 section 自身的 `segname` 划分 section flags（而不是父 segment 的，后者在 obj 中为空串），`__TEXT,__text` 能被正确打 `kExecInstr` 标记、把用户代码带进最终镜像。
+- Mach-O 写出器保证 section 数据位置与 section record 的 `offset` 字段一致（删除了 section 数据发射前多余的 page pad）。
+- 已知限制：产出的 ad-hoc 签名产物仍被 AMFI 以 -423 拒接；完整的 `dyld` 互联（LINKEDIT 为代码签名预留容量、DYSYMTAB 计数与实际符号表一致、到 `_write`/`_exit` 的 dyld bind opcodes、后端 Mach-O `GOT_LOAD_PAGE21/PAGEOFF12` reloc）是下一阶段里程碑。
+
+---
+
+## v1.42.0 (2026-05-07)
+
+**二进制容器正式发布 — 闭合的跨目标矩阵、CI 集成、性能基线，以及“假 .exe”反向断言。**
+
+- `polyc --target=<triple>` / `--container=<auto|elf|pe|macho|wasm>` / `--subsystem=` / `--entry=` 是工具链每个入口（`polyc`、`polyld`、`polyasm`、`polyopt`、`polybench`、`polyrt`）的一等公民；未指定三元组时统一回退到 `common::HostTriple()`。
+- 新增 `tests/integration/binary_matrix/binary_matrix_test.cpp`（`[bin8][binary_matrix]`），按 7 个支持的三元组 × 6 个代表性样例分三步覆盖：静态帮助 API 一致性、本机直跑列（产物 magic 必须与 `ResolveContainer` 一致）、反向断言（在非 Windows 宿主上要求 `polyc -o foo.exe` 时，必须产出宿主原生 magic 并触发 `polyc-warn-W2101`，从此“假 .exe（实际是 ELF/Mach-O）”回归永远不可能）。
+- `scripts/ci/run_binary_matrix.{sh,ps1}` 在 CI 中驱动同一矩阵，把产物落到 `artifacts/binary_matrix/<triple>/`，并探测 `dumpbin` / `otool` / `readelf` / `wasm-objdump`（缺失时优雅降级）。
+- `scripts/build_all_samples.{sh,ps1}` 是 `tests/integration/samples_regression_test.cpp` 使用的跨平台样例回归脚手架；两套实现产出相同形状的 `samples_report.json`。
+- `polybench link`（同时被并入 `polybench all`）新增四条基准：`pe_link_time` / `macho_link_time` / `elf_link_time` / `wasm_link_time`，结果写入 `benchmark_link_times.json` 并在顶层标注当前生效的 `target_triple`。
+- 双语 `docs/realization/binary_containers_{en,zh}.md` 新增 “发布矩阵与 CI” 与 “性能基线” 收口章节；顶级 `README.md` 增加 “支持的目标平台与容器格式” 表格，覆盖全部 7 个三元组。
+- 版本号：`1.42.0-pre.5` → `1.42.0`（正式发布）。`VERSION.txt` 由 `POLYGLOT_VERSION_SUFFIX`（现为空）重新生成。
+- 测试基线：`integration_tests "[bin8]"` 65/3、`integration_tests "[bin7]"` 70/4、`integration_tests "[samples]"` 16/1。
+
+---
+
 ## v1.42.0-pre.4 (2026-05-05)
 
 **PE 链接胶水（BIN-4）：真正的 `Linker::GeneratePEDll`、`.def` 文件、导出表、重定位翻译。**

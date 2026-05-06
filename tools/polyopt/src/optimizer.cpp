@@ -16,6 +16,7 @@
 #include "middle/include/ir/ir_parser.h"
 #include "middle/include/ir/ir_printer.h"
 #include "middle/include/passes/pass_manager.h"
+#include "common/include/target_triple.h"
 
 namespace polyglot::tools {
 
@@ -37,6 +38,9 @@ static void PrintUsage(const char *argv0) {
   std::cerr << "  -O1          Basic optimisations (constant fold + DCE)\n";
   std::cerr << "  -O2          Standard optimisations (+ CSE + inlining) [default]\n";
   std::cerr << "  -O3          Aggressive optimisations (loop, vectorisation, etc.)\n";
+  std::cerr << "  --target=<t> Target triple (BIN-7), e.g. x86_64-unknown-linux-gnu;\n";
+  std::cerr << "               defaults to the host triple.  Emitted as a\n";
+  std::cerr << "               `; target-triple:` header in the optimised IR.\n";
   std::cerr << "  --help       Show this message\n";
 }
 
@@ -44,6 +48,10 @@ int main(int argc, char *argv[]) {
   std::string input_file;
   std::string output_file;
   int opt_level = 2;
+  // BIN-7: own resolved target triple.  Defaults to the host triple
+  // and is overridable via `--target=<spec>`.
+  ::polyglot::common::TargetTriple target_triple = ::polyglot::common::HostTriple();
+  bool target_explicit = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
@@ -60,6 +68,17 @@ int main(int argc, char *argv[]) {
       opt_level = 2;
     } else if (arg == "-O3") {
       opt_level = 3;
+    } else if (arg.rfind("--target=", 0) == 0) {
+      std::string spec = arg.substr(9);
+      auto parsed = ::polyglot::common::ParseTargetTriple(spec);
+      if (!parsed.ok()) {
+        std::cerr << "[error] --target=" << spec
+                  << ": polyopt-err-E1100 "
+                  << (parsed.error ? parsed.error->message : "invalid triple") << "\n";
+        return 1;
+      }
+      target_triple = *parsed.triple;
+      target_explicit = true;
     } else if (arg[0] != '-') {
       input_file = arg;
     } else {
@@ -85,6 +104,36 @@ int main(int argc, char *argv[]) {
   std::string ir_text = buf.str();
   in.close();
 
+  // BIN-7: detect upstream `; target-triple:` annotation and warn when
+  // it disagrees with our own resolved triple.
+  {
+    std::istringstream iss(ir_text);
+    std::string line;
+    int peeked = 0;
+    const std::string marker = "; target-triple:";
+    while (peeked < 16 && std::getline(iss, line)) {
+      ++peeked;
+      auto pos = line.find(marker);
+      if (pos == std::string::npos) continue;
+      std::string spec = line.substr(pos + marker.size());
+      auto a = spec.find_first_not_of(" \t\r");
+      auto b = spec.find_last_not_of(" \t\r");
+      if (a == std::string::npos) break;
+      spec = spec.substr(a, b - a + 1);
+      auto parsed = ::polyglot::common::ParseTargetTriple(spec);
+      if (parsed.ok() && *parsed.triple != target_triple) {
+        std::cerr << "[warn] polyopt-warn-W1101 input target triple '"
+                  << parsed.triple->str() << "' differs from polyopt target '"
+                  << target_triple.str() << "' in " << input_file << "\n";
+      } else if (parsed.ok() && !target_explicit) {
+        // Adopt the upstream triple when the user did not override it
+        // explicitly so the emitted header round-trips faithfully.
+        target_triple = *parsed.triple;
+      }
+      break;
+    }
+  }
+
   // Build an IRContext by parsing the textual IR representation.
   polyglot::ir::IRContext ctx;
   std::string parse_error;
@@ -98,6 +147,9 @@ int main(int argc, char *argv[]) {
 
   // Emit the optimised IR.
   std::ostringstream ir_out;
+  // BIN-7: prepend a `; target-triple:` header so polyasm and other
+  // downstream tools can detect mismatches.
+  ir_out << "; target-triple: " << target_triple.str() << "\n";
   polyglot::ir::PrintModule(ctx, ir_out);
   std::string output_text = ir_out.str();
 

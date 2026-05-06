@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(PolyglotCompiler VERSION 1.42.0 LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.42.4 LANGUAGES C CXX)
 # Pre-release tag appended to the canonical version when emitting files
 # and headers (e.g. "1.42.0-pre.1").  Empty for stable releases.
-set(POLYGLOT_VERSION_SUFFIX "-pre.4")
+set(POLYGLOT_VERSION_SUFFIX "")
 set(POLYGLOT_VERSION_FULL "${PROJECT_VERSION}${POLYGLOT_VERSION_SUFFIX}")
 
 # ============================================================================

@@ -82,6 +82,8 @@ target_link_libraries(polyasm
 add_library(linker_lib
     polyld/src/linker.cpp
     polyld/src/linker_pe.cpp
+    polyld/src/linker_macho.cpp
+    polyld/src/linker_wasm.cpp
     polyld/src/polyglot_linker.cpp
     polyld/src/pe_writer.cpp
 )
@@ -564,7 +566,7 @@ if(Qt6_FOUND OR Qt5_FOUND)
             frontend_python frontend_cpp frontend_rust frontend_ploy
             frontend_java frontend_dotnet frontend_common
             frontend_javascript frontend_ruby frontend_go
-            backend_x86_64 backend_arm64 backend_wasm
+            backend_x86_64 backend_arm64 backend_wasm backend_common
             middle_ir runtime polyglot_common linker_lib topo_lib
         )
         foreach(_tgt IN LISTS _POLYUI_DYLIB_TARGETS)

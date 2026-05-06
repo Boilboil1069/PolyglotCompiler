@@ -52,7 +52,8 @@ $VersionLines = Get-Content (Join-Path $ProjectRoot "VERSION.txt")
 $Version       = $VersionLines[0].Trim()
 $ProductName   = $VersionLines[1].Trim()
 $ArchiveBase   = "${ProductName}-${Version}-windows-x64"
-$StageDir      = Join-Path $OutputDir $ArchiveBase
+$StageRoot     = Join-Path (Join-Path $ProjectRoot $OutputDir) "stage"
+$StageDir      = Join-Path $StageRoot $ArchiveBase
 $NsisScript    = Join-Path $PSScriptRoot "installer.nsi"
 
 # List of tool executables produced by the build
@@ -62,7 +63,11 @@ $ToolExes = @(
     "polyasm.exe",
     "polyopt.exe",
     "polyrt.exe",
-    "polybench.exe"
+    "polybench.exe",
+    "polyver.exe",
+    "polydoc.exe",
+    "polyls.exe",
+    "polytopo.exe"
 )
 
 # ============================================================================
@@ -349,7 +354,7 @@ if (Test-Path $ZipPath) { Remove-Item $ZipPath }
 # Use .NET compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
-    (Join-Path (Join-Path $ProjectRoot $OutputDir) "stage"),
+    $StageDir,
     $ZipPath,
     [System.IO.Compression.CompressionLevel]::Optimal,
     $true  # include base directory name

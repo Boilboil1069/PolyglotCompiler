@@ -39,7 +39,7 @@ SKIP_DEPS=false
 DEPS_MIRROR=""
 
 # Tool executables produced by the build
-TOOL_EXES=(polyc polyld polyasm polyopt polyrt polybench)
+TOOL_EXES=(polyc polyld polyasm polyopt polyrt polybench polyver polydoc polyls polytopo)
 
 # ============================================================================
 # Argument parsing

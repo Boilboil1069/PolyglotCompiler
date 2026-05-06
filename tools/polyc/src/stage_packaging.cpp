@@ -1188,9 +1188,29 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
         bridge.descriptor_file.empty() ? std::string{} : " --ploy-desc " + bridge.descriptor_file;
     std::string aux_arg = aux_dir.empty() ? std::string{} : " --aux-dir " + aux_dir;
 
+    // BIN-7: build the polyld pass-through tail once and reuse for both
+    // the pobj-direct and probe-and-invoke branches.  Empty when the
+    // chosen linker is not polyld (the wrapper handles that below).
+    std::string triple_args;
+    {
+      triple_args += " --target=" + settings.target_triple.str();
+      triple_args += " --container=";
+      switch (settings.container) {
+        case ::polyglot::common::BinaryContainer::kAuto:  triple_args += "auto";  break;
+        case ::polyglot::common::BinaryContainer::kELF:   triple_args += "elf";   break;
+        case ::polyglot::common::BinaryContainer::kPE:    triple_args += "pe";    break;
+        case ::polyglot::common::BinaryContainer::kMachO: triple_args += "macho"; break;
+        case ::polyglot::common::BinaryContainer::kWasm:  triple_args += "wasm";  break;
+      }
+      if (!settings.subsystem.empty())
+        triple_args += " --subsystem=" + settings.subsystem;
+      if (!settings.entry_symbol.empty())
+        triple_args += " --entry " + settings.entry_symbol;
+    }
+
     if (settings.obj_format == "pobj") {
-      std::string cmd =
-          settings.polyld_path + " " + obj_path + desc_arg + aux_arg + " -o " + out_exe;
+      std::string cmd = settings.polyld_path + " " + obj_path + desc_arg + aux_arg +
+                        triple_args + " -o " + out_exe;
       if (V)
         std::cerr << "[polyc] Invoking polyld -> " << out_exe << "\n";
       int rc = std::system(cmd.c_str());
@@ -1217,6 +1237,8 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
       } else {
         std::string cmd =
             ExpandLinkCommand(choice, obj_path, out_exe, bridge.descriptor_file, aux_dir);
+        if (choice.display_name.rfind("polyld", 0) == 0)
+          cmd += triple_args;
         if (V)
           std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_exe << "\n";
         int rc = std::system(cmd.c_str());

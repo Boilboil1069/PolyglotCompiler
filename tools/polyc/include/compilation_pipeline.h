@@ -18,6 +18,8 @@
 #include "middle/include/ir/ir_context.h"
 
 #include "common/include/core/types.h"
+#include "common/include/binary_container.h"
+#include "common/include/target_triple.h"
 #include "frontends/common/include/lexer_base.h"
 #include "frontends/ploy/include/ploy_ast.h"
 #include "frontends/ploy/include/ploy_sema.h"
@@ -338,6 +340,23 @@ struct CompilationContext {
     std::string target_arch{"x86_64"};
 #endif
     std::string target_os;
+    // ---- BIN-7: canonical target triple + container --------------------
+    // `target_triple` is the source of truth.  Setting it via
+    // `SetTargetTriple()` keeps the legacy `target_arch` / `target_os`
+    // strings in sync so callers that still inspect them keep working.
+    // Conversely, calling `SetTargetOs()` updates both the legacy field
+    // and the canonical triple.  When neither setter is called the
+    // pipeline ctor falls back to `polyglot::common::HostTriple()`.
+    ::polyglot::common::TargetTriple    target_triple{};
+    ::polyglot::common::BinaryContainer container{::polyglot::common::BinaryContainer::kAuto};
+    std::string                          subsystem;
+    std::string                          entry_symbol;
+
+    // BIN-7 sync helpers.  Defined out-of-line in compilation_pipeline.cpp
+    // because they need the full TargetTriple definition + free helpers.
+    void SetTargetTriple(const ::polyglot::common::TargetTriple &t);
+    void SetTargetOs(const std::string &os);
+
     std::string mode{"link"};          // compile | assemble | link
     std::string object_format{"pobj"}; // pobj | coff | elf | macho
     std::string polyld_path{"polyld"};
