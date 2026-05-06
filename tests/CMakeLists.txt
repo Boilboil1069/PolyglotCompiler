@@ -192,6 +192,7 @@ set(UNIT_TEST_LINKER
     unit/linker/section_merge_test.cpp
     unit/linker/polyrt_println_collect_test.cpp
     unit/linker/output_dispatch_test.cpp
+    unit/polyld/macho_linkedit_data_emit_test.cpp
 )
 
 set(UNIT_TEST_TOPOLOGY

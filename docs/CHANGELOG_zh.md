@@ -12,6 +12,27 @@
 
 ---
 
+## v1.42.5 (2026-05-06)
+
+- polyld 的 Mach-O 写出器新增 `LC_FUNCTION_STARTS`(`cmd = 0x26`,16
+  字节 `linkedit_data_command`,payload 为 8 字节,内容是单个 ULEB128
+  终止符 `0x00` 加 7 字节零填充)与 `LC_DATA_IN_CODE`(`cmd = 0x29`,
+  16 字节命令,`datasize = 0`)。两条 LC 紧跟 `LC_DYLD_EXPORTS_TRIE`
+  之后、`LC_SYMTAB` 之前发射,与 Apple 链接器对无函数表 / 无内嵌
+  数据字面量二进制的输出顺序完全一致。
+- LINKEDIT 字节流顺序固定为 `chained_fixups → exports_trie →
+  function_starts → data_in_code → nlist → string → code_signature`,
+  每段 `dataoff` 严格等于前一段的 `dataoff + datasize`;
+  `__LINKEDIT.filesize` 仍精确延伸到内嵌代码签名 blob 末尾。
+- 新增单元测试 `unit/polyld/macho_linkedit_data_emit_test.cpp`
+  (`[macho][linkedit][polyld]`):走读最小 MH_EXECUTE 镜像的 load
+  command 序列,断言 LC 顺序、四段 LINKEDIT payload 偏移依次衔接、
+  function-starts payload 恰为 8 字节全零、`__LINKEDIT.filesize`
+  与代码签名 blob 末尾对齐。
+- 回归:`[bin8],[bin7],[samples]` integration_tests 全绿 ——
+  8 用例 / 151 断言;`[linker_macho]` 单元测试全绿 —— 8 用例 /
+  32 断言;`codesign --verify --strict` 仍输出 `valid on disk`。
+
 ## v1.42.4 (2026-05-06)
 
 - polyld 的 Mach-O 写出器新增 `LC_DYLD_CHAINED_FIXUPS`(16 字节命令指向

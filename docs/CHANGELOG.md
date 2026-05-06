@@ -13,6 +13,32 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.42.5 (2026-05-06)
+
+- polyld Mach-O writer now also emits `LC_FUNCTION_STARTS`
+  (`cmd = 0x26`, 16-byte `linkedit_data_command` pointing at an 8-byte
+  payload containing a single ULEB128 terminator padded with zeros) and
+  `LC_DATA_IN_CODE` (`cmd = 0x29`, 16-byte command with `datasize = 0`).
+  Both load commands are inserted immediately after
+  `LC_DYLD_EXPORTS_TRIE` and before `LC_SYMTAB`, matching the order
+  produced by Apple's linker for binaries with no per-function start
+  records and no inline data literals.
+- LINKEDIT byte stream order is now `chained_fixups → exports_trie →
+  function_starts → data_in_code → nlist → string → code_signature`,
+  with each segment's `dataoff` strictly equal to the prior segment's
+  `dataoff + datasize`.  `__LINKEDIT.filesize` continues to extend
+  exactly to the end of the embedded code-signature blob.
+- New unit test `unit/polyld/macho_linkedit_data_emit_test.cpp`
+  (`[macho][linkedit][polyld]`) walks the load commands of a minimal
+  MH_EXECUTE image and asserts the LC ordering, the four LINKEDIT
+  payload offsets chain correctly, the function-starts payload is
+  exactly 8 zero bytes, and `__LINKEDIT.filesize` matches the
+  code-signature tail.
+- Regression: `[bin8],[bin7],[samples]` integration_tests pass — 151
+  assertions in 8 test cases; `[linker_macho]` unit tests pass — 32
+  assertions in 8 test cases; `codesign --verify --strict` continues
+  to report `valid on disk`.
+
 ## v1.42.4 (2026-05-06)
 
 - polyld Mach-O writer now emits `LC_DYLD_CHAINED_FIXUPS` (16-byte command

@@ -611,6 +611,8 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
   // fixup records) just so the load-command is present.
   cmds_size += 16; ++ncmds;             // LC_DYLD_CHAINED_FIXUPS
   cmds_size += 16; ++ncmds;             // LC_DYLD_EXPORTS_TRIE
+  cmds_size += 16; ++ncmds;             // LC_FUNCTION_STARTS
+  cmds_size += 16; ++ncmds;             // LC_DATA_IN_CODE
   cmds_size += 24; ++ncmds;             // LC_SYMTAB
   cmds_size += 80; ++ncmds;             // LC_DYSYMTAB
   if (req.emit_dyld_info) {
@@ -767,7 +769,23 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
   const std::uint32_t exports_trie_size =
       static_cast<std::uint32_t>(exports_trie_bytes.size());
   const std::uint32_t exports_trie_fileoff = chained_fileoff + chained_size;
-  const std::uint32_t symtab_fileoff = exports_trie_fileoff + exports_trie_size;
+  // LC_FUNCTION_STARTS payload — single 0x00 ULEB128 terminator
+  // padded to 8 bytes.  This produces a well-formed (empty) function
+  // starts table that downstream tools (otool, codesign, dyld) accept
+  // without warning.
+  std::vector<std::uint8_t> function_starts_bytes;
+  function_starts_bytes.push_back(0);
+  while (function_starts_bytes.size() % 8 != 0) function_starts_bytes.push_back(0);
+  const std::uint32_t function_starts_size =
+      static_cast<std::uint32_t>(function_starts_bytes.size());
+  const std::uint32_t function_starts_fileoff =
+      exports_trie_fileoff + exports_trie_size;
+  // LC_DATA_IN_CODE payload is empty (datasize == 0) — there is no
+  // mid-text constant-pool literal that would require a marker entry.
+  const std::uint32_t data_in_code_size = 0;
+  const std::uint32_t data_in_code_fileoff =
+      function_starts_fileoff + function_starts_size;
+  const std::uint32_t symtab_fileoff = data_in_code_fileoff + data_in_code_size;
   const std::uint32_t symtab_size =
       static_cast<std::uint32_t>(nlist_bytes.size());
   const std::uint32_t strtab_fileoff = symtab_fileoff + symtab_size;
@@ -798,7 +816,8 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
   }
 
   const std::uint64_t linkedit_filesize_raw =
-      chained_size + exports_trie_size + symtab_size + strtab_size +
+      chained_size + exports_trie_size + function_starts_size +
+      data_in_code_size + symtab_size + strtab_size +
       (req.emit_code_signature ? (codesig_fileoff - (strtab_fileoff + strtab_size) +
                                    codesig_size)
                                 : 0);
@@ -861,6 +880,21 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
     PutU32(cmds, 16);
     PutU32(cmds, exports_trie_fileoff);
     PutU32(cmds, exports_trie_size);
+  }
+  // LC_FUNCTION_STARTS — single ULEB terminator; matches what Apple's
+  // linker emits for binaries with no per-function start records.
+  {
+    PutU32(cmds, kLcFunctionStarts);
+    PutU32(cmds, 16);
+    PutU32(cmds, function_starts_fileoff);
+    PutU32(cmds, function_starts_size);
+  }
+  // LC_DATA_IN_CODE — empty payload; no inline literal regions to mark.
+  {
+    PutU32(cmds, kLcDataInCode);
+    PutU32(cmds, 16);
+    PutU32(cmds, data_in_code_fileoff);
+    PutU32(cmds, data_in_code_size);
   }
 
   EmitSymtabCommand(cmds, symtab_fileoff,
@@ -977,6 +1011,8 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
   PadTo(image, linkedit_fileoff);
   image.insert(image.end(), chained_bytes.begin(), chained_bytes.end());
   image.insert(image.end(), exports_trie_bytes.begin(), exports_trie_bytes.end());
+  image.insert(image.end(), function_starts_bytes.begin(), function_starts_bytes.end());
+  // data_in_code payload is empty (datasize == 0); nothing to insert.
   image.insert(image.end(), nlist_bytes.begin(), nlist_bytes.end());
   image.insert(image.end(), string_bytes.begin(), string_bytes.end());
   if (req.emit_code_signature) {
