@@ -4477,7 +4477,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end -done
+--end --status blocked-by:2026-05-06-2
 
 2026-05-06-5
 

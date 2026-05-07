@@ -17,6 +17,10 @@
 #include <regex>
 #include <sstream>
 
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
+
 #include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/linker_elf.h"
 #include "tools/polyld/include/pe_writer.h"
@@ -4096,6 +4100,23 @@ bool Linker::Link() {
     ReportError("Output generation failed");
     return false;
   }
+
+#if !defined(_WIN32)
+  // Make executable / shared-library outputs runnable on POSIX hosts
+  // by setting the standard 0755 mode.  std::ofstream creates files
+  // with 0644 by default, which leaves the produced binary unable to
+  // be invoked via execve(2).  Static libraries and relocatables stay
+  // at the default mode because they are inputs to a later stage.
+  if (config_.output_format == OutputFormat::kExecutable ||
+      config_.output_format == OutputFormat::kPEExecutable ||
+      config_.output_format == OutputFormat::kSharedLibrary ||
+      config_.output_format == OutputFormat::kMachOBundle) {
+    ::chmod(config_.output_file.c_str(),
+            S_IRUSR | S_IWUSR | S_IXUSR |
+            S_IRGRP | S_IXGRP |
+            S_IROTH | S_IXOTH);
+  }
+#endif
 
   auto end_time = std::chrono::high_resolution_clock::now();
   stats_.link_time_ms = static_cast<double>(

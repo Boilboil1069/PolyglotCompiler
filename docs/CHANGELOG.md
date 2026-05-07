@@ -13,6 +13,23 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.45.1 (2026-05-07)
+
+- `polyld` now sets the executable bit (mode `0755`) on every
+  produced executable, shared library and Mach-O bundle on POSIX
+  hosts.  Previous releases inherited the default `0644` mask from
+  `std::ofstream`, which left the produced binary unable to be
+  invoked through `execve(2)` without a manual `chmod +x`.  Static
+  archives and relocatable objects keep the default mode because
+  they are inputs to a later stage.
+- The `.exe`-suffix auto-routing inside `polyld` is now restricted
+  to Windows hosts.  On macOS / Linux a build script that names the
+  output `foo.exe` no longer silently switches the writer to PE32+;
+  the host-native container (Mach-O / ELF) is selected instead, so
+  the produced artefact is loadable by the host loader by default.
+- The Windows harness invariant — `polyld foo.o -o foo.exe` produces
+  a PE32+ image — is preserved on Windows hosts.
+
 ## v1.45.0 (2026-05-06)
 
 - Sample regression matrix is now driven by a shared minimum sample

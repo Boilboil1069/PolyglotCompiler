@@ -188,9 +188,11 @@ int main(int argc, char **argv) {
   }
 
   // Auto-select PE32+ output when the user asked for an .exe but did not
-  // explicitly pick a format.  This makes `polyld foo.o -o foo.exe` produce
-  // a Windows-runnable image without requiring an additional --pe flag.
+  // explicitly pick a format.  Restricted to Windows hosts so a non-Windows
+  // host (e.g. macOS arm64, Linux x86_64) keeps producing the host-native
+  // container even when the build script chose `.exe` as the output suffix.
   if (config.output_format == OutputFormat::kExecutable) {
+#ifdef _WIN32
     const std::string &ofile = config.output_file;
     if (ofile.size() >= 4) {
       std::string suffix = ofile.substr(ofile.size() - 4);
@@ -199,7 +201,6 @@ int main(int argc, char **argv) {
       if (suffix == ".exe")
         config.output_format = OutputFormat::kPEExecutable;
     }
-#ifdef _WIN32
     // Even without an .exe suffix, default to PE on Windows hosts so the
     // produced artefact is loadable by the host loader.  Users who really
     // want a foreign-format executable can pass --elf explicitly.

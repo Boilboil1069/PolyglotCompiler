@@ -27,6 +27,7 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <string>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
