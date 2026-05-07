@@ -4477,7 +4477,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end --status blocked-by:2026-05-06-2
+--end --status blocked-by:2026-05-06-6
 
 2026-05-06-5
 
@@ -4514,6 +4514,54 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 全程不得修改前端 / 中端 / 运行时核心；如发现验收阻塞且确属新
   bug，必须在本文档末尾追加新条目（编号 `2026-05-06-6` 起递增）
   描述并独立修复，禁止在本条目内私自扩张范围。
+
+--end
+
+2026-05-06-6
+
+`2026-05-06-4` 验收时在 macOS arm64 host 上发现 `tests/samples/00_minimal/`
+通过 `polyc --emit-obj=… → polyld` 走完整链路后无法跑出预期的
+`ok\n`，从而导致整张 samples 矩阵在 macOS 上恒为 0 OK，进而把
+`samples_regression_test` 的 `--require-min-ok 1` 闸门顶死。这并非
+`2026-05-06-2`（execve 闸）的回归——`/tmp/ok.s` 手写最小 obj 经
+polyld 链接后仍能干净退出，本条目修的是 polyc / polyld 本身的代码
+生成与重定位翻译两处独立 bug，以及 Mach-O println 运行时缺位。
+
+实现要点：
+
+1. polyc arm64 后端的 `BL` 立即数 emission：当源里出现内置
+   `PRINTLN` 调用时，应当为指令生成 `ARM64_RELOC_BRANCH26`
+   重定位（指向同 obj 内 `_println.msg0` stub），而不是直接落
+   `bl 0x0` 自指。当前自指会让链接产物执行时陷入死循环。
+2. polyld Mach-O 段落 `__cstring` 的 `ARM64_RELOC_PAGE21 +
+   PAGEOFF12` 翻译：现实现把跨段引用解析成 Mach-O header
+   `0x100000000` 处而不是 cstring 真实虚拟地址。需要在 polyld
+   relocation translator 里补齐 cross-section symbol → final
+   VM addr 的查表与 ADRP/ADD 的 21+12 位回填。
+3. polyld Mach-O 端补一份与 PE-7 `BuildPrintlnSequencePE` 对
+   等的 `BuildPrintlnSequenceMachO`：把 `_println.msg0` stub 替
+   换为真正的 `write(2) + exit(2)` 直 syscall 序列（`mov x16,
+   #4 / svc #0x80`），消除「需要外部 libSystem 但 polyc 又不
+   emit dynamic-link 信息」这一中间态死结。
+4. 验收：在 macOS arm64 host 上跑
+   `bash scripts/build_all_samples.sh --require-min-ok 1`
+   退出码必须为 0；`build/samples_report.json.ok` 数组必须包含
+   `00_minimal`；`./build/samples_work/00_minimal/print_then_exit.exe`
+   直接执行必须 stdout=`ok\n` 且 rc=0。
+5. 完成时在本条目末尾追加 `--end -done`，并把
+   `2026-05-06-4` 的状态行从 `blocked-by:2026-05-06-6` 改回
+   `--end -done`，再随附双语 CHANGELOG 与版本号递进（由
+   `2026-05-06-4` 一并完成时统一发版）。
+
+约束：
+
+- 不得通过修改 `expected_output.txt` 内容或 `--require-min-ok`
+  阈值来"绕过"本闸；必须真实修好 polyc 与 polyld；
+- 不得删除 `00_minimal/` 或把它改名为 `.skip`；它是本仓库
+  端到端最小契约；
+- 修改限定在 `tools/polyc/`、`tools/polyld/`、`runtime/`
+  （Mach-O println 运行时）三处；不得改动 `frontends/`、
+  `middle/`、`tests/samples/` 既有源码。
 
 --end
 
