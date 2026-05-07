@@ -13,7 +13,33 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
-## v1.45.1 (2026-05-07)
+## v1.45.2 (2026-05-07)
+
+- `polyld` Mach-O writer now emits images that pass the macOS 26
+  (Tahoe) Apple Silicon kernel mapper and the dyld segment validator.
+  Two structural fixes were required:
+  - **16 KiB segment alignment for arm64.**  Native arm64 Mach-O
+    images on Apple Silicon are rejected at `execve(2)` (silent
+    `SIGKILL`, exit status 137) when any `LC_SEGMENT_64` is mapped
+    on a 4 KiB boundary.  The writer now picks the page size from
+    the target architecture (`PageSizeForArch`): 16 KiB for
+    `MachOArch::kArm64`, 4 KiB for `MachOArch::kX86_64` /
+    Rosetta.  All segment file offsets, file sizes and VM sizes
+    round-trip through this constant.
+  - **`__DATA_CONST` permissions and `SG_READ_ONLY` flag.**  dyld
+    aborts the process at load time with
+    `__DATA_CONST segment permissions is not 'rw-'` /
+    `__DATA_CONST segment missing SG_READ_ONLY flag` when the
+    segment is emitted as read-only at link time.  The writer now
+    declares `__DATA_CONST` as `rw-` (so dyld can apply chained
+    fixups in place) and sets `flags = SG_READ_ONLY (0x10)` so
+    dyld re-protects the segment to `r--` after fixups.
+- `SegmentDesc` gains a `flags` field carrying the segment-level
+  `SG_*` bitfield emitted into `LC_SEGMENT_64.flags`.
+
+---
+
+
 
 - `polyld` now sets the executable bit (mode `0755`) on every
   produced executable, shared library and Mach-O bundle on POSIX

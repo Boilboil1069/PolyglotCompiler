@@ -181,9 +181,20 @@ std::uint64_t PackVersion64(const std::string &s) {
           static_cast<std::uint64_t>(e);
 }
 
-constexpr std::uint64_t kPageSize       = 0x1000;
+// Native arm64 Mach-O images on Apple Silicon must use 16 KiB page
+// alignment for every segment; loading a 4 KiB-aligned arm64 image is a
+// hard reject in the kernel mapper ("vm_map: bad alignment") even when
+// every other Mach-O field is well-formed.  x86_64 / Rosetta keeps the
+// classical 4 KiB page.  The writer picks the right page size from the
+// `BuildRequest::arch` field via `PageSizeForArch`.
+constexpr std::uint64_t kPageSize4K     = 0x1000;
+constexpr std::uint64_t kPageSize16K    = 0x4000;
 constexpr std::uint64_t kPageZeroSize64 = 0x100000000ULL;
 constexpr std::uint64_t kDefaultExeBase = 0x100000000ULL;
+
+std::uint64_t PageSizeForArch(MachOArch a) {
+  return a == MachOArch::kArm64 ? kPageSize16K : kPageSize4K;
+}
 
 // ---------------------------------------------------------------------------
 // ULEB128 helpers shared by the LC_DYLD_EXPORTS_TRIE and
@@ -792,7 +803,8 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
     cmds_size += 16; ++ncmds;           // LC_CODE_SIGNATURE
   }
 
-  const std::uint64_t header_size = 32 + cmds_size;
+  const std::uint64_t kPageSize     = PageSizeForArch(req.arch);
+  const std::uint64_t header_size   = 32 + cmds_size;
   const std::uint64_t text_file_off = AlignUp(header_size, kPageSize);
 
   // -------------------------------------------------------------------------
@@ -1036,7 +1048,7 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
                        L.vmaddr, L.vmsize, L.fileoff, L.filesize,
                        seg.maxprot, seg.initprot,
                        static_cast<std::uint32_t>(seg.sections.size()),
-                       /*flags*/ 0);
+                       seg.flags);
     for (std::size_t ki = 0; ki < seg.sections.size(); ++ki) {
       EmitSectionHeader(cmds, seg.sections[ki],
                         L.sect_addr[ki], L.sect_size[ki],
@@ -1376,8 +1388,16 @@ bool EmitMachOImage(const EmitInputs &in, std::uint32_t filetype,
   if (!parts.rdata.empty()) {
     ma::SegmentDesc rd;
     rd.segname  = "__DATA_CONST";
-    rd.maxprot  = ma::kVmProtRead;
-    rd.initprot = ma::kVmProtRead;
+    // dyld requires __DATA_CONST to map as rw- so it can apply chained
+    // fixups, then re-protects the segment to r-- via SG_READ_ONLY at
+    // the end of `Loader::applyFixupsToImage`.  Refusing rw- causes the
+    // hard-abort  "__DATA_CONST segment permissions is not 'rw-'".
+    rd.maxprot  = ma::kVmProtRead | ma::kVmProtWrite;
+    rd.initprot = ma::kVmProtRead | ma::kVmProtWrite;
+    // SG_READ_ONLY (0x10): tells dyld to mprotect the segment back to r--
+    // after applying chained fixups.  dyld asserts the flag is present on
+    // any segment named __DATA_CONST.
+    rd.flags    = 0x10;
     ma::SectionDesc s;
     s.sectname = "__const";
     s.segname  = "__DATA_CONST";

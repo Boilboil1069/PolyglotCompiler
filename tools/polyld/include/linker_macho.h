@@ -185,6 +185,7 @@ struct SegmentDesc {
   std::vector<SectionDesc> sections;  ///< 0..N sections.
   std::uint64_t vmsize_override{0};   ///< 0 = derive from sections, else use as-is.
   std::uint64_t filesize_override{0}; ///< 0 = derive, else use literal value.
+  std::uint32_t flags{0};             ///< Segment flags (SG_*), e.g. SG_READ_ONLY.
 };
 
 /// One symbol the writer should emit into the output `__LINKEDIT`.

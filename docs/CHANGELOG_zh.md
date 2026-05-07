@@ -12,7 +12,32 @@
 
 ---
 
-## v1.45.1 (2026-05-07)
+## v1.45.2 (2026-05-07)
+
+- `polyld` 的 Mach-O 写出器产出的镜像现在可以通过 macOS 26
+  (Tahoe) Apple Silicon 内核映射器与 dyld 段校验。本次修复两处
+  结构性问题：
+  - **arm64 段按 16 KiB 对齐。**Apple Silicon 上的原生 arm64
+    Mach-O 镜像，只要任意一个 `LC_SEGMENT_64` 落在 4 KiB 边界
+    上，`execve(2)` 阶段就会被内核静默 `SIGKILL`（退出码 137）。
+    写出器现在按目标架构选择页大小（`PageSizeForArch`）：
+    `MachOArch::kArm64` 取 16 KiB，`MachOArch::kX86_64` /
+    Rosetta 取 4 KiB。所有段的文件偏移、文件大小与虚拟内存
+    大小都按这个常量归并对齐。
+  - **`__DATA_CONST` 权限位与 `SG_READ_ONLY` 标志。**写出器
+    把 `__DATA_CONST` 直接发射成只读时，dyld 会在装载阶段
+    抛出 `__DATA_CONST segment permissions is not 'rw-'` /
+    `__DATA_CONST segment missing SG_READ_ONLY flag` 并
+    abort 进程。写出器现在把 `__DATA_CONST` 声明为 `rw-`
+    （让 dyld 能就地写入 chained fixups），同时在
+    `LC_SEGMENT_64.flags` 中设置 `SG_READ_ONLY (0x10)`，让
+    dyld 在 fixups 应用完成后再把段重新保护为 `r--`。
+- `SegmentDesc` 新增 `flags` 字段，承载段级 `SG_*` 位域，
+  写出到 `LC_SEGMENT_64.flags`。
+
+---
+
+
 
 - POSIX 平台上 `polyld` 现在为产出的可执行文件、共享库与 Mach-O
   bundle 设置可执行位（`0755`）。此前版本沿用 `std::ofstream` 的
