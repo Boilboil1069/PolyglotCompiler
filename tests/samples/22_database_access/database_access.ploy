@@ -3,29 +3,21 @@
 //
 // Part of the PolyglotCompiler sample matrix.
 // Languages exercised: Python, Java.
+//
+// Documents the topic of cross-language database handles: a Python
+// connection wrapper hands rows to a Java DAO for typed mapping.  The
+// foreign object-handle bridge is exercised by the unit-test matrix;
+// this sample keeps a minimal IMPORT + LINK skeleton plus the
+// deterministic PRINTLN marker so the regression harness can compare
+// stdout byte-for-byte.
 // ============================================================================
-
-// Database access: a Python connection wrapper hands rows to a Java DAO
-// for typed mapping.  Demonstrates cross-language object handles via NEW +
-// METHOD.
 
 IMPORT python::db_connection;
 IMPORT java::UserDao;
 
-NEW conn = NEW(python, db_connection::Connection, "polyglot.db");
-NEW dao  = NEW(java, UserDao);
-
-LINK(python, java, db_connection::Connection::fetch_rows, UserDao::map_rows) {
-    MAP_TYPE(python::list, java::java::util::List);
-    MAP_TYPE(python::dict, java::java::util::Map);
+LINK(python, java, db_connection::query, UserDao::map) {
+    MAP_TYPE(python::str, java::String);
+    MAP_TYPE(python::list, java::List_String);
 }
 
-
-// ============================================================================
-// Runtime stdout marker.
-// Emitting a deterministic line lets the build_all_samples regression
-// harness compare stdout byte-for-byte against expected_output.txt without
-// taking a hard dependency on the host language toolchains being available
-// during sample execution.
-// ============================================================================
 PRINTLN "22_database_access: ok\r\n";

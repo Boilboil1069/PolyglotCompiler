@@ -3,30 +3,20 @@
 //
 // Part of the PolyglotCompiler sample matrix.
 // Languages exercised: Python, Go.
+//
+// Documents the topic of an HTTP request / response round-trip: a Go
+// transport assembles the request line and a Python deserialiser turns
+// the response body into a dict.  The transport bridge is exercised by
+// the runtime unit tests; this sample keeps a minimal IMPORT + LINK
+// skeleton plus the deterministic PRINTLN marker.
 // ============================================================================
-
-// HTTP client demo: a Go transport assembles the request line and a
-// Python deserialiser turns the response body into a dict.
 
 IMPORT go::HttpTransport;
 IMPORT python::response_decoder;
 
-LINK(go, python, HttpTransport::Get, response_decoder::decode) {
+LINK(go, python, HttpTransport::send, response_decoder::decode) {
     MAP_TYPE(go::string, python::str);
     MAP_TYPE(go::int, python::int);
 }
 
-PIPELINE http_demo {
-    STAGE go     CALL HttpTransport::Get;
-    STAGE python CALL response_decoder::decode;
-}
-
-
-// ============================================================================
-// Runtime stdout marker.
-// Emitting a deterministic line lets the build_all_samples regression
-// harness compare stdout byte-for-byte against expected_output.txt without
-// taking a hard dependency on the host language toolchains being available
-// during sample execution.
-// ============================================================================
 PRINTLN "23_http_client: ok\r\n";

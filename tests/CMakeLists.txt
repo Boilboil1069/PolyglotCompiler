@@ -657,6 +657,7 @@ set(INTEGRATION_TEST_SOURCES
     integration/pe_runtime_smoke_test.cpp
     integration/ploy_e2e_real_exit_code_test.cpp
     integration/samples_regression_test.cpp
+    integration/samples_cross_platform_consistency_test.cpp
     integration/profiler_e2e_test.cpp
     integration/explicit_widths_e2e_test.cpp
     integration/printf_pipeline_e2e_test.cpp

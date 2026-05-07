@@ -1,5 +1,10 @@
 # File-Type Viewers Tutorial
 
+> **Document Version**: 2.0.0  
+> **Last Updated**: 2026-05-07  
+> **Project**: PolyglotCompiler 1.45.2  
+> **Companion**: [viewers_zh.md](viewers_zh.md)
+
 PolyUI ships dedicated viewers for images, hex / binary content
 and SQLite databases.
 

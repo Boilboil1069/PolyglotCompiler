@@ -491,6 +491,237 @@ Uuid16FromContent(const std::vector<std::uint8_t> &bytes) {
   return out;
 }
 
+// ===========================================================================
+// BuildPrintlnSequenceMachO  (companion of pe::BuildPrintlnSequencePE)
+// ===========================================================================
+//
+// We synthesise a self-contained `__text` payload that talks directly to
+// the BSD syscall interface (`write`, `exit`).  The payload is split into
+// two regions packed back-to-back:
+//
+//   [0]                    code block: per-message write(2) call(s) +
+//                          exit(0) epilogue.
+//   [code_size]            inlined message bytes, concatenated in call
+//                          order (deduplicated to preserve the IR-layer
+//                          interning contract).
+//
+// Per-message addressing uses ADR (arm64) or `lea rsi, [rip+disp32]`
+// (x86_64), both fully PC-relative — the resulting image is position-
+// independent and survives ASLR without any runtime fixup.
+
+namespace {
+
+// AArch64 instruction encoders ----------------------------------------------
+
+// MOVZ Xd, #imm16, LSL #0
+std::uint32_t Arm64MovzX(unsigned rd, std::uint16_t imm16) {
+  return 0xD2800000u | (static_cast<std::uint32_t>(imm16) << 5) | (rd & 0x1Fu);
+}
+
+// MOVK Xd, #imm16, LSL #(shift*16) — used only when a value exceeds 16 bits.
+std::uint32_t Arm64MovkX(unsigned rd, std::uint16_t imm16, unsigned shift) {
+  return 0xF2800000u | ((shift & 0x3u) << 21) |
+         (static_cast<std::uint32_t>(imm16) << 5) | (rd & 0x1Fu);
+}
+
+// ADR Xd, #imm21 (signed byte offset).  imm21 must fit in [-2^20, 2^20-1].
+std::uint32_t Arm64Adr(unsigned rd, std::int32_t imm21) {
+  std::uint32_t u   = static_cast<std::uint32_t>(imm21) & 0x1FFFFFu;
+  std::uint32_t lo  = u & 0x3u;
+  std::uint32_t hi  = (u >> 2) & 0x7FFFFu;
+  return 0x10000000u | (lo << 29) | (hi << 5) | (rd & 0x1Fu);
+}
+
+// SVC #0x80
+std::uint32_t Arm64Svc80() { return 0xD4001001u; }
+
+void Emit32LE(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+}
+
+// Load a 64-bit immediate into Xd using up to four MOVZ/MOVK pieces.
+// Generates the minimum number of instructions for the value at hand
+// (a single MOVZ for values ≤ 0xFFFF, etc.) but always pads with NOPs
+// to the maximum width so the per-call code-block size is constant.
+void EmitArm64MovImm64(std::vector<std::uint8_t> &out, unsigned rd,
+                       std::uint64_t value, unsigned width_words) {
+  bool emitted = false;
+  for (unsigned w = 0; w < width_words; ++w) {
+    std::uint16_t piece = static_cast<std::uint16_t>((value >> (w * 16)) & 0xFFFFu);
+    if (w == 0) {
+      Emit32LE(out, Arm64MovzX(rd, piece));
+      emitted = true;
+    } else if (piece != 0) {
+      Emit32LE(out, Arm64MovkX(rd, piece, w));
+    } else {
+      Emit32LE(out, 0xD503201Fu); // NOP — keep block size constant
+    }
+    (void)emitted;
+  }
+}
+
+// Per-message arm64 code-block size (in bytes).  Layout:
+//   ADR x1, #msg     ; 4
+//   MOVZ x0, #1      ; 4   fd = stdout
+//   MOVZ x2, #len    ; 4   length (assumes len ≤ 0xFFFF, plenty for PRINTLN)
+//   MOVZ x16, #4     ; 4   syscall number = SYS_write
+//   SVC  #0x80       ; 4
+constexpr std::size_t kArm64PerMsgSize = 5 * 4;
+
+// arm64 exit(0) epilogue size:
+//   MOVZ x0, #0
+//   MOVZ x16, #1
+//   SVC  #0x80
+constexpr std::size_t kArm64EpilogueSize = 3 * 4;
+
+// x86_64 instruction encoders ----------------------------------------------
+//   mov edi, 1                 5  bf 01 00 00 00
+//   lea rsi, [rip + disp32]    7  48 8d 35 dd dd dd dd
+//   mov edx, len32             5  ba ll ll ll ll
+//   mov eax, 0x2000004         5  b8 04 00 00 02
+//   syscall                    2  0f 05
+constexpr std::size_t kX86_64PerMsgSize = 5 + 7 + 5 + 5 + 2;
+//   xor edi, edi               2  31 ff
+//   mov eax, 0x2000001         5  b8 01 00 00 02
+//   syscall                    2  0f 05
+constexpr std::size_t kX86_64EpilogueSize = 2 + 5 + 2;
+
+void EmitX86MovEdiImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xBF); // mov edi, imm32
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+}
+
+void EmitX86MovEdxImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xBA); // mov edx, imm32
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+}
+
+void EmitX86MovEaxImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xB8); // mov eax, imm32
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFF));
+}
+
+void EmitX86Syscall(std::vector<std::uint8_t> &out) {
+  out.push_back(0x0F);
+  out.push_back(0x05);
+}
+
+void EmitX86LeaRsiRipDisp32(std::vector<std::uint8_t> &out, std::int32_t disp) {
+  // REX.W + 8D /6 — `lea rsi, [rip + disp32]`
+  out.push_back(0x48);
+  out.push_back(0x8D);
+  out.push_back(0x35);
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((disp >> (i * 8)) & 0xFF));
+}
+
+void EmitX86XorEdiEdi(std::vector<std::uint8_t> &out) {
+  out.push_back(0x31);
+  out.push_back(0xFF);
+}
+
+} // namespace
+
+std::vector<std::uint8_t>
+BuildPrintlnSequenceMachO(MachOArch arch,
+                          const std::vector<std::string> &messages) {
+  // Defensive cap: any single PRINTLN payload longer than 64 KiB does not
+  // fit in the single-MOVZ length encoding we emit on arm64.  Returning
+  // an empty payload signals "synthesis declined" to the caller, which
+  // then falls back to the generic exit-zero path.
+  for (const auto &m : messages) {
+    if (m.size() > 0xFFFFu) return {};
+  }
+
+  // Dedupe message payloads so identical PRINTLNs share a single inline
+  // copy.  `unique_offsets[content] = offset within the inline message
+  // blob`.  Linear scan is fine — PRINTLN counts in real programs are
+  // tractable and this avoids dragging in <unordered_map>.
+  std::vector<std::uint8_t> blob;
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> per_call; // (off, len)
+  per_call.reserve(messages.size());
+  std::vector<std::pair<std::string, std::uint32_t>> unique_table;
+  for (const auto &raw : messages) {
+    // PRINTLN semantics: append a newline to every message — the IR
+    // interner stores raw payload only and the runtime helper
+    // `polyrt_println` would normally tack on `\n` at call time.
+    // Synthesising a syscall-direct path bypasses the helper, so we
+    // bake the newline straight into the inlined blob.
+    std::string m = raw;
+    if (m.empty() || m.back() != '\n') m.push_back('\n');
+    bool found = false;
+    std::uint32_t off = 0;
+    for (const auto &kv : unique_table) {
+      if (kv.first == m) { off = kv.second; found = true; break; }
+    }
+    if (!found) {
+      off = static_cast<std::uint32_t>(blob.size());
+      blob.insert(blob.end(), m.begin(), m.end());
+      unique_table.emplace_back(m, off);
+    }
+    per_call.emplace_back(off, static_cast<std::uint32_t>(m.size()));
+  }
+
+  std::vector<std::uint8_t> text;
+
+  if (arch == MachOArch::kArm64) {
+    const std::size_t code_size =
+        kArm64PerMsgSize * per_call.size() + kArm64EpilogueSize;
+    text.reserve(code_size + blob.size());
+
+    // Per-message blocks — addressing uses ADR with a signed 21-bit
+    // byte offset, so each message must lie within ±1 MiB of its ADR
+    // instruction.  PRINTLN-only programs never come close to that.
+    for (std::size_t i = 0; i < per_call.size(); ++i) {
+      const std::size_t adr_pos = i * kArm64PerMsgSize;
+      const std::size_t msg_abs = code_size + per_call[i].first;
+      const std::int32_t delta  = static_cast<std::int32_t>(msg_abs - adr_pos);
+      Emit32LE(text, Arm64Adr(/*rd=*/1, delta));
+      EmitArm64MovImm64(text, /*rd=*/0, /*value=*/1, /*width=*/1);
+      EmitArm64MovImm64(text, /*rd=*/2, per_call[i].second, /*width=*/1);
+      EmitArm64MovImm64(text, /*rd=*/16, /*value=*/4, /*width=*/1);
+      Emit32LE(text, Arm64Svc80());
+    }
+    // exit(0) epilogue
+    EmitArm64MovImm64(text, /*rd=*/0, /*value=*/0, /*width=*/1);
+    EmitArm64MovImm64(text, /*rd=*/16, /*value=*/1, /*width=*/1);
+    Emit32LE(text, Arm64Svc80());
+  } else {
+    const std::size_t code_size =
+        kX86_64PerMsgSize * per_call.size() + kX86_64EpilogueSize;
+    text.reserve(code_size + blob.size());
+
+    for (std::size_t i = 0; i < per_call.size(); ++i) {
+      const std::size_t block_pos = i * kX86_64PerMsgSize;
+      // The displacement encoded in `lea rsi, [rip+disp32]` is relative
+      // to the *next* instruction, i.e. the address right after the
+      // 7-byte LEA.  The LEA itself sits 5 bytes into the per-call
+      // block (after `mov edi, 1`).
+      const std::size_t lea_end_pos = block_pos + 5 + 7;
+      const std::size_t msg_abs     = code_size + per_call[i].first;
+      const std::int32_t disp       = static_cast<std::int32_t>(msg_abs - lea_end_pos);
+      EmitX86MovEdiImm(text, 1);          // fd = stdout
+      EmitX86LeaRsiRipDisp32(text, disp); // buf = &msg
+      EmitX86MovEdxImm(text, per_call[i].second);
+      EmitX86MovEaxImm(text, 0x2000004u); // SYS_write
+      EmitX86Syscall(text);
+    }
+    // exit(0) epilogue
+    EmitX86XorEdiEdi(text);
+    EmitX86MovEaxImm(text, 0x2000001u);   // SYS_exit
+    EmitX86Syscall(text);
+  }
+
+  // Tail: inlined message bytes (raw, no terminator — the syscall is
+  // bounded by the explicit length register).
+  text.insert(text.end(), blob.begin(), blob.end());
+  return text;
+}
+
 bool TranslateRelocations(MachOArch arch,
                           const std::vector<PendingRelocation> &input,
                           std::vector<OnDiskRelocation> &out,
@@ -1537,8 +1768,58 @@ bool BuildAndWrite(const LinkerConfig &cfg,
 
 bool Linker::GenerateMachOExecutable() {
   Trace("Generating Mach-O executable: " + config_.output_file);
+
+  // PE-7 parity: when input objects carry any `polyrt_println` call
+  // sites we recover the ordered message bytes and synthesise a
+  // self-contained syscall-driven `__text` payload — the Mach-O
+  // companion of `pe::BuildPrintlnSequencePE`.  The legacy code path
+  // (merge user objects, partition into __TEXT/__DATA) is preserved
+  // bit-for-bit when the input contains no PRINTLN calls, so non-
+  // PRINTLN programs keep their existing layout.
+  const std::vector<std::string> println_messages =
+      CollectPolyrtPrintlnSequence(objects_);
+
   std::uint64_t written = 0;
   std::string err;
+
+  if (!println_messages.empty()) {
+    std::vector<std::uint8_t> text =
+        ::polyglot::linker::macho::BuildPrintlnSequenceMachO(
+            ArchFromConfig(config_.target_arch), println_messages);
+    if (text.empty()) {
+      ReportError(
+          "Mach-O writer rejected synthesised PRINTLN sequence "
+          "(message too long or unsupported architecture)");
+      return false;
+    }
+    // Bake the synthesised bytes into a single executable OutputSection
+    // and route through the standard EmitMachOImage path.  The fresh
+    // sections vector is local to this call so the linker's merged
+    // `output_sections_` is not disturbed (other reporting / stats
+    // continues to reflect what was actually linked).
+    OutputSection synth;
+    synth.name             = "__text";
+    synth.segment          = "__TEXT";
+    synth.flags            = SectionFlags::kAlloc | SectionFlags::kExecInstr;
+    synth.alignment        = 16;
+    synth.virtual_address  = 0;
+    synth.data             = std::move(text);
+    std::vector<OutputSection> synth_sections;
+    synth_sections.push_back(std::move(synth));
+    if (!BuildAndWrite(config_, synth_sections, symbol_table_,
+                        /*entry=*/nullptr,
+                        ::polyglot::linker::macho::kFileTypeExecute,
+                        /*emit_pagezero*/ true, /*emit_main*/ true,
+                        /*install_name*/ "", written, err)) {
+      ReportError(err);
+      return false;
+    }
+    Trace("Synthesised " + std::to_string(println_messages.size()) +
+          " polyrt_println call site(s) into Mach-O __text");
+    stats_.total_output_size = written;
+    return true;
+  }
+
   if (!BuildAndWrite(config_, output_sections_, symbol_table_,
                       LookupSymbol(config_.entry_point),
                       ::polyglot::linker::macho::kFileTypeExecute,

@@ -1,4056 +1,2031 @@
-﻿# PolyglotCompiler Complete Guide
+﻿# PolyglotCompiler User Guide
 
-> A fully-featured multi-language compiler project  
-> Supports C++, Python, Rust, Java, C# (.NET), JavaScript, Ruby, Go → x86_64/ARM64/WebAssembly  
-> With .ploy cross-language linking frontend
+> **Document Version**: 4.0.0  
+> **Last Updated**: 2026-05-07  
+> **Project**: PolyglotCompiler 1.45.2  
+> **Companion**: [USER_GUIDE_zh.md](USER_GUIDE_zh.md)
 
-**Version**: v1.2.0  
-**Last Updated**: 2026-04-28
-
----
-
-> **Notice (v1.8.0).** The legacy `LINK(target_lang, source_lang, target, source);`
-> comma-form syntax is now **deprecated**.  Sema emits a
-> `kDeprecatedKeyword` warning whenever it is used.  Please prefer the
-> canonical signed form:
->
-> ```ploy
-> LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret>;
-> ```
->
-> Examples elsewhere in this guide may still use the legacy form for
-> historical context; new code SHOULD use the signed form.  See sample
-> [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)
-> for a full mirror in the new form.
->
-> The same release also promotes `STAGE` to a reserved keyword that may
-> only appear inside a `PIPELINE` body.
+A complete, hands-on guide to PolyglotCompiler — a multi-language compiler
+toolchain that ingests C++, Python, Rust, Java, C#/.NET, Go, JavaScript,
+Ruby, and the in-house **Ploy** glue language, lowers everything to a
+single unified IR, and emits native code for **x86_64**, **ARM64**, and
+**WebAssembly**. The companion IDE (`polyui`) ships an LSP-driven
+multi-language editor, debugger, profiler, call analyzer, package
+manager view, and test explorer.
 
 ---
 
 ## Table of Contents
 
-1. [Project Overview](#1-project-overview)
-2. [Quick Start](#2-quick-start)
-3. [Architecture Design](#3-architecture-design)
-4. [.ploy Cross-Language Linking Frontend](#4-ploy-cross-language-linking-frontend)
-5. [Implemented Features](#5-implemented-features)
-6. [Usage Guide](#6-usage-guide)
-7. [IR Design Specification](#7-ir-design-specification)
-8. [Optimisation System](#8-optimisation-system)
-9. [Runtime System](#9-runtime-system)
-10. [Testing Framework](#10-testing-framework)
-11. [Build & Integration](#11-build--integration)
-12. [Developer Guide](#12-developer-guide)
-13. [Plugin System](#13-plugin-system)
-14. [Appendix](#14-appendix)
+1. [Introduction](#1-introduction)
+2. [Getting Started](#2-getting-started)
+3. [Architecture Overview](#3-architecture-overview)
+4. [The Ploy Glue Language](#4-the-ploy-glue-language)
+5. [Language Frontends](#5-language-frontends)
+6. [Tools and CLI Drivers](#6-tools-and-cli-drivers)
+7. [Unified IR](#7-unified-ir)
+8. [Middle-end Optimisation](#8-middle-end-optimisation)
+9. [Runtime](#9-runtime)
+10. [Backends](#10-backends)
+11. [Linker and Object Format](#11-linker-and-object-format)
+12. [IDE (`polyui`) and Language Server](#12-ide-polyui-and-language-server)
+13. [Diagnostics, Profiling, and Call Analysis](#13-diagnostics-profiling-and-call-analysis)
+14. [Testing, Samples, and CI](#14-testing-samples-and-ci)
+15. [Build System and Dependencies](#15-build-system-and-dependencies)
+16. [Extending the Compiler](#16-extending-the-compiler)
+17. [Plugin SDK](#17-plugin-sdk)
+18. [Appendix](#18-appendix)
 
 ---
 
-# 1. Project Overview
+## 1. Introduction
 
-## 1.1 Introduction
+### 1.1 What PolyglotCompiler is
 
-PolyglotCompiler is a modern multi-language compiler project that uses a multi-frontend shared intermediate representation (IR) architecture, and implements cross-language function-level linking and object-oriented interoperability through the `.ploy` language.
+PolyglotCompiler turns mixed-language source trees into a single linked
+artefact. A program may import a C++ image filter, a Rust serialiser,
+a Python ML model, and a Go HTTP client, glue them with a `.ploy` driver
+file, and produce one executable for x86_64, ARM64, or WebAssembly. The
+compiler is built around three guarantees:
 
-**Core Goals:**
+1. **One IR for everything.** Every supported language lowers to the
+   same SSA, three-address representation. Optimisation, debug info,
+   and code generation are written once and reused across frontends.
+2. **First-class cross-language calls.** A `bridge_call` IR opcode
+   crosses language boundaries through a single FFI marshalling layer
+   (`runtime::ffi::BridgeFrame`). The linker verifies that every bridge
+   site has a registered counterpart.
+3. **Production-ready tooling.** Eleven CLI drivers and a Qt 6 IDE ship
+   in the same repository so the end-to-end developer loop (edit →
+   compile → debug → profile → package) is exercised by CI on every
+   commit.
 
-- ✅ **Multi-Language Support**: Complete compilation frontends for C++, Python, Rust, Java, and .NET (C#)
-- ✅ **Triple Backend Architecture**: x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly backends
-- ✅ **Complete Toolchain**: Compiler (`polyc`), linker (`polyld`), optimiser (`polyopt`), assembler (`polyasm`), runtime tool (`polyrt`), benchmark (`polybench`), IDE (`polyui`)
-- ✅ **Cross-Language Linking**: Declarative syntax via `.ploy` for function-level cross-language interop
-- ✅ **Cross-Language OOP**: `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` keywords for class instantiation, method calls, attribute access, resource management, object destruction, and class extension
-- ✅ **Package Manager Integration**: Supports pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
-- ✅ **Runtime Memory Strategy**: `DICT` runtime now uses load-factor-based growth + rehash, and extension registration uses a thread-safe dynamic registry
-- ✅ **Feature-Complete Implementation**: Comprehensive implementation with all frontends operational; Java and .NET test coverage is still expanding
+### 1.2 Capability matrix at a glance
 
-## 1.2 Feature Overview
+| Domain                     | Status in 1.45.2                                                                                          |
+|----------------------------|-----------------------------------------------------------------------------------------------------------|
+| Frontends                  | C++, Python, Rust, Java, .NET (C#), Go, JavaScript, Ruby, Ploy — 9 in total.                              |
+| Backends                   | x86_64 (System V + Win64 + macOS Mach-O), ARM64 (AAPCS64, Linux ELF + macOS Mach-O), WebAssembly MVP+SIMD. |
+| Tool drivers               | `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`, `polytopo`, `polyls`, `polydoc`, `polyver`, `polyui` — 11 in total. |
+| Garbage collectors         | Mark-and-Sweep, Tri-colour, Generational, Reference-Counting (4 algorithms, runtime-selectable).          |
+| Test surface               | 30 CTest targets covering unit, integration, e2e, benchmark, and tooling.                                 |
+| Sample suite               | 42 numbered samples (`00_minimal` … `41_grammar_polish`) plus the `01_basic_linking_v2` variant.          |
+| IDE                        | Qt 6 polyui with LSP, DAP, Profiler, Call Analyzer, SCM, Test Explorer, Package Manager.                  |
+| Bilingual docs             | EN + ZH lock-step under `docs/`, gated by `docs_lint` and `docs_sync` CI targets.                         |
 
-### Language Support
+### 1.3 Reading order
 
-| Language | Frontend | IR Lowering | Advanced Features | Status |
-|----------|----------|-------------|-------------------|--------|
-| **C++** | ✅ | ✅ | OOP / Templates / RTTI / Exceptions / constexpr / SIMD | **Complete** |
-| **Python** | ✅ | ✅ | Type annotations / Inference / Decorators / Generators / async / 25+ advanced | **Complete** |
-| **Rust** | ✅ | ✅ | Borrow checking / Closures / Lifetimes / Traits / 28+ advanced | **Complete** |
-| **Java** | ✅ | ✅ | Java 8/17/21/23 / Records / Sealed classes / Pattern matching / Text blocks / Switch expressions | **Core Complete** |
-| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9 / Records / Top-level statements / Primary constructors / File-scoped namespaces / Nullable ref types | **Core Complete** |
-| **.ploy** | ✅ | ✅ | Cross-language linking / Pipelines / Package mgmt / OOP interop (NEW/METHOD/GET/SET/WITH) | **Complete** |
+Newcomers should run the [Getting Started](#2-getting-started) chapter
+end-to-end before dipping into the per-language frontends. Compiler
+hackers can jump to [Unified IR](#7-unified-ir) and
+[Middle-end Optimisation](#8-middle-end-optimisation). Tooling users
+should head straight to chapters 12–14. Plugin authors can skip to
+[chapter 17](#17-plugin-sdk).
 
-### Platform Support
+### 1.4 Conventions
 
-| Architecture | Instruction Selection | Register Allocation | Calling Convention | Status |
-|-------------|----------------------|--------------------|--------------------|--------|
-| **x86_64** | ✅ | ✅ Graph colouring / Linear scan | ✅ SysV ABI | **Complete** |
-| **ARM64** | ✅ | ✅ Graph colouring / Linear scan | ✅ AAPCS64 | **Complete** |
-| **WebAssembly** | ✅ | ✅ Stack machine | ✅ WASM ABI | **Complete** |
+* `polyc`, `polyld`, … in `monospace` always refer to the binaries shipped
+  in `build/`.
+* All shell snippets assume the repository root as the working directory
+  unless noted.
+* macOS / Linux paths use `/` separators; Windows snippets use the
+  PowerShell `;` and back-tick line continuation.
+* `<…>` denotes a placeholder; `[…]` denotes an optional argument.
+* Code comments throughout the project are written in English; this
+  guide follows the same convention.
 
-### Toolchain
+### 1.5 Where to find what
 
-| Tool | Purpose | Executable |
-|------|---------|-----------|
-| Compiler driver | Source → IR → Target code | `polyc` |
-| Linker | Object file linking + cross-language glue | `polyld` |
-| Assembler | Assembly → Object file | `polyasm` |
-| Optimiser | IR optimisation passes | `polyopt` |
-| Runtime tool | GC / FFI / Thread management | `polyrt` |
-| Topology analyser | Function I/O topology visualisation, link validation, and graph export | `polytopo` |
-| Benchmark | Performance evaluation suite | `polybench` |
-| IDE | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel, and compilation | `polyui` |
+| You want to …                                  | Open                                                                                |
+|------------------------------------------------|-------------------------------------------------------------------------------------|
+| Build the project for the first time           | [§ 2.2](#22-cloning-and-building)                                                   |
+| Compile a single C++ file                      | [§ 2.3](#23-first-c-program)                                                        |
+| Wire C++ into a Python pipeline                | [§ 2.4](#24-first-cross-language-pipeline)                                          |
+| Understand the Ploy grammar                    | [Chapter 4](#4-the-ploy-glue-language) and [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md) |
+| Write a new optimisation pass                  | [§ 8.6](#86-writing-a-pass) and [§ 16.4](#164-adding-a-middle-end-pass)              |
+| Add a brand-new source language                | [§ 16.5](#165-adding-a-new-frontend) and [§ 17.3](#173-mandatory-exports)            |
+| Profile a long-running program                 | [§ 13.3](#133-profiler) and [tutorial/profiling_quickstart.md](tutorial/profiling_quickstart.md) |
+| Ship a release build                           | [§ 18.3](#183-release-packaging)                                                    |
 
 ---
 
-# 2. Quick Start
+## 2. Getting Started
 
-## 2.1 Prerequisites
+### 2.1 Prerequisites
 
-- **CMake** 3.20+
-- **C++20** compatible compiler (MSVC 2022+ / GCC 12+ / Clang 15+)
-- **Ninja** or **Make** build tool (Ninja recommended)
+| Platform        | Toolchain                                                                                  |
+|-----------------|--------------------------------------------------------------------------------------------|
+| macOS 13+       | Xcode 15 Command Line Tools, CMake 3.27+, Ninja 1.11+, Python 3.11+, Qt 6.6+ (`brew install qt`).   |
+| Ubuntu 22.04+   | `clang-17` or `gcc-13`, CMake 3.27+, Ninja 1.11+, Python 3.11+, `libssl-dev`, `qt6-base-dev`.       |
+| Windows 11      | Visual Studio 2022 (17.8+) or LLVM 17 + Ninja, CMake 3.27+, Python 3.11+, Qt 6.6+ MSVC kit. |
 
-**Auto-fetched CMake dependencies:**
-- **fmt**: Formatting library
-- **nlohmann_json**: JSON library
-- **Catch2**: Testing framework
-- **mimalloc**: High-performance memory allocator
+Optional but recommended for full per-frontend coverage:
 
-## 2.2 Building the Project
+| Frontend       | Optional toolchain                                                       |
+|----------------|--------------------------------------------------------------------------|
+| Python         | CPython 3.11+, optionally `conda`, `uv`, or `poetry` for env discovery.  |
+| Rust           | Rust 1.78 (`rustup default stable`).                                     |
+| Java           | JDK 21 (Temurin, Microsoft Build of OpenJDK, or Liberica).               |
+| .NET           | .NET 8 SDK.                                                              |
+| Go             | Go 1.22+.                                                                |
+| JavaScript     | Node.js 20+, optionally `pnpm` or `yarn`.                                |
+| Ruby           | Ruby 3.3, `bundler` for projects with a `Gemfile`.                       |
+| Cross compile  | `lld` 17+, `wasi-sdk` 22 for `wasm32-wasi`, target sysroots under `~/sdk`. |
 
-```bash
-# Clone the project
-git clone <repository-url>
+### 2.2 Cloning and building
+
+```sh
+git clone https://example.invalid/polyglot/PolyglotCompiler.git
 cd PolyglotCompiler
-
-# Build (Linux/macOS)
-mkdir -p build && cd build
-cmake .. -G Ninja
-ninja
-
-# Build (Windows + MSVC)
-# Note: MUST use -arch=amd64 to avoid x86/x64 linker mismatch
-call "C:\...\VsDevCmd.bat" -arch=amd64
-mkdir build && cd build
-cmake .. -G Ninja
-ninja
-
-# Run all tests
-./unit_tests         # Linux/macOS
-unit_tests.exe       # Windows
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build -j
 ```
 
-## 2.3 First C++ Program
+The first build pulls third-party dependencies declared in
+[Dependencies.cmake](Dependencies.cmake) and produces every tool listed
+in [section 1.2](#12-capability-matrix-at-a-glance). Expect 4–8 minutes
+on a modern laptop with a warm dependency cache.
 
-```cpp
-// hello.cpp
-int main() {
-    return 42;
+#### 2.2.1 Useful CMake options
+
+| Option                         | Default              | Notes                                                              |
+|--------------------------------|----------------------|--------------------------------------------------------------------|
+| `CMAKE_BUILD_TYPE`             | `Debug`              | Use `RelWithDebInfo` for normal development.                       |
+| `POLY_BUILD_IDE`               | `ON`                 | Set to `OFF` for headless / CI build pruned of Qt.                 |
+| `POLY_BUILD_TESTS`             | `ON`                 | Disable to skip the 30 CTest targets.                              |
+| `POLY_BUILD_BENCHMARKS`        | `ON`                 | Disable to skip `benchmark_*` JSON producers.                      |
+| `POLY_BUILD_SAMPLES`           | `ON`                 | Disable to skip `samples_smoke`.                                   |
+| `POLY_SANITIZE`                | `OFF`                | `address`, `undefined`, `thread`, or `address;undefined`.          |
+| `POLY_COVERAGE`                | `OFF`                | Adds `--coverage` and `-fprofile-instr-generate`.                  |
+| `POLY_ENABLE_LTO`              | `OFF`                | Build the toolchain itself with thin LTO.                          |
+| `POLY_TARGET_TRIPLES`          | host                 | Semicolon list of extra triples for cross-compile defaults.        |
+| `POLY_DEFAULT_GC`              | `tricolor`           | `msweep` / `tricolor` / `generational` / `refcount`.               |
+
+#### 2.2.2 Headless / CI build
+
+```sh
+cmake -S . -B build-ci -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DPOLY_BUILD_IDE=OFF \
+      -DPOLY_BUILD_BENCHMARKS=OFF
+cmake --build build-ci -j
+ctest --test-dir build-ci -j --output-on-failure
+```
+
+#### 2.2.3 Single-target build
+
+Sometimes you only want one tool back:
+
+```sh
+cmake --build build --target polyc
+cmake --build build --target test_runtime
+cmake --build build --target polyui polyls
+```
+
+### 2.3 First C++ program
+
+```sh
+echo 'int main() { return 42; }' > hello.cpp
+build/polyc hello.cpp -o hello
+./hello; echo $?     # prints 42
+```
+
+`polyc` auto-detects the language from the extension, dispatches to the
+C++ frontend, lowers to unified IR, runs the default O2 pipeline, and
+emits a native executable for the host triple.
+
+To inspect each stage of the pipeline:
+
+```sh
+build/polyc hello.cpp --emit=ir:hello.ir          # textual IR
+build/polyc hello.cpp --emit=asm:hello.s          # backend assembly
+build/polyc hello.cpp --emit=obj:hello.o          # object file
+build/polyc hello.cpp --print-passes              # pass pipeline only
+build/polyc hello.cpp -o hello --opt=O0 -g        # debug build
+```
+
+### 2.4 First cross-language pipeline
+
+`tests/samples/09_mixed_pipeline/mixed_pipeline.ploy` glues a C++ image
+filter and a Python classifier:
+
+```ploy
+LINK cpp::filter::sharpen   AS sharpen(image: bytes) -> bytes;
+LINK python::ml::classify   AS classify(image: bytes) -> string;
+
+PIPELINE main(path: string) -> string {
+    LET raw     = io::read_file(path);
+    LET sharper = sharpen(raw);
+    RETURN classify(sharper);
 }
 ```
 
-```bash
-polyc --lang=cpp --emit-ir=hello.ir hello.cpp    # Generate IR
-polyc --lang=cpp -o hello.o hello.cpp             # Generate object file
+Build and run:
+
+```sh
+build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy \
+            -o build/mixed_pipeline
+build/mixed_pipeline tests/samples/09_mixed_pipeline/sample.png
 ```
 
-## 2.4 First Cross-Language Pipeline
+The driver discovers `*.cpp` and `*.py` siblings via the **package
+manager auto-discovery** rules ([§ 4.4](#44-package-manager-auto-discovery)),
+invokes the right frontend for each, links the IR modules, and produces
+a single binary.
+
+### 2.5 First WebAssembly build
+
+```sh
+build/polyc hello.cpp --target=wasm32-wasi -o hello.wasm
+wasmtime hello.wasm; echo $?
+```
+
+The wasm backend writes a valid WASM 1.0 module with the SIMD-128
+opcode extension; see [chapter 10](#10-backends).
+
+### 2.6 First Ploy program from scratch
 
 ```ploy
-// pipeline.ploy — Python ML + C++ post-processing
-CONFIG VENV python "/opt/ml-env";
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-IMPORT cpp::image_processor;
-
-LINK(cpp, python, process, np::mean) {
-    MAP_TYPE(cpp::double, python::float);
+FN factorial(n: i64) -> i64 {
+    IF n <= 1 { RETURN 1; }
+    RETURN n * factorial(n - 1);
 }
 
-PIPELINE inference {
-    FUNC run(data: LIST(f64)) -> f64 {
-        LET avg = CALL(python, np::mean, data);
-        LET result = CALL(cpp, image_processor::enhance, avg);
-        RETURN result;
-    }
-}
-
-EXPORT inference AS "run_inference";
-```
-
----
-
-# 3. Architecture Design
-
-## 3.1 Overall Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Source Code                                    │
-│             C++ / Python / Rust / Java / C# (.NET) / JavaScript / Ruby / Go / .ploy                  │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-     ┌──────────┬──────────┬──────────┼──────────┬──────────┐
-     │          │          │          │          │          │
-     ▼          ▼          ▼          ▼          ▼          ▼
- ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
- │  C++   │ │ Python │ │  Rust  │ │  Java  │ │  .NET  │ │  .ploy   │
- │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │ Frontend │
- └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └───┬────┘ └────┬─────┘
-     │          │          │          │          │           │
-     └──────────┴──────────┴──────────┴──────────┘       ┌───┘
-                           │                             │
-                           ▼                             ▼
-                  ┌────────────────┐          ┌───────────────────┐
-                  │  Shared IR     │          │ PolyglotLinker    │
-                  │ (Middle Layer) │          │ (Cross-Language)  │
-                  └────────┬───────┘          └───────────────────┘
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-    ┌──────┐     ┌──────┐     ┌──────┐
-    │ SSA  │     │ CFG  │     │ Opt  │
-    │Trans │     │Build │     │Pass  │
-    └──┬───┘     └──┬───┘     └──┬───┘
-       └────────────┼────────────┘
-                    │
-           ┌────────────────┐
-           │  Backend       │
-           │ (x86_64/ARM64) │
-           └────────┬───────┘
-                    │
-          ┌─────────┼─────────┐
-          │         │         │
-          ▼         ▼         ▼
-      ┌───────┐ ┌────────┐ ┌──────┐
-      │ISelect│ │RegAlloc│ │AsmGen│
-      └───┬───┘ └──┬─────┘ └──┬───┘
-          └────────┼───────────┘
-                   │
-           ┌───────────────┐
-           │ Object File   │
-           │ (ELF/Mach-O/  │
-           │  COFF/POBJ)   │
-           └───────────────┘
-```
-
-**Key Design Principles:**
-- All languages share a unified IR intermediate representation
-- Each frontend independently implements the complete Lexer → Parser → Sema → Lowering pipeline
-- All frontends are registered with a central **FrontendRegistry** using the `ILanguageFrontend` interface, enabling unified dispatch from CLI, IDE, tests, and plugins
-- The `.ploy` frontend is unique in that its IR is consumed by the PolyglotLinker, generating cross-language glue code
-- Nine frontends: C++, Python, Rust, Java, .NET (C#), JavaScript, Ruby, Go, and .ploy
-
-## 3.2 Directory Structure
-
-```
-PolyglotCompiler/
-├── frontends/              # Frontends (6 language frontends)
-│   ├── common/             # Shared frontend facilities (Token, Diagnostics, Preprocessor, Registry)
-│   │   ├── include/        #   language_frontend.h (ILanguageFrontend interface)
-│   │   │                   #   frontend_registry.h (FrontendRegistry singleton)
-│   │   │                   #   diagnostics.h, lexer_base.h, sema_context.h
-│   │   └── src/            #   frontend_registry.cpp, token_pool.cpp, preprocessor.cpp
-│   ├── cpp/                # C++ frontend
-│   │   ├── include/        #   cpp_frontend.h, cpp_lexer.h, cpp_parser.h, cpp_sema.h, cpp_lowering.h
-│   │   └── src/            #   cpp_frontend.cpp, lexer/, parser/, sema/, lowering/, constexpr/
-│   ├── python/             # Python frontend
-│   │   ├── include/        #   python_frontend.h, python_lexer.h, python_parser.h, python_sema.h, python_lowering.h
-│   │   └── src/            #   python_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── rust/               # Rust frontend
-│   │   ├── include/        #   rust_frontend.h, rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
-│   │   └── src/            #   rust_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── java/               # Java frontend (Java 8/17/21/23)
-│   │   ├── include/        #   java_frontend.h, java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
-│   │   └── src/            #   java_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── dotnet/             # .NET frontend (C# .NET 6/7/8/9)
-│   │   ├── include/        #   dotnet_frontend.h, dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
-│   │   └── src/            #   dotnet_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   └── ploy/               # .ploy cross-language linking frontend
-│       ├── include/        #   ploy_frontend.h, ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
-│       └── src/            #   ploy_frontend.cpp, lexer/, parser/, sema/, lowering/
-├── middle/                 # Middle layer
-│   ├── include/
-│   │   ├── ir/             #   IR definitions (cfg.h, ssa.h, verifier.h, analysis.h, data_layout.h, etc.)
-│   │   ├── passes/         #   Optimisation pass interfaces (analysis/, transform/)
-│   │   ├── pgo/            #   Profile-Guided Optimization
-│   │   └── lto/            #   Link-Time Optimization
-│   └── src/
-│       ├── ir/             #   builder, ir_context, cfg, ssa, verifier, printer, parser, template_instantiator, opt
-│       ├── passes/         #   pass_manager, optimizations/ (constant_fold, dead_code_elim, common_subexpr,
-│       │                   #     inlining, devirtualization, loop_optimization, gvn, advanced_optimizations)
-│       ├── pgo/            #   profile_data.cpp
-│       └── lto/            #   link_time_optimizer.cpp
-├── backends/               # Backends (3 architecture backends)
-│   ├── common/             # Shared backend facilities
-│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, dwarf_builder.cpp, object_file.cpp
-│   ├── x86_64/             # x86_64 backend
-│   │   ├── include/        #   x86_target.h, x86_register.h, machine_ir.h, instruction_scheduler.h
-│   │   └── src/            #   isel/, regalloc/ (graph_coloring, linear_scan), asm_printer/, optimizations, calling_convention
-│   ├── arm64/              # ARM64 backend
-│   │   ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
-│   │   └── src/            #   isel/, regalloc/ (graph_coloring, linear_scan), asm_printer/, calling_convention
-│   └── wasm/               # WebAssembly backend
-│       ├── include/        #   wasm_target.h
-│       └── src/            #   wasm_target.cpp
-├── runtime/                # Runtime
-│   ├── include/            # GC, FFI, service interfaces
-│   └── src/
-│       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
-│       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c, javascript_rt.c, ruby_rt.c, go_rt.c
-│       └── services/       #   exception, reflection, threading
-├── common/                 # Project-wide common facilities
-│   ├── include/
-│   │   ├── core/           #   type_system.h, source_loc.h, symbol_table.h
-│   │   ├── ir/             #   ir_node.h
-│   │   ├── debug/          #   dwarf5.h
-│   │   └── utils/          #   Utilities
-│   └── src/
-│       ├── core/           #   type_system.cpp, symbol_table.cpp
-│       └── debug/          #   dwarf5.cpp
-├── tools/                  # Toolchain (7 executables)
-│   ├── polyc/              # Compiler driver (driver.cpp ~1773 lines)
-│   ├── polyld/             # Linker (linker.cpp + polyglot_linker.cpp ~3790 lines)
-│   ├── polyasm/            # Assembler (assembler.cpp)
-│   ├── polyopt/            # Optimiser (optimizer.cpp)
-│   ├── polyrt/             # Runtime tool (polyrt.cpp)
-│   ├── polybench/          # Benchmark (benchmark_suite.cpp)
-│   └── ui/                 # Qt-based desktop IDE (polyui) — platform-separated source layout
-│       ├── common/         #   Cross-platform shared code (mainwindow, code_editor, syntax_highlighter, file_browser, output_panel, compiler_service, terminal_widget)
-│       ├── windows/        #   Windows-specific entry point (main.cpp)
-│       ├── linux/          #   Linux-specific entry point (main.cpp)
-│       └── macos/          #   macOS-specific entry point (main.cpp)
-├── tests/                  # Tests
-│   ├── unit/               # Unit tests (Catch2 framework) — 909 test cases
-│   │   └── frontends/ploy/ #   ploy_test.cpp (283 test cases)
-│   ├── samples/            # Sample programs (16 categorised directories with .ploy/.cpp/.py/.rs/.java/.cs)
-│   ├── integration/        # Integration tests (compile pipeline / interop / performance) — 92 test cases
-│   └── benchmarks/         # Benchmark tests (micro / macro) — 18 test cases
-└── docs/                   # Documentation
-    ├── api/                # API reference (bilingual)
-    ├── specs/              # Language & IR specifications
-    ├── realization/        # Implementation docs (8 topics × 2 languages = 16 files)
-    ├── tutorial/           # Tutorials (ploy language + project, bilingual)
-    ├── demand/             # Requirements
-    ├── USER_GUIDE.md       # This document (English)
-    └── USER_GUIDE_zh.md    # Complete guide (Chinese)
-```
-
-## 3.3 Frontend Design
-
-Each frontend follows a unified 4-stage pipeline:
-
-```
-Source Code
-    │
-    ▼
-┌─────────┐    Token Stream    ┌─────────┐    AST   ┌─────────┐   Annotated AST    ┌──────────┐ IR Module
-│  Lexer  │──────────────────▶ │ Parser  │────────▶ │  Sema   │───────────────────▶│ Lowering │──────────▶
-└─────────┘                    └─────────┘          └─────────┘                    └──────────┘
-```
-
-### 3.3.1 Unified Frontend Registry
-
-All language frontends are managed through a **FrontendRegistry** — a singleton registration center that replaces hard-coded if/else dispatch chains. The CLI (`polyc`), the IDE (`polyui`), tests, and plugins all share this single dispatch mechanism.
-
-**Architecture:**
-
-```
-                    ┌──────────────────────────┐
-                    │    FrontendRegistry       │
-                    │    (Singleton)            │
-                    ├──────────────────────────┤
-                    │  Register(frontend)       │
-                    │  GetFrontend(name/alias)  │
-                    │  GetFrontendByExtension() │
-                    │  DetectLanguage(path)     │
-                    │  SupportedLanguages()     │
-                    │  AllFrontends()           │
-                    └───────────┬──────────────┘
-                                │
-         ┌──────────┬───────────┼───────────┬──────────┬──────────┐
-         │          │           │           │          │          │
-         ▼          ▼           ▼           ▼          ▼          ▼
-     ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-     │  Ploy  │ │  C++   │ │ Python │ │  Rust  │ │  Java  │ │ .NET   │
-     │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│ │Frontend│
-     └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
-         │          │           │           │          │          │
-         └──────────┴───────────┴───────────┴──────────┴──────────┘
-                                │
-                    ┌───────────────────────┐
-                    │  ILanguageFrontend     │
-                    │  (Abstract Interface)  │
-                    ├───────────────────────┤
-                    │  Name() -> string      │
-                    │  DisplayName() -> string│
-                    │  Extensions() -> [...]  │
-                    │  Aliases() -> [...]     │
-                    │  Tokenize(source)       │
-                    │  Analyze(source, diags) │
-                    │  Lower(source, ir_ctx)  │
-                    │  NeedsPreprocessing()   │
-                    └───────────────────────┘
-```
-
-**Key features:**
-
-- **Auto-registration**: Each frontend adapter uses the `REGISTER_FRONTEND()` macro to automatically register itself at static initialization time. No manual wiring is needed.
-- **Multi-key lookup**: Frontends can be looked up by canonical name (e.g. `"cpp"`), alias (e.g. `"c"`, `"c++"`, `"csharp"`), or file extension (e.g. `".py"`, `".rs"`).
-- **Language detection**: `DetectLanguage(file_path)` infers the language from a file's extension.
-- **Thread-safe**: All registry operations are mutex-protected.
-- **Extensible**: Third-party plugins can register new language frontends at runtime via the same interface.
-
-**Supported identifiers:**
-
-| Frontend | Canonical Name | Aliases | Extensions |
-|----------|---------------|---------|------------|
-| C++ | `cpp` | `c`, `c++` | `.cpp`, `.cc`, `.cxx`, `.c`, `.hpp`, `.h` |
-| Python | `python` | `py` | `.py` |
-| Rust | `rust` | `rs` | `.rs` |
-| Java | `java` | — | `.java` |
-| .NET/C# | `dotnet` | `csharp`, `c#` | `.cs`, `.vb` |
-| .ploy | `ploy` | — | `.ploy`, `.poly` |
-
-**Source files:**
-
-| File | Description |
-|------|-------------|
-| `frontends/common/include/language_frontend.h` | `ILanguageFrontend` abstract interface and `FrontendOptions`/`FrontendResult` types |
-| `frontends/common/include/frontend_registry.h` | `FrontendRegistry` singleton and `REGISTER_FRONTEND()` macro |
-| `frontends/common/src/frontend_registry.cpp` | Registry implementation (lookup, enumeration, clear) |
-| `frontends/<lang>/include/<lang>_frontend.h` | Per-language adapter header |
-| `frontends/<lang>/src/<lang>_frontend.cpp` | Per-language adapter implementation with auto-registration |
-
-### 3.3.2 Frontend Pipeline Stages
-
-**Frontend scale overview:**
-
-| Frontend | Source Path | Core Features |
-|----------|------------|---------------|
-| C++ | `frontends/cpp/` (5 compilation units) | OOP, Templates, RTTI, Exceptions, constexpr, SIMD |
-| Python | `frontends/python/` (4 compilation units) | Type annotations, Inference, 25+ advanced features |
-| Rust | `frontends/rust/` (4 compilation units) | Borrow checking, Lifetimes, Closures, 28+ advanced features |
-| Java | `frontends/java/` (4 compilation units) | Java 8/17/21/23, Records, Sealed classes, Pattern matching, Switch expressions, Text blocks |
-| .NET (C#) | `frontends/dotnet/` (4 compilation units) | .NET 6/7/8/9, Records, Top-level statements, Primary constructors, Nullable reference types |
-| .ploy | `frontends/ploy/` (6 compilation units) | LINK, IMPORT, PIPELINE, CONFIG, Package management, OOP interop |
-
----
-
-# 4. .ploy Cross-Language Linking Frontend
-
-## 4.1 Language Overview
-
-`.ploy` is a declarative domain-specific language (DSL) for describing function-level linking and object-oriented interoperability between different programming languages. It is not a general-purpose language, but rather a "cross-language glue".
-
-### Design Goals
-
-1. **Declarative Linking** — Concise syntax for describing cross-language function call relationships
-2. **OOP Interoperability** — `NEW` / `METHOD` / `GET` / `SET` / `WITH` support for cross-language class instantiation, method calls, attribute access, and resource management
-3. **Type Mapping** — Automatic handling of type conversions between languages
-4. **Package Manager Integration** — Directly reference packages from each language ecosystem (numpy, rayon, opencv, etc.)
-5. **Pipeline Orchestration** — Organise multi-stage cross-language workflows into reusable pipelines
-
-### Frontend Components
-
-| Component | Header | Implementation | Lines | Responsibility |
-|-----------|--------|----------------|-------|---------------|
-| Lexer | `ploy_lexer.h` | `lexer.cpp` | ~295 | 54 keywords, operators, literals |
-| Parser | `ploy_parser.h` | `parser.cpp` | ~2020 | Declaration / statement / expression parsing |
-| Semantic Analyser | `ploy_sema.h` | `sema.cpp` | ~1950 | Type checking, param validation, package discovery, version verification |
-| IR Generator | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR transformation |
-
-### Keyword List (56, case-insensitive since Ploy 1.5.2)
-
-```
-// Declaration keywords
-LINK      IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC      CONFIG
-LANG
-
-// Variables and types
-LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
-BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
-
-// Explicit-width primitives + TYPE alias + CONST (since v1.7.0)
-TYPE      CONST
-I8        I16       I32       I64
-U8        U16       U32       U64
-F32       F64
-USIZE     ISIZE
-
-// Control flow
-RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
-MATCH     CASE      DEFAULT   BREAK      CONTINUE
-
-// Operators
-AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
-
-// Object-oriented operations
-NEW       METHOD    GET       SET        WITH       DELETE    EXTEND
-
-// Values
-TRUE      FALSE     NULL      PACKAGE
-
-// Package managers
-VENV      CONDA     UV        PIPENV     POETRY
-```
-
-> **Case-insensitive lexing (Ploy 1.5.2+).** Every reserved word above is
-> recognised regardless of casing — `link`, `Link`, `LINK`, `LiNk` all map
-> to the same `LINK` token. The lexer normalises `Token::lexeme` to the
-> canonical UPPER spelling shown above; the original source spelling is
-> preserved in `Token::raw_lexeme` and exposed via `Token::SourceText()`.
-> **Identifiers remain case-sensitive** — only the keyword set folds.
-> Identifiers that previously differed only in case from a keyword
-> (`config`, `array`, `get`, `pipeline`, …) are now reserved; rename
-> them (e.g. `app_cfg`, `np_array`, `getter`, `run_pipeline`).
->
-> `*` `RETURNS` is still parsed for backward compatibility but the parser
-> emits a non-fatal `kDeprecatedKeyword` warning (ErrorCode = 3024) at
-> the offending token. New code should use the `-> Type` arrow on the
-> LINK signature instead. The logical operators `AND` / `OR` / `NOT`
-> are exact aliases of `&&` / `||` / `!`; the symbolic forms are
-> preferred for new code.
-
-## 4.2 Core Syntax
-
-### 4.2.1 LINK — Cross-Language Function Linking
-
-```ploy
-// Basic syntax
-LINK(target_language, source_language, target_function, source_function);
-
-// Linking with type mapping
-LINK(cpp, python, process_data, np::compute) {
-    MAP_TYPE(cpp::std::vector_double, python::list);
-    MAP_TYPE(cpp::int, python::int);
-}
-
-// With struct mapping
-LINK(cpp, rust, transform, serde::parse) {
-    MAP_TYPE(cpp::MyStruct, rust::MyStruct);
-}
-```
-
-**Semantics:** A LINK declaration tells the PolyglotLinker to generate glue code that converts the output of `source_function` into input acceptable by `target_function`.
-
-### 4.2.2 IMPORT — Module and Package Import
-
-```ploy
-// ---- Qualified module import ----
-IMPORT cpp::math_utils;
-IMPORT rust::serde;
-
-// ---- Package import (using PACKAGE keyword) ----
-IMPORT python PACKAGE numpy;
-
-// With version constraint
-IMPORT python PACKAGE numpy >= 1.20;
-IMPORT python PACKAGE scipy == 1.10.0;
-IMPORT rust PACKAGE serde >= 1.0;
-
-// With alias
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-// Selective import (import specific symbols only)
-IMPORT python PACKAGE numpy::(array, mean, std);
-
-// Selective import from sub-module
-IMPORT python PACKAGE numpy.linalg::(solve, inv);
-
-// Selective import + version constraint
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
-
-// Selective import + version constraint
-IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
-
-// Whole-package import + alias (without selective import)
-IMPORT python PACKAGE torch >= 2.0 AS pt;
-```
-
-> **Restriction:** Selective import `::()` and `AS` alias **cannot be used simultaneously**.
-> For example, `torch::(tensor, no_grad) AS pt` is illegal — `pt` cannot determine whether it refers to `tensor` or `no_grad`.
-
-**Syntax parsing order:**
-
-```
-IMPORT <language> PACKAGE <package_name>[::(<symbol_list>)] [<version_operator> <version>] [AS <alias>];
-```
-
-> Note: Selective import `::()` follows the package name directly; version constraints and aliases come after. Selective import and alias are mutually exclusive.
-
-**Version operators:**
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `>=` | Greater or equal | `>= 1.20` |
-| `<=` | Less or equal | `<= 2.0` |
-| `==` | Exact match | `== 1.10.0` |
-| `>` | Strictly greater | `> 1.0` |
-| `<` | Strictly less | `< 3.0` |
-| `~=` | Compatible version (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
-
-### 4.2.3 CONFIG — Package Manager Configuration
-
-Configure a specific package manager environment for package discovery.
-
-> **Since v1.12.0** — the canonical form is fully stringified:
-> `CONFIG <language> "<package_manager>" "<path_or_env>";`.  The
-> `(language, package_manager)` pair must be registered in
-> `frontends/ploy/src/sema/config_registry.cpp`.  See
-> [Realization → Package Management](realization/package_management.md#registering-a-custom-package-manager)
-> for the registration recipe.
-
-```ploy
-// Canonical stringified form (since v1.12.0)
-CONFIG python     "venv"    "/opt/ml-env";
-CONFIG python     "conda"   "ml_env";
-CONFIG python     "uv"      "D:/venvs/uv_env";
-CONFIG python     "pipenv"  "C:/projects/myapp";
-CONFIG python     "poetry"  "C:/projects/poetry_app";
-CONFIG rust       "cargo"   ".";
-CONFIG javascript "npm"     "./node_modules";
-CONFIG java       "maven"   "./pom.xml";
-CONFIG dotnet     "nuget"   "./packages";
-CONFIG ruby       "bundler" "./Gemfile";
-CONFIG go         "gomod"   "./go.mod";
-```
-
-Legacy keyword form (deprecated, parsed for source compatibility):
-
-```ploy
-// Old keyword form — emits a deprecation warning at sema time.
-CONFIG VENV python "/opt/ml-env";
-CONFIG CONDA "data_science";    // Defaults language to python
-```
-
-**Rules:**
-- Only one CONFIG per language per compilation unit
-- Duplicate configuration for the same language produces a compile-time error
-- CONFIG must appear before the IMPORT that uses it
-- Language parameter is optional, defaults to `python`
-
-### 4.2.4 PIPELINE — Multi-Stage Pipeline
-
-```ploy
-PIPELINE image_pipeline {
-    FUNC load(paths: LIST(STRING)) -> LIST(LIST(f64)) {
-        LET images = CALL(rust, rayon::par_load, paths);
-        RETURN images;
-    }
-
-    FUNC preprocess(images: LIST(LIST(f64))) -> LIST(LIST(f64)) {
-        LET processed = CALL(cpp, opencv::resize_batch, images);
-        RETURN processed;
-    }
-
-    FUNC classify(data: LIST(LIST(f64))) -> LIST(STRING) {
-        LET results = CALL(python, pt::forward, data);
-        RETURN results;
-    }
-}
-```
-
-### 4.2.5 EXPORT — Symbol Export
-
-```ploy
-EXPORT image_pipeline AS "classify_images";   // Export with alias
-EXPORT compute;                                // Use original name
-```
-
-### 4.2.5b Error Handling (since v1.13.0)
-
-Use `TRY` / `CATCH` / `FINALLY` / `THROW` for structured exception
-handling.  The catch binding has the built-in `Error` handle type
-exposing `message`, `source_lang`, and `stacktrace`.
-
-```ploy
-TRY {
-    LET row = CALL(python, db::fetch_one, query);
-}
-CATCH (e: Error) {
-    PRINTLN "fetch failed: " + e.message;
-}
-FINALLY {
-    CALL(python, db::close);
-}
-```
-
-`THROW <expr>;` raises an Error.  A bare `THROW "boom";` is wrapped
-into the unified `Error` handle by the runtime bridge.  Multiple
-`CATCH` clauses are dispatched in declaration order.  A standalone
-`FINALLY` (no `CATCH`) is allowed for guaranteed cleanup.
-
-The runtime bridge maps host-language exceptions (Python `Exception`,
-C++ `std::exception`, Java `Throwable`, .NET `Exception`, Rust
-`Result::Err`) onto the same `Error` handle so a single `CATCH` clause
-can intercept failures originating from any linked language.  See
-`docs/realization/error_handling.md` for the IR / ABI model and
-`tests/samples/36_try_catch/` for an end-to-end example.
-
-### 4.2.5c Async / Await (since v1.14.0)
-
-Use `ASYNC FUNC` and `AWAIT` for cooperative asynchronous functions.
-The return type `T` of an `ASYNC FUNC` is implicitly wrapped as
-`Future<T>` at the ABI boundary; tooling continues to surface the raw
-`T`.  `AWAIT <expr>` is only legal inside an `ASYNC FUNC` body — sema
-rejects every other use.
-
-```ploy
-ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
-ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
-
-ASYNC FUNC chained() -> i32 {
-    LET a = AWAIT fetch_one();
-    LET b = AWAIT fetch_two();
+FN main() -> i32 {
+    PRINT(factorial(10));
     RETURN 0;
 }
 ```
 
-The cooperative event loop (single thread by default, work-stealing
-pool optional) is implemented in `runtime/services/async_bridge.cpp`
-and `runtime/services/event_loop.cpp`.  Per-language adapters bridge
-host awaitables (Python `asyncio` coroutines, Rust `Future`, C++20
-`std::coroutine`, Java `CompletableFuture`, .NET `Task<T>`) onto the
-same `Future<T>` handle through `__ploy_rt_future_resolve`.
-
-The `polyrt async` CLI prints a snapshot of the cooperative event
-loop; `polyrt async --json` emits the same payload as JSON, and
-`polyrt async --run[=N]` drives the loop for at most `N` ticks before
-reporting.  See `docs/realization/async_model.md` for the IR / ABI
-model and `tests/samples/37_async_await/` for an end-to-end example.
-
-### 4.2.5d Generics (since v1.15.0)
-
-`FUNC` and `STRUCT` declarations may carry a generic type parameter
-list with optional trait bounds:
-
-```ploy
-FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
-STRUCT Pair<A, B> { first: A, second: B }
-FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
+```sh
+build/polyc fact.ploy -o fact && ./fact
+3628800
 ```
 
-* **Type parameter list** — `<T: Bound1 + Bound2, U>` follows the
-  declared name.  Bounds are plain identifier names; sema validates
-  each against the built-in trait registry.
-* **WHERE clause** — `WHERE T: Bound1 + Bound2, U: Bound3` between
-  the return type and the body augments the matching parameter's
-  bounds.  References to undeclared parameters are rejected.
-* **Built-in trait registry** — `Comparable`, `Hashable`, `Numeric`,
-  `Iterable`, `Display`.  Unknown bound names trigger a sema
-  `kTypeMismatch` diagnostic.
-* **Generic instantiation** — `Pair<i32, String>` in a type
-  position is parsed as a parameterised type and resolved by sema.
+### 2.7 Running the test suite
 
-The v1.15.0 lowering path is type-erased (every parameter resolves
-to `Any`); per-instantiation monomorphisation, bound enforcement
-against concrete types, and parametric generics in `LINK`
-declarations are tracked as follow-up work.  See
-`docs/realization/generics.md` for the IR / ABI model and
-`tests/samples/38_generics/` for an end-to-end example.
-
-### 4.2.5e Visibility and Attributes (since v1.16.0)
-
-Top-level `FUNC`, `ASYNC FUNC`, and `STRUCT` declarations may carry
-an attribute / visibility prefix:
-
-```ploy
-@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
-PRIVATE STRUCT Internal { x: i32 }
+```sh
+ctest --test-dir build -j --output-on-failure
+ctest --test-dir build -R "frontend"
+ctest --test-dir build -R "samples_smoke" -V
 ```
 
-* **`PUB` / `PRIVATE`** — module-boundary visibility.  `PRIVATE` is
-  the default and may be written explicitly for documentation.
-* **`EXPORT` requires `PUB`** — an explicit `PRIVATE` is a hard
-  error; a symbol that still carries the default is auto-promoted
-  with a deprecation warning so pre-v1.16.0 sources keep compiling.
-* **`@name` / `@name(args)`** — declaration attributes.  The
-  built-in registry is `@inline`, `@noinline`, `@always_inline`,
-  `@hot`, `@cold`, `@profile`, `@no_profile`, `@deprecated`,
-  `@link_name`, `@target`.  Unknown attributes are accepted with a
-  sema warning so third-party tooling can extend the set without
-  modifying the compiler.
+### 2.8 Launching the IDE
 
-The v1.16.0 MVP keeps attributes and visibility as inert metadata on
-the AST; wiring `@inline` / `@hot` / `@profile` into the optimiser
-and `@link_name` / `@target` into the linker is tracked as follow-up
-work.  See `docs/realization/visibility_attrs.md` and
-`docs/specs/attribute_catalog.md` for the model and
-`tests/samples/39_visibility_attrs/` for an end-to-end example.
-
-### 4.2.5f Extended String Literals (since v1.17.0)
-
-Ploy 1.17.0 ships four string-literal forms:
-
-```ploy
-LET reg  = "hello\n";                                  // regular
-LET path = r"C:\path\no\escape";                       // raw
-LET sql  = r#"SELECT "name", "age" FROM users"#;       // raw with `#` padding
-LET poem = """An old silent pond
-A frog jumps in
-splash silence again""";                               // multiline (newlines preserved)
-LET msg  = f"answer = {42}, pi = {3.14}";              // template / interpolated
+```sh
+build/polyui &
 ```
 
-Sema requires every interpolated expression in an `f"..."` literal to
-have a *formattable* type — `Int`, `Float`, `String`, or `Bool`.  The
-v1.17.0 lowering layer folds template strings whose interpolated parts
-are all compile-time `Literal` expressions; runtime variable
-interpolation is recorded as future work in
-`docs/realization/string_literals.md`.
-
-See `tests/samples/40_string_literals/` for an end-to-end example.
-
-### 4.2.5g Grammar polish bundle (since v1.18.0)
-
-A small collection of source-level refinements that reduce friction
-when porting code from Rust / Python / TypeScript:
-
-- **Optional outer parens on `IF` / `WHILE` / `FOR`.** `IF (cond) { … }`
-  parses identically to `IF cond { … }`; same for `WHILE` and
-  `FOR (i IN xs) { … }`.
-- **`IF LET` `OPTION<T>` destructuring.**
-  `IF LET Some(x) = opt { … } ELSE { … }` unwraps a `Some` and
-  binds `x: T` for the THEN-body. `IF LET None = opt { … }` matches
-  the empty case and takes no bindings.
-- **`NULL` vs. `None`.** `NULL` is reserved for raw-pointer interop;
-  use `None` for empty `OPTION<T>` values. Sema rejects
-  `LET o: OPTION<T> = NULL;`.
-- **`///` documentation comments.** Lines beginning with exactly
-  three slashes attach to the immediately following `FUNC` / `STRUCT`
-  / `LET` / `VAR` declaration. Plain `//` and `////` remain ordinary
-  comments. The `polydoc` tool extracts these blocks to Markdown or
-  JSON — see [`docs/api/polydoc.md`](api/polydoc.md).
-- **`LIST<T>` is `Vec<T>`.** `LIST<T>` is a contiguous-sequence
-  container, equivalent to Rust `Vec<T>` and C++ `std::vector<T>` —
-  not a linked list.
-- **Postfix `?` short-circuit unwrap (since v1.19.0).** Inside a
-  `FUNC` whose return type is `OPTION<U>`, writing `expr?` on an
-  operand of type `OPTION<T>` evaluates to the inner `T` when the
-  value is `Some`, and otherwise returns `None` from the enclosing
-  function immediately. Sema rejects `?` on non-optional operands
-  and inside non-`OPTION` functions; `T` must be assignment-
-  compatible with `U`.
-
-See `tests/samples/41_grammar_polish/` for an end-to-end example.
-
-### 4.2.6 Type System
-
-| Category | Types | Syntax |
-|----------|-------|--------|
-| Primitives | Integer, Float, Boolean, String, Void | `INT`, `FLOAT`, `BOOL`, `STRING`, `VOID` |
-| Width-aware integers (v1.7.0) | Signed/unsigned 8/16/32/64-bit + pointer-width | `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `usize` `isize` |
-| Width-aware floats (v1.7.0)   | 32/64-bit IEEE-754 | `f32` `f64` |
-| Type alias (v1.7.0)           | Named synonym for any type expression | `TYPE Pixel = i32;` |
-| Compile-time constant (v1.7.0)| Folded immutable value, requires explicit type | `CONST KMaxRetry: i32 = 5;` |
-| Containers | List, Tuple, Dict, Optional | `LIST(T)`, `TUPLE(T1, T2)`, `DICT(K, V)`, `OPTION(T)` |
-| Struct | User-defined composite type | `STRUCT Point { x: f64, y: f64 }` |
-| Array | Fixed-length array | `ARRAY(INT)` |
-| Function | Function signature | `(INT, FLOAT) -> BOOL` |
-| Qualified | Language-specific type | `cpp::int`, `python::str`, `rust::Vec`, `java::String`, `dotnet::int` |
-
-**Cross-language type checking:**
-
-When a `LINK` declaration includes `MAP_TYPE` entries, the compiler enables full parameter count and type validation at call sites:
-
-- **Parameter count:** `CALL`, `METHOD`, and `NEW` expressions are validated against the registered signature. Mismatched argument counts produce compile-time errors with traceback to the declaration site.
-- **Parameter types:** Each argument type is checked against the expected parameter type. Incompatible types produce errors.
-- **Return types:** When a cross-language call result is assigned to a typed variable (`LET x: INT = CALL(...)`), the return type is validated against the declared type.
-- **Strict mode:** In strict mode (`--strict`), missing callable signatures/ABI schema and unresolved `Any` fallbacks are treated as hard errors at semantic-analysis time.
-- **Link-stage ABI gate:** `polyld` now treats parameter/return ABI mismatches (count, size, passing convention, type name, MAP_TYPE arity drift) as hard failures instead of warnings.
-
-**Typed object handles:**
-
-`NEW` expressions return typed pointer handles when the class is known (e.g. via `LINK` or `EXTEND`), rather than opaque `void*`. This enables downstream type checking for `METHOD`, `GET`, and `SET` operations on the object.
-
-### 4.2.7 Control Flow
-
-```ploy
-// IF / ELSE
-IF condition {
-    ...
-} ELSE IF other {
-    ...
-} ELSE {
-    ...
-}
-
-// WHILE loop
-WHILE condition {
-    ...
-}
-
-// FOR .. IN range loop
-FOR item IN collection {
-    ...
-}
-
-FOR i IN 0..10 {
-    ...
-}
-
-// MATCH pattern matching — supports literals, wildcard, ranges,
-// tuples, structs, OR-patterns, bindings, type guards and OPTION
-// constructors.  Each arm exits the MATCH after its body runs;
-// there is no fall-through.
-MATCH value {
-    CASE 1 { ... }                      // literal
-    CASE 2 | 3 | 5 | 7 { ... }          // OR-pattern
-    CASE 10..=20 { ... }                // inclusive range
-    CASE n @ 100..200 { ... }           // bound name on a range
-    CASE x: i32 IF x > 0 { ... }        // type guard + IF guard
-    CASE _ { ... }                      // wildcard catch-all
-}
-
-// MATCH on bool / OPTION is exhaustive without DEFAULT.
-MATCH opt {
-    CASE Some(x) { ... }
-    CASE None    { ... }
-}
-
-// BREAK / CONTINUE
-WHILE TRUE {
-    IF done { BREAK; }
-    CONTINUE;
-}
-```
-
-### 4.2.8 Variable Declaration and Expressions
-
-```ploy
-// Variable declaration
-LET x = 42;                        // Immutable
-VAR y: FLOAT = 3.14;               // Mutable, with type annotation
-LET z: LIST(INT) = [1, 2, 3];      // Container literal
-
-// Arithmetic expressions
-LET sum = a + b * c;
-
-// Logical expressions
-IF x > 0 AND y < 10 { ... }
-
-// Cross-language call
-LET result = CALL(python, np::mean, data);
-
-// Type conversion
-LET converted = CONVERT(value, FLOAT);
-
-// Cross-language class instantiation
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-
-// Cross-language method call
-LET output = METHOD(python, model, forward, input_data);
-
-// Attribute access
-LET weight = GET(python, model, weight);
-SET(python, model, training, FALSE);
-
-// Resource management
-WITH(python, open_file) AS handle {
-    LET data = METHOD(python, handle, read);
-}
-
-// Type annotation with qualified types
-LET model: python::nn::Module = NEW(python, torch::nn::Linear, 784, 10);
-
-// Container literals
-LET list = [1, 2, 3];
-LET tuple = (1, "hello", 3.14);
-LET dict = {"key1": 10, "key2": 20};
-LET point = Point { x: 1.0, y: 2.0 };     // Struct literal
-```
-
-### 4.2.9 MAP_FUNC — Mapping Function
-
-```ploy
-MAP_FUNC convert(x: INT) -> FLOAT {
-    LET result = CONVERT(x, FLOAT);
-    RETURN result;
-}
-```
-
-### 4.2.10 NEW — Cross-Language Class Instantiation
-
-The `NEW` keyword creates class instances (objects) from other languages within `.ploy`. Returns an opaque handle (`Any` type) that can be passed to `METHOD`, `GET`, `SET`, `WITH`, `CALL`, or `LINK`.
-
-```ploy
-// Basic syntax
-NEW(language, class_name, arg1, arg2, ...)
-
-// Example: Create Python class instance
-IMPORT python PACKAGE torch >= 2.0;
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-
-// No-argument construction
-LET empty_list = NEW(python, list);
-
-// String argument
-LET conn = NEW(python, sqlite3::Connection, "data.db");
-
-// Rust struct construction
-IMPORT rust PACKAGE serde;
-LET parser = NEW(rust, serde::json::Parser);
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier (`python`, `cpp`, `rust`)
-- Second argument is the class name, supporting `::` qualified paths
-- Subsequent arguments are passed as constructor parameters
-- Returns `Any` type (opaque object handle)
-
-**IR generation:** Constructor bridge stubs are named `__ploy_bridge_ploy_<lang>_<class>____init__`, return type is `Pointer(Void)`.
-
-### 4.2.11 METHOD — Cross-Language Method Call
-
-The `METHOD` keyword calls methods on objects from other languages within `.ploy`. The receiver object is passed as the first argument to the generated stub function.
-
-```ploy
-// Basic syntax
-METHOD(language, object_expression, method_name, arg1, arg2, ...)
-
-// Example: Call Python object method
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-LET output = METHOD(python, model, forward, input_data);
-
-// No extra arguments
-LET params = METHOD(python, model, parameters);
-
-// Chained calls
-LET optimizer = NEW(python, torch::optim::Adam, params, 0.001);
-METHOD(python, optimizer, zero_grad);
-LET loss = METHOD(python, model, compute_loss, predictions, labels);
-METHOD(python, loss, backward);
-METHOD(python, optimizer, step);
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier
-- Second argument is the object expression (typically a variable returned by `NEW`)
-- Third argument is the method name, supporting `::` qualified paths
-- Subsequent arguments are passed as method parameters
-- Returns `Any` type
-
-**IR generation:** Method bridge stubs are named `__ploy_bridge_ploy_<lang>_<method>`, with the receiver object inserted as the first argument.
-
-### 4.2.12 GET — Cross-Language Attribute Access
-
-The `GET` keyword reads an attribute from a foreign object. It generates a `__getattr__` bridge stub.
-
-```ploy
-// Basic syntax
-GET(language, object_expression, attribute_name)
-
-// Example: Read Python object attribute
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-LET weight = GET(python, model, weight);
-LET bias = GET(python, model, bias);
-
-// Read Rust struct field
-LET value = GET(rust, config, max_retries);
-
-// Use in expression
-IF GET(python, model, training) {
-    METHOD(python, model, eval);
-}
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier (`python`, `cpp`, `rust`)
-- Second argument is the object expression
-- Third argument is the attribute name (must be a valid identifier)
-- Returns `Any` type
-
-**IR generation:** Attribute access bridge stubs are named `__ploy_bridge_ploy_<lang>___getattr__<attr_name>`.
-
-### 4.2.13 SET — Cross-Language Attribute Assignment
-
-The `SET` keyword writes a value to a foreign object's attribute. It generates a `__setattr__` bridge stub.
-
-```ploy
-// Basic syntax
-SET(language, object_expression, attribute_name, value)
-
-// Example: Write Python object attribute
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-SET(python, model, training, FALSE);
-SET(python, model, learning_rate, 0.001);
-
-// Set Rust struct field
-SET(rust, config, max_retries, 5);
-
-// Value can be any expression
-SET(python, model, weight, CALL(python, np::zeros, 784));
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier
-- Second argument is the object expression
-- Third argument is the attribute name (must be a valid identifier)
-- Fourth argument is the value expression
-- Returns `Any` type (the assigned value is passed through for chaining)
-
-**IR generation:** Attribute assignment bridge stubs are named `__ploy_bridge_ploy_<lang>___setattr__<attr_name>`. Both the object and value are passed as arguments.
-
-### 4.2.13b CLASS / HANDLE — Statically-Typed Object Interop *(since 1.9.0)*
-
-`CLASS` schemas turn the previously `Any`-typed `NEW` / `METHOD` /
-`GET` / `SET` quartet into a statically type-checked surface, while
-`HANDLE<lang::Class>` carries the foreign object's identity through the
-type system.
-
-```ploy
-// 1. Declare a schema once per foreign class.
-CLASS python::torch::nn::Linear {
-    METHOD __init__(in_features: i32, out_features: i32);
-    METHOD forward(x: f32) -> f32;
-    ATTR in_features: i32;
-    ATTR out_features: i32;
-}
-
-// 2. Instances now have a precise type.
-LET model: HANDLE<python::torch::nn::Linear> =
-    NEW(python, torch::nn::Linear, 128, 10);
-
-// 3. METHOD / GET / SET are type-checked against the schema.
-LET y: f32 = METHOD(python, model, forward, 0.5);   // arg + return checked
-LET dim: i32 = GET(python, model, in_features);     // attr type resolved
-SET(python, model, in_features, 256);               // value type checked
-```
-
-**Diagnostics**
-
-| Situation                                       | Severity | Notes                                              |
-| ----------------------------------------------- | -------- | -------------------------------------------------- |
-| Argument count mismatch (`NEW` / `METHOD`)      | error    | Same rule as ordinary function calls.              |
-| Argument type mismatch                          | error    | Same rule as ordinary function calls.              |
-| `SET` value type mismatch                       | error    | Would corrupt the foreign object's invariant.      |
-| Unknown method on a typed handle                | warning  | Foreign objects often expose dynamic methods.      |
-| Unknown attribute on a typed handle             | warning  | Same reason as above.                              |
-| Cross-language handle assignment                | error    | Use `CONVERT` + `MAP_FUNC` for explicit bridging. |
-
-**Compatibility notes**
-
-* `CLASS`, `HANDLE` and `ATTR` are **contextual** keywords: existing
-  programs that use `class`, `handle`, or `attr` as identifiers
-  continue to lex and parse unchanged.
-* If no `CLASS` schema is declared for a target, `NEW` / `METHOD` /
-  `GET` / `SET` fall back to the legacy dynamic-`Any` path — the
-  pre-1.9.0 behaviour of all 31 existing samples is preserved.
-* Constructor methods can be named `__init__` (Python convention),
-  `new` (Rust convention) or `ctor`; the schema records the first one
-  found and consults it from `NEW(...)`.
-* Sample `tests/samples/32_typed_handles/` is the canonical reference
-  walk-through; the realisation note
-  [`realization/cross_language_oop.md`](realization/cross_language_oop.md)
-  documents the design.
-
-### 4.2.14 WITH — Cross-Language Resource Management
-
-The `WITH` keyword provides automatic resource management, similar to Python's `with` statement. It generates `__enter__` and `__exit__` bridge stubs, ensuring the resource is properly cleaned up.
-
-```ploy
-// Basic syntax
-WITH(language, resource_expression) AS variable_name {
-    // body — variable_name is bound to __enter__ return value
-}
-
-// Example: File handling
-LET f = NEW(python, open, "data.csv");
-WITH(python, f) AS handle {
-    LET data = METHOD(python, handle, read);
-    LET lines = METHOD(python, data, splitlines);
-}
-
-// Database connection
-WITH(python, NEW(python, sqlite3::connect, "app.db")) AS db {
-    LET cursor = METHOD(python, db, cursor);
-    METHOD(python, cursor, execute, "SELECT * FROM users");
-    LET rows = METHOD(python, cursor, fetchall);
-}
-
-// Multiple WITH blocks
-WITH(python, resource1) AS r1 {
-    METHOD(python, r1, process);
-}
-WITH(python, resource2) AS r2 {
-    METHOD(python, r2, process);
-}
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier
-- Second argument is the resource expression (any expression that evaluates to an object with `__enter__`/`__exit__`)
-- The `AS` keyword is followed by a variable name bound within the body scope
-- The body is a block of statements enclosed in `{ }`
-- The bound variable is available within the body scope
-- Returns `Any` type
-- Context-manager ABI contract is enforced: `__enter__(self)` and `__exit__(self, exc_type, exc_val, exc_tb)`.
-
-**IR generation (exception-safe):**
-1. Evaluate the resource expression
-2. Call the `__enter__` bridge stub → bind result to the variable name
-3. Execute the body in a guarded region with unwind edge
-4. On normal edge: call `__exit__(resource, null, null, null)`
-5. On unwind edge: call `__exit__(resource, exc_type, exc_val, exc_tb)`
-6. Resume exception propagation after cleanup
-7. Two cross-language descriptors are recorded: one for `__enter__` and one for `__exit__`
-
-This ensures `__exit__` is always called even if the body encounters an error or early return, similar to Python's `with` statement or C++'s RAII pattern.
-
-**Complete example — PyTorch training loop:**
-
-```ploy
-LINK(cpp, python, train_model, torch_train);
-IMPORT python PACKAGE torch >= 2.0;
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-PIPELINE ml_pipeline {
-    FUNC train(data: LIST(f64), epochs: INT) -> LIST(f64) {
-        LET model = NEW(python, torch::nn::Linear, 784, 10);
-        LET optimizer = NEW(python, torch::optim::SGD,
-                            METHOD(python, model, parameters), 0.01);
-
-        // Attribute access
-        LET lr = GET(python, optimizer, learning_rate);
-        SET(python, model, training, TRUE);
-
-        LET loss = METHOD(python, model, forward, data);
-        METHOD(python, loss, backward);
-        METHOD(python, optimizer, step);
-
-        // Resource management
-        WITH(python, NEW(python, open, "model.pt")) AS f {
-            METHOD(python, torch, save, model, f);
-        }
-
-        RETURN CALL(python, np::array, loss);
-    }
-}
-
-EXPORT ml_pipeline AS "train_ml";
-```
-
-### 4.2.6 Object Destruction — `DELETE`
-
-The `DELETE` keyword provides explicit cross-language object destruction:
-
-```ploy
-DELETE(python, obj);
-DELETE(cpp, ptr);
-DELETE(rust, handle);
-```
-
-**Syntax:**
-```
-DELETE ( language , expression )
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier (`python`, `cpp`, `rust`)
-- Second argument is the expression evaluating to the object to destroy
-- The object must have been created via `NEW` or obtained from a cross-language call
-- Returns `Void` type (destructor calls do not produce a value)
-
-**IR generation:**
-- **Python**: Generates a call to `__ploy_py_del` bridge stub (invokes `del` / reference release)
-- **C++**: Generates a call to `__ploy_cpp_delete` bridge stub (invokes `delete` / destructor)
-- **Rust**: Generates a call to `__ploy_rust_drop` bridge stub (invokes `drop()`)
-- A `CrossLangCallDescriptor` is recorded for the runtime linker
-
-**Example — Cleanup after training:**
-```ploy
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-// ... use model ...
-DELETE(python, model);
-```
-
-### 4.2.7 Class Extension — `EXTEND`
-
-The `EXTEND` keyword enables cross-language class extension (inheritance):
-
-```ploy
-EXTEND(python, torch::nn::Module) AS MyModel {
-    FUNC forward(x: LIST(f64)) -> LIST(f64) {
-        RETURN CALL(python, self::linear, x);
-    }
-}
-```
-
-**Syntax:**
-```
-EXTEND ( language , base_class ) AS DerivedName {
-    FUNC method1 ( params ) -> ReturnType { body }
-    FUNC method2 ( params ) -> ReturnType { body }
-    ...
-}
-```
-
-**Semantic rules:**
-- First argument must be a known language identifier
-- Second argument is the base class to extend (can be namespace-qualified, e.g. `torch::nn::Module`)
-- `AS` keyword followed by the derived class name
-- Body contains one or more `FUNC` declarations (method overrides / additions)
-- The derived class name is registered in the symbol table as a type
-- Each method's signature is validated (parameter count and types)
-
-**IR generation:**
-1. For each method, a bridge function `__ploy_extend_DerivedName_method` is created via `ir_ctx_.CreateFunction()`
-2. The method body is lowered into the bridge function
-3. A `__ploy_extend_register` call is generated with the class metadata
-4. A `CrossLangCallDescriptor` is recorded for the runtime linker
-
-**Example — Extending a Python class from .ploy:**
-```ploy
-LINK(cpp, python, run_model, inference);
-IMPORT python PACKAGE torch >= 2.0;
-
-PIPELINE neural_net {
-    EXTEND(python, torch::nn::Module) AS CustomNet {
-        FUNC forward(x: LIST(f64)) -> LIST(f64) {
-            LET hidden = METHOD(python, self, relu, x);
-            RETURN METHOD(python, self, linear, hidden);
-        }
-
-        FUNC reset_parameters() -> VOID {
-            METHOD(python, self, init_weights);
-        }
-    }
-
-    FUNC main() -> INT {
-        LET net = NEW(python, CustomNet, 784, 10);
-        LET result = METHOD(python, net, forward, input_data);
-        DELETE(python, net);
-        RETURN 0;
-    }
-}
-```
-
-**Restriction (since 1.11.0).**  `EXTEND` is now accepted **only** on
-the dynamic host languages `python`, `ruby`, and `javascript` (with
-the tag aliases `rb`, `js`, `typescript`, `ts`).  Targeting any
-statically-typed language — `cpp`, `c`, `rust`, `java`, `dotnet` /
-`csharp`, `go` / `golang` — is rejected by sema with:
-
-```
-EXTEND is not allowed on statically-typed language '<lang>'
-  — its type system cannot accept an out-of-source subclass without
-    breaking soundness
-suggestion: wrap the foreign API in a local Ploy FUNC and use
-            CALL / METHOD instead, or move the EXTEND target to a
-            dynamic host (python / ruby / javascript)
-```
-
-The recommended migration is a local `FUNC` wrapper that delegates
-to the foreign API via `CALL` / `METHOD`.  Sample
-[`tests/samples/35_extend_dynamic`](../tests/samples/35_extend_dynamic/)
-shows the full pattern.
-
-### 4.2.7b Default Parameter Values & Named Arguments *(since 1.11.0)*
-
-Function declarations may give **trailing** parameters a default
-expression introduced by `=`, and call sites may name any argument:
-
-```ploy
-FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
-
-add(10);            // y defaults to 0
-add(x: 7);          // single named argument; y defaults to 0
-add(2, y: 5);       // mixed positional + named
-```
-
-Default expressions must be either a constant-foldable literal /
-unary / binary expression, or a pure intra-Ploy `FUNC` call (no
-cross-language `CALL`, no closure capture, no read of another
-parameter):
-
-```ploy
-FUNC one() -> i32 { RETURN 1; }
-FUNC scale(value: i32, factor: i32 = one()) -> i32 {
-    RETURN value * factor;          // pure-call default is allowed
-}
-```
-
-Call-site rules: a positional argument may not appear **after** a
-named argument, every parameter may be supplied at most once, and
-every required parameter must be supplied either by position or by
-name.  See sample
-[`tests/samples/34_default_args`](../tests/samples/34_default_args/)
-for an end-to-end demonstration.
-
-### 4.2.7c Unified `AS` Usages — One-Page Reference *(since 1.11.0)*
-
-`AS` appears at five distinct binding sites; the central rules live
-in the language spec
-([`docs/realization/ploy_language_spec.md` §4.17](realization/ploy_language_spec.md))
-but the table is repeated here for convenience.
-
-| # | Form                                                          | Role of `AS`                          |
-|---|---------------------------------------------------------------|---------------------------------------|
-| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                    | Local alias for an imported package.  |
-| 2 | `EXPORT <symbol> AS <"external_name">;`                       | External name for an exported symbol. |
-| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`       | Separator before the foreign signature. |
-| 4 | `IMPORT <lang> AS <alias>;`                                   | Language-level alias.                 |
-| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                | Local handle name for the patched class. |
-
-`AS` is **not** a general "as-cast" operator: writes such as
-`LET y = 3 AS i64;` or `CALL(...) AS Handle` are rejected.  Use
-`CONVERT` for type conversions.
-
-### 4.2.8 Error Checking
-
-The `.ploy` semantic analyzer provides comprehensive error checking:
-
-**Parameter Count Mismatch:**
-```
-Error [E3010]: Parameter count mismatch in call to 'process'
-  --> pipeline.ploy:15:9
-   | Expected 3 argument(s), got 1
-   = suggestion: Check the function signature for 'process'
-```
-
-**Type Mismatch:**
-```
-Error [E3011]: Type mismatch for parameter 1 in call to 'compute'
-  --> pipeline.ploy:22:5
-   | Expected 'INT', got 'STRING'
-   = suggestion: Consider using CONVERT to convert the argument type
-```
-
-**Undefined Symbol:**
-```
-Error [E3001]: Undefined variable 'unknown_var'
-  --> pipeline.ploy:8:13
-```
-
-**Error Code Ranges:**
-
-| Range | Category | Examples |
-|-------|----------|----------|
-| 1xxx | Lexer | Invalid character, unterminated string |
-| 2xxx | Parser | Unexpected token, missing delimiter |
-| 3xxx | Semantic | Undefined variable, type mismatch, param count |
-| 4xxx | Lowering | Unsupported target, codegen failure |
-| 5xxx | Linker | Unresolved symbol, duplicate definition |
-
-All error reports include source location, error codes, and optional suggestions. Traceback chains are supported for errors originating from multiple related locations.
-
-## 4.3 Package Manager Auto-Discovery
-
-The `.ploy` frontend automatically discovers installed packages during semantic analysis.
-
-### Discovery Mechanism
-
-| Package Manager | Discovery Command | CONFIG Syntax |
-|----------------|-------------------|---------------|
-| pip (venv/virtualenv) | `<venv>/python -m pip list --format=freeze` | `CONFIG VENV "path";` |
-| Conda | `conda list -n <env_name> --export` | `CONFIG CONDA "env_name";` |
-| uv | `<venv>/python -m pip list --format=freeze` or `uv pip list --format=freeze` | `CONFIG UV "path";` |
-| Pipenv | `pipenv run pip list --format=freeze` | `CONFIG PIPENV "project_path";` |
-| Poetry | `poetry run pip list --format=freeze` | `CONFIG POETRY "project_path";` |
-| Cargo (Rust) | `cargo install --list` | Automatic |
-| pkg-config (C/C++) | `pkg-config --list-all` | Automatic |
-
-### Workflow
-
-1. **Parse CONFIG** — Determine package manager type and environment path
-2. **Package Index Phase** — Before semantic analysis, the `PackageIndexer` class runs package-manager commands (`pip list`, `cargo install --list`, `pkg-config`, `mvn`, `dotnet`) as an explicit pre-compilation phase with per-command timeouts (default 10s) and retry logic
-3. **Cache Results** — Discovered packages and versions are cached in a session-level `PackageDiscoveryCache` (keyed by `language|manager|env_path`); a shared cache can be reused across multiple `PloySema` compilations to avoid redundant external-command invocations
-4. **Sema reads from cache** — `PloySema` reads pre-populated cache entries but never shells out on its own (`enable_package_discovery` defaults to `false`)
-5. **Version Verification** — Verify version constraints using 6 operators
-6. **Symbol Verification** — Verify selective imports have no duplicates
-
-### Package Index Phase
-
-The `PackageIndexer` class decouples slow, side-effecting environment probing from the fast, deterministic semantic analysis pass:
-
-```cpp
-#include "frontends/ploy/include/package_indexer.h"
-
-auto cache  = std::make_shared<PackageDiscoveryCache>();
-auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
-
-PackageIndexerOptions idx_opts;
-idx_opts.command_timeout = std::chrono::seconds{10};
-idx_opts.verbose = true;
-
-PackageIndexer indexer(cache, runner, idx_opts);
-indexer.BuildIndex({"python", "rust", "java"});
-
-// Pass the pre-populated cache to sema
-PloySemaOptions sema_opts;
-sema_opts.enable_package_discovery = false;   // sema never shells out
-sema_opts.discovery_cache = cache;            // pre-populated by indexer
-PloySema sema(diagnostics, sema_opts);
-```
-
-The CLI (`polyc`) exposes this via:
-
-| Flag | Description |
-|------|-------------|
-| `--package-index` | Run the explicit package-index phase before sema (default) |
-| `--no-package-index` | Skip the package-index phase for faster compilation |
-| `--pkg-timeout=<ms>` | Per-command timeout for package indexing (default 10000) |
-
-### Command Runner with Timeout
-
-The `DefaultCommandRunner` now supports configurable per-command timeouts:
-
-```cpp
-auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
-CommandResult result = runner->RunWithResult("pip list --format=freeze");
-
-if (result.Ok()) {
-    // result.stdout_output contains the command output
-} else if (result.timed_out) {
-    // Command exceeded the timeout
-} else {
-    // result.exit_code indicates the failure reason
-}
-```
-
-### Discovery Switch
-
-Discovery can be toggled via `PloySemaOptions::enable_package_discovery`:
-
-```cpp
-PloySemaOptions opts;
-opts.enable_package_discovery = false;   // default — sema never shells out
-PloySema sema(diagnostics, opts);
-```
-
-When disabled (the default), `IMPORT PACKAGE` statements are still recorded, but no `_popen`/`popen` calls are executed.  Callers should use `PackageIndexer` as a pre-phase instead.
-
-### Cache Strategy
-
-`PackageDiscoveryCache` is a thread-safe (mutex-guarded), session-level cache.  The canonical key is:
-
-```
-language + "|" + manager_kind + "|" + env_path
-```
-
-For example: `"python|pip|/home/user/venv"`.  When multiple `.ploy` files are compiled in the same session, callers can inject a shared `PackageDiscoveryCache` via `PloySemaOptions::discovery_cache` to avoid re-running the same `pip list` / `cargo install --list` command.
-
-### Command Runner Abstraction
-
-All external command execution is routed through the `ICommandRunner` interface (`command_runner.h`).  The default implementation `DefaultCommandRunner` uses `_popen`/`popen`.  Tests can inject a `MockCommandRunner` to verify discovery behaviour without spawning real processes.
-
-### Platform Adaptation
-
-- **Windows**: Virtual environment Python is at `<venv_path>\Scripts\python.exe`
-- **Unix/macOS**: Virtual environment Python is at `<venv_path>/bin/python`
-
-## 4.4 Compilation Model
-
-> **Core Idea: PolyglotCompiler itself compiles all languages; `.ploy` describes the cross-language connection relationships.**
-
-```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  C++ Source  │  │Python Source│  │ Rust Source  │  │ Java Source  │  │  C# Source   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │                │                │
-       ▼                ▼                ▼                ▼                ▼
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│C++ Frontend│  │  Python    │  │   Rust     │  │   Java     │  │  .NET      │
-│ (polyglot) │  │  Frontend  │  │  Frontend  │  │  Frontend  │  │  Frontend  │
-└─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
-      │               │               │               │               │
-      └───────┬───────┴───────┬───────┴───────┬───────┴───────┬───────┘
-              │               │               │               │
-              ▼           Shared IR           ▼               │
-        ┌───────────┐                   ┌───────────┐         │
-        │  .ploy    │                   │  Polyglot │         │
-        │  Frontend │──────────────────▶│  Linker   │◄────────┘
-        └───────────┘                   └─────┬─────┘
-                                              │
-                                    ┌─────────┼─────────┐
-                                    ▼         ▼         ▼
-                               ┌────────┐┌────────┐┌────────┐
-                               │ x86_64 ││ ARM64  ││  WASM  │
-                               │Backend ││Backend ││Backend │
-                               └───┬────┘└───┬────┘└───┬────┘
-                                   └─────────┼─────────┘
-                                             ▼
-                                       ┌───────────┐
-                                       │  Object   │
-                                       │File / Exe │
-                                       └───────────┘
-```
-
-**Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_ploy`) to compile all language source code to a unified IR, then generates target code through triple backends (x86_64/ARM64/WebAssembly). It does **not depend** on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet) for the compilation stage. The `polyc` driver (`driver.cpp`) may invoke a system linker (`polyld` or `clang`) for the final link step to produce an executable. `polyld` is automatically resolved relative to `polyc`'s own binary location, so it does not need to be in the system PATH.
-
-### Capability Matrix
-
-| Feature | Status | Description |
-|---------|--------|-------------|
-| C++ ↔ Python function call | ✅ | Via FFI glue code + type marshalling |
-| C++ ↔ Rust function call | ✅ | Via C ABI extern functions |
-| Python ↔ Rust function call | ✅ | Via FFI bridge |
-| Java ↔ C++ function call | ✅ | Via JNI bridge + `__ploy_java_*` runtime |
-| Java ↔ Python function call | ✅ | Via JNI ↔ CPython C API bridge |
-| .NET ↔ C++ function call | ✅ | Via CoreCLR hosting + `__ploy_dotnet_*` runtime |
-| .NET ↔ Python function call | ✅ | Via CoreCLR ↔ CPython C API bridge |
-| Java ↔ .NET interop | ✅ | Via IR-level unification + bidirectional runtime bridge |
-| Primitive type marshalling | ✅ | int, float, bool, string, void |
-| Container type marshalling | ✅ | list, tuple, dict, optional (basic types) |
-| Struct mapping | ✅ | Cross-language struct field conversion (flat structs) |
-| Package import + version constraint | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
-| Selective import | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
-| Multi-package-manager support | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
-| Multi-stage pipelines | ✅ | PIPELINE + cross-language CALL |
-| Control flow orchestration | ✅ | IF/WHILE/FOR/MATCH |
-| Cross-language class instantiation | ✅ | `NEW(python, torch::nn::Linear, 784, 10)` |
-| Cross-language method call | ✅ | `METHOD(java, service, processRequest, data)` |
-| Cross-language attribute access | ✅ | `GET(dotnet, config, ConnectionString)` |
-| Cross-language attribute assignment | ✅ | `SET(python, model, training, FALSE)` |
-| Automatic resource management | ✅ | `WITH(python, f) AS handle { ... }` |
-| Class inheritance extension | ✅ | `EXTEND(java, BaseService) { ... }` |
-| Object destruction | ✅ | `DELETE(dotnet, dbConnection)` |
-| Type annotations | ✅ | `LET model: python::nn::Module = NEW(...)` |
-| Interface mapping | ✅ | `MAP_TYPE(python::nn::Module, cpp::NeuralNet)` |
-
-### Architecture Constraints
-
-| Constraint | Explanation |
-|-----------|-------------|
-| **Function/Object-level granularity** | Cannot mix different language code within a single function body, but supports cross-language function calls, class instantiation, method calls, attribute access, and resource management |
-| **Runtime overhead** | Cross-language calls involve argument marshalling |
-| **Memory model differences** | Each language manages its own memory; ownership tracked via OwnershipTracker |
-| **WASM alloca** | Stack allocations are lowered to a shadow stack model (mutable i32 global at 65536, grows downward); linear memory layout differs from native backends |
-| **Linker strict mode** | Unresolved cross-language symbols are hard errors — the linker will not generate glue stubs for unresolved pairs |
-| **Sema strict mode** | When enabled, `.ploy` sema emits warnings for untyped parameters, `Any` fallbacks, and missing annotations; default is permissive |
+Open `tests/samples/09_mixed_pipeline/` from the welcome page; the LSP
+panel logs the `initialize` exchange with `polyls`, `pyright`, and
+`clangd`. See [chapter 12](#12-ide-polyui-and-language-server).
 
 ---
 
-# 5. Implemented Features
+## 3. Architecture Overview
 
-## 5.1 C++ Frontend (`frontend_cpp`)
+### 3.1 Top-level pipeline
 
-### Basic Syntax ✅
-- Function declarations and definitions, recursion, overloading
-- Control flow: if-else, while, for, switch
-- Variable declarations, scoping, name lookup
+```
+                          ┌─────────────┐
+   .cpp .py .rs .java .cs │  Frontends  │   ──►  unified IR (text or binary)
+   .go .js .rb .ploy      └─────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │   middle-end   │   pass manager + analyses
+                       └────────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │ backend select │   x86_64 / arm64 / wasm
+                       └────────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │   polyld link  │   ELF / Mach-O / PE / WASM
+                       └────────┬───────┘
+                                │
+                                ▼
+                          executable / library / wasm module
+```
 
-### Object-Oriented ✅
-- Classes and objects, constructors/destructors
-- Single and multiple inheritance, virtual inheritance (diamond)
-- Access control (public/protected/private)
-- Virtual functions and polymorphism
+### 3.2 Directory layout
 
-### Operator Overloading ✅
-- Arithmetic, comparison, logical, bitwise
-- Subscript operator `[]`, assignment operator
+| Path                | Contents                                                                  |
+|---------------------|---------------------------------------------------------------------------|
+| `frontends/`        | One sub-directory per source language; each builds a static lib.          |
+| `middle/`           | IR module, pass manager, optimisation passes, verifier.                   |
+| `backends/`         | `x86_64/`, `arm64/`, `wasm/`, plus `common/` register allocator and ISel. |
+| `runtime/`          | GC, FFI bridge, language runtimes, profiler hooks, debug info.            |
+| `tools/`            | The 11 tool drivers (`polyc` … `polyui`).                                 |
+| `tests/`            | `unit/`, `integration/`, `e2e/`, `benchmark/`, `samples/` (42 numbered).  |
+| `docs/`             | This guide, tutorials, specs, realization notes, and the demand log.     |
+| `scripts/`          | Repo automation (docs lint, sync check, packaging).                       |
+| `common/`           | Shared utilities (diagnostics, file I/O, JSON, CLI).                      |
+| `deps/`             | Vendored or pinned third-party sources.                                  |
 
-### Templates ✅
-- Function and class templates
-- Template parameter deduction, specialisation and partial specialisation
-- Instantiation cache (`template_instantiator.cpp`)
+### 3.3 Module ownership
 
-### RTTI ✅
-- `typeid` operator, `dynamic_cast`, `static_cast`
+Each subsystem owns its public headers under `include/<subsystem>/` and
+exports a single CMake target. Cross-module access is restricted to those
+public headers; the build fails if a module reaches into another module's
+internal layout.
 
-### Exception Handling ✅
-- try-catch-throw, multiple catch clauses
-- IR support: invoke/landingpad/resume
+| Subsystem      | Public header root              | CMake target           |
+|----------------|---------------------------------|------------------------|
+| common         | `common/include/poly/common/`   | `poly_common`          |
+| frontends      | `frontends/<lang>/include/`     | `frontend_<lang>`      |
+| middle         | `middle/include/poly/middle/`   | `poly_middle`          |
+| backends       | `backends/<arch>/include/`      | `backend_<arch>`       |
+| runtime        | `runtime/include/poly/runtime/` | `poly_runtime`         |
+| tools          | `tools/<name>/include/`         | one executable per dir |
 
-### Floating-Point Arithmetic ✅
-- fadd, fsub, fmul, fdiv; floating-point comparison; fpext, fptrunc, fptosi
+### 3.4 Data flow inside `polyc`
 
-### constexpr ✅
-- Compile-time function execution, constexpr variables
-- Implementation: `frontends/cpp/src/constexpr/cpp_constexpr.cpp`
+```
+argv  →  CLI parser  →  driver
+                            │
+                            ├─►  source discovery   (per-extension)
+                            │       └─► package manager probe (4.3)
+                            ├─►  frontend dispatch
+                            │       └─► IR module assembly
+                            ├─►  middle-end pass manager
+                            ├─►  backend lowering
+                            ├─►  polyld invocation (in-process)
+                            └─►  artefact write
+```
 
-### SIMD Vectorisation ✅
-- Loop vectorisation: SSE/AVX (x86_64), NEON (ARM64)
+### 3.5 Concurrency model
 
-## 5.2 Python Frontend (`frontend_python`) ✅
+Inside the toolchain:
 
-- Type-annotated functions
-- Control flow (if/while/for/match)
-- Classes and objects
-- 25+ advanced features (decorators, generators, async/await, comprehensions, match statement, etc.)
+* Per-frontend lowering runs on the global task scheduler
+  (`runtime::tasks::Pool`).
+* The pass manager parallelises function-level passes; module-level and
+  loop-level passes run serially per module.
+* `polyld` parallelises object emission per output section.
+* The IDE uses one Qt main thread plus a worker pool that mirrors the
+  runtime task scheduler.
 
-## 5.3 Rust Frontend (`frontend_rust`) ✅
+### 3.6 Telemetry and observability
 
-- Functions, structs
-- Borrow checker and lifetimes
-- Closures
-- 28+ advanced features (Traits, enums, pattern matching, smart pointers, etc.)
-
-## 5.4 .ploy Frontend (`frontend_ploy`) ✅
-
-See [Chapter 4](#4-ploy-cross-language-linking-frontend) for full details. Complete feature list:
-
-- 54-keyword lexical analysis
-- LINK/IMPORT/EXPORT/MAP_TYPE/PIPELINE/FUNC/STRUCT/CONFIG declaration parsing
-- Version constraint verification (6 operators)
-- Selective import with symbol verification
-- 5 package manager configurations (VENV/CONDA/UV/PIPENV/POETRY)
-- Automatic package discovery
-- Cross-language class instantiation (`NEW`) and method call (`METHOD`)
-- Cross-language attribute access (`GET`) and assignment (`SET`)
-- Automatic resource management (`WITH`)
-- Cross-language object destruction (`DELETE`) and class extension (`EXTEND`)
-- Comprehensive error checking: parameter count / type mismatch / traceback chains
-- Type annotations with qualified types
-- Interface mapping via `MAP_TYPE`
-- Complete type system (primitives + containers + structs + function types)
-- Control flow (IF/ELSE/WHILE/FOR/MATCH/BREAK/CONTINUE)
-- Struct literals (with lookahead disambiguation using LexerBase SaveState/RestoreState)
-- IR Lowering (functions/pipelines/linking/expressions/control flow/OOP interop)
-
-## 5.5 Java Frontend (`frontend_java`) ✅
-
-Java frontend supporting Java 8, 17, 21, and 23 core features (test coverage expanding):
-
-### Lexer
-- Full Java keyword and operator tokenization
-- String / character / numeric / annotation literals
-- Single-line and multi-line comment handling
-
-### Parser
-- Classes, interfaces, enums, records (Java 16+)
-- Sealed classes and permits (Java 17+)
-- Pattern matching instanceof (Java 16+)
-- Switch expressions (Java 14+)
-- Text blocks (Java 13+)
-- Methods, constructors, fields, generics
-- Import and package declarations
-- Lambda expressions and method references
-- Try-with-resources (Java 7+)
-
-### Semantic Analysis
-- Type resolution and scope management
-- Method overloading detection
-- Record component implicit accessors
-- Sealed class permit validation
-- Constructor and method body analysis
-- Binary expression type inference
-
-### IR Lowering
-- Class → struct lowering with constructor (`<init>`) generation
-- Method lowering with mangled names (`ClassName::method`)
-- Enum → integer constant lowering
-- Record → struct with component accessors
-- Interface → vtable generation
-- `System.out.println` → `__ploy_java_print` runtime bridge
-
-### Runtime Bridge (`java_rt`)
-- JNI-compatible bridge API
-- Version-aware initialization (Java 8/17/21/23)
-- Object lifecycle management
-
-## 5.6 .NET Frontend (`frontend_dotnet`) ✅
-
-C# (.NET) frontend supporting .NET 6, 7, 8, and 9 core features (test coverage expanding):
-
-### Lexer
-- Full C# keyword and operator tokenization (including `??`, `?.`, `=>`)
-- Regular and verbatim string literals
-- Numeric literals (hex, binary, decimal)
-- XML documentation comment handling
-
-### Parser
-- Classes, structs, interfaces, enums, records (.NET 5+)
-- Namespaces and file-scoped namespaces (C# 10)
-- Top-level statements (C# 9+)
-- Primary constructors (C# 12)
-- Using directives (including global usings, C# 10)
-- Delegates
-- Properties with get/set accessors
-- Destructors/finalizers
-- Methods, constructors, fields, generics
-- Nullable reference types
-- Pattern matching and switch expressions
-
-### Semantic Analysis
-- Type resolution and scope management
-- Namespace-scoped symbol lookup
-- Property and event analysis
-- Constructor and method body analysis
-- Using directive registration
-- Type inference for `var` declarations
-
-### IR Lowering
-- Class/struct → struct lowering with constructor (`.ctor`) generation
-- Method lowering with mangled names (`ClassName::Method`)
-- Enum → integer constant lowering
-- Namespace → scope prefix
-- Top-level statement → `<Program>::Main` entry point
-- `Console.WriteLine` → `__ploy_dotnet_print` runtime bridge
-
-### Runtime Bridge (`dotnet_rt`)
-- CoreCLR-compatible bridge API
-- Version-aware initialization (.NET 6/7/8/9)
-- Garbage-collected object interop
+Every long-running tool exposes a `--trace=<sink>` flag that emits a
+Chrome-trace-compatible JSON stream. The IDE consumes the same stream
+in the **Compile Pipeline Inspector** panel. Telemetry is opt-in and
+documented in [realization/telemetry_en.md](realization/telemetry_en.md).
 
 ---
 
-# 6. Usage Guide
+## 4. The Ploy Glue Language
 
-## 6.1 Compiler Driver (`polyc`)
+Full reference: [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md).
 
-```bash
-# Basic usage — auto-detects language from file extension
-polyc <input_file> -o <output>
+### 4.1 Why Ploy
 
-# Explicit language selection
-polyc --lang=ploy input.ploy -o output
+Ploy exists to glue heterogeneous code units. A `.ploy` file declares
+imports, type maps, conversions, and pipelines without re-implementing
+the host languages. It is intentionally small: the entire grammar fits
+in 54 keywords.
 
-# Full options
-polyc [options] <input_file>
+### 4.2 Lexical and syntactic anchors
+
+* Statements terminate with `;` (the formal grammar requires it; the
+  built-in `polyc --format` enforces it).
+* Block delimiters are `{` and `}`.
+* Identifiers are ASCII or full UTF-8 (NFC-normalised).
+* Comment forms: `// line`, `/* block */`, `/// doc`.
+* String literals support extended forms `r"…"`, `b"…"`, `f"…"`,
+  `rb"…"`, `f"""…"""` (v1.17).
+
+### 4.3 Core constructs
+
+| Keyword          | Purpose                                                       |
+|------------------|---------------------------------------------------------------|
+| `LET` / `VAR`    | Immutable / mutable bindings.                                 |
+| `FN`             | Function definition.                                          |
+| `STRUCT`         | Aggregate types.                                              |
+| `OPTION` / `MATCH` | Sum types and exhaustive pattern matching.                  |
+| `LINK`           | Import a host symbol with `from="<lang>:<spec>"`.             |
+| `IMPORT … PACKAGE` | Pull a host package; supports versions and selective imports. |
+| `MAP_TYPE`       | Bidirectional type bridging.                                  |
+| `CONVERT`        | User-defined conversion function.                             |
+| `PIPELINE`       | Composable data-flow chain.                                   |
+| `TRY` / `CATCH`  | Structured error handling (v1.13).                            |
+| `ASYNC` / `AWAIT`| Asynchronous functions and await points (v1.14).              |
+| `GENERIC`        | Constrained generics (v1.15).                                 |
+| `PUBLIC` / `PRIVATE` / `INTERNAL` | Visibility (v1.16).                          |
+| `CLASS` / `NEW`  | Bridge to host-language class instantiation (v1.20).          |
+
+The full keyword list (54 entries) lives in section 23 of the language
+tutorial.
+
+### 4.4 Package manager auto-discovery
+
+When `polyc` is invoked with a `.ploy` driver it walks sibling
+directories and recognises the manifests below, then asks the matching
+frontend to ingest the project:
+
+| Manifest                              | Frontend     | Notes                                      |
+|---------------------------------------|--------------|--------------------------------------------|
+| `CMakeLists.txt`                      | C++          | Uses configure-time export of compile flags. |
+| `pyproject.toml`, `requirements.txt`  | Python       | Conda / uv / poetry / venv all detected.   |
+| `Cargo.toml`                          | Rust         | Workspaces honoured.                       |
+| `pom.xml`, `build.gradle[.kts]`       | Java         | Maven and Gradle outputs used as classpath. |
+| `*.csproj`, `*.sln`                   | .NET         | NuGet restore is delegated to `dotnet`.    |
+| `go.mod`                              | Go           | `GOPATH`-free modules only.                |
+| `package.json`                        | JavaScript   | npm / pnpm / yarn lockfiles used for resolution. |
+| `Gemfile`                             | Ruby         | Bundler resolves; `ruby` for the runtime.  |
+| `.ploy.toml`                          | Ploy         | Project-level Ploy settings.               |
+
+### 4.5 IMPORT package syntax
+
+```ploy
+IMPORT python PACKAGE numpy >= 1.20;                  // version constraint
+IMPORT python PACKAGE numpy::(array, mean);           // selective import
+IMPORT python PACKAGE numpy >= 1.20 AS np;            // alias the package
+IMPORT rust   PACKAGE serde::(Serialize, Deserialize);
+IMPORT cpp    PACKAGE eigen >= 3.4;
+IMPORT java   PACKAGE org.json::(JSONObject) AS json;
 ```
 
-### Options
+A package alias may not coexist with a selective-import list whose
+target is ambiguous. The IDE flags such cases at edit time with
+diagnostic id `polyc-err-E0612`.
 
-| Option | Description |
-|--------|-------------|
-| `--lang=<cpp\|python\|rust\|java\|dotnet\|javascript\|ruby\|go\|ploy>` | Source language (auto-detected from extension if omitted) |
-| `--arch=<x86_64\|arm64\|wasm>` | Target architecture (default: host-detected — `arm64` on Apple Silicon / AArch64, `x86_64` otherwise) |
-| `-O<0\|1\|2\|3>` | Optimisation level |
-| `--emit-ir=<file>` | Output IR text |
-| `--emit-asm=<file>` | Output assembly |
-| `-o <file>` | Output object file / executable |
-| `--debug` | Generate debug info (DWARF 5) |
-| `--regalloc=<linear-scan\|graph-coloring>` | Register allocator selection |
-| `--obj-format=<elf\|macho\|coff\|pobj>` | Object file format (auto-detected per OS: `coff` on Windows, `elf` on Linux, `macho` on macOS) |
-| `--quiet` / `-q` | Suppress progress output |
-| `--no-aux` | Disable auxiliary file generation |
-| `--force` | Continue compilation despite errors |
-| `--strict` | Strict mode: reject placeholder types, disable degraded stubs |
-| `--permissive` | Permissive mode: allow placeholder types (override Release default) |
-| `--progress=json` | Emit machine-readable JSON progress events to stdout (stage_start, stage_end, complete) |
-| `--clean-cache` | Purge the incremental compilation cache and exit |
-| `--dump-token-pool` | Write `<aux>/<stem>.pool_stats.json` with frontend token-pool counters (tokens, arena bytes, unique identifiers, intern hits/misses) |
-| `--print-targets[=text\|json]` | Print every registered backend (triple, aliases, capability matrix) and exit. `text` is the default; `json` emits the stable JSON snapshot. |
-| `--print-target-info=<triple>[:json]` | Print one backend's info (alias-aware lookup) and exit. Append `:json` for the JSON form. Exit code `2` when the alias is not registered, with the "available backends" diagnostic on stderr. |
-| `-h` / `--help` | Show usage information |
+### 4.6 Cross-language calls
 
-#### Inspecting available backends
+```ploy
+LINK cpp::graphics::draw_point  AS draw(p: ptr<u8>) -> void;
+LINK python::numpy::mean        AS mean(xs: list<f64>) -> f64;
+LINK rust::serde_json::to_string AS to_json<T>(value: T) -> string;
 
-```text
-$ polyc --print-targets
-arm64-unknown-elf
-  description: ARM64 (AArch64) backend
-  aliases: arm64, aarch64, armv8, aarch64-apple-darwin, aarch64-linux-gnu, aarch64-pc-windows-msvc
-  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
-  register allocators: linear-scan, graph-coloring
-wasm32-unknown-unknown
-  ...
-x86_64-unknown-elf
-  ...
-
-$ polyc --print-target-info=amd64
-x86_64-unknown-elf
-  description: x86_64 backend (System V / Win64)
-  aliases: x86_64, x86-64, amd64, x64, x86_64-pc-windows-msvc, x86_64-apple-darwin, x86_64-linux-gnu
-  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
-  register allocators: linear-scan, graph-coloring
-
-$ polyc --print-targets=json | jq '.[].triple'
-"arm64-unknown-elf"
-"wasm32-unknown-unknown"
-"x86_64-unknown-elf"
+FN demo() -> void {
+    LET avg = mean([1.0, 2.0, 3.0, 4.0]);
+    PRINT(avg);
+}
 ```
 
-The lookup is case-insensitive and accepts every alias listed by the previous command, so
-`--arch=AMD64`, `--arch=x86-64` and `--arch=x86_64-linux-gnu` all reach the same backend.
-This list is the single source of truth for what `--arch` accepts; new backends added in future
-releases (e.g. RISC-V via sub-need 2026-04-28-2e) will appear here automatically without any
-documentation drift.
+The `LINK` form lowers to a `bridge_call` IR opcode that the linker
+verifies. Type marshalling rules live in
+[realization/bridge_marshalling.md](realization/bridge_marshalling.md).
 
-> **Note:** Release builds default to strict mode (via `POLYC_DEFAULT_STRICT`).
-> Use `--permissive` to override.  `--strict` and `--force` are mutually exclusive.
+### 4.7 Class instantiation across languages
 
-### Compilation Modes
+```ploy
+LINK cpp::geometry::Point AS Point CLASS {
+    NEW(x: f64, y: f64) -> Point;
+    FN  norm(self: Point) -> f64;
+};
 
-`polyc` supports two compilation modes that control how aggressively placeholder types and unresolved cross-language type information are treated:
-
-| Mode | Placeholder types | `--force` stubs | Default in |
-|------|-------------------|-----------------|------------|
-| **Strict** | Error | Blocked | Release builds |
-| **Permissive** | Warning | Allowed | Debug builds |
-
-**Strict mode** (`--strict` or Release default):
-- Semantic analysis reports placeholder-type fallbacks (e.g., `Any` for untyped parameters) as **errors**
-- IR verifier rejects functions with unresolved placeholder `I64` return types
-- Lowering rejects cross-language calls whose return type cannot be resolved
-- Degraded stub generation via `--force` is prohibited
-- `--strict` and `--force` are mutually exclusive
-
-**Permissive mode** (`--permissive` or Debug default):
-- Placeholder-type fallbacks are reported as **warnings**
-- I64 placeholder return types are accepted by the verifier
-- `--force` can generate degraded stubs for incomplete compilations
-
-### Language Auto-Detection
-
-`polyc` automatically detects the source language from the file extension:
-
-| Extension | Language |
-|-----------|----------|
-| `.ploy` | ploy |
-| `.py` | python |
-| `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
-| `.rs` | rust |
-| `.java` | java |
-| `.cs` | dotnet |
-
-### Progress Output
-
-By default, `polyc` prints detailed progress to stderr:
-
-```
-========================================
- PolyglotCompiler v1.0.0  (polyc)
-========================================
-[polyc] Source: basic_linking.ploy
-[polyc] Language: ploy (auto-detected)
-[polyc] Arch: x86_64
-[polyc] Opt level: O0
-[polyc] Output: basic_linking
-----------------------------------------
-[polyc] Aux dir: ./aux
-[polyc] Lexing (.ploy)... done (1.8ms)
-[polyc]   -> ./aux/basic_linking.tokens.paux (3613 bytes, binary)
-[polyc] Parsing (.ploy)... done (2.1ms)
-[polyc]   -> ./aux/basic_linking.ast.paux (199 bytes, binary)
-[polyc] Semantic analysis (.ploy)... done (0.8ms)
-[polyc]   -> ./aux/basic_linking.symbols.paux (212 bytes, binary)
-[polyc] IR lowering (.ploy)... done (1.1ms)
-[polyc]   -> ./aux/basic_linking.ir.paux (878 bytes, binary)
-[polyc]   -> ./aux/basic_linking.descriptors.paux (572 bytes, binary)
-[polyc] SSA conversion + verification... done (0.6ms)
-[polyc] Assembly generation... done (1.0ms)
-[polyc] Object code emission... done (1.3ms)
-[polyc]   -> ./aux/basic_linking.asm.paux (1330 bytes, binary)
-[polyc] Per-language library emission...
-[polyc]   -> ./aux/basic_linking_cpp.lib.pobj (cpp bridge library)
-[polyc]   -> ./aux/basic_linking_python.lib.pobj (python bridge library)
-done (1.5ms)
-[polyc] Emit object... [polyc] Produced: basic_linking.obj
-[polyc]   -> ./aux/basic_linking.obj (object copy in aux)
-done (5.7ms)
-----------------------------------------
-[polyc] Target: x86_64-unknown-elf
-[polyc] Object format: coff
-[polyc] Total time: 27.7ms
-[polyc] Aux files (binary): ./aux
-[polyc] Compilation successful.
-========================================
+FN distance() -> f64 {
+    LET a = NEW Point(0.0, 0.0);
+    LET b = NEW Point(3.0, 4.0);
+    RETURN b.norm() - a.norm();
+}
 ```
 
-Use `--quiet` to suppress progress output.
+`CLASS` blocks declare the bridged shape; each method is lowered to a
+`bridge_call` whose first argument is the boxed receiver.
 
-### Auxiliary Files
-
-By default, `polyc` generates intermediate files in an `aux/` subdirectory alongside the source file. All auxiliary files use the **PAUX binary container format** (header: `"PAUX"` magic + version + section count) to prevent exposure of intermediate data as plaintext.
-
-| File | Content |
-|------|---------|
-| `<stem>.tokens.paux` | Lexer token dump (kind, location, text) — binary |
-| `<stem>.ast.paux` | AST summary (declaration count, locations) — binary |
-| `<stem>.symbols.paux` | Symbol table entries (kind, type) — binary |
-| `<stem>.ir.paux` | IR text representation — binary |
-| `<stem>.descriptors.paux` | Cross-language call descriptors — binary |
-| `<stem>.asm.paux` | Generated assembly code — binary |
-| `<stem>.obj` / `<stem>.o` | COFF/ELF/Mach-O object file (platform-dependent) |
-| `<stem>_<lang>.lib.pobj` | Per-language bridge library (e.g., `_cpp.lib.pobj`, `_python.lib.pobj`) |
-| `build_profile.bin` | Binary build profile: per-stage timing data (generated on successful compilation) |
-
-#### PAUX Binary Format
+### 4.8 Compilation model
 
 ```
-Offset  Size  Field
-0       4     Magic: "PAUX"
-4       2     Version: 1
-6       2     Section count: N
-8       8     Reserved (zero)
-16      ...   Sections: for each section:
-                uint16 name_length + name_bytes + uint32 data_length + data_bytes
+.ploy → ploy frontend ──┐
+.cpp  → cpp  frontend ──┤
+.py   → py   frontend ──┼──► unified IR ──► middle-end ──► backend ──► polyld ──► artefact
+.rs   → rust frontend ──┘
 ```
 
-#### Per-Language Bridge Libraries
-
-Each language referenced in a `.ploy` file gets its own bridge library object file in `aux/`. For example, a `.ploy` file that links C++ and Python functions produces:
-- `<stem>_cpp.lib.pobj` — contains bridge symbols for C++ interop
-- `<stem>_python.lib.pobj` — contains bridge symbols for Python interop
-
-This enables separate compilation and linking per language instead of monolithic output.
-
-### Binary Object Output
-
-In **compile** mode (default), `polyc` now produces a binary object file alongside the intermediate files:
-- On **Windows**: COFF `.obj` file (compatible with MSVC `link.exe`)
-- On **Linux**: ELF `.o` file
-- On **macOS**: Mach-O `.o` file
-
-In **link** mode, `polyc` additionally invokes the system linker to produce an executable.
-
-### Optimisation Levels
-
-| Level | Description | Enabled Optimisations |
-|-------|-------------|----------------------|
-| -O0 | No optimisation | None |
-| -O1 | Basic optimisation | Constant folding, DCE |
-| -O2 | Standard optimisation | +CSE, Inlining, GVN |
-| -O3 | Aggressive optimisation | +Devirtualisation, Vectorisation, Loop optimisation, Advanced |
-
-## 6.2 Linker (`polyld`)
-
-```bash
-polyld -o program file1.o file2.o file3.o
-polyld -static -o program main.o -lmylib      # Static linking
-polyld -shared -o libmylib.so obj1.o obj2.o    # Shared library
-```
-
-When invoked from `polyc`, `polyld` is automatically located next to the `polyc` binary (sibling resolution). `polyld` internally contains the `PolyglotLinker`, which consumes the `.ploy` frontend's IR to generate cross-language glue code:
-
-- `CrossLangCallDescriptor` — Describes type mapping for cross-language calls
-- `LinkEntry` — Describes source/target function pairs from LINK declarations
-- `ResolveLinks()` — Resolves all link entries and generates glue code
-- Container type detection: `IsListType()`, `IsDictType()`, `IsTupleType()`, `IsStructType()`
-
-## 6.3 PGO (Profile-Guided Optimization)
-
-```bash
-# 1. Generate instrumented version
-polyc -fprofile-generate input.cpp -o app.instrumented
-
-# 2. Run to collect profile
-./app.instrumented < typical_input.txt
-
-# 3. Optimise using profile
-polyc -fprofile-use=default.profdata input.cpp -o app.optimized
-```
-
-Implementation: `middle/src/pgo/profile_data.cpp`
-
-## 6.4 LTO (Link-Time Optimization)
-
-```bash
-# Thin LTO (recommended)
-polyc -flto=thin -c file1.cpp -o file1.o
-polyc -flto=thin file1.o file2.o -o app
-```
-
-Implementation: `middle/src/lto/link_time_optimizer.cpp`
-
-## 6.5 .ploy Sample Files
-
-The project includes 12 `.ploy` samples in `tests/samples/`:
-
-| File | Content |
-|------|---------|
-| `basic_linking.ploy` | Basic LINK + MAP_TYPE |
-| `complex_types.ploy` | Structs, container type mapping |
-| `container_marshalling.ploy` | LIST/TUPLE/DICT marshalling |
-| `advanced_pipeline.ploy` | Multi-stage PIPELINE |
-| `multi_language_pipeline.ploy` | Three-language pipeline |
-| `pipeline_control_flow.ploy` | IF/WHILE/FOR/MATCH |
-| `mixed_compilation.ploy` | Mixed compilation example |
-| `error_handling.ploy` | Error handling |
-| `package_import.ploy` | Package import + version constraints + selective import + CONFIG |
-| `cross_lang_class_instantiation.ploy` | Cross-language class instantiation with mixed calls |
-| `11_java_interop/java_interop.ploy` | Java interop: StringProcessor class + Python text analysis |
-| `12_dotnet_interop/dotnet_interop.ploy` | .NET interop: DataService class + Python statistics |
-
-## 6.6 Sample Environment Setup
-
-The `tests/samples/` directory includes environment setup scripts to create local Python and Rust environments for running samples.
-
-### Windows (PowerShell)
-
-```powershell
-cd tests/samples
-.\setup_env.ps1
-```
-
-### Linux / macOS (Bash)
-
-```bash
-cd tests/samples
-chmod +x setup_env.sh
-./setup_env.sh
-```
-
-The scripts create:
-- **Python venv** in `tests/samples/env/python/` with numpy, torch, typing-extensions
-- **Rust toolchain** in `tests/samples/env/rust/` with isolated RUSTUP_HOME/CARGO_HOME
-
-The `env/` directory is excluded from git via `.gitignore`.
-
-## 6.7 IDE (`polyui`)
-
-`polyui` is a Qt-based desktop IDE for PolyglotCompiler. It provides an integrated development environment with syntax highlighting, real-time diagnostics, and a project file browser.
-
-### Prerequisites
-
-- **Qt 6** (recommended) or **Qt 5.15+** (Widgets module required)
-- CMake automatically discovers Qt under:
-  - `D:\Qt` (Windows)
-  - `deps/qt/` (project-local, all platforms — installed via `aqtinstall`)
-  - System path (e.g. Homebrew, apt)
-- Pass `-DQT_ROOT=<path>` to override
-
-**Quick setup (no Qt installed):**
-
-```bash
-# macOS / Linux
-./tools/ui/setup_qt.sh
-
-# Windows (PowerShell)
-.\tools\ui\setup_qt.ps1
-```
-
-This downloads pre-built Qt 6.10.2 binaries into `deps/qt/` (ignored by git).
-
-### Building
-
-```bash
-cmake --build build --target polyui
-```
-
-If Qt is not found, the `polyui` target is silently skipped without affecting other targets.
-
-On **Windows**, `windeployqt` is automatically invoked after linking to copy the required Qt DLLs (e.g. `Qt6Cored.dll`, `Qt6Guid.dll`, `Qt6Widgetsd.dll`) and platform plugins into the build directory. This means `polyui.exe` can be double-clicked directly from the build folder without manual DLL setup.
-
-On **macOS**, `macdeployqt` is automatically invoked to bundle Qt frameworks inside the `.app` directory. The application is built as a native macOS bundle with Retina display support.
-
-On **Linux**, the build produces a standard ELF executable. Ensure the Qt runtime libraries are available on the target system (typically via the distribution's package manager).
-
-### Platform-Separated Source Layout
-
-The `polyui` source code is organized by platform:
-
-```
-tools/ui/
-├── common/          # Shared cross-platform code (compiled on all platforms)
-│   ├── src/         #   mainwindow.cpp, code_editor.cpp, syntax_highlighter.cpp,
-│   │                #   file_browser.cpp, output_panel.cpp, compiler_service.cpp,
-│   │                #   settings_dialog.cpp, git_panel.cpp, build_panel.cpp,
-│   │                #   debug_panel.cpp, theme_manager.cpp
-│   └── include/     #   Corresponding header files (incl. theme_manager.h)
-├── windows/         # Windows-specific entry point (main.cpp)
-├── linux/           # Linux-specific entry point (main.cpp)
-└── macos/           # macOS-specific entry point (main.cpp)
-```
-
-CMake automatically selects the correct platform-specific `main.cpp` based on the host OS. Each platform entry point may contain OS-specific initialization (e.g. `windeployqt` on Windows, `xcb` platform default on Linux, `MACOSX_BUNDLE` on macOS).
-
-### Launching
-
-```bash
-# Open the IDE
-./build/polyui
-
-# Open a project folder directly
-./build/polyui --folder /path/to/project
-```
-
-### Features
-
-| Feature | Description |
-|---------|-------------|
-| **Syntax Highlighting** | Uses compiler frontend tokenizers for accurate, language-aware highlighting across all supported languages and all themes. Text colouring is applied via `QPalette` so that `QSyntaxHighlighter` character formats always take precedence; theme switches trigger an automatic `rehighlight()`. Ploy files receive a three-tier colour scheme: cross-language directive keywords (`LINK`, `IMPORT`, `EXPORT`, `MAP_TYPE`, `PIPELINE`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND`, `CONVERT`, `MAP_FUNC`, `CONFIG`) appear in **purple/magenta**; primitive type keywords (`INT`, `FLOAT`, `STRING`, `BOOL`, `VOID`, `ARRAY`, `LIST`, `TUPLE`, `DICT`, `OPTION`, `STRUCT`) appear in **teal**; language qualifier identifiers (`cpp`, `python`, `rust`, `java`, `csharp`, `dotnet`) appear in **yellow**; control-flow keywords (`IF`, `WHILE`, `FOR`, `MATCH`, `RETURN`, …) appear in **blue** |
-| **Real-time Diagnostics** | Invokes the full compiler pipeline (lexer → parser → sema) to report errors and warnings as you type |
-| **File Browser** | Tree-view project navigator with filters for supported source file extensions and a rich right-click context menu |
-| **Tabbed Editor** | Multi-file editing with tab management (new, open, save, close) |
-| **Output Panel** | Three-tab output area: compiler output, error table (clickable to jump to source), and log |
-| **Integrated Terminal** | Embedded shell (PowerShell on Windows, bash/zsh on Linux/macOS) with ANSI colour support, command history, and multiple instances |
-| **Code Navigation** | Double-click errors in the diagnostics table to jump to the corresponding source location |
-| **Bracket Matching** | Highlights matching brackets / parentheses / braces at the cursor position |
-| **Auto-indent** | Maintains indentation level on new lines |
-| **Zoom** | `Ctrl+Plus` / `Ctrl+Minus` to adjust editor font size |
-| **Dark Theme** | Unified theme management via ThemeManager with 4 built-in colour schemes (Dark, Light, Monokai, Solarized Dark); all panels switch in unison |
-| **External Theme System** | VS Code-style external themes — `.polytheme.json` files (with optional sibling `.qss`) discovered from a 3-layer contract: built-in qrc (`:/polyglot/themes/`), user `~/.polyglot/themes/`, workspace `<ws>/.polyglot/themes/`. 5 built-in themes ship out of the box (`polyglot.dark`, `polyglot.light`, `polyglot.hc`, `solarized.light`, `solarized.dark`). Open the **Theme Manager** dialog with `Ctrl+K, Ctrl+T` (or *View → Theme Manager…*) to install / uninstall / preview / export themes. Developer commands: `workbench.action.selectTheme`, `workbench.action.openColorTheme`, `workbench.action.generateColorTheme`, `editor.action.inspectTMScopes`, `workbench.action.inspectColorTheme`. CLI flags: `--theme <id|path>`, `--list-themes`, `--validate-theme <path>`, `--headless --screenshot <out.png>`. See [Theme System](realization/theme_system.md) for the full spec |
-| **Compile & Run** | One-click compile and run (`Ctrl+R`) — automatically locates the output binary and launches it via QProcess with stdout/stderr streamed to the log panel; stop a running process with `Ctrl+Shift+R` |
-| **Settings Dialog** | 7-category preferences dialog (Appearance, Editor, Compiler, Environment, Build, Debug, Key Bindings) with persistent `QSettings` storage. Appearance page includes *Show Toolbar*, *Show Status Bar*, and *Show Explorer* toggles (all default to **on**) |
-| **Custom Keybindings** | Edit shortcuts in the Key Bindings settings page via QKeySequenceEdit; apply, reset per-action; custom shortcuts are persisted via QSettings and loaded at startup |
-| **Settings Linkage** | CMake path, build directory, debugger path and other settings automatically propagate to the Build and Debug panels; changes take effect immediately |
-| **Git Integration** | Built-in Git panel with status, staging, commit, branch management, push/pull/fetch, diff viewer, log history, and stash support |
-| **Build System** | CMake integration panel with configure/build/clean, generator and build-type selection, target discovery, and error parsing |
-| **Debugger** | Integrated debug panel supporting lldb and gdb with breakpoints, stepping, full call-stack frame parsing (module, function, file, line), variable type/value parsing, live watch-expression evaluation with result updates, watch context menu (Remove / Remove All / Evaluate), break-on-entry option, and debug console |
-| **Template Creation** | Create new files from built-in language templates via *File → New From Template* (`Ctrl+Shift+N`). Templates include: Ploy linker, C++ hello-world / class skeleton, Python script / class, Rust hello-world / struct, Java hello-world / class, and C# hello-world / class |
-| **Dynamic Topology Edges** | Topology panel edges automatically follow node movement in real time — dragging a node recalculates all connected Bézier edge paths instantly |
-| **Performance Profiler Panel** | Dock panel (`Ctrl+Alt+P`) driving `polybench` / `polyrt` and visualising flame graph, hotspots, timeline (one swimlane per thread), per-language breakdown, and a tool log. Powered by a shared `ProfileSession`. See [realization/profiler.md](realization/profiler.md) |
-| **Call Analyzer Panel** | Dock panel (`Ctrl+Alt+G`) rendering the static call graph from `polyc --emit=call-graph:<path>` with callers/callees trees, layered DAG layout, language-pair filter, and bounded DFS path search. Shares the same `ProfileSession` as the Profiler so runtime call counts overlay automatically. See [realization/call_analyzer.md](realization/call_analyzer.md) |
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Ctrl+N` | New file |
-| `Ctrl+Shift+N` | New file from template |
-| `Ctrl+O` | Open file |
-| `Ctrl+S` | Save file |
-| `Ctrl+Shift+S` | Save as |
-| `Ctrl+W` | Close current tab |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Y` | Redo |
-| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | Cut / Copy / Paste |
-| `Ctrl+F` | Find |
-| `Ctrl+B` | Compile current file |
-| `Ctrl+R` | Compile and run current file |
-| `Ctrl+Shift+R` | Stop running process |
-| `Ctrl+Shift+B` | Analyze current file (diagnostics only) |
-| `` Ctrl+` `` | Toggle integrated terminal |
-| `` Ctrl+Shift+` `` | Open new terminal instance |
-| `Ctrl+Plus` / `Ctrl+Minus` | Zoom in / Zoom out |
-| `Ctrl+,` | Open Settings dialog |
-| `F9` | Start debugging |
-| `F10` | Step over |
-| `F11` | Step into |
-| `Shift+F11` | Step out |
-
-### Explorer Context Menu
-
-Right-click any item in the File Browser to access a context-sensitive menu with the following actions:
-
-| Action | Description |
-|--------|-------------|
-| **Open** | Open the selected file in the editor (files only) |
-| **New File...** | Create a new file in the selected directory and open it |
-| **New Folder...** | Create a new sub-folder in the selected directory |
-| **Rename...** | Rename the selected file or folder (F2) |
-| **Delete** | Delete the selected file or folder (with confirmation) |
-| **Copy Path** | Copy the absolute native path to the clipboard |
-| **Copy Relative Path** | Copy the path relative to the project root to the clipboard |
-| **Reveal in File Explorer** | Open the containing folder in the OS file manager |
-| **Open in Terminal** | Open a new integrated terminal session rooted at the selected directory |
-| **Generate Topology Graph** | Generate and display the function-I/O topology graph for the selected `.ploy` file (`.ploy` files only) |
-
-> **Note:** The *Generate Topology Graph* action only appears for `.ploy` files. It opens the Topology Panel (or brings it to the foreground) and builds the full topology visualization using the topology analysis pipeline (lexer → parser → sema → topology analyzer).
-
-### Supported Languages
-
-The IDE leverages the same frontend tokenizers used by `polyc`, ensuring accurate highlighting and diagnostics for:
-
-- C++ (`.cpp`, `.h`, `.hpp`, `.cxx`)
-- Python (`.py`)
-- Rust (`.rs`)
-- Java (`.java`)
-- C# / .NET (`.cs`)
-- Ploy (`.ploy`)
-
-### Integrated Terminal
-
-The IDE includes a built-in terminal panel that provides interactive shell access without leaving the editor.
-
-**Features:**
-- **Platform-aware shell detection**: automatically launches PowerShell on Windows, zsh on macOS, and bash (or `$SHELL`) on Linux
-- **Multiple terminal instances**: create any number of independent terminal sessions; each runs in its own tab
-- **ANSI colour support**: basic SGR escape codes are parsed and rendered with appropriate colours
-- **Command history**: navigate previous commands with Up/Down arrows (up to 500 entries)
-- **Keyboard shortcuts**: `Ctrl+C` sends interrupt, `Ctrl+L` clears the screen, `Ctrl+`\` toggles the panel
-- **Working directory sync**: new terminals open in the project root shown in the file browser
-
-**Usage:**
-1. Press `` Ctrl+` `` to toggle the terminal panel, or use the **Terminal → Toggle Terminal** menu
-2. Press `` Ctrl+Shift+` `` to open an additional terminal instance
-3. Use the **Terminal** menu for Clear, Restart, and New Terminal actions
-4. Close individual terminals via the tab close button
-
-### Topology Panel
-
-The IDE includes an interactive topology visualization panel for `.ploy` files, similar to Simulink's block diagram view.
-
-**Features:**
-
-| Feature | Description |
-|---------|-------------|
-| **Layout Algorithms** | Eight selectable layouts: *Hierarchical (DAG)* (**default**, fully static layered drawing computed via Kahn topological order + longest-path layering), *Force-Directed* (animated Fruchterman–Reingold simulation with simulated annealing), *Top-Down Grid*, *Left-Right Grid*, *Circular*, *Concentric (by degree)*, *Spiral* (Archimedean), and *BFS Tree* (rooted at the highest-degree node). All non-force-directed layouts are deterministic and free of animation; the user's choice is persisted under `topology/layout_mode` in `QSettings` and shared between the main panel and every drill-down sub-window. All `TopoEdgeItem` bezier paths are synchronously updated after layout computation. |
-| **Interactive Edge Creation** | Drag from an output port to an input port (or vice versa) to create a new edge. Self-loops and duplicate edges are rejected with diagnostics. New edges are automatically written back to the current `.ploy` file as `LINK` declarations. |
-| **Interactive Edge Deletion** | Right-click an edge to delete it from the graph. The corresponding `LINK`/`CALL` statement is automatically removed from the `.ploy` source file. |
-| **Live File Reload** | A `QFileSystemWatcher` monitors the loaded `.ploy` file; when it changes on disk the topology is automatically rebuilt after a 200 ms debounce. The status bar displays "Reloaded" upon successful refresh. |
-| **Debug Execution Highlighting** | When the debugger pauses at a source location, the corresponding topology node is highlighted with a bright yellow pulsing animation (border opacity oscillates between 40% and 100%) and the view auto-scrolls to center on it. Call `HighlightExecutingNode(uint64_t node_id)` for direct node-id-based highlighting. Highlights clear when the debug session ends or a new session starts via `ClearExecutionHighlight()`. |
-| **Port Hover Tooltips** | Hover over any input or output port dot to see a rich tooltip with the port name, type, direction, parent node name, language, and connection status (`✔ Valid`, `⚠ Implicit Convert`, `✘ Incompatible`, `? Unknown`, or `Not connected`). The port visually enlarges on hover. |
-| **Validation Overlay** | Click **Validate** to run the topology validator; error nodes are highlighted in red and diagnostics are shown in the panel. |
-| **Export** | Export the current topology as DOT, JSON, or PNG via the toolbar buttons. |
-| **Generate .ploy** | Click **Generate .ploy** in the toolbar to auto-generate valid `.ploy` source code from the current topology graph. The generated file is written to `<basename>_generated.ploy` in the same directory and opened in the editor. The generated code is verified for parse/sema correctness before saving. |
-
-**Usage:**
-1. Right-click a `.ploy` file in the Explorer and select **Generate Topology Graph**, or press `Ctrl+Shift+T` with a `.ploy` file open.
-2. Use the layout selector to switch between *Hierarchical (DAG)* — the static default — *Force-Directed*, *Top-Down Grid*, *Left-Right Grid*, *Circular*, *Concentric (by degree)*, *Spiral*, and *BFS Tree*.
-3. Drag between port dots to interactively create edges; right-click an edge to delete it.
-4. Click **Validate** to run type-compatibility validation on all edges.
-5. Start a debug session — the topology panel will automatically highlight the active node.
-6. Click **Generate .ploy** to auto-generate `.ploy` source code from the topology graph (bidirectional interop).
-
-**CLI Code Generation:**
-
-The `polytopo` command-line tool also supports code generation via the `generate` subcommand:
-
-```bash
-# First, export the topology graph as JSON:
-polytopo my_project.ploy --format json --output graph.json
-
-# Then, generate .ploy source from the JSON graph:
-polytopo generate graph.json -o generated.ploy
-```
-
-The CLI and UI share the same `GeneratePloySrc` logic, ensuring consistent output.
-
-**Bidirectional Sync:**
-
-The topology panel maintains a live bidirectional synchronization with the code editor:
-
-- **Editor → Topology**: When you save a `.ploy` file in the editor, the topology panel automatically re-parses and rebuilds the graph within 200 ms (debounced). The status bar shows "Reloaded".
-- **Topology → Editor**: When you create or delete an edge via drag/right-click in the topology panel, the corresponding `LINK`/`CALL` statement is automatically written to (or removed from) the `.ploy` source file. The editor reloads the file and briefly highlights the affected line in yellow for 2 seconds.
-
-This bidirectional protocol ensures the visual topology graph and the textual `.ploy` source always remain in sync. For implementation details, see `docs/realization/topology_tool.md`.
-
-### Markdown Viewer
-
-The IDE renders Markdown documents (`.md`, `.markdown`, `.mdown`, `.mkd`) as formatted documents instead of raw source. This is the preferred way to read the bundled documentation (`README.md`, `docs/USER_GUIDE.md`, `docs/specs/*.md`, ...) without leaving the IDE.
-
-**Features:**
-
-| Feature | Description |
-|---------|-------------|
-| **Native rendering** | Uses Qt's built-in `QTextDocument::setMarkdown()` (CommonMark + a useful subset of GitHub-Flavoured Markdown: tables, fenced code blocks, task lists, strike-through). No third-party library required. |
-| **Preview ↔ Source toggle** | An embedded toolbar provides **Preview / Source / Reload** buttons. Press `Ctrl+Shift+M` (View → Toggle Markdown Preview) to switch between the rendered view and the raw source view. |
-| **Theme-aware** | The viewer adopts the active theme's editor background, foreground, and selection colours, so light / dark themes look consistent with the rest of the IDE. Updates live when the theme changes. |
-| **Resource resolution** | Relative `<img src="...">` and link paths resolve against the source file's directory, so embedded screenshots in docs render correctly. |
-| **External links** | `http(s)://` and `mailto:` links open in your default browser. Intra-document `#anchor` links navigate inside the viewer. Local cross-document links (`./other.md`) open in a new editor tab. |
-| **UTF-8 safe** | Files are read as UTF-8 regardless of the system locale, so Chinese / Japanese / emoji content renders correctly. |
-
-**Usage:**
-
-1. Open any `.md` file via **File → Open**, the Explorer panel, or by clicking a Markdown link in another rendered document. The IDE auto-detects the extension and opens it in a Markdown Viewer tab instead of the code editor.
-2. Use the embedded toolbar **Preview** / **Source** buttons (or `Ctrl+Shift+M`) to switch between rendered and raw views. **Reload** re-reads the file from disk.
-3. Click any link in the rendered view to navigate (intra-doc anchor → scroll, external URL → browser, local file → new tab).
-
-> The Markdown Viewer is read-only by design. If you need to edit a Markdown file, open it via right-click → *Open With → Code Editor* (forthcoming), or temporarily rename to a non-Markdown extension.
-
-### Settings (VS Code-style JSON)
-
-> All preferences are stored in a single JSON file — exactly like VS Code.
-> The legacy `QSettings` storage is auto-migrated on first launch.
-
-**Three layers, lowest priority first:**
-
-| Layer        | Where                                                                  |
-|--------------|------------------------------------------------------------------------|
-| Default      | embedded resource (read-only)                                          |
-| User         | `%APPDATA%\PolyglotCompiler\settings.json` (Windows) / `~/.config/PolyglotCompiler/settings.json` (Linux) / `~/Library/Application Support/PolyglotCompiler/settings.json` (macOS) |
-| Workspace    | `<workspace>/.polyglot/settings.json`                                   |
-
-**How to edit settings:**
-
-- **Form view** — `File → Settings` (or run `Preferences: Open Settings` from
-  the command palette). The page is auto-generated from
-  `settings_schema.json`; each row shows a source badge
-  (`(default)` / `(user)` / `(workspace)`).
-- **JSON view** — Buttons at the top of the form open
-  `settings.json` (user / workspace / default) directly in an editor tab.
-  Saving the file triggers a 200 ms-debounced hot reload — no restart
-  required.
-- **Workspace overrides** — open the *Open Workspace Settings (JSON)*
-  command; the file is created on demand under `.polyglot/settings.json`.
-
-**Command palette:** press `Ctrl+Shift+P` to open the palette and run any
-registered command (`Preferences: Open Settings (JSON)`,
-`Preferences: Open Keyboard Shortcuts (JSON)`,
-`File: Save / Save As / Open / New Untitled`,
-`Markdown: Toggle Preview`, …).
-
-**Custom keybindings** live in `keybindings.json` next to `settings.json`
-and use the standard VS Code-style schema:
-
-```json
-[
-  { "key": "ctrl+shift+m", "command": "editor.action.toggleMarkdownPreview" },
-  { "key": "ctrl+k ctrl+s", "command": "workbench.action.openKeybindings" }
-]
-```
-
-**CLI tools** (`polyc`, `polyld`, `polyrt`, `polytopo`, `polybench`) read
-the same `settings.json` and accept two extra flags:
-
-| Flag                              | Effect                                                |
-|-----------------------------------|-------------------------------------------------------|
-| `--settings <path>`               | Override the user file with an explicit JSON path.    |
-| `--print-effective-settings`      | Print the merged effective JSON to stdout and exit 0. |
-
-See `docs/realization/settings_system.md` for the full key reference and
-implementation details.
-
-### Git Integration
-
-The Git panel (toggle via **View → Git Panel**) provides version control without leaving the IDE.
-
-**Capabilities:**
-- **Status view**: color-coded tree showing staged, unstaged, and untracked files (green/yellow/grey icons)
-- **Staging**: stage/unstage individual files or all files via toolbar buttons and context menu
-- **Commit**: enter commit messages with optional amend support; commit from the toolbar
-- **Branch management**: create, delete, merge, and checkout branches from the branch selector
-- **Remote operations**: push, pull, and fetch run asynchronously with progress feedback in the output area
-- **Diff viewer**: view file diffs in the output text area; double-click a file to show its diff
-- **Log history**: browse commit history with hash, author, date, and message
-- **Stash**: stash and pop working directory changes via toolbar actions
-
-### Build System
-
-The Build panel (toggle via **View → Build Panel**) integrates CMake-based project building.
-
-#### Modular CMake Structure
-
-The project uses a modular `add_subdirectory()` layout that splits the monolithic top-level `CMakeLists.txt` into per-directory build files:
-
-```
-CMakeLists.txt          ← project setup, compiler flags, dependencies, add_subdirectory() calls
-├── common/CMakeLists.txt      ← polyglot_common library
-├── middle/CMakeLists.txt      ← middle_ir (IR, optimization passes, PGO, LTO)
-├── frontends/CMakeLists.txt   ← frontend_common + all language frontends
-├── backends/CMakeLists.txt    ← backend_x86_64, backend_arm64, backend_wasm
-├── runtime/CMakeLists.txt     ← runtime library (GC, FFI, interop, services)
-├── tools/CMakeLists.txt       ← polyc, polyasm, polyld, polyopt, polyrt, polybench, polyui
-└── tests/CMakeLists.txt       ← unit_tests, integration_tests, benchmark_tests
-```
-
-Unit test sources are listed explicitly per module (not via `GLOB_RECURSE`), enabling precise rebuild granularity.
-
-**Capabilities:**
-- **Configure**: run `cmake` with the selected generator (Makefiles, Ninja, Xcode, etc.) and build type (Debug, Release, RelWithDebInfo, MinSizeRel)
-- **Build / Rebuild**: build the entire project or individual targets discovered from `cmake --build --target help`
-- **Clean**: remove all build artifacts
-- **Error parsing**: compiler output is parsed for GCC/Clang-style and MSVC-style error messages; matched errors appear in the error tree and emit `BuildErrorFound` to open the source location
-- **Progress**: a progress bar tracks CMake's percentage-based build output
-- **Path discovery**: automatically searches `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, and `$PATH` for the `cmake` executable
-
-**Usage:**
-1. Set the source and build directories via the browse buttons or type paths directly
-2. Choose a generator and build type, then click **Configure**
-3. Select a build target (or "all") and click **Build**
-4. Errors appear in the tree below; double-click to navigate to the source location
-
-### Debugging
-
-The Debug panel (toggle via **View → Debug Panel**) provides interactive debugging via lldb or gdb.
-
-**Capabilities:**
-- **Debugger auto-detection**: prefers lldb on macOS, gdb on Linux; configurable in Settings
-- **Breakpoints**: toggle breakpoints by file and line, add conditional breakpoints, remove all; breakpoints are listed in a dedicated tree
-- **Execution control**: Start (`F9`), Stop, Pause, Continue, Step Over (`F10`), Step Into (`F11`), Step Out (`Shift+F11`), Run to Cursor
-- **Call stack**: view the current call stack with frame number, function name, file, and line
-- **Variables**: inspect local variables with name, value, and type
-- **Watch expressions**: add arbitrary expressions to evaluate in the current debug context
-- **Debug console**: send raw debugger commands and view responses
-- **Source navigation**: when the debugger stops, the IDE opens the corresponding source file and highlights the current line via the `DebugLocationChanged` signal
-
-**Usage:**
-1. Set the executable path and optional program arguments at the top of the panel
-2. Toggle breakpoints from the breakpoint tree (Add / Remove All)
-3. Click **Start** or press `F9` to begin debugging
-4. Use the toolbar buttons or keyboard shortcuts to step through code
-5. Inspect variables and call stack in the side panels; add watch expressions as needed
-6. Use the console tab to send raw debugger commands
-
-## 6.9 Cross compilation
-
-PolyglotCompiler ships a single canonical target-triple plumbing that runs
-from `polyc` through `polyld`, `polyasm`, `polyopt`, `polybench` and `polyrt`.
-Every entry point accepts the same `--target=<triple>` syntax and falls back
-to the host triple (derived from the build-time host configuration) when the
-flag is omitted.
-
-### 6.9.1 Driver flags
-
-| Flag | Purpose |
-| --- | --- |
-| `--target=<triple>` | Selects the target triple (e.g. `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, `wasm32-wasi`). Invalid spec → `polyc-err-E1100`. |
-| `--container=<auto\|elf\|pe\|macho\|wasm>` | Overrides the binary container the driver and linker emit. Unknown name → `polyc-err-E1101`. |
-| `--subsystem=<name>` | PE-only subsystem hint forwarded to `polyld` (e.g. `console`, `windows`). |
-| `--entry=<sym>` | Overrides the linker entry symbol; forwarded to `polyld --entry`. |
-
-### 6.9.2 Default container per OS
-
-| OS family | Default container | Default executable suffix |
-| --- | --- | --- |
-| Linux / FreeBSD / unknown ELF | `elf` | (none) |
-| Windows | `pe` | `.exe` |
-| macOS / iOS | `macho` | (none) |
-| WASI / wasm32 | `wasm` | `.wasm` |
-
-`--container=auto` (the default) picks the row above based on the resolved
-triple; an explicit value always wins, which is the supported way to produce
-a foreign-format object on the local host.
-
-### 6.9.3 File-suffix policy
-
-`polyc` enforces a soft suffix policy at the driver level: when `-o` names an
-output file whose suffix does not match the container that the resolver has
-chosen for the target triple, the driver emits `polyc-warn-W2101` and keeps
-going. The policy applies to executable, shared-library, static-library and
-object outputs.
-
-### 6.9.4 Triple propagation
-
-Each downstream tool re-validates the triple it receives:
-
-* `polyld` accepts `--target=` / `--container=` / `--subsystem=` / `--entry=`
-  on its command line. `polyc` forwards them automatically when its chosen
-  linker is `polyld`.
-* `polyasm` and `polyopt` write `; target-triple: <spec>` as the first line
-  of their textual IR output and check the same marker on input. A mismatch
-  emits `polyasm-warn-W1101` / `polyopt-warn-W1101`.
-* `polybench` stamps the active triple into `target_triple` of every
-  benchmark JSON it writes and accepts `--target=` for cross-platform runs.
-* `polyrt` consumes `--target=` early, validates the spec and prints the
-  effective triple in its `info` table.
-
-### 6.9.5 Diagnostic codes
-
-| Code | Meaning |
-| --- | --- |
-| `polyc-err-E1100`, `polyld-err-E1100`, `polyasm-err-E1100`, `polyopt-err-E1100`, `polybench-err-E1100`, `polyrt-err-E1100` | `--target=` could not be parsed. |
-| `polyc-err-E1101`, `polyld-err-E1101` | `--container=` value was not one of `auto/elf/pe/macho/wasm`. |
-| `polyc-warn-W2101` | Output file suffix disagrees with the resolved container. |
-| `polyasm-warn-W1101`, `polyopt-warn-W1101` | Input artifact carries a triple that disagrees with the active `--target=`. |
-
-### 6.9.6 Example
-
-```bash
-# Build a Windows console binary on a macOS host.
-./polyc \
-    --target=x86_64-pc-windows-msvc \
-    --subsystem=console \
-    --entry=wWinMainCRTStartup \
-    -o app.exe app.ploy
-
-# Run a benchmark suite tagged for the cross-compile target.
-./polybench --target=aarch64-unknown-linux-gnu compilation
-```
+Cross-language calls are lowered to **bridge stubs** that marshal
+arguments through the runtime's FFI layer; the call graph emitted by
+`polyc --emit=call-graph` distinguishes bridge edges so the IDE can
+render them in a contrasting colour.
+
+### 4.9 Diagnostic identifiers
+
+Ploy diagnostics share the catalogue with every other frontend; ids are
+formatted `polyc-(err|warn)-<E####|W####>`. Common entries:
+
+| Id            | Meaning                                                |
+|---------------|--------------------------------------------------------|
+| `polyc-err-E0101` | Unexpected token / parse failure.                  |
+| `polyc-err-E0210` | Type mismatch in `LINK` signature.                 |
+| `polyc-err-E0311` | Unknown package in `IMPORT … PACKAGE`.             |
+| `polyc-err-E0405` | Async function awaited outside `ASYNC` context.    |
+| `polyc-err-E0612` | Ambiguous selective import + alias combination.    |
+| `polyc-warn-W0701`| Unused `LINK` declaration.                         |
+| `polyc-warn-W0903`| Bridge call without matching counterpart symbol.   |
+
+The full catalogue is at [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md).
 
 ---
 
-# 7. IR Design Specification
+## 5. Language Frontends
 
-## 7.1 Overview
+Each frontend is a static library under `frontends/<lang>/`, exposes a
+single `Lower(Source) → IRModule` entry point, and owns its language-
+specific diagnostics that map to the unified `polyc-(err|warn)-E####`
+identifiers.
 
-PolyglotCompiler's intermediate representation (IR) is a complete SSA-form, explicit control flow, explicit memory model intermediate language.
+| Frontend       | Lib target          | Test target                | Highlights                                                            |
+|----------------|---------------------|----------------------------|-----------------------------------------------------------------------|
+| `frontend_cpp` | `frontend_cpp`      | `test_frontend_cpp`        | C++20 subset, templates with constraint folding, RTTI off by default. |
+| `frontend_python` | `frontend_python`| `test_frontend_python`     | Python 3.11 subset, type hints lowered to IR types where possible.    |
+| `frontend_rust`| `frontend_rust`     | `test_frontend_rust`       | Rust 2024 subset, ownership lowered to scope-bounded RC handles.      |
+| `frontend_java`| `frontend_java`     | `test_frontend_java`       | Java 21 subset, sealed classes and records.                           |
+| `frontend_dotnet` | `frontend_dotnet`| `test_frontend_dotnet`    | C# 12 subset, value-type structs, `async`/`await` lowered to coroutines. |
+| `frontend_go`  | `frontend_go`       | `test_frontend_go`         | Go 1.22 subset, goroutines lowered onto the runtime's task scheduler. |
+| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ES2023 subset, NaN-tagged values, optional Number → i64 narrowing. |
+| `frontend_ruby`| `frontend_ruby`     | `test_frontend_ruby`       | Ruby 3.3 subset, blocks lowered to closures.                          |
+| `frontend_ploy`| `frontend_ploy`     | `test_frontend_ploy`       | Glue language; full grammar, generics, async, error handling.         |
+| common         | `frontend_common`   | `test_frontend_common`     | Shared diagnostic, source-map, and lookup machinery.                  |
 
-Core implementation files:
-- `middle/src/ir/builder.cpp` — IR builder
-- `middle/src/ir/ir_context.cpp` — IR context management
-- `middle/src/ir/cfg.cpp` — Control flow graph
-- `middle/src/ir/ssa.cpp` — SSA transformation
-- `middle/src/ir/analysis.cpp` — IR analysis
-- `middle/src/ir/verifier.cpp` — IR verifier
-- `middle/src/ir/printer.cpp` — IR text output
-- `middle/src/ir/parser.cpp` — IR text parsing
-- `middle/src/ir/data_layout.cpp` — Data layout
-- `middle/src/ir/template_instantiator.cpp` — Template instantiation
+A frontend is "complete" when it (a) parses the documented subset,
+(b) lowers to IR that the verifier accepts, (c) emits diagnostics in the
+catalogue, and (d) passes its `test_frontend_<lang>` target.
 
-## 7.2 Type System
+### 5.1 C++ frontend
 
-### Scalar Types
-- **Integer**: `i1, i8, i16, i32, i64`
-- **Floating-point**: `f32, f64`
-- **Other**: `void`
+Supports C++20 with a few practical restrictions:
 
-### Aggregate Types
-- **Pointer**: Single pointee type
-- **Array**: `[N x T]`
-- **Vector**: `<N x T>` (for SIMD)
-- **Struct**: `{T0, T1, ...}`
-- **Function**: `(ret, params...)`
+* `<thread>` and `<atomic>` lower to runtime task primitives.
+* RTTI is off by default; enable per-translation-unit with
+  `// poly: rtti on`.
+* Exception unwinding uses the platform-native unwinder; on wasm a JS
+  trap path is used.
+* Templates are instantiated lazily; constraint folding runs before
+  instantiation.
 
-## 7.3 Core Instruction Set
-
-### Arithmetic / Logic
-```
-add, sub, mul, sdiv/udiv, srem/urem     # Integer arithmetic
-and, or, xor, shl, lshr, ashr           # Bitwise operations
-icmp (eq, ne, slt, sle, sgt, sge,       # Integer comparison
-      ult, ule, ugt, uge)
-fadd, fsub, fmul, fdiv, frem             # Floating-point arithmetic
-fcmp (foe, fne, flt, fle, fgt, fge)     # Floating-point comparison
-```
-
-### Memory Operations
-```
-alloca      # Stack allocation
-load        # Load
-store       # Store
-gep         # Address computation (GetElementPtr)
-```
-
-### Control Flow
-```
-ret         # Return
-br          # Unconditional branch
-cbr         # Conditional branch
-switch      # Multi-way branch
-```
-
-### Calls and Exceptions
-```
-call        # Direct/indirect call
-invoke      # Call that may throw
-landingpad  # Exception landing pad
-resume      # Exception resume
-```
-
-### SSA
-```
-phi         # SSA merge node
-```
-
-### Type Conversions
-```
-sext, zext, trunc           # Integer extension/truncation
-fpext, fptrunc              # Floating-point extension/truncation
-fptosi, sitofp              # Float ↔ Integer
-bitcast                     # Bit cast
-```
-
-## 7.4 Calling Conventions
-
-| Convention | Integer Parameters | Float Parameters | Return Value | Stack Alignment |
-|------------|-------------------|-----------------|-------------|-----------------|
-| x86_64 SysV | RDI, RSI, RDX, RCX, R8, R9 | XMM0-7 | RAX/XMM0 | 16 bytes |
-| ARM64 AAPCS64 | X0-X7 | V0-V7 | X0/V0 | 16 bytes |
-
-### Cross-Language ABI Validation
-
-The compiler performs ABI compatibility checks at multiple stages:
-
-1. **Sema stage (compile time):** When a `LINK` declaration includes `MAP_TYPE` entries, the semantic analyzer builds `ABISignature` descriptors for both the target and source functions. These are cross-validated for:
-   - Parameter count match
-   - Parameter size compatibility (byte-level)
-   - Pointer vs value passing convention match
-   - Return type size compatibility
-
-2. **Linker stage (link time):** The polyglot linker (`polyld`) validates `CrossLangSymbol` descriptors before generating glue stubs:
-   - Parameter count between source and target symbols
-   - Per-parameter size and passing convention
-   - Return type size compatibility
-   - MAP_TYPE entry count vs actual symbol parameter count
-
-3. **Descriptor file validation:** When loading `.paux` descriptor files, the linker validates:
-   - Language identifiers against the known set
-   - Symbol name non-emptiness
-   - Duplicate entry detection
-   - Descriptor format correctness
-
-### Language-to-Convention Mapping
-
-| Language | Convention (Linux/macOS) | Convention (Windows) |
-|----------|------------------------|---------------------|
-| C/C++/Rust | System V AMD64 | Microsoft x64 |
-| Python | Python C API (System V / x64) | Python C API (x64) |
-| Java | JNI (System V / x64) | JNI (x64) |
-| .NET/C# | P/Invoke (System V / x64) | P/Invoke (x64) |
-| .ploy | System V AMD64 | Microsoft x64 |
-
-Implementation:
-- `frontends/ploy/include/ploy_sema.h` (ABISignature, ABIParamDesc)
-- `frontends/ploy/src/sema/sema.cpp` (BuildABISignature, ValidateCompatibility)
-- `tools/polyld/src/polyglot_linker.cpp` (linker-level ABI validation)
-- `backends/x86_64/src/calling_convention.cpp`
-- `backends/arm64/src/calling_convention.cpp`
-- `runtime/src/interop/calling_convention.cpp` (cross-language calling convention adaptation)
-
-## 7.5 IR Verification Rules
-
-- Each basic block has exactly one terminator instruction
-- Operands must pass type checking
-- Definitions must dominate uses (SSA property)
-- Phi node input types must match result type
-- Function argument count and types must match the declaration
-
----
-
-# 8. Optimisation System
-
-## 8.1 Pass Manager
+Example C++ that becomes part of a `.ploy` pipeline:
 
 ```cpp
-// middle/src/passes/pass_manager.cpp
-class PassManager {
-    std::vector<std::unique_ptr<Pass>> passes_;
+// frontends/cpp/examples/sharpen.cpp
+#include <vector>
+#include <cstdint>
+
+extern "C" std::vector<uint8_t> sharpen(const std::vector<uint8_t> &raw) {
+    // Apply a 3x3 sharpening kernel; returns a new buffer.
+    std::vector<uint8_t> out(raw.size());
+    // ... kernel implementation ...
+    return out;
+}
+```
+
+### 5.2 Python frontend
+
+Supports Python 3.11 syntax. Type hints are honoured where they yield
+unambiguous IR types; un-annotated parameters lower to `box<value>`.
+
+```python
+# frontends/python/examples/classify.py
+from __future__ import annotations
+import numpy as np
+
+def classify(image: bytes) -> str:
+    arr = np.frombuffer(image, dtype=np.uint8)
+    return "cat" if arr.mean() > 127 else "dog"
+```
+
+The frontend resolves `numpy` via the package-manager probe; the
+matching `IMPORT python PACKAGE numpy` declaration in the Ploy driver
+is what makes the import valid at link time.
+
+### 5.3 Rust frontend
+
+Rust 2024 subset, ownership lowered to scope-bounded RC handles so that
+the IR verifier can model lifetimes uniformly across languages.
+`Result<T, E>` lowers to `option<variant<T, E>>`.
+
+### 5.4 Java frontend
+
+Java 21 subset; sealed classes and records lower directly to IR
+`variant`/`struct`. Generics use type erasure plus a parallel reified
+table for cross-language calls.
+
+### 5.5 .NET frontend
+
+C# 12 subset; value types stay as IR `struct`. `async`/`await` lower to
+the runtime's coroutine machinery. Nullable reference types are
+honoured.
+
+### 5.6 Go frontend
+
+Go 1.22 subset; goroutines schedule onto the runtime task pool, channels
+lower to runtime primitives. Build tags are supported via comment
+directives.
+
+### 5.7 JavaScript frontend
+
+ES2023 subset; values are NaN-tagged when type inference cannot prove a
+narrower type. Number → i64 narrowing happens when type-feedback or
+explicit `| 0` patterns are present.
+
+### 5.8 Ruby frontend
+
+Ruby 3.3 subset; blocks lower to closures, common DSL patterns
+(`define_method`, `attr_accessor`) are recognised and folded during
+lowering.
+
+### 5.9 Ploy frontend
+
+The reference frontend; entire grammar in 54 keywords. Drives package
+discovery, bridge declaration, conversions, pipelines, async, and
+generics. The same frontend powers `polyc --format`.
+
+### 5.10 Frontend authoring rules
+
+* Public lowering API must accept a `SourceBuffer` and return an
+  `IRModule`. No global state.
+* Diagnostics use the shared `Diagnostic` type from `frontend_common`.
+* Each frontend ships a `tests/unit/frontend_<lang>/` target.
+* Bridge stub registration goes through `runtime::ffi::Registry`.
+
+---
+
+## 6. Tools and CLI Drivers
+
+### 6.1 `polyc` — compiler driver
+
+```
+polyc [options] <inputs…> [-o <output>]
+  --target=<triple>            x86_64 / aarch64 / wasm32 + os/abi
+  --emit=<kind>[:<path>]       ir, asm, obj, call-graph, profile-symbols
+  --opt=<level>                O0 | O1 | O2 | O3 | Os | Oz
+  --check                      run frontend + verifier only, emit JSON diagnostics
+  --profile-instrument         insert __ploy_rt_call_enter/exit hooks
+  --pgo=<mode>                 instrument | use=<profdata>
+  --lto=<mode>                 thin | full
+  --gc=<algo>                  msweep | tricolor | generational | refcount
+  --link=<spec>                forward to polyld
+  --print-passes               dump pass pipeline and exit
+  --format                     run the built-in formatter on inputs
+  --jobs=<N>                   parallel frontend jobs (default: hardware threads)
+  --trace=<path>               write a Chrome-trace JSON for the whole run
+```
+
+Examples:
+
+```sh
+polyc main.ploy -o main                                          # default O2
+polyc main.ploy --opt=O3 --lto=thin -o main                      # release
+polyc main.ploy --target=aarch64-apple-darwin -o main.arm64
+polyc --check main.ploy | jq '.diagnostics[].message'
+polyc --emit=ir:main.ir --emit=asm:main.s main.ploy
+polyc --pgo=instrument main.ploy -o main_inst
+polyc --pgo=use=main.profdata main.ploy -o main_pgo
+```
+
+Exit codes:
+
+| Code | Meaning                                       |
+|------|-----------------------------------------------|
+| 0    | Success.                                      |
+| 1    | Errors emitted; no artefact written.          |
+| 2    | Usage / I/O failure.                          |
+| 3    | Internal compiler error (with stack trace).   |
+
+### 6.2 `polyld` — linker
+
+`polyld` consumes IR and native object inputs, resolves symbols across
+language boundaries, and writes ELF / Mach-O / PE / WASM containers.
+
+```
+polyld [options] <inputs…> -o <output>
+  --target=<triple>     output triple
+  --shared              produce a shared library
+  --static              produce a static archive
+  --entry=<symbol>      override entry point
+  --map=<path>          write a link map
+  --gc-sections         drop unreferenced sections
+  --lto=<mode>          thin | full
+  --bridge-table=<path> emit a JSON bridge call table
+  --verify              re-run IR verifier after dead-code stripping
+```
+
+The macOS arm64 emitter aligns segments to 16 KiB and stamps
+`__DATA_CONST` with the `SG_READ_ONLY` flag (`0x10`) for dyld 26
+chained-fixup compatibility.
+
+### 6.3 `polyasm` — assembler / disassembler
+
+Implements the full backend ISA tables. Used standalone for hand-written
+fixtures, and by the IDE's binary inspector to render disassembly.
+
+```
+polyasm <input>                  disassemble (auto-detect format)
+polyasm --asm    <input>         emit textual assembly
+polyasm --obj    <input>         emit relocatable object
+polyasm --ir     <input>         round-trip text IR ↔ binary IR
+polyasm --target=<triple>        override host triple
+polyasm --print-isa              dump ISA tables for the current target
+```
+
+### 6.4 `polyopt` — IR optimiser
+
+Stand-alone driver around the middle-end pass manager. Handy for
+`opt`-style experiments:
+
+```sh
+polyopt -O3 -print-after-all in.ir
+polyopt -passes='mem2reg,instcombine,gvn' in.ir -o out.ir
+polyopt -opt-bisect-limit=42 -print-pass-list in.ir
+polyopt -analyse=dominators -print-analysis in.ir
+```
+
+### 6.5 `polyrt` — runtime CLI
+
+Front-door for runtime services consumed without the IDE:
+
+```
+polyrt profile   --json out.json --duration-ms 5000 <program>
+polyrt profile   --stream out.ndjson <program>
+polyrt calltrace --json calltrace.json
+polyrt gc-stats  --algo=tricolor <program>
+polyrt heap-snapshot --out heap.json <program>
+polyrt schedule-stats --interval-ms 100 <program>
+```
+
+### 6.6 `polybench` — benchmark harness
+
+Drives the eight benchmark suites and writes JSON reports
+(`build/benchmark_*.json`) that the dashboard renders.
+
+```
+polybench --suite=compilation   --out build/benchmark_compilation.json
+polybench --suite=e2e           --out build/benchmark_e2e.json
+polybench --suite=gc            --out build/benchmark_gc.json
+polybench --suite=link_times    --out build/benchmark_link_times.json
+polybench --suite=optimizations --out build/benchmark_optimizations.json
+polybench --suite=comparison    --out build/benchmark_comparison.json
+polybench --all                 # runs every suite
+polybench --baseline=<path>     # compare against a baseline JSON
+```
+
+### 6.7 `polytopo` — call-graph topology viewer
+
+Headless counterpart to the Call Analyzer panel:
+
+```
+polytopo build/mixed.cgjson                   # ASCII summary
+polytopo --view-mode=dot  build/mixed.cgjson  # Graphviz DOT
+polytopo --view-mode=json build/mixed.cgjson  # machine-readable
+polytopo --filter-language=python build/mixed.cgjson
+polytopo --filter-bridge build/mixed.cgjson   # bridge edges only
+polytopo --root=main --depth=4 build/mixed.cgjson
+polytopo build/mixed.cgjson | dot -Tsvg > mixed.svg
+```
+
+### 6.8 `polyls` — language server
+
+LSP 3.17 stdio server consumed by `polyui` and any third-party editor.
+
+```
+polyls                                  # speak LSP on stdio
+polyls --log polyls.log                 # log every frame
+polyls --capabilities                   # print supported capabilities
+polyls --root=<path>                    # workspace root override
+```
+
+See [tutorial/lsp_quickstart.md](tutorial/lsp_quickstart.md) for the
+end-to-end walk-through.
+
+### 6.9 `polydoc` — documentation extractor
+
+Parses `///` doc comments out of every supported frontend and writes
+HTML / Markdown bundles. Powers the in-IDE hover summaries.
+
+```
+polydoc --in src/ --out docs/api/   --format=md
+polydoc --in src/ --out docs/api/   --format=html
+polydoc --check  src/               # lint comment quality
+```
+
+### 6.10 `polyver` — version & manifest tool
+
+Reports compiler, runtime, and bridge ABI versions; verifies a build
+manifest against the on-disk artefacts.
+
+```
+polyver --version
+polyver --abi
+polyver --check-manifest build/manifest.json
+polyver --emit-manifest  build/manifest.json
+```
+
+### 6.11 `polyui` — IDE shell
+
+Qt 6 desktop application that hosts every interactive panel: editor,
+LSP, DAP, Profiler, Call Analyzer, Test Explorer, SCM, Package Manager,
+Notifications, and Bookmarks.
+
+```
+polyui                              # launch with last session
+polyui <workspace>                  # launch on a specific workspace
+polyui --reset-settings             # discard user settings
+polyui --safe-mode                  # skip plugins and last session
+```
+
+See [chapter 12](#12-ide-polyui-and-language-server).
+
+---
+
+## 7. Unified IR
+
+### 7.1 Overview
+
+The IR is a typed, SSA, three-address form with explicit control-flow
+edges. It supports two serialisations: a textual `.ir` round-trippable
+through `polyasm --ir`, and a binary `.ir.bin` consumed by the
+incremental cache.
+
+### 7.2 Type system
+
+| Category   | Types                                                           |
+|------------|-----------------------------------------------------------------|
+| Integers   | `i1`, `i8`, `i16`, `i32`, `i64`, `i128`, signed/unsigned variants. |
+| Floats     | `f16`, `f32`, `f64`, `f128`.                                    |
+| Vectors    | `<N x T>` SIMD vectors (used by the wasm SIMD backend and the x86_64 AVX path). |
+| Aggregates | `struct {…}`, `array<T, N>`, `tuple<…>`.                        |
+| References | `ptr<T, addrspace>`, `ref<T>` (GC-tracked), `weak<T>`.          |
+| Sums       | `option<T>`, `variant<T0, T1, …>`.                              |
+| Functions  | `fn(args…) -> T`, `async fn(args…) -> T`.                       |
+| Boxed      | `box<T>` for cross-language value passing.                      |
+
+### 7.3 Core instruction set
+
+| Family       | Examples                                                          |
+|--------------|-------------------------------------------------------------------|
+| Arithmetic   | `add`, `sub`, `mul`, `sdiv/udiv`, `srem/urem`, `fadd…`             |
+| Bitwise      | `and`, `or`, `xor`, `shl`, `lshr`, `ashr`, `popcnt`, `clz`         |
+| Memory       | `alloc`, `load`, `store`, `gep`, `memcpy`, `memset`                |
+| Control      | `br`, `cbr`, `switch`, `ret`, `unreachable`, `landingpad`          |
+| Calls        | `call`, `tailcall`, `invoke`, `bridge_call` (cross-language)       |
+| GC           | `gc.alloc`, `gc.barrier.write`, `gc.safepoint`                     |
+| Async        | `async.suspend`, `async.resume`, `async.await`                     |
+| SIMD         | `vec.add`, `vec.mul`, `vec.shuffle`, `vec.broadcast`               |
+| Conversion   | `trunc`, `sext`, `zext`, `bitcast`, `fptosi`, `sitofp`             |
+
+### 7.4 Textual form
+
+```
+fn main() -> i32 {
+entry:
+    %0 = call @factorial(i64 10)
+    %1 = call @print_i64(i64 %0)
+    ret i32 0
+}
+
+fn factorial(i64 %n) -> i64 {
+entry:
+    %cond = icmp.sle i64 %n, 1
+    cbr i1 %cond, base, recurse
+base:
+    ret i64 1
+recurse:
+    %n1   = sub i64 %n, 1
+    %r    = call @factorial(i64 %n1)
+    %res  = mul i64 %n, %r
+    ret i64 %res
+}
+```
+
+### 7.5 Calling conventions
+
+* **System V AMD64** for Linux/macOS x86_64.
+* **Win64** for Windows x86_64.
+* **AAPCS64** for Linux/macOS aarch64.
+* **wasm-32** with multi-value returns.
+* **Bridge ABI** for cross-language calls — values are marshalled via
+  `runtime::ffi::BridgeFrame` so that callee-language runtimes see
+  conventional values.
+
+### 7.6 Verifier rules
+
+The verifier (`middle/verifier`) rejects any IR module that:
+
+* uses an SSA value before its definition,
+* references an undeclared block or function,
+* mixes pointer address spaces in a single `gep`,
+* calls across languages without a `bridge_call`,
+* skips a `gc.safepoint` between two GC allocations on the same path,
+* leaves an `async.suspend` outside an `async fn`.
+
+A failing module aborts compilation with `polyc-err-E0801`.
+
+### 7.7 Binary serialisation
+
+`.ir.bin` uses a length-prefixed, content-addressed format:
+
+```
+magic:    "POLI"  (4 bytes)
+version:  u32     (current = 4)
+strtab:   compressed string pool
+typetab:  type interning table
+fns:      one record per function (header + blocks + insts)
+metadata: source map + DI + bridge index
+crc32:    over everything above
+```
+
+The format is forward-compatible: older `polyc` versions reject newer
+modules with `polyc-err-E0810` rather than mis-decoding them.
+
+---
+
+## 8. Middle-end Optimisation
+
+### 8.1 Pass manager
+
+The pass manager is a dependency-aware scheduler with three pass kinds:
+**Module**, **Function**, and **Loop**. Analyses cache results across
+passes and invalidate when their preserved set is broken.
+
+### 8.2 Default `-O2` pipeline
+
+`mem2reg → instcombine → simplifycfg → gvn → licm → loop-unroll →
+inliner → tailcall → dse → adce → late-instcombine → simplifycfg`.
+
+`-O3` adds `loop-vectorize`, `slp-vectorize`, and a second inliner pass.
+`-Os/-Oz` swap the inliner for a size-aware variant and enable
+`merge-functions` and `cold-cc`.
+
+### 8.3 Pass catalogue
+
+| Pass               | Kind     | Notes                                                  |
+|--------------------|----------|--------------------------------------------------------|
+| `mem2reg`          | Function | Promote allocas to SSA registers.                      |
+| `instcombine`      | Function | Peephole simplifications.                              |
+| `simplifycfg`      | Function | Merge basic blocks, fold trivial branches.             |
+| `gvn`              | Function | Global value numbering with PRE.                       |
+| `licm`             | Loop     | Loop invariant code motion.                            |
+| `loop-unroll`      | Loop     | Heuristic + pragma unrolling.                          |
+| `loop-vectorize`   | Loop     | SLP-aware vectoriser; uses `<N x T>` IR types.         |
+| `inliner`          | Module   | Cost-modelled inliner; PGO-aware.                      |
+| `tailcall`         | Function | Mark eligible calls; backend lowers.                   |
+| `dse`              | Function | Dead store elimination.                                |
+| `adce`             | Function | Aggressive dead code elimination.                      |
+| `merge-functions`  | Module   | Merge identical function bodies.                       |
+| `cold-cc`          | Module   | Apply cold calling convention to rare paths.           |
+| `bridge-fuse`      | Module   | Fuse adjacent `bridge_call` ops on same target lang.   |
+| `gc-strip`         | Module   | Drop GC barriers proven unnecessary.                   |
+
+### 8.4 PGO
+
+```sh
+polyc --pgo=instrument hello.cpp -o hello_inst
+./hello_inst   # writes default.profraw
+llvm-profdata merge -o default.profdata default.profraw
+polyc --pgo=use=default.profdata hello.cpp -o hello_pgo
+```
+
+Profile data is consumed by the inliner, branch-probability analyser,
+and the wasm backend's hot-cold splitter.
+
+### 8.5 LTO
+
+`polyc --lto=thin` and `--lto=full` switch the link to whole-program
+optimisation. Thin LTO keeps per-module summaries and parallelises
+codegen.
+
+### 8.6 Writing a pass
+
+```cpp
+// middle/passes/example_pass.cpp
+#include "poly/middle/pass.h"
+
+namespace poly::middle {
+
+class ExamplePass : public FunctionPass {
 public:
-    void AddPass(std::unique_ptr<Pass> pass);
-    void Run();
+    static constexpr std::string_view ID = "example";
+    bool Run(Function &fn, FunctionAnalyses &analyses) override {
+        bool changed = false;
+        for (auto &block : fn) {
+            for (auto it = block.begin(); it != block.end(); ) {
+                if (IsRedundant(*it)) {
+                    it = block.Erase(it);
+                    changed = true;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        return changed;
+    }
+    void GetAnalysisUsage(AnalysisUsage &au) const override {
+        au.AddRequired<DominatorTree>();
+        au.SetPreservesCFG();
+    }
+};
+
+REGISTER_PASS(ExamplePass);
+
+}  // namespace poly::middle
+```
+
+Then add the pass id to the desired pipeline level in
+`middle/pipeline_defaults.cpp`. Document the pass in
+[realization/middle_passes.md](realization/middle_passes.md).
+
+### 8.7 Inspecting the pipeline
+
+```
+polyopt -print-passes              # list pass IDs
+polyopt -print-after=instcombine   # dump IR after a pass
+polyopt -opt-bisect-limit=42       # binary-search regressions
+polyopt -time-passes               # per-pass wall time
+```
+
+---
+
+## 9. Runtime
+
+### 9.1 Garbage collectors
+
+| Algorithm        | Header                                | Notes                                       |
+|------------------|---------------------------------------|---------------------------------------------|
+| Mark-and-Sweep   | `runtime/gc/mark_sweep.h`             | Stop-the-world, low memory overhead.        |
+| Tri-colour       | `runtime/gc/tricolor.h`               | Default; concurrent marking; lower pauses.  |
+| Generational     | `runtime/gc/generational.h`           | Young/old split with write barriers.        |
+| Reference-count  | `runtime/gc/refcount.h`               | Cycle collector for reference cycles.       |
+
+Selectable per build (`--gc=<algo>`) or per program by setting
+`POLY_GC` at runtime. Stats: `polyrt gc-stats`.
+
+#### 9.1.1 Tuning knobs
+
+| Env var               | Meaning                                                |
+|-----------------------|--------------------------------------------------------|
+| `POLY_GC`             | Select algorithm at process start.                     |
+| `POLY_GC_HEAP_INIT`   | Initial heap size (e.g. `64m`).                        |
+| `POLY_GC_HEAP_MAX`    | Hard limit; OOM beyond.                                |
+| `POLY_GC_PAUSE_GOAL_MS` | Pause-time goal for tri-colour and generational.    |
+| `POLY_GC_LOG`         | `none` / `summary` / `verbose`.                       |
+| `POLY_GC_TRACE`       | Path to a Chrome-trace JSON of GC events.              |
+
+### 9.2 FFI bridge
+
+`runtime/ffi/` implements `BridgeFrame`, the universal marshalling
+record used by all cross-language calls. Each language runtime registers
+boxer / unboxer pairs for its native value representations.
+
+```cpp
+// runtime/ffi/bridge_frame.h
+struct BridgeFrame {
+    LanguageId   from;
+    LanguageId   to;
+    Span<Value>  args;
+    Value        result;
+    Diagnostic  *diag;   // out parameter
 };
 ```
 
-## 8.2 Optimisation Pass List
+A bridged call site looks like:
 
-### Core Transform Passes (7 implementation files)
+```
+%boxed = bridge_call @python::ml::classify, box<bytes> %img
+```
 
-| Pass | File | Function |
-|------|------|----------|
-| `ConstantFold` | `constant_fold.cpp` | Constant folding |
-| `DeadCodeElim` | `dead_code_elim.cpp` | Dead code elimination |
-| `CommonSubExpr` | `common_subexpr.cpp` | Common subexpression elimination (CSE) |
-| `Inlining` | `inlining.cpp` | Function inlining |
-| `Devirtualization` | `devirtualization.cpp` | Virtual function devirtualisation |
-| `LoopOptimization` | `loop_optimization.cpp` | Loop optimisation (unrolling/LICM/fusion/splitting/tiling/interchange) |
-| `GVN` | `gvn.cpp` | Global value numbering |
+### 9.3 Language runtimes
 
-### Analysis Passes (2)
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,ploy}/` provide the
+minimum machinery each frontend needs at run time: exception unwinder,
+async scheduler, value boxing, intrinsic helpers. Each runtime exposes
+an `Init(Host *host)` and `Shutdown()` pair invoked from the main
+program prologue / epilogue.
 
-| Pass | File | Function |
-|------|------|----------|
-| `AliasAnalysis` | `alias.h` | Alias analysis |
-| `DominanceAnalysis` | `dominance.h` | Dominance analysis |
+### 9.4 Services
 
-### Advanced Optimisations (in `advanced_optimizations.cpp`)
+* **Profiler hooks** (`__ploy_rt_call_enter/exit`) — toggled with
+  `__ploy_rt_call_trace_enable`.
+* **Task scheduler** — work-stealing pool consumed by `async`/`await`,
+  Go-frontend goroutines, and parallel passes. Configurable via
+  `POLY_TASKS_THREADS`.
+* **Telemetry** — opt-in counters routed through `polytelemetry`; off by
+  default. See [realization/telemetry_en.md](realization/telemetry_en.md).
+* **stdout pipeline** — multiplexed stdout/stderr capture for the IDE
+  console; see
+  [realization/runtime_stdout_pipeline.md](realization/runtime_stdout_pipeline.md).
 
-Contains 20+ advanced optimisations:
+### 9.5 Debug information
 
-- **Loop**: Tail call optimisation, loop predication, software pipelining
-- **Data flow**: Strength reduction, induction variable elimination, SCCP
-- **Memory**: Escape analysis, scalar replacement, dead store elimination
-- **Parallel**: Auto-vectorisation
-- **Other**: Partial evaluation, code sinking/hoisting, jump threading, prefetch insertion, branch prediction optimisation, memory layout optimisation
+DWARF 5 on ELF/Mach-O, CodeView on PE, and the wasm "name" + DWARF
+sections on WebAssembly. Source maps cover Ploy line directives so the
+debugger steps in the original `.ploy` file even when execution is
+inside a host-language frame.
 
-### Backend Optimisations
+### 9.6 Exceptions
 
-| Pass | File | Function |
-|------|------|----------|
-| Instruction scheduling | `backends/x86_64/src/asm_printer/scheduler.cpp` | Instruction reordering to reduce stalls |
-| x86_64 optimisations | `backends/x86_64/src/optimizations.cpp` | Peephole optimisation, instruction fusion |
-
-## 8.3 PGO Support
-
-- Implementation: `middle/src/pgo/profile_data.cpp`
-- Runtime performance counters
-- Profile data persistence
-- Call-frequency-based inlining decisions
-- Hot code layout optimisation
-
-## 8.4 LTO Support
-
-- Implementation: `middle/src/lto/link_time_optimizer.cpp`
-- Cross-module optimisation
-- Global dead code elimination
-- Thin LTO (faster, lower memory usage)
+Each language runtime implements `Throw(Value)` and `Catch(Type)`
+operations expressed in IR by `landingpad` and `invoke`. Cross-language
+exceptions propagate as boxed `Value`s; the receiving runtime decides
+whether to rethrow natively or surface as an error result.
 
 ---
 
-# 9. Runtime System
+## 10. Backends
 
-## 9.1 Garbage Collection (4 Algorithms)
+### 10.1 x86_64
 
-| GC Type | File | Characteristics | Use Case |
-|---------|------|----------------|----------|
-| Mark-Sweep | `mark_sweep.cpp` | General purpose | General applications |
-| Generational | `generational.cpp` | Exploits object age distribution | Most applications (recommended) |
-| Copying | `copying.cpp` | Semi-space collection, reduces fragmentation | Short-lived objects |
-| Incremental | `incremental.cpp` | Tri-colour marking, low pause | Low-latency requirements |
+Targets System V AMD64 (Linux + macOS) and Win64 (Windows). Selects AVX2
+opportunistically, AVX-512 only with `-mavx512f`. Uses the shared
+common register allocator and instruction selector.
 
-GC strategy selection: `gc_strategy.cpp`
+#### 10.1.1 Register classes
 
-## 9.2 FFI Interop
+| Class | Registers                                                          |
+|-------|--------------------------------------------------------------------|
+| GPR   | rax, rcx, rdx, rbx, rsi, rdi, rsp, rbp, r8…r15.                    |
+| XMM   | xmm0…xmm15 (xmm16…xmm31 with AVX-512).                             |
+| K     | k0…k7 (mask registers, AVX-512).                                   |
 
-| Component | File | Function |
-|-----------|------|----------|
-| FFI Bindings | `interop/ffi.cpp` | FFI bindings, ownership tracking, dynamic library loading |
-| Type Marshalling | `interop/marshalling.cpp` | Integer/float/string marshalling |
-| Container Marshalling | `interop/container_marshal.cpp` | list/tuple/dict/optional marshalling |
-| Type Mapping | `interop/type_mapping.cpp` | Cross-language type mapping registry |
-| Calling Convention | `interop/calling_convention.cpp` | Cross-language calling convention adaptation |
-| Memory Management | `interop/memory.cpp` | Cross-language memory management |
+### 10.2 ARM64
 
-## 9.3 Language Runtimes
+AAPCS64 ABI, Linux ELF and macOS Mach-O containers. macOS Mach-O
+objects are emitted with 16 KiB segment alignment, and `__DATA_CONST`
+is stamped with `SG_READ_ONLY (0x10)` for dyld 26 chained-fixup
+compatibility — without this flag the loader rejects the binary on
+macOS 26 arm64 hosts.
 
-| Component | File | Function |
-|-----------|------|----------|
-| Base Runtime | `libs/base.c` | Base runtime facilities |
-| GC Bridge | `libs/base_gc_bridge.cpp` | GC ↔ Runtime bridge |
-| Python RT | `libs/python_rt.c` | Python runtime support |
-| C++ RT | `libs/cpp_rt.c` | C++ runtime support |
-| Rust RT | `libs/rust_rt.c` | Rust runtime support |
+#### 10.2.1 Register classes
 
-## 9.4 Services
+| Class | Registers              |
+|-------|------------------------|
+| X     | x0…x30, sp.            |
+| V     | v0…v31 (NEON).         |
 
-| Service | File | Function |
-|---------|------|----------|
-| Exception Handling | `services/exception.cpp` | Cross-language exception handling |
-| Reflection | `services/reflection.cpp` | Runtime type information |
-| Threading | `services/threading.cpp` | Thread pool, task scheduling, synchronisation primitives, coroutines |
+### 10.3 WebAssembly
 
-## 9.5 Debug Information
+Targets the MVP plus the SIMD-128, bulk memory, and reference-types
+proposals. Emits valid WASM 1.0 modules and a paired `.wasm.map` source
+map. Compatible with `wasmtime`, `wasmer`, and browsers.
 
-- Full DWARF 5 support (`common/src/debug/dwarf5.cpp`)
-- Unified DWARF builder (`backends/common/src/dwarf_builder.cpp`)
-- Debug info emitter (`backends/common/src/debug_info.cpp`, `debug_emitter.cpp`)
-- PDB support with MSF block layout, TPI type records, and RFC 4122 v4 GUID generation
-- CFA (Call Frame Address) with register save rules and alignment
-- ELF object files with SHT_RELA relocation sections
-- Mach-O object files with LC_SEGMENT_64, LC_SYMTAB, nlist_64 symbol table
-- Variable location tracking (debuggable after optimisation)
-- Inline function debugging
-- Separate debug info support
-- JSON source map emission
+Feature flags:
+
+| Flag             | Effect                                                     |
+|------------------|------------------------------------------------------------|
+| `--simd`         | Emit SIMD-128 opcodes.                                     |
+| `--threads`      | Emit shared-memory + atomics.                              |
+| `--bulk-memory`  | Emit `memory.copy` / `memory.fill`.                        |
+| `--reference-types` | Emit `externref` and table.grow.                        |
+| `--gc`           | Emit the GC proposal opcodes (preview).                    |
+
+### 10.4 Cross-compilation
+
+```sh
+polyc hello.cpp --target=aarch64-linux-gnu      -o hello.aarch64
+polyc hello.cpp --target=x86_64-pc-windows-msvc -o hello.exe
+polyc hello.cpp --target=wasm32-wasi            -o hello.wasm
+polyc hello.cpp --target=aarch64-apple-darwin   -o hello.macho
+```
+
+A sysroot must be configured for non-host triples; see
+[realization/cross_compilation.md](realization/cross_compilation.md).
 
 ---
 
-# 10. Testing Framework
+## 11. Linker and Object Format
 
-## 10.1 Test Overview
+### 11.1 Containers
 
-The project uses the **Catch2** testing framework. There are three test executables:
+| Container | Platforms                  | Notes                                                              |
+|-----------|----------------------------|--------------------------------------------------------------------|
+| ELF       | Linux x86_64 / aarch64     | Standard relocations + GNU-style `.note.GNU-stack`.                |
+| Mach-O    | macOS x86_64 / arm64       | 16 KiB alignment on arm64; `SG_READ_ONLY` on `__DATA_CONST`.       |
+| PE/COFF   | Windows x86_64             | Validated by the `pe_smoke` target; `/SUBSYSTEM:CONSOLE` default.  |
+| WASM      | wasm32-wasi / wasm32-unknown | Imports separated by module name; SIMD opcodes gated on `--simd`. |
 
-| Executable | Source Directory | Tags | Description |
-|-----------|-----------------|------|-------------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]`, etc. | Unit tests for all modules — **909 cases** |
-| `integration_tests` | `tests/integration/` | `[integration]` | End-to-end compilation pipeline, interop, performance stress — **92 cases** |
-| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | Micro and macro performance benchmarks — **18 cases** |
+### 11.2 Symbol resolution
 
-### Test Suite Summary
+`polyld` keeps a single per-link symbol table keyed by mangled name and
+language. Cross-language calls go through the bridge ABI; the linker
+verifies that every `bridge_call` has a registered counterpart in the
+target language's runtime.
 
-| Test Suite | Tag | Test Cases | Coverage |
-|-----------|-----|-----------|----------|
-| .ploy Frontend | `[ploy]` | 283 | Lexer / Parser / Sema / IR / Integration / Package mgmt / OOP interop / Error checking |
-| Python Frontend | `[python]` | 127 | 25+ advanced features, type annotations, async, comprehensions |
-| Rust Frontend | `[rust]` | 46 | Borrow checking, lifetimes, closures, traits |
-| E2E Pipeline | `[e2e]` | 56 | Full pipeline from source → object code |
-| FFI / Interop | `[ffi]` | 39 | FFI bindings, marshalling, type mapping, ownership tracking |
-| Linker | `[linker]` | 36 | Symbol resolution, ELF/MachO/COFF, cross-language glue |
-| .NET Frontend | `[dotnet]` | 24 | .NET 6/7/8/9 features |
-| Java Frontend | `[java]` | 22 | Java 8/17/21/23 features |
-| Topology | `[topology]` | 22 | Graph, analyzer, validator, printer, UI panel, drill-down |
-| Backend | `[backend]` | 20 | Instruction selection, register allocation, scheduler, WASM |
-| GC Algorithms | `[gc]` | 20 | 4 GC algorithms (mark-sweep, generational, copying, incremental) |
-| Preprocessor | `[preprocessor]` | 18 | Object/function-like macros, directives, token pool |
-| Optimisation Passes | `[opt]` | 17 | Constant fold, DCE, CSE, GVN, inlining, devirtualisation |
-| Threading Services | `[threading]` | 16 | Thread pool, synchronisation primitives, coroutines |
-| LTO | `[lto]` | 14 | Link-time optimisation, cross-module opt |
-| PGO | `[pgo]` | 13 | Profile-guided optimisation |
-| Sema Strict Mode | `[sema][strict]` | 10 | Cross-language call type strictness, ReportStrictDiag |
-| C++ Frontend | `[cpp]` | 10 | OOP, templates, RTTI, exceptions, constexpr |
-| DWARF5 Debug | `[dwarf5]` | 7 | DWARF 5 debug info generation |
-| Debug Info | `[debug]` | 4 | PDB, source map, debug emitter |
-| Integration Tests | `[integration]` | 92 | Full pipeline / Cross-language interop / Performance stress / Object file formats |
-| Benchmark Tests | `[benchmark]` | 18 | Micro-benchmarks (lexer/parser/sema/lowering) / Macro-benchmarks (scaling/OOP/pipeline) |
-
-## 10.2 .ploy Test Details
-
-| Category | Tag | Count | Coverage |
-|----------|-----|-------|----------|
-| Lexer | `[ploy][lexer]` | 17 | Keywords (56, case-insensitive), identifiers, numbers, strings, operators |
-| Parser | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
-| Semantic Analysis | `[ploy][sema]` | 40 | Type checking, scoping, version verification, package discovery, OOP interop, error checking |
-| IR Generation | `[ploy][lowering]` | 29 | Functions/pipelines/linking/expressions/control flow/OOP interop/DELETE/EXTEND |
-| Integration | `[ploy][integration]` | 20 | Complete pipeline end-to-end |
-| Diagnostics | `[ploy][diagnostics]` | 6 | Error codes, suggestions, traceback, formatting |
-| Error Checking | `[ploy][error]` | 10 | Param count mismatch, type mismatch, error code validation |
-| Version Constraints | `[ploy][version]` | 5+ | 6 version operators |
-| Selective Import | `[ploy][selective]` | 7 | Single/multi-symbol, version combination, alias |
-| CONFIG VENV | `[ploy][venv]` | 6 | Parsing/validation/duplicate detection/invalid language |
-| Multi-Package-Manager | `[ploy][pkgmgr]` | 17 | CONDA/UV/PIPENV/POETRY parsing, validation, integration |
-
-## 10.3 Running Tests
-
-```bash
-# Run all unit tests
-./unit_tests
-
-# Run .ploy tests
-./unit_tests [ploy]
-
-# Run by tag
-./unit_tests [ploy][pkgmgr]    # Package manager tests
-./unit_tests [ploy][lexer]      # Lexer tests
-./unit_tests [ploy][sema]       # Semantic analysis tests
-
-# Run integration tests
-./integration_tests [integration]
-./integration_tests [compile]   # Compilation pipeline tests only
-./integration_tests [interop]   # Interop tests only
-./integration_tests [perf]      # Performance stress tests only
-
-# Run benchmark tests
-./benchmark_tests [benchmark]
-./benchmark_tests [micro]       # Micro-benchmarks only
-./benchmark_tests [macro]       # Macro-benchmarks only
-
-# Run benchmarks via CTest tiers (set POLYBENCH_MODE env var):
-ctest -L fast                   # Quick smoke-run (1 warmup, few iterations)
-ctest -L full                   # Full statistical run (5 warmup, many iterations)
-ctest -L benchmark              # Default tier (3 warmup, moderate iterations)
-```
-
-> **Recommended build type for benchmarks**: `Release` or `RelWithDebInfo`.  Debug builds include assertions and sanitiser overhead that distort measurements.
-
-```bash
-# Verbose output
-./unit_tests [ploy] -r compact
-
-# Windows note: needs <nul to prevent pip command from hanging
-unit_tests.exe [ploy] -r compact 2>&1 <nul
-integration_tests.exe [integration] -r compact 2>&1 <nul
-benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
-```
-
-## 10.4 Sample Programs
-
-The `tests/samples/` directory contains 16 categorised sample directories, each with `.ploy`, `.cpp`, `.py`, `.rs`, `.java`, and/or `.cs` source files:
+Mangling scheme:
 
 ```
-tests/samples/
-├── README.md                           # Sample overview
-├── 01_basic_linking/                   # Basic LINK + CALL interop
-│   ├── basic_linking.ploy
-│   ├── math_bridge.cpp
-│   ├── math_bridge.py
-│   └── math_bridge.rs
-├── 02_type_mapping/                    # Structs, container type mapping
-├── 03_pipeline/                        # Multi-stage PIPELINE
-├── 04_package_import/                  # IMPORT with version constraints + CONFIG
-├── 05_class_instantiation/             # NEW/METHOD cross-language OOP
-├── 06_attribute_access/                # GET/SET attribute access
-├── 07_resource_management/             # WITH resource management
-├── 08_delete_extend/                   # DELETE/EXTEND object lifecycle
-├── 09_mixed_pipeline/                  # Combined ML pipeline (C++/Python/Rust)
-├── 10_error_handling/                  # Error scenarios and diagnostics
-├── 11_java_interop/                    # Java interop (NEW/METHOD)
-├── 12_dotnet_interop/                  # .NET interop (NEW/METHOD)
-├── 13_generic_containers/              # Generic container interop
-├── 14_async_pipeline/                  # Async multi-stage signal processing
-├── 15_full_stack/                      # Five-language full-stack
-└── 16_config_and_venv/                 # Environment config, package versions
+_PLY<lang>_<module>_<func>_<argtypes>
 ```
 
-## 10.5 Integration Tests
+Where `<lang>` is `c`, `p`, `r`, `j`, `n`, `g`, `s`, `b`, `y` for the
+nine supported languages. The full grammar is in
+[specs/symbol_mangling.md](specs/symbol_mangling.md).
 
-The `tests/integration/` directory contains 106 integration tests across 6 categories:
+### 11.3 Incremental cache
 
-```
-tests/integration/
-├── compile_tests/
-│   └── compile_pipeline_test.cpp       # 41 tests: full compilation pipeline
-├── interop_tests/
-│   └── interop_test.cpp                # 15 tests: cross-language interop
-├── performance/
-│   └── perf_test.cpp                   # 11 tests: performance stress
-├── e2e/
-│   └── polyc_e2e_test.cpp              # 12 tests: polyc CLI end-to-end
-├── external_packages/
-│   ├── external_packages_test.cpp      #  8 tests: import resolver path resolution
-│   └── demand_03_test.cpp              #  6 tests: demand-driven external imports
-└── object_format_test.cpp              # 13 tests: COFF / ELF / Mach-O writers
-```
+`build/.cache/` stores `.ir.bin` and `.obj` keyed by content hash. The
+default policy reuses cached entries when the source hash, target
+triple, optimisation level, and pass pipeline all match. Eviction is
+LRU bounded by `POLY_CACHE_MAX_BYTES` (default 4 GiB).
 
-### Integration Test Categories
+### 11.4 Bridge call table
 
-| Category | Tag | Tests | Coverage |
-|----------|-----|-------|----------|
-| Compile Pipeline | `[integration][compile]` | 41 | LINK+CALL, STRUCT, PIPELINE, IF/ELSE/WHILE/FOR, NEW/METHOD, GET/SET, WITH, DELETE, EXTEND, MATCH, ML pipeline, multi-function PIPELINE |
-| Cross-Language Interop | `[integration][interop]` | 15 | LINK chains, NEW creation, METHOD chains, lifecycle (NEW→METHOD→DELETE), multi-lang objects, GET/SET, WITH/nested, EXTEND, combined OOP, three-language |
-| Performance Stress | `[integration][perf]` | 11 | 50/100 functions, 10/20-level nesting, 50/100 CALLs, 20/50-stage pipelines, complex mixed program, lexer/parser throughput |
-| End-to-End | `[integration][e2e]` | 12 | Real `polyc` CLI compilation, source → executable |
-| External Packages | `[integration][external]` | 14 | External-package import resolvers for all eight languages (cpp/python/rust/java/dotnet/go/javascript/ruby) |
-| Object Formats | `[integration][objfmt]` | 13 | COFF / ELF / Mach-O writers and round-trip parsing |
+`polyld --bridge-table=<path>` writes a JSON manifest that lists every
+bridge call site, its source language, target language, and target
+symbol. The IDE's Call Analyzer panel ingests the same file.
 
-## 10.6 Benchmark Tests
+### 11.5 Linker scripts
 
-The `tests/benchmarks/` directory contains 18 benchmark tests across 2 categories:
+`polyld --script=<path>` honours a small linker-script subset:
 
 ```
-tests/benchmarks/
-├── micro/
-│   └── micro_bench.cpp                 # 8 tests: per-stage benchmarks
-└── macro/
-    └── macro_bench.cpp                 # 10 tests: full pipeline throughput
-```
-
-### Micro-Benchmarks
-
-Measure individual compiler stage throughput with warmup and statistical reporting:
-
-| Test | Description |
-|------|-------------|
-| Lexer small/medium/large | Token throughput for 3 program sizes |
-| Parser small/medium/large | AST construction throughput |
-| Sema medium | Semantic analysis throughput |
-| Lowering medium | IR generation throughput |
-
-### Macro-Benchmarks
-
-Measure full pipeline (lex → parse → sema → lower → IR print) performance:
-
-| Test | Description |
-|------|-------------|
-| Pipeline 10/50/100/200 funcs | Throughput scaling with function count |
-| Scaling linearity check | Verify sub-quadratic scaling (2x input < 5x time) |
-| OOP 10/25 classes | EXTEND + NEW + METHOD + DELETE performance |
-| Pipeline 10×5 / 20×10 | Multi-stage pipeline with per-stage CALLs |
-| IR size growth | Verify IR output size grows linearly with program size |
-
----
-
-## 10.7 CI Quality Gates
-
-The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gates on every push and PR:
-
-| Gate | Tool | Description |
-|------|------|-------------|
-| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py --scope core` | Path references, core bilingual docs sync (`USER_GUIDE` / API), heading structure, version consistency |
-| **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
-| **Static Analysis** | `clang-tidy-17` | Runs across all project `.cpp` sources under `common/middle/frontends/backends/runtime/tools` (no 50-file cap) |
-| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on non-benchmark test suites (`-LE benchmark`) |
-| **Code Coverage** | lcov / gcov | Collects line coverage from non-benchmark tests; report uploaded as CI artifact |
-| **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
-
-### CMake Quality Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `POLYGLOT_ENABLE_ASAN` | `OFF` | Enable AddressSanitizer (GCC/Clang only) |
-| `POLYGLOT_ENABLE_UBSAN` | `OFF` | Enable UndefinedBehaviorSanitizer (GCC/Clang only) |
-| `POLYGLOT_ENABLE_COVERAGE` | `OFF` | Enable code coverage via gcov/llvm-cov (GCC/Clang only) |
-
-### Running Quality Checks Locally
-
-```bash
-# Format check (dry-run, requires clang-format 17+)
-find common middle frontends backends runtime tools \
-    -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
-    -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
-    | xargs -0 clang-format --dry-run --Werror --style=file
-
-# Docs sync gate (core bilingual docs)
-python scripts/docs_sync_check.py --ci --scope core
-
-# Sanitizer build
-cmake -B build-san -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DPOLYGLOT_ENABLE_ASAN=ON \
-  -DPOLYGLOT_ENABLE_UBSAN=ON \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build build-san
-cd build-san && ctest --output-on-failure -LE benchmark
-
-# Coverage build
-cmake -B build-cov -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DPOLYGLOT_ENABLE_COVERAGE=ON \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build build-cov
-cd build-cov && ctest --output-on-failure -LE benchmark
-lcov --capture --directory . --output-file coverage.info
-```
-
----
-
-# 11. Build & Integration
-
-## 11.1 CMake Build Targets
-
-| Target | Type | Main Dependencies |
-|--------|------|-------------------|
-| `polyglot_common` | Static library | fmt, nlohmann_json (7 compilation units, incl. dwarf_builder) |
-| `frontend_common` | Static library | polyglot_common |
-| `frontend_cpp` | Static library | frontend_common (5 compilation units: lexer/parser/sema/lowering/constexpr) |
-| `frontend_python` | Static library | frontend_common (4 compilation units) |
-| `frontend_rust` | Static library | frontend_common (4 compilation units) |
-| `frontend_java` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
-| `frontend_dotnet` | Static library | frontend_common (4 compilation units: lexer/parser/sema/lowering) |
-| `frontend_ploy` | Static library | frontend_common, middle_ir (6 compilation units) |
-| `middle_ir` | Static library | polyglot_common (15 compilation units) |
-| `backend_x86_64` | Static library | polyglot_common (7 compilation units) |
-| `backend_arm64` | Static library | polyglot_common (6 compilation units) |
-| `backend_wasm` | Static library | polyglot_common, middle_ir (1 compilation unit) |
-| `runtime` | Static library | — (23 compilation units, incl. java_rt/dotnet_rt/object_lifecycle) |
-| `linker_lib` | Object library | polyglot_common, frontend_ploy |
-| `polyc` | Executable | All frontends + backends + IR + runtime |
-| `polyld` | Executable | polyglot_common, frontend_ploy |
-| `polyasm` | Executable | Backends + IR |
-| `polyopt` | Executable | middle_ir + backends |
-| `polyrt` | Executable | runtime |
-| `polybench` | Executable | All |
-| `polyui` | Executable | All frontends + Qt6::Widgets (optional, requires Qt) |
-| `unit_tests` | Executable | All + Catch2 |
-| `integration_tests` | Executable | All + Catch2 |
-| `benchmark_tests` | Executable | All + Catch2 |
-
-## 11.2 Dependency Management
-
-Dependencies are auto-fetched via `Dependencies.cmake` using `FetchContent`:
-
-| Dependency | Purpose |
-|-----------|---------|
-| fmt | Formatted output |
-| nlohmann_json | JSON processing |
-| Catch2 | Unit testing framework |
-| mimalloc | High-performance memory allocation |
-
-## 11.3 Known Issues and Fixes
-
-| Issue | Cause | Fix |
-|-------|-------|-----|
-| x86/x64 linker mismatch | VsDevCmd defaults to x86 | Use `-arch=amd64` |
-| Struct literal parsing ambiguity | `Ident {` may be struct or block | LexerBase `SaveState()/RestoreState()` lookahead |
-| Sema type name case | `INT` vs `int` vs `i32` | `ResolveType` supports multiple case variants |
-| Test pip command hangs | Windows stdin waiting | Test commands use `<nul` redirection |
-
----
-
-# 12. Developer Guide
-
-## 12.1 Adding a New .ploy Keyword
-
-1. Add a new token to the `TokenKind` enum in `ploy_lexer.h`
-2. Add the string → token mapping in the keyword map in `lexer.cpp`
-3. Add corresponding parsing logic in `parser.cpp`
-4. Add semantic checks in `sema.cpp`
-5. Add IR generation in `lowering.cpp`
-6. Add tests in `ploy_test.cpp` (lexer + parser + sema + IR + integration)
-
-## 12.2 Adding a New Package Manager
-
-1. Add a new value to `VenvConfigDecl::ManagerKind` enum in `ploy_ast.h`
-2. Add the corresponding keyword in `lexer.cpp`
-3. Add a new branch in `ParseConfigDecl` in `parser.cpp`
-4. Add `DiscoverPythonPackagesViaXxx()` method declaration in `ploy_sema.h`
-5. Implement discovery logic in `sema.cpp`, add dispatch in `DiscoverPythonPackages`
-6. Add test cases
-
-## 12.3 Code Style
-
-- **C++20** standard
-- English code comments
-- Use `namespace polyglot::ploy` (or `polyglot::python`, etc.)
-- Class names: `PascalCase`
-- Method names: `PascalCase` (e.g., `ParseFuncDecl`)
-- Variable names: `snake_case`
-- Member variables: `trailing_underscore_`
-- Use `core::SourceLoc` for error location (note: use `file` field, not `filename`)
-- Use `core::Type` type system (note: `core::Type::Any()`, not `core::Type::Function`)
-
-## 12.4 Documentation Standards
-
-- All documentation is provided in both Chinese and English
-- Chinese filenames have `_zh` suffix, English has no suffix
-- Documentation is stored in the `docs/realization/` directory
-
----
-
-# 13. Plugin System
-
-PolyglotCompiler supports dynamic plugins via a stable **C ABI** interface. Plugins are shared libraries that register themselves with the host at load time and can extend the compiler or IDE with new languages, optimisation passes, backends, linters, formatters, code actions, syntax themes, and more.
-
-## 13.1 Architecture
-
-```
-┌─────────────────────────────────────────────────────┐
-│               PolyglotCompiler Host                    │
-│  ┌────────────────┐  ┌──────────────┐  ┌───────────┐  │
-│  │ PluginManager  │  │ Host Services│  │ polyui   │  │
-│  │ (discover,     │  │ (log, diag,  │  │ (settings│  │
-│  │  load, unload) │  │  settings,  │  │  dialog) │  │
-│  └────────┬───────┘  │  open_file) │  └───────────┘  │
-│           │          └──────┬───────┘                │
-└───────────┼────────────┼─────────────────────┘
-           │            │        C ABI boundary
-     ┌─────┴──────────┴─────┐
-     │  Plugin (.so/.dll/.dylib) │
-     │  polyplug_<name>          │
-     │  polyglot_plugin_info()   │
-     │  polyglot_plugin_init()   │
-     │  polyglot_plugin_shutdown │
-     └──────────────────────────┘
-```
-
-- **C ABI**: All exported functions use `extern "C"` linkage for binary compatibility across compilers and platforms.
-- **Naming convention**: Plugin shared libraries must be named `polyplug_<name>` (e.g. `polyplug_myformatter.so`).
-- **Discovery**: `PluginManager` scans search paths for matching files and loads them via `dlopen` / `LoadLibrary`.
-
-## 13.2 Capability Flags
-
-Each plugin declares a bitmask of capabilities in its `PolyglotPluginInfo`:
-
-| Flag | Value | Description |
-|------|-------|-------------|
-| `POLYGLOT_CAP_LANGUAGE` | `1 << 0` | Language frontend |
-| `POLYGLOT_CAP_OPTIMIZER` | `1 << 1` | Optimisation pass |
-| `POLYGLOT_CAP_BACKEND` | `1 << 2` | Code-generation backend |
-| `POLYGLOT_CAP_TOOL` | `1 << 3` | CLI tool / pipeline stage |
-| `POLYGLOT_CAP_UI_PANEL` | `1 << 4` | IDE panel / dock widget |
-| `POLYGLOT_CAP_SYNTAX_THEME` | `1 << 5` | Syntax highlighting theme |
-| `POLYGLOT_CAP_FILE_TYPE` | `1 << 6` | File type registration |
-| `POLYGLOT_CAP_CODE_ACTION` | `1 << 7` | Quick-fix / refactoring |
-| `POLYGLOT_CAP_FORMATTER` | `1 << 8` | Code formatter |
-| `POLYGLOT_CAP_LINTER` | `1 << 9` | Code linter |
-| `POLYGLOT_CAP_DEBUGGER` | `1 << 10` | Debugger integration |
-| `POLYGLOT_CAP_COMPLETION` | `1 << 11` | Editor completion provider |
-| `POLYGLOT_CAP_DIAGNOSTIC` | `1 << 12` | Editor diagnostic provider |
-| `POLYGLOT_CAP_TEMPLATE` | `1 << 13` | File template provider |
-| `POLYGLOT_CAP_TOPOLOGY_PROC` | `1 << 14` | Topology graph post-processor |
-
-### Version constraints
-
-Plugins declare `min_host_version` (e.g. `"1.0.0"`) in `PolyglotPluginInfo`. The host checks this at load time and rejects plugins that require a newer host version. Malformed version strings are treated as "no constraint".
-
-### Conflict detection
-
-`PluginManager::DetectConflicts()` scans active plugins for exclusive-capability collisions — for example, two plugins registering a formatter for the same language, or two language providers with the same `language_name`. Detected conflicts are returned as a `std::vector<PluginConflict>`.
-
-### Sandbox policy & circuit breaker
-
-The host enforces a **sandbox policy** for plugin callbacks:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `call_timeout_ms` | 5000 | Maximum milliseconds per callback invocation |
-| `memory_limit_bytes` | 0 (unlimited) | Memory limit per plugin (reserved for future enforcement) |
-| `max_consecutive_failures` | 3 | Number of consecutive failures before the circuit breaker trips |
-
-When a plugin exceeds the failure threshold, its **circuit breaker** opens automatically — the plugin is disabled until explicitly reset via `ResetCircuitBreaker()` or the "Reset Breaker" button in the IDE settings.
-
-## 13.3 Mandatory Plugin Exports
-
-Every plugin must export these three functions:
-
-```c
-// Return static plugin metadata (name, version, author, capabilities).
-PolyglotPluginInfo polyglot_plugin_info(void);
-
-// Initialise the plugin. The host passes a PolyglotHostServices struct
-// containing function pointers for logging, diagnostics, settings, etc.
-// Return 0 on success, non-zero on failure.
-int polyglot_plugin_init(PolyglotHostServices services);
-
-// Clean up resources before unload.
-void polyglot_plugin_shutdown(void);
-```
-
-## 13.4 Optional Plugin Exports
-
-Plugins may optionally export provider functions depending on their declared capabilities:
-
-```c
-// Language frontend — return a PolyglotLanguageProvider struct.
-PolyglotLanguageProvider polyglot_plugin_get_language(void);
-
-// Optimiser pass — return a PolyglotOptimizerPass struct.
-PolyglotOptimizerPass polyglot_plugin_get_optimizer(void);
-
-// Code action — return a PolyglotCodeAction struct.
-PolyglotCodeAction polyglot_plugin_get_code_action(void);
-
-// Formatter — return a PolyglotFormatter struct.
-PolyglotFormatter polyglot_plugin_get_formatter(void);
-
-// Linter — return a PolyglotLinter struct.
-PolyglotLinter polyglot_plugin_get_linter(void);
-```
-
-## 13.5 Host Services
-
-The host provides the following services to plugins through `PolyglotHostServices`:
-
-| Service | Signature | Purpose |
-|---------|-----------|----------|
-| `log` | `void (*)(void*, int, const char*)` | Log a message at a given severity level |
-| `emit_diagnostic` | `void (*)(void*, const PolyglotDiagnostic*)` | Emit a compiler diagnostic |
-| `get_setting` | `int (*)(void*, const char*, char*, int)` | Read a host setting by key |
-| `set_setting` | `void (*)(void*, const char*, const char*)` | Write a host setting |
-| `open_file` | `void (*)(void*, const char*, int)` | Request the IDE to open a file at a line |
-
-## 13.6 Plugin File Locations
-
-Plugins are discovered from the following search paths:
-
-| Platform | System Path | User Path |
-|----------|------------|------------|
-| **macOS** | `<app>/plugins/` | `~/Library/Application Support/PolyglotCompiler/plugins/` |
-| **Linux** | `<app>/plugins/` | `~/.local/share/PolyglotCompiler/plugins/` |
-| **Windows** | `<app>\plugins\` | `%APPDATA%\PolyglotCompiler\plugins\` |
-
-Plugins can also be loaded manually from the **Settings → Plugins** page in `polyui`.
-
-## 13.7 Quick Example (C)
-
-```c
-#include "plugins/plugin_api.h"
-
-static PolyglotHostServices host;
-
-PolyglotPluginInfo polyglot_plugin_info(void) {
-    PolyglotPluginInfo info = {0};
-    info.api_version    = POLYGLOT_PLUGIN_API_VERSION;
-    info.name           = "My Linter";
-    info.version        = "1.0.0";
-    info.author         = "Your Name";
-    info.description    = "A sample linter plugin";
-    info.capabilities   = POLYGLOT_CAP_LINTER;
-    return info;
-}
-
-int polyglot_plugin_init(PolyglotHostServices services) {
-    host = services;
-    host.log(host.context, 0, "My Linter plugin loaded");
-    return 0;
-}
-
-void polyglot_plugin_shutdown(void) {
-    host.log(host.context, 0, "My Linter plugin unloaded");
+SECTIONS {
+    .text   : { *(.text*) }
+    .rodata : { *(.rodata*) }
+    .data   : { *(.data*) }
+    .bss    : { *(.bss*) }
 }
 ```
 
-For the complete specification, see [`docs/specs/plugin_specification.md`](specs/plugin_specification.md).
+---
+
+## 12. IDE (`polyui`) and Language Server
+
+### 12.1 Components
+
+* `polyui` — Qt 6 shell.
+* `polyls` — stdio LSP server for Ploy plus dispatcher for third-party
+  servers per language.
+* `IdeLspBridge` — IDE-side adapter that translates editor events into
+  LSP messages, debounced at 200 ms.
+* `IdeDapBridge` — DAP adapter for `lldb-dap`, `debugpy`, `delve`,
+  `netcoredbg`, and node-debug2.
+
+### 12.2 Default LSP server map
+
+| Language     | Default `command`                       |
+|--------------|-----------------------------------------|
+| ploy         | `polyls`                                |
+| cpp          | `clangd`                                |
+| python       | `pyright-langserver --stdio`            |
+| rust         | `rust-analyzer`                         |
+| java         | `jdtls`                                 |
+| dotnet       | `csharp-ls`                             |
+| go           | `gopls`                                 |
+| javascript   | `typescript-language-server --stdio`    |
+| ruby         | `solargraph stdio`                      |
+
+Override under **Settings → Language Servers**.
+
+### 12.3 Workflow inside `polyui`
+
+1. Open a file → `IdeLspBridge` spawns the matching server and sends
+   `initialize` → `initialized` → `didOpen`.
+2. Edits within a 200 ms debounce window are coalesced into a single
+   `didChange`.
+3. Inbound `publishDiagnostics` is rendered in the gutter and the
+   Problems panel.
+4. `Ctrl+Click` → `textDocument/definition`; `Shift+F12` → `references`;
+   `F2` → `rename`.
+5. On exit the IDE sends `shutdown` + `exit` to every active server.
+
+### 12.4 Inspecting traffic
+
+The bottom **LSP** dock (toggle with `Ctrl+Alt+L`) logs every message
+in both directions. `polyls --log polyls.log` captures the same frames
+to disk.
+
+### 12.5 Panel overview
+
+| Panel                | Toggle           | Purpose                                       |
+|----------------------|------------------|-----------------------------------------------|
+| Problems             | `Ctrl+Shift+M`   | Aggregated diagnostics across all servers.    |
+| Profiler             | `Ctrl+Alt+P`     | Flame, hotspots, timeline, languages.         |
+| Call Analyzer        | `Ctrl+Alt+G`     | Static call graph + runtime overlay.          |
+| Test Explorer        | `Ctrl+Alt+T`     | CTest tree + inline run/debug.                |
+| Package Manager      | `Ctrl+Alt+M`     | Per-language dependency graph & vuln scan.    |
+| Notifications        | bell icon        | Persistent IDE notifications.                 |
+| Bookmarks            | `Ctrl+Alt+K`     | Per-line bookmarks across the workspace.      |
+| TODO / FIXME index   | `Ctrl+Alt+J`     | Background-scanned tag index.                 |
+| Compile Pipeline     | `Ctrl+Alt+I`     | Chrome-trace view of `polyc` runs.            |
+| IR Viewer            | `Ctrl+Alt+R`     | Side-by-side textual IR + diff.               |
+| Asm Viewer           | `Ctrl+Alt+A`     | Backend assembly with source mapping.         |
+| Topology Live        | `Ctrl+Alt+Y`     | Live sample topology panel.                   |
+| Bridge Panel         | `Ctrl+Alt+B`     | Cross-language bridge call inspector.         |
+| Marshalling View     | `Ctrl+Alt+W`     | FFI value marshalling step-through.           |
+| Test Coverage        | `Ctrl+Alt+V`     | Coverage overlay on the editor gutter.        |
+
+### 12.6 Editor features
+
+* Multi-cursor, column selection, multi-tab editor.
+* Quick Open (`Ctrl+P`), Symbol Search (`Ctrl+T`), global text search
+  (`Ctrl+Shift+F`).
+* Folding, formatting (`Shift+Alt+F`), EditorConfig support.
+* Semantic syntax highlighting from each LSP server.
+* Inline diagnostics, code actions (`Ctrl+.`), refactoring (rename,
+  extract, inline).
+* Bracket pair colourisation.
+
+### 12.7 SCM
+
+Built-in git client: diff view, blame gutter, three-way merge resolver,
+PR review (GitHub + GitLab). Authentication is delegated to the OS
+keychain.
+
+### 12.8 Debugging (DAP)
+
+`F5` launches the active Run/Debug profile; the DAP bridge selects the
+adapter from the file's language. Breakpoints, watch expressions, step
+in/out, conditional breakpoints, hot reload (Python, .NET, JS, Java),
+and inline value display are all supported.
+
+### 12.9 Tasks and Run/Debug picker
+
+`Ctrl+Shift+B` picks a build task; `F5` picks a debug profile.
+Profiles live in `.polyui/launch.json` and follow the VS Code DAP
+shape so existing snippets are reusable.
+
+### 12.10 Test Explorer
+
+Tree view of every CTest target plus per-language test discoverers
+(pytest, gtest, junit, xunit, mocha, rspec). Inline run / debug,
+coverage overlay, history. See
+[realization/test_explorer_en.md](realization/test_explorer_en.md).
+
+### 12.11 Package Manager view
+
+Per-language dependency graph plus a vulnerability scan that consumes
+OSV data. Updates and lock-file edits are surfaced as code actions.
+
+### 12.12 Cross-language navigation
+
+`Ctrl+Click` on a `LINK` target jumps to the host-language source. The
+**Bridge Panel** (`Ctrl+Alt+B`) summarises every bridge call in the
+workspace.
+
+### 12.13 Compile Pipeline Inspector
+
+Visualises the Chrome-trace JSON written by `polyc --trace`. Each
+frontend, pass and backend phase shows up as a coloured span.
+
+### 12.14 Sample / Tutorial Browser
+
+The welcome page exposes every sample under `tests/samples/` plus the
+tutorial set under `docs/tutorial/`. **Topology Live** renders a live
+diagram of the current sample's bridge graph.
+
+### 12.15 Remote development
+
+SSH, WSL, container and dev-container backends; the IDE forwards file
+operations and process spawns to the remote host while keeping the
+LSP / DAP adapters local. Configuration is described in
+[realization/remote_dev_en.md](realization/remote_dev_en.md).
+
+### 12.16 AI assistant
+
+Chat, inline suggestions, refactor, and a privacy mode that pins
+requests to a local model. The provider is pluggable via the plugin
+SDK.
+
+### 12.17 Collaboration
+
+Pull-request reviews, inline comments, issue browser, and a
+Live-Share-style collaborative editor.
+
+### 12.18 Extensions, Marketplace and Workspaces
+
+Plugins are loaded from `<config>/polyui/plugins/`; the marketplace
+fetches from `https://marketplace.example.invalid/polyui/`. Workspaces
+are folders with a `.polyui/` directory pinning settings, launches and
+extensions.
+
+### 12.19 Shell features
+
+Welcome page, customisable status bar with 9 built-in slots
+(`branch`, `problems`, `language`, `language_server`, `encoding`, `eol`,
+`indent`, `package_manager`, `profiler`), recent files (`Ctrl+R`),
+recent workspaces (`Ctrl+E`), and full session restore. See
+[tutorial/shell_en.md](tutorial/shell_en.md) for the long form.
+
+### 12.20 i18n, accessibility, telemetry
+
+UI strings are extracted via `lupdate`; English and Simplified Chinese
+ship by default. Accessibility includes a high-contrast theme,
+keyboard-only navigation, and screen-reader hints. Telemetry is opt-in
+and documented per-event.
+
+### 12.21 File-type viewers
+
+Image viewer (PNG/JPEG/WebP/GIF/SVG/BMP), hex viewer with chunked I/O
+for files ≥ 1 GiB, binary inspector covering ELF/PE/Mach-O/WASM, and
+SQLite client with SQL console. See
+[tutorial/viewers_en.md](tutorial/viewers_en.md).
+
+### 12.22 Keyboard shortcut cheat sheet
+
+| Action                  | Shortcut          |
+|-------------------------|-------------------|
+| Quick Open file         | `Ctrl+P`          |
+| Symbol search           | `Ctrl+T`          |
+| Global text search      | `Ctrl+Shift+F`    |
+| Format document         | `Shift+Alt+F`     |
+| Code action             | `Ctrl+.`          |
+| Rename symbol           | `F2`              |
+| Go to definition        | `F12`             |
+| Find references         | `Shift+F12`       |
+| Toggle Problems panel   | `Ctrl+Shift+M`    |
+| Toggle LSP panel        | `Ctrl+Alt+L`      |
+| Toggle Profiler         | `Ctrl+Alt+P`      |
+| Toggle Call Analyzer    | `Ctrl+Alt+G`      |
+| Toggle Test Explorer    | `Ctrl+Alt+T`      |
+| Toggle Package Manager  | `Ctrl+Alt+M`      |
+| Toggle Bookmarks        | `Ctrl+Alt+K`      |
+| Toggle TODO index       | `Ctrl+Alt+J`      |
+| Recent files            | `Ctrl+R`          |
+| Recent workspaces       | `Ctrl+E`          |
+| Run / Debug             | `F5`              |
+| Build task              | `Ctrl+Shift+B`    |
+| Step over (debug)       | `F10`             |
+| Step into (debug)       | `F11`             |
 
 ---
 
-# 14. Appendix
+## 13. Diagnostics, Profiling, and Call Analysis
 
-## 14.1 Glossary
+### 13.1 Diagnostic identifiers
 
-| Term | Full Name | Explanation |
-|------|-----------|-------------|
-| AST | Abstract Syntax Tree | Tree representation of source code |
-| IR | Intermediate Representation | Shared internal representation |
-| SSA | Static Single Assignment | Each variable assigned exactly once |
-| CFG | Control Flow Graph | Graph of basic blocks |
-| DCE | Dead Code Elimination | Remove unreachable code |
-| CSE | Common Subexpression Elimination | Reuse computed values |
-| GVN | Global Value Numbering | Global redundancy elimination |
-| RTTI | Run-Time Type Information | Runtime type inspection |
-| FFI | Foreign Function Interface | Call functions in other languages |
-| PGO | Profile-Guided Optimization | Optimise using runtime data |
-| LTO | Link-Time Optimization | Optimise across modules |
-| LICM | Loop-Invariant Code Motion | Hoist invariant computations out of loops |
-| DSL | Domain-Specific Language | Language for a specific domain |
-| POBJ | Polyglot Object | PolyglotCompiler custom object file format |
+Every diagnostic carries a stable id of the form
+`polyc-(err|warn)-<E####|W####>`. The full catalogue lives in
+[specs/ploy_diagnostics.md](specs/ploy_diagnostics.md).
 
-## 14.2 .ploy Keyword Quick Reference
+Severity mapping:
 
-| Keyword | Purpose | Example |
-|---------|---------|---------|
-| `LINK` | Cross-language function linking (signed form) | `LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;` |
-| `IMPORT` | Module/package import | `IMPORT python PACKAGE numpy >= 1.20;` |
-| `EXPORT` | Symbol export | `EXPORT func AS "name";` |
-| `MAP_TYPE` | Type mapping | `MAP_TYPE(cpp::int, python::int);` |
-| `PIPELINE` | Multi-stage pipeline | `PIPELINE name { ... }` |
-| `STAGE` | Pipeline stage marker (only inside `PIPELINE`) | `STAGE preprocess CALL python::utils::normalize;` |
-| `FUNC` | Function declaration | `FUNC f(x: INT) -> INT { ... }` |
-| `LET` / `VAR` | Variable declaration | `LET x = 42;` / `VAR y = 0;` |
-| `CALL` | Cross-language call | `CALL(python, np::mean, data)` |
-| `STRUCT` | Struct definition | `STRUCT Point { x: f64, y: f64 }` |
-| `MAP_FUNC` | Mapping function | `MAP_FUNC convert(x: INT) -> FLOAT { ... }` |
-| `CONVERT` | Type conversion | `CONVERT(value, FLOAT)` |
-| `NEW` | Cross-language class instantiation | `NEW(python, torch::nn::Linear, 784, 10)` |
-| `METHOD` | Cross-language method call | `METHOD(python, model, forward, data)` |
-| `GET` | Cross-language attribute access | `GET(python, model, weight)` |
-| `SET` | Cross-language attribute assignment | `SET(python, model, training, FALSE)` |
-| `WITH` | Automatic resource management | `WITH(python, f) AS handle { ... }` |
-| `DELETE` | Cross-language object destruction | `DELETE(python, obj)` |
-| `EXTEND` | Cross-language class extension | `EXTEND(python, Base) AS Derived { ... }` |
-| `CONFIG` | Environment configuration | `CONFIG CONDA "env";` |
-| `VENV` | pip/venv environment | `CONFIG VENV python "/path";` |
-| `CONDA` | Conda environment | `CONFIG CONDA "env_name";` |
-| `UV` | uv-managed environment | `CONFIG UV python "/path";` |
-| `PIPENV` | Pipenv project | `CONFIG PIPENV "project_path";` |
-| `POETRY` | Poetry project | `CONFIG POETRY "project_path";` |
+| Severity | LSP DiagnosticSeverity | Behaviour                                          |
+|----------|------------------------|----------------------------------------------------|
+| Error    | 1                      | Aborts compilation; gutter mark red.               |
+| Warning  | 2                      | Compilation continues; gutter mark yellow.         |
+| Info     | 3                      | Informational note.                                |
+| Hint     | 4                      | Editor hint (e.g. unused var).                     |
 
-## 14.3 Version Operators
+### 13.2 Problems panel
 
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `>=` | Greater or equal | `>= 1.20` |
-| `<=` | Less or equal | `<= 2.0` |
-| `==` | Exact match | `== 1.10.0` |
-| `>` | Strictly greater | `> 1.0` |
-| `<` | Strictly less | `< 3.0` |
-| `~=` | Compatible version (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
+Live diagnostics aggregated across every language server. Filter by
+severity, file substring, or message regex; double-click to jump.
+Background scanner handles workspaces over 2 000 files in 50-file
+batches per 50 ms tick. Quickstart:
+[tutorial/problems_panel_quickstart.md](tutorial/problems_panel_quickstart.md).
 
-## 14.4 References
+### 13.3 Profiler
 
-- "Compilers: Principles, Techniques, and Tools" (Dragon Book)
-- "Engineering a Compiler" (Whale Book)
-- LLVM: https://llvm.org/
-- Rust Compiler: https://github.com/rust-lang/rust
-- PEP 440: https://peps.python.org/pep-0440/
+Workflow:
 
-## 14.5 Release Packaging
+```sh
+polyc --profile-instrument main.ploy -o build/main \
+      --emit=call-graph:build/main.cgjson \
+      --emit=profile-symbols:build/main.symjson
+polyrt profile --json build/main.profile.json --duration-ms 2000 build/main
+```
 
-PolyglotCompiler provides platform-specific scripts to build release packages:
+Open `build/main.profile.json` in the Profiler panel. Tabs:
 
-| Platform | Script | Output |
-|----------|--------|--------|
-| Windows | `scripts/package_windows.ps1` | Portable `.zip` + NSIS installer `.exe` |
-| Linux | `scripts/package_linux.sh` | Portable `.tar.gz` |
-| macOS | `scripts/package_macos.sh` | Portable `.tar.gz` (with `.app` bundle) |
+* **Flame** — flame graph by stack.
+* **Hotspots** — top-N self-time symbols.
+* **Timeline** — per-thread Gantt with GC and bridge events.
+* **Languages** — self-time grouped by host language plus the virtual
+  `bridge` language for FFI overhead.
 
-```bash
-# Windows (PowerShell)
-.\scripts\package_windows.ps1
+NDJSON streaming variant (`--stream`) drives a live tail in the IDE.
+Quickstart: [tutorial/profiling_quickstart.md](tutorial/profiling_quickstart.md).
 
+### 13.4 Call Analyzer
+
+Loads `*.cgjson` produced by `--emit=call-graph`. Features:
+
+* BFS-longest-path column layout.
+* Language-pair filter list.
+* Bounded-DFS path search between any two functions.
+* Runtime-call-count overlay when the Profiler is active.
+* Double-click a node to jump to its source.
+
+Headless equivalent: `polytopo`. Quickstart:
+[tutorial/call_analyzer_quickstart.md](tutorial/call_analyzer_quickstart.md).
+
+### 13.5 Bridge inspector
+
+The Bridge Panel shows every cross-language call site, its source and
+target symbols, the marshalling rule applied, and a sampled value
+preview. Useful when debugging mismatched FFI signatures.
+
+### 13.6 Heap snapshot
+
+`polyrt heap-snapshot --out heap.json <program>` dumps the GC heap into
+a JSON tree compatible with the IDE's heap viewer. The viewer supports
+diffing two snapshots to find leaks.
+
+---
+
+## 14. Testing, Samples, and CI
+
+### 14.1 CTest targets (30 in total)
+
+```
+unit_tests             test_core              test_middle
+test_backends          test_runtime           test_linker
+test_lsp               test_polyls            test_completion_ranker
+test_plugins           test_problems          test_settings
+test_topology          test_topology_ui       test_e2e
+integration_tests      benchmark_tests        pe_smoke
+test_frontend_common
+test_frontend_cpp      test_frontend_python   test_frontend_rust
+test_frontend_java     test_frontend_dotnet   test_frontend_go
+test_frontend_javascript test_frontend_ruby   test_frontend_ploy
+samples_smoke          docs_lint              docs_sync
+```
+
+### 14.2 Running tests
+
+```sh
+ctest --test-dir build -j --output-on-failure
+ctest --test-dir build -R "frontend"            # subset by name
+ctest --test-dir build -R "benchmark" -V        # verbose
+ctest --test-dir build -L "fast"                # by label
+ctest --test-dir build --rerun-failed           # last failures only
+ctest --test-dir build -T memcheck              # under valgrind
+```
+
+### 14.3 Sample tour (42 numbered + variants)
+
+`tests/samples/00_minimal` … `tests/samples/41_grammar_polish` form a
+graduated tour of the language and tooling. Each sample has its own
+`README` and is exercised by the `samples_smoke` target.
+
+| Sample                                | Demonstrates                                  |
+|---------------------------------------|-----------------------------------------------|
+| `00_minimal`                          | Single `.ploy` file, no host imports.         |
+| `01_basic_linking` / `_v2`            | Cross-language linking with `LINK`.           |
+| `02_struct_types`                     | Aggregate types and pattern matching.         |
+| `03_generic_functions`                | Constrained generics.                         |
+| `04_error_handling`                   | `TRY` / `CATCH` and propagation.              |
+| `05_async_basics`                     | `ASYNC` / `AWAIT` essentials.                 |
+| `06_pipelines`                        | `PIPELINE` syntax.                            |
+| `07_io_and_files`                     | Standard I/O bridges.                         |
+| `08_collections`                      | List / map / set bridging across languages.   |
+| `09_mixed_pipeline`                   | C++ + Python pipeline driver.                 |
+| `10_rust_serde`                       | Rust serde bridged from Ploy.                 |
+| `11_java_records`                     | Java records mapped to IR `struct`.           |
+| `12_dotnet_async`                     | C# async lowered to the runtime scheduler.    |
+| `13_go_concurrency`                   | Goroutines and channels.                      |
+| `14_javascript_promises`              | JS Promise interop with Ploy `ASYNC`.         |
+| `15_async_await`                      | Async functions and the task scheduler.       |
+| `16_ruby_blocks`                      | Ruby blocks lowered to closures.              |
+| `17_optional_match`                   | `OPTION` / `MATCH` exhaustiveness.            |
+| `18_extended_strings`                 | `r"…"`, `b"…"`, `f"…"` literals.              |
+| `19_visibility`                       | `PUBLIC` / `PRIVATE` / `INTERNAL`.            |
+| `20_class_bridge`                     | Class instantiation across languages.         |
+| `21_polydoc`                          | Doc-comment extraction.                       |
+| `22_database_access`                  | SQLite client + SQL console.                  |
+| `23_http_client`                      | Cross-language HTTP client.                   |
+| `24_grpc_service`                     | gRPC service end-to-end.                      |
+| `25_simd_kernels`                     | SIMD intrinsics on x86_64 / arm64.            |
+| `26_pgo_demo`                         | PGO instrument + use loop.                    |
+| `27_lto_demo`                         | Thin / full LTO.                              |
+| `28_gc_tuning`                        | GC algorithm comparison.                      |
+| `29_plugin_panel`                     | Plugin SDK example.                           |
+| `30_wasm_build`                       | WebAssembly target end-to-end.                |
+| `31_wasm_simd`                        | WASM SIMD-128.                                |
+| `32_remote_dev`                       | Remote development container.                 |
+| `33_dap_walkthrough`                  | DAP debugging across languages.               |
+| `34_test_explorer`                    | Test Explorer integration.                    |
+| `35_coverage`                         | Coverage builds and Coverage panel.           |
+| `36_profiler_streaming`               | Live profile streaming.                       |
+| `37_call_analyzer_paths`              | Path search in the Call Analyzer.             |
+| `38_heap_snapshot`                    | Heap snapshots and diff.                      |
+| `39_telemetry_optin`                  | Telemetry opt-in flow.                        |
+| `40_release_packaging`                | End-to-end release packaging.                 |
+| `41_grammar_polish`                   | Latest grammar refinements regression.        |
+
+### 14.4 Benchmarks
+
+`build/benchmark_*.json` — `compilation`, `e2e`, `gc`, `link_times`,
+`optimizations`, `comparison`. Driven by `polybench`, gated on regression
+thresholds in CI. Results render in the IDE's Benchmark dashboard.
+
+### 14.5 CI quality gates
+
+| Gate                        | Action                                                     |
+|-----------------------------|------------------------------------------------------------|
+| Build matrix                | macOS arm64, Ubuntu x86_64, Windows x86_64.                |
+| `ctest` full                | All 30 targets must pass.                                  |
+| Sanitizer build             | ASan + UBSan run of `unit_tests` and `test_runtime`.       |
+| TSan build                  | `test_runtime` and `samples_smoke` under TSan weekly.      |
+| Coverage                    | Coverage build of `unit_tests`; threshold ≥ 80 %.          |
+| `docs_lint` / `docs_sync`   | Bilingual structure + path checks.                         |
+| `samples_smoke`             | All 42 samples build and run.                              |
+| Benchmark regression        | `benchmark_comparison.json` within 5 % of baseline.        |
+
+### 14.6 Local pre-flight script
+
+```sh
+scripts/preflight.sh
+```
+
+Runs `clang-format --dry-run`, `clang-tidy`, `docs_lint.py`,
+`docs_sync_check.py`, and a subset of fast CTest targets in under a
+minute.
+
+---
+
+## 15. Build System and Dependencies
+
+### 15.1 Top-level CMake targets
+
+```sh
+cmake --build build --target polyc polyld polyui polyls   # core toolchain
+cmake --build build --target unit_tests                   # one CTest target
+cmake --build build --target docs                         # docs bundle
+cmake --build build --target package                      # binary release
+cmake --build build --target install                      # local install
+cmake --build build --target benchmark_tests              # benchmark exe
+```
+
+### 15.2 Dependency manifest
+
+Third-party libraries are declared in
+[Dependencies.cmake](Dependencies.cmake). Pulled in via
+`FetchContent_Declare`; pinned by tag and SHA. CI fails if either
+moves under your feet. Major dependencies:
+
+| Library      | Use                                                            |
+|--------------|----------------------------------------------------------------|
+| `spdlog`     | Internal logging (English log strings only).                   |
+| `nlohmann/json` | JSON I/O for diagnostics, profile streams, plugin manifests. |
+| `Catch2`     | Unit test framework.                                           |
+| `Qt6`        | IDE shell.                                                     |
+| `lldb`       | DAP adapter for native debugging.                              |
+| `zstd`       | Compression for `.ir.bin` and the incremental cache.           |
+| `re2`        | Diagnostic message regex matching in the Problems panel.       |
+
+### 15.3 Sanitizer / coverage builds
+
+```sh
+cmake -S . -B build-asan -G Ninja -DPOLY_SANITIZE=address
+cmake -S . -B build-ubsan -G Ninja -DPOLY_SANITIZE=undefined
+cmake -S . -B build-tsan -G Ninja -DPOLY_SANITIZE=thread
+cmake -S . -B build-cov  -G Ninja -DPOLY_COVERAGE=ON
+```
+
+### 15.4 Container images
+
+`docker/` ships reproducible Ubuntu 22.04 and Alpine 3.19 images used
+by CI. Each image bakes the host toolchain plus the optional language
+SDKs needed by every frontend.
+
+```sh
+docker build -t polyglot/ubuntu-ci -f docker/ubuntu-ci.Dockerfile .
+docker run --rm -it -v "$PWD":/work polyglot/ubuntu-ci \
+       cmake -S /work -B /work/build-docker -G Ninja
+```
+
+### 15.5 Versioning
+
+The project version is the single source of truth in the root
+[CMakeLists.txt](CMakeLists.txt) (`project(PolyglotCompiler VERSION
+1.45.2)`). All bumps must touch that line; tooling in
+`scripts/bump_version.py` enforces this.
+
+```sh
+python scripts/bump_version.py --part=patch   # 1.45.2 → 1.45.3
+python scripts/bump_version.py --part=minor   # 1.45.2 → 1.46.0
+python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
+```
+
+The script updates the root `CMakeLists.txt`, the version embedded in
+`polyver`, and the bilingual changelog headers.
+
+### 15.6 Install layout
+
+`cmake --install build --prefix /opt/polyglot` produces:
+
+```
+/opt/polyglot/
+├── bin/    polyc, polyld, polyasm, polyopt, polyrt, polybench,
+│           polytopo, polyls, polydoc, polyver, polyui
+├── lib/    libpoly_runtime.* libpoly_middle.* …
+├── include/poly/...
+├── share/polyglot/samples/
+└── share/doc/polyglot/  (HTML rendering of docs/)
+```
+
+---
+
+## 16. Extending the Compiler
+
+### 16.1 Adding a Ploy keyword
+
+1. Extend the lexer table in `frontends/ploy/lexer.cpp`.
+2. Add the grammar production in `frontends/ploy/parser.cpp`.
+3. Lower in `frontends/ploy/lower.cpp` to existing IR.
+4. Document the keyword in
+   [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
+   and its ZH counterpart.
+5. Add a sample under `tests/samples/`.
+6. Add a frontend test under `tests/unit/frontend_ploy/`.
+
+### 16.2 Adding a package manager
+
+1. Implement detection in `frontends/common/package_discovery.cpp`.
+2. Add a fixture project under `tests/integration/package_managers/`.
+3. Update [§ 4.4](#44-package-manager-auto-discovery) in this guide and
+   its ZH counterpart.
+4. Add a CI fixture image if a new SDK is required.
+
+### 16.3 Adding a backend feature flag
+
+1. Add the flag to the relevant `backends/<arch>/features.cpp` table.
+2. Wire up the codegen branch.
+3. Add an `e2e` test that exercises the feature.
+4. Document the flag in [chapter 10](#10-backends).
+
+### 16.4 Adding a middle-end pass
+
+See [§ 8.6](#86-writing-a-pass) for the code skeleton. Then:
+
+1. Register the pass id in `middle/pipeline_defaults.cpp`.
+2. Add a unit test under `tests/unit/middle/passes/`.
+3. Document the pass in [§ 8.3](#83-pass-catalogue) and in
+   [realization/middle_passes.md](realization/middle_passes.md).
+4. If the pass changes the default O2 pipeline, update the benchmark
+   baseline.
+
+### 16.5 Adding a new frontend
+
+1. Create `frontends/<lang>/` with the standard layout
+   (`include/`, `src/`, `tests/`, `examples/`).
+2. Implement `Lower(SourceBuffer) → IRModule`.
+3. Register language extension in `frontends/common/extension_table.cpp`.
+4. Add a `test_frontend_<lang>` CTest target.
+5. Add at least one sample under `tests/samples/`.
+6. Add the frontend to chapters 5 and 6 of this guide and its ZH
+   counterpart.
+
+### 16.6 Adding a target triple
+
+1. Implement `backends/<arch>/triple_<os>.cpp` for the new ABI.
+2. Add a sysroot setup script under `scripts/sysroot/`.
+3. Add a cross-compile e2e test under `tests/e2e/cross/`.
+
+### 16.7 Code style
+
+* C++: clang-format config at `.clang-format`. clang-tidy gate enforces
+  modernize-* and bugprone-*.
+* Ploy: built-in `polyc --format` is the formatter of record.
+* All in-source comments must be English.
+* No "minimal", "stub", or "placeholder" prose in comments.
+* Public APIs have `///` doc comments parsed by `polydoc`.
+
+### 16.8 Documentation rules
+
+* Every English doc has a `_zh` counterpart in the same directory.
+* Bilingual edits ship in the same commit; CI runs
+  `scripts/docs_sync_check.py`.
+* Headings and structure mirror across the pair.
+* No demand-document identifiers in comments or docs.
+* Version bumps update the root `CMakeLists.txt`.
+
+### 16.9 Submitting changes
+
+1. Fork; create a topic branch.
+2. Run `scripts/preflight.sh`.
+3. Open a PR; CI runs the full matrix.
+4. Address review comments; squash if asked.
+5. A maintainer merges with `Squash & merge` once gates are green.
+
+---
+
+## 17. Plugin SDK
+
+### 17.1 Architecture
+
+Plugins are dynamic libraries discovered by `polyui` from
+`<config>/polyui/plugins/` and by `polyc` from `<config>/polyc/plugins/`.
+Each plugin exports a small C ABI surface and declares its capability
+flags up front so the host can sandbox unknown extensions.
+
+### 17.2 Capability flags
+
+| Flag                         | Grants                                                    |
+|------------------------------|-----------------------------------------------------------|
+| `POLY_CAP_FRONTEND`          | Register a new source-language frontend.                  |
+| `POLY_CAP_BACKEND`           | Register a new code-generation backend.                   |
+| `POLY_CAP_PASS`              | Register middle-end optimisation passes.                  |
+| `POLY_CAP_PANEL`             | Add a UI panel to `polyui`.                               |
+| `POLY_CAP_LSP_PROVIDER`      | Provide an LSP server for a language.                     |
+| `POLY_CAP_DAP_PROVIDER`      | Provide a DAP debugger.                                   |
+| `POLY_CAP_PACKAGE_MANAGER`   | Register a package-manager detector.                      |
+| `POLY_CAP_AI_PROVIDER`       | Provide an AI assistant backend.                          |
+| `POLY_CAP_VIEWER`            | Register a file-type viewer.                              |
+
+### 17.3 Mandatory exports
+
+```c
+const PolyPluginManifest *poly_plugin_manifest(void);
+int  poly_plugin_init(PolyHostServices *host);
+void poly_plugin_shutdown(void);
+```
+
+### 17.4 Optional exports
+
+```c
+int  poly_plugin_register_frontend(PolyFrontendRegistry *r);
+int  poly_plugin_register_backend(PolyBackendRegistry *r);
+int  poly_plugin_register_passes(PolyPassRegistry *r);
+int  poly_plugin_register_panels(PolyPanelRegistry *r);
+int  poly_plugin_register_lsp(PolyLspRegistry *r);
+int  poly_plugin_register_dap(PolyDapRegistry *r);
+int  poly_plugin_register_pkg(PolyPackageRegistry *r);
+int  poly_plugin_register_ai(PolyAiRegistry *r);
+int  poly_plugin_register_viewer(PolyViewerRegistry *r);
+```
+
+### 17.5 Host services
+
+Plugins receive a `PolyHostServices` struct providing logging, settings
+access, file I/O, telemetry, and an event bus. Plugins must not link
+against host internals directly.
+
+```c
+typedef struct PolyHostServices {
+    int  api_version;
+    void (*log)(int level, const char *msg);
+    int  (*get_setting)(const char *key, char *out, size_t out_size);
+    int  (*set_setting)(const char *key, const char *value);
+    int  (*read_file)(const char *path, void **buf, size_t *len);
+    int  (*emit_event)(const char *topic, const char *payload);
+    int  (*subscribe)(const char *topic, void (*cb)(const char *));
+} PolyHostServices;
+```
+
+### 17.6 Plugin file locations
+
+| OS       | Location                                     |
+|----------|----------------------------------------------|
+| Linux    | `~/.config/polyui/plugins/`                  |
+| macOS    | `~/Library/Application Support/polyui/plugins/` |
+| Windows  | `%APPDATA%\polyui\plugins\`                  |
+
+### 17.7 Quick example
+
+```c
+#include "polyplugin.h"
+
+static const PolyPluginManifest g_manifest = {
+    .api_version = POLY_PLUGIN_API_VERSION,
+    .name        = "hello-plugin",
+    .version     = "1.0.0",
+    .capabilities = POLY_CAP_PANEL,
+};
+
+const PolyPluginManifest *poly_plugin_manifest(void) { return &g_manifest; }
+
+int poly_plugin_init(PolyHostServices *host) {
+    host->log(POLY_LOG_INFO, "hello-plugin loaded");
+    return POLY_OK;
+}
+
+void poly_plugin_shutdown(void) {}
+```
+
+Build:
+
+```sh
+cc -shared -fPIC -I /opt/polyglot/include hello.c \
+   -o ~/.config/polyui/plugins/hello.so
+```
+
+### 17.8 Plugin testing
+
+`tests/unit/plugins/` contains a host harness that loads plugins out of
+a fixture directory, exercises every registered capability, and checks
+for clean shutdown.
+
+---
+
+## 18. Appendix
+
+### 18.1 Glossary
+
+| Term            | Definition                                                              |
+|-----------------|-------------------------------------------------------------------------|
+| Bridge call     | A cross-language call lowered through `runtime::ffi::BridgeFrame`.      |
+| CTest target    | A logical test executable registered with CTest (30 in this project).   |
+| Driver          | Any of the 11 tool binaries shipped under `build/`.                     |
+| Frontend        | A static library that lowers one source language to unified IR.         |
+| Pipeline        | A `PIPELINE` chain in Ploy; also the optimisation pass sequence.        |
+| Sample          | A numbered project under `tests/samples/`.                              |
+| Triple          | The `arch-vendor-os-abi` string passed to `--target=`.                  |
+| Sysroot         | Toolchain-relative root used during cross-compile.                      |
+| Bridge ABI      | The marshalling contract used by `bridge_call`.                         |
+| Safepoint       | An IR location at which the GC may run.                                 |
+
+### 18.2 Tool ↔ chapter cross-reference
+
+| Tool         | Chapter                                  |
+|--------------|------------------------------------------|
+| `polyc`      | [6.1](#61-polyc--compiler-driver)        |
+| `polyld`     | [6.2](#62-polyld--linker), [11](#11-linker-and-object-format) |
+| `polyasm`    | [6.3](#63-polyasm--assembler--disassembler) |
+| `polyopt`    | [6.4](#64-polyopt--ir-optimiser), [8](#8-middle-end-optimisation) |
+| `polyrt`     | [6.5](#65-polyrt--runtime-cli), [9](#9-runtime), [13.3](#133-profiler) |
+| `polybench`  | [6.6](#66-polybench--benchmark-harness), [14.4](#144-benchmarks) |
+| `polytopo`   | [6.7](#67-polytopo--call-graph-topology-viewer), [13.4](#134-call-analyzer) |
+| `polyls`     | [6.8](#68-polyls--language-server), [12](#12-ide-polyui-and-language-server) |
+| `polydoc`    | [6.9](#69-polydoc--documentation-extractor) |
+| `polyver`    | [6.10](#610-polyver--version--manifest-tool) |
+| `polyui`     | [6.11](#611-polyui--ide-shell), [12](#12-ide-polyui-and-language-server) |
+
+### 18.3 Release packaging
+
+```sh
 # Linux
-./scripts/package_linux.sh
-
-# macOS
-./scripts/package_macos.sh
+cmake --build build --target package
+# macOS — produces a notarisable .pkg
+cmake --build build --target package_macos
+# Windows (PowerShell)
+cmake --build build --target package_windows
 ```
 
-See `docs/specs/release_packaging.md` for full details, prerequisites, and version management.
-
-## 14.6 Changelog
-
-The full release history has been moved to a dedicated document.
-See [`CHANGELOG.md`](CHANGELOG.md) (English) /
-[`CHANGELOG_zh.md`](CHANGELOG_zh.md) (Chinese) for every version
-entry from v0.1.0 (2026-01-15) through the latest release.
-
-<!-- BEGIN:version_footer_en -->
-*Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-04-28*  
-*Document Version: v1.2.0*
-<!-- END:version_footer_en -->
-
-
-# 12. Language Server Architecture
-
-> Introduced in 1.20.0 (demand 2026-04-28-19).  Detailed reference:
-> [`docs/specs/lsp_integration.md`](./specs/lsp_integration.md) and
-> [`docs/api/polyls.md`](./api/polyls.md).
-
-The polyui IDE talks to language servers through the standard
-**Language Server Protocol** (LSP).  An in-tree server, **polyls**,
-ships with the project and exposes the polyglot frontends; third-party
-servers (clangd, pyright, rust-analyzer, jdtls, omnisharp) can be slot
-in per language through the **Settings -> Language Servers** page.
-
-## 12.1 Components
-
-| Layer | Code |
-|-------|------|
-| Wire types & framing                       | `tools/ui/common/lsp/lsp_message.{h,cpp}` |
-| JSON-RPC client + transport abstraction    | `tools/ui/common/lsp/lsp_client.{h,cpp}` |
-| Session registry (workspace + language id) | `tools/ui/common/lsp/lsp_session.{h,cpp}` |
-| Capability cache                           | `tools/ui/common/lsp/lsp_capability_registry.{h,cpp}` |
-| LSP traffic viewer                         | `tools/ui/common/lsp/lsp_log_panel.{h,cpp}` |
-| Editor glue (debounce, didOpen/Save/Close) | `tools/ui/common/{include,src}/lsp_bridge.{h,cpp}` |
-| Headless server                            | `tools/polyls/polyls_core/` + `tools/polyls/polyls.cpp` |
-
-## 12.2 Workflow inside polyui
-
-1. `MainWindow::OpenFileInTab(path)` opens the file and, after the
-   editor is created, calls `IdeLspBridge::TrackEditor(editor, lang)`.
-2. The bridge looks up `languageServers.servers.<lang>` from
-   `SettingsService`, spawns the configured executable through
-   `StdioTransport` (a `QProcess`-backed `ILspTransport`) and runs the
-   `initialize` -> `initialized` handshake.
-3. A 200 ms debounce timer (configurable via
-   `languageServers.changeDebounceMs`) sends `didChange` notifications
-   in response to `QTextDocument::contentsChanged`.
-4. Inbound `publishDiagnostics` are translated to `DiagnosticInfo` and
-   forwarded to `CodeEditor::SetDiagnostics`, which paints the
-   squiggly underlines and gutter markers.
-5. `Save()` issues `didSave`; `CloseTab()` issues `didClose`;
-   `~MainWindow()` performs `shutdown` + `exit` on every active session.
-
-## 12.3 Configuration
-
-All settings live under the `languageServers.*` namespace and appear
-automatically in the Settings dialog because the schema is namespace-
-driven.  Defaults:
-
-- `languageServers.enabled = true`
-- `languageServers.changeDebounceMs = 200`
-- `languageServers.logCapacity = 2000`
-- `languageServers.servers.ploy = { command: "polyls", args: [] }`
-- `languageServers.servers.cpp = { command: "clangd", args: [] }`
-- `languageServers.servers.python = { command: "pyright-langserver", args: ["--stdio"] }`
-- `languageServers.servers.rust = { command: "rust-analyzer", args: [] }`
-- `languageServers.servers.java = { command: "jdtls", args: [] }`
-- `languageServers.servers.csharp = { command: "omnisharp", args: ["-lsp"] }`
-
-When the configured executable is missing from `PATH`, the bridge
-silently disables the language server for that session and surfaces a
-non-blocking status-bar notification with the resolution hint.
-
-## 12.4 Inspecting traffic
-
-Open the **LSP** tab in the bottom panel to view every JSON-RPC frame
-exchanged with the active sessions.  Filters: direction (tx/rx), kind
-(request/response/notification) and method-name substring.
-
-## 13. Real-time Diagnostics & Problems Panel
-
-Since v1.21.0 the IDE ships an always-on Problems Panel paired with a real-time diagnostics pipeline.
-
-### 13.1 Opening the panel
-
-- Click the colour-coded `E:N W:N H:N` counter in the right of the status bar.
-- Or use the panel manager: **View -> Panels -> Problems**.
-
-### 13.2 Filters
-
-- Severity toggle buttons: Error / Warning / Info / Hint (multi-select).
-- File substring (case-insensitive, matches the basename).
-- Source substring (matches `polyls:<lang>` / `polyc` / `polyc-bg`).
-- Message regex (ECMAScript). An invalid pattern is silently ignored.
-
-### 13.3 Navigation
-
-Double-click any row to open the file at the reported position.
-
-### 13.4 Sources
-
-| Source label   | Producer                                                  |
-|----------------|-----------------------------------------------------------|
-| `polyls:<lang>` | LSP server, mirrored from `publishDiagnostics`.         |
-| `polyc`        | Foreground in-process compile / analyze.                  |
-| `polyc-bg`     | Background workspace scan (batched 50 files / 50 ms).     |
-
-Workspaces above 2000 files trigger an asynchronous first-scan with
-a `Scanning N/M ...` progress message in the status bar.
-
-### 13.5 `polyc --check` (CLI fallback)
-
-```
-polyc --check <file> [--lang=<id>]
-```
-
-Writes a single LSP-shaped JSON document to stdout (`uri` + `diagnostics`).
-Exit code: `0` clean, `1` errors present, `2` usage / I/O failure.
-Useful when wiring Polyglot diagnostics into editors that are not LSP-aware.
-
-
-## IDE Navigation (`polyls`)
-
-In addition to diagnostics, completion, hover and signature help,
-`polyls` answers the standard LSP navigation requests:
-
-| Shortcut       | LSP method                          | What it does                                              |
-|----------------|-------------------------------------|-----------------------------------------------------------|
-| `F12`          | `textDocument/definition`           | Jump to the symbol's definition.                          |
-| `Shift+F12`    | `textDocument/references`           | List every use across the workspace.                      |
-| `Ctrl+F12`     | `textDocument/implementation`       | Jump to the host-language implementation of a `LINK`.     |
-| `Ctrl+K F12`   | (peek)                              | Open an inline Peek view at the cursor.                   |
-| `Ctrl+Click`   | `textDocument/definition`           | Same as F12, but mouse-driven.                            |
-
-The handlers run on top of a workspace-level `SymbolIndex` that scans
-`.ploy` files plus every host-language module they `IMPORT` (`cpp`,
-`python`, `rust`, `java`, `dotnet`).  The index is rebuilt
-incrementally on each `didOpen`/`didChange`/`didSave` and persisted to
-`<workspace>/.polyc-cache/symbol_index.json` so a fresh server start
-can answer queries without re-parsing.
-
-Cross-language navigation is bidirectional: a click on a `.ploy`
-`LINK` qualifier hops to the host-language target, and `references`
-issued inside a host-language file also returns every `.ploy` `LINK`
-site that imports the symbol.  See
-[`realization/symbol_index_en.md`](realization/symbol_index_en.md) for
-the full design notes.
-
-
-## IDE Refactoring (`polyls`)
-
-`polyls` answers the standard LSP refactoring requests
-(`textDocument/prepareRename`, `textDocument/rename`,
-`textDocument/codeAction`).  Edits return as a single
-`WorkspaceEdit` so the editor applies them as one undo step.
-
-| Shortcut         | Action                                                              |
-|------------------|---------------------------------------------------------------------|
-| `F2`             | Rename the identifier under the caret across the workspace.         |
-| `Ctrl+Shift+R`   | Extract the current selection into a new `FUNC`.                    |
-| Lightbulb menu   | Inline variable, inline function, change signature, move file.      |
-
-Cross-language rename is bidirectional: renaming a host-language
-function inside a `.cpp` / `.py` / `.rs` / `.java` / `.cs` file
-automatically rewrites every `.ploy` `LINK` / `EXPORT` site that
-imports it, and renaming a `.ploy` LINK qualifier propagates back to
-the host file.  Identifier matches inside string literals and
-`//` / `#` comments are preserved verbatim.  See
-[`realization/refactoring_en.md`](realization/refactoring_en.md) for
-the full design.
-
-
-## Semantic syntax highlighting
-
-PolyUI ships with a tree-sitter-shaped runtime that powers folding,
-the document outline, smart-select and syntax colouring from a single
-parse.  When the embedded `polyls` is reachable, the editor pulls
-colours from the language server through the LSP
-`textDocument/semanticTokens` channel and the regex highlighter steps
-aside.
-
-* **Setting**: `editor/useLspSemanticTokens` (default **on**).  Toggle
-  via *Settings → Editor → Use LSP semantic tokens*.
-* **Fallback**: when the setting is off or no grammar is registered
-  for the file extension, the legacy regex highlighter takes over.
-* **Supported languages**: Ploy, C++, Python, Rust, Java, C#.
-
-See [`realization/semantic_highlight_en.md`](realization/semantic_highlight_en.md)
-for the architecture and the wire format.
-
-## Multi-tab editor, Quick Open and global search
-
-PolyUI's editor surface supports multi-tab buffers, up to a 4×4 split
-grid and tab drag-and-drop between groups.  Pinned tabs survive
-*Close Others* and *Close to the Right*; right-click a tab to toggle
-the pin.
-
-* **`Ctrl+P` Quick Open** — fuzzy file-name search; recently-opened
-  files float to the top.
-* **`Ctrl+Shift+P` Command Palette** — unchanged from earlier
-  releases.
-* **`Ctrl+T` Workspace Symbols** — LSP `workspace/symbol`; queries
-  match anywhere inside the symbol name.
-* **`Ctrl+Shift+O` Document Symbols** — LSP `textDocument/documentSymbol`;
-  feeds the Outline panel and the Breadcrumbs bar.
-* **`Ctrl+Shift+F` Find in Files** — regex / case-sensitive / whole-
-  word; glob include + exclude; capture groups in replacement;
-  results render as they arrive.
-* **Outline / Breadcrumbs / Minimap** — Outline lives in the side
-  panel, Breadcrumbs sit above the active editor, Minimap can be
-  toggled from *View → Minimap*.
-
-Architecture details:
-[`realization/editor_panels_en.md`](realization/editor_panels_en.md).
-
-## Multi-cursor, folding, formatting & EditorConfig
-
-PolyUI's editor supports modern power-editing across every supported
-language:
-
-* **Multi-cursor** — `Alt+Click` adds a cursor at the click point;
-  `Ctrl+Alt+↑` / `Ctrl+Alt+↓` extend cursors above/below; `Ctrl+D`
-  selects the next occurrence; `Ctrl+Shift+L` selects every
-  occurrence.  `Shift+Alt+drag` produces a rectangular column
-  selection.
-* **Folding** — gutter chevrons fold brace-balanced blocks,
-  multi-line C-style comments and explicit `// region NAME` /
-  `// endregion` markers.  `Ctrl+K Ctrl+0` folds everything;
-  `Ctrl+K Ctrl+J` unfolds everything.
-* **Formatter** — `polyls` provides format-on-save / format-on-paste
-  / format-on-type for `.ploy`; foreign languages route through
-  their own LSP.  Toggle the per-trigger settings under
-  *Settings → Editor → Formatting*.
-* **Snippets** — JSON snippet files (`tools/ui/common/resources/`)
-  follow the VS Code schema (`prefix`, `body`, `description`) and
-  support `$1`, `${1:default}`, `${2|a,b|}`, `$CURRENT_DATE`,
-  `$TM_FILENAME` and friends.
-* **EditorConfig** — a `.editorconfig` in the workspace controls
-  indent style/size, end-of-line, charset, trim-trailing-whitespace
-  and final-newline insertion.  The status bar shows the resolved
-  settings for the active buffer.
-
-Architecture details:
-[`realization/power_editing_en.md`](realization/power_editing_en.md).
-
-## SCM: diff, blame and merge resolver
-
-The Source-Control panel routes through a backend-agnostic
-`ScmProvider` so the same UI works against Git today (and Mercurial
-or Subversion in the future):
-
-* **Diff view** — choose inline or side-by-side.  Each hunk has
-  *Stage* / *Unstage* / *Revert* actions; the surrounding LSP
-  features (hover, definition, problems) keep working inside the
-  diff buffer.
-* **Blame** — the gutter shows the most recent commit hash and
-  author per line.  Hover for the full commit message; click to
-  open the commit in the log panel.
-* **Merge conflict resolver** — files containing `<<<<<<<` markers
-  open a three-pane view.  Use *Accept current*, *Accept incoming*,
-  *Accept both* or edit the result pane manually.
-
-Architecture details:
-[`realization/scm_advanced_en.md`](realization/scm_advanced_en.md).
-
-## DAP debugging (any language)
-
-PolyUI now embeds a full Debug Adapter Protocol client, so any
-DAP-compatible adapter — `debugpy`, `lldb-vscode`, `codelldb`,
-`netcoredbg`, the JDI bridge — drives the same debug surface used
-by the bundled `.ploy` runtime debugger.
-
-* **Launch configurations** live in `.polyc/launch.json` (VS Code
-  schema). Built-in starters cover `.ploy` Run/Debug, Python, C/C++
-  (lldb / gdb), Rust (codelldb), Java and .NET.
-* `${workspaceFolder}`, `${file}`, `${fileBasename}`, `${env:NAME}`
-  and `${command:NAME}` substitutions are honoured.
-* **Breakpoints** support conditions, hit counts, log messages
-  (logpoints), exception filters and function breakpoints.
-* **Debug surface** — Call Stack, Threads, Variables, Watch, Scope
-  and Debug Console are wired to the session model; inline values
-  appear in the gutter while paused.
-
-Architecture details:
-[`realization/dap_integration_en.md`](realization/dap_integration_en.md).
-
-## Tasks, Run/Debug picker, and Hot Reload
-
-PolyUI now ships a complete task orchestration layer and a unified
-status-bar Run/Debug menu.
-
-* **`.polyc/tasks.json`** — VS Code 2.0 schema with `dependsOn` /
-  `dependsOrder` (parallel & sequence), `isBackground`,
-  `problemMatcher` (`$gcc`, `$clang`, `$msbuild`, `$tsc`, `$rustc`,
-  `$pylint`, `$polyc`), `group` (`build` / `test` / `clean` /
-  `custom`) and per-task environment overrides. Built-in starters
-  cover `cmake build`, `ctest`, `clang-format`, `clang-tidy` and a
-  background watch task.
-* **Output panel** routes each task to its own subchannel
-  (`task:<label>`); rerun / cancel / "watch mode" boundaries are
-  detected via `problemMatcher.beginsPattern` / `endsPattern`.
-* **Status-bar picker** fuses every task and every `launch.json`
-  configuration into one quick-pick — group defaults appear first.
-* **Hot Reload / Edit-and-Continue** — saves are routed through
-  `HotReloadEngine`. Per-language handlers cover `.ploy` and Python
-  (incremental rebuild + module replacement), C++/Rust under polyrt
-  (function-symbol swap while attached), and Java/.NET (JDI / EnC).
-  Re-saves while a reload is in flight coalesce so only the latest
-  edit re-runs.
-
-Architecture details:
-[`realization/tasks_runtime_en.md`](realization/tasks_runtime_en.md).
-
-## Test Explorer, Inline Run-Test, and Coverage View
-
-PolyUI consolidates every test framework — CTest, pytest, cargo
-test, JUnit, xUnit, NUnit — into a single Test Explorer panel and
-renders coverage information directly on the editor gutter.
-
-* **Tree view** — project → suite → case, colour-coded by status
-  (passed, failed, errored, skipped, pending, running). Right-click
-  any node to rerun a single case or an entire suite; toggle the
-  *failed-first* sort to focus on regressions.
-* **Report adapters** — drop a CTest CDash XML, JUnit/pytest XML,
-  cargo `--format json` log, xUnit v2 XML or NUnit 3 XML into the
-  panel and the runner-agnostic
-  [`TestModel`](../tools/ui/common/testing/test_model.h) ingests it.
-  The same model backs the LSP testing protocol abstraction.
-* **Inline ▶ Run / 🐞 Debug CodeLens** — built-in detectors light
-  up Catch2 (`TEST_CASE`), pytest (`def test_*`), Rust
-  (`#[test]`), JUnit (`@Test`), xUnit (`[Fact]` / `[Theory]`) and
-  NUnit (`[Test]`) declarations. Failures captured by the runner
-  are stamped back onto the lens for inline diagnostics.
-* **Coverage gutter** — bars + percentages render from lcov,
-  Cobertura, coverage.py, cargo-tarpaulin, and dotnet coverlet
-  reports. The workspace tree lists per-file percentages and the
-  threshold badge fires when any file dips below the configured
-  coverage floor.
-
-Architecture details:
-[`realization/test_explorer_en.md`](realization/test_explorer_en.md).
-
-## Package Management, Dependency Graph, Vulnerability Scan, REPL & Notebook
-
-PolyUI consolidates package management for twelve ecosystems —
-venv, conda, uv, pipenv, poetry, cargo, npm, maven, gradle, nuget,
-gem and go-mod — into one panel, surfaces the resolved dependency
-graph alongside it, scans for known vulnerabilities, and ships an
-embedded REPL plus Notebook for live exploration.
-
-* **Unified package panel** — install, upgrade and remove packages
-  through a single command palette regardless of the underlying
-  ecosystem. The status bar shows the active environment per
-  ecosystem; switching between, say, two virtualenvs or two
-  Cargo workspaces is a one-click action. Lockfiles are decoded
-  in-place so you can browse `Cargo.lock`, `uv.lock`,
-  `Pipfile.lock`, `package-lock.json`, `pom.xml`,
-  `gradle.lockfile`, `packages.lock.json`, `Gemfile.lock` and
-  `go.sum` in a uniform table view. The `.ploy CONFIG` block and
-  the resolved lockfile sync both ways: the panel highlights
-  requirements that are missing from either side.
-* **Dependency graph** — the same panel offers a hierarchical tree
-  view (one node per direct dependency, children for transitives)
-  and a force-directed graph view. Version conflicts (the same
-  logical package pinned to different versions along disjoint
-  paths) are highlighted in red; roots are highlighted in blue.
-  The current view exports to a self-contained SVG suitable for
-  documentation and PR review.
-* **Vulnerability scanning** — advisories are pulled from osv.dev
-  and the GitHub Advisory database, matched against the resolved
-  versions, and rendered both as inline editor diagnostics and as
-  a panel list. Each finding carries severity, summary, affected
-  range and first-patched version. Per-id suppressions live in
-  `.polyc/security.json` so accepted-risk decisions survive
-  re-scans.
-* **REPL panel** — a built-in `.ploy` REPL hosts `polyc --repl`;
-  Python, IRust, IRB and dotnet-script are embedded under the same
-  surface. Each session keeps its own transcript so reloading the
-  workspace replays previous interactions.
-* **Notebook view** — `.polynb` files are first-class. Cells are
-  code, markdown or cross-language `LINK` cells; a `LINK` cell
-  binds a target symbol in one language to a source symbol in
-  another, and execution drives both engines so the value flow is
-  recorded end-to-end. The on-disk format is plain JSON and is
-  diff-friendly.
-
-Architecture details:
-[`realization/polyui_package_management_en.md`](realization/polyui_package_management_en.md).
-
-## Cross-language Navigation, Bridge Panel and Marshalling View
-
-PolyUI brings the cross-language story to the foreground: jump,
-hover and rename from `.ploy` into any of the five supported host
-languages — and back — through a single coordinated edit, with a
-dedicated panel for the bridges polyc generates and a side panel
-that reveals their marshalling pipeline.
-
-* **Cross-language goto / hover / rename** — pressing F12 on a
-  `LINK <lang>::<symbol>` reference jumps directly to the host
-  source. Host-language definitions display an *X `.ploy` LINK
-  references* CodeLens above the declaration; clicking it opens the
-  list of every `.ploy` site referencing that symbol. Renaming a
-  symbol on either side is coordinated through polyls: a single
-  `WorkspaceEdit` plan touches the host-language definition, every
-  `.ploy` LINK site and every reference reported by the host-side
-  LSP, and the underlying language servers commit it atomically.
-* **Bridge panel** — every cross-language bridge generated by polyc
-  appears in a single panel with the generated stub name, the
-  marshalling strategy in effect, the source declaration site and
-  the runtime call count fed live from the polyrt calltrace stream.
-  Double-click a row to jump to the source. Re-importing the build
-  output preserves the live counts so dashboards stay continuous.
-* **Marshalling visualisation** — selecting a `LINK`, `CALL` or
-  `METHOD` opens the marshalling side panel, which renders the
-  conversion chain for every parameter and the return value as
-  three sequential steps: IR lowering, marshalling helper, target
-  ABI adapter. Each step shows the helper name, a snippet of the
-  lowering output and a click-through to the source. The view
-  works for all five host languages (C++, Rust, Python, Java,
-  .NET); when polyc has not emitted a chain document yet, a
-  canonical pipeline is synthesised from the bridge metadata so
-  the panel is always populated.
-
-Architecture details:
-[`realization/cross_language_ide_en.md`](realization/cross_language_ide_en.md).
-
-## Compile Pipeline Inspector, IR Viewer/Diff and Asm Viewer
-
-PolyUI now ships a Compiler-Explorer-style inspection stack so you
-can see exactly what polyc is doing at every stage of the build.
-
-* **Pipeline Inspector** — open the *Pipeline* panel after a build
-  to see the six canonical stages (frontend, sema, IR pre-opt, IR
-  post-opt, backend asm, link) with per-stage duration and the
-  artefacts polyc dropped under `aux/`. A normalised histogram makes
-  the bottleneck obvious at a glance; clicking a row hands the
-  underlying artefact off to the IR or Asm viewer.
-* **IR Viewer / Diff** — the IR view folds the dump by function and
-  basic block, with line-number gutters that stay in sync with the
-  source view. The *Compare optimisation* button opens a side-by-side
-  diff between the pre-opt and post-opt IR for the same function;
-  the diff is read-only and uses LCS so unchanged regions stay
-  aligned. Source ↔ IR ↔ asset jumps are wired through the same line
-  binding table so cursors stay in sync across all three panes.
-* **Asm Viewer** — the asm view renders disassembly for x86_64,
-  arm64 and wasm targets and binds every instruction back to the
-  source line that generated it. Hovering a source line highlights
-  every emitted instruction; hovering an instruction highlights the
-  originating source line. polyasm and the backend disassemblers
-  feed both DWARF `.file`/`.loc` directives and inline `; src=` hints,
-  so the binding works even on hand-written prologues.
-
-Architecture details:
-[`realization/compile_pipeline_inspector_en.md`](realization/compile_pipeline_inspector_en.md).
-
-## Sample / Tutorial Browser, Topology Live and Inlay Hints
-
-PolyUI now ships three discoverability features that make the IDE
-easier to learn and faster to navigate.
-
-* **Sample / Tutorial Browser** — open the *Samples* panel to
-  browse every example under `tests/samples/` and every walkthrough
-  under `docs/tutorial/`. Filter the list by language, topic,
-  difficulty or free text, then click *Open as workspace copy* to
-  clone the chosen entry into a destination of your choice. The
-  source tree is never modified — every copy lands in the
-  destination root only.
-* **Topology Live** — the topology panel now follows the editor.
-  Move the caret onto a symbol and the panel zooms to that symbol's
-  neighbourhood (configurable radius); clear the selection and the
-  panel falls back to nodes anchored at the active file. Click any
-  node to jump back to its source position. Edits trigger a
-  debounced incremental rebuild so the topology stays in sync
-  without recomputing on every keystroke.
-* **Inlay hints** — polyls now answers `textDocument/inlayHint`.
-  Lines like `LET m = NEW(python, "torch.nn.Linear", 8, 4)` get a
-  trailing `: HANDLE<python::torch::nn::Linear>` annotation;
-  call-site arguments display the formal parameter name as
-  `f(x: 1, y: 2)`. Both families can be toggled independently in
-  *Settings → Inlay Hints*.
-
-Architecture details:
-[`realization/sample_topology_inlay_en.md`](realization/sample_topology_inlay_en.md).
-
-## Remote Development — SSH / WSL / Container / Dev Container
-
-PolyUI now lets you develop against any host through a single
-abstraction. polyls, the debugger, the task runner and the
-integrated terminal all run through the same `RemoteSession`
-plumbing, so working on a remote box feels indistinguishable from
-working locally.
-
-* **Connect anywhere** — *Connect To…* in the command palette
-  accepts `ssh://[user@]host[:port]/path`, `wsl://distro/path`,
-  `container://[runtime/]image-or-id/path` and plain
-  `local:/path`. Once connected, every IDE feature (open file,
-  start debug, run a build task, open a terminal) operates on the
-  remote workspace transparently.
-* **Dev Container** — when a workspace contains
-  `.devcontainer/devcontainer.json`, the *Reopen In Container*
-  command parses the spec, builds or reuses the matching
-  container, and provisions polyls plus the language server for
-  every recognised feature (Python, Node, Java, Go, Rust, .NET,
-  Ruby, C++). Any explicit `postCreateCommand` runs afterwards.
-* **Port forwarding / file sync / terminal** — the *Forwarded
-  Ports* view lists every active rule; *Sync Workspace* shows the
-  upload / download / delete plan before applying it (push-only and
-  pull-only are available for one-way sync); the integrated
-  terminal opens against the active session so a single keystroke
-  drops you into a shell on the remote box.
-
-Architecture details:
-[`realization/remote_dev_en.md`](realization/remote_dev_en.md).
-
-## AI Assistant — Chat, Inline Suggestions, Refactor, Privacy
-
-PolyUI ships a unified AI surface that powers chat, code
-completion, inline ghost-text and refactor suggestions through the
-same provider abstraction.
-
-* **Provider choice.** Pick a provider in *Settings → AI*: local
-  Ollama (no consent required), OpenAI-compatible HTTP, Azure
-  OpenAI, or Anthropic. API keys are entered in the settings UI
-  and live in your user keychain — no key is ever embedded in the
-  binary or written to a project file.
-* **Privacy first.** Remote providers stay disabled until you
-  toggle *Allow remote calls*. The *Project Context* panel lets
-  you list which directories may be sent (allow-list) and which
-  must never leave your machine (deny-list); diagnostics and
-  open-file contents are individual switches. Until consent is
-  granted, every remote call short-circuits and the chat panel
-  shows *Consent required*.
-* **Inline suggestions.** Press Tab to accept, Esc to dismiss,
-  Alt+] / Alt+[ to cycle alternatives.
-* **Chat panel.** Drop the current file, the current selection or
-  the active diagnostics into the prompt with one click.
-* **Refactor diff.** Refactor proposals open in a per-hunk diff
-  view; accept hunks individually and the IDE applies only what
-  you approved.
-
-## Collaboration — Pull Requests, Reviews, Issues
-
-The *Collab* sidebar lists pull requests and issues for the
-current repository through a provider that abstracts GitHub,
-GitLab and Gitea. The diff view supports line comments and the
-*Approve / Request Changes / Comment* verdicts. *Push to PR*
-pushes the active branch and, on a fresh branch, opens a draft PR
-in one step. The *Issues* view supports create, label, close,
-linking commits and attaching `file:line` references pulled from
-the editor.
-
-Architecture details:
-[`realization/ai_integration_en.md`](realization/ai_integration_en.md),
-[`realization/collab_en.md`](realization/collab_en.md).
-
-### Privacy statement
-
-PolyUI never embeds API keys in the binary, never sends source
-code to a remote endpoint without explicit user consent, and
-applies the workspace allow / deny list to every project-context
-request. Local providers (Ollama) operate entirely on your
-machine and require no consent.
-
-## Extensions, Marketplace and Workspaces
-
-PolyUI ships a first-class extension system, a local marketplace
-and a multi-root workspace model.
-
-* **Install / update / rollback.** *Marketplace* lists every
-  extension known to your configured indexes (filesystem or
-  HTTP). One click installs; a second click updates to the latest
-  semver; *Rollback* reverts to the version installed just before
-  the most recent update.
-* **Capability prompts.** When an extension declares
-  `filesystem`, `network`, `process`, `clipboard` or `secrets`,
-  PolyUI asks you to grant each capability before activation.
-  Refused capabilities surface in *Settings → Extensions* with a
-  *Grant* button so you can change your mind later.
-* **Optional signing.** Toggle *Require signed extensions* in
-  settings to refuse installs whose signature is missing or
-  unknown.
-* **Multi-root workspaces.** Open a `polyui.code-workspace` file
-  to load multiple roots side by side. Each root has its own
-  settings (with workspace-wide defaults), search and jump work
-  across all roots, and language-server / debugger / task
-  instances are isolated per `(folder, language, version)` so
-  pinning one root to a different language version never
-  contaminates another.
-
-Architecture details:
-[`api/extension_api_en.md`](api/extension_api_en.md),
-[`realization/marketplace_en.md`](realization/marketplace_en.md).
-
-## Shell: Welcome, Notifications, Status Bar, Recent, Sessions, Bookmarks, TODO
-
-PolyUI's shell wraps the editor with a complete workbench:
-
-* **Welcome page** — recent workspaces, tutorials, samples and
-  what's-new tips. Closeable and pinnable.
-* **Notification centre** — persistent, levelled, action-aware.
-  *Do not disturb* mutes `info` / `progress` while letting
-  warnings and errors through. The status bar shows the unread
-  count.
-* **Customisable status bar** — drag any of the built-in slots
-  (branch, problems, language, language server, encoding, EOL,
-  indent, package manager, profiler) between left and right;
-  show / hide each slot; extensions register their own.
-* **Recent files / workspaces** — `Ctrl+R` opens recent
-  workspaces, `Ctrl+E` opens recent files. Both honour pinning.
-* **Session restore** — restart and find every tab, scroll
-  position, cursor, fold, split layout, panel size and debug
-  view exactly as you left them. Disable in settings.
-* **Bookmarks** — `Ctrl+Alt+K` toggles. The panel lists every
-  bookmark across the workspace with labels and colours.
-* **TODO / FIXME index** — background scanner; configurable
-  keywords (`TODO`, `FIXME` by default; add `XXX`, `HACK`, ...);
-  per-keyword counts in the summary panel.
-
-Walk-through: [`tutorial/shell_en.md`](tutorial/shell_en.md).
-
-## i18n, Accessibility, Telemetry
-
-**Languages.** PolyUI ships with five built-in locales:
-Simplified Chinese, Traditional Chinese, English, Japanese and
-Korean. Switch in *Settings → General → Language*. Every UI
-string is looked up by id, so locale changes are immediate and
-complete.
-
-**Accessibility.** Every focusable widget is reachable from the
-keyboard alone; tab order is deterministic and wraps around,
-disabled widgets are skipped without breaking the chain. Screen
-readers (NVDA, JAWS, VoiceOver, Orca) receive assertive
-announcements ahead of polite ones via the platform
-accessibility bridge. Visual aids: high-contrast theme, large
-font (80–300 %) and reduced motion are toggleable per profile.
-
-**Telemetry, feedback and crash reports.** Off by default;
-require explicit consent and may be revoked at any time. Every
-event must declare a field allow-list — anything else is
-stripped before the event reaches the local preview, and
-therefore can never be uploaded. Crash reports always land on
-disk first; upload is a separate gate that requires explicit
-confirmation. Realisation:
-[`realization/i18n_en.md`](realization/i18n_en.md),
-[`realization/accessibility_en.md`](realization/accessibility_en.md),
-[`realization/telemetry_en.md`](realization/telemetry_en.md).
-
-## File-Type Viewers
-
-* **Image viewer** — PNG / JPEG / WebP / GIF / SVG / BMP with
-  zoom, pan, RGBA pixel pick and per-channel split.
-* **Hex viewer** — chunked I/O for files ≥ 1 GiB; jump to
-  offset, hex search that handles cross-chunk matches, named
-  highlights for linker / IR / object schemas.
-* **Binary inspector** — identifies ELF / PE / Mach-O / WASM
-  with arch and subsystem; disassembly delegates to `polyasm`.
-* **SQLite client + SQL console** — schema browser, paged
-  results, CSV export, bounded query history. Drivers plug
-  into the same `SqlDriver` interface.
-
-Walk-through: [`tutorial/viewers_en.md`](tutorial/viewers_en.md).
+Output bundles land in `build/release/`. Each bundle ships:
+
+* All 11 tool binaries.
+* The runtime shared libraries.
+* The HTML rendering of `docs/`.
+* The 42 numbered samples.
+* A signed manifest verifiable with `polyver --check-manifest`.
+
+### 18.4 Environment variables reference
+
+| Variable                    | Purpose                                                 |
+|-----------------------------|---------------------------------------------------------|
+| `POLY_GC`                   | Select the runtime GC algorithm.                        |
+| `POLY_GC_HEAP_INIT`         | GC initial heap size.                                   |
+| `POLY_GC_HEAP_MAX`          | GC heap upper bound.                                    |
+| `POLY_GC_PAUSE_GOAL_MS`     | GC pause-time goal.                                     |
+| `POLY_TASKS_THREADS`        | Task-pool size.                                         |
+| `POLY_CACHE_DIR`            | Override incremental-cache directory.                   |
+| `POLY_CACHE_MAX_BYTES`      | Cache LRU upper bound.                                  |
+| `POLY_LOG_LEVEL`            | `error` / `warn` / `info` / `debug` / `trace`.          |
+| `POLY_TELEMETRY`            | `off` (default) / `on`.                                 |
+| `POLY_PROFILE_INTERVAL_MS`  | Profiler sampling period.                               |
+| `POLYLS_LOG`                | Path for `polyls` frame log.                            |
+| `POLYUI_PLUGIN_DIR`         | Override plugin discovery directory.                    |
+
+### 18.5 Configuration file locations
+
+| Item              | Location                                          |
+|-------------------|---------------------------------------------------|
+| User settings     | `~/.config/polyui/settings.json`                  |
+| Workspace settings| `<workspace>/.polyui/settings.json`               |
+| Launch profiles   | `<workspace>/.polyui/launch.json`                 |
+| Plugins           | `~/.config/polyui/plugins/`                       |
+| LSP overrides     | `~/.config/polyui/lsp.json`                       |
+| Cache             | `~/.cache/polyglot/`                              |
+
+### 18.6 References
+
+* [tutorial/project_tutorial.md](tutorial/project_tutorial.md) — guided
+  tour for newcomers.
+* [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
+  — Ploy language reference.
+* [specs/](specs/) — machine-readable schemas (call graph, profile
+  stream, diagnostics).
+* [realization/](realization/) — design notes per subsystem.
+* [api/](api/) — public ABI documents (`polyls`, plugin SDK, runtime).
+
+### 18.7 Frequently asked questions
+
+**Q. Why a custom IR instead of LLVM?**
+A. PolyglotCompiler needs first-class `bridge_call`, GC barriers, and
+async primitives in the IR. Targeting LLVM was prototyped and rejected
+because pretending these were intrinsics forced too many backend
+work-arounds.
+
+**Q. Can I use only one frontend?**
+A. Yes. Set `POLY_BUILD_FRONTENDS="cpp;ploy"` at configure time to drop
+the rest.
+
+**Q. Are macOS arm64 binaries notarisable?**
+A. Yes. The Mach-O emitter produces 16 KiB-aligned segments and stamps
+`__DATA_CONST` with `SG_READ_ONLY (0x10)`, satisfying dyld 26
+chained-fixup requirements that notarisation enforces.
+
+**Q. Does the IDE work on Wayland?**
+A. Yes; Qt 6.6 native Wayland is the default on Linux. X11 is still
+supported via XWayland.
+
+**Q. Is there a stable plugin ABI?**
+A. The plugin ABI version is bumped only on incompatible changes. The
+plugin host refuses to load plugins compiled against a different
+`POLY_PLUGIN_API_VERSION`.
+
+### 18.8 Changelog
+
+A condensed changelog ships in [VERSION.txt](../VERSION.txt) and the
+release notes generated by `scripts/release_notes.py`. The current
+release is **PolyglotCompiler 1.45.2**.
+
+### 18.9 Licence
+
+PolyglotCompiler is distributed under the licence stored at
+[LICENSE](../LICENSE). Third-party components retain their original
+licences as recorded in [Dependencies.cmake](Dependencies.cmake).

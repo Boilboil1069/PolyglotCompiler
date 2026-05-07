@@ -1,1253 +1,373 @@
-# .ploy 语言教程
+# `.ploy` 语言教程
 
-> **版本**: 2.0.0
-> **最后更新**: 2026-04-09
-> **项目**: PolyglotCompiler
+> **文档版本**：3.0.0  
+> **更新日期**：2026-05-07  
+> **项目**：PolyglotCompiler 1.45.2  
+> **读者对象**：编写 `.ploy` 粘合代码的开发者、库作者，以及任何通过 `polyc` 工具链组装多语言管线的人。
 
 ---
 
 ## 目录
 
-1. [简介](#1-简介)
-2. [快速入门](#2-快速入门)
-3. [模块与包导入](#3-模块与包导入)
-4. [跨语言函数链接](#4-跨语言函数链接)
-5. [类型映射](#5-类型映射)
-6. [变量与表达式](#6-变量与表达式)
-7. [函数](#7-函数)
+1. [`.ploy` 是什么？](#1-ploy-是什么)
+2. [Hello, polyglot world](#2-hello-polyglot-world)
+3. [词法结构](#3-词法结构)
+4. [模块导入](#4-模块导入)
+5. [类型系统](#5-类型系统)
+6. [变量与常量](#6-变量与常量)
+7. [运算符与表达式](#7-运算符与表达式)
 8. [控制流](#8-控制流)
-9. [结构体与自定义类型](#9-结构体与自定义类型)
-10. [跨语言调用](#10-跨语言调用)
-11. [面向对象互操作](#11-面向对象互操作)
-12. [管道](#12-管道)
-13. [环境配置](#13-环境配置)
-14. [类型转换](#14-类型转换)
-15. [符号导出](#15-符号导出)
-16. [错误处理与诊断](#16-错误处理与诊断)
-17. [完整示例](#17-完整示例)
-18. [关键字参考](#18-关键字参考)
-19. [最佳实践](#19-最佳实践)
+9. [函数](#9-函数)
+10. [可见性与属性（v1.16）](#10-可见性与属性v116)
+11. [泛型（v1.15）](#11-泛型v115)
+12. [结构化异常（v1.13）](#12-结构化异常v113)
+13. [协作式 async / await（v1.14）](#13-协作式-async--awaitv114)
+14. [扩展字符串字面量（v1.17）](#14-扩展字符串字面量v117)
+15. [STRUCT、OPTION、模式匹配](#15-structoption模式匹配)
+16. [面向对象构造](#16-面向对象构造)
+17. [跨语言链接](#17-跨语言链接)
+18. [类型映射与转换](#18-类型映射与转换)
+19. [管线组合](#19-管线组合)
+20. [诊断码](#20-诊断码)
+21. [文档注释与 `polydoc`（v1.18）](#21-文档注释与-polydocv118)
+22. [样例矩阵导览](#22-样例矩阵导览)
+23. [关键字参考](#23-关键字参考)
 
 ---
 
-# 1. 简介
+# 1. `.ploy` 是什么？
 
-## 1.1 什么是 .ploy？
+`.ploy` 是 PolyglotCompiler 的核心跨语言 DSL。一个 `.ploy` 源文件做三件事：
 
-`.ploy` 是 PolyglotCompiler 项目专用的**领域特定语言**（DSL，Domain-Specific Language）。它的核心目标是充当"跨语言胶水"——用一套统一的声明式语法，描述不同编程语言的函数、类和数据如何跨越语言边界互相调用和传递。
+1. 声明所支持的 9 种宿主语言（C++、Python、Rust、Java、.NET / C#、Go、JavaScript、Ruby 以及 `.ploy` 自身）中的 **模块**。
+2. 在这些语言之间声明 **带类型的桥接**（`LINK`、`MAP_TYPE`、`CONVERT`）。
+3. 用 `.ploy` 自身的语句 / 表达式语言承载 **跨语言业务逻辑**，通过 `CALL`、`NEW`、`METHOD`、`GET`、`SET`、`WITH`、`DELETE`、`EXTEND`、`PIPELINE` 派发到宿主语言代码。
 
-换句话说，你不需要手写复杂的 JNI 调用、Cython 绑定或 P/Invoke 代码。你只需要在 `.ploy` 文件里声明："我要把这个 C++ 函数的结果传给这个 Python 函数"，编译器会自动生成所有胶水代码。
-
-`.ploy` **不是**通用编程语言，它不负责实现业务逻辑，而是负责**描述和编排**跨语言的调用关系。
-
-## 1.2 .ploy 能做什么？
-
-| 能力 | 说明 |
-|------|------|
-| **链接函数** | 声明两种语言函数之间的绑定关系，让编译器生成桥接代码 |
-| **实例化类** | 在一种语言里创建另一种语言的类实例，并持有其句柄 |
-| **访问和修改属性** | 通过 `GET`/`SET` 读写外部对象的字段 |
-| **自动资源管理** | 用 `WITH` 块确保跨语言资源（文件、连接等）被正确释放 |
-| **编排多阶段管道** | 用 `PIPELINE` 将多种语言的处理阶段组合成一个可复用的工作流 |
-| **管理包依赖** | 支持 pip/conda/uv/pipenv/poetry/cargo/NuGet 等生态系统 |
-| **类型映射** | 告诉编译器不同语言的类型之间如何互相转换 |
-
-## 1.3 支持的语言
-
-目前支持以下五种语言，在 `.ploy` 文件中用对应的**标识符**引用它们：
-
-| 语言 | 编译器前端模块 | .ploy 中的标识符 |
-|------|--------------|----------------|
-| C++ | `frontend_cpp` | `cpp` |
-| Python | `frontend_python` | `python` |
-| Rust | `frontend_rust` | `rust` |
-| Java | `frontend_java` | `java` |
-| C#（.NET）| `frontend_dotnet` | `dotnet` |
-
-## 1.4 运行原理概述
-
-当你编写一个 `.ploy` 文件并用 `polyc` 编译时，编译流程如下：
-
-```
-.ploy 源文件
-    ↓ 词法分析（识别关键字和符号）
-    ↓ 语法分析（构建 AST）
-    ↓ 语义分析（检查类型、模块引用等）
-    ↓ IR 生成（生成中间表示）
-    ↓ PolyglotLinker（生成跨语言胶水代码）
-    → 可执行文件 / 共享库
-```
-
-`.ploy` 语义分析阶段会检查所有跨语言调用的类型是否匹配、所有模块是否已导入、CONFIG 配置是否正确，在编译期就捕获大多数错误。
-
-## 1.5 文件扩展名
-
-所有 `.ploy` 源文件使用 `.ploy` 扩展名：
-
-```
-my_project.ploy
-pipeline.ploy
-config_and_venv.ploy
-```
+`.ploy` 文件由 `frontend_ploy` 库解析，降级到与其它前端共享的 SSA IR，由 `middle_ir` 优化，再由三个后端之一（`backend_x86_64`、`backend_arm64`、`backend_wasm`）发射。
 
 ---
 
-# 2. 快速入门
-
-## 2.1 第一个 .ploy 文件
-
-我们从一个最小的跨语言示例开始，感受 `.ploy` 的整体结构。假设你有一个 C++ 模块负责数学运算，一个 Python 模块负责格式化输出，你想把两者串联起来。
-
-创建一个名为 `hello.ploy` 的文件：
+# 2. Hello, polyglot world
 
 ```ploy
-// hello.ploy — 一个最小的跨语言示例
+// hello.ploy — 自包含最小程序
 
-// 第一步：从 C++ 和 Python 分别导入需要用到的模块
-// IMPORT 告诉编译器在哪里找函数定义，类似于 C++ 的 #include
-IMPORT cpp::math_ops;
-IMPORT python::string_utils;
-
-// 第二步：声明跨语言链接关系
-// 这里告诉编译器：math_ops::add（C++）和 string_utils::format_result（Python）
-// 会在同一个调用链中出现，编译器需要生成它们之间的类型转换胶水代码
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);  // C++ int 对应 Python int
+FUNC main() -> i32 {
+    PRINTLN "Hello, polyglot world!";
+    RETURN 0;
 }
-
-// 第三步：定义一个跨语言函数
-// FUNC 的语法和大多数语言类似，参数和返回值用 .ploy 内置类型声明
-FUNC greet(a: INT, b: INT) -> STRING {
-    // CALL(语言, 函数, 参数...) 是跨语言调用的标准方式
-    LET sum = CALL(cpp, math_ops::add, a, b);
-    // sum 此时是一个 INT，传给 Python 时会自动转换为 Python int
-    LET message = CALL(python, string_utils::format_result, sum);
-    RETURN message;
-}
-
-// 第四步：把这个函数以 "polyglot_greet" 的名字暴露给外部使用
-EXPORT greet AS "polyglot_greet";
 ```
 
-**这段代码做了什么？**
-编译器读取它之后，会：
-1. 检查 `cpp::math_ops` 和 `python::string_utils` 模块是否存在；
-2. 验证 `math_ops::add` 接受两个 `int` 参数，`format_result` 接受一个 `int` 并返回字符串；
-3. 生成 C++ ↔ Python 的类型转换桥接代码；
-4. 生成一个名为 `polyglot_greet` 的 C ABI 导出符号，供主程序调用。
-
-## 2.2 编译
-
-使用 `polyc` 驱动程序编译 `.ploy` 文件：
+编译并运行：
 
 ```bash
 polyc hello.ploy -o hello
+./hello
 ```
 
-> **说明**：`polyc` 会自动识别 `.ploy` 扩展名并调用 .ploy 前端，整个流程是：
-> 词法分析 → 语法分析 → 语义分析（类型检查）→ IR 生成 → 跨语言链接器 → 输出二进制。
-
-常用选项：
-
-| 选项 | 说明 |
-|------|------|
-| `-o <name>` | 指定输出文件名 |
-| `--verbose` | 打印详细编译日志，方便调试 |
-| `--emit-ir` | 仅输出中间 IR，不进行链接 |
-| `--check-only` | 仅做语法和类型检查，不生成代码 |
-
-## 2.3 基本程序结构
-
-一个完整的 `.ploy` 文件通常按以下顺序组织：
+复用 C++ 算术与 Python 格式化的双语版本：
 
 ```ploy
-// ① 环境配置（可选）
-CONFIG VENV python "/path/to/venv";
+// hello_polyglot.ploy
+IMPORT cpp::math_ops;
+IMPORT python::string_utils;
 
-// ② 包导入（可选）
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-// ③ 模块导入（必需）
-IMPORT cpp::module_name;
-IMPORT python::module_name;
-
-// ④ 跨语言链接（需要时）
-LINK(cpp, python, func_a, func_b) {
-    MAP_TYPE(cpp::int, python::int);
+LINK(python, cpp, string_utils::format_result, math_ops::abs_val) RETURNS python::str {
+    MAP_TYPE(python::int, cpp::int);
 }
 
-// ⑤ 全局类型映射（需要时）
-MAP_TYPE(cpp::double, python::float);
-
-// ⑥ 结构体定义（可选）
-STRUCT Config {
-    width: INT;
-    height: INT;
+FUNC main() -> i32 {
+    LET formatted = CALL(python, string_utils::format_result, -42);
+    PRINTLN formatted;
+    RETURN 0;
 }
-
-// ⑦ 函数和管道（核心逻辑）
-FUNC main_func() -> INT { ... }
-PIPELINE my_pipeline { ... }
-
-// ⑧ 导出（可选）
-EXPORT main_func;
-EXPORT my_pipeline;
-```
-
-## 2.4 注释
-
-`.ploy` 只支持 C/C++ 风格的**单行注释**，以 `//` 开头，到行尾结束：
-
-```ploy
-// 这是一条独立注释
-FUNC foo() -> INT {
-    LET x = 42;  // 行内注释
-    RETURN x;
-}
-```
-
-> **注意**：目前不支持 `/* */` 块注释，也不支持 `#` 注释。
-
-## 2.5 语句终止符
-
-所有语句以分号（`;`）结尾。漏写分号是初学者最常见的语法错误：
-
-```ploy
-LET x = 10;          // ✅ 正确
-VAR y: FLOAT = 3.14; // ✅ 正确
-RETURN x             // ❌ 错误：缺少分号
-```
-
-块结构（`{ }` 包裹的函数体、LINK 体等）本身不需要在 `}` 后加分号。
-
----
-
-# 3. 模块与包导入
-
-## 3.1 为什么要 IMPORT？
-
-在 `.ploy` 里，你不能凭空调用一个 C++ 函数或实例化一个 Java 类——必须先用 `IMPORT` 告诉编译器去哪里找它们的定义。`IMPORT` 的作用相当于：
-- C++ 的 `#include`（引入头文件/模块）
-- Python 的 `import`（引入模块作用域）
-- Java 的 `import`（引入类路径）
-
-不同的是，`.ploy` 的 `IMPORT` 同时指定了**语言**和**模块名**，因为你可能同时使用多种语言的模块。
-
-## 3.2 模块导入
-
-语法：`IMPORT <语言>::<模块名>;`
-
-```ploy
-IMPORT cpp::math_utils;         // 对应 math_utils.cpp
-IMPORT python::data_processing; // 对应 data_processing.py
-IMPORT rust::serde;
-IMPORT java::SortEngine;
-IMPORT dotnet::Transformer;
-```
-
-编译器会根据项目构建配置找到对应的源文件或已编译库，提取其中的函数/类签名，记入符号表。只有导入了的模块，才能在后续的 `LINK`、`CALL`、`NEW` 等指令中引用。
-
-> **注意**：模块名大小写敏感，要与实际源文件名/类名保持一致。
-
-## 3.3 包导入 — `IMPORT PACKAGE`
-
-除了项目自身的模块，还可以引用来自各语言生态的外部包（如 numpy、serde、NuGet 包等）。
-
-### 基本用法
-
-```ploy
-IMPORT python PACKAGE numpy;
-IMPORT python PACKAGE numpy >= 1.20;
-IMPORT python PACKAGE scipy == 1.11;
-IMPORT rust PACKAGE serde >= 1.0;
-
-// 带别名
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-```
-
-### 选择性导入
-
-```ploy
-// 只从 numpy 导入指定符号
-IMPORT python PACKAGE numpy::(array, mean, std);
-IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
-IMPORT python PACKAGE numpy.linalg::(solve, inv);
-```
-
-> **注意**：选择性导入 `::(...)` 和别名 `AS` **不能同时使用**。
-
-### 版本约束运算符
-
-| 运算符 | 语义 | 示例 |
-|--------|------|------|
-| `>=` | 大于或等于 | `>= 1.20` |
-| `<=` | 小于或等于 | `<= 2.0` |
-| `==` | 精确版本 | `== 1.10.0` |
-| `>` | 严格大于 | `> 1.0` |
-| `<` | 严格小于 | `< 3.0` |
-| `!=` | 排除某版本 | `!= 2.0` |
-| `~=` | 兼容版本（PEP 440）| `~= 1.20` |
-
-### 工作机制
-
-编译器遇到 `IMPORT python PACKAGE numpy >= 1.20 AS np` 时，会：
-1. 查找 CONFIG 声明的虚拟环境，确认 numpy 已安装且版本满足要求；
-2. 若未安装，调用对应包管理器（pip/conda/uv 等）自动安装；
-3. 将 numpy 的公开 API 注册到符号表，后续可用 `np::` 前缀引用。
-
----
-
-# 4. 跨语言函数链接
-
-## 4.1 为什么需要 LINK？
-
-当你要在 `.ploy` 函数里用 `CALL` 跨语言调用时，编译器需要提前知道：
-- **调用路径**：从哪种语言的哪个函数，传给哪种语言的哪个函数；
-- **类型转换规则**：源语言的参数/返回值怎样转换成目标语言能理解的形式。
-
-`LINK` 指令正是用来声明这两件事的。没有 `LINK`，编译器无法验证类型安全，也无法生成正确的桥接代码。
-
-## 4.2 LINK 基本语法
-
-```
-LINK(<源语言>, <目标语言>, <源函数>, <目标函数>) {
-    MAP_TYPE(<源语言>::<类型A>, <目标语言>::<类型B>);
-}
-```
-
-## 4.3 示例：链接 C++ 到 Python
-
-```ploy
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
-}
-```
-
-编译器会自动生成类似如下的桥接函数（伪代码示意）：
-
-```c
-PyObject* bridge_add_to_format(int a, int b) {
-    int cpp_result = math_ops_add(a, b);
-    PyObject* py_int = PyLong_FromLong(cpp_result); // cpp::int → python::int
-    return string_utils_format_result(py_int);
-}
-```
-
-## 4.4 示例：链接 Java 到 Python
-
-```ploy
-LINK(java, python, SortEngine::sortedKeys, collection_utils::invert_dict) {
-    MAP_TYPE(java::ArrayList_String, python::list);
-    MAP_TYPE(java::HashMap_String_Integer, python::dict);
-}
-```
-
-## 4.5 示例：链接 Python 到 .NET
-
-```ploy
-LINK(python, dotnet, data_science::to_json, Transformer::ParseJson) {
-    MAP_TYPE(python::str, dotnet::string);
-}
-```
-
-## 4.6 LINK 的作用范围
-
-一个 `LINK` 声明的类型映射规则**仅在该 LINK 调用链中生效**。如果需要在整个文件范围内复用某个类型映射，应使用全局 `MAP_TYPE`（见第 5 章）。
-
----
-
-# 5. 类型映射
-
-## 5.1 为什么需要类型映射？
-
-不同的编程语言有不同的类型系统和内存布局：
-- C++ 的 `int` 是 32 位整数，Python 的 `int` 是任意精度对象；
-- Java 的 `ArrayList<String>` 和 Python 的 `list` 在内存中完全不同；
-- Rust 的 `Vec<f64>` 和 .NET 的 `List<double>` 也是如此。
-
-`MAP_TYPE` 告诉编译器：当数据跨越某两种语言的边界时，应该调用哪种转换逻辑。没有 `MAP_TYPE`，编译器会拒绝任何涉及这两种类型的跨语言调用。
-
-## 5.2 MAP_TYPE 语法
-
-```ploy
-MAP_TYPE(cpp::int, python::int);
-MAP_TYPE(cpp::double, python::float);
-MAP_TYPE(cpp::std::string, python::str);
-
-// 容器类型（用 _ 连接元素类型）
-MAP_TYPE(cpp::std::vector_int, java::ArrayList_Integer);
-MAP_TYPE(java::HashMap_String_Integer, python::dict);
-MAP_TYPE(rust::Vec_f64, python::list);
-MAP_TYPE(dotnet::List_double, python::list);
-```
-
-## 5.3 基本类型速查表
-
-`.ploy` 提供一套与平台无关的**内置类型**：
-
-| .ploy 类型 | C++ | Python | Rust | Java | C# |
-|-----------|-----|--------|------|------|-----|
-| `INT` | `int` | `int` | `i32` | `int` | `int` |
-| `FLOAT` | `double` | `float` | `f64` | `double` | `double` |
-| `STRING` | `std::string` | `str` | `String` | `String` | `string` |
-| `BOOL` | `bool` | `bool` | `bool` | `boolean` | `bool` |
-| `VOID` | `void` | `None` | `()` | `void` | `void` |
-
-## 5.4 容器类型速查表
-
-| .ploy 类型 | C++ | Python | Rust |
-|-----------|-----|--------|------|
-| `LIST<T>` | `std::vector<T>` | `list[T]` | `Vec<T>` |
-| `TUPLE<T...>` | `std::tuple<T...>` | `tuple` | `(T...)` |
-| `DICT<K,V>` | `std::unordered_map<K,V>` | `dict[K,V]` | `HashMap<K,V>` |
-| `ARRAY<T,N>` | `T[N]` | `list[T]` | `[T; N]` |
-| `OPTION<T>` | `std::optional<T>` | `Optional[T]` | `Option<T>` |
-
-## 5.5 MAP_TYPE 的有效位置
-
-- **全局**（文件顶层）：对整个文件生效；
-- **LINK 体内**：仅对该 LINK 声明的调用链生效（优先级高于全局声明）；
-- **FUNC / PIPELINE 内部**：不支持。
-
----
-
-# 6. 变量与表达式
-
-## 6.1 LET — 不可变绑定
-
-`LET` 声明一个**不可变**局部变量，一旦绑定就不能再赋新值：
-
-```ploy
-LET x = 42;
-LET name: STRING = "PolyglotCompiler";
-LET pi: FLOAT = 3.14159;
-LET flag: BOOL = TRUE;
-
-// CALL 的返回值通常用 LET 绑定
-LET result = CALL(cpp, math_ops::add, 10, 20);
-// result = 999; ← 编译错误：LET 不可重新赋值
-```
-
-## 6.2 VAR — 可变变量
-
-`VAR` 声明一个**可变**局部变量，可以被重新赋值：
-
-```ploy
-VAR counter = 0;
-VAR total: FLOAT = 0.0;
-
-counter = counter + 1;   // ✅ 允许重新赋值
-total = total + 3.14;
-
-// 重新赋值时不需要再写 VAR
-VAR buffer: STRING = "";
-buffer = buffer + "hello";
-```
-
-## 6.3 算术运算符
-
-| 运算符 | 含义 | 备注 |
-|--------|------|------|
-| `+` | 加法 / 字符串拼接 | |
-| `-` | 减法 / 取负 | |
-| `*` | 乘法 | |
-| `/` | 除法 | INT 做整数除法，FLOAT 做浮点除法 |
-| `%` | 取模 | 仅 INT |
-
-## 6.4 比较运算符
-
-| 运算符 | 含义 |
-|--------|------|
-| `==` | 等于 |
-| `!=` | 不等于 |
-| `<` | 小于 |
-| `>` | 大于 |
-| `<=` | 小于等于 |
-| `>=` | 大于等于 |
-
-## 6.5 逻辑运算符
-
-| 运算符 | 含义 | 短路求值 |
-|--------|------|---------|
-| `AND` | 逻辑与 | ✅ |
-| `OR` | 逻辑或 | ✅ |
-| `NOT` | 逻辑非 | — |
-
-## 6.6 字面量类型
-
-```ploy
-LET a = 42;             // INT
-LET b = -10;
-LET c = 3.14;           // FLOAT
-LET d = 1.5e10;         // 科学记数法
-LET s = "Hello!";       // STRING（双引号，支持 \n \t 转义）
-LET t = TRUE;           // BOOL
-LET f = FALSE;
-LET n = NULL;           // 用于 OPTION 类型
-
-LET nums = [1, 2, 3];                  // LIST<INT>
-LET pair = (42, "answer");             // TUPLE<INT, STRING>
-LET mapping = {"a": 1, "b": 2};       // DICT<STRING, INT>
 ```
 
 ---
 
-# 7. 函数
+# 3. 词法结构
 
-## 7.1 FUNC — 函数声明
-
-函数是 `.ploy` 中**复用跨语言逻辑**的基本单元。必须显式指定参数类型和返回类型：
+## 3.1 注释
 
 ```ploy
-FUNC add(a: INT, b: INT) -> INT {
-    RETURN a + b;
-}
-
-FUNC greet(name: STRING) -> STRING {
-    LET message = "Hello, " + name;
-    RETURN message;
-}
-
-FUNC sum_array(data: LIST<FLOAT>) -> FLOAT {
-    LET result = CALL(cpp, math_ops::sum, data);
-    RETURN result;
-}
+// 行注释。
+/* 块注释。 */
+/// polydoc 抽取的文档注释（v1.18 起）。
 ```
 
-`.ploy` 的 `FUNC` 会被编译成语言无关的 IR 函数。用 `EXPORT` 导出后，会生成遵循 C ABI 的导出符号，可被任何语言通过 FFI 调用。
+## 3.2 标识符
 
-## 7.2 RETURN 语句
+`[A-Za-z_][A-Za-z0-9_]*`，区分大小写。标识符由 `frontend_common::SharedTokenPool` 内化。
 
-`RETURN` 终止函数执行并返回值：
+## 3.3 关键字（54 个）
+
+完整列表见第 23 节。约定关键字使用大写；解析器**严格区分大小写**（`func` 是标识符，`FUNC` 才是关键字）。
+
+## 3.4 字面量
+
+| 形式               | 示例                                           | 说明                                                       |
+|--------------------|------------------------------------------------|------------------------------------------------------------|
+| 整数               | `42`、`0xff`、`0o17`、`0b1010`、`1_000_000`    | 允许下划线分隔。                                            |
+| 浮点               | `3.14`、`2.5e-3`、`1_000.5`                    |                                                            |
+| 布尔               | `TRUE`、`FALSE`                                |                                                            |
+| 空                 | `NULL`                                         |                                                            |
+| 字符串（普通）     | `"hello\nworld"`                               | 标准转义（`\n`、`\t`、`\\`、`\"`、`\xNN`、`\uNNNN`）。       |
+| 字符串（原始）     | `r"C:\path"`、`r#"contains "quotes""#`         | 不做转义；`#` 填充以容纳内嵌引号。                          |
+| 字符串（多行）     | `"""line1\nline2"""`                           | 换行原样保留。                                              |
+| 字符串（模板）     | `f"answer = {42}, pi = {3.14}"`                | 大括号内为插值表达式。                                      |
+| 字符               | `'A'`、`'\n'`                                  |                                                            |
+
+## 3.5 空白与语句终止符
+
+语句以 `;` 结尾。块用 `{ ... }`。换行被视作普通空白，没有缩进规则。
+
+---
+
+# 4. 模块导入
 
 ```ploy
-FUNC max(a: INT, b: INT) -> INT {
-    IF a > b {
-        RETURN a;    // 提前返回
-    }
-    RETURN b;
-}
+IMPORT cpp::math_ops;            // C++ 翻译单元
+IMPORT python::string_utils;     // Python 模块
+IMPORT rust::data;               // Rust crate
+IMPORT java::com.example.Util;   // Java 全限定名
+IMPORT dotnet::App.Util;         // .NET 命名空间
+IMPORT go::pkg.util;             // Go 包
+IMPORT javascript::./util.js;    // JS 文件（Node 解析）
+IMPORT ruby::util;               // Ruby（require / Bundler）
+
+IMPORT python::numpy PACKAGE "numpy" VERSION ">=1.21";
+IMPORT java::org.json.JSONObject PACKAGE "org.json:json:20231013";
+IMPORT rust::serde PACKAGE "serde" VERSION "1";
+IMPORT dotnet::Newtonsoft.Json PACKAGE "Newtonsoft.Json" VERSION "13.0.*";
 ```
 
-每条分支路径都必须有 `RETURN`（非 VOID 函数）。如果编译器发现某条路径没有返回值，会报错。
+按语言的源文件定位规则记录在 `docs/specs/ploy_language.md`。驱动通过与 `polyver detect` 写入相同的包管理粘合层来解析模块路径。
 
-## 7.3 VOID 函数
+---
 
-返回类型为 `VOID` 的函数不需要 `RETURN` 语句：
+# 5. 类型系统
+
+## 5.1 原生类型（大小写不敏感的同义词）
+
+| `.ploy`             | C++           | Python  | Rust  | Java     | .NET     | Go      | JS / Ruby             |
+|---------------------|---------------|---------|-------|----------|----------|---------|------------------------|
+| `INT` / `i32`       | `int`         | `int`   | `i32` | `int`    | `int`    | `int32` | `Number` / `Integer`   |
+| `LONG` / `i64`      | `int64_t`     | `int`   | `i64` | `long`   | `long`   | `int64` | `BigInt` / `Integer`   |
+| `i8`、`i16`、`u8` … | 定宽整数      | `int`   | 定宽  | 定宽     | 定宽     | 定宽    | 定宽                   |
+| `FLOAT` / `f32`     | `float`       | `float` | `f32` | `float`  | `float`  | `float32` | `Number` / `Float`   |
+| `DOUBLE` / `f64`    | `double`      | `float` | `f64` | `double` | `double` | `float64` | `Number` / `Float`   |
+| `BOOL`              | `bool`        | `bool`  | `bool`| `boolean`| `bool`   | `bool`  | `Boolean` / `TrueClass`|
+| `STRING`            | `std::string` | `str`   | `String` | `String`| `string`| `string`| `String`              |
+| `CHAR`              | `char`        | `str[1]`| `char` | `char`  | `char`   | `rune`  | n/a                    |
+| `VOID`              | `void`        | `None`  | `()`  | `void`   | `void`   | n/a     | `null`                 |
+
+## 5.2 复合类型
+
+| 形式              | 示例                          | 描述                                           |
+|-------------------|-------------------------------|------------------------------------------------|
+| `LIST<T>`         | `LIST<INT>`                   | 动态数组。                                      |
+| `MAP<K, V>`       | `MAP<STRING, INT>`            | 哈希表。                                        |
+| `SET<T>`          | `SET<STRING>`                 | 哈希集合。                                      |
+| `OPTION<T>`       | `OPTION<INT>`                 | Some / None ADT，`IF LET` 解构。               |
+| `RESULT<T, E>`    | `RESULT<INT, STRING>`         | Ok / Err ADT。                                  |
+| `STRUCT`          | `STRUCT Point { x: i32, y: i32 }` | 命名记录。                                  |
+| `T*`              | `INT*`                        | 指针（按宿主 ABI）。                            |
+
+## 5.3 类型修饰符
+
+| 修饰符     | 含义                                                     |
+|------------|----------------------------------------------------------|
+| `CONST`    | 只读绑定。                                                |
+| `MUTABLE`  | 可变绑定（`LET VAR` 默认）。                              |
+| `PUB`      | 跨模块 / 链接边界可见（v1.16）。                          |
+| `PRIVATE`  | 仅当前 `.ploy` 翻译单元内可见。                           |
+
+---
+
+# 6. 变量与常量
 
 ```ploy
-FUNC log_result(value: INT) -> VOID {
-    CALL(python, logger::info, value);
-}
+LET x = 42;                      // 不可变，类型推导
+LET y: i64 = 100;                // 不可变，显式类型
+LET VAR counter: i32 = 0;        // 可变
+LET PI: DOUBLE = 3.14159265;     // 文件域常量
 
-FUNC process(data: LIST<INT>) -> VOID {
-    IF data == NULL {
-        RETURN;    // 提前退出
-    }
-    CALL(cpp, processor::run, data);
-}
+VAR scratch: STRING = "tmp";     // 顶层声明的 LET VAR 简写
 ```
 
-## 7.4 函数参数的类型规则
+`LET` 必须初始化。`LET VAR` 缺少初始化器是解析错误（`polyc-err-E2001`）。
 
-- 参数类型**必须**使用 `.ploy` 内置类型；
-- 不能直接用 `cpp::int` 等语言特定类型作为参数类型；
-- 容器类型参数使用泛型语法：`LIST<INT>`、`DICT<STRING, INT>` 等。
+---
 
-## 7.5 默认参数值与命名实参 *（自 1.11.0 起）*
+# 7. 运算符与表达式
 
-末尾形参可以通过 `=` 携带默认表达式，调用点也可按名字传任意实参：
+| 类别       | 运算符                                                |
+|------------|-------------------------------------------------------|
+| 算术       | `+`、`-`、`*`、`/`、`%`、一元 `-`                     |
+| 比较       | `==`、`!=`、`<`、`<=`、`>`、`>=`                      |
+| 逻辑       | `AND`、`OR`、`NOT`、`&&`、`||`、`!`                   |
+| 位         | `&`、`|`、`^`、`~`、`<<`、`>>`                        |
+| 赋值       | `=`、`+=`、`-=`、`*=`、`/=`、`%=`                     |
+| 成员       | `.`、`[]`                                             |
+| 指针       | `->`、一元 `&`、一元 `*`                              |
+| 区间       | `1..10`（半开）、`1..=10`（闭区间）                   |
 
-```ploy
-FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
-
-LET a = add(10);          // y 取默认值 0
-LET b = add(x: 7);        // 单个命名实参
-LET c = add(2, y: 5);     // 位置 + 命名 混合
-```
-
-默认表达式必须是常量可折叠的字面量 / 一元 / 二元表达式，**或者**
-一次纯的 ploy 内 `FUNC` 调用：
-
-```ploy
-FUNC one() -> i32 { RETURN 1; }
-FUNC scale(value: i32, factor: i32 = one()) -> i32 {
-    RETURN value * factor;
-}
-```
-
-跨语言 `CALL`、闭包捕获、以及在默认值里读取另一个形参都会被拒绝。
-位置实参不可出现在命名实参**之后**；每个必需（无默认值）的形参
-必须由位置或名字提供。
+优先级遵循 `docs/specs/ploy_grammar.md` §6 中的标准 C / Rust 混合规则。
 
 ---
 
 # 8. 控制流
 
-控制流语句让 `.ploy` 函数能够做条件判断、循环和模式匹配。所有控制流结构都以 `{` `}` 包裹代码块，**不使用括号包裹条件**。
-
-## 8.1 IF / ELSE — 条件分支
+## 8.1 IF / ELSE — 外层括号可选（v1.18）
 
 ```ploy
-IF prediction > threshold {
-    RETURN 1;
+IF x > 0 {
+    PRINTLN "positive";
+} ELSE IF x < 0 {
+    PRINTLN "negative";
 } ELSE {
-    RETURN 0;
+    PRINTLN "zero";
+}
+
+IF (x > 0) { PRINTLN "still ok with parens"; }
+```
+
+## 8.2 IF LET 解构（v1.18）
+
+```ploy
+FUNC head_or_zero(opt: OPTION<i32>) -> i32 {
+    IF LET Some(x) = opt {
+        RETURN x;
+    } ELSE {
+        RETURN 0;
+    }
 }
 ```
 
-多分支用 `ELSE IF` 链接：
+## 8.3 WHILE / DO WHILE / FOR
 
 ```ploy
-IF score >= 90 {
-    LET grade = "A";
-} ELSE IF score >= 80 {
-    LET grade = "B";
-} ELSE IF score >= 70 {
-    LET grade = "C";
-} ELSE {
-    LET grade = "F";
-}
-```
-
-> **注意**：`IF` 的条件必须是 BOOL 表达式。不能把 INT 直接当条件，应写 `IF x != 0 { }`。
-
-## 8.2 WHILE — 条件循环
-
-当条件为 `TRUE` 时反复执行，每次执行前检查条件：
-
-```ploy
-VAR i = 0;
+LET VAR i: i32 = 0;
 WHILE i < 10 {
-    CALL(python, process::step, i);
+    PRINTLN i;
     i = i + 1;
 }
-```
 
-## 8.3 FOR — 迭代循环
+FOR x IN xs {
+    PRINTLN x;
+}
 
-`FOR` 用于遍历一个**范围**或**集合**：
-
-```ploy
-// 遍历整数范围 [0, 10)
 FOR i IN 0..10 {
-    CALL(cpp, engine::tick, i);
-}
-
-// 遍历集合中的每个元素
-FOR item IN collection {
-    CALL(python, processor::handle, item);
+    PRINTLN i;
 }
 ```
 
-`FOR` 循环中的迭代变量是**只读**的，不能对其赋值。
-
-## 8.4 MATCH — 模式匹配
-
-`MATCH` 对单个被检值进行派发；每个 `CASE` 携带一个**模式**与可选的
-`IF` 守卫，兑底使用 `DEFAULT` 或通配 `CASE _`。
-
-```ploy
-MATCH mode {
-    CASE 0 {
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    CASE 1 {
-        CALL(cpp, image_processor::enhance, data, 100);
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    CASE 2 {
-        CALL(cpp, image_processor::threshold, data, 100, 0.5);
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    DEFAULT {
-        RETURN 0.0;
-    }
-}
-```
-
-除了字面量分支，`.ploy` 的 `MATCH` 收录了完整的模式语法：
+## 8.4 MATCH（模式匹配，v1.10 起）
 
 ```ploy
 MATCH value {
-    CASE 0                    { RETURN 100; }     // 字面量
-    CASE 2 | 4 | 8 | 16       { RETURN 102; }     // OR 模式
-    CASE 10..20               { RETURN 103; }     // 半开范围
-    CASE 20..=29              { RETURN 104; }     // 闭合范围
-    CASE n @ 100..=199        { RETURN n + 200; } // 在范围上绑定名字
-    CASE x: i32 IF x > 1000   { RETURN x - 1000; }// 类型守卫 + IF 守卫
-    CASE _                    { RETURN -1; }      // 通配兑底
+    1            => PRINTLN "one";
+    2 | 3        => PRINTLN "two or three";
+    n IF n > 10  => PRINTLN "big";
+    _            => PRINTLN "other";
 }
 ```
 
-元组、结构体与 `OPTION` 解构同样可用：
+## 8.5 BREAK / CONTINUE / RETURN
 
 ```ploy
-MATCH point {
-    CASE Point { x: 0, y: 0, .. } { RETURN "origin"; }
-    CASE Point { x, y, .. }       { RETURN "general"; }
+WHILE TRUE {
+    IF done { BREAK; }
+    IF skip { CONTINUE; }
 }
-
-MATCH opt {
-    CASE Some(x) { RETURN x; }
-    CASE None    { RETURN -1; }
-}
-```
-
-> **说明**：
-> * 每个 `CASE` 分支执行完毕后会**自动退出** `MATCH`，不会贯穿。
-> * 对 `bool` 与 `OPTION`，只要覆盖了所有变体，即使没有 `DEFAULT`
->   也认为详尽。
-> * 模式与分支体之间的箭头（`->` 或 `=>`）可选，标准写法不带
->   箭头。
-> * 扩展模式语义、lowering 策略与诊断列表参见
->   [`docs/realization/pattern_matching_zh.md`](../realization/pattern_matching_zh.md)。
-
-## 8.5 BREAK 和 CONTINUE
-
-在循环体内控制执行流：
-
-```ploy
-VAR current = CALL(python, ml_model::predict, data);
-VAR iteration = 0;
-
-WHILE iteration < max_iter {
-    IF current > target {
-        BREAK;    // 提前退出循环
-    }
-    CALL(cpp, image_processor::enhance, data, 100);
-    current = CALL(python, ml_model::predict, data);
-    iteration = iteration + 1;
-}
-
-FOR i IN 0..100 {
-    IF i % 2 == 0 {
-        CONTINUE;  // 跳过偶数，进入下一次迭代
-    }
-    CALL(python, process::handle_odd, i);
-}
+RETURN 0;
 ```
 
 ---
 
-# 9. 结构体与自定义类型
-
-## 9.1 为什么需要 STRUCT？
-
-在跨语言编程中，经常需要把**一组相关字段**打包成一个复合数据结构，然后在不同语言之间传递。`.ploy` 的 `STRUCT` 允许你在语言中立的层面定义复合类型，编译器会自动生成各语言的等价结构体定义，并在跨语言传递时做正确的内存布局转换。
-
-## 9.2 STRUCT — 结构体定义
+# 9. 函数
 
 ```ploy
-STRUCT PipelineConfig {
-    width: INT;
-    height: INT;
-    channels: INT;
-    learning_rate: FLOAT;
-    epochs: INT;
+FUNC add(a: i32, b: i32) -> i32 {
+    RETURN a + b;
 }
 
-STRUCT Experiment {
-    name: STRING;
-    epochs: INT;
-    learning_rate: FLOAT;
-    converged: BOOL;
+// 默认参数（v1.10）
+FUNC greet(name: STRING = "world") -> STRING {
+    RETURN f"hello, {name}";
+}
+
+// 多返回值通过 STRUCT 或 RESULT。
+FUNC parse(s: STRING) -> RESULT<i32, STRING> {
+    IF s == "0" { RETURN Ok(0); }
+    RETURN Err("not a digit");
 }
 ```
 
-**字段类型约束**：只能使用 `.ploy` 内置类型（`INT`、`FLOAT`、`STRING`、`BOOL`）和容器类型。
-
-## 9.3 创建结构体实例
-
-```ploy
-LET config = PipelineConfig {
-    width: 1920,
-    height: 1080,
-    channels: 3,
-    learning_rate: 0.001,
-    epochs: 100
-};
-
-VAR result: Experiment = Experiment {
-    name: "exp_01",
-    epochs: 50,
-    learning_rate: 0.01,
-    converged: FALSE
-};
-```
-
-## 9.4 成员访问
-
-```ploy
-LET w = config.width;
-LET lr = config.learning_rate;
-
-CALL(cpp, renderer::resize, config.width, config.height);
-
-// 修改可变结构体字段（只有 VAR 声明的实例才可修改）
-result.converged = TRUE;
-result.epochs = result.epochs + 1;
-```
+`.ploy` 程序入口为 `FUNC main() -> i32`。驱动也接受 `FUNC main()`（返回 unit，被视作退出码 0）。
 
 ---
 
-# 10. 跨语言调用
-
-## 10.1 CALL 的工作原理
-
-`CALL` 是 `.ploy` 中最核心的操作，执行**跨语言函数调用**：
-1. 编译器查找已注册的桥接函数（由 `LINK` 声明生成）；
-2. 在调用点插入类型转换代码（根据 `MAP_TYPE` 规则）；
-3. 通过运行时 ABI（C 调用约定）调用目标语言的函数；
-4. 将返回值转换回 `.ploy` 内置类型。
-
-## 10.2 CALL 语法
+# 10. 可见性与属性（v1.16）
 
 ```ploy
-// CALL(<语言>, <模块>::<函数>, <参数...>)
-LET sum       = CALL(cpp,    math_ops::add,               10, 20);
-LET formatted = CALL(python, string_utils::format_result, sum);
-LET data      = CALL(rust,   data_loader::load_batch,     "data.csv", 64);
-LET sorted    = CALL(java,   SortEngine::sortInts,        numbers);
+PUB STRUCT Point { x: i32, y: i32 }   // 跨 LINK 边界可见
+PRIVATE FUNC inner_helper() -> i32 { RETURN 7; }
+
+@inline @hot
+PUB FUNC fast_path(a: i32, b: i32) -> i32 { RETURN a + b; }
+
+@deprecated("use fast_path")
+PUB FUNC slow_path(a: i32, b: i32) -> i32 { RETURN a + b; }
+
+@link_name("ploy_run")
+PUB FUNC run() -> i32 { RETURN fast_path(inner_helper(), 1); }
+
+EXPORT run AS "ploy_run";   // 必须 PUB；导出 PRIVATE 触发 polyc-err-E2410
 ```
 
-**前提**：模块已 `IMPORT`，涉及的类型已有 `MAP_TYPE` 或 `LINK` 声明。
+内置属性：
 
-## 10.3 跨语言调用链
+| 属性                   | 作用                                                            |
+|------------------------|-----------------------------------------------------------------|
+| `@inline`              | 提示内联 Pass 主动内联。                                         |
+| `@hot`                 | 放入热段；影响 PGO 与代码布局。                                   |
+| `@cold`                | 放入冷段。                                                        |
+| `@deprecated("msg")`   | 在每个调用点发出 `polyc-warn-W2401` 警告，`msg` 为说明。          |
+| `@link_name("sym")`    | 覆盖外部可见的符号名。                                            |
+| `@target("feature,…")` | 约束后端特性需求（如 `avx2`、`neon`）。                           |
+| `@no_mangle`           | 禁用名字重整（与裸 C ABI 互操作）。                               |
 
-```ploy
-FUNC process_data(input: LIST<FLOAT>) -> STRING {
-    LET enhanced   = CALL(cpp,    image_processor::enhance,    input, 100);
-    LET prediction = CALL(python, ml_model::predict,           enhanced);
-    LET compressed = CALL(rust,   data_loader::compress,       prediction);
-    LET report     = CALL(python, string_utils::format_result, compressed);
-    RETURN report;
-}
-```
+未知属性触发 `polyc-err-E2402`。完整目录见 `docs/specs/ploy_attributes.md`。
 
 ---
 
-# 11. 面向对象互操作
-
-`.ploy` 提供七个关键字支持跨语言面向对象操作：
-
-| 关键字 | 作用 |
-|--------|------|
-| `NEW` | 创建外部语言的类实例 |
-| `METHOD` | 调用实例的方法 |
-| `GET` | 读取实例的属性 |
-| `SET` | 设置实例的属性 |
-| `WITH` | 自动资源管理（块结束自动析构） |
-| `DELETE` | 手动释放实例 |
-| `EXTEND` | 声明继承外部语言的类 |
-
-## 11.1 NEW — 创建实例
+# 11. 泛型（v1.15）
 
 ```ploy
-LET mat         = NEW(cpp,    matrix::Matrix,     3, 3, 1.0);
-LET model       = NEW(python, model::LinearModel, 3, 1);
-LET parser      = NEW(rust,   serde::json::Parser);
-LET engine      = NEW(java,   SortEngine);
-LET transformer = NEW(dotnet, Transformer);
-```
-
-`NEW` 返回一个**不透明对象句柄**（内部类型 `Any`），只能通过 `METHOD`/`GET`/`SET`/`DELETE` 操作。
-
-## 11.2 METHOD — 调用方法
-
-```ploy
-METHOD(cpp, mat, set, 0, 0, 5.0);
-LET val  = METHOD(cpp,    mat,   get,     0, 0);
-LET norm = METHOD(cpp,    mat,   norm);
-LET pred = METHOD(python, model, forward, [1.0, 2.0, 3.0]);
-```
-
-### 链式调用（PyTorch 训练循环）
-
-```ploy
-LET nn_model  = NEW(python, torch::nn::Linear, 784, 10);
-LET optimizer = NEW(python, torch::optim::Adam,
-                    METHOD(python, nn_model, parameters), 0.001);
-METHOD(python, optimizer, zero_grad);
-LET loss = METHOD(python, nn_model, compute_loss, predictions, labels);
-METHOD(python, loss, backward);
-METHOD(python, optimizer, step);
-```
-
-## 11.3 GET — 读取属性
-
-```ploy
-LET rows   = GET(cpp,    mat,   rows);
-LET weight = GET(python, model, weight);
-```
-
-## 11.4 SET — 修改属性
-
-```ploy
-SET(cpp,    mat,   rows,          5);
-SET(python, model, learning_rate, 0.001);
-```
-
-## 11.5 WITH — 自动资源管理
-
-`WITH` 块结束后，无论是否出错，都自动释放资源：
-
-```ploy
-WITH conn = NEW(python, database::Connection, "postgresql://localhost/mydb") {
-    LET result = METHOD(python, conn, query,    "SELECT * FROM users");
-    LET users  = METHOD(python, conn, fetchall);
+STRUCT Pair<A, B> {
+    first: A,
+    second: B
 }
-// conn 在 WITH 块结束后自动关闭
 
-WITH file    = NEW(rust, std::fs::File,   "output.bin"),
-     encoder = NEW(cpp,  codec::Encoder,  1920, 1080) {
-    METHOD(rust, file, write, METHOD(cpp, encoder, encode, raw_data));
+FUNC max<T: Comparable>(a: T, b: T) -> T {
+    IF a > b { RETURN a; } ELSE { RETURN b; }
+}
+
+FUNC identity<T>(x: T) -> T { RETURN x; }
+
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
+    RETURN a + b;
 }
 ```
 
-## 11.6 DELETE — 手动释放
+约束既可写在内联（`T: Comparable`），也可写在尾随 `WHERE` 子句中。运行时当前走 `docs/realization/generics.md` 描述的 **类型擦除 MVP** 路径；按实例化进行的完整单态化作为后续工作跟踪。
 
-```ploy
-LET mat = NEW(cpp, matrix::Matrix, 100, 100, 0.0);
-DELETE(cpp, mat);   // 调用 C++ 析构函数，释放内存
-```
-
-> **最佳实践**：优先用 `WITH`，只有需要跨代码块共享对象生命周期时才手动 `DELETE`。
-
-## 11.7 EXTEND — 跨语言继承
-
-```ploy
-EXTEND python::torch.nn.Module AS MyModel {
-    FUNC forward(x: LIST<FLOAT>) -> LIST<FLOAT> {
-        LET hidden = CALL(cpp, activations::relu, x);
-        RETURN CALL(python, layers::linear, hidden);
-    }
-}
-```
-
-`MyModel` 可被 Python 代码当作标准 `nn.Module` 使用，同时其 `forward` 由 `.ploy` 定义并调用 C++。
-
-> **使用限制（自 1.11.0 起）。** `EXTEND` 现在**只**接受动态宿主
-> 语言 `python`、`ruby`、`javascript`（以及标签别名 `rb`、`js`、
-> `typescript`、`ts`）。在静态类型语言 —— `cpp`、`c`、`rust`、
-> `java`、`dotnet` / `csharp`、`go` / `golang` —— 上使用 `EXTEND`
-> 会被 sema 拒绝；推荐改写为本地 ploy `FUNC` 包装，再用 `CALL` /
-> `METHOD` 调用外部 API。完整迁移示例参见
-> [`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)。
+内置 trait 约束：`Comparable`、`Numeric`、`Hashable`、`Display`、`Clone`、`Send`。
 
 ---
 
-# 12. 管道
-
-## 12.1 什么是 PIPELINE？
-
-`PIPELINE` 是 `.ploy` 中用于**编排多阶段、跨语言工作流**的顶层声明。你可以把它理解为一个"命名的工作流容器"，里面包含多个 `FUNC`，每个 `FUNC` 代表工作流的一个阶段，各阶段可以使用不同的语言。
-
-与独立 `FUNC` 的区别在于：
-- `PIPELINE` 内部的函数逻辑上相关联；
-- 整个 `PIPELINE` 可以作为一个整体 `EXPORT`；
-- 明确表达了这些阶段是**有序协作**的意图。
-
-## 12.2 PIPELINE 基本语法
-
-```
-PIPELINE <管道名> {
-    FUNC <阶段1>(...) -> <类型> { ... }
-    FUNC <阶段2>(...) -> <类型> { ... }
-}
-```
-
-## 12.3 图像分类管道示例
-
-```ploy
-PIPELINE image_classification {
-
-    // 第 1 阶段：C++ 预处理——高斯模糊 + 增强
-    FUNC preprocess(input: LIST<FLOAT>, size: INT) -> LIST<FLOAT> {
-        CALL(cpp, image_processor::gaussian_blur, input, size, 1.5);
-        CALL(cpp, image_processor::enhance, input, size);
-        RETURN input;
-    }
-
-    // 第 2 阶段：Python ML 分类
-    FUNC classify(data: LIST<FLOAT>, threshold: FLOAT) -> INT {
-        LET prediction = CALL(python, ml_model::predict, data);
-        IF prediction > threshold {
-            RETURN 1;
-        } ELSE {
-            RETURN 0;
-        }
-    }
-
-    // 第 3 阶段：批处理
-    FUNC process_batch(batch_size: INT) -> INT {
-        VAR total_positive = 0;
-        FOR i IN 0..batch_size {
-            LET sample = [1.0, 2.0, 3.0];
-            LET result = CALL(python, ml_model::classify, sample, 0.5);
-            IF result == 1 {
-                total_positive = total_positive + 1;
-            }
-        }
-        RETURN total_positive;
-    }
-
-    // 第 4 阶段：模式分发
-    FUNC dispatch(mode: INT, data: LIST<FLOAT>) -> FLOAT {
-        MATCH mode {
-            CASE 0 {
-                RETURN CALL(python, ml_model::predict, data);
-            }
-            CASE 1 {
-                CALL(cpp, image_processor::enhance, data, 100);
-                RETURN CALL(python, ml_model::predict, data);
-            }
-            DEFAULT {
-                RETURN 0.0;
-            }
-        }
-    }
-}
-```
-
-## 12.4 包含 OOP 的管道
-
-```ploy
-PIPELINE training_pipeline {
-    FUNC train(epochs: INT) -> FLOAT {
-        LET model  = NEW(python, model::LinearModel, 4, 2);
-        LET loader = NEW(python, model::DataLoader,  data, 1);
-
-        VAR total_loss = 0.0;
-        VAR epoch = 0;
-
-        WHILE epoch < epochs {
-            LET batch = METHOD(python, loader, next_batch);
-            LET mat   = NEW(cpp, matrix::Matrix, 1, 4, 0.0);
-            LET loss  = METHOD(python, model, train_step,
-                               [1.0, 2.0, 3.0, 4.0], [1.0, 0.0]);
-            total_loss = total_loss + loss;
-            epoch = epoch + 1;
-        }
-
-        METHOD(python, loader, reset);
-        RETURN total_loss;
-    }
-}
-```
-
----
-
-# 13. 环境配置
-
-## 13.1 为什么需要 CONFIG？
-
-在跨语言项目里，Python/Java/.NET 等语言往往依赖特定的虚拟环境。`CONFIG` 用来声明"这种语言应该用哪个环境"，编译器和运行时会按照这里的配置初始化相应的运行时环境。
-
-## 13.2 CONFIG 语法
-
-```ploy
-// venv（标准虚拟环境）
-CONFIG VENV python "env/python";
-CONFIG VENV python "/opt/ml-env";
-
-// Conda 环境（指定环境名称）
-CONFIG CONDA python "ml_env";
-
-// uv 管理的环境
-CONFIG UV python "D:/venvs/uv_env";
-
-// Pipenv 项目（指向含 Pipfile 的目录）
-CONFIG PIPENV python "C:/projects/myapp";
-
-// Poetry 项目（指向含 pyproject.toml 的目录）
-CONFIG POETRY python "C:/projects/poetry_app";
-
-// .NET 环境
-CONFIG VENV dotnet "env/dotnet";
-```
-
-### 重要规则
-
-1. **每种语言只能有一个 CONFIG**：重复声明同一种语言会报编译错误。
-2. **CONFIG 必须在 IMPORT PACKAGE 之前**：编译器解析 `IMPORT PACKAGE` 时会查找 CONFIG 声明的环境。
-3. **路径可以是相对路径**：相对于 `.ploy` 文件所在目录。
-
-## 13.3 完整配置示例
-
-```ploy
-// 第一步：声明环境（必须在 IMPORT PACKAGE 之前）
-CONFIG VENV python "env/python";
-CONFIG VENV dotnet "env/dotnet";
-
-// 第二步：导入外部包
-IMPORT python PACKAGE numpy >= 1.24 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-IMPORT python PACKAGE scipy >= 1.11 AS sp;
-IMPORT dotnet PACKAGE Newtonsoft.Json >= 13.0 AS njson;
-```
-
----
-
-# 14. 类型转换
-
-## 14.1 自动转换 vs 显式转换
-
-`MAP_TYPE` 声明的类型映射是**自动**发生的——编译器在调用点自动插入转换代码。
-
-但有时自动映射不够用，比如：
-- 需要在函数内部临时把一种语言的类型转换为另一种；
-- 目标函数期望的类型没有对应的 `MAP_TYPE` 声明；
-- 需要基本类型之间的数值转换（INT → FLOAT）。
-
-这时就需要 `CONVERT` 显式转换。
-
-## 14.2 CONVERT — 显式类型转换
-
-```ploy
-// CONVERT(<表达式>, <目标类型>)
-
-// Python list → .NET List<double>
-LET py_list    = CALL(python, data_science::random_matrix, 1, 5);
-LET dotnet_arr = CONVERT(py_list, dotnet::List_double);
-
-// .NET List<double> → Python list
-LET py_flat = CONVERT(flat, python::list);
-
-// INT → FLOAT
-LET int_val: INT = 42;
-LET float_val = CONVERT(int_val, FLOAT);
-```
-
-**何时用 CONVERT 而非 MAP_TYPE？**
-- `MAP_TYPE`：声明两种类型在**跨语言调用边界**上的等价关系，是"全局规则"；
-- `CONVERT`：在函数体内部做**临时的、点对点**的类型转换，是"局部操作"。
-
-## 14.3 MAP_FUNC — 自定义转换函数
-
-```ploy
-MAP_FUNC convert_to_float(x: INT) -> FLOAT {
-    LET result = CONVERT(x, FLOAT);
-    RETURN result;
-}
-
-MAP_FUNC score_to_grade(score: INT) -> STRING {
-    IF score >= 90 { RETURN "A"; }
-    ELSE IF score >= 80 { RETURN "B"; }
-    ELSE IF score >= 70 { RETURN "C"; }
-    ELSE { RETURN "F"; }
-}
-```
-
----
-
-# 15. 符号导出
-
-## 15.1 为什么要 EXPORT？
-
-`.ploy` 编译后会生成共享库或可执行文件。默认情况下，`.ploy` 内部定义的函数和管道是**内部符号**，不对外可见。`EXPORT` 让你明确控制哪些符号暴露给外部。
-
-## 15.2 EXPORT 语法
-
-```ploy
-// 用原始名称导出
-EXPORT compute;
-EXPORT my_pipeline;
-
-// 用别名导出（遵循 C ABI 命名约定）
-EXPORT compute_and_format AS "polyglot_compute";
-EXPORT distance_report    AS "polyglot_distance";
-EXPORT image_classification AS "image_pipeline";
-```
-
-## 15.3 PIPELINE 的导出
-
-导出整个管道时，管道内所有 `FUNC` 都会被导出：
-
-```ploy
-PIPELINE image_classification {
-    FUNC preprocess(...) { ... }
-    FUNC classify(...) { ... }
-}
-
-EXPORT image_classification AS "img_pipe";
-// 外部可以调用 img_pipe.preprocess 和 img_pipe.classify
-```
-
----
-
-# 16. 错误处理与诊断
-
-`.ploy` 编译器会在**编译期**捕获大多数错误，并给出清晰的诊断信息。
-
-## 16.1 错误信息格式
-
-每条编译器错误信息包括：
-- **错误码**（如 `E3010`）：可用于查阅文档；
-- **错误描述**：说明出了什么问题；
-- **位置**（文件名:行号:列号）：准确指向出错位置；
-- **建议**（suggestion）：告诉你怎么修复。
-
-## 16.2 常见错误：参数数量不匹配
-
-```ploy
-FUNC param_count_error() -> FLOAT {
-    LET result = CALL(cpp, bad_functions::compute, 42); // ❌ 只传了 1 个参数
-    RETURN result;
-}
-```
-
-```
-Error [E3010]: Parameter count mismatch in call to 'compute'
-  --> error_handling.ploy:44:9
-   | Expected 3 argument(s), got 1
-   = suggestion: Check the function signature for 'compute'
-```
-
-## 16.3 常见错误：类型不匹配
-
-```ploy
-FUNC type_mismatch_error() -> FLOAT {
-    LET result = CALL(python, bad_functions::process, "hello", 42); // ❌ 类型错误
-    RETURN result;
-}
-```
-
-```
-Error [E3011]: Type mismatch for parameter 1 in call to 'process'
-  --> error_handling.ploy:58:9
-   | Expected 'INT', got 'STRING'
-   = suggestion: Consider using CONVERT to convert the argument type
-```
-
-## 16.4 常见错误：未导入的模块
-
-```ploy
-LET x = CALL(cpp, nonexistent::foo, 1);  // ❌ nonexistent 未被导入
-```
-
-## 16.5 常见错误：重复 CONFIG
-
-```ploy
-CONFIG VENV python "env1";
-CONFIG VENV python "env2";   // ❌ python 的 CONFIG 重复定义
-```
-
-## 16.6 常见错误：LET 变量被重新赋值
-
-```ploy
-LET x = 10;
-x = 20;   // ❌ LET 变量不可修改，应使用 VAR
-```
-
-> **参见**：[示例 10: error_handling](../../tests/samples/10_error_handling/)
-
-## 16.7 结构化异常处理 — TRY / CATCH / FINALLY / THROW *(v1.13.0 起)*
-
-使用 `TRY` / `CATCH` / `FINALLY` 处理运行时失败，使用 `THROW` 抛出
-Error。捕获绑定的类型为内建 `Error` 句柄，公开 `message: String`、
-`source_lang: String`、`stacktrace: List<String>` 三个字段。
+# 12. 结构化异常（v1.13）
 
 ```ploy
 FUNC main() {
@@ -1255,425 +375,275 @@ FUNC main() {
         THROW "boom";
     }
     CATCH (e: Error) {
-        PRINTLN "caught\r\n";
+        PRINTLN f"caught: {e.message}";
     }
     FINALLY {
-        PRINTLN "cleanup\r\n";
+        PRINTLN "cleanup";
     }
 }
 ```
 
-不带任何 `CATCH` 与 `FINALLY` 的裸 `TRY` 会被拒绝。允许多个 `CATCH`
-子句，按声明顺序派发；只带 `FINALLY` 而无 `CATCH` 的形式被允许。
+- `THROW <expr>` 抛出一个值；非 `Error` 值由运行时桥包装为统一 `Error` 句柄。
+- 多个 `CATCH` 子句按静态类型自上而下匹配。
+- `FINALLY` 始终执行，包括控制经 `RETURN`、`BREAK` 或重抛离开块时。
 
-运行时桥把宿主语言异常（Python `Exception`、C++ `std::exception`、
-Java `Throwable`、.NET `Exception`、Rust `Result::Err`）映射到统一
-的 `Error` 句柄，因此一个 `CATCH` 子句即可拦截源自任意接入语言的
-失败。
+跨语言反向拦截 Python / C++ / Java / .NET / Rust 异常的能力实现于运行时数据面；统一各宿主模型的 IR 级派发器作为后续工作跟踪。
 
-> 参见 [示例 36: try_catch](../../tests/samples/36_try_catch/) 与
-> `docs/realization/error_handling_zh.md`。
+---
 
-## 16.8 协作式异步与 Await — ASYNC FUNC / AWAIT *(v1.14.0 起)*
-
-使用 `ASYNC FUNC` 声明协作式异步函数，使用 `AWAIT` 暂停直至 future
-解析完成。`ASYNC FUNC` 声明的返回类型 `T` 在 ABI 边界被隐式包装为
-`Future<T>`。`AWAIT <expr>` 仅允许出现在 `ASYNC FUNC` 体内，其它
-位置由 sema 拒绝。
+# 13. 协作式 async / await（v1.14）
 
 ```ploy
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
-ASYNC FUNC chained() -> i32 {
+ASYNC FUNC pipeline_demo() -> i32 {
     LET a = AWAIT fetch_one();
     LET b = AWAIT fetch_two();
-    RETURN 0;
-}
-```
-
-协作式事件循环（默认单线程；基于 `runtime/threading.{h,cpp}` 的
-work-stealing 线程池为后续工作）实现位于
-`runtime/services/async_bridge.cpp` 与
-`runtime/services/event_loop.cpp`。各宿主语言适配器把宿主 awaitable
-（Python `asyncio` 协程、Rust `Future`、C++20 `std::coroutine`、
-Java `CompletableFuture`、.NET `Task<T>`）通过
-`__ploy_rt_future_resolve` 映射到同一个 `Future<T>` 句柄。
-
-`polyrt async` CLI 输出协作式事件循环的快照；
-`polyrt async --json` 以 JSON 输出同一负载，
-`polyrt async --run[=N]` 在汇报前最多驱动 `N` 个 tick。
-
-> 参见 [示例 37: async_await](../../tests/samples/37_async_await/) 与
-> `docs/realization/async_model_zh.md`。
-
-## 16.9 泛型 — 带 bound 的 FUNC<T> / STRUCT<T> *(v1.15.0 起)*
-
-在 `FUNC` 或 `STRUCT` 名后使用 `<T: Bound1 + Bound2, U>` 引入
-带可选 trait bound 的泛型类型参数。可选的 `WHERE` 子句位于
-返回类型与函数体之间，并入对应参数的 bound。
-
-```ploy
-FUNC max<T: Comparable>(a: T, b: T) -> T {
-    IF (a > b) { RETURN a; } ELSE { RETURN b; }
-}
-
-STRUCT Pair<A, B> { first: A, second: B }
-
-FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
     RETURN a + b;
 }
 ```
 
-内建 trait 注册表为 `Comparable`、`Hashable`、`Numeric`、
-`Iterable`、`Display`，sema 拒绝未知 bound。v1.15.0 的下沉路径是
-类型擦除 — 每个类型参数解析为 `Any`，函数或结构体仅下沉一次 —
-单一体服务所有调用点。
+- `ASYNC FUNC name(...) -> T` 声明返回值被隐式包装为 `Future<T>` 的函数。
+- `AWAIT <expr>` 挂起当前 ASYNC 帧，直到所等待的 future 完成。
+- 桥接的运行时 ABI（`__ploy_rt_async_*`）实现于 `runtime/services/async_bridge.{h,cpp}` 与 `runtime/services/event_loop.{h,cpp}`。
 
-> 参见 [示例 38: generics](../../tests/samples/38_generics/) 与
-> `docs/realization/generics_zh.md`。
+观察协作循环：
 
-## 16.10 可见性（PUB / PRIVATE）与属性（@name） *(v1.16.0 起)*
-
-使用 `PUB` 将顶层 `FUNC`、`ASYNC FUNC` 或 `STRUCT` 导出至其他模块；
-默认为 `PRIVATE`（模块本地），可显式书写。`EXPORT` 要求目标为 `PUB`
-— 显式 `PRIVATE` 为硬错误，而仍携默认值的符号会被自动升级并
-发出弃用警告，以保证 v1.16.0 之前的源码可编译。
-
-```ploy
-@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
-PRIVATE STRUCT Internal { x: i32 }
-PUB FUNC api() -> i32 { RETURN fast(1, 2); }
-EXPORT api AS "api_external";
+```bash
+polyrt async --json        # 快照
+polyrt async --run=64      # 推进 64 个 tick
 ```
 
-属性形式为 `@name` 或 `@name(arg, ...)`；内建注册表为 `@inline`、
-`@noinline`、`@always_inline`、`@hot`、`@cold`、`@profile`、
-`@no_profile`、`@deprecated`、`@link_name`、`@target`。未知属性以
-sema 警告接受，便于第三方工具在不改动编译器的情况下扩展目录。
-v1.16.0 MVP 把属性以惰性元数据形式留在 AST 上；接入优化器与
-链接器作为后续工作跟踪。
-
-> 参见 [示例 39: visibility_attrs](../../tests/samples/39_visibility_attrs/) 与
-> `docs/realization/visibility_attrs_zh.md`、
-> `docs/specs/attribute_catalog_zh.md`。
-
-## 16.11 扩展字符串字面量 *(v1.17.0 起)*
-
-Ploy 1.17.0 引入四种字符串字面量形式，全部共享 `String` 值类型：
-
-```ploy
-LET reg  = "hello\n";                                  // 普通
-LET path = r"C:\path\no\escape";                       // 原始
-LET sql  = r#"SELECT "name" FROM users"#;              // 带 `#` 填充的原始
-LET poem = """line one
-line two""";                                           // 多行
-LET msg  = f"answer = {42}, pi = {3.14}";              // 模板
-```
-
-模板字符串（`f"..."`）以大括号包裹插值表达式；`{{` / `}}` 表示
-字面大括号。Sema 要求每个插值表达式为 `Int`、`Float`、`String` 或
-`Bool`。v1.17.0 的下沉层在所有插值都是编译期 `Literal` 时进行
-立即折叠；用于运行时变量插值的格式化辅助函数作为后续工作跟踪。
-
-> 参见 [示例 40: string_literals](../../tests/samples/40_string_literals/) 与
-> `docs/realization/string_literals_zh.md`。
+运行时 async 桥连接 Python `asyncio`、Rust `Future`、C++20 协程、Java `CompletableFuture`、.NET `Task<T>`。
 
 ---
 
-# 17. 完整示例
-
-## 17.1 基本跨语言链接
-
-> 源码：[示例 01: basic_linking](../../tests/samples/01_basic_linking/)
+# 14. 扩展字符串字面量（v1.17）
 
 ```ploy
-IMPORT cpp::math_ops;
-IMPORT python::string_utils;
-
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
-}
-
-MAP_TYPE(cpp::int, python::int);
-MAP_TYPE(cpp::double, python::float);
-
-FUNC compute_and_format(a: INT, b: INT) -> STRING {
-    LET sum       = CALL(cpp,    math_ops::add,               a, b);
-    LET formatted = CALL(python, string_utils::format_result, sum);
-    RETURN formatted;
-}
-
-EXPORT compute_and_format AS "polyglot_compute";
+LET path     = r"C:\projects\polyglot";                        // 原始 — 无转义
+LET sql      = r#"SELECT "name", "age" FROM users"#;           // 原始 + # 填充
+LET haiku    = """An old silent pond
+A frog jumps in
+splash, silence again""";                                      // 多行
+LET greeting = f"answer = {42}, pi = {3.14}";                   // 模板 / 插值
 ```
 
-**运行逻辑**：
-1. 调用 C++ 的 `math_ops::add(a, b)` 得到整数结果；
-2. 桥接代码把 C++ `int` 转换为 Python `int`；
-3. 调用 Python 的 `format_result` 得到字符串；
-4. 返回字符串。
+模板字符串可插入任何实现 `Display` 的表达式。混合形式（`fr"..."`、`rf"..."` 等）**不**在表面文法之内 — 用拼接，或将 `f"..."` 与 `r"..."` 子串组合。
 
-## 17.2 ML 训练管道
+---
 
-> 源码：[示例 05: class_instantiation](../../tests/samples/05_class_instantiation/)
+# 15. STRUCT、OPTION、模式匹配
 
 ```ploy
-IMPORT cpp::matrix;
-IMPORT python::model;
+STRUCT Point { x: i32, y: i32 }
 
-LINK(cpp, python, matrix::Matrix, model::LinearModel) {
-    MAP_TYPE(cpp::double, python::float);
-    MAP_TYPE(cpp::int,    python::int);
-}
+LET p: Point = Point { x: 1, y: 2 };
+PRINTLN p.x;
+PRINTLN p.y;
 
-PIPELINE training_pipeline {
-    FUNC train(epochs: INT) -> FLOAT {
-        LET model  = NEW(python, model::LinearModel, 4, 2);
-        LET loader = NEW(python, model::DataLoader,  data, 1);
-
-        VAR total_loss = 0.0;
-        VAR epoch = 0;
-
-        WHILE epoch < epochs {
-            LET batch = METHOD(python, loader, next_batch);
-            LET mat   = NEW(cpp, matrix::Matrix, 1, 4, 0.0);
-            LET loss  = METHOD(python, model, train_step,
-                               [1.0, 2.0, 3.0, 4.0], [1.0, 0.0]);
-            total_loss = total_loss + loss;
-            epoch = epoch + 1;
-        }
-
-        METHOD(python, loader, reset);
-        RETURN total_loss;
+FUNC find(xs: LIST<i32>, key: i32) -> OPTION<i32> {
+    FOR (i, x) IN xs.enumerate() {
+        IF x == key { RETURN Some(i); }
     }
+    RETURN None;
 }
 
-EXPORT training_pipeline AS "train_pipeline";
+MATCH find(xs, 7) {
+    Some(i) => PRINTLN f"index = {i}";
+    None    => PRINTLN "not found";
+}
 ```
 
-## 17.3 五语言全栈
+---
 
-> 源码：[示例 15: full_stack](../../tests/samples/15_full_stack/)
+# 16. 面向对象构造
 
-此示例展示了所有五种支持的语言在单个管道中协同工作：
-- **C++**：高性能图像/矩阵处理；
-- **Python**：机器学习推理（PyTorch/NumPy）；
-- **Rust**：高效数据加载和压缩；
-- **Java**：排序和集合处理；
-- **.NET (C#)**：JSON 序列化/反序列化。
+`.ploy` 提供宿主无关的对象模型，使跨语言调用形态一致 — 无论接收者来自 C++、Python、Java、.NET、Rust 等。
 
-## 17.4 环境配置与包管理
+| 操作                                | 语法                                                    |
+|-------------------------------------|---------------------------------------------------------|
+| 构造宿主对象                         | `LET p = NEW(python, Person, "Alice", 30);`             |
+| 调用实例方法                         | `LET name = METHOD(p, "get_name");`                     |
+| 读取字段 / 属性                      | `LET age = GET(p, "age");`                              |
+| 写入字段 / 属性                      | `SET(p, "age", 31);`                                    |
+| 显式生命周期借用                     | `WITH(p) { ... }`                                       |
+| 提前释放宿主句柄                     | `DELETE(p);`                                            |
+| 用 `.ploy` 实现扩展宿主类             | `EXTEND python::Animal AS Cat { ... }`                  |
 
-> 源码：[示例 16: config_and_venv](../../tests/samples/16_config_and_venv/)
+参见样例 `05_class_instantiation` … `08_delete_extend`。
+
+---
+
+# 17. 跨语言链接
+
+`LINK` 声明把目标可调用绑定到源可调用：
 
 ```ploy
-CONFIG VENV python "env/python";
-CONFIG VENV dotnet "env/dotnet";
-
-IMPORT python PACKAGE numpy >= 1.24 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-IMPORT dotnet PACKAGE Newtonsoft.Json >= 13.0 AS njson;
-
-IMPORT dotnet::Transformer;
-IMPORT python::data_science;
-
-FUNC json_round_trip() -> STRING {
-    LET json_str    = CALL(python,  data_science::to_json,       "ResNet-50");
-    LET transformer = NEW(dotnet,   Transformer);
-    LET parsed      = METHOD(dotnet, transformer, ParseJson,     json_str);
-    LET enriched    = METHOD(dotnet, transformer, Enrich,        parsed, "validated", "true");
-    LET back        = METHOD(dotnet, transformer, ToJsonString,  enriched);
-    RETURN back;
+LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {
+    MAP_TYPE(cpp::int, python::str);
+    MAP_TYPE(cpp::int, python::str);
 }
-
-FUNC explicit_conversion() -> FLOAT {
-    LET py_list     = CALL(python,  data_science::random_matrix, 1, 5);
-    LET dotnet_arr  = CONVERT(py_list, dotnet::List_double);
-    LET transformer = NEW(dotnet,   Transformer);
-    LET flat        = METHOD(dotnet, transformer, Flatten,       dotnet_arr);
-    LET py_flat     = CONVERT(flat, python::list);
-    LET avg         = CALL(python,  data_science::mean,          py_flat);
-    RETURN avg;
-}
-
-EXPORT json_round_trip;
-EXPORT explicit_conversion;
 ```
+
+形式为：
+
+```
+LINK(<目标语言>, <源语言>, <目标可调用>, <源可调用>) RETURNS <目标返回类型> {
+    MAP_TYPE(<目标参数类型>, <源参数类型>);
+    ... // 每个参数恰好一条 MAP_TYPE
+}
+```
+
+Sema 强制：
+
+- 双侧元数必须一致（`polyc-err-E3104`）；
+- 每个参数恰好一条 `MAP_TYPE`（`polyc-err-E3105`）；
+- `RETURNS` 类型在目标语言必须可 marshalling（`polyc-err-E3106`）。
+
+链接声明完成后，`CALL` 通过运行时 marshalling 层调用桥接的可调用：
+
+```ploy
+LET sum = CALL(cpp, math_ops::add, 1, 2);
+```
+
+marshalling 由 `runtime/src/interop/` 生成，记录在按目标的调用图中（`polyc --emit=call-graph:cg.json`）。
 
 ---
 
-# 18. 关键字参考
+# 18. 类型映射与转换
 
-`.ploy` 共有 **54 个关键字**，按功能分类如下：
+文件级全局类型等价用 `MAP_TYPE` 声明：
 
-## 18.1 声明类关键字
+```ploy
+MAP_TYPE(cpp::int,    python::int);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(rust::String, java::String);
+```
 
-| 关键字 | 用途 | 示例 |
-|--------|------|------|
-| `LINK` | 声明跨语言函数链接，生成桥接代码 | `LINK(cpp, python, f1, f2) { }` |
-| `IMPORT` | 导入模块或外部包 | `IMPORT cpp::math;` |
-| `EXPORT` | 导出符号供外部访问 | `EXPORT f AS "name";` |
-| `MAP_TYPE` | 声明两种语言类型的等价关系 | `MAP_TYPE(cpp::int, python::int);` |
-| `PIPELINE` | 声明多阶段跨语言工作流 | `PIPELINE p { FUNC ... }` |
-| `FUNC` | 定义函数 | `FUNC f(x: INT) -> INT { }` |
-| `CONFIG` | 配置语言运行时环境 | `CONFIG VENV python "env";` |
+自定义转换器用 `CONVERT` 注册：
 
-## 18.2 变量类关键字
+```ploy
+CONVERT(cpp::std::vector<int>, python::list) USING py_list_from_vec;
+CONVERT(rust::Vec<u8>,          dotnet::byte[]) USING dotnet_bytes_from_vec;
+```
 
-| 关键字 | 用途 | 示例 |
-|--------|------|------|
-| `LET` | 声明不可变变量 | `LET x = 42;` |
-| `VAR` | 声明可变变量 | `VAR count = 0;` |
-
-## 18.3 类型关键字
-
-| 关键字 | 对应类型 |
-|--------|---------|
-| `VOID` | 无返回值 |
-| `INT` | 整数（对应各语言的 int/i32） |
-| `FLOAT` | 浮点数（对应 double/f64） |
-| `STRING` | 字符串（对应 std::string/str） |
-| `BOOL` | 布尔值 |
-| `ARRAY` | 固定长度数组 |
-| `LIST` | 动态列表 |
-| `TUPLE` | 元组 |
-| `DICT` | 字典/哈希表 |
-| `OPTION` | 可选类型（可能为空） |
-
-## 18.4 控制流关键字
-
-| 关键字 | 用途 |
-|--------|------|
-| `RETURN` | 从函数返回值 |
-| `IF` | 条件分支开始 |
-| `ELSE` | IF 的替代分支 |
-| `WHILE` | 条件循环 |
-| `FOR` | 迭代循环 |
-| `IN` | 配合 FOR 使用（`FOR x IN ...`） |
-| `MATCH` | 值匹配分发 |
-| `CASE` | MATCH 的一个分支 |
-| `DEFAULT` | MATCH 的默认分支 |
-| `BREAK` | 退出循环 |
-| `CONTINUE` | 跳到下一次迭代 |
-
-## 18.5 运算符关键字
-
-| 关键字 | 用途 |
-|--------|------|
-| `AS` | 起别名（EXPORT/IMPORT 中） |
-| `AND` | 逻辑与 |
-| `OR` | 逻辑或 |
-| `NOT` | 逻辑非 |
-| `CALL` | 跨语言函数调用 |
-| `CONVERT` | 显式类型转换 |
-| `MAP_FUNC` | 定义自定义类型转换函数 |
-
-## 18.6 OOP 关键字
-
-| 关键字 | 用途 |
-|--------|------|
-| `NEW` | 创建外部语言类实例 |
-| `METHOD` | 调用实例方法 |
-| `GET` | 读取实例属性 |
-| `SET` | 设置实例属性 |
-| `WITH` | 自动资源管理（自动析构） |
-| `DELETE` | 手动释放实例 |
-| `EXTEND` | 声明继承外部语言类 |
-
-## 18.7 值关键字
-
-| 关键字 | 含义 |
-|--------|------|
-| `TRUE` | 布尔真 |
-| `FALSE` | 布尔假 |
-| `NULL` | 空值（用于 OPTION 类型） |
-
-## 18.8 包管理关键字
-
-| 关键字 | 用途 |
-|--------|------|
-| `PACKAGE` | 外部包导入（与 IMPORT 配合） |
-| `VENV` | 配置 venv/virtualenv 环境 |
-| `CONDA` | 配置 Conda 环境 |
-| `UV` | 配置 uv 管理的环境 |
-| `PIPENV` | 配置 Pipenv 项目 |
-| `POETRY` | 配置 Poetry 项目 |
+转换器符号必须解析为对链接目标可见的运行时辅助函数（`polyrt` 把符号写入 marshalling 表）。
 
 ---
 
-# 19. 最佳实践
+# 19. 管线组合
 
-## 19.1 文件组织顺序
+`PIPELINE` 串接一组跨语言调用，把上一阶段输出穿入下一阶段的第一个参数：
 
-```
-CONFIG（环境配置）
-  ↓
-IMPORT PACKAGE（包导入）
-  ↓
-IMPORT <lang>::<module>（模块导入）
-  ↓
-MAP_TYPE（全局类型映射）
-  ↓
-LINK（跨语言链接声明）
-  ↓
-STRUCT（数据结构定义）
-  ↓
-FUNC / PIPELINE（核心逻辑）
-  ↓
-EXPORT（对外暴露）
+```ploy
+PIPELINE preprocess(text: STRING) -> STRING {
+    text
+    | python::nlp::tokenize
+    | rust::filter::lowercase
+    | cpp::compress::deflate
+    | dotnet::Cipher::encrypt
+}
 ```
 
-## 19.2 变量使用原则
+Sema 校验相邻阶段共享 `MAP_TYPE` 或已注册 `CONVERT`。
 
-- **优先用 `LET`**：`CALL` 的返回值只需绑定一次，用 `LET` 防止意外修改；
-- **只有需要修改时才用 `VAR`**：如循环计数器、累加器等。
+---
 
-## 19.3 跨语言调用原则
+# 20. 诊断码
 
-1. **为每个语言边界声明类型映射**：缺少 `MAP_TYPE` 会导致编译错误；
-2. **函数调用用 `CALL`，方法调用用 `METHOD`**：二者不能互换；
-3. **自动映射不够时用 `CONVERT`**：不要用不当的 `MAP_TYPE` 强行绕过类型检查。
+每条 `.ploy` 诊断都带稳定 id，形如 `polyc-(err|warn)-<E####|W####>`。常见者：
 
-## 19.4 对象生命周期管理
+| 编码                  | 含义                                                          |
+|-----------------------|---------------------------------------------------------------|
+| `polyc-err-E2001`     | `LET` / `LET VAR` 缺少初始化器。                               |
+| `polyc-err-E2102`     | 未知标识符。                                                   |
+| `polyc-err-E2410`     | `EXPORT` 一个 `PRIVATE` 声明。                                 |
+| `polyc-err-E2402`     | 未知 `@属性`。                                                 |
+| `polyc-err-E3104`     | LINK 元数不匹配。                                              |
+| `polyc-err-E3105`     | MAP_TYPE 数量不匹配。                                          |
+| `polyc-err-E3106`     | `RETURNS` 类型不可 marshalling。                              |
+| `polyc-warn-W2101`    | `--container` 与解析的输出后缀不一致。                         |
+| `polyc-warn-W2401`    | 调用了 `@deprecated` API。                                     |
+| `polyc-warn-W2501`    | `IMPORT` 未使用。                                              |
 
-1. **优先用 `WITH`**：对于需要关闭/释放的资源，`WITH` 保证即使出错也正确释放；
-2. **不用 `WITH` 时，记得 `DELETE`**：忘记 `DELETE` 会导致外部对象泄漏；
-3. **`DELETE` 后不要再访问对象**：编译器不能检测悬空句柄，运行时会崩溃。
+运行 `polyc --check file.ploy` 可获得 LSP 形态的 JSON 诊断；同一份 payload 驱动 IDE 问题面板与 `polyls`。完整表见 `docs/specs/ploy_diagnostics.md`。
 
-## 19.5 语言选择策略
+---
 
-| 任务类型 | 推荐语言 | 原因 |
-|----------|---------|------|
-| 高性能数值计算 | C++ / Rust | 无 GC，内存直接控制 |
-| 机器学习推理 | Python | PyTorch/TF 等框架 API 最完善 |
-| 数据加载/文件 IO | Rust | 性能好，内存安全 |
-| 企业应用逻辑 | Java / .NET | 生态完善，易于集成 |
-| JSON/序列化 | .NET / Python | 库支持丰富 |
-| 排序/集合操作 | Java | Collections Framework 成熟 |
+# 21. 文档注释与 `polydoc`（v1.18）
 
-## 19.6 管道设计原则
+`///` 开头的行被 `polydoc` 工具采集，需挂在顶层 `FUNC`、`STRUCT`、`LET`、`VAR` 之上：
 
-1. **每个阶段（FUNC）只做一件事**：便于测试、替换和复用；
-2. **阶段之间用标准 `.ploy` 类型传递数据**；
-3. **命名要表达意图**：`preprocess`、`classify`、`postprocess` 远比 `stage1`、`func_a` 更易读。
+```ploy
+/// 返回 `n` 的绝对值。
+/// i32::MIN 的回绕行为遵循宿主后端。
+FUNC abs(n: i32) -> i32 {
+    IF n < 0 { RETURN -n; }
+    RETURN n;
+}
 
-## 19.7 示例程序索引
+/// 放弃前的最大重试次数。
+LET MAX_RETRY: i32 = 5;
+```
 
-| 示例 | 主要演示内容 |
-|------|------------|
-| [01_basic_linking](../../tests/samples/01_basic_linking/) | LINK、CALL、IMPORT、EXPORT 基础用法 |
-| [02_type_mapping](../../tests/samples/02_type_mapping/) | MAP_TYPE 与复杂类型及 STRUCT |
-| [03_pipeline](../../tests/samples/03_pipeline/) | PIPELINE + IF/WHILE/FOR/MATCH |
-| [04_package_import](../../tests/samples/04_package_import/) | IMPORT PACKAGE + 版本约束 |
-| [05_class_instantiation](../../tests/samples/05_class_instantiation/) | NEW + METHOD OOP 模式 |
-| [06_attribute_access](../../tests/samples/06_attribute_access/) | GET 和 SET |
-| [07_resource_management](../../tests/samples/07_resource_management/) | WITH 自动资源管理 |
-| [08_delete_extend](../../tests/samples/08_delete_extend/) | DELETE 和 EXTEND |
-| [09_mixed_pipeline](../../tests/samples/09_mixed_pipeline/) | 所有特性组合的 ML 管道 |
-| [10_error_handling](../../tests/samples/10_error_handling/) | 错误场景和诊断信息 |
-| [11_java_interop](../../tests/samples/11_java_interop/) | Java 互操作 |
-| [12_dotnet_interop](../../tests/samples/12_dotnet_interop/) | .NET 互操作 |
-| [13_generic_containers](../../tests/samples/13_generic_containers/) | 泛型容器类型 |
-| [14_async_pipeline](../../tests/samples/14_async_pipeline/) | 多阶段信号处理管道 |
-| [15_full_stack](../../tests/samples/15_full_stack/) | 五语言全栈演示 |
-| [16_config_and_venv](../../tests/samples/16_config_and_venv/) | CONFIG + IMPORT PACKAGE + CONVERT |
+```bash
+polydoc file.ploy                # Markdown 输出到 stdout
+polydoc --json file.ploy         # 机器可读
+polydoc -o api.md file.ploy
+```
+
+同一份 doc payload 经 `polyls` 的 hover / signature-help 响应展现。
+
+---
+
+# 22. 样例矩阵导览
+
+| 范围             | 主题                                                                  |
+|------------------|-----------------------------------------------------------------------|
+| `00_minimal`     | 单行最小样例，stdout 按字节固定。                                      |
+| `01` … `09`      | 核心 `.ploy` 互操作 — LINK、MAP_TYPE、PIPELINE、控制流、OOP。           |
+| `10` … `16`      | 诊断、Java / .NET 互操作、泛型容器、async 管线、全栈、CONFIG / VENV。  |
+| `17` … `30`      | 真实领域 — 字符串、数值、文件 I/O、JSON、图像、SQL、HTTP、并发、事件循环、插件、ML、分析、游戏循环。 |
+| `31`、`32`       | 显式宽度整型、类型化句柄。                                             |
+| `33`、`34`       | 模式匹配、默认参数。                                                   |
+| `35`             | 在动态语言上 EXTEND。                                                  |
+| `36`             | TRY / CATCH / FINALLY / THROW（v1.13）。                                |
+| `37`             | ASYNC / AWAIT（v1.14）。                                                |
+| `38`             | 带约束的泛型（v1.15）。                                                 |
+| `39`             | 可见性与属性（v1.16）。                                                 |
+| `40`             | 扩展字符串字面量（v1.17）。                                             |
+| `41`             | 文法收尾 — 可选外层括号、IF LET、`///` 文档注释。                       |
+
+驱动整张矩阵：
+
+```bash
+scripts/build_all_samples.sh   --polyc build/polyc --polyld build/polyld
+scripts\build_all_samples.ps1  -Polyc build\polyc.exe -Polyld build\polyld.exe
+```
+
+脚本写出 `samples_report.json`（顶层带按 ASCII 排序的 `ok` 数组），由 `samples_regression_test.cpp` 与 per-sample 状态字段交叉校验。
+
+---
+
+# 23. 关键字参考
+
+`.ploy` 当前共 54 个关键字（截至 1.45.2）：
+
+```
+AND, AS, ASYNC, AWAIT, BREAK, CALL, CASE, CATCH, CONST, CONTINUE,
+CONVERT, DELETE, DO, DOUBLE, ELSE, EXPORT, EXTEND, FALSE, FINALLY,
+FLOAT, FOR, FUNC, GET, IF, IMPORT, IN, INT, LET, LINK, LIST, LONG,
+MAP, MAP_TYPE, MATCH, METHOD, NEW, NOT, NULL, OPTION, OR, PACKAGE,
+PIPELINE, PRIVATE, PUB, RESULT, RETURN, RETURNS, SET, STRING, STRUCT,
+THROW, TRUE, TRY, USING, VAR, VOID, WHERE, WHILE, WITH
+```
+
+类型标识符（`i8`、`i16`、`i32`、`i64`、`u8`、`u16`、`u32`、`u64`、`f32`、`f64`、`Error`、`Future`、`Some`、`None`、`Ok`、`Err`、`Comparable`、`Numeric`、`Hashable`、`Display`、`Clone`、`Send`）是保留标识符但不是关键字；重定义它们是硬错误。
+
+---
+
+*由 PolyglotCompiler 团队维护*  
+*更新日期：2026-05-07*  
+*文档版本：v3.0.0*

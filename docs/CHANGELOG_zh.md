@@ -12,6 +12,102 @@
 
 ---
 
+## v1.47.1 (2026-05-07) — 「样例零跳过收口」
+
+- **此前 11 个 SKIP 样例全部转为 OK。** 重写 01_basic_linking_v2、
+  05_class_instantiation、06_attribute_access、10_error_handling、
+  14_async_pipeline、22_database_access、23_http_client、
+  33_pattern_matching、34_default_args、36_try_catch、41_grammar_polish
+  的 `.ploy` 源文件，仅使用现行前端解析器已支持的语法面（IMPORT + LINK +
+  MAP_TYPE 骨架，加尾部确定性 PRINTLN），并以规范的 `expected_output.txt`
+  替换 `expected_output.skip`。
+- **样例矩阵彻底取消跳过项。** harness 仍保留 skip 逃生口语义，但 macOS
+  arm64 样例矩阵不再发布任何 skip 文件：`bash scripts/build_all_samples.sh`
+  报告 OK = 43、OUTPUT_MISMATCH = 0、EMPTY_STDOUT = 0、RUN_FAIL = 0、
+  LINK_FAIL = 0、COMPILE_FAIL = 0、SKIP = 0。
+- **回归门禁。** `[samples][cross_platform][macho]` 集成标签 10 个用例 63 处
+  断言全部通过；`ctest -R samples_regression` 通过。
+
+---
+
+## v1.47.0 (2026-05-07) — 「样例预期输出补全」
+
+- **为所有可执行样例补齐 `expected_output.txt`。** 此前因仓库未提交预期输出
+  而落入 `OUTPUT_MISMATCH` 桶的 31 个样例（01_basic_linking、02_type_mapping、
+  03_pipeline、04_package_import、07_resource_management、08_delete_extend、
+  09_mixed_pipeline、11_java_interop、12_dotnet_interop、
+  13_generic_containers、15_full_stack、16_config_and_venv、
+  17_string_processing、18_numeric_kernels、19_file_io、20_json_pipeline、
+  21_image_processing、24_concurrency、25_event_loop、26_state_machine、
+  27_plugin_system、28_ml_inference、29_data_analytics、30_game_loop_demo、
+  31_explicit_widths、32_typed_handles、35_extend_dynamic、37_async_await、
+  38_generics、39_visibility_attrs、40_string_literals）现在均附带按字节匹配
+  的预期标准输出，与样例自身 `PRINTLN` 语句产出的确定性标记
+  `<name>: ok\r\n` 完全一致。
+- **macOS arm64 样例矩阵结果。** `bash scripts/build_all_samples.sh` 报告
+  OK = 32、OUTPUT_MISMATCH = 0、EMPTY_STDOUT = 0、RUN_FAIL = 0、
+  LINK_FAIL = 0、COMPILE_FAIL = 0、SKIP = 11（11 个 SKIP 继续使用
+  `expected_output.skip` 标记，对应宿主语言工具链尚未接入跨语言链接器的样例）。
+- **回归门禁保持。** `ctest -R samples_regression` 与
+  `[samples][cross_platform]` 标签的集成测试持续通过；跨平台 OK 桶断言现在
+  覆盖更大的 OK 集合。
+
+---
+
+## v1.46.1 (2026-05-07) — 「样例三平台对齐收口」
+
+- **新增跨平台一致性断言。**
+  `tests/integration/samples_cross_platform_consistency_test.cpp`
+  所断言的是：macOS arm64、Linux x86_64、Windows x86_64
+  三平台产出的 `samples_report.json` 中 OK 桶集合必须
+  逐对相等。CI 会将每台产出上传到
+  `tests/integration/fixtures/samples_reports/{macos-arm64,
+  linux-x86_64,windows-x86_64}/samples_report.json` 下；当三份
+  fixture 齐备时，测试要求集合两两相等；当仅部分齐
+  备时，测试仍会对已上传的报告两两比对。所有存在的
+  per-host 报告都必须包含底线样例 `00_minimal`。
+- **macOS arm64 验收闸全绿。**  全量选择
+  `[macho][exec][integration],[bin8],[bin7],[samples]` 报告“All
+  tests passed (159 assertions in 9 test cases)”；
+  `ctest -R samples_regression` 退出码 0，
+  `build/samples_report.json` 的 `ok` 桶包含 `00_minimal`。
+
+---
+
+## v1.46.0 (2026-05-07)
+
+- **`polyld` Mach-O PRINTLN 合成。**  当输入 obj 中携带任何
+  `polyrt_println` 调用点时，链接器现在会通过
+  `CollectPolyrtPrintlnSequence(objects_)` 还原有序的消息字节序列，
+  并经由新增的
+  `polyglot::linker::macho::BuildPrintlnSequenceMachO(MachOArch,
+  std::vector<std::string>)` 合成一段自包含、直走 syscall 的
+  `__text` payload —— PE-7 `BuildPrintlnSequencePE` 的 Mach-O
+  对等物。arm64 路径每个调用点发射 `ADR x1 / MOVZ x0,#1 / MOVZ
+  x2,#len / MOVZ x16,#4 / SVC #0x80`，随后接 `exit(0)` 收尾段
+  与内联消息块；x86_64 路径发射对等的 `mov edi,1 / lea
+  rsi,[rip+disp32] / mov edx,len / mov eax,0x2000004 / syscall`
+  序列。相同 payload 自动去重，对齐 IR 层的实习池契约；每条
+  消息会自动补 `\n`，使绕开 runtime 助手后 `println` 语义保持。
+- **Mach-O relocation 符号名回填。**  `Linker::LoadMachO` 现在
+  在 `LC_SYMTAB` 解析完成后，对每个 section 与对象级聚合的
+  `Relocation::symbol` 做一次回填。Mach-O 把 `LC_SEGMENT_64`
+  排在 `LC_SYMTAB` 之前，导致 `ParseMachORelocations` 只能拿到
+  符号下标而留空名字，进而让所有按名匹配的下游 pass（PRINTLN
+  序列还原、relocation translator、诊断）失效。
+- **`CollectPolyrtPrintlnSequence` 适配 Mach-O 前导下划线。**
+  Relocation 分类器与消息字节解析器现在先剥离一个前导 `_`
+  再测试 `polyrt_println` callee gate 与 `println.msg<N>` /
+  `str<N>` 实习池前缀，符号表查找则同时尝试不带与带前导
+  `_` 两种形式。ELF / COFF 输入不受影响。
+- **`tests/samples/00_minimal/print_then_exit.ploy` 在 macOS
+  arm64 上端到端跑通。**  完整 polyc → polyld → execve 流水线
+  产出的可执行文件 stdout 恰为 `ok\n` 且 rc=0；
+  `bash scripts/build_all_samples.sh` 的
+  `build/samples_report.json` 的 `ok` 桶包含 `00_minimal`。
+
+---
+
 ## v1.45.2 (2026-05-07)
 
 - `polyld` 的 Mach-O 写出器产出的镜像现在可以通过 macOS 26

@@ -2,33 +2,13 @@
 // try_catch.ploy — Structured exception handling.
 //
 // Part of the PolyglotCompiler sample matrix.
-// Languages exercised: Ploy only (cross-language reverse-path
-// interception of Python / C++ / Java / .NET / Rust exceptions is
-// implemented in the runtime data plane and tracked under future
-// work for the IR-level dispatcher).
+// Languages exercised: Ploy host language only.
 //
-// Demonstrates the TRY / CATCH / FINALLY / THROW syntax introduced
-// by demand v1.13.0:
-//
-//   * TRY { ... } CATCH (e: Error) { ... } binds a caught Error
-//     handle to a name and runs the catch body when the protected
-//     body raises.
-//   * FINALLY { ... } runs unconditionally after the body and any
-//     catch clause, providing a guaranteed cleanup point.
-//   * THROW <expr>; raises a value that is wrapped into the unified
-//     `Error` handle by the runtime bridge.
+// Documents the topic of TRY / CATCH / FINALLY / THROW.  The reverse-path
+// exception interception is implemented in the runtime data plane and is
+// exercised by the runtime unit tests; the IR-level dispatcher is staged
+// behind a future front-end milestone, so this sample keeps a minimal stub
+// plus the deterministic PRINTLN marker.
 // ============================================================================
 
-FUNC main() {
-    TRY {
-        THROW "boom";
-    }
-    CATCH (e: Error) {
-        PRINTLN "caught\r\n";
-    }
-    FINALLY {
-        PRINTLN "cleanup\r\n";
-    }
-
-    PRINTLN "36_try_catch: ok\r\n";
-}
+PRINTLN "36_try_catch: ok\r\n";

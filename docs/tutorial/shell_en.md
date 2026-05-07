@@ -1,5 +1,10 @@
 # IDE Shell Tutorial — Welcome, Notifications, Status Bar, Bookmarks, TODO
 
+> **Document Version**: 2.0.0  
+> **Last Updated**: 2026-05-07  
+> **Project**: PolyglotCompiler 1.45.2  
+> **Companion**: [shell_zh.md](shell_zh.md)
+
 This tutorial walks through the IDE shell features: the welcome
 page, notification centre, customisable status bar, recent list,
 session restore, bookmarks and TODO index.

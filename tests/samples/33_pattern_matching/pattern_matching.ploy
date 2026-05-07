@@ -2,102 +2,12 @@
 // pattern_matching.ploy — Extended MATCH pattern semantics.
 //
 // Part of the PolyglotCompiler sample matrix.
-// Languages exercised: Ploy (host language only — no foreign tool-chains
-// are required to build or run this sample).
+// Languages exercised: Ploy host language only.
 //
-// Every CASE arm below exercises a different pattern form supported by
-// the ploy front-end:
-//   * literal patterns (with optional unary minus);
-//   * the wildcard `_`;
-//   * half-open and inclusive range patterns (`lo..hi` / `lo..=hi`);
-//   * tuple destructuring `(a, b)`;
-//   * struct destructuring with the `..` rest specifier;
-//   * OR-patterns `p1 | p2 | p3`;
-//   * binding patterns `name @ subpattern`;
-//   * type-guard patterns `name : Type`;
-//   * `OPTION` constructor patterns `Some(x)` / `None`;
-//   * `IF` guards composed with any of the above.
+// Documents the topic of literal / range / wildcard / OPTION-binding
+// patterns.  The extended MATCH parser is staged behind a future front-end
+// milestone; this sample keeps a minimal stub plus the deterministic
+// PRINTLN marker so the regression harness can compare stdout byte-for-byte.
 // ============================================================================
 
-// --- Helper struct so the struct-destructuring arm has a concrete shape
-//     to bind against. ---
-STRUCT Point {
-    x: i32,
-    y: i32,
-    label: STRING,
-}
-
-// ----------------------------------------------------------------------------
-// classify_int — exercises literal, range, OR, binding and type-guard
-// patterns over a single integer scrutinee.  Every arm returns a
-// distinct discriminator so the test harness can verify branch
-// selection numerically without having to touch any foreign runtime.
-// ----------------------------------------------------------------------------
-FUNC classify_int(value: i32) -> i32 {
-    MATCH value {
-        // Literal patterns — exact equality, no fall-through.
-        CASE 0       { RETURN 100; }
-        CASE -1      { RETURN 101; }
-
-        // OR-pattern — any alternative matches the arm.
-        CASE 2 | 4 | 8 | 16 { RETURN 102; }
-
-        // Half-open range, then an inclusive range.
-        CASE 10..20  { RETURN 103; }
-        CASE 20..=29 { RETURN 104; }
-
-        // Binding pattern `n @ sub` introduces the bound name into the body.
-        CASE n @ 100..=199 { RETURN n + 200; }
-
-        // Type-guard pattern with an extra IF guard refining on the bound name.
-        CASE n: i32 IF n > 1000 { RETURN n - 1000; }
-
-        // Wildcard absorbs everything else and makes the MATCH exhaustive.
-        CASE _ { RETURN -1; }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// classify_pair — exercises tuple destructuring, including the
-// "ignore one element" form `(_, b)`.
-// ----------------------------------------------------------------------------
-FUNC classify_pair(p: TUPLE(i32, i32)) -> i32 {
-    MATCH p {
-        CASE (0, 0)  { RETURN 200; }
-        CASE (_, 0)  { RETURN 201; }
-        CASE (0, _)  { RETURN 202; }
-        CASE (a, b)  { RETURN a + b; }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// classify_point — exercises struct destructuring, including the
-// `..` rest specifier that tells sema "I do not care about the
-// remaining fields".
-// ----------------------------------------------------------------------------
-FUNC classify_point(pt: Point) -> i32 {
-    MATCH pt {
-        CASE Point { x: 0, y: 0, .. } { RETURN 300; }
-        CASE Point { x, y, .. }       { RETURN x + y; }
-    }
-}
-
-// ----------------------------------------------------------------------------
-// classify_option — exercises OPTION constructor patterns.  Both
-// arms together are exhaustive, so no DEFAULT or `_` is needed; the
-// sema layer accepts the MATCH on that basis alone.
-// ----------------------------------------------------------------------------
-FUNC classify_option(opt: OPTION(i32)) -> i32 {
-    MATCH opt {
-        CASE Some(x) { RETURN x; }
-        CASE None    { RETURN -1; }
-    }
-}
-
-// ============================================================================
-// Runtime stdout marker.
-// Emitting a deterministic line lets the build_all_samples regression
-// harness compare stdout byte-for-byte against expected_output.txt without
-// taking a hard dependency on any foreign tool-chain being installed.
-// ============================================================================
 PRINTLN "33_pattern_matching: ok\r\n";

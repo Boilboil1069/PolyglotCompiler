@@ -247,4 +247,24 @@ BuildResult BuildMachOImage(const BuildRequest &req);
 std::array<std::uint8_t, 16>
 Uuid16FromContent(const std::vector<std::uint8_t> &bytes);
 
+// ---------------------------------------------------------------------------
+// Synthesised PRINTLN sequence  (companion of pe::BuildPrintlnSequencePE)
+// ---------------------------------------------------------------------------
+
+/// Build a self-contained `__text` section payload that, when entered at
+/// offset 0, emits each `messages[i]` to stdout (BSD `write(2)`) and then
+/// terminates the process with `exit(0)` (BSD `exit(2)`).  The returned
+/// blob already embeds the message bytes inline (PC-relative addressing
+/// from each per-message code block keeps the image fully position-
+/// independent under ASLR).  No external dynamic symbols are required:
+/// every byte is direct-syscall machine code.
+///
+/// `arch` selects between the kArm64 (`mov xN,#imm; svc #0x80`) and
+/// kX86_64 (`mov rax,0x200000N; syscall`) instruction sequences.
+/// `messages` may be empty; in that case the payload only contains the
+/// trailing `exit(0)` epilogue and the process simply returns 0.
+std::vector<std::uint8_t>
+BuildPrintlnSequenceMachO(MachOArch arch,
+                          const std::vector<std::string> &messages);
+
 } // namespace polyglot::linker::macho

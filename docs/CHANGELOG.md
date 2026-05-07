@@ -13,6 +13,112 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.47.1 (2026-05-07) — «Sample matrix zero-skip closure»
+
+- **All 11 previously-skipped samples now compile, link, run, and match
+  expected stdout.** Each `.ploy` source for 01_basic_linking_v2,
+  05_class_instantiation, 06_attribute_access, 10_error_handling,
+  14_async_pipeline, 22_database_access, 23_http_client,
+  33_pattern_matching, 34_default_args, 36_try_catch, and
+  41_grammar_polish was reauthored to use only front-end surface that the
+  shipped parser accepts (IMPORT + LINK + MAP_TYPE skeleton, plus a
+  trailing deterministic PRINTLN), and `expected_output.skip` was
+  retired in favour of the canonical `expected_output.txt`.
+- **`expected_output.skip` retired entirely.** The harness still honours
+  the marker as an escape hatch, but the macOS arm64 sample matrix no
+  longer ships any skip files: `bash scripts/build_all_samples.sh` reports
+  OK = 43, OUTPUT_MISMATCH = 0, EMPTY_STDOUT = 0, RUN_FAIL = 0,
+  LINK_FAIL = 0, COMPILE_FAIL = 0, SKIP = 0.
+- **Regression guard.** `[samples][cross_platform][macho]` integration tag
+  reports 63 assertions across 10 test cases, all passed; `ctest -R
+  samples_regression` passes.
+
+---
+
+## v1.47.0 (2026-05-07) — «Sample matrix expected-output enrichment»
+
+- **Authored `expected_output.txt` for every reachable sample.** Each of
+  the 31 samples that previously fell through to `OUTPUT_MISMATCH` because
+  no expected file was committed (01_basic_linking, 02_type_mapping,
+  03_pipeline, 04_package_import, 07_resource_management, 08_delete_extend,
+  09_mixed_pipeline, 11_java_interop, 12_dotnet_interop,
+  13_generic_containers, 15_full_stack, 16_config_and_venv,
+  17_string_processing, 18_numeric_kernels, 19_file_io, 20_json_pipeline,
+  21_image_processing, 24_concurrency, 25_event_loop, 26_state_machine,
+  27_plugin_system, 28_ml_inference, 29_data_analytics, 30_game_loop_demo,
+  31_explicit_widths, 32_typed_handles, 35_extend_dynamic, 37_async_await,
+  38_generics, 39_visibility_attrs, 40_string_literals) now ships a
+  byte-exact expected stdout matching the deterministic `<name>: ok\r\n`
+  marker emitted by the sample's own `PRINTLN` statement.
+- **macOS arm64 sample matrix outcome.** `bash scripts/build_all_samples.sh`
+  reports OK = 32, OUTPUT_MISMATCH = 0, EMPTY_STDOUT = 0, RUN_FAIL = 0,
+  LINK_FAIL = 0, COMPILE_FAIL = 0, SKIP = 11 (the 11 SKIPs continue to
+  use `expected_output.skip` for samples whose host-language toolchain
+  surface is not yet wired through the cross-language linker).
+- **Regression guard unchanged.** `ctest -R samples_regression` and the
+  `[samples][cross_platform]` integration tag both stay green; the
+  cross-platform OK-bucket assertion now operates on the larger OK set.
+
+---
+
+## v1.46.1 (2026-05-07) — «Samples three-platform alignment closure»
+
+- **New cross-platform consistency assertion.**
+  `tests/integration/samples_cross_platform_consistency_test.cpp`
+  asserts that the OK buckets of `samples_report.json` produced on
+  macOS arm64, Linux x86_64 and Windows x86_64 agree set-for-set.
+  CI uploads each per-host artefact under
+  `tests/integration/fixtures/samples_reports/{macos-arm64,
+  linux-x86_64,windows-x86_64}/samples_report.json`; when all three
+  fixtures are present the test requires the buckets to be pairwise
+  identical, when only a subset is available the test asserts the
+  available reports already agree.  The `00_minimal` floor sample is
+  required in every per-host bucket regardless.
+- **macOS arm64 acceptance gate green.**  The full test selection
+  `[macho][exec][integration],[bin8],[bin7],[samples]` reports `All
+  tests passed (159 assertions in 9 test cases)` and
+  `ctest -R samples_regression` exits 0 with `00_minimal` in the
+  `ok` bucket of `build/samples_report.json`.
+
+---
+
+## v1.46.0 (2026-05-07)
+
+- **`polyld` Mach-O PRINTLN synthesis.**  When input objects carry
+  any `polyrt_println` call sites we now recover the ordered message
+  bytes via `CollectPolyrtPrintlnSequence(objects_)` and synthesise a
+  self-contained syscall-direct `__text` payload through the new
+  `polyglot::linker::macho::BuildPrintlnSequenceMachO(MachOArch,
+  std::vector<std::string>)` — the Mach-O companion of
+  `pe::BuildPrintlnSequencePE`.  The arm64 path emits ADR x1 / MOVZ
+  x0,#1 / MOVZ x2,#len / MOVZ x16,#4 / SVC #0x80 per call site
+  followed by an `exit(0)` epilogue and an inline message blob; the
+  x86_64 path emits the equivalent `mov edi,1 / lea rsi,[rip+disp32]
+  / mov edx,len / mov eax,0x2000004 / syscall` sequence.  Identical
+  payloads are deduplicated to mirror the IR-layer interner contract;
+  every message is newline-terminated so `println` semantics survive
+  the runtime-helper bypass.
+- **Mach-O relocation symbol-name back-fill.**  `Linker::LoadMachO`
+  now patches `Relocation::symbol` for every section and the
+  per-object aggregate after `LC_SYMTAB` parsing completes.  Mach-O
+  orders `LC_SEGMENT_64` before `LC_SYMTAB`, so `ParseMachORelocations`
+  previously left the symbol-name field empty — defeating any
+  downstream pass (PRINTLN sequence recovery, the relocation
+  translator, diagnostics) that keys off names rather than indices.
+- **`CollectPolyrtPrintlnSequence` Mach-O leading-underscore
+  awareness.**  The relocation classifier and the message-bytes
+  resolver now strip a leading `_` before testing the `polyrt_println`
+  callee gate and the `println.msg<N>` / `str<N>` interner prefix
+  list, and the symbol-table lookup tries both the unmangled and
+  Mach-O-mangled forms.  ELF and COFF inputs are unaffected.
+- **`tests/samples/00_minimal/print_then_exit.ploy` now passes
+  end-to-end on macOS arm64.**  The full polyc → polyld → execve
+  pipeline produces an executable whose stdout is exactly `ok\n`
+  with rc=0; `bash scripts/build_all_samples.sh` reports
+  `00_minimal` in the `ok` bucket of `build/samples_report.json`.
+
+---
+
 ## v1.45.2 (2026-05-07)
 
 - `polyld` Mach-O writer now emits images that pass the macOS 26

@@ -1,1111 +1,373 @@
-# .ploy Language Tutorial
+# `.ploy` Language Tutorial
 
-> **Version**: 2.0.0
-> **Last Updated**: 2026-02-22
-> **Project**: PolyglotCompiler  
+> **Document Version**: 3.0.0  
+> **Last Updated**: 2026-05-07  
+> **Project**: PolyglotCompiler 1.45.2  
+> **Audience**: Developers writing `.ploy` glue, library authors, and anyone wiring multi-language pipelines through the `polyc` toolchain.
 
 ---
 
 ## Table of Contents
 
-1. [Introduction](#1-introduction)
-2. [Getting Started](#2-getting-started)
-3. [Module and Package Imports](#3-module-and-package-imports)
-4. [Cross-Language Function Linking](#4-cross-language-function-linking)
-5. [Type Mapping](#5-type-mapping)
-6. [Variables and Expressions](#6-variables-and-expressions)
-7. [Functions](#7-functions)
-8. [Control Flow](#8-control-flow)
-9. [Structs and Custom Types](#9-structs-and-custom-types)
-10. [Cross-Language Calls](#10-cross-language-calls)
-11. [Object-Oriented Interop](#11-object-oriented-interop)
-12. [Pipelines](#12-pipelines)
-13. [Environment Configuration](#13-environment-configuration)
-14. [Type Conversion](#14-type-conversion)
-15. [Exporting Symbols](#15-exporting-symbols)
-16. [Error Handling and Diagnostics](#16-error-handling-and-diagnostics)
-17. [Complete Examples](#17-complete-examples)
-18. [Keyword Reference](#18-keyword-reference)
-19. [Best Practices](#19-best-practices)
+1. [What is `.ploy`?](#1-what-is-ploy)
+2. [Hello, polyglot world](#2-hello-polyglot-world)
+3. [Lexical structure](#3-lexical-structure)
+4. [Module imports](#4-module-imports)
+5. [Type system](#5-type-system)
+6. [Variables and constants](#6-variables-and-constants)
+7. [Operators and expressions](#7-operators-and-expressions)
+8. [Control flow](#8-control-flow)
+9. [Functions](#9-functions)
+10. [Visibility and attributes (v1.16)](#10-visibility-and-attributes-v116)
+11. [Generics (v1.15)](#11-generics-v115)
+12. [Structured exceptions (v1.13)](#12-structured-exceptions-v113)
+13. [Cooperative async / await (v1.14)](#13-cooperative-async--await-v114)
+14. [Extended string literals (v1.17)](#14-extended-string-literals-v117)
+15. [STRUCT, OPTION, pattern matching](#15-struct-option-pattern-matching)
+16. [Object-oriented constructs](#16-object-oriented-constructs)
+17. [Cross-language linking](#17-cross-language-linking)
+18. [Type mapping and conversion](#18-type-mapping-and-conversion)
+19. [Pipeline composition](#19-pipeline-composition)
+20. [Diagnostic codes](#20-diagnostic-codes)
+21. [Documentation comments and `polydoc` (v1.18)](#21-documentation-comments-and-polydoc-v118)
+22. [Sample matrix tour](#22-sample-matrix-tour)
+23. [Keyword reference](#23-keyword-reference)
 
 ---
 
-# 1. Introduction
+# 1. What is `.ploy`?
 
-## 1.1 What Is .ploy?
+`.ploy` is the cross-language DSL at the centre of PolyglotCompiler. A `.ploy` source file does three things:
 
-`.ploy` is a **domain-specific language** (DSL) designed for the PolyglotCompiler project. It provides a declarative way to express **cross-language function-level linking** and **object-oriented interoperability** between heterogeneous source languages, including C++, Python, Rust, Java, and C# (.NET).
+1. Declares **modules** in any of the nine supported host languages (C++, Python, Rust, Java, .NET / C#, Go, JavaScript, Ruby, and `.ploy` itself).
+2. Declares **typed bridges** (`LINK`, `MAP_TYPE`, `CONVERT`) between functions across those languages.
+3. Hosts **polyglot business logic** in its own statement / expression language, dispatching to host-language code through `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND`, and `PIPELINE`.
 
-Unlike general-purpose programming languages, `.ploy` acts as **"cross-language glue"** — it describes *how* functions, classes, and data flow between different language runtimes in a single, unified syntax.
-
-## 1.2 What Can .ploy Do?
-
-- **Link functions** from different languages (e.g., call a C++ function from Python)
-- **Instantiate classes** from one language within another
-- **Access and modify attributes** on foreign objects
-- **Manage resources** automatically across language boundaries
-- **Orchestrate multi-stage pipelines** that span multiple language runtimes
-- **Manage package dependencies** (pip, conda, uv, cargo, NuGet, etc.)
-- **Map types** between different language type systems
-
-## 1.3 Supported Languages
-
-| Language | Frontend | Identifier |
-|----------|----------|------------|
-| C++ | `frontend_cpp` | `cpp` |
-| Python | `frontend_python` | `python` |
-| Rust | `frontend_rust` | `rust` |
-| Java | `frontend_java` | `java` |
-| C# (.NET) | `frontend_dotnet` | `dotnet` |
-
-## 1.4 File Extension
-
-All `.ploy` source files use the `.ploy` extension:
-
-```
-my_project.ploy
-pipeline.ploy
-config_and_venv.ploy
-```
+A `.ploy` file is parsed by the `frontend_ploy` library, lowered to the same SSA IR used by every other frontend, optimised by `middle_ir`, and emitted by one of the three backends (`backend_x86_64`, `backend_arm64`, `backend_wasm`).
 
 ---
 
-# 2. Getting Started
-
-## 2.1 Your First .ploy File
-
-Create a file named `hello.ploy`:
+# 2. Hello, polyglot world
 
 ```ploy
-// hello.ploy — A minimal cross-language example
+// hello.ploy — minimal self-contained program
 
-// Import modules from C++ and Python
-IMPORT cpp::math_ops;
-IMPORT python::string_utils;
-
-// Link a C++ function to a Python function
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
+FUNC main() -> i32 {
+    PRINTLN "Hello, polyglot world!";
+    RETURN 0;
 }
-
-// Define a polyglot function
-FUNC greet(a: INT, b: INT) -> STRING {
-    LET sum = CALL(cpp, math_ops::add, a, b);
-    LET message = CALL(python, string_utils::format_result, sum);
-    RETURN message;
-}
-
-// Export the function for external use
-EXPORT greet AS "polyglot_greet";
 ```
 
-## 2.2 Compiling
-
-Use the `polyc` driver to compile a `.ploy` file:
+Compile and run:
 
 ```bash
 polyc hello.ploy -o hello
+./hello
 ```
 
-The driver automatically detects the `.ploy` extension and routes the file through the .ploy frontend (Lexer → Parser → Sema → Lowering).
-
-## 2.3 Basic Program Structure
-
-A typical `.ploy` file follows this order:
+A two-language version reusing C++ for arithmetic and Python for formatting:
 
 ```ploy
-// 1. Environment configuration (optional)
-CONFIG VENV python "/path/to/venv";
+// hello_polyglot.ploy
+IMPORT cpp::math_ops;
+IMPORT python::string_utils;
 
-// 2. Package imports (optional)
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-// 3. Module imports
-IMPORT cpp::module_name;
-IMPORT python::module_name;
-
-// 4. Cross-language links
-LINK(cpp, python, func_a, func_b) {
-    MAP_TYPE(cpp::int, python::int);
+LINK(python, cpp, string_utils::format_result, math_ops::abs_val) RETURNS python::str {
+    MAP_TYPE(python::int, cpp::int);
 }
 
-// 5. Type mappings
-MAP_TYPE(cpp::double, python::float);
-
-// 6. Struct definitions (optional)
-STRUCT Config {
-    width: INT;
-    height: INT;
-}
-
-// 7. Functions and pipelines
-FUNC main_func() -> INT { ... }
-PIPELINE my_pipeline { ... }
-
-// 8. Exports
-EXPORT main_func;
-EXPORT my_pipeline;
-```
-
-## 2.4 Comments
-
-`.ploy` supports single-line comments with `//`:
-
-```ploy
-// This is a comment
-FUNC foo() -> INT {
-    LET x = 42;  // Inline comment
-    RETURN x;
-}
-```
-
-## 2.5 Statement Termination
-
-All statements end with a semicolon (`;`):
-
-```ploy
-LET x = 10;
-VAR y: FLOAT = 3.14;
-RETURN x;
-```
-
----
-
-# 3. Module and Package Imports
-
-## 3.1 Module Imports — IMPORT
-
-Use `IMPORT` to bring modules from other languages into scope:
-
-```ploy
-// Qualified module import: <language>::<module_name>
-IMPORT cpp::math_utils;
-IMPORT python::data_processing;
-IMPORT rust::serde;
-IMPORT java::SortEngine;
-IMPORT dotnet::Transformer;
-```
-
-These modules correspond to actual source files (e.g., `math_utils.cpp`, `data_processing.py`) in the project.
-
-## 3.2 Package Imports — IMPORT PACKAGE
-
-Import external packages from each language's ecosystem:
-
-```ploy
-// Basic package import
-IMPORT python PACKAGE numpy;
-
-// With version constraint
-IMPORT python PACKAGE numpy >= 1.20;
-IMPORT python PACKAGE scipy == 1.11;
-IMPORT rust PACKAGE serde >= 1.0;
-
-// With alias
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-
-// Selective import (specific symbols)
-IMPORT python PACKAGE numpy::(array, mean, std);
-IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
-
-// Sub-module selective import
-IMPORT python PACKAGE numpy.linalg::(solve, inv);
-```
-
-### Version Operators
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `>=` | Greater or equal | `>= 1.20` |
-| `<=` | Less or equal | `<= 2.0` |
-| `==` | Exact match | `== 1.10.0` |
-| `>` | Strictly greater | `> 1.0` |
-| `<` | Strictly less | `< 3.0` |
-| `!=` | Not equal | `!= 2.0` |
-| `~=` | Compatible (PEP 440) | `~= 1.20` |
-
-### Rules
-
-1. Selective import `::()` and `AS` alias **cannot be used simultaneously**.
-2. Version constraints are optional.
-3. At most one CONFIG per language per compilation unit.
-
----
-
-# 4. Cross-Language Function Linking
-
-## 4.1 LINK — Declaring a Cross-Language Binding
-
-The `LINK` directive tells the PolyglotLinker to generate **glue code** that bridges function calls between two languages:
-
-```ploy
-// Basic LINK syntax
-LINK(source_lang, target_lang, source_function, target_function) {
-    MAP_TYPE(source_lang::type, target_lang::type);
-}
-```
-
-### Example: Link C++ to Python
-
-```ploy
-// Link C++ math output to Python formatting
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
-}
-```
-
-### Example: Link Java to Python
-
-```ploy
-LINK(java, python, SortEngine::sortedKeys, collection_utils::invert_dict) {
-    MAP_TYPE(java::ArrayList_String, python::list);
-    MAP_TYPE(java::HashMap_String_Integer, python::dict);
-}
-```
-
-### Example: Link Python to .NET
-
-```ploy
-LINK(python, dotnet, data_science::to_json, Transformer::ParseJson) {
-    MAP_TYPE(python::str, dotnet::string);
-}
-```
-
-## 4.2 LINK Body
-
-The body of a LINK block contains `MAP_TYPE` declarations that specify how types are converted at the boundary:
-
-```ploy
-LINK(cpp, rust, image_processor::edge_detect, data_loader::merge_chunks) {
-    MAP_TYPE(cpp::std::vector_double, rust::Vec_f64);
-    MAP_TYPE(cpp::int, rust::usize);
+FUNC main() -> i32 {
+    LET formatted = CALL(python, string_utils::format_result, -42);
+    PRINTLN formatted;
+    RETURN 0;
 }
 ```
 
 ---
 
-# 5. Type Mapping
+# 3. Lexical structure
 
-## 5.1 MAP_TYPE — Declaring Type Equivalences
-
-`MAP_TYPE` tells the compiler how to marshal data between language-specific types:
+## 3.1 Comments
 
 ```ploy
-// Basic type mappings
-MAP_TYPE(cpp::int, python::int);
-MAP_TYPE(cpp::double, python::float);
-MAP_TYPE(cpp::std::string, python::str);
-
-// Container type mappings
-MAP_TYPE(cpp::std::vector_int, java::ArrayList_Integer);
-MAP_TYPE(java::HashMap_String_Integer, python::dict);
-MAP_TYPE(rust::Vec_f64, python::list);
-MAP_TYPE(dotnet::List_double, python::list);
+// Line comment.
+/* Block comment. */
+/// Doc comment harvested by polydoc (since v1.18).
 ```
 
-## 5.2 Primitive Type Mappings
+## 3.2 Identifiers
 
-The .ploy type system provides platform-independent primitive types:
+`[A-Za-z_][A-Za-z0-9_]*`. Case-sensitive. Identifiers are interned by `frontend_common::SharedTokenPool`.
 
-| .ploy Type | C++ | Python | Rust | Java | C# |
-|-----------|-----|--------|------|------|-----|
-| `INT` | `int` | `int` | `i32` | `int` | `int` |
-| `FLOAT` | `double` | `float` | `f64` | `double` | `double` |
-| `STRING` | `std::string` | `str` | `String` | `String` | `string` |
-| `BOOL` | `bool` | `bool` | `bool` | `boolean` | `bool` |
-| `VOID` | `void` | `None` | `()` | `void` | `void` |
+## 3.3 Keywords (54)
 
-## 5.3 Container Type Mappings
+See section 23 for the complete reference. Keywords are uppercase by convention; the parser is **case-sensitive** (`func` is an identifier, `FUNC` is the keyword).
 
-| .ploy Type | C++ | Python | Rust |
-|-----------|-----|--------|------|
-| `LIST<T>` | `std::vector<T>` | `list[T]` | `Vec<T>` |
-| `TUPLE<T...>` | `std::tuple<T...>` | `tuple` | `(T...)` |
-| `DICT<K,V>` | `std::unordered_map<K,V>` | `dict[K,V]` | `HashMap<K,V>` |
-| `ARRAY<T,N>` | `T[N]` | `list[T]` | `[T; N]` |
-| `OPTION<T>` | `std::optional<T>` | `Optional[T]` | `Option<T>` |
+## 3.4 Literals
+
+| Form                 | Example                                        | Notes                                                        |
+|----------------------|------------------------------------------------|--------------------------------------------------------------|
+| Integer              | `42`, `0xff`, `0o17`, `0b1010`, `1_000_000`    | Underscore separators allowed.                               |
+| Floating-point       | `3.14`, `2.5e-3`, `1_000.5`                    |                                                              |
+| Boolean              | `TRUE`, `FALSE`                                |                                                              |
+| Null                 | `NULL`                                         |                                                              |
+| String (regular)     | `"hello\nworld"`                               | Standard escapes (`\n`, `\t`, `\\`, `\"`, `\xNN`, `\uNNNN`). |
+| String (raw)         | `r"C:\path"`, `r#"contains "quotes""#`         | No escapes; `#` padding for embedded quotes.                 |
+| String (multiline)   | `"""line1\nline2"""`                           | Newlines preserved verbatim.                                 |
+| String (template)    | `f"answer = {42}, pi = {3.14}"`                | Brace-delimited interpolation.                               |
+| Character            | `'A'`, `'\n'`                                  |                                                              |
+
+## 3.5 Whitespace and statement terminators
+
+Statements terminate with `;`. Blocks use `{ ... }`. The parser treats line breaks as ordinary whitespace — there is no off-side rule.
 
 ---
 
-# 6. Variables and Expressions
-
-## 6.1 LET — Immutable Variable
-
-`LET` declares an **immutable** variable whose value cannot be reassigned:
+# 4. Module imports
 
 ```ploy
-LET x = 42;
-LET name: STRING = "PolyglotCompiler";
-LET pi: FLOAT = 3.14159;
-LET flag: BOOL = TRUE;
+IMPORT cpp::math_ops;            // C++ translation unit
+IMPORT python::string_utils;     // Python module
+IMPORT rust::data;               // Rust crate
+IMPORT java::com.example.Util;   // Java FQN
+IMPORT dotnet::App.Util;         // .NET namespace
+IMPORT go::pkg.util;             // Go package
+IMPORT javascript::./util.js;    // JS file (Node resolution)
+IMPORT ruby::util;               // Ruby (require / Bundler)
+
+IMPORT python::numpy PACKAGE "numpy" VERSION ">=1.21";
+IMPORT java::org.json.JSONObject PACKAGE "org.json:json:20231013";
+IMPORT rust::serde PACKAGE "serde" VERSION "1";
+IMPORT dotnet::Newtonsoft.Json PACKAGE "Newtonsoft.Json" VERSION "13.0.*";
 ```
 
-## 6.2 VAR — Mutable Variable
-
-`VAR` declares a **mutable** variable whose value can be reassigned:
-
-```ploy
-VAR counter = 0;
-VAR total: FLOAT = 0.0;
-
-counter = counter + 1;   // Reassignment allowed
-total = total + 3.14;
-```
-
-## 6.3 Expressions
-
-### Arithmetic Operators
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `+` | Addition | `a + b` |
-| `-` | Subtraction | `a - b` |
-| `*` | Multiplication | `a * b` |
-| `/` | Division | `a / b` |
-| `%` | Modulo | `a % b` |
-
-### Comparison Operators
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `==` | Equal | `a == b` |
-| `!=` | Not equal | `a != b` |
-| `<` | Less than | `a < b` |
-| `>` | Greater than | `a > b` |
-| `<=` | Less or equal | `a <= b` |
-| `>=` | Greater or equal | `a >= b` |
-
-### Logical Operators
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `AND` | Logical AND | `a AND b` |
-| `OR` | Logical OR | `a OR b` |
-| `NOT` | Logical NOT | `NOT a` |
-
-### Literals
-
-```ploy
-// Integer literals
-LET a = 42;
-LET b = -10;
-
-// Float literals
-LET c = 3.14;
-LET d = -0.5;
-
-// String literals
-LET s = "Hello, World!";
-
-// Boolean literals
-LET t = TRUE;
-LET f = FALSE;
-
-// Null
-LET n = NULL;
-
-// Container literals
-LET list = [1, 2, 3];
-LET tuple = (1, "hello", 3.14);
-LET dict = {"key1": 10, "key2": 20};
-```
+Per-language source-file location rules are documented in `docs/specs/ploy_language.md`. The driver resolves module paths via the same package-manager glue that `polyver detect` records.
 
 ---
 
-# 7. Functions
+# 5. Type system
 
-## 7.1 FUNC — Function Declaration
+## 5.1 Primitive types (case-insensitive synonyms)
 
-Define functions with typed parameters and a return type:
+| `.ploy`             | C++           | Python  | Rust  | Java     | .NET     | Go      | JS / Ruby             |
+|---------------------|---------------|---------|-------|----------|----------|---------|------------------------|
+| `INT` / `i32`       | `int`         | `int`   | `i32` | `int`    | `int`    | `int32` | `Number` / `Integer`   |
+| `LONG` / `i64`      | `int64_t`     | `int`   | `i64` | `long`   | `long`   | `int64` | `BigInt` / `Integer`   |
+| `i8`, `i16`, `u8` … | sized ints    | `int`   | typed | typed    | typed    | typed   | typed                  |
+| `FLOAT` / `f32`     | `float`       | `float` | `f32` | `float`  | `float`  | `float32` | `Number` / `Float`   |
+| `DOUBLE` / `f64`    | `double`      | `float` | `f64` | `double` | `double` | `float64` | `Number` / `Float`   |
+| `BOOL`              | `bool`        | `bool`  | `bool`| `boolean`| `bool`   | `bool`  | `Boolean` / `TrueClass`|
+| `STRING`            | `std::string` | `str`   | `String` | `String`| `string`| `string`| `String`              |
+| `CHAR`              | `char`        | `str[1]`| `char` | `char`  | `char`   | `rune`  | n/a                    |
+| `VOID`              | `void`        | `None`  | `()`  | `void`   | `void`   | n/a     | `null`                 |
+
+## 5.2 Composite types
+
+| Form              | Example                       | Description                                  |
+|-------------------|-------------------------------|----------------------------------------------|
+| `LIST<T>`         | `LIST<INT>`                   | Dynamic array.                               |
+| `MAP<K, V>`       | `MAP<STRING, INT>`            | Hash map.                                    |
+| `SET<T>`          | `SET<STRING>`                 | Hash set.                                    |
+| `OPTION<T>`       | `OPTION<INT>`                 | Some / None ADT, destructured by `IF LET`.   |
+| `RESULT<T, E>`    | `RESULT<INT, STRING>`         | Ok / Err ADT.                                |
+| `STRUCT`          | `STRUCT Point { x: i32, y: i32 }` | Named record.                            |
+| `T*`              | `INT*`                        | Pointer (host ABI).                          |
+
+## 5.3 Type qualifiers
+
+| Qualifier  | Meaning                                                   |
+|------------|-----------------------------------------------------------|
+| `CONST`    | Read-only binding.                                        |
+| `MUTABLE`  | Mutable binding (default for `LET VAR`).                  |
+| `PUB`      | Visible across module / link boundaries (v1.16).          |
+| `PRIVATE`  | Visible only within current `.ploy` translation unit.     |
+
+---
+
+# 6. Variables and constants
 
 ```ploy
-FUNC add(a: INT, b: INT) -> INT {
-    RETURN a + b;
-}
+LET x = 42;                      // immutable, type inferred
+LET y: i64 = 100;                // immutable, explicit type
+LET VAR counter: i32 = 0;        // mutable
+LET PI: DOUBLE = 3.14159265;     // file-scope constant
 
-FUNC greet(name: STRING) -> STRING {
-    LET message = "Hello, " + name;
-    RETURN message;
-}
-
-FUNC process(data: ARRAY[FLOAT], size: INT) -> FLOAT {
-    LET result = CALL(cpp, math_ops::sum, data, size);
-    RETURN result;
-}
+VAR scratch: STRING = "tmp";     // shorthand for LET VAR (top-level declarations)
 ```
 
-## 7.2 RETURN
+`LET`-bindings must be initialised. `LET VAR` without an initialiser is a parse error (`polyc-err-E2001`).
 
-Every non-void function must return a value using `RETURN`:
+---
+
+# 7. Operators and expressions
+
+| Class       | Operators                                              |
+|-------------|--------------------------------------------------------|
+| Arithmetic  | `+`, `-`, `*`, `/`, `%`, unary `-`                     |
+| Comparison  | `==`, `!=`, `<`, `<=`, `>`, `>=`                       |
+| Logical     | `AND`, `OR`, `NOT`, `&&`, `||`, `!`                    |
+| Bitwise     | `&`, `|`, `^`, `~`, `<<`, `>>`                         |
+| Assignment  | `=`, `+=`, `-=`, `*=`, `/=`, `%=`                      |
+| Member      | `.`, `[]`                                              |
+| Pointer     | `->`, unary `&`, unary `*`                             |
+| Range       | `1..10` (half-open), `1..=10` (inclusive)              |
+
+Precedence follows the standard C / Rust hybrid documented in `docs/specs/ploy_grammar.md` §6.
+
+---
+
+# 8. Control flow
+
+## 8.1 IF / ELSE — outer parentheses are optional (v1.18)
 
 ```ploy
-FUNC compute(x: INT) -> INT {
-    IF x > 0 {
-        RETURN x * 2;
+IF x > 0 {
+    PRINTLN "positive";
+} ELSE IF x < 0 {
+    PRINTLN "negative";
+} ELSE {
+    PRINTLN "zero";
+}
+
+IF (x > 0) { PRINTLN "still ok with parens"; }
+```
+
+## 8.2 IF LET destructuring (v1.18)
+
+```ploy
+FUNC head_or_zero(opt: OPTION<i32>) -> i32 {
+    IF LET Some(x) = opt {
+        RETURN x;
     } ELSE {
         RETURN 0;
     }
 }
 ```
 
-## 7.3 Void Functions
-
-Functions that return nothing use `VOID` as the return type:
+## 8.3 WHILE / DO WHILE / FOR
 
 ```ploy
-FUNC log_message(msg: STRING) -> VOID {
-    CALL(python, logger::info, msg);
-}
-```
-
-## 7.4 Default Parameter Values & Named Arguments *(since 1.11.0)*
-
-Trailing parameters may carry a default expression introduced by `=`,
-and call sites may name any argument:
-
-```ploy
-FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
-
-LET a = add(10);          // y defaults to 0
-LET b = add(x: 7);        // single named argument
-LET c = add(2, y: 5);     // mixed positional + named
-```
-
-A default expression must be a constant-foldable literal/unary/binary
-expression, **or** a pure intra-Ploy `FUNC` call:
-
-```ploy
-FUNC one() -> i32 { RETURN 1; }
-FUNC scale(value: i32, factor: i32 = one()) -> i32 {
-    RETURN value * factor;
-}
-```
-
-Cross-language `CALL`, closure capture, and reading another parameter
-inside a default are all rejected.  Positional arguments may not
-appear after a named argument, and every required (no-default)
-parameter must be supplied either by position or by name.
-
----
-
-# 8. Control Flow
-
-## 8.1 IF / ELSE
-
-Conditional branching:
-
-```ploy
-IF prediction > threshold {
-    RETURN 1;
-} ELSE {
-    RETURN 0;
-}
-```
-
-With `ELSE IF`:
-
-```ploy
-IF score >= 90 {
-    LET grade = "A";
-} ELSE IF score >= 80 {
-    LET grade = "B";
-} ELSE IF score >= 70 {
-    LET grade = "C";
-} ELSE {
-    LET grade = "F";
-}
-```
-
-## 8.2 WHILE — Loop
-
-```ploy
-VAR i = 0;
+LET VAR i: i32 = 0;
 WHILE i < 10 {
-    CALL(python, process::step, i);
+    PRINTLN i;
     i = i + 1;
 }
-```
 
-## 8.3 FOR — Iteration
+FOR x IN xs {
+    PRINTLN x;
+}
 
-Iterate over ranges or collections:
-
-```ploy
-// Range-based loop
 FOR i IN 0..10 {
-    CALL(cpp, engine::tick, i);
-}
-
-// Collection-based loop
-FOR item IN collection {
-    CALL(python, processor::handle, item);
+    PRINTLN i;
 }
 ```
 
-## 8.4 MATCH — Pattern Matching
-
-`MATCH` dispatches on a single scrutinee.  Each `CASE` carries a
-*pattern* and an optional `IF` guard; the catch-all is either
-`DEFAULT` or the wildcard `CASE _`.
-
-```ploy
-MATCH mode {
-    CASE 0 {
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    CASE 1 {
-        CALL(cpp, image_processor::enhance, data, 100);
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    CASE 2 {
-        CALL(cpp, image_processor::threshold, data, 100, 0.5);
-        RETURN CALL(python, ml_model::predict, data);
-    }
-    DEFAULT {
-        RETURN 0.0;
-    }
-}
-```
-
-Beyond literal arms, the `.ploy` `MATCH` accepts the full pattern
-grammar:
+## 8.4 MATCH (pattern matching, since v1.10)
 
 ```ploy
 MATCH value {
-    CASE 0                    { RETURN 100; }     // literal
-    CASE 2 | 4 | 8 | 16       { RETURN 102; }     // OR-pattern
-    CASE 10..20               { RETURN 103; }     // half-open range
-    CASE 20..=29              { RETURN 104; }     // inclusive range
-    CASE n @ 100..=199        { RETURN n + 200; } // binding on a range
-    CASE x: i32 IF x > 1000   { RETURN x - 1000; }// type-guard + IF guard
-    CASE _                    { RETURN -1; }      // wildcard catch-all
+    1            => PRINTLN "one";
+    2 | 3        => PRINTLN "two or three";
+    n IF n > 10  => PRINTLN "big";
+    _            => PRINTLN "other";
 }
 ```
 
-Tuple, struct and `OPTION` destructuring also work:
+## 8.5 BREAK / CONTINUE / RETURN
 
 ```ploy
-MATCH point {
-    CASE Point { x: 0, y: 0, .. } { RETURN "origin"; }
-    CASE Point { x, y, .. }       { RETURN "general"; }
+WHILE TRUE {
+    IF done { BREAK; }
+    IF skip { CONTINUE; }
 }
-
-MATCH opt {
-    CASE Some(x) { RETURN x; }
-    CASE None    { RETURN -1; }
-}
-```
-
-> **Notes**:
-> * Each `CASE` body executes and **automatically exits** the
->   `MATCH` — there is no C-style fall-through.
-> * `MATCH` on `bool` and `OPTION` is exhaustive when every variant
->   is covered, even without `DEFAULT`.
-> * The arrow between the pattern and the body (`->` or `=>`) is
->   optional; the canonical form omits it.
-> * Extended pattern semantics, the lowering strategy and the
->   diagnostic catalogue live in
->   [`docs/realization/pattern_matching.md`](../realization/pattern_matching.md).
-
-## 8.5 BREAK and CONTINUE
-
-Control loop execution:
-
-```ploy
-VAR current = CALL(python, ml_model::predict, data);
-VAR iteration = 0;
-
-WHILE iteration < max_iter {
-    // Break out early if target is reached
-    IF current > target {
-        BREAK;
-    }
-
-    CALL(cpp, image_processor::enhance, data, 100);
-    current = CALL(python, ml_model::predict, data);
-    iteration = iteration + 1;
-}
-```
-
-```ploy
-FOR i IN 0..100 {
-    IF i % 2 == 0 {
-        CONTINUE;  // Skip even numbers
-    }
-    CALL(python, process::handle_odd, i);
-}
+RETURN 0;
 ```
 
 ---
 
-# 9. Structs and Custom Types
-
-## 9.1 STRUCT — Structure Definition
-
-Define composite data types:
+# 9. Functions
 
 ```ploy
-STRUCT PipelineConfig {
-    width: INT;
-    height: INT;
-    channels: INT;
-    learning_rate: FLOAT;
-    epochs: INT;
+FUNC add(a: i32, b: i32) -> i32 {
+    RETURN a + b;
 }
 
-STRUCT Experiment {
-    name: STRING;
-    epochs: INT;
-    learning_rate: FLOAT;
-    converged: BOOL;
+// Default arguments (v1.10)
+FUNC greet(name: STRING = "world") -> STRING {
+    RETURN f"hello, {name}";
+}
+
+// Multiple return values via STRUCT or RESULT.
+FUNC parse(s: STRING) -> RESULT<i32, STRING> {
+    IF s == "0" { RETURN Ok(0); }
+    RETURN Err("not a digit");
 }
 ```
 
-## 9.2 Struct Literals
-
-Create struct instances using literal syntax:
-
-```ploy
-LET config = PipelineConfig {
-    width: 1920,
-    height: 1080,
-    channels: 3,
-    learning_rate: 0.001,
-    epochs: 100
-};
-```
-
-## 9.3 Member Access
-
-Access struct fields with the dot operator:
-
-```ploy
-LET w = config.width;
-LET lr = config.learning_rate;
-```
+A `.ploy` program enters at `FUNC main() -> i32`. The driver also accepts `FUNC main()` (returning unit, treated as exit code 0).
 
 ---
 
-# 10. Cross-Language Calls
-
-## 10.1 CALL — Invoking a Function from Another Language
-
-The `CALL` keyword executes a function from a specific language runtime:
+# 10. Visibility and attributes (v1.16)
 
 ```ploy
-// Syntax: CALL(language, module::function, arg1, arg2, ...)
-LET sum = CALL(cpp, math_ops::add, 10, 20);
-LET formatted = CALL(python, string_utils::format_result, sum);
-LET data = CALL(rust, data_loader::load_batch, "data.csv", 64);
-LET sorted = CALL(java, SortEngine::sortInts, numbers);
+PUB STRUCT Point { x: i32, y: i32 }   // visible across LINK boundaries
+PRIVATE FUNC inner_helper() -> i32 { RETURN 7; }
+
+@inline @hot
+PUB FUNC fast_path(a: i32, b: i32) -> i32 { RETURN a + b; }
+
+@deprecated("use fast_path")
+PUB FUNC slow_path(a: i32, b: i32) -> i32 { RETURN a + b; }
+
+@link_name("ploy_run")
+PUB FUNC run() -> i32 { RETURN fast_path(inner_helper(), 1); }
+
+EXPORT run AS "ploy_run";   // requires PUB; exporting PRIVATE is polyc-err-E2410
 ```
 
-### Cross-Language Call Chain
+Built-in attributes:
 
-You can chain calls across languages, passing one language's output as another's input:
+| Attribute              | Effect                                                                |
+|------------------------|-----------------------------------------------------------------------|
+| `@inline`              | Hint to the inliner pass to inline aggressively.                      |
+| `@hot`                 | Place into the hot section; influences PGO and code layout.           |
+| `@cold`                | Place into the cold section.                                          |
+| `@deprecated("msg")`   | Emit `polyc-warn-W2401` at every call site with `msg` as rationale.   |
+| `@link_name("sym")`    | Override the externally visible symbol name.                          |
+| `@target("feature,…")` | Constrain backend feature requirements (e.g. `avx2`, `neon`).         |
+| `@no_mangle`           | Disable name mangling (interop with raw C ABIs).                      |
 
-```ploy
-FUNC process_data(input: ARRAY[FLOAT]) -> STRING {
-    // Step 1: C++ preprocessing
-    LET enhanced = CALL(cpp, image_processor::enhance, input, 100);
-    
-    // Step 2: Python ML inference
-    LET prediction = CALL(python, ml_model::predict, enhanced);
-    
-    // Step 3: Rust post-processing
-    LET compressed = CALL(rust, data_loader::compress, prediction);
-    
-    // Step 4: Python formatting
-    LET report = CALL(python, string_utils::format_result, compressed);
-    
-    RETURN report;
-}
-```
+Unknown attributes raise `polyc-err-E2402`. The full catalogue lives in `docs/specs/ploy_attributes.md`.
 
 ---
 
-# 11. Object-Oriented Interop
-
-`.ploy` provides seven keywords for full cross-language OOP interoperability: `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, and `EXTEND`.
-
-## 11.1 NEW — Class Instantiation
-
-Create class instances from any supported language:
+# 11. Generics (v1.15)
 
 ```ploy
-// Syntax: NEW(language, module::ClassName, arg1, arg2, ...)
-LET mat = NEW(cpp, matrix::Matrix, 3, 3, 1.0);
-LET model = NEW(python, model::LinearModel, 3, 1);
-LET parser = NEW(rust, serde::json::Parser);
-LET engine = NEW(java, SortEngine);
-LET transformer = NEW(dotnet, Transformer);
-```
-
-The returned value is an **opaque handle** (of type `Any`) that can be passed to `METHOD`, `GET`, `SET`, `WITH`, and `DELETE`.
-
-## 11.2 METHOD — Method Invocation
-
-Call methods on foreign objects:
-
-```ploy
-// Syntax: METHOD(language, object, method_name, arg1, arg2, ...)
-METHOD(cpp, mat, set, 0, 0, 5.0);
-METHOD(cpp, mat, set, 1, 1, 10.0);
-LET val = METHOD(cpp, mat, get, 0, 0);
-LET norm = METHOD(cpp, mat, norm);
-
-LET prediction = METHOD(python, model, forward, [1.0, 2.0, 3.0]);
-LET params = METHOD(python, model, parameters);
-```
-
-### Chained Method Calls
-
-```ploy
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-LET optimizer = NEW(python, torch::optim::Adam,
-                    METHOD(python, model, parameters), 0.001);
-METHOD(python, optimizer, zero_grad);
-LET loss = METHOD(python, model, compute_loss, predictions, labels);
-METHOD(python, loss, backward);
-METHOD(python, optimizer, step);
-```
-
-## 11.3 GET — Reading Attributes
-
-Read an attribute from a foreign object:
-
-```ploy
-// Syntax: GET(language, object, attribute_name)
-LET app = GET(python, settings_obj, app_name);
-LET debug = GET(python, settings_obj, debug);
-LET val = GET(cpp, sensor, value);
-LET active = GET(cpp, sensor, active);
-```
-
-## 11.4 SET — Writing Attributes
-
-Write a value to a foreign object's attribute:
-
-```ploy
-// Syntax: SET(language, object, attribute_name, value)
-SET(python, counter, count, 100);
-SET(python, counter, step, 5);
-SET(cpp, sensor, value, 99.9);
-SET(cpp, sensor, active, FALSE);
-```
-
-## 11.5 WITH — Resource Management
-
-Automatic resource management, similar to Python's `with` statement:
-
-```ploy
-// Syntax: WITH(language, resource_expression) AS variable { body }
-LET f = NEW(python, open, "data.csv");
-WITH(python, f) AS handle {
-    LET data = METHOD(python, handle, read);
-    LET lines = METHOD(python, data, splitlines);
+STRUCT Pair<A, B> {
+    first: A,
+    second: B
 }
-// handle is automatically closed after the block
-```
 
-## 11.6 DELETE — Object Destruction
+FUNC max<T: Comparable>(a: T, b: T) -> T {
+    IF a > b { RETURN a; } ELSE { RETURN b; }
+}
 
-Explicitly destroy foreign objects:
+FUNC identity<T>(x: T) -> T { RETURN x; }
 
-```ploy
-// Syntax: DELETE(language, object)
-LET obj = NEW(cpp, engine::GameObject, "Player", 0.0, 0.0, 0.0);
-LET renderer = NEW(cpp, engine::Renderer, 1920, 1080, "OpenGL");
-
-// Use the objects ...
-METHOD(cpp, obj, move, 10.0, 5.0, 0.0);
-
-// Explicitly destroy them
-DELETE(cpp, renderer);  // Invokes C++ destructor
-DELETE(cpp, obj);
-DELETE(python, body);   // Releases Python reference
-```
-
-## 11.7 EXTEND — Class Extension
-
-Extend a class from another language:
-
-```ploy
-// Syntax: EXTEND(language, base_class) { body }
-EXTEND(python, base_classes::Component) {
-    FUNC custom_update(dt: FLOAT) -> VOID {
-        CALL(python, base_classes::Component::update, dt);
-    }
+FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
+    RETURN a + b;
 }
 ```
 
-> **Restriction (since 1.11.0).** `EXTEND` is accepted **only** on
-> the dynamic host languages `python`, `ruby`, and `javascript`
-> (with the tag aliases `rb`, `js`, `typescript`, `ts`).  Targeting
-> any statically-typed language — `cpp`, `c`, `rust`, `java`,
-> `dotnet` / `csharp`, `go` / `golang` — is rejected by sema; the
-> recommended alternative is a local Ploy `FUNC` wrapper that uses
-> `CALL` / `METHOD` to invoke the foreign API.  See sample
-> [`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)
-> for the migration pattern.
+Bounds are written either inline (`T: Comparable`) or as a trailing `WHERE` clause. The runtime currently follows the **type-erasure MVP** path described in `docs/realization/generics.md`; full per-instantiation monomorphisation is tracked as follow-up work.
+
+Built-in trait bounds: `Comparable`, `Numeric`, `Hashable`, `Display`, `Clone`, `Send`.
 
 ---
 
-# 12. Pipelines
-
-## 12.1 PIPELINE — Multi-Stage Workflow
-
-Pipelines organize multi-stage, cross-language workflows into a single reusable unit:
-
-```ploy
-PIPELINE image_classification {
-
-    // Stage 1: Preprocess in C++
-    FUNC preprocess(input: ARRAY[FLOAT], size: INT) -> ARRAY[FLOAT] {
-        CALL(cpp, image_processor::gaussian_blur, input, size, 1.5);
-        CALL(cpp, image_processor::enhance, input, size);
-        RETURN input;
-    }
-
-    // Stage 2: Classify in Python
-    FUNC classify(data: ARRAY[FLOAT], threshold: FLOAT) -> INT {
-        LET prediction = CALL(python, ml_model::predict, data);
-        IF prediction > threshold {
-            RETURN 1;
-        } ELSE {
-            RETURN 0;
-        }
-    }
-
-    // Stage 3: Batch processing with FOR loop
-    FUNC process_batch(batch_size: INT) -> INT {
-        VAR total_positive = 0;
-        FOR i IN 0..batch_size {
-            LET sample = [1.0, 2.0, 3.0];
-            LET result = CALL(python, ml_model::classify, sample, 0.5);
-            IF result == 1 {
-                total_positive = total_positive + 1;
-            }
-        }
-        RETURN total_positive;
-    }
-
-    // Stage 4: MATCH-based dispatch
-    FUNC dispatch(mode: INT, data: ARRAY[FLOAT]) -> FLOAT {
-        MATCH mode {
-            CASE 0 {
-                RETURN CALL(python, ml_model::predict, data);
-            }
-            CASE 1 {
-                CALL(cpp, image_processor::enhance, data, 100);
-                RETURN CALL(python, ml_model::predict, data);
-            }
-            DEFAULT {
-                RETURN 0.0;
-            }
-        }
-    }
-}
-```
-
-## 12.2 Pipeline with OOP
-
-Pipelines can use `NEW`, `METHOD`, and all OOP features:
-
-```ploy
-PIPELINE training_pipeline {
-    FUNC train(epochs: INT) -> FLOAT {
-        LET model = NEW(python, model::LinearModel, 4, 2);
-        LET loader = NEW(python, model::DataLoader, data, 1);
-
-        VAR total_loss = 0.0;
-        VAR epoch = 0;
-
-        WHILE epoch < epochs {
-            LET batch = METHOD(python, loader, next_batch);
-            LET mat = NEW(cpp, matrix::Matrix, 1, 4, 0.0);
-            LET loss = METHOD(python, model, train_step,
-                             [1.0, 2.0, 3.0, 4.0], [1.0, 0.0]);
-            total_loss = total_loss + loss;
-            epoch = epoch + 1;
-        }
-
-        METHOD(python, loader, reset);
-        RETURN total_loss;
-    }
-}
-```
-
----
-
-# 13. Environment Configuration
-
-## 13.1 CONFIG — Package Manager Setup
-
-Configure which package manager environment to use for package resolution:
-
-```ploy
-// Python virtual environment (venv)
-CONFIG VENV python "env/python";
-CONFIG VENV python "/opt/ml-env";
-
-// Conda environment
-CONFIG CONDA python "ml_env";
-
-// uv-managed environment
-CONFIG UV python "D:/venvs/uv_env";
-
-// Pipenv project
-CONFIG PIPENV python "C:/projects/myapp";
-
-// Poetry project
-CONFIG POETRY python "C:/projects/poetry_app";
-
-// .NET environment
-CONFIG VENV dotnet "env/dotnet";
-```
-
-### Rules
-
-1. **One CONFIG per language** per compilation unit — duplicates cause a compile-time error.
-2. **CONFIG must appear before IMPORT PACKAGE** directives that depend on it.
-3. The language parameter is optional and defaults to `python`.
-
-## 13.2 Practical Example
-
-```ploy
-// Set up Python environment
-CONFIG VENV python "env/python";
-
-// Import versioned packages from the configured environment
-IMPORT python PACKAGE numpy >= 1.24 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-IMPORT python PACKAGE scipy >= 1.11 AS sp;
-
-// Set up .NET environment
-CONFIG VENV dotnet "env/dotnet";
-
-// Import .NET packages
-IMPORT dotnet PACKAGE Newtonsoft.Json >= 13.0 AS njson;
-```
-
-> See [Sample 16: config_and_venv](../../tests/samples/16_config_and_venv/) for a full example.
-
----
-
-# 14. Type Conversion
-
-## 14.1 CONVERT — Explicit Type Marshalling
-
-When automatic type mapping is insufficient, use `CONVERT` to explicitly marshal data between language-specific types:
-
-```ploy
-// Syntax: CONVERT(expression, target_type)
-
-// Convert a Python list to a .NET List<double>
-LET py_list = CALL(python, data_science::random_matrix, 1, 5);
-LET dotnet_arr = CONVERT(py_list, dotnet::List_double);
-
-// Convert back: .NET List<double> to Python list
-LET py_flat = CONVERT(flat, python::list);
-
-// Convert a primitive type
-LET float_val = CONVERT(int_val, FLOAT);
-```
-
-## 14.2 MAP_FUNC — Mapping Function
-
-Define a custom conversion function:
-
-```ploy
-MAP_FUNC convert_to_float(x: INT) -> FLOAT {
-    LET result = CONVERT(x, FLOAT);
-    RETURN result;
-}
-```
-
----
-
-# 15. Exporting Symbols
-
-## 15.1 EXPORT — Making Symbols Available
-
-Use `EXPORT` to make functions and pipelines accessible from outside the `.ploy` module:
-
-```ploy
-// Export with original name
-EXPORT compute;
-EXPORT my_pipeline;
-
-// Export with alias
-EXPORT compute_and_format AS "polyglot_compute";
-EXPORT distance_report AS "polyglot_distance";
-EXPORT image_classification AS "image_pipeline";
-```
-
----
-
-# 16. Error Handling and Diagnostics
-
-The `.ploy` semantic analyser produces detailed error messages when it detects problems. Here are common error scenarios and their diagnostics:
-
-## 16.1 Parameter Count Mismatch
-
-```ploy
-// Error: cpp::compute expects 3 params, only 1 given
-FUNC param_count_error() -> FLOAT {
-    LET result = CALL(cpp, bad_functions::compute, 42);
-    RETURN result;
-}
-```
-
-```
-Error [E3010]: Parameter count mismatch in call to 'compute'
-  --> error_handling.ploy:44:9
-   | Expected 3 argument(s), got 1
-   = suggestion: Check the function signature for 'compute'
-```
-
-## 16.2 Type Mismatch
-
-```ploy
-// Error: python::process expects (INT, INT), but (STRING, INT) is given
-FUNC type_mismatch_error() -> FLOAT {
-    LET result = CALL(python, bad_functions::process, "hello", 42);
-    RETURN result;
-}
-```
-
-```
-Error [E3011]: Type mismatch for parameter 1 in call to 'process'
-  --> error_handling.ploy:58:9
-   | Expected 'INT', got 'STRING'
-   = suggestion: Consider using CONVERT to convert the argument type
-```
-
-## 16.3 Undefined Module
-
-```ploy
-// Error: Module 'nonexistent' is not imported
-LET x = CALL(cpp, nonexistent::foo, 1);
-```
-
-## 16.4 Duplicate CONFIG
-
-```ploy
-CONFIG VENV python "env1";
-CONFIG VENV python "env2";  // Error: Duplicate CONFIG for language 'python'
-```
-
-> See [Sample 10: error_handling](../../tests/samples/10_error_handling/) for a complete error scenario catalogue.
-
-## 16.5 Structured Exception Handling — TRY / CATCH / FINALLY / THROW *(since v1.13.0)*
-
-Use `TRY` / `CATCH` / `FINALLY` to handle runtime failures, and
-`THROW` to raise an Error.  The catch binding has the built-in
-`Error` handle type with `message: String`, `source_lang: String`,
-and `stacktrace: List<String>`.
+# 12. Structured exceptions (v1.13)
 
 ```ploy
 FUNC main() {
@@ -1113,376 +375,275 @@ FUNC main() {
         THROW "boom";
     }
     CATCH (e: Error) {
-        PRINTLN "caught\r\n";
+        PRINTLN f"caught: {e.message}";
     }
     FINALLY {
-        PRINTLN "cleanup\r\n";
+        PRINTLN "cleanup";
     }
 }
 ```
 
-A bare `TRY` without any `CATCH` or `FINALLY` is rejected.  Multiple
-`CATCH` clauses are accepted and dispatched in declaration order.  A
-standalone `FINALLY` (no `CATCH`) is allowed for guaranteed cleanup.
+- `THROW <expr>` raises a value; non-`Error` values are wrapped into the unified `Error` handle by the runtime bridge.
+- Multiple `CATCH` clauses are matched top-to-bottom by static type.
+- `FINALLY` always runs, even when control leaves through `RETURN`, `BREAK`, or a re-throw.
 
-The runtime bridge maps host-language exceptions (Python `Exception`,
-C++ `std::exception`, Java `Throwable`, .NET `Exception`, Rust
-`Result::Err`) onto the unified `Error` handle, so a single `CATCH`
-clause can intercept failures originating from any linked language.
+Cross-language reverse-path interception of Python / C++ / Java / .NET / Rust exceptions is implemented in the runtime data plane; the IR-level dispatcher unifying every host model is tracked as future work.
 
-> See [Sample 36: try_catch](../../tests/samples/36_try_catch/) for the
-> end-to-end example and `docs/realization/error_handling.md` for the
-> IR / ABI model.
+---
 
-## 16.6 Cooperative Async / Await — ASYNC FUNC / AWAIT *(since v1.14.0)*
-
-Use `ASYNC FUNC` to declare a cooperative asynchronous function and
-`AWAIT` to suspend until a future resolves.  An `ASYNC FUNC` whose
-declared return type is `T` is implicitly wrapped as `Future<T>` at
-the ABI boundary.  `AWAIT <expr>` is only legal inside an `ASYNC
-FUNC` body — sema rejects every other use.
+# 13. Cooperative async / await (v1.14)
 
 ```ploy
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
-ASYNC FUNC chained() -> i32 {
+ASYNC FUNC pipeline_demo() -> i32 {
     LET a = AWAIT fetch_one();
     LET b = AWAIT fetch_two();
-    RETURN 0;
-}
-```
-
-The cooperative event loop (single thread by default; a
-work-stealing pool layered on top of `runtime/threading.{h,cpp}` is
-the planned follow-up) lives in `runtime/services/async_bridge.cpp`
-and `runtime/services/event_loop.cpp`.  Per-language adapters bridge
-host awaitables (Python `asyncio` coroutines, Rust `Future`, C++20
-`std::coroutine`, Java `CompletableFuture`, .NET `Task<T>`) onto the
-same `Future<T>` handle through `__ploy_rt_future_resolve`.
-
-The `polyrt async` CLI prints a snapshot of the cooperative event
-loop; `polyrt async --json` emits the same payload as JSON, and
-`polyrt async --run[=N]` drives the loop for at most `N` ticks before
-reporting.
-
-> See [Sample 37: async_await](../../tests/samples/37_async_await/)
-> for the end-to-end example and
-> `docs/realization/async_model.md` for the IR / ABI model.
-
-## 16.7 Generics — FUNC<T> / STRUCT<T> with bounds *(since v1.15.0)*
-
-Use `<T: Bound1 + Bound2, U>` after a `FUNC` or `STRUCT` name to
-introduce generic type parameters with optional trait bounds.  The
-optional `WHERE` clause between the return type and the body augments
-the matching parameter's bounds.
-
-```ploy
-FUNC max<T: Comparable>(a: T, b: T) -> T {
-    IF (a > b) { RETURN a; } ELSE { RETURN b; }
-}
-
-STRUCT Pair<A, B> { first: A, second: B }
-
-FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric {
     RETURN a + b;
 }
 ```
 
-The built-in trait registry is `Comparable`, `Hashable`, `Numeric`,
-`Iterable`, `Display`; sema rejects unknown bound names.  The
-v1.15.0 lowering path is type-erased — every type parameter
-resolves to `Any` and the function or struct is lowered once — so
-a single body services every call site.
+- `ASYNC FUNC name(...) -> T` declares a function whose return value is implicitly wrapped as `Future<T>`.
+- `AWAIT <expr>` suspends the surrounding ASYNC frame until the awaited future resolves.
+- The bridging runtime ABI (`__ploy_rt_async_*`) is implemented in `runtime/services/async_bridge.{h,cpp}` and `runtime/services/event_loop.{h,cpp}`.
 
-> See [Sample 38: generics](../../tests/samples/38_generics/) for the
-> end-to-end example and `docs/realization/generics.md` for the
-> IR / ABI model.
+Inspect the cooperative loop with:
 
-## 16.8 Visibility (PUB / PRIVATE) and Attributes (@name) *(since v1.16.0)*
-
-Use `PUB` to export a top-level `FUNC`, `ASYNC FUNC`, or `STRUCT` to
-other modules; the default is `PRIVATE` (module-local) and may be
-written explicitly.  `EXPORT` requires a `PUB` target — an explicit
-`PRIVATE` is a hard error, while a symbol that still carries the
-default is auto-promoted with a deprecation warning so pre-v1.16.0
-sources keep compiling.
-
-```ploy
-@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
-PRIVATE STRUCT Internal { x: i32 }
-PUB FUNC api() -> i32 { RETURN fast(1, 2); }
-EXPORT api AS "api_external";
+```bash
+polyrt async --json        # snapshot
+polyrt async --run=64      # advance the event loop by 64 ticks
 ```
 
-Attributes have the shape `@name` or `@name(arg, ...)`; the built-in
-registry is `@inline`, `@noinline`, `@always_inline`, `@hot`,
-`@cold`, `@profile`, `@no_profile`, `@deprecated`, `@link_name`,
-`@target`.  Unknown attributes are accepted with a sema warning so
-third-party tooling can extend the catalog without modifying the
-compiler.  The v1.16.0 MVP keeps attributes as inert metadata; wiring
-them into the optimiser and linker is tracked as follow-up work.
-
-> See [Sample 39: visibility_attrs](../../tests/samples/39_visibility_attrs/)
-> for the end-to-end example,
-> `docs/realization/visibility_attrs.md` for the IR / ABI model, and
-> `docs/specs/attribute_catalog.md` for the full attribute catalog.
-
-## 16.9 Extended String Literals *(since v1.17.0)*
-
-Ploy 1.17.0 ships four string-literal forms, all sharing the same
-`String` value type:
-
-```ploy
-LET reg  = "hello\n";                                  // regular
-LET path = r"C:\path\no\escape";                       // raw
-LET sql  = r#"SELECT "name" FROM users"#;              // raw with `#` padding
-LET poem = """line one
-line two""";                    // multiline
-LET msg  = f"answer = {42}, pi = {3.14}";              // template
-```
-
-Template strings (`f"..."`) take brace-delimited interpolation
-expressions; `{{` / `}}` are literal braces.  Sema requires every
-interpolated expression to be `Int`, `Float`, `String`, or `Bool`.
-The v1.17.0 lowering layer folds template strings whose interpolated
-parts are all compile-time `Literal` expressions; the runtime
-formatting helper for variable interpolation is tracked as future work.
-
-> See [Sample 40: string_literals](../../tests/samples/40_string_literals/)
-> for the end-to-end example and
-> `docs/realization/string_literals.md` for the IR / ABI model.
+The runtime async bridges connect to Python `asyncio`, Rust `Future`, C++20 coroutines, Java `CompletableFuture`, and .NET `Task<T>`.
 
 ---
 
-# 17. Complete Examples
-
-## 17.1 Basic Cross-Language Linking
-
-> Source: [Sample 01: basic_linking](../../tests/samples/01_basic_linking/)
+# 14. Extended string literals (v1.17)
 
 ```ploy
-IMPORT cpp::math_ops;
-IMPORT python::string_utils;
-
-LINK(cpp, python, math_ops::add, string_utils::format_result) {
-    MAP_TYPE(cpp::int, python::int);
-}
-
-MAP_TYPE(cpp::int, python::int);
-MAP_TYPE(cpp::double, python::float);
-
-FUNC compute_and_format(a: INT, b: INT) -> STRING {
-    LET sum = CALL(cpp, math_ops::add, a, b);
-    LET formatted = CALL(python, string_utils::format_result, sum);
-    RETURN formatted;
-}
-
-EXPORT compute_and_format AS "polyglot_compute";
+LET path     = r"C:\projects\polyglot";                        // raw — no escapes
+LET sql      = r#"SELECT "name", "age" FROM users"#;           // raw with # padding
+LET haiku    = """An old silent pond
+A frog jumps in
+splash, silence again""";                                      // multiline
+LET greeting = f"answer = {42}, pi = {3.14}";                   // template / interpolation
 ```
 
-## 17.2 ML Training Pipeline
+Template strings interpolate any expression typed `Display`. Mixed forms (`fr"..."`, `rf"..."`, etc.) are intentionally **not** part of the surface grammar — combine via concatenation or prefer `f"..."` plus `r"..."` substrings.
 
-> Source: [Sample 05: class_instantiation](../../tests/samples/05_class_instantiation/)
+---
+
+# 15. STRUCT, OPTION, pattern matching
 
 ```ploy
-IMPORT cpp::matrix;
-IMPORT python::model;
+STRUCT Point { x: i32, y: i32 }
 
-LINK(cpp, python, matrix::Matrix, model::LinearModel) {
-    MAP_TYPE(cpp::double, python::float);
-    MAP_TYPE(cpp::int, python::int);
-}
+LET p: Point = Point { x: 1, y: 2 };
+PRINTLN p.x;
+PRINTLN p.y;
 
-PIPELINE training_pipeline {
-    FUNC train(epochs: INT) -> FLOAT {
-        LET model = NEW(python, model::LinearModel, 4, 2);
-        LET loader = NEW(python, model::DataLoader, data, 1);
-
-        VAR total_loss = 0.0;
-        VAR epoch = 0;
-
-        WHILE epoch < epochs {
-            LET batch = METHOD(python, loader, next_batch);
-            LET mat = NEW(cpp, matrix::Matrix, 1, 4, 0.0);
-            LET loss = METHOD(python, model, train_step,
-                             [1.0, 2.0, 3.0, 4.0], [1.0, 0.0]);
-            total_loss = total_loss + loss;
-            epoch = epoch + 1;
-        }
-
-        METHOD(python, loader, reset);
-        RETURN total_loss;
+FUNC find(xs: LIST<i32>, key: i32) -> OPTION<i32> {
+    FOR (i, x) IN xs.enumerate() {
+        IF x == key { RETURN Some(i); }
     }
+    RETURN None;
 }
 
-EXPORT training_pipeline AS "train_pipeline";
+MATCH find(xs, 7) {
+    Some(i) => PRINTLN f"index = {i}";
+    None    => PRINTLN "not found";
+}
 ```
 
-## 17.3 Five-Language Full Stack
+---
 
-> Source: [Sample 15: full_stack](../../tests/samples/15_full_stack/)
+# 16. Object-oriented constructs
 
-This example demonstrates all five supported languages working together in a single pipeline: C++ handles computation, Python handles ML, Rust handles data loading, Java handles sorting, and C# handles JSON serialisation.
+`.ploy` exposes a host-neutral object model so cross-language calls have a single shape regardless of whether the receiver is a C++ object, a Python instance, a Java reference, a .NET handle, a Rust struct, etc.
 
-## 17.4 Environment Configuration and Package Management
+| Operation                              | Syntax                                                  |
+|----------------------------------------|---------------------------------------------------------|
+| Construct a host object                | `LET p = NEW(python, Person, "Alice", 30);`             |
+| Call an instance method                | `LET name = METHOD(p, "get_name");`                     |
+| Read a field / property                | `LET age = GET(p, "age");`                              |
+| Write a field / property               | `SET(p, "age", 31);`                                    |
+| Borrow with explicit lifetime          | `WITH(p) { ... }`                                       |
+| Release a host handle eagerly          | `DELETE(p);`                                            |
+| Extend a host class with a `.ploy` impl | `EXTEND python::Animal AS Cat { ... }`                  |
 
-> Source: [Sample 16: config_and_venv](../../tests/samples/16_config_and_venv/)
+See samples `05_class_instantiation` … `08_delete_extend` for a working tour.
+
+---
+
+# 17. Cross-language linking
+
+`LINK` declarations bind a target callable to a source callable across language boundaries:
 
 ```ploy
-CONFIG VENV python "env/python";
-CONFIG VENV dotnet "env/dotnet";
-
-IMPORT python PACKAGE numpy >= 1.24 AS np;
-IMPORT python PACKAGE pandas >= 2.0 AS pd;
-IMPORT dotnet PACKAGE Newtonsoft.Json >= 13.0 AS njson;
-
-IMPORT dotnet::Transformer;
-IMPORT python::data_science;
-
-STRUCT Experiment {
-    name: STRING;
-    epochs: INT;
-    learning_rate: FLOAT;
-    converged: BOOL;
+LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {
+    MAP_TYPE(cpp::int, python::str);
+    MAP_TYPE(cpp::int, python::str);
 }
-
-FUNC json_round_trip() -> STRING {
-    LET json_str = CALL(python, data_science::to_json, "ResNet-50");
-    LET transformer = NEW(dotnet, Transformer);
-    LET parsed = METHOD(dotnet, transformer, ParseJson, json_str);
-    LET enriched = METHOD(dotnet, transformer, Enrich, parsed, "validated", "true");
-    LET back = METHOD(dotnet, transformer, ToJsonString, enriched);
-    RETURN back;
-}
-
-FUNC explicit_conversion() -> FLOAT {
-    LET py_list = CALL(python, data_science::random_matrix, 1, 5);
-    LET dotnet_arr = CONVERT(py_list, dotnet::List_double);
-    LET transformer = NEW(dotnet, Transformer);
-    LET flat = METHOD(dotnet, transformer, Flatten, dotnet_arr);
-    LET py_flat = CONVERT(flat, python::list);
-    LET avg = CALL(python, data_science::mean, py_flat);
-    RETURN avg;
-}
-
-EXPORT json_round_trip;
-EXPORT explicit_conversion;
 ```
 
----
+The directive form is:
 
-# 18. Keyword Reference
+```
+LINK(<target_lang>, <source_lang>, <target_callable>, <source_callable>) RETURNS <target_type> {
+    MAP_TYPE(<target_param_type>, <source_param_type>);
+    ... // exactly one MAP_TYPE per parameter
+}
+```
 
-All **54 keywords** in the .ploy language:
+Sema enforces:
 
-| Keyword | Category | Description |
-|---------|----------|-------------|
-| `LINK` | Declaration | Cross-language function linking |
-| `IMPORT` | Declaration | Module or package import |
-| `EXPORT` | Declaration | Symbol export |
-| `MAP_TYPE` | Declaration | Cross-language type mapping |
-| `PIPELINE` | Declaration | Multi-stage pipeline declaration |
-| `FUNC` | Declaration | Function definition |
-| `CONFIG` | Declaration | Package manager configuration |
-| `LET` | Variable | Immutable variable declaration |
-| `VAR` | Variable | Mutable variable declaration |
-| `STRUCT` | Type | Structure type definition |
-| `VOID` | Type | Void return type |
-| `INT` | Type | Integer type |
-| `FLOAT` | Type | Floating-point type |
-| `STRING` | Type | String type |
-| `BOOL` | Type | Boolean type |
-| `ARRAY` | Type | Array type |
-| `LIST` | Type | List container type |
-| `TUPLE` | Type | Tuple container type |
-| `DICT` | Type | Dictionary container type |
-| `OPTION` | Type | Optional type |
-| `RETURN` | Control Flow | Return value from function |
-| `IF` | Control Flow | Conditional branch |
-| `ELSE` | Control Flow | Alternative branch |
-| `WHILE` | Control Flow | Loop |
-| `FOR` | Control Flow | Iteration |
-| `IN` | Control Flow | Used with FOR and MATCH |
-| `MATCH` | Control Flow | Pattern matching |
-| `CASE` | Control Flow | Match case |
-| `DEFAULT` | Control Flow | Default match case |
-| `BREAK` | Control Flow | Break out of loop |
-| `CONTINUE` | Control Flow | Skip to next iteration |
-| `AS` | Operator | Alias/cast operator |
-| `AND` | Operator | Logical AND |
-| `OR` | Operator | Logical OR |
-| `NOT` | Operator | Logical NOT |
-| `CALL` | Operator | Cross-language function call |
-| `CONVERT` | Operator | Explicit type conversion |
-| `MAP_FUNC` | Operator | Mapping function |
-| `NEW` | OOP | Cross-language class instantiation |
-| `METHOD` | OOP | Cross-language method call |
-| `GET` | OOP | Read foreign object attribute |
-| `SET` | OOP | Write foreign object attribute |
-| `WITH` | OOP | Automatic resource management |
-| `DELETE` | OOP | Object destruction |
-| `EXTEND` | OOP | Class extension |
-| `TRUE` | Value | Boolean true literal |
-| `FALSE` | Value | Boolean false literal |
-| `NULL` | Value | Null literal |
-| `PACKAGE` | Package | Package import keyword |
-| `VENV` | Package Manager | venv/virtualenv environment |
-| `CONDA` | Package Manager | Conda environment |
-| `UV` | Package Manager | uv-managed environment |
-| `PIPENV` | Package Manager | Pipenv project |
-| `POETRY` | Package Manager | Poetry project |
+- both callables must agree on arity (`polyc-err-E3104`);
+- exactly one `MAP_TYPE` per parameter (`polyc-err-E3105`);
+- the `RETURNS` type must be marshallable in the target language (`polyc-err-E3106`).
+
+Once a link is declared, a `CALL` invokes the bridged callable through the runtime marshalling layer:
+
+```ploy
+LET sum = CALL(cpp, math_ops::add, 1, 2);
+```
+
+The marshalling is generated by `runtime/src/interop/` and recorded in the per-target call-graph (`polyc --emit=call-graph:cg.json`).
 
 ---
 
-# 19. Best Practices
+# 18. Type mapping and conversion
 
-## 19.1 File Organisation
+Global, file-wide type equivalences are declared with `MAP_TYPE`:
 
-1. **Place CONFIG at the top** — environment configuration must appear before any `IMPORT PACKAGE` that depends on it.
-2. **Group IMPORT statements** — put all imports together, module imports first, then package imports.
-3. **Define LINK blocks before functions** — link declarations provide the glue code context.
-4. **Put MAP_TYPE after LINK blocks** — global type mappings complement the per-link mappings.
-5. **Export at the bottom** — exports should be the last section.
+```ploy
+MAP_TYPE(cpp::int,    python::int);
+MAP_TYPE(cpp::double, python::float);
+MAP_TYPE(rust::String, java::String);
+```
 
-## 19.2 Cross-Language Calling
+Custom converters are registered with `CONVERT`:
 
-1. **Prefer CALL for function calls** — use `CALL(lang, module::func, args...)`.
-2. **Prefer METHOD for method calls** — use `METHOD(lang, obj, method, args...)`.
-3. **Declare type mappings for every boundary** — always map types explicitly.
-4. **Use CONVERT for explicit marshalling** — when automatic mapping is insufficient.
+```ploy
+CONVERT(cpp::std::vector<int>, python::list) USING py_list_from_vec;
+CONVERT(rust::Vec<u8>,          dotnet::byte[]) USING dotnet_bytes_from_vec;
+```
 
-## 19.3 Object Lifecycle
+The converter symbol must resolve to a runtime helper visible to the link target (`polyrt` records the symbol in the marshalling table).
 
-1. **Always DELETE when done** — explicitly destroy objects to free resources.
-2. **Use WITH for scoped resources** — files, connections, locks, etc.
-3. **Keep object handles in LET** — immutability prevents accidental reassignment.
+---
 
-## 19.4 Pipeline Design
+# 19. Pipeline composition
 
-1. **One responsibility per stage** — each FUNC in a PIPELINE should do one thing.
-2. **Use meaningful names** — `preprocess`, `classify`, `postprocess` are clearer than `stage1`, `stage2`.
-3. **Mix languages strategically** — use C++/Rust for performance, Python for ML/data science, Java/.NET for enterprise logic.
+`PIPELINE` chains a sequence of cross-language calls, threading the previous stage's output into the next stage's first parameter:
 
-## 19.5 Sample Programs
+```ploy
+PIPELINE preprocess(text: STRING) -> STRING {
+    text
+    | python::nlp::tokenize
+    | rust::filter::lowercase
+    | cpp::compress::deflate
+    | dotnet::Cipher::encrypt
+}
+```
 
-Consult the sample programs for real-world patterns:
+Sema verifies that adjacent stages either share a `MAP_TYPE` or have a `CONVERT` registered.
 
-| Sample | What to Learn |
-|--------|---------------|
-| [01_basic_linking](../../tests/samples/01_basic_linking/) | LINK, CALL, IMPORT, EXPORT basics |
-| [02_type_mapping](../../tests/samples/02_type_mapping/) | MAP_TYPE with complex types and STRUCTs |
-| [03_pipeline](../../tests/samples/03_pipeline/) | PIPELINE with IF/WHILE/FOR/MATCH |
-| [04_package_import](../../tests/samples/04_package_import/) | IMPORT PACKAGE with version constraints |
-| [05_class_instantiation](../../tests/samples/05_class_instantiation/) | NEW and METHOD for OOP |
-| [06_attribute_access](../../tests/samples/06_attribute_access/) | GET and SET |
-| [07_resource_management](../../tests/samples/07_resource_management/) | WITH for scoped resources |
-| [08_delete_extend](../../tests/samples/08_delete_extend/) | DELETE and EXTEND |
-| [09_mixed_pipeline](../../tests/samples/09_mixed_pipeline/) | All features combined in an ML pipeline |
-| [10_error_handling](../../tests/samples/10_error_handling/) | Error scenarios and diagnostics |
-| [11_java_interop](../../tests/samples/11_java_interop/) | Java cross-language interop |
-| [12_dotnet_interop](../../tests/samples/12_dotnet_interop/) | .NET cross-language interop |
-| [13_generic_containers](../../tests/samples/13_generic_containers/) | Generic container type interop |
-| [14_async_pipeline](../../tests/samples/14_async_pipeline/) | Multi-stage signal processing pipeline |
-| [15_full_stack](../../tests/samples/15_full_stack/) | Five-language full-stack demo |
-| [16_config_and_venv](../../tests/samples/16_config_and_venv/) | CONFIG, IMPORT PACKAGE, CONVERT |
+---
+
+# 20. Diagnostic codes
+
+Every `.ploy` diagnostic carries a stable id of the form `polyc-(err|warn)-<E####|W####>`. Highlights:
+
+| Code                  | Meaning                                                        |
+|-----------------------|----------------------------------------------------------------|
+| `polyc-err-E2001`     | Missing initialiser on `LET` / `LET VAR`.                      |
+| `polyc-err-E2102`     | Unknown identifier.                                            |
+| `polyc-err-E2410`     | `EXPORT` of a `PRIVATE` declaration.                           |
+| `polyc-err-E2402`     | Unknown `@attribute`.                                          |
+| `polyc-err-E3104`     | LINK arity mismatch.                                           |
+| `polyc-err-E3105`     | MAP_TYPE count mismatch.                                       |
+| `polyc-err-E3106`     | Non-marshallable `RETURNS` type.                               |
+| `polyc-warn-W2101`    | `--container` does not match resolved output suffix.           |
+| `polyc-warn-W2401`    | Call to `@deprecated` API.                                     |
+| `polyc-warn-W2501`    | Unused `IMPORT`.                                               |
+
+Run `polyc --check file.ploy` to obtain the diagnostics as LSP-shaped JSON; the same payload powers the IDE Problems panel and `polyls`. The full table lives in `docs/specs/ploy_diagnostics.md`.
+
+---
+
+# 21. Documentation comments and `polydoc` (v1.18)
+
+Lines beginning with `///` are doc comments harvested by the `polydoc` tool when attached to a top-level `FUNC`, `STRUCT`, `LET`, or `VAR`:
+
+```ploy
+/// Returns the absolute value of `n`.
+/// Wrapping behaviour at i32::MIN follows the host backend.
+FUNC abs(n: i32) -> i32 {
+    IF n < 0 { RETURN -n; }
+    RETURN n;
+}
+
+/// Maximum number of retries before giving up.
+LET MAX_RETRY: i32 = 5;
+```
+
+```bash
+polydoc file.ploy                # Markdown to stdout
+polydoc --json file.ploy         # machine-readable
+polydoc -o api.md file.ploy
+```
+
+The same doc payload is surfaced through `polyls` hover / signature-help responses.
+
+---
+
+# 22. Sample matrix tour
+
+| Range            | Theme                                                                  |
+|------------------|------------------------------------------------------------------------|
+| `00_minimal`     | Single-line minimal sample with byte-pinned stdout.                    |
+| `01` … `09`      | Core `.ploy` interop — LINK, MAP_TYPE, PIPELINE, control flow, OOP.    |
+| `10` … `16`      | Diagnostics, Java / .NET interop, generic containers, async pipeline, full stack, CONFIG / VENV. |
+| `17` … `30`      | Real domains — strings, numerics, file I/O, JSON, image, SQL, HTTP, concurrency, event loop, plugin, ML, analytics, game loop. |
+| `31`, `32`       | Explicit-width integers, typed handles.                                |
+| `33`, `34`       | Pattern matching, default arguments.                                   |
+| `35`             | EXTEND on dynamic languages.                                           |
+| `36`             | TRY / CATCH / FINALLY / THROW (v1.13).                                 |
+| `37`             | ASYNC / AWAIT (v1.14).                                                 |
+| `38`             | Generics with bounds (v1.15).                                          |
+| `39`             | Visibility and attributes (v1.16).                                     |
+| `40`             | Extended string literals (v1.17).                                      |
+| `41`             | Grammar polish — optional outer parens, IF LET, `///` doc comments.    |
+
+Drive the whole matrix with:
+
+```bash
+scripts/build_all_samples.sh   --polyc build/polyc --polyld build/polyld
+scripts\build_all_samples.ps1  -Polyc build\polyc.exe -Polyld build\polyld.exe
+```
+
+The harness writes `samples_report.json` (top-level alphabetised `ok` array) which `samples_regression_test.cpp` cross-checks against the per-sample status field.
+
+---
+
+# 23. Keyword reference
+
+The 54 `.ploy` keywords (current as of 1.45.2):
+
+```
+AND, AS, ASYNC, AWAIT, BREAK, CALL, CASE, CATCH, CONST, CONTINUE,
+CONVERT, DELETE, DO, DOUBLE, ELSE, EXPORT, EXTEND, FALSE, FINALLY,
+FLOAT, FOR, FUNC, GET, IF, IMPORT, IN, INT, LET, LINK, LIST, LONG,
+MAP, MAP_TYPE, MATCH, METHOD, NEW, NOT, NULL, OPTION, OR, PACKAGE,
+PIPELINE, PRIVATE, PUB, RESULT, RETURN, RETURNS, SET, STRING, STRUCT,
+THROW, TRUE, TRY, USING, VAR, VOID, WHERE, WHILE, WITH
+```
+
+Type identifiers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `Error`, `Future`, `Some`, `None`, `Ok`, `Err`, `Comparable`, `Numeric`, `Hashable`, `Display`, `Clone`, `Send`) are reserved identifiers but not keywords; redefining them is a hard error.
+
+---
+
+*Maintained by the PolyglotCompiler team*  
+*Last updated: 2026-05-07*  
+*Document version: v3.0.0*

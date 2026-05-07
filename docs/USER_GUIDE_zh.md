@@ -1,3850 +1,1932 @@
 ﻿# PolyglotCompiler 用户指南
 
-> 一个功能完整的多语言编译器项目  
-> 支持 C++、Python、Rust、Java、C# (.NET)、JavaScript、Ruby、Go → x86_64/ARM64/WebAssembly  
-> 含 .ploy 跨语言链接前端
+> **文档版本**：4.0.0  
+> **最后更新**：2026-05-07  
+> **项目**：PolyglotCompiler 1.45.2  
+> **配套文档**：[USER_GUIDE.md](USER_GUIDE.md)
 
-**版本**: v1.2.0  
-**最后更新**: 2026-04-28
-
----
-
-> **通告（v1.8.0）。** 旧的 `LINK(target_lang, source_lang, target, source);`
-> 逗号形式语法已被**弃用**。语义分析器在遇到该形式时会发出
-> `kDeprecatedKeyword` 警告。请改用标准的带签名形式：
->
-> ```ploy
-> LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret>;
-> ```
->
-> 本指南其他位置的示例出于历史叙述需要可能仍使用旧形式；
-> 新代码应改用带签名形式。完整迁移示例见
-> [`tests/samples/01_basic_linking_v2/`](../tests/samples/01_basic_linking_v2/)。
->
-> 同一版本将 `STAGE` 提升为保留关键字，且只能出现在 `PIPELINE` 体内。
+PolyglotCompiler 完整动手指南——一条多语言编译器工具链：吞入
+C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
+**Ploy** 胶水语言，统一降到同一份中间表示（IR），并为
+**x86_64**、**ARM64** 与 **WebAssembly** 生成原生代码。配套 IDE
+（`polyui`）提供基于 LSP 的多语言编辑器、调试器、性能分析器、调用关系
+分析器、包管理视图与测试浏览器。
 
 ---
 
 ## 目录
 
-1. [项目概述](#1-项目概述)
+1. [简介](#1-简介)
 2. [快速开始](#2-快速开始)
-3. [架构设计](#3-架构设计)
-4. [.ploy 跨语言链接前端](#4-ploy-跨语言链接前端)
-5. [已实现功能](#5-已实现功能)
-6. [使用指南](#6-使用指南)
-7. [IR 设计规范](#7-ir-设计规范)
-8. [优化系统](#8-优化系统)
-9. [运行时系统](#9-运行时系统)
-10. [测试体系](#10-测试体系)
-11. [构建与集成](#11-构建与集成)
-12. [开发指南](#12-开发指南)
-13. [插件系统](#13-插件系统)
-14. [附录](#14-附录)
+3. [架构总览](#3-架构总览)
+4. [Ploy 胶水语言](#4-ploy-胶水语言)
+5. [语言前端](#5-语言前端)
+6. [工具与命令行驱动](#6-工具与命令行驱动)
+7. [统一 IR](#7-统一-ir)
+8. [中端优化](#8-中端优化)
+9. [运行时](#9-运行时)
+10. [后端](#10-后端)
+11. [链接器与目标格式](#11-链接器与目标格式)
+12. [IDE（`polyui`）与语言服务器](#12-idepolyui-与语言服务器)
+13. [诊断、性能分析与调用分析](#13-诊断性能分析与调用分析)
+14. [测试、示例与持续集成](#14-测试示例与持续集成)
+15. [构建系统与依赖](#15-构建系统与依赖)
+16. [扩展编译器](#16-扩展编译器)
+17. [插件 SDK](#17-插件-sdk)
+18. [附录](#18-附录)
 
 ---
 
-# 1. 项目概述
+## 1. 简介
 
-## 1.1 项目简介
+### 1.1 PolyglotCompiler 是什么
 
-PolyglotCompiler 是一个现代化的多语言编译器项目，采用多前端共享中间表示（IR）的架构设计，并通过 `.ploy` 语言实现跨语言函数级别链接和面向对象互操作。
+PolyglotCompiler 把多语言混合的源码树编译成一份链接产物。一个程序
+可以同时引入 C++ 图像滤镜、Rust 序列化器、Python 机器学习模型与
+Go HTTP 客户端，由 `.ploy` 驱动文件粘合，最终产出 x86_64、ARM64 或
+WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建：
 
-**核心目标：**
+1. **统一 IR。** 每种支持语言降到同一份 SSA、三地址形式的 IR；优化、
+   调试信息、代码生成只写一次，全部前端共享。
+2. **跨语言一等公民调用。** `bridge_call` IR 操作经由统一的 FFI
+   编排层（`runtime::ffi::BridgeFrame`）跨越语言边界，链接器会校验
+   每个 bridge 调用点是否存在已注册的对端。
+3. **生产级工具。** 仓库内同时提供 11 个 CLI 驱动与一个 Qt 6 IDE，
+   保证 “编辑→编译→调试→性能分析→打包” 的端到端开发循环每次提交
+   都被 CI 校验。
 
-- ✅ **多语言支持**: C++、Python、Rust、Java、.NET (C#)、JavaScript、Ruby、Go 的完整编译前端
-- ✅ **三重后端架构**: x86_64 (SSE/AVX)、ARM64 (NEON)、WebAssembly 后端
-- ✅ **完整工具链**: 编译器（polyc）、链接器（polyld）、优化器（polyopt）、汇编器（polyasm）、运行时工具（polyrt）、基准测试（polybench）、IDE（polyui）
-- ✅ **跨语言链接**: 通过 `.ploy` 声明式语法实现函数级跨语言互操作
-- ✅ **跨语言 OOP**: 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 关键字支持类实例化、方法调用、属性访问、资源管理、对象销毁和类继承扩展
-- ✅ **包管理集成**: 支持 pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle
-- ✅ **运行时内存策略**: `DICT` 运行时已实现基于负载因子的扩容与 rehash，类扩展注册改为线程安全动态注册表
-- ✅ **功能完整实现**: 全面实现，所有前端均可运行；Java 和 .NET 测试覆盖仍在持续扩展
+### 1.2 能力矩阵速览
 
-## 1.2 核心特性一览
+| 领域       | 1.45.2 状态                                                                                                  |
+|------------|--------------------------------------------------------------------------------------------------------------|
+| 前端       | C++、Python、Rust、Java、.NET（C#）、Go、JavaScript、Ruby、Ploy，共 9 个。                                    |
+| 后端       | x86_64（System V + Win64 + macOS Mach-O）、ARM64（AAPCS64，Linux ELF + macOS Mach-O）、WebAssembly MVP+SIMD。 |
+| 工具驱动   | `polyc`、`polyld`、`polyasm`、`polyopt`、`polyrt`、`polybench`、`polytopo`、`polyls`、`polydoc`、`polyver`、`polyui`，共 11 个。 |
+| 垃圾回收器 | 标记—清扫、三色、分代、引用计数（4 种算法，运行时可选）。                                                     |
+| 测试面     | 30 个 CTest 目标，覆盖单元、集成、端到端、基准与工具。                                                        |
+| 示例集     | 42 个编号示例（`00_minimal` … `41_grammar_polish`），外加 `01_basic_linking_v2` 变体。                       |
+| IDE        | Qt 6 polyui，集成 LSP、DAP、性能分析、调用分析、SCM、测试浏览器、包管理视图。                                  |
+| 双语文档   | `docs/` 下 EN+ZH 同步，由 `docs_lint`、`docs_sync` CI 目标守门。                                              |
 
-### 语言支持
+### 1.3 阅读顺序
 
-| 语言 | 前端 | IR Lowering | 高级特性 | 状态 |
-|------|------|-------------|----------|------|
-| **C++** | ✅ | ✅ | OOP/模板/RTTI/异常/constexpr/SIMD | **完整** |
-| **Python** | ✅ | ✅ | 类型注解/推导/装饰器/生成器/async/25+高级特性 | **完整** |
-| **Rust** | ✅ | ✅ | 借用检查/闭包/生命周期/Traits/28+高级特性 | **完整** |
-| **Java** | ✅ | ✅ | Java 8/17/21/23/记录类/密封类/模式匹配/文本块/Switch表达式 | **核心完整** |
-| **.NET (C#)** | ✅ | ✅ | .NET 6/7/8/9/记录类/顶级语句/主构造器/文件范围命名空间/可空引用类型 | **核心完整** |
-| **.ploy** | ✅ | ✅ | 跨语言链接/管道/包管理/多包管理器/类实例化/方法调用/属性访问/资源管理/对象销毁/类继承 | **完整** |
+新手请先把 [快速开始](#2-快速开始) 全章跑一遍，再深入各语言前端章节。
+编译器开发者可直接跳到 [统一 IR](#7-统一-ir) 与 [中端优化](#8-中端优化)。
+工具用户可直接看第 12–14 章。插件作者可直接跳到 [第 17 章](#17-插件-sdk)。
 
-### 平台支持
+### 1.4 约定
 
-| 架构 | 指令选择 | 寄存器分配 | 调用约定 | 状态 |
-|------|----------|------------|----------|------|
-| **x86_64** | ✅ | ✅ 图着色/线性扫描 | ✅ SysV ABI | **完整** |
-| **ARM64** | ✅ | ✅ 图着色/线性扫描 | ✅ AAPCS64 | **完整** |
-| **WebAssembly** | ✅ | ✅ 堆栈机 | ✅ WASM ABI | **完整** |
+* `polyc`、`polyld` 等等宽字体名字均指 `build/` 下的二进制。
+* 命令行片段除非另行说明，工作目录默认为仓库根。
+* macOS / Linux 路径使用 `/`；Windows 使用 PowerShell 的 `;` 与反引号续行。
+* `<…>` 表占位符；`[…]` 表可选参数。
+* 项目内代码注释统一英文；本指南遵循同一约定。
 
-### 工具链
+### 1.5 各类索引
 
-| 工具 | 功能 | 可执行文件 |
-|------|------|-----------|
-| 编译器驱动 | 源码 → IR → 目标代码 | `polyc` |
-| 链接器 | 目标文件链接 + 跨语言粘合 | `polyld` |
-| 汇编器 | 汇编 → 目标文件 | `polyasm` |
-| 优化器 | IR 优化 Pass | `polyopt` |
-| 运行时工具 | GC/FFI/线程管理 | `polyrt` |
-| 拓扑分析器 | 函数 I/O 拓扑可视化、链接验证、图导出（文本/DOT/JSON） | `polytopo` |
-| 基准测试 | 性能评估套件 | `polybench` |
-| IDE | 基于 Qt 的桌面集成开发环境，支持语法高亮、诊断、拓扑面板、文件浏览 | `polyui` |
+| 你想……                              | 翻到                                                                            |
+|-------------------------------------|---------------------------------------------------------------------------------|
+| 第一次构建项目                      | [§ 2.2](#22-克隆与构建)                                                          |
+| 编译单个 C++ 文件                   | [§ 2.3](#23-第一个-c-程序)                                                       |
+| 把 C++ 接进 Python 流水线           | [§ 2.4](#24-第一个跨语言流水线)                                                   |
+| 学习 Ploy 文法                      | [第 4 章](#4-ploy-胶水语言) 与 [tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md) |
+| 写一个新优化 pass                   | [§ 8.6](#86-编写-pass) 与 [§ 16.4](#164-新增中端-pass)                            |
+| 接入全新源语言                      | [§ 16.5](#165-新增前端) 与 [§ 17.3](#173-必选导出)                                 |
+| 性能分析长时间运行的程序            | [§ 13.3](#133-性能分析器) 与 [tutorial/profiling_quickstart_zh.md](tutorial/profiling_quickstart_zh.md) |
+| 发布构建                            | [§ 18.3](#183-发布打包)                                                          |
 
 ---
 
-# 2. 快速开始
+## 2. 快速开始
 
-## 2.1 环境要求
+### 2.1 先决条件
 
-- **CMake** 3.20+
-- **C++20** 兼容编译器（MSVC 2022+/GCC 12+/Clang 15+）
-- **Ninja** 或 **Make** 构建工具（推荐 Ninja）
+| 平台          | 工具链                                                                                          |
+|---------------|-------------------------------------------------------------------------------------------------|
+| macOS 13+     | Xcode 15 命令行工具、CMake 3.27+、Ninja 1.11+、Python 3.11+、Qt 6.6+（`brew install qt`）。     |
+| Ubuntu 22.04+ | `clang-17` 或 `gcc-13`、CMake 3.27+、Ninja 1.11+、Python 3.11+、`libssl-dev`、`qt6-base-dev`。   |
+| Windows 11    | Visual Studio 2022（17.8+）或 LLVM 17 + Ninja、CMake 3.27+、Python 3.11+、Qt 6.6+ MSVC kit。     |
 
-**CMake 自动拉取的依赖：**
-- **fmt**: 格式化库
-- **nlohmann_json**: JSON 库
-- **Catch2**: 测试框架
-- **mimalloc**: 高性能内存分配器
+可选但能让所有前端完整工作：
 
-## 2.2 编译项目
+| 前端       | 可选工具链                                                              |
+|------------|-------------------------------------------------------------------------|
+| Python     | CPython 3.11+，可选 `conda`、`uv`、`poetry` 用于环境发现。              |
+| Rust       | Rust 1.78（`rustup default stable`）。                                  |
+| Java       | JDK 21（Temurin、Microsoft Build of OpenJDK 或 Liberica）。             |
+| .NET       | .NET 8 SDK。                                                            |
+| Go         | Go 1.22+。                                                              |
+| JavaScript | Node.js 20+，可选 `pnpm` 或 `yarn`。                                    |
+| Ruby       | Ruby 3.3，含 `Gemfile` 项目需 `bundler`。                               |
+| 交叉编译   | `lld` 17+、`wasi-sdk` 22（`wasm32-wasi`）、目标 sysroot 放置于 `~/sdk`。 |
 
-```bash
-# 克隆项目
-git clone https://github.com/Boilboil1069/PolyglotCompiler
+### 2.2 克隆与构建
+
+```sh
+git clone https://example.invalid/polyglot/PolyglotCompiler.git
 cd PolyglotCompiler
-
-# 构建（Linux/macOS）
-mkdir -p build && cd build
-cmake .. -G Ninja
-ninja
-
-# 构建（Windows + MSVC）
-# 注意：必须使用 -arch=amd64 避免 x86/x64 链接器不匹配
-call "...\VsDevCmd.bat" -arch=amd64
-mkdir build && cd build
-cmake .. -G Ninja
-ninja
-
-# 运行全部测试
-./unit_tests         # Linux/macOS
-unit_tests.exe       # Windows
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build -j
 ```
 
-## 2.3 第一个 C++ 程序
+首次构建会按 [Dependencies.cmake](Dependencies.cmake) 拉取第三方依赖
+并产出 [§ 1.2](#12-能力矩阵速览) 列出的所有工具。在拥有热依赖缓存的
+现代笔记本上预计耗时 4–8 分钟。
 
-```cpp
-// hello.cpp
-int main() {
-    return 42;
+#### 2.2.1 常用 CMake 选项
+
+| 选项                           | 默认值              | 说明                                                                |
+|--------------------------------|---------------------|---------------------------------------------------------------------|
+| `CMAKE_BUILD_TYPE`             | `Debug`             | 日常开发推荐 `RelWithDebInfo`。                                     |
+| `POLY_BUILD_IDE`               | `ON`                | 设为 `OFF` 进行无 Qt 的无头/CI 构建。                                |
+| `POLY_BUILD_TESTS`             | `ON`                | 关闭后跳过 30 个 CTest 目标。                                       |
+| `POLY_BUILD_BENCHMARKS`        | `ON`                | 关闭后跳过 `benchmark_*` JSON 生产。                                |
+| `POLY_BUILD_SAMPLES`           | `ON`                | 关闭后跳过 `samples_smoke`。                                        |
+| `POLY_SANITIZE`                | `OFF`               | `address`、`undefined`、`thread`，或 `address;undefined`。           |
+| `POLY_COVERAGE`                | `OFF`               | 加 `--coverage` 与 `-fprofile-instr-generate`。                      |
+| `POLY_ENABLE_LTO`              | `OFF`               | 工具链自身使用 thin LTO 构建。                                       |
+| `POLY_TARGET_TRIPLES`          | host                | 分号分隔的额外交叉编译三元组。                                       |
+| `POLY_DEFAULT_GC`              | `tricolor`          | `msweep` / `tricolor` / `generational` / `refcount`。               |
+
+#### 2.2.2 无头/CI 构建
+
+```sh
+cmake -S . -B build-ci -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DPOLY_BUILD_IDE=OFF \
+      -DPOLY_BUILD_BENCHMARKS=OFF
+cmake --build build-ci -j
+ctest --test-dir build-ci -j --output-on-failure
+```
+
+#### 2.2.3 单目标构建
+
+```sh
+cmake --build build --target polyc
+cmake --build build --target test_runtime
+cmake --build build --target polyui polyls
+```
+
+### 2.3 第一个 C++ 程序
+
+```sh
+echo 'int main() { return 42; }' > hello.cpp
+build/polyc hello.cpp -o hello
+./hello; echo $?     # 输出 42
+```
+
+`polyc` 自动按扩展名识别语言，分派到 C++ 前端，降到统一 IR，运行
+默认 O2 优化，最后为宿主三元组发出原生可执行文件。
+
+逐阶段产出查看：
+
+```sh
+build/polyc hello.cpp --emit=ir:hello.ir          # 文本 IR
+build/polyc hello.cpp --emit=asm:hello.s          # 后端汇编
+build/polyc hello.cpp --emit=obj:hello.o          # 目标文件
+build/polyc hello.cpp --print-passes              # 仅打印 pass 流水线
+build/polyc hello.cpp -o hello --opt=O0 -g        # 调试构建
+```
+
+### 2.4 第一个跨语言流水线
+
+`tests/samples/09_mixed_pipeline/mixed_pipeline.ploy` 把 C++ 图像
+滤镜与 Python 分类器粘在一起：
+
+```ploy
+LINK cpp::filter::sharpen   AS sharpen(image: bytes) -> bytes;
+LINK python::ml::classify   AS classify(image: bytes) -> string;
+
+PIPELINE main(path: string) -> string {
+    LET raw     = io::read_file(path);
+    LET sharper = sharpen(raw);
+    RETURN classify(sharper);
 }
 ```
 
-```bash
-polyc --lang=cpp --emit-ir=hello.ir hello.cpp    # 生成 IR
-polyc --lang=cpp -o hello.o hello.cpp             # 生成目标文件
+构建并运行：
+
+```sh
+build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy \
+            -o build/mixed_pipeline
+build/mixed_pipeline tests/samples/09_mixed_pipeline/sample.png
 ```
 
-## 2.4 第一个跨语言管道
+驱动通过 **包管理器自动发现**（[§ 4.4](#44-包管理器自动发现)）找到
+同目录下的 `*.cpp` 与 `*.py`，分别交给对应前端，再链接 IR 模块得到
+单个可执行件。
+
+### 2.5 第一个 WebAssembly 构建
+
+```sh
+build/polyc hello.cpp --target=wasm32-wasi -o hello.wasm
+wasmtime hello.wasm; echo $?
+```
+
+wasm 后端写出符合 WASM 1.0 的模块，并启用 SIMD-128 指令；详见
+[第 10 章](#10-后端)。
+
+### 2.6 从零写一个 Ploy 程序
 
 ```ploy
-// pipeline.ploy — 使用 Python ML + C++ 后处理
-CONFIG VENV python "/opt/ml-env";
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-IMPORT cpp::image_processor;
-
-LINK(cpp, python, process, np::mean) {
-    MAP_TYPE(cpp::double, python::float);
+FN factorial(n: i64) -> i64 {
+    IF n <= 1 { RETURN 1; }
+    RETURN n * factorial(n - 1);
 }
 
-PIPELINE inference {
-    FUNC run(data: LIST(f64)) -> f64 {
-        LET avg = CALL(python, np::mean, data);
-        LET result = CALL(cpp, image_processor::enhance, avg);
-        RETURN result;
-    }
-}
-
-EXPORT inference AS "run_inference";
-```
-
----
-
-# 3. 架构设计
-
-## 3.1 整体架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Source Code                                │
-│       C++ / Python / Rust / Java / C# / .ploy               │
-└─────────────────────┬───────────────────────────────────────┘
-                      │
-  ┌───────┬───────────┼──────────┬───────────┬───────────┐
-  │       │           │          │           │           │
-  ▼       ▼           ▼          ▼           ▼           ▼
-┌────┐ ┌──────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌──────────┐
-│C++ │ │Python│ │  Rust  │ │  Java  │ │ .NET   │ │  .ploy   │
-│ FE │ │  FE  │ │   FE   │ │   FE   │ │   FE   │ │   FE     │
-└──┬─┘ └──┬───┘ └───┬────┘ └───┬────┘ └───┬────┘ └────┬─────┘
-   │      │         │          │          │           │
-   └──────┼─────────┼──────────┼──────────┘        ┌──┘
-          │         │          │                   │
-          ▼         ▼          ▼                   ▼
-            ┌────────────────┐          ┌───────────────────┐
-            │  Shared IR     │          │ PolyglotLinker    │
-            │ (Middle Layer) │          │ (Cross-Language)  │
-            └────────┬───────┘          └───────────────────┘
-                     │
-        ┌────────────┼────────────┐
-        │            │            │
-        ▼            ▼            ▼
-    ┌──────┐     ┌──────┐     ┌──────┐
-    │ SSA  │     │ CFG  │     │ Opt  │
-    │Trans │     │Build │     │Pass  │
-    └──┬───┘     └──┬───┘     └──┬───┘
-       └────────────┼────────────┘
-                    │
-     ┌──────────────────────────────┐
-     │         Backend              │
-     │ (x86_64 / ARM64 / WASM)      │
-     └────────────┬────────────│────┘
-                  │
-        ┌─────────┼─────────┐
-        │         │         │
-        ▼         ▼         ▼
-    ┌───────┐ ┌────────┐ ┌──────┐
-    │ISelect│ │RegAlloc│ │AsmGen│
-    └───┬───┘ └──┬─────┘ └───┬──┘
-        └────────┼───────────┘
-                 │
-         ┌───────────────┐
-         │ Object File   │
-         │ (ELF/Mach-O/  │
-         │  POBJ/WASM)   │
-         └───────────────┘
-```
-
-**关键设计原则：**
-- 所有语言共享统一的 IR 中间表示
-- 每个前端独立实现完整的 Lexer → Parser → Sema → Lowering 流水线
-- 所有前端通过 `ILanguageFrontend` 接口注册到中央 **FrontendRegistry**（前端注册中心），实现 CLI、IDE、测试和插件的统一分发
-- `.ploy` 前端独特之处在于它的 IR 被 PolyglotLinker 消费，生成跨语言粘合代码
-
-## 3.2 目录结构
-
-```
-PolyglotCompiler/
-├── frontends/              # 前端（6 个语言前端）
-│   ├── common/             # 通用前端设施（Token、Diagnostics、预处理器、注册中心）
-│   │   ├── include/        #   language_frontend.h（ILanguageFrontend 接口）
-│   │   │                   #   frontend_registry.h（FrontendRegistry 单例）
-│   │   │                   #   diagnostics.h, lexer_base.h, sema_context.h
-│   │   └── src/            #   frontend_registry.cpp, token_pool.cpp, preprocessor.cpp
-│   ├── cpp/                # C++ 前端
-│   │   ├── include/        #   cpp_frontend.h, cpp_lexer.h, cpp_parser.h, cpp_sema.h, cpp_lowering.h
-│   │   └── src/            #   cpp_frontend.cpp, lexer/, parser/, sema/, lowering/, constexpr/
-│   ├── python/             # Python 前端
-│   │   ├── include/        #   python_frontend.h, python_lexer.h, python_parser.h, python_sema.h, python_lowering.h
-│   │   └── src/            #   python_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── rust/               # Rust 前端
-│   │   ├── include/        #   rust_frontend.h, rust_lexer.h, rust_parser.h, rust_sema.h, rust_lowering.h
-│   │   └── src/            #   rust_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── java/               # Java 前端 (Java 8/17/21/23)
-│   │   ├── include/        #   java_frontend.h, java_ast.h, java_lexer.h, java_parser.h, java_sema.h, java_lowering.h
-│   │   └── src/            #   java_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   ├── dotnet/             # .NET 前端 (C# .NET 6/7/8/9)
-│   │   ├── include/        #   dotnet_frontend.h, dotnet_ast.h, dotnet_lexer.h, dotnet_parser.h, dotnet_sema.h, dotnet_lowering.h
-│   │   └── src/            #   dotnet_frontend.cpp, lexer/, parser/, sema/, lowering/
-│   └── ploy/               # .ploy 跨语言链接前端
-│       ├── include/        #   ploy_frontend.h, ploy_ast.h, ploy_lexer.h, ploy_parser.h, ploy_sema.h, ploy_lowering.h
-│       └── src/            #   ploy_frontend.cpp, lexer/, parser/, sema/, lowering/
-├── middle/                 # 中间层
-│   ├── include/
-│   │   ├── ir/             #   IR 定义（cfg.h, ssa.h, verifier.h, analysis.h, data_layout.h 等）
-│   │   ├── passes/         #   优化 Pass 接口（analysis/, transform/）
-│   │   ├── pgo/            #   Profile-Guided Optimization
-│   │   └── lto/            #   Link-Time Optimization
-│   └── src/
-│       ├── ir/             #   builder, ir_context, cfg, ssa, verifier, printer, parser, template_instantiator, opt
-│       ├── passes/         #   pass_manager, optimizations/（constant_fold, dead_code_elim, common_subexpr,
-│       │                   #     inlining, devirtualization, loop_optimization, gvn, advanced_optimizations）
-│       ├── pgo/            #   profile_data.cpp
-│       └── lto/            #   link_time_optimizer.cpp
-├── backends/               # 后端（3 个架构后端）
-│   ├── common/             # 通用后端设施
-│   │   └── src/            #   debug_info.cpp, debug_emitter.cpp, dwarf_builder.cpp, object_file.cpp
-│   ├── x86_64/             # x86_64 后端
-│   │   ├── include/        #   x86_target.h, x86_register.h, machine_ir.h, instruction_scheduler.h
-│   │   └── src/            #   isel/, regalloc/（graph_coloring, linear_scan）, asm_printer/, optimizations, calling_convention
-│   ├── arm64/              # ARM64 后端
-│   │   ├── include/        #   arm64_target.h, arm64_register.h, machine_ir.h
-│   │   └── src/            #   isel/, regalloc/（graph_coloring, linear_scan）, asm_printer/, calling_convention
-│   └── wasm/               # WebAssembly 后端
-│       ├── include/        #   wasm_target.h
-│       └── src/            #   wasm_target.cpp
-├── runtime/                # 运行时
-│   ├── include/            # GC、FFI、服务接口
-│   └── src/
-│       ├── gc/             #   mark_sweep, generational, copying, incremental, gc_strategy, runtime
-│       ├── interop/        #   ffi, memory, marshalling, type_mapping, calling_convention, container_marshal
-│       ├── libs/           #   base.c, base_gc_bridge.cpp, python_rt.c, cpp_rt.c, rust_rt.c, java_rt.c, dotnet_rt.c, javascript_rt.c, ruby_rt.c, go_rt.c
-│       └── services/       #   exception, reflection, threading
-├── common/                 # 项目公共设施
-│   ├── include/
-│   │   ├── core/           #   type_system.h, source_loc.h, symbol_table.h
-│   │   ├── ir/             #   ir_node.h
-│   │   ├── debug/          #   dwarf5.h
-│   │   └── utils/          #   工具类
-│   └── src/
-│       ├── core/           #   type_system.cpp, symbol_table.cpp
-│       └── debug/          #   dwarf5.cpp
-├── tools/                  # 工具链（7 个可执行文件）
-│   ├── polyc/              # 编译器驱动 (driver.cpp ~1773 行)
-│   ├── polyld/             # 链接器 (linker.cpp + polyglot_linker.cpp ~3790 行)
-│   ├── polyasm/            # 汇编器 (assembler.cpp)
-│   ├── polyopt/            # 优化器 (optimizer.cpp)
-│   ├── polyrt/             # 运行时工具 (polyrt.cpp)
-│   ├── polybench/          # 基准测试 (benchmark_suite.cpp)
-│   └── ui/                 # IDE 工具 (polyui) — 按平台分离的源码布局
-│       ├── common/         #   跨平台共享代码（mainwindow、code_editor、syntax_highlighter、file_browser、output_panel、compiler_service、terminal_widget）
-│       ├── windows/        #   Windows 专用入口点 (main.cpp)
-│       ├── linux/          #   Linux 专用入口点 (main.cpp)
-│       └── macos/          #   macOS 专用入口点 (main.cpp)
-├── tests/                  # 测试
-│   ├── unit/               # 单元测试（Catch2 框架）— 909 个测试用例
-│   │   └── frontends/ploy/ #   ploy_test.cpp（283 测试用例）
-│   ├── samples/            # 示例程序（16 个分类目录，含 .ploy/.cpp/.py/.rs/.java/.cs）
-│   ├── integration/        # 集成测试（编译管道/互操作/性能）— 92 个测试用例
-│   └── benchmarks/         # 基准测试（微基准/宏基准）— 18 个测试用例
-└── docs/                   # 文档
-    ├── api/                # API 参考（中英双语）
-    ├── specs/              # 语言与 IR 规范
-    ├── realization/        # 实现文档（8 主题 × 2 语言 = 16 文件）
-    ├── tutorial/           # 教程（ploy 语言 + 项目教程，中英双语）
-    ├── demand/             # 需求文档
-    ├── USER_GUIDE.md       # 完整指南（英文版）
-    └── USER_GUIDE_zh.md    # 本文档（中文版）
-```
-
-## 3.3 前端设计
-
-每个前端遵循统一的 4 阶段流水线：
-
-```
-Source Code
-    │
-    ▼
-┌─────────┐    Token Stream    ┌─────────┐   AST    ┌─────────┐   Annotated AST    ┌──────────┐ IR Module
-│  Lexer  │──────────────────▶ │ Parser  │────────▶ │  Sema   │───────────────────▶│ Lowering │──────────▶
-└─────────┘                    └─────────┘          └─────────┘                    └──────────┘
-```
-
-### 3.3.1 统一前端注册中心
-
-所有语言前端通过 **FrontendRegistry**（前端注册中心）进行统一管理——这是一个单例注册中心，取代了原有的硬编码 if/else 分发链。CLI（`polyc`）、IDE（`polyui`）、测试和插件都共享同一分发机制。
-
-**架构图：**
-
-```
-                    ┌──────────────────────────┐
-                    │    FrontendRegistry       │
-                    │    （单例注册中心）         │
-                    ├──────────────────────────┤
-                    │  Register(frontend)       │
-                    │  GetFrontend(名称/别名)    │
-                    │  GetFrontendByExtension() │
-                    │  DetectLanguage(路径)      │
-                    │  SupportedLanguages()     │
-                    │  AllFrontends()           │
-                    └───────────┬──────────────┘
-                                │
-         ┌──────────┬───────────┼───────────┬──────────┬──────────┐
-         │          │           │           │          │          │
-         ▼          ▼           ▼           ▼          ▼          ▼
-     ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐
-     │  Ploy  │ │  C++   │ │ Python │ │  Rust  │ │  Java  │ │ .NET   │
-     │ 前端   │ │  前端  │ │  前端   │ │  前端  │ │  前端  │ │  前端  │
-     └────────┘ └────────┘ └────────┘ └────────┘ └────────┘ └────────┘
-         │          │           │           │          │          │
-         └──────────┴───────────┴───────────┴──────────┴──────────┘
-                                │
-                    ┌───────────────────────┐
-                    │  ILanguageFrontend     │
-                    │  （抽象接口）           │
-                    ├───────────────────────┤
-                    │  Name() -> 规范名称     │
-                    │  DisplayName() -> 显示名│
-                    │  Extensions() -> 扩展名 │
-                    │  Aliases() -> 别名列表  │
-                    │  Tokenize(源码)        │
-                    │  Analyze(源码, 诊断)    │
-                    │  Lower(源码, IR上下文)  │
-                    │  NeedsPreprocessing()  │
-                    └───────────────────────┘
-```
-
-**核心特性：**
-
-- **自动注册**：每个前端适配器通过 `REGISTER_FRONTEND()` 宏在静态初始化阶段自动注册，无需手动接线。
-- **多键查找**：支持通过规范名称（如 `"cpp"`）、别名（如 `"c"`、`"c++"`、`"csharp"`）或文件扩展名（如 `".py"`、`".rs"`）查找前端。
-- **语言检测**：`DetectLanguage(file_path)` 可根据文件扩展名自动推断语言类型。
-- **线程安全**：所有注册中心操作均受互斥锁保护。
-- **可扩展**：第三方插件可在运行时通过相同接口注册新的语言前端。
-
-**支持的标识符：**
-
-| 前端 | 规范名称 | 别名 | 文件扩展名 |
-|------|---------|------|-----------|
-| C++ | `cpp` | `c`, `c++` | `.cpp`, `.cc`, `.cxx`, `.c`, `.hpp`, `.h` |
-| Python | `python` | `py` | `.py` |
-| Rust | `rust` | `rs` | `.rs` |
-| Java | `java` | — | `.java` |
-| .NET/C# | `dotnet` | `csharp`, `c#` | `.cs`, `.vb` |
-| .ploy | `ploy` | — | `.ploy`, `.poly` |
-
-**源文件说明：**
-
-| 文件 | 说明 |
-|------|------|
-| `frontends/common/include/language_frontend.h` | `ILanguageFrontend` 抽象接口及 `FrontendOptions`/`FrontendResult` 类型 |
-| `frontends/common/include/frontend_registry.h` | `FrontendRegistry` 单例及 `REGISTER_FRONTEND()` 宏 |
-| `frontends/common/src/frontend_registry.cpp` | 注册中心实现（查找、枚举、清空） |
-| `frontends/<lang>/include/<lang>_frontend.h` | 各语言适配器头文件 |
-| `frontends/<lang>/src/<lang>_frontend.cpp` | 各语言适配器实现（含自动注册） |
-
-### 3.3.2 前端流水线阶段
-
-**各前端规模概览：**
-
-| 前端 | 源码路径 | 核心特性 |
-|------|----------|---------|
-| C++ | `frontends/cpp/` (5 编译单元) | OOP、模板、RTTI、异常、constexpr、SIMD |
-| Python | `frontends/python/` (4 编译单元) | 类型注解、推导、25+高级特性 |
-| Rust | `frontends/rust/` (4 编译单元) | 借用检查、生命周期、闭包、28+高级特性 |
-| Java | `frontends/java/` (4 编译单元) | Java 8/17/21/23、记录类、密封类、模式匹配、Switch表达式、文本块 |
-| .NET (C#) | `frontends/dotnet/` (4 编译单元) | .NET 6/7/8/9、记录类、顶级语句、主构造器、可空引用类型 |
-| .ploy | `frontends/ploy/` (6 编译单元) | LINK、IMPORT、PIPELINE、CONFIG、包管理、OOP 互操作 |
-
----
-
-# 4. .ploy 跨语言链接前端
-
-## 4.1 语言概述
-
-`.ploy` 是一种声明式领域特定语言（DSL），用于描述不同编程语言之间的函数级别链接关系和面向对象互操作。它不是通用编程语言，而是"跨语言粘合剂"。
-
-### 设计目标
-
-1. **声明式链接** — 用简洁的语法描述跨语言函数调用关系
-2. **面向对象互操作** — 通过 `NEW` / `METHOD` / `GET` / `SET` / `WITH` 支持跨语言类实例化、方法调用、属性访问和资源管理
-3. **类型映射** — 自动处理不同语言之间的类型转换
-4. **包管理集成** — 直接引用各语言生态的包（numpy, rayon, opencv 等）
-5. **管道编排** — 将多阶段跨语言工作流组织为可复用管道
-
-### 前端组成
-
-| 组件 | 头文件 | 实现 | 行数 | 职责 |
-|------|--------|------|------|------|
-| 词法分析器 | `ploy_lexer.h` | `lexer.cpp` | ~295 | 54 个关键字、运算符、字面量 |
-| 语法分析器 | `ploy_parser.h` | `parser.cpp` | ~2020 | 声明/语句/表达式解析 |
-| 语义分析器 | `ploy_sema.h` | `sema.cpp` | ~1950 | 类型检查、包发现、版本验证、错误检查 |
-| IR 生成器 | `ploy_lowering.h` | `lowering.cpp` | ~1530 | AST → IR 转换 |
-
-### 关键字列表（56 个，自 Ploy 1.5.2 起大小写不敏感）
-
-```
-// 声明关键字
-LINK      IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC      CONFIG
-LANG
-
-// 变量与类型
-LET       VAR       STRUCT    VOID       INT        FLOAT     STRING
-BOOL      ARRAY     LIST      TUPLE      DICT       OPTION
-
-// 显式宽度原始类型 + TYPE 别名 + CONST（自 v1.7.0 起）
-TYPE      CONST
-I8        I16       I32       I64
-U8        U16       U32       U64
-F32       F64
-USIZE     ISIZE
-
-// 控制流
-RETURN    RETURNS*  IF        ELSE       WHILE      FOR        IN
-MATCH     CASE      DEFAULT   BREAK      CONTINUE
-
-// 运算符
-AS        AND       OR        NOT        CALL       CONVERT   MAP_FUNC
-
-// 面向对象操作
-NEW       METHOD    GET       SET        WITH       DELETE    EXTEND
-
-// 值
-TRUE      FALSE     NULL      PACKAGE
-
-// 包管理器
-VENV      CONDA     UV        PIPENV     POETRY
-```
-
-> **大小写不敏感（Ploy 1.5.2+）。** 上表中所有保留字均按大小写不敏感
-> 识别——`link`、`Link`、`LINK`、`LiNk` 都映射到同一个 `LINK` token。
-> 词法器会把 `Token::lexeme` 规范化为表中所示的 UPPER 拼写；用户在
-> 源代码里真正写下的拼写则保留在 `Token::raw_lexeme` 字段，并通过
-> `Token::SourceText()` 暴露。**标识符仍然大小写敏感**——只有关键字
-> 集合参与折叠。过去仅在大小写上与关键字不同的标识符（`config`、
-> `array`、`get`、`pipeline`、…）现在变为保留字，请改名（例如
-> `app_cfg`、`np_array`、`getter`、`run_pipeline`）。
->
-> `*` `RETURNS` 仍然为了向后兼容而被解析，但语法分析器会在该 token
-> 处发出非致命的 `kDeprecatedKeyword` 警告（ErrorCode = 3024）。新代码
-> 请使用 LINK 签名上的 `-> Type` 箭头来声明返回类型。逻辑运算符
-> `AND` / `OR` / `NOT` 是 `&&` / `||` / `!` 的精确别名；新代码推荐使用
-> 符号形式。
-
-## 4.2 核心语法
-
-### 4.2.1 LINK — 跨语言函数链接
-
-```ploy
-// 基本语法
-LINK(target_language, source_language, target_function, source_function);
-
-// 带类型映射的链接
-LINK(cpp, python, process_data, np::compute) {
-    MAP_TYPE(cpp::std::vector_double, python::list);
-    MAP_TYPE(cpp::int, python::int);
-}
-
-// 带结构体映射
-LINK(cpp, rust, transform, serde::parse) {
-    MAP_TYPE(cpp::MyStruct, rust::MyStruct);
-}
-```
-
-**语义：** LINK 声明告诉 PolyglotLinker 生成粘合代码，将 `source_function` 的输出转换为 `target_function` 可接受的输入。
-
-### 4.2.2 IMPORT — 模块与包导入
-
-```ploy
-// ---- 限定模块导入 ----
-IMPORT cpp::math_utils;
-IMPORT rust::serde;
-
-// ---- 包导入（使用 PACKAGE 关键字）----
-IMPORT python PACKAGE numpy;
-
-// 带版本约束
-IMPORT python PACKAGE numpy >= 1.20;
-IMPORT python PACKAGE scipy == 1.10.0;
-IMPORT rust PACKAGE serde >= 1.0;
-
-// 带别名
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-// 选择性导入（仅导入特定符号）
-IMPORT python PACKAGE numpy::(array, mean, std);
-
-// 从子模块选择性导入
-IMPORT python PACKAGE numpy.linalg::(solve, inv);
-
-// 选择性导入 + 版本约束
-IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
-
-// 选择性导入 + 版本约束
-IMPORT python PACKAGE torch::(tensor, no_grad) >= 2.0;
-
-// 整包导入 + 别名（不带选择性导入）
-IMPORT python PACKAGE torch >= 2.0 AS pt;
-```
-
-> **限制：** 选择性导入 `::()` 与 `AS` 别名**不能同时使用**。
-> 例如 `torch::(tensor, no_grad) AS pt` 是非法的 —— `pt` 无法确定指代 `tensor` 还是 `no_grad`。
-
-**语法解析顺序：**
-
-```
-IMPORT <语言> PACKAGE <包名>[::(<符号列表>)] [<版本运算符> <版本号>] [AS <别名>];
-```
-
-> 注意：选择性导入 `::()` 紧跟包名，版本约束和别名在其后。选择性导入与别名互斥。
-
-**版本运算符：**
-
-| 运算符 | 含义 | 示例 |
-|--------|------|------|
-| `>=` | 大于等于 | `>= 1.20` |
-| `<=` | 小于等于 | `<= 2.0` |
-| `==` | 精确等于 | `== 1.10.0` |
-| `>` | 严格大于 | `> 1.0` |
-| `<` | 严格小于 | `< 3.0` |
-| `~=` | 兼容版本 (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
-
-### 4.2.3 CONFIG — 包管理器配置
-
-为包发现配置特定的包管理器环境。
-
-> **自 v1.12.0 起** —— 规范形式完全字符串化：
-> `CONFIG <语言> "<包管理器>" "<路径或环境名>";`。`(语言, 包管理器)` 组合
-> 必须在 `frontends/ploy/src/sema/config_registry.cpp` 中注册。注册新
-> 包管理器的方法见
-> [实现 → 包管理](realization/package_management_zh.md#注册自定义包管理器)。
-
-```ploy
-// 字符串化规范形式（v1.12.0 起）
-CONFIG python     "venv"    "/opt/ml-env";
-CONFIG python     "conda"   "ml_env";
-CONFIG python     "uv"      "D:/venvs/uv_env";
-CONFIG python     "pipenv"  "C:/projects/myapp";
-CONFIG python     "poetry"  "C:/projects/poetry_app";
-CONFIG rust       "cargo"   ".";
-CONFIG javascript "npm"     "./node_modules";
-CONFIG java       "maven"   "./pom.xml";
-CONFIG dotnet     "nuget"   "./packages";
-CONFIG ruby       "bundler" "./Gemfile";
-CONFIG go         "gomod"   "./go.mod";
-```
-
-旧的关键字形式（已弃用，仍可解析以保持源代码兼容）：
-
-```ploy
-// 旧关键字形式 —— sema 阶段会发出弃用警告。
-CONFIG VENV python "/opt/ml-env";
-CONFIG CONDA "data_science";    // 默认语言 python
-```
-
-**规则：**
-- 每种语言每个编译单元只允许一个 CONFIG
-- 同一语言重复配置会产生编译时错误
-- CONFIG 必须出现在使用它的 IMPORT 之前
-- 语言参数可省略，默认为 `python`
-
-### 4.2.4 PIPELINE — 多阶段管道
-
-```ploy
-PIPELINE image_pipeline {
-    FUNC load(paths: LIST(STRING)) -> LIST(LIST(f64)) {
-        LET images = CALL(rust, rayon::par_load, paths);
-        RETURN images;
-    }
-
-    FUNC preprocess(images: LIST(LIST(f64))) -> LIST(LIST(f64)) {
-        LET processed = CALL(cpp, opencv::resize_batch, images);
-        RETURN processed;
-    }
-
-    FUNC classify(data: LIST(LIST(f64))) -> LIST(STRING) {
-        LET results = CALL(python, pt::forward, data);
-        RETURN results;
-    }
-}
-```
-
-### 4.2.5 EXPORT — 符号导出
-
-```ploy
-EXPORT image_pipeline AS "classify_images";   // 带别名导出
-EXPORT compute;                                // 使用原始名称
-```
-
-### 4.2.5b 错误处理（v1.13.0 起）
-
-使用 `TRY` / `CATCH` / `FINALLY` / `THROW` 进行结构化异常处理。捕获
-绑定的类型为内建 `Error` 句柄，公开 `message`、`source_lang`、
-`stacktrace` 三个字段。
-
-```ploy
-TRY {
-    LET row = CALL(python, db::fetch_one, query);
-}
-CATCH (e: Error) {
-    PRINTLN "fetch failed: " + e.message;
-}
-FINALLY {
-    CALL(python, db::close);
-}
-```
-
-`THROW <表达式>;` 抛出一个 Error。形如 `THROW "boom";` 的字符串
-会被运行时桥包装进统一的 `Error` 句柄。允许多个 `CATCH` 子句，按
-声明顺序派发；只带 `FINALLY` 而无 `CATCH` 的形式被允许，用于强制
-清理。
-
-运行时桥把宿主语言异常（Python `Exception`、C++ `std::exception`、
-Java `Throwable`、.NET `Exception`、Rust `Result::Err`）映射到同一
-个 `Error` 句柄，因此一个 `CATCH` 子句即可拦截源自任意接入语言的
-失败。IR / ABI 模型详见 `docs/realization/error_handling_zh.md`，端
-到端示例参见 `tests/samples/36_try_catch/`。
-
-### 4.2.5c 异步 / Await（v1.14.0 起）
-
-使用 `ASYNC FUNC` 与 `AWAIT` 编写协作式异步函数。`ASYNC FUNC` 的
-返回类型 `T` 会在 ABI 边界被隐式包装为 `Future<T>`；面向开发者的
-类型仍为 `T`。`AWAIT <expr>` 仅允许出现在 `ASYNC FUNC` 体内，其它
-位置由 sema 拒绝。
-
-```ploy
-ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
-ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
-
-ASYNC FUNC chained() -> i32 {
-    LET a = AWAIT fetch_one();
-    LET b = AWAIT fetch_two();
+FN main() -> i32 {
+    PRINT(factorial(10));
     RETURN 0;
 }
 ```
 
-协作式事件循环（默认单线程，可选 work-stealing 线程池）实现位于
-`runtime/services/async_bridge.cpp` 与 `runtime/services/event_loop.cpp`。
-各宿主语言适配器把宿主 awaitable（Python `asyncio` 协程、Rust
-`Future`、C++20 `std::coroutine`、Java `CompletableFuture`、.NET
-`Task<T>`）通过 `__ploy_rt_future_resolve` 映射到同一个 `Future<T>`
-句柄。
-
-`polyrt async` CLI 输出协作式事件循环的快照；
-`polyrt async --json` 以 JSON 输出同一负载，
-`polyrt async --run[=N]` 在汇报前最多驱动 `N` 个 tick。
-IR / ABI 模型详见 `docs/realization/async_model_zh.md`，端到端示例
-参见 `tests/samples/37_async_await/`。
-
-### 4.2.5d 泛型（v1.15.0 起）
-
-`FUNC` 与 `STRUCT` 声明可携带带可选 trait bound 的泛型类型参数列表：
-
-```ploy
-FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
-STRUCT Pair<A, B> { first: A, second: B }
-FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
+```sh
+build/polyc fact.ploy -o fact && ./fact
+3628800
 ```
 
-* **类型参数列表** — `<T: Bound1 + Bound2, U>` 紧随声明名。
-  Bound 为普通标识符，由 sema 对照内建 trait 注册表校验。
-* **WHERE 子句** — 返回类型与函数体之间的
-  `WHERE T: Bound1 + Bound2, U: Bound3` 会并入对应参数的 bound。
-  引用未声明参数会被拒绝。
-* **内建 trait 注册表** — `Comparable`、`Hashable`、`Numeric`、
-  `Iterable`、`Display`。未知 bound 触发 sema `kTypeMismatch` 诊断。
-* **泛型实例化** — 类型位置中的 `Pair<i32, String>` 被解析为
-  参数化类型并由 sema 解析。
+### 2.7 跑测试
 
-v1.15.0 的下沉路径是类型擦除（每个参数解析为 `Any`）；
-按实例化单态化、针对具体类型的 bound 强校验、`LINK` 中的
-参数化泛型作为后续工作跟踪。IR / ABI 模型详见
-`docs/realization/generics_zh.md`，端到端示例参见
-`tests/samples/38_generics/`。
-
-### 4.2.5e 可见性与属性（v1.16.0 起）
-
-顶层 `FUNC`、`ASYNC FUNC`、`STRUCT` 声明可携带属性 / 可见性前缀：
-
-```ploy
-@inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
-PRIVATE STRUCT Internal { x: i32 }
+```sh
+ctest --test-dir build -j --output-on-failure
+ctest --test-dir build -R "frontend"
+ctest --test-dir build -R "samples_smoke" -V
 ```
 
-* **`PUB` / `PRIVATE`** — 模块边界可见性。`PRIVATE` 为默认值，
-  可为文档目的显式书写。
-* **`EXPORT` 要求 `PUB`** — 显式 `PRIVATE` 为硬错误；仍携默认
-  值的符号会被自动升级并发出弃用警告，以保证 v1.16.0 之前的
-  源码可编译。
-* **`@name` / `@name(args)`** — 声明属性。内建注册表为
-  `@inline`、`@noinline`、`@always_inline`、`@hot`、`@cold`、
-  `@profile`、`@no_profile`、`@deprecated`、`@link_name`、`@target`。
-  未知属性以 sema 警告接受，便于第三方工具在不改动编译器的
-  情况下扩展。
+### 2.8 启动 IDE
 
-v1.16.0 MVP 把属性与可见性以惰性元数据形式留在 AST 上；
-把 `@inline` / `@hot` / `@profile` 接入优化器、`@link_name` /
-`@target` 接入链接器，作为后续工作跟踪。模型详见
-`docs/realization/visibility_attrs_zh.md` 与
-`docs/specs/attribute_catalog_zh.md`，端到端示例参见
-`tests/samples/39_visibility_attrs/`。
-
-### 4.2.5f 扩展字符串字面量（v1.17.0 起）
-
-Ploy 1.17.0 引入四种字符串字面量形式：
-
-```ploy
-LET reg  = "hello\n";                                  // 普通
-LET path = r"C:\path\no\escape";                       // 原始
-LET sql  = r#"SELECT "name", "age" FROM users"#;       // 带 `#` 填充的原始
-LET poem = """An old silent pond
-A frog jumps in
-splash silence again""";                               // 多行（按字面保留换行）
-LET msg  = f"answer = {42}, pi = {3.14}";              // 模板 / 插值
+```sh
+build/polyui &
 ```
 
-Sema 要求 `f"..."` 中每个插值表达式具备**可格式化**类型 ——
-`Int`、`Float`、`String` 或 `Bool`。v1.17.0 的下沉层在所有插值都是
-编译期 `Literal` 时进行立即折叠；运行时变量插值作为后续工作记录在
-`docs/realization/string_literals_zh.md`。
-
-端到端示例参见 `tests/samples/40_string_literals/`。
-
-### 4.2.6 类型系统
-
-| 类别 | 类型 | 语法 |
-|------|------|------|
-| 原始类型 | 整数、浮点、布尔、字符串、空 | `INT`, `FLOAT`, `BOOL`, `STRING`, `VOID` |
-| 显式宽度整型（v1.7.0） | 8/16/32/64 位有/无符号 + 指针宽 | `i8` `i16` `i32` `i64` `u8` `u16` `u32` `u64` `usize` `isize` |
-| 显式宽度浮点（v1.7.0） | 32/64 位 IEEE-754 | `f32` `f64` |
-| 类型别名（v1.7.0）     | 任意类型表达式的命名同义符号 | `TYPE Pixel = i32;` |
-| 编译期常量（v1.7.0）   | 折叠后的不可变值，必须显式标注类型 | `CONST KMaxRetry: i32 = 5;` |
-| 容器类型 | 列表、元组、字典、可选 | `LIST(T)`, `TUPLE(T1, T2)`, `DICT(K, V)`, `OPTION(T)` |
-| 结构体 | 用户定义复合类型 | `STRUCT Point { x: f64, y: f64 }` |
-| 数组 | 定长数组 | `ARRAY(INT)` |
-| 函数类型 | 函数签名 | `(INT, FLOAT) -> BOOL` |
-| 限定类型 | 语言特定类型 | `cpp::int`, `python::str`, `rust::Vec` |
-
-**跨语言类型检查：**
-
-当 `LINK` 声明包含 `MAP_TYPE` 条目时，编译器会在调用点启用完整的参数数量和类型验证：
-
-- **参数数量：** `CALL`、`METHOD` 和 `NEW` 表达式会根据注册的签名进行验证。参数数量不匹配会产生编译时错误，并回溯到声明位置。
-- **参数类型：** 每个参数类型都会与预期的参数类型进行检查。不兼容的类型会产生错误。
-- **返回类型：** 当跨语言调用结果赋值给带类型的变量时（`LET x: INT = CALL(...)`），返回类型会与声明的类型进行验证。
-- **严格模式：** 在严格模式（`--strict`）下，缺失可调用签名/ABI 描述以及无法消除的 `Any` 回退会在语义分析阶段直接作为错误处理。
-- **链接阶段 ABI 闸门：** `polyld` 会将参数/返回 ABI 不匹配（数量、尺寸、传参方式、类型名、MAP_TYPE 数量漂移）视为硬失败，不再以 warning 放行。
-
-**类型化对象句柄：**
-
-当类已知时（例如通过 `LINK` 或 `EXTEND`），`NEW` 表达式返回类型化的指针句柄，而不是不透明的 `void*`。这使得后续对该对象的 `METHOD`、`GET` 和 `SET` 操作能够进行类型检查。
-
-### 4.2.7 控制流
-
-```ploy
-// IF / ELSE
-IF condition {
-    ...
-} ELSE IF other {
-    ...
-} ELSE {
-    ...
-}
-
-// WHILE 循环
-WHILE condition {
-    ...
-}
-
-// FOR .. IN 范围循环
-FOR item IN collection {
-    ...
-}
-
-FOR i IN 0..10 {
-    ...
-}
-
-// MATCH 模式匹配——支持字面量、通配、范围、元组、结构体、
-// OR 模式、绑定、类型守卫以及 OPTION 构造子。每个分支执行完毕
-// 后立即退出 MATCH，不会贯穿。
-MATCH value {
-    CASE 1 { ... }                      // 字面量
-    CASE 2 | 3 | 5 | 7 { ... }          // OR 模式
-    CASE 10..=20 { ... }                // 闭合范围
-    CASE n @ 100..200 { ... }           // 在范围上绑定名字
-    CASE x: i32 IF x > 0 { ... }        // 类型守卫 + IF 守卫
-    CASE _ { ... }                      // 通配兑底
-}
-
-// 对 bool / OPTION 的 MATCH 无需 DEFAULT 即可详尽。
-MATCH opt {
-    CASE Some(x) { ... }
-    CASE None    { ... }
-}
-
-// BREAK / CONTINUE
-WHILE TRUE {
-    IF done { BREAK; }
-    CONTINUE;
-}
-```
-
-### 4.2.8 变量声明与表达式
-
-```ploy
-// 变量声明
-LET x = 42;                        // 不可变
-VAR y: FLOAT = 3.14;               // 可变，带类型注解
-LET z: LIST(INT) = [1, 2, 3];      // 容器字面量
-
-// 算术表达式
-LET sum = a + b * c;
-
-// 逻辑表达式
-IF x > 0 AND y < 10 { ... }
-
-// 跨语言调用
-LET result = CALL(python, np::mean, data);
-
-// 类型转换
-LET converted = CONVERT(value, FLOAT);
-
-// 跨语言类实例化
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-
-// 跨语言方法调用
-LET output = METHOD(python, model, forward, input_data);
-
-// 属性访问
-LET weight = GET(python, model, weight);
-SET(python, model, training, FALSE);
-
-// 资源管理
-WITH(python, open_file) AS handle {
-    LET data = METHOD(python, handle, read);
-}
-
-// 带限定类型的类型注解
-LET model: python::nn::Module = NEW(python, torch::nn::Linear, 784, 10);
-
-// 容器字面量
-LET list = [1, 2, 3];
-LET tuple = (1, "hello", 3.14);
-LET dict = {"key1": 10, "key2": 20};
-LET point = Point { x: 1.0, y: 2.0 };     // 结构体字面量
-```
-
-### 4.2.9 MAP_FUNC — 映射函数
-
-```ploy
-MAP_FUNC convert(x: INT) -> FLOAT {
-    LET result = CONVERT(x, FLOAT);
-    RETURN result;
-}
-```
-
-### 4.2.10 NEW — 跨语言类实例化
-
-`NEW` 关键字用于在 `.ploy` 中创建其他语言的类实例（对象）。返回一个不透明句柄（Any 类型），可传递给 `METHOD`、`CALL` 或 `LINK`。
-
-```ploy
-// 基本语法
-NEW(language, class_name, arg1, arg2, ...)
-
-// 示例：创建 Python 类实例
-IMPORT python PACKAGE torch >= 2.0;
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-
-// 无参数构造
-LET empty_list = NEW(python, list);
-
-// 字符串参数
-LET conn = NEW(python, sqlite3::Connection, "data.db");
-
-// Rust 结构体构造
-IMPORT rust PACKAGE serde;
-LET parser = NEW(rust, serde::json::Parser);
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符（`python`、`cpp`、`rust`）
-- 第二个参数是类名，支持 `::` 限定路径
-- 后续参数作为构造函数参数传入
-- 返回 `Any` 类型（不透明对象句柄）
-
-**IR 生成：** 构造函数桥接桩命名为 `__ploy_bridge_ploy_<lang>_<class>____init__`，返回类型为 `Pointer(Void)`。
-
-### 4.2.11 METHOD — 跨语言方法调用
-
-`METHOD` 关键字用于在 `.ploy` 中调用其他语言对象的方法。接收者对象作为第一个参数传入生成的桩函数。
-
-```ploy
-// 基本语法
-METHOD(language, object_expression, method_name, arg1, arg2, ...)
-
-// 示例：调用 Python 对象方法
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-LET output = METHOD(python, model, forward, input_data);
-
-// 无额外参数
-LET params = METHOD(python, model, parameters);
-
-// 链式调用
-LET optimizer = NEW(python, torch::optim::Adam, params, 0.001);
-METHOD(python, optimizer, zero_grad);
-LET loss = METHOD(python, model, compute_loss, predictions, labels);
-METHOD(python, loss, backward);
-METHOD(python, optimizer, step);
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符
-- 第二个参数是对象表达式（通常是 `NEW` 返回的变量）
-- 第三个参数是方法名，支持 `::` 限定路径
-- 后续参数作为方法参数传入
-- 返回 `Any` 类型
-
-**IR 生成：** 方法桥接桩命名为 `__ploy_bridge_ploy_<lang>_<method>`，接收者对象作为第一个参数插入。
-
-**完整示例 — PyTorch 训练循环：**
-
-```ploy
-LINK(cpp, python, train_model, torch_train);
-IMPORT python PACKAGE torch >= 2.0;
-IMPORT python PACKAGE numpy >= 1.20 AS np;
-
-PIPELINE ml_pipeline {
-    FUNC train(data: LIST(f64), epochs: INT) -> LIST(f64) {
-        LET model = NEW(python, torch::nn::Linear, 784, 10);
-        LET optimizer = NEW(python, torch::optim::SGD,
-                            METHOD(python, model, parameters), 0.01);
-        LET loss = METHOD(python, model, forward, data);
-        METHOD(python, loss, backward);
-        METHOD(python, optimizer, step);
-        RETURN CALL(python, np::array, loss);
-    }
-}
-
-EXPORT ml_pipeline AS "train_ml";
-```
-
-### 4.2.12 GET — 跨语言属性访问
-
-`GET` 关键字用于读取其他语言对象的属性值。生成 `__getattr__` 桥接桩函数。
-
-```ploy
-// 基本语法
-GET(language, object_expression, attribute_name)
-
-// 示例：读取 Python 对象属性
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-LET weight = GET(python, model, weight);
-LET bias = GET(python, model, bias);
-
-// 读取 Rust 结构体字段
-LET value = GET(rust, config, max_retries);
-
-// 在表达式中使用
-IF GET(python, model, training) {
-    METHOD(python, model, eval);
-}
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符（`python`、`cpp`、`rust`）
-- 第二个参数是对象表达式
-- 第三个参数是属性名（必须是有效标识符）
-- 返回 `Any` 类型
-
-**IR 生成：** 属性访问桥接桩命名为 `__ploy_bridge_ploy_<lang>___getattr__<attr_name>`。
-
-### 4.2.13 SET — 跨语言属性赋值
-
-`SET` 关键字用于向其他语言对象的属性写入值。生成 `__setattr__` 桥接桩函数。
-
-```ploy
-// 基本语法
-SET(language, object_expression, attribute_name, value)
-
-// 示例：写入 Python 对象属性
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-SET(python, model, training, FALSE);
-SET(python, model, learning_rate, 0.001);
-
-// 设置 Rust 结构体字段
-SET(rust, config, max_retries, 5);
-
-// 值可以是任意表达式
-SET(python, model, weight, CALL(python, np::zeros, 784));
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符
-- 第二个参数是对象表达式
-- 第三个参数是属性名（必须是有效标识符）
-- 第四个参数是值表达式
-- 返回 `Any` 类型（赋值后的值会被传递，支持链式操作）
-
-**IR 生成：** 属性赋值桥接桩命名为 `__ploy_bridge_ploy_<lang>___setattr__<attr_name>`，对象和值作为参数传入。
-
-### 4.2.13b CLASS / HANDLE — 静态类型化对象互操作 *（自 1.9.0 起）*
-
-`CLASS` 模式把过去全是 `Any` 类型的 `NEW` / `METHOD` / `GET` / `SET`
-四件套变成了静态类型检查的表层语法，而 `HANDLE<lang::Class>` 在类型
-系统中承载外语对象的身份。
-
-```ploy
-// 1. 每个外语类只需声明一次模式。
-CLASS python::torch::nn::Linear {
-    METHOD __init__(in_features: i32, out_features: i32);
-    METHOD forward(x: f32) -> f32;
-    ATTR in_features: i32;
-    ATTR out_features: i32;
-}
-
-// 2. 实例从此具有精确类型。
-LET model: HANDLE<python::torch::nn::Linear> =
-    NEW(python, torch::nn::Linear, 128, 10);
-
-// 3. METHOD / GET / SET 按模式类型检查。
-LET y: f32 = METHOD(python, model, forward, 0.5);   // 实参与返回都被检查
-LET dim: i32 = GET(python, model, in_features);     // 解析到属性类型
-SET(python, model, in_features, 256);               // 写入值类型被检查
-```
-
-**诊断**
-
-| 情形                                         | 严重度 | 备注                                            |
-| -------------------------------------------- | ------ | ----------------------------------------------- |
-| `NEW` / `METHOD` 实参个数不匹配              | 错误   | 与普通函数调用一致。                            |
-| 实参类型不匹配                               | 错误   | 与普通函数调用一致。                            |
-| `SET` 写入值类型不匹配                       | 错误   | 否则会破坏外语对象的不变量。                    |
-| 类型化 handle 上的未知方法                   | 警告   | 外语对象常会动态挂载方法。                      |
-| 类型化 handle 上的未知属性                   | 警告   | 同上。                                          |
-| 跨语言 handle 赋值                           | 错误   | 请使用 `CONVERT` + `MAP_FUNC` 显式桥接。       |
-
-**兼容性说明**
-
-* `CLASS`、`HANDLE`、`ATTR` 是**上下文关键字**：把它们用作普通标识
-  符的现有程序仍能正常词法化与解析。
-* 若目标没有声明 `CLASS` 模式，`NEW` / `METHOD` / `GET` / `SET` 会回
-  退到旧的动态 `Any` 路径 —— 31 个既有样例的 1.9.0 之前行为保持不变。
-* 构造方法可命名为 `__init__`（Python 习惯）、`new`（Rust 习惯）或
-  `ctor`；模式记录第一个匹配项，并由 `NEW(...)` 取用。
-* 样例 `tests/samples/32_typed_handles/` 是规范化参考流程；实现说明
-  见 [`realization/cross_language_oop_zh.md`](realization/cross_language_oop_zh.md)。
-
-### 4.2.14 WITH — 跨语言资源管理
-
-`WITH` 关键字提供自动资源管理，类似于 Python 的 `with` 语句。生成 `__enter__` 和 `__exit__` 桥接桩函数，确保资源被正确清理。
-
-```ploy
-// 基本语法
-WITH(language, resource_expression) AS variable_name {
-    // 语句体 — variable_name 绑定为 __enter__ 的返回值
-}
-
-// 示例：文件处理
-LET f = NEW(python, open, "data.csv");
-WITH(python, f) AS handle {
-    LET data = METHOD(python, handle, read);
-    LET lines = METHOD(python, data, splitlines);
-}
-
-// 数据库连接
-WITH(python, NEW(python, sqlite3::connect, "app.db")) AS db {
-    LET cursor = METHOD(python, db, cursor);
-    METHOD(python, cursor, execute, "SELECT * FROM users");
-    LET rows = METHOD(python, cursor, fetchall);
-}
-
-// 多个 WITH 块
-WITH(python, resource1) AS r1 {
-    METHOD(python, r1, process);
-}
-WITH(python, resource2) AS r2 {
-    METHOD(python, r2, process);
-}
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符
-- 第二个参数是资源表达式（任何求值为具有 `__enter__`/`__exit__` 的对象的表达式）
-- `AS` 关键字后跟一个变量名，在语句体作用域内绑定
-- 语句体是由 `{ }` 包围的语句块
-- 绑定的变量在语句体作用域内可用
-- 返回 `Any` 类型
-- 上下文管理器 ABI 契约被强制校验：`__enter__(self)` 与 `__exit__(self, exc_type, exc_val, exc_tb)`。
-
-**IR 生成（异常安全）：**
-1. 求值资源表达式
-2. 调用 `__enter__` 桥接桩 → 将结果绑定到变量名
-3. 在带 unwind 边的受保护区域执行语句体
-4. 正常路径调用 `__exit__(resource, null, null, null)`
-5. 异常路径调用 `__exit__(resource, exc_type, exc_val, exc_tb)`
-6. 清理后继续传播异常
-7. 记录两个跨语言描述符：一个用于 `__enter__`，一个用于 `__exit__`
-
-这确保即使语句体遇到错误或提前返回，`__exit__` 也始终被调用，类似于 Python 的 `with` 语句或 C++ 的 RAII 模式。
-
-### 4.2.15 DELETE — 跨语言对象销毁
-
-`DELETE` 关键字提供显式的跨语言对象销毁：
-
-```ploy
-DELETE(python, obj);
-DELETE(cpp, ptr);
-DELETE(rust, handle);
-```
-
-**语法：**
-```
-DELETE ( language , expression )
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符（`python`、`cpp`、`rust`）
-- 第二个参数是求值为待销毁对象的表达式
-- 对象必须是通过 `NEW` 创建或从跨语言调用获取的
-- 返回 `Void` 类型（析构调用不产生值）
-
-**IR 生成：**
-- **Python**: 生成 `__ploy_py_del` 桥接桩调用（执行 `del` / 引用释放）
-- **C++**: 生成 `__ploy_cpp_delete` 桥接桩调用（执行 `delete` / 析构函数）
-- **Rust**: 生成 `__ploy_rust_drop` 桥接桩调用（执行 `drop()`）
-- 为运行时链接器记录一个 `CrossLangCallDescriptor`
-
-**示例 — 训练后清理：**
-```ploy
-LET model = NEW(python, torch::nn::Linear, 784, 10);
-// ... 使用 model ...
-DELETE(python, model);
-```
-
-### 4.2.16 EXTEND — 跨语言类继承扩展
-
-`EXTEND` 关键字支持跨语言类继承扩展：
-
-```ploy
-EXTEND(python, torch::nn::Module) AS MyModel {
-    FUNC forward(x: LIST(f64)) -> LIST(f64) {
-        RETURN CALL(python, self::linear, x);
-    }
-}
-```
-
-**语法：**
-```
-EXTEND ( language , base_class ) AS DerivedName {
-    FUNC method1 ( params ) -> ReturnType { body }
-    FUNC method2 ( params ) -> ReturnType { body }
-    ...
-}
-```
-
-**语义规则：**
-- 第一个参数必须是已知语言标识符
-- 第二个参数是要继承的基类（支持命名空间限定，例如 `torch::nn::Module`）
-- `AS` 关键字后跟派生类名
-- 语句体包含一个或多个 `FUNC` 声明（方法重写/添加）
-- 派生类名被注册到符号表中作为类型
-- 每个方法的签名都会被验证（参数数量和类型）
-
-**IR 生成：**
-1. 对于每个方法，通过 `ir_ctx_.CreateFunction()` 创建桥接函数 `__ploy_extend_DerivedName_method`
-2. 方法体被降低到桥接函数中
-3. 生成 `__ploy_extend_register` 调用，传入类元数据
-4. 为运行时链接器记录一个 `CrossLangCallDescriptor`
-
-**示例 — 从 .ploy 扩展 Python 类：**
-```ploy
-LINK(cpp, python, run_model, inference);
-IMPORT python PACKAGE torch >= 2.0;
-
-PIPELINE neural_net {
-    EXTEND(python, torch::nn::Module) AS CustomNet {
-        FUNC forward(x: LIST(f64)) -> LIST(f64) {
-            LET hidden = METHOD(python, self, relu, x);
-            RETURN METHOD(python, self, linear, hidden);
-        }
-
-        FUNC reset_parameters() -> VOID {
-            METHOD(python, self, init_weights);
-        }
-    }
-
-    FUNC main() -> INT {
-        LET net = NEW(python, CustomNet, 784, 10);
-        LET result = METHOD(python, net, forward, input_data);
-        DELETE(python, net);
-        RETURN 0;
-    }
-}
-```
-
-**使用限制（自 1.11.0 起）。** `EXTEND` 现在**只**接受动态宿主语言
-`python`、`ruby`、`javascript`（以及标签别名 `rb`、`js`、
-`typescript`、`ts`）。指定任何静态类型语言 —— `cpp`、`c`、`rust`、
-`java`、`dotnet` / `csharp`、`go` / `golang` —— 都会被 sema 拒绝：
-
-```
-EXTEND is not allowed on statically-typed language '<lang>'
-  — its type system cannot accept an out-of-source subclass without
-    breaking soundness
-suggestion: wrap the foreign API in a local Ploy FUNC and use
-            CALL / METHOD instead, or move the EXTEND target to a
-            dynamic host (python / ruby / javascript)
-```
-
-推荐的迁移方案是用一个本地 `FUNC` 包装外部 API，再用 `CALL` /
-`METHOD` 委托调用。完整示例参见
-[`tests/samples/35_extend_dynamic`](../tests/samples/35_extend_dynamic/)。
-
-### 4.2.17b 默认参数与命名实参 *（自 1.11.0 起）*
-
-函数声明可以为**末尾**形参提供 `=` 引出的默认表达式，调用点也可
-按名字传递任意实参：
-
-```ploy
-FUNC add(x: i32, y: i32 = 0) -> i32 { RETURN x + y; }
-
-add(10);            // y 取默认值 0
-add(x: 7);          // 单个命名实参；y 取默认值 0
-add(2, y: 5);       // 位置 + 命名 混合
-```
-
-默认表达式必须是常量可折叠的字面量 / 一元 / 二元表达式，或一次纯
-的 ploy 内 `FUNC` 调用（不允许跨语言 `CALL`、闭包捕获或读取另一个
-形参）：
-
-```ploy
-FUNC one() -> i32 { RETURN 1; }
-FUNC scale(value: i32, factor: i32 = one()) -> i32 {
-    RETURN value * factor;          // 允许以纯调用作为默认值
-}
-```
-
-调用点规则：位置实参不可出现在命名实参**之后**；同一形参至多被
-提供一次；每个必需形参都必须由位置或名字提供。完整端到端示例参见
-[`tests/samples/34_default_args`](../tests/samples/34_default_args/)。
-
-### 4.2.17c `AS` 关键字的统一用法 *（自 1.11.0 起）*
-
-`AS` 出现在五个不同的绑定位置；详细规则集中在语言规范
-（[`docs/realization/ploy_language_spec_zh.md` §4.17](realization/ploy_language_spec_zh.md)）
-里，这里给出便查表：
-
-| # | 形式                                                          | `AS` 的角色                              |
-|---|---------------------------------------------------------------|------------------------------------------|
-| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                    | 已导入包的本地别名。                     |
-| 2 | `EXPORT <symbol> AS <"external_name">;`                       | 被导出符号的外部名。                     |
-| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`       | 引出外部签名的分隔符。                   |
-| 4 | `IMPORT <lang> AS <alias>;`                                   | 语言层别名。                             |
-| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                | 被修补类的本地句柄名。                   |
-
-`AS` **不是**通用的"as-cast"运算符：`LET y = 3 AS i64;` 或
-`CALL(...) AS Handle` 这样的写法都会被拒绝。类型转换请使用
-`CONVERT`。
-
-### 4.2.17 错误检查
-
-`.ploy` 语义分析器提供全面的错误检查：
-
-**参数数量不匹配：**
-```
-Error [E3010]: Parameter count mismatch in call to 'process'
-  --> pipeline.ploy:15:9
-   | Expected 3 argument(s), got 1
-   = suggestion: Check the function signature for 'process'
-```
-
-**类型不匹配：**
-```
-Error [E3011]: Type mismatch for parameter 1 in call to 'compute'
-  --> pipeline.ploy:22:5
-   | Expected 'INT', got 'STRING'
-   = suggestion: Consider using CONVERT to convert the argument type
-```
-
-**未定义符号：**
-```
-Error [E3001]: Undefined variable 'unknown_var'
-  --> pipeline.ploy:8:13
-```
-
-**错误代码范围：**
-
-| 范围 | 类别 | 示例 |
-|------|------|------|
-| 1xxx | 词法分析 | 非法字符、未终止的字符串 |
-| 2xxx | 语法分析 | 意外的 token、缺少分隔符 |
-| 3xxx | 语义分析 | 未定义变量、类型不匹配、参数数量不匹配 |
-| 4xxx | IR 降低 | 不支持的目标、代码生成失败 |
-| 5xxx | 链接器 | 未解析符号、重复定义 |
-
-所有错误报告包含源位置、错误代码和可选建议。支持溯源链（traceback chains）用于追溯源自多个相关位置的错误。
-
-## 4.3 包管理器自动发现
-
-`.ploy` 前端在语义分析阶段自动发现已安装的包。
-
-### 发现机制
-
-| 包管理器 | 发现命令 | CONFIG 语法 |
-|---------|---------|-------------|
-| pip (venv/virtualenv) | `<venv>/python -m pip list --format=freeze` | `CONFIG VENV "path";` |
-| Conda | `conda list -n <env_name> --export` | `CONFIG CONDA "env_name";` |
-| uv | `<venv>/python -m pip list --format=freeze` 或 `uv pip list --format=freeze` | `CONFIG UV "path";` |
-| Pipenv | `pipenv run pip list --format=freeze` | `CONFIG PIPENV "project_path";` |
-| Poetry | `poetry run pip list --format=freeze` | `CONFIG POETRY "project_path";` |
-| Cargo (Rust) | `cargo install --list` | 自动 |
-| pkg-config (C/C++) | `pkg-config --list-all` | 自动 |
-
-### 工作流程
-
-1. **解析 CONFIG** — 确定包管理器类型和环境路径
-2. **包索引阶段** — 语义分析之前，`PackageIndexer` 类以独立的预编译阶段运行包管理器命令（`pip list`、`cargo install --list`、`pkg-config`、`mvn`、`dotnet`），具备逐命令超时（默认10秒）和重试机制
-3. **缓存结果** — 发现的包和版本缓存在会话级 `PackageDiscoveryCache` 中（键为 `language|manager|env_path`）；可跨多个 `PloySema` 编译复用共享缓存以避免重复外部命令调用
-4. **语义分析读取缓存** — `PloySema` 读取预填充的缓存条目，但自身不再执行外部命令（`enable_package_discovery` 默认为 `false`）
-5. **版本验证** — 对版本约束进行 6 种运算符验证
-6. **符号验证** — 验证选择性导入的符号无重复
-
-### 包索引阶段
-
-`PackageIndexer` 类将缓慢的、有副作用的环境探测与快速的、确定性的语义分析分离：
-
-```cpp
-#include "frontends/ploy/include/package_indexer.h"
-
-auto cache  = std::make_shared<PackageDiscoveryCache>();
-auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
-
-PackageIndexerOptions idx_opts;
-idx_opts.command_timeout = std::chrono::seconds{10};
-idx_opts.verbose = true;
-
-PackageIndexer indexer(cache, runner, idx_opts);
-indexer.BuildIndex({"python", "rust", "java"});
-
-// 将预填充的缓存传入 sema
-PloySemaOptions sema_opts;
-sema_opts.enable_package_discovery = false;   // sema 不执行外部命令
-sema_opts.discovery_cache = cache;            // 由索引器预填充
-PloySema sema(diagnostics, sema_opts);
-```
-
-CLI（`polyc`）通过以下标志控制：
-
-| 标志 | 说明 |
-|------|------|
-| `--package-index` | 在语义分析前执行显式包索引阶段（默认启用） |
-| `--no-package-index` | 跳过包索引阶段以加速编译 |
-| `--pkg-timeout=<ms>` | 包索引的逐命令超时（默认 10000 毫秒） |
-
-### 带超时的命令执行器
-
-`DefaultCommandRunner` 现已支持可配置的逐命令超时：
-
-```cpp
-auto runner = std::make_shared<DefaultCommandRunner>(std::chrono::seconds{10});
-CommandResult result = runner->RunWithResult("pip list --format=freeze");
-
-if (result.Ok()) {
-    // result.stdout_output 包含命令输出
-} else if (result.timed_out) {
-    // 命令超过了超时时间
-} else {
-    // result.exit_code 指示失败原因
-}
-```
-
-### 发现开关
-
-可通过 `PloySemaOptions::enable_package_discovery` 切换发现功能：
-
-```cpp
-PloySemaOptions opts;
-opts.enable_package_discovery = false;   // 默认值 — sema 不执行外部命令
-PloySema sema(diagnostics, opts);
-```
-
-禁用后（默认行为），`IMPORT PACKAGE` 语句仍会被记录，但不会执行任何 `_popen`/`popen` 调用。调用者应改用 `PackageIndexer` 作为预编译阶段。
-
-### 缓存策略
-
-`PackageDiscoveryCache` 是线程安全（互斥锁保护）的会话级缓存。规范键格式为：
-
-```
-language + "|" + manager_kind + "|" + env_path
-```
-
-例如：`"python|pip|/home/user/venv"`。当同一会话中编译多个 `.ploy` 文件时，调用者可通过 `PloySemaOptions::discovery_cache` 注入共享缓存，避免重复运行 `pip list` / `cargo install --list` 等命令。
-
-### 命令执行抽象
-
-所有外部命令执行通过 `ICommandRunner` 接口（`command_runner.h`）路由。默认实现 `DefaultCommandRunner` 使用 `_popen`/`popen`。测试可注入 `MockCommandRunner` 以验证发现行为而无需生成真实进程。
-
-### 平台适配
-
-- **Windows**: 虚拟环境 Python 位于 `<venv_path>\Scripts\python.exe`
-- **Unix/macOS**: 虚拟环境 Python 位于 `<venv_path>/bin/python`
-
-## 4.4 混合编译方式
-
-> **核心思想：PolyglotCompiler 自身编译所有语言，通过 `.ploy` 描述跨语言连接关系。**
-
-```
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  C++ 源代码  │  │ Python 源代码│  │  Rust 源代码 │  │  Java 源代码 │  │  C# 源代码   │
-└──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘
-       │                │                │                │                │
-       ▼                ▼                ▼                ▼                ▼
-┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌────────────┐
-│C++ Frontend│  │  Python    │  │   Rust     │  │   Java     │  │  .NET      │
-│ (polyglot) │  │  Frontend  │  │  Frontend  │  │  Frontend  │  │  Frontend  │
-└─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘  └─────┬──────┘
-      │               │               │               │               │
-      └───────┬───────┴───────┬───────┴───────┬───────┴───────┬───────┘
-              │               │               │               │
-              ▼           Shared IR           ▼               │
-        ┌───────────┐                   ┌───────────┐         │
-        │  .ploy    │                   │  Polyglot │         │
-        │  Frontend │──────────────────▶│  Linker   │◄────────┘
-        └───────────┘                   └─────┬─────┘
-                                              │
-                                    ┌─────────┼─────────┐
-                                    ▼         ▼         ▼
-                               ┌────────┐┌────────┐┌────────┐
-                               │ x86_64 ││ ARM64  ││  WASM  │
-                               │Backend ││Backend ││Backend │
-                               └───┬────┘└───┬────┘└───┬────┘
-                                   └─────────┼─────────┘
-                                             ▼
-                                       ┌───────────┐
-                                       │  目标文件  │
-                                       │ / 可执行   │
-                                       └───────────┘
-```
-
-**重要说明：** PolyglotCompiler 使用自己的前端（`frontend_cpp`、`frontend_python`、`frontend_rust`、`frontend_java`、`frontend_dotnet`、`frontend_ploy`）编译所有语言源码到统一 IR，然后通过三重后端（x86_64/ARM64/WebAssembly）生成目标代码。编译阶段**不依赖**外部编译器（MSVC/GCC/rustc/CPython/javac/dotnet）。`polyc` 驱动程序 (`driver.cpp`) 在最终链接阶段会调用系统链接器（`polyld` 或 `clang`）将目标文件链接为可执行文件。`polyld` 会自动相对于 `polyc` 所在目录解析，无需加入系统 PATH。
-
-### 能力矩阵
-
-| 功能 | 状态 | 说明 |
-|------|------|------|
-| C++ ↔ Python 函数调用 | ✅ | 通过 FFI 粘合代码 + 类型编组 |
-| C++ ↔ Rust 函数调用 | ✅ | 通过 C ABI extern 函数 |
-| Python ↔ Rust 函数调用 | ✅ | 通过 FFI 桥接 |
-| Java ↔ C++ 函数调用 | ✅ | 通过 JNI 桥接 + `__ploy_java_*` 运行时 |
-| Java ↔ Python 函数调用 | ✅ | 通过 JNI ↔ CPython C API 桥接 |
-| .NET ↔ C++ 函数调用 | ✅ | 通过 CoreCLR 宿主 + `__ploy_dotnet_*` 运行时 |
-| .NET ↔ Python 函数调用 | ✅ | 通过 CoreCLR ↔ CPython C API 桥接 |
-| Java ↔ .NET 互操作 | ✅ | 通过 IR 层统一 + 双向运行时桥接 |
-| 原始类型编组 | ✅ | int, float, bool, string, void |
-| 容器类型编组 | ✅ | list, tuple, dict, optional（基本类型） |
-| 结构体映射 | ✅ | 跨语言结构体字段转换（扁平结构体） |
-| 包导入 + 版本约束 | ✅ | `IMPORT python PACKAGE numpy >= 1.20;` |
-| 选择性导入 | ✅ | `IMPORT python PACKAGE numpy::(array, mean);` |
-| 多包管理器支持 | ✅ | pip/conda/uv/pipenv/poetry/cargo/pkg-config/NuGet/Maven/Gradle |
-| 多阶段管道 | ✅ | PIPELINE + 跨语言 CALL |
-| 控制流编排 | ✅ | IF/WHILE/FOR/MATCH |
-| 跨语言类实例化 | ✅ | `NEW(python, torch::nn::Linear, 784, 10)` |
-| 跨语言方法调用 | ✅ | `METHOD(java, service, processRequest, data)` |
-| 跨语言属性访问 | ✅ | `GET(dotnet, config, ConnectionString)` |
-| 跨语言属性赋值 | ✅ | `SET(python, model, training, FALSE)` |
-| 自动资源管理 | ✅ | `WITH(python, f) AS handle { ... }` |
-| 类继承扩展 | ✅ | `EXTEND(java, BaseService) { ... }` |
-| 对象销毁 | ✅ | `DELETE(dotnet, dbConnection)` |
-| 类型注解 | ✅ | `LET model: python::nn::Module = NEW(...)` |
-| 接口映射 | ✅ | `MAP_TYPE(python::nn::Module, cpp::NeuralNet)` |
-
-### 架构约束
-
-| 约束 | 解释 |
-|------|------|
-| **函数/对象级粒度** | 不能在单个函数体内混合不同语言的代码，但支持跨语言函数调用、类实例化、方法调用、属性访问和资源管理 |
-| **运行时开销** | 跨语言调用涉及参数编组 |
-| **内存模型差异** | 每种语言管理自己的内存，所有权通过 OwnershipTracker 追踪 |
-| **WASM alloca** | 栈分配通过影子栈模型降级（可变 i32 全局变量，初始值 65536，向下增长）；线性内存布局与原生后端不同 |
-| **链接器严格模式** | 未解析的跨语言符号视为硬错误——链接器不会为未解析的符号对生成粘合存根 |
-| **语义分析严格模式** | 启用后，`.ploy` 语义分析对无类型参数、`Any` 回退和缺少注释发出警告；默认为宽松模式 |
+在欢迎页打开 `tests/samples/09_mixed_pipeline/`；LSP 面板会记录
+`polyls`、`pyright` 与 `clangd` 的 `initialize` 协商。详见
+[第 12 章](#12-idepolyui-与语言服务器)。
 
 ---
 
-# 5. 已实现功能
+## 3. 架构总览
 
-## 5.1 C++ 前端 (`frontend_cpp`)
+### 3.1 顶层流水线
 
-### 基础语法 ✅
-- 函数声明和定义、递归、函数重载
-- 控制流：if-else、while、for、switch
-- 变量声明、作用域、名字查找
+```
+                          ┌─────────────┐
+   .cpp .py .rs .java .cs │   前端集    │   ──►  统一 IR（文本或二进制）
+   .go .js .rb .ploy      └─────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │      中端      │   pass 管理器 + 分析
+                       └────────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │   后端选择     │   x86_64 / arm64 / wasm
+                       └────────┬───────┘
+                                │
+                                ▼
+                       ┌────────────────┐
+                       │  polyld 链接   │   ELF / Mach-O / PE / WASM
+                       └────────┬───────┘
+                                │
+                                ▼
+                          可执行 / 库 / wasm 模块
+```
 
-### 面向对象 ✅
-- 类和对象、构造函数/析构函数
-- 单继承和多继承、虚继承（菱形继承）
-- 访问控制（public/protected/private）
-- 虚函数和多态
+### 3.2 目录布局
 
-### 运算符重载 ✅
-- 算术、比较、逻辑、位运算
-- 下标运算符 `[]`、赋值运算符
+| 路径               | 内容                                                                    |
+|--------------------|-------------------------------------------------------------------------|
+| `frontends/`       | 每种源语言一个子目录，分别构建为静态库。                                |
+| `middle/`          | IR 模块、pass 管理器、各优化 pass、校验器。                             |
+| `backends/`        | `x86_64/`、`arm64/`、`wasm/` 加 `common/` 寄存器分配与指令选择。        |
+| `runtime/`         | GC、FFI bridge、各语言运行时、性能分析钩子、调试信息。                  |
+| `tools/`           | 11 个工具驱动（`polyc` … `polyui`）。                                   |
+| `tests/`           | `unit/`、`integration/`、`e2e/`、`benchmark/`、`samples/`（42 编号）。  |
+| `docs/`            | 本指南、教程、规范、实现笔记与需求日志。                                |
+| `scripts/`         | 仓库自动化（docs lint、sync check、打包）。                             |
+| `common/`          | 通用工具（诊断、文件 I/O、JSON、CLI）。                                 |
+| `deps/`            | 入仓或锁定的第三方源码。                                                |
 
-### 模板 ✅
-- 函数模板和类模板
-- 模板参数推导、特化和偏特化
-- 实例化缓存 (`template_instantiator.cpp`)
+### 3.3 模块所有权
 
-### RTTI ✅
-- `typeid` 运算符、`dynamic_cast`、`static_cast`
+每个子系统在 `include/<subsystem>/` 下持有自己的公共头文件，并导出
+一个 CMake 目标。模块之间只能通过这些公共头交互；构建会拒绝越界访问
+内部布局。
 
-### 异常处理 ✅
-- try-catch-throw、多重 catch 子句
-- IR 支持: invoke/landingpad/resume
+| 子系统      | 公共头根目录                     | CMake 目标            |
+|-------------|----------------------------------|------------------------|
+| common      | `common/include/poly/common/`    | `poly_common`          |
+| frontends   | `frontends/<lang>/include/`      | `frontend_<lang>`      |
+| middle      | `middle/include/poly/middle/`    | `poly_middle`          |
+| backends    | `backends/<arch>/include/`       | `backend_<arch>`       |
+| runtime     | `runtime/include/poly/runtime/`  | `poly_runtime`         |
+| tools       | `tools/<name>/include/`          | 每目录一个可执行       |
 
-### 浮点运算 ✅
-- fadd, fsub, fmul, fdiv, frem; 浮点比较; fpext, fptrunc, fptosi
+### 3.4 `polyc` 内部数据流
 
-### constexpr ✅
-- 编译期函数执行、constexpr 变量
-- 实现: `frontends/cpp/src/constexpr/cpp_constexpr.cpp`
+```
+argv  →  CLI 解析  →  driver
+                            │
+                            ├─►  源码发现   （按扩展名）
+                            │       └─► 包管理器探测 (4.3)
+                            ├─►  前端分派
+                            │       └─► IR 模块装配
+                            ├─►  中端 pass 管理器
+                            ├─►  后端降级
+                            ├─►  进程内调用 polyld
+                            └─►  产物写出
+```
 
-### SIMD 向量化 ✅
-- 循环向量化: SSE/AVX (x86_64)、NEON (ARM64)
+### 3.5 并发模型
 
-## 5.2 Python 前端 (`frontend_python`) ✅
+工具链内部：
 
-- 类型注解函数
-- 控制流（if/while/for/match）
-- 类和对象
-- 25+ 高级特性（装饰器、生成器、async/await、推导式、匹配语句等）
+* 各前端降级运行在全局任务调度器（`runtime::tasks::Pool`）。
+* pass 管理器并行化函数级 pass；模块级与循环级 pass 串行执行。
+* `polyld` 按输出 section 并行写目标文件。
+* IDE 使用一个 Qt 主线程加上一个工作池，复用运行时的任务调度器。
 
-## 5.3 Rust 前端 (`frontend_rust`) ✅
+### 3.6 遥测与可观测性
 
-- 函数、结构体
-- 借用检查器和生命周期
-- 闭包
-- 28+ 高级特性（Traits、枚举、模式匹配、智能指针等）
-
-## 5.4 .ploy 前端 (`frontend_ploy`) ✅
-
-详见 [第 4 章](#4-ploy-跨语言链接前端)。完整功能列表：
-
-- 54 个关键字的词法分析
-- LINK/IMPORT/EXPORT/MAP_TYPE/PIPELINE/FUNC/STRUCT/CONFIG 声明解析
-- 版本约束验证（6 种运算符）
-- 选择性导入与符号验证
-- 5 种包管理器配置（VENV/CONDA/UV/PIPENV/POETRY）
-- 自动包发现
-- 跨语言类实例化（NEW）和方法调用（METHOD）
-- 跨语言属性访问（GET）和属性赋值（SET）
-- 自动资源管理（WITH）
-- 跨语言对象销毁（DELETE）和类继承扩展（EXTEND）
-- 全面错误检查：参数数量不匹配 / 类型不匹配 / 溯源链
-- 类型注解与限定类型
-- 接口映射（MAP_TYPE）
-- 完整的类型系统（原始类型 + 容器类型 + 结构体 + 函数类型）
-- 控制流（IF/ELSE/WHILE/FOR/MATCH/BREAK/CONTINUE）
-- 结构体字面量（带前瞻消歧，使用 LexerBase SaveState/RestoreState）
-- IR Lowering（函数/管道/链接/表达式/控制流/OOP互操作/对象销毁/类继承）
-
-## 5.5 Java 前端 (`frontend_java`) ✅
-
-Java 前端，支持 Java 8、17、21 和 23 的核心特性（测试覆盖持续扩展中）：
-
-### 词法分析器
-- 完整的 Java 关键字和运算符词法分析
-- 字符串/字符/数字/注解字面量
-- 单行和多行注释处理
-
-### 解析器
-- 类、接口、枚举、记录类（Java 16+）
-- 密封类和 permits（Java 17+）
-- 模式匹配 instanceof（Java 16+）
-- Switch 表达式（Java 14+）
-- 文本块（Java 13+）
-- 方法、构造器、字段、泛型
-- 导入和包声明
-- Lambda 表达式和方法引用
-- try-with-resources（Java 7+）
-
-### 语义分析
-- 类型解析和作用域管理
-- 方法重载检测
-- 记录类组件的隐式访问器
-- 密封类的许可验证
-- 构造器和方法体分析
-- 二元表达式的类型推导
-
-### IR 降级
-- 类 → 结构体降级，生成构造器（`<init>`）
-- 方法降级，名称修饰（`ClassName::method`）
-- 枚举 → 整型常量降级
-- 记录类 → 带组件访问器的结构体
-- 接口 → 虚表生成
-- `System.out.println` → `__ploy_java_print` 运行时桥接
-
-### 运行时桥接 (`java_rt`)
-- JNI 兼容的桥接 API
-- 版本感知的初始化（Java 8/17/21/23）
-- 对象生命周期管理
-
-## 5.6 .NET 前端 (`frontend_dotnet`) ✅
-
-C# (.NET) 前端，支持 .NET 6、7、8 和 9 的核心特性（测试覆盖持续扩展中）：
-
-### 词法分析器
-- 完整的 C# 关键字和运算符词法分析（包括 `??`、`?.`、`=>`）
-- 常规和逐字字符串字面量
-- 数值字面量（十六进制、二进制、十进制）
-- XML 文档注释处理
-
-### 解析器
-- 类、结构体、接口、枚举、记录类（.NET 5+）
-- 命名空间和文件范围命名空间（C# 10）
-- 顶级语句（C# 9+）
-- 主构造器（C# 12）
-- Using 指令（包括全局 using，C# 10）
-- 委托
-- 属性及 get/set 访问器
-- 析构器/终结器
-- 方法、构造器、字段、泛型
-- 可空引用类型
-- 模式匹配和 switch 表达式
-
-### 语义分析
-- 类型解析和作用域管理
-- 命名空间范围的符号查找
-- 属性和事件分析
-- 构造器和方法体分析
-- Using 指令注册
-- `var` 声明的类型推导
-
-### IR 降级
-- 类/结构体 → 结构体降级，生成构造器（`.ctor`）
-- 方法降级，名称修饰（`ClassName::Method`）
-- 枚举 → 整型常量降级
-- 命名空间 → 作用域前缀
-- 顶级语句 → `<Program>::Main` 入口点
-- `Console.WriteLine` → `__ploy_dotnet_print` 运行时桥接
-
-### 运行时桥接 (`dotnet_rt`)
-- CoreCLR 兼容的桥接 API
-- 版本感知的初始化（.NET 6/7/8/9）
-- 垃圾回收对象互操作
+每个长任务工具都暴露 `--trace=<sink>`，输出 Chrome trace 兼容的 JSON
+流。IDE 在 **Compile Pipeline Inspector** 面板里直接消费同一格式。
+遥测默认关闭，详见
+[realization/telemetry_zh.md](realization/telemetry_zh.md)。
 
 ---
 
-# 6. 使用指南
+## 4. Ploy 胶水语言
 
-## 6.1 编译器驱动 (`polyc`)
+完整参考：[tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md)。
 
-```bash
-# 基本用法 — 根据文件扩展名自动检测语言
-polyc <输入文件> -o <输出>
+### 4.1 为什么需要 Ploy
 
-# 显式指定语言
-polyc --lang=ploy input.ploy -o output
+Ploy 用来粘合异构代码单元。一份 `.ploy` 文件声明导入、类型映射、
+转换函数与流水线，而不再实现宿主语言。它刻意保持精简：整个文法
+只有 54 个关键字。
 
-# 完整用法
-polyc [选项] <输入文件>
+### 4.2 词法与语法基线
+
+* 语句以 `;` 结束（形式文法要求；内置 `polyc --format` 强制执行）。
+* 块定界符 `{` 与 `}`。
+* 标识符 ASCII 或全 UTF-8（NFC 归一化）。
+* 注释：`// 行` `/* 块 */` `/// 文档`。
+* 字符串字面量扩展：`r"…"`、`b"…"`、`f"…"`、`rb"…"`、`f"""…"""`（v1.17）。
+
+### 4.3 核心构造
+
+| 关键字            | 用途                                                          |
+|-------------------|---------------------------------------------------------------|
+| `LET` / `VAR`     | 不可变 / 可变绑定。                                           |
+| `FN`              | 函数定义。                                                    |
+| `STRUCT`          | 聚合类型。                                                    |
+| `OPTION` / `MATCH`| 和类型与穷尽模式匹配。                                        |
+| `LINK`            | 引入宿主符号，使用 `from="<lang>:<spec>"`。                   |
+| `IMPORT … PACKAGE`| 引入宿主包；支持版本与选择性导入。                            |
+| `MAP_TYPE`        | 双向类型桥接。                                                |
+| `CONVERT`         | 用户定义转换函数。                                            |
+| `PIPELINE`        | 可组合数据流链。                                              |
+| `TRY` / `CATCH`   | 结构化错误处理（v1.13）。                                     |
+| `ASYNC` / `AWAIT` | 异步函数与等待点（v1.14）。                                   |
+| `GENERIC`         | 受约束泛型（v1.15）。                                         |
+| `PUBLIC` / `PRIVATE` / `INTERNAL` | 可见性（v1.16）。                            |
+| `CLASS` / `NEW`   | 桥接宿主语言类实例化（v1.20）。                               |
+
+完整 54 关键字列表见语言教程第 23 节。
+
+### 4.4 包管理器自动发现
+
+`polyc` 调用一份 `.ploy` 驱动文件时，会遍历同级目录识别下表清单，
+然后请求对应前端引入项目：
+
+| 清单                                  | 前端         | 备注                                          |
+|---------------------------------------|--------------|-----------------------------------------------|
+| `CMakeLists.txt`                      | C++          | 通过 configure 时导出的编译标志。             |
+| `pyproject.toml`、`requirements.txt`  | Python       | 同时识别 conda / uv / poetry / venv。        |
+| `Cargo.toml`                          | Rust         | 支持 workspace。                              |
+| `pom.xml`、`build.gradle[.kts]`       | Java         | 用 Maven 与 Gradle 输出作为 classpath。       |
+| `*.csproj`、`*.sln`                   | .NET         | NuGet restore 委托给 `dotnet`。               |
+| `go.mod`                              | Go           | 仅支持无 `GOPATH` 的模块模式。                |
+| `package.json`                        | JavaScript   | 用 npm / pnpm / yarn 锁文件解析。             |
+| `Gemfile`                             | Ruby         | Bundler 解析；运行时为 `ruby`。               |
+| `.ploy.toml`                          | Ploy         | 项目级 Ploy 设置。                            |
+
+### 4.5 IMPORT 包语法
+
+```ploy
+IMPORT python PACKAGE numpy >= 1.20;                  // 版本约束
+IMPORT python PACKAGE numpy::(array, mean);           // 选择性导入
+IMPORT python PACKAGE numpy >= 1.20 AS np;            // 别名
+IMPORT rust   PACKAGE serde::(Serialize, Deserialize);
+IMPORT cpp    PACKAGE eigen >= 3.4;
+IMPORT java   PACKAGE org.json::(JSONObject) AS json;
 ```
 
-### 选项
+包别名不可与目标含糊的选择性导入并存。IDE 在编辑期以
+`polyc-err-E0612` 标记此类问题。
 
-| 选项 | 说明 |
-|------|------|
-| `--lang=<cpp\|python\|rust\|java\|dotnet\|javascript\|ruby\|go\|ploy>` | 源语言（省略时根据扩展名自动检测） |
-| `--arch=<x86_64\|arm64\|wasm>` | 目标架构（默认：宿主检测 — Apple Silicon / AArch64 为 `arm64`，其他为 `x86_64`） |
-| `-O<0\|1\|2\|3>` | 优化级别 |
-| `--emit-ir=<文件>` | 输出 IR 文本 |
-| `--emit-asm=<文件>` | 输出汇编 |
-| `-o <文件>` | 输出目标文件/可执行文件 |
-| `--debug` | 生成调试信息 (DWARF 5) |
-| `--regalloc=<linear-scan\|graph-coloring>` | 寄存器分配器选择 |
-| `--obj-format=<elf\|macho\|coff\|pobj>` | 目标文件格式（按操作系统自动检测：Windows 为 `coff`，Linux 为 `elf`，macOS 为 `macho`） |
-| `--quiet` / `-q` | 禁止进度输出 |
-| `--no-aux` | 禁止辅助文件生成 |
-| `--force` | 遇到错误继续编译 |
-| `--strict` | 严格模式：拒绝占位类型，禁止降级桩 |
-| `--permissive` | 宽松模式：允许占位类型（覆盖 Release 默认设置） |
-| `--progress=json` | 向标准输出发送机器可读 JSON 进度事件（stage_start、stage_end、complete） |
-| `--clean-cache` | 清除增量编译缓存并退出 |
-| `--dump-token-pool` | 把前端 TokenPool 统计（tokens、arena 字节、唯一标识符、intern 命中/未命中）写入 `<aux>/<stem>.pool_stats.json` |
-| `--print-targets[=text\|json]` | 打印当前进程注册的所有后端（triple、别名、能力矩阵）后退出。`text` 为默认；`json` 输出稳定的 JSON 快照。 |
-| `--print-target-info=<triple>[:json]` | 打印单个后端的信息（支持别名查询）后退出。追加 `:json` 切换到 JSON 形式。别名未注册时退出码为 `2`，并向 stderr 写入"available backends"诊断。 |
-| `-h` / `--help` | 显示帮助信息 |
+### 4.6 跨语言调用
 
-#### 查看可用后端
+```ploy
+LINK cpp::graphics::draw_point  AS draw(p: ptr<u8>) -> void;
+LINK python::numpy::mean        AS mean(xs: list<f64>) -> f64;
+LINK rust::serde_json::to_string AS to_json<T>(value: T) -> string;
 
-```text
-$ polyc --print-targets
-arm64-unknown-elf
-  description: ARM64 (AArch64) backend
-  aliases: arm64, aarch64, armv8, aarch64-apple-darwin, aarch64-linux-gnu, aarch64-pc-windows-msvc
-  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
-  register allocators: linear-scan, graph-coloring
-wasm32-unknown-unknown
-  ...
-x86_64-unknown-elf
-  ...
-
-$ polyc --print-target-info=amd64
-x86_64-unknown-elf
-  description: x86_64 backend (System V / Win64)
-  aliases: x86_64, x86-64, amd64, x64, x86_64-pc-windows-msvc, x86_64-apple-darwin, x86_64-linux-gnu
-  capabilities: object=yes assembly=yes bitcode=no debug-info=yes pic=yes
-  register allocators: linear-scan, graph-coloring
-
-$ polyc --print-targets=json | jq '.[].triple'
-"arm64-unknown-elf"
-"wasm32-unknown-unknown"
-"x86_64-unknown-elf"
+FN demo() -> void {
+    LET avg = mean([1.0, 2.0, 3.0, 4.0]);
+    PRINT(avg);
+}
 ```
 
-查询大小写不敏感，并接受上一条命令列出的所有别名 —— `--arch=AMD64`、`--arch=x86-64`、
-`--arch=x86_64-linux-gnu` 都命中同一个后端。该列表是 `--arch` 接受值的唯一权威来源；
-未来子需求新增的后端（例如 2026-04-28-2e 引入的 RISC-V）会自动出现在此列表中，文档无需手工同步。
+`LINK` 形式降为 `bridge_call` IR 操作；类型编排规则见
+[realization/bridge_marshalling.md](realization/bridge_marshalling.md)。
 
-> **注意：** Release 构建默认启用严格模式（通过 `POLYC_DEFAULT_STRICT`）。
-> 使用 `--permissive` 覆盖。`--strict` 和 `--force` 互斥。
+### 4.7 跨语言类实例化
 
-### 编译模式
+```ploy
+LINK cpp::geometry::Point AS Point CLASS {
+    NEW(x: f64, y: f64) -> Point;
+    FN  norm(self: Point) -> f64;
+};
 
-`polyc` 支持两种编译模式，控制对占位类型和未解析跨语言类型信息的处理方式：
-
-| 模式 | 占位类型处理 | `--force` 桩 | 默认启用场景 |
-|------|-------------|--------------|-------------|
-| **严格模式** | 错误 | 禁止 | Release 构建 |
-| **宽松模式** | 警告 | 允许 | Debug 构建 |
-
-**严格模式**（`--strict` 或 Release 默认）：
-- 语义分析将占位类型回退（如无类型参数默认为 `Any`）报告为**错误**
-- IR 验证器拒绝包含未解析占位 `I64` 返回类型的函数
-- 降级阶段拒绝返回类型无法解析的跨语言调用
-- 禁止通过 `--force` 生成降级桩
-- `--strict` 和 `--force` 互斥
-
-**宽松模式**（`--permissive` 或 Debug 默认）：
-- 占位类型回退报告为**警告**
-- 验证器接受 I64 占位返回类型
-- `--force` 可为不完整编译生成降级桩
-
-### 语言自动检测
-
-`polyc` 根据文件扩展名自动检测源语言：
-
-| 扩展名 | 语言 |
-|--------|------|
-| `.ploy` | ploy |
-| `.py` | python |
-| `.cpp`, `.cc`, `.cxx`, `.c` | cpp |
-| `.rs` | rust |
-| `.java` | java |
-| `.cs` | dotnet |
-
-### 进度输出
-
-默认情况下，`polyc` 向 stderr 打印详细进度信息：
-
-```
-========================================
- PolyglotCompiler v1.0.0  (polyc)
-========================================
-[polyc] Source: basic_linking.ploy
-[polyc] Language: ploy (auto-detected)
-[polyc] Arch: x86_64
-[polyc] Opt level: O0
-[polyc] Output: basic_linking
-----------------------------------------
-[polyc] Aux dir: ./aux
-[polyc] Lexing (.ploy)... done (1.8ms)
-[polyc]   -> ./aux/basic_linking.tokens.paux (3613 bytes, binary)
-[polyc] Parsing (.ploy)... done (2.1ms)
-[polyc]   -> ./aux/basic_linking.ast.paux (199 bytes, binary)
-[polyc] Semantic analysis (.ploy)... done (0.8ms)
-[polyc]   -> ./aux/basic_linking.symbols.paux (212 bytes, binary)
-[polyc] IR lowering (.ploy)... done (1.1ms)
-[polyc]   -> ./aux/basic_linking.ir.paux (878 bytes, binary)
-[polyc]   -> ./aux/basic_linking.descriptors.paux (572 bytes, binary)
-[polyc] SSA conversion + verification... done (0.6ms)
-[polyc] Assembly generation... done (1.0ms)
-[polyc] Object code emission... done (1.3ms)
-[polyc]   -> ./aux/basic_linking.asm.paux (1330 bytes, binary)
-[polyc] Per-language library emission...
-[polyc]   -> ./aux/basic_linking_cpp.lib.pobj (cpp bridge library)
-[polyc]   -> ./aux/basic_linking_python.lib.pobj (python bridge library)
-done (1.5ms)
-[polyc] Emit object... [polyc] Produced: basic_linking.obj
-[polyc]   -> ./aux/basic_linking.obj (object copy in aux)
-done (5.7ms)
-----------------------------------------
-[polyc] Target: x86_64-unknown-elf
-[polyc] Object format: coff
-[polyc] Total time: 27.7ms
-[polyc] Aux files (binary): ./aux
-[polyc] Compilation successful.
-========================================
+FN distance() -> f64 {
+    LET a = NEW Point(0.0, 0.0);
+    LET b = NEW Point(3.0, 4.0);
+    RETURN b.norm() - a.norm();
+}
 ```
 
-使用 `--quiet` 禁止进度输出。
+`CLASS` 块声明桥接形态；每个方法降为 `bridge_call`，第一个参数为
+装箱后的 receiver。
 
-### 辅助文件
-
-默认情况下，`polyc` 在源文件所在目录的 `aux/` 子目录中生成中间文件。所有辅助文件使用 **PAUX 二进制容器格式**（文件头：`"PAUX"` 魔数 + 版本号 + 段数量），防止中间数据以明文形式暴露。
-
-| 文件 | 内容 |
-|------|------|
-| `<stem>.tokens.paux` | 词法分析器 token 输出（类型、位置、文本）— 二进制 |
-| `<stem>.ast.paux` | AST 摘要（声明数量、位置）— 二进制 |
-| `<stem>.symbols.paux` | 符号表条目（类型、种类）— 二进制 |
-| `<stem>.ir.paux` | IR 文本表示 — 二进制 |
-| `<stem>.descriptors.paux` | 跨语言调用描述符 — 二进制 |
-| `<stem>.asm.paux` | 生成的汇编代码 — 二进制 |
-| `<stem>.obj` / `<stem>.o` | COFF/ELF/Mach-O 目标文件（平台相关） |
-| `<stem>_<lang>.lib.pobj` | 按语言分离的桥接库（如 `_cpp.lib.pobj`、`_python.lib.pobj`） |
-| `build_profile.bin` | 二进制构建性能分析：各阶段计时数据（编译成功后生成） |
-
-#### PAUX 二进制格式
+### 4.8 编译模型
 
 ```
-偏移量  大小  字段
-0       4     魔数: "PAUX"
-4       2     版本: 1
-6       2     段数量: N
-8       8     保留（零填充）
-16      ...   段数据: 每段包含:
-                uint16 名称长度 + 名称字节 + uint32 数据长度 + 数据字节
+.ploy → ploy 前端 ──┐
+.cpp  → cpp  前端 ──┤
+.py   → py   前端 ──┼──► 统一 IR ──► 中端 ──► 后端 ──► polyld ──► 产物
+.rs   → rust 前端 ──┘
 ```
 
-#### 按语言分离的桥接库
-
-`.ploy` 文件中引用的每种语言都会在 `aux/` 中生成独立的桥接库目标文件。例如，一个链接 C++ 和 Python 函数的 `.ploy` 文件会产生：
-- `<stem>_cpp.lib.pobj` — 包含 C++ 互操作桥接符号
-- `<stem>_python.lib.pobj` — 包含 Python 互操作桥接符号
-
-这样可以实现按语言的分离编译和链接，而不是单体输出。
-
-### 二进制目标文件输出
-
-在 **compile** 模式（默认）下，`polyc` 现在会在中间文件之外额外生成二进制目标文件：
-- **Windows**: COFF `.obj` 文件（与 MSVC `link.exe` 兼容）
-- **Linux**: ELF `.o` 文件
-- **macOS**: Mach-O `.o` 文件
-
-在 **link** 模式下，`polyc` 还会调用系统链接器生成可执行文件。
-
-使用 `--no-aux` 禁止辅助文件生成。`aux/` 目录通过 `.gitignore` 自动排除。
-
-### 优化级别
-
-| 级别 | 说明 | 启用的优化 |
-|------|------|-----------|
-| -O0 | 无优化 | 无 |
-| -O1 | 基础优化 | 常量折叠、DCE |
-| -O2 | 标准优化 | +CSE、内联、GVN |
-| -O3 | 激进优化 | +去虚化、向量化、循环优化、高级优化 |
-
-## 6.2 链接器 (`polyld`)
-
-```bash
-polyld -o program file1.o file2.o file3.o
-polyld -static -o program main.o -lmylib      # 静态链接
-polyld -shared -o libmylib.so obj1.o obj2.o    # 共享库
-```
-
-从 `polyc` 调用时，`polyld` 会自动从 `polyc` 同级目录中查找（兄弟路径解析）。`polyld` 内部包含 `PolyglotLinker`，它消费 `.ploy` 前端的 IR，生成跨语言粘合代码：
-
-- `CrossLangCallDescriptor` — 描述跨语言调用的类型映射
-- `LinkEntry` — 描述 LINK 声明中的源/目标函数对
-- `ResolveLinks()` — 解析所有链接条目，生成粘合代码
-- 容器类型检测: `IsListType()`, `IsDictType()`, `IsTupleType()`, `IsStructType()`
-
-## 6.3 PGO (Profile-Guided Optimization)
-
-```bash
-# 1. 生成插桩版本
-polyc -fprofile-generate input.cpp -o app.instrumented
-
-# 2. 运行收集 profile
-./app.instrumented < typical_input.txt
-
-# 3. 使用 profile 优化
-polyc -fprofile-use=default.profdata input.cpp -o app.optimized
-```
-
-实现: `middle/src/pgo/profile_data.cpp`
-
-## 6.4 LTO (Link-Time Optimization)
-
-```bash
-# Thin LTO（推荐）
-polyc -flto=thin -c file1.cpp -o file1.o
-polyc -flto=thin file1.o file2.o -o app
-```
-
-实现: `middle/src/lto/link_time_optimizer.cpp`
-
-## 6.5 .ploy 示例文件
-
-项目在 `tests/samples/` 中包含 12 个 `.ploy` 示例：
-
-| 文件 | 内容 |
-|------|------|
-| `basic_linking.ploy` | 基础 LINK + MAP_TYPE |
-| `complex_types.ploy` | 结构体、容器类型映射 |
-| `container_marshalling.ploy` | LIST/TUPLE/DICT 编组 |
-| `advanced_pipeline.ploy` | 多阶段 PIPELINE |
-| `multi_language_pipeline.ploy` | 三语言管道 |
-| `pipeline_control_flow.ploy` | IF/WHILE/FOR/MATCH |
-| `mixed_compilation.ploy` | 混合编译示例 |
-| `error_handling.ploy` | 错误处理 |
-| `package_import.ploy` | 包导入 + 版本约束 + 选择性导入 + CONFIG |
-| `cross_lang_class_instantiation.ploy` | 跨语言类实例化混合调用 |
-| `java_interop.ploy` | Java 互操作（字符串处理 + 跨语言管道） |
-| `dotnet_interop.ploy` | .NET 互操作（数据服务 + 统计分析管道） |
-
-## 6.6 示例环境配置
-
-`tests/samples/` 目录包含环境配置脚本，用于创建运行示例所需的本地 Python 和 Rust 环境。
-
-### Windows (PowerShell)
-
-```powershell
-cd tests/samples
-.\setup_env.ps1
-```
-
-### Linux / macOS (Bash)
-
-```bash
-cd tests/samples
-chmod +x setup_env.sh
-./setup_env.sh
-```
-
-脚本将创建：
-- **Python 虚拟环境**：位于 `tests/samples/env/python/`，预装 numpy、torch、typing-extensions
-- **Rust 工具链**：位于 `tests/samples/env/rust/`，使用独立的 RUSTUP_HOME/CARGO_HOME
-
-`env/` 目录通过 `.gitignore` 自动排除，不会被 git 同步。
-
-## 6.7 IDE (`polyui`)
-
-`polyui` 是 PolyglotCompiler 的基于 Qt 的桌面集成开发环境（IDE）。它提供了语法高亮、实时诊断和项目文件浏览等功能。
-
-### 前置条件
-
-- **Qt 6**（推荐）或 **Qt 5.15+**（需要 Widgets 模块）
-- CMake 自动在以下路径发现 Qt：
-  - `D:\Qt`（Windows）
-  - `deps/qt/`（项目本地，所有平台 — 通过 `aqtinstall` 安装）
-  - 系统路径（如 Homebrew、apt）
-- 可通过 `-DQT_ROOT=<path>` 覆盖
-
-**快速安装（未安装 Qt 时）：**
-
-```bash
-# macOS / Linux
-./tools/ui/setup_qt.sh
-
-# Windows (PowerShell)
-.\tools\ui\setup_qt.ps1
-```
-
-此命令将预编译的 Qt 6.10.2 二进制文件下载到 `deps/qt/` 目录（已被 git 忽略）。
-
-### 构建
-
-```bash
-cmake --build build --target polyui
-```
-
-如果未找到 Qt，`polyui` 目标将被静默跳过，不影响其他目标的构建。
-
-在 **Windows** 上，链接完成后会自动调用 `windeployqt` 将所需的 Qt DLL（如 `Qt6Cored.dll`、`Qt6Guid.dll`、`Qt6Widgetsd.dll`）和平台插件复制到构建目录。这意味着可以直接双击 `polyui.exe` 运行，无需手动配置 DLL。
-
-在 **macOS** 上，会自动调用 `macdeployqt` 将 Qt 框架打包到 `.app` 目录中。应用程序以原生 macOS Bundle 形式构建，支持 Retina 显示。
-
-在 **Linux** 上，构建生成标准 ELF 可执行文件。请确保目标系统上可用 Qt 运行时库（通常通过发行版的包管理器安装）。
-
-### 按平台分离的源码布局
-
-`polyui` 的源代码按平台组织：
-
-```
-tools/ui/
-├── common/          # 跨平台共享代码（所有平台均编译）
-│   ├── src/         #   mainwindow.cpp、code_editor.cpp、syntax_highlighter.cpp、
-│   │                #   file_browser.cpp、output_panel.cpp、compiler_service.cpp、
-│   │                #   settings_dialog.cpp、git_panel.cpp、build_panel.cpp、
-│   │                #   debug_panel.cpp、theme_manager.cpp
-│   └── include/     #   对应的头文件（含 theme_manager.h）
-├── windows/         # Windows 专用入口点 (main.cpp)
-├── linux/           # Linux 专用入口点 (main.cpp)
-└── macos/           # macOS 专用入口点 (main.cpp)
-```
-
-CMake 会根据当前操作系统自动选择正确的平台专用 `main.cpp`。每个平台的入口点包含特定于操作系统的初始化逻辑（如 Windows 上的 `windeployqt`、Linux 上的 `xcb` 平台默认值、macOS 上的 `MACOSX_BUNDLE`）。
-
-### 启动
-
-```bash
-# 打开 IDE
-./build/polyui
-
-# 直接打开项目文件夹
-./build/polyui --folder /path/to/project
-```
-
-### 功能特性
-
-| 功能 | 说明 |
-|------|------|
-| **语法高亮** | 使用编译器前端分词器实现精确的、语言感知的高亮，支持全部受支持语言和全部主题。文本颜色通过 `QPalette` 设置，确保 `QSyntaxHighlighter` 的逐字符格式始终优先生效；主题切换后自动触发 `rehighlight()`。Ploy 文件采用三层配色方案：跨语言指令关键字（`LINK`、`IMPORT`、`EXPORT`、`MAP_TYPE`、`PIPELINE`、`CALL`、`NEW`、`METHOD`、`GET`、`SET`、`WITH`、`DELETE`、`EXTEND`、`CONVERT`、`MAP_FUNC`、`CONFIG`）显示为**紫色/品红色**；原始类型关键字（`INT`、`FLOAT`、`STRING`、`BOOL`、`VOID`、`ARRAY`、`LIST`、`TUPLE`、`DICT`、`OPTION`、`STRUCT`）显示为**青色**；语言限定符标识符（`cpp`、`python`、`rust`、`java`、`csharp`、`dotnet`）显示为**黄色**；控制流关键字（`IF`、`WHILE`、`FOR`、`MATCH`、`RETURN` 等）显示为**蓝色** |
-| **实时诊断** | 调用完整编译管道（词法 → 语法 → 语义）实时报告错误和警告 |
-| **文件浏览器** | 树形项目导航器，按支持的源文件扩展名过滤，支持右键上下文菜单 |
-| **多标签编辑器** | 支持多文件编辑，含新建、打开、保存、关闭标签功能 |
-| **输出面板** | 三标签输出区域：编译输出、错误表格（点击跳转源码）、日志 |
-| **内置终端** | 嵌入式 Shell（Windows 为 PowerShell，Linux/macOS 为 bash/zsh），支持 ANSI 颜色、命令历史和多实例 |
-| **代码导航** | 双击诊断表格中的错误行，跳转到对应源码位置 |
-| **括号匹配** | 高亮光标处的匹配括号 / 圆括号 / 花括号 |
-| **自动缩进** | 新行自动保持当前缩进级别 |
-| **缩放** | `Ctrl+加号` / `Ctrl+减号` 调整编辑器字体大小 |
-| **暗色主题** | 通过 ThemeManager 统一管理主题，内置 4 套配色方案（暗色、亮色、Monokai、Solarized Dark），所有面板统一切换 |
-| **外部主题系统** | VS Code 风格的外部主题 — `.polytheme.json` 文件（可附带同名 `.qss` 兜底），按 3 层目录契约发现：内置 qrc（`:/polyglot/themes/`）、用户级 `~/.polyglot/themes/`、工作区级 `<ws>/.polyglot/themes/`。开箱即用 5 套内置主题（`polyglot.dark`、`polyglot.light`、`polyglot.hc`、`solarized.light`、`solarized.dark`）。使用 `Ctrl+K, Ctrl+T`（或 *视图 → 主题管理器…*）打开 **主题管理器** 对话框，可安装 / 卸载 / 预览 / 导出主题。开发者命令：`workbench.action.selectTheme`、`workbench.action.openColorTheme`、`workbench.action.generateColorTheme`、`editor.action.inspectTMScopes`、`workbench.action.inspectColorTheme`。命令行参数：`--theme <id|path>`、`--list-themes`、`--validate-theme <path>`、`--headless --screenshot <out.png>`。完整规范见 [主题系统](realization/theme_system_zh.md) |
-| **编译与运行** | 一键编译并运行当前文件（`Ctrl+R`），自动查找输出二进制文件并通过 QProcess 启动，stdout/stderr 实时输出至日志面板；支持停止运行中的进程（`Ctrl+Shift+R`） |
-| **设置对话框** | 7 类偏好设置（外观、编辑器、编译器、环境、构建、调试、键绑定），通过 `QSettings` 持久化存储。外观页包含 *显示工具栏*、*显示状态栏* 和 *显示资源管理器* 开关（默认均为**开启**） |
-| **自定义快捷键** | 在设置对话框的键绑定页中使用 QKeySequenceEdit 编辑快捷键，支持应用、重置，自定义快捷键通过 QSettings 持久化存储并在启动时自动加载 |
-| **设置联动** | 设置中的 CMake 路径、构建目录、调试器路径等配置自动同步至构建面板和调试面板，修改后即时生效 |
-| **Git 集成** | 内置 Git 面板，支持状态查看、暫存、提交、分支管理、推送/拉取、差异查看、日志历史和储藏功能 |
-| **构建系统** | CMake 集成面板，支持配置/构建/清理、生成器和构建类型选择、目标发现和错误解析 |
-| **调试器** | 集成调试面板，支持 lldb 和 gdb，包括断点、单步执行、完整的调用栈帧解析（模块、函数、文件、行号）、变量类型/值解析、监视表达式实时求值与结果更新、监视右键菜单（删除/全部删除/求值）、入口断点选项和调试控制台 |
-| **模板创建** | 通过 *文件 → 从模板新建*（`Ctrl+Shift+N`）从内置语言模板创建新文件。模板包括：Ploy 链接器、C++ hello-world / 类骨架、Python 脚本 / 类、Rust hello-world / 结构体、Java hello-world / 类、C# hello-world / 类 |
-| **拓扑图动态连线** | 拓扑面板中的连接线随节点移动实时跟随 — 拖拽节点时所有关联的贝塞尔曲线路径即时重新计算 |
-| **性能分析器面板** | 停靠面板（`Ctrl+Alt+P`），驱动 `polybench` / `polyrt` 并可视化火焰图、热点、时间线（每线程一条泳道）、按语言耗时占比及工具日志。由共享的 `ProfileSession` 提供数据。详见 [realization/profiler_zh.md](realization/profiler_zh.md) |
-| **调用分析器面板** | 停靠面板（`Ctrl+Alt+G`），渲染 `polyc --emit=call-graph:<path>` 生成的静态调用图，提供 caller/callee 树、分层 DAG 布局、语言对过滤与有界 DFS 路径搜索。与 Profiler 共享同一个 `ProfileSession`，因此运行时调用计数会自动叠加。详见 [realization/call_analyzer_zh.md](realization/call_analyzer_zh.md) |
-
-### 快捷键
-
-| 快捷键 | 操作 |
-|--------|------|
-| `Ctrl+N` | 新建文件 |
-| `Ctrl+Shift+N` | 从模板新建文件 |
-| `Ctrl+O` | 打开文件 |
-| `Ctrl+S` | 保存文件 |
-| `Ctrl+Shift+S` | 另存为 |
-| `Ctrl+W` | 关闭当前标签 |
-| `Ctrl+Z` | 撤销 |
-| `Ctrl+Y` | 重做 |
-| `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | 剪切 / 复制 / 粘贴 |
-| `Ctrl+F` | 查找 |
-| `Ctrl+B` | 编译当前文件 |
-| `Ctrl+R` | 编译并运行当前文件 |
-| `Ctrl+Shift+R` | 停止运行中的进程 |
-| `Ctrl+Shift+B` | 分析当前文件（仅诊断） |
-| `` Ctrl+` `` | 切换内置终端 |
-| `` Ctrl+Shift+` `` | 打开新终端实例 |
-| `Ctrl+加号` / `Ctrl+减号` | 放大 / 缩小 |
-| `Ctrl+,` | 打开设置对话框 |
-| `F9` | 开始调试 |
-| `F10` | 单步跳过 |
-| `F11` | 单步进入 |
-| `Shift+F11` | 单步跳出 |
-
-### 资源管理器右键菜单
-
-在文件浏览器中右键点击任意项目，可访问以下上下文敏感菜单操作：
-
-| 操作 | 说明 |
-|------|------|
-| **Open** | 在编辑器中打开选中的文件（仅限文件） |
-| **New File...** | 在选中目录中创建新文件并打开 |
-| **New Folder...** | 在选中目录中创建新子文件夹 |
-| **Rename...** | 重命名选中的文件或文件夹（F2） |
-| **Delete** | 删除选中的文件或文件夹（需确认） |
-| **Copy Path** | 将绝对路径复制到剪贴板 |
-| **Copy Relative Path** | 将相对于项目根目录的路径复制到剪贴板 |
-| **Reveal in File Explorer** | 在操作系统文件管理器中打开所在文件夹 |
-| **Open in Terminal** | 在选中目录打开一个新的内置终端会话 |
-| **Generate Topology Graph** | 为选中的 `.ploy` 文件生成并展示函数 I/O 拓扑图（仅 `.ploy` 文件可用） |
-
-> **说明：** *Generate Topology Graph* 操作仅对 `.ploy` 文件可见。它会打开拓扑面板（或将其置于前台），并使用完整的拓扑分析管道（词法 → 语法 → 语义 → 拓扑分析器）构建可视化拓扑图。
-
-### 支持的语言
-
-IDE 使用与 `polyc` 相同的前端分词器，确保以下语言的精确高亮和诊断：
-
-- C++（`.cpp`、`.h`、`.hpp`、`.cxx`）
-- Python（`.py`）
-- Rust（`.rs`）
-- Java（`.java`）
-- C# / .NET（`.cs`）
-- Ploy（`.ploy`）
-
-### 内置终端
-
-IDE 内置了终端面板，无需离开编辑器即可进行交互式命令行操作。
-
-**功能特性：**
-- **平台感知 Shell 检测**：Windows 自动启动 PowerShell，macOS 启动 zsh，Linux 启动 bash（或 `$SHELL`）
-- **多终端实例**：可创建任意数量的独立终端会话，每个运行在单独的标签页中
-- **ANSI 颜色支持**：解析并渲染基本 SGR 转义码，显示彩色输出
-- **命令历史**：通过上/下方向键浏览历史命令（最多 500 条）
-- **快捷键**：`Ctrl+C` 发送中断、`Ctrl+L` 清屏、`` Ctrl+` `` 切换面板
-- **工作目录同步**：新终端自动打开到文件浏览器中显示的项目根目录
-
-**使用方法：**
-1. 按 `` Ctrl+` `` 切换终端面板，或使用 **终端 → 切换终端** 菜单
-2. 按 `` Ctrl+Shift+` `` 打开新的终端实例
-3. 使用 **终端** 菜单执行清空、重启和新建终端操作
-4. 通过标签页关闭按钮关闭单个终端
-
-### 拓扑面板
-
-IDE 包含一个用于 `.ploy` 文件的交互式拓扑可视化面板，类似于 Simulink 的模块图视图。
-
-**功能特性：**
-
-| 功能 | 说明 |
-|------|------|
-| **布局算法** | 提供 8 种可选布局：*分层 (DAG)*（**默认**，全静态分层绘制，通过 Kahn 拓扑序 + 最长路径分层计算）、*力导向*（动画版 Fruchterman–Reingold 模拟，含模拟退火）、*从上到下网格*、*从左到右网格*、*环形*、*同心环（按度数）*、*螺旋*（阿基米德螺线）、*BFS 树*（以最高度数节点为根）。除力导向外的所有布局均为确定性、无动画；用户的选择持久化在 `QSettings` 的 `topology/layout_mode` 中，主面板与所有钻入子窗口共享。布局计算完成后同步更新所有 `TopoEdgeItem` 贝塞尔路径。 |
-| **交互式边创建** | 从输出端口拖拽到输入端口（或反向）创建新边。自环和重复边会被拒绝并显示诊断信息。新建的边会自动以 `LINK` 声明写回当前 `.ploy` 文件。 |
-| **交互式边删除** | 右键点击边即可从图中删除。对应的 `LINK`/`CALL` 语句会自动从 `.ploy` 源文件中移除。 |
-| **文件实时重载** | 通过 `QFileSystemWatcher` 监控已加载的 `.ploy` 文件；文件在磁盘上变更后，经 200 毫秒防抖后自动重建拓扑，状态栏显示"Reloaded"。 |
-| **调试执行高亮** | 调试器暂停在某个源码位置时，对应的拓扑节点以亮黄色脉冲动画高亮显示（边框透明度在 40% 到 100% 之间脉动），视图自动滚动居中。支持通过 `HighlightExecutingNode(uint64_t node_id)` 直接按节点 ID 高亮。调试会话结束或新会话开始时通过 `ClearExecutionHighlight()` 清除。 |
-| **端口悬停提示** | 将鼠标悬停在任意输入或输出端口上，可查看包含端口名称、类型、方向、父节点名称、所属语言与连接状态（`✔ Valid`、`⚠ Implicit Convert`、`✘ Incompatible`、`? Unknown` 或 `Not connected`）的详细提示。悬停时端口视觉放大。 |
-| **验证覆盖** | 点击 **Validate** 运行拓扑验证器；错误节点以红色高亮，诊断信息显示在面板中。 |
-| **导出** | 通过工具栏按钮将当前拓扑导出为 DOT、JSON 或 PNG 格式。 |
-| **生成 .ploy** | 点击工具栏中的 **Generate .ploy** 按钮，从当前拓扑图自动生成合法的 `.ploy` 源代码。生成的文件写入同目录下的 `<basename>_generated.ploy` 并在编辑器中打开。保存前会验证生成代码的解析/语义正确性。 |
-
-**使用方法：**
-1. 在资源管理器中右键点击 `.ploy` 文件并选择 **Generate Topology Graph**，或在打开 `.ploy` 文件时按 `Ctrl+Shift+T`。
-2. 使用布局选择器在 *分层 (DAG)*（默认静态）、*力导向*、*从上到下网格*、*从左到右网格*、*环形*、*同心环（按度数）*、*螺旋* 与 *BFS 树* 之间切换。
-3. 在端口之间拖拽可交互式创建边；右键点击边可删除。
-4. 点击 **Validate** 运行所有边的类型兼容性验证。
-5. 启动调试会话 — 拓扑面板将自动高亮当前活跃节点。
-6. 点击 **Generate .ploy** 从拓扑图自动生成 `.ploy` 源代码（双向互通）。
-
-**CLI 代码生成：**
-
-`polytopo` 命令行工具也支持通过 `generate` 子命令进行代码生成：
-
-```bash
-# 首先，将拓扑图导出为 JSON：
-polytopo my_project.ploy --format json --output graph.json
-
-# 然后，从 JSON 图生成 .ploy 源码：
-polytopo generate graph.json -o generated.ploy
-```
-
-CLI 和 UI 共享相同的 `GeneratePloySrc` 逻辑，确保输出一致。
-
-**双向同步：**
-
-拓扑面板与代码编辑器保持双向实时同步：
-
-- **编辑器 → 拓扑**：在编辑器中保存 `.ploy` 文件后，拓扑面板在 200 毫秒内（防抖）自动重新解析并重建图形。状态栏显示"Reloaded"。
-- **拓扑 → 编辑器**：在拓扑面板中通过拖拽创建或右键删除边时，对应的 `LINK`/`CALL` 语句会自动写入（或从）`.ploy` 源文件中移除。编辑器重新加载文件并以黄色高亮显示受影响的行 2 秒钟。
-
-此双向协议确保可视拓扑图与文本 `.ploy` 源代码始终保持同步。实现细节请参阅 `docs/realization/topology_tool_zh.md`。
-
-### Markdown 渲染查看器
-
-IDE 将 Markdown 文档（`.md`、`.markdown`、`.mdown`、`.mkd`）以排版后的格式呈现，而非原始源码。这是在 IDE 内阅读项目自带文档（`README.md`、`docs/USER_GUIDE_zh.md`、`docs/specs/*.md` 等）的推荐方式。
-
-**功能特性：**
-
-| 特性 | 说明 |
-|------|------|
-| **原生渲染** | 使用 Qt 内置的 `QTextDocument::setMarkdown()` 渲染（CommonMark + GitHub Flavoured Markdown 子集：表格、围栏代码块、任务列表、删除线）。无需任何第三方库。 |
-| **预览 ↔ 源码切换** | 内嵌工具栏提供 **Preview / Source / Reload** 按钮。按 `Ctrl+Shift+M`（视图 → 切换 Markdown 预览）即可在渲染视图与原始源码视图之间切换。 |
-| **主题感知** | 查看器自动采用当前主题的编辑器背景色、前景色与选中色，使浅色 / 深色主题与 IDE 其它部分保持一致。主题切换时实时更新。 |
-| **资源解析** | 相对路径的 `<img src="...">` 与超链接相对于源文件目录解析，因此文档中嵌入的截图能正确显示。 |
-| **外部链接** | `http(s)://` 与 `mailto:` 链接在系统默认浏览器中打开。文档内的 `#anchor` 锚点在查看器内跳转。本地跨文档链接（`./other.md`）会在新标签页中打开。 |
-| **UTF-8 安全** | 文件统一以 UTF-8 读取，与系统区域设置无关，因此中文 / 日文 / emoji 内容均能正确呈现。 |
-
-**使用步骤：**
-
-1. 通过 **文件 → 打开**、Explorer 面板，或在已渲染的另一份文档中点击 Markdown 链接打开任意 `.md` 文件。IDE 自动识别扩展名，将其在 Markdown 查看器标签页中打开，而非代码编辑器。
-2. 使用内嵌工具栏的 **Preview** / **Source** 按钮（或 `Ctrl+Shift+M`）在渲染与原始视图间切换。**Reload** 按钮重新从磁盘读取文件。
-3. 点击渲染视图中的任意链接进行跳转（文档内锚点 → 滚动定位，外部 URL → 浏览器，本地文件 → 新标签页）。
-
-> Markdown 查看器在设计上是只读的。如需编辑 Markdown 文件，请右键 → *Open With → Code Editor*（计划中），或临时改名为非 Markdown 扩展名后再打开。
-
-### 设置（VS Code 风格 JSON）
-
-> 所有偏好以单一 JSON 文件存储 —— 与 VS Code 完全一致。
-> 原 `QSettings` 存储在首次启动时自动迁移。
-
-**三层覆盖（优先级由低到高）：**
-
-| 层级       | 位置                                                                       |
-|------------|----------------------------------------------------------------------------|
-| 默认       | 内嵌资源（只读）                                                            |
-| 用户       | `%APPDATA%\PolyglotCompiler\settings.json`（Windows） / `~/.config/PolyglotCompiler/settings.json`（Linux） / `~/Library/Application Support/PolyglotCompiler/settings.json`（macOS） |
-| 工程       | `<workspace>/.polyglot/settings.json`                                      |
-
-**编辑方式：**
-
-- **表单视图** —— `文件 → 设置`（或在命令面板执行
-  `Preferences: Open Settings`）。表单由 `settings_schema.json` 自动生成，
-  每行显示来源徽标（`(default)` / `(user)` / `(workspace)`）。
-- **JSON 视图** —— 表单顶部按钮直接在编辑器标签页中打开
-  `settings.json`（用户/工程/默认）。保存文件触发 200 ms 防抖热重载，
-  无需重启。
-- **工程级覆盖** —— 通过命令 *Open Workspace Settings (JSON)* 创建
-  `.polyglot/settings.json`（不存在时自动生成）。
-
-**命令面板：** 按 `Ctrl+Shift+P` 打开命令面板，执行任意已注册命令
-（`Preferences: Open Settings (JSON)`、`Preferences: Open Keyboard Shortcuts (JSON)`、
-`File: Save / Save As / Open / New Untitled`、
-`Markdown: Toggle Preview` 等）。
-
-**自定义快捷键** 保存在 `settings.json` 同级目录的 `keybindings.json`，
-使用与 VS Code 一致的 schema：
-
-```json
-[
-  { "key": "ctrl+shift+m", "command": "editor.action.toggleMarkdownPreview" },
-  { "key": "ctrl+k ctrl+s", "command": "workbench.action.openKeybindings" }
-]
-```
-
-**CLI 工具**（`polyc`、`polyld`、`polyrt`、`polytopo`、`polybench`）读取
-同一份 `settings.json`，并支持两个额外标志：
-
-| 标志                              | 作用                                                  |
-|-----------------------------------|-------------------------------------------------------|
-| `--settings <path>`               | 用显式 JSON 路径覆盖用户层。                           |
-| `--print-effective-settings`      | 把合并后的生效 JSON 打印到 stdout 并退出 0。          |
-
-完整键参考与实现细节见 `docs/realization/settings_system_zh.md`。
-
-### Git 集成
-
-Git 面板（通过 **视图 → Git 面板** 切换）提供不离开 IDE 的版本控制功能。
-
-**功能特性：**
-- **状态视图**：彩色编码的树形视图，显示已暫存、未暫存和未跟踪文件（绿色/黄色/灰色图标）
-- **暫存操作**：通过工具栏按钮和右键菜单暫存/取消暫存单个文件或所有文件
-- **提交**：输入提交消息，支持追加修改（amend）；从工具栏提交
-- **分支管理**：从分支选择器创建、删除、合并和切换分支
-- **远程操作**：推送、拉取和获取异步运行，输出区域显示进度反馈
-- **差异查看器**：在输出文本区域查看文件差异；双击文件显示其差异
-- **日志历史**：浏览提交历史，包括哈希、作者、日期和提交消息
-- **储藏**：通过工具栏操作储藏和弹出工作目录更改
-
-### 构建系统
-
-构建面板（通过 **视图 → 构建面板** 切换）集成了基于 CMake 的项目构建功能。
-
-#### 模块化 CMake 结构
-
-项目采用模块化的 `add_subdirectory()` 布局，将原有的顶层单体 `CMakeLists.txt` 拆分为按目录组织的构建文件：
-
-```
-CMakeLists.txt          ← 项目设置、编译选项、依赖项、add_subdirectory() 调用
-├── common/CMakeLists.txt      ← polyglot_common 库
-├── middle/CMakeLists.txt      ← middle_ir（IR、优化遍、PGO、LTO）
-├── frontends/CMakeLists.txt   ← frontend_common + 所有语言前端
-├── backends/CMakeLists.txt    ← backend_x86_64、backend_arm64、backend_wasm
-├── runtime/CMakeLists.txt     ← runtime 库（GC、FFI、互操作、服务）
-├── tools/CMakeLists.txt       ← polyc、polyasm、polyld、polyopt、polyrt、polybench、polyui
-└── tests/CMakeLists.txt       ← unit_tests、integration_tests、benchmark_tests
-```
-
-单元测试源文件按模块显式列出（不使用 `GLOB_RECURSE`），实现精确的增量重编粒度。
-
-**功能特性：**
-- **配置**：使用所选生成器（Makefiles、Ninja、Xcode 等）和构建类型（Debug、Release、RelWithDebInfo、MinSizeRel）运行 `cmake`
-- **构建 / 重新构建**：构建整个项目或通过 `cmake --build --target help` 发现的单个目标
-- **清理**：删除所有构建产物
-- **错误解析**：解析编译器输出中的 GCC/Clang 和 MSVC 风格错误消息；匹配的错误显示在错误树中，发出 `BuildErrorFound` 信号打开源码位置
-- **进度条**：跟踪 CMake 基于百分比的构建输出
-- **路径发现**：自动搜索 `/opt/homebrew/bin`、`/usr/local/bin`、`/usr/bin` 和 `$PATH` 中的 `cmake` 可执行文件
-
-**使用方法：**
-1. 通过浏览按钮或直接输入路径设置源目录和构建目录
-2. 选择生成器和构建类型，然后点击 **配置**
-3. 选择构建目标（或“all”），然后点击 **构建**
-4. 错误显示在下方树中；双击跳转到源码位置
-
-### 调试
-
-调试面板（通过 **视图 → 调试面板** 切换）提供通过 lldb 或 gdb 的交互式调试功能。
-
-**功能特性：**
-- **调试器自动检测**：macOS 优先使用 lldb，Linux 优先使用 gdb；可在设置中配置
-- **断点**：按文件和行号切换断点，支持条件断点，可全部移除；断点显示在专用树中
-- **执行控制**：启动（`F9`）、停止、暂停、继续、单步跳过（`F10`）、单步进入（`F11`）、单步跳出（`Shift+F11`）、运行到光标
-- **调用栈**：查看当前调用栈，包括帧号、函数名、文件和行号
-- **变量检查**：查看局部变量的名称、值和类型
-- **监视表达式**：添加任意表达式在当前调试上下文中求值
-- **调试控制台**：发送原始调试器命令并查看响应
-- **源码导航**：调试器停止时，IDE 自动打开对应源文件并通过 `DebugLocationChanged` 信号高亮当前行
-
-**使用方法：**
-1. 在面板顶部设置可执行文件路径和可选的程序参数
-2. 从断点树中切换断点（添加 / 全部移除）
-3. 点击 **启动** 或按 `F9` 开始调试
-4. 使用工具栏按钮或键盘快捷键单步执行代码
-5. 在侧边面板中检查变量和调用栈；根据需要添加监视表达式
-6. 使用控制台标签发送原始调试器命令
-
-## 6.9 交叉编译
-
-PolyglotCompiler 提供一套统一的目标三元组（target triple）传递通道，
-贯穿 `polyc`、`polyld`、`polyasm`、`polyopt`、`polybench` 和 `polyrt`。
-所有入口都接受相同的 `--target=<triple>` 语法；未指定时回退到由编译期
-宿主配置推导出的 host triple。
-
-### 6.9.1 驱动选项
-
-| 选项 | 作用 |
-| --- | --- |
-| `--target=<triple>` | 选择目标三元组（如 `x86_64-unknown-linux-gnu`、`aarch64-apple-darwin`、`wasm32-wasi`）。无效格式 → `polyc-err-E1100`。 |
-| `--container=<auto\|elf\|pe\|macho\|wasm>` | 覆盖驱动与链接器使用的二进制容器格式。未知值 → `polyc-err-E1101`。 |
-| `--subsystem=<name>` | PE 专用子系统提示，转发给 `polyld`（如 `console`、`windows`）。 |
-| `--entry=<sym>` | 覆盖链接器入口符号；以 `--entry` 透传到 `polyld`。 |
-
-### 6.9.2 默认容器（按操作系统）
-
-| 操作系统类别 | 默认容器 | 默认可执行后缀 |
-| --- | --- | --- |
-| Linux / FreeBSD / 通用 ELF | `elf` | （无） |
-| Windows | `pe` | `.exe` |
-| macOS / iOS | `macho` | （无） |
-| WASI / wasm32 | `wasm` | `.wasm` |
-
-`--container=auto`（默认值）会按上表依据已解析三元组自动选择；显式指定的
-值始终优先，这是受支持的“在本地宿主上产出异构容器”路径。
-
-### 6.9.3 文件后缀策略
-
-`polyc` 在驱动层施加“软性”后缀策略：当 `-o` 指定的文件后缀与三元组解析
-出的容器不匹配时，驱动会发出 `polyc-warn-W2101` 但继续编译。该策略覆盖
-可执行文件、共享库、静态库与目标文件四类输出。
-
-### 6.9.4 三元组的下游传递
-
-每个下游工具都会再次校验自己收到的三元组：
-
-* `polyld` 接受 `--target=` / `--container=` / `--subsystem=` / `--entry=`；
-  当 `polyc` 选中的链接器是 `polyld` 时这些参数会自动透传。
-* `polyasm` 与 `polyopt` 在文本 IR 输出的首行写入 `; target-triple: <spec>`
-  并在输入侧检查同一标记；不一致时分别发出 `polyasm-warn-W1101` 与
-  `polyopt-warn-W1101`。
-* `polybench` 在每份基准 JSON 中写入顶层 `target_triple` 字段，并接受
-  `--target=` 以支持跨平台跑分。
-* `polyrt` 在最早期消费 `--target=` 并校验，将生效的三元组打印在
-  `info` 表中。
-
-### 6.9.5 诊断码
-
-| 诊断码 | 含义 |
-| --- | --- |
-| `polyc-err-E1100`、`polyld-err-E1100`、`polyasm-err-E1100`、`polyopt-err-E1100`、`polybench-err-E1100`、`polyrt-err-E1100` | `--target=` 无法解析。 |
-| `polyc-err-E1101`、`polyld-err-E1101` | `--container=` 取值不在 `auto/elf/pe/macho/wasm` 中。 |
-| `polyc-warn-W2101` | 输出文件后缀与解析得到的容器不一致。 |
-| `polyasm-warn-W1101`、`polyopt-warn-W1101` | 输入 IR 内的三元组与当前 `--target=` 不一致。 |
-
-### 6.9.6 示例
-
-```bash
-# 在 macOS 宿主上构建一个 Windows 控制台程序
-./polyc \
-    --target=x86_64-pc-windows-msvc \
-    --subsystem=console \
-    --entry=wWinMainCRTStartup \
-    -o app.exe app.ploy
-
-# 为交叉编译目标跑一组基准
-./polybench --target=aarch64-unknown-linux-gnu compilation
-```
+跨语言调用降为 **bridge stub**，参数走运行时 FFI 层；`polyc
+--emit=call-graph` 输出的调用图把 bridge 边单独标识，IDE 可以用
+对比色渲染。
+
+### 4.9 诊断标识符
+
+Ploy 诊断与其他前端共用统一目录，标识符格式
+`polyc-(err|warn)-<E####|W####>`。常见条目：
+
+| Id                | 含义                                                        |
+|-------------------|-------------------------------------------------------------|
+| `polyc-err-E0101` | 非预期 token / 解析失败。                                    |
+| `polyc-err-E0210` | `LINK` 签名类型不匹配。                                      |
+| `polyc-err-E0311` | `IMPORT … PACKAGE` 中包名未知。                              |
+| `polyc-err-E0405` | 异步函数在非 `ASYNC` 上下文里被 await。                     |
+| `polyc-err-E0612` | 选择性导入与别名组合含糊。                                  |
+| `polyc-warn-W0701`| 未使用的 `LINK` 声明。                                       |
+| `polyc-warn-W0903`| bridge 调用缺少对端符号。                                    |
+
+完整目录见 [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md)。
 
 ---
 
-# 7. IR 设计规范
+## 5. 语言前端
 
-## 7.1 概述
+每个前端是 `frontends/<lang>/` 下的静态库，对外暴露
+`Lower(Source) → IRModule` 一个入口，并各自维护自己的语言特化诊断，
+统一映射到 `polyc-(err|warn)-E####`。
 
-PolyglotCompiler 的中间表示（IR）是完整的 SSA 形式、显式控制流、显式内存模型的中间语言。
+| 前端              | 库目标             | 测试目标                   | 亮点                                                                  |
+|-------------------|--------------------|----------------------------|-----------------------------------------------------------------------|
+| `frontend_cpp`    | `frontend_cpp`     | `test_frontend_cpp`        | C++20 子集；约束折叠的模板；默认关闭 RTTI。                           |
+| `frontend_python` | `frontend_python`  | `test_frontend_python`     | Python 3.11 子集；类型提示尽量降为 IR 类型。                          |
+| `frontend_rust`   | `frontend_rust`    | `test_frontend_rust`       | Rust 2024 子集；所有权降为作用域受限的 RC 句柄。                      |
+| `frontend_java`   | `frontend_java`    | `test_frontend_java`       | Java 21 子集；sealed class 与 record。                                |
+| `frontend_dotnet` | `frontend_dotnet`  | `test_frontend_dotnet`     | C# 12 子集；值类型 struct；`async`/`await` 降为协程。                 |
+| `frontend_go`     | `frontend_go`      | `test_frontend_go`         | Go 1.22 子集；goroutine 降到运行时任务调度器。                        |
+| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ES2023 子集；NaN 标记的值；可选 Number → i64 收窄。               |
+| `frontend_ruby`   | `frontend_ruby`    | `test_frontend_ruby`       | Ruby 3.3 子集；block 降为 closure。                                   |
+| `frontend_ploy`   | `frontend_ploy`    | `test_frontend_ploy`       | 胶水语言；完整文法、泛型、异步、错误处理。                            |
+| common            | `frontend_common`  | `test_frontend_common`     | 共享诊断、源码映射与查询机制。                                        |
 
-核心实现文件:
-- `middle/src/ir/builder.cpp` — IR 构建器
-- `middle/src/ir/ir_context.cpp` — IR 上下文管理
-- `middle/src/ir/cfg.cpp` — 控制流图
-- `middle/src/ir/ssa.cpp` — SSA 转换
-- `middle/src/ir/analysis.cpp` — IR 分析
-- `middle/src/ir/verifier.cpp` — IR 验证器
-- `middle/src/ir/printer.cpp` — IR 文本输出
-- `middle/src/ir/parser.cpp` — IR 文本解析
-- `middle/src/ir/data_layout.cpp` — 数据布局
-- `middle/src/ir/template_instantiator.cpp` — 模板实例化
+“前端完整” 的判定：（a）解析文档化子集，（b）IR 通过校验器，
+（c）按目录发出诊断，（d）通过 `test_frontend_<lang>` 目标。
 
-## 7.2 类型系统
+### 5.1 C++ 前端
 
-### 标量类型
-- **整数**: `i1, i8, i16, i32, i64`
-- **浮点**: `f32, f64`
-- **其他**: `void`
+支持 C++20，少数实用限制：
 
-### 聚合类型
-- **指针**: 单一指向类型
-- **数组**: `[N x T]`
-- **向量**: `<N x T>` (用于 SIMD)
-- **结构体**: `{T0, T1, ...}`
-- **函数**: `(ret, params...)`
+* `<thread>` 与 `<atomic>` 降到运行时任务原语。
+* RTTI 默认关闭；按翻译单元用 `// poly: rtti on` 打开。
+* 异常展开使用平台原生 unwinder；wasm 上走 JS trap 路径。
+* 模板按需实例化；约束折叠在实例化前完成。
 
-## 7.3 核心指令集
-
-### 算术 / 逻辑
-```
-add, sub, mul, sdiv/udiv, srem/urem     # 整数运算
-and, or, xor, shl, lshr, ashr           # 位运算
-icmp (eq, ne, slt, sle, sgt, sge,       # 整数比较
-      ult, ule, ugt, uge)
-fadd, fsub, fmul, fdiv, frem              # 浮点运算
-fcmp (foe, fne, flt, fle, fgt, fge)     # 浮点比较
-```
-
-### 内存操作
-```
-alloca      # 栈分配
-load        # 加载
-store       # 存储
-gep         # 地址计算 (GetElementPtr)
-```
-
-### 控制流
-```
-ret         # 返回
-br          # 无条件跳转
-cbr         # 条件跳转
-switch      # 多路分支
-```
-
-### 调用与异常
-```
-call        # 直接/间接调用
-invoke      # 可能抛异常的调用
-landingpad  # 异常着陆点
-resume      # 异常恢复
-```
-
-### SSA
-```
-phi         # SSA 合并节点
-```
-
-### 类型转换
-```
-sext, zext, trunc           # 整数扩展/截断
-fpext, fptrunc              # 浮点扩展/截断
-fptosi, sitofp              # 浮点 ↔ 整数
-bitcast                     # 位转换
-```
-
-## 7.4 调用约定
-
-| 约定 | 整数参数 | 浮点参数 | 返回值 | 栈对齐 |
-|------|---------|---------|--------|--------|
-| x86_64 SysV | RDI, RSI, RDX, RCX, R8, R9 | XMM0-7 | RAX/XMM0 | 16 字节 |
-| ARM64 AAPCS64 | X0-X7 | V0-V7 | X0/V0 | 16 字节 |
-
-### 跨语言 ABI 验证
-
-编译器在多个阶段执行 ABI 兼容性检查：
-
-1. **语义分析阶段（编译时）：** 当 `LINK` 声明包含 `MAP_TYPE` 条目时，语义分析器为目标函数和源函数构建 `ABISignature` 描述符。交叉验证内容包括：
-   - 参数数量匹配
-   - 参数大小兼容性（字节级）
-   - 指针与值传递约定匹配
-   - 返回类型大小兼容性
-
-2. **链接阶段（链接时）：** 多语言链接器（`polyld`）在生成胶水桩之前验证 `CrossLangSymbol` 描述符：
-   - 源符号和目标符号之间的参数数量
-   - 每个参数的大小和传递约定
-   - 返回类型大小兼容性
-   - MAP_TYPE 条目数量与实际符号参数数量
-
-3. **描述符文件验证：** 加载 `.paux` 描述符文件时，链接器验证：
-   - 语言标识符是否在已知集合中
-   - 符号名称非空
-   - 重复条目检测
-   - 描述符格式正确性
-
-### 语言到调用约定映射
-
-| 语言 | 约定（Linux/macOS） | 约定（Windows） |
-|------|-------------------|----------------|
-| C/C++/Rust | System V AMD64 | Microsoft x64 |
-| Python | Python C API (System V / x64) | Python C API (x64) |
-| Java | JNI (System V / x64) | JNI (x64) |
-| .NET/C# | P/Invoke (System V / x64) | P/Invoke (x64) |
-| .ploy | System V AMD64 | Microsoft x64 |
-
-实现：
-- `frontends/ploy/include/ploy_sema.h`（ABISignature、ABIParamDesc）
-- `frontends/ploy/src/sema/sema.cpp`（BuildABISignature、ValidateCompatibility）
-- `tools/polyld/src/polyglot_linker.cpp`（链接器级 ABI 验证）
-- `backends/x86_64/src/calling_convention.cpp`
-- `backends/arm64/src/calling_convention.cpp`
-- `runtime/src/interop/calling_convention.cpp`（跨语言调用约定适配）
-
-## 7.5 IR 验证规则
-
-- 每个基本块恰好一个终结指令
-- 操作数必须通过类型检查
-- 定义必须支配使用（SSA 特性）
-- Phi 节点的输入类型必须匹配结果类型
-- 函数参数数量和类型必须匹配声明
-
----
-
-# 8. 优化系统
-
-## 8.1 Pass 管理器
+`.ploy` 流水线里被引入的示例：
 
 ```cpp
-// middle/src/passes/pass_manager.cpp
-class PassManager {
-    std::vector<std::unique_ptr<Pass>> passes_;
+// frontends/cpp/examples/sharpen.cpp
+#include <vector>
+#include <cstdint>
+
+extern "C" std::vector<uint8_t> sharpen(const std::vector<uint8_t> &raw) {
+    // Apply a 3x3 sharpening kernel; returns a new buffer.
+    std::vector<uint8_t> out(raw.size());
+    // ... kernel implementation ...
+    return out;
+}
+```
+
+### 5.2 Python 前端
+
+支持 Python 3.11 文法。可解析的类型提示按其推导出明确 IR 类型；
+未标注参数降为 `box<value>`。
+
+```python
+# frontends/python/examples/classify.py
+from __future__ import annotations
+import numpy as np
+
+def classify(image: bytes) -> str:
+    arr = np.frombuffer(image, dtype=np.uint8)
+    return "cat" if arr.mean() > 127 else "dog"
+```
+
+前端通过包管理器探测识别 `numpy`；与之配对的 `IMPORT python PACKAGE
+numpy` 声明确保链接期合法。
+
+### 5.3 Rust 前端
+
+Rust 2024 子集；所有权降为作用域受限的 RC 句柄，让 IR 校验器跨语言
+统一建模生命周期。`Result<T, E>` 降为 `option<variant<T, E>>`。
+
+### 5.4 Java 前端
+
+Java 21 子集；sealed class 与 record 直接降为 IR `variant`/`struct`。
+泛型采用类型擦除并附带一张并行的 reified 表用于跨语言调用。
+
+### 5.5 .NET 前端
+
+C# 12 子集；值类型保持为 IR `struct`。`async`/`await` 降到运行时
+协程机制。可空引用类型语义被保留。
+
+### 5.6 Go 前端
+
+Go 1.22 子集；goroutine 调度到运行时任务池，channel 降为运行时
+原语。通过注释指令支持 build tag。
+
+### 5.7 JavaScript 前端
+
+ES2023 子集；类型推导无法证明更窄类型时使用 NaN 标记。出现类型反馈或
+显式 `| 0` 模式时执行 Number → i64 收窄。
+
+### 5.8 Ruby 前端
+
+Ruby 3.3 子集；block 降为 closure；常见 DSL 模式
+（`define_method`、`attr_accessor`）在降级期被识别折叠。
+
+### 5.9 Ploy 前端
+
+参考前端；完整文法 54 关键字。负责包发现、bridge 声明、转换、
+流水线、异步与泛型。该前端同时驱动 `polyc --format`。
+
+### 5.10 前端编写约束
+
+* 公共降级 API 接受 `SourceBuffer`，返回 `IRModule`；不允许全局状态。
+* 诊断使用 `frontend_common` 的 `Diagnostic`。
+* 每个前端必须提供 `tests/unit/frontend_<lang>/` 目标。
+* bridge stub 注册经由 `runtime::ffi::Registry`。
+
+---
+
+## 6. 工具与命令行驱动
+
+### 6.1 `polyc` —— 编译器驱动
+
+```
+polyc [options] <inputs…> [-o <output>]
+  --target=<triple>            x86_64 / aarch64 / wasm32 + os/abi
+  --emit=<kind>[:<path>]       ir、asm、obj、call-graph、profile-symbols
+  --opt=<level>                O0 | O1 | O2 | O3 | Os | Oz
+  --check                      只跑前端 + 校验器，输出 JSON 诊断
+  --profile-instrument         插入 __ploy_rt_call_enter/exit 钩子
+  --pgo=<mode>                 instrument | use=<profdata>
+  --lto=<mode>                 thin | full
+  --gc=<algo>                  msweep | tricolor | generational | refcount
+  --link=<spec>                透传给 polyld
+  --print-passes               打印 pass 流水线后退出
+  --format                     对输入运行内置格式化
+  --jobs=<N>                   并行前端任务数（默认硬件线程数）
+  --trace=<path>               写出整次运行的 Chrome trace JSON
+```
+
+示例：
+
+```sh
+polyc main.ploy -o main                                          # 默认 O2
+polyc main.ploy --opt=O3 --lto=thin -o main                      # 发布构建
+polyc main.ploy --target=aarch64-apple-darwin -o main.arm64
+polyc --check main.ploy | jq '.diagnostics[].message'
+polyc --emit=ir:main.ir --emit=asm:main.s main.ploy
+polyc --pgo=instrument main.ploy -o main_inst
+polyc --pgo=use=main.profdata main.ploy -o main_pgo
+```
+
+退出码：
+
+| 码  | 含义                                       |
+|-----|--------------------------------------------|
+| 0   | 成功。                                     |
+| 1   | 输出错误诊断，不写产物。                   |
+| 2   | 用法 / I/O 失败。                          |
+| 3   | 内部错误（带堆栈）。                       |
+
+### 6.2 `polyld` —— 链接器
+
+`polyld` 接受 IR 与原生目标输入，跨语言解析符号，写出 ELF / Mach-O
+/ PE / WASM 容器。
+
+```
+polyld [options] <inputs…> -o <output>
+  --target=<triple>     输出三元组
+  --shared              产出动态库
+  --static              产出静态库
+  --entry=<symbol>      覆盖入口
+  --map=<path>          写链接 map
+  --gc-sections         去除未引用 section
+  --lto=<mode>          thin | full
+  --bridge-table=<path> 输出 bridge 调用表 JSON
+  --verify              死代码剥离后再次跑 IR 校验器
+```
+
+macOS arm64 发射器对所有 segment 使用 16 KiB 对齐，并对
+`__DATA_CONST` 打上 `SG_READ_ONLY` (`0x10`) 标志，以满足 dyld 26
+的 chained-fixup 要求。
+
+### 6.3 `polyasm` —— 汇编器 / 反汇编器
+
+实现完整后端 ISA 表，独立用于手写 fixture，也被 IDE 的二进制查看器
+用于反汇编渲染。
+
+```
+polyasm <input>                  反汇编（自动识别格式）
+polyasm --asm    <input>         产出文本汇编
+polyasm --obj    <input>         产出可重定位目标
+polyasm --ir     <input>         往返文本 IR ↔ 二进制 IR
+polyasm --target=<triple>        覆盖宿主三元组
+polyasm --print-isa              打印当前目标 ISA 表
+```
+
+### 6.4 `polyopt` —— IR 优化器
+
+包裹中端 pass 管理器的独立驱动，便于 `opt` 风格实验：
+
+```sh
+polyopt -O3 -print-after-all in.ir
+polyopt -passes='mem2reg,instcombine,gvn' in.ir -o out.ir
+polyopt -opt-bisect-limit=42 -print-pass-list in.ir
+polyopt -analyse=dominators -print-analysis in.ir
+```
+
+### 6.5 `polyrt` —— 运行时 CLI
+
+无 IDE 时使用运行时服务的入口：
+
+```
+polyrt profile   --json out.json --duration-ms 5000 <program>
+polyrt profile   --stream out.ndjson <program>
+polyrt calltrace --json calltrace.json
+polyrt gc-stats  --algo=tricolor <program>
+polyrt heap-snapshot --out heap.json <program>
+polyrt schedule-stats --interval-ms 100 <program>
+```
+
+### 6.6 `polybench` —— 基准测试驱动
+
+驱动八个基准套件，写出 JSON 报告（`build/benchmark_*.json`），
+仪表盘据此渲染。
+
+```
+polybench --suite=compilation   --out build/benchmark_compilation.json
+polybench --suite=e2e           --out build/benchmark_e2e.json
+polybench --suite=gc            --out build/benchmark_gc.json
+polybench --suite=link_times    --out build/benchmark_link_times.json
+polybench --suite=optimizations --out build/benchmark_optimizations.json
+polybench --suite=comparison    --out build/benchmark_comparison.json
+polybench --all                 # 跑全部套件
+polybench --baseline=<path>     # 与基线 JSON 对比
+```
+
+### 6.7 `polytopo` —— 调用图拓扑查看器
+
+调用分析面板的无头版：
+
+```
+polytopo build/mixed.cgjson                   # ASCII 摘要
+polytopo --view-mode=dot  build/mixed.cgjson  # Graphviz DOT
+polytopo --view-mode=json build/mixed.cgjson  # 机器可读
+polytopo --filter-language=python build/mixed.cgjson
+polytopo --filter-bridge build/mixed.cgjson   # 仅 bridge 边
+polytopo --root=main --depth=4 build/mixed.cgjson
+polytopo build/mixed.cgjson | dot -Tsvg > mixed.svg
+```
+
+### 6.8 `polyls` —— 语言服务器
+
+LSP 3.17 stdio 服务器，被 `polyui` 与任何第三方编辑器消费。
+
+```
+polyls                                  # 通过 stdio 走 LSP
+polyls --log polyls.log                 # 记录每个帧
+polyls --capabilities                   # 打印支持能力
+polyls --root=<path>                    # 覆盖工作区根
+```
+
+端到端流程参见 [tutorial/lsp_quickstart_zh.md](tutorial/lsp_quickstart_zh.md)。
+
+### 6.9 `polydoc` —— 文档抽取器
+
+解析每种前端的 `///` 文档注释，写出 HTML / Markdown 包；同时驱动
+IDE 中的悬浮摘要。
+
+```
+polydoc --in src/ --out docs/api/   --format=md
+polydoc --in src/ --out docs/api/   --format=html
+polydoc --check  src/               # 检查注释质量
+```
+
+### 6.10 `polyver` —— 版本与清单工具
+
+报告编译器、运行时、bridge ABI 版本；按构建清单校验磁盘产物。
+
+```
+polyver --version
+polyver --abi
+polyver --check-manifest build/manifest.json
+polyver --emit-manifest  build/manifest.json
+```
+
+### 6.11 `polyui` —— IDE 外壳
+
+承载所有交互面板的 Qt 6 桌面应用：编辑器、LSP、DAP、性能分析、
+调用分析、测试浏览器、SCM、包管理、通知、书签。
+
+```
+polyui                              # 启动并恢复上次会话
+polyui <workspace>                  # 在指定工作区启动
+polyui --reset-settings             # 丢弃用户设置
+polyui --safe-mode                  # 跳过插件与上次会话
+```
+
+详见 [第 12 章](#12-idepolyui-与语言服务器)。
+
+---
+
+## 7. 统一 IR
+
+### 7.1 概览
+
+IR 是有类型、SSA、三地址形式，控制流边显式表达。提供两种序列化：
+文本 `.ir`（可经 `polyasm --ir` 往返）与二进制 `.ir.bin`（增量缓存
+消费）。
+
+### 7.2 类型系统
+
+| 类别       | 类型                                                                |
+|------------|---------------------------------------------------------------------|
+| 整数       | `i1`、`i8`、`i16`、`i32`、`i64`、`i128`，含有/无符号变体。           |
+| 浮点       | `f16`、`f32`、`f64`、`f128`。                                        |
+| 向量       | `<N x T>` SIMD 向量（wasm SIMD 与 x86_64 AVX 路径使用）。             |
+| 聚合       | `struct {…}`、`array<T, N>`、`tuple<…>`。                            |
+| 引用       | `ptr<T, addrspace>`、`ref<T>`（GC 跟踪）、`weak<T>`。                |
+| 和         | `option<T>`、`variant<T0, T1, …>`。                                  |
+| 函数       | `fn(args…) -> T`、`async fn(args…) -> T`。                          |
+| 装箱       | `box<T>` 用于跨语言传值。                                            |
+
+### 7.3 核心指令
+
+| 类别       | 示例                                                                |
+|------------|---------------------------------------------------------------------|
+| 算术       | `add`、`sub`、`mul`、`sdiv/udiv`、`srem/urem`、`fadd…`               |
+| 位运算     | `and`、`or`、`xor`、`shl`、`lshr`、`ashr`、`popcnt`、`clz`           |
+| 内存       | `alloc`、`load`、`store`、`gep`、`memcpy`、`memset`                  |
+| 控制       | `br`、`cbr`、`switch`、`ret`、`unreachable`、`landingpad`            |
+| 调用       | `call`、`tailcall`、`invoke`、`bridge_call`（跨语言）                |
+| GC         | `gc.alloc`、`gc.barrier.write`、`gc.safepoint`                       |
+| 异步       | `async.suspend`、`async.resume`、`async.await`                       |
+| SIMD       | `vec.add`、`vec.mul`、`vec.shuffle`、`vec.broadcast`                 |
+| 转换       | `trunc`、`sext`、`zext`、`bitcast`、`fptosi`、`sitofp`               |
+
+### 7.4 文本形式
+
+```
+fn main() -> i32 {
+entry:
+    %0 = call @factorial(i64 10)
+    %1 = call @print_i64(i64 %0)
+    ret i32 0
+}
+
+fn factorial(i64 %n) -> i64 {
+entry:
+    %cond = icmp.sle i64 %n, 1
+    cbr i1 %cond, base, recurse
+base:
+    ret i64 1
+recurse:
+    %n1   = sub i64 %n, 1
+    %r    = call @factorial(i64 %n1)
+    %res  = mul i64 %n, %r
+    ret i64 %res
+}
+```
+
+### 7.5 调用约定
+
+* **System V AMD64**：Linux/macOS x86_64。
+* **Win64**：Windows x86_64。
+* **AAPCS64**：Linux/macOS aarch64。
+* **wasm-32**：多值返回。
+* **Bridge ABI**：跨语言调用通过 `runtime::ffi::BridgeFrame` 编排，
+  让被调用语言运行时仍然看到惯例值。
+
+### 7.6 校验器规则
+
+校验器（`middle/verifier`）会拒绝以下 IR 模块：
+
+* 在定义之前使用 SSA 值；
+* 引用未声明块或函数；
+* 在单个 `gep` 中混用指针地址空间；
+* 跨语言调用未走 `bridge_call`；
+* 同一路径上两次 GC 分配之间漏写 `gc.safepoint`；
+* 在非 `async fn` 中出现 `async.suspend`。
+
+校验失败时编译以 `polyc-err-E0801` 中止。
+
+### 7.7 二进制序列化
+
+`.ir.bin` 采用长度前缀、内容寻址格式：
+
+```
+magic:    "POLI"  (4 bytes)
+version:  u32     (current = 4)
+strtab:   compressed string pool
+typetab:  type interning table
+fns:      one record per function (header + blocks + insts)
+metadata: source map + DI + bridge index
+crc32:    over everything above
+```
+
+格式向后兼容：旧版 `polyc` 遇到更新模块以 `polyc-err-E0810` 拒绝
+而非误解码。
+
+---
+
+## 8. 中端优化
+
+### 8.1 Pass 管理器
+
+带依赖感知的调度器，区分三种 pass：**模块**、**函数**、**循环**。
+各分析跨 pass 缓存结果，破坏保留集时自动失效。
+
+### 8.2 默认 `-O2` 流水线
+
+`mem2reg → instcombine → simplifycfg → gvn → licm → loop-unroll →
+inliner → tailcall → dse → adce → late-instcombine → simplifycfg`。
+
+`-O3` 增加 `loop-vectorize`、`slp-vectorize` 与第二轮 inliner；
+`-Os/-Oz` 用尺寸感知 inliner 替换默认实现，并启用 `merge-functions`
+与 `cold-cc`。
+
+### 8.3 Pass 目录
+
+| Pass               | 类别     | 说明                                                  |
+|--------------------|----------|-------------------------------------------------------|
+| `mem2reg`          | 函数     | alloca 提升为 SSA 寄存器。                            |
+| `instcombine`      | 函数     | 窥孔简化。                                            |
+| `simplifycfg`      | 函数     | 合并基本块、折叠平凡分支。                            |
+| `gvn`              | 函数     | 全局值编号 + PRE。                                    |
+| `licm`             | 循环     | 循环不变量外提。                                      |
+| `loop-unroll`      | 循环     | 启发式 + pragma 展开。                                |
+| `loop-vectorize`   | 循环     | 感知 SLP 的向量化器；使用 `<N x T>`。                 |
+| `inliner`          | 模块     | 成本模型 inliner；感知 PGO。                          |
+| `tailcall`         | 函数     | 标记可尾调用；后端降级。                              |
+| `dse`              | 函数     | 死存储消除。                                          |
+| `adce`             | 函数     | 激进死代码消除。                                      |
+| `merge-functions`  | 模块     | 合并相同函数体。                                      |
+| `cold-cc`          | 模块     | 冷路径使用 cold 调用约定。                            |
+| `bridge-fuse`      | 模块     | 合并相邻同语言 `bridge_call`。                        |
+| `gc-strip`         | 模块     | 去除可证明无用的 GC barrier。                         |
+
+### 8.4 PGO
+
+```sh
+polyc --pgo=instrument hello.cpp -o hello_inst
+./hello_inst   # 写出 default.profraw
+llvm-profdata merge -o default.profdata default.profraw
+polyc --pgo=use=default.profdata hello.cpp -o hello_pgo
+```
+
+PGO 数据被 inliner、分支概率分析与 wasm 后端的冷热分离消费。
+
+### 8.5 LTO
+
+`polyc --lto=thin` 与 `--lto=full` 启用整程序优化。Thin LTO 保留每
+模块摘要并并行代码生成。
+
+### 8.6 编写 Pass
+
+```cpp
+// middle/passes/example_pass.cpp
+#include "poly/middle/pass.h"
+
+namespace poly::middle {
+
+class ExamplePass : public FunctionPass {
 public:
-    void AddPass(std::unique_ptr<Pass> pass);
-    void Run();
+    static constexpr std::string_view ID = "example";
+    bool Run(Function &fn, FunctionAnalyses &analyses) override {
+        bool changed = false;
+        for (auto &block : fn) {
+            for (auto it = block.begin(); it != block.end(); ) {
+                if (IsRedundant(*it)) {
+                    it = block.Erase(it);
+                    changed = true;
+                } else {
+                    ++it;
+                }
+            }
+        }
+        return changed;
+    }
+    void GetAnalysisUsage(AnalysisUsage &au) const override {
+        au.AddRequired<DominatorTree>();
+        au.SetPreservesCFG();
+    }
+};
+
+REGISTER_PASS(ExamplePass);
+
+}  // namespace poly::middle
+```
+
+之后在 `middle/pipeline_defaults.cpp` 把 pass id 加进所需流水线层级，
+并在 [realization/middle_passes.md](realization/middle_passes.md) 中
+写文档。
+
+### 8.7 检查流水线
+
+```
+polyopt -print-passes              # 列出 pass id
+polyopt -print-after=instcombine   # 打印 pass 后的 IR
+polyopt -opt-bisect-limit=42       # 二分定位回归
+polyopt -time-passes               # 打印各 pass 墙钟时间
+```
+
+---
+
+## 9. 运行时
+
+### 9.1 垃圾回收器
+
+| 算法           | 头文件                                | 说明                                       |
+|----------------|---------------------------------------|--------------------------------------------|
+| 标记—清扫     | `runtime/gc/mark_sweep.h`             | Stop-the-world，内存开销低。               |
+| 三色          | `runtime/gc/tricolor.h`               | 默认；并发标记；停顿更短。                 |
+| 分代          | `runtime/gc/generational.h`           | 新/老分代，写屏障。                        |
+| 引用计数      | `runtime/gc/refcount.h`               | 配套环检测器。                             |
+
+可在构建时（`--gc=<algo>`）或运行时（`POLY_GC` 环境变量）选择；
+统计：`polyrt gc-stats`。
+
+#### 9.1.1 调优开关
+
+| 环境变量              | 含义                                                  |
+|-----------------------|-------------------------------------------------------|
+| `POLY_GC`             | 进程启动时选择算法。                                  |
+| `POLY_GC_HEAP_INIT`   | 初始堆大小（如 `64m`）。                              |
+| `POLY_GC_HEAP_MAX`    | 硬上限；超出则 OOM。                                  |
+| `POLY_GC_PAUSE_GOAL_MS` | 三色与分代算法的停顿时间目标。                       |
+| `POLY_GC_LOG`         | `none` / `summary` / `verbose`。                      |
+| `POLY_GC_TRACE`       | GC 事件 Chrome trace JSON 输出路径。                  |
+
+### 9.2 FFI bridge
+
+`runtime/ffi/` 实现 `BridgeFrame`，所有跨语言调用共用的编排记录。
+每种语言运行时为其原生值表示注册装箱/拆箱函数对。
+
+```cpp
+// runtime/ffi/bridge_frame.h
+struct BridgeFrame {
+    LanguageId   from;
+    LanguageId   to;
+    Span<Value>  args;
+    Value        result;
+    Diagnostic  *diag;   // out parameter
 };
 ```
 
-## 8.2 优化 Pass 列表
+bridge 调用点示例：
 
-### 核心 Transform Passes（7 个实现文件）
+```
+%boxed = bridge_call @python::ml::classify, box<bytes> %img
+```
 
-| Pass | 文件 | 功能 |
-|------|------|------|
-| `ConstantFold` | `constant_fold.cpp` | 常量折叠 |
-| `DeadCodeElim` | `dead_code_elim.cpp` | 死代码消除 |
-| `CommonSubExpr` | `common_subexpr.cpp` | 公共子表达式消除 (CSE) |
-| `Inlining` | `inlining.cpp` | 函数内联 |
-| `Devirtualization` | `devirtualization.cpp` | 虚函数去虚化 |
-| `LoopOptimization` | `loop_optimization.cpp` | 循环优化（展开/LICM/融合/分裂/分块/交换） |
-| `GVN` | `gvn.cpp` | 全局值编号 |
+### 9.3 各语言运行时
 
-### Analysis Passes（2 个）
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,ploy}/` 提供前端在
+运行时所需的最小机制：异常 unwinder、异步调度器、值装箱、内建辅助。
+各运行时暴露 `Init(Host *host)` 与 `Shutdown()`，由主程序的开头/末尾
+调用。
 
-| Pass | 文件 | 功能 |
-|------|------|------|
-| `AliasAnalysis` | `alias.h` | 别名分析 |
-| `DominanceAnalysis` | `dominance.h` | 支配关系分析 |
+### 9.4 服务
 
-### 高级优化（`advanced_optimizations.cpp` 中）
+* **性能分析钩子**（`__ploy_rt_call_enter/exit`）—— 由
+  `__ploy_rt_call_trace_enable` 切换。
+* **任务调度器** —— work-stealing 池，被 `async`/`await`、Go 前端的
+  goroutine、并行 pass 共用；用 `POLY_TASKS_THREADS` 配置。
+* **遥测** —— 选择性开启的计数器，经 `polytelemetry` 路由；默认关闭。
+  详见 [realization/telemetry_zh.md](realization/telemetry_zh.md)。
+* **stdout 流水线** —— IDE 控制台所用的 stdout/stderr 多路捕获，详见
+  [realization/runtime_stdout_pipeline.md](realization/runtime_stdout_pipeline.md)。
 
-包含 20+ 高级优化：
+### 9.5 调试信息
 
-- **循环**: 尾调用优化、循环谓词化、软件流水线
-- **数据流**: 强度削减、归纳变量消除、SCCP
-- **内存**: 逃逸分析、标量替换、死存储消除
-- **并行**: 自动向量化
-- **其他**: 部分求值、代码沉降/提升、跳转线程化、预取插入、分支预测优化、内存布局优化
+ELF/Mach-O 上为 DWARF 5，PE 上为 CodeView，WebAssembly 上同时输出
+`name` 段与 DWARF 段。Ploy 行指令拥有源码映射，调试器可在原始
+`.ploy` 文件单步，即便执行点位于宿主语言栈帧。
 
-### 后端优化
+### 9.6 异常
 
-| Pass | 文件 | 功能 |
-|------|------|------|
-| 指令调度 | `backends/x86_64/src/asm_printer/scheduler.cpp` | 指令重排以减少停顿 |
-| x86_64 优化 | `backends/x86_64/src/optimizations.cpp` | 窥孔优化、指令融合 |
-
-## 8.3 PGO 支持
-
-- 实现: `middle/src/pgo/profile_data.cpp`
-- 运行时性能计数器
-- Profile 数据持久化
-- 基于调用频率的内联决策
-- 热代码布局优化
-
-## 8.4 LTO 支持
-
-- 实现: `middle/src/lto/link_time_optimizer.cpp`
-- 跨模块优化
-- 全局死代码消除
-- Thin LTO（更快，内存占用更少）
+每种运行时实现 `Throw(Value)` 与 `Catch(Type)`，IR 通过
+`landingpad` 与 `invoke` 表达。跨语言异常以装箱 `Value` 形式传播；
+接收语言的运行时决定是按原生重新抛出还是返回错误结果。
 
 ---
 
-# 9. 运行时系统
+## 10. 后端
 
-## 9.1 垃圾回收（4 种算法）
+### 10.1 x86_64
 
-| GC 类型 | 文件 | 特点 | 适用场景 |
-|---------|------|------|---------|
-| 标记-清除 | `mark_sweep.cpp` | 通用 | 一般应用 |
-| 分代 GC | `generational.cpp` | 利用对象年龄分布 | 大部分应用（推荐） |
-| 复制式 GC | `copying.cpp` | 半空间收集、减少碎片 | 短生命周期对象 |
-| 增量式 GC | `incremental.cpp` | 三色标记、低停顿 | 低延迟要求 |
+目标 System V AMD64（Linux + macOS）与 Win64（Windows）。机会式
+启用 AVX2，仅在 `-mavx512f` 下启用 AVX-512。复用通用寄存器分配器
+与指令选择器。
 
-GC 策略选择: `gc_strategy.cpp`
+#### 10.1.1 寄存器类
 
-## 9.2 FFI 互操作
+| 类别 | 寄存器                                                         |
+|------|----------------------------------------------------------------|
+| GPR  | rax、rcx、rdx、rbx、rsi、rdi、rsp、rbp、r8…r15。               |
+| XMM  | xmm0…xmm15（AVX-512 下扩展为 xmm16…xmm31）。                   |
+| K    | k0…k7（mask 寄存器，AVX-512）。                                |
 
-| 组件 | 文件 | 功能 |
-|------|------|------|
-| FFI 绑定 | `interop/ffi.cpp` | FFI 绑定、所有权追踪、动态库加载 |
-| 类型编组 | `interop/marshalling.cpp` | 整数/浮点/字符串编组 |
-| 容器编组 | `interop/container_marshal.cpp` | list/tuple/dict/optional 编组 |
-| 类型映射 | `interop/type_mapping.cpp` | 跨语言类型映射注册表 |
-| 调用约定 | `interop/calling_convention.cpp` | 跨语言调用约定适配 |
-| 内存管理 | `interop/memory.cpp` | 跨语言内存管理 |
+### 10.2 ARM64
 
-## 9.3 语言运行时
+AAPCS64 ABI；Linux ELF 与 macOS Mach-O 容器。macOS Mach-O 目标使用
+16 KiB 段对齐，并为 `__DATA_CONST` 打 `SG_READ_ONLY (0x10)`，以满足
+dyld 26 的 chained-fixup 约束——缺少该标志会被 macOS 26 arm64 上的
+loader 拒绝。
 
-| 组件 | 文件 | 功能 |
-|------|------|------|
-| 基础运行时 | `libs/base.c` | 基础运行时设施 |
-| GC 桥接 | `libs/base_gc_bridge.cpp` | GC ↔ 运行时桥接 |
-| Python RT | `libs/python_rt.c` | Python 运行时支持 |
-| C++ RT | `libs/cpp_rt.c` | C++ 运行时支持 |
-| Rust RT | `libs/rust_rt.c` | Rust 运行时支持 |
+#### 10.2.1 寄存器类
 
-## 9.4 服务
+| 类别 | 寄存器                |
+|------|------------------------|
+| X    | x0…x30、sp。           |
+| V    | v0…v31（NEON）。       |
 
-| 服务 | 文件 | 功能 |
-|------|------|------|
-| 异常处理 | `services/exception.cpp` | 跨语言异常处理 |
-| 反射 | `services/reflection.cpp` | 运行时类型信息 |
-| 线程 | `services/threading.cpp` | 线程池、任务调度、同步原语、协程 |
+### 10.3 WebAssembly
 
-## 9.5 调试信息
+目标 MVP 加 SIMD-128、bulk memory、reference-types 提案。产出符合
+WASM 1.0 的模块，并附带 `.wasm.map` 源码映射。兼容 `wasmtime`、
+`wasmer` 与浏览器。
 
-- 完整 DWARF 5 支持 (`common/src/debug/dwarf5.cpp`)
-- 统一 DWARF 构建器 (`backends/common/src/dwarf_builder.cpp`)
-- 调试信息发射器 (`backends/common/src/debug_info.cpp`, `debug_emitter.cpp`)
-- PDB 支持：MSF 块布局、TPI 类型记录、RFC 4122 v4 GUID 生成
-- CFA（调用帧地址）寄存器保存规则和对齐
-- ELF 目标文件含 SHT_RELA 重定位节
-- Mach-O 目标文件含 LC_SEGMENT_64、LC_SYMTAB、nlist_64 符号表
-- 变量位置跟踪（优化后仍可调试）
-- 内联函数调试
-- 分离调试信息支持
-- JSON 源码映射发射
+特性开关：
+
+| 开关             | 效果                                                       |
+|------------------|------------------------------------------------------------|
+| `--simd`         | 启用 SIMD-128 opcode。                                     |
+| `--threads`      | 启用共享内存 + 原子。                                      |
+| `--bulk-memory`  | 启用 `memory.copy` / `memory.fill`。                       |
+| `--reference-types` | 启用 `externref` 与 table.grow。                       |
+| `--gc`           | 启用 GC 提案 opcode（预览）。                              |
+
+### 10.4 交叉编译
+
+```sh
+polyc hello.cpp --target=aarch64-linux-gnu      -o hello.aarch64
+polyc hello.cpp --target=x86_64-pc-windows-msvc -o hello.exe
+polyc hello.cpp --target=wasm32-wasi            -o hello.wasm
+polyc hello.cpp --target=aarch64-apple-darwin   -o hello.macho
+```
+
+非宿主三元组需配置 sysroot；详见
+[realization/cross_compilation.md](realization/cross_compilation.md)。
 
 ---
 
-# 10. 测试体系
+## 11. 链接器与目标格式
 
-## 10.1 测试概览
+### 11.1 容器
 
-项目使用 **Catch2** 测试框架。共有三个测试可执行文件：
+| 容器     | 平台                       | 备注                                                              |
+|----------|----------------------------|-------------------------------------------------------------------|
+| ELF      | Linux x86_64 / aarch64     | 标准重定位 + GNU 风格 `.note.GNU-stack`。                          |
+| Mach-O   | macOS x86_64 / arm64       | arm64 上 16 KiB 对齐；`__DATA_CONST` 上打 `SG_READ_ONLY`。         |
+| PE/COFF  | Windows x86_64             | 由 `pe_smoke` 校验；默认 `/SUBSYSTEM:CONSOLE`。                    |
+| WASM     | wasm32-wasi / wasm32-unknown | imports 按模块名分组；SIMD opcode 由 `--simd` 控制。              |
 
-| 可执行文件 | 源码目录 | 标签 | 说明 |
-|-----------|---------|------|------|
-| `unit_tests` | `tests/unit/` | `[ploy]`, `[gc]`, `[opt]` 等 | 所有模块的单元测试 — **909 个用例** |
-| `integration_tests` | `tests/integration/` | `[integration]` | 端到端编译管道、互操作、性能压力 — **92 个用例** |
-| `benchmark_tests` | `tests/benchmarks/` | `[benchmark]` | 微基准和宏基准性能测试 — **18 个用例** |
+### 11.2 符号解析
 
-### 测试套件汇总
+`polyld` 维护一张按 mangled name + 语言键索引的全局符号表。跨语言
+调用走 bridge ABI；链接器校验每个 `bridge_call` 在目标语言运行时里
+都有已注册对端。
 
-| 测试套件 | 标签 | 测试用例数 | 覆盖内容 |
-|---------|------|-----------|---------|
-| .ploy 前端 | `[ploy]` | 283 | 词法/语法/语义/IR/集成/包管理/OOP互操作/错误检查 |
-| Python 前端 | `[python]` | 127 | 25+ 高级特性，类型注解，async，推导式 |
-| Rust 前端 | `[rust]` | 46 | 借用检查、生命周期、闭包、Traits |
-| E2E 管道 | `[e2e]` | 56 | 从源码到目标码的完整管道 |
-| FFI / 互操作 | `[ffi]` | 39 | FFI 绑定、编组、类型映射、所有权跟踪 |
-| 链接器 | `[linker]` | 36 | 符号解析、ELF/MachO/COFF、跨语言粘合 |
-| .NET 前端 | `[dotnet]` | 24 | .NET 6/7/8/9 特性 |
-| Java 前端 | `[java]` | 22 | Java 8/17/21/23 特性 |
-| 拓扑分析 | `[topology]` | 22 | 图、分析器、验证器、打印器、UI 面板、钻入 |
-| 后端 | `[backend]` | 20 | 指令选择、寄存器分配、调度器、WASM |
-| GC 算法 | `[gc]` | 20 | 4 种 GC 算法（标记清除、分代、拷贝、增量） |
-| 预处理器 | `[preprocessor]` | 18 | 对象宏/函数宏、指令、Token池 |
-| 优化 Passes | `[opt]` | 17 | 常量折叠、DCE、CSE、GVN、内联、去虚拟化 |
-| 线程服务 | `[threading]` | 16 | 线程池、同步原语、协程 |
-| LTO | `[lto]` | 14 | 链接时优化、跨模块优化 |
-| PGO | `[pgo]` | 13 | 剖面引导优化 |
-| 严格模式语义 | `[sema][strict]` | 10 | 跨语言调用类型严格性、ReportStrictDiag |
-| C++ 前端 | `[cpp]` | 10 | OOP、模板、RTTI、异常、constexpr |
-| DWARF5 调试 | `[dwarf5]` | 7 | DWARF 5 调试信息生成 |
-| 调试信息 | `[debug]` | 4 | PDB、源码映射、调试发射器 |
-| 集成测试 | `[integration]` | 92 | 完整管道/跨语言互操作/性能压力/目标文件格式 |
-| 基准测试 | `[benchmark]` | 18 | 微基准(词法/语法/语义/lowering)/宏基准(扩展/OOP/管道) |
-
-## 10.2 .ploy 测试详细分类
-
-| 类别 | 标签 | 数量 | 覆盖内容 |
-|------|------|------|---------|
-| 词法分析 | `[ploy][lexer]` | 17 | 关键字(56，大小写不敏感)、标识符、数字、字符串、运算符 |
-| 语法分析 | `[ploy][parser]` | 40 | LINK/IMPORT/EXPORT/FUNC/PIPELINE/STRUCT/CONFIG/NEW/METHOD/GET/SET/WITH/DELETE/EXTEND |
-| 语义分析 | `[ploy][sema]` | 40 | 类型检查、作用域、版本验证、包发现、OOP互操作、错误检查 |
-| IR 生成 | `[ploy][lowering]` | 29 | 函数/管道/链接/表达式/控制流/OOP互操作/DELETE/EXTEND |
-| 集成测试 | `[ploy][integration]` | 20 | 完整管道端到端 |
-| 诊断系统 | `[ploy][diagnostics]` | 6 | 错误代码、建议、溯源链、格式化 |
-| 错误检查 | `[ploy][error]` | 10 | 参数数量不匹配、类型不匹配、错误代码验证 |
-| 版本约束 | `[ploy][version]` | 5+ | 6 种版本运算符 |
-| 选择性导入 | `[ploy][selective]` | 7 | 单/多符号、版本组合、别名 |
-| CONFIG VENV | `[ploy][venv]` | 6 | 解析/验证/重复检测/无效语言 |
-| 多包管理器 | `[ploy][pkgmgr]` | 17 | CONDA/UV/PIPENV/POETRY 解析、验证、集成 |
-
-## 10.3 运行测试
-
-```bash
-# 运行所有单元测试
-./unit_tests
-
-# 运行 .ploy 测试
-./unit_tests [ploy]
-
-# 运行特定标签
-./unit_tests [ploy][pkgmgr]    # 包管理器测试
-./unit_tests [ploy][lexer]      # 词法分析测试
-./unit_tests [ploy][sema]       # 语义分析测试
-
-# 运行集成测试
-./integration_tests [integration]
-./integration_tests [compile]   # 仅编译管道测试
-./integration_tests [interop]   # 仅互操作测试
-./integration_tests [perf]      # 仅性能压力测试
-
-# 运行基准测试
-./benchmark_tests [benchmark]
-./benchmark_tests [micro]       # 仅微基准测试
-./benchmark_tests [macro]       # 仅宏基准测试
-
-# 通过 CTest 档位运行基准测试（设置 POLYBENCH_MODE 环境变量）：
-ctest -L fast                   # 快速 smoke 运行（1 次预热，少量迭代）
-ctest -L full                   # 完整统计运行（5 次预热，大量迭代）
-ctest -L benchmark              # 默认档位（3 次预热，适量迭代）
-```
-
-> **基准测试推荐构建类型**：`Release` 或 `RelWithDebInfo`。Debug 构建包含断言和 sanitiser 开销，会扭曲测量结果。
-
-```bash
-# 详细输出
-./unit_tests [ploy] -r compact
-
-# Windows 注意：需要 <nul 防止 pip 命令挂起
-unit_tests.exe [ploy] -r compact 2>&1 <nul
-integration_tests.exe [integration] -r compact 2>&1 <nul
-benchmark_tests.exe [benchmark] -r compact 2>&1 <nul
-```
-
-## 10.4 示例程序
-
-`tests/samples/` 目录包含 16 个分类示例目录，每个目录含 `.ploy`、`.cpp`、`.py`、`.rs`、`.java` 和/或 `.cs` 源文件：
+mangling 方案：
 
 ```
-tests/samples/
-├── README.md                           # 示例总览
-├── 01_basic_linking/                   # 基本 LINK + CALL 互操作
-├── 02_type_mapping/                    # 结构体和容器类型映射
-├── 03_pipeline/                        # 多阶段 PIPELINE
-├── 04_package_import/                  # IMPORT 与版本约束 + CONFIG
-├── 05_class_instantiation/             # NEW/METHOD 跨语言 OOP
-├── 06_attribute_access/                # GET/SET 属性访问
-├── 07_resource_management/             # WITH 资源管理
-├── 08_delete_extend/                   # DELETE/EXTEND 对象生命周期
-├── 09_mixed_pipeline/                  # 组合 ML 管道(C++/Python/Rust)
-├── 10_error_handling/                  # 错误场景和诊断
-├── 11_java_interop/                    # Java 互操作（NEW/METHOD）
-├── 12_dotnet_interop/                  # .NET 互操作（NEW/METHOD）
-├── 13_generic_containers/              # 泛型容器互操作
-├── 14_async_pipeline/                  # 异步多阶段信号处理
-├── 15_full_stack/                      # 五语言全栈
-└── 16_config_and_venv/                 # 环境配置、包版本
+_PLY<lang>_<module>_<func>_<argtypes>
 ```
 
-## 10.5 集成测试
+其中 `<lang>` 为 `c`、`p`、`r`、`j`、`n`、`g`、`s`、`b`、`y`，对应
+9 种支持语言。完整文法见
+[specs/symbol_mangling.md](specs/symbol_mangling.md)。
 
-`tests/integration/` 目录包含 106 个集成测试，分为 6 个类别：
+### 11.3 增量缓存
 
-```
-tests/integration/
-├── compile_tests/
-│   └── compile_pipeline_test.cpp       # 41 个测试：完整编译管道
-├── interop_tests/
-│   └── interop_test.cpp                # 15 个测试：跨语言互操作
-├── performance/
-│   └── perf_test.cpp                   # 11 个测试：性能压力
-├── e2e/
-│   └── polyc_e2e_test.cpp              # 12 个测试：polyc CLI 端到端
-├── external_packages/
-│   ├── external_packages_test.cpp      #  8 个测试：外部包导入解析
-│   └── demand_03_test.cpp              #  6 个测试：需求驱动的外部导入
-└── object_format_test.cpp              # 13 个测试：COFF / ELF / Mach-O 写入
-```
+`build/.cache/` 存放按内容哈希索引的 `.ir.bin` 与 `.obj`。默认策略：
+源码哈希、目标三元组、优化等级、pass 流水线全部相同时复用缓存条目。
+LRU 淘汰，上限由 `POLY_CACHE_MAX_BYTES`（默认 4 GiB）控制。
 
-### 集成测试类别
+### 11.4 Bridge 调用表
 
-| 类别 | 标签 | 测试数 | 覆盖内容 |
-|------|------|--------|---------|
-| 编译管道 | `[integration][compile]` | 41 | LINK+CALL、STRUCT、PIPELINE、IF/ELSE/WHILE/FOR、NEW/METHOD、GET/SET、WITH、DELETE、EXTEND、MATCH、ML管道、多函数PIPELINE |
-| 跨语言互操作 | `[integration][interop]` | 15 | LINK链、NEW创建、METHOD链、生命周期(NEW→METHOD→DELETE)、多语言对象、GET/SET、WITH/嵌套WITH、EXTEND、组合OOP、三语言 |
-| 性能压力 | `[integration][perf]` | 11 | 50/100函数、10/20层嵌套、50/100 CALL、20/50阶段管道、复杂混合程序、词法/语法吞吐 |
-| 端到端 | `[integration][e2e]` | 12 | polyc CLI 真实编译流程，从源码到二进制 |
-| 外部包 | `[integration][external]` | 14 | 八种语言的外部包导入解析（cpp/python/rust/java/dotnet/go/javascript/ruby） |
-| 目标文件格式 | `[integration][objfmt]` | 13 | COFF / ELF / Mach-O 写入与回读 |
+`polyld --bridge-table=<path>` 写出每个 bridge 调用点、源语言、目标
+语言与目标符号的 JSON 清单。IDE 调用分析面板消费同一文件。
 
-## 10.6 基准测试
+### 11.5 链接脚本
 
-`tests/benchmarks/` 目录包含 18 个基准测试，分为 2 个类别：
+`polyld --script=<path>` 支持小型链接脚本子集：
 
 ```
-tests/benchmarks/
-├── micro/
-│   └── micro_bench.cpp                 # 8 个测试：逐阶段基准
-└── macro/
-    └── macro_bench.cpp                 # 10 个测试：全管道吞吐量
-```
-
-### 微基准测试
-
-测量各编译器阶段的吞吐量，包含预热和统计报告：
-
-| 测试 | 说明 |
-|------|------|
-| 词法分析 小/中/大 | 3 种程序规模的 Token 吞吐量 |
-| 语法分析 小/中/大 | AST 构建吞吐量 |
-| 语义分析 中 | 语义分析吞吐量 |
-| Lowering 中 | IR 生成吞吐量 |
-
-### 宏基准测试
-
-测量完整管道 (lex → parse → sema → lower → IR print) 性能：
-
-| 测试 | 说明 |
-|------|------|
-| Pipeline 10/50/100/200 函数 | 函数数量增长下的吞吐量扩展 |
-| 扩展线性检查 | 验证次二次扩展 (2x 输入 < 5x 时间) |
-| OOP 10/25 类 | EXTEND + NEW + METHOD + DELETE 性能 |
-| Pipeline 10×5 / 20×10 | 多阶段管道，每阶段含多个 CALL |
-| IR 大小增长 | 验证 IR 输出大小随程序大小线性增长 |
-
----
-
-## 10.7 CI 质量闸门
-
-CI 流水线（`.github/workflows/ci.yml`）在每次 push 和 PR 时强制执行以下质量闸门：
-
-| 闸门 | 工具 | 说明 |
-|------|------|------|
-| **文档检查** | `docs_lint.py` / `docs_sync_check.py --scope core` | 路径引用、核心双语文档同步（`USER_GUIDE` / API）、标题结构、版本一致性 |
-| **格式检查** | `clang-format-17` | 强制所有 C/C++ 源文件遵循 `.clang-format` 风格 |
-| **静态分析** | `clang-tidy-17` | 覆盖 `common/middle/frontends/backends/runtime/tools` 下全部项目 `.cpp` 源文件（不再限制前 50 个） |
-| **消毒器** | ASan + UBSan | 在非 benchmark 测试集上运行 AddressSanitizer 和 UndefinedBehaviorSanitizer（`-LE benchmark`） |
-| **代码覆盖率** | lcov / gcov | 基于非 benchmark 测试集收集行覆盖率；报告作为 CI 产物上传 |
-| **基准冒烟测试** | Catch2 `[fast]` | 以 fast 模式运行基准测试，捕获性能回退 |
-
-### CMake 质量选项
-
-| 选项 | 默认值 | 说明 |
-|------|--------|------|
-| `POLYGLOT_ENABLE_ASAN` | `OFF` | 启用 AddressSanitizer（仅 GCC/Clang） |
-| `POLYGLOT_ENABLE_UBSAN` | `OFF` | 启用 UndefinedBehaviorSanitizer（仅 GCC/Clang） |
-| `POLYGLOT_ENABLE_COVERAGE` | `OFF` | 启用代码覆盖率（gcov/llvm-cov，仅 GCC/Clang） |
-
-### 本地运行质量检查
-
-```bash
-# 格式检查（dry-run，需要 clang-format 17+）
-find common middle frontends backends runtime tools \
-    -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.c' \) \
-    -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
-    | xargs -0 clang-format --dry-run --Werror --style=file
-
-# 文档同步闸门（核心双语文档）
-python scripts/docs_sync_check.py --ci --scope core
-
-# 消毒器构建
-cmake -B build-san -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DPOLYGLOT_ENABLE_ASAN=ON \
-  -DPOLYGLOT_ENABLE_UBSAN=ON \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build build-san
-cd build-san && ctest --output-on-failure -LE benchmark
-
-# 覆盖率构建
-cmake -B build-cov -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DPOLYGLOT_ENABLE_COVERAGE=ON \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build build-cov
-cd build-cov && ctest --output-on-failure -LE benchmark
-lcov --capture --directory . --output-file coverage.info
-```
-
----
-
-# 11. 构建与集成
-
-## 11.1 CMake 构建目标
-
-| 目标 | 类型 | 主要依赖 |
-|------|------|---------|
-| `polyglot_common` | 静态库 | fmt, nlohmann_json (7 编译单元，含 dwarf_builder) |
-| `frontend_common` | 静态库 | polyglot_common |
-| `frontend_cpp` | 静态库 | frontend_common (5 编译单元: lexer/parser/sema/lowering/constexpr) |
-| `frontend_python` | 静态库 | frontend_common (4 编译单元) |
-| `frontend_rust` | 静态库 | frontend_common (4 编译单元) |
-| `frontend_java` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
-| `frontend_dotnet` | 静态库 | frontend_common (4 编译单元: lexer/parser/sema/lowering) |
-| `frontend_ploy` | 静态库 | frontend_common, middle_ir (6 编译单元) |
-| `middle_ir` | 静态库 | polyglot_common (15 编译单元) |
-| `backend_x86_64` | 静态库 | polyglot_common (7 编译单元) |
-| `backend_arm64` | 静态库 | polyglot_common (6 编译单元) |
-| `backend_wasm` | 静态库 | polyglot_common, middle_ir (1 编译单元) |
-| `runtime` | 静态库 | — (23 编译单元，含 java_rt/dotnet_rt/object_lifecycle) |
-| `linker_lib` | 对象库 | polyglot_common, frontend_ploy |
-| `polyc` | 可执行文件 | 所有前端 + 后端 + IR + 运行时 |
-| `polyld` | 可执行文件 | polyglot_common, frontend_ploy |
-| `polyasm` | 可执行文件 | 后端 + IR |
-| `polyopt` | 可执行文件 | middle_ir + 后端 |
-| `polyrt` | 可执行文件 | runtime |
-| `polybench` | 可执行文件 | 全部 |
-| `polyui` | 可执行文件 | 全部前端 + Qt6::Widgets（可选，需要 Qt） |
-| `unit_tests` | 可执行文件 | 全部 + Catch2 |
-| `integration_tests` | 可执行文件 | 全部 + Catch2 |
-| `benchmark_tests` | 可执行文件 | 全部 + Catch2 |
-
-## 11.2 依赖管理
-
-依赖通过 `Dependencies.cmake` 使用 `FetchContent` 自动拉取：
-
-| 依赖 | 用途 |
-|------|------|
-| fmt | 格式化输出 |
-| nlohmann_json | JSON 处理 |
-| Catch2 | 单元测试框架 |
-| mimalloc | 高性能内存分配 |
-
-## 11.3 已知问题与修复
-
-| 问题 | 原因 | 修复 |
-|------|------|------|
-| x86/x64 链接器不匹配 | VsDevCmd 默认 x86 | 使用 `-arch=amd64` |
-| 结构体字面量解析歧义 | `Ident {` 可能是结构体或块 | LexerBase `SaveState()/RestoreState()` 前瞻 |
-| sema 类型名大小写 | `INT` vs `int` vs `i32` | `ResolveType` 支持多种大小写变体 |
-| 测试 pip 命令挂起 | Windows stdin 等待 | 测试命令使用 `<nul` 重定向 |
-
----
-
-# 12. 开发指南
-
-## 12.1 添加新的 .ploy 关键字
-
-1. 在 `ploy_lexer.h` 的 `TokenKind` 枚举中添加新 token
-2. 在 `lexer.cpp` 的关键字映射表中添加字符串 → token 映射
-3. 在 `parser.cpp` 中添加对应的解析逻辑
-4. 在 `sema.cpp` 中添加语义检查
-5. 在 `lowering.cpp` 中添加 IR 生成
-6. 在 `ploy_test.cpp` 中添加测试（词法 + 语法 + 语义 + IR + 集成）
-
-## 12.2 添加新的包管理器
-
-1. 在 `ploy_ast.h` 的 `VenvConfigDecl::ManagerKind` 枚举中添加新值
-2. 在 `lexer.cpp` 中添加对应关键字
-3. 在 `parser.cpp` 的 `ParseConfigDecl` 中添加新分支
-4. 在 `ploy_sema.h` 中添加 `DiscoverPythonPackagesViaXxx()` 方法声明
-5. 在 `sema.cpp` 中实现发现逻辑，在 `DiscoverPythonPackages` 中添加 dispatch
-6. 添加测试用例
-
-## 12.3 代码风格
-
-- **C++20** 标准
-- 英文代码注释
-- 使用 `namespace polyglot::ploy` (或 `polyglot::python` 等)
-- 类名: `PascalCase`
-- 方法名: `PascalCase` (如 `ParseFuncDecl`)
-- 变量名: `snake_case`
-- 成员变量: `trailing_underscore_`
-- 使用 `core::SourceLoc` 定位错误（注意：使用 `file` 字段而非 `filename`）
-- 使用 `core::Type` 类型系统（注意：`core::Type::Any()` 而非 `core::Type::Function`）
-
-## 12.4 文档规范
-
-- 所有文档均提供中英双语版本
-- 中文文件名后缀 `_zh`，英文无后缀
-- 文档存放在 `docs/realization/` 目录
-
----
-
-# 13. 插件系统
-
-PolyglotCompiler 支持通过稳定的 **C ABI** 接口实现动态插件扩展。插件为共享库，在加载时向宿主注册自身，可扩展编译器或 IDE 的语言前端、优化 Pass、后端、Linter、格式化器、代码操作、语法主题等功能。
-
-## 13.1 架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│               PolyglotCompiler 宿主                      │
-│  ┌────────────────────┐  ┌────────────────┐  ┌─────────┐│
-│  │ PluginManager      │  │ Host Services  │  │ polyui  ││
-│  │ (发现、加载、卸载) │  │ (日志、诊断、  │  │ (设置   ││
-│  │                    │  │  设置、打开文件)│  │  界面)  ││
-│  └────────┬───────────┘  └───────┬────────┘  └─────────┘│
-│           │                      │                      │
-└───────────┼──────────────────────┼──────────────────────┘
-            │                      │     C ABI 边界
-      ┌─────┴──────────────────────┴─────┐
-      │  插件 (.so/.dll/.dylib)          │
-      │  polyplug_<name>                 │
-      │  polyglot_plugin_info()          │
-      │  polyglot_plugin_init()          │
-      │  polyglot_plugin_shutdown()      │
-      └──────────────────────────────────┘
-```
-
-- **C ABI**：所有导出函数使用 `extern "C"` 链接，确保跨编译器和平台的二进制兼容性。
-- **命名约定**：插件共享库必须命名为 `polyplug_<name>`（如 `polyplug_myformatter.so`）。
-- **发现机制**：`PluginManager` 扫描搜索路径中匹配的文件，通过 `dlopen` / `LoadLibrary` 加载。
-
-## 13.2 能力标志
-
-每个插件在 `PolyglotPluginInfo` 中声明能力位掩码：
-
-| 标志 | 值 | 说明 |
-|------|------|------|
-| `POLYGLOT_CAP_LANGUAGE` | `1 << 0` | 语言前端 |
-| `POLYGLOT_CAP_OPTIMIZER` | `1 << 1` | 优化 Pass |
-| `POLYGLOT_CAP_BACKEND` | `1 << 2` | 代码生成后端 |
-| `POLYGLOT_CAP_TOOL` | `1 << 3` | CLI 工具 / 管道阶段 |
-| `POLYGLOT_CAP_UI_PANEL` | `1 << 4` | IDE 面板 / 停靠窗口 |
-| `POLYGLOT_CAP_SYNTAX_THEME` | `1 << 5` | 语法高亮主题 |
-| `POLYGLOT_CAP_FILE_TYPE` | `1 << 6` | 文件类型注册 |
-| `POLYGLOT_CAP_CODE_ACTION` | `1 << 7` | 快速修复 / 重构操作 |
-| `POLYGLOT_CAP_FORMATTER` | `1 << 8` | 代码格式化器 |
-| `POLYGLOT_CAP_LINTER` | `1 << 9` | 代码检查器 |
-| `POLYGLOT_CAP_DEBUGGER` | `1 << 10` | 调试器集成 |
-| `POLYGLOT_CAP_COMPLETION` | `1 << 11` | 编辑器补全提供器 |
-| `POLYGLOT_CAP_DIAGNOSTIC` | `1 << 12` | 编辑器诊断提供器 |
-| `POLYGLOT_CAP_TEMPLATE` | `1 << 13` | 文件模板提供器 |
-| `POLYGLOT_CAP_TOPOLOGY_PROC` | `1 << 14` | 拓扑图后处理器 |
-
-### 版本约束
-
-插件在 `PolyglotPluginInfo` 中声明 `min_host_version`（如 `"1.0.0"`）。宿主在加载时检查此约束，拒绝需要更高版本宿主的插件。格式有误的版本字符串视为"无约束"。
-
-### 冲突检测
-
-`PluginManager::DetectConflicts()` 扫描所有活跃插件中的独占能力冲突——例如两个为同一语言注册格式化器的插件，或两个具有相同 `language_name` 的语言提供器。检测到的冲突以 `std::vector<PluginConflict>` 返回。
-
-### 沙箱策略与熔断器
-
-宿主对插件回调执行**沙箱策略**：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `call_timeout_ms` | 5000 | 每次回调的最大毫秒数 |
-| `memory_limit_bytes` | 0（无限制） | 插件内存限制（预留供未来实施） |
-| `max_consecutive_failures` | 3 | 触发熔断前的连续失败次数 |
-
-当插件超过失败阈值时，**熔断器**自动打开——插件被禁用，直到通过 `ResetCircuitBreaker()` 或 IDE 设置中的"重置熔断器"按钮手动重置。
-
-## 13.3 必须导出的函数
-
-每个插件必须导出以下三个函数：
-
-```c
-// 返回静态插件元数据（名称、版本、作者、能力）。
-PolyglotPluginInfo polyglot_plugin_info(void);
-
-// 初始化插件。宿主传入 PolyglotHostServices 结构体，
-// 包含日志、诊断、设置等函数指针。
-// 返回 0 表示成功，非零表示失败。
-int polyglot_plugin_init(PolyglotHostServices services);
-
-// 卸载前清理资源。
-void polyglot_plugin_shutdown(void);
-```
-
-## 13.4 可选导出函数
-
-插件可根据声明的能力选择性导出提供者函数：
-
-```c
-// 语言前端 — 返回 PolyglotLanguageProvider 结构体。
-PolyglotLanguageProvider polyglot_plugin_get_language(void);
-
-// 优化 Pass — 返回 PolyglotOptimizerPass 结构体。
-PolyglotOptimizerPass polyglot_plugin_get_optimizer(void);
-
-// 代码操作 — 返回 PolyglotCodeAction 结构体。
-PolyglotCodeAction polyglot_plugin_get_code_action(void);
-
-// 格式化器 — 返回 PolyglotFormatter 结构体。
-PolyglotFormatter polyglot_plugin_get_formatter(void);
-
-// 检查器 — 返回 PolyglotLinter 结构体。
-PolyglotLinter polyglot_plugin_get_linter(void);
-```
-
-## 13.5 宿主服务
-
-宿主通过 `PolyglotHostServices` 向插件提供以下服务：
-
-| 服务 | 签名 | 用途 |
-|------|------|------|
-| `log` | `void (*)(void*, int, const char*)` | 按严重级别记录日志 |
-| `emit_diagnostic` | `void (*)(void*, const PolyglotDiagnostic*)` | 发出编译诊断信息 |
-| `get_setting` | `int (*)(void*, const char*, char*, int)` | 按键读取宿主设置 |
-| `set_setting` | `void (*)(void*, const char*, const char*)` | 写入宿主设置 |
-| `open_file` | `void (*)(void*, const char*, int)` | 请求 IDE 打开文件到指定行 |
-
-## 13.6 插件文件位置
-
-插件从以下搜索路径发现：
-
-| 平台 | 系统路径 | 用户路径 |
-|------|---------|----------|
-| **macOS** | `<app>/plugins/` | `~/Library/Application Support/PolyglotCompiler/plugins/` |
-| **Linux** | `<app>/plugins/` | `~/.local/share/PolyglotCompiler/plugins/` |
-| **Windows** | `<app>\plugins\` | `%APPDATA%\PolyglotCompiler\plugins\` |
-
-也可以在 `polyui` 的 **设置 → 插件** 页面手动加载插件。
-
-## 13.7 快速示例（C 语言）
-
-```c
-#include "plugins/plugin_api.h"
-
-static PolyglotHostServices host;
-
-PolyglotPluginInfo polyglot_plugin_info(void) {
-    PolyglotPluginInfo info = {0};
-    info.api_version    = POLYGLOT_PLUGIN_API_VERSION;
-    info.name           = "我的检查器";
-    info.version        = "1.0.0";
-    info.author         = "开发者";
-    info.description    = "一个示例检查器插件";
-    info.capabilities   = POLYGLOT_CAP_LINTER;
-    return info;
-}
-
-int polyglot_plugin_init(PolyglotHostServices services) {
-    host = services;
-    host.log(host.context, 0, "检查器插件已加载");
-    return 0;
-}
-
-void polyglot_plugin_shutdown(void) {
-    host.log(host.context, 0, "检查器插件已卸载");
+SECTIONS {
+    .text   : { *(.text*) }
+    .rodata : { *(.rodata*) }
+    .data   : { *(.data*) }
+    .bss    : { *(.bss*) }
 }
 ```
 
-完整规范请参阅 [`docs/specs/plugin_specification_zh.md`](specs/plugin_specification_zh.md)。
+---
+
+## 12. IDE（`polyui`）与语言服务器
+
+### 12.1 组成
+
+* `polyui` —— Qt 6 外壳。
+* `polyls` —— Ploy 的 stdio LSP 服务器，并按语言分派第三方服务器。
+* `IdeLspBridge` —— 将编辑器事件翻译为 LSP 消息的 IDE 端适配器，
+  以 200 ms 节流。
+* `IdeDapBridge` —— 适配 `lldb-dap`、`debugpy`、`delve`、
+  `netcoredbg` 与 node-debug2 的 DAP 适配器。
+
+### 12.2 默认 LSP 服务器映射
+
+| 语言         | 默认 `command`                          |
+|--------------|-----------------------------------------|
+| ploy         | `polyls`                                |
+| cpp          | `clangd`                                |
+| python       | `pyright-langserver --stdio`            |
+| rust         | `rust-analyzer`                         |
+| java         | `jdtls`                                 |
+| dotnet       | `csharp-ls`                             |
+| go           | `gopls`                                 |
+| javascript   | `typescript-language-server --stdio`    |
+| ruby         | `solargraph stdio`                      |
+
+可在 **设置 → 语言服务器** 覆盖。
+
+### 12.3 `polyui` 内部工作流
+
+1. 打开文件 → `IdeLspBridge` 启动对应服务器并发送 `initialize` →
+   `initialized` → `didOpen`。
+2. 200 ms 节流窗口内的编辑合并为单条 `didChange`。
+3. 入站 `publishDiagnostics` 在沟里 / 问题面板渲染。
+4. `Ctrl+Click` → `textDocument/definition`；`Shift+F12` →
+   `references`；`F2` → `rename`。
+5. 退出时对每个活跃服务器发送 `shutdown` + `exit`。
+
+### 12.4 检查通信
+
+底部 **LSP** 停靠面板（`Ctrl+Alt+L` 切换）记录双向所有消息；
+`polyls --log polyls.log` 把同样的帧落盘。
+
+### 12.5 面板一览
+
+| 面板                | 切换             | 用途                                          |
+|---------------------|------------------|-----------------------------------------------|
+| 问题                | `Ctrl+Shift+M`   | 跨服务器聚合诊断。                            |
+| 性能分析            | `Ctrl+Alt+P`     | 火焰、热点、时间轴、语言。                    |
+| 调用分析            | `Ctrl+Alt+G`     | 静态调用图 + 运行时叠加。                     |
+| 测试浏览器          | `Ctrl+Alt+T`     | CTest 树 + 内联运行/调试。                    |
+| 包管理              | `Ctrl+Alt+M`     | 各语言依赖图 + 漏洞扫描。                     |
+| 通知                | 铃铛图标         | 持久化通知。                                  |
+| 书签                | `Ctrl+Alt+K`     | 工作区行级书签。                              |
+| TODO/FIXME 索引     | `Ctrl+Alt+J`     | 后台扫描的标签索引。                          |
+| 编译流水线          | `Ctrl+Alt+I`     | `polyc` 运行的 Chrome trace 视图。            |
+| IR 查看器           | `Ctrl+Alt+R`     | 文本 IR 并排 + diff。                          |
+| 汇编查看器          | `Ctrl+Alt+A`     | 后端汇编与源码映射。                          |
+| 拓扑实时            | `Ctrl+Alt+Y`     | 当前示例拓扑实时面板。                        |
+| Bridge 面板         | `Ctrl+Alt+B`     | 跨语言 bridge 调用检查。                      |
+| 编排视图            | `Ctrl+Alt+W`     | FFI 值编排单步。                              |
+| 测试覆盖率          | `Ctrl+Alt+V`     | 编辑器沟里覆盖率叠加。                        |
+
+### 12.6 编辑器特性
+
+* 多光标、列选择、多 tab 编辑。
+* Quick Open（`Ctrl+P`）、Symbol Search（`Ctrl+T`）、全局文本搜索
+  （`Ctrl+Shift+F`）。
+* 折叠、格式化（`Shift+Alt+F`）、EditorConfig 支持。
+* 各 LSP 服务器提供的语义高亮。
+* 内联诊断、code action（`Ctrl+.`）、重构（重命名、抽取、内联）。
+* 括号配对染色。
+
+### 12.7 SCM
+
+内置 git 客户端：diff 视图、blame 沟、三方合并解决器、PR review
+（GitHub + GitLab）。认证委托给操作系统钥匙串。
+
+### 12.8 调试（DAP）
+
+`F5` 启动当前 Run/Debug profile；DAP bridge 按文件语言挑选适配器。
+支持断点、watch、step in/out、条件断点、热重载（Python、.NET、JS、
+Java）以及内联值显示。
+
+### 12.9 任务与 Run/Debug 选择器
+
+`Ctrl+Shift+B` 选择构建任务；`F5` 选择调试 profile。Profile 存放于
+`.polyui/launch.json`，遵循 VS Code DAP 形态，原有片段可直接复用。
+
+### 12.10 测试浏览器
+
+每个 CTest 目标的树视图，外加各语言测试发现器（pytest、gtest、junit、
+xunit、mocha、rspec）。支持内联运行/调试、覆盖率叠加、历史。详见
+[realization/test_explorer_zh.md](realization/test_explorer_zh.md)。
+
+### 12.11 包管理视图
+
+每语言的依赖图，叠加基于 OSV 数据的漏洞扫描。更新与 lock 文件编辑
+作为 code action 暴露。
+
+### 12.12 跨语言导航
+
+对 `LINK` 目标 `Ctrl+Click` 直接跳到宿主语言源码。**Bridge 面板**
+（`Ctrl+Alt+B`）汇总工作区所有 bridge 调用。
+
+### 12.13 编译流水线检查器
+
+可视化 `polyc --trace` 写出的 Chrome trace JSON。每个前端、pass、
+后端阶段显示为彩色 span。
+
+### 12.14 示例 / 教程浏览器
+
+欢迎页暴露 `tests/samples/` 下所有示例与 `docs/tutorial/` 下的所有
+教程。**拓扑实时** 面板渲染当前示例的 bridge 图。
+
+### 12.15 远程开发
+
+支持 SSH、WSL、容器与 dev container 后端；IDE 把文件操作与进程启动
+转发到远端，同时把 LSP / DAP 适配器留在本地。配置见
+[realization/remote_dev_zh.md](realization/remote_dev_zh.md)。
+
+### 12.16 AI 助手
+
+聊天、行内建议、重构，以及把请求锁在本地模型的隐私模式。提供方通过
+插件 SDK 可插拔。
+
+### 12.17 协作
+
+PR review、行内评论、issue 浏览，以及 Live Share 风格的协作编辑。
+
+### 12.18 扩展、市场与工作区
+
+插件从 `<config>/polyui/plugins/` 加载；市场从
+`https://marketplace.example.invalid/polyui/` 拉取。工作区是含
+`.polyui/` 目录的文件夹，固定设置、launch、扩展。
+
+### 12.19 Shell 特性
+
+欢迎页、可定制状态栏（含 9 个内置位 `branch`、`problems`、`language`、
+`language_server`、`encoding`、`eol`、`indent`、`package_manager`、
+`profiler`）、最近文件（`Ctrl+R`）、最近工作区（`Ctrl+E`）、完整
+会话恢复。详见 [tutorial/shell_zh.md](tutorial/shell_zh.md)。
+
+### 12.20 国际化、可访问性、遥测
+
+UI 字符串通过 `lupdate` 抽取；默认随附英文与简体中文。可访问性包括
+高对比度主题、纯键盘导航与屏幕阅读器提示。遥测选择性开启，每类事件
+单独文档化。
+
+### 12.21 文件类型查看器
+
+图像查看器（PNG/JPEG/WebP/GIF/SVG/BMP）、对 ≥ 1 GiB 文件分块 I/O 的
+hex 查看器、覆盖 ELF/PE/Mach-O/WASM 的二进制检查器，以及含 SQL 控制台
+的 SQLite 客户端。详见 [tutorial/viewers_zh.md](tutorial/viewers_zh.md)。
+
+### 12.22 键盘快捷键速查
+
+| 操作                    | 快捷键            |
+|-------------------------|-------------------|
+| Quick Open              | `Ctrl+P`          |
+| Symbol search           | `Ctrl+T`          |
+| 全局文本搜索            | `Ctrl+Shift+F`    |
+| 格式化文档              | `Shift+Alt+F`     |
+| Code action             | `Ctrl+.`          |
+| 重命名符号              | `F2`              |
+| 跳转定义                | `F12`             |
+| 查找引用                | `Shift+F12`       |
+| 切换问题面板            | `Ctrl+Shift+M`    |
+| 切换 LSP 面板           | `Ctrl+Alt+L`      |
+| 切换性能分析            | `Ctrl+Alt+P`      |
+| 切换调用分析            | `Ctrl+Alt+G`      |
+| 切换测试浏览器          | `Ctrl+Alt+T`      |
+| 切换包管理              | `Ctrl+Alt+M`      |
+| 切换书签                | `Ctrl+Alt+K`      |
+| 切换 TODO 索引          | `Ctrl+Alt+J`      |
+| 最近文件                | `Ctrl+R`          |
+| 最近工作区              | `Ctrl+E`          |
+| 运行 / 调试             | `F5`              |
+| 构建任务                | `Ctrl+Shift+B`    |
+| 单步跳过                | `F10`             |
+| 单步进入                | `F11`             |
 
 ---
 
-# 14. 附录
+## 13. 诊断、性能分析与调用分析
 
-## 14.1 术语表
+### 13.1 诊断标识符
 
-| 术语 | 英文 | 解释 |
-|------|------|------|
-| AST | Abstract Syntax Tree | 抽象语法树 |
-| IR | Intermediate Representation | 中间表示 |
-| SSA | Static Single Assignment | 静态单赋值 |
-| CFG | Control Flow Graph | 控制流图 |
-| DCE | Dead Code Elimination | 死代码消除 |
-| CSE | Common Subexpression Elimination | 公共子表达式消除 |
-| GVN | Global Value Numbering | 全局值编号 |
-| RTTI | Run-Time Type Information | 运行时类型信息 |
-| FFI | Foreign Function Interface | 外部函数接口 |
-| PGO | Profile-Guided Optimization | 基于性能剖析的优化 |
-| LTO | Link-Time Optimization | 链接时优化 |
-| LICM | Loop-Invariant Code Motion | 循环不变量外提 |
-| DSL | Domain-Specific Language | 领域特定语言 |
-| POBJ | Polyglot Object | PolyglotCompiler 自定义目标文件格式 |
+每条诊断都有稳定的 `polyc-(err|warn)-<E####|W####>` 标识，完整目录
+见 [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md)。
 
-## 14.2 .ploy 关键字速查表
+严重度映射：
 
-| 关键字 | 用途 | 示例 |
-|--------|------|------|
-| `LINK` | 跨语言函数链接（带签名形式） | `LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;` |
-| `IMPORT` | 模块/包导入 | `IMPORT python PACKAGE numpy >= 1.20;` |
-| `EXPORT` | 符号导出 | `EXPORT func AS "name";` |
-| `MAP_TYPE` | 类型映射 | `MAP_TYPE(cpp::int, python::int);` |
-| `PIPELINE` | 多阶段管道 | `PIPELINE name { ... }` |
-| `STAGE` | 管道阶段标记（仅在 `PIPELINE` 内有效） | `STAGE preprocess CALL python::utils::normalize;` |
-| `FUNC` | 函数声明 | `FUNC f(x: INT) -> INT { ... }` |
-| `LET` / `VAR` | 变量声明 | `LET x = 42;` / `VAR y = 0;` |
-| `CALL` | 跨语言调用 | `CALL(python, np::mean, data)` |
-| `STRUCT` | 结构体定义 | `STRUCT Point { x: f64, y: f64 }` |
-| `MAP_FUNC` | 映射函数 | `MAP_FUNC convert(x: INT) -> FLOAT { ... }` |
-| `CONVERT` | 类型转换 | `CONVERT(value, FLOAT)` |
-| `NEW` | 跨语言类实例化 | `NEW(python, torch::nn::Linear, 784, 10)` |
-| `METHOD` | 跨语言方法调用 | `METHOD(python, model, forward, data)` |
-| `GET` | 跨语言属性访问 | `GET(python, model, weight)` |
-| `SET` | 跨语言属性赋值 | `SET(python, model, training, FALSE)` |
-| `WITH` | 自动资源管理 | `WITH(python, f) AS handle { ... }` |
-| `DELETE` | 跨语言对象销毁 | `DELETE(python, obj)` |
-| `EXTEND` | 跨语言类继承扩展 | `EXTEND(python, Base) AS Derived { ... }` |
-| `CONFIG` | 环境配置 | `CONFIG CONDA "env";` |
-| `VENV` | pip/venv 环境 | `CONFIG VENV python "/path";` |
-| `CONDA` | Conda 环境 | `CONFIG CONDA "env_name";` |
-| `UV` | uv 管理环境 | `CONFIG UV python "/path";` |
-| `PIPENV` | Pipenv 项目 | `CONFIG PIPENV "project_path";` |
-| `POETRY` | Poetry 项目 | `CONFIG POETRY "project_path";` |
+| 严重度  | LSP DiagnosticSeverity | 行为                                                |
+|---------|------------------------|-----------------------------------------------------|
+| Error   | 1                      | 中止编译；沟里红标。                                |
+| Warning | 2                      | 编译继续；沟里黄标。                                |
+| Info    | 3                      | 信息提示。                                          |
+| Hint    | 4                      | 编辑器提示（如未使用变量）。                        |
 
-## 14.3 版本运算符
+### 13.2 问题面板
 
-| 运算符 | 含义 | 示例 |
-|--------|------|------|
-| `>=` | 大于等于 | `>= 1.20` |
-| `<=` | 小于等于 | `<= 2.0` |
-| `==` | 精确等于 | `== 1.10.0` |
-| `>` | 严格大于 | `> 1.0` |
-| `<` | 严格小于 | `< 3.0` |
-| `~=` | 兼容版本 (PEP 440) | `~= 1.20` → `>= 1.20, < 2.0` |
+跨所有语言服务器聚合的实时诊断。可按严重度、文件子串或正则过滤；
+双击跳转。后台扫描器对超过 2 000 文件的工作区按每 50 ms 50 文件
+分批处理。快速入门：
+[tutorial/problems_panel_quickstart_zh.md](tutorial/problems_panel_quickstart_zh.md)。
 
-## 14.4 参考资料
+### 13.3 性能分析器
 
-- "Compilers: Principles, Techniques, and Tools" (龙书)
-- "Engineering a Compiler" (鲸书)
-- LLVM: https://llvm.org/
-- Rust Compiler: https://github.com/rust-lang/rust
-- PEP 440: https://peps.python.org/pep-0440/
+工作流：
 
-## 14.5 发布打包
+```sh
+polyc --profile-instrument main.ploy -o build/main \
+      --emit=call-graph:build/main.cgjson \
+      --emit=profile-symbols:build/main.symjson
+polyrt profile --json build/main.profile.json --duration-ms 2000 build/main
+```
 
-PolyglotCompiler 提供各平台的打包脚本用于构建发布版本：
+在性能分析面板里打开 `build/main.profile.json`。Tab：
 
-| 平台 | 脚本 | 输出 |
-|------|------|------|
-| Windows | `scripts/package_windows.ps1` | 免安装 `.zip` + NSIS 安装程序 `.exe` |
-| Linux | `scripts/package_linux.sh` | 免安装 `.tar.gz` |
-| macOS | `scripts/package_macos.sh` | 免安装 `.tar.gz`（含 `.app` 包） |
+* **Flame** —— 按调用栈的火焰图。
+* **Hotspots** —— 按 self-time 的 top-N 符号。
+* **Timeline** —— 每线程 Gantt，含 GC 与 bridge 事件。
+* **Languages** —— 按宿主语言聚合 self-time，外加用于 FFI 开销的
+  虚拟 `bridge` 语言。
 
-```bash
-# Windows (PowerShell)
-.\scripts\package_windows.ps1
+NDJSON 流式变体（`--stream`）驱动 IDE 实时尾追。快速入门：
+[tutorial/profiling_quickstart_zh.md](tutorial/profiling_quickstart_zh.md)。
 
+### 13.4 调用分析
+
+加载 `--emit=call-graph` 产出的 `*.cgjson`。特性：
+
+* BFS-最长路径列布局。
+* 语言对过滤列表。
+* 任意两函数间有界 DFS 路径搜索。
+* 性能分析活跃时叠加运行时调用计数。
+* 双击节点跳转源码。
+
+无头等价：`polytopo`。快速入门：
+[tutorial/call_analyzer_quickstart_zh.md](tutorial/call_analyzer_quickstart_zh.md)。
+
+### 13.5 Bridge 检查器
+
+Bridge 面板列出每个跨语言调用点、源/目标符号、所用编排规则与采样
+后的值预览。FFI 签名不匹配时调试此面板很有用。
+
+### 13.6 堆快照
+
+`polyrt heap-snapshot --out heap.json <program>` 把 GC 堆导出为
+JSON 树，与 IDE 堆查看器兼容。该查看器支持两个快照对 diff 找泄漏。
+
+---
+
+## 14. 测试、示例与持续集成
+
+### 14.1 CTest 目标（共 30 个）
+
+```
+unit_tests             test_core              test_middle
+test_backends          test_runtime           test_linker
+test_lsp               test_polyls            test_completion_ranker
+test_plugins           test_problems          test_settings
+test_topology          test_topology_ui       test_e2e
+integration_tests      benchmark_tests        pe_smoke
+test_frontend_common
+test_frontend_cpp      test_frontend_python   test_frontend_rust
+test_frontend_java     test_frontend_dotnet   test_frontend_go
+test_frontend_javascript test_frontend_ruby   test_frontend_ploy
+samples_smoke          docs_lint              docs_sync
+```
+
+### 14.2 跑测试
+
+```sh
+ctest --test-dir build -j --output-on-failure
+ctest --test-dir build -R "frontend"            # 按名子集
+ctest --test-dir build -R "benchmark" -V        # 详细
+ctest --test-dir build -L "fast"                # 按 label
+ctest --test-dir build --rerun-failed           # 仅重跑失败
+ctest --test-dir build -T memcheck              # 在 valgrind 下
+```
+
+### 14.3 示例之旅（42 编号 + 变体）
+
+`tests/samples/00_minimal` … `tests/samples/41_grammar_polish` 构成
+语言与工具的渐进之旅。每个示例都有自己的 `README` 并被
+`samples_smoke` 目标覆盖。
+
+| 示例                                  | 演示                                          |
+|---------------------------------------|-----------------------------------------------|
+| `00_minimal`                          | 单 `.ploy` 文件，无宿主导入。                 |
+| `01_basic_linking` / `_v2`            | 通过 `LINK` 跨语言链接。                      |
+| `02_struct_types`                     | 聚合类型与模式匹配。                          |
+| `03_generic_functions`                | 受约束泛型。                                  |
+| `04_error_handling`                   | `TRY` / `CATCH` 与传播。                      |
+| `05_async_basics`                     | `ASYNC` / `AWAIT` 基础。                      |
+| `06_pipelines`                        | `PIPELINE` 语法。                             |
+| `07_io_and_files`                     | 标准 I/O bridge。                             |
+| `08_collections`                      | 列表 / map / set 跨语言桥接。                 |
+| `09_mixed_pipeline`                   | C++ + Python 流水线驱动。                     |
+| `10_rust_serde`                       | Rust serde 从 Ploy 桥接。                     |
+| `11_java_records`                     | Java record 映射到 IR `struct`。              |
+| `12_dotnet_async`                     | C# async 降到运行时调度器。                   |
+| `13_go_concurrency`                   | goroutine 与 channel。                        |
+| `14_javascript_promises`              | JS Promise 与 Ploy `ASYNC` 互通。             |
+| `15_async_await`                      | 异步函数与任务调度器。                        |
+| `16_ruby_blocks`                      | Ruby block 降为 closure。                     |
+| `17_optional_match`                   | `OPTION` / `MATCH` 穷尽。                     |
+| `18_extended_strings`                 | `r"…"`、`b"…"`、`f"…"` 字面量。               |
+| `19_visibility`                       | `PUBLIC` / `PRIVATE` / `INTERNAL`。           |
+| `20_class_bridge`                     | 跨语言类实例化。                              |
+| `21_polydoc`                          | 文档注释抽取。                                |
+| `22_database_access`                  | SQLite 客户端 + SQL 控制台。                  |
+| `23_http_client`                      | 跨语言 HTTP 客户端。                          |
+| `24_grpc_service`                     | gRPC 服务端到端。                             |
+| `25_simd_kernels`                     | x86_64 / arm64 上的 SIMD 内联。               |
+| `26_pgo_demo`                         | PGO instrument + use 循环。                   |
+| `27_lto_demo`                         | thin / full LTO。                             |
+| `28_gc_tuning`                        | GC 算法对比。                                 |
+| `29_plugin_panel`                     | 插件 SDK 示例。                               |
+| `30_wasm_build`                       | WebAssembly 端到端构建。                      |
+| `31_wasm_simd`                        | WASM SIMD-128。                               |
+| `32_remote_dev`                       | 远程开发容器。                                |
+| `33_dap_walkthrough`                  | 跨语言 DAP 调试。                             |
+| `34_test_explorer`                    | 测试浏览器集成。                              |
+| `35_coverage`                         | 覆盖率构建与覆盖率面板。                      |
+| `36_profiler_streaming`               | 实时 profile 流。                             |
+| `37_call_analyzer_paths`              | 调用分析面板路径搜索。                        |
+| `38_heap_snapshot`                    | 堆快照与 diff。                               |
+| `39_telemetry_optin`                  | 遥测选择性开启流程。                          |
+| `40_release_packaging`                | 端到端发布打包。                              |
+| `41_grammar_polish`                   | 最新文法精修回归。                            |
+
+### 14.4 基准
+
+`build/benchmark_*.json` —— `compilation`、`e2e`、`gc`、`link_times`、
+`optimizations`、`comparison`。由 `polybench` 驱动；CI 按回归阈值守门。
+结果在 IDE 基准仪表盘渲染。
+
+### 14.5 CI 质量门
+
+| 门                          | 行为                                                       |
+|-----------------------------|------------------------------------------------------------|
+| 构建矩阵                    | macOS arm64、Ubuntu x86_64、Windows x86_64。               |
+| `ctest` 全量                | 30 个目标必须全部通过。                                    |
+| Sanitizer 构建              | `unit_tests` 与 `test_runtime` 在 ASan + UBSan 下运行。    |
+| TSan 构建                   | `test_runtime` 与 `samples_smoke` 在 TSan 下每周一次。     |
+| 覆盖率                      | `unit_tests` 覆盖率构建；阈值 ≥ 80 %。                     |
+| `docs_lint` / `docs_sync`   | 双语结构与路径检查。                                       |
+| `samples_smoke`             | 全部 42 示例可构建并运行。                                 |
+| 基准回归                    | `benchmark_comparison.json` 偏离基线 ≤ 5 %。              |
+
+### 14.6 本地预检脚本
+
+```sh
+scripts/preflight.sh
+```
+
+在一分钟内跑完 `clang-format --dry-run`、`clang-tidy`、
+`docs_lint.py`、`docs_sync_check.py` 与一组快速 CTest 目标。
+
+---
+
+## 15. 构建系统与依赖
+
+### 15.1 顶层 CMake 目标
+
+```sh
+cmake --build build --target polyc polyld polyui polyls   # 核心工具
+cmake --build build --target unit_tests                   # 单 CTest 目标
+cmake --build build --target docs                         # 文档包
+cmake --build build --target package                      # 二进制发布
+cmake --build build --target install                      # 本地安装
+cmake --build build --target benchmark_tests              # 基准可执行
+```
+
+### 15.2 依赖清单
+
+第三方库声明在 [Dependencies.cmake](Dependencies.cmake)。通过
+`FetchContent_Declare` 拉取；按 tag + SHA 锁定。任意一项漂移 CI 都会
+失败。主要依赖：
+
+| 库               | 用途                                                            |
+|------------------|-----------------------------------------------------------------|
+| `spdlog`         | 内部日志（日志字符串只能为英文）。                              |
+| `nlohmann/json`  | 诊断、profile 流、插件清单的 JSON I/O。                          |
+| `Catch2`         | 单元测试框架。                                                  |
+| `Qt6`            | IDE 外壳。                                                      |
+| `lldb`           | 原生调试 DAP 适配器。                                           |
+| `zstd`           | `.ir.bin` 与增量缓存的压缩。                                    |
+| `re2`            | 问题面板里诊断消息正则匹配。                                    |
+
+### 15.3 Sanitizer / 覆盖率构建
+
+```sh
+cmake -S . -B build-asan -G Ninja -DPOLY_SANITIZE=address
+cmake -S . -B build-ubsan -G Ninja -DPOLY_SANITIZE=undefined
+cmake -S . -B build-tsan -G Ninja -DPOLY_SANITIZE=thread
+cmake -S . -B build-cov  -G Ninja -DPOLY_COVERAGE=ON
+```
+
+### 15.4 容器镜像
+
+`docker/` 提供可复现的 Ubuntu 22.04 与 Alpine 3.19 镜像，CI 使用。
+每个镜像都预装宿主工具链与各前端所需的可选语言 SDK。
+
+```sh
+docker build -t polyglot/ubuntu-ci -f docker/ubuntu-ci.Dockerfile .
+docker run --rm -it -v "$PWD":/work polyglot/ubuntu-ci \
+       cmake -S /work -B /work/build-docker -G Ninja
+```
+
+### 15.5 版本
+
+项目版本的唯一真源是根 [CMakeLists.txt](CMakeLists.txt)
+（`project(PolyglotCompiler VERSION 1.45.2)`）。所有版本变更必须
+触动该行；`scripts/bump_version.py` 强制此规则。
+
+```sh
+python scripts/bump_version.py --part=patch   # 1.45.2 → 1.45.3
+python scripts/bump_version.py --part=minor   # 1.45.2 → 1.46.0
+python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
+```
+
+该脚本同时更新根 `CMakeLists.txt`、内嵌于 `polyver` 的版本与双语
+变更日志头。
+
+### 15.6 安装布局
+
+`cmake --install build --prefix /opt/polyglot` 产出：
+
+```
+/opt/polyglot/
+├── bin/    polyc, polyld, polyasm, polyopt, polyrt, polybench,
+│           polytopo, polyls, polydoc, polyver, polyui
+├── lib/    libpoly_runtime.* libpoly_middle.* …
+├── include/poly/...
+├── share/polyglot/samples/
+└── share/doc/polyglot/  (HTML 渲染的 docs/)
+```
+
+---
+
+## 16. 扩展编译器
+
+### 16.1 新增 Ploy 关键字
+
+1. 扩展 `frontends/ploy/lexer.cpp` 的词法表。
+2. 在 `frontends/ploy/parser.cpp` 添加文法产生式。
+3. 在 `frontends/ploy/lower.cpp` 把它降到现有 IR。
+4. 在
+   [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
+   及 ZH 对应文档记录关键字。
+5. 在 `tests/samples/` 增加示例。
+6. 在 `tests/unit/frontend_ploy/` 增加前端测试。
+
+### 16.2 新增包管理器
+
+1. 在 `frontends/common/package_discovery.cpp` 实现检测。
+2. 在 `tests/integration/package_managers/` 加入 fixture 项目。
+3. 同步本指南 [§ 4.4](#44-包管理器自动发现) 与 ZH 对应内容。
+4. 若需新增 SDK，更新 CI fixture 镜像。
+
+### 16.3 新增后端特性开关
+
+1. 在对应 `backends/<arch>/features.cpp` 表中加入开关。
+2. 接通代码生成分支。
+3. 加入触发该特性的 e2e 测试。
+4. 在 [第 10 章](#10-后端) 中记录。
+
+### 16.4 新增中端 Pass
+
+代码骨架见 [§ 8.6](#86-编写-pass)。然后：
+
+1. 在 `middle/pipeline_defaults.cpp` 注册 pass id。
+2. 在 `tests/unit/middle/passes/` 增加单元测试。
+3. 在 [§ 8.3](#83-pass-目录) 与
+   [realization/middle_passes.md](realization/middle_passes.md)
+   记录 pass。
+4. 若改动默认 O2 流水线，更新基准基线。
+
+### 16.5 新增前端
+
+1. 创建 `frontends/<lang>/`，标准布局
+   （`include/`、`src/`、`tests/`、`examples/`）。
+2. 实现 `Lower(SourceBuffer) → IRModule`。
+3. 在 `frontends/common/extension_table.cpp` 注册扩展名。
+4. 增加 `test_frontend_<lang>` CTest 目标。
+5. 在 `tests/samples/` 至少加入一个示例。
+6. 同步本指南第 5、6 章及 ZH 对应内容。
+
+### 16.6 新增目标三元组
+
+1. 在 `backends/<arch>/triple_<os>.cpp` 实现新 ABI。
+2. 在 `scripts/sysroot/` 增加 sysroot 配置脚本。
+3. 在 `tests/e2e/cross/` 增加交叉编译 e2e 测试。
+
+### 16.7 代码风格
+
+* C++：`.clang-format` 配置；clang-tidy 强制 modernize-* 与
+  bugprone-*。
+* Ploy：内置 `polyc --format` 是格式化基准。
+* 所有源内注释一律英文。
+* 不允许在注释中出现 “minimal”、“stub”、“placeholder” 等用语。
+* 公共 API 必须有 `///` 文档注释，由 `polydoc` 解析。
+
+### 16.8 文档规则
+
+* 每篇英文文档都有同目录的 `_zh` 对应文档。
+* 双语修改必须同 commit；CI 跑 `scripts/docs_sync_check.py`。
+* 标题与结构两侧镜像一致。
+* 注释或文档中不出现需求文档标识符。
+* 版本变更同步根 `CMakeLists.txt`。
+
+### 16.9 提交变更
+
+1. fork；建立主题分支。
+2. 跑 `scripts/preflight.sh`。
+3. 提 PR；CI 跑全矩阵。
+4. 处理 review 意见；按要求 squash。
+5. 维护者在所有门绿后以 `Squash & merge` 合入。
+
+---
+
+## 17. 插件 SDK
+
+### 17.1 架构
+
+插件是动态库，`polyui` 从 `<config>/polyui/plugins/`，`polyc` 从
+`<config>/polyc/plugins/` 发现。每个插件导出一个小而稳定的 C ABI 面，
+并在前置位置声明能力开关，以便宿主对未知扩展做沙箱限制。
+
+### 17.2 能力开关
+
+| 开关                         | 授予                                                      |
+|------------------------------|-----------------------------------------------------------|
+| `POLY_CAP_FRONTEND`          | 注册新源语言前端。                                        |
+| `POLY_CAP_BACKEND`           | 注册新代码生成后端。                                      |
+| `POLY_CAP_PASS`              | 注册中端优化 pass。                                       |
+| `POLY_CAP_PANEL`             | 给 `polyui` 加 UI 面板。                                  |
+| `POLY_CAP_LSP_PROVIDER`      | 提供某语言 LSP 服务器。                                   |
+| `POLY_CAP_DAP_PROVIDER`      | 提供 DAP 调试器。                                         |
+| `POLY_CAP_PACKAGE_MANAGER`   | 注册包管理器检测器。                                      |
+| `POLY_CAP_AI_PROVIDER`       | 提供 AI 助手后端。                                        |
+| `POLY_CAP_VIEWER`            | 注册文件类型查看器。                                      |
+
+### 17.3 必选导出
+
+```c
+const PolyPluginManifest *poly_plugin_manifest(void);
+int  poly_plugin_init(PolyHostServices *host);
+void poly_plugin_shutdown(void);
+```
+
+### 17.4 可选导出
+
+```c
+int  poly_plugin_register_frontend(PolyFrontendRegistry *r);
+int  poly_plugin_register_backend(PolyBackendRegistry *r);
+int  poly_plugin_register_passes(PolyPassRegistry *r);
+int  poly_plugin_register_panels(PolyPanelRegistry *r);
+int  poly_plugin_register_lsp(PolyLspRegistry *r);
+int  poly_plugin_register_dap(PolyDapRegistry *r);
+int  poly_plugin_register_pkg(PolyPackageRegistry *r);
+int  poly_plugin_register_ai(PolyAiRegistry *r);
+int  poly_plugin_register_viewer(PolyViewerRegistry *r);
+```
+
+### 17.5 宿主服务
+
+插件接收 `PolyHostServices`，提供日志、设置访问、文件 I/O、遥测与
+事件总线。插件不得直接链接宿主内部。
+
+```c
+typedef struct PolyHostServices {
+    int  api_version;
+    void (*log)(int level, const char *msg);
+    int  (*get_setting)(const char *key, char *out, size_t out_size);
+    int  (*set_setting)(const char *key, const char *value);
+    int  (*read_file)(const char *path, void **buf, size_t *len);
+    int  (*emit_event)(const char *topic, const char *payload);
+    int  (*subscribe)(const char *topic, void (*cb)(const char *));
+} PolyHostServices;
+```
+
+### 17.6 插件文件位置
+
+| 操作系统 | 位置                                          |
+|----------|-----------------------------------------------|
+| Linux    | `~/.config/polyui/plugins/`                   |
+| macOS    | `~/Library/Application Support/polyui/plugins/` |
+| Windows  | `%APPDATA%\polyui\plugins\`                   |
+
+### 17.7 简单示例
+
+```c
+#include "polyplugin.h"
+
+static const PolyPluginManifest g_manifest = {
+    .api_version = POLY_PLUGIN_API_VERSION,
+    .name        = "hello-plugin",
+    .version     = "1.0.0",
+    .capabilities = POLY_CAP_PANEL,
+};
+
+const PolyPluginManifest *poly_plugin_manifest(void) { return &g_manifest; }
+
+int poly_plugin_init(PolyHostServices *host) {
+    host->log(POLY_LOG_INFO, "hello-plugin loaded");
+    return POLY_OK;
+}
+
+void poly_plugin_shutdown(void) {}
+```
+
+构建：
+
+```sh
+cc -shared -fPIC -I /opt/polyglot/include hello.c \
+   -o ~/.config/polyui/plugins/hello.so
+```
+
+### 17.8 插件测试
+
+`tests/unit/plugins/` 中的宿主夹具会从 fixture 目录加载插件，
+覆盖每个注册的能力，并检查干净退出。
+
+---
+
+## 18. 附录
+
+### 18.1 词汇表
+
+| 术语            | 定义                                                                  |
+|-----------------|-----------------------------------------------------------------------|
+| Bridge call     | 经 `runtime::ffi::BridgeFrame` 降级的跨语言调用。                     |
+| CTest target    | 注册到 CTest 的逻辑测试可执行（本项目共 30 个）。                     |
+| Driver          | `build/` 下任意一个工具二进制（共 11 个）。                           |
+| Frontend        | 把某种源语言降到统一 IR 的静态库。                                    |
+| Pipeline        | Ploy 中的 `PIPELINE` 链；亦指优化 pass 序列。                         |
+| Sample          | `tests/samples/` 下的编号项目。                                       |
+| Triple          | 传给 `--target=` 的 `arch-vendor-os-abi` 字符串。                     |
+| Sysroot         | 交叉编译时使用的工具链根。                                            |
+| Bridge ABI      | `bridge_call` 使用的编排契约。                                        |
+| Safepoint       | GC 可在此运行的 IR 位置。                                             |
+
+### 18.2 工具与章节交叉索引
+
+| 工具         | 章节                                     |
+|--------------|------------------------------------------|
+| `polyc`      | [6.1](#61-polyc--编译器驱动)             |
+| `polyld`     | [6.2](#62-polyld--链接器)、[11](#11-链接器与目标格式) |
+| `polyasm`    | [6.3](#63-polyasm--汇编器--反汇编器)     |
+| `polyopt`    | [6.4](#64-polyopt--ir-优化器)、[8](#8-中端优化) |
+| `polyrt`     | [6.5](#65-polyrt--运行时-cli)、[9](#9-运行时)、[13.3](#133-性能分析器) |
+| `polybench`  | [6.6](#66-polybench--基准测试驱动)、[14.4](#144-基准) |
+| `polytopo`   | [6.7](#67-polytopo--调用图拓扑查看器)、[13.4](#134-调用分析) |
+| `polyls`     | [6.8](#68-polyls--语言服务器)、[12](#12-idepolyui-与语言服务器) |
+| `polydoc`    | [6.9](#69-polydoc--文档抽取器)            |
+| `polyver`    | [6.10](#610-polyver--版本与清单工具)     |
+| `polyui`     | [6.11](#611-polyui--ide-外壳)、[12](#12-idepolyui-与语言服务器) |
+
+### 18.3 发布打包
+
+```sh
 # Linux
-./scripts/package_linux.sh
-
-# macOS
-./scripts/package_macos.sh
+cmake --build build --target package
+# macOS —— 产出可公证的 .pkg
+cmake --build build --target package_macos
+# Windows（PowerShell）
+cmake --build build --target package_windows
 ```
 
-详细说明、前置要求和版本管理请参见 `docs/specs/release_packaging_zh.md`。
-
-## 14.6 更新日志
-
-完整的发布历史已迁移到独立文档。
-请参阅 [`CHANGELOG.md`](CHANGELOG.md)（英文） /
-[`CHANGELOG_zh.md`](CHANGELOG_zh.md)（中文）查阅自
-v0.1.0 (2026-01-15) 起的全部版本条目。
-
----
-
-<!-- BEGIN:version_footer_zh -->
-*本文档由 PolyglotCompiler 团队维护*  
-*最后更新: 2026-04-28*  
-*文档版本: v1.2.0*
-<!-- END:version_footer_zh -->
-
-
-# 12. 语言服务器架构
-
-> 1.20.0 引入（需求条目 2026-04-28-19）。详细参考：
-> [`docs/specs/lsp_integration_zh.md`](./specs/lsp_integration_zh.md) 与
-> [`docs/api/polyls_zh.md`](./api/polyls_zh.md)。
-
-polyui IDE 通过标准 **Language Server Protocol** (LSP) 与语言服务器
-通信。仓库自带 **polyls** 服务器，把内置前端暴露为 LSP；其他语言
-（C++ / Python / Rust / Java / C#）默认走 clangd / pyright /
-rust-analyzer / jdtls / omnisharp，可在 **设置 -> Language Servers**
-页面按语言逐项替换。
-
-## 12.1 组件
-
-| 层级 | 代码位置 |
-|------|----------|
-| 线类型 + 分帧                 | `tools/ui/common/lsp/lsp_message.{h,cpp}` |
-| JSON-RPC 客户端 + 传输抽象    | `tools/ui/common/lsp/lsp_client.{h,cpp}` |
-| 会话注册表（工作区 + 语言）   | `tools/ui/common/lsp/lsp_session.{h,cpp}` |
-| 能力缓存                       | `tools/ui/common/lsp/lsp_capability_registry.{h,cpp}` |
-| LSP 通信日志面板               | `tools/ui/common/lsp/lsp_log_panel.{h,cpp}` |
-| 编辑器胶水（防抖 + 同步事件）  | `tools/ui/common/{include,src}/lsp_bridge.{h,cpp}` |
-| 无头服务器                     | `tools/polyls/polyls_core/` + `tools/polyls/polyls.cpp` |
-
-## 12.2 polyui 内的工作流
-
-1. `MainWindow::OpenFileInTab(path)` 打开文件后调用
-   `IdeLspBridge::TrackEditor(editor, lang)`。
-2. 桥接器从 `SettingsService` 读取
-   `languageServers.servers.<lang>`，用 `StdioTransport`（基于
-   `QProcess` 的 `ILspTransport`）启动可执行文件，依次发送
-   `initialize` -> `initialized`。
-3. 200 ms 防抖（可在 `languageServers.changeDebounceMs` 调整）将
-   `QTextDocument::contentsChanged` 翻译为 `didChange`。
-4. 收到的 `publishDiagnostics` 被转换成 `DiagnosticInfo` 并交给
-   `CodeEditor::SetDiagnostics`，渲染为波浪下划线 + gutter 图标。
-5. `Save()` 发送 `didSave`；`CloseTab()` 发送 `didClose`；
-   `~MainWindow()` 对每个已初始化会话发送 `shutdown` + `exit`。
-
-## 12.3 配置
-
-所有设置位于 `languageServers.*` 命名空间，因为 schema 是按命名空间
-自动构建页面的，所以 Settings 对话框会自动出现 Language Servers 分页。
-默认值：
-
-- `languageServers.enabled = true`
-- `languageServers.changeDebounceMs = 200`
-- `languageServers.logCapacity = 2000`
-- `languageServers.servers.ploy = { command: "polyls", args: [] }`
-- `languageServers.servers.cpp = { command: "clangd", args: [] }`
-- `languageServers.servers.python = { command: "pyright-langserver", args: ["--stdio"] }`
-- `languageServers.servers.rust = { command: "rust-analyzer", args: [] }`
-- `languageServers.servers.java = { command: "jdtls", args: [] }`
-- `languageServers.servers.csharp = { command: "omnisharp", args: ["-lsp"] }`
-
-当配置的可执行文件不在 `PATH` 中时，桥接器会静默地为该会话禁用语言
-服务器，并在状态栏发出非阻塞提示与修复指引。
-
-## 12.4 查看通信
-
-底部面板新增 **LSP** 标签页，展示与活动会话之间的全部 JSON-RPC 帧。
-支持过滤：方向（tx/rx）、类型（request/response/notification）以及
-方法名子串。
-
-## 13. 实时诊断与 Problems 面板
-
-自 v1.21.0 起，IDE 自带常驻 Problems 面板与实时诊断管线。
-
-### 13.1 打开面板
-
-- 点击状态栏右侧的彩色 `E:N W:N H:N` 计数器。
-- 或通过面板管理：**视图 -> 面板 -> Problems**。
-
-### 13.2 过滤器
-
-- 严重级别开关：Error / Warning / Info / Hint（多选）。
-- 文件子串（大小写不敏感，匹配文件名）。
-- 来源子串（匹配 `polyls:<lang>` / `polyc` / `polyc-bg`）。
-- 消息正则（ECMAScript）。非法正则会被静默忽略。
-
-### 13.3 跳转
-
-双击任一行可在编辑器中打开对应位置。
-
-### 13.4 来源
-
-| 来源标签         | 生产者                                                |
-|------------------|-------------------------------------------------------|
-| `polyls:<lang>`  | LSP 服务器，由 `publishDiagnostics` 镜像而来。        |
-| `polyc`          | 前台进程内编译 / 分析。                               |
-| `polyc-bg`       | 工作区后台扫描（每节拍 50 文件、节拍 50 ms）。        |
-
-工作区文件数超过 2000 时，会触发异步首检，状态栏显示
-`Scanning N/M ...` 进度提示。
-
-### 13.5 `polyc --check`（CLI 回退）
-
-```
-polyc --check <file> [--lang=<id>]
-```
-
-向 stdout 写出一份与 LSP 同形的 JSON（`uri` + `diagnostics`）。
-退出码：`0` 干净，`1` 存在 error，`2` 用法 / I/O 失败。
-适合把 Polyglot 诊断接入不支持 LSP 的编辑器。
-
-## IDE 跳转（`polyls`）
-
-除了诊断、补全、悬停和签名帮助以外，`polyls` 还应答标准的 LSP 跳转请求：
-
-| 快捷键         | LSP 方法                              | 说明                                                      |
-|----------------|---------------------------------------|-----------------------------------------------------------|
-| `F12`          | `textDocument/definition`             | 跳转到符号定义。                                           |
-| `Shift+F12`    | `textDocument/references`             | 列出工作区中所有引用。                                     |
-| `Ctrl+F12`     | `textDocument/implementation`         | 跳转到 `LINK` 的宿主语言实现。                             |
-| `Ctrl+K F12`   | （Peek）                               | 在光标处打开内联 Peek 视图。                               |
-| `Ctrl+Click`   | `textDocument/definition`             | 等价于 F12，鼠标驱动。                                     |
-
-这些处理器构建在工作区级 `SymbolIndex` 之上，它会扫描 `.ploy` 源码以及
-`IMPORT` 进来的所有宿主语言模块（`cpp`、`python`、`rust`、`java`、`dotnet`）。
-索引随 `didOpen` / `didChange` / `didSave` 增量重建，并持久化到
-`<workspace>/.polyc-cache/symbol_index.json`，使服务器冷启动即可应答查询。
-
-跨语言跳转支持双向：点击 `.ploy` 中的 `LINK` 限定名可跳转到宿主语言定义；
-在宿主语言文件中发起 `references` 时，也会列出每一处引用它的 `.ploy`
-`LINK` 位置。完整设计见
-[`realization/symbol_index_zh.md`](realization/symbol_index_zh.md)。
-
-
-## IDE 重构（`polyls`）
-
-`polyls` 应答标准 LSP 重构请求（`textDocument/prepareRename`、
-`textDocument/rename`、`textDocument/codeAction`），编辑以单个
-`WorkspaceEdit` 形式返回，由编辑器以单步 undo 应用。
-
-| 快捷键           | 动作                                                                |
-|------------------|---------------------------------------------------------------------|
-| `F2`             | 在工作区范围重命名光标处标识符。                                      |
-| `Ctrl+Shift+R`   | 将当前选区提取为新 `FUNC`。                                          |
-| 灯泡菜单         | 内联变量、内联函数、修改签名、移动文件。                              |
-
-跨语言重命名支持双向：在宿主语言文件（`.cpp` / `.py` / `.rs` / `.java`
-/ `.cs`）中重命名函数时，所有引用该符号的 `.ploy` `LINK` / `EXPORT`
-站点会自动同步；从 `.ploy` LINK 限定名发起重命名同样会改写宿主文件。
-字符串字面量与 `//` / `#` 注释中的标识符子串保持不变。完整设计见
-[`realization/refactoring_zh.md`](realization/refactoring_zh.md)。
-
-
-## 语义级语法高亮
-
-PolyUI 内置一套 tree-sitter 形态的运行时，由同一棵解析树驱动折叠、
-文档大纲、Smart Select 与语法着色。当内嵌的 `polyls` 可达时，编辑器
-通过 LSP `textDocument/semanticTokens` 通道直接使用语言服务器返回的
-颜色，正则版高亮器自动让位。
-
-* **设置项**：`editor/useLspSemanticTokens`，**默认开启**。可在
-  *Settings → Editor → Use LSP semantic tokens* 中切换。
-* **Fallback**：关闭该设置或文件扩展名未注册 grammar 时，由旧的
-  正则高亮器承担着色。
-* **支持语言**：Ploy、C++、Python、Rust、Java、C#。
-
-架构与 wire 格式详见
-[`realization/semantic_highlight_zh.md`](realization/semantic_highlight_zh.md)。
-
-## 多标签 / Quick Open / 全局搜索
-
-PolyUI 编辑器面支持多标签缓冲区、最多 4×4 分屏，以及跨分组的标签
-拖拽。Pinned 标签对 *关闭其他* 与 *关闭右侧* 免疫；右键单击标签可
-切换 pin 状态。
-
-* **`Ctrl+P` Quick Open**：模糊文件名搜索；最近打开的文件自动靠前。
-* **`Ctrl+Shift+P` 命令面板**：与前序版本一致，保持不变。
-* **`Ctrl+T` 工程符号**：走 LSP `workspace/symbol`，子串匹配。
-* **`Ctrl+Shift+O` 文件符号**：走 LSP `textDocument/documentSymbol`，
-  同时驱动 Outline 面板与 Breadcrumbs。
-* **`Ctrl+Shift+F` 全局查找**：正则 / 大小写 / 全词；glob include /
-  exclude；替换支持捕获组；结果流式刷新。
-* **Outline / Breadcrumbs / Minimap**：Outline 在侧栏，Breadcrumbs
-  在编辑器顶部，Minimap 可在 *View → Minimap* 切换。
-
-架构详情：
-[`realization/editor_panels_zh.md`](realization/editor_panels_zh.md)。
-
-## 多光标 / 折叠 / 格式化 / EditorConfig
-
-PolyUI 编辑器为所有受支持语言提供现代高级编辑能力：
-
-* **多光标**：`Alt+Click` 在点击处加光标；`Ctrl+Alt+↑` / `Ctrl+Alt+↓`
-  上下扩展光标；`Ctrl+D` 选下一个相同；`Ctrl+Shift+L` 选所有相同。
-  `Shift+Alt+拖拽` 生成矩形列选区。
-* **折叠**：边栏箭头可折叠括号匹配的代码块、多行 C 风格注释，以及显式的
-  `// region 名称` / `// endregion` 标记。`Ctrl+K Ctrl+0` 折叠全部；
-  `Ctrl+K Ctrl+J` 展开全部。
-* **格式化**：`polyls` 为 `.ploy` 提供 format-on-save / format-on-paste /
-  format-on-type；外语种走各自 LSP。可在 *设置 → 编辑器 → 格式化* 中切换。
-* **Snippets**：用户 JSON 片段（`tools/ui/common/resources/`）遵循 VS Code
-  规范（`prefix` / `body` / `description`），支持 `$1`、`${1:default}`、
-  `${2|a,b|}`、`$CURRENT_DATE`、`$TM_FILENAME` 等。
-* **EditorConfig**：工程根的 `.editorconfig` 控制缩进、行尾、编码、是否
-  裁剪行尾空白、是否补齐末行换行。状态栏显示当前缓冲区的合成设置。
-
-架构详情：
-[`realization/power_editing_zh.md`](realization/power_editing_zh.md)。
-
-## SCM 进阶：diff / blame / 合并解决器
-
-源代码管理面板通过与后端无关的 `ScmProvider` 接入，今天对接 Git，未来可
-对接 Mercurial 或 Subversion，UI 保持一致：
-
-* **Diff 视图**：行内或并排两种模式；每个 hunk 都带 *Stage* / *Unstage* /
-  *Revert* 操作；diff 缓冲区内的 LSP 悬浮、跳转、问题面板继续工作。
-* **Blame**：边栏按行显示最近一次提交的短哈希与作者；悬浮可看完整提交
-  信息；点击则在 log 面板中打开该提交。
-* **合并冲突解决器**：含 `<<<<<<<` 标记的文件以三向视图打开，可一键
-  *Accept current* / *Accept incoming* / *Accept both*，也可在结果区手动
-  编辑。
-
-架构详情：
-[`realization/scm_advanced_zh.md`](realization/scm_advanced_zh.md)。
-
-## DAP 调试（任意语言）
-
-PolyUI 内嵌完整的 Debug Adapter Protocol 客户端，任何 DAP 适配器——
-`debugpy`、`lldb-vscode`、`codelldb`、`netcoredbg`、JDI 桥接——都能驱动
-与自带 `.ploy` 运行时调试器相同的调试界面。
-
-* **启动配置**位于 `.polyc/launch.json`（VS Code 规范）。内置模板覆盖
-  `.ploy` Run/Debug、Python、C/C++（lldb / gdb）、Rust（codelldb）、Java
-  与 .NET。
-* 支持 `${workspaceFolder}`、`${file}`、`${fileBasename}`、`${env:NAME}`、
-  `${command:NAME}` 等变量替换。
-* **断点**支持条件、命中计数、日志点、异常过滤与函数断点。
-* **调试面板** — Call Stack、Threads、Variables、Watch、Scope 与 Debug
-  Console 接入会话模型；暂停时边栏显示行内变量值。
-
-架构详情：
-[`realization/dap_integration_zh.md`](realization/dap_integration_zh.md)。
-
-## 任务、Run/Debug 选择器与 Hot Reload
-
-PolyUI 新增完整的任务编排层与统一的状态栏 Run/Debug 菜单。
-
-* **`.polyc/tasks.json`** —— VS Code 2.0 规范，支持 `dependsOn` /
-  `dependsOrder`（并行 & 顺序）、`isBackground`、`problemMatcher`
-  （`$gcc`、`$clang`、`$msbuild`、`$tsc`、`$rustc`、`$pylint`、
-  `$polyc`）、`group`（`build` / `test` / `clean` / `custom`）以及
-  每任务的环境变量覆盖。内置模板覆盖 `cmake build`、`ctest`、
-  `clang-format`、`clang-tidy` 与一个后台 watch 任务。
-* **输出面板**将每个任务路由到独立子频道（`task:<label>`），并通过
-  `problemMatcher.beginsPattern` / `endsPattern` 识别 watch 模式的
-  开始 / 结束边界。
-* **状态栏选择器**把所有任务与所有 `launch.json` 配置合并为单一快捷
-  选择菜单 —— 组默认项排在最前。
-* **Hot Reload / Edit-and-Continue** —— 文件保存经 `HotReloadEngine`
-  分发：`.ploy` 与 Python 走增量重编 + 模块替换；C++/Rust 在 polyrt
-  支持下做函数符号热替换（仅调试态）；Java / .NET 接入 JDI / EnC。
-  重载进行中的二次保存会被合并，只跑最新一次。
-
-架构详情：
-[`realization/tasks_runtime_zh.md`](realization/tasks_runtime_zh.md)。
-
-## 测试浏览器、Inline Run-Test 与覆盖率视图
-
-PolyUI 把 CTest、pytest、cargo test、JUnit、xUnit、NUnit 等测试框架
-汇总到统一的「测试浏览器」面板，并把覆盖率信息直接绘制到编辑器行号槽
-位上。
-
-* **树视图**：项目 → 套件 → 用例，按状态着色（通过、失败、错误、跳过、
-  待运行、运行中）。右键节点可单测重跑或整套件重跑；切换「失败优先」
-  排序聚焦回归。
-* **报告适配**：将 CTest CDash XML、JUnit/pytest XML、cargo
-  `--format json` 日志、xUnit v2 XML、NUnit 3 XML 导入面板，
-  框架无关的 [`TestModel`](../tools/ui/common/testing/test_model.h)
-  会统一吸收，亦可作为 LSP 测试协议的抽象层。
-* **行内 ▶ 运行 / 🐞 调试 CodeLens**：内建检测器识别 Catch2
-  （`TEST_CASE`）、pytest（`def test_*`）、Rust（`#[test]`）、
-  JUnit（`@Test`）、xUnit（`[Fact]` / `[Theory]`）、NUnit（`[Test]`）
-  声明。运行器捕获到的失败会回写到 lens 上，作为行内诊断展示。
-* **覆盖率行号槽位**：从 lcov、Cobertura、coverage.py、
-  cargo-tarpaulin、dotnet coverlet 报告渲染颜色条与百分比。工作区
-  树列出每个文件的百分比；任意文件低于阈值即触发徽标告警。
-
-架构详情：
-[`realization/test_explorer_zh.md`](realization/test_explorer_zh.md)。
-
-## 包管理、依赖图、漏洞扫描、REPL 与 Notebook
-
-PolyUI 把十二种生态——venv、conda、uv、pipenv、poetry、cargo、
-npm、maven、gradle、nuget、gem、go-mod——统一到同一面板，旁边并列
-解析依赖图，扫描已知漏洞，并内嵌 REPL 与 Notebook 用于实时探索。
-
-* **统一的包管理面板**——无论底层生态如何，都通过同一组命令完成
-  install/upgrade/remove。状态栏按生态显示当前激活的环境；在两个
-  虚拟环境或两个 Cargo 工作区之间切换只需一次点击。锁文件原地解码
-  为统一的表格视图，覆盖 `Cargo.lock`、`uv.lock`、`Pipfile.lock`、
-  `package-lock.json`、`pom.xml`、`gradle.lockfile`、
-  `packages.lock.json`、`Gemfile.lock`、`go.sum`。`.ploy CONFIG`
-  与解析锁文件双向同步，面板标出任一侧缺失的需求。
-* **依赖图**——同一面板提供层级树视图（每个直接依赖一个节点，
-  传递依赖作为子节点）与力导向图视图。版本冲突（同一逻辑包在
-  不同路径上被解析到不同版本）以红色高亮；根节点以蓝色高亮。
-  当前视图可导出为自洽的 SVG，便于写文档和提 PR 时引用。
-* **漏洞扫描**——告警从 osv.dev 与 GitHub Advisory 数据库拉取，
-  匹配解析后的版本，结果同时呈现为编辑器内联诊断与面板列表，
-  每条结果带严重等级、摘要、影响范围与首个修复版本。按 id 的
-  抑制列表保存在 `.polyc/security.json`，已接受的风险决策在重新
-  扫描后保留。
-* **REPL 面板**——内置 `.ploy` REPL 由 `polyc --repl` 驱动；
-  Python、IRust、IRB、dotnet-script 也内嵌在同一面板下。每个会话
-  独立保存转录，工作区重载后可回放上次的交互。
-* **Notebook 视图**——`.polynb` 是一等公民。单元类型为代码、
-  Markdown 或跨语言 `LINK`；`LINK` 单元把一种语言的目标符号绑定
-  到另一种语言的源符号，执行时同时驱动两个引擎，端到端记录数据
-  流动。落盘格式为纯 JSON，对 diff 友好。
-
-架构详情：
-[`realization/polyui_package_management_zh.md`](realization/polyui_package_management_zh.md)。
-
-## 跨语言导航、Bridge 面板与 Marshalling 视图
-
-PolyUI 把跨语言能力推到台前：在 `.ploy` 与五种宿主语言之间双向
-跳转、Hover、协调重命名；专设面板列出 polyc 生成的所有 bridge；
-侧栏视图揭示它们的 marshalling 流水线。
-
-* **跨语言跳转 / Hover / 重命名**——在 `LINK <lang>::<symbol>` 上
-  按 F12 直接跳转到宿主源；宿主语言定义上方显示
-  *X `.ploy` LINK references* CodeLens，点击展开所有引用该符号的
-  `.ploy` 点位列表。任意一侧的重命名都通过 polyls 协调：一次
-  `WorkspaceEdit` 计划同时改写宿主语言定义、所有 `.ploy` LINK
-  点位以及宿主端 LSP 报告的引用，由各 LSP 原子提交。
-* **Bridge 面板**——polyc 生成的每个跨语言 bridge 都出现在统一
-  面板中，列出生成的 stub 名、marshalling 策略、源声明位置以及
-  来自 polyrt calltrace 的实时调用次数。双击跳源；重新导入构建
-  产物会保留运行期计数，看板保持连续。
-* **Marshalling 可视化**——选中 `LINK` / `CALL` / `METHOD` 时，
-  侧栏渲染参数与返回值的转换链路：IR 下降、marshalling helper、
-  目标 ABI 适配器三段顺序步骤。每一步显示 helper 名、来自下降
-  输出的代码片段，并支持点开源。该视图覆盖五种宿主语言（C++、
-  Rust、Python、Java、.NET）；当 polyc 尚未输出链路文档时，会从
-  bridge 元数据合成标准流水线，确保面板始终有内容。
-
-架构详情：
-[`realization/cross_language_ide_zh.md`](realization/cross_language_ide_zh.md)。
-
-## 编译流水线 Inspector、IR Viewer/Diff 与 Asm Viewer
-
-PolyUI 现已提供类 Compiler Explorer 的检视栈，可清晰看到 polyc
-在每个构建阶段做了什么。
-
-* **Pipeline Inspector**——构建结束后打开 *Pipeline* 面板，可看
-  到六个标准阶段（frontend、sema、IR pre-opt、IR post-opt、
-  backend asm、link）及各自耗时与 polyc 落在 `aux/` 的产物；归
-  一化直方图让瓶颈一目了然，点击行可把对应产物送入 IR 或 Asm
-  Viewer。
-* **IR Viewer / Diff**——IR 视图按函数与基本块折叠，行号槽与源
-  码视图保持同步。*对比优化* 按钮可在同一函数的 pre-opt /
-  post-opt IR 之间开启 side-by-side diff；diff 只读，基于 LCS
-  保证未变化区域对齐。源码 ↔ IR ↔ 产物的跳转通过同一张行绑定表
-  联动，三栏光标同步。
-* **Asm Viewer**——asm 视图渲染 x86_64 / arm64 / wasm 三种目标
-  的反汇编，并把每条指令绑定回生成它的源行。悬停源行会高亮所
-  有对应指令；悬停指令会高亮源行。polyasm 与各 backend 反汇编
-  器同时输出 DWARF `.file`/`.loc` 指令以及内联的 `; src=` 注释，
-  即使是手写 prologue 也能命中绑定。
-
-架构详情：
-[`realization/compile_pipeline_inspector_zh.md`](realization/compile_pipeline_inspector_zh.md)。
-
-## Sample / Tutorial Browser、Topology Live 与类型推断浮层
-
-PolyUI 新增三项可发现性能力，让 IDE 更易上手、更易导航。
-
-* **Sample / Tutorial Browser**——打开 *Samples* 面板可浏览
-  `tests/samples/` 下所有示例与 `docs/tutorial/` 下所有教程。
-  按语言、主题、难度或全文筛选条目，然后点击 *以工作区副本打开*
-  即可把选中条目克隆到指定目录；源树永远不会被改动——所有副本
-  仅落在目标根目录下。
-* **Topology Live**——拓扑面板会跟随编辑器：把光标移到某个符号
-  上，面板就缩放到该符号的邻域（半径可配）；清除选择则退回到
-  以当前文件为锚的节点。点击任意节点可回跳到其源位置；编辑触发
-  带 debounce 的增量重建，拓扑保持同步而不必每次键入都重算。
-* **类型推断浮层**——polyls 现已回应 `textDocument/inlayHint`。
-  `LET m = NEW(python, "torch.nn.Linear", 8, 4)` 这样的行尾会浮
-  现 `: HANDLE<python::torch::nn::Linear>`；调用处的实参会以
-  `f(x: 1, y: 2)` 形式显示形参名。可在 *设置 → Inlay Hints* 独立
-  开关两类 hint。
-
-架构详情：
-[`realization/sample_topology_inlay_zh.md`](realization/sample_topology_inlay_zh.md)。
-
-## 远程开发 —— SSH / WSL / Container / Dev Container
-
-PolyUI 现已支持通过统一抽象连接任意主机。polyls、调试器、任务
-系统与集成终端都走同一套 `RemoteSession` 管线，远程开发与本地
-开发体验一致。
-
-* **任意连接**——命令面板的 *Connect To…* 接受
-  `ssh://[用户@]主机[:端口]/路径`、`wsl://发行版/路径`、
-  `container://[runtime/]镜像或 id/路径` 与
-  `local:/路径`。连上之后，所有 IDE 能力（打开文件、启动调试、
-  运行构建任务、打开终端）都直接作用于远端工作区。
-* **Dev Container**——工作区含 `.devcontainer/devcontainer.json`
-  时，*在容器中重新打开* 命令会解析 spec、构建或复用对应容器，
-  并自动安装 polyls 以及识别出的 feature 所需 LSP（Python、
-  Node、Java、Go、Rust、.NET、Ruby、C++）；之后再依次执行显式
-  的 `postCreateCommand`。
-* **端口转发 / 文件同步 / 终端**——*Forwarded Ports* 视图列出所
-  有活动转发规则；*Sync Workspace* 在执行前展示 upload /
-  download / delete 计划（也提供 push-only / pull-only 的单向同步
-  模式）；集成终端直接对接当前会话，按下快捷键即可落入远端 shell。
-
-架构详情：
-[`realization/remote_dev_zh.md`](realization/remote_dev_zh.md)。
-
-## AI 助手 —— 聊天、行内补全、重构、隐私
-
-PolyUI 通过同一套 provider 抽象提供 AI 聊天、代码补全、行内灰
-字建议与重构建议。
-
-* **Provider 选择。** 在 *设置 → AI* 中选用本地 Ollama（无需授
-  权）、OpenAI 兼容 HTTP、Azure OpenAI 或 Anthropic。API key 仅
-  在设置面板中输入并保存到用户钥匙串——从不嵌入二进制，也不
-  写入任何项目文件。
-* **隐私优先。** 远程 provider 在你开启 *允许远程调用* 之前一直
-  禁用。*项目上下文* 面板可设定允许上送的目录（白名单）与永不
-  离开本机的目录（黑名单）；diagnostics 与打开文件内容各有独立
-  开关。在授权前，所有远程调用直接短路，聊天面板显示 *需要授
-  权*。
-* **行内建议。** Tab 接受、Esc 拒绝、Alt+] / Alt+[ 切换备选。
-* **聊天面板。** 一键把当前文件、当前选区或诊断信息插入提示。
-* **重构 diff。** 重构建议以逐 hunk diff 展示；逐条接受，IDE 只
-  应用你确认的部分。
-
-## 协作 —— Pull Request、评审、Issue
-
-*Collab* 侧栏通过抽象 provider 列出当前仓库在 GitHub / GitLab /
-Gitea 上的 PR 与 issue。Diff 视图支持逐行评论与 *Approve /
-Request Changes / Comment* 结论。*Push to PR* 推送当前分支，新
-分支会一并开出 draft PR。*Issues* 视图支持创建、打标签、关闭、
-关联 commit，以及从编辑器拉取 `file:line` 引用。
-
-架构详情：
-[`realization/ai_integration_zh.md`](realization/ai_integration_zh.md)、
-[`realization/collab_zh.md`](realization/collab_zh.md)。
-
-### 隐私声明
-
-PolyUI 不在二进制中嵌入 API key，未经用户显式同意不会向远程端
-点发送任何源码，并对所有项目上下文请求强制应用工作区允许 / 拒
-绝名单。本地 provider（Ollama）完全在本机运行，无需授权。
-
-## 扩展、Marketplace 与工作区
-
-PolyUI 内置了一等公民的扩展系统、本地 Marketplace 与多根工作区
-模型。
-
-* **安装 / 更新 / 回滚。** *Marketplace* 列出当前所有索引（本地
-  或 HTTP）中的扩展。点击即装；再次点击升级到最新 semver；*回
-  滚* 退回到最近一次升级前的版本。
-* **能力授权弹窗。** 扩展声明 `filesystem`、`network`、
-  `process`、`clipboard` 或 `secrets` 时，PolyUI 在激活前请你逐
-  项授权。被拒能力会出现在 *设置 → 扩展* 中，附 *授权* 按钮便
-  于事后再开。
-* **可选签名。** 在设置中开启 *仅安装签名扩展* 后，签名缺失或
-  不匹配的安装会被直接拒绝。
-* **多根工作区。** 打开 `polyui.code-workspace` 同时加载多根。
-  每根有独立设置（工作区级为兜底），搜索与跳转跨根可达；
-  polyls / 调试器 / 任务实例按 `(folder, language, version)` 隔
-  离——在某一根锁定不同语言版本不会污染其他根。
-
-架构详情：
-[`api/extension_api_zh.md`](api/extension_api_zh.md)、
-[`realization/marketplace_zh.md`](realization/marketplace_zh.md)。
-
-## 外壳：欢迎页、通知、状态栏、最近、会话、书签、TODO
-
-PolyUI 外壳把编辑器包装成完整工作台：
-
-* **欢迎页**——最近工作区、教程、样例与新特性提示；可关闭可固
-  定。
-* **通知中心**——持久化、分级、带 action。*不打扰* 屏蔽
-  `info` / `progress`，警告与错误透传。状态栏显示未读数。
-* **可定制状态栏**——内建槽位（分支、问题、语言、语言服务器、
-  编码、行尾、缩进、包管理器、Profiler）可在左右两侧拖动，可
-  显隐；扩展可注册自己的槽位。
-* **最近文件 / 工作区**——`Ctrl+R` 打开最近工作区，`Ctrl+E` 打
-  开最近文件；均支持固定。
-* **会话恢复**——重启后，标签 / 滚动 / 光标 / 折叠 / 分屏 / 面
-  板大小 / 调试视图原样回来；可在设置中关闭。
-* **书签**——`Ctrl+Alt+K` 切换；面板按工作区列出所有书签，含
-  标签与颜色。
-* **TODO / FIXME 索引**——后台扫描；关键字可配置（默认
-  `TODO`、`FIXME`，可加 `XXX`、`HACK` 等）；汇总面板按关键字
-  计数。
-
-走查：[`tutorial/shell_zh.md`](tutorial/shell_zh.md)。
-
-## i18n、无障碍与遥测
-
-**语言。** PolyUI 内建五种语言：简体中文、繁体中文、英文、日
-文、韩文。在 *设置 → 通用 → 语言* 切换。所有 UI 字符串均按
-id 查询，切换语言即时生效且覆盖全面。
-
-**无障碍。** 每个可聚焦控件均可仅用键盘到达；Tab 顺序确定，
-循环回绕，禁用控件被跳过且不打断链条。屏幕阅读器（NVDA、
-JAWS、VoiceOver、Orca）通过平台无障碍桥优先收到 assertive
-播报，再收到 polite 播报。视觉辅助：高对比度主题、大字体
-（80–300 %）、减少动效——按配置切换。
-
-**遥测、反馈与崩溃报告。** 默认关闭；启用需显式同意且可随时
-撤回。每个事件必须声明字段白名单——白名单外的字段在事件进入
-本地预览之前即被剥离，因此永远不会被上传。崩溃报告始终先落
-盘；上传是独立闸门，需显式确认。实现：
-[`realization/i18n_zh.md`](realization/i18n_zh.md)、
-[`realization/accessibility_zh.md`](realization/accessibility_zh.md)、
-[`realization/telemetry_zh.md`](realization/telemetry_zh.md)。
-
-## 文件类型查看器
-
-* **图像查看器**——PNG / JPEG / WebP / GIF / SVG / BMP，含缩
-  放、平移、RGBA 像素拾取与单通道分离。
-* **Hex 查看器**——面向 ≥ 1 GiB 大文件的分块 I/O；跳转、可跨
-  块的 hex 查找；为链接器 / IR / 目标文件 schema 提供命名高
-  亮。
-* **二进制识别**——识别 ELF / PE / Mach-O / WASM，报告架构
-  与 subsystem；反汇编委托给 `polyasm`。
-* **SQLite 客户端 + SQL Console**——schema 浏览、结果分页、
-  CSV 导出、有界历史。其他驱动通过同一 `SqlDriver` 接入。
-
-走查：[`tutorial/viewers_zh.md`](tutorial/viewers_zh.md)。
+输出包落到 `build/release/`。每个包包含：
+
+* 全部 11 个工具二进制。
+* 运行时动态库。
+* `docs/` 的 HTML 渲染。
+* 42 个编号示例。
+* 经签名的清单，可由 `polyver --check-manifest` 校验。
+
+### 18.4 环境变量参考
+
+| 变量                        | 用途                                                    |
+|-----------------------------|---------------------------------------------------------|
+| `POLY_GC`                   | 选择运行时 GC 算法。                                    |
+| `POLY_GC_HEAP_INIT`         | GC 初始堆。                                             |
+| `POLY_GC_HEAP_MAX`          | GC 堆上限。                                             |
+| `POLY_GC_PAUSE_GOAL_MS`     | GC 停顿目标。                                           |
+| `POLY_TASKS_THREADS`        | 任务池规模。                                            |
+| `POLY_CACHE_DIR`            | 覆盖增量缓存目录。                                      |
+| `POLY_CACHE_MAX_BYTES`      | 缓存 LRU 上限。                                         |
+| `POLY_LOG_LEVEL`            | `error` / `warn` / `info` / `debug` / `trace`。         |
+| `POLY_TELEMETRY`            | `off`（默认） / `on`。                                  |
+| `POLY_PROFILE_INTERVAL_MS`  | 性能分析采样周期。                                      |
+| `POLYLS_LOG`                | `polyls` 帧日志路径。                                   |
+| `POLYUI_PLUGIN_DIR`         | 覆盖插件发现目录。                                      |
+
+### 18.5 配置文件位置
+
+| 项                | 位置                                                |
+|-------------------|-----------------------------------------------------|
+| 用户设置          | `~/.config/polyui/settings.json`                    |
+| 工作区设置        | `<workspace>/.polyui/settings.json`                 |
+| Launch profiles   | `<workspace>/.polyui/launch.json`                   |
+| 插件              | `~/.config/polyui/plugins/`                         |
+| LSP 覆盖          | `~/.config/polyui/lsp.json`                         |
+| 缓存              | `~/.cache/polyglot/`                                |
+
+### 18.6 参考
+
+* [tutorial/project_tutorial_zh.md](tutorial/project_tutorial_zh.md) ——
+  新人导览。
+* [tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md)
+  —— Ploy 语言参考。
+* [specs/](specs/) —— 机器可读的 schema（调用图、profile 流、诊断）。
+* [realization/](realization/) —— 各子系统设计笔记。
+* [api/](api/) —— 公共 ABI 文档（`polyls`、插件 SDK、运行时）。
+
+### 18.7 常见问题
+
+**Q. 为什么自研 IR 而不是用 LLVM？**
+A. PolyglotCompiler 需要 IR 中的一等 `bridge_call`、GC barrier 与
+异步原语。曾原型化基于 LLVM，但把它们假装成 intrinsic 让后端做太多
+变通，所以放弃。
+
+**Q. 可以只用某一个前端吗？**
+A. 可以。configure 时设置 `POLY_BUILD_FRONTENDS="cpp;ploy"` 即可
+舍弃其他前端。
+
+**Q. macOS arm64 二进制可公证吗？**
+A. 可以。Mach-O 发射器输出 16 KiB 对齐 segment，并对 `__DATA_CONST`
+打 `SG_READ_ONLY (0x10)`，满足公证强制的 dyld 26 chained-fixup 要求。
+
+**Q. IDE 在 Wayland 上能用吗？**
+A. 可以；Linux 上默认使用 Qt 6.6 原生 Wayland。X11 通过 XWayland 仍
+可用。
+
+**Q. 插件 ABI 稳定吗？**
+A. 仅在不兼容变更时增大 ABI 版本。插件宿主拒绝加载用不同
+`POLY_PLUGIN_API_VERSION` 编译的插件。
+
+### 18.8 变更日志
+
+精简变更日志见 [VERSION.txt](../VERSION.txt) 与
+`scripts/release_notes.py` 生成的发布说明。当前版本为
+**PolyglotCompiler 1.45.2**。
+
+### 18.9 许可证
+
+PolyglotCompiler 按 [LICENSE](../LICENSE) 分发。第三方组件保留各自
+许可证，详见 [Dependencies.cmake](Dependencies.cmake)。

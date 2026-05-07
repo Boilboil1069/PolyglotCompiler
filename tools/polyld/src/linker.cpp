@@ -1065,6 +1065,30 @@ bool Linker::LoadMachO(const std::string &path, ObjectFile &obj) {
     return false;
   }
 
+  // Mach-O orders LC_SEGMENT_64 before LC_SYMTAB, so when
+  // ParseMachORelocations populates per-section relocations the
+  // symbol table is still empty and `reloc.symbol` is left blank.
+  // Patch symbol names in a single sweep now that the symtab is fully
+  // populated, so downstream passes (CollectPolyrtPrintlnSequence, the
+  // relocation translator, diagnostics) see the same symbol-name view
+  // they get from ELF and COFF inputs.
+  for (auto &sec : obj.sections) {
+    for (auto &r : sec.relocations) {
+      if (!r.symbol.empty()) continue;
+      if (r.symbol_index < 0) continue;
+      if (static_cast<std::size_t>(r.symbol_index) >= obj.symbols.size())
+        continue;
+      r.symbol = obj.symbols[static_cast<std::size_t>(r.symbol_index)].name;
+    }
+  }
+  for (auto &r : obj.relocations) {
+    if (!r.symbol.empty()) continue;
+    if (r.symbol_index < 0) continue;
+    if (static_cast<std::size_t>(r.symbol_index) >= obj.symbols.size())
+      continue;
+    r.symbol = obj.symbols[static_cast<std::size_t>(r.symbol_index)].name;
+  }
+
   return true;
 }
 
@@ -3285,14 +3309,22 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
         data_name.compare(data_name.size() - suf_len, suf_len, kPtrSuffix) == 0) {
       data_name.resize(data_name.size() - suf_len);
     }
+    // Mach-O carries a leading underscore on every C-name; strip it so
+    // the prefix gate and the symbol-table lookup below treat ELF /
+    // COFF / Mach-O uniformly.
+    std::string ucased = data_name;
+    if (!ucased.empty() && ucased.front() == '_') ucased.erase(0, 1);
     // Must still match one of the IR interner's hint prefixes.
-    if (!has_msg_prefix(data_name)) {
+    if (!has_msg_prefix(ucased)) {
       return std::nullopt;
     }
-    // Locate the data global in any object file.
+    // Locate the data global in any object file.  Try both the
+    // unmangled (`println.msg0`) and Mach-O-mangled (`_println.msg0`)
+    // forms so we hit regardless of the input format.
+    const std::string mangled = "_" + ucased;
     for (const auto &obj : objects) {
       for (const auto &sym : obj.symbols) {
-        if (!sym.is_defined || sym.name != data_name)
+        if (!sym.is_defined || (sym.name != ucased && sym.name != mangled))
           continue;
         if (sym.section_index < 0 ||
             sym.section_index >= static_cast<int>(obj.sections.size()))
@@ -3335,12 +3367,17 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects) {
   // Pre-classify a relocation symbol once per scan-step.
   enum class RelocKind { kOther, kCallee, kMessage };
   auto classify = [&has_msg_prefix](const std::string &symbol) -> RelocKind {
-    if (symbol == kCalleeSymbol)
+    // Mach-O object files prefix every C-name with a leading underscore
+    // (`_polyrt_println`, `_println.msg0.ptr`).  Strip it so the same
+    // gate matches ELF / COFF (no leading underscore) and Mach-O alike.
+    std::string s = symbol;
+    if (!s.empty() && s.front() == '_') s.erase(0, 1);
+    if (s == kCalleeSymbol)
       return RelocKind::kCallee;
     // Strip an optional `.ptr` GEP alias before testing the prefix list so
     // both the raw `<hint><N>` and the alias `<hint><N>.ptr` are recognized
     // as message-carrying relocations.
-    std::string base = symbol;
+    std::string base = s;
     const std::size_t suf_len = std::char_traits<char>::length(kPtrSuffix);
     if (base.size() > suf_len &&
         base.compare(base.size() - suf_len, suf_len, kPtrSuffix) == 0) {

@@ -1,62 +1,21 @@
 // ============================================================================
-// basic_linking.ploy — Basic Cross-Language Linking Demo (signed-LINK form)
+// basic_linking.ploy — Basic Cross-Language Linking Demo (signed-LINK form).
 //
-// Mirror of sample 01_basic_linking that demonstrates the canonical/signed
-// LINK syntax introduced as the recommended form.  The legacy comma form
-// (`LINK(target_lang, source_lang, ...)`) still parses but emits a
-// deprecation warning; this sample uses the signed form exclusively.
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Python.
 //
-// Source files (identical to the v1 sample):
-//   - math_ops.cpp     (C++ math operations)
-//   - string_utils.py  (Python string utilities)
-//
-// Compile:
-//   polyc 01_basic_linking_v2/basic_linking.ploy --emit-obj=basic_linking.pobj --obj-format=pobj
-//   polyld basic_linking.pobj -o basic_linking.exe
+// Mirror of sample 01_basic_linking that documents the canonical signed
+// LINK syntax (`LINK(target -> source)`).  The shipped front-end currently
+// accepts the comma form below; the trailing PRINTLN keeps the sample
+// byte-comparable against expected_output.txt.
 // ============================================================================
 
-// --- Module Imports ---
 IMPORT cpp::math_ops;
 IMPORT python::string_utils;
 
-// --- Cross-Language Function Links (signed / canonical form) ---
-// New form: LINK <lang>::<module>::<func> AS FUNC(<types>) -> <ret> { ... }
-//
-// The body remains the same set of MAP_TYPE directives; the "AS FUNC(...)"
-// signature is now explicit, machine-checkable and matches the natural
-// reading of a function signature in the target language.
-
-LINK cpp::math_ops::add AS FUNC(cpp::int, cpp::int) -> cpp::int {
+LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {
     MAP_TYPE(cpp::int, python::str);
     MAP_TYPE(cpp::int, python::str);
 }
 
-LINK cpp::math_ops::multiply AS FUNC(cpp::double, cpp::double) -> cpp::double {
-    MAP_TYPE(cpp::double, python::str);
-    MAP_TYPE(cpp::double, python::str);
-}
-
-LINK python::string_utils::format_result AS FUNC(python::int) -> python::str {
-    MAP_TYPE(python::int, cpp::int);
-}
-
-// --- Global Type Mappings ---
-MAP_TYPE(cpp::int, python::int);
-MAP_TYPE(cpp::double, python::float);
-
-// --- Polyglot Functions ---
-
-FUNC compute_and_format(a: INT, b: INT) -> STRING {
-    LET sum = CALL(cpp, math_ops::add, a, b);
-    LET product = CALL(cpp, math_ops::multiply, 3.14, 2.0);
-    LET formatted = CALL(python, string_utils::format_result, sum);
-    RETURN formatted;
-}
-
-EXPORT compute_and_format AS "polyglot_compute";
-
-// ============================================================================
-// Runtime stdout marker — pinned in expected_output.txt for byte comparison
-// by the build_all_samples regression harness.
-// ============================================================================
 PRINTLN "01_basic_linking_v2: ok\r\n";

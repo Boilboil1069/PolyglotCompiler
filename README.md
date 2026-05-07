@@ -1,17 +1,18 @@
 # PolyglotCompiler
 
 <p align="center">
-  <strong>A modern multi-language compiler with cross-language interoperability</strong><br/>
-  <strong>现代多语言编译器，支持跨语言互操作</strong>
+  <strong>A self-hosted multi-language compiler with cross-language interoperability</strong><br/>
+  <strong>自举式多语言编译器，原生支持跨语言互操作</strong>
 </p>
 
 <p align="center">
-  <img alt="C++20" src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
-  <img alt="CMake" src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
-  <img alt="License" src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
+  <img alt="C++20"    src="https://img.shields.io/badge/C%2B%2B-20-blue.svg"/>
+  <img alt="CMake"    src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
+  <img alt="License"  src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
 <!-- BEGIN:test_badge -->
-  <img alt="Tests" src="https://img.shields.io/badge/Suites-5%20core%20%2B%208%20frontend-brightgreen.svg"/>
+  <img alt="Tests"    src="https://img.shields.io/badge/CTest-30%20targets-brightgreen.svg"/>
 <!-- END:test_badge -->
+  <img alt="Version"  src="https://img.shields.io/badge/Version-1.45.2-informational.svg"/>
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -19,27 +20,29 @@
 
 ## Overview / 项目概述
 
-PolyglotCompiler is a multi-language compiler that compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **JavaScript**, **Ruby**, and **Go** source code into a unified intermediate representation (IR), and provides cross-language interoperability through the **`.ploy`** domain-specific language. It features its own frontends, optimisation passes, backends targeting x86_64, ARM64, and WebAssembly, and a runtime with garbage collection and FFI support.
+PolyglotCompiler compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **JavaScript**, **Ruby** and **Go** sources into a single SSA-form intermediate representation, then emits native code for **x86_64**, **ARM64** and **WebAssembly**. The **`.ploy`** domain-specific language sits on top as the cross-language glue layer that links functions, classes, methods, attributes and resources across language boundaries.
 
-PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、**Rust**、**Java**、**C# (.NET)**、**JavaScript**、**Ruby** 与 **Go** 源代码编译为统一的中间表示（IR），并通过 **`.ploy`** 领域特定语言实现跨语言互操作。项目拥有自己的前端、优化 Pass、面向 x86_64/ARM64/WebAssembly 的后端，以及包含垃圾回收和 FFI 的运行时系统。
+The toolchain is **self-hosted**: every supported language is parsed and lowered by a first-party frontend (`frontend_*`), the linker (`polyld`) emits ELF / PE32+ / Mach-O / Wasm directly, and only the optional system linker may be invoked at the very end of the pipeline.
+
+PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）**、**JavaScript**、**Ruby** 与 **Go** 源代码编译为统一的 SSA 形式中间表示（IR），并为 **x86_64**、**ARM64**、**WebAssembly** 生成原生代码。**`.ploy`** 领域特定语言作为跨语言粘合层，描述函数、类、方法、属性、资源在语言边界之间的链接。
+
+整条工具链是**自举的**：所有支持的语言都由项目自带的前端（`frontend_*`）解析与降级，链接器 `polyld` 直接生成 ELF / PE32+ / Mach-O / Wasm，仅在最终成品阶段可选地调用系统链接器。
 
 ### Key Features / 核心特性
 
-- **Multi-Frontend Architecture** — Dedicated frontends for C++, Python, Rust, Java, C# (.NET), JavaScript, Ruby, Go and `.ploy`, all managed by a unified `FrontendRegistry`
-- **Shared IR** — All languages compile to a common SSA-form intermediate representation
-- **Cross-Language Linking** — The `.ploy` DSL enables function-level and OOP-level interop between languages
-- **OOP Interop** — `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND` keywords for cross-language class instantiation, method calls, attribute access, and resource management
-- **Early ABI Validation** — Signature/arity/type checks are enforced in `.ploy` semantic analysis and hardened again in `polyld` as link-time hard failures
-- **Package Manager Integration** — Auto-discover packages via pip/conda/uv/pipenv/poetry/cargo/NuGet/Maven/Gradle/pkg-config, plus `go.mod` (Go), `node_modules` / `package.json` (JavaScript), and `Gemfile` / RubyGems (Ruby)
-- **Triple Backend** — Code generation for x86_64 (SSE/AVX), ARM64 (NEON), and WebAssembly (shadow stack, WAT/binary)
-- **25+ Optimisation Passes** — Including PGO, LTO, loop optimisations, devirtualisation
-- **Runtime System** — 4 GC algorithms, FFI bindings, adaptive container marshalling (dict rehash/growth), and thread-safe extension registration. Per-language runtime bridges: `python_rt`, `cpp_rt`, `rust_rt`, `java_rt`, `dotnet_rt`, `go_rt`, `javascript_rt`, `ruby_rt`
-- **Plugin System** — Stable C ABI plugin interface for extending languages, optimisers, backends, linters, formatters, and IDE panels
-- **Shared Frontend Token Pool** — Arena-backed lexeme storage (`StringArena`), open-addressing identifier interning (`IdentifierTable`), snapshot/restore for parser lookahead, and a thread-safe `SharedTokenPool` shared by every language frontend.  Stats can be dumped via `polyc --dump-token-pool` and tuned via `frontend.tokenPool.*` settings
-- **VS Code-style Settings** — JSON-first 3-layer settings (default / user / `<workspace>/.polyglot/settings.json`) with schema validation, hot reload, command palette (`Ctrl+Shift+P`) and `keybindings.json`; the same `settings.json` is honoured by every CLI tool via `--settings` / `--print-effective-settings`
-- **External Theme System** — VS Code-style `.polytheme.json` themes (with optional sibling `.qss`) discovered from a 3-layer contract (built-in qrc / user `~/.polyglot/themes/` / workspace `<ws>/.polyglot/themes/`); 5 built-in themes (`polyglot.dark`, `polyglot.light`, `polyglot.hc`, `solarized.light`, `solarized.dark`); a graphical Theme Manager (`Ctrl+K, Ctrl+T`); developer commands (`workbench.action.selectTheme`, `generateColorTheme`, `editor.action.inspectTMScopes`, …); and CLI flags `--theme`, `--list-themes`, `--validate-theme`, `--headless --screenshot` for CI
-- **Debug Info** — Unified DWARF 5, PDB (Windows), and JSON source map emission
-- **1084 Test Cases** — Unit (960), Integration (106), Benchmark (18) across 23 CTest targets
+- **9 first-party frontends** — `frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_go`, `frontend_javascript`, `frontend_ruby`, `frontend_ploy`，统一由 `FrontendRegistry` 注册与分发。
+- **Shared SSA IR** — 所有语言降级到同一份 IR，复用 `middle/` 目录下的 25+ 优化 Pass（含 PGO、LTO、循环优化、去虚化、GVN、DCE 等）。
+- **Cross-Language Linking** — `.ploy` DSL 提供 `LINK` / `CALL` / `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 等关键字，实现函数级与对象级互操作；签名/元数/类型在 `.ploy` 语义分析与 `polyld` 链接阶段双重校验。
+- **Triple Backend** — `backends/x86_64`（含 SSE/AVX 调度）、`backends/arm64`（含 NEON）、`backends/wasm`（含影子栈、WAT/二进制双输出）。
+- **Container Matrix** — `polyld` 直接生成 ELF（Linux）、PE32+（Windows）、Mach-O（macOS，arm64 段按 16 KiB 对齐、`__DATA_CONST` 携带 `SG_READ_ONLY`）与 Wasm；`tests/integration/binary_matrix/` 在 CI 守护整张矩阵。
+- **Package Manager Integration** — `IMPORT … PACKAGE …` 自动识别 pip / conda / uv / pipenv / poetry / cargo / NuGet / Maven / Gradle / pkg-config / `go.mod` / `node_modules` / `package.json` / Gemfile。
+- **Runtime System** — 4 种 GC 算法、FFI 桥、容器自适应 marshalling（dict 渐进式扩容）；按语言提供 `python_rt` / `cpp_rt` / `rust_rt` / `java_rt` / `dotnet_rt` / `go_rt` / `javascript_rt` / `ruby_rt` 运行时桥。
+- **Plugin System** — 稳定 C ABI 插件接口，可扩展前端、Pass、后端、CLI 工具、IDE 面板、Linter / Formatter / Debugger / Completion。
+- **Shared Frontend Token Pool** — 基于 `StringArena` 的 lexeme 存储、开放寻址 `IdentifierTable` 标识符内化、解析回溯快照、跨前端线程安全的 `SharedTokenPool`；`polyc --dump-token-pool` 可导出统计。
+- **VS Code-style Settings** — 三层 JSON 设置（默认 / 用户 / `<workspace>/.polyglot/settings.json`），含 schema 校验、热重载、命令面板（`Ctrl+Shift+P`）、`keybindings.json`；同一份 `settings.json` 通过 `--settings` / `--print-effective-settings` 被所有 CLI 工具共享。
+- **External Theme System** — VS Code 风格 `.polytheme.json` 主题（可附 `.qss`）按内置 qrc / 用户 / 工作区三层发现，5 套内置主题，提供图形 Theme Manager 与 `--theme` / `--list-themes` / `--validate-theme` / `--screenshot` CLI。
+- **Debug Info** — 统一发射 DWARF 5、PDB（Windows）与 JSON source map。
+- **Self-hosted Language Server** — `polyls`（stdio JSON-RPC）服务 polyui 与第三方编辑器，提供补全、诊断、跳转、符号索引；`test_polyls` / `test_lsp` / `test_completion_ranker` 在 CI 中守护。
 
 ---
 
@@ -49,40 +52,31 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │  Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .ploy│
 └──────────────┬─────────────────────────────────────────────────────┬────────────┘
-               │                                                     │
                ▼                                                     ▼
 ┌──────────────────────────────────────┐                  ┌────────────────────┐
 │ Language Frontends (FrontendRegistry)│                  │   Ploy Frontend    │
 │  cpp • python • rust • java • dotnet │                  │ (orchestration DSL)│
 │  go  • javascript • ruby             │                  └─────────┬──────────┘
 └───────────────────┬──────────────────┘                            │
-                    │                                               │
                     ▼                                               ▼
               ┌───────────┐                                 ┌─────────────┐
-              │ Shared IR │                                 │  Polyglot   │
-              │   (SSA)   │                                 │   Linker    │
+              │ Shared IR │ ──── 25+ Optimisation Passes ──▶│  Polyglot   │
+              │   (SSA)   │      (PGO • LTO • loop • …)    │   Linker    │
               └─────┬─────┘                                 └──────┬──────┘
-                    │                                              │
         ┌───────────┼─────────────────┐                            │
-        ▼           ▼                 ▼                            │
-   ┌───────────┐ ┌───────────┐ ┌───────────┐                       │
-   │  x86_64   │ │   ARM64   │ │   WASM    │                       │
-   │  Backend  │ │  Backend  │ │  Backend  │                       │
-   └─────┬─────┘ └─────┬─────┘ └─────┬─────┘                       │
-         │             │             │                             │
-         └──────┬──────┴─────────────┘                             │
-                ▼                                                  ▼
-         ┌─────────────┐                                  ┌─────────────┐
-         │ Object Files│                                  │ Glue Code   │
-         └──────┬──────┘                                  └──────┬──────┘
-                └────────────────────┬─────────────────────────-─┘
-                                     ▼
-                              ┌─────────────┐
-                              │  Executable │
-                              └─────────────┘
+        ▼           ▼                 ▼                            ▼
+   ┌───────────┐ ┌───────────┐ ┌───────────┐                ┌─────────────┐
+   │  x86_64   │ │   ARM64   │ │   WASM    │                │ FFI Glue +  │
+   │  Backend  │ │  Backend  │ │  Backend  │                │ Marshalling │
+   └─────┬─────┘ └─────┬─────┘ └─────┬─────┘                └──────┬──────┘
+         └─────────────┼─────────────┘                             │
+                       ▼                                           ▼
+                ┌──────────────────────────────────────────────────────┐
+                │  polyld → ELF / PE32+ / Mach-O / Wasm executable     │
+                └──────────────────────────────────────────────────────┘
 ```
 
-> **Important:** PolyglotCompiler uses its own frontends (`frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_go`, `frontend_javascript`, `frontend_ruby`, `frontend_ploy`) to compile all source languages to a shared IR. It does **NOT** depend on external compilers (MSVC/GCC/rustc/CPython/javac/dotnet/go/node/ruby) for code generation. The `polyc` driver may optionally invoke a system linker (`polyld` or `clang`) only for the final link step. `polyld` is automatically resolved relative to `polyc`'s binary location.
+> **Important / 重要：** PolyglotCompiler 不依赖 MSVC / GCC / rustc / CPython / javac / dotnet / go / node / ruby 进行代码生成。`polyc` 驱动可选地调用系统链接器（`polyld` 或 `clang`）仅用于最终链接阶段；`polyld` 默认按相对 `polyc` 的可执行路径自动定位。
 
 ---
 
@@ -90,66 +84,59 @@ PolyglotCompiler 是一个多语言编译器项目，将 **C++**、**Python**、
 
 ### Prerequisites / 环境要求
 
-- **C++20** compatible compiler (MSVC 2022+, GCC 12+, Clang 15+)
-- **CMake** 3.20+
+- **C++20** compiler — MSVC 2022+, GCC 12+, Clang 15+, Apple Clang 15+
+- **CMake** ≥ 3.20
 - **Ninja** (recommended) or Make
 
-All library dependencies (fmt, nlohmann_json, Catch2, mimalloc) are fetched automatically via CMake `FetchContent`.
+All third-party C++ libraries (fmt ≥ 11.2.0, nlohmann/json, Catch2, mimalloc) are fetched automatically by CMake `FetchContent`.
 
-**Optional (for IDE):**
-- **Qt 6** (recommended) or Qt 5.15+ (for the `polyui` desktop IDE).
-  - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local, all platforms), or the system path.
-  - Pass `-DQT_ROOT=<path>` to override.
-  - On Windows, `polyui.exe` now embeds the project icon from `tools/ui/common/resources/icon.ico` during build.
-  - At runtime, `polyui` explicitly sets the title-bar/window icon from embedded resources (`icon.ico` on Windows, `icon.png` on Linux/macOS).
-<!-- BEGIN:qt_setup_en -->
-  - If Qt is not installed, run `./tools/ui/setup_qt.sh` (macOS/Linux) or `.\tools/ui/setup_qt.ps1` (Windows) to download pre-built Qt 6 binaries via `aqtinstall`.
-<!-- END:qt_setup_en -->
-  - If Qt is not found, the IDE target is silently skipped.
+**Optional / 可选：**
+- **Qt 6 (recommended) / Qt 5.15+** — required only for the `polyui` desktop IDE.
+  - CMake auto-discovers Qt under `D:\Qt` (Windows), `deps/qt/` (project-local), or the system path; pass `-DQT_ROOT=<path>` to override.
+  - If Qt is missing, run `tools/ui/setup_qt.sh` (macOS/Linux) or `tools/ui/setup_qt.ps1` (Windows) to install pre-built Qt 6 via `aqtinstall`; otherwise the IDE target is silently skipped.
 
 ### Build / 构建
 
 ```bash
-# Clone the repository
 git clone https://github.com/user/PolyglotCompiler.git
 cd PolyglotCompiler
 
-# Configure (dependencies are fetched automatically)
+# Configure
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 
-# Build everything
+# Build everything (compiler driver, tools, frontends, runtime, IDE)
 cmake --build build
 
-# Run tests
-cd build && ./unit_tests [ploy] -r compact
+# Run the full CTest matrix (30 targets)
+cd build && ctest --output-on-failure
 ```
 
 **Windows (Visual Studio 2022+):**
 
 ```cmd
-rem Activate MSVC toolchain — MUST use -arch=amd64
+rem MSVC toolchain — MUST use -arch=amd64
 call "C:\...\VsDevCmd.bat" -arch=amd64
 cmake -B build -G Ninja
-cmake --build build --target unit_tests
-cd build && unit_tests.exe [ploy] -r compact 2>&1 <nul
+cmake --build build
+cd build && ctest --output-on-failure
 ```
 
 ### Usage / 使用
 
 ```bash
-# Compile a source file
+# Compile a single source
 polyc --lang=cpp -O2 -o output input.cpp
 
-# Compile .ploy cross-language specification
+# Compile a .ploy cross-language specification
 polyc --lang=ploy input.ploy
 
-# Link object files
+# Cross-target compilation
+polyc --target=aarch64-apple-darwin --container=macho -o app main.cpp
+polyc --target=wasm32-wasi          --container=wasm  -o app.wasm main.cpp
+
+# Link, assemble, optimise
 polyld -o program file1.o file2.o
-
-# Assemble
 polyasm input.s -o output.o
-
-# Optimise IR
 polyopt -O3 input.ir -o optimised.ir
 ```
 
@@ -157,9 +144,9 @@ polyopt -O3 input.ir -o optimised.ir
 
 ## The .ploy Language / .ploy 跨语言链接语言
 
-`.ploy` is a domain-specific language for describing cross-language interoperability. It serves as a "glue language" that orchestrates function calls, class instantiation, method invocation, attribute access, resource management, and data flow between C++, Python, and Rust.
+`.ploy` is the orchestration DSL that describes interoperability between every supported language. It exposes function calls, class instantiation, method invocation, attribute access, resource management (`WITH`), object destruction, class extension, and data-flow pipelines as first-class syntax.
 
-### Example: Cross-Language ML Pipeline
+### Example / 示例
 
 ```ploy
 IMPORT python PACKAGE torch >= 2.0;
@@ -168,24 +155,22 @@ IMPORT cpp::image_processing;
 
 PIPELINE ml_pipeline {
     FUNC preprocess(path: STRING) -> LIST(f64) {
-        LET raw = CALL(cpp, image_processing::load, path);
+        LET raw    = CALL(cpp,    image_processing::load, path);
         LET tensor = CALL(python, np::array, raw);
         RETURN tensor;
     }
 
     FUNC train(data: LIST(f64)) -> INT {
-        LET model = NEW(python, torch::nn::Linear, 784, 10);
+        LET model     = NEW(python, torch::nn::Linear, 784, 10);
         LET optimizer = NEW(python, torch::optim::Adam,
                             METHOD(python, model, parameters), 0.001);
 
-        LET output = METHOD(python, model, forward, data);
+        LET output   = METHOD(python, model, forward, data);
         LET loss_val = METHOD(python, output, mean);
         METHOD(python, loss_val, backward);
         METHOD(python, optimizer, step);
 
-        LET lr = GET(python, optimizer, learning_rate);
         SET(python, model, training, FALSE);
-
         RETURN 0;
     }
 
@@ -201,123 +186,89 @@ PIPELINE ml_pipeline {
 EXPORT ml_pipeline AS "train_model";
 ```
 
-### Language Keywords (54)
-
-```
-LINK    IMPORT    EXPORT    MAP_TYPE   PIPELINE   FUNC     CONFIG
-LET     VAR       STRUCT    VOID       INT        FLOAT    STRING
-BOOL    ARRAY     LIST      TUPLE      DICT       OPTION
-RETURN  IF        ELSE      WHILE      FOR        IN       MATCH
-CASE    DEFAULT   BREAK     CONTINUE
-AS      AND       OR        NOT        CALL       CONVERT  MAP_FUNC
-NEW     METHOD    GET       SET        WITH       DELETE   EXTEND
-TRUE    FALSE     NULL      PACKAGE
-VENV    CONDA     UV        PIPENV     POETRY
-```
-
 ### Core Syntax / 核心语法
 
-| Feature | Syntax | Description |
-|---------|--------|-------------|
-| Function Link | `LINK(cpp, python, f, g);` | Cross-language function binding |
-| Package Import | `IMPORT python PACKAGE numpy >= 1.20;` | Import with version constraints |
-| Selective Import | `IMPORT python PACKAGE torch::(tensor, no_grad);` | Import specific symbols |
-| Function Call | `CALL(python, np::mean, data)` | Cross-language function call |
-| Class Instantiation | `NEW(python, torch::nn::Linear, 784, 10)` | Create foreign class instance |
-| Method Call | `METHOD(python, model, forward, data)` | Call method on foreign object |
-| Attribute Get | `GET(python, obj, weight)` | Read foreign object attribute |
-| Attribute Set | `SET(python, obj, threshold, 0.5)` | Write foreign object attribute |
-| Resource Management | `WITH(python, resource) AS r { ... }` | Auto `__enter__`/`__exit__` |
-| Object Destruction | `DELETE(python, obj)` | Destroy foreign object |
-| Class Extension | `EXTEND(python, Base) AS Derived { ... }` | Cross-language class inheritance |
-| Type Conversion | `CONVERT(value, FLOAT)` | Explicit type conversion |
-| Type Mapping | `MAP_TYPE(cpp::int, python::int);` | Cross-language type mapping |
-| Pipeline | `PIPELINE name { ... }` | Multi-stage processing pipeline |
-| Package Manager | `CONFIG CONDA "env_name";` | Configure package discovery |
-| Type Annotation | `LET model: python::nn::Module = NEW(...);` | Qualified type annotations |
+| Feature                | Syntax                                                 | Description                                  |
+|------------------------|--------------------------------------------------------|----------------------------------------------|
+| Function Link          | `LINK(cpp, python, f, g);`                             | Cross-language function binding              |
+| Package Import         | `IMPORT python PACKAGE numpy >= 1.20;`                 | Import with version constraints              |
+| Selective Import       | `IMPORT python PACKAGE torch::(tensor, no_grad);`      | Import specific symbols                      |
+| Function Call          | `CALL(python, np::mean, data)`                         | Cross-language function call                 |
+| Class Instantiation    | `NEW(python, torch::nn::Linear, 784, 10)`              | Create foreign class instance                |
+| Method Call            | `METHOD(python, model, forward, data)`                 | Call method on foreign object                |
+| Attribute Get / Set    | `GET(python, obj, attr)` / `SET(python, obj, k, v)`    | Read / write foreign attribute               |
+| Resource Management    | `WITH(python, resource) AS r { ... }`                  | Auto `__enter__` / `__exit__`                |
+| Object Destruction     | `DELETE(python, obj)`                                  | Destroy foreign object                       |
+| Class Extension        | `EXTEND(python, Base) AS Derived { ... }`              | Cross-language class inheritance             |
+| Type Conversion        | `CONVERT(value, FLOAT)`                                | Explicit type conversion                     |
+| Type Mapping           | `MAP_TYPE(cpp::int, python::int);`                     | Cross-language type mapping                  |
+| Pipeline               | `PIPELINE name { ... }`                                | Multi-stage processing pipeline              |
+| Package Manager Config | `CONFIG CONDA "env_name";`                             | Configure package discovery                  |
+| Type Annotation        | `LET model: python::nn::Module = NEW(...);`            | Qualified type annotations                   |
 
-### Compilation Model / 编译模型
-
-PolyglotCompiler uses its own frontends to compile **all** languages (C++, Python, Rust, Java, C#/.NET) to a shared SSA-form IR. The `.ploy` frontend produces cross-language call descriptors consumed by the **PolyglotLinker**, which generates FFI glue code, type marshalling, and ownership tracking. The resulting IR is lowered through the backend to produce native code — a system linker may be invoked in the final link stage to assemble the executable.
+For the full grammar, semantics and 54 reserved keywords see [`docs/specs/ploy_language_spec.md`](docs/specs/ploy_language_spec.md) (English) and [`docs/specs/ploy_language_spec_zh.md`](docs/specs/ploy_language_spec_zh.md) (中文).
 
 ---
 
 ## Toolchain / 工具链
 
-| Tool | Binary | Purpose |
-|------|--------|---------|
-| Compiler Driver | `polyc` | Source → IR → Target code. Supports `--progress=json` for machine-readable stage events, `--clean-cache` for cache management, and incremental compilation cache. |
-| Linker | `polyld` | Object file linking + cross-language glue |
-| Assembler | `polyasm` | Assembly → Object file |
-| Optimiser | `polyopt` | IR optimisation passes |
-| Runtime Tool | `polyrt` | GC / FFI / Thread management |
-| Topology Analyser | `polytopo` | Function I/O topology visualisation, link validation, and graph export (text / DOT / JSON). Supports `--view-mode` and `--filter-language` filtering. |
-| Benchmark | `polybench` | Performance evaluation suite |
-| IDE | `polyui` | Qt-based desktop IDE with syntax highlighting, real-time diagnostics, topology panel (with grouping and batch operations), Profiler panel (`Ctrl+Alt+P` — flame / hotspots / timeline / per-language breakdown driven by `polybench`+`polyrt`), Call Analyzer panel (`Ctrl+Alt+G` — static call graph from `polyc --emit=call-graph` with caller/callee trees and bounded DFS path search), file templates, and compilation |
+| Tool              | Binary       | Purpose                                                                                                                                |
+|-------------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| Compiler Driver   | `polyc`      | Source → IR → native code. Supports `--progress=json`, `--clean-cache`, incremental cache, `--target` / `--container` cross-emit.       |
+| Linker            | `polyld`     | Object → ELF / PE32+ / Mach-O / Wasm + cross-language glue; sets `0755` mode on POSIX; arm64 Mach-O uses 16 KiB alignment.              |
+| Assembler         | `polyasm`    | Assembly → object file.                                                                                                                |
+| Optimiser         | `polyopt`    | Standalone IR optimisation pipeline (`-O0` … `-O3`, PGO, LTO, custom Pass selection).                                                  |
+| Runtime Tool      | `polyrt`     | GC tuning, FFI registration, thread management, runtime statistics dump.                                                               |
+| Topology Analyser | `polytopo`   | Function I/O topology graph, link validation, text / DOT / JSON export, `--view-mode` and `--filter-language`.                          |
+| Language Server   | `polyls`     | Self-hosted LSP over stdio JSON-RPC: completion, diagnostics, navigation, symbol index; consumed by `polyui` and any LSP-aware editor. |
+| Doc Extractor     | `polydoc`    | Walks `.ploy` files, extracts `///` doc-comment blocks attached to top-level `FUNC` / `STRUCT` / `LET` / `VAR`; emits Markdown or JSON. |
+| Toolchain Probe   | `polyver`    | Detects host toolchains (compilers, linkers, package managers) and writes the result into the toolchain database used by `polyc`.       |
+| Benchmark         | `polybench`  | Performance evaluation suite (micro + macro, fast / full modes).                                                                       |
+| IDE               | `polyui`     | Qt desktop IDE: highlighting, real-time diagnostics, Topology / Profiler (`Ctrl+Alt+P`) / Call Analyzer (`Ctrl+Alt+G`) panels, templates, build tasks. |
 
-### Supported targets and binary containers / 支持的目标平台与容器格式
+### Supported targets and binary containers / 支持的目标与容器
 
-`polyc --target=<triple>` and `polyc --container=<auto|elf|pe|macho|wasm>`
-let the same toolchain emit native binaries for every cell in the table
-below.  Omitting `--target` falls back to `common::HostTriple()`; the
-container default is derived from the OS family (column 3).  The
-file-suffix policy raises `polyc-warn-W2101` when the `-o` suffix and
-the resolved container disagree.
+`polyc --target=<triple>` and `polyc --container=<auto|elf|pe|macho|wasm>` let one toolchain emit native binaries for every cell in the matrix. Without `--target` the driver falls back to `common::HostTriple()`; without `--container` the OS family in column 3 is used. A mismatch between the `-o` suffix and the resolved container raises `polyc-warn-W2101`.
 
-| Triple | Container | Default exec suffix |
-| --- | --- | --- |
-| `x86_64-pc-windows-msvc`     | PE      | `.exe`  |
-| `aarch64-pc-windows-msvc`    | PE      | `.exe`  |
-| `x86_64-unknown-linux-gnu`   | ELF     | (none)  |
-| `aarch64-unknown-linux-gnu`  | ELF     | (none)  |
-| `x86_64-apple-darwin`        | Mach-O  | (none)  |
-| `aarch64-apple-darwin`       | Mach-O  | (none)  |
-| `wasm32-wasi`                | Wasm    | `.wasm` |
+| Triple                          | Container | Default exec suffix |
+|---------------------------------|-----------|---------------------|
+| `x86_64-pc-windows-msvc`        | PE32+     | `.exe`              |
+| `aarch64-pc-windows-msvc`       | PE32+     | `.exe`              |
+| `x86_64-unknown-linux-gnu`      | ELF       | (none)              |
+| `aarch64-unknown-linux-gnu`     | ELF       | (none)              |
+| `x86_64-apple-darwin`           | Mach-O    | (none)              |
+| `aarch64-apple-darwin`          | Mach-O    | (none)              |
+| `wasm32-wasi`                   | Wasm      | `.wasm`             |
 
-`scripts/ci/run_binary_matrix.{sh,ps1}` exercises every cell in CI;
-`tests/integration/binary_matrix/` keeps the matrix honest in the
-regression suite.
-
-`polyc --target=<triple>` 与 `polyc --container=<auto|elf|pe|macho|wasm>`
-让同一套工具链可以为上表每一格输出原生产物。未指定 `--target` 时回退
-到 `common::HostTriple()`；未指定 `--container` 时按 OS 族自动推导（第
-三列）。当 `-o` 后缀与解析得到的容器不匹配时，驱动会发出
-`polyc-warn-W2101` 警告。`scripts/ci/run_binary_matrix.{sh,ps1}` 在 CI 中
-驱动整个矩阵；`tests/integration/binary_matrix/` 在回归套件里持续守护
-该矩阵。
+`scripts/ci/run_binary_matrix.{sh,ps1}` exercises every cell in CI; `tests/integration/binary_matrix/` keeps the matrix honest in the regression suite.
 
 ---
 
 ## Plugin System / 插件系统
 
-PolyglotCompiler supports a C ABI plugin interface for extending the compiler and IDE. Plugins are shared libraries (`polyplug_*.so` / `polyplug_*.dylib` / `polyplug_*.dll`) discovered automatically from search paths or loaded manually.
+PolyglotCompiler exposes a stable C ABI plugin interface. Plugins are shared libraries (`polyplug_*.so` / `polyplug_*.dylib` / `polyplug_*.dll`) discovered automatically from the search paths or loaded manually.
 
-PolyglotCompiler 支持 C ABI 插件接口，用于扩展编译器和 IDE。插件为共享库（`polyplug_*.so` / `polyplug_*.dylib` / `polyplug_*.dll`），可从搜索路径自动发现或手动加载。
+| Capability      | Description                                                       |
+|-----------------|-------------------------------------------------------------------|
+| Language        | Add new frontends via `FrontendRegistry` / `ILanguageFrontend`    |
+| Optimiser       | Add custom optimisation passes                                    |
+| Backend         | Add new code-generation targets                                    |
+| Tool            | Add CLI tools or pipeline stages                                  |
+| UI Panel        | Add IDE panels / dock widgets                                     |
+| Syntax Theme    | Add syntax highlighting themes                                    |
+| File Type       | Register new file types                                           |
+| Code Action     | Add quick-fix / refactoring actions                               |
+| Formatter       | Add code formatters                                               |
+| Linter          | Add code linters                                                  |
+| Debugger        | Add debugger integrations                                         |
+| Completion      | Add per-language editor completion providers                      |
+| Diagnostic      | Add per-language editor diagnostic providers                      |
+| Template        | Add file template providers for "New From Template"               |
+| Topology Proc   | Add topology graph post-processors                                |
 
-| Capability | Description |
-|-----------|-------------|
-| Language | Add new language frontends via `FrontendRegistry` and `ILanguageFrontend` interface |
-| Optimiser | Add custom optimisation passes |
-| Backend | Add new code-generation targets |
-| Tool | Add CLI tools or pipeline stages |
-| UI Panel | Add IDE panels / dock widgets |
-| Syntax Theme | Add syntax highlighting themes |
-| File Type | Register new file types |
-| Code Action | Add quick-fix / refactoring actions |
-| Formatter | Add code formatters |
-| Linter | Add code linters |
-| Debugger | Add debugger integrations |
-| Completion | Add editor completion providers (per language) |
-| Diagnostic | Add editor diagnostic providers (per language) |
-| Template | Add file template providers for "New From Template" |
-| Topology Proc | Add topology graph post-processors |
+**Sandbox & version constraints / 沙箱与版本约束：** Plugins declare `min_host_version` in their metadata; the host enforces version compatibility at load time and rejects incompatible plugins. A circuit-breaker mechanism auto-disables a plugin after repeated callback failures (configurable via `SandboxPolicy`).
 
-**Sandbox & version constraints:**  Plugins declare `min_host_version` in their metadata to ensure compatibility. The host enforces version constraints at load time and rejects incompatible plugins. A circuit-breaker mechanism auto-disables plugins after repeated callback failures (configurable via `SandboxPolicy`).
-
-**沙箱与版本约束：** 插件在元数据中声明 `min_host_version` 以确保兼容性。宿主在加载时检查版本约束，拒绝不兼容的插件。熔断机制在回调连续失败后自动禁用插件（可通过 `SandboxPolicy` 配置）。
-
-See [`docs/specs/plugin_specification.md`](docs/specs/plugin_specification.md) for the full specification.  
-详细说明见 [`docs/specs/plugin_specification_zh.md`](docs/specs/plugin_specification_zh.md)。
+See [`docs/specs/plugin_specification.md`](docs/specs/plugin_specification.md) / [`docs/specs/plugin_specification_zh.md`](docs/specs/plugin_specification_zh.md) for the full specification.
 
 ---
 
@@ -328,122 +279,101 @@ PolyglotCompiler/
 ├── frontends/
 │   ├── common/         # Shared frontend infrastructure (token pool, preprocessor, diagnostics)
 │   ├── cpp/            # C++ frontend (lexer, parser, sema, lowering, constexpr)
-│   ├── python/         # Python frontend (lexer, parser, sema, lowering)
-│   ├── rust/           # Rust frontend (lexer, parser, sema, lowering)
-│   ├── java/           # Java frontend (lexer, parser, sema, lowering) — Java 8/17/21/23
-│   ├── dotnet/         # .NET (C#) frontend (lexer, parser, sema, lowering) — .NET 6/7/8/9
-│   └── ploy/           # .ploy cross-language frontend (lexer, parser, sema, lowering)
-├── middle/             # Middle layer: IR, SSA, CFG, optimisation passes, PGO, LTO
+│   ├── python/         # Python frontend
+│   ├── rust/           # Rust frontend
+│   ├── java/           # Java frontend (Java 8 / 17 / 21 / 23)
+│   ├── dotnet/         # .NET (C#) frontend (.NET 6 / 7 / 8 / 9)
+│   ├── go/             # Go frontend
+│   ├── javascript/     # JavaScript frontend
+│   ├── ruby/           # Ruby frontend
+│   └── ploy/           # .ploy cross-language frontend
+├── middle/             # SSA IR, CFG, optimisation passes, PGO, LTO
 ├── backends/
-│   ├── common/         # Shared backend (debug info, DWARF, PDB, object file emission)
+│   ├── common/         # Shared backend (debug info, DWARF, PDB, object emission)
 │   ├── x86_64/         # x86_64 backend (isel, regalloc, asm_printer, scheduler)
 │   ├── arm64/          # ARM64 backend (isel, regalloc, asm_printer)
-│   └── wasm/           # WebAssembly backend (wasm_target)
-├── runtime/            # Runtime: GC (4 algorithms), FFI, marshalling, threading
-│   └── src/libs/       # Language runtimes: python_rt, cpp_rt, rust_rt, java_rt, dotnet_rt, javascript_rt, ruby_rt, go_rt
-├── common/             # Common utilities: type system, symbol table, DWARF5
-├── tools/              # Compiler driver (polyc), linker (polyld), assembler, IDE (polyui), etc.
+│   └── wasm/           # WebAssembly backend
+├── runtime/
+│   └── src/libs/       # python_rt, cpp_rt, rust_rt, java_rt, dotnet_rt, go_rt, javascript_rt, ruby_rt
+├── common/             # Type system, symbol table, DWARF 5, host triple, settings
+├── tools/              # polyc, polyld, polyasm, polyopt, polyrt, polytopo, polyls,
+│                       # polydoc, polyver, polybench, ui (polyui)
 ├── tests/
-│   ├── unit/           # Unit tests — 909 cases (Catch2)
-│   ├── integration/    # Integration tests — 92 cases
-│   ├── benchmarks/     # Benchmark tests — 18 cases
-│   └── samples/        # 16 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs)
-└── docs/               # Documentation (bilingual: Chinese + English)
+│   ├── unit/           # Per-module unit tests (Catch2)
+│   ├── integration/    # Full-pipeline / binary-matrix integration tests
+│   ├── benchmarks/     # Micro + macro performance benchmarks
+│   └── samples/        # 49 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs/.go/.js/.rb)
+├── scripts/            # CI helpers, packaging, sample harness, doc-sync gates
+└── docs/               # Bilingual documentation (Chinese + English)
     ├── api/            # API reference
-    ├── specs/          # Language & IR specifications
+    ├── specs/          # Language & IR specifications, ABI, plugin spec
     ├── realization/    # Implementation details
-    └── tutorial/       # Tutorials (ploy language + project)
+    ├── tutorial/       # Tutorials (.ploy + project)
+    └── demand/         # Demand log driving the project
 ```
 
 ---
 
 ## Testing / 测试
 
-The project uses **Catch2** as the testing framework with 21 CTest targets, totalling **1019 test cases**.
+The project uses **Catch2** with a per-module CTest matrix of **30 targets**. The historical monolithic `unit_tests` binary is preserved as a meta-target while every logical area has its own binary so failures are easy to localise.
+
+| #  | CTest target              | Scope                                                   |
+|----|---------------------------|---------------------------------------------------------|
+| 1  | `test_core`               | Common utilities, type system, symbol table             |
+| 2  | `test_plugins`            | Plugin loader, sandbox, version contract                |
+| 3  | `test_frontend_common`    | Token pool, preprocessor, diagnostics                   |
+| 4  | `test_frontend_python`    | Python frontend                                         |
+| 5  | `test_frontend_cpp`       | C++ frontend                                            |
+| 6  | `test_frontend_rust`      | Rust frontend                                           |
+| 7  | `test_frontend_ploy`      | `.ploy` frontend                                        |
+| 8  | `test_frontend_java`      | Java frontend                                           |
+| 9  | `test_frontend_dotnet`    | .NET (C#) frontend                                      |
+| 10 | `test_frontend_javascript`| JavaScript frontend                                     |
+| 11 | `test_frontend_ruby`      | Ruby frontend                                           |
+| 12 | `test_frontend_go`        | Go frontend                                             |
+| 13 | `test_middle`             | SSA IR, optimisation passes, PGO, LTO                   |
+| 14 | `test_backends`           | x86_64 / ARM64 / Wasm code generation                   |
+| 15 | `test_runtime`            | GC, FFI, marshalling, threading                         |
+| 16 | `test_linker`             | `polyld` ELF / PE / Mach-O / Wasm writers, glue codegen |
+| 17 | `test_topology`           | Topology graph, link validation                         |
+| 18 | `test_settings`           | Three-layer settings, schema, hot reload                |
+| 19 | `test_lsp`                | LSP framing, JSON-RPC, capability negotiation           |
+| 20 | `test_polyls`             | `polyls` server: completion, navigation, symbol index   |
+| 21 | `test_problems`           | Diagnostic surfacing, problems panel contract           |
+| 22 | `test_completion_ranker`  | Completion ranking heuristics                           |
+| 23 | `test_topology_ui`        | Topology panel UI bindings                              |
+| 24 | `test_e2e`                | End-to-end pipelines                                    |
+| 25 | `unit_tests`              | Aggregate compatibility binary                          |
+| 26 | `integration_tests`       | Full pipeline & cross-language interop                  |
+| 27 | `benchmark_tests`         | Benchmark suite                                         |
+| 28 | `samples_regression`      | Drives `tests/samples/**` through `polyc` + `polyld`    |
+| 29 | `benchmark_fast`          | Fast (`[fast]`) Catch2 subset for CI smoke              |
+| 30 | `benchmark_full`          | Full benchmark run                                      |
 
 ```bash
-# Run all tests via CTest
-cd build && ctest
-
-# Run unit tests
-./unit_tests
-
-# Run .ploy frontend tests
-./unit_tests [ploy]
-
-# Run by category
-./unit_tests [ploy][lexer]       # Lexer tests
-./unit_tests [ploy][parser]      # Parser tests
-./unit_tests [ploy][sema]        # Semantic analysis tests
-./unit_tests [ploy][lowering]    # IR lowering tests
-./unit_tests [python]            # Python frontend tests
-./unit_tests [rust]              # Rust frontend tests
-./unit_tests [java]              # Java frontend tests
-./unit_tests [dotnet]            # .NET frontend tests
-
-# Run integration tests
-./integration_tests [integration]
-
-# Run benchmark tests
-./benchmark_tests [benchmark]
+cd build && ctest --output-on-failure              # run everything
+cd build && ctest -R test_frontend_ploy            # one target
+cd build && ./test_frontend_ploy [parser]          # by Catch2 tag
+cd build && ctest -L benchmark                     # by label
 ```
-
-### Test Statistics / 测试统计
-
-> The case-count tables below are a 2026-03-19 snapshot taken just before
-> the monolithic `unit_tests` binary was split into per-module test
-> binaries. For the **current per-suite numbers** (e.g. `test_backends`
-> 461 / 66, `test_core` 357 / 41, `test_middle` 292 / 80,
-> `test_runtime` 35199 / 101, `test_linker` 171 / 35) and the rationale
-> for the split, see [`docs/CHANGELOG.md`](docs/CHANGELOG.md) entries
-> v1.0.6 and v1.4.0.
-
-| Suite | Cases | Tags | Coverage |
-|-------|-------|------|----------|
-| **Unit Tests** | **909** | 250+ tags | All frontends, IR, optimisation, GC, FFI, debug, linker, runtime, preprocessor, E2E, topology, sema strict |
-| **Integration Tests** | **92** | `[integration]` | Full pipeline, cross-language interop, performance stress, object file formats |
-| **Benchmark Tests** | **18** | `[benchmark]` | Micro (lexer/parser/sema/lowering) + Macro (scaling/OOP/pipeline) |
-| **Total** | **1019** | — | — |
-
-### Unit Test Breakdown / 单元测试明细
-
-| Category | Tag | Cases |
-|----------|-----|-------|
-| .ploy Frontend | `[ploy]` | 283 |
-| Python Frontend | `[python]` | 127 |
-| Rust Frontend | `[rust]` | 46 |
-| E2E Pipeline | `[e2e]` | 56 |
-| FFI / Interop | `[ffi]` | 39 |
-| Linker | `[linker]` | 36 |
-| .NET Frontend | `[dotnet]` | 24 |
-| Java Frontend | `[java]` | 22 |
-| Topology | `[topology]` | 22 |
-| Backend | `[backend]` | 20 |
-| GC Algorithms | `[gc]` | 20 |
-| Preprocessor | `[preprocessor]` | 18 |
-| Optimisation Passes | `[opt]` | 17 |
-| Threading | `[threading]` | 16 |
-| LTO | `[lto]` | 14 |
-| PGO | `[pgo]` | 13 |
-| C++ Frontend | `[cpp]` | 10 |
-| Sema Strict Mode | `[sema][strict]` | 10 |
-| DWARF5 | `[dwarf5]` | 7 |
-| Debug | `[debug]` | 4 |
 
 ### CI Quality Gates / CI 质量闸门
 
-The CI pipeline (`.github/workflows/ci.yml`) enforces the following quality gates on every push and PR:
+`.github/workflows/ci.yml` enforces the following gates on every push and PR:
 
-| Gate | Tool | Description |
-|------|------|-------------|
-| **Docs Lint** | `docs_lint.py` / `docs_sync_check.py --scope core` | Path references, core bilingual docs sync (`USER_GUIDE` / API), heading structure, version consistency |
-| **Format Check** | `clang-format-17` | Enforces `.clang-format` style on all C/C++ source files |
-| **Static Analysis** | `clang-tidy-17` | Runs across all project `.cpp` sources under `common/middle/frontends/backends/runtime/tools` (no 50-file cap) |
-| **Sanitizers** | ASan + UBSan | AddressSanitizer and UndefinedBehaviorSanitizer on non-benchmark test suites (`-LE benchmark`) |
-| **Code Coverage** | lcov / gcov | Collects line coverage from non-benchmark tests; report uploaded as CI artifact |
-| **Benchmark Smoke** | Catch2 `[fast]` | Runs benchmarks in fast mode to catch performance regressions |
+| Gate              | Tool                                          | Description                                                                                              |
+|-------------------|-----------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| Docs Lint         | `docs_lint.py` / `docs_sync_check.py`         | Path references, core bilingual doc sync (`USER_GUIDE`, API), heading structure, version consistency     |
+| Format Check      | `clang-format-17`                             | Enforces `.clang-format` style on all C/C++ source files                                                 |
+| Static Analysis   | `clang-tidy-17`                               | Runs across all `.cpp` sources under `common/middle/frontends/backends/runtime/tools` (no 50-file cap)   |
+| Sanitizers        | ASan + UBSan                                  | Runs all non-benchmark suites (`-LE benchmark`)                                                          |
+| Code Coverage     | `lcov` / `gcov`                               | Line coverage from non-benchmark tests; report uploaded as CI artifact                                   |
+| Benchmark Smoke   | `benchmark_fast` (`[fast]`)                   | Catches obvious performance regressions                                                                  |
+| Binary Matrix     | `scripts/ci/run_binary_matrix.{sh,ps1}`       | Validates the `--target` × `--container` matrix on Linux / macOS / Windows runners                       |
+| Samples Harness   | `samples_regression` + `build_all_samples.*`  | Drives `tests/samples/**` and pins stdout via `expected_output.txt`; honours `expected_output.skip`      |
 
-To run quality checks locally:
+Local invocation:
 
 ```bash
 # Format check (dry-run)
@@ -452,7 +382,7 @@ find common middle frontends backends runtime tools \
   -not -path '*/deps/*' -not -path '*/.cache/*' -print0 \
   | xargs -0 clang-format --dry-run --Werror --style=file
 
-# Docs sync gate (core bilingual docs)
+# Bilingual doc sync gate
 python scripts/docs_sync_check.py --ci --scope core
 
 # Sanitizer build
@@ -463,15 +393,6 @@ cmake -B build-san -G Ninja \
   -DBUILD_SHARED_LIBS=OFF
 cmake --build build-san
 cd build-san && ctest --output-on-failure -LE benchmark
-
-# Coverage build
-cmake -B build-cov -G Ninja \
-  -DCMAKE_BUILD_TYPE=Debug \
-  -DPOLYGLOT_ENABLE_COVERAGE=ON \
-  -DBUILD_SHARED_LIBS=OFF
-cmake --build build-cov
-cd build-cov && ctest --output-on-failure -LE benchmark
-lcov --capture --directory . --output-file coverage.info
 ```
 
 ---
@@ -481,43 +402,40 @@ lcov --capture --directory . --output-file coverage.info
 Managed automatically via CMake `FetchContent`:
 
 <!-- BEGIN:dependencies_table -->
-| Dependency | Purpose |
-|-----------|---------|
-| [fmt](https://github.com/fmtlib/fmt) | Formatted output (>= 11.2.0 required for Apple Clang 21) |
-| [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
-| [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
-| [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator (mi_* APIs only; global malloc override disabled to keep allocator consistent across dylib boundaries) |
-| [Qt 6](https://www.qt.io/) | Desktop IDE (polyui) |
+| Dependency                                              | Purpose                                                                                                  |
+|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
+| [fmt](https://github.com/fmtlib/fmt)                    | Formatted output (≥ 11.2.0 required for Apple Clang 21)                                                   |
+| [nlohmann/json](https://github.com/nlohmann/json)       | JSON processing                                                                                          |
+| [Catch2](https://github.com/catchorg/Catch2)            | Unit testing framework                                                                                   |
+| [mimalloc](https://github.com/microsoft/mimalloc)       | High-performance memory allocator (`mi_*` APIs only; global malloc override disabled across dylib bounds) |
 <!-- END:dependencies_table -->
 
-**Optional (not fetched by CMake — must be pre-installed):**
+**Optional / 可选（不由 CMake 拉取，需预先安装）：**
 
-| Dependency | Purpose |
-|-----------|---------|
-| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt` (Windows), `deps/qt/` (all platforms), or system path. Run `tools/ui/setup_qt.sh` / `tools/ui/setup_qt.ps1` to install automatically. Skipped if not found |
+| Dependency                                       | Purpose                                                                                                                                  |
+|--------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| [Qt 6 (recommended) / Qt 5.15+](https://www.qt.io/) | Desktop IDE (`polyui`). Auto-discovered under `D:\Qt`, `deps/qt/`, or system path. Run `tools/ui/setup_qt.{sh,ps1}` to install via `aqtinstall`; skipped if not found. |
 
 ---
 
 ## Documentation / 文档
 
-All documentation is provided in **bilingual** format (Chinese + English) under `docs/`:
+All documentation is bilingual (中文 + English) under [`docs/`](docs/):
 
-| Document | Description |
-|----------|-------------|
-| [`USER_GUIDE.md`](docs/USER_GUIDE.md) | Complete user guide (English) |
-| [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide (Chinese / 完整用户指南) |
-| [`CHANGELOG.md`](docs/CHANGELOG.md) | Release history (English) — every version from v0.1.0 onward |
-| [`CHANGELOG_zh.md`](docs/CHANGELOG_zh.md) | Release history (Chinese / 更新日志) |
-| [`docs/api/`](docs/api/) | API reference (bilingual) |
-| [`docs/specs/`](docs/specs/) | Language & IR specifications, optimisation pipeline, runtime ABI, plugin specification |
-| [`docs/realization/`](docs/realization/) | Implementation details (bilingual, 8 topics) |
-| [`docs/tutorial/`](docs/tutorial/) | Tutorials: ploy language + project (bilingual) |
+| Document                                                              | Description                                                                |
+|-----------------------------------------------------------------------|----------------------------------------------------------------------------|
+| [`USER_GUIDE.md`](docs/USER_GUIDE.md) / [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide                                                       |
+| [`CHANGELOG.md`](docs/CHANGELOG.md) / [`CHANGELOG_zh.md`](docs/CHANGELOG_zh.md)     | Release history (every version since v0.1.0)                              |
+| [`docs/api/`](docs/api/)                                              | API reference                                                              |
+| [`docs/specs/`](docs/specs/)                                          | Language & IR specifications, runtime ABI, plugin specification, packaging |
+| [`docs/realization/`](docs/realization/)                              | Implementation details                                                     |
+| [`docs/tutorial/`](docs/tutorial/)                                    | Tutorials for the `.ploy` language and the project as a whole              |
 
 ---
 
 ## Release Packaging / 发布打包
 
-Pre-built release packages can be created with the provided scripts:
+Pre-built release bundles can be assembled with the scripts under [`scripts/`](scripts/):
 
 ```bash
 # Windows (PowerShell) — portable zip + NSIS installer
@@ -530,19 +448,19 @@ Pre-built release packages can be created with the provided scripts:
 ./scripts/package_macos.sh
 ```
 
-See [`docs/specs/release_packaging.md`](docs/specs/release_packaging.md) for full details.  
-详细说明见 [`docs/specs/release_packaging_zh.md`](docs/specs/release_packaging_zh.md)。
+Full details in [`docs/specs/release_packaging.md`](docs/specs/release_packaging.md) / [`docs/specs/release_packaging_zh.md`](docs/specs/release_packaging_zh.md).
 
 ---
 
 ## License / 许可证
 
-This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE) for details.  
+本项目遵循 **GNU 通用公共许可证 v3.0**，详见 [LICENSE](LICENSE)。
 
 ---
 
 <!-- BEGIN:version_footer_en -->
-*Maintained by PolyglotCompiler Team*  
-*Last Updated: 2026-04-28*  
-*Document Version: v1.2.0*
+*Maintained by the PolyglotCompiler Team*  
+*Last Updated: 2026-05-07*  
+*Document Version: v1.45.2*
 <!-- END:version_footer_en -->

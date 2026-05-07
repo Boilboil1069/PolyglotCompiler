@@ -1,67 +1,67 @@
-# Problems 面板快速上手
+# 问题面板快速上手
 
-5 分钟走一遍 v1.21.0 引入的实时诊断流程。
+> **文档版本**：2.0.0  
+> **更新日期**：2026-05-07  
+> **项目**：PolyglotCompiler 1.45.2  
+> **配套文件**：[problems_panel_quickstart.md](problems_panel_quickstart.md)
 
-## 1. 打开一个 Ploy 文件
+本 5 分钟教程展示首发于 v1.21.0、并在 v1.45.2 持续打磨的实时诊断流程。
 
-启动 `polyui`，**文件 -> 打开**任意 `.ploy` 源。编辑器一打开，
-`IdeLspBridge` 就会为该缓冲区拉起 `polyls` 并发送
-`textDocument/didOpen`。
+## 1. 打开 `.ploy` 文件
 
-## 2. 故意制造一个错误
+启动 `polyui`，然后 **文件 → 打开** 任意 `.ploy` 源文件。编辑器一打开，`IdeLspBridge` 即为该缓冲区启动 `polyls` 并发送 `textDocument/didOpen`。
 
-输入一行错误代码，例如：
+## 2. 制造一个错误
+
+故意输入残缺一行，如：
 
 ```ploy
 LET x = 1 +
 ```
 
-约 200 ms 抖动窗口后，你会看到：
+约 200 ms（变更去抖窗口）内可见：
 
-* 编辑器中对应位置出现红色波浪线；
-* 状态栏计数器从 `E:0 W:0 H:0` 变为 `E:1 W:0 H:0`，
-  其中 `E:1` 显示为红色。
+- 编辑器中相关列出现红色波浪线；
+- 状态栏计数从 `E:0 W:0 H:0` 切换为 `E:1 W:0 H:0`，`E:1` 显示为红色。
 
-## 3. 打开 Problems 面板
+## 3. 打开问题面板
 
-点击状态栏中的 `E:1` 链接，`MainWindow` 会调用 `ShowPanel("problems")`，
-底部面板弹出。你会看到一行按文件名分组、来源为 `polyls:ploy` 的诊断。
+点击状态栏中的 `E:1` — `MainWindow` 调用 `ShowPanel("problems")`，停靠窗在底部弹出。你会看到一行按文件名分组的条目，来源为 `polyls:ploy`。
 
 ## 4. 过滤
 
-* 取消勾选 **Warning / Info / Hint** 仅显示 error。
-* 在 **File** 输入框键入部分文件名——按文件名做大小写不敏感子串匹配。
-* 在 **消息正则** 输入框试输 `^expected`——非法正则会被静默忽略，
-  尽情试。
+- 取消勾选 **Warning / Info / Hint** 仅显示错误。
+- 在 **File** 框中输入文件名片段 — 对 basename 做大小写不敏感的子串匹配。
+- 在 **Message regex** 中输入如 `^expected` 的正则 — 无效模式被静默忽略，可放心试验。
 
 ## 5. 跳转
 
-双击任一行：对应标签页会被激活，光标定位到诊断位置。
+双击任意一行。对应标签被激活，光标置于诊断位置。
 
 ## 6. CLI 回退（`polyc --check`）
 
-在没有 LSP 的环境（CI、沙箱编辑器），可以通过编译器驱动获得相同诊断：
+无运行中 LSP 的场景（CI、沙箱编辑器），同一份诊断可经编译器驱动获取：
 
-```
+```sh
 polyc --check path/to/file.ploy
 ```
 
-`polyc` 会向 `stdout` 写出一份与 LSP `PublishDiagnosticsParams` 同形的
-JSON，并以 `0`（干净）、`1`（存在 error）或 `2`（用法 / I/O 失败）退出。
-可以管道到 `jq` 查看：
+`polyc` 在 `stdout` 写出符合 LSP `PublishDiagnosticsParams` 形态的单份 JSON，并以 `0`（干净）、`1`（有错误）或 `2`（用法 / I/O 失败）退出。可管道送入 `jq` 检视：
 
-```
+```sh
 polyc --check broken.ploy | jq '.diagnostics[] | {sev:.severity, msg:.message}'
 ```
 
-## 7. 大型工作区后台扫描
+## 7. 大型工作区的后台扫描
 
-工作区文件数超过 2000 时，首检异步进行，每节拍 50 文件、节拍 50 ms。
-状态栏显示 `Scanning N/M ...` 进度。扫描结束后，
-`QFileSystemWatcher` 会持续侦听后续的创建 / 删除 / 重命名事件。
+当活动工作区包含超过 2 000 个文件时，首扫异步进行，按每 50 ms tick 50 个文件分批执行。进度以 `Scanning N/M …` 显示在状态栏。扫描完成后，`QFileSystemWatcher` 对任何后续的创建 / 删除 / 重命名事件保持结果实时。
 
-## 相关文档
+## 8. 诊断码目录
 
-* `docs/realization/problems_panel_zh.md`：设计说明。
-* `docs/USER_GUIDE_zh.md` 第 13 章：参考手册。
-* `docs/tutorial/lsp_quickstart_zh.md`：LSP 基础配置。
+每条诊断携带稳定 id，形如 `polyc-(err|warn)-<E####|W####>`。完整目录见 [docs/specs/ploy_diagnostics.md](../specs/ploy_diagnostics.md)；常见条目列于 [ploy_language_tutorial_zh.md](ploy_language_tutorial_zh.md) 第 20 节。
+
+## 参见
+
+- [docs/realization/problems_panel.md](../realization/problems_panel.md) — 设计说明。
+- [docs/USER_GUIDE_zh.md](../USER_GUIDE_zh.md) 第 13 章 — 完整参考。
+- [lsp_quickstart_zh.md](lsp_quickstart_zh.md) — 基础 LSP 设置。

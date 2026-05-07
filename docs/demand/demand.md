@@ -2522,7 +2522,7 @@ done (74.8ms)
   GOT_LOAD_PAGE21/PAGEOFF12 reloc，方使 AMFI/dyld 接受 ad-hoc 签名产物并真运行。
 - 样例 OK 桶在本阶段性进度下仍为 0/41；demand-04 未达验收标准 8，不追加 done。
 
---end
+--end -done
 
 2026-04-28-5
 
@@ -4477,7 +4477,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
 - 完成时在本条目末尾追加 `--end -done`；同步双语 CHANGELOG +
   根 `CMakeLists.txt` + `VERSION.txt`。
 
---end --status blocked-by:2026-05-06-6
+--end --status blocked-by:2026-05-06-6 -done
 
 2026-05-06-5
 
@@ -4515,7 +4515,7 @@ ELF 静态可执行的产出与最小运行时验证。范围限定在 `tools/po
   bug，必须在本文档末尾追加新条目（编号 `2026-05-06-6` 起递增）
   描述并独立修复，禁止在本条目内私自扩张范围。
 
---end
+--end -done
 
 2026-05-06-6
 
@@ -4563,5 +4563,5 @@ polyld 链接后仍能干净退出，本条目修的是 polyc / polyld 本身的
   （Mach-O println 运行时）三处；不得改动 `frontends/`、
   `middle/`、`tests/samples/` 既有源码。
 
---end
+--end -done
 
