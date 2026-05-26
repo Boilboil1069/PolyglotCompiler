@@ -67,6 +67,7 @@ struct DriverSettings {
   std::string arch{"x86_64"};
 #endif
   std::string mode{"link"}; // compile | assemble | link
+  bool mode_explicit{false};
 
   // Object format
 #if defined(_WIN32)

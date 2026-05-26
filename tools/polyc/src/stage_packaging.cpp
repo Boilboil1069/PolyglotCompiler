@@ -995,7 +995,13 @@ std::string EmitObject(const DriverSettings &settings, const std::vector<ObjSect
   else
     ext = ".o";
 
-  std::string out = settings.emit_obj_path.empty() ? settings.output + ext : settings.emit_obj_path;
+  std::string out = settings.emit_obj_path;
+  if (out.empty()) {
+    if (settings.mode == "link")
+      out = settings.output + ext;
+    else
+      out = (settings.output == "a.out") ? (settings.output + ext) : settings.output;
+  }
 
   if (fmt == "pobj")
     return BuildPobj(out, sections, symbols);
@@ -1231,9 +1237,11 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
 
       LinkerChoice choice = SelectAvailableLinker(settings.obj_format, settings.polyld_path);
       if (choice.command_template.empty()) {
-        std::cerr << "[warn] no linker available for format '" << settings.obj_format
-                  << "' (tried platform tools and bundled polyld); object kept at: " << obj_path
-                  << "\n";
+        result.diagnostics.Report(core::SourceLoc{"<packaging>", 1, 1},
+                                  "no linker available for format '" + settings.obj_format +
+                                      "' (tried platform tools and bundled polyld); object kept at: " +
+                                      obj_path);
+        return false;
       } else {
         std::string cmd =
             ExpandLinkCommand(choice, obj_path, out_exe, bridge.descriptor_file, aux_dir);
@@ -1242,9 +1250,19 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
         if (V)
           std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_exe << "\n";
         int rc = std::system(cmd.c_str());
-        if (rc != 0)
-          std::cerr << "[warn] linker '" << choice.display_name
-                    << "' returned non-zero; object kept at: " << obj_path << "\n";
+        if (rc != 0) {
+          result.diagnostics.Report(core::SourceLoc{"<packaging>", 1, 1},
+                                    "linker '" + choice.display_name +
+                                        "' returned non-zero; object kept at: " + obj_path);
+          return false;
+        }
+        std::error_code ec;
+        if (!fs::exists(out_exe, ec)) {
+          result.diagnostics.Report(core::SourceLoc{"<packaging>", 1, 1},
+                                    "linker '" + choice.display_name +
+                                        "' completed but did not produce output: " + out_exe);
+          return false;
+        }
       }
     }
     result.output_path = out_exe;

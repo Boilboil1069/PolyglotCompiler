@@ -13,6 +13,22 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.47.2 (2026-05-26) — «Executable link path hardening»
+
+- **`polyc source.ploy -o app` now produces a real executable on macOS
+  arm64.** The staged `.ploy` packaging path now prefers the bundled
+  `polyld` linker for toolchain-emitted Mach-O/ELF/COFF objects, avoiding
+  the system `clang` text-relocation rejection that previously left only a
+  relocatable object file behind.
+- **Link failures are hard failures.** A non-zero linker exit or a missing
+  output executable is now reported as a packaging error and makes `polyc`
+  return non-zero instead of printing `Compilation successful`.
+- **Compile-only CLI compatibility restored.** `-c -o file.o` maps to
+  compile-only mode and writes the object to the requested path; `--emit-obj`
+  also keeps historical compile-only behaviour unless `--mode=link` is
+  explicitly supplied. Regression coverage now checks both the explicit
+  object + `polyld` path and the single-command executable path.
+
 ## v1.47.1 (2026-05-07) — «Sample matrix zero-skip closure»
 
 - **All 11 previously-skipped samples now compile, link, run, and match

@@ -1,15 +1,15 @@
 /**
  * @file     macho_exec_smoke_test.cpp
  * @brief    macOS arm64 end-to-end smoke for the polyld Mach-O writer.
- *           Drives `polyc` to compile `tests/samples/00_minimal/
- *           print_then_exit.ploy`, asks `polyld` to link an MH_EXECUTE
- *           image into `/tmp/polyld_macho_smoke`, then `posix_spawn`s
- *           the produced binary with stdout captured through a pipe
- *           and asserts `WEXITSTATUS == 0` plus stdout text equal to
- *           `"ok\n"`.  Compiled only on `__APPLE__ && __aarch64__`;
- *           on every other host this translation unit shrinks to a
- *           single placeholder test case so the integration_tests
- *           binary still links cleanly.
+ *           Drives both the single-command `polyc -o` path and the
+ *           explicit `polyc --mode=compile --emit-obj` + `polyld` path
+ *           for `tests/samples/00_minimal/print_then_exit.ploy`, then
+ *           `posix_spawn`s each produced binary with stdout captured
+ *           through a pipe and asserts `WEXITSTATUS == 0` plus stdout
+ *           text equal to `"ok\n"`.  Compiled only on
+ *           `__APPLE__ && __aarch64__`; on every other host this
+ *           translation unit shrinks to a single placeholder test case
+ *           so the integration_tests binary still links cleanly.
  *
  * @author   Manning Cyrus
  * @date     2026-05-06
@@ -132,8 +132,8 @@ TEST_CASE("polyld Mach-O smoke: 00_minimal/print_then_exit runs to ok\\n",
 
   // ----- polyc compile ---------------------------------------------------
   // Emit a relocatable Mach-O object that the linker can consume.
-  int rc = RunInherit({polyc.string(), source.string(), "-c",
-                       "-o", object.string()});
+  int rc = RunInherit({polyc.string(), source.string(), "--mode=compile",
+                       "--emit-obj=" + object.string()});
   if (rc != 0 || !fs::exists(object)) {
     // The polyc front-end pipeline is not always wired for every host;
     // skipping is preferable to a hard failure here because the image
@@ -155,6 +155,34 @@ TEST_CASE("polyld Mach-O smoke: 00_minimal/print_then_exit runs to ok\\n",
   ::chmod(image.c_str(), 0755);
 
   // ----- spawn & capture --------------------------------------------------
+  std::string captured;
+  int exit_code = SpawnCaptureStdout(image.string(), captured);
+  REQUIRE(exit_code == 0);
+  REQUIRE(captured == "ok\n");
+}
+
+TEST_CASE("polyc Mach-O single-command link emits a runnable executable",
+          "[macho][exec][integration]") {
+  fs::path repo = RepoRoot();
+  REQUIRE_FALSE(repo.empty());
+  fs::path build_dir = repo / "build";
+  fs::path polyc = build_dir / "polyc";
+  if (!fs::exists(polyc)) {
+    SUCCEED("polyc not built yet — skipping macho single-command smoke");
+    return;
+  }
+  fs::path source = repo / "tests" / "samples" / "00_minimal" /
+                    "print_then_exit.ploy";
+  REQUIRE(fs::exists(source));
+
+  fs::path image = "/tmp/polyc_macho_single_command_smoke";
+  std::error_code ec;
+  fs::remove(image, ec);
+
+  int rc = RunInherit({polyc.string(), source.string(), "-o", image.string()});
+  REQUIRE(rc == 0);
+  REQUIRE(fs::exists(image));
+
   std::string captured;
   int exit_code = SpawnCaptureStdout(image.string(), captured);
   REQUIRE(exit_code == 0);

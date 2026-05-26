@@ -242,7 +242,7 @@ std::string ObjectExtension(const std::string &fmt) {
 
 // Probe-then-invoke linker discovery is shared with stage_packaging.cpp via
 // the helpers in tools/polyc/include/linker_probe.h.  See that header for
-// the v1.4.1 rationale and selection priority lists.
+// the selection rules and command-template contract.
 
 std::vector<std::uint8_t> BuildPobjBinary(const std::vector<InternalSection> &sections,
                                           const std::vector<InternalSymbol> &symbols) {
@@ -1001,8 +1001,14 @@ public:
       out_path = "a.out";
 
     const std::string ext = ObjectExtension(effective_fmt);
-    const std::string obj_out =
-        config.emit_obj_path.empty() ? (out_path + ext) : config.emit_obj_path;
+    std::string obj_out = config.emit_obj_path;
+    if (obj_out.empty()) {
+      if (config.mode == "link") {
+        obj_out = out_path + ext;
+      } else {
+        obj_out = (out_path == "a.out") ? (out_path + ext) : out_path;
+      }
+    }
     out.output_path = obj_out;
 
     std::ofstream ofs(obj_out, std::ios::binary | std::ios::trunc);
@@ -1038,13 +1044,15 @@ public:
     if (config.mode == "link") {
       LinkerChoice choice = SelectAvailableLinker(effective_fmt, config.polyld_path);
       if (choice.command_template.empty()) {
-        // No linker available at all — keep the .obj and emit a clean
-        // structured diagnostic.  We deliberately did NOT call std::system()
-        // for any unavailable tool, so the user sees no shell noise here.
-        diagnostics.ReportWarning(
+        // No linker available at all; keep the object and fail the requested
+        // link operation with a structured diagnostic.
+        diagnostics.ReportError(
             core::SourceLoc{"<packaging>", 1, 1}, frontends::ErrorCode::kUnresolvedSymbol,
             "no linker available for format '" + effective_fmt +
                 "' (tried platform tools and bundled polyld); object kept at: " + obj_out);
+        AppendDiagnostics(diagnostics, out.packaging_diagnostics);
+        out.success = false;
+        return out;
       } else {
         std::string cmd =
             ExpandLinkCommand(choice, obj_out, out_path, config.ploy_desc_file, config.aux_dir);
@@ -1074,16 +1082,36 @@ public:
         }
         int rc = std::system(cmd.c_str());
         if (rc != 0) {
-          diagnostics.ReportWarning(core::SourceLoc{"<packaging>", 1, 1},
-                                    frontends::ErrorCode::kUnresolvedSymbol,
-                                    "linker '" + choice.display_name +
-                                        "' returned non-zero (object kept at " + obj_out +
-                                        "): " + cmd);
+          diagnostics.ReportError(core::SourceLoc{"<packaging>", 1, 1},
+                                  frontends::ErrorCode::kUnresolvedSymbol,
+                                  "linker '" + choice.display_name +
+                                      "' returned non-zero (object kept at " + obj_out +
+                                      "): " + cmd);
+          AppendDiagnostics(diagnostics, out.packaging_diagnostics);
+          out.success = false;
+          return out;
         }
+        std::error_code ec;
+        if (!std::filesystem::exists(out_path, ec)) {
+          diagnostics.ReportError(core::SourceLoc{"<packaging>", 1, 1},
+                                  frontends::ErrorCode::kUnresolvedSymbol,
+                                  "linker '" + choice.display_name +
+                                      "' completed but did not produce output: " + out_path);
+          AppendDiagnostics(diagnostics, out.packaging_diagnostics);
+          out.success = false;
+          return out;
+        }
+        out.output_path = out_path;
       }
     }
 
-    out.file_size = out.binary_data.size();
+    std::error_code size_ec;
+    if (std::filesystem::exists(out.output_path, size_ec)) {
+      const auto disk_size = std::filesystem::file_size(out.output_path, size_ec);
+      out.file_size = size_ec ? out.binary_data.size() : static_cast<size_t>(disk_size);
+    } else {
+      out.file_size = out.binary_data.size();
+    }
     out.success = true;
     AppendDiagnostics(diagnostics, out.packaging_diagnostics);
     return out;

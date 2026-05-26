@@ -219,3 +219,46 @@ TEST_CASE("ELF writer emits PT_LOAD R+W when data is non-empty",
   }
   REQUIRE(saw_rw);
 }
+
+TEST_CASE("ELF PRINTLN synthesis emits Linux syscall payloads",
+          "[elf][polyld][println]") {
+  const std::vector<std::uint8_t> x86 =
+      BuildPrintlnSequenceELF(Arch::kX86_64, {"ok"});
+  REQUIRE_FALSE(x86.empty());
+  REQUIRE(x86[0] == 0xBF); // mov edi, 1
+  bool saw_x86_write = false;
+  bool saw_x86_exit = false;
+  for (std::size_t i = 0; i + 4 < x86.size(); ++i) {
+    if (x86[i] == 0xB8 && x86[i + 1] == 0x01 && x86[i + 2] == 0x00 &&
+        x86[i + 3] == 0x00 && x86[i + 4] == 0x00) {
+      saw_x86_write = true;
+    }
+    if (x86[i] == 0xB8 && x86[i + 1] == 0x3C && x86[i + 2] == 0x00 &&
+        x86[i + 3] == 0x00 && x86[i + 4] == 0x00) {
+      saw_x86_exit = true;
+    }
+  }
+  REQUIRE(saw_x86_write);
+  REQUIRE(saw_x86_exit);
+  REQUIRE(x86[x86.size() - 3] == 'o');
+  REQUIRE(x86[x86.size() - 2] == 'k');
+  REQUIRE(x86[x86.size() - 1] == '\n');
+
+  const std::vector<std::uint8_t> arm =
+      BuildPrintlnSequenceELF(Arch::kAArch64, {"ok"});
+  REQUIRE_FALSE(arm.empty());
+  REQUIRE(arm.size() >= 35u);
+  // movz x0, #1
+  REQUIRE(arm[4] == 0x20);
+  REQUIRE(arm[5] == 0x00);
+  REQUIRE(arm[6] == 0x80);
+  REQUIRE(arm[7] == 0xD2);
+  // movz x8, #64 (__NR_write)
+  REQUIRE(arm[12] == 0x08);
+  REQUIRE(arm[13] == 0x08);
+  REQUIRE(arm[14] == 0x80);
+  REQUIRE(arm[15] == 0xD2);
+  REQUIRE(arm[arm.size() - 3] == 'o');
+  REQUIRE(arm[arm.size() - 2] == 'k');
+  REQUIRE(arm[arm.size() - 1] == '\n');
+}

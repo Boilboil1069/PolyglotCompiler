@@ -119,12 +119,15 @@ LinkerChoice MakePolyldChoice(const std::string &polyld_path, const std::string 
 } // namespace
 
 LinkerChoice SelectAvailableLinker(const std::string &format, const std::string &polyld_path) {
+  // Prefer the bundled linker for all objects emitted by this toolchain.  The
+  // native system linkers are kept as fallbacks for environments that provide
+  // compiler drivers but not a sibling polyld binary.
+  if (IsExecutableOnPath(polyld_path))
+    return MakePolyldChoice(polyld_path, "polyld");
+
   // POBJ has only one canonical consumer.
-  if (format == "pobj") {
-    if (IsExecutableOnPath(polyld_path))
-      return MakePolyldChoice(polyld_path, "polyld");
+  if (format == "pobj")
     return {};
-  }
 
   std::vector<std::string> candidates;
   if (format == "coff")
@@ -143,11 +146,6 @@ LinkerChoice SelectAvailableLinker(const std::string &format, const std::string 
         return c;
     }
   }
-
-  // Universal fallback: bundled polyld (it can ingest COFF / ELF / Mach-O
-  // by magic-byte sniffing).
-  if (IsExecutableOnPath(polyld_path))
-    return MakePolyldChoice(polyld_path, "polyld (fallback)");
 
   return {};
 }

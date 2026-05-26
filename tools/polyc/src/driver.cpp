@@ -108,6 +108,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet|javascript|ruby|go\n"
           << "  -O<0-3>             Optimisation level\n"
           << "  -o <output>         Output file name\n"
+          << "  -c                  Compile only; write an object file\n"
           << "  --mode=<mode>       compile|assemble|link\n"
           << "  --arch=<arch>       x86_64|arm64|wasm\n"
           << "  --emit-ir=<path>    Write IR to file\n"
@@ -201,12 +202,18 @@ DriverSettings ParseArgs(int argc, char **argv) {
       s.verbose = false;
       continue;
     }
+    if (arg == "-c") {
+      s.mode = "compile";
+      s.mode_explicit = true;
+      continue;
+    }
     if (arg == "--no-aux") {
       s.emit_aux = false;
       continue;
     }
     if (arg.rfind("--mode=", 0) == 0) {
       s.mode = arg.substr(7);
+      s.mode_explicit = true;
       continue;
     }
     if (arg.rfind("--opt=", 0) == 0) {
@@ -241,6 +248,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg.rfind("--emit-obj=", 0) == 0) {
       s.emit_obj_path = arg.substr(11);
+      if (!s.mode_explicit)
+        s.mode = "compile";
       continue;
     }
     if (arg.rfind("--obj-format=", 0) == 0) {

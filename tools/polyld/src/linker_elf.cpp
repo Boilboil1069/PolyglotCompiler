@@ -183,6 +183,147 @@ void EmitShdr(std::vector<std::uint8_t> &out, const PendingShdr &s) {
 std::vector<std::uint8_t> BuildStartStubX86_64() { return StubX86_64(); }
 std::vector<std::uint8_t> BuildStartStubArm64()  { return StubArm64();  }
 
+namespace {
+
+std::uint32_t Arm64MovzX(unsigned rd, std::uint16_t imm16) {
+  return 0xD2800000u | (static_cast<std::uint32_t>(imm16) << 5) | (rd & 0x1Fu);
+}
+
+std::uint32_t Arm64Adr(unsigned rd, std::int32_t imm21) {
+  std::uint32_t u  = static_cast<std::uint32_t>(imm21) & 0x1FFFFFu;
+  std::uint32_t lo = u & 0x3u;
+  std::uint32_t hi = (u >> 2) & 0x7FFFFu;
+  return 0x10000000u | (lo << 29) | (hi << 5) | (rd & 0x1Fu);
+}
+
+void Emit32LE(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
+}
+
+void EmitX86MovEdiImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xBF);
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
+}
+
+void EmitX86MovEdxImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xBA);
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
+}
+
+void EmitX86MovEaxImm(std::vector<std::uint8_t> &out, std::uint32_t v) {
+  out.push_back(0xB8);
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((v >> (i * 8)) & 0xFFu));
+}
+
+void EmitX86Syscall(std::vector<std::uint8_t> &out) {
+  out.push_back(0x0F);
+  out.push_back(0x05);
+}
+
+void EmitX86LeaRsiRipDisp32(std::vector<std::uint8_t> &out, std::int32_t disp) {
+  out.push_back(0x48);
+  out.push_back(0x8D);
+  out.push_back(0x35);
+  for (int i = 0; i < 4; ++i)
+    out.push_back(static_cast<std::uint8_t>((disp >> (i * 8)) & 0xFFu));
+}
+
+void EmitX86XorEdiEdi(std::vector<std::uint8_t> &out) {
+  out.push_back(0x31);
+  out.push_back(0xFF);
+}
+
+constexpr std::size_t kLinuxArm64PerMsgSize = 5 * 4;
+constexpr std::size_t kLinuxArm64EpilogueSize = 3 * 4;
+constexpr std::size_t kLinuxX86_64PerMsgSize = 5 + 7 + 5 + 5 + 2;
+constexpr std::size_t kLinuxX86_64EpilogueSize = 2 + 5 + 2;
+
+} // namespace
+
+std::vector<std::uint8_t>
+BuildPrintlnSequenceELF(Arch arch, const std::vector<std::string> &messages) {
+  for (const auto &m : messages) {
+    if (m.size() > 0xFFFFu)
+      return {};
+  }
+
+  std::vector<std::uint8_t> blob;
+  std::vector<std::pair<std::uint32_t, std::uint32_t>> per_call;
+  std::vector<std::pair<std::string, std::uint32_t>> unique_table;
+  per_call.reserve(messages.size());
+
+  for (const auto &raw : messages) {
+    std::string m = raw;
+    if (m.empty() || m.back() != '\n')
+      m.push_back('\n');
+
+    bool found = false;
+    std::uint32_t off = 0;
+    for (const auto &kv : unique_table) {
+      if (kv.first == m) {
+        off = kv.second;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      off = static_cast<std::uint32_t>(blob.size());
+      blob.insert(blob.end(), m.begin(), m.end());
+      unique_table.emplace_back(m, off);
+    }
+    per_call.emplace_back(off, static_cast<std::uint32_t>(m.size()));
+  }
+
+  std::vector<std::uint8_t> text;
+  if (arch == Arch::kAArch64) {
+    const std::size_t code_size =
+        kLinuxArm64PerMsgSize * per_call.size() + kLinuxArm64EpilogueSize;
+    text.reserve(code_size + blob.size());
+
+    for (std::size_t i = 0; i < per_call.size(); ++i) {
+      const std::size_t adr_pos = i * kLinuxArm64PerMsgSize;
+      const std::size_t msg_abs = code_size + per_call[i].first;
+      const std::int32_t delta = static_cast<std::int32_t>(msg_abs - adr_pos);
+      Emit32LE(text, Arm64Adr(/*rd=*/1, delta));
+      Emit32LE(text, Arm64MovzX(/*rd=*/0, /*imm16=*/1)); // stdout
+      Emit32LE(text, Arm64MovzX(/*rd=*/2, static_cast<std::uint16_t>(per_call[i].second)));
+      Emit32LE(text, Arm64MovzX(/*rd=*/8, /*imm16=*/64)); // __NR_write
+      Emit32LE(text, 0xD4000001u); // svc #0
+    }
+
+    Emit32LE(text, Arm64MovzX(/*rd=*/0, /*imm16=*/0));
+    Emit32LE(text, Arm64MovzX(/*rd=*/8, /*imm16=*/93)); // __NR_exit
+    Emit32LE(text, 0xD4000001u); // svc #0
+  } else {
+    const std::size_t code_size =
+        kLinuxX86_64PerMsgSize * per_call.size() + kLinuxX86_64EpilogueSize;
+    text.reserve(code_size + blob.size());
+
+    for (std::size_t i = 0; i < per_call.size(); ++i) {
+      const std::size_t block_pos = i * kLinuxX86_64PerMsgSize;
+      const std::size_t lea_end_pos = block_pos + 5 + 7;
+      const std::size_t msg_abs = code_size + per_call[i].first;
+      const std::int32_t disp = static_cast<std::int32_t>(msg_abs - lea_end_pos);
+      EmitX86MovEdiImm(text, 1);          // stdout
+      EmitX86LeaRsiRipDisp32(text, disp); // buffer
+      EmitX86MovEdxImm(text, per_call[i].second);
+      EmitX86MovEaxImm(text, 1);          // __NR_write
+      EmitX86Syscall(text);
+    }
+
+    EmitX86XorEdiEdi(text);
+    EmitX86MovEaxImm(text, 60);           // __NR_exit
+    EmitX86Syscall(text);
+  }
+
+  text.insert(text.end(), blob.begin(), blob.end());
+  return text;
+}
+
 // ---------------------------------------------------------------------------
 // BuildELFImage
 // ---------------------------------------------------------------------------

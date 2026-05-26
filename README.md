@@ -12,7 +12,7 @@
 <!-- BEGIN:test_badge -->
   <img alt="Tests"    src="https://img.shields.io/badge/CTest-30%20targets-brightgreen.svg"/>
 <!-- END:test_badge -->
-  <img alt="Version"  src="https://img.shields.io/badge/Version-1.45.2-informational.svg"/>
+  <img alt="Version"  src="https://img.shields.io/badge/Version-1.47.2-informational.svg"/>
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -461,6 +461,6 @@ This project is licensed under the **GNU General Public License v3.0**. See [LIC
 
 <!-- BEGIN:version_footer_en -->
 *Maintained by the PolyglotCompiler Team*  
-*Last Updated: 2026-05-07*  
-*Document Version: v1.45.2*
+*Last Updated: 2026-05-26*  
+*Document Version: v1.47.2*
 <!-- END:version_footer_en -->

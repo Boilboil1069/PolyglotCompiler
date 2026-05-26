@@ -12,6 +12,18 @@
 
 ---
 
+## v1.47.2 (2026-05-26) — 「可执行文件链接路径加固」
+
+- **`polyc source.ploy -o app` 现在会在 macOS arm64 上产出真实可执行文件。**
+  `.ploy` 分阶段打包路径现在优先使用随工具链发布的 `polyld` 处理本工具链生成的
+  Mach-O/ELF/COFF 对象文件，避免此前系统 `clang` 因 text relocation 拒绝链接、
+  最终只留下可重定位对象文件的问题。
+- **链接失败会硬失败。** 链接器非零退出或目标可执行文件缺失时，`polyc` 现在会报告
+  packaging 错误并返回非零，不再继续打印 `Compilation successful`。
+- **恢复 compile-only CLI 兼容性。** `-c -o file.o` 会映射到仅编译模式，并把对象文件
+  写入指定路径；`--emit-obj` 也会保持历史上的仅编译行为，除非显式传入
+  `--mode=link`。回归测试现在同时覆盖显式对象 + `polyld` 链路和单命令可执行文件链路。
+
 ## v1.47.1 (2026-05-07) — 「样例零跳过收口」
 
 - **此前 11 个 SKIP 样例全部转为 OK。** 重写 01_basic_linking_v2、

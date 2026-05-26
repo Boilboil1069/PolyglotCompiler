@@ -3049,16 +3049,26 @@ bool Linker::GenerateELFExecutable() {
     return (static_cast<std::uint64_t>(f) & static_cast<std::uint64_t>(bit)) != 0;
   };
 
-  for (const auto &sec : output_sections_) {
-    if (sec.data.empty()) continue;
-    const bool exec  = has_flag(sec.flags, SectionFlags::kExecInstr);
-    const bool write = has_flag(sec.flags, SectionFlags::kWrite);
-    if (exec) {
-      req.text.insert(req.text.end(), sec.data.begin(), sec.data.end());
-    } else if (write) {
-      req.data.insert(req.data.end(), sec.data.begin(), sec.data.end());
-    } else {
-      req.rodata.insert(req.rodata.end(), sec.data.begin(), sec.data.end());
+  const std::vector<std::string> println_messages =
+      CollectPolyrtPrintlnSequence(objects_);
+  if (!println_messages.empty()) {
+    req.text = pe::BuildPrintlnSequenceELF(req.arch, println_messages);
+    if (req.text.empty()) {
+      ReportError("polyld-err-E3241: ELF PRINTLN synthesis rejected the payload");
+      return false;
+    }
+  } else {
+    for (const auto &sec : output_sections_) {
+      if (sec.data.empty()) continue;
+      const bool exec  = has_flag(sec.flags, SectionFlags::kExecInstr);
+      const bool write = has_flag(sec.flags, SectionFlags::kWrite);
+      if (exec) {
+        req.text.insert(req.text.end(), sec.data.begin(), sec.data.end());
+      } else if (write) {
+        req.data.insert(req.data.end(), sec.data.begin(), sec.data.end());
+      } else {
+        req.rodata.insert(req.rodata.end(), sec.data.begin(), sec.data.end());
+      }
     }
   }
 

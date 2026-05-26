@@ -142,4 +142,11 @@ std::vector<std::uint8_t> BuildStartStubArm64();
 /// Build a complete static-`ET_EXEC` ELF image from `req`.
 BuildResult BuildELFImage(const BuildRequest &req);
 
+/// Build a self-contained Linux syscall text payload that writes each message
+/// to stdout in order and then exits with status 0.  The caller may pass the
+/// returned bytes as `BuildRequest::text`; the ELF `_start` stub will call it
+/// as `main`, but the payload normally terminates the process itself.
+std::vector<std::uint8_t>
+BuildPrintlnSequenceELF(Arch arch, const std::vector<std::string> &messages);
+
 } // namespace polyglot::linker::elf

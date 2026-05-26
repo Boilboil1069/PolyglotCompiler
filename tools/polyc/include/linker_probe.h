@@ -20,9 +20,9 @@
  *
  * Selection rules per object format:
  *   - pobj  : bundled `polyld` (canonical consumer); no native fallback.
- *   - coff  : MSVC `link` -> LLVM `lld-link` -> bundled `polyld`.
- *   - macho : `clang` -> `ld` -> bundled `polyld`.
- *   - elf   : `clang` -> `gcc` -> `ld` -> bundled `polyld`.
+ *   - coff  : bundled `polyld` -> MSVC `link` -> LLVM `lld-link`.
+ *   - macho : bundled `polyld` -> `clang` -> `ld`.
+ *   - elf   : bundled `polyld` -> `clang` -> `gcc` -> `ld`.
  *
  * The bundled `polyld` is the universal fallback because its loader
  * (tools/polyld/src/linker.cpp) detects COFF / ELF / Mach-O input by magic
@@ -63,7 +63,8 @@ struct LinkerChoice {
 /// Walk the priority list for the given object format and return the first
 /// available linker.  `polyld_path` is the resolved absolute or sibling
 /// path to the bundled polyld executable; it is consulted both for the
-/// pobj-direct case and as the universal fallback for native formats.
+/// pobj-direct case and as the preferred linker for native formats generated
+/// by this toolchain.
 LinkerChoice SelectAvailableLinker(const std::string &format, const std::string &polyld_path);
 
 /// Substitute {OBJ} / {OUT} placeholders in `choice.command_template` and

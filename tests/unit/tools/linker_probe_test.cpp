@@ -87,6 +87,16 @@ TEST_CASE("SelectAvailableLinker for pobj uses polyld when reachable",
   REQUIRE(choice.command_template.find("{OUT}") != std::string::npos);
 }
 
+TEST_CASE("SelectAvailableLinker prefers bundled polyld for native formats",
+          "[linker_probe]") {
+  const auto self_path = std::filesystem::current_path().string();
+  auto choice = SelectAvailableLinker("macho", self_path);
+  REQUIRE_FALSE(choice.command_template.empty());
+  REQUIRE(choice.display_name == "polyld");
+  REQUIRE(choice.command_template.find("{OBJ}") != std::string::npos);
+  REQUIRE(choice.command_template.find("{OUT}") != std::string::npos);
+}
+
 TEST_CASE("ExpandLinkCommand substitutes placeholders and gates polyld flags",
           "[linker_probe]") {
   LinkerChoice polyld_choice;
