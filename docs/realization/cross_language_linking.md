@@ -45,6 +45,7 @@ linker (extended):
 - **`middle_ir`**: Generates `ir::IRContext`, `ir::Function`, uses `ir::IRBuilder`.
 - **`runtime::interop`**: Leverages `FFIRegistry`, `TypeMapping`, `Marshalling`, `CallingConvention`, `ContainerMarshal` for runtime cross-language calls.
 - **`tools/polyld`**: `PolyglotLinker` now validates ABI compatibility at link time via `ABIDescriptor` and `ValidateABICompatibility()` in `ResolveSymbolPair()`.
+- **`tools/polyc` / `polyui`**: UI builds invoke the same `polyc` executable used by the command line; frontend-only analysis remains available for quick diagnostics and is reported separately from build diagnostics.
 
 ## 2. Lexer Design
 
@@ -189,9 +190,15 @@ For each `LINK` directive, the linker generates a wrapper function that:
 ### 7.3 Symbol Resolution
 
 The linker resolves cross-language symbols by:
-1. Loading object files from all source languages
-2. Demangling symbols to find the target functions
-3. Generating bridge symbols that connect the calling conventions
+1. Loading object files from all source languages.
+2. Loading `.ploy` descriptor files from `--ploy-desc` or `--aux-dir`.
+3. Generating bridge symbols that connect the calling conventions.
+4. Materialising those generated bridge stubs as an internal POBJ input so the main linker resolves and relocates them together with user objects.
+5. Auto-compiling local `IMPORT lang::module;` source files discovered beside the `.ploy` file or under `-I` roots.
+6. Emitting a foreign alias POBJ that maps module-qualified interface symbols (`module::func`, `module__func`) to the compiled implementation symbol.
+7. Rejecting unresolved symbols whenever cross-language descriptors are present.
+
+Descriptor-driven links are therefore strict: if a `.ploy` file references `python::string_utils::concat`, the final link either auto-compiles `string_utils.py` and exports the required module-qualified aliases, or reports the missing symbol. A build that cannot resolve the implementation or runtime symbols fails instead of producing a binary whose bridge path would be missing at runtime.
 
 ### 7.4 ABI Compatibility Validation
 

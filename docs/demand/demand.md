@@ -47,6 +47,30 @@ LINK(TARGET_LANGUAGE, SOURSE_LANGUAGE, TARGET_FUNCTION, SOURSE_FUNTION)
 
 --end -done
 
+2026-06-18-1
+
+检查并修正 `polyc` 与 `polyld` 的跨语言链接链路：
+
+1. `polyui` 的编译入口必须调用真实 `polyc` 构建链路，不能只做前端语义检查；
+2. UI 问题面板需要区分前端快速分析诊断与真实构建诊断；
+3. `polyld` 在存在 `.ploy` descriptor 时必须严格处理未解析符号，不能静默生成缺失跨语言实现的二进制；
+4. `PolyglotLinker` 生成的 glue stub 必须注入真实链接输入；
+5. 同步说明文档，明确外部实现目标文件与运行时符号需要在链接阶段被解析。
+
+--end -done
+
+2026-06-18-2
+
+补齐 `polyc` / `polyld` 的外部源码自动编译与统一接口导出：
+
+1. `.ploy` 中的本地 `IMPORT lang::module;` 需要自动查找相邻源码并编译为目标文件；
+2. 自动生成模块限定符号 alias，使 `module::func`、`module__func` 等桥接符号能解析到实际外部实现；
+3. 自动生成编译型 Python 桥接所需的轻量兼容 shim，避免本地 `.py` 已编译时仍被 CPython C API 符号阻断；
+4. `polyld` 内部可处理的 `polyrt_println` 不应被 descriptor 严格未定义检查提前拦截；
+5. 同步中英文说明文档和版本号。
+
+--end -done
+
 2026-02-19-2
 
 现在需要你扩张支持输入的参数，比如python中的列表，元组等，c++与如rust中的其他结构，对于一些复杂的，可以通过ploy函数实现映射。
@@ -4564,4 +4588,3 @@ polyld 链接后仍能干净退出，本条目修的是 polyc / polyld 本身的
   `middle/`、`tests/samples/` 既有源码。
 
 --end -done
-

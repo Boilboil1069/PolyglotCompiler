@@ -1089,6 +1089,15 @@ int main(int argc, char **argv) {
     cfg.emit_ir_path = settings.emit_ir_path;
     cfg.emit_asm_path = settings.emit_asm_path;
     cfg.emit_obj_path = settings.emit_obj_path;
+    cfg.include_paths = settings.include_paths;
+    cfg.system_include_paths = settings.system_include_paths;
+    cfg.defines = settings.defines;
+    cfg.undefines = settings.undefines;
+    cfg.python_stub_paths = settings.python_stub_paths;
+    cfg.classpath = settings.classpath;
+    cfg.dotnet_references = settings.dotnet_references;
+    cfg.rust_crate_dir = settings.rust_crate_dir;
+    cfg.rust_externs = settings.rust_externs;
 
     polyglot::compilation::CompilationPipeline pipeline(std::move(cfg));
     bool ok = false;

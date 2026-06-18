@@ -7,11 +7,21 @@
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <regex>
 #include <sstream>
 #include <unordered_set>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
+#if !defined(_WIN32)
+#include <sys/wait.h>
+#endif
 
 #include "frontends/common/include/frontend_registry.h"
 #include "frontends/common/include/language_frontend.h"
@@ -61,6 +71,131 @@
 namespace polyglot::tools::ui {
 
 using polyglot::frontends::FrontendRegistry;
+
+namespace {
+
+namespace fs = std::filesystem;
+
+std::string ShellQuote(const std::string &arg) {
+  if (arg.empty())
+    return "''";
+#if defined(_WIN32)
+  std::string out = "\"";
+  for (char c : arg) {
+    if (c == '"' || c == '\\')
+      out.push_back('\\');
+    out.push_back(c);
+  }
+  out.push_back('"');
+  return out;
+#else
+  std::string out = "'";
+  for (char c : arg) {
+    if (c == '\'')
+      out += "'\\''";
+    else
+      out.push_back(c);
+  }
+  out.push_back('\'');
+  return out;
+#endif
+}
+
+std::string ResolvePolycExecutable() {
+  std::error_code ec;
+  fs::path self = fs::canonical("/proc/self/exe", ec);
+#if defined(__APPLE__)
+  if (ec) {
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+      buffer.resize(std::strlen(buffer.c_str()));
+      self = fs::canonical(buffer, ec);
+      if (ec)
+        self = fs::path(buffer);
+    } else {
+      self.clear();
+    }
+  }
+#endif
+  std::vector<fs::path> roots;
+  if (!self.empty())
+    roots.push_back(self.parent_path());
+  roots.push_back(fs::current_path(ec));
+  roots.push_back(fs::current_path(ec) / "build");
+
+  for (const auto &root : roots) {
+    if (root.empty())
+      continue;
+    std::vector<fs::path> candidates = {
+        root / "polyc",
+        root.parent_path() / "polyc",
+        root.parent_path().parent_path().parent_path() / "polyc",
+        root.parent_path().parent_path().parent_path().parent_path() / "polyc",
+    };
+#if defined(_WIN32)
+    for (auto &candidate : candidates) {
+      candidate += ".exe";
+    }
+#endif
+    for (const auto &candidate : candidates) {
+      if (fs::exists(candidate, ec))
+        return candidate.string();
+    }
+  }
+  return "polyc";
+}
+
+std::string TargetArgument(const std::string &target_arch) {
+  if (target_arch.find('-') != std::string::npos)
+    return "--target=" + target_arch;
+  if (target_arch == "wasm" || target_arch == "wasm32" || target_arch == "wasm32-wasi")
+    return "--target=wasm32-wasi";
+  if (target_arch == "arm64")
+    return "--arch=arm64";
+  if (target_arch == "x86_64")
+    return "--arch=x86_64";
+  return "--arch=" + target_arch;
+}
+
+std::string LanguageArgument(const std::string &language) {
+  if (language.empty())
+    return {};
+  return "--lang=" + language;
+}
+
+struct CommandResult {
+  int exit_code{1};
+  std::string output;
+};
+
+CommandResult RunCommandCapture(const std::string &command) {
+  CommandResult result;
+  std::array<char, 4096> buffer{};
+#if defined(_WIN32)
+  FILE *pipe = _popen(command.c_str(), "r");
+#else
+  FILE *pipe = popen(command.c_str(), "r");
+#endif
+  if (!pipe) {
+    result.output = "failed to start polyc";
+    return result;
+  }
+  while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+    result.output += buffer.data();
+  }
+#if defined(_WIN32)
+  result.exit_code = _pclose(pipe);
+#else
+  result.exit_code = pclose(pipe);
+  if (WIFEXITED(result.exit_code))
+    result.exit_code = WEXITSTATUS(result.exit_code);
+#endif
+  return result;
+}
+
+} // namespace
 
 // ============================================================================
 // Construction / Destruction
@@ -256,7 +391,7 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   auto                       *fe = frontends::FrontendRegistry::Instance().GetFrontend(language);
   if (fe) {
     frontends::FrontendOptions opts;
-    opts.strict     = true;
+    opts.strict     = false;
     opts.token_pool = &pool;
     fe->Analyze(source, filename, diags, opts);
   }
@@ -269,29 +404,75 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   result.token_pool_stats.intern_hits        = stats.intern_hits;
   result.token_pool_stats.intern_misses      = stats.intern_misses;
 
-  // Check for errors
-  bool has_errors = false;
-  for (const auto &d : result.diagnostics) {
-    if (d.severity == "error") {
-      has_errors = true;
-      break;
-    }
+  fs::path input_path(filename);
+  bool has_blocking_error = false;
+  if (filename.empty() || !fs::exists(input_path)) {
+    DiagnosticInfo info;
+    info.line = 1;
+    info.column = 1;
+    info.end_line = 1;
+    info.end_column = 1;
+    info.severity = "error";
+    info.message = "Source file must be saved before invoking the full compiler pipeline.";
+    info.code = "UI-COMPILE-0001";
+    result.diagnostics.push_back(info);
+    has_blocking_error = true;
   }
 
-  if (has_errors) {
+  if (has_blocking_error) {
     result.success = false;
-    result.output = "Compilation failed with errors.";
-  } else {
-    result.success = true;
-    std::ostringstream oss;
-    oss << "Compilation successful.\n"
-        << "  Language:     " << language << "\n"
-        << "  Target:       " << target_arch << "\n"
-        << "  Opt Level:    O" << opt_level << "\n"
-        << "  Diagnostics:  " << result.diagnostics.size() << " warning(s)\n"
-        << "  TokenPool:    " << stats.tokens << " tokens, " << stats.unique_identifiers
-        << " uniq id(s), " << stats.arena_bytes << " arena B";
-    result.output = oss.str();
+    result.output = "Compilation stopped before polyc because the source file is not available.";
+    auto end = std::chrono::high_resolution_clock::now();
+    result.elapsed_ms = std::chrono::duration<double, std::milli>(end - start).count();
+    return result;
+  }
+
+  std::error_code ec;
+  input_path = fs::absolute(input_path, ec);
+  if (ec)
+    input_path = fs::path(filename);
+  fs::path aux_dir = input_path.parent_path() / "aux";
+  fs::create_directories(aux_dir, ec);
+
+  fs::path out_path = aux_dir / input_path.stem();
+#if defined(_WIN32)
+  out_path += ".exe";
+#endif
+  result.output_file = out_path.string();
+
+  std::ostringstream cmd;
+  cmd << ShellQuote(ResolvePolycExecutable()) << " "
+      << ShellQuote(input_path.string()) << " "
+      << ShellQuote("-O" + std::to_string(std::clamp(opt_level, 0, 3))) << " "
+      << ShellQuote(TargetArgument(target_arch)) << " "
+      << ShellQuote(LanguageArgument(language)) << " "
+      << "-o " << ShellQuote(out_path.string()) << " 2>&1";
+
+  const CommandResult command_result = RunCommandCapture(cmd.str());
+  result.success = (command_result.exit_code == 0);
+  std::ostringstream oss;
+  oss << command_result.output;
+  if (!command_result.output.empty() && command_result.output.back() != '\n')
+    oss << "\n";
+  oss << "  Language:     " << language << "\n"
+      << "  Target:       " << target_arch << "\n"
+      << "  Opt Level:    O" << opt_level << "\n"
+      << "  Output:       " << result.output_file << "\n"
+      << "  TokenPool:    " << stats.tokens << " tokens, " << stats.unique_identifiers
+      << " uniq id(s), " << stats.arena_bytes << " arena B";
+  result.output = oss.str();
+
+  if (!result.success) {
+    DiagnosticInfo info;
+    info.line = 1;
+    info.column = 1;
+    info.end_line = 1;
+    info.end_column = 1;
+    info.severity = "error";
+    info.message = command_result.output.empty() ? "polyc failed without diagnostic output"
+                                                 : command_result.output;
+    info.code = "POLYC";
+    result.diagnostics.push_back(std::move(info));
   }
 
   auto end = std::chrono::high_resolution_clock::now();

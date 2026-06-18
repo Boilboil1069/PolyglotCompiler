@@ -201,7 +201,8 @@ private:
   // Output helpers
   void AppendOutput(const QString &text);
   void ShowDiagnostics(const std::vector<struct DiagnosticInfo> &diagnostics,
-                       const QString &file = QString());
+                       const QString &file = QString(),
+                       const QString &source = QStringLiteral("polyc"));
 
   // Settings helpers
   void ApplySettings();

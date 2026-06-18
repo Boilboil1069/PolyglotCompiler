@@ -2034,6 +2034,11 @@ void MainWindow::Compile() {
   auto it = tab_info_.find(index);
   if (it == tab_info_.end())
     return;
+  if (!MaybeSave(index))
+    return;
+  it = tab_info_.find(index);
+  if (it == tab_info_.end())
+    return;
 
   output_panel_->ClearAll();
   output_panel_->ShowOutputTab();
@@ -2045,7 +2050,8 @@ void MainWindow::Compile() {
   if (filename_qt.startsWith("* ")) {
     filename_qt = filename_qt.mid(2);
   }
-  std::string filename = filename_qt.toStdString();
+  std::string filename = it->second.file_path.isEmpty() ? filename_qt.toStdString()
+                                                        : it->second.file_path.toStdString();
   std::string target = target_combo_->currentText().toStdString();
   int opt = opt_level_combo_->currentIndex();
 
@@ -2063,7 +2069,7 @@ void MainWindow::Compile() {
   output_panel_->AppendOutput(QString::fromStdString(result.output));
   output_panel_->AppendOutput(QString("Elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
-  ShowDiagnostics(result.diagnostics, it->second.file_path);
+  ShowDiagnostics(result.diagnostics, it->second.file_path, QStringLiteral("polyc-build"));
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(result.diagnostics);
@@ -2087,6 +2093,11 @@ void MainWindow::CompileAndRun() {
   auto it = tab_info_.find(index);
   if (it == tab_info_.end())
     return;
+  if (!MaybeSave(index))
+    return;
+  it = tab_info_.find(index);
+  if (it == tab_info_.end())
+    return;
 
   // First, compile
   output_panel_->ClearAll();
@@ -2099,7 +2110,8 @@ void MainWindow::CompileAndRun() {
   if (filename_qt.startsWith("* ")) {
     filename_qt = filename_qt.mid(2);
   }
-  std::string filename = filename_qt.toStdString();
+  std::string filename = it->second.file_path.isEmpty() ? filename_qt.toStdString()
+                                                        : it->second.file_path.toStdString();
   std::string target = target_combo_->currentText().toStdString();
   int opt = opt_level_combo_->currentIndex();
 
@@ -2115,7 +2127,7 @@ void MainWindow::CompileAndRun() {
   output_panel_->AppendOutput(
       QString("Compilation elapsed: %1 ms").arg(result.elapsed_ms, 0, 'f', 2));
 
-  ShowDiagnostics(result.diagnostics, it->second.file_path);
+  ShowDiagnostics(result.diagnostics, it->second.file_path, QStringLiteral("polyc-build"));
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(result.diagnostics);
@@ -2140,13 +2152,17 @@ void MainWindow::CompileAndRun() {
 
   QString base_name = QFileInfo(filename_qt).completeBaseName();
 #ifdef Q_OS_WIN
-  QString binary_path = source_dir + "/aux/" + base_name + ".exe";
+  QString binary_path = result.output_file.empty()
+                            ? source_dir + "/aux/" + base_name + ".exe"
+                            : QString::fromStdString(result.output_file);
   // Fallback: check same directory
   if (!QFileInfo::exists(binary_path)) {
     binary_path = source_dir + "/" + base_name + ".exe";
   }
 #else
-  QString binary_path = source_dir + "/aux/" + base_name;
+  QString binary_path = result.output_file.empty()
+                            ? source_dir + "/aux/" + base_name
+                            : QString::fromStdString(result.output_file);
   if (!QFileInfo::exists(binary_path)) {
     binary_path = source_dir + "/" + base_name;
   }
@@ -2253,7 +2269,7 @@ void MainWindow::AnalyzeCode() {
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
 
-  ShowDiagnostics(diagnostics, it->second.file_path);
+  ShowDiagnostics(diagnostics, it->second.file_path, QStringLiteral("polyc-frontend"));
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(diagnostics);
@@ -2851,7 +2867,7 @@ void MainWindow::OnAnalysisTimerTimeout() {
   std::string filename = filename_qt.toStdString();
 
   auto diagnostics = compiler_service_->Analyze(source, language, filename);
-  ShowDiagnostics(diagnostics, it->second.file_path);
+  ShowDiagnostics(diagnostics, it->second.file_path, QStringLiteral("polyc-frontend"));
 
   // Push diagnostics to the editor for squiggly underlines and inline hints
   editor->SetDiagnostics(diagnostics);
@@ -3310,16 +3326,16 @@ void MainWindow::AppendOutput(const QString &text) {
 }
 
 void MainWindow::ShowDiagnostics(const std::vector<DiagnosticInfo> &diagnostics,
-                                 const QString &file) {
+                                 const QString &file, const QString &source) {
   output_panel_->ShowDiagnostics(diagnostics, file);
   // Mirror compile / analyse diagnostics into the workspace-wide
   // Problems aggregator so the panel and the status-bar counter stay in
-  // sync with the Output panel.  Every call replaces the previous slice
-  // for this (file, "polyc") pair, including the empty case which
+  // sync with the Output panel. Every call replaces the previous slice
+  // for this (file, source) pair, including the empty case which
   // clears stale entries when the build now succeeds.
   if (problems_aggregator_ && !file.isEmpty()) {
     problems_aggregator_->ReplaceFromDiagnosticInfo(
-        file.toStdString(), std::string("polyc"), diagnostics);
+        file.toStdString(), source.toStdString(), diagnostics);
   }
 }
 

@@ -15,8 +15,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <unordered_set>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include "middle/include/ir/ir_printer.h"
 #include "middle/include/ir/passes/opt.h"
@@ -40,6 +44,8 @@
 
 namespace polyglot::compilation {
 namespace {
+
+namespace fs = std::filesystem;
 
 using std::chrono::high_resolution_clock;
 using std::chrono::milliseconds;
@@ -338,6 +344,322 @@ std::vector<std::uint8_t> BuildPobjBinary(const std::vector<InternalSection> &se
 
   write_bytes(strtab.data(), strtab.size());
   return out;
+}
+
+std::string ShellQuoteArg(const std::string &arg) {
+  return polyglot::tools::linker_probe::ShellQuote(arg);
+}
+
+std::string JoinCommandArgs(const std::vector<std::string> &args) {
+  std::ostringstream oss;
+  bool first = true;
+  for (const auto &arg : args) {
+    if (arg.empty())
+      continue;
+    if (!first)
+      oss << ' ';
+    first = false;
+    oss << ShellQuoteArg(arg);
+  }
+  return oss.str();
+}
+
+std::string ResolveSelfPolyc() {
+  std::error_code ec;
+  fs::path self = fs::canonical("/proc/self/exe", ec);
+#if defined(__APPLE__)
+  if (ec) {
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+      buffer.resize(std::strlen(buffer.c_str()));
+      self = fs::canonical(buffer, ec);
+      if (ec)
+        self = fs::path(buffer);
+    } else {
+      self.clear();
+    }
+  }
+#endif
+  return self.empty() ? std::string{"polyc"} : self.string();
+}
+
+std::string SanitizedSymbol(const std::string &name) {
+  std::string out;
+  out.reserve(name.size());
+  for (char c : name)
+    out.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+  return out;
+}
+
+std::string ModuleFromQualified(const std::string &qualified) {
+  auto pos = qualified.rfind("::");
+  if (pos == std::string::npos || pos == 0)
+    return {};
+  return qualified.substr(0, pos);
+}
+
+std::string FunctionFromQualified(const std::string &qualified) {
+  auto pos = qualified.rfind("::");
+  return pos == std::string::npos ? qualified : qualified.substr(pos + 2);
+}
+
+std::vector<std::string> ModulePathCandidates(const std::string &module_name) {
+  std::vector<std::string> out{module_name};
+  std::string nested = module_name;
+  std::string::size_type pos = 0;
+  while ((pos = nested.find("::", pos)) != std::string::npos) {
+    nested.replace(pos, 2, 1, fs::path::preferred_separator);
+    ++pos;
+  }
+  if (nested != module_name)
+    out.push_back(nested);
+  return out;
+}
+
+std::string ResolveImportedSourceFile(const CompilationContext::Config &config,
+                                      const std::string &language,
+                                      const std::string &module_name) {
+  const auto *frontend = frontends::FrontendRegistry::Instance().GetFrontend(language);
+  if (!frontend)
+    return {};
+
+  std::vector<fs::path> roots;
+  if (!config.source_file.empty())
+    roots.push_back(fs::path(config.source_file).parent_path());
+  for (const auto &inc : config.include_paths)
+    roots.push_back(fs::path(inc));
+
+  std::error_code ec;
+  for (const auto &root : roots) {
+    for (const auto &module_path : ModulePathCandidates(module_name)) {
+      for (const auto &ext : frontend->Extensions()) {
+        fs::path candidate = root / (module_path + ext);
+        if (fs::exists(candidate, ec))
+          return candidate.string();
+      }
+    }
+  }
+  return {};
+}
+
+struct ImportedFunction {
+  std::string language;
+  std::string module;
+  std::string function;
+  std::string qualified;
+  std::string source_file;
+};
+
+std::vector<ImportedFunction> CollectImportedFunctions(const CompilationContext::Config &config) {
+  std::vector<ImportedFunction> result;
+  std::ifstream in(config.ploy_desc_file);
+  if (!in.is_open())
+    return result;
+
+  std::unordered_set<std::string> seen;
+  std::string op;
+  while (in >> op) {
+    if (op == "SYMBOL") {
+      std::string name;
+      std::string language;
+      std::string mangled;
+      in >> name >> language >> mangled;
+      if (language == "ploy")
+        continue;
+      const std::string module = ModuleFromQualified(name);
+      const std::string function = FunctionFromQualified(name);
+      if (module.empty() || function.empty())
+        continue;
+      const std::string key = language + "::" + module + "::" + function;
+      if (!seen.insert(key).second)
+        continue;
+      const std::string source = ResolveImportedSourceFile(config, language, module);
+      if (!source.empty())
+        result.push_back(ImportedFunction{language, module, function, name, source});
+    } else {
+      std::string rest;
+      std::getline(in, rest);
+    }
+  }
+  return result;
+}
+
+std::string CompileImportedSource(const CompilationContext::Config &config,
+                                  const ImportedFunction &fn,
+                                  const std::string &effective_fmt) {
+  if (config.aux_dir.empty())
+    return {};
+  fs::path out = fs::path(config.aux_dir) /
+                 (SanitizedSymbol(fn.language + "_" + fn.module) +
+                  ObjectExtension(effective_fmt));
+  std::vector<std::string> args = {
+      ResolveSelfPolyc(),
+      "--lang=" + fn.language,
+      "-c",
+      fn.source_file,
+      "-o",
+      out.string(),
+      "--arch=" + config.target_arch,
+      "--obj-format=" + effective_fmt,
+      "--target=" + config.target_triple.str(),
+  };
+  if (!config.verbose)
+    args.push_back("--quiet");
+  for (const auto &inc : config.include_paths)
+    args.push_back("-I" + inc);
+
+  const std::string cmd = JoinCommandArgs(args);
+  if (config.verbose) {
+    std::cerr << "[pipeline] compiling import " << fn.language << "::" << fn.module
+              << " -> " << out.string() << "\n";
+  }
+  int rc = std::system(cmd.c_str());
+  if (rc != 0)
+    return {};
+  std::error_code ec;
+  return fs::exists(out, ec) ? out.string() : std::string{};
+}
+
+linker::Relocation MakeCallReloc(std::uint64_t offset, std::uint32_t symbol_index,
+                                 const CompilationContext::Config &config) {
+  linker::Relocation reloc{};
+  reloc.offset = offset;
+  reloc.symbol_index = static_cast<int>(symbol_index);
+  reloc.addend = 0;
+  const bool use_arm64 =
+      (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
+       config.target_arch == "armv8");
+  if (use_arm64) {
+    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_ARM64::kR_AARCH64_CALL26);
+  } else {
+    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_x86_64::kR_X86_64_PLT32);
+    reloc.addend = -4;
+  }
+  return reloc;
+}
+
+std::vector<std::uint8_t> MakeCallThroughCode(const CompilationContext::Config &config) {
+  const bool use_arm64 =
+      (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
+       config.target_arch == "armv8");
+  if (use_arm64)
+    return {0x00, 0x00, 0x00, 0x94, 0xC0, 0x03, 0x5F, 0xD6};
+  return {0xE8, 0x00, 0x00, 0x00, 0x00, 0xC3};
+}
+
+void AddAliasWrapper(const CompilationContext::Config &config,
+                     const std::vector<std::string> &aliases,
+                     const std::string &target_symbol, InternalSection &text,
+                     std::vector<InternalSymbol> &symbols) {
+  std::uint32_t target_index = static_cast<std::uint32_t>(symbols.size());
+  symbols.push_back(InternalSymbol{target_symbol, 0xFFFFFFFF, 0, 0, true, false});
+
+  const auto code = MakeCallThroughCode(config);
+  const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
+  text.data.insert(text.data.end(), code.begin(), code.end());
+  auto reloc = MakeCallReloc(base, target_index, config);
+  reloc.symbol = target_symbol;
+  text.relocs.push_back(reloc);
+
+  for (const auto &alias : aliases)
+    symbols.push_back(InternalSymbol{alias, 0, base, static_cast<std::uint64_t>(code.size()), true,
+                                     true});
+}
+
+void AddReturnShim(const CompilationContext::Config &config, const std::string &name,
+                   InternalSection &text, std::vector<InternalSymbol> &symbols) {
+  const bool use_arm64 =
+      (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
+       config.target_arch == "armv8");
+  std::vector<std::uint8_t> code =
+      use_arm64 ? std::vector<std::uint8_t>{0xC0, 0x03, 0x5F, 0xD6}
+                : std::vector<std::uint8_t>{0xC3};
+  const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
+  text.data.insert(text.data.end(), code.begin(), code.end());
+  symbols.push_back(InternalSymbol{name, 0, base, static_cast<std::uint64_t>(code.size()), true,
+                                   true});
+}
+
+std::string BuildImportedAliasObject(const CompilationContext::Config &config,
+                                     const std::vector<ImportedFunction> &imports,
+                                     const std::string &effective_fmt,
+                                     const std::string &stem) {
+  if (imports.empty() || config.aux_dir.empty())
+    return {};
+
+  InternalSection text;
+  text.name = ".text";
+  std::vector<InternalSymbol> symbols;
+  std::set<std::string> emitted;
+  bool needs_python_shim = false;
+
+  for (const auto &fn : imports) {
+    const std::string target = (effective_fmt == "macho") ? "_" + fn.function : fn.function;
+    std::vector<std::string> aliases;
+    auto add_alias = [&](const std::string &alias) {
+      if (emitted.insert(alias).second)
+        aliases.push_back(alias);
+    };
+    add_alias(fn.qualified);
+    add_alias(SanitizedSymbol(fn.qualified));
+    add_alias("_" + SanitizedSymbol(fn.qualified));
+    AddAliasWrapper(config, aliases, target, text, symbols);
+    if (fn.language == "python")
+      needs_python_shim = true;
+  }
+
+  if (needs_python_shim) {
+    for (const std::string &name : {"PyGILState_Ensure", "PyGILState_Release",
+                                   "PyLong_AsLongLong", "PyLong_FromLongLong",
+                                   "PyFloat_AsDouble", "PyFloat_FromDouble"}) {
+      if (emitted.insert(name).second)
+        AddReturnShim(config, name, text, symbols);
+    }
+  }
+
+  fs::path out = fs::path(config.aux_dir) / (stem + "_foreign_aliases.pobj");
+  auto data = BuildPobjBinary(std::vector<InternalSection>{text}, symbols);
+  std::ofstream ofs(out, std::ios::binary | std::ios::trunc);
+  if (!ofs.is_open())
+    return {};
+  ofs.write(reinterpret_cast<const char *>(data.data()), static_cast<std::streamsize>(data.size()));
+  return ofs.good() ? out.string() : std::string{};
+}
+
+std::vector<std::string> BuildForeignInputs(const CompilationContext::Config &config,
+                                            const std::string &effective_fmt,
+                                            const std::string &stem,
+                                            frontends::Diagnostics &diagnostics) {
+  std::vector<std::string> inputs;
+  if (config.ploy_desc_file.empty() || config.mode != "link")
+    return inputs;
+  const auto imports = CollectImportedFunctions(config);
+  if (imports.empty())
+    return inputs;
+
+  std::unordered_map<std::string, std::string> compiled;
+  for (const auto &fn : imports) {
+    auto it = compiled.find(fn.source_file);
+    if (it == compiled.end()) {
+      std::string obj = CompileImportedSource(config, fn, effective_fmt);
+      if (obj.empty()) {
+        diagnostics.ReportError(core::SourceLoc{"<packaging>", 1, 1},
+                                frontends::ErrorCode::kUnresolvedSymbol,
+                                "failed to auto-compile imported source: " + fn.source_file);
+        continue;
+      }
+      it = compiled.emplace(fn.source_file, obj).first;
+    }
+    if (std::find(inputs.begin(), inputs.end(), it->second) == inputs.end())
+      inputs.push_back(it->second);
+  }
+
+  std::string aliases = BuildImportedAliasObject(config, imports, effective_fmt, stem);
+  if (!aliases.empty())
+    inputs.push_back(aliases);
+  return inputs;
 }
 
 class DefaultFrontendStage final : public FrontendStage {
@@ -1054,8 +1376,38 @@ public:
         out.success = false;
         return out;
       } else {
-        std::string cmd =
-            ExpandLinkCommand(choice, obj_out, out_path, config.ploy_desc_file, config.aux_dir);
+        std::string stem = "output";
+        if (!config.source_file.empty()) {
+          stem = fs::path(config.source_file).stem().string();
+        } else if (!out_path.empty()) {
+          stem = fs::path(out_path).stem().string();
+        }
+        std::vector<std::string> link_inputs{obj_out};
+        auto foreign_inputs = BuildForeignInputs(config, effective_fmt, stem, diagnostics);
+        link_inputs.insert(link_inputs.end(), foreign_inputs.begin(), foreign_inputs.end());
+        const std::string input_args = JoinCommandArgs(link_inputs);
+
+        std::string cmd;
+        if (link_inputs.size() == 1) {
+          cmd = ExpandLinkCommand(choice, obj_out, out_path, config.ploy_desc_file, config.aux_dir);
+        } else {
+          cmd = choice.command_template;
+          auto replace_all = [&](const std::string &needle, const std::string &value) {
+            std::string::size_type pos = 0;
+            while ((pos = cmd.find(needle, pos)) != std::string::npos) {
+              cmd.replace(pos, needle.size(), value);
+              pos += value.size();
+            }
+          };
+          replace_all("{OBJ}", input_args);
+          replace_all("{OUT}", ShellQuoteArg(out_path));
+          if (choice.display_name.rfind("polyld", 0) == 0) {
+            if (!config.ploy_desc_file.empty())
+              cmd += " --ploy-desc " + ShellQuoteArg(config.ploy_desc_file);
+            if (!config.aux_dir.empty())
+              cmd += " --aux-dir " + ShellQuoteArg(config.aux_dir);
+          }
+        }
         // BIN-7: when the chosen linker is the bundled polyld, forward
         // the resolved target-triple / container / subsystem / entry
         // descriptors so the linker reaches the same conclusion as the
@@ -1075,6 +1427,9 @@ public:
           }
           if (!config.entry_symbol.empty()) {
             cmd += " --entry " + config.entry_symbol;
+          }
+          if (link_inputs.size() > 1) {
+            cmd += " --allow-multiple-definition";
           }
         }
         if (config.verbose) {

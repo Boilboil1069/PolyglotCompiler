@@ -10,14 +10,194 @@
 // Links against linker_lib for core Linker / PolyglotLinker functionality.
 
 #include <cctype>
+#include <chrono>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "common/include/binary_container.h"
 #include "common/include/target_triple.h"
 #include "tools/common/include/effective_settings_loader.h"
 #include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/polyglot_linker.h"
+
+namespace {
+
+namespace fs = std::filesystem;
+
+#pragma pack(push, 1)
+struct PobjFileHeader {
+  char magic[4];
+  std::uint16_t version{1};
+  std::uint16_t section_count{0};
+  std::uint16_t symbol_count{0};
+  std::uint16_t reloc_count{0};
+  std::uint64_t strtab_offset{0};
+};
+
+struct PobjSectionRecord {
+  std::uint32_t name_offset{0};
+  std::uint32_t flags{0};
+  std::uint64_t offset{0};
+  std::uint64_t size{0};
+};
+
+struct PobjSymbolRecord {
+  std::uint32_t name_offset{0};
+  std::uint32_t section_index{0xFFFFFFFF};
+  std::uint64_t value{0};
+  std::uint64_t size{0};
+  std::uint8_t binding{0};
+  std::uint8_t reserved[3]{};
+};
+
+struct PobjRelocRecord {
+  std::uint32_t section_index{0};
+  std::uint64_t offset{0};
+  std::uint32_t type{0};
+  std::uint32_t symbol_index{0};
+  std::int64_t addend{0};
+};
+#pragma pack(pop)
+
+std::uint32_t AddPobjString(std::vector<std::uint8_t> &strtab, const std::string &text) {
+  auto off = static_cast<std::uint32_t>(strtab.size());
+  strtab.insert(strtab.end(), text.begin(), text.end());
+  strtab.push_back(0);
+  return off;
+}
+
+bool WriteGlueStubsPobj(const std::vector<polyglot::linker::GlueStub> &stubs,
+                        const std::string &path, std::string &error) {
+  if (stubs.empty())
+    return true;
+
+  std::vector<std::uint8_t> text;
+  std::vector<std::uint8_t> strtab{0};
+  std::vector<PobjSymbolRecord> symbols;
+  std::vector<PobjRelocRecord> relocs;
+  std::unordered_map<std::string, std::uint32_t> symbol_index;
+
+  auto ensure_symbol = [&](const std::string &name, bool defined, std::uint64_t value,
+                           std::uint64_t size) -> std::uint32_t {
+    auto it = symbol_index.find(name);
+    if (it != symbol_index.end())
+      return it->second;
+    PobjSymbolRecord rec{};
+    rec.name_offset = AddPobjString(strtab, name);
+    rec.section_index = defined ? 0 : 0xFFFFFFFF;
+    rec.value = value;
+    rec.size = size;
+    rec.binding = 1;
+    auto idx = static_cast<std::uint32_t>(symbols.size());
+    symbols.push_back(rec);
+    symbol_index.emplace(name, idx);
+    return idx;
+  };
+
+  for (const auto &stub : stubs) {
+    if (stub.stub_name.empty() || stub.code.empty())
+      continue;
+    const std::uint64_t base = static_cast<std::uint64_t>(text.size());
+    ensure_symbol(stub.stub_name, true, base, static_cast<std::uint64_t>(stub.code.size()));
+    text.insert(text.end(), stub.code.begin(), stub.code.end());
+
+    for (const auto &reloc : stub.relocations) {
+      if (reloc.symbol.empty())
+        continue;
+      PobjRelocRecord rr{};
+      rr.section_index = 0;
+      rr.offset = base + reloc.offset;
+      rr.type = reloc.type;
+      rr.symbol_index = ensure_symbol(reloc.symbol, false, 0, 0);
+      rr.addend = reloc.addend;
+      relocs.push_back(rr);
+    }
+  }
+
+  if (text.empty()) {
+    error = "cross-language descriptors produced no glue code";
+    return false;
+  }
+  if (symbols.size() > std::numeric_limits<std::uint16_t>::max() ||
+      relocs.size() > std::numeric_limits<std::uint16_t>::max()) {
+    error = "generated glue object exceeds POBJ record limits";
+    return false;
+  }
+
+  PobjSectionRecord text_rec{};
+  text_rec.name_offset = AddPobjString(strtab, ".text");
+  text_rec.size = static_cast<std::uint64_t>(text.size());
+
+  const std::size_t header_size = sizeof(PobjFileHeader) + sizeof(PobjSectionRecord) +
+                                  symbols.size() * sizeof(PobjSymbolRecord) +
+                                  relocs.size() * sizeof(PobjRelocRecord);
+  text_rec.offset = header_size;
+
+  PobjFileHeader hdr{};
+  std::memcpy(hdr.magic, "POBJ", 4);
+  hdr.version = 1;
+  hdr.section_count = 1;
+  hdr.symbol_count = static_cast<std::uint16_t>(symbols.size());
+  hdr.reloc_count = static_cast<std::uint16_t>(relocs.size());
+  hdr.strtab_offset = header_size + text.size();
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out.is_open()) {
+    error = "cannot open generated glue object: " + path;
+    return false;
+  }
+  out.write(reinterpret_cast<const char *>(&hdr), sizeof(hdr));
+  out.write(reinterpret_cast<const char *>(&text_rec), sizeof(text_rec));
+  out.write(reinterpret_cast<const char *>(symbols.data()),
+            static_cast<std::streamsize>(symbols.size() * sizeof(PobjSymbolRecord)));
+  out.write(reinterpret_cast<const char *>(relocs.data()),
+            static_cast<std::streamsize>(relocs.size() * sizeof(PobjRelocRecord)));
+  out.write(reinterpret_cast<const char *>(text.data()), static_cast<std::streamsize>(text.size()));
+  out.write(reinterpret_cast<const char *>(strtab.data()),
+            static_cast<std::streamsize>(strtab.size()));
+  if (!out.good()) {
+    error = "failed while writing generated glue object: " + path;
+    return false;
+  }
+  return true;
+}
+
+std::string TempGlueObjectPath() {
+  const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+  return (fs::temp_directory_path() / ("polyld_glue_" + std::to_string(ticks) + ".pobj")).string();
+}
+
+void ApplyTargetArch(polyglot::linker::LinkerConfig &config) {
+  using polyglot::common::Arch;
+  switch (config.target_triple.arch) {
+  case Arch::kX86_64:
+    config.target_arch = polyglot::linker::TargetArch::kX86_64;
+    break;
+  case Arch::kAArch64:
+    config.target_arch = polyglot::linker::TargetArch::kAArch64;
+    break;
+  case Arch::kX86:
+    config.target_arch = polyglot::linker::TargetArch::kX86;
+    break;
+  case Arch::kArm:
+    config.target_arch = polyglot::linker::TargetArch::kARM;
+    break;
+  case Arch::kRiscv64:
+    config.target_arch = polyglot::linker::TargetArch::kRISCV64;
+    break;
+  default:
+    break;
+  }
+}
+
+} // namespace
 
 int main(int argc, char **argv) {
   if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv); rc.has_value()) {
@@ -209,8 +389,7 @@ int main(int argc, char **argv) {
 #endif
   }
 
-  // Create and run linker
-  Linker linker(config);
+  ApplyTargetArch(config);
 
   // Load cross-language descriptors and run resolution
   PolyglotLinker poly_linker(config);
@@ -234,6 +413,10 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (poly_linker.HasLinkEntries()) {
+    config.no_undefined = true;
+  }
+
   // Run cross-language link resolution
   if (!poly_linker.ResolveLinks()) {
     std::cerr << "polyld: cross-language link failed\n";
@@ -247,6 +430,23 @@ int main(int argc, char **argv) {
       std::cerr << "polyld: continuing (no cross-language link entries)\n";
     }
   }
+
+  if (!poly_linker.GetStubs().empty()) {
+    std::string glue_path = TempGlueObjectPath();
+    std::string glue_error;
+    if (!WriteGlueStubsPobj(poly_linker.GetStubs(), glue_path, glue_error)) {
+      std::cerr << "polyld: failed to materialize cross-language glue: " << glue_error << "\n";
+      return 1;
+    }
+    config.input_files.push_back(glue_path);
+    if (config.verbose) {
+      std::cerr << "polyld: generated cross-language glue object: " << glue_path << "\n";
+    }
+  }
+
+  // Create and run linker after descriptor resolution so generated glue
+  // participates in the same object loading and relocation pass as user input.
+  Linker linker(config);
 
   if (!linker.Link()) {
     std::cerr << "polyld: link failed\n";

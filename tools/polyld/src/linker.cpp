@@ -2290,8 +2290,15 @@ void Linker::MergeCommonSymbols() {
 bool Linker::CheckUndefinedSymbols() {
   std::vector<std::string> undefined;
 
+  auto is_internal_runtime_symbol = [](const std::string &name) {
+    return name == "polyrt_println" || name == "_polyrt_println";
+  };
+
   for (const auto &pair : symbol_table_) {
     if (!pair.second.is_defined) {
+      if (is_internal_runtime_symbol(pair.first)) {
+        continue;
+      }
       // Check if it's a forced undefined symbol
       bool forced = false;
       for (const auto &u : config_.undefined_symbols) {

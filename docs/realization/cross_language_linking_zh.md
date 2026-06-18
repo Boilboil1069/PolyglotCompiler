@@ -55,6 +55,7 @@ linker（扩展）:                  # 链接器扩展
 | `middle_ir` | `ir::IRContext`、`ir::Function`、`ir::IRBuilder` | IR 构建工具，生成函数、基本块和指令 |
 | `runtime::interop` | `FFIRegistry`、`TypeMapping`、`ContainerMarshal` | 运行时跨语言调用支持 |
 | `tools/polyld` | `ABIDescriptor`、`ValidateABICompatibility()` | 链接阶段 ABI 兼容性验证，在 `ResolveSymbolPair()` 中调用 |
+| `tools/polyc` / `polyui` | 命令行编译器与 UI 编译入口 | UI 的编译动作调用同一个 `polyc` 可执行文件；前端快速分析仍保留，但在问题面板中与构建诊断分开标记 |
 
 ## 2. 词法器设计
 
@@ -219,9 +220,15 @@ MAP_TYPE '(' qualified_type ',' qualified_type ')' ';'
 ### 7.3 符号解析
 
 链接器通过以下步骤解析跨语言符号：
-1. 从所有源语言加载目标文件
-2. 解混淆（demangle）符号以找到目标函数
-3. 生成连接不同调用约定的桥接符号
+1. 从所有源语言加载目标文件。
+2. 从 `--ploy-desc` 或 `--aux-dir` 加载 `.ploy` 描述符。
+3. 生成连接不同调用约定的桥接符号。
+4. 将生成的桥接桩函数物化为内部 POBJ 输入，使主链接器在同一次目标文件加载与重定位流程中处理它们。
+5. 自动编译在 `.ploy` 同目录或 `-I` 搜索根中发现的本地 `IMPORT lang::module;` 源文件。
+6. 生成 foreign alias POBJ，将模块限定接口符号（`module::func`、`module__func`）映射到已编译实现符号。
+7. 当存在跨语言描述符时，对未解析符号执行严格失败。
+
+因此，基于描述符的链接是严格的：如果 `.ploy` 文件引用了 `python::string_utils::concat`，最终链接会自动编译 `string_utils.py` 并导出所需模块限定 alias；若实现符号或运行时符号仍无法解析，构建会失败，而不会生成桥接路径缺失的二进制文件。
 
 ### 7.4 ABI 兼容性验证
 

@@ -10,9 +10,9 @@
 
 ## Answer / 回答
 
-**Yes — the final binary is a unified native binary produced entirely by PolyglotCompiler's own frontends.**
+**A `.ploy` build produces one final native output only when every referenced implementation and runtime symbol is available to the linker.**
 
-PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSVC, GCC, rustc, CPython) during the **frontend compilation stages**. Each language is parsed, type-checked, and lowered to IR by the project's own frontends. During the **link stage**, the system linker (e.g., `clang`, `link.exe`, or `lld-link`) may be invoked to produce the final executable when the built-in linker cannot handle the target format. Instead, the following process takes place:
+PolyglotCompiler does **not** invoke MSVC, GCC, rustc, or CPython during its frontend stages. Each supported source language is parsed, type-checked, and lowered by the project's own frontends when that source is explicitly compiled. During the link stage, the built-in `polyld` linker or a platform linker may be invoked to produce the final executable. For `.ploy` cross-language builds, descriptors now participate in strict link validation: missing external implementation symbols or runtime symbols stop the build.
 
 ### Compilation Flow / 编译流程
 
@@ -97,18 +97,18 @@ PolyglotCompiler does **NOT** invoke any external compilers or interpreters (MSV
    - Assembly emission
    - Object file generation (ELF/Mach-O/POBJ)
 
-6. **The linker produces a unified binary**  
+6. **The linker produces a unified binary only after all symbols resolve**  
    链接器生成统一二进制文件：
-   - All object files (from all languages + glue code) are linked together
-   - The result is a **single native executable** — not a mix of bytecode and machine code
+   - Object files, descriptor-generated glue code, and required runtime symbols are linked together
+   - If a referenced foreign function or runtime import is missing, the build fails with unresolved-symbol diagnostics
 
 ### What This Means / 这意味着什么
 
 | Aspect | Description |
 |--------|-------------|
 | **No external compilers for frontends** | PolyglotCompiler does NOT call `g++`, `msvc`, `rustc`, or `python` for compilation. All languages are compiled by the project's own frontends. The link stage may invoke a system linker (e.g., `clang`, `lld-link`) when needed. |
-| **No interpreters at runtime** | The Python code is compiled to native machine code, not interpreted by CPython. The resulting binary does not require a Python installation to run. |
-| **Single binary output** | The output is a single native executable (or library) that contains compiled code from all source languages, unified through a shared IR. |
+| **Runtime imports must resolve** | Python-oriented bridges may require runtime symbols such as GIL helpers or package-call adapters; those symbols must be supplied by the linked runtime object or library. |
+| **Single binary output** | The output is a single native executable or library only after all compiled sources, bridge stubs, and runtime symbols resolve. |
 | **Type safety across languages** | Type marshalling is done at compile time via the PolyglotLinker's glue code generation, not at runtime via dynamic dispatch. |
 | **Cross-language overhead** | The only overhead is the marshalling code at language boundaries (argument conversion, ownership tracking), which is comparable to a standard FFI call. |
 
@@ -150,22 +150,22 @@ EXPORT process AS "run_pipeline";
 
 #### Single-Command Compilation / 一步编译
 
-PolyglotCompiler supports compiling a `.ploy` file directly — it will automatically discover and compile all referenced source files:
+PolyglotCompiler supports compiling a `.ploy` file directly. For local source imports such as `IMPORT cpp::image_processor;` or `IMPORT python::ml_model;`, `polyc` searches next to the `.ploy` file and in `-I` include roots, compiles the discovered source files automatically, and writes the generated objects into `aux/`. The build also emits a `<stem>_foreign_aliases.pobj` object that exports module-qualified bridge symbols such as `image_processor::enhance` and `image_processor__enhance`.
 
 ```bash
-polyc pipeline.ploy -o program          # Auto-compiles all referenced sources
+polyc pipeline.ploy -o program
 ```
 
-This is equivalent to the multi-step manual process:
+The equivalent explicit multi-source flow is still available for debugging:
 
 ```bash
-polyc --lang=cpp image_processor.cpp -o image_processor.o    # frontend_cpp → IR → x86_64 → .o
-polyc --lang=python ml_model.py -o ml_model.o                # frontend_python → IR → x86_64 → .o
-polyc --lang=ploy pipeline.ploy -o pipeline.o                # frontend_ploy → descriptors → glue → .o
-polyld -o program image_processor.o ml_model.o pipeline.o    # Link into single binary
+polyc --lang=cpp -c image_processor.cpp -o image_processor.o
+polyc --lang=python -c ml_model.py -o ml_model.o
+polyc --lang=ploy -c pipeline.ploy -o pipeline.o
+polyld -o program image_processor.o ml_model.o pipeline.o --ploy-desc aux/pipeline_link_descriptors.paux
 ```
 
-The final `program` is a **single native x86_64 (or ARM64 / WebAssembly) executable** — no Python interpreter, no C++ compiler, no external dependencies required at runtime.
+The final `program` is a native x86_64, ARM64, or WebAssembly output when every referenced implementation and runtime symbol resolves. Local source imports are now part of that closure; package imports and external runtime libraries still have to resolve through their configured package/runtime paths.
 
 ### Compared with Traditional Toolchains / 与传统方案的对比
 
@@ -179,4 +179,4 @@ The final `program` is a **single native x86_64 (or ARM64 / WebAssembly) executa
 
 ---
 
-*Last updated / 最后更新: 2026-02-20*
+*Last updated / 最后更新: 2026-06-18*

@@ -305,6 +305,7 @@ PolyglotCompiler/
 │   └── samples/        # 49 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs/.go/.js/.rb)
 ├── scripts/            # CI helpers, packaging, sample harness, doc-sync gates
 └── docs/               # Bilingual documentation (Chinese + English)
+    ├── design.md       # Kiro spec-style system design
     ├── api/            # API reference
     ├── specs/          # Language & IR specifications, ABI, plugin spec
     ├── realization/    # Implementation details
@@ -425,6 +426,7 @@ All documentation is bilingual (中文 + English) under [`docs/`](docs/):
 | Document                                                              | Description                                                                |
 |-----------------------------------------------------------------------|----------------------------------------------------------------------------|
 | [`USER_GUIDE.md`](docs/USER_GUIDE.md) / [`USER_GUIDE_zh.md`](docs/USER_GUIDE_zh.md) | Complete user guide                                                       |
+| [`design.md`](docs/design.md) / [`design_zh.md`](docs/design_zh.md)                 | Kiro spec-style repository design                                         |
 | [`CHANGELOG.md`](docs/CHANGELOG.md) / [`CHANGELOG_zh.md`](docs/CHANGELOG_zh.md)     | Release history (every version since v0.1.0)                              |
 | [`docs/api/`](docs/api/)                                              | API reference                                                              |
 | [`docs/specs/`](docs/specs/)                                          | Language & IR specifications, runtime ABI, plugin specification, packaging |

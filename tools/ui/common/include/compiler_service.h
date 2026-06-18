@@ -78,6 +78,7 @@ struct CompletionItem {
 struct CompileResult {
   bool success{false};
   std::string output;
+  std::string output_file;
   std::string assembly;
   std::vector<DiagnosticInfo> diagnostics;
   double elapsed_ms{0.0};

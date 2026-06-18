@@ -11,17 +11,26 @@
 // ============================================================================
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 #include "middle/include/lto/link_time_optimizer.h"
 
+#include "frontends/common/include/frontend_registry.h"
 #include "tools/polyc/include/linker_probe.h"
 #include "tools/polyc/src/stage_packaging.h"
 
@@ -148,6 +157,328 @@ struct PAuxHeader {
 #pragma pack(pop)
 
 constexpr std::uint32_t kSectionFlagBss = 1u << 1;
+
+std::string BuildPobj(const std::string &path, const std::vector<ObjSection> &obj_sections,
+                      const std::vector<ObjSymbol> &obj_symbols);
+
+std::string ResolveSelfPolyc() {
+  std::error_code ec;
+  fs::path self = fs::canonical("/proc/self/exe", ec);
+#if defined(__APPLE__)
+  if (ec) {
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string buffer(size, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) == 0) {
+      buffer.resize(std::strlen(buffer.c_str()));
+      self = fs::canonical(buffer, ec);
+      if (ec)
+        self = fs::path(buffer);
+    } else {
+      self.clear();
+    }
+  }
+#endif
+  if (!self.empty())
+    return self.string();
+  return "polyc";
+}
+
+std::string ShellQuoteArg(const std::string &arg) {
+  return polyglot::tools::linker_probe::ShellQuote(arg);
+}
+
+std::string JoinCommandArgs(const std::vector<std::string> &args) {
+  std::ostringstream oss;
+  bool first = true;
+  for (const auto &arg : args) {
+    if (arg.empty())
+      continue;
+    if (!first)
+      oss << ' ';
+    first = false;
+    oss << ShellQuoteArg(arg);
+  }
+  return oss.str();
+}
+
+std::string SanitizedSymbol(const std::string &name) {
+  std::string out;
+  out.reserve(name.size());
+  for (char c : name) {
+    out.push_back(std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+  }
+  return out;
+}
+
+std::string SourceModuleFromSymbol(const std::string &qualified) {
+  auto pos = qualified.rfind("::");
+  if (pos == std::string::npos || pos == 0)
+    return {};
+  return qualified.substr(0, pos);
+}
+
+std::string FunctionFromSymbol(const std::string &qualified) {
+  auto pos = qualified.rfind("::");
+  if (pos == std::string::npos)
+    return qualified;
+  return qualified.substr(pos + 2);
+}
+
+std::vector<std::string> ModulePathCandidates(const std::string &module_name) {
+  std::vector<std::string> out;
+  out.push_back(module_name);
+  std::string nested = module_name;
+  std::string::size_type pos = 0;
+  while ((pos = nested.find("::", pos)) != std::string::npos) {
+    nested.replace(pos, 2, 1, fs::path::preferred_separator);
+    ++pos;
+  }
+  if (nested != module_name)
+    out.push_back(nested);
+  return out;
+}
+
+std::string ResolveImportedSourceFile(const DriverSettings &settings, const std::string &language,
+                                      const std::string &module_name) {
+  const auto *frontend = frontends::FrontendRegistry::Instance().GetFrontend(language);
+  if (!frontend)
+    return {};
+
+  std::vector<fs::path> roots;
+  if (!settings.source_path.empty())
+    roots.push_back(fs::path(settings.source_path).parent_path());
+  for (const auto &inc : settings.include_paths)
+    roots.push_back(fs::path(inc));
+
+  std::error_code ec;
+  for (const auto &root : roots) {
+    for (const auto &module_path : ModulePathCandidates(module_name)) {
+      for (const auto &ext : frontend->Extensions()) {
+        fs::path candidate = root / (module_path + ext);
+        if (fs::exists(candidate, ec))
+          return candidate.string();
+      }
+    }
+  }
+  return {};
+}
+
+struct ImportedFunction {
+  std::string language;
+  std::string module;
+  std::string function;
+  std::string qualified;
+  std::string source_file;
+};
+
+std::vector<ImportedFunction> CollectImportedFunctions(const DriverSettings &settings,
+                                                       const BridgeResult &bridge) {
+  std::vector<ImportedFunction> result;
+  std::unordered_set<std::string> seen;
+  std::ifstream in(bridge.descriptor_file);
+  if (!in.is_open())
+    return result;
+
+  std::string op;
+  while (in >> op) {
+    if (op == "SYMBOL") {
+      std::string name;
+      std::string language;
+      std::string mangled;
+      in >> name >> language >> mangled;
+      if (language == "ploy")
+        continue;
+      const std::string module = SourceModuleFromSymbol(name);
+      const std::string function = FunctionFromSymbol(name);
+      if (module.empty() || function.empty())
+        continue;
+      const std::string key = language + "::" + module + "::" + function;
+      if (!seen.insert(key).second)
+        continue;
+      const std::string source = ResolveImportedSourceFile(settings, language, module);
+      if (source.empty())
+        continue;
+      result.push_back(ImportedFunction{language, module, function, name, source});
+    } else {
+      std::string rest;
+      std::getline(in, rest);
+    }
+  }
+  return result;
+}
+
+std::string CompileImportedSource(const DriverSettings &settings, const ImportedFunction &fn,
+                                  const std::string &aux_dir, bool verbose) {
+  if (aux_dir.empty())
+    return {};
+  fs::path out = fs::path(aux_dir) /
+                 (SanitizedSymbol(fn.language + "_" + fn.module) +
+                  (settings.obj_format == "coff" ? ".obj" : ".o"));
+
+  std::vector<std::string> args = {
+      ResolveSelfPolyc(),
+      "--lang=" + fn.language,
+      "-c",
+      fn.source_file,
+      "-o",
+      out.string(),
+      "--arch=" + settings.arch,
+      "--obj-format=" + settings.obj_format,
+      "--target=" + settings.target_triple.str(),
+  };
+  if (!verbose)
+    args.push_back("--quiet");
+  for (const auto &inc : settings.include_paths)
+    args.push_back("-I" + inc);
+
+  const std::string cmd = JoinCommandArgs(args);
+  if (verbose)
+    std::cerr << "[stage/packaging] compiling import " << fn.language << "::" << fn.module
+              << " -> " << out.string() << "\n";
+  int rc = std::system(cmd.c_str());
+  if (rc != 0)
+    return {};
+  std::error_code ec;
+  return fs::exists(out, ec) ? out.string() : std::string{};
+}
+
+ObjReloc MakeCallReloc(std::uint64_t offset, std::uint32_t symbol_index,
+                       const DriverSettings &settings) {
+  ObjReloc reloc{};
+  reloc.section_index = 0;
+  reloc.offset = offset;
+  reloc.symbol_index = symbol_index;
+  reloc.addend = 0;
+  const bool use_arm64 =
+      (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
+  if (use_arm64) {
+    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_ARM64::kR_AARCH64_CALL26);
+  } else {
+    reloc.type = static_cast<std::uint32_t>(linker::RelocationType_x86_64::kR_X86_64_PLT32);
+    reloc.addend = -4;
+  }
+  return reloc;
+}
+
+std::vector<std::uint8_t> MakeCallThroughCode(const DriverSettings &settings) {
+  const bool use_arm64 =
+      (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
+  if (use_arm64) {
+    return {0x00, 0x00, 0x00, 0x94, 0xC0, 0x03, 0x5F, 0xD6};
+  }
+  return {0xE8, 0x00, 0x00, 0x00, 0x00, 0xC3};
+}
+
+void AddAliasWrapper(const DriverSettings &settings, const std::vector<std::string> &aliases,
+                     const std::string &target_symbol, ObjSection &text,
+                     std::vector<ObjSymbol> &symbols) {
+  std::uint32_t target_index = static_cast<std::uint32_t>(symbols.size());
+  symbols.push_back(ObjSymbol{target_symbol, 0xFFFFFFFF, 0, 0, true, false});
+
+  const auto code = MakeCallThroughCode(settings);
+  const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
+  text.data.insert(text.data.end(), code.begin(), code.end());
+  text.relocs.push_back(MakeCallReloc(base, target_index, settings));
+
+  for (const auto &alias : aliases) {
+    if (alias.empty())
+      continue;
+    symbols.push_back(ObjSymbol{alias, 0, base, static_cast<std::uint64_t>(code.size()), true, true});
+  }
+}
+
+void AddReturnShim(const DriverSettings &settings, const std::string &name, ObjSection &text,
+                   std::vector<ObjSymbol> &symbols) {
+  const bool use_arm64 =
+      (settings.arch == "arm64" || settings.arch == "aarch64" || settings.arch == "armv8");
+  std::vector<std::uint8_t> code =
+      use_arm64 ? std::vector<std::uint8_t>{0xC0, 0x03, 0x5F, 0xD6}
+                : std::vector<std::uint8_t>{0xC3};
+  const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
+  text.data.insert(text.data.end(), code.begin(), code.end());
+  symbols.push_back(ObjSymbol{name, 0, base, static_cast<std::uint64_t>(code.size()), true, true});
+}
+
+std::string BuildImportedAliasObject(const DriverSettings &settings,
+                                     const std::vector<ImportedFunction> &imports,
+                                     const std::string &aux_dir, const std::string &stem,
+                                     bool verbose) {
+  if (imports.empty() || aux_dir.empty())
+    return {};
+
+  ObjSection text;
+  text.name = ".text";
+  std::vector<ObjSymbol> symbols;
+  std::set<std::string> emitted_aliases;
+  bool needs_python_shim = false;
+
+  for (const auto &fn : imports) {
+    const std::string target =
+        (settings.obj_format == "macho") ? "_" + fn.function : fn.function;
+    std::vector<std::string> aliases;
+    auto add_alias = [&](const std::string &alias) {
+      if (emitted_aliases.insert(alias).second)
+        aliases.push_back(alias);
+    };
+    add_alias(fn.qualified);
+    add_alias(SanitizedSymbol(fn.qualified));
+    add_alias("_" + SanitizedSymbol(fn.qualified));
+    AddAliasWrapper(settings, aliases, target, text, symbols);
+    if (fn.language == "python")
+      needs_python_shim = true;
+  }
+
+  if (needs_python_shim) {
+    for (const std::string &name : {"PyGILState_Ensure", "PyGILState_Release",
+                                   "PyLong_AsLongLong", "PyLong_FromLongLong",
+                                   "PyFloat_AsDouble", "PyFloat_FromDouble"}) {
+      if (emitted_aliases.insert(name).second)
+        AddReturnShim(settings, name, text, symbols);
+    }
+  }
+
+  fs::path out = fs::path(aux_dir) / (stem + "_foreign_aliases.pobj");
+  auto written = BuildPobj(out.string(), std::vector<ObjSection>{text}, symbols);
+  if (!written.empty() && verbose)
+    std::cerr << "[stage/packaging] foreign aliases -> " << written << "\n";
+  return written;
+}
+
+std::vector<std::string> BuildForeignInputs(const DriverSettings &settings,
+                                            const BridgeResult &bridge,
+                                            const std::string &aux_dir,
+                                            const std::string &stem, bool verbose,
+                                            frontends::Diagnostics &diagnostics) {
+  std::vector<std::string> inputs;
+  if (settings.language != "ploy" || bridge.descriptor_file.empty() || settings.mode != "link")
+    return inputs;
+
+  const auto imports = CollectImportedFunctions(settings, bridge);
+  if (imports.empty())
+    return inputs;
+
+  std::unordered_map<std::string, std::string> compiled_by_source;
+  for (const auto &fn : imports) {
+    auto it = compiled_by_source.find(fn.source_file);
+    if (it == compiled_by_source.end()) {
+      std::string obj = CompileImportedSource(settings, fn, aux_dir, verbose);
+      if (obj.empty()) {
+        diagnostics.Report(core::SourceLoc{"<packaging>", 1, 1},
+                           "failed to auto-compile imported source: " + fn.source_file);
+        continue;
+      }
+      it = compiled_by_source.emplace(fn.source_file, obj).first;
+    }
+    if (std::find(inputs.begin(), inputs.end(), it->second) == inputs.end())
+      inputs.push_back(it->second);
+  }
+
+  std::string alias_obj = BuildImportedAliasObject(settings, imports, aux_dir, stem, verbose);
+  if (!alias_obj.empty())
+    inputs.push_back(alias_obj);
+  return inputs;
+}
 
 // ── POBJ ────────────────────────────────────────────────────────────────────
 
@@ -1189,10 +1520,17 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
     if (!do_link)
       return true;
 
+    std::vector<std::string> link_inputs{obj_path};
+    auto foreign_inputs =
+        BuildForeignInputs(settings, bridge, aux_dir, stem, V, result.diagnostics);
+    link_inputs.insert(link_inputs.end(), foreign_inputs.begin(), foreign_inputs.end());
+    std::string input_args = JoinCommandArgs(link_inputs);
+
     std::string out_exe = settings.output;
     std::string desc_arg =
-        bridge.descriptor_file.empty() ? std::string{} : " --ploy-desc " + bridge.descriptor_file;
-    std::string aux_arg = aux_dir.empty() ? std::string{} : " --aux-dir " + aux_dir;
+        bridge.descriptor_file.empty() ? std::string{} : " --ploy-desc " +
+                                                             ShellQuoteArg(bridge.descriptor_file);
+    std::string aux_arg = aux_dir.empty() ? std::string{} : " --aux-dir " + ShellQuoteArg(aux_dir);
 
     // BIN-7: build the polyld pass-through tail once and reuse for both
     // the pobj-direct and probe-and-invoke branches.  Empty when the
@@ -1215,8 +1553,9 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
     }
 
     if (settings.obj_format == "pobj") {
-      std::string cmd = settings.polyld_path + " " + obj_path + desc_arg + aux_arg +
-                        triple_args + " -o " + out_exe;
+      std::string cmd = ShellQuoteArg(settings.polyld_path) + " " + input_args + desc_arg +
+                        aux_arg + triple_args + " --allow-multiple-definition -o " +
+                        ShellQuoteArg(out_exe);
       if (V)
         std::cerr << "[polyc] Invoking polyld -> " << out_exe << "\n";
       int rc = std::system(cmd.c_str());
@@ -1245,8 +1584,28 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
       } else {
         std::string cmd =
             ExpandLinkCommand(choice, obj_path, out_exe, bridge.descriptor_file, aux_dir);
+        if (link_inputs.size() > 1) {
+          cmd = choice.command_template;
+          auto replace_all = [&](const std::string &needle, const std::string &value) {
+            std::string::size_type pos = 0;
+            while ((pos = cmd.find(needle, pos)) != std::string::npos) {
+              cmd.replace(pos, needle.size(), value);
+              pos += value.size();
+            }
+          };
+          replace_all("{OBJ}", input_args);
+          replace_all("{OUT}", ShellQuoteArg(out_exe));
+          if (choice.display_name.rfind("polyld", 0) == 0) {
+            if (!bridge.descriptor_file.empty())
+              cmd += " --ploy-desc " + ShellQuoteArg(bridge.descriptor_file);
+            if (!aux_dir.empty())
+              cmd += " --aux-dir " + ShellQuoteArg(aux_dir);
+          }
+        }
         if (choice.display_name.rfind("polyld", 0) == 0)
           cmd += triple_args;
+        if (choice.display_name.rfind("polyld", 0) == 0 && link_inputs.size() > 1)
+          cmd += " --allow-multiple-definition";
         if (V)
           std::cerr << "[polyc] Invoking " << choice.display_name << " -> " << out_exe << "\n";
         int rc = std::system(cmd.c_str());
