@@ -523,7 +523,7 @@ void *__ploy_go_call(const char *qualified_name, const void *const *args, int ar
     fprintf(stderr, "[polyglot/go] symbol '%s' not found in host runtime\n", qualified_name);
     return (void *)0;
   }
-  // Invoke as `void *(*)(const void *const *, int)` �� the Go shim is expected
+  // Invoke as `void *(*)(const void *const *, int)` - the Go shim is expected
   // to dispatch the arg array to the actual function.  This matches the call
   // convention used by python/java bridges.
   typedef void *(*polyglot_go_thunk_t)(const void *const *, int);

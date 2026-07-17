@@ -390,7 +390,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
     }
     ExpectSymbol("}", "expected '}' to close LINK body");
   } else {
-    // Simple LINK without body �?expect semicolon
+    // Simple LINK without body - expect semicolon
     ExpectSymbol(";", "expected ';' after LINK directive");
   }
 
@@ -2148,7 +2148,7 @@ std::shared_ptr<Expression> PloyParser::ParsePrimary() {
       ExpectSymbol(")", "expected ')' after tuple literal");
       return tuple;
     }
-    // Single expression in parens �?grouped expression
+    // Single expression in parens - grouped expression
     ExpectSymbol(")", "expected ')' after grouped expression");
     return first;
   }

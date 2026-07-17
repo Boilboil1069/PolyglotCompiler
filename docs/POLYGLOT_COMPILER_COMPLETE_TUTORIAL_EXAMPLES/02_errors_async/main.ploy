@@ -1,0 +1,22 @@
+ASYNC FUNC fetch() -> i32 {
+    RETURN 7;
+}
+
+ASYNC FUNC run_async() -> i32 {
+    LET value = AWAIT fetch();
+    RETURN value + 1;
+}
+
+FUNC main() -> i32 {
+    TRY {
+        THROW "boom";
+    }
+    CATCH (e: ERROR) {
+        PRINTLN "caught\n";
+    }
+    FINALLY {
+        PRINTLN "finally\n";
+    }
+    RETURN 0;
+}
+

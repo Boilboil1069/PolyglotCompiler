@@ -1,0 +1,41 @@
+{
+  "uri": "file://<SOURCE>/03_cpp_bridge/main.ploy",
+  "diagnostics": [
+    {
+      "range": {"start":{"line":2,"character":48},"end":{"line":2,"character":48}},
+      "severity": 2,
+      "code": "E3024",
+      "source": "polyc",
+      "message": "'RETURNS' clause is deprecated; declare the return type via '-> Type' on the LINK signature instead"
+    },
+    {
+      "range": {"start":{"line":6,"character":50},"end":{"line":6,"character":50}},
+      "severity": 2,
+      "code": "E3024",
+      "source": "polyc",
+      "message": "'RETURNS' clause is deprecated; declare the return type via '-> Type' on the LINK signature instead"
+    },
+    {
+      "range": {"start":{"line":2,"character":0},"end":{"line":2,"character":0}},
+      "severity": 2,
+      "code": "E3024",
+      "source": "polyc",
+      "message": "legacy LINK(...) form is deprecated; use 'LINK <lang>::<module>::<func> AS FUNC(...) -> <ret>' instead"
+    },
+    {
+      "range": {"start":{"line":2,"character":0},"end":{"line":2,"character":0}},
+      "severity": 2,
+      "code": "E3003",
+      "source": "polyc",
+      "message": "ABI difference in LINK 'reader::read_count' <-> 'read_count': return type size mismatch: target returns 4 bytes but source returns 8 bytes",
+      "suggestion": "MAP_TYPE entries will generate marshalling code for this conversion"
+    },
+    {
+      "range": {"start":{"line":6,"character":0},"end":{"line":6,"character":0}},
+      "severity": 2,
+      "code": "E3024",
+      "source": "polyc",
+      "message": "legacy LINK(...) form is deprecated; use 'LINK <lang>::<module>::<func> AS FUNC(...) -> <ret>' instead"
+    }
+  ]
+}

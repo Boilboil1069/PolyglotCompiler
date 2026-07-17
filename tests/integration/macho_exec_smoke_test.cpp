@@ -1,15 +1,14 @@
 /**
  * @file     macho_exec_smoke_test.cpp
- * @brief    macOS arm64 end-to-end smoke for the polyld Mach-O writer.
+ * @brief    macOS host end-to-end smoke for the polyld Mach-O writer.
  *           Drives both the single-command `polyc -o` path and the
- *           explicit `polyc --mode=compile --emit-obj` + `polyld` path
+ *           historical `polyc --emit-obj` compile-only + `polyld` path
  *           for `tests/samples/00_minimal/print_then_exit.ploy`, then
  *           `posix_spawn`s each produced binary with stdout captured
  *           through a pipe and asserts `WEXITSTATUS == 0` plus stdout
- *           text equal to `"ok\n"`.  Compiled only on
- *           `__APPLE__ && __aarch64__`; on every other host this
- *           translation unit shrinks to a single placeholder test case
- *           so the integration_tests binary still links cleanly.
+ *           text equal to `"ok\n"`.  Compiled only on macOS; on every
+ *           other host this translation unit shrinks to a single placeholder
+ *           test case so the integration_tests binary still links cleanly.
  *
  * @author   Manning Cyrus
  * @date     2026-05-06
@@ -17,7 +16,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#if defined(__APPLE__) && defined(__aarch64__)
+#if defined(__APPLE__)
 
 #include <cerrno>
 #include <cstdio>
@@ -42,7 +41,11 @@ fs::path RepoRoot() {
 #ifdef POLYGLOT_TESTS_SAMPLES_ROOT
   fs::path p = fs::path(POLYGLOT_TESTS_SAMPLES_ROOT);
   for (int i = 0; i < 6 && !p.empty(); ++i) {
-    if (fs::exists(p / "CMakeLists.txt")) return p;
+    if (fs::exists(p / "CMakeLists.txt") &&
+        fs::exists(p / "tools" / "polyc") &&
+        fs::exists(p / "tests" / "samples")) {
+      return p;
+    }
     p = p.parent_path();
   }
 #endif
@@ -132,7 +135,7 @@ TEST_CASE("polyld Mach-O smoke: 00_minimal/print_then_exit runs to ok\\n",
 
   // ----- polyc compile ---------------------------------------------------
   // Emit a relocatable Mach-O object that the linker can consume.
-  int rc = RunInherit({polyc.string(), source.string(), "--mode=compile",
+  int rc = RunInherit({polyc.string(), source.string(),
                        "--emit-obj=" + object.string()});
   if (rc != 0 || !fs::exists(object)) {
     // The polyc front-end pipeline is not always wired for every host;
@@ -176,24 +179,45 @@ TEST_CASE("polyc Mach-O single-command link emits a runnable executable",
   REQUIRE(fs::exists(source));
 
   fs::path image = "/tmp/polyc_macho_single_command_smoke";
+  fs::path object = "/tmp/polyc_macho_single_command_smoke.o";
+  fs::path ir = "/tmp/polyc_macho_single_command_smoke.ir";
+  fs::path assembly = "/tmp/polyc_macho_single_command_smoke.s";
   std::error_code ec;
   fs::remove(image, ec);
+  fs::remove(object, ec);
+  fs::remove(ir, ec);
+  fs::remove(assembly, ec);
 
-  int rc = RunInherit({polyc.string(), source.string(), "-o", image.string()});
+  // Regression: --emit-obj used to silently force compile-only mode even
+  // when -o named a final executable.  Sidecars must coexist with linking;
+  // only -c/--mode=compile may stop before the link stage.
+  int rc = RunInherit({polyc.string(), source.string(),
+                       "--emit-obj=" + object.string(),
+                       "--emit-ir=" + ir.string(),
+                       "--emit-asm=" + assembly.string(),
+                       "-o", image.string()});
   REQUIRE(rc == 0);
   REQUIRE(fs::exists(image));
+  REQUIRE(fs::exists(object));
+  REQUIRE(fs::exists(ir));
+  REQUIRE(fs::exists(assembly));
 
   std::string captured;
   int exit_code = SpawnCaptureStdout(image.string(), captured);
   REQUIRE(exit_code == 0);
   REQUIRE(captured == "ok\n");
+
+  fs::remove(image, ec);
+  fs::remove(object, ec);
+  fs::remove(ir, ec);
+  fs::remove(assembly, ec);
 }
 
-#else // !(__APPLE__ && __aarch64__)
+#else // !__APPLE__
 
-TEST_CASE("polyld Mach-O exec smoke is macOS arm64 only",
+TEST_CASE("polyld Mach-O exec smoke is macOS only",
           "[macho][exec][integration]") {
-  SUCCEED("Mach-O exec smoke skipped — requires __APPLE__ && __aarch64__");
+  SUCCEED("Mach-O exec smoke skipped — requires macOS");
 }
 
 #endif

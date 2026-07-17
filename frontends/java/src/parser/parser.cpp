@@ -1390,7 +1390,7 @@ std::shared_ptr<Expression> JavaParser::ParseLambda() {
   return node;
 }
 
-// Standalone ParseMethodDecl �?parses a method declaration outside a class
+// Standalone ParseMethodDecl - parses a method declaration outside a class
 // body context.  Used by external tools that need to parse method signatures.
 std::shared_ptr<MethodDecl> JavaParser::ParseMethodDecl(
     const std::string &access, const std::vector<Annotation> &annotations) {
@@ -1465,7 +1465,7 @@ std::shared_ptr<MethodDecl> JavaParser::ParseMethodDecl(
   return method;
 }
 
-// Standalone ParseFieldDecl �?parses a field declaration outside a class body.
+// Standalone ParseFieldDecl - parses a field declaration outside a class body.
 std::shared_ptr<FieldDecl> JavaParser::ParseFieldDecl(const std::string &access,
                                                       const std::vector<Annotation> &annotations) {
   bool is_static = false, is_final = false;

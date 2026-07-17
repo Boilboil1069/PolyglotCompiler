@@ -1,0 +1,7 @@
+{
+  "file": "<SOURCE>/04_polydoc/api.ploy",
+  "entries": [
+    {"kind":"struct","name":"Point","signature":"STRUCT Point","doc":["A two-dimensional point.","Both fields use signed 32-bit coordinates."]},
+    {"kind":"func","name":"add","signature":"FUNC add(a: I32, b: I32) -> I32","doc":["Add two signed values.","The result uses i32 arithmetic."]}
+  ]
+}

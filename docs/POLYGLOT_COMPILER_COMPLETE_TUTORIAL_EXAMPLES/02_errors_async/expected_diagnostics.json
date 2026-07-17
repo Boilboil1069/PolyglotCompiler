@@ -1,0 +1,25 @@
+{
+  "uri": "file://<SOURCE>/02_errors_async/main.ploy",
+  "diagnostics": [
+    {
+      "range": {
+        "start": {"line": 5, "character": 8},
+        "end": {"line": 5, "character": 8}
+      },
+      "severity": 2,
+      "code": "E3003",
+      "source": "polyc",
+      "message": "variable 'value' resolved to type Any/Unknown; consider adding explicit type annotation"
+    },
+    {
+      "range": {
+        "start": {"line": 13, "character": 4},
+        "end": {"line": 13, "character": 4}
+      },
+      "severity": 2,
+      "code": "E3003",
+      "source": "polyc",
+      "message": "CATCH binding type 'ERROR' is not the built-in Error; treating as Error"
+    }
+  ]
+}

@@ -371,7 +371,7 @@ void PloyLowering::LowerExportDecl(const std::shared_ptr<ExportDecl> &export_dec
   // Find the function in the IR context and set its linkage
   for (const auto &fn : ir_ctx_.Functions()) {
     if (fn->name == export_decl->symbol_name) {
-      // The function is already created �?mark it for export
+      // The function is already created - mark it for export
       // We record this via a global symbol alias
       std::string ext_name = export_decl->external_name.empty() ? export_decl->symbol_name
                                                                 : export_decl->external_name;
@@ -416,7 +416,7 @@ void PloyLowering::LowerPipelineDecl(const std::shared_ptr<PipelineDecl> &pipeli
 // ============================================================================
 
 void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
-  // Save outer context �?nested functions (e.g. inside PIPELINE) must not
+  // Save outer context - nested functions (e.g. inside PIPELINE) must not
   // clobber the enclosing function's state.
   auto saved_fn = current_function_;
   auto saved_insert = builder_.GetInsertPoint();
@@ -1226,7 +1226,7 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     return {sym, qid_type};
   }
   if (auto range = std::dynamic_pointer_cast<RangeExpression>(expr)) {
-    // Range expression �?lower the end value as the iteration bound
+    // Range expression - lower the end value as the iteration bound
     return LowerExpression(range->end);
   }
 
@@ -1706,7 +1706,7 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
       MangleStubName("ploy", new_expr->language, new_expr->class_name + "::__init__",
                      new_expr->lang_version_pin);
 
-  // Resolve the object type from sema �?the sema now performs full type
+  // Resolve the object type from sema - the sema now performs full type
   // resolution via ResolveObjectType, so we can trust the symbol table.
   ir::IRType obj_type = ir::IRType::Pointer(ir::IRType::Void());
   {
@@ -1780,7 +1780,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   // Lower the receiver object
   EvalResult obj = LowerExpression(method_call->object);
 
-  // Lower method arguments �?the object is passed as the first argument
+  // Lower method arguments - the object is passed as the first argument
   std::vector<std::string> arg_names;
   std::vector<ir::IRType> arg_types;
   arg_names.push_back(obj.value);
@@ -1871,7 +1871,7 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
       MangleStubName("ploy", get_attr->language, "__getattr__" + get_attr->attr_name,
                      get_attr->lang_version_pin);
 
-  // Attribute access returns an opaque pointer by default �?the exact
+  // Attribute access returns an opaque pointer by default - the exact
   // type depends on the foreign object's schema which is unknown at
   // compile time.  Use Pointer(I8) as a generic handle.
   ir::IRType attr_ret_type = ir::IRType::Pointer(ir::IRType::I8());
@@ -1997,7 +1997,7 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
   call_descriptors_.push_back(desc);
 
-  // Emit the call �?returns void but we return the value for expression chaining
+  // Emit the call - returns void but we return the value for expression chaining
   builder_.MakeCall(stub_name, arg_names, ir::IRType::Void(), "");
   return {val.value, val.type};
 }
@@ -2023,7 +2023,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
                                           with_stmt->lang_version_pin);
   std::vector<std::string> enter_args = {resource.value};
 
-  // Resolve the enter return type �?use typed pointer if class is known
+  // Resolve the enter return type - use typed pointer if class is known
   ir::IRType enter_ret_type = ir::IRType::Pointer(ir::IRType::Void());
   {
     // Check if sema resolved a concrete type for the __enter__ return
@@ -2478,7 +2478,7 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
         params.emplace_back("arg" + std::to_string(i), pt);
       }
     } else {
-      // No signature information �?in strict mode this is an error because
+      // No signature information - in strict mode this is an error because
       // the generated stub will have an incorrect calling convention.
       // In permissive mode, fall back to a single opaque i64 argument
       // with a warning so the pipeline can continue.
@@ -2582,7 +2582,7 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
                                        const ir::IRType &dst_type, const std::string &dst_name) {
   // Determine marshalling strategy based on source and destination types
   if (src_type.kind == dst_type.kind) {
-    // Same type kind �?direct copy (assign instruction or move)
+    // Same type kind - direct copy (assign instruction or move)
     auto assign = std::make_shared<ir::AssignInstruction>();
     assign->name = dst_name;
     assign->type = dst_type;
@@ -2679,7 +2679,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
     if (it != env_.end() && it->second.type.kind == ir::IRTypeKind::kStruct) {
       return it->second.type;
     }
-    // Unknown type name �?log a diagnostic and fall back to I64
+    // Unknown type name - log a diagnostic and fall back to I64
     diagnostics_.ReportWarning(core::SourceLoc{}, frontends::ErrorCode::kGenericWarning,
                                "unknown type '" + st->name +
                                    "' in PloyTypeToIR; falling back to i64");
@@ -2786,10 +2786,10 @@ ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
     // Unresolved generic parameters map to opaque pointer
     return ir::IRType::Pointer(ir::IRType::I8());
   case core::TypeKind::kAny:
-    // Any type maps to opaque pointer (i8*) �?more accurate than I64
+    // Any type maps to opaque pointer (i8*) - more accurate than I64
     return ir::IRType::Pointer(ir::IRType::I8());
   case core::TypeKind::kUnknown:
-    // Unknown type reached lowering without being resolved �?this is a
+    // Unknown type reached lowering without being resolved - this is a
     // hard error: the programmer must add an explicit type annotation or
     // LINK declaration with MAP_TYPE.
     diagnostics_.ReportError(core::SourceLoc{}, frontends::ErrorCode::kTypeMismatch,
@@ -2818,7 +2818,7 @@ void PloyLowering::Report(const core::SourceLoc &loc, const std::string &message
 
 PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
     const std::shared_ptr<DeleteExpression> &del_expr) {
-  // DELETE(language, object) �?generate a destructor / cleanup call
+  // DELETE(language, object) - generate a destructor / cleanup call
   // For Python objects: calls __del__ / del
   // For C++ objects: calls destructor
   // For Rust objects: calls drop

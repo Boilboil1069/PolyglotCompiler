@@ -13,6 +13,27 @@ shipped behaviour, not the underlying tracking item.
 
 ---
 
+## v1.47.4 (2026-07-17) — «Sidecar and final-output mode resolution»
+
+- **`--emit-obj=<object> -o <executable>` now emits both products.** An
+  object sidecar no longer silently switches the staged driver from its
+  default link pipeline to compile-only mode when a final output was explicitly
+  requested. IR and assembly sidecars can be requested in the same command.
+- **Compile-only compatibility remains explicit and deterministic.**
+  `--emit-obj` without `-o` retains its historical compile-only shorthand,
+  while `-c` and `--mode=compile` always override linking regardless of
+  argument order.
+- **Regression visibility improved.** The driver banner now distinguishes
+  `Pipeline: compile|link` from diagnostic `Policy: strict|permissive|dev`.
+  Mach-O integration coverage runs on every macOS host architecture, verifies
+  the sidecars and executable from one command, and no longer falsely skips
+  because the samples directory was mistaken for the repository root.
+- **Source comments are valid UTF-8 again.** Recovered 162 mojibake comment
+  lines across 21 frontend, runtime, driver, UI, and test source files,
+  including two comments containing malformed byte sequences. The repaired
+  comments use stable ASCII separators and arrows where the original glyphs
+  could not be recovered reliably; no program behaviour was changed.
+
 ## v1.47.2 (2026-05-26) — «Executable link path hardening»
 
 - **`polyc source.ploy -o app` now produces a real executable on macOS

@@ -688,7 +688,7 @@ PIPELINE compute {
 }
 
 // ============================================================================
-// Complex Type Extension ï¿½ï¿½ Lexer Tests
+// Complex Type Extension - Lexer Tests
 // ============================================================================
 
 TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]") {
@@ -701,7 +701,7 @@ TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]"
 }
 
 // ============================================================================
-// Complex Type Extension ï¿½ï¿½ Parser Tests
+// Complex Type Extension - Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser parses STRUCT declaration", "[ploy][parser][complex]") {
@@ -803,7 +803,7 @@ FUNC test(x: i32) -> f64 {
 }
 
 // ============================================================================
-// Complex Type Extension ï¿½ï¿½ Sema Tests
+// Complex Type Extension - Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema validates STRUCT declaration", "[ploy][sema][complex]") {
@@ -886,7 +886,7 @@ FUNC test(x: i32) -> f64 {
 }
 
 // ============================================================================
-// Complex Type Extension ï¿½ï¿½ Lowering Tests
+// Complex Type Extension - Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering generates list literal IR", "[ploy][lowering][complex]") {
@@ -941,7 +941,7 @@ FUNC test(x: i32) -> void {
 }
 
 // ============================================================================
-// Complex Type Extension ï¿½ï¿½ Integration Tests
+// Complex Type Extension - Integration Tests
 // ============================================================================
 
 TEST_CASE("Ploy complex type full pipeline: STRUCT + LINK + FUNC", "[ploy][integration][complex]") {
@@ -1776,7 +1776,7 @@ EXPORT serve AS "start_server";
 }
 
 // ============================================================================
-// Class Instantiation Tests ï¿½ï¿½ NEW and METHOD keywords
+// Class Instantiation Tests - NEW and METHOD keywords
 // ============================================================================
 
 // -- Lexer tests --
@@ -2160,7 +2160,7 @@ FUNC async_io() -> INT {
 }
 
 // ============================================================================
-// GET / SET / WITH ï¿½ï¿½ Lexer Tests
+// GET / SET / WITH - Lexer Tests
 // ============================================================================
 
 TEST_CASE("Ploy lexer: GET keyword recognised", "[ploy][lexer]") {
@@ -2198,7 +2198,7 @@ TEST_CASE("Ploy lexer: GET SET WITH in context", "[ploy][lexer]") {
 }
 
 // ============================================================================
-// GET / SET ï¿½ï¿½ Parser Tests
+// GET / SET - Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser: GET attribute expression", "[ploy][parser]") {
@@ -2270,7 +2270,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH Statement ï¿½ï¿½ Parser Tests
+// WITH Statement - Parser Tests
 // ============================================================================
 
 TEST_CASE("Ploy parser: WITH statement basic", "[ploy][parser]") {
@@ -2316,7 +2316,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// GET / SET ï¿½ï¿½ Sema Tests
+// GET / SET - Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema: GET valid language", "[ploy][sema]") {
@@ -2372,7 +2372,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH ï¿½ï¿½ Sema Tests
+// WITH - Sema Tests
 // ============================================================================
 
 TEST_CASE("Ploy sema: WITH valid", "[ploy][sema]") {
@@ -2419,7 +2419,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// GET / SET ï¿½ï¿½ Lowering Tests
+// GET / SET - Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering: GET generates getattr stub", "[ploy][lowering]") {
@@ -2493,7 +2493,7 @@ FUNC test() -> INT {
 }
 
 // ============================================================================
-// WITH ï¿½ï¿½ Lowering Tests
+// WITH - Lowering Tests
 // ============================================================================
 
 TEST_CASE("Ploy lowering: WITH generates enter/exit stubs", "[ploy][lowering]") {
@@ -2596,7 +2596,7 @@ MAP_TYPE(python::nn::Module, cpp::NeuralNet);
 }
 
 // ============================================================================
-// Integration Tests ï¿½ï¿½ GET / SET / WITH combined
+// Integration Tests - GET / SET / WITH combined
 // ============================================================================
 
 TEST_CASE("Ploy integration: GET + SET + METHOD combined", "[ploy][integration][class]") {
@@ -3124,7 +3124,7 @@ FUNC main() {
 }
 )", diags, sema);
     // MAP_TYPE entries declare type-conversion rules, not parameter counts.
-    // Calling with any number of args is valid ï¿?arity is not checked via MAP_TYPE.
+    // Calling with any number of args is valid - arity is not checked via MAP_TYPE.
     CHECK(ok);
     CHECK_FALSE(diags.HasErrors());
 }
@@ -3239,7 +3239,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// End-to-end failure path tests ï¿?param count, type mismatch, unregistered
+// End-to-end failure path tests - param count, type mismatch, unregistered
 // symbols, cross-language ABI violations.
 //
 // Every test here must end with diags.HasErrors() == true and ideally
@@ -3285,7 +3285,7 @@ E2EFailureResult RunAndExpectFailure(const std::string &code,
 } // namespace
 
 // ============================================================================
-// Param count mismatch ï¿?local function calls
+// Param count mismatch - local function calls
 // ============================================================================
 
 TEST_CASE("E2E failure: too few args to local function produces error with count hint",
@@ -3324,7 +3324,7 @@ FUNC main() { LET x = no_args(42, 99); }
 
 TEST_CASE("E2E failure: error count equals number of mismatched call sites",
           "[ploy][e2e][failure][param-count]") {
-    // Two call sites with wrong arg counts ï¿?two separate diagnostics
+    // Two call sites with wrong arg counts - two separate diagnostics
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3339,7 +3339,7 @@ FUNC main() {
 }
 
 // ============================================================================
-// Type mismatch ï¿?incompatible argument types
+// Type mismatch - incompatible argument types
 // ============================================================================
 
 TEST_CASE("E2E failure: passing STRING to INT parameter produces type-mismatch error",
@@ -3405,7 +3405,7 @@ FUNC main() {
 
 TEST_CASE("E2E failure: CALL to unlinked cross-lang symbol produces error",
           "[ploy][e2e][failure][unregistered]") {
-    // math::add is never declared via LINK ï¿?must be rejected
+    // math::add is never declared via LINK - must be rejected
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
     LET result = CALL(cpp, math::add, 1, 2);

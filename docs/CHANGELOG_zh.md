@@ -12,6 +12,21 @@
 
 ---
 
+## v1.47.4 (2026-07-17) — 「旁路产物与最终输出的模式判定」
+
+- **`--emit-obj=<object> -o <executable>` 现在会同时生成两种产物。** 当命令
+  已明确请求最终输出时，对象文件 sidecar 不再把 staged driver 从默认链接流程
+  静默切换为仅编译模式；同一命令也可以同时请求 IR 和汇编 sidecar。
+- **仅编译兼容语义仍然明确且稳定。** 没有 `-o` 时，`--emit-obj` 保留历史上的
+  compile-only 简写；`-c` 与 `--mode=compile` 无论参数顺序如何都优先于链接。
+- **回归行为更容易观察。** Driver banner 现在把 `Pipeline: compile|link` 与诊断
+  `Policy: strict|permissive|dev` 分开显示。Mach-O 集成测试扩展到所有 macOS 宿主
+  架构，验证单命令产生 sidecars 与 executable，并修复把 samples 目录误认成仓库
+  根目录而导致测试假跳过的问题。
+- **源码注释重新满足严格 UTF-8。** 修复 frontend、runtime、driver、UI 与测试代码
+  21 个文件中的 162 条乱码注释，其中包括两处包含非法字节序列的注释。无法可靠
+  还原原始图形符号的位置统一使用稳定的 ASCII 分隔线与箭头；没有改变程序行为。
+
 ## v1.47.2 (2026-05-26) — 「可执行文件链接路径加固」
 
 - **`polyc source.ploy -o app` 现在会在 macOS arm64 上产出真实可执行文件。**

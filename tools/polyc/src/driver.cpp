@@ -7,11 +7,11 @@
  * @date     2026-04-10
  */
 // ============================================================================
-// driver.cpp 鈥?polyc top-level driver (thin orchestration layer)
+// driver.cpp - polyc top-level driver (thin orchestration layer)
 //
 // This file contains only:
-//   1. ParseArgs()  鈥?CLI flag parsing 鈫?DriverSettings
-//   2. main()       鈥?stage orchestration: calls RunXxxStage() in order
+//   1. ParseArgs()  - CLI flag parsing -> DriverSettings
+//   2. main()       - stage orchestration: calls RunXxxStage() in order
 //
 // All heavy lifting has been moved into the six stage_*.cpp files.
 // ============================================================================
@@ -49,7 +49,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
-// 鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ---- Helpers -------------------------------------------------------------
 
 std::string DetectLanguage(const std::string &path) {
   return polyglot::frontends::FrontendRegistry::Instance().DetectLanguage(path);
@@ -88,11 +88,13 @@ std::string ResolveSiblingTool(const char *argv0, const std::string &tool_name) 
   return tool_name;
 }
 
-// 鈹€鈹€ ParseArgs 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ---- ParseArgs -----------------------------------------------------------
 
 DriverSettings ParseArgs(int argc, char **argv) {
   DriverSettings s;
   bool source_set = false;
+  bool output_explicit = false;
+  bool emit_obj_requested = false;
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     // Skip the shared --settings / --print-effective-settings flags; these
@@ -107,13 +109,13 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "Options:\n"
           << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet|javascript|ruby|go\n"
           << "  -O<0-3>             Optimisation level\n"
-          << "  -o <output>         Output file name\n"
+          << "  -o <output>         Final output path; links unless -c/--mode=compile\n"
           << "  -c                  Compile only; write an object file\n"
           << "  --mode=<mode>       compile|assemble|link\n"
           << "  --arch=<arch>       x86_64|arm64|wasm\n"
           << "  --emit-ir=<path>    Write IR to file\n"
           << "  --emit-asm=<path>   Write assembly to file\n"
-          << "  --emit-obj=<path>   Write object to file\n"
+          << "  --emit-obj=<path>   Write object sidecar (compile-only without -o/--mode)\n"
           << "  --emit=call-graph:<path>      Write static call graph JSON\n"
           << "  --emit=profile-symbols:<path> Write profile-symbol map JSON\n"
           << "  --profile-instrument          Insert call-trace hooks (LTO removable)\n"
@@ -236,10 +238,12 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg == "-o" && i + 1 < argc) {
       s.output = argv[++i];
+      output_explicit = true;
       continue;
     }
     if (arg.rfind("-o", 0) == 0 && arg.size() > 2) {
       s.output = arg.substr(2);
+      output_explicit = true;
       continue;
     }
     if (arg.rfind("--emit-asm=", 0) == 0) {
@@ -248,8 +252,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     if (arg.rfind("--emit-obj=", 0) == 0) {
       s.emit_obj_path = arg.substr(11);
-      if (!s.mode_explicit)
-        s.mode = "compile";
+      emit_obj_requested = true;
       continue;
     }
     if (arg.rfind("--obj-format=", 0) == 0) {
@@ -624,6 +627,14 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
   }
 
+  // Preserve the historical shorthand `polyc source --emit-obj=out.o` as
+  // compile-only, but do not let a sidecar request override an explicit
+  // final `-o` path.  In that combined form the default pipeline remains
+  // link: the object is retained at --emit-obj and the executable is written
+  // to -o.  Explicit -c/--mode always wins, regardless of argument order.
+  if (emit_obj_requested && !s.mode_explicit && !output_explicit)
+    s.mode = "compile";
+
   // File source: read content + auto-detect language
   if (source_set && fs::exists(s.source)) {
     s.source_path = fs::absolute(s.source).string();
@@ -642,7 +653,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
   return s;
 }
 
-// 鈹€鈹€ SetupAuxDir / SourceStem 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ---- SetupAuxDir / SourceStem -------------------------------------------
 
 std::string SetupAuxDir(const DriverSettings &s) {
   if (!s.emit_aux || s.source_path.empty())
@@ -661,7 +672,7 @@ std::string SourceStem(const DriverSettings &s) {
   return s.source_path.empty() ? "output" : fs::path(s.source_path).stem().string();
 }
 
-// 鈹€鈹€ Error summary (aggregated by error code) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ---- Error summary (aggregated by error code) ---------------------------
 
 void PrintErrorSummary(const frontends::Diagnostics &diags, bool json_progress) {
   std::map<int, int> error_counts;
@@ -700,7 +711,7 @@ void PrintErrorSummary(const frontends::Diagnostics &diags, bool json_progress) 
   }
 }
 
-// 鈹€鈹€ StageTimer 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ---- StageTimer ----------------------------------------------------------
 
 struct StageTimer {
   std::string name;
@@ -746,7 +757,7 @@ struct StageTimer {
 int main(int argc, char **argv) {
   using namespace polyglot::tools;
 
-  // 鈹€鈹€ Settings.json integration (shared with polyui IDE) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Settings.json integration (shared with polyui IDE) ---------------
   if (auto rc = polyglot::tools::common::HandleSettingsCliFlags(argc, argv);
       rc.has_value()) {
     return *rc;
@@ -1006,13 +1017,13 @@ int main(int argc, char **argv) {
     settings.container = effective;
   }
 
-  // 鈹€鈹€ Mode validation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Mode validation --------------------------------------------------
   if (settings.mode != "compile" && settings.mode != "assemble" && settings.mode != "link") {
     std::cerr << "[error] Unknown mode: " << settings.mode << " (use compile|assemble|link)\n";
     return 1;
   }
 
-  // 鈹€鈹€ Strict / permissive / force reconciliation 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Strict / permissive / force reconciliation -----------------------
 #ifdef POLYC_DEFAULT_STRICT
   if (!settings.permissive && !settings.strict && !settings.dev_mode)
     settings.strict = true;
@@ -1028,7 +1039,7 @@ int main(int argc, char **argv) {
 
   const bool V = settings.verbose;
 
-  // 鈹€鈹€ Banner 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Banner -----------------------------------------------------------
   if (V) {
     std::cerr << "========================================\n";
     std::cerr << " " << POLYGLOT_VERSION_BANNER << "  (" << POLYGLOT_POLYC_NAME << ")\n";
@@ -1046,7 +1057,8 @@ int main(int argc, char **argv) {
     if (settings.lto_enabled)
       std::cerr << "[polyc] LTO: enabled\n";
     std::cerr << "[polyc] Output: " << settings.output << "\n";
-    std::cerr << "[polyc] Mode: "
+    std::cerr << "[polyc] Pipeline: " << settings.mode << "\n";
+    std::cerr << "[polyc] Policy: "
               << (settings.dev_mode ? "dev"
                   : settings.strict ? "strict"
                                     : "permissive")
@@ -1057,7 +1069,7 @@ int main(int argc, char **argv) {
   if (settings.jobs > 1 && V)
     std::cerr << "[polyc] -j" << settings.jobs << " noted (single-threaded for now)\n";
 
-  // 鈹€鈹€ .ploy: delegate to existing CompilationPipeline 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- .ploy: delegate to existing CompilationPipeline ------------------
   if (settings.language == "ploy") {
     std::string aux_dir = SetupAuxDir(settings);
     std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
@@ -1121,7 +1133,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  // 鈹€鈹€ Non-.ploy: six-stage pipeline 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Non-.ploy: six-stage pipeline -----------------------------------
   std::string aux_dir = SetupAuxDir(settings);
   std::string stem = SourceStem(settings);
   if (!aux_dir.empty() && V)
@@ -1265,7 +1277,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 鈹€鈹€ Summary 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Summary ----------------------------------------------------------
   double total_ms = std::chrono::duration<double, std::milli>(
                         std::chrono::high_resolution_clock::now() - total_start)
                         .count();

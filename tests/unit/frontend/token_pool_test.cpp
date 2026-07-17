@@ -109,7 +109,7 @@ TEST_CASE("IdentifierTable interns and grows correctly under load",
 }
 
 // ============================================================================
-// TokenPool �?Save/Restore for parser lookahead
+// TokenPool - Save/Restore for parser lookahead
 // ============================================================================
 
 TEST_CASE("TokenPool::Save/Restore precisely rolls back tokens, arena, ids",
@@ -142,7 +142,7 @@ TEST_CASE("TokenPool::Save/Restore precisely rolls back tokens, arena, ids",
 }
 
 // ============================================================================
-// SharedTokenPool �?concurrent identifier interning
+// SharedTokenPool - concurrent identifier interning
 // ============================================================================
 
 TEST_CASE("SharedTokenPool yields unique stable ids under 16-thread load",

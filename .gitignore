@@ -8,6 +8,7 @@
 /.idea/
 /cmake-build-*/
 /._DS_Store/
+.DS_Store
 ._*
 /Testing/
 /build-*/

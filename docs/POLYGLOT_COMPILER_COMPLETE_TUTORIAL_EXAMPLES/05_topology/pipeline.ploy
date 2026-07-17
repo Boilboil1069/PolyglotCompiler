@@ -1,0 +1,6 @@
+PIPELINE audit {
+    STAGE load CALL cpp::reader::load;
+    STAGE clean CALL rust::cleaner::normalise;
+    STAGE score CALL python::model::score;
+}
+

@@ -8,20 +8,20 @@
  */
 #pragma once
 // ============================================================================
-// driver_stages.h 鈥?Shared data structures for the polyc stage pipeline
+// driver_stages.h - Shared data structures for the polyc stage pipeline
 //
 // Each RunXxxStage() function receives ONLY the output of the previous stage
 // (plus the global DriverSettings) and writes its result into the next stage's
 // input structure.  No stage is allowed to access driver-global state directly.
 //
 // Stage flow:
-//   ParseArgs() 鈫?DriverSettings
-//       鈹斺攢鈻?RunFrontendStage(settings)  鈫?FrontendResult
-//             鈹斺攢鈻?RunSemanticStage(settings, frontend) 鈫?SemanticResult
-//                   鈹斺攢鈻?RunMarshalStage(settings, semantic) 鈫?MarshalResult
-//                         鈹斺攢鈻?RunBridgeStage(settings, marshal, semantic) 鈫?BridgeResult
-//                               鈹斺攢鈻?RunBackendStage(settings, bridge, semantic) 鈫?BackendResult
-//                                     鈹斺攢鈻?RunPackagingStage(settings, backend) 鈫?int (exit code)
+//   ParseArgs() -> DriverSettings
+//     -> RunFrontendStage(settings) -> FrontendResult
+//     -> RunSemanticStage(settings, frontend) -> SemanticResult
+//     -> RunMarshalStage(settings, semantic) -> MarshalResult
+//     -> RunBridgeStage(settings, marshal, semantic) -> BridgeResult
+//     -> RunBackendStage(settings, bridge, semantic) -> BackendResult
+//     -> RunPackagingStage(settings, backend) -> int (exit code)
 // ============================================================================
 
 #include <cstdint>
@@ -46,7 +46,7 @@
 namespace polyglot::tools {
 
 // ============================================================================
-// DriverSettings 鈥?parsed CLI flags and source metadata
+// DriverSettings - parsed CLI flags and source metadata
 // ============================================================================
 
 /** @brief RegAllocChoice enumeration. */
@@ -60,7 +60,7 @@ struct DriverSettings {
   std::string language{"ploy"};
   bool language_explicit{false};
 
-  // Target 鈥?default architecture matches the host
+  // Target - default architecture matches the host
 #if defined(__aarch64__) || defined(_M_ARM64)
   std::string arch{"arm64"};
 #else
@@ -131,29 +131,29 @@ struct DriverSettings {
   std::vector<std::string> defines{};              // -DNAME[=VAL]
   std::vector<std::string> undefines{};            // -UNAME
 
-  // Python 鈥?user-supplied .pyi stub roots
+  // Python - user-supplied .pyi stub roots
   std::vector<std::string> python_stub_paths{}; // --python-stubs
 
-  // Java 鈥?classpath (directories + .jar files)
+  // Java - classpath (directories + .jar files)
   std::vector<std::string> classpath{}; // --classpath / -cp
 
-  // .NET 鈥?assembly references
+  // .NET - assembly references
   std::vector<std::string> dotnet_references{}; // --reference / -r
 
-  // Rust 鈥?cargo dir + extern crate mapping
+  // Rust - cargo dir + extern crate mapping
   std::string rust_crate_dir{};                                    // --crate-dir
   std::vector<std::pair<std::string, std::string>> rust_externs{}; // --extern name=path
 
-  // JavaScript / TypeScript 鈥?npm / yarn / pnpm project root and
+  // JavaScript / TypeScript - npm / yarn / pnpm project root and
   // additional `node_modules` roots that the resolver should consult.
   std::string js_project_dir{};                  // --js-project=<dir>
   std::vector<std::string> node_modules_paths{}; // --node-modules=<dir>
 
-  // Ruby 鈥?Bundler project root + extra gem paths.
+  // Ruby - Bundler project root + extra gem paths.
   std::string ruby_project_dir{};       // --ruby-project=<dir>
   std::vector<std::string> gem_paths{}; // --gem-path=<dir>
 
-  // Go 鈥?module root + extra GOPATH / module-cache hints.
+  // Go - module root + extra GOPATH / module-cache hints.
   std::string go_project_dir{};               // --go-project=<dir>
   std::vector<std::string> go_module_paths{}; // --go-mod-cache=<dir>
 
@@ -233,7 +233,7 @@ struct ObjSymbol {
 };
 
 // ============================================================================
-// Stage 1 鈥?FrontendResult
+// Stage 1 - FrontendResult
 // Produced by: RunFrontendStage()
 // Contains: preprocessed source, tokens, AST (for .ploy); raw IR for others
 // ============================================================================
@@ -270,7 +270,7 @@ struct FrontendResult {
 };
 
 // ============================================================================
-// Stage 2 鈥?SemanticResult
+// Stage 2 - SemanticResult
 // Produced by: RunSemanticStage()
 // Contains: validated AST, symbol table, signatures, link entries
 // ============================================================================
@@ -293,7 +293,7 @@ struct SemanticResult {
 };
 
 // ============================================================================
-// Stage 3 鈥?MarshalResult
+// Stage 3 - MarshalResult
 // Produced by: RunMarshalStage()
 // Contains: cross-language parameter conversion plan
 // ============================================================================
@@ -320,7 +320,7 @@ struct MarshalResult {
 };
 
 // ============================================================================
-// Stage 4 鈥?BridgeResult
+// Stage 4 - BridgeResult
 // Produced by: RunBridgeStage()
 // Contains: resolved stub IR functions ready for injection into the IR module
 // ============================================================================
@@ -342,7 +342,7 @@ struct BridgeResult {
 };
 
 // ============================================================================
-// Stage 5 鈥?BackendResult
+// Stage 5 - BackendResult
 // Produced by: RunBackendStage()
 // Contains: object sections + symbols ready for packaging
 // ============================================================================

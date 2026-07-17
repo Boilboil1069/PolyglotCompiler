@@ -192,7 +192,7 @@ std::vector<frontends::ForeignFunctionSignature> GoLanguageFrontend::ExtractSign
   for (auto &fn : f->funcs) {
     if (!fn)
       continue;
-    // Only export capitalised names (Go's convention) �?but include all
+    // Only export capitalised names (Go's convention) - but include all
     // for cross-language access.
     frontends::ForeignFunctionSignature sig;
     sig.name = fn->name;

@@ -7,7 +7,7 @@
  * @date     2026-04-10
  */
 // ============================================================================
-// stage_frontend.cpp 鈥?Stage 1 implementation
+// stage_frontend.cpp - Stage 1 implementation
 // ============================================================================
 
 #include <chrono>
@@ -85,7 +85,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
                                       : frontends::StringArena::kDefaultChunkBytes;
   auto session_pool = std::make_unique<frontends::SharedTokenPool>(arena_chunk);
 
-  // 鈹€鈹€ Stage 1a: Preprocessing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Stage 1a: Preprocessing ------------------------------------------
   if (settings.language != "ploy") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
     if (fe && fe->NeedsPreprocessing()) {
@@ -121,7 +121,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
   }
   // .ploy never uses the preprocessor
 
-  // 鈹€鈹€ Stage 1b: Non-.ploy 鈫?FrontendRegistry 鈫?IR directly 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Stage 1b: Non-.ploy -> FrontendRegistry -> IR directly -----------
   if (settings.language != "ploy") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
     if (!fe) {
@@ -184,7 +184,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     return result;
   }
 
-  // 鈹€鈹€ Stage 1c: .ploy 鈥?Lexing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Stage 1c: .ploy - Lexing -----------------------------------------
   {
     ploy::PloyLexer token_lexer(result.processed_source, result.source_label);
     token_lexer.SetTokenPool(session_pool.get());
@@ -204,7 +204,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
       std::cerr << "[stage/frontend] lexing done (" << result.tokens.size() << " tokens)\n";
   }
 
-  // 鈹€鈹€ Stage 1d: .ploy 鈥?Parsing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Stage 1d: .ploy - Parsing ----------------------------------------
   {
     ploy::PloyLexer parse_lexer(result.processed_source, result.source_label);
     ploy::PloyParser parser(parse_lexer, result.diagnostics);
@@ -230,7 +230,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     result.ast_dump = ast_oss.str();
   }
 
-  // 鈹€鈹€ Stage 1e: .ploy 鈥?Package index 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ---- Stage 1e: .ploy - Package index ----------------------------------
   if (settings.package_index && result.ast) {
     std::unordered_set<std::string> seen;
     std::vector<std::string> languages;

@@ -1,0 +1,4 @@
+FUNC main() -> i32 {
+    RETURN "not an integer";
+}
+

@@ -1,0 +1,13 @@
+/// A two-dimensional point.
+/// Both fields use signed 32-bit coordinates.
+PUB STRUCT Point {
+    x: i32,
+    y: i32
+}
+
+/// Add two signed values.
+/// The result uses i32 arithmetic.
+PUB FUNC add(a: i32, b: i32) -> i32 {
+    RETURN a + b;
+}
+

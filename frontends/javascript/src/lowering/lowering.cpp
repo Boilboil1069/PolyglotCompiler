@@ -1,6 +1,6 @@
 /**
  * @file     lowering.cpp
- * @brief    JavaScript �?Polyglot IR lowering
+ * @brief    JavaScript - Polyglot IR lowering
  *
  * @ingroup  Frontend / JavaScript
  * @author   Manning Cyrus
@@ -20,7 +20,7 @@
  *
  * Constructs that have no clean static lowering (closures, classes,
  * generators, async/await, prototype chains) are reported as warnings
- * and elided from IR �?they remain valid JavaScript at runtime, just
+ * and elided from IR - they remain valid JavaScript at runtime, just
  * not part of the cross-language IR surface.
  */
 #include <memory>
@@ -143,7 +143,7 @@ private:
       }
     }
     if (!terminated_) {
-      // Implicit return �?produce 0/undefined of the right type.
+      // Implicit return - produce 0/undefined of the right type.
       if (ret_ty.kind == ir::IRTypeKind::kVoid) {
         builder_.MakeReturn();
       } else {
@@ -290,7 +290,7 @@ private:
       }
       return;
     }
-    // Other statements are silently skipped �?they have no IR equivalent.
+    // Other statements are silently skipped - they have no IR equivalent.
   }
 
   // ---- Expression lowering ----------------------------------------------
@@ -311,7 +311,7 @@ private:
         auto load = builder_.MakeLoad(it->second.addr, it->second.type, id->name);
         return load->name;
       }
-      // Unknown identifier �?leave the lookup to the runtime.
+      // Unknown identifier - leave the lookup to the runtime.
       diag_.Report(id->loc, "unresolved identifier '" + id->name +
                                 "' in IR lowering; emitting opaque reference");
       return id->name;
@@ -320,7 +320,7 @@ private:
       return LowerBinary(*bin, want);
     }
     if (auto lg = std::dynamic_pointer_cast<LogicalExpr>(e)) {
-      // Lower &&/||/?? as bitwise on i1 �?semantic short-circuit is a
+      // Lower &&/||/?? as bitwise on i1 - semantic short-circuit is a
       // future optimisation; this preserves truthy-falsy values for
       // typical JSDoc'd boolean code.
       auto l = LowerExpression(lg->left, ir::IRType::I1());
@@ -370,7 +370,7 @@ private:
       return LowerCall(*call, want);
     }
     // Arrow/function expressions, member expressions, templates, etc.
-    // are not part of the static IR surface �?return a literal zero.
+    // are not part of the static IR surface - return a literal zero.
     return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
                          : builder_.MakeLiteral((long long)0)->name;
   }

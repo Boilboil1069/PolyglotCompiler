@@ -1,0 +1,16 @@
+FUNC main() -> i32 {
+    VAR index: i32 = 0;
+    WHILE index < 3 {
+        PRINTLN "tick\n";
+        index = index + 1;
+    }
+
+    LET code: i32 = 202;
+    MATCH code {
+        CASE 200 { PRINTLN "ok\n"; }
+        CASE 201 | 202 { PRINTLN "accepted\n"; }
+        CASE _ { PRINTLN "other\n"; }
+    }
+    RETURN 0;
+}
+

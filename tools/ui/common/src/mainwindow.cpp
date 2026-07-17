@@ -108,7 +108,7 @@ MainWindow::~MainWindow() {
 }
 
 // ============================================================================
-// Central Widget �?tabbed editor
+// Central Widget - tabbed editor
 // ============================================================================
 
 void MainWindow::SetupCentralWidget() {
@@ -140,7 +140,7 @@ void MainWindow::SetupCentralWidget() {
 
   vertical_splitter_->addWidget(bottom_tabs_);
 
-  // Set initial sizes �?will be adjusted in SetupDockWidgets
+  // Set initial sizes - will be adjusted in SetupDockWidgets
   main_splitter_->addWidget(vertical_splitter_);
 
   // NOTE: initial sizes are set in SetupDockWidgets() after file_browser_
@@ -150,7 +150,7 @@ void MainWindow::SetupCentralWidget() {
 }
 
 // ============================================================================
-// Dock Widgets �?file browser + output panel
+// Dock Widgets - file browser + output panel
 // ============================================================================
 
 void MainWindow::SetupDockWidgets() {
@@ -861,7 +861,7 @@ void MainWindow::SetupConnections() {
             }
           });
 
-  // Topology panel: bidirectional sync �?when edge sync modifies the .ploy
+  // Topology panel: bidirectional sync - when edge sync modifies the .ploy
   // file, reload and highlight the affected line in the editor.
   connect(topology_panel_, &TopologyPanel::FileContentChanged, this,
           [this](const QString &file_path, int line) {
@@ -913,10 +913,10 @@ void MainWindow::SetupConnections() {
   // File browser
   connect(file_browser_, &FileBrowser::FileActivated, this, &MainWindow::OnFileActivated);
 
-  // File browser �?open file from context menu
+  // File browser - open file from context menu
   connect(file_browser_, &FileBrowser::OpenFileRequested, this, &MainWindow::OnFileActivated);
 
-  // File browser �?open terminal at a directory
+  // File browser - open terminal at a directory
   connect(file_browser_, &FileBrowser::OpenTerminalRequested, this, [this](const QString &dir) {
     // Create a new terminal tab rooted at the requested directory.
     auto *terminal = new TerminalWidget(terminal_tabs_);
@@ -945,7 +945,7 @@ void MainWindow::SetupConnections() {
         {vertical_splitter_->height() * 2 / 3, vertical_splitter_->height() / 3});
   });
 
-  // File browser �?generate topology for a .ploy file
+  // File browser - generate topology for a .ploy file
   connect(file_browser_, &FileBrowser::GenerateTopologyRequested, this,
           [this](const QString &ploy_path) {
             panel_manager_->ShowPanel("topology");
@@ -953,7 +953,7 @@ void MainWindow::SetupConnections() {
             topology_panel_->LoadFromFile(ploy_path);
           });
 
-  // File browser �?create file from template in the selected directory
+  // File browser - create file from template in the selected directory
   connect(file_browser_, &FileBrowser::NewFromTemplateRequested, this,
           [this](const QString &parent_dir) { NewFromTemplateInDir(parent_dir); });
 
@@ -1034,7 +1034,7 @@ void MainWindow::NewFile() {
 }
 
 // ============================================================================
-// NewFromTemplate �?create a new file pre-filled with a language template
+// NewFromTemplate - create a new file pre-filled with a language template
 // ============================================================================
 
 void MainWindow::NewFromTemplate() {
@@ -1258,7 +1258,7 @@ void MainWindow::NewFromTemplate() {
 }
 
 // ============================================================================
-// NewFromTemplateInDir �?create a template file inside a specific directory
+// NewFromTemplateInDir - create a template file inside a specific directory
 // ============================================================================
 
 void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
@@ -1643,7 +1643,7 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
   auto *editor = new CodeEditor();
 
   // Apply editor theme.  Use the current theme's editor colors.
-  // NOTE: Do not set the `color` property via stylesheet �?that overrides
+  // NOTE: Do not set the `color` property via stylesheet - that overrides
   // QSyntaxHighlighter character formats on many Qt builds.  Instead, set
   // the text foreground via QPalette so that the highlighter's per-token
   // setFormat() calls take precedence.
@@ -1728,7 +1728,7 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
           return;
         }
 
-        // Definition not found �?show tooltip
+        // Definition not found - show tooltip
         QToolTip::showText(ed->mapToGlobal(ed->cursorRect().topLeft()),
                            QString("Definition of '%1' not found").arg(symbol), ed, QRect(), 2000);
       });
@@ -2808,7 +2808,7 @@ void MainWindow::OnTabChanged(int index) {
 }
 
 // ============================================================================
-// Editor Modified �?trigger debounced analysis
+// Editor Modified - trigger debounced analysis
 // ============================================================================
 
 void MainWindow::OnEditorModified() {
@@ -2833,7 +2833,7 @@ void MainWindow::OnCursorPositionChanged() {
 }
 
 // ============================================================================
-// File Browser �?file activated
+// File Browser - file activated
 // ============================================================================
 
 void MainWindow::OnFileActivated(const QString &path) {
@@ -2841,7 +2841,7 @@ void MainWindow::OnFileActivated(const QString &path) {
 }
 
 // ============================================================================
-// Analysis Timer Timeout �?run analysis on current editor
+// Analysis Timer Timeout - run analysis on current editor
 // ============================================================================
 
 void MainWindow::OnAnalysisTimerTimeout() {
@@ -3237,7 +3237,7 @@ void MainWindow::ApplyTheme() {
   if (vertical_splitter_)
     vertical_splitter_->setStyleSheet(splitter_ss);
 
-  // Editors �?apply background and selection via stylesheet, text color
+  // Editors - apply background and selection via stylesheet, text color
   // via QPalette so that QSyntaxHighlighter formats take precedence.
   for (int i = 0; i < editor_tabs_->count(); ++i) {
     if (auto *ed = EditorAt(i)) {

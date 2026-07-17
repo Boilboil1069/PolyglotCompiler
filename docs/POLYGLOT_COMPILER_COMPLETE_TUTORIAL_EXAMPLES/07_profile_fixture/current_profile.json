@@ -1,0 +1,26 @@
+{
+  "schema": "polyglot.profile.v1",
+  "samples": [
+    {
+      "timestamp_ns": 1000000,
+      "window_ns": 200000000,
+      "live_threads": 4,
+      "resident_bytes": 8388608,
+      "calls": {
+        "schema": "polyglot.calltrace.v1",
+        "total_events": 2,
+        "dropped_events": 0,
+        "entries": [
+          {
+            "name": "main",
+            "language": "ploy",
+            "call_count": 2,
+            "inclusive_ns": 5000,
+            "self_ns": 1000
+          }
+        ]
+      }
+    }
+  ]
+}
+

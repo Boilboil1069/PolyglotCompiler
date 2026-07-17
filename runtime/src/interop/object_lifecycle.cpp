@@ -208,7 +208,7 @@ void *__ploy_rt_convert_tuple(void *tuple) {
     if (i + 1 < n) {
       elem_sizes[i] = src->offsets[i + 1] - src->offsets[i];
     } else {
-      // Last element: estimate from total allocation �?not perfectly knowable
+      // Last element: estimate from total allocation - not perfectly knowable
       // without explicit metadata.  Use 8 bytes as a safe upper bound.
       elem_sizes[i] = 8;
     }

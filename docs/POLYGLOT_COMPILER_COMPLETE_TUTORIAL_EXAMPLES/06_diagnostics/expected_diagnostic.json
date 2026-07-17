@@ -1,0 +1,15 @@
+{
+  "uri": "file://<SOURCE>/06_diagnostics/type_error.ploy",
+  "diagnostics": [
+    {
+      "range": {
+        "start": {"line": 1, "character": 4},
+        "end": {"line": 1, "character": 4}
+      },
+      "severity": 1,
+      "code": "E3010",
+      "source": "polyc",
+      "message": "return type mismatch: function expects 'i32' but returning 'string'"
+    }
+  ]
+}

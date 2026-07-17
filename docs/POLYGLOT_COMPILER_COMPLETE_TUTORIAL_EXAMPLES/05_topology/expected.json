@@ -1,0 +1,20 @@
+{
+  "module": "pipeline.ploy",
+  "source_file": "<SOURCE>/05_topology/pipeline.ploy",
+  "node_count": 1,
+  "edge_count": 0,
+  "nodes": [
+    {
+      "id": 1,
+      "name": "pipeline:audit",
+      "language": "ploy",
+      "kind": "pipeline",
+      "is_linked": false,
+      "inputs": [],
+      "outputs": [
+        {"id": 1, "name": "result", "type": "any", "index": 0}
+      ]
+    }
+  ],
+  "edges": []
+}

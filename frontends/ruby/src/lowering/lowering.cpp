@@ -1,6 +1,6 @@
 /**
  * @file     lowering.cpp
- * @brief    Ruby �?Polyglot IR lowering
+ * @brief    Ruby - Polyglot IR lowering
  *
  * @ingroup  Frontend / Ruby
  * @author   Manning Cyrus

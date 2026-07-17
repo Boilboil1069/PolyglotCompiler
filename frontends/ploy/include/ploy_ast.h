@@ -856,9 +856,9 @@ struct VenvConfigDecl : Statement {
 
 // Language-version pinning syntax.
 //
-// `LANG <lang> = <version>;`             鈥?module-wide pin (top-level only).
-// `WITH LANG (<lang>=<ver>, ...) { ... }` 鈥?scoped pin around a block.
-// `@LANG(<lang>=<ver>, ...) <stmt>`       鈥?single-statement annotation.
+// `LANG <lang> = <version>;`             - module-wide pin (top-level only).
+// `WITH LANG (<lang>=<ver>, ...) { ... }` - scoped pin around a block.
+// `@LANG(<lang>=<ver>, ...) <stmt>`       - single-statement annotation.
 //
 // All three forms feed the same scope-stack consulted by sema, which then
 // stamps the resolved value into every cross-language node's
