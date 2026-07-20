@@ -9,6 +9,7 @@
 #include "tools/polyls/polyls_core/polyls_server.h"
 #include "tools/polyls/grammar/grammar_descriptor.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <filesystem>
@@ -33,6 +34,16 @@ constexpr int kMethodNotFound = -32601;
 constexpr int kInvalidParams = -32602;
 constexpr int kServerNotInitialized = -32002;
 constexpr int kInvalidShutdownState = -32600;
+
+std::string CanonicalLanguageId(std::string language_id) {
+  std::string folded = language_id;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return language_id;
+}
 
 int FromHexDigit(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -288,7 +299,10 @@ void PolylsServer::HandleDidOpen(const Json &params) {
   }
   OpenDocument doc;
   doc.uri = p.text_document.uri;
-  doc.language_id = p.text_document.language_id;
+  // Keep the historical wire id as an input alias, but store and emit only
+  // the canonical id.  This prevents one workspace from creating separate
+  // `poly` and `ploy` index/session state.
+  doc.language_id = CanonicalLanguageId(p.text_document.language_id);
   doc.version = p.text_document.version;
   doc.text = p.text_document.text;
   {
@@ -371,10 +385,10 @@ void PolylsServer::RunAndPublishDiagnostics(const std::string &uri) {
   lsp::PublishDiagnosticsParams out;
   out.uri = uri;
 
-  // polyls only owns `.ploy` analysis in this revision.  For other
+  // polyls only owns `.poly` analysis in this revision.  For other
   // language ids we publish an empty list so the editor clears any
   // previous overlay.
-  if (language_id == "ploy" || language_id == "poly") {
+  if (language_id == "poly") {
     polyglot::frontends::Diagnostics diags;
     polyglot::frontends::FrontendOptions opts;
     opts.strict = false;

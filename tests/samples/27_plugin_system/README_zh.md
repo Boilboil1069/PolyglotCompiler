@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Python |
-| 入口 | `plugin_system.ploy` |
+| 入口 | `plugin_system.poly` |
 | 主题 | 插件系统 |
 | 预期 stdout | `27_plugin_system: ok\r\n` |
 
 ## 文件
 
-- `plugin_system.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `plugin_system.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `plugin_host.cpp` — 宿主语言源文件
 - `sample_plugin.py` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc plugin_system.ploy --emit-obj=build/plugin_system.obj --quiet
+polyc plugin_system.poly --emit-obj=build/plugin_system.obj --quiet
 polyld build/plugin_system.obj -o build/plugin_system.exe
 ./build/plugin_system.exe
 ```

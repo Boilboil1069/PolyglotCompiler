@@ -2,12 +2,12 @@
 
 ## 1. 概述
 
-本文档描述了 `.ploy` 语言对跨语言类实例化和方法调用的支持。通过 `NEW` 和 `METHOD` 关键字，
-`.ploy` 程序可以创建外部语言的类实例，并调用其方法，实现面向对象语义的跨语言互操作。
+本文档描述了 `.poly` 语言对跨语言类实例化和方法调用的支持。通过 `NEW` 和 `METHOD` 关键字，
+`.poly` 程序可以创建外部语言的类实例，并调用其方法，实现面向对象语义的跨语言互操作。
 
 ### 1.1 动机
 
-> **为什么需要类实例化支持？** 现有的 `.ploy` 语言通过 `CALL` 关键字支持跨语言函数调用，
+> **为什么需要类实例化支持？** 现有的 `.poly` 语言通过 `CALL` 关键字支持跨语言函数调用，
 > 但很多语言的核心 API 是基于类和对象的。例如：
 > - Python 的 PyTorch：`model = torch.nn.Linear(784, 10)`，然后 `model.forward(data)`
 > - Python 的 scikit-learn：`scaler = StandardScaler()`，然后 `scaler.fit_transform(data)`
@@ -22,7 +22,7 @@
 | **跨语言构造器** | `NEW(language, class, args...)` — 在目标语言中实例化类对象 |
 | **跨语言方法调用** | `METHOD(language, object, method, args...)` — 调用对象的方法 |
 | **一致的语法风格** | 与现有的 `CALL()` 语法保持一致的括号调用风格 |
-| **对象句柄传递** | 对象在 `.ploy` 中作为不透明句柄传递，类型安全由目标语言保证 |
+| **对象句柄传递** | 对象在 `.poly` 中作为不透明句柄传递，类型安全由目标语言保证 |
 | **成员访问兼容** | 已有的 `.` 语法（`MemberExpression`）与新功能互补 |
 
 ## 2. 语言扩展
@@ -39,7 +39,7 @@
 | `DELETE` | 跨语言对象销毁                              | 显式销毁/释放目标语言对象 |
 | `EXTEND` | 跨语言类继承扩展                            | 扩展目标语言类，添加新方法 |
 
-新增后，`.ploy` 语言共有 **54 个保留关键字**。
+新增后，`.poly` 语言共有 **54 个保留关键字**。
 
 ### 2.2 语法定义
 
@@ -57,7 +57,7 @@ NEW(language, class_name [, arg1, arg2, ...])
 
 **示例：**
 
-```ploy
+```poly
 // 实例化 Python 类（无参数）
 LET model = NEW(python, sklearn::LinearRegression);
 
@@ -86,7 +86,7 @@ METHOD(language, object, method_name [, arg1, arg2, ...])
 
 **示例：**
 
-```ploy
+```poly
 // 调用方法（带参数）
 LET output = METHOD(python, model, forward, input_data);
 
@@ -148,7 +148,7 @@ ParsePrimary:
 
 ### 3.3 语义分析
 
-- **语言验证**：检查 `language` 是否为有效的语言标识符（`cpp`、`python`、`rust`、`c`、`ploy`）
+- **语言验证**：检查 `language` 是否为有效的语言标识符（`cpp`、`python`、`rust`、`c`、`poly`）
 - **类名验证**：检查 `class_name`（`NEW`）或 `method_name`（`METHOD`）非空
 - **参数分析**：递归分析每个参数表达式
 - **对象验证**（`METHOD`）：分析接收者对象表达式，确保已定义
@@ -185,7 +185,7 @@ IR:     %1 = call __ploy_bridge_ploy_python_forward(%model, %data) -> i64
 
 ### 4.1 机器学习推理管道
 
-```ploy
+```poly
 // 导入 Python ML 包
 IMPORT python PACKAGE torch;
 IMPORT python PACKAGE sklearn;
@@ -219,7 +219,7 @@ FUNC ml_pipeline() -> INT {
 
 ### 4.2 数据库操作
 
-```ploy
+```poly
 IMPORT python PACKAGE sqlite3;
 
 FUNC query_database() -> INT {
@@ -241,7 +241,7 @@ FUNC query_database() -> INT {
 
 ### 4.3 在 PIPELINE 中使用
 
-```ploy
+```poly
 IMPORT python PACKAGE torch;
 
 PIPELINE training_pipeline {
@@ -268,7 +268,7 @@ PIPELINE training_pipeline {
 |-----------|-------------|--------|
 | **静态类型未知** | `NEW` 和 `METHOD` 返回 `Any` 类型；没有类模式时无法在编译时进行完整类型检查 | 通过 `ForeignClassSchema` 部分解决 |
 | **无析构器** | 不支持自动调用析构器/`__del__`；需手动调用 `METHOD(lang, obj, close)` | 仍然适用 |
-| **无继承** | `.ploy` 不支持在目标语言中定义子类 | 仍然适用 |
+| **无继承** | `.poly` 不支持在目标语言中定义子类 | 仍然适用 |
 | **无属性赋值** | 之前仅支持方法调用，不支持直接 `obj.attr = value`。**现已解决：** `GET` 和 `SET` 通过 `RegisterClassSchema()` 注册的类模式解析类型 | **已解决** |
 
 ## 7. 实现细节（更新）

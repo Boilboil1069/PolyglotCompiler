@@ -2,16 +2,16 @@
 
 ## 1. 概述
 
-本文档描述了 `.ploy` 语言的扩展，以支持跨语言函数级链接中的复杂参数类型。目标是实现容器类型（列表、元组、字典）、结构类型（结构体）和可选类型在语言边界之间的无缝编组。
+本文档描述了 `.poly` 语言的扩展，以支持跨语言函数级链接中的复杂参数类型。目标是实现容器类型（列表、元组、字典）、结构类型（结构体）和可选类型在语言边界之间的无缝编组。
 
 ### 1.1 动机
 
-> **为什么需要复杂类型支持？** 初始的 `.ploy` 语言仅支持基本类型（`INT`、`FLOAT`、`BOOL`、`STRING`、`VOID`）。但实际的跨语言互操作中，函数的参数和返回值经常是容器类型。例如：
+> **为什么需要复杂类型支持？** 初始的 `.poly` 语言仅支持基本类型（`INT`、`FLOAT`、`BOOL`、`STRING`、`VOID`）。但实际的跨语言互操作中，函数的参数和返回值经常是容器类型。例如：
 > - Python 函数经常返回 `list`、`dict`、`tuple`
 > - C++ 函数使用 `std::vector`、`std::map`、`struct`
 > - Rust 函数使用 `Vec`、`HashMap`、`Option`
 >
-> 没有复杂类型支持，开发者无法在 `.ploy` 中表达这些真实世界的函数签名。
+> 没有复杂类型支持，开发者无法在 `.poly` 中表达这些真实世界的函数签名。
 
 ### 1.2 设计目标
 
@@ -41,7 +41,7 @@
 
 > **语法约定：** 容器类型使用 **圆括号 `()`** 包裹类型参数（区别于某些语言使用方括号或尖括号）。
 
-```ploy
+```poly
 // 基本容器类型
 LIST(i32)                          // 32位整数列表
 TUPLE(i32, STRING, f64)            // 异构元组：整数、字符串、浮点数
@@ -62,7 +62,7 @@ OPTION(LIST(i32))                  // 可选的整数列表
 
 > **STRUCT 声明了命名的聚合类型。** 结构体中的每个字段有名称和类型，用分号分隔。
 
-```ploy
+```poly
 // 简单结构体
 STRUCT Point {
     x: f64;                // x 坐标
@@ -73,7 +73,7 @@ STRUCT Point {
 
 > **说明：** 结构体可以包含容器类型字段：
 
-```ploy
+```poly
 // 带复杂字段的结构体
 STRUCT DataSet {
     name: STRING;                      // 数据集名称
@@ -88,7 +88,7 @@ STRUCT DataSet {
 
 > **MAP_FUNC 定义自定义转换函数。** 当简单的 `MAP_TYPE` 声明无法表达复杂的转换逻辑时使用。
 
-```ploy
+```poly
 // 数值归一化转换
 MAP_FUNC normalize(x: f64) -> f64 {
     IF x < 0.0 {
@@ -105,7 +105,7 @@ MAP_FUNC normalize(x: f64) -> f64 {
 > - `MAP_FUNC` 会被注册到转换函数表中，在跨语言调用时可被**自动**调用进行类型转换
 > - `FUNC` 是普通函数，需要**手动**调用
 
-```ploy
+```poly
 // 容器元素转换
 MAP_FUNC to_list(x: f64) -> LIST(f64) {
     LET result = [x];
@@ -117,7 +117,7 @@ MAP_FUNC to_list(x: f64) -> LIST(f64) {
 
 > **CONVERT 用于显式类型转换。** 编译器会查找合适的转换路径。
 
-```ploy
+```poly
 LET x = CONVERT(python_value, i32);            // 转换为整数
 LET items = CONVERT(raw_list, LIST(f64));       // 转换为浮点数列表
 LET table = CONVERT(cpp_map, DICT(STRING, i32)); // 转换为字典
@@ -131,7 +131,7 @@ LET table = CONVERT(cpp_map, DICT(STRING, i32)); // 转换为字典
 
 ### 2.6 容器字面量
 
-```ploy
+```poly
 LET numbers = [1, 2, 3, 4, 5];                          // 列表字面量
 LET pair = (1, "hello");                                  // 元组字面量
 LET origin = Point { x: 0.0, y: 0.0, label: "origin" };  // 结构体字面量
@@ -141,7 +141,7 @@ LET origin = Point { x: 0.0, y: 0.0, label: "origin" };  // 结构体字面量
 
 ## 3. 扩展类型映射表
 
-| .ploy 类型           | C++ 等价                     | Python 等价      | Rust 等价              | 说明 |
+| .poly 类型           | C++ 等价                     | Python 等价      | Rust 等价              | 说明 |
 |---------------------|----------------------------|-----------------|------------------------|------|
 | i32                 | int32_t                    | int             | i32                    | 32位整数 |
 | i64                 | int64_t                    | int             | i64                    | 64位整数 |
@@ -333,7 +333,7 @@ void  __ploy_rt_dict_free(void *dict);
 
 ### 9.1 跨语言列表处理
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy AS np;
 IMPORT cpp::math_engine;
 
@@ -360,7 +360,7 @@ PIPELINE analyze {
 
 ### 9.2 跨语言结构体映射
 
-```ploy
+```poly
 STRUCT CppPoint {
     x: f64;
     y: f64;
@@ -379,7 +379,7 @@ LINK(cpp, python, geometry::distance, point_gen::make_point) AS STRUCT {
 
 ### 9.3 可选类型
 
-```ploy
+```poly
 FUNC safe_divide(a: f64, b: f64) -> OPTION(f64) {
     IF b == 0.0 {
         RETURN NULL;       // 除数为零，返回空值

@@ -30,7 +30,7 @@ namespace polyglot::compilation {
 // ============================================================================
 // Stage 1: Frontend Output
 // ============================================================================
-// Input: Source file (.ploy, .cpp, .py, etc.)
+// Input: Source file (.poly, .cpp, .py, etc.)
 // Output: Parsed AST with no semantic analysis
 // Responsibility: Lexing, parsing, building AST
 
@@ -41,7 +41,7 @@ struct FrontendOutput {
 
   // Source metadata
   std::string source_file;
-  std::string language; // "ploy", "cpp", "python", etc.
+  std::string language; // "poly", "cpp", "python", etc.
 
   // Raw token stream (optional, for debugging)
   std::vector<frontends::Token> tokens;
@@ -268,6 +268,12 @@ struct BackendOutput {
   // Target triple reported by backend.
   std::string target_triple;
 
+  // Fully-lowered IR retained for driver side outputs such as the static
+  // call graph and profile-symbol map.  Keeping the exact module passed to
+  // the backend also makes optional call-trace instrumentation observable
+  // without lowering the source a second time.
+  std::shared_ptr<ir::IRContext> ir_ctx;
+
   // Success flag
   bool success{false};
 };
@@ -332,7 +338,7 @@ struct CompilationContext {
   struct Config {
     std::string source_file;
     std::string source_text;
-    std::string source_language{"ploy"};
+    std::string source_language{"poly"};
     std::string output_file;
 #if defined(__aarch64__) || defined(_M_ARM64)
     std::string target_arch{"arm64"};
@@ -365,6 +371,7 @@ struct CompilationContext {
     bool verbose{false};
     bool strict_mode{false};
     bool force{false};
+    bool profile_instrument{false};
     std::string aux_dir;
     bool package_index{false};
     int package_index_timeout_ms{30000};
@@ -385,7 +392,7 @@ struct CompilationContext {
     std::string rust_crate_dir;                                    // --crate-dir
     std::vector<std::pair<std::string, std::string>> rust_externs; // --extern name=path
     // Path to the serialized cross-language descriptor file written after
-    // bridge generation (passed as --ploy-desc to polyld in link mode).
+    // bridge generation (passed as --poly-desc to polyld in link mode).
     std::string ploy_desc_file;
   } config;
 

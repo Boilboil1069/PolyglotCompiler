@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、Java |
-| 入口 | `database_access.ploy` |
+| 入口 | `database_access.poly` |
 | 主题 | 数据库访问层 |
 | 预期 stdout | `22_database_access: ok\r\n` |
 
 ## 文件
 
-- `database_access.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `database_access.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `db_connection.py` — 宿主语言源文件
 - `UserDao.java` — 宿主语言源文件
@@ -23,7 +23,7 @@
 ## 构建
 
 ```powershell
-polyc database_access.ploy --emit-obj=build/database_access.obj --quiet
+polyc database_access.poly --emit-obj=build/database_access.obj --quiet
 polyld build/database_access.obj -o build/database_access.exe
 ./build/database_access.exe
 ```

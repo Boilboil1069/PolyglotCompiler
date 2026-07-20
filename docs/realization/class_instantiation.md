@@ -2,21 +2,21 @@
 
 ## 1. Overview
 
-This document describes the `.ploy` language support for cross-language class instantiation and
-method invocation. Through the `NEW` and `METHOD` keywords, `.ploy` programs can create instances
+This document describes the `.poly` language support for cross-language class instantiation and
+method invocation. Through the `NEW` and `METHOD` keywords, `.poly` programs can create instances
 of classes from foreign languages and call their methods, enabling object-oriented cross-language
 interoperability.
 
 ### 1.1 Motivation
 
-The existing `.ploy` language supports cross-language function calls via the `CALL` keyword,
+The existing `.poly` language supports cross-language function calls via the `CALL` keyword,
 but many language ecosystems are built around classes and objects:
 
 - **Python PyTorch**: `model = torch.nn.Linear(784, 10)` → `model.forward(data)`
 - **Python scikit-learn**: `scaler = StandardScaler()` → `scaler.fit_transform(data)`
 - **Rust tokio**: `let runtime = tokio::Runtime::new()` → `runtime.spawn(task)`
 
-Without class instantiation support, developers cannot use these object-oriented APIs from `.ploy`.
+Without class instantiation support, developers cannot use these object-oriented APIs from `.poly`.
 
 ### 1.2 Design Goals
 
@@ -42,7 +42,7 @@ Without class instantiation support, developers cannot use these object-oriented
 | `DELETE` | Cross-language object destruction  | Explicitly destroys/releases a target language object |
 | `EXTEND` | Cross-language class extension     | Extends a target language class with new methods |
 
-With these additions, the `.ploy` language has **54 reserved keywords** in total.
+With these additions, the `.poly` language has **54 reserved keywords** in total.
 
 ### 2.2 Syntax Definition
 
@@ -60,7 +60,7 @@ NEW(language, class_name [, arg1, arg2, ...])
 
 **Examples:**
 
-```ploy
+```poly
 // Instantiate a Python class (no arguments)
 LET model = NEW(python, sklearn::LinearRegression);
 
@@ -89,7 +89,7 @@ METHOD(language, object, method_name [, arg1, arg2, ...])
 
 **Examples:**
 
-```ploy
+```poly
 // Call a method (with arguments)
 LET output = METHOD(python, model, forward, input_data);
 
@@ -151,7 +151,7 @@ Parsing process:
 
 ### 3.3 Semantic Analysis
 
-- **Language validation**: Checks that `language` is a valid language identifier (`cpp`, `python`, `rust`, `c`, `ploy`)
+- **Language validation**: Checks that `language` is a valid language identifier (`cpp`, `python`, `rust`, `c`, `poly`)
 - **Name validation**: Checks that `class_name` (`NEW`) or `method_name` (`METHOD`) is non-empty
 - **Argument analysis**: Recursively analyzes each argument expression
 - **Object validation** (`METHOD`): Analyzes the receiver object expression to ensure it is defined
@@ -188,7 +188,7 @@ IR:     %1 = call __ploy_bridge_ploy_python_forward(%model, %data) -> i64
 
 ### 4.1 Machine Learning Inference Pipeline
 
-```ploy
+```poly
 // Import Python ML packages
 IMPORT python PACKAGE torch;
 IMPORT python PACKAGE sklearn;
@@ -222,7 +222,7 @@ FUNC ml_pipeline() -> INT {
 
 ### 4.2 Database Operations
 
-```ploy
+```poly
 IMPORT python PACKAGE sqlite3;
 
 FUNC query_database() -> INT {
@@ -244,7 +244,7 @@ FUNC query_database() -> INT {
 
 ### 4.3 Usage in PIPELINE
 
-```ploy
+```poly
 IMPORT python PACKAGE torch;
 
 PIPELINE training_pipeline {
@@ -271,7 +271,7 @@ PIPELINE training_pipeline {
 |-----------|-------------|--------|
 | **Static type unknown** | `NEW` and `METHOD` return `Any` type; full type checking is not possible at compile time without class schemas | Partially resolved via `ForeignClassSchema` |
 | **No destructors** | Automatic destructor / `__del__` invocation is not supported; use `METHOD(lang, obj, close)` manually | Still applies |
-| **No inheritance** | `.ploy` does not support defining subclasses in the target language | Still applies |
+| **No inheritance** | `.poly` does not support defining subclasses in the target language | Still applies |
 | **No property assignment** | Previously only method calls were supported; direct `obj.attr = value` was not available. **Now resolved:** `GET` and `SET` resolve types from class schemas registered via `RegisterClassSchema()` | **Resolved** |
 
 ## 7. Implementation Details (Updated)

@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | diagnostics, error recovery |
-| 入口文件 | `error_handling.ploy` |
+| 入口文件 | `error_handling.poly` |
 
 ## 编译
 
 ```powershell
-polyc 10_error_handling\error_handling.ploy --emit-obj=error_handling.pobj --obj-format=pobj
+polyc 10_error_handling\error_handling.poly --emit-obj=error_handling.pobj --obj-format=pobj
 polyld error_handling.pobj -o error_handling.exe
 ```
 

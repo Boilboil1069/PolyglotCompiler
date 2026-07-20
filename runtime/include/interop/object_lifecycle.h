@@ -5,9 +5,9 @@
 
 /// @file object_lifecycle.h
 /// @brief Language-specific object cleanup / destructor bridge functions and
-///        cross-language registration helpers used by the .ploy lowering layer.
+///        cross-language registration helpers used by the .poly lowering layer.
 ///
-/// These symbols are emitted by the .ploy IR lowering pass (DELETE expression,
+/// These symbols are emitted by the .poly IR lowering pass (DELETE expression,
 /// EXTEND declaration) and resolved at link time by the polyglot linker.
 
 namespace polyglot::runtime::interop {
@@ -43,13 +43,13 @@ void __ploy_dotnet_dispose(void *object);
 
 /// Register a derived class extension across language boundaries.
 ///
-/// When a .ploy module uses `EXTEND` to subclass a foreign class the lowering
+/// When a .poly module uses `EXTEND` to subclass a foreign class the lowering
 /// pass emits a call to this function at module-init time so the runtime can
 /// build the appropriate vtable / method-dispatch table.
 ///
 /// @param language    Source language of the base class ("python", "cpp", ...).
 /// @param base_class  Name of the base class.
-/// @param derived     Name of the derived class (defined in .ploy).
+/// @param derived     Name of the derived class (defined in .poly).
 void __ploy_extend_register(const char *language, const char *base_class, const char *derived);
 
 /// Return the number of registered cross-language extension mappings.

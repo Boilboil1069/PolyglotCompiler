@@ -1,0 +1,22 @@
+// ============================================================================
+// http_client.poly — HTTP client demo.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Python, Go.
+//
+// Documents the topic of an HTTP request / response round-trip: a Go
+// transport assembles the request line and a Python deserialiser turns
+// the response body into a dict.  The transport bridge is exercised by
+// the runtime unit tests; this sample keeps a minimal IMPORT + LINK
+// skeleton plus the deterministic PRINTLN marker.
+// ============================================================================
+
+IMPORT go::HttpTransport;
+IMPORT python::response_decoder;
+
+LINK(go, python, HttpTransport::send, response_decoder::decode) {
+    MAP_TYPE(go::string, python::str);
+    MAP_TYPE(go::int, python::int);
+}
+
+PRINTLN "23_http_client: ok\r\n";

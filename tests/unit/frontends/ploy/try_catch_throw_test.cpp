@@ -65,7 +65,7 @@ std::string Wrap(const std::string &body) {
 }  // namespace
 
 TEST_CASE("TRY with a single CATCH parses and type-checks",
-          "[ploy][parser][sema][try-catch]") {
+          "[poly][parser][sema][try-catch]") {
     auto r = Analyze(Wrap(
         "TRY { THROW \"boom\"; } "
         "CATCH (e: Error) { PRINTLN \"caught\"; }"));
@@ -82,7 +82,7 @@ TEST_CASE("TRY with a single CATCH parses and type-checks",
 }
 
 TEST_CASE("TRY with multiple CATCH clauses parses",
-          "[ploy][parser][try-catch]") {
+          "[poly][parser][try-catch]") {
     auto r = Analyze(Wrap(
         "TRY { THROW \"x\"; } "
         "CATCH (a: Error) { PRINTLN \"a\"; } "
@@ -97,7 +97,7 @@ TEST_CASE("TRY with multiple CATCH clauses parses",
 }
 
 TEST_CASE("TRY with only FINALLY parses",
-          "[ploy][parser][try-catch][finally]") {
+          "[poly][parser][try-catch][finally]") {
     auto r = Analyze(Wrap(
         "TRY { PRINTLN \"work\"; } "
         "FINALLY { PRINTLN \"cleanup\"; }"));
@@ -110,7 +110,7 @@ TEST_CASE("TRY with only FINALLY parses",
 }
 
 TEST_CASE("TRY with CATCH and FINALLY parses",
-          "[ploy][parser][try-catch][finally]") {
+          "[poly][parser][try-catch][finally]") {
     auto r = Analyze(Wrap(
         "TRY { THROW \"x\"; } "
         "CATCH (e: Error) { PRINTLN \"caught\"; } "
@@ -124,13 +124,13 @@ TEST_CASE("TRY with CATCH and FINALLY parses",
 }
 
 TEST_CASE("Bare TRY without CATCH or FINALLY is rejected",
-          "[ploy][parser][try-catch]") {
+          "[poly][parser][try-catch]") {
     auto r = Analyze(Wrap("TRY { PRINTLN \"x\"; }"));
     CHECK(r.diags.HasErrors());
 }
 
 TEST_CASE("THROW with expression parses and type-checks",
-          "[ploy][parser][sema][throw]") {
+          "[poly][parser][sema][throw]") {
     auto r = Analyze(Wrap(
         "TRY { THROW \"explicit\"; } CATCH (e: Error) { PRINTLN \"k\"; }"));
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -144,13 +144,13 @@ TEST_CASE("THROW with expression parses and type-checks",
 }
 
 TEST_CASE("THROW without expression is rejected",
-          "[ploy][parser][throw]") {
+          "[poly][parser][throw]") {
     auto r = Analyze(Wrap("THROW;"));
     CHECK(r.diags.HasErrors());
 }
 
 TEST_CASE("CATCH with a non-Error declared type emits a warning",
-          "[ploy][sema][try-catch]") {
+          "[poly][sema][try-catch]") {
     auto r = Analyze(Wrap(
         "TRY { THROW \"x\"; } CATCH (e: SomethingElse) { PRINTLN \"k\"; }"));
     // Non-fatal: parsing/type-checking still completes.

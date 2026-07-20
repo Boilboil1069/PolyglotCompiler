@@ -163,11 +163,11 @@ std::string ExpandLinkCommand(const LinkerChoice &choice, const std::string &obj
   };
   replace_all("{OBJ}", ShellQuote(obj_path));
   replace_all("{OUT}", ShellQuote(out_path));
-  // --ploy-desc / --aux-dir are polyld-specific flags; only emit them when
+  // --poly-desc / --aux-dir are polyld-specific flags; only emit them when
   // the chosen linker actually understands them.
   if (choice.display_name.rfind("polyld", 0) == 0) {
     if (!ploy_desc_file.empty())
-      cmd += " --ploy-desc " + ShellQuote(ploy_desc_file);
+      cmd += " --poly-desc " + ShellQuote(ploy_desc_file);
     if (!aux_dir.empty())
       cmd += " --aux-dir " + ShellQuote(aux_dir);
   }

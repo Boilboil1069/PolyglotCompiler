@@ -1,7 +1,7 @@
 # Realization — Extended String Literals (v1.17.0)
 
 Demand: `2026-04-28-17`.  Adds raw, multiline, and template string
-literal forms to `.ploy` source.
+literal forms to `.poly` source.
 
 ## 1. Surface syntax
 
@@ -70,7 +70,7 @@ meaning.
 
 ## 7. Cross-language transport
 
-- Template interpolation expands strictly on the `.ploy` side; the host
+- Template interpolation expands strictly on the `.poly` side; the host
   language receives a normal already-formatted string and reuses every
   existing marshalling / NUL-terminated conversion path unchanged.
 - Raw and multiline literals make it ergonomic to embed SQL / JSON /

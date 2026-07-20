@@ -4,7 +4,7 @@
 // These tests exercise the full CompilationPipeline API (the same stages used
 // by the polyc binary) for realistic cross-language programs, and verify:
 //
-//   1. A minimal C++/Python cross-language .ploy program compiles successfully
+//   1. A minimal C++/Python cross-language .poly program compiles successfully
 //      through all pipeline stages (frontend → sema → marshal → bridge →
 //      backend → packaging).
 //   2. The bridge generation output contains the expected cross-language stubs.
@@ -34,13 +34,13 @@ using polyglot::frontends::Diagnostics;
 
 namespace {
 
-// Build a minimal pipeline config for an in-memory ploy source string.
+// Build a minimal pipeline config for an in-memory poly source string.
 // The output is set to compile-only (no real linking to disk).
 CompilationContext::Config MakeConfig(const std::string &source_text,
                                       const std::string &target_arch = "x86_64") {
     CompilationContext::Config cfg;
     cfg.source_text     = source_text;
-    cfg.source_language = "ploy";
+    cfg.source_language = "poly";
     cfg.source_label    = "<e2e_test>";
     cfg.target_arch     = target_arch;
     cfg.mode            = "compile";   // stop after backend, no file linking
@@ -69,13 +69,88 @@ bool RunThroughSema(const std::string &source, Diagnostics &out_diags) {
 
 } // namespace
 
+TEST_CASE("CompilationPipeline canonicalizes Poly aliases without rewriting other languages",
+          "[e2e][compile][poly][compat]") {
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"poly", "poly"}, {"Poly", "poly"}, {"POLY", "poly"},
+        {"ploy", "poly"}, {"Ploy", "poly"}, {"PLOY", "poly"},
+        {"Cpp", "Cpp"},   {"PYTHON", "PYTHON"},
+    };
+
+    for (const auto &[input, expected] : cases) {
+        INFO("source language: " << input);
+        auto cfg = MakeConfig("");
+        cfg.source_language = input;
+        CompilationPipeline pipeline(std::move(cfg));
+        CHECK(pipeline.GetContext().config.source_language == expected);
+    }
+}
+
+TEST_CASE("CompilationPipeline instruments legacy Poly input with canonical metadata",
+          "[e2e][compile][poly][compat][profiler]") {
+    auto cfg = MakeConfig("FUNC main() -> i32 { RETURN 0; }\n");
+    cfg.source_language = "Ploy";
+    cfg.profile_instrument = true;
+    CompilationPipeline pipeline(std::move(cfg));
+
+    REQUIRE(pipeline.RunFrontend());
+    REQUIRE(pipeline.RunSemantic());
+    REQUIRE(pipeline.RunMarshalPlan());
+    REQUIRE(pipeline.RunBridgeGeneration());
+    REQUIRE(pipeline.RunBackend());
+
+    const auto *backend = pipeline.GetBackendOutput();
+    REQUIRE(backend != nullptr);
+    REQUIRE(backend->ir_ctx != nullptr);
+
+    bool saw_enter = false;
+    bool saw_exit = false;
+    std::string language_global;
+    for (const auto &fn : backend->ir_ctx->Functions()) {
+        if (!fn) continue;
+        for (const auto &block : fn->blocks) {
+            if (!block) continue;
+            for (const auto &inst : block->instructions) {
+                const auto *call = dynamic_cast<const polyglot::ir::CallInstruction *>(inst.get());
+                if (!call) continue;
+                if (call->callee == "__ploy_rt_call_enter") {
+                    saw_enter = true;
+                    REQUIRE(call->operands.size() == 2);
+                    language_global = call->operands[1];
+                } else if (call->callee == "__ploy_rt_call_exit") {
+                    saw_exit = true;
+                }
+            }
+        }
+    }
+    REQUIRE(saw_enter);
+    REQUIRE(saw_exit);
+
+    bool found_language_literal = false;
+    for (const auto &global : backend->ir_ctx->Globals()) {
+        if (!global || global->name != language_global) continue;
+        const auto address =
+            std::dynamic_pointer_cast<polyglot::ir::ConstantGEP>(global->initializer);
+        REQUIRE(address != nullptr);
+        const auto data_global =
+            std::dynamic_pointer_cast<polyglot::ir::GlobalValue>(address->base);
+        REQUIRE(data_global != nullptr);
+        const auto literal = std::dynamic_pointer_cast<polyglot::ir::ConstantString>(
+            data_global->initializer);
+        REQUIRE(literal != nullptr);
+        CHECK(literal->data == "poly");
+        found_language_literal = true;
+    }
+    REQUIRE(found_language_literal);
+}
+
 // ============================================================================
 // 1. Minimal C++/Python cross-language example — frontend + sema must succeed
 // ============================================================================
 
 TEST_CASE("E2E compile: minimal C++/Python LINK compiles through sema",
           "[e2e][compile][cross-lang][cpp][python]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 // Minimal cross-language example: a C++ function called from Python-side code.
 LINK(cpp, python, math_utils::add, pymath::add) {
     MAP_TYPE(cpp::int, python::int);
@@ -86,7 +161,7 @@ FUNC use_add(a: INT, b: INT) -> INT {
     LET result = CALL(cpp, math_utils::add, a, b);
     RETURN result;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -120,7 +195,7 @@ FUNC use_add(a: INT, b: INT) -> INT {
 
 TEST_CASE("E2E compile: C++/Python cross-language marshal plan is generated",
           "[e2e][compile][cross-lang][cpp][python]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, image_proc::resize, cv::resize) {
     MAP_TYPE(cpp::int, python::int);
     MAP_TYPE(cpp::int, python::int);
@@ -132,7 +207,7 @@ FUNC process_image(w: INT, h: INT) -> INT {
     LET r = CALL(cpp, image_proc::resize, w, h);
     RETURN r;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -168,7 +243,7 @@ FUNC process_image(w: INT, h: INT) -> INT {
 
 TEST_CASE("E2E compile: bridge generation produces cross-language stubs",
           "[e2e][compile][cross-lang][bridge]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, net::send, socket::send) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -177,7 +252,7 @@ FUNC transmit(payload: INT) -> INT {
     LET status = CALL(cpp, net::send, payload);
     RETURN status;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -213,9 +288,9 @@ FUNC transmit(payload: INT) -> INT {
 // 4. Backend stage: machine code is emitted for the functions
 // ============================================================================
 
-TEST_CASE("E2E compile: backend stage emits machine code for ploy functions",
+TEST_CASE("E2E compile: backend stage emits machine code for poly functions",
           "[e2e][compile][backend]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC add(a: INT, b: INT) -> INT {
     RETURN a + b;
 }
@@ -229,7 +304,7 @@ FUNC multiply(x: INT, n: INT) -> INT {
     }
     RETURN result;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -280,7 +355,7 @@ TEST_CASE("E2E compile: full C++/Python cross-language example passes all stages
           "[e2e][compile][cross-lang][cpp][python][full]") {
     // A realistic minimal example: Python-side code calls a C++ matrix routine
     // and a C++ function calls back into Python for data loading.
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 CONFIG VENV python "venv";
 
 IMPORT python PACKAGE numpy >= 1.20 AS np;
@@ -307,7 +382,7 @@ FUNC load_data(path: STRING) -> INT {
 }
 
 EXPORT run_computation AS "polyglot_run_computation";
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -343,7 +418,7 @@ EXPORT run_computation AS "polyglot_run_computation";
 
 TEST_CASE("E2E compile: Python/Rust cross-language example passes sema",
           "[e2e][compile][cross-lang][python][rust]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 IMPORT rust PACKAGE serde >= 1.0;
 
 LINK(python, rust, model::serialize, serde::to_json) {
@@ -354,7 +429,7 @@ FUNC export_model(data: STRING) -> INT {
     LET json = CALL(python, model::serialize, data);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     Diagnostics out_diags;
     bool ok = RunThroughSema(kSource, out_diags);
@@ -368,13 +443,13 @@ FUNC export_model(data: STRING) -> INT {
 
 TEST_CASE("E2E compile: pipeline rejects CALL to undeclared cross-lang function",
           "[e2e][compile][failure]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC main() -> INT {
     // No LINK declaration for math::sqrt
     LET r = CALL(cpp, math::sqrt, 9.0);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -392,11 +467,11 @@ FUNC main() -> INT {
 
 TEST_CASE("E2E compile: pipeline rejects LINK with unsupported language",
           "[e2e][compile][failure]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(fortran, python, legacy::routine, py::run);
 
 FUNC main() -> INT { RETURN 0; }
-)ploy";
+)poly";
 
     Diagnostics out_diags;
     bool ok = RunThroughSema(kSource, out_diags);
@@ -410,7 +485,7 @@ FUNC main() -> INT { RETURN 0; }
 
 TEST_CASE("E2E compile: CALL with LINK MAP_TYPE accepts flexible arity",
           "[e2e][compile][param-count]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, vec::dot, np::dot) {
     MAP_TYPE(cpp::double, python::float);
     MAP_TYPE(cpp::double, python::float);
@@ -422,7 +497,7 @@ FUNC main() -> INT {
     LET r = CALL(cpp, vec::dot, 1.0);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -440,7 +515,7 @@ FUNC main() -> INT {
 
 TEST_CASE("E2E compile: NEW + METHOD C++/Python example compiles through backend",
           "[e2e][compile][cross-lang][class]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 IMPORT python PACKAGE sklearn;
 
 EXTEND(python, sklearn::BaseEstimator) AS MyEstimator {
@@ -457,7 +532,7 @@ FUNC train_and_predict() -> INT {
 }
 
 EXPORT train_and_predict AS "polyglot_train_predict";
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);
@@ -490,12 +565,12 @@ EXPORT train_and_predict AS "polyglot_train_predict";
 
 TEST_CASE("E2E compile: backend emits non-empty assembly text",
           "[e2e][compile][asm]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC factorial(n: INT, acc: INT) -> INT {
     IF n <= 1 { RETURN acc; }
     RETURN factorial(n - 1, n * acc);
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     cfg.emit_asm_path = "<memory>";   // signal backend to capture asm in memory
@@ -525,9 +600,9 @@ FUNC factorial(n: INT, acc: INT) -> INT {
 
 TEST_CASE("E2E compile: pipeline records timing for executed stages",
           "[e2e][compile][timing]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC f(x: INT) -> INT { RETURN x + 1; }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeConfig(kSource);
     CompilationPipeline pipeline(cfg);

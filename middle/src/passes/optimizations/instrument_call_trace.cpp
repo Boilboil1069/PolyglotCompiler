@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "middle/include/ir/cfg.h"
+#include "middle/include/ir/ir_builder.h"
 #include "middle/include/ir/nodes/statements.h"
 
 namespace polyglot::passes::transform {
@@ -47,6 +48,7 @@ MakeHookCall(const std::string &callee, const std::vector<std::string> &operands
 CallTraceInstrumentationStats RunInstrumentCallTrace(ir::IRContext &context,
                                                      const std::string &default_language) {
   CallTraceInstrumentationStats stats;
+  ir::IRBuilder string_literals(context);
   for (auto &fn_ptr : context.Functions()) {
     if (!fn_ptr) {
       continue;
@@ -68,12 +70,16 @@ CallTraceInstrumentationStats RunInstrumentCallTrace(ir::IRContext &context,
     }
 
     const std::string lang_tag = default_language;
+    const std::string function_name_ptr =
+        string_literals.MakeStringLiteral(fn.name, "profile.str.");
+    const std::string language_ptr =
+        string_literals.MakeStringLiteral(lang_tag, "profile.str.");
 
     // Insert the enter hook at the very top of the entry block so it
     // dominates every other instruction in the function.
     auto enter_call = MakeHookCall(
         kEnterHook,
-        {"@" + fn.name + ".__name__", "@" + lang_tag + ".__lang__"},
+        {function_name_ptr, language_ptr},
         fn.entry);
     fn.entry->instructions.insert(fn.entry->instructions.begin(), enter_call);
     ++stats.enter_calls_inserted;
@@ -89,7 +95,7 @@ CallTraceInstrumentationStats RunInstrumentCallTrace(ir::IRContext &context,
       if (dynamic_cast<ir::ReturnStatement *>(bb->terminator.get()) == nullptr) {
         continue;
       }
-      auto exit_call = MakeHookCall(kExitHook, {"@" + fn.name + ".__name__"}, bb.get());
+      auto exit_call = MakeHookCall(kExitHook, {function_name_ptr}, bb.get());
       bb->instructions.push_back(exit_call);
       ++stats.exit_calls_inserted;
     }

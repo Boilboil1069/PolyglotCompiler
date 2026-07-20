@@ -17,8 +17,8 @@ TEST_CASE("ParseLaunchJson reads the VS Code envelope", "[polyui][launch]") {
   std::string text = R"({
     "version": "0.2.0",
     "configurations": [
-      {"name": "run", "type": "ploy", "request": "launch",
-       "program": "${workspaceFolder}/main.ploy",
+      {"name": "run", "type": "poly", "request": "launch",
+       "program": "${workspaceFolder}/main.poly",
        "args": ["--flag", "1"], "env": {"K": "V"}},
       {"name": "attach", "type": "lldb", "request": "attach",
        "program": "/usr/bin/foo"}
@@ -27,7 +27,7 @@ TEST_CASE("ParseLaunchJson reads the VS Code envelope", "[polyui][launch]") {
   auto cfgs = ParseLaunchJson(text);
   REQUIRE(cfgs.size() == 2);
   CHECK(cfgs[0].name == "run");
-  CHECK(cfgs[0].type == "ploy");
+  CHECK(cfgs[0].type == "poly");
   CHECK(cfgs[0].request == LaunchRequest::kLaunch);
   REQUIRE(cfgs[0].args.size() == 2);
   CHECK(cfgs[0].args[0] == "--flag");
@@ -37,15 +37,26 @@ TEST_CASE("ParseLaunchJson reads the VS Code envelope", "[polyui][launch]") {
 
 TEST_CASE("ParseLaunchJson tolerates a bare array", "[polyui][launch]") {
   auto cfgs = ParseLaunchJson(R"([
-    {"name": "x", "type": "ploy"}
+    {"name": "x", "type": "poly"}
   ])");
   REQUIRE(cfgs.size() == 1);
   CHECK(cfgs[0].name == "x");
 }
 
+TEST_CASE("ParseLaunchJson normalizes the legacy Poly adapter type",
+          "[polyui][launch][compat]") {
+  auto cfgs = ParseLaunchJson(R"([
+    {"name": "legacy", "type": "PloY", "program": "main.ploy"}
+  ])");
+  REQUIRE(cfgs.size() == 1);
+  CHECK(cfgs[0].type == "poly");
+  CHECK(cfgs[0].extra["type"] == "poly");
+  CHECK(cfgs[0].program == "main.ploy");
+}
+
 TEST_CASE("ParseLaunchJson skips invalid entries", "[polyui][launch]") {
   auto cfgs = ParseLaunchJson(R"([
-    {"name": "ok", "type": "ploy"},
+    {"name": "ok", "type": "poly"},
     {"name": "no-type"},
     {"type": "no-name"}
   ])");
@@ -56,15 +67,15 @@ TEST_CASE("ParseLaunchJson skips invalid entries", "[polyui][launch]") {
 TEST_CASE("Substitute resolves built-in variables", "[polyui][launch]") {
   SubstitutionContext ctx;
   ctx.workspace_folder = "/repo";
-  ctx.file = "/repo/main.ploy";
-  ctx.file_basename = "main.ploy";
+  ctx.file = "/repo/main.poly";
+  ctx.file_basename = "main.poly";
   ctx.env["TOKEN"] = "abc";
   ctx.command_resolver = [](const std::string &n) {
     return n == "pickPort" ? "5555" : "";
   };
   CHECK(Substitute("${workspaceFolder}/x", ctx) == "/repo/x");
-  CHECK(Substitute("${file}", ctx) == "/repo/main.ploy");
-  CHECK(Substitute("${fileBasename}", ctx) == "main.ploy");
+  CHECK(Substitute("${file}", ctx) == "/repo/main.poly");
+  CHECK(Substitute("${fileBasename}", ctx) == "main.poly");
   CHECK(Substitute("${env:TOKEN}", ctx) == "abc");
   CHECK(Substitute("${command:pickPort}", ctx) == "5555");
   // Unknown variable preserved verbatim.
@@ -78,7 +89,7 @@ TEST_CASE("DefaultLaunchConfigurations covers the promised types",
   bool has_ploy = false, has_python = false, has_cpp = false, has_rust = false,
        has_java = false, has_dotnet = false;
   for (const auto &c : cfgs) {
-    if (c.type == "ploy") has_ploy = true;
+    if (c.type == "poly") has_ploy = true;
     if (c.type == "python") has_python = true;
     if (c.type == "lldb" || c.type == "gdb") has_cpp = true;
     if (c.type == "codelldb") has_rust = true;

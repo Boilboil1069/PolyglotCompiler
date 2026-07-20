@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C#, Python |
 | 关键字   | NEW, METHOD (.NET) |
-| 入口文件 | `dotnet_interop.ploy` |
+| 入口文件 | `dotnet_interop.poly` |
 
 ## 编译
 
 ```powershell
-polyc 12_dotnet_interop\dotnet_interop.ploy --emit-obj=dotnet_interop.pobj --obj-format=pobj
+polyc 12_dotnet_interop\dotnet_interop.poly --emit-obj=dotnet_interop.pobj --obj-format=pobj
 polyld dotnet_interop.pobj -o dotnet_interop.exe
 ```
 

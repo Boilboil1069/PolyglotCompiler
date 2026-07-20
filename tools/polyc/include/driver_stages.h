@@ -57,7 +57,7 @@ struct DriverSettings {
   // Source
   std::string source{};      // source text (may be read from file)
   std::string source_path{}; // original file path (empty if inline)
-  std::string language{"ploy"};
+  std::string language{"poly"};
   bool language_explicit{false};
 
   // Target - default architecture matches the host
@@ -235,7 +235,7 @@ struct ObjSymbol {
 // ============================================================================
 // Stage 1 - FrontendResult
 // Produced by: RunFrontendStage()
-// Contains: preprocessed source, tokens, AST (for .ploy); raw IR for others
+// Contains: preprocessed source, tokens, AST (for .poly); raw IR for others
 // ============================================================================
 
 /** @brief FrontendResult data structure. */
@@ -245,12 +245,12 @@ struct FrontendResult {
   std::string source_label;     // diagnostic label (filename or "<cli>")
   std::string processed_source; // preprocessed text
 
-  // .ploy-specific (null for non-ploy languages)
+  // .poly-specific (null for non-poly languages)
   std::shared_ptr<ploy::Module> ast;
   std::vector<frontends::Token> tokens;
 
-  // Non-ploy: IR is produced directly in the frontend stage
-  std::shared_ptr<ir::IRContext> ir_ctx; // non-ploy result; null for .ploy
+  // Non-poly: IR is produced directly in the frontend stage
+  std::shared_ptr<ir::IRContext> ir_ctx; // non-poly result; null for .poly
 
   // Aux artefacts
   std::string token_dump; // raw token listing for aux file

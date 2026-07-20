@@ -1,8 +1,8 @@
 /**
  * @file     lowering.cpp
- * @brief    Ploy language frontend implementation
+ * @brief    Poly language frontend implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
@@ -17,6 +17,15 @@
 namespace polyglot::ploy {
 namespace {
 
+std::string AbiLanguageToken(const std::string &language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return (folded == "poly" || folded == "ploy") ? "ploy" : language;
+}
+
 // Mangle a cross-language stub name. Without a pinned version the name is
 //   __ploy_bridge_<target_lang>_<source_lang>_<symbol>
 // When the call carries a `LANG <lang> = <version>;` pin (or is inside a
@@ -28,7 +37,8 @@ namespace {
 // older descriptors that predate version-aware ABI routing (Phase 2 Track C).
 std::string MangleStubName(const std::string &target_lang, const std::string &source_lang,
                            const std::string &symbol, const std::string &lang_version = "") {
-  std::string mangled = "__ploy_bridge_" + target_lang + "_" + source_lang + "_";
+  std::string mangled = "__ploy_bridge_" + AbiLanguageToken(target_lang) + "_" +
+                        AbiLanguageToken(source_lang) + "_";
   if (!lang_version.empty()) {
     mangled += "v";
     for (char c : lang_version) {
@@ -101,7 +111,7 @@ bool IsTopLevelExecutable(const std::shared_ptr<Statement> &stmt) {
 
 // True iff the user already provided a function with a name we recognise as
 // an entry point. We treat `main` and `__ploy_main` as the two canonical
-// spellings; the latter exists so a hand-written .ploy that wants to spell
+// spellings; the latter exists so a hand-written .poly that wants to spell
 // out the synthetic wrapper itself is still respected.
 bool ModuleDefinesEntryPoint(const std::shared_ptr<Module> &module) {
   for (const auto &decl : module->declarations) {
@@ -323,7 +333,7 @@ void PloyLowering::LowerImportDecl(const std::shared_ptr<ImportDecl> &import) {
   // Generate an external symbol reference so the linker can resolve it.
   std::string module_sym = "__ploy_module_";
   if (!import->language.empty()) {
-    module_sym += import->language + "_";
+    module_sym += AbiLanguageToken(import->language) + "_";
   }
   module_sym += import->module_path;
   for (char &c : module_sym) {
@@ -782,7 +792,7 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
   // `match.body.N`; control falls through to the next `try` on a miss
   // and joins at `match.merge` on success.  Pattern-introduced bindings
   // are materialised before the body block by reusing the scrutinee SSA
-  // value (no copy needed since `.ploy` is immutable-by-default).
+  // value (no copy needed since `.poly` is immutable-by-default).
 
   // Helper that lowers a pattern into an i1 predicate against `match_val`.
   // Returns the SSA name of the predicate.  Bindings are recorded into
@@ -860,7 +870,7 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
       // OPTION lowering: Some / None compare against a sentinel `0` for
       // None and `1` for Some.  When `Some(sub)` is used, bindings from
       // the inner pattern are derived from the scrutinee (the boxed
-      // payload representation is opaque to ploy at this stage).
+      // payload representation is opaque to poly at this stage).
       if (ctor->name == "None") {
         auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpEq,
                                        match_val.value, "0", "match.is_none");
@@ -1011,7 +1021,7 @@ void PloyLowering::LowerReturnStatement(const std::shared_ptr<ReturnStatement> &
 // produce a single, unambiguous zero-length WriteFile call downstream.
 namespace {
 
-// Decode the small, fixed set of backslash escapes that .ploy promises to
+// Decode the small, fixed set of backslash escapes that .poly promises to
 // support today (\n, \r, \t, \\, \", \0, plus `\xHH` two-digit hex). Any
 // unrecognised escape after a backslash is preserved verbatim so the IR
 // dump still resembles the source — the alternative (silently dropping
@@ -1625,8 +1635,8 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
       stub_name = MangleStubName(link_match->target_language, link_match->source_language,
                                  link_match->target_symbol, call->lang_version_pin);
     } else {
-      // No matching LINK entry — fall back to ploy→<language> naming.
-      stub_name = MangleStubName("ploy", call->language, call->function, call->lang_version_pin);
+      // No matching LINK entry — fall back to poly→<language> naming.
+      stub_name = MangleStubName("poly", call->language, call->function, call->lang_version_pin);
     }
   }
 
@@ -1663,7 +1673,7 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
   CrossLangCallDescriptor desc;
   desc.stub_name = stub_name;
   desc.source_language = call->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = call->function;
   desc.target_function = stub_name;
   desc.source_param_types = arg_types;
@@ -1703,7 +1713,7 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
 
   // Generate the stub name for the constructor call
   std::string stub_name =
-      MangleStubName("ploy", new_expr->language, new_expr->class_name + "::__init__",
+      MangleStubName("poly", new_expr->language, new_expr->class_name + "::__init__",
                      new_expr->lang_version_pin);
 
   // Resolve the object type from sema - the sema now performs full type
@@ -1736,7 +1746,7 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
   CrossLangCallDescriptor desc;
   desc.stub_name = stub_name;
   desc.source_language = new_expr->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = new_expr->class_name + "::__init__";
   desc.target_function = stub_name;
   desc.source_return_type = obj_type;
@@ -1792,7 +1802,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   }
 
   // Generate the stub name for the method call
-  std::string stub_name = MangleStubName("ploy", method_call->language, method_call->method_name,
+  std::string stub_name = MangleStubName("poly", method_call->language, method_call->method_name,
                                          method_call->lang_version_pin);
 
   // Resolve return type from sema known signatures.  Try the method name
@@ -1813,7 +1823,7 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   CrossLangCallDescriptor desc;
   desc.stub_name = stub_name;
   desc.source_language = method_call->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = method_call->method_name;
   desc.target_function = stub_name;
   desc.source_return_type = method_ret_type;
@@ -1868,7 +1878,7 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
 
   // Generate the stub name for the getattr call
   std::string stub_name =
-      MangleStubName("ploy", get_attr->language, "__getattr__" + get_attr->attr_name,
+      MangleStubName("poly", get_attr->language, "__getattr__" + get_attr->attr_name,
                      get_attr->lang_version_pin);
 
   // Attribute access returns an opaque pointer by default - the exact
@@ -1880,7 +1890,7 @@ PloyLowering::EvalResult PloyLowering::LowerGetAttrExpression(
   CrossLangCallDescriptor desc;
   desc.stub_name = stub_name;
   desc.source_language = get_attr->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = "__getattr__::" + get_attr->attr_name;
   desc.target_function = stub_name;
   desc.source_param_types = arg_types;
@@ -1960,14 +1970,14 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 
   // Generate the stub name for the setattr call
   std::string stub_name =
-      MangleStubName("ploy", set_attr->language, "__setattr__" + set_attr->attr_name,
+      MangleStubName("poly", set_attr->language, "__setattr__" + set_attr->attr_name,
                      set_attr->lang_version_pin);
 
   // Record the cross-language call descriptor
   CrossLangCallDescriptor desc;
   desc.stub_name = stub_name;
   desc.source_language = set_attr->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = "__setattr__::" + set_attr->attr_name;
   desc.target_function = stub_name;
   desc.source_param_types = arg_types;
@@ -2019,7 +2029,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   EvalResult resource = LowerExpression(with_stmt->resource_expr);
 
   // Step 2: Call __enter__ on the resource
-  std::string enter_stub = MangleStubName("ploy", with_stmt->language, "__enter__",
+  std::string enter_stub = MangleStubName("poly", with_stmt->language, "__enter__",
                                           with_stmt->lang_version_pin);
   std::vector<std::string> enter_args = {resource.value};
 
@@ -2043,7 +2053,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   CrossLangCallDescriptor enter_desc;
   enter_desc.stub_name = enter_stub;
   enter_desc.source_language = with_stmt->language;
-  enter_desc.target_language = "ploy";
+  enter_desc.target_language = "poly";
   enter_desc.source_function = "__enter__";
   enter_desc.target_function = enter_stub;
   enter_desc.source_param_types = {resource.type};
@@ -2067,7 +2077,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   LowerBlockStatements(with_stmt->body);
 
   // Step 5: Call __exit__ on the resource
-  std::string exit_stub = MangleStubName("ploy", with_stmt->language, "__exit__",
+  std::string exit_stub = MangleStubName("poly", with_stmt->language, "__exit__",
                                          with_stmt->lang_version_pin);
   std::vector<std::string> exit_args = {resource.value};
   builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
@@ -2076,7 +2086,7 @@ void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with
   CrossLangCallDescriptor exit_desc;
   exit_desc.stub_name = exit_stub;
   exit_desc.source_language = with_stmt->language;
-  exit_desc.target_language = "ploy";
+  exit_desc.target_language = "poly";
   exit_desc.source_function = "__exit__";
   exit_desc.target_function = exit_stub;
   exit_desc.source_param_types = {resource.type};
@@ -2657,7 +2667,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
     return ir::IRType::I64(true);
 
   if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
-    // Support both upper-case Ploy keywords and lower-case C-style aliases
+    // Support both upper-case Poly keywords and lower-case C-style aliases
     if (st->name == "INT" || st->name == "i32" || st->name == "i64" || st->name == "int" ||
         st->name == "int32" || st->name == "int64")
       return ir::IRType::I64(true);
@@ -2682,7 +2692,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
     // Unknown type name - log a diagnostic and fall back to I64
     diagnostics_.ReportWarning(core::SourceLoc{}, frontends::ErrorCode::kGenericWarning,
                                "unknown type '" + st->name +
-                                   "' in PloyTypeToIR; falling back to i64");
+                                   "' in Poly type lowering; falling back to i64");
     return ir::IRType::I64(true);
   }
 
@@ -2720,7 +2730,7 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
   }
 
   diagnostics_.ReportWarning(core::SourceLoc{}, frontends::ErrorCode::kGenericWarning,
-                             "unrecognized type node in PloyTypeToIR; falling back to i64");
+                             "unrecognized type node in Poly type lowering; falling back to i64");
   return ir::IRType::I64(true);
 }
 
@@ -2838,7 +2848,7 @@ PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
   } else if (lang == "dotnet" || lang == "csharp") {
     delete_func = "__ploy_dotnet_dispose";
   } else {
-    delete_func = "__ploy_delete_" + lang;
+    delete_func = "__ploy_delete_" + AbiLanguageToken(lang);
   }
 
   // Emit the call to the language-specific cleanup function
@@ -2848,7 +2858,7 @@ PloyLowering::EvalResult PloyLowering::LowerDeleteExpression(
   CrossLangCallDescriptor desc;
   desc.stub_name = delete_func;
   desc.source_language = lang;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = delete_func;
   desc.target_function = delete_func;
   desc.source_param_types = {obj.type};
@@ -2942,7 +2952,7 @@ void PloyLowering::LowerExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
   CrossLangCallDescriptor desc;
   desc.stub_name = reg_func;
   desc.source_language = extend->language;
-  desc.target_language = "ploy";
+  desc.target_language = "poly";
   desc.source_function = reg_func;
   desc.target_function = reg_func;
   desc.source_return_type = ir::IRType::Void();

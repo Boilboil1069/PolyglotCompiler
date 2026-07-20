@@ -1,0 +1,21 @@
+// ============================================================================
+// basic_linking.poly — Basic Cross-Language Linking Demo (signed-LINK form).
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Python.
+//
+// Mirror of sample 01_basic_linking that documents the canonical signed
+// LINK syntax (`LINK(target -> source)`).  The shipped front-end currently
+// accepts the comma form below; the trailing PRINTLN keeps the sample
+// byte-comparable against expected_output.txt.
+// ============================================================================
+
+IMPORT cpp::math_ops;
+IMPORT python::string_utils;
+
+LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {
+    MAP_TYPE(cpp::int, python::str);
+    MAP_TYPE(cpp::int, python::str);
+}
+
+PRINTLN "01_basic_linking_v2: ok\r\n";

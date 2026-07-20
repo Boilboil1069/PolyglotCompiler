@@ -8,7 +8,7 @@
 ## Table of Contents
 
 1. [Supported Source Languages](#1-supported-source-languages)
-2. [.ploy Language Specification](#2-ploy-language-specification)
+2. [.poly Language Specification](#2-poly-language-specification)
 3. [Unified IR Specification](#3-unified-ir-specification)
 4. [Cross-Language Calling Convention](#4-cross-language-calling-convention)
 5. [Type Marshalling Rules](#5-type-marshalling-rules)
@@ -27,7 +27,7 @@
 | Rust | `frontend_rust` | `.rs` | 2018/2021 edition | �?|
 | Java | `frontend_java` | `.java` | 8, 17, 21, 23 | �?|
 | C# (.NET) | `frontend_dotnet` | `.cs`, `.vb` | .NET 6, 7, 8, 9 | �?|
-| .ploy | `frontend_ploy` | `.ploy` | 1.0 | �?|
+| .poly | `frontend_ploy` | `.poly` | 1.0 | �?|
 
 ## 1.2 Detection Rules
 
@@ -40,21 +40,21 @@ The `polyc` driver automatically detects the source language by file extension:
 | `.rs` | Rust |
 | `.java` | Java |
 | `.cs`, `.vb` | C# (.NET) |
-| `.ploy` | .ploy |
+| `.poly` | .poly |
 
 Manual override: `polyc --lang=<language> input_file`
 
 ---
 
-# 2. .ploy Language Specification
+# 2. .poly Language Specification
 
 ## 2.1 Overview
 
-`.ploy` is a domain-specific language for expressing cross-language function-level linking, object-oriented interop, type mapping, and pipeline orchestration between heterogeneous source languages.
+`.poly` is a domain-specific language for expressing cross-language function-level linking, object-oriented interop, type mapping, and pipeline orchestration between heterogeneous source languages.
 
 ## 2.2 Keywords (57 total — case-insensitive)
 
-Since `Ploy 1.5.2`, all reserved words are recognised **case-insensitively**.
+Since `Poly 1.5.2`, all reserved words are recognised **case-insensitively**.
 The lexer normalises every keyword to its canonical UPPER-case spelling
 before passing it to the parser, while the original source spelling is
 retained on the token (`Token::raw_lexeme`) so that diagnostics and
@@ -81,14 +81,14 @@ ERROR       ASYNC       AWAIT       WHERE       PUB
 PRIVATE
 ```
 
-`*` `RETURNS` is **deprecated** since `Ploy 1.5.2`.  The legacy
+`*` `RETURNS` is **deprecated** since `Poly 1.5.2`.  The legacy
 `LINK(...) RETURNS Type { ... }` syntax is still parsed and still produces
 the same AST, but the parser emits a `kDeprecatedKeyword` warning that
 echoes the user's source spelling.  New code should declare the return
 type via the canonical `-> Type` arrow on the LINK signature instead.
 
 > **Casing recommendation.**  All examples in this document use UPPER-case
-> for keywords purely for legibility.  New `.ploy` programs are encouraged
+> for keywords purely for legibility.  New `.poly` programs are encouraged
 > to follow the canonical lower-case convention common to general-purpose
 > programming languages �?`link`, `func`, `var`, `return`, `if`, `else` �?
 > which the lexer accepts identically.  Mixed-case spellings such as
@@ -102,7 +102,7 @@ type via the canonical `-> Type` arrow on the LINK signature instead.
 
 ### String Literals (since v1.17.0)
 
-Ploy recognises four string-literal forms.  All four flow through the
+Poly recognises four string-literal forms.  All four flow through the
 same `kString` token type and lower to a NUL-free `(ptr, len)` pair via
 the existing `polyrt_println`-style interning path.
 
@@ -128,25 +128,25 @@ variable interpolation is recorded as a follow-up item; see
 
 ### LINK �?Cross-Language Function Linking
 
-```ploy
+```poly
 LINK <target_lang>::<module>::<function> AS FUNC(<param_types>) -> <return_type>;
 ```
 
 **Example**:
-```ploy
+```poly
 LINK cpp::math::add AS FUNC(INT, INT) -> INT;
 LINK python::utils::format_string AS FUNC(STRING) -> STRING;
 ```
 
 ### IMPORT �?Module Import
 
-```ploy
+```poly
 IMPORT <language> MODULE <module_path>;
 ```
 
 ### IMPORT PACKAGE �?Package Import with Version Constraints
 
-```ploy
+```poly
 IMPORT <language> PACKAGE <package_name>;
 IMPORT <language> PACKAGE <package_name> >= <version>;
 IMPORT <language> PACKAGE <package_name>::(<symbol1>, <symbol2>) >= <version>;
@@ -156,22 +156,22 @@ IMPORT <language> PACKAGE <package_name>::(<symbol1>, <symbol2>) >= <version>;
 
 ### EXPORT �?Symbol Export
 
-```ploy
+```poly
 EXPORT <symbol_name>;
 EXPORT <symbol_name> AS <alias>;
 ```
 
 ### MAP_TYPE �?Cross-Language Type Mapping
 
-```ploy
-MAP_TYPE <ploy_type> = <lang>::<type_name>;
+```poly
+MAP_TYPE <poly_type> = <lang>::<type_name>;
 ```
 
 ### CONFIG �?Package Manager Configuration
 
 Canonical stringified form (since v1.12.0):
 
-```ploy
+```poly
 CONFIG <language> "<package_manager>" "<path_or_env>";
 
 // Examples
@@ -190,7 +190,7 @@ CONFIG go       "gomod"   "./go.mod";
 
 Legacy keyword form (deprecated, still parsed for source compatibility):
 
-```ploy
+```poly
 CONFIG VENV "<path>";
 CONFIG CONDA "<environment_name>";
 CONFIG UV "<project_path>";
@@ -206,7 +206,7 @@ required.
 
 ## 2.4 Functions
 
-```ploy
+```poly
 FUNC <name>(<param>: <type>, ...) -> <return_type> {
     <body>
 }
@@ -214,14 +214,14 @@ FUNC <name>(<param>: <type>, ...) -> <return_type> {
 
 ## 2.5 Variables
 
-```ploy
+```poly
 LET <name>: <type> = <expression>;   // Immutable
 VAR <name>: <type> = <expression>;   // Mutable
 ```
 
-### TYPE — Type Aliases (since Ploy 1.7.0)
+### TYPE — Type Aliases (since Poly 1.7.0)
 
-```ploy
+```poly
 TYPE <alias_name> = <type_expression>;
 ```
 
@@ -230,27 +230,27 @@ type expression.  Aliases participate in name lookup the same way struct
 declarations do; redefining or shadowing a primitive keyword is rejected
 with `kRedefinedSymbol`.  Examples:
 
-```ploy
+```poly
 TYPE Pixel        = i32;           // width-aware integer
 TYPE ChannelCount = u32;
 TYPE PixelBuffer  = LIST(Pixel);   // alias propagates into generics
 ```
 
-### CONST — Compile-time Constants (since Ploy 1.7.0)
+### CONST — Compile-time Constants (since Poly 1.7.0)
 
-```ploy
+```poly
 CONST <name>: <type> = <expression>;
 ```
 
 `CONST` declarations require an explicit type annotation; the initializer
-is folded by the ploy semantic analyser, which supports literals,
+is folded by the poly semantic analyser, which supports literals,
 references to previously declared `CONST`s, unary `-` / `!` / `NOT`, and
 the binary arithmetic, comparison, and logical operators.  Width-mismatch
 between the declared type and the folded value emits a warning.  The
 folded constant is registered as an immutable variable so the rest of
 the pipeline can consume it via the standard symbol-table lookup path.
 
-```ploy
+```poly
 CONST KMaxRetry: i32 = 5;
 CONST KAlias:    i32 = KMaxRetry;   // CONST referencing CONST
 CONST KArea:     i64 = 10 * 20;     // folded by sema
@@ -260,7 +260,7 @@ CONST KArea:     i64 = 10 * 20;     // folded by sema
 
 ### Conditional
 
-```ploy
+```poly
 IF (<condition>) { <body> }
 ELSE IF (<condition>) { <body> }
 ELSE { <body> }
@@ -268,14 +268,14 @@ ELSE { <body> }
 
 ### Loops
 
-```ploy
+```poly
 WHILE (<condition>) { <body> }
 FOR (<var> IN <iterable>) { <body> }
 ```
 
 ### Pattern Matching
 
-```ploy
+```poly
 MATCH (<expression>) {
     CASE <pattern> => { <body> }
     DEFAULT => { <body> }
@@ -284,10 +284,10 @@ MATCH (<expression>) {
 
 ### Error Handling
 
-Since `Ploy 1.13.0`, structured exception handling is available via
+Since `Poly 1.13.0`, structured exception handling is available via
 the `TRY` / `CATCH` / `FINALLY` / `THROW` constructs:
 
-```ploy
+```poly
 TRY {
     <protected_body>
 }
@@ -312,10 +312,10 @@ runtime bridge maps host-language exceptions (Python `Exception`, C++
 
 ### Async / Await
 
-Since `Ploy 1.14.0`, cooperative asynchronous functions are available
+Since `Poly 1.14.0`, cooperative asynchronous functions are available
 via the `ASYNC` / `AWAIT` constructs:
 
-```ploy
+```poly
 ASYNC FUNC fetch() -> i32 {
     LET v = AWAIT load_value();
     RETURN v;
@@ -334,10 +334,10 @@ handles; see `docs/realization/async_model.md` for the model.
 
 ### Generics
 
-Since `Ploy 1.15.0`, `FUNC` and `STRUCT` declarations may carry a
+Since `Poly 1.15.0`, `FUNC` and `STRUCT` declarations may carry a
 generic type parameter list with optional trait bounds:
 
-```ploy
+```poly
 FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
 STRUCT Pair<A, B> { first: A, second: B }
 FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
@@ -354,10 +354,10 @@ monomorphisation is documented as follow-up work.  See
 
 ### Visibility and Attributes
 
-Since `Ploy 1.16.0`, top-level `FUNC`, `ASYNC FUNC`, and `STRUCT`
+Since `Poly 1.16.0`, top-level `FUNC`, `ASYNC FUNC`, and `STRUCT`
 declarations may carry an attribute / visibility prefix:
 
-```ploy
+```poly
 @inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
 PRIVATE STRUCT Internal { x: i32 }
 ```
@@ -378,26 +378,26 @@ attributes are accepted with a sema warning.  See
 
 ### Object Creation
 
-```ploy
+```poly
 LET obj = NEW(<language>, <class_path>, <args...>);
 ```
 
 ### Method Invocation
 
-```ploy
+```poly
 LET result = METHOD(<language>, <object>, <method_name>, <args...>);
 ```
 
 ### Property Access
 
-```ploy
+```poly
 LET value = GET(<language>, <object>, <property>);
 SET(<language>, <object>, <property>, <value>);
 ```
 
 ### Resource Management
 
-```ploy
+```poly
 WITH (<language>, <object>) {
     // Object is automatically closed/disposed at block exit
 }
@@ -405,13 +405,13 @@ WITH (<language>, <object>) {
 
 ### Object Destruction
 
-```ploy
+```poly
 DELETE(<language>, <object>);
 ```
 
 ### Class Extension
 
-```ploy
+```poly
 EXTEND(<language>, <base_class>) {
     // Define additional behavior
 }
@@ -419,7 +419,7 @@ EXTEND(<language>, <base_class>) {
 
 ## 2.8 Pipeline
 
-```ploy
+```poly
 PIPELINE <name> {
     STAGE <stage_name> = CALL(<language>, <function>, <args...>);
     STAGE <stage_name> = CALL(<language>, <function>, <prev_stage>);
@@ -430,7 +430,7 @@ PIPELINE <name> {
 
 ### Primitive Types
 
-Since `Ploy 1.7.0` (demand 2026-04-28-7) the primitive set is widened with
+Since `Poly 1.7.0` (demand 2026-04-28-7) the primitive set is widened with
 explicit-width signed/unsigned integer and floating-point keywords.  The
 legacy spellings continue to work and now resolve as aliases:
 
@@ -442,7 +442,7 @@ expression to an `i32` slot) emit a `kTypeMismatch`-class **warning**;
 diagnostics that touch a user `TYPE` alias render the underlying
 primitive too, e.g. `Pixel (alias of i32)`.
 
-| .ploy keyword                  | Underlying `core::Type`        | Width | Sign     |
+| .poly keyword                  | Underlying `core::Type`        | Width | Sign     |
 | ------------------------------ | ------------------------------ | ----- | -------- |
 | `i8` / `i16` / `i32` / `i64`   | `Int(N, true)`                 | 8 / 16 / 32 / 64 | signed   |
 | `u8` / `u16` / `u32` / `u64`   | `Int(N, false)`                | 8 / 16 / 32 / 64 | unsigned |
@@ -451,7 +451,7 @@ primitive too, e.g. `Pixel (alias of i32)`.
 | `INT` (legacy alias of `i64`)  | `Int(64, true)`                | 64    | signed   |
 | `FLOAT` (legacy alias of `f64`)| `Float(64)`                    | 64    | n/a      |
 
-| .ploy Type | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
+| .poly Type | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
 |-----------|-----|--------|------|------|-----|------|-----------|------|
 | `INT`     | `int`         | `int`   | `i32`     | `int`     | `int`    | `int`     | `number`        | `Integer` |
 | `FLOAT`   | `double`      | `float` | `f64`     | `double`  | `double` | `float64` | `number`        | `Float`   |
@@ -461,7 +461,7 @@ primitive too, e.g. `Pixel (alias of i32)`.
 
 ### Container Types
 
-| .ploy Type | C++ | Python | Rust | Go | JavaScript | Ruby |
+| .poly Type | C++ | Python | Rust | Go | JavaScript | Ruby |
 |------------|-----|--------|------|------|-----------|------|
 | `LIST<T>`        | `std::vector<T>`           | `list[T]`     | `Vec<T>`        | `[]T`            | `Array`         | `Array`     |
 | `TUPLE<T...>`    | `std::tuple<T...>`         | `tuple`       | `(T...)`        | `struct{...}`    | (positional Array) | `Array`  |
@@ -483,7 +483,7 @@ primitive too, e.g. `Pixel (alias of i32)`.
 `IF` / `WHILE` / `FOR` accept an optional set of outer parens around
 the head, so the following pairs parse identically:
 
-```ploy
+```poly
 IF cond { … }            IF (cond) { … }
 WHILE cond { … }         WHILE (cond) { … }
 FOR i IN xs { … }        FOR (i IN xs) { … }
@@ -491,7 +491,7 @@ FOR i IN xs { … }        FOR (i IN xs) { … }
 
 ### `IF LET` `OPTION<T>` destructuring (since v1.18.0)
 
-```ploy
+```poly
 IF LET Some(x) = opt { use(x); } ELSE { fallback(); }
 IF LET None    = opt { … }
 ```
@@ -502,7 +502,7 @@ type argument of the `OPTION`).
 
 ### Postfix `?` short-circuit unwrap (since v1.19.0)
 
-```ploy
+```poly
 FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
     LET v = opt?;        // returns None early when `opt` is None
     RETURN Some(v + 1);
@@ -553,7 +553,7 @@ Lines accumulate and attach to the immediately following `FUNC` /
 | Assignment | `=` |
 | Member Access | `.`, `::` |
 
-> **Logical operator aliases (Ploy 1.5.2+).**  The keyword forms `AND`,
+> **Logical operator aliases (Poly 1.5.2+).**  The keyword forms `AND`,
 > `OR`, `NOT` are accepted as exact aliases of the symbolic `&&`, `||`,
 > `!` operators and produce identical AST nodes.  Both forms are
 > permanent, but the symbolic spellings are preferred for new code so
@@ -564,7 +564,7 @@ Lines accumulate and attach to the immediately following `FUNC` /
 
 All statements are terminated with a semicolon (`;`).
 
-## 2.12 PRINTLN — Standard-Output Statement (since `Ploy 1.5.3`)
+## 2.12 PRINTLN — Standard-Output Statement (since `Poly 1.5.3`)
 
 ```
 PRINTLN STRING_LITERAL ';'
@@ -588,7 +588,7 @@ Semantics:
 - Empty literals (`PRINTLN "";`) are legal and emit zero bytes.
 
 The `PRINTLN` keyword obeys the same case-insensitive rule as every other
-Ploy keyword (`println`, `Println`, `PRINTLN` are equivalent).
+Poly keyword (`println`, `Println`, `PRINTLN` are equivalent).
 
 ---
 
@@ -718,11 +718,11 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 | Source �?Target | Convention | Bridge |
 |----------------|------------|--------|
-| .ploy �?C++ | cdecl | Direct FFI |
-| .ploy �?Python | CPython C API | `__ploy_python_*` runtime |
-| .ploy �?Rust | Rust ABI (extern "C") | Direct FFI |
-| .ploy �?Java | JNI | `__ploy_java_*` runtime |
-| .ploy �?.NET | CoreCLR Hosting | `__ploy_dotnet_*` runtime |
+| .poly �?C++ | cdecl | Direct FFI |
+| .poly �?Python | CPython C API | `__ploy_python_*` runtime |
+| .poly �?Rust | Rust ABI (extern "C") | Direct FFI |
+| .poly �?Java | JNI | `__ploy_java_*` runtime |
+| .poly �?.NET | CoreCLR Hosting | `__ploy_dotnet_*` runtime |
 
 ## 4.3 Runtime Bridge Functions
 
@@ -741,14 +741,14 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 ## 5.1 Primitive Marshalling
 
-| .ploy �?C++ | Rule |
+| .poly �?C++ | Rule |
 |-------------|------|
 | `INT` �?`int` | Direct (same ABI representation) |
 | `FLOAT` �?`double` | Direct |
 | `STRING` �?`std::string` | Copy string data |
 | `BOOL` �?`bool` | Direct (i1 �?i8) |
 
-| .ploy �?Python | Rule |
+| .poly �?Python | Rule |
 |----------------|------|
 | `INT` �?`int` | Convert to/from `PyLong` |
 | `FLOAT` �?`float` | Convert to/from `PyFloat` |
@@ -757,7 +757,7 @@ PolyglotCompiler generates FFI glue code to bridge function calls between differ
 
 ## 5.2 Container Marshalling
 
-| .ploy Type | Marshalling Strategy |
+| .poly Type | Marshalling Strategy |
 |-----------|---------------------|
 | `LIST<T>` | Element-wise copy with type conversion |
 | `TUPLE<T...>` | Positional element copy |

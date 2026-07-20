@@ -46,14 +46,14 @@ TEST_CASE("polyls hover renders Markdown for a user FUNC",
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{{"textDocument",
-                          {{"uri", "file:///h.ploy"},
-                           {"languageId", "ploy"},
+                          {{"uri", "file:///h.poly"},
+                           {"languageId", "poly"},
                            {"version", 1},
                            {"text", "FUNC add(a, b) -> INT { RETURN a; }\n"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open));
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///h.ploy"}}},
+      {"textDocument", {{"uri", "file:///h.poly"}}},
       {"position", {{"line", 0}, {"character", 6}}}};  // inside `add`
   s.HandleIncoming(MakeRequest(20, "textDocument/hover", params));
 
@@ -71,14 +71,14 @@ TEST_CASE("polyls hover returns null for whitespace position",
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{{"textDocument",
-                          {{"uri", "file:///h2.ploy"},
-                           {"languageId", "ploy"},
+                          {{"uri", "file:///h2.poly"},
+                           {"languageId", "poly"},
                            {"version", 1},
                            {"text", "   \n"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open));
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///h2.ploy"}}},
+      {"textDocument", {{"uri", "file:///h2.poly"}}},
       {"position", {{"line", 0}, {"character", 1}}}};
   s.HandleIncoming(MakeRequest(21, "textDocument/hover", params));
 

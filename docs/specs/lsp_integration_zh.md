@@ -3,7 +3,7 @@
 > 需求条目：`2026-04-28-19`，版本：1.20.0，英文版本：[`lsp_integration.md`](./lsp_integration.md)。
 
 PolyglotCompiler 在 polyui IDE 中内置了 LSP 客户端框架以及自研语言服务器
-**polyls**，把 polyglot 各前端（首先是 `.ploy`）通过标准 LSP 线协议暴露给
+**polyls**，把 polyglot 各前端（首先是 `.poly`）通过标准 LSP 线协议暴露给
 任意编辑器。本文从体系结构、线协议保证、公共类型与配置面四个角度做完整说明。
 
 ## 1. 组件总览
@@ -115,7 +115,7 @@ JSON 键（默认值通过 QRC 资源打包）：
 | `languageServers.servers.<lang>.env`                     | object   | `{}`   | 附加环境变量 |
 | `languageServers.servers.<lang>.initializationOptions`   | object   | `{}`   | 透传给 `initialize` |
 
-默认配置：`.ploy` → `polyls`，`cpp` → `clangd`，
+默认配置：`.poly` → `polyls`，`cpp` → `clangd`，
 `python` → `pyright-langserver --stdio`，`rust` → `rust-analyzer`，
 `java` → `jdtls`，`csharp` → `omnisharp -lsp`。
 
@@ -130,7 +130,7 @@ JSON 键（默认值通过 QRC 资源打包）：
   `publishDiagnostics`、shutdown→exit，共 5 例。
 * `tests/integration/lsp_diagnostics_e2e_test.cpp`：用真实
   `LspClient` 与进程内 `PolylsServer` 通过 LoopbackTransport 对端
-  端到端联调，打开包含语法错误的 `.ploy`，断言收到的诊断
+  端到端联调，打开包含语法错误的 `.poly`，断言收到的诊断
   `source = "polyls"` 且为错误级；随后验证关闭时清空诊断与
   shutdown / exit 握手。
 

@@ -6,12 +6,12 @@ End-to-end PIPELINE combining every keyword across C++, Python and Rust for a sm
 | --- | --- |
 | Languages | C++, Python, Rust |
 | Keywords  | LINK, PIPELINE, NEW, METHOD, WITH, DELETE, EXTEND |
-| Entry     | `mixed_pipeline.ploy` |
+| Entry     | `mixed_pipeline.poly` |
 
 ## Build
 
 ```powershell
-polyc 09_mixed_pipeline\mixed_pipeline.ploy --emit-obj=mixed_pipeline.pobj --obj-format=pobj
+polyc 09_mixed_pipeline\mixed_pipeline.poly --emit-obj=mixed_pipeline.pobj --obj-format=pobj
 polyld mixed_pipeline.pobj -o mixed_pipeline.exe
 ```
 

@@ -18,7 +18,7 @@ This directory accompanies `../POLYGLOT_COMPILER_COMPLETE_TUTORIAL.md`. Every ex
 
 | 目录 | 章节 | 状态 | 主要结果 |
 |---|---:|---|---|
-| `00_hello` | 4 | `RUNNABLE` | verified stdout: `hello from Ploy` and exit 0 |
+| `00_hello` | 4 | `RUNNABLE` | verified stdout: `hello from Poly` and exit 0 |
 | `01_control_flow` | 8–10 | `RUNNABLE` | current backend output and semantic target output are both recorded |
 | `02_errors_async` | 12, 19 | `FRONTEND` | frontend exits 0 with two warnings; intended Runtime result documented separately |
 | `03_cpp_bridge` | 5, 15–17 | `LAYERED` | stdout: `rows=3` after the bridge is linked |
@@ -27,7 +27,7 @@ This directory accompanies `../POLYGLOT_COMPILER_COMPLETE_TUTORIAL.md`. Every ex
 | `06_diagnostics` | 4, 28 | `RUNNABLE` negative case | non-zero check plus structured diagnostic |
 | `07_profile_fixture` | 24, 29, 37 | `FIXTURE` | current nested profile JSON and NDJSON |
 | `08_plugin` | 39, 41 | `RUNNABLE` | shared library exports plus a verified host lifecycle and activation log |
-| `09_language_tour` | 6–13 | `FRONTEND` | one-file Ploy language tour with empty frontend diagnostics |
+| `09_language_tour` | 6–13 | `FRONTEND` | one-file Poly language tour with empty frontend diagnostics |
 
 ## 快速验证 / Quick verification
 

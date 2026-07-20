@@ -15,9 +15,9 @@ ReplEngineSpec DefaultSpec(ReplEngine e) {
   s.engine = e;
   switch (e) {
     case ReplEngine::kPloy:
-      s.display_name = ".ploy";
+      s.display_name = ".poly";
       s.argv = {"polyc", "--repl"};
-      s.prompt_regex = R"(^ploy>\s*$)";
+      s.prompt_regex = R"(^poly>\s*$)";
       s.exit_command = ":quit";
       break;
     case ReplEngine::kPython:

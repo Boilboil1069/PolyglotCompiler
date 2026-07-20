@@ -21,7 +21,7 @@ using polyglot::tools::ui::CallGraphNode;
 
 namespace {
 
-CallGraphNode MakeNode(const char *id, const char *lang = "ploy") {
+CallGraphNode MakeNode(const char *id, const char *lang = "poly") {
   CallGraphNode n;
   n.id = QString::fromLatin1(id);
   n.name = QString::fromLatin1(id);

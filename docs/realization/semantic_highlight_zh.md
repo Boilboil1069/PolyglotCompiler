@@ -69,7 +69,7 @@ Legend 在整个代码库内保持一致（见
 | 10   | operator  | `editor_text`                |
 
 修饰符：`declaration`、`readonly`、`static`、`deprecated`、
-`definition`。Ploy 中的 `LINK` / `IMPORT` / `EXPORT` 等指令关键字会
+`definition`。Poly 中的 `LINK` / `IMPORT` / `EXPORT` 等指令关键字会
 带上 `definition` 修饰，主题可以为其单独配色。
 
 ## Wire 格式

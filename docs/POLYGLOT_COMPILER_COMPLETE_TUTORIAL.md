@@ -1,8 +1,8 @@
 # PolyglotCompiler 完整双语教材 / The Complete Bilingual PolyglotCompiler Textbook
 
-> **适用版本 / Target version**：PolyglotCompiler 1.47.4<br>
+> **适用版本 / Target version**：PolyglotCompiler 1.48.0<br>
 > **教材版本 / Textbook edition**：2.1.1<br>
-> **源码核验 / Source audit**：2026-07-17<br>
+> **源码核验 / Source audit**：2026-07-20<br>
 > **覆盖范围 / Coverage**：`docs/tutorial/`、`docs/specs/`、`docs/api/`、43 个原课程样例、9 组教材配套示例、当前源码和测试。<br>
 > **术语规范 / Terminology standard**：[`POLYGLOT_COMPILER_BILINGUAL_DICTIONARY.md`](POLYGLOT_COMPILER_BILINGUAL_DICTIONARY.md) 是全书翻译与术语一致性的唯一规范来源。<br>
 > **编辑原则 / Editorial rule**：这是一部融合教材，不是原文档的机械拼接；原教程负责操作路径，规范负责约束，API 负责实现接口，源码和测试负责判断当前事实。
@@ -15,9 +15,9 @@ This is an integrated textbook rather than a concatenation of source documents. 
 
 ### 本书面向谁 / Audience
 
-本书同时服务四类读者：第一次使用 PolyglotCompiler 的开发者、使用 Ploy 构建跨语言程序的工程师、使用 CLI/PolyUI 分析项目的用户，以及修改编译器、运行时系统、IDE 或插件的贡献者。
+本书同时服务四类读者：第一次使用 PolyglotCompiler 的开发者、使用 Poly 构建跨语言程序的工程师、使用 CLI/PolyUI 分析项目的用户，以及修改编译器、运行时系统、IDE 或插件的贡献者。
 
-The book serves first-time users, engineers building cross-language programs in Ploy, users analysing projects through the CLI or PolyUI, and contributors changing the compiler, runtime, IDE, or plugins.
+The book serves first-time users, engineers building cross-language programs in Poly, users analysing projects through the CLI or PolyUI, and contributors changing the compiler, runtime, IDE, or plugins.
 
 ### 双语排版 / Bilingual layout
 
@@ -50,9 +50,9 @@ The book is both a tutorial and an implementation manual, so readers need not pr
 
 ### 贯穿全书的项目 / Running project
 
-全书使用一个“多语言数据分析服务”作为连续案例：Ploy 组织管线，C++ 读取输入，Rust 清洗数据，Python 计算模型，Java/.NET 提供业务规则，JavaScript 展示结果。每一部分只增加一个新能力，最终形成可构建、可测试、可分析的项目。
+全书使用一个“多语言数据分析服务”作为连续案例：Poly 组织管线，C++ 读取输入，Rust 清洗数据，Python 计算模型，Java/.NET 提供业务规则，JavaScript 展示结果。每一部分只增加一个新能力，最终形成可构建、可测试、可分析的项目。
 
-The running project is a polyglot analytics service: Ploy orchestrates the pipeline, C++ reads input, Rust cleans data, Python evaluates a model, Java/.NET provide business rules, and JavaScript presents results. Each part adds one capability until the project is buildable, testable, and analysable.
+The running project is a polyglot analytics service: Poly orchestrates the pipeline, C++ reads input, Rust cleans data, Python evaluates a model, Java/.NET provide business rules, and JavaScript presents results. Each part adds one capability until the project is buildable, testable, and analysable.
 
 ### 配套示例与结果 / Companion examples and results
 
@@ -77,14 +77,14 @@ This part establishes the shared project, build, and first-program context requi
 1. 为什么需要多语言编译器 / Why a polyglot compiler
 2. 完整编译模型 / The compilation model
 3. 环境准备与项目构建 / Prerequisites and build
-4. 第一个 Ploy 程序 / First Ploy program
+4. 第一个 Poly 程序 / First Poly program
 5. 第一个跨语言程序 / First cross-language program
 
-### 第二部分：系统学习 Ploy / Part II: Ploy language
+### 第二部分：系统学习 Poly / Part II: Poly language
 
-这一部分从词法、类型和控制流逐步进入模块、异步、属性与管线，使后续跨语言章节建立在完整的 Ploy 语义上。
+这一部分从词法、类型和控制流逐步进入模块、异步、属性与管线，使后续跨语言章节建立在完整的 Poly 语义上。
 
-This part develops Ploy from lexical rules and types through modules, async, attributes, and pipelines, providing the semantic foundation for cross-language work.
+This part develops Poly from lexical rules and types through modules, async, attributes, and pipelines, providing the semantic foundation for cross-language work.
 
 6. 词法结构与字面量 / Lexical structure and literals
 7. 类型系统 / Type system
@@ -94,7 +94,7 @@ This part develops Ploy from lexical rules and types through modules, async, att
 11. 模块、包与配置 / Modules, packages, and configuration
 12. 异常、异步与泛型 / Exceptions, async, and generics
 13. 可见性、属性与文档 / Visibility, attributes, and documentation
-14. `PIPELINE` 与完整 Ploy 项目 / Pipelines and the Ploy capstone
+14. `PIPELINE` 与完整 Poly 项目 / Pipelines and the Poly capstone
 
 ### 第三部分：跨语言编程 / Part III: Cross-language programming
 
@@ -162,7 +162,7 @@ The final part turns new functionality into deliverable vertical slices through 
 
 ### 附录 / Appendices
 
-A. Ploy 语法与关键字 / Ploy syntax and keywords<br>
+A. Poly 语法与关键字 / Poly syntax and keywords<br>
 B. 类型、ABI 与编组表 / Type, ABI, and marshalling tables<br>
 C. 诊断码目录 / Diagnostic catalogue<br>
 D. CLI 参数速查 / CLI reference<br>
@@ -196,14 +196,14 @@ PolyglotCompiler 的目标是把这些边界提升为一个可分析的编译模
 
 PolyglotCompiler turns these boundaries into an analysable compilation model:
 
-- Ploy 描述模块、符号、类型映射和调用关系；
+- Poly 描述模块、符号、类型映射和调用关系；
 - 各语言前端产生统一 IR；
 - 中端层执行验证与优化；
 - 后端生成目标代码或容器；
 - 运行时桥接层处理宿主语言调用、对象和容器；
 - 链接器、性能剖析器、调用分析器和 IDE 使用同一批元数据。
 
-PolyglotCompiler elevates language boundaries into an analysable model: Ploy describes modules and mappings, frontends lower to unified IR, the middle layer verifies and optimises, backends emit target artifacts, runtime bridges handle host values, and tools consume shared metadata.
+PolyglotCompiler elevates language boundaries into an analysable model: Poly describes modules and mappings, frontends lower to unified IR, the middle layer verifies and optimises, backends emit target artifacts, runtime bridges handle host values, and tools consume shared metadata.
 
 ### 1.2 与相邻方案的区别 / Comparison with adjacent approaches
 
@@ -224,7 +224,7 @@ Technology choice begins by locating the boundary at compile time, inside a runt
 
 The repository contains both mature paths and evolving contracts. This section classifies capabilities by evidence strength so that later examples are interpreted with the correct expectations.
 
-**[完整 / Complete]**：Ploy 词法分析、语法分析与语义分析的核心语法、统一 IR、主要 CLI、LSP 消息分帧、问题面板、拓扑图和多目标对象写出的主要契约均有源码与测试支持。
+**[完整 / Complete]**：Poly 词法分析、语法分析与语义分析的核心语法、统一 IR、主要 CLI、LSP 消息分帧、问题面板、拓扑图和多目标对象写出的主要契约均有源码与测试支持。
 
 **[分层 / Layered]**：复杂容器、对象、异常和异步的跨语言传递依赖具体桥接层与宿主运行时系统；语法成功不等于所有语言组合都已端到端执行。
 
@@ -232,7 +232,7 @@ The repository contains both mature paths and evolving contracts. This section c
 
 **[规划 / Planned]**：规范中标为规划项或路线图的跨语言属性映射等内容，不能当作当前承诺。
 
-**[Complete]**: Source and tests cover the core Ploy lexical, syntactic, and semantic rules, unified IR, primary CLIs, LSP framing, the Problems panel, topology, and the main multi-target object writers.
+**[Complete]**: Source and tests cover the core Poly lexical, syntactic, and semantic rules, unified IR, primary CLIs, LSP framing, the Problems panel, topology, and the main multi-target object writers.
 
 **[Layered]**: Cross-language transport of complex containers, objects, exceptions, and asynchronous work depends on a concrete bridge and host runtime. Successful syntax does not mean every language combination executes end to end.
 
@@ -242,7 +242,7 @@ The repository contains both mature paths and evolving contracts. This section c
 
 ### 练习 / Exercise
 
-为你的一个现有项目列出语言边界，并为每条边标注：参数类型、返回类型、所有权、错误、异步模型和调用频率。后续章节会逐项把它们映射到 Ploy、ABI 与运行时系统。
+为你的一个现有项目列出语言边界，并为每条边标注：参数类型、返回类型、所有权、错误、异步模型和调用频率。后续章节会逐项把它们映射到 Poly、ABI 与运行时系统。
 
 List every language boundary in one of your projects and annotate parameter type, result type, ownership, error model, async model, and call frequency.
 
@@ -471,13 +471,13 @@ A reproducible build is the prerequisite for every later claim.
 
 ---
 
-## 4. 第一个 Ploy 程序 / First Ploy program
+## 4. 第一个 Poly 程序 / First Poly program
 
 ### 学习目标 / Goals
 
-你将创建、检查、编译并运行最小 Ploy 程序，同时学会保存足够的中间证据。
+你将创建、检查、编译并运行最小 Poly 程序，同时学会保存足够的中间证据。
 
-You will check, compile, and run a minimal Ploy program while retaining useful intermediate evidence.
+You will check, compile, and run a minimal Poly program while retaining useful intermediate evidence.
 
 ### 4.1 程序 / Program
 
@@ -485,16 +485,16 @@ You will check, compile, and run a minimal Ploy program while retaining useful i
 
 The first program intentionally uses only stable declaration and output paths so environment problems remain distinct from language problems. Run it unchanged before modifying literals and observing lexer, lowering, and runtime behaviour.
 
-```ploy
+```poly
 FUNC main() -> i32 {
-    PRINTLN "hello from Ploy\n";
+    PRINTLN "hello from Poly\n";
     RETURN 0;
 }
 ```
 
-保存为 `hello.ploy`。关键字大小写不敏感，但普通标识符仍区分大小写。
+保存为 `hello.poly`。关键字大小写不敏感，但普通标识符仍区分大小写。
 
-Save it as `hello.ploy`. Keywords are case-insensitive; ordinary identifiers remain case-sensitive.
+Save it as `hello.poly`. Keywords are case-insensitive; ordinary identifiers remain case-sensitive.
 
 ### 4.2 分层验证 / Layered verification
 
@@ -503,9 +503,9 @@ Save it as `hello.ploy`. Keywords are case-insensitive; ordinary identifiers rem
 A program should pass frontend analysis, artifact inspection, and final execution separately. These commands add responsibility one layer at a time so failures can be assigned to semantics, code generation, linking, or runtime execution.
 
 ```sh
-build/polyc --check hello.ploy > build/hello.diagnostics.json
+build/polyc --check hello.poly > build/hello.diagnostics.json
 
-build/polyc hello.ploy \
+build/polyc hello.poly \
   --strict --no-aux \
   --emit-ir=build/hello.ir \
   --emit-asm=build/hello.s \
@@ -529,7 +529,7 @@ Current `polyc --check` directly emits LSP-shaped JSON. There are no token/AST e
 The companion [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/README.md) was verified layer by layer. Check mode exits 0 and, after normalising the absolute directory to `<SOURCE>`, writes:
 
 ```json
-{"uri":"file://<SOURCE>/00_hello/main.ploy","diagnostics":[]}
+{"uri":"file://<SOURCE>/00_hello/main.poly","diagnostics":[]}
 ```
 
 单命令管线生成文本 IR、汇编源码和 Mach-O x86_64 对象文件；`nm` 可以看到 `main` 和尚未解析的 `polyrt_println`。随后，打包阶段调用 `polyld`，解析三处重定位、恢复一个 `println` 调用点并生成可执行文件。执行结果的退出码为 0，标准输出精确是：
@@ -537,7 +537,7 @@ The companion [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello
 The single-command pipeline creates textual IR, assembly source, and a Mach-O x86_64 object; `nm` exposes `main` and the unresolved `polyrt_println`. Packaging then invokes `polyld`, which resolves three relocations, recovers one println call site, and emits the executable. Execution exits 0 with the exact stdout:
 
 ```text
-hello from Ploy
+hello from Poly
 ```
 
 ### 4.3 读诊断 / Reading diagnostics
@@ -574,19 +574,19 @@ Add a variable and an `IF` branch, capture one intentional type error as JSON, t
 
 ### 学习目标 / Goals
 
-本章完成贯穿项目的第一条真实边：Ploy 声明 C++ 函数签名，调用它，并理解每个阶段的责任。
+本章完成贯穿项目的第一条真实边：Poly 声明 C++ 函数签名，调用它，并理解每个阶段的责任。
 
-This chapter builds the first real boundary in the running project: Ploy declares and calls a C++ function.
+This chapter builds the first real boundary in the running project: Poly declares and calls a C++ function.
 
 ### 5.1 项目布局 / Layout
 
-即使是最小的跨语言项目，也应把 Ploy 编排代码、宿主实现和生成产物分开。这个布局让符号归属、构建顺序和清理边界一目了然。
+即使是最小的跨语言项目，也应把 Poly 编排代码、宿主实现和生成产物分开。这个布局让符号归属、构建顺序和清理边界一目了然。
 
-Even a minimal cross-language project should separate Ploy orchestration, host implementation, and generated artifacts. This layout makes symbol ownership, build order, and cleanup boundaries explicit.
+Even a minimal cross-language project should separate Poly orchestration, host implementation, and generated artifacts. This layout makes symbol ownership, build order, and cleanup boundaries explicit.
 
 ```text
 analytics/
-├── main.ploy
+├── main.poly
 ├── cpp/
 │   └── reader.cpp
 └── expected_output.txt
@@ -607,16 +607,16 @@ extern "C" void print_count(std::int32_t count) {
 }
 ```
 
-`main.ploy`：
+`main.poly`：
 
-```ploy
+```poly
 IMPORT cpp::reader;
 
 // 当前快照中可进入 Sema/Lowering 的兼容形式；会产生 deprecation warning。
-LINK(cpp, ploy, reader::read_count, read_count) RETURNS i32 {
+LINK(cpp, poly, reader::read_count, read_count) RETURNS i32 {
     MAP_TYPE(cpp::int, i32);
 }
-LINK(cpp, ploy, reader::print_count, print_count) RETURNS VOID {
+LINK(cpp, poly, reader::print_count, print_count) RETURNS VOID {
     MAP_TYPE(cpp::int, i32);
 }
 
@@ -639,14 +639,14 @@ The dummy argument is intentional: the current compatibility path derives parame
 
 ### 5.3 构建顺序 / Build order
 
-跨语言链接要求宿主对象与 Ploy 对象对同一符号、类型宽度和调用约定达成一致。下面先独立生成双方产物，再让链接器显式显示解析过程。
+跨语言链接要求宿主对象与 Poly 对象对同一符号、类型宽度和调用约定达成一致。下面先独立生成双方产物，再让链接器显式显示解析过程。
 
-Cross-language linking requires the host and Ploy objects to agree on symbol identity, type width, and calling convention. The workflow builds both sides independently before asking the linker to expose resolution details.
+Cross-language linking requires the host and Poly objects to agree on symbol identity, type width, and calling convention. The workflow builds both sides independently before asking the linker to expose resolution details.
 
 ```sh
 c++ -c analytics/cpp/reader.cpp -o build/reader.o
-build/polyc --check analytics/main.ploy
-build/polyc analytics/main.ploy -c \
+build/polyc --check analytics/main.poly
+build/polyc analytics/main.poly -c \
   --emit-ir=build/main.ir \
   --emit=call-graph:build/main.cgjson \
   --emit-obj=build/main.o
@@ -659,9 +659,9 @@ Exact linker arguments vary by platform. For an undefined symbol, compare the `L
 
 #### 5.3.1 当前可验证结果与目标输出 / Current proof and target output
 
-配套 [`03_cpp_bridge`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/03_cpp_bridge/README.md) 把 Ploy 与 C++ 源码放在同一目录。当前 `polyc --check` 对兼容形式返回 0，同时产生五个严重级别-2 警告：四个 `E3024` 指出 `RETURNS`/旧式 `LINK(...)` 已弃用，一个 `E3003` 指出 `reader::read_count` 的推导返回位宽为 8，而目标 `cpp::int` 为 4。这个结果证明“当前兼容路径进入了语义分析器”，不证明 ABI 已闭合。
+配套 [`03_cpp_bridge`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/03_cpp_bridge/README.md) 把 Poly 与 C++ 源码放在同一目录。当前 `polyc --check` 对兼容形式返回 0，同时产生五个严重级别-2 警告：四个 `E3024` 指出 `RETURNS`/旧式 `LINK(...)` 已弃用，一个 `E3003` 指出 `reader::read_count` 的推导返回位宽为 8，而目标 `cpp::int` 为 4。这个结果证明“当前兼容路径进入了语义分析器”，不证明 ABI 已闭合。
 
-The companion [`03_cpp_bridge`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/03_cpp_bridge/README.md) keeps the Ploy and C++ sources together. Current check mode exits 0 with five severity-2 warnings: four `E3024` deprecation warnings and one `E3003` inferred return-width mismatch. This proves entry into the compatibility Sema path, not a closed ABI.
+The companion [`03_cpp_bridge`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/03_cpp_bridge/README.md) keeps the Poly and C++ sources together. Current check mode exits 0 with five severity-2 warnings: four `E3024` deprecation warnings and one `E3003` inferred return-width mismatch. This proves entry into the compatibility Sema path, not a closed ABI.
 
 反过来机械改为规范有符号形式会在当前语义分析器丢失源码/目标语言与源码符号，并以 `E3008/E3009` 失败。待描述符、适配器与最终链接全部闭合后，目标可执行文件应退出 0 并由 C++ 辅助程序输出：
 
@@ -686,13 +686,13 @@ jq '.nodes, .edges' build/main.cgjson
 # Or open the file through PolyUI's Call Analyzer.
 ```
 
-`polytopo` 接受 Ploy 源码或它自己的拓扑图 JSON，不能读取 `polyglot.callgraph.v1`。当前调用图的节点包含数值 `id`、名称、语言、外部标志、桥接层标志和块数量；边包含数值 `from`、`to` 与被调用方。它不包含源码位置或调用类别，且当前 UI 对数值 `id` 的不匹配问题见第 29 章。
+`polytopo` 接受 Poly 源码或它自己的拓扑图 JSON，不能读取 `polyglot.callgraph.v1`。当前调用图的节点包含数值 `id`、名称、语言、外部标志、桥接层标志和块数量；边包含数值 `from`、`to` 与被调用方。它不包含源码位置或调用类别，且当前 UI 对数值 `id` 的不匹配问题见第 29 章。
 
 Polytopo does not consume call-graph JSON. Inspect it as JSON or in Call Analyzer; current fields and the numeric-id consumer mismatch are documented in Chapter 29.
 
 ### 5.5 实现边界 / Implementation boundary
 
-本例只传递 `i32`/`VOID`，属于最容易验证的 ABI 路径。动态数值输出由 C++ 辅助程序完成，是因为当前 Ploy `PRINTLN` 只接受一个字符串字面量；字符串、列表、对象、异常和异步需要后续章节的编组与生命周期规则。
+本例只传递 `i32`/`VOID`，属于最容易验证的 ABI 路径。动态数值输出由 C++ 辅助程序完成，是因为当前 Poly `PRINTLN` 只接受一个字符串字面量；字符串、列表、对象、异常和异步需要后续章节的编组与生命周期规则。
 
 This example passes only `i32`. Strings, containers, objects, exceptions, and async values require later marshalling and lifetime rules.
 
@@ -704,21 +704,21 @@ Change the function to `sum(i32, i32) -> i32`, intentionally mismatch its arity,
 
 ### 第一部分总结 / Part summary
 
-你现在拥有一个可重复构建、一个最小 Ploy 程序和一条可观察的跨语言调用。后续所有高级功能都应保持同样的分层验证方式。
+你现在拥有一个可重复构建、一个最小 Poly 程序和一条可观察的跨语言调用。后续所有高级功能都应保持同样的分层验证方式。
 
-You now have a reproducible build, a minimal Ploy program, and an observable cross-language call. Every advanced feature should preserve the same layered validation discipline.
+You now have a reproducible build, a minimal Poly program, and an observable cross-language call. Every advanced feature should preserve the same layered validation discipline.
 
 ---
 
 
 
-# 第二部分：系统学习 Ploy / Part II: The Ploy language
+# 第二部分：系统学习 Poly / Part II: The Poly language
 
-## 本部分导读：Ploy 为什么这样设计 / Why Ploy is designed this way
+## 本部分导读：Poly 为什么这样设计 / Why Poly is designed this way
 
-学习一门语言不能从背关键字开始。先理解它要解决的问题，才能判断某个构造为什么存在、应该放在哪里，以及为什么它没有照搬 C++、Python 或 Rust。Ploy 的首要角色不是替代这些宿主语言，而是成为**多语言边界的静态契约与编排语言**：业务算法仍可留在最合适的宿主语言中，Ploy 负责把模块、符号、类型、版本、转换、生命周期和调用顺序写成编译器与工具都能分析的事实。
+学习一门语言不能从背关键字开始。先理解它要解决的问题，才能判断某个构造为什么存在、应该放在哪里，以及为什么它没有照搬 C++、Python 或 Rust。Poly 的首要角色不是替代这些宿主语言，而是成为**多语言边界的静态契约与编排语言**：业务算法仍可留在最合适的宿主语言中，Poly 负责把模块、符号、类型、版本、转换、生命周期和调用顺序写成编译器与工具都能分析的事实。
 
-Learning a language should not begin with memorising keywords. Ploy is not primarily a replacement for C++, Python, Rust, or other host languages. It is a **static contract and orchestration language for polyglot boundaries**: host languages keep their domain logic, while Ploy makes modules, symbols, types, versions, conversions, lifetimes, and call order visible to the compiler and tooling.
+Learning a language should not begin with memorising keywords. Poly is not primarily a replacement for C++, Python, Rust, or other host languages. It is a **static contract and orchestration language for polyglot boundaries**: host languages keep their domain logic, while Poly makes modules, symbols, types, versions, conversions, lifetimes, and call order visible to the compiler and tooling.
 
 这一定义带来五个核心设计目标。下表先列出中文说明，再给出对应英文。
 
@@ -740,9 +740,9 @@ This role leads to five design goals. The Chinese table is followed by its Engli
 | Analysable control flow | Braces, explicit `RETURN`, `MATCH`, `OPTION`, `TRY`, and `ASYNC` | CFGs, diagnostics, call graphs, and profile data preserve semantics |
 | Gradual strictness | Dynamic boundaries may retain `Any/Unknown` temporarily, while strict release gates reject placeholders | Dynamic hosts remain usable without disguising uncertainty as safety |
 
-Ploy 因此刻意不提供一套“把所有宿主语言能力重新实现一遍”的庞大标准库。文件输入输出、数据库、图形用户界面、机器学习和网络框架等通常由宿主模块提供；Ploy 应描述这些能力的可见签名、数据转换和编排关系。若某段逻辑完全属于单一语言且没有边界价值，留在宿主语言中往往更清晰。
+Poly 因此刻意不提供一套“把所有宿主语言能力重新实现一遍”的庞大标准库。文件输入输出、数据库、图形用户界面、机器学习和网络框架等通常由宿主模块提供；Poly 应描述这些能力的可见签名、数据转换和编排关系。若某段逻辑完全属于单一语言且没有边界价值，留在宿主语言中往往更清晰。
 
-Ploy therefore does not try to reimplement every host ecosystem. File I/O, databases, GUI frameworks, machine learning, and web stacks normally remain host capabilities. Ploy describes their visible signatures, conversions, and orchestration. Logic that is wholly local to one host language often belongs there.
+Poly therefore does not try to reimplement every host ecosystem. File I/O, databases, GUI frameworks, machine learning, and web stacks normally remain host capabilities. Poly describes their visible signatures, conversions, and orchestration. Logic that is wholly local to one host language often belongs there.
 
 ### 如何学习每个语言构造 / How each construct is taught
 
@@ -806,7 +806,7 @@ The grammar in this book is meant to be followed through the actual implementati
 | Grammar | `ParseTopLevel`, `ParseStatement`, `ParseExpression`, and `ParseType` | Combines tokens and establishes recovery points |
 | Meaning | `AnalyzeStatement`, `AnalyzeExpression`, `ResolveType`, and `AnalyzePattern` | Resolves names, types, scopes, and diagnostics |
 | Executable IR | `LowerStatement`, `LowerExpression`, and construct-specific lowering | Creates constants, calls, basic blocks, descriptors, and cleanup edges |
-| Public contracts | Ploy frontend headers and tests | Defines callable entry points and regression-backed behaviour |
+| Public contracts | Poly frontend headers and tests | Defines callable entry points and regression-backed behaviour |
 
 例如追踪 `MATCH value { CASE 1 { ... } }`：词法分析器先产生 `MATCH`、标识符、花括号、`CASE` 和整数词法单元；语法分析器的 `ParseMatchStatement` 与 `ParsePattern` 创建被匹配值和匹配分支模式；语义分析器的 `AnalyzeMatchStatement` 与 `AnalyzePattern` 检查类型兼容性、绑定、守卫条件、穷尽性和可达性；`LowerMatchStatement` 让被匹配值只求值一次，并生成测试块、主体块、下一分支块和合并块。任何一层缺失都不能称为完整实现：只有词法单元而没有语法，不具备语言形式；只有语法树节点而没有类型安全，不具备静态语义；只有语义分析成功而没有运行时行为，也不具备可执行语义。
 
@@ -820,7 +820,7 @@ The minimum implementation loop for a language feature is AST → token → pars
 
 The following program combines an alias, a struct, a function, an immutable binding, a condition, and literal output:
 
-```ploy
+```poly
 TYPE Celsius = f64;
 
 STRUCT Reading {
@@ -853,7 +853,7 @@ The companion [`09_language_tour`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/
 
 ```sh
 build/polyc --check \
-  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.ploy
+  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.poly
 ```
 
 当前构建的实测结果如下；`uri` 的绝对前缀会随机器变化，稳定契约是退出码 `0` 与空诊断数组：
@@ -861,36 +861,36 @@ build/polyc --check \
 The observed result from the current build is below. The absolute URI prefix is machine-dependent; exit code `0` plus an empty diagnostic array is the stable contract:
 
 ```json
-{"uri":"file://<SOURCE>/09_language_tour/main.ploy","diagnostics":[]}
+{"uri":"file://<SOURCE>/09_language_tour/main.poly","diagnostics":[]}
 ```
 
-> **已知命名错误（暂不迁移）**：设计上的规范语言名与扩展名应为 **Poly** 和 `.poly`。当前源码、命令、示例及部分文档仍广泛使用 `Ploy`、`ploy` 和 `.ploy`；这些是尚未完成迁移的历史拼写错误，不是规范名称。本次只记录问题，不重命名现有接口与文件；旧拼写是否作为兼容别名保留，应在后续迁移方案中决定。
+> **命名迁移与兼容政策（1.48.0）**：规范语言名、语言标识和扩展名现为 **Poly**、`poly` 和 `.poly`。整个 1.x 系列继续接受历史拼写 `Ploy`、`ploy` 和 `.ploy` 作为兼容别名，最早在 2.0.0 才可移除；诊断与生成元数据始终归一化为 `poly`。`frontends/ploy`、`Ploy*` 和 `__ploy_*` 等内部名称为源码与 ABI 兼容而保留，不代表规范名称。
 
-> **Known naming defect (migration deferred):** the intended canonical language name and extension are **Poly** and `.poly`. The current source tree, commands, examples, and some documentation still widely use `Ploy`, `ploy`, and `.ploy`; these are historical misspellings awaiting migration, not the canonical name. This note records the defect without renaming existing interfaces or files. A later migration must decide whether the old spellings remain compatibility aliases.
+> **Naming migration and compatibility policy (1.48.0):** the canonical language name, identifier, and extension are now **Poly**, `poly`, and `.poly`. The 1.x series continues to accept `Ploy`, `ploy`, and `.ploy` as historical compatibility aliases, with removal no earlier than 2.0.0; diagnostics and generated metadata always normalize to `poly`. Internal names such as `frontends/ploy`, `Ploy*`, and `__ploy_*` remain for source and ABI compatibility and do not define the canonical name.
 
 ## 6. 词法结构与字面量 / Lexical structure and literals
 
 ### 学习目标 / Goals
 
-本章说明 Ploy 源文件如何被词法分析器切分，以及哪些文本形式在进入语法分析器前已经确定。掌握词法层可以避免把大小写、注释或字符串问题误判为语义错误。
+本章说明 Poly 源文件如何被词法分析器切分，以及哪些文本形式在进入语法分析器前已经确定。掌握词法层可以避免把大小写、注释或字符串问题误判为语义错误。
 
-This chapter explains how the lexer tokenises Ploy source, preventing lexical problems from being mistaken for semantic failures.
+This chapter explains how the lexer tokenises Poly source, preventing lexical problems from being mistaken for semantic failures.
 
 ### 6.0 设计目的：让边界文本可精确重放 / Design purpose: exact, replayable source
 
-词法层的目标不是理解业务含义，而是把源码字节稳定地切成词法单元，并为每个词法单元保存文件、行、列和必要的原始拼写。多语言工具链尤其依赖这种稳定性：同一个 Ploy 文件可能同时被编译器、`polydoc`、`polyls`、格式化器、调用图工具和诊断界面读取；如果它们对大小写、字符串结束位置或注释附着有不同理解，后续 API 再完整也无法对齐。
+词法层的目标不是理解业务含义，而是把源码字节稳定地切成词法单元，并为每个词法单元保存文件、行、列和必要的原始拼写。多语言工具链尤其依赖这种稳定性：同一个 Poly 文件可能同时被编译器、`polydoc`、`polyls`、格式化器、调用图工具和诊断界面读取；如果它们对大小写、字符串结束位置或注释附着有不同理解，后续 API 再完整也无法对齐。
 
 The lexer does not understand business meaning. It creates stable tokens with file, line, column, and source spelling so the compiler, `polydoc`, `polyls`, formatters, graph tools, and diagnostics all agree on the same text boundaries.
 
-Ploy 选择花括号、显式分号和有限的字面量前缀，主要是为了避免缩进改变语义，避免自动分号插入在跨平台格式化后改变程序，让错误恢复能够跳到 `;` 或 `}`，并让模板字符串和原始字符串在词法分析阶段具有明确边界。代价是源码更加显式，但编译、索引和生成工具更容易保持一致。
+Poly 选择花括号、显式分号和有限的字面量前缀，主要是为了避免缩进改变语义，避免自动分号插入在跨平台格式化后改变程序，让错误恢复能够跳到 `;` 或 `}`，并让模板字符串和原始字符串在词法分析阶段具有明确边界。代价是源码更加显式，但编译、索引和生成工具更容易保持一致。
 
 Braces, explicit semicolons, and a small set of literal prefixes avoid indentation-sensitive semantics and automatic-semicolon surprises. They also give parser recovery reliable `;` and `}` boundaries.
 
 ### 6.1 文件、语句与标识符 / Files, statements, and identifiers
 
-规范上的 Poly 文件使用 `.poly`。受上述已知命名错误影响，当前仓库中的示例与实现仍主要使用 `.ploy`。语句通常以 `;` 终止，块使用 `{ ... }`，换行只是空白。标识符满足 `[A-Za-z_][A-Za-z0-9_]*`。
+Poly 文件使用规范扩展名 `.poly`；历史扩展名 `.ploy` 仅按上述 1.x 兼容政策接受。语句通常以 `;` 终止，块使用 `{ ... }`，换行只是空白。标识符满足 `[A-Za-z_][A-Za-z0-9_]*`。
 
-Canonical Poly files use `.poly`. Because of the known naming defect above, the current repository's examples and implementation still mostly use `.ploy`. Statements normally end in `;`, blocks use braces, and newlines are ordinary whitespace.
+Canonical Poly files use `.poly`; the historical `.ploy` extension is accepted only under the 1.x compatibility policy above. Statements normally end in `;`, blocks use braces, and newlines are ordinary whitespace.
 
 关键字按 ASCII 大写折叠，因此 `FUNC`、`func` 和 `FuNc` 等价；普通标识符保持大小写敏感。旧教程中“语法分析器对关键字大小写敏感”的说法已经不符合当前词法分析器。
 
@@ -911,7 +911,7 @@ block        ::= "{" { declaration | statement } "}"
 identifier   ::= (ASCII_LETTER | "_") { ASCII_LETTER | DIGIT | "_" }
 ```
 
-分号用于结束绑定、表达式、`RETURN`、`BREAK`、`CONTINUE`、`THROW`、`PRINTLN` 以及多数导入、链接和映射等简单语句。以代码块自身结束的 `FUNC`、`STRUCT`、`IF`、循环、`MATCH`、`TRY` 和 `PIPELINE`，不在右花括号后额外要求分号。Ploy 没有自动分号插入，因此换行不能代替必需的 `;`。
+分号用于结束绑定、表达式、`RETURN`、`BREAK`、`CONTINUE`、`THROW`、`PRINTLN` 以及多数导入、链接和映射等简单语句。以代码块自身结束的 `FUNC`、`STRUCT`、`IF`、循环、`MATCH`、`TRY` 和 `PIPELINE`，不在右花括号后额外要求分号。Poly 没有自动分号插入，因此换行不能代替必需的 `;`。
 
 Semicolons terminate simple statements. Block-owning constructs such as functions, structs, conditions, loops, matches, try blocks, and pipelines end at their closing brace. Newlines never insert missing semicolons.
 
@@ -943,7 +943,7 @@ There is no escaped-identifier or Unicode-identifier form. Rename keyword collis
 
 Comment rules affect documentation comments, formatting, and lexer source locations. The examples distinguish ordinary comments, block comments, and the triple-slash form later consumed by `polydoc`.
 
-```ploy
+```poly
 // 普通行注释 / ordinary line comment
 /* 块注释 / block comment */
 /// 文档注释：只附着到紧随其后的声明
@@ -1053,7 +1053,7 @@ Numeric separators, type suffixes, and character literals are not current syntax
 
 Strings combine source escapes, stored bytes, length, and runtime output semantics. This section starts with surface forms and then separates lexer, parser, and lowering responsibilities so source characters are not confused with runtime bytes.
 
-```ploy
+```poly
 LET normal = "line1\nline2";
 LET raw = r"C:\data\input.csv";
 LET quoted = r#"SELECT "name" FROM users"#;
@@ -1112,7 +1112,7 @@ Each form addresses a different source-text problem:
 
 For a padded raw string:
 
-```ploy
+```poly
 LET query = r##"SELECT "name" FROM files WHERE path = "C:\data""##;
 ```
 
@@ -1120,15 +1120,15 @@ LET query = r##"SELECT "name" FROM files WHERE path = "C:\data""##;
 
 The number of opening hashes determines the exact closing delimiter, allowing quotes and backslashes inside generated text without repeated escaping.
 
-模板字符串中的 `{...}` 是真正的 Ploy 表达式，而不是文本替换宏。语法分析器必须建立表达式抽象语法树，语义分析器必须检查值是否可格式化，IR 降低阶段才能执行常量折叠或生成运行时拼接。`{{` 与 `}}` 表示字面量花括号；`fr"..."`、`rf"..."` 和单引号字符串不是当前语法。若要格式化复杂对象，应先调用显式的宿主或运行时格式化器，而不是期待模板隐式遍历对象。
+模板字符串中的 `{...}` 是真正的 Poly 表达式，而不是文本替换宏。语法分析器必须建立表达式抽象语法树，语义分析器必须检查值是否可格式化，IR 降低阶段才能执行常量折叠或生成运行时拼接。`{{` 与 `}}` 表示字面量花括号；`fr"..."`、`rf"..."` 和单引号字符串不是当前语法。若要格式化复杂对象，应先调用显式的宿主或运行时格式化器，而不是期待模板隐式遍历对象。
 
-Template interpolation contains real Ploy expressions, not textual macros. Complex objects require an explicit formatter rather than implicit traversal.
+Template interpolation contains real Poly expressions, not textual macros. Complex objects require an explicit formatter rather than implicit traversal.
 
 ### 6.5 词法单元边界与源码保真 / Token boundaries and source fidelity
 
-Ploy 词法分析器只产生 `identifier/keyword/number/string/symbol/EOF` 这些共享词法单元类别。关键字的 `lexeme` 使用规范大写形式；只有源码拼写与规范形式不同时，`raw_lexeme` 才保存原文。标识符不进行大小写折叠。符号包括圆括号、花括号、方括号、逗号、分号、`::`、`->`、比较运算符、`&&/||`、`?`、`..` 与 `..=`。
+Poly 词法分析器只产生 `identifier/keyword/number/string/symbol/EOF` 这些共享词法单元类别。关键字的 `lexeme` 使用规范大写形式；只有源码拼写与规范形式不同时，`raw_lexeme` 才保存原文。标识符不进行大小写折叠。符号包括圆括号、花括号、方括号、逗号、分号、`::`、`->`、比较运算符、`&&/||`、`?`、`..` 与 `..=`。
 
-The Ploy lexer emits only the shared `identifier/keyword/number/string/symbol/EOF` token categories. A keyword's `lexeme` uses its canonical uppercase form, while `raw_lexeme` preserves the source only when the source spelling differs. Identifiers are not case-folded. Symbols include parentheses, braces, brackets, commas, semicolons, `::`, `->`, comparison operators, `&&/||`, `?`, `..`, and `..=`.
+The Poly lexer emits only the shared `identifier/keyword/number/string/symbol/EOF` token categories. A keyword's `lexeme` uses its canonical uppercase form, while `raw_lexeme` preserves the source only when the source spelling differs. Identifiers are not case-folded. Symbols include parentheses, braces, brackets, commas, semicolons, `::`, `->`, comparison operators, `&&/||`, `?`, `..`, and `..=`.
 
 文档注释会由词法分析器放入待处理缓冲区，而不是作为普通词法单元交给语法分析器。语法分析器成功读取适用声明时，再调用 `TakePendingDoc()` 取得注释。这解释了格式化器为什么必须同时读取词法单元原始文本和文档有效载荷。
 
@@ -1140,7 +1140,7 @@ Documentation comments enter a pending lexer buffer instead of the ordinary toke
 
 Its name suggests arbitrary expressions and automatic newlines, but the current implementation is narrower. This section states the runnable form and lowering contract so examples do not rely on unimplemented behaviour.
 
-```ploy
+```poly
 PRINTLN "hello\n";
 PRINTLN "embedded\0byte";
 PRINTLN "";
@@ -1164,9 +1164,9 @@ IR lowering performs one canonical decode of `\n \r \t \\ \" \0 \xHH`. Unknown o
 
 To print a runtime value, format or emit it through an explicit host/runtime helper. Do not write `PRINTLN value;`; the current parser rejects it.
 
-配套示例 [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.ploy) 固定了最小标准输出证据。对上面的三个字面量，语言与 IR 契约对应的字节序列分别是 `68 65 6c 6c 6f 0a`、包含中间 `00` 的字节串，以及长度为 0 的字节串。是否真的写到终端，仍需由目标运行时系统、链接器和可执行文件测试共同证明；不能只看 IR 中是否出现 `polyrt_println`。
+配套示例 [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.poly) 固定了最小标准输出证据。对上面的三个字面量，语言与 IR 契约对应的字节序列分别是 `68 65 6c 6c 6f 0a`、包含中间 `00` 的字节串，以及长度为 0 的字节串。是否真的写到终端，仍需由目标运行时系统、链接器和可执行文件测试共同证明；不能只看 IR 中是否出现 `polyrt_println`。
 
-The companion [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.ploy) pins the minimal stdout evidence. The three literals above lower to `68 65 6c 6c 6f 0a`, a byte string containing an interior `00`, and a zero-length payload respectively. Seeing `polyrt_println` in IR is not a substitute for a target executable test.
+The companion [`00_hello`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.poly) pins the minimal stdout evidence. The three literals above lower to `68 65 6c 6c 6f 0a`, a byte string containing an interior `00`, and a zero-length payload respectively. Seeing `polyrt_println` in IR is not a substitute for a target executable test.
 
 ### 6.7 关键字集合与历史差异 / Keywords and historical counts
 
@@ -1218,13 +1218,13 @@ Write a file containing all string and comment forms, emit tokens, and identify 
 
 ### 学习目标 / Goals
 
-你将理解 Ploy 的源码类型、统一 IR 类型和宿主 ABI 类型不是同一层，并能为变量与跨语言边界选择准确类型。
+你将理解 Poly 的源码类型、统一 IR 类型和宿主 ABI 类型不是同一层，并能为变量与跨语言边界选择准确类型。
 
 You will distinguish source types, unified IR types, and host ABI types.
 
 ### 7.0 设计目的：在进入 ABI 前消除歧义 / Design purpose: remove ambiguity before the ABI
 
-Ploy 类型系统首先回答“源码认为这个值是什么”，然后才回答“它如何跨边界传输”。显式位宽整数消除了不同宿主语言整数模型之间的歧义；`OPTION<T>` 把“可能没有值”从隐含的空值约定提升为可检查状态；`HANDLE<lang::Type>` 把外部对象的语言来源写入类型身份；容器类型实参则明确编组器必须递归转换的内容。
+Poly 类型系统首先回答“源码认为这个值是什么”，然后才回答“它如何跨边界传输”。显式位宽整数消除了不同宿主语言整数模型之间的歧义；`OPTION<T>` 把“可能没有值”从隐含的空值约定提升为可检查状态；`HANDLE<lang::Type>` 把外部对象的语言来源写入类型身份；容器类型实参则明确编组器必须递归转换的内容。
 
 The type system first says what a value means in source and only then how it crosses an ABI. Fixed widths remove host-language ambiguity, `OPTION<T>` makes absence explicit, `HANDLE<lang::Type>` records foreign origin, and container arguments tell marshalling what must be converted recursively.
 
@@ -1232,11 +1232,11 @@ The type system first says what a value means in source and only then how it cro
 
 The design follows three principles:
 
-- **不从名称推断布局**：Ploy 的 `STRING` 与 C++ 的 `std::string` 语义相近，但绝不是能够直接按位复制的同一对象；
+- **不从名称推断布局**：Poly 的 `STRING` 与 C++ 的 `std::string` 语义相近，但绝不是能够直接按位复制的同一对象；
 - **边界优先显式**：内部计算可以使用类型推导，公开签名与外部签名应优先写明 `i32`、`f64` 等精确类型；
 - **不确定性可见**：`Any` 与未知类型允许动态连接继续接受分析，但严格发布前必须消除或明确批准它们。
 
-- **Names do not imply layout**: Ploy `STRING` and C++ `std::string` have similar semantics, but they are not the same object and cannot be copied bit for bit.
+- **Names do not imply layout**: Poly `STRING` and C++ `std::string` have similar semantics, but they are not the same object and cannot be copied bit for bit.
 - **Be explicit at boundaries**: local computations may use inference, while public and foreign signatures should prefer precise types such as `i32` and `f64`.
 - **Keep uncertainty visible**: `Any` and unknown types allow dynamic wiring to remain analysable, but a strict release must eliminate or explicitly approve them.
 
@@ -1264,7 +1264,7 @@ Angle brackets are canonical for new code. A qualified host type names an extern
 
 Primitive types begin the mapping among source, IR, and ABI layers. The host mappings are typical rather than sufficient proof; cross-language calls still require descriptor and target DataLayout validation.
 
-| Ploy 类型 | 语义 | 常见宿主映射 |
+| Poly 类型 | 语义 | 常见宿主映射 |
 |---|---|---|
 | `i8/i16/i32/i64` | 有符号固定位宽整数 | C、Rust、Java 与 .NET 中相应位宽的整数 |
 | `u8/u16/u32/u64` | 无符号固定位宽整数 | 对没有原生对应类型的宿主执行范围检查 |
@@ -1277,7 +1277,7 @@ Primitive types begin the mapping among source, IR, and ABI layers. The host map
 | `INT` | 旧式整数别名 | 当前规范按 `i64` 处理 |
 | `FLOAT` | 旧式浮点别名 | 当前规范按 `f64` 处理 |
 
-| Ploy type | Semantics | Typical host mapping |
+| Poly type | Semantics | Typical host mapping |
 |---|---|---|
 | `i8/i16/i32/i64` | Signed fixed-width integer | Corresponding-width integers in C, Rust, Java, and .NET |
 | `u8/u16/u32/u64` | Unsigned fixed-width integer | Range-checked conversion for hosts without a native counterpart |
@@ -1328,7 +1328,7 @@ Choose a primitive by asking who defines the value's semantics:
 
 Container types describe more than element types: they imply layout, ownership, and failure cleanup. Understanding these source-level constructors prepares the Runtime descriptors in Chapters 16 and 18.
 
-| Ploy 类型 | 意义 |
+| Poly 类型 | 意义 |
 |---|---|
 | `ARRAY<T, N>` | 具有固定尺寸意图的序列；当前核心解析保留元素类型，但没有独立保存 `N` |
 | `LIST<T>` | 连续存储的动态序列，不是链表 |
@@ -1338,7 +1338,7 @@ Container types describe more than element types: they imply layout, ownership, 
 | `STRUCT Name { ... }` | 命名记录类型 |
 | `HANDLE<Lang::Type>` | 带类型信息的外部句柄 |
 
-| Ploy type | Meaning |
+| Poly type | Meaning |
 |---|---|
 | `ARRAY<T, N>` | A fixed-size-intent sequence; current core resolution preserves the element type but not a distinct `N` field |
 | `LIST<T>` | A contiguous dynamic sequence, not a linked list |
@@ -1392,7 +1392,7 @@ A nested list is not one pointer. Each level needs length, ownership, recursive 
 
 Aliases improve source readability without creating a new ABI identity. The examples show nested type expressions and highlight the need to detect alias cycles and preserve type arguments.
 
-```ploy
+```poly
 TYPE RowId = i64;
 TYPE Scores = LIST<f64>;
 
@@ -1415,7 +1415,7 @@ An alias right-hand side may be a primitive, qualified host type, container, `HA
 
 Aliases and nominal structs serve different purposes:
 
-```ploy
+```poly
 TYPE UserId = i64;              // same underlying value/ABI as i64
 STRUCT User { id: UserId }      // a distinct nominal record
 ```
@@ -1428,7 +1428,7 @@ An alias improves domain vocabulary but does not create a new ABI identity. A st
 
 Aliases must be declared before use:
 
-```ploy
+```poly
 TYPE Scores = LIST<f64>;
 TYPE MaybeScores = OPTION<Scores>;
 ```
@@ -1443,11 +1443,11 @@ The reverse order leaves `Scores` unavailable to the single-pass registry. A cyc
 
 Many cross-language defects arise because three apparently identical types belong to different layers. The list separates user-visible types, compiler semantic types, and IR/ABI representations.
 
-1. **源码类型**：Ploy 与宿主语言看到的类型。
+1. **源码类型**：Poly 与宿主语言看到的类型。
 2. **IR 类型**：优化和验证使用的统一表示。
 3. **ABI 表示**：寄存器、栈、指针、句柄和容器描述符。
 
-1. **Source type**: the type visible to Ploy and the host language.
+1. **Source type**: the type visible to Poly and the host language.
 2. **IR type**: the unified representation used by optimisation and verification.
 3. **ABI representation**: registers, stack slots, pointers, handles, and container descriptors.
 
@@ -1467,7 +1467,7 @@ A type spelling becomes checkable only after Sema resolves it to `core::Type`. T
 | `isize/usize` | host-side 64-bit placeholder, restamped for actual 32-bit targets later |
 | `INT/FLOAT` | legacy `i64/f64` |
 | `BOOL/STRING/VOID` | Bool/String/Void |
-| `PTR/ptr/pointer` | opaque `Any` in current Ploy sema |
+| `PTR/ptr/pointer` | opaque `Any` in current Poly sema |
 | unknown simple name | nominal Struct(name) |
 | `LIST<T>`/`ARRAY<T,...>` | Array(T) |
 | `TUPLE<T...>` | Tuple(types) |
@@ -1501,7 +1501,7 @@ The current header default for `PloySemaOptions.strict_mode` is `false`. Release
 
 Inference reduces local repetition rather than hiding public contracts:
 
-```ploy
+```poly
 LET count = 42;                  // integer literal candidate
 LET ratio: f64 = 1.0 / 4.0;     // annotation fixes f64
 LET names = ["a", "b"];        // list literal -> LIST<STRING>
@@ -1510,7 +1510,7 @@ LET missing: OPTION<i32> = None;
 LET raw = NULL;                  // raw-null/pointer intent, not OPTION
 ```
 
-对于 `LET value: i32 = some_i64;`，语义分析器不是简单比较字符串 `"i32"` 与 `"i64"`，而是先解析别名、取得位宽和符号属性，再调用兼容性与隐式转换规则，并根据严格模式选择警告或错误。跨语言参数还要继续与 `LINK`、`CLASS` 签名以及目标数据布局比较，因此“Ploy 内可赋值”不能自动推出“ABI 可直接传递”。
+对于 `LET value: i32 = some_i64;`，语义分析器不是简单比较字符串 `"i32"` 与 `"i64"`，而是先解析别名、取得位宽和符号属性，再调用兼容性与隐式转换规则，并根据严格模式选择警告或错误。跨语言参数还要继续与 `LINK`、`CLASS` 签名以及目标数据布局比较，因此“Poly 内可赋值”不能自动推出“ABI 可直接传递”。
 
 Semantic comparison resolves aliases and width/sign before consulting conversion policy. A source-level assignment being accepted does not prove ABI-level direct transfer.
 
@@ -1534,7 +1534,7 @@ Semantic comparison resolves aliases and width/sign before consulting conversion
 
 ### 练习 / Exercise
 
-为 `LIST<STRUCT Record>` 写出 Ploy 类型、预期 IR 形状和 C ABI 描述符中必须携带的字段。
+为 `LIST<STRUCT Record>` 写出 Poly 类型、预期 IR 形状和 C ABI 描述符中必须携带的字段。
 
 Describe the source, IR, and C ABI representation of `LIST<Record>`.
 
@@ -1586,7 +1586,7 @@ const_decl   ::= "CONST" name ":" type_expr "=" const_expr ";"
 alias_decl   ::= "TYPE" name "=" type_expr ";"
 ```
 
-```ploy
+```poly
 LET immutable: i32 = 1;
 VAR mutable: i32 = 2;
 CONST MAX_ROWS: i32 = 1000;
@@ -1642,7 +1642,7 @@ argument      ::= expr | name ":" expr
 
 Each part becomes a distinct compiler fact: the name registers a callable symbol, type parameters constrain generic use, parameter names enable named calls, parameter types validate inputs, defaults fill omitted arguments, the return arrow defines the expected result, and the body owns a scope and CFG. Omitting the arrow means `VOID`, not whole-function return inference.
 
-```ploy
+```poly
 FUNC clamp(value: i32, low: i32 = 0, high: i32 = 100) -> i32 {
     IF value < low { RETURN low; }
     IF value > high { RETURN high; }
@@ -1657,7 +1657,7 @@ FUNC main() -> i32 {
 }
 ```
 
-具有默认值的参数必须位于必需参数之后，并且默认值必须是字面量、字面量运算或纯 Ploy 内部调用等可折叠表达式。调用可以使用位置实参、命名实参，或者“位置实参后接命名实参”；遗漏必需参数是错误。
+具有默认值的参数必须位于必需参数之后，并且默认值必须是字面量、字面量运算或纯 Poly 内部调用等可折叠表达式。调用可以使用位置实参、命名实参，或者“位置实参后接命名实参”；遗漏必需参数是错误。
 
 Defaulted parameters follow required parameters and require constant-foldable expressions. Calls may be positional, named, or positional followed by named.
 
@@ -1677,7 +1677,7 @@ The `clamp` example demonstrates a stable API whose common policy values are def
 | `clamp(120, high: 80)` | `value=120, low=0, high=80` | `80` |
 | `clamp(value: 5, low: 1, high: 9)` | All arguments are named | `5` |
 
-命名实参的价值是让多个同类型参数不再依靠位置猜测含义；代价是参数名会成为源码 API 的一部分，重命名可能破坏调用方。跨语言 `CALL` 是否支持相同的名称映射，取决于描述符与宿主签名，不能从普通 Ploy 函数调用自动类推。
+命名实参的价值是让多个同类型参数不再依靠位置猜测含义；代价是参数名会成为源码 API 的一部分，重命名可能破坏调用方。跨语言 `CALL` 是否支持相同的名称映射，取决于描述符与宿主签名，不能从普通 Poly 函数调用自动类推。
 
 Named arguments prevent positional ambiguity, but parameter names become source-API surface. Do not assume foreign `CALL` has identical named-argument support without descriptor evidence.
 
@@ -1701,15 +1701,15 @@ Positional, named, and default arguments require a deterministic merge algorithm
 5. Each actual argument type is compared with the corresponding entry in `param_types`.
 6. The result is compared with the call-site expected type, and an error includes a traceback to the definition.
 
-语法分析器与语义分析器都会检查“必需参数位于默认参数之后”的错误，避免错误恢复或手工构造的抽象语法树绕过规则。默认值可以是字面量、可递归折叠的一元或二元表达式、`CONST` 引用，或者被判定为纯函数的 Ploy 内部调用；跨语言调用不能作为默认值。
+语法分析器与语义分析器都会检查“必需参数位于默认参数之后”的错误，避免错误恢复或手工构造的抽象语法树绕过规则。默认值可以是字面量、可递归折叠的一元或二元表达式、`CONST` 引用，或者被判定为纯函数的 Poly 内部调用；跨语言调用不能作为默认值。
 
-Both the parser and Sema reject a required parameter after a defaulted one, preventing error recovery or a hand-built AST from bypassing the rule. A default may be a literal, a recursively foldable unary or binary expression, a `CONST` reference, or an intra-Ploy call proven pure. A cross-language call cannot be a default value.
+Both the parser and Sema reject a required parameter after a defaulted one, preventing error recovery or a hand-built AST from bypassing the rule. A default may be a literal, a recursively foldable unary or binary expression, a `CONST` reference, or an intra-Poly call proven pure. A cross-language call cannot be a default value.
 
 常见绑定错误可以在调用前确定：
 
 Common binding errors are statically knowable:
 
-```ploy
+```poly
 // Invalid examples / 非法示例
 FUNC bad(a: i32 = 1, b: i32) -> i32 { RETURN b; } // required after default
 // clamp(value: 1, 2);                              // positional after named
@@ -1727,15 +1727,15 @@ These are parser/Sema failures, not runtime failures.
 
 `CONST name: Type = expression;` requires both a type and an initialiser. The evaluator supports literals, earlier `CONST` values, unary `-` and `!`, numeric arithmetic and comparison, Boolean logic, and string concatenation. A numeric result chooses the wider bit width; it becomes floating point if either operand is floating point; integer signedness remains signed only when both operands are signed. Unsupported operators, non-`CONST` identifiers, and dynamic calls are hard errors, as is a mismatch between the declared type and the folded type.
 
-```ploy
+```poly
 CONST RETRIES: i32 = 5;
 CONST DOUBLE_RETRIES: i32 = RETRIES * 2;
 CONST LABEL: STRING = "retry-" + "policy";
 ```
 
-常量值会注册为不可变的 Ploy 符号，后续表达式通过普通名称查找取得它们；这样可以避免 IR 降低阶段维护第二套名称系统。
+常量值会注册为不可变的 Poly 符号，后续表达式通过普通名称查找取得它们；这样可以避免 IR 降低阶段维护第二套名称系统。
 
-Constant values are registered as immutable Ploy symbols and later expressions find them through ordinary name lookup. This prevents IR lowering from maintaining a second name system.
+Constant values are registered as immutable Poly symbols and later expressions find them through ordinary name lookup. This prevents IR lowering from maintaining a second name system.
 
 当前实现还有一个值得明确记录的上下文类型分析缺口：无后缀的整数字面量首先折叠为 `i64`，所以 `CONST RETRIES: i32 = 5;` 会产生 `E3003` 位宽警告，尽管检查命令仍可成功退出；`CONST RETRIES: i64 = 5;` 当前则不会产生诊断。教材保留 `i32` 写法，用来表达目标声明位宽；但自动化测试若要求零警告，应暂时使用 `i64`，或者在未来让常量求值器根据预期类型分析字面量后再更新断言。不能把“退出码为 0”与“诊断集合为空”混为一谈。
 
@@ -1745,7 +1745,7 @@ The current evaluator first folds an unsuffixed integer literal as `i64`, so `CO
 
 The constant evaluator makes compile-time requirements explicit. Protocol tags and default policies may be constants; clocks, environment variables, network results, and foreign calls may not.
 
-```ploy
+```poly
 CONST BASE: i32 = 4;
 CONST LIMIT: i32 = BASE * 2 + 1; // folds to 9
 LET runtime_limit: i32 = LIMIT;  // ordinary symbol lookup sees typed constant
@@ -1765,7 +1765,7 @@ The current `PloySema` isolates function locals with snapshots of its symbol map
 
 Scopes make name resolution deterministic:
 
-```ploy
+```poly
 CONST LIMIT: i32 = 100;
 
 FUNC first(value: i32) -> i32 {
@@ -1907,7 +1907,7 @@ Operators are grouped by semantic purpose rather than appearance:
 
 Short-circuiting is observable semantics, not merely optimisation: the right-hand side may contain a foreign call, failure, or allocation.
 
-```ploy
+```poly
 IF raw_handle != 0 AND CALL(cpp, api::is_ready, raw_handle) {
     PRINTLN "ready\n";
 }
@@ -1961,7 +1961,7 @@ Long postfix chains are legal but should often be split into typed bindings at l
 
 Control-flow constructs directly form basic blocks, branches, and merge points. The examples emphasise conditions and loop boundaries in preparation for CFG and verifier rules.
 
-```ploy
+```poly
 IF score >= 0.8 {
     PRINTLN "high";
 } ELSE {
@@ -1984,7 +1984,7 @@ FOR value IN [1, 2, 3] {
 
 The retained `i += 1` line is an intentionally invalid historical counterexample. Current code must spell the assignment explicitly:
 
-```ploy
+```poly
 VAR i: i32 = 0;
 WHILE (i < 3) {
     i = i + 1;
@@ -2070,7 +2070,7 @@ unwrap_expr ::= postfix_expr "?"
 
 The original `plus_one` is retained as the intended language semantics, but its value-position constructors hit the current Sema gap described in §10.1:
 
-```ploy
+```poly
 FUNC plus_one(opt: OPTION<i32>) -> OPTION<i32> {
     IF LET None = opt {
         RETURN None;
@@ -2085,7 +2085,7 @@ FUNC plus_one(opt: OPTION<i32>) -> OPTION<i32> {
 
 The following frontend-checkable form accepts and returns an existing Option, isolating patterns, `?`, binding scope, and return compatibility from value construction:
 
-```ploy
+```poly
 FUNC keep_positive(opt: OPTION<i32>) -> OPTION<i32> {
     IF LET None = opt {
         RETURN opt;
@@ -2107,7 +2107,7 @@ The postfix operator unwraps `Some` or returns early on `None`.
 
 Choose based on whether the caller needs the failure branch locally:
 
-```ploy
+```poly
 // Local branching: both paths have useful work.
 IF LET Some(value) = lookup() {
     use(value);
@@ -2168,7 +2168,7 @@ An `IF` normally creates condition, then, else, and merge blocks. A loop creates
 | `i += 1;` | 没有复合赋值语法 | `i = i + 1;` |
 | `IF text { ... }` | `STRING` 当前不支持真值判定 | 显式比较，例如 `text != ""` |
 | 在循环外使用 `BREAK;` | 没有目标循环块 | 返回或重构控制流 |
-| `FOR (i=0; i<n; i=i+1)` | 不符合 Ploy 的 `FOR` 语法 | 使用 `WHILE` 或 `FOR item IN values` |
+| `FOR (i=0; i<n; i=i+1)` | 不符合 Poly 的 `FOR` 语法 | 使用 `WHILE` 或 `FOR item IN values` |
 | 在模块作用域使用 `value?` | 没有返回可选值的外围函数 | 使用 `IF LET` 处理，或移入函数 |
 | 把 `1..=10` 当作普通可迭代值 | 闭区间形式当前属于模式路径 | 使用已经验证的范围或宿主可迭代路径 |
 
@@ -2177,7 +2177,7 @@ An `IF` normally creates condition, then, else, and merge blocks. A loop creates
 | `i += 1;` | No compound-assignment grammar | `i = i + 1;` |
 | `IF text { ... }` | `STRING` is not a current truthy condition type | Compare explicitly, for example `text != ""` |
 | `BREAK;` outside a loop | No target loop block | Return or restructure control flow |
-| `FOR (i=0; i<n; i=i+1)` | Not Ploy `FOR` grammar | Use `WHILE` or `FOR item IN values` |
+| `FOR (i=0; i<n; i=i+1)` | Not Poly `FOR` grammar | Use `WHILE` or `FOR item IN values` |
 | `value?` at module scope | No enclosing optional-return function | Handle with `IF LET` or move it into a function |
 | `1..=10` as an ordinary iterable | The inclusive form currently belongs to the pattern path | Use a proven range or host-iterable path |
 
@@ -2203,9 +2203,9 @@ This chapter combines data modelling and control flow using the full pattern set
 
 ### 10.0 设计目的：让数据形状进入类型与控制流 / Design purpose: put data shape into types and control flow
 
-Ploy 需要在跨语言调用前知道数据“长什么样”，也需要在控制流中安全地拆解这种形状。`STRUCT` 为命名字段建立名义数据模式；列表、元组与字典字面量建立容器值；`OPTION<T>` 显式编码有值或无值；模式则只在形状检查成功后引入局部绑定。这样，编译器无需根据字段名称猜测结构，也不依赖隐含空值约定，就能建立类型、控制流图与编组契约。
+Poly 需要在跨语言调用前知道数据“长什么样”，也需要在控制流中安全地拆解这种形状。`STRUCT` 为命名字段建立名义数据模式；列表、元组与字典字面量建立容器值；`OPTION<T>` 显式编码有值或无值；模式则只在形状检查成功后引入局部绑定。这样，编译器无需根据字段名称猜测结构，也不依赖隐含空值约定，就能建立类型、控制流图与编组契约。
 
-Ploy must know data shape before crossing a language boundary and must destructure that shape safely in control flow. Structs provide nominal fields, containers provide composite values, options encode presence, and patterns bind values only after a successful shape check.
+Poly must know data shape before crossing a language boundary and must destructure that shape safely in control flow. Structs provide nominal fields, containers provide composite values, options encode presence, and patterns bind values only after a successful shape check.
 
 四类概念不要混淆：
 
@@ -2231,7 +2231,7 @@ Do not conflate these four concepts:
 
 Structs combine named access with field layout, while Option explicitly represents absence. Together they underpin pattern matching and cross-language record or container mappings.
 
-```ploy
+```poly
 STRUCT Reading {
     sensor: STRING,
     value: f64
@@ -2251,7 +2251,7 @@ Use `Some/None` rather than raw `NULL` for optional values.
 
 > **设计语义与当前实现边界 / Intended semantics versus current implementation**：上面的 `find_reading` 展示可选值的目标语言形式。当前语法分析器能够解析 `Some(expr)` 与 `None`，语义分析器也能在 `IF LET`、`MATCH` 模式、穷尽性分析和后缀 `?` 中识别可选值；但是，普通值表达式分析尚未把 `Some` 与 `None` 注册为内建构造器。因此，当前 `polyc --check` 会对 `RETURN Some(item);` 和 `RETURN None;` 报告“未定义标识符”类诊断。这个差异不是语法设计发生变化，而是语义分析器的构造器路径尚未闭环。
 >
-> 当前可复现的零诊断写法是让函数**接收已有的** `OPTION<T>`，再用 `IF LET`、`MATCH` 或 `?` 解构并返回原可选值；见 [`09_language_tour/main.ploy`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.ploy)。要完成值构造，语义分析器需要在预期类型为 `OPTION<T>` 时把 `None` 确定为该可选类型，并把 `Some(expr)` 确定为 `OPTION<U>` 后检查 `expr: U`；IR 降低还需要生成一致的标签、有效载荷表示与清理逻辑。
+> 当前可复现的零诊断写法是让函数**接收已有的** `OPTION<T>`，再用 `IF LET`、`MATCH` 或 `?` 解构并返回原可选值；见 [`09_language_tour/main.poly`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.poly)。要完成值构造，语义分析器需要在预期类型为 `OPTION<T>` 时把 `None` 确定为该可选类型，并把 `Some(expr)` 确定为 `OPTION<U>` 后检查 `expr: U`；IR 降低还需要生成一致的标签、有效载荷表示与清理逻辑。
 >
 > The example shows the intended Option construction syntax. Current parsing, option patterns, exhaustiveness, and postfix `?` are implemented, but ordinary value-expression analysis still treats `Some` and `None` as unresolved names. The companion language tour therefore accepts an existing Option and verifies only the paths that are currently complete. Finishing construction requires expected-type-aware Sema plus a consistent tagged payload lowering.
 
@@ -2285,7 +2285,7 @@ The declaration defines the legal field set and types, construction maps named i
 
 Type expressions describe allowed contents; literals create values:
 
-```ploy
+```poly
 LET samples: LIST<i32> = [1, 2, 3];
 LET coordinate: TUPLE<i32, i32> = (10, 20);
 LET labels: DICT<STRING, i32> = {"ok": 200, "error": 500};
@@ -2339,7 +2339,7 @@ pattern ::= "_"
 
 The guard runs only after structural matching and bindings succeed. A bare name binds; it does not compare against a constant of that spelling.
 
-```ploy
+```poly
 MATCH code {
     CASE 0 -> { PRINTLN "zero"; }
     CASE 1 | 2 | 3 -> { PRINTLN "small"; }
@@ -2393,7 +2393,7 @@ The concrete purpose of each pattern is:
 
 The parser also implements tuple patterns `(p1, p2, ...)`, constructors `Name(...)`, and structure patterns `Name { field, field: subpattern, .. }`. A bare identifier is an irrefutable binding; the sole special case promotes bare `None` to a zero-argument constructor for Option exhaustiveness.
 
-```ploy
+```poly
 MATCH point {
     CASE Point { x: 0, y, .. } { PRINTLN "on y-axis\n"; }
     CASE p @ Point { x, y } IF x == y { PRINTLN "diagonal\n"; }
@@ -2463,7 +2463,7 @@ Use `IF LET` for one local option branch, `MATCH` for multiple shapes or exhaust
 
 Construction must connect source field names, declaration order, and physical storage layout. The examples show how named initialisers are validated and where missing or duplicate fields should be diagnosed.
 
-```ploy
+```poly
 STRUCT Point { x: i32, y: i32 }
 
 FUNC origin() -> Point {
@@ -2472,9 +2472,9 @@ FUNC origin() -> Point {
 }
 ```
 
-语义分析器注册名义结构体及其 `(field_name, field_type)` 表，检查重复字段、未知或缺失的初始化项，以及类型不匹配；成员访问使用该表返回静态类型。跨语言 `HANDLE` 表示“类（语言，名称）”，不是 Ploy 结构体；二者不能因为字段名称相同就自动兼容。
+语义分析器注册名义结构体及其 `(field_name, field_type)` 表，检查重复字段、未知或缺失的初始化项，以及类型不匹配；成员访问使用该表返回静态类型。跨语言 `HANDLE` 表示“类（语言，名称）”，不是 Poly 结构体；二者不能因为字段名称相同就自动兼容。
 
-Sema registers a nominal structure and its `(field_name, field_type)` table, checking duplicate fields, unknown or missing initialisers, and type mismatches. Member access returns a static type from that table. A cross-language `HANDLE` represents a class identified by language and name, not a Ploy structure; equal field names do not make the two compatible.
+Sema registers a nominal structure and its `(field_name, field_type)` table, checking duplicate fields, unknown or missing initialisers, and type mismatches. Member access returns a static type from that table. A cross-language `HANDLE` represents a class identified by language and name, not a Poly structure; equal field names do not make the two compatible.
 
 ### 10.5 模式的 IR 降低 / Pattern lowering
 
@@ -2566,11 +2566,11 @@ You will distinguish source modules, external packages, package-manager environm
 
 ### 11.0 设计目的：把“名字在哪里”拆成可审计事实 / Design purpose: auditable discovery
 
-跨语言项目中的“找不到模块”可能表示四件完全不同的事：源码路径不存在、包尚未安装、选择了错误环境，或者语言运行时与版本不匹配。Ploy 不把它们合并成一次隐式搜索，而是分别使用 `IMPORT`、包版本约束、`CONFIG` 与 `LANG` 表达。这样，诊断可以指出失败的维度，构建缓存也能把路径、清单和版本纳入缓存键。
+跨语言项目中的“找不到模块”可能表示四件完全不同的事：源码路径不存在、包尚未安装、选择了错误环境，或者语言运行时与版本不匹配。Poly 不把它们合并成一次隐式搜索，而是分别使用 `IMPORT`、包版本约束、`CONFIG` 与 `LANG` 表达。这样，诊断可以指出失败的维度，构建缓存也能把路径、清单和版本纳入缓存键。
 
-“Module not found” can mean a missing source path, absent package, wrong environment, or incompatible language runtime. Ploy models those dimensions separately so diagnostics and cache keys can remain explainable.
+“Module not found” can mean a missing source path, absent package, wrong environment, or incompatible language runtime. Poly models those dimensions separately so diagnostics and cache keys can remain explainable.
 
-| 问题 | Ploy 构造 | 记录内容 | 不负责的工作 |
+| 问题 | Poly 构造 | 记录内容 | 不负责的工作 |
 |---|---|---|---|
 | 从哪里发现名称？ | `IMPORT` | 路径、模块或包身份以及别名 | 定义可调用的 ABI |
 | 哪些包版本可以接受？ | 版本约束 | 请求的版本关系 | 自动安装包 |
@@ -2578,7 +2578,7 @@ You will distinguish source modules, external packages, package-manager environm
 | 使用哪个语言运行时与工具链？ | `LANG` | 具有作用域的语言版本 | 证明每个包都支持该版本 |
 | 如何调用？ | `LINK`/`CLASS` + `CALL` | 带类型的边界契约与使用方式 | 代替发现过程 |
 
-| Question | Ploy construct | Records | Does not do |
+| Question | Poly construct | Records | Does not do |
 |---|---|---|---|
 | Where is a name discovered? | `IMPORT` | Path, module or package identity, and alias | Define a callable ABI |
 | Which package versions are acceptable? | Version constraint | Requested version relation | Install the package automatically |
@@ -2590,13 +2590,13 @@ You will distinguish source modules, external packages, package-manager environm
 
 A complete resolution often needs several facts rather than one magical import:
 
-```ploy
+```poly
 CONFIG python "venv" "env/python";
 LANG python = "3.11";
 IMPORT python PACKAGE numpy >= 1.26 AS np;
 ```
 
-第一行选择清单或解释器环境，第二行约束语言运行时身份，第三行请求包与别名。它们仍然没有声明某个 NumPy 函数的 Ploy 可调用签名；那属于 `LINK` 与适配器契约。
+第一行选择清单或解释器环境，第二行约束语言运行时身份，第三行请求包与别名。它们仍然没有声明某个 NumPy 函数的 Poly 可调用签名；那属于 `LINK` 与适配器契约。
 
 The lines choose an environment, pin a runtime, and request a package. They still do not declare a callable function signature.
 
@@ -2606,7 +2606,7 @@ The lines choose an environment, pin a runtime, and request a package. They stil
 
 Module imports first address source organisation and symbol visibility; they do not by themselves load a foreign runtime. The examples separate local modules from later package and host-language discovery.
 
-```ploy
+```poly
 IMPORT cpp::reader;
 IMPORT python::model;
 IMPORT rust::cleaner;
@@ -2640,19 +2640,19 @@ Each form has a distinct purpose:
 
 | 形式 | 组成 | 适合场景 |
 |---|---|---|
-| `IMPORT "path" AS local;` | 带引号的文件系统路径与本地模块名 | 生成的或本地的 Ploy 或宿主源码产物 |
+| `IMPORT "path" AS local;` | 带引号的文件系统路径与本地模块名 | 生成的或本地的 Poly 或宿主源码产物 |
 | `IMPORT cpp::math;` | 语言与限定模块名 | 发现宿主模块或库 |
 | `IMPORT python PACKAGE numpy >= 1.26 AS np;` | 语言、包、约束与别名 | 引入包根命名空间 |
 | `IMPORT python PACKAGE numpy::(array, mean);` | 包与选定符号 | 只暴露一小组已知符号 |
 
 | Form | Anatomy | Suitable use |
 |---|---|---|
-| `IMPORT "path" AS local;` | Quoted filesystem path and local module name | Generated or local Ploy or host-source artifact |
+| `IMPORT "path" AS local;` | Quoted filesystem path and local module name | Generated or local Poly or host-source artifact |
 | `IMPORT cpp::math;` | Language and qualified module | Host-module or library discovery |
 | `IMPORT python PACKAGE numpy >= 1.26 AS np;` | Language, package, constraint, and alias | Package-root namespace |
 | `IMPORT python PACKAGE numpy::(array, mean);` | Package and selected symbols | Expose a small known symbol set |
 
-别名改变当前文件中的查找入口，但不改变真实包或模块身份；选择性导入则直接登记所选名称。二者不能组合，是为了避免 `np` 究竟代表包还是一组选定符号的歧义。限定名称中的 `::` 是 Ploy 的命名空间分隔符，不应机械替换成宿主文件路径分隔符。
+别名改变当前文件中的查找入口，但不改变真实包或模块身份；选择性导入则直接登记所选名称。二者不能组合，是为了避免 `np` 究竟代表包还是一组选定符号的歧义。限定名称中的 `::` 是 Poly 的命名空间分隔符，不应机械替换成宿主文件路径分隔符。
 
 An alias changes local lookup spelling without changing package identity. Selective import registers individual names. They cannot be combined because the resulting lookup namespace would be ambiguous.
 
@@ -2674,7 +2674,7 @@ Import analysis registers module aliases and selected symbols in the symbol tabl
 
 External package resolution combines package identity, version constraints, and host toolchain location. A valid declaration only expresses the request; package indexing and runtime import must still prove availability.
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy >= 1.20 AS np;
 IMPORT python PACKAGE torch::(tensor, no_grad);
 IMPORT rust PACKAGE serde >= 1.0;
@@ -2706,11 +2706,11 @@ Package-version comparison and language-toolchain version are independent axes: 
 
 ### 11.3 `CONFIG`：包管理器配置 / `CONFIG`: package-manager configuration
 
-`CONFIG` 把包管理器与环境选择写入 Ploy 源码，但它不是任意外壳命令执行接口。下面的形式用于形成可以验证和缓存的发现输入。
+`CONFIG` 把包管理器与环境选择写入 Poly 源码，但它不是任意外壳命令执行接口。下面的形式用于形成可以验证和缓存的发现输入。
 
-`CONFIG` records package-manager and environment selection in Ploy source without becoming an arbitrary shell-execution facility. These forms create discovery inputs that can be validated and cached.
+`CONFIG` records package-manager and environment selection in Poly source without becoming an arbitrary shell-execution facility. These forms create discovery inputs that can be validated and cached.
 
-```ploy
+```poly
 CONFIG python "venv" "env/python";
 CONFIG rust "cargo" ".";
 CONFIG javascript "npm" "./node_modules";
@@ -2740,7 +2740,7 @@ The registry currently accepts Python with venv, conda, uv, pipenv, or poetry; R
 
 Package discovery is controlled by `PloySemaOptions.enable_package_discovery` and is cached. Python paths invoke the environment's Python and pip, or conda, uv, pipenv, or poetry; other paths probe Cargo, C++ environments, Java/Maven/Gradle, .NET/NuGet, and related implementations. Safety-oriented tools such as `polytopo` disable discovery to avoid running package commands during source analysis. The driver workflow enables it only in an explicitly authorised environment.
 
-这一区分也说明为什么 `polytopo file.ploy` 与完整编译可能得到不同的包事实：只读拓扑工具优先保证安全与确定性，不应因为打开一个文件就执行包管理器；显式构建流程才有权探测环境。自动化系统必须记录发现是否启用、包管理器命令、工作目录、标准输出、标准错误和缓存命中情况，不能只保存最终的“未找到”。
+这一区分也说明为什么 `polytopo file.poly` 与完整编译可能得到不同的包事实：只读拓扑工具优先保证安全与确定性，不应因为打开一个文件就执行包管理器；显式构建流程才有权探测环境。自动化系统必须记录发现是否启用、包管理器命令、工作目录、标准输出、标准错误和缓存命中情况，不能只保存最终的“未找到”。
 
 Read-only topology tools may deliberately disable package discovery, while an authorised build enables it. Record that mode and its command evidence when diagnosing differences.
 
@@ -2750,7 +2750,7 @@ Read-only topology tools may deliberately disable package discovery, while an au
 
 Different call sites may require different versions of the same language, so version belongs in descriptor identity. The examples show file- and scope-level pins in preparation for versioned linker stubs.
 
-```ploy
+```poly
 LANG python = "3.11";
 
 WITH LANG (python="3.12", cpp="c++23") {
@@ -2818,13 +2818,13 @@ flowchart LR
   D --> E["polyld stub / Runtime bridge variant"]
 ```
 
-排错时应保存显式的 CLI 搜索参数、`--print-effective-settings` 检查快照、工具链目录、包命令输出、Ploy 诊断与 `.paux` 描述符。只看源码中的 `CONFIG` 不能证明驱动程序实际使用了该环境；当前设置快照也不能证明其中的值已经进入编译选项。
+排错时应保存显式的 CLI 搜索参数、`--print-effective-settings` 检查快照、工具链目录、包命令输出、Poly 诊断与 `.paux` 描述符。只看源码中的 `CONFIG` 不能证明驱动程序实际使用了该环境；当前设置快照也不能证明其中的值已经进入编译选项。
 
-Retain explicit CLI search options, an inspection snapshot from `--print-effective-settings`, toolchain catalogues, package-command output, Ploy diagnostics, and `.paux` descriptors. A source `CONFIG` alone does not prove that the driver used that environment, and an effective-settings snapshot does not prove that its values reached compilation options.
+Retain explicit CLI search options, an inspection snapshot from `--print-effective-settings`, toolchain catalogues, package-command output, Poly diagnostics, and `.paux` descriptors. A source `CONFIG` alone does not prove that the driver used that environment, and an effective-settings snapshot does not prove that its values reached compilation options.
 
 ### 11.6 编译器搜索参数 / Compiler search options
 
-当前编译解析由 Ploy 的 `CONFIG` 与 `LANG`、显式 CLI 模块、搜索与版本参数、包索引，以及宿主工具链共同决定。`--print-effective-settings` 可以检查层叠 JSON，但第 21、38 章所述的当前辅助程序尚未把它映射进普通 `DriverSettings`；因此，自动化系统必须继续显式传入搜索与版本参数，并用 `polyver detect/path` 检查实际宿主版本。
+当前编译解析由 Poly 的 `CONFIG` 与 `LANG`、显式 CLI 模块、搜索与版本参数、包索引，以及宿主工具链共同决定。`--print-effective-settings` 可以检查层叠 JSON，但第 21、38 章所述的当前辅助程序尚未把它映射进普通 `DriverSettings`；因此，自动化系统必须继续显式传入搜索与版本参数，并用 `polyver detect/path` 检查实际宿主版本。
 
 Current compilation uses explicit source/CLI/package/toolchain inputs. Effective-settings output is inspection evidence, not proof that those values configured the driver.
 
@@ -2884,7 +2884,7 @@ This chapter covers advanced features that change control flow or type represent
 
 ### 12.0 设计目的：把隐藏的控制效应写进源码 / Design purpose: make control effects explicit
 
-异常、异步和泛型看似三类功能，实际共同解决“普通函数签名没有表达完整事实”的问题：异常表示函数可能离开正常返回路径；异步表示结果可能稍后产生，而且局部状态需要跨越挂起点继续存活；泛型表示同一声明对一组受约束类型有效。Ploy 使用显式关键字和约束，把这些控制效应写入抽象语法树与描述符，使工具能够建立错误边、未来值生命周期和类型参数信息。
+异常、异步和泛型看似三类功能，实际共同解决“普通函数签名没有表达完整事实”的问题：异常表示函数可能离开正常返回路径；异步表示结果可能稍后产生，而且局部状态需要跨越挂起点继续存活；泛型表示同一声明对一组受约束类型有效。Poly 使用显式关键字和约束，把这些控制效应写入抽象语法树与描述符，使工具能够建立错误边、未来值生命周期和类型参数信息。
 
 Errors, async execution, and generics all expose facts that an ordinary monomorphic function signature cannot express: exceptional exits, delayed results with suspended state, and families of constrained types.
 
@@ -2896,14 +2896,14 @@ Choose by the problem being solved rather than by syntactic novelty. The first t
 |---|---|---|
 | 合法缺失，而且不需要说明原因 | `OPTION<T>` | 用两个正常状态表达有值与无值，分支成本较低 |
 | 失败需要消息、来源或原因链 | `THROW`、`ERROR` 或显式状态 | 保留失败信息，而不是把原因折叠成空值 |
-| 等待外部输入输出或宿主任务 | `ASYNC FUNC` 与 `AWAIT` | 挂起当前 Ploy 帧，而不是阻塞整个调度循环 |
+| 等待外部输入输出或宿主任务 | `ASYNC FUNC` 与 `AWAIT` | 挂起当前 Poly 帧，而不是阻塞整个调度循环 |
 | 同一算法适用于多种类型 | `<T: Bound>` 或 `WHERE` | 用一份声明表达经过约束的类型族 |
 
 | Problem | Primary construct | Why |
 |---|---|---|
 | Expected absence without an explanatory cause | `OPTION<T>` | Represents presence and absence as two normal states with lightweight branching |
 | Failure requiring a message, source, or cause chain | `THROW`, `ERROR`, or an explicit status | Preserves failure information instead of collapsing it into absence |
-| Waiting for external I/O or a host task | `ASYNC FUNC` and `AWAIT` | Suspends the current Ploy frame instead of blocking the scheduling loop |
+| Waiting for external I/O or a host task | `ASYNC FUNC` and `AWAIT` | Suspends the current Poly frame instead of blocking the scheduling loop |
 | One algorithm applying to multiple types | `<T: Bound>` or `WHERE` | Describes a constrained family of types with one declaration |
 
 不要使用异常表示普通的“没有找到”，不要使用异步构造假装中央处理器密集型工作会自动并行，也不要使用没有约束的 `T` 隐藏本应明确的外部 ABI 类型。
@@ -2923,11 +2923,11 @@ finally_clause ::= "FINALLY" block
 throw_stmt ::= "THROW" expr ";"
 ```
 
-`TRY` 标出受保护区域；每个 `CATCH` 建立一个只在处理器主体中可见的绑定；类型标注描述预期的错误表面；`FINALLY` 定义无论正常完成还是异常离开都必须经过的清理区域；`THROW` 把表达式转换成 Ploy 可见的错误，并终止当前正常路径。
+`TRY` 标出受保护区域；每个 `CATCH` 建立一个只在处理器主体中可见的绑定；类型标注描述预期的错误表面；`FINALLY` 定义无论正常完成还是异常离开都必须经过的清理区域；`THROW` 把表达式转换成 Poly 可见的错误，并终止当前正常路径。
 
-`TRY` marks a protected region, each catch introduces a handler-local binding, `FINALLY` owns cleanup, and `THROW` converts a value into a Ploy-visible error while terminating the normal path.
+`TRY` marks a protected region, each catch introduces a handler-local binding, `FINALLY` owns cleanup, and `THROW` converts a value into a Poly-visible error while terminating the normal path.
 
-```ploy
+```poly
 FUNC parse_row(text: STRING) -> i32 {
     TRY {
         IF text == "" { THROW "empty row"; }
@@ -2943,9 +2943,9 @@ FUNC parse_row(text: STRING) -> i32 {
 }
 ```
 
-`TRY`、`CATCH`、`FINALLY` 和 `THROW` 的语法分析与语义分析路径已有测试；从 Python、C++、Java、.NET 或 Rust 反向拦截异常仍依赖运行时适配器。不能因为本地 Ploy 抛出与捕获已经成功，就推断所有宿主异常类型都能无损转换。
+`TRY`、`CATCH`、`FINALLY` 和 `THROW` 的语法分析与语义分析路径已有测试；从 Python、C++、Java、.NET 或 Rust 反向拦截异常仍依赖运行时适配器。不能因为本地 Poly 抛出与捕获已经成功，就推断所有宿主异常类型都能无损转换。
 
-The parser and semantic analyser paths for `TRY`, `CATCH`, `FINALLY`, and `THROW` are tested. Reverse interception of Python, C++, Java, .NET, or Rust exceptions still depends on runtime adapters. Successful local Ploy throw/catch behaviour does not prove lossless conversion of every host exception type.
+The parser and semantic analyser paths for `TRY`, `CATCH`, `FINALLY`, and `THROW` are tested. Reverse interception of Python, C++, Java, .NET, or Rust exceptions still depends on runtime adapters. Successful local Poly throw/catch behaviour does not prove lossless conversion of every host exception type.
 
 正式规则如下：`TRY` 后至少包含一个 `CATCH` 或 `FINALLY`；可以有多个 `CATCH`，并保留源码顺序；`THROW` 后必须提供表达式；最多只能有一个 `FINALLY`，并且它必须位于所有捕获子句之后。当前语义分析器把捕获绑定注册为不透明的 `Any`，以允许访问 `.message`、`.source_lang` 和 `.stacktrace`。非 `Error` 类型目前只产生警告，随后仍按 `Error` 处理，因此这还不是完整的带类型捕获分派系统。`THROW` 暂时接受任何能够由运行时系统强制转换为 `Error` 的值；严格的结构形状验证仍是后续需要收紧的环节。
 
@@ -2955,7 +2955,7 @@ IR 降低阶段与运行时系统必须保证 `FINALLY` 在正常贯穿、函数
 
 IR lowering and the runtime system must execute `FINALLY` on normal fallthrough, function return, loop break, loop continue, throw, and rethrow paths. Parser and semantic-analysis tests alone cannot prove the correctness of exception-handling regions, landing pads, or cleanup edges; the IR and EH verifiers plus target-execution tests described in Chapters 35 and 36 are also required.
 
-按照目标语义阅读上面的 `parse_row`：空文本会执行 `THROW`，并且不再执行 `TRY` 中的后续语句；匹配的处理器收到 `e` 后返回 `0`；函数离开前仍应执行 `FINALLY` 中的清理。非空路径返回 `1`，也必须经过同一清理区域。如果宿主适配器抛出 Python 或 C++ 异常，只有适配器先把它转换成统一错误描述符，并把它接入同一异常处理区域，Ploy 的 `CATCH` 才可能捕获它。
+按照目标语义阅读上面的 `parse_row`：空文本会执行 `THROW`，并且不再执行 `TRY` 中的后续语句；匹配的处理器收到 `e` 后返回 `0`；函数离开前仍应执行 `FINALLY` 中的清理。非空路径返回 `1`，也必须经过同一清理区域。如果宿主适配器抛出 Python 或 C++ 异常，只有适配器先把它转换成统一错误描述符，并把它接入同一异常处理区域，Poly 的 `CATCH` 才可能捕获它。
 
 In the intended semantics, both the thrown path and normal return path execute `FINALLY`. A foreign exception is catchable only if its adapter converts it into the same error model and EH region.
 
@@ -2994,7 +2994,7 @@ await_expr     ::= "AWAIT" expr
 
 `ASYNC` changes the whole function contract, while `AWAIT` suspends the current frame and later yields the logical result. The arrow states intended business result type even though current core typing does not yet fully model `Future<T>`.
 
-```ploy
+```poly
 ASYNC FUNC fetch() -> i32 {
     RETURN 7;
 }
@@ -3009,9 +3009,9 @@ ASYNC FUNC run_async() -> i32 {
 
 An async function returns a future-shaped value, and `AWAIT` suspends its frame. Use `polyrt async --json` to inspect scheduler state and `polyrt async --run=64` to advance the cooperative event loop.
 
-当前语义分析器使用 `async_depth` 禁止在同步函数中使用 `AWAIT`，但核心源码类型系统尚未参数化建模 `Future<T>`：`AnalyzeAwaitExpression` 分析操作数后返回 `Any`。因此，“逻辑上返回 `T`，ABI 中包装为 `Future<T>`”属于运行时系统与描述符的契约，而不是当前 Ploy 核心类型系统已经完整证明的事实。严格模式检查、描述符验证和目标平台端到端测试缺一不可。
+当前语义分析器使用 `async_depth` 禁止在同步函数中使用 `AWAIT`，但核心源码类型系统尚未参数化建模 `Future<T>`：`AnalyzeAwaitExpression` 分析操作数后返回 `Any`。因此，“逻辑上返回 `T`，ABI 中包装为 `Future<T>`”属于运行时系统与描述符的契约，而不是当前 Poly 核心类型系统已经完整证明的事实。严格模式检查、描述符验证和目标平台端到端测试缺一不可。
 
-The current semantic analyser uses `async_depth` to reject `AWAIT` in synchronous functions, but the core source type system does not yet model `Future<T>` parametrically: `AnalyzeAwaitExpression` returns `Any` after analysing its operand. Consequently, “logical result `T`, ABI wrapper `Future<T>`” is a runtime-and-descriptor contract rather than a fact fully proven by the current Ploy type system. Strict-mode checking, descriptor validation, and target end-to-end tests are all required.
+The current semantic analyser uses `async_depth` to reject `AWAIT` in synchronous functions, but the core source type system does not yet model `Future<T>` parametrically: `AnalyzeAwaitExpression` returns `Any` after analysing its operand. Consequently, “logical result `T`, ABI wrapper `Future<T>`” is a runtime-and-descriptor contract rather than a fact fully proven by the current Poly type system. Strict-mode checking, descriptor validation, and target end-to-end tests are all required.
 
 运行时调度器采用协作式模型。可以通过第 24 章的接口观察待处理、已挂起、已完成状态，以及循环步数和活动帧。任务窃取与宿主适配器属于具体配置能力，不能只根据 `ASYNC` 关键字推断它们已经存在。
 
@@ -3029,7 +3029,7 @@ Async hides waiting, not work. I/O and host tasks are suitable; a CPU-bound loop
 
 Every await raises lifetime, cancellation, duplicate-resolution, shutdown, and thread-affinity questions that syntax alone cannot answer.
 
-```ploy
+```poly
 ASYNC FUNC load_score(path: STRING) -> f64 {
     LET raw = AWAIT CALL(python, loader::read_async, path);
     LET score = AWAIT CALL(python, model::score_async, raw);
@@ -3081,7 +3081,7 @@ instance_type    ::= name "<" type_expr { "," type_expr } ">"
 
 A type parameter is a placeholder identity, while a bound states capabilities the body may use. `Comparable` justifies comparison in `max`; it is not decorative metadata.
 
-```ploy
+```poly
 STRUCT Pair<A, B> {
     first: A,
     second: B
@@ -3113,7 +3113,7 @@ The current built-in bounds are exactly `Comparable`, `Hashable`, `Numeric`, `It
 
 Bounds describe intended capabilities, but they do not automatically generate host traits, dictionaries, or vtables.
 
-当前的最小可行类型擦除方案意味着，`identity<i32>` 与 `identity<STRING>` 不保证各自拥有一份专用机器代码。类型参数通常会在语义分析或核心类型阶段变成 `Any`，泛型结构的具体类型实参也不一定形成不同的数据布局身份。因此，当前泛型最适合减少 Ploy 源码重复并保留约束文档，不适合依赖 C++ 模板或 Rust 单态化所提供的零成本特化与重载选择。
+当前的最小可行类型擦除方案意味着，`identity<i32>` 与 `identity<STRING>` 不保证各自拥有一份专用机器代码。类型参数通常会在语义分析或核心类型阶段变成 `Any`，泛型结构的具体类型实参也不一定形成不同的数据布局身份。因此，当前泛型最适合减少 Poly 源码重复并保留约束文档，不适合依赖 C++ 模板或 Rust 单态化所提供的零成本特化与重载选择。
 
 The current type-erasure MVP is useful for source reuse and constraint checking, not as a promise of C++/Rust-style monomorphised specialisation.
 
@@ -3163,9 +3163,9 @@ For an API combining generics, async, and failure, design from the inner busines
 5. State the bounds required by `T`.
 6. Define how the host adapter represents the same layers and whether it loses tags, errors, or lifetime information.
 
-当前 Ploy 还没有完整的 `Result<T,E>` 与 `Future<T>` 源码类型身份，因此不要伪造一个表面漂亮、但在 IR 降低后只剩 `Any` 的签名。现阶段可以先使用扁平的适配器状态或句柄契约，并明确记录目标类型形式、迁移条件和测试。
+当前 Poly 还没有完整的 `Result<T,E>` 与 `Future<T>` 源码类型身份，因此不要伪造一个表面漂亮、但在 IR 降低后只剩 `Any` 的签名。现阶段可以先使用扁平的适配器状态或句柄契约，并明确记录目标类型形式、迁移条件和测试。
 
-Current Ploy does not yet provide a fully closed `Result<T,E>` plus `Future<T>` source model. Prefer an explicit adapter status/handle contract over a decorative type that lowers to unresolved Any.
+Current Poly does not yet provide a fully closed `Result<T,E>` plus `Future<T>` source model. Prefer an explicit adapter status/handle contract over a decorative type that lowers to unresolved Any.
 
 ### 12.7 常见错误 / Common failures
 
@@ -3195,7 +3195,7 @@ These failures span parser, Sema, lowering, and runtime; retain evidence at each
 
 ### 练习 / Exercise
 
-编写一个 `ASYNC FUNC load<T>`，在函数内部捕获错误并返回可选结果；标出哪些行为只由 Ploy 前端证明，哪些行为还需要宿主适配器证明。
+编写一个 `ASYNC FUNC load<T>`，在函数内部捕获错误并返回可选结果；标出哪些行为只由 Poly 前端证明，哪些行为还需要宿主适配器证明。
 
 Write an async generic loader and classify frontend-proven versus adapter-dependent behaviour.
 
@@ -3211,7 +3211,7 @@ You will control symbol visibility, optimisation hints, link names, and document
 
 ### 13.0 设计目的：一个 API 的四个外部表面 / Design purpose: four external surfaces of an API
 
-一个声明是否“对外”至少包含四个不同问题：其他 Ploy 模块能否引用它；对象/链接器是否导出符号；优化器/性能剖析器是否收到元数据；人和 IDE 是否看到文档。`PUB/PRIVATE`、`EXPORT`、`@attribute`、`///` 分别负责这些问题，不能因为其中一个存在就推断其他三个已完成。
+一个声明是否“对外”至少包含四个不同问题：其他 Poly 模块能否引用它；对象/链接器是否导出符号；优化器/性能剖析器是否收到元数据；人和 IDE 是否看到文档。`PUB/PRIVATE`、`EXPORT`、`@attribute`、`///` 分别负责这些问题，不能因为其中一个存在就推断其他三个已完成。
 
 An API has at least four external surfaces: source visibility, object-level export, optimisation/tool metadata, and human/tool documentation. `PUB/PRIVATE`, `EXPORT`, attributes, and doc comments model those surfaces separately.
 
@@ -3248,7 +3248,7 @@ export_decl  ::= "EXPORT" qualified_name [ "AS" string_literal ] ";"
 
 The current prefix parser allows attributes and one visibility modifier in either order, but attachment is limited to functions, async functions, and structs. `EXPORT` is a separate top-level declaration referring to an existing symbol.
 
-```ploy
+```poly
 PUB STRUCT Score {
     value: f64
 }
@@ -3272,11 +3272,11 @@ Exporting a name does not bypass ABI validation or linker resolution.
 
 AST visibility defaults to private. For legacy compatibility, exporting a declaration with no explicit visibility automatically promotes it to `PUB` and emits a deprecation warning; explicitly private declarations are hard errors. An alias requires a quoted external name, as in `EXPORT run AS "analytics_run";`. IR lowering creates a global `__ploy_export_alias_<name>` marker, which the backend and linker must materialise as an export in the target format.
 
-设计新 API 时不要依赖自动提升：先明确写 `PUB`，再写 `EXPORT`，让源码审查一眼看到两层意图。只有 Ploy 模块需要调用而没有本机消费者时，`PUB` 即可；只在应用内部使用时保持 `PRIVATE`；插件、C ABI 或宿主入口才需要 `EXPORT` 与稳定的外部名称。
+设计新 API 时不要依赖自动提升：先明确写 `PUB`，再写 `EXPORT`，让源码审查一眼看到两层意图。只有 Poly 模块需要调用而没有本机消费者时，`PUB` 即可；只在应用内部使用时保持 `PRIVATE`；插件、C ABI 或宿主入口才需要 `EXPORT` 与稳定的外部名称。
 
 Do not rely on compatibility auto-promotion in new APIs. Write `PUB` explicitly, then add `EXPORT` only when a native/plugin/host-facing symbol is required.
 
-```ploy
+```poly
 PUB FUNC run(config: STRING) -> i32 { RETURN 0; }
 EXPORT run AS "analytics_run_v1";
 ```
@@ -3301,7 +3301,7 @@ prefix ::= { attribute | "PUB" | "PRIVATE" }
 
 Attributes are declaration metadata, not function calls executed at that location. The parser stores their name, raw single-token arguments, and location for later consumers.
 
-```ploy
+```poly
 @inline
 @hot
 PUB FUNC score(value: f64) -> f64 {
@@ -3359,7 +3359,7 @@ Built-in attributes do not all live at the same implementation layer: some affec
 
 Historical references to `@no_mangle` are not part of the current built-in catalog and require explicit verification.
 
-把属性跨语言传播到 C++、Rust、Java、.NET 或 Python 注解仍属于规划能力；Ploy 属性被语义分析器接受，并不表示宿主源码也获得了对应属性。
+把属性跨语言传播到 C++、Rust、Java、.NET 或 Python 注解仍属于规划能力；Poly 属性被语义分析器接受，并不表示宿主源码也获得了对应属性。
 
 Cross-language annotation propagation remains planned.
 
@@ -3381,7 +3381,7 @@ Documentation comments follow syntax attachment rules rather than being arbitrar
 
 Documentation should capture contracts the type system cannot: units, ranges, ownership, failures, thread/runtime affinity, versions, and safety preconditions.
 
-```ploy
+```poly
 /// Compute a score in the range [0, 1].
 /// The caller owns the input list.
 PUB FUNC score_all(values: LIST<f64>) -> f64 {
@@ -3393,7 +3393,7 @@ PUB FUNC score_all(values: LIST<f64>) -> f64 {
 
 A fuller boundary-oriented example:
 
-```ploy
+```poly
 /// Score a non-empty batch using the pinned Python model runtime.
 /// `values` remains owned by the caller; the bridge may copy elements.
 /// Returns a value in [0, 1]. Host failures become the adapter error contract.
@@ -3409,9 +3409,9 @@ PUB FUNC score_all(values: LIST<f64>) -> f64 {
 The first line summarises, while later lines record preconditions, ownership, results/errors, and thread requirements. Tooling may format this information but must not invent guarantees.
 
 ```sh
-build/polydoc api.ploy
-build/polydoc --json api.ploy
-build/polydoc -o build/api.md api.ploy
+build/polydoc api.poly
+build/polydoc --json api.poly
+build/polydoc -o build/api.md api.poly
 ```
 
 #### 13.4.1 可复现的 Markdown 与 JSON / Reproducible Markdown and JSON
@@ -3421,7 +3421,7 @@ build/polydoc -o build/api.md api.ploy
 The companion [`04_polydoc`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/04_polydoc/README.md) contains a documented `Point` and `add`. The current tool exits 0 and, after normalising the absolute source directory, writes:
 
 ```markdown
-# <SOURCE>/04_polydoc/api.ploy
+# <SOURCE>/04_polydoc/api.poly
 
 ## `STRUCT Point`
 
@@ -3440,7 +3440,7 @@ JSON mode emits one document with the following stable structure; both complete 
 
 ```json
 {
-  "file": "<SOURCE>/04_polydoc/api.ploy",
+  "file": "<SOURCE>/04_polydoc/api.poly",
   "entries": [
     {"kind":"struct","name":"Point","signature":"STRUCT Point","doc":["A two-dimensional point.","Both fields use signed 32-bit coordinates."]},
     {"kind":"func","name":"add","signature":"FUNC add(a: I32, b: I32) -> I32","doc":["Add two signed values.","The result uses i32 arithmetic."]}
@@ -3482,13 +3482,13 @@ Document and deprecate an API, then compare docs, diagnostics, and symbols.
 
 ---
 
-## 14. PIPELINE 与完整 Ploy 项目 / Pipelines and the Ploy capstone
+## 14. PIPELINE 与完整 Poly 项目 / Pipelines and the Poly capstone
 
 ### 学习目标 / Goals
 
-本章把 Ploy 的类型、控制流、包、错误、属性与调用声明组织为一个可维护模块，为下一部分的真实桥接层做准备。
+本章把 Poly 的类型、控制流、包、错误、属性与调用声明组织为一个可维护模块，为下一部分的真实桥接层做准备。
 
-This chapter organises Ploy language features into a maintainable orchestration module.
+This chapter organises Poly language features into a maintainable orchestration module.
 
 ### 14.0 设计目的：给跨语言工作流一个可命名边界 / Design purpose: a named boundary for workflows
 
@@ -3512,7 +3512,7 @@ A normal function encapsulates one computation. A pipeline groups stages, versio
 | Mark only a stage name and target for topology or curriculum | A `STAGE ... CALL ...;` marker |
 | Real DAG scheduling, retry, and caching | An explicit runtime or tooling contract; current `STAGE` does not imply them |
 
-阅读当前 Ploy 管线时，最重要的规则是：**源码顺序只有在普通语句或函数主体被 IR 降低时才代表执行顺序；阶段标记本身主要是元数据。** 把两者混在一起，会产生“拓扑图有名称但程序没有数据流”或“程序可以执行但拓扑图没有逐阶段边”的错觉。
+阅读当前 Poly 管线时，最重要的规则是：**源码顺序只有在普通语句或函数主体被 IR 降低时才代表执行顺序；阶段标记本身主要是元数据。** 把两者混在一起，会产生“拓扑图有名称但程序没有数据流”或“程序可以执行但拓扑图没有逐阶段边”的错觉。
 
 The key rule is that ordinary lowered statements define execution, while current `STAGE` declarations are primarily metadata. Stage names alone do not create data flow.
 
@@ -3536,7 +3536,7 @@ The pipeline name becomes workflow identity. Its body enables stage syntax and c
 
 These forms are not interchangeable:
 
-```ploy
+```poly
 PIPELINE metadata_only {
     STAGE load CALL cpp::reader::load;
 }
@@ -3554,7 +3554,7 @@ PIPELINE executable_flow {
 
 The first declares metadata for topology; the second contains typed, executable control flow. A project may keep both, but must test that they do not drift.
 
-```ploy
+```poly
 LANG python = "3.11";
 CONFIG python "venv" "env/python";
 
@@ -3597,7 +3597,7 @@ The current parser supports two pipeline-body paths with different semantic comp
 1. Ordinary declarations and statements, especially nested `FUNC` declarations, pass through complete parsing, semantic analysis, and IR lowering. Lowering a nested function saves and restores the enclosing insertion point.
 2. A `STAGE [name] CALL language::module::symbol;` marker is legal only in pipeline context, where Sema registers a pipeline-local symbol.
 
-```ploy
+```poly
 PIPELINE audit {
     STAGE load CALL cpp::reader::load;
     STAGE clean CALL rust::cleaner::normalise;
@@ -3608,9 +3608,9 @@ PIPELINE audit {
 
 The current `StageDecl` stores only a name and `call_target`; it parses neither arguments nor data flow and has no independent IR-lowering branch. Its main consumers are topology and curriculum metadata. `PIPELINE` itself lowers to `__ploy_pipeline_<name>() -> void`, with ordinary body statements lowered in order. `STAGE x = CALL(...)`, Unix-pipe `value | fn`, and signature-bearing `PIPELINE name(args)->T` from older tutorials are historical forms or design directions, not current executable syntax.
 
-因此，生产编排应优先使用管线内的嵌套 `FUNC`、显式调用和变量；使用拓扑图边表达数据流时，仍需生成并检查可执行的 Ploy 源码。
+因此，生产编排应优先使用管线内的嵌套 `FUNC`、显式调用和变量；使用拓扑图边表达数据流时，仍需生成并检查可执行的 Poly 源码。
 
-Production orchestration should therefore prefer nested `FUNC` declarations, explicit calls, and variables inside a pipeline. A topology edge that represents data flow must still be backed by generated and checked executable Ploy source.
+Production orchestration should therefore prefer nested `FUNC` declarations, explicit calls, and variables inside a pipeline. A topology edge that represents data flow must still be backed by generated and checked executable Poly source.
 
 #### 显式数据流的写法 / Writing explicit data flow
 
@@ -3618,7 +3618,7 @@ Production orchestration should therefore prefer nested `FUNC` declarations, exp
 
 Executable pipeline data flow should appear explicitly in parameters, bindings, result types, and calls:
 
-```ploy
+```poly
 PIPELINE analytics {
     FUNC load(path: STRING) -> usize {
         RETURN CALL(cpp, reader::load, path);
@@ -3655,7 +3655,7 @@ PIPELINE analytics {
 The companion [`05_topology`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/05_topology/README.md) declares `load → clean → score` markers. Check mode exits 0 without diagnostics, and topology rendering also exits 0, but the current graph builder collapses the whole pipeline into one node without per-stage edges:
 
 ```text
-Topology Summary for 'pipeline.ploy':
+Topology Summary for 'pipeline.poly':
   Nodes:  1
   Edges:  0
   Roots:  1 (pipeline:audit)
@@ -3673,16 +3673,16 @@ JSON likewise reports one `pipeline:audit` node and zero edges. Five-stage progr
 
 A maintainable pipeline stabilises data and boundaries before connecting stages and optimising. This order reduces control-flow rework while types and ABI remain unsettled.
 
-1. 先定义 Ploy 可见的数据类型；
+1. 先定义 Poly 可见的数据类型；
 2. 再定义模块、包与版本固定；
 3. 再声明签名和类型映射；
-4. 再实现纯 Ploy 验证与控制流；
+4. 再实现纯 Poly 验证与控制流；
 5. 最后加入外部调用、异步和性能剖析。
 
-1. Define Ploy-visible data types.
+1. Define Poly-visible data types.
 2. Define modules, packages, and version pins.
 3. Declare signatures and type mappings.
-4. Implement pure Ploy validation and control flow.
+4. Implement pure Poly validation and control flow.
 5. Add foreign calls, async behaviour, and profiling last.
 
 Define data and contracts before orchestration and performance instrumentation.
@@ -3691,7 +3691,7 @@ Define data and contracts before orchestration and performance instrumentation.
 
 Each step has a reviewable artifact: types map to Sema tables; imports and configuration to discovery logs; `LINK` to function signatures, with the current compatibility path and intended signed-form gap described in Chapter 15; calls to descriptors and call graphs; pipelines to named IR functions; and profiling attributes to instrumentation evidence.
 
-把这个顺序应用到真实需求“读取 CSV、清洗、模型打分、输出报告”：先写 `Record` 或句柄契约；再固定 C++、Rust、Python 与 JavaScript 模块及版本；再为每条边界写明输入、输出、所有权和错误；然后用普通 Ploy 函数串起成功与失败路径；最后才添加 `PIPELINE` 身份、`STAGE` 元数据、`@profile` 和部署配置。若一开始就绘制漂亮的有向无环图，后来才发现容器 ABI 不成立，图中的每条边都要重写。
+把这个顺序应用到真实需求“读取 CSV、清洗、模型打分、输出报告”：先写 `Record` 或句柄契约；再固定 C++、Rust、Python 与 JavaScript 模块及版本；再为每条边界写明输入、输出、所有权和错误；然后用普通 Poly 函数串起成功与失败路径；最后才添加 `PIPELINE` 身份、`STAGE` 元数据、`@profile` 和部署配置。若一开始就绘制漂亮的有向无环图，后来才发现容器 ABI 不成立，图中的每条边都要重写。
 
 For a CSV-to-model workflow, define records or handle contracts first, pin modules and versions, specify each boundary's input/output/ownership/error, implement explicit control flow, and only then add pipeline identity, stage metadata, profiling, and deployment.
 
@@ -3771,15 +3771,15 @@ Several late samples are curriculum markers; unit tests provide the stronger syn
 - parser and semantic-analyser tests;
 - one explicit expected output.
 
-完成任务时，为每个新增语法写一张“小契约卡”：设计目的、规范形式、输入与输出类型、作用域、失败路径、所有权、当前实现层、验证命令与预期产物。这样，综合项目不只是更长的 `.ploy` 文件，而是一份可以迁移到生产项目的设计记录。
+完成任务时，为每个新增语法写一张“小契约卡”：设计目的、规范形式、输入与输出类型、作用域、失败路径、所有权、当前实现层、验证命令与预期产物。这样，综合项目不只是更长的 `.poly` 文件，而是一份可以迁移到生产项目的设计记录。
 
 For every added construct, write a small contract card covering purpose, canonical syntax, input/output types, scope, failure path, ownership, current implementation layer, verification command, and expected artifact.
 
 ### 第二部分总结 / Part summary
 
-Ploy 是边界描述与编排语言。正确使用方式是先让源码/语义分析器契约清晰，再把外部实现接入，而不是让 `CALL` 隐藏不明确的类型和生命周期。
+Poly 是边界描述与编排语言。正确使用方式是先让源码/语义分析器契约清晰，再把外部实现接入，而不是让 `CALL` 隐藏不明确的类型和生命周期。
 
-Ploy is a boundary-description and orchestration language. Make source and semantic contracts explicit before attaching host implementations.
+Poly is a boundary-description and orchestration language. Make source and semantic contracts explicit before attaching host implementations.
 
 把第 6–14 章压缩为一张选择表，可以在写代码前先回答“我现在要表达哪一种事实”：
 
@@ -3809,7 +3809,7 @@ Use this map to choose a construct by the fact you need to express:
 | External API surfaces | `PUB`, `EXPORT`, attributes, `///` | Separate source visibility, symbols, metadata, and docs | Actual consumer and artifact evidence |
 | Workflow ownership | `PIPELINE` plus nested `FUNC` or `STAGE` | Give orchestration, topology, and profile data a stable identity | A marker is not executable data flow |
 
-如果一行源码同时表达多个事实，应逐层验证。例如，`@profile PUB ASYNC FUNC load(...)` 同时涉及元数据、源码可见性、异步帧与函数签名；语法分析器接受这行，只证明四层中的第一步。教材后半部分会把这些 Ploy 事实继续连接到桥接层、ABI、运行时系统、链接器和工具链。
+如果一行源码同时表达多个事实，应逐层验证。例如，`@profile PUB ASYNC FUNC load(...)` 同时涉及元数据、源码可见性、异步帧与函数签名；语法分析器接受这行，只证明四层中的第一步。教材后半部分会把这些 Poly 事实继续连接到桥接层、ABI、运行时系统、链接器和工具链。
 
 When one declaration combines several facts, verify each layer independently. Parsing `@profile PUB ASYNC FUNC load(...)` does not by itself prove instrumentation, exported visibility, or a working async runtime.
 
@@ -3829,9 +3829,9 @@ This chapter separates discovery, boundary contracts, call sites, generated brid
 
 ### 15.0 设计目的：让跨语言调用看起来“不普通” / Design purpose: foreign calls should look foreign
 
-如果 Ploy 把 `python::model::score(x)` 伪装成完全普通的本地调用，读者和工具就看不出运行时系统附着、编组、版本、异常、所有权和桥接层成本。`IMPORT`、`LINK`、`CALL` 因此故意分开：先说明名字从哪里来，再声明边界契约，最后在使用点显式标出目标语言。显式性增加少量代码，却让安全审查、调用图、性能数据和链接器诊断有稳定锚点。
+如果 Poly 把 `python::model::score(x)` 伪装成完全普通的本地调用，读者和工具就看不出运行时系统附着、编组、版本、异常、所有权和桥接层成本。`IMPORT`、`LINK`、`CALL` 因此故意分开：先说明名字从哪里来，再声明边界契约，最后在使用点显式标出目标语言。显式性增加少量代码，却让安全审查、调用图、性能数据和链接器诊断有稳定锚点。
 
-If foreign calls looked identical to local calls, neither readers nor tools could see runtime attachment, marshalling, version, exceptions, ownership, or bridge cost. Ploy deliberately separates discovery, contract, and use.
+If foreign calls looked identical to local calls, neither readers nor tools could see runtime attachment, marshalling, version, exceptions, ownership, or bridge cost. Poly deliberately separates discovery, contract, and use.
 
 ```text
 discovery -> contract -> use -> descriptor -> bridge/runtime
@@ -3844,7 +3844,7 @@ discovery -> contract -> use -> descriptor -> bridge/runtime
 | `LINK` | 参数、返回、语言、symbol 如何对应？ | yes, as a contract; no execution by itself |
 | `CALL` | 这个具体 expression 在哪里跨边界？ | requires a resolvable contract in strict code |
 
-本地 Ploy 函数仍使用普通的 `name(args)`；外部自由函数使用 `CALL(language, qualified_target, args...)`；外部对象的构造器、方法和属性使用第 18 章介绍的 `NEW`、`METHOD`、`GET`、`SET`、`WITH` 和 `DELETE`。选择不同指令形式是为了让描述符带上正确的操作种类，而不是出于语法审美差异。
+本地 Poly 函数仍使用普通的 `name(args)`；外部自由函数使用 `CALL(language, qualified_target, args...)`；外部对象的构造器、方法和属性使用第 18 章介绍的 `NEW`、`METHOD`、`GET`、`SET`、`WITH` 和 `DELETE`。选择不同指令形式是为了让描述符带上正确的操作种类，而不是出于语法审美差异。
 
 Local functions use ordinary calls. Foreign free functions use `CALL`; constructors, methods, properties, resource scopes, and destruction use their dedicated directives so descriptors retain operation kind.
 
@@ -3854,7 +3854,7 @@ Local functions use ordinary calls. Foreign free functions use `CALL`; construct
 
 A cross-language call is not a single instruction but a five-layer contract from source declaration to host runtime. The table states each layer's guarantee and remaining unknowns so evidence can be traced across boundaries.
 
-| 层 / Layer | Ploy 表面 / Surface | 它证明什么 / What it proves | 它不证明什么 / What it does not prove |
+| 层 / Layer | Poly 表面 / Surface | 它证明什么 / What it proves | 它不证明什么 / What it does not prove |
 |---|---|---|---|
 | 发现 / discovery | `IMPORT`, `CONFIG` | module/package name is visible | callable ABI exists |
 | 契约 / contract | `LINK`, `CLASS`, `MAP_TYPE` | intended symbol/type relation | object file contains symbol |
@@ -3872,11 +3872,11 @@ An import is not a signature, and a symbol-table entry is not a type-safe contra
 
 The specifications, changelog, and parser comments describe this intended form:
 
-```ploy
+```poly
 LINK cpp::math::add AS FUNC(i32, i32) -> i32;
 ```
 
-它理应产生以下 AST 信息：外部语言 `cpp`、外部符号 `math::add`、两个 `i32` 参数、`i32` 返回值，以及本地 Ploy 侧。完成这些字段后，语义分析器才能精确验证元数/类型并生成无占位 ABI 的桩。
+它理应产生以下 AST 信息：外部语言 `cpp`、外部符号 `math::add`、两个 `i32` 参数、`i32` 返回值，以及本地 Poly 侧。完成这些字段后，语义分析器才能精确验证元数/类型并生成无占位 ABI 的桩。
 
 The intended AST must retain the language pair, symbol pair, full parameter vector, and return type.
 
@@ -3915,14 +3915,14 @@ LINK(
 ({ MAP_TYPE(target_native_type, source_native_type); ... } | ;)
 ```
 
-Ploy 调用外部宿主时，当前使用以下惯例：
+Poly 调用外部宿主时，当前使用以下惯例：
 
-The current convention for Ploy calling a foreign host is:
+The current convention for Poly calling a foreign host is:
 
-```ploy
+```poly
 IMPORT cpp::math;
 
-LINK(cpp, ploy, math::add, add) RETURNS i32 {
+LINK(cpp, poly, math::add, add) RETURNS i32 {
     MAP_TYPE(cpp::int, i32);
     MAP_TYPE(cpp::int, i32);
 }
@@ -3939,8 +3939,8 @@ Read field meanings from the implementation rather than guessing from ordinary l
 | 字段 | 本例 | Sema/Lowering 用途 |
 |---|---|---|
 | `target_language` | `cpp` | `CALL` 的 language 匹配、version pin、stub name |
-| `source_language` | `ploy` | Bridge 另一侧标签；必须与 target 不同 |
-| `target_symbol` | `math::add` | Ploy `CALL` 查找键 |
+| `source_language` | `poly` | Bridge 另一侧标签；必须与 target 不同 |
+| `target_symbol` | `math::add` | Poly `CALL` 查找键 |
 | `source_symbol` | `add` | 生成 stub 内最终调用的宿主 symbol；`::` 会变为 `_` |
 | `RETURNS` | `i32` | 当前返回类型来源；语法已 deprecated |
 | 每条 `MAP_TYPE` | 一个参数映射 | 当前实现还用条目数近似推导参数 |
@@ -3971,7 +3971,7 @@ Current rules are therefore:
 
 `IMPORT` determines where a module, package, or host symbol is discovered, and each form produces different resolution facts. The examples are grouped by source type to guide package and toolchain evidence.
 
-```ploy
+```poly
 IMPORT "relative/or/generated/path" AS local_name;
 IMPORT cpp::math;
 IMPORT python PACKAGE numpy >= 1.26 AS np;
@@ -3988,7 +3988,7 @@ Chapter 11 defines path, module, and package imports, aliases, selected symbols,
 
 `CALL` can produce a safe descriptor only after resolving target, arguments, version, and result type. The flow following this example shows how a source call becomes an IR stub and Runtime bridge invocation.
 
-```ploy
+```poly
 LET result: i32 = CALL(cpp, math::add, 20, 22);
 ```
 
@@ -4005,7 +4005,7 @@ cross_call ::= "CALL" "(" language "," qualified_function
 
 Calls are expressions, but boundary-heavy calls should usually be bound first:
 
-```ploy
+```poly
 LET left: i32 = 20;
 LET right: i32 = 22;
 LET result: i32 = CALL(cpp, math::add, left, right);
@@ -4038,7 +4038,7 @@ Named intermediate values improve diagnostics, temporary-lifetime review, and br
 8. IR lowering writes a `CrossLangCallDescriptor` and emits an IR call to the stub.
 9. The linker resolves the final symbol from the descriptor, host object, and runtime adapter.
 
-具体使用判断如下：无返回值的外部副作用可写成 `CALL(...);`；需要结果时必须绑定或返回；返回容器或对象时还要检查编组与所有权；可能失败时，契约应说明状态、错误或可选值，而不是只在 Ploy 侧猜测空值；高频小调用应考虑批处理，但必须先保持相同的错误与所有权语义。
+具体使用判断如下：无返回值的外部副作用可写成 `CALL(...);`；需要结果时必须绑定或返回；返回容器或对象时还要检查编组与所有权；可能失败时，契约应说明状态、错误或可选值，而不是只在 Poly 侧猜测空值；高频小调用应考虑批处理，但必须先保持相同的错误与所有权语义。
 
 Use an expression statement for a result-less side effect, bind or return meaningful results, audit marshalling and ownership for containers or objects, model failures explicitly, and batch high-frequency calls only after preserving semantics.
 
@@ -4050,7 +4050,7 @@ Common misuse:
 |---|---|
 | import 后直接 CALL、没有 contract | discovery does not supply parameter/return ABI |
 | language 拼写与 LINK target 不一致 | contract lookup/stub name mismatch |
-| 用 ordinary `math::add(...)` 期待 foreign dispatch | becomes local/qualified Ploy lookup, not CALL descriptor |
+| 用 ordinary `math::add(...)` 期待 foreign dispatch | becomes local/qualified Poly lookup, not CALL descriptor |
 | 丢弃 owned handle/container result | leak or lost cleanup owner |
 | permissive Any call 直接发布 | placeholder may compile but ABI remains unknown |
 
@@ -4115,8 +4115,8 @@ Cross-language failures often appear as undefined symbols even when their origin
 建议证据链：
 
 ```sh
-build/polyc --check app.ploy > build/app.diagnostics.json
-build/polyc app.ploy --strict -c --emit-ir=build/app.ir --emit=call-graph:build/app.cgjson --emit-obj=build/app.o
+build/polyc --check app.poly > build/app.diagnostics.json
+build/polyc app.poly --strict -c --emit-ir=build/app.ir --emit=call-graph:build/app.cgjson --emit-obj=build/app.o
 build/polyld build/app.o build/host.o --trace --verbose -o build/app
 ```
 
@@ -4152,9 +4152,9 @@ You will distinguish type correspondence, explicit converters, and runtime descr
 
 ### 16.0 设计目的：对应关系、转换算法与执行策略分层 / Design purpose: separate correspondence, conversion, and execution
 
-“Ploy `STRING` 对应 Python `str`”至少包含三件事：语义上是否允许关联；需要哪一种转换算法；转换在何处执行以及谁拥有结果。Ploy 把它们拆成 `MAP_TYPE`、`MAP_FUNC` 或 `CONVERT`、描述符 `MarshalOp` 与运行时适配器。若只写一张类型对照表，就无法回答编码、分配、失败回滚和反向转换。
+“Poly `STRING` 对应 Python `str`”至少包含三件事：语义上是否允许关联；需要哪一种转换算法；转换在何处执行以及谁拥有结果。Poly 把它们拆成 `MAP_TYPE`、`MAP_FUNC` 或 `CONVERT`、描述符 `MarshalOp` 与运行时适配器。若只写一张类型对照表，就无法回答编码、分配、失败回滚和反向转换。
 
-A statement such as “Ploy `STRING` corresponds to Python `str`” hides semantic correspondence, conversion algorithm, execution location, ownership, and failure. Ploy separates those responsibilities.
+A statement such as “Poly `STRING` corresponds to Python `str`” hides semantic correspondence, conversion algorithm, execution location, ownership, and failure. Poly separates those responsibilities.
 
 | Layer | Construct | Meaning |
 |---|---|---|
@@ -4174,7 +4174,7 @@ Design mappings layer by layer. `Direct` is safe only after width, layout, align
 
 The current parser accepts **only** the parenthesised, comma-separated form:
 
-```ploy
+```poly
 MAP_TYPE(cpp::int, i32);
 MAP_TYPE(python::float, f64);
 MAP_TYPE(rust::String, STRING);
@@ -4223,7 +4223,7 @@ A semantic mapping is not binary identity or an ownership licence.
 
 Some type relationships cannot be implemented by built-in primitive conversion and require an explicit callable converter. The example shows its declaration while later text identifies the current gap in automatic selection.
 
-```ploy
+```poly
 MAP_FUNC widen(x: i32) -> f64 {
     RETURN CONVERT(x, f64);
 }
@@ -4241,7 +4241,7 @@ MAP_FUNC widen(x: i32) -> f64 {
 
 当前语法是：
 
-```ploy
+```poly
 LET y: f64 = CONVERT(x, f64);
 LET py_values = CONVERT(values, python::list);
 ```
@@ -4347,7 +4347,7 @@ Host-container helpers include `__ploy_rt_convert_list_to_pylist`, `__ploy_rt_co
 
 假设把 C++ `std::vector<double>` 交给 Python：
 
-```ploy
+```poly
 MAP_TYPE(cpp::std::vector_f64, python::list);
 ```
 
@@ -4402,16 +4402,16 @@ A zero-copy buffer additionally requires alignment, a writability flag, a destru
 
 Marshalling correctness cannot be established by one successful example. This sequence combines static evidence from Sema and object ABI with dynamic failure and memory checks.
 
-1. 先用 `polyc --check file.ploy` 收集默认前端诊断；
-2. 再用 `polyc file.ploy --strict -c --emit-ir=build/file.ir`，让正常严格管线拒绝未知类型与占位符，并确认参数和结果位宽；
+1. 先用 `polyc --check file.poly` 收集默认前端诊断；
+2. 再用 `polyc file.poly --strict -c --emit-ir=build/file.ir`，让正常严格管线拒绝未知类型与占位符，并确认参数和结果位宽；
 3. 查看调用描述符的编组类别；
 4. 使用链接器 ABI 验证比较边界两侧；
 5. 对空、最大值、NaN、无效 UTF-8、空值、容器失败做边界测试；
 6. 使用 ASan、UBSan、LSan 或对应宿主工具检查所有权；
 7. 为异步操作和回调增加延迟释放测试。
 
-1. Run `polyc --check file.ploy` and collect the default frontend diagnostics.
-2. Run `polyc file.ploy --strict -c --emit-ir=build/file.ir` so the normal strict pipeline rejects unknown types and placeholders, then confirm argument and result widths.
+1. Run `polyc --check file.poly` and collect the default frontend diagnostics.
+2. Run `polyc file.poly --strict -c --emit-ir=build/file.ir` so the normal strict pipeline rejects unknown types and placeholders, then confirm argument and result widths.
 3. Inspect the marshalling kinds in the call descriptor.
 4. Use linker ABI validation to compare both sides of the boundary.
 5. Test empty values, maxima, NaN, invalid UTF-8, nulls, and container failures.
@@ -4591,11 +4591,11 @@ JavaScript 和 Ruby 都依赖由垃圾回收器管理的句柄，但运行上下
 JavaScript and Ruby both use GC-managed handles, but their execution contexts and root mechanisms differ. A bridge must create, retain, and release values in the correct isolate or VM.
 
 - JavaScript 通过 V8 或 Node 上下文与句柄作用域工作；Ruby 通过 CRuby `VALUE` 与 GC 根工作；
-- 两者虽然使用动态值，仍不能跳过 Ploy 的所有权与数据模式契约；
+- 两者虽然使用动态值，仍不能跳过 Poly 的所有权与数据模式契约；
 - 异常与拒绝必须转换，回调生命周期必须通过根保持。
 
 - JavaScript uses a V8 or Node context plus handle scopes; Ruby uses CRuby `VALUE` objects and GC roots.
-- Their dynamic values still require Ploy ownership and schema contracts.
+- Their dynamic values still require Poly ownership and schema contracts.
 - Exceptions and rejections must be converted, and callbacks must remain rooted for their entire lifetime.
 
 ### 17.5 Calling convention and stack frame / 调用约定与栈帧
@@ -4629,9 +4629,9 @@ Stable symbol naming lets the compiler, linker, and Runtime agree without sharin
 
 | Symbol family | Producer | Consumer |
 |---|---|---|
-| `__ploy_bridge_<a>_<b>_[vX_]name` | Ploy lowering/link stub | emitted call sites/linker |
+| `__ploy_bridge_<a>_<b>_[vX_]name` | Poly lowering/link stub | emitted call sites/linker |
 | `__ploy_mapfunc_<name>` | `MAP_FUNC` lowering | explicit mapping path |
-| `__ploy_rt_*` | Ploy lowering/runtime | polyrt libraries |
+| `__ploy_rt_*` | Poly lowering/runtime | polyrt libraries |
 | `polyglot_*` | core Runtime C ABI | generated code/adapters |
 | `__ploy_extend_*` | EXTEND lowering | dynamic-host extension registry |
 
@@ -4644,13 +4644,13 @@ Bridge symbols replace `::` with `_`, and version strings replace every non-alph
 以 `CALL(cpp, math::add, 20, 22)` 为例：
 
 ```text
-Ploy IR call
+Poly IR call
   -> __ploy_bridge_cpp_ploy_math__add(i32/i64?, i32/i64?)
       -> marshal/check width
       -> host C symbol add(int32_t, int32_t)
       <- host return register
       <- result marshal
-  <- Ploy value
+  <- Poly value
 ```
 
 问号来自第 16 章所述的不同“类型到 IR”路径：在证明对象 ABI 前，必须打开 IR 与对象文件查看真实位宽。若桩签名与宿主 `add` 不同，即使链接器通过也可能发生静默数据损坏。
@@ -4669,9 +4669,9 @@ nullable result + current-error handle
 tagged Result descriptor
 ```
 
-禁止在不规定优先级的情况下同时“返回空值、设置宿主异常、再抛出 C++ 异常”。适配器应先捕获宿主失败，复制消息、来源和调用栈，释放已经构造的临时值，再交给 Ploy 错误桥接层。
+禁止在不规定优先级的情况下同时“返回空值、设置宿主异常、再抛出 C++ 异常”。适配器应先捕获宿主失败，复制消息、来源和调用栈，释放已经构造的临时值，再交给 Poly 错误桥接层。
 
-Never combine a null result, a pending host exception, and a thrown C++ exception without a precedence rule. The adapter should catch the host failure, copy its message, origin, and stack, release already constructed temporaries, and only then hand it to the Ploy error bridge.
+Never combine a null result, a pending host exception, and a thrown C++ exception without a precedence rule. The adapter should catch the host failure, copy its message, origin, and stack, release already constructed temporaries, and only then hand it to the Poly error bridge.
 
 ### 17.9 稳定性 / Stability
 
@@ -4723,13 +4723,13 @@ You will use typed handles so construction, methods, properties, and release are
 
 ### 18.0 设计目的：外部对象不是裸指针 / Design purpose: a foreign object is not a raw pointer
 
-一个 Python、C++、Java 或 .NET 对象至少携带类身份、所属运行时系统、所有权或引用计数、线程亲和性，以及可调用方法与属性的数据模式。若 Ploy 只保存一个 `usize`，语义分析器无法阻止程序把张量当作文件使用，运行时系统也不知道由谁释放它。`CLASS` 声明静态可见的数据模式，`HANDLE<language::Class>` 保存名义上的来源，`NEW`、`METHOD`、`GET`、`SET`、`WITH` 和 `DELETE` 则把操作种类明确写入抽象语法树与描述符。
+一个 Python、C++、Java 或 .NET 对象至少携带类身份、所属运行时系统、所有权或引用计数、线程亲和性，以及可调用方法与属性的数据模式。若 Poly 只保存一个 `usize`，语义分析器无法阻止程序把张量当作文件使用，运行时系统也不知道由谁释放它。`CLASS` 声明静态可见的数据模式，`HANDLE<language::Class>` 保存名义上的来源，`NEW`、`METHOD`、`GET`、`SET`、`WITH` 和 `DELETE` 则把操作种类明确写入抽象语法树与描述符。
 
-A foreign object carries class identity, runtime origin, ownership, thread affinity, and a visible method/property schema. A bare integer or pointer cannot preserve those facts, so Ploy uses `CLASS`, typed `HANDLE`, and dedicated object-operation directives.
+A foreign object carries class identity, runtime origin, ownership, thread affinity, and a visible method/property schema. A bare integer or pointer cannot preserve those facts, so Poly uses `CLASS`, typed `HANDLE`, and dedicated object-operation directives.
 
 | Construct | Purpose |
 |---|---|
-| `CLASS L::T { ... }` | declare the Ploy-visible host schema |
+| `CLASS L::T { ... }` | declare the Poly-visible host schema |
 | `HANDLE<L::T>` | type a value with language and class identity |
 | `NEW` | construct and establish initial ownership |
 | `METHOD` | invoke schema-checked behaviour on a receiver |
@@ -4744,11 +4744,11 @@ The directives create stable locations for checks and lifecycle hooks. Safety st
 
 ### 18.1 `CLASS` schema 与 `HANDLE` / Schemas and handles
 
-跨语言对象不能被当作普通指针；Ploy 需要一个可检查的类数据模式，而运行时系统需要一个带来源和生命周期的句柄。示例展示两者如何在源码层关联。
+跨语言对象不能被当作普通指针；Poly 需要一个可检查的类数据模式，而运行时系统需要一个带来源和生命周期的句柄。示例展示两者如何在源码层关联。
 
-A foreign object cannot be treated as an ordinary pointer. Ploy needs a checkable class schema while the Runtime needs a handle with origin and lifetime; the example connects them at source level.
+A foreign object cannot be treated as an ordinary pointer. Poly needs a checkable class schema while the Runtime needs a handle with origin and lifetime; the example connects them at source level.
 
-```ploy
+```poly
 CLASS python::torch::nn::Linear {
     METHOD __init__(in_features: i32, out_features: i32);
     METHOD forward(x: f32) -> f32;
@@ -4802,7 +4802,7 @@ Method parameter names are optional, but omitting them weakens named-argument su
 
 NEW, METHOD, GET, and SET resemble local object operations, but lowering must retain language, class, member, version, and ownership. The following descriptor explains how those facts survive.
 
-```ploy
+```poly
 LET obj = NEW(python, pkg::Class, arg1, arg2);
 LET r = METHOD(python, obj, method_name, arg1);
 LET x = GET(python, obj, field);
@@ -4830,7 +4830,7 @@ IR lowering emits a versioned bridge name and a `CrossLangCallDescriptor` for ev
 
 当前准确语法是：
 
-```ploy
+```poly
 CLASS python::files::ManagedFile {
     METHOD __init__(path: STRING);
     METHOD __enter__() -> HANDLE<python::files::ManagedFile>;
@@ -4871,9 +4871,9 @@ Each host object has its own release action, so a unified handle cannot assume o
 | Java | `__ploy_java_release` |
 | .NET | `__ploy_dotnet_dispose` |
 
-其他语言会退化到 `__ploy_delete_<language>`。这些符号存在并不意味着重复删除一定安全；Ploy 的语义分析器目前也没有完整的移动与借用检查器。项目应在包装器中把句柄状态置空、使释放操作幂等，或者让一个所有者对象唯一持有该句柄。
+其他语言会退化到 `__ploy_delete_<language>`。这些符号存在并不意味着重复删除一定安全；Poly 的语义分析器目前也没有完整的移动与借用检查器。项目应在包装器中把句柄状态置空、使释放操作幂等，或者让一个所有者对象唯一持有该句柄。
 
-Other languages fall back to `__ploy_delete_<language>`. The presence of these symbols does not make repeated deletion safe, and Ploy Sema does not yet implement a complete move-and-borrow checker. A project should clear the handle state in its wrapper, make release idempotent, or give one owner object exclusive possession of the handle.
+Other languages fall back to `__ploy_delete_<language>`. The presence of these symbols does not make repeated deletion safe, and Poly Sema does not yet implement a complete move-and-borrow checker. A project should clear the handle state in its wrapper, make release idempotent, or give one owner object exclusive possession of the handle.
 
 ### 18.7 `EXTEND` / Extension restriction
 
@@ -4881,7 +4881,7 @@ Other languages fall back to `__ploy_delete_<language>`. The presence of these s
 
 Extending a host class changes method lookup and object identity and is riskier than an ordinary wrapper. Current restrictions require an explicit language and extensible schema; the example shows only the permitted surface.
 
-```ploy
+```poly
 EXTEND(python, framework::Base) AS Derived {
     FUNC predict(x: f64) -> f64 {
         RETURN x;
@@ -4897,9 +4897,9 @@ EXTEND(python, framework::Base) AS Derived {
 
 The extension registry protects global entries with `shared_mutex`: readers take a shared lock, writers take an exclusive lock, and registration copies names into Runtime-managed memory.
 
-中间表示降低为每个方法生成 `__ploy_extend_<Derived>_<method>` 桥接层：第一个参数固定为不透明的 `self_ptr`，其余参数来自 Ploy 签名；随后发出 `__ploy_extend_register(language, base, derived)` 并记录描述符。当前注册调用只传递三段名称，不携带方法表指针；真正的动态宿主绑定必须由运行时系统注册表或适配器按命名约定解析。
+中间表示降低为每个方法生成 `__ploy_extend_<Derived>_<method>` 桥接层：第一个参数固定为不透明的 `self_ptr`，其余参数来自 Poly 签名；随后发出 `__ploy_extend_register(language, base, derived)` 并记录描述符。当前注册调用只传递三段名称，不携带方法表指针；真正的动态宿主绑定必须由运行时系统注册表或适配器按命名约定解析。
 
-IR lowering emits a `__ploy_extend_<Derived>_<method>` bridge for each method. Its first parameter is always an opaque `self_ptr`; the remaining parameters come from the Ploy signature. Lowering then emits `__ploy_extend_register(language, base, derived)` and records a descriptor. The current registration call carries only three names, not a method-table pointer, so a real dynamic-host binding must resolve methods by convention through the Runtime registry or adapter.
+IR lowering emits a `__ploy_extend_<Derived>_<method>` bridge for each method. Its first parameter is always an opaque `self_ptr`; the remaining parameters come from the Poly signature. Lowering then emits `__ploy_extend_register(language, base, derived)` and records a descriptor. The current registration call carries only three names, not a method-table pointer, so a real dynamic-host binding must resolve methods by convention through the Runtime registry or adapter.
 
 ### 18.8 所有权状态机 / Ownership state machine
 
@@ -4920,9 +4920,9 @@ No method call, property access, mutation, or deletion is valid after a handle r
 
 ### 18.9 Callback 与 async lifetime / Escaping handles
 
-若句柄被保存在回调、未来值、线程或宿主的全局状态中，它就已逃逸当前 Ploy 作用域。在越过边界之前应当：
+若句柄被保存在回调、未来值、线程或宿主的全局状态中，它就已逃逸当前 Poly 作用域。在越过边界之前应当：
 
-If a callback, future, thread, or host global stores a handle, that handle has escaped the current Ploy scope. Before crossing the boundary, the implementation should:
+If a callback, future, thread, or host global stores a handle, that handle has escaped the current Poly scope. Before crossing the boundary, the implementation should:
 
 1. 将借用引用提升为根引用或新的强引用；
 2. 保存语言和运行时系统身份；
@@ -4949,7 +4949,7 @@ Object-lifetime defects often surface far from construction as crashes or leaks.
 | METHOD returns Unknown | missing CLASS method or dynamic fallback |
 | SET compiles but corrupts | schema/host layout disagreement |
 | crash after `WITH` | resource escaped or `__exit__` path missing |
-| double free | both Ploy and host believe ownership transferred |
+| double free | both Poly and host believe ownership transferred |
 | leak only on exception | partial construction/FINALLY not releasing |
 | works synchronously, fails async | borrowed handle not rooted |
 
@@ -4969,13 +4969,13 @@ Exercise typed-handle diagnostics for arity, property type, and language mismatc
 
 This chapter establishes production boundary policies for error transport, async lifetime, and performance measurement.
 
-### 19.1 Ploy error surface / 语言表面
+### 19.1 Poly error surface / 语言表面
 
-Ploy 的抛出、`TRY` 和捕获提供统一的控制流表面，但跨语言错误必须先从宿主异常转换为稳定描述符。示例只定义调用方可见行为，转换责任在后续层中说明。
+Poly 的抛出、`TRY` 和捕获提供统一的控制流表面，但跨语言错误必须先从宿主异常转换为稳定描述符。示例只定义调用方可见行为，转换责任在后续层中说明。
 
-Ploy's THROW, TRY, and CATCH provide a common control-flow surface, but foreign exceptions must first become stable descriptors. The example defines caller-visible behaviour while later layers own conversion.
+Poly's THROW, TRY, and CATCH provide a common control-flow surface, but foreign exceptions must first become stable descriptors. The example defines caller-visible behaviour while later layers own conversion.
 
-```ploy
+```poly
 TRY {
     LET value = CALL(python, model::score, input);
     IF value < 0.0 {
@@ -5028,7 +5028,7 @@ A host adapter should catch Python `Exception`, C++ `std::exception`, Java `Thro
 
 IR lowering builds a control-flow graph around a `setjmp`/`longjmp` model. A zero result from `__ploy_rt_try_begin()` enters the body, while a nonzero result enters the catch path. A normally completed body calls `try_end`; the catch path reads and later clears the current error; and both paths converge at `FINALLY`.
 
-但当前运行时系统头文件和实现明确说明：`__ploy_rt_try_begin()` 总是返回 0，`__ploy_rt_throw()` 在活动作用域内抛出 C++ `RuntimeError`，并不会让已生成 IR 中的开始调用重新返回非零。也就是说，设计中的 CFG 模型与当前运行时系统的传播模型尚未闭合。宿主 C++ 测试可以自行 `try/catch RuntimeError`，但不能据此宣称所有编译后的 Ploy 捕获都已端到端工作。
+但当前运行时系统头文件和实现明确说明：`__ploy_rt_try_begin()` 总是返回 0，`__ploy_rt_throw()` 在活动作用域内抛出 C++ `RuntimeError`，并不会让已生成 IR 中的开始调用重新返回非零。也就是说，设计中的 CFG 模型与当前运行时系统的传播模型尚未闭合。宿主 C++ 测试可以自行 `try/catch RuntimeError`，但不能据此宣称所有编译后的 Poly 捕获都已端到端工作。
 
 This mismatch must be treated as a release blocker for exception-dependent programs: test the emitted executable, not just parser/lowering unit tests.
 
@@ -5042,27 +5042,27 @@ Every foreign API should fix the following contract explicitly:
 - 错误标记、消息编码、源语言、堆栈和原因；
 - 部分输出是否仍然有效；
 - 抛出、拒绝或取消时的清理动作；
-- 适配器的捕获点和 Ploy 的恢复点；
+- 适配器的捕获点和 Poly 的恢复点；
 - 不可恢复的失败是中止、退出进程，还是作为状态向上传播。
 
 - the representation of success and result values;
 - the error tag, message encoding, source language, stack, and cause;
 - whether partial output remains valid;
 - cleanup on throw, rejection, or cancellation;
-- the adapter catch point and the Ploy recovery point;
+- the adapter catch point and the Poly recovery point;
 - whether an unrecoverable failure aborts, exits the process, or propagates as status.
 
-在上述运行时系统缺口修复之前，可靠方案是让宿主包装器把失败转成显式状态或带标记的结果，再由 Ploy 通过普通分支处理；不要让外部异常穿过多层应用二进制接口。
+在上述运行时系统缺口修复之前，可靠方案是让宿主包装器把失败转成显式状态或带标记的结果，再由 Poly 通过普通分支处理；不要让外部异常穿过多层应用二进制接口。
 
-Until the Runtime gap is closed, the reliable design is for a host wrapper to convert failure into explicit status or a tagged result and let Ploy branch normally. Do not allow a foreign exception to cross several ABI layers.
+Until the Runtime gap is closed, the reliable design is for a host wrapper to convert failure into explicit status or a tagged result and let Poly branch normally. Do not allow a foreign exception to cross several ABI layers.
 
 ### 19.5 Async surface 与类型限制 / Async surface
 
-跨语言异步会把参数、句柄和错误的生命周期延长到原调用栈之外。示例展示 Ploy 表面，随后明确当前不透明有效载荷和未来值类型的限制。
+跨语言异步会把参数、句柄和错误的生命周期延长到原调用栈之外。示例展示 Poly 表面，随后明确当前不透明有效载荷和未来值类型的限制。
 
-Cross-language async extends parameter, handle, and error lifetimes beyond the original call stack. The example shows the Ploy surface before documenting current opaque-payload and Future-type limitations.
+Cross-language async extends parameter, handle, and error lifetimes beyond the original call stack. The example shows the Poly surface before documenting current opaque-payload and Future-type limitations.
 
-```ploy
+```poly
 ASYNC FUNC fetch() -> STRING {
     LET value = AWAIT CALL(python, client::fetch);
     RETURN CONVERT(value, STRING);
@@ -5124,7 +5124,7 @@ Audit the following questions one by one:
 Optimising a language boundary begins with observing frequency and attribution. The workflow emits static symbol and call-graph evidence and collects a Runtime profile, with current cross-process limitations explained in Chapter 29.
 
 ```sh
-build/polyc analytics/main.ploy \
+build/polyc analytics/main.poly \
   --profile-instrument \
   --emit=call-graph:build/analytics.cgjson \
   --emit=profile-symbols:build/analytics.sym.json \
@@ -5200,7 +5200,7 @@ Success, host failure, cancellation, and thread transfer require different asser
 
 | Scenario | Required assertion |
 |---|---|
-| host throws/rejects | one Ploy-visible error, no foreign exception escape |
+| host throws/rejects | one Poly-visible error, no foreign exception escape |
 | converter fails midway | partial allocations released |
 | async cancellation | task and payload roots return to baseline |
 | callback on foreign thread | runtime attached and later detached |
@@ -5226,13 +5226,13 @@ This chapter turns the running example into a complete contract-driven project.
 
 ### 20.1 目录 / Layout
 
-完整示例把每种语言的源码、适配器和构建描述分目录管理，同时让 Ploy 保持编排所有者。该布局用于说明真实项目的依赖方向，而不是要求所有项目照搬其命名。
+完整示例把每种语言的源码、适配器和构建描述分目录管理，同时让 Poly 保持编排所有者。该布局用于说明真实项目的依赖方向，而不是要求所有项目照搬其命名。
 
-The complete example separates each language's source, adapters, and build metadata while keeping Ploy as the orchestration owner. The layout demonstrates dependency direction rather than imposing exact names on every project.
+The complete example separates each language's source, adapters, and build metadata while keeping Poly as the orchestration owner. The layout demonstrates dependency direction rather than imposing exact names on every project.
 
 ```text
 analytics/
-├── pipeline.ploy
+├── pipeline.poly
 ├── cpp/adapters.cpp
 ├── cpp/adapters.h
 ├── rust/cleaner.rs
@@ -5241,18 +5241,18 @@ analytics/
 ├── data/input.csv
 ├── tests/
 │   ├── expected_output.txt
-│   └── invalid_signatures.ploy
+│   └── invalid_signatures.poly
 ├── settings.json
 └── CMakeLists.txt
 ```
 
-本章选择一个适合**当前快照**的架构：Ploy 只连接一个 C ABI 适配器层；适配器再调用 C++、Rust、Python 与 JavaScript。这样避开有符号链接字段缺口和复杂容器自动编组尚未接通的问题。代价是静态调用图只看见 Ploy→适配器，适配器内部语言边要由运行时系统追踪补充。
+本章选择一个适合**当前快照**的架构：Poly 只连接一个 C ABI 适配器层；适配器再调用 C++、Rust、Python 与 JavaScript。这样避开有符号链接字段缺口和复杂容器自动编组尚未接通的问题。代价是静态调用图只看见 Poly→适配器，适配器内部语言边要由运行时系统追踪补充。
 
 The current-snapshot architecture uses one flat C ABI adapter layer. It is less elegant than direct typed links, but it gives every boundary an auditable ABI today.
 
 ### 20.2 Boundary contract / 边界契约
 
-跨宿主的 `LIST<f64>` 不直接穿过 Ploy，而是放在适配器-自有的注册表；Ploy 只传 `u64` 句柄：
+跨宿主的 `LIST<f64>` 不直接穿过 Poly，而是放在适配器-自有的注册表；Poly 只传 `u64` 句柄：
 
 ```c
 // cpp/adapters.h
@@ -5285,32 +5285,32 @@ Contract rules:
 - adapter catches every host exception/panic/rejection and never lets it cross the C ABI;
 - Python GIL/JS context attach happens inside adapter functions.
 
-### 20.3 Current-compatible Ploy / 当前兼容 Ploy
+### 20.3 Current-compatible Poly / 当前兼容 Poly
 
 本例使用当前语法分析器/语义分析器能贯穿的兼容链接形式，而不是只展示理想规范。代码中的规避方案都会在相邻文字中解释，以便未来实现完善后有明确迁移点。
 
 This example uses the compatibility LINK form that currently traverses parser and Sema rather than showing only the intended specification. Each workaround is explained nearby to provide a clear future migration point.
 
-```ploy
+```poly
 IMPORT cpp::adapters;
 
 // 当前兼容形式会产生已知 deprecation warning，见第 15 章。
-LINK(cpp, ploy, adapters::load, analytics_load) RETURNS usize {
+LINK(cpp, poly, adapters::load, analytics_load) RETURNS usize {
     MAP_TYPE(cpp::string, STRING);
 }
-LINK(cpp, ploy, adapters::normalise, analytics_normalise) RETURNS usize {
+LINK(cpp, poly, adapters::normalise, analytics_normalise) RETURNS usize {
     MAP_TYPE(cpp::uint64_t, usize);
 }
-LINK(cpp, ploy, adapters::score, analytics_score) RETURNS f64 {
+LINK(cpp, poly, adapters::score, analytics_score) RETURNS f64 {
     MAP_TYPE(cpp::uint64_t, usize);
 }
-LINK(cpp, ploy, adapters::render, analytics_render) RETURNS STRING {
+LINK(cpp, poly, adapters::render, analytics_render) RETURNS STRING {
     MAP_TYPE(cpp::double, f64);
 }
-LINK(cpp, ploy, adapters::emit, analytics_emit) RETURNS VOID {
+LINK(cpp, poly, adapters::emit, analytics_emit) RETURNS VOID {
     MAP_TYPE(cpp::string, STRING);
 }
-LINK(cpp, ploy, adapters::release, analytics_release) RETURNS VOID {
+LINK(cpp, poly, adapters::release, analytics_release) RETURNS VOID {
     MAP_TYPE(cpp::uint64_t, usize);
 }
 
@@ -5332,9 +5332,9 @@ FUNC main() -> i32 {
 }
 ```
 
-这里没有使用 `TRY` 和捕获，因为第 19 章已说明，当前异常控制流图与运行时系统的传播模型尚未闭合。真实项目应让每个适配器返回明确的状态或结果。为了使示例保持聚焦，上面省略了 Ploy 层的 `handle == 0` 分支，练习要求读者补上它。
+这里没有使用 `TRY` 和捕获，因为第 19 章已说明，当前异常控制流图与运行时系统的传播模型尚未闭合。真实项目应让每个适配器返回明确的状态或结果。为了使示例保持聚焦，上面省略了 Poly 层的 `handle == 0` 分支，练习要求读者补上它。
 
-The example does not use `TRY` and catch because Chapter 19 shows that the current exception control-flow graph and Runtime propagation model are not yet closed. A real project should make every adapter return explicit status or a result. To keep the example focused, the Ploy-level `handle == 0` branch is omitted above and left as an exercise.
+The example does not use `TRY` and catch because Chapter 19 shows that the current exception control-flow graph and Runtime propagation model are not yet closed. A real project should make every adapter return explicit status or a result. To keep the example focused, the Poly-level `handle == 0` branch is omitted above and left as an exercise.
 
 `PIPELINE` 目前主要用于把命名空间和函数组织在一起；`STAGE` 仍然只是标记，没有独立的数据流中间表示降低。这里的执行顺序来自普通函数主体，而不是某个隐式调度器。
 
@@ -5436,23 +5436,23 @@ After parsing CSV, `analytics_load` calls `store`. While holding Python's global
 
 ### 20.5 构建图 / Build graph
 
-多语言源文件不会被一个步骤神奇地合并；每种宿主工具链先产生自己的库/对象，再由适配器和 Ploy 对象汇合。图中箭头表示构建依赖，不是运行时系统调用方向。
+多语言源文件不会被一个步骤神奇地合并；每种宿主工具链先产生自己的库/对象，再由适配器和 Poly 对象汇合。图中箭头表示构建依赖，不是运行时系统调用方向。
 
-Multiple language sources are not magically combined in one step. Each host toolchain first produces its own library or object before adapters and the Ploy object converge; arrows show build dependencies, not runtime call direction.
+Multiple language sources are not magically combined in one step. Each host toolchain first produces its own library or object before adapters and the Poly object converge; arrows show build dependencies, not runtime call direction.
 
 ```text
 cleaner.rs -> libcleaner.{a,so,dylib}
 model.py + Python runtime ----\
 report.js + Node/V8 runtime ---+-> adapters.cpp -> adapters.o/library
-pipeline.ploy -----------------/-> Ploy object
-Ploy object + adapters + host runtimes + polyrt -> executable
+pipeline.poly -----------------/-> Poly object
+Poly object + adapters + host runtimes + polyrt -> executable
 ```
 
 ### 20.6 构建与验证 / Build and verification
 
-下面的命令把宿主构建、Ploy 检查、严格编译、链接和执行分开。每一步都应保留产物，使失败可以回到最近一个已验证边界。
+下面的命令把宿主构建、Poly 检查、严格编译、链接和执行分开。每一步都应保留产物，使失败可以回到最近一个已验证边界。
 
-These commands separate host builds, Ploy analysis, strict compilation, linking, and execution. Retain artifacts at every step so a failure can return to the most recent verified boundary.
+These commands separate host builds, Poly analysis, strict compilation, linking, and execution. Retain artifacts at every step so a failure can return to the most recent verified boundary.
 
 ```sh
 # 1. Build Rust static/dynamic library and C++ adapter with host SDK flags.
@@ -5461,10 +5461,10 @@ cmake -S analytics -B build/analytics-host
 cmake --build build/analytics-host
 
 # 2. Collect frontend-only JSON diagnostics.
-build/polyc --check analytics/pipeline.ploy > build/analytics.check.json
+build/polyc --check analytics/pipeline.poly > build/analytics.check.json
 
 # 3. Run the strict compilation path and inspect compiler evidence.
-build/polyc analytics/pipeline.ploy --strict -c \
+build/polyc analytics/pipeline.poly --strict -c \
   --emit-ir=build/analytics.ir \
   --emit=call-graph:build/analytics.cgjson \
   --emit=profile-symbols:build/analytics.sym.json \
@@ -5521,11 +5521,11 @@ Test missing packages, symbol errors, conversion failures, host exceptions, canc
 
 ### 20.9 Intended direct-link migration / 未来直接链接
 
-当带符号的链接实现补齐参数、语言和源信息字段，容器编组选择器已接通，且异常桥接层闭合之后，就可以把适配器内的三次宿主调用提升为目标 Ploy 契约：
+当带符号的链接实现补齐参数、语言和源信息字段，容器编组选择器已接通，且异常桥接层闭合之后，就可以把适配器内的三次宿主调用提升为目标 Poly 契约：
 
-Once symbolic linking preserves parameter, language, and source fields; container-marshalling selection is connected; and the exception bridge is closed, the three host calls inside the adapter can be promoted into the intended Ploy contracts:
+Once symbolic linking preserves parameter, language, and source fields; container-marshalling selection is connected; and the exception bridge is closed, the three host calls inside the adapter can be promoted into the intended Poly contracts:
 
-```ploy
+```poly
 // Intended syntax; not current-snapshot executable.
 LINK rust::cleaner::normalise AS FUNC(LIST<f64>) -> LIST<f64>;
 LINK python::model::score AS FUNC(LIST<f64>) -> f64;
@@ -5538,7 +5538,7 @@ Migration is not accepted merely because the parser accepts the syntax. The AST 
 
 ### 第三部分总结 / Part summary
 
-一个可靠的多语言项目不是“一段 Ploy 加几个宿主文件”，而是明确的源码契约、ABI、所有权、构建图、测试和可观测性的组合。
+一个可靠的多语言项目不是“一段 Poly 加几个宿主文件”，而是明确的源码契约、ABI、所有权、构建图、测试和可观测性的组合。
 
 A reliable polyglot project combines source contracts, ABI, ownership, build graph, tests, and observability.
 
@@ -5568,7 +5568,7 @@ polyc [options] <source-file-or-inline-code>
 
 | 任务 / Task | 选项 / Options |
 |---|---|
-| Language | `--lang=ploy|python|cpp|rust|java|dotnet|javascript|ruby|go` |
+| Language | `--lang=poly|python|cpp|rust|java|dotnet|javascript|ruby|go` |
 | Optimisation | `-O0` … `-O3` |
 | Output | `-o`, `-c`, `--mode=compile|assemble|link` |
 | Artifacts | `--emit-ir`, `--emit-asm`, `--emit-obj` |
@@ -5583,7 +5583,7 @@ polyc [options] <source-file-or-inline-code>
 A target triple describes architecture, vendor, OS, and environment, while a container describes artifact packaging; they are related but not interchangeable. The example makes both explicit so mismatched suffixes, writers, or backends are visible.
 
 ```sh
-build/polyc main.ploy   --target=wasm32-wasi   --container=wasm   --emit-ir=build/main.ir   -o build/main.wasm
+build/polyc main.poly   --target=wasm32-wasi   --container=wasm   --emit-ir=build/main.ir   -o build/main.wasm
 ```
 
 `--target` 选择三元组；`--container` 可强制 `auto|elf|pe|macho|wasm`；`--subsystem` 只影响 PE；`--entry` 覆盖入口；`--obj-format` 选择 `pobj|coff|elf|macho`。
@@ -5611,7 +5611,7 @@ Use strict mode for release and CI. Forced output is diagnostic evidence, not co
 
 `polyc` 为每种语言提供搜索与版本选项，例如 `-I/-D`、`--python-stubs`、`--classpath`、`--reference`、`--crate-dir/--extern`、`--node-modules`、`--gem-path`、`--go-project`，以及 `--std`、`--python-version`、`--java-release`、`--target-framework` 等。
 
-Language-specific search and version flags feed discovery rather than bypassing Ploy contracts.
+Language-specific search and version flags feed discovery rather than bypassing Poly contracts.
 
 ### 21.5 PGO、LTO 与 regalloc
 
@@ -5620,8 +5620,8 @@ Language-specific search and version flags feed discovery rather than bypassing 
 These options influence optimisation or machine-code decisions through different evidence: PGO requires a matching profile, LTO requires cross-module IR, and register allocation requires backend support. The examples show composition order rather than identical behaviour on every target.
 
 ```sh
-build/polyc main.ploy --pgo-generate -O2 -o build/train
-build/polyc main.ploy --pgo-use build/run.prof --lto -O2 --regalloc=graph-coloring -o build/final
+build/polyc main.poly --pgo-generate -O2 -o build/train
+build/polyc main.poly --pgo-use build/run.prof --lto -O2 --regalloc=graph-coloring -o build/final
 ```
 
 必须先验证性能数据与二进制文件和源码修订版本相匹配；旧性能数据不应静默指导新程序。
@@ -5636,7 +5636,7 @@ The following reorganises every current `polyc --help` option by responsibility.
 
 | Option | Argument/default | Effect / 作用 |
 |---|---|---|
-| `--lang=<lang>` | auto by extension | `ploy/python/cpp/rust/java/dotnet/javascript/ruby/go` |
+| `--lang=<lang>` | auto by extension | `poly/python/cpp/rust/java/dotnet/javascript/ruby/go` (`ploy` is a 1.x compatibility alias) |
 | `-O0`…`-O3` | project default | optimisation level |
 | `-o <path>` | derived | final output path |
 | `-c` | false | compile only, write relocatable object |
@@ -5685,7 +5685,7 @@ Driver/control options：
 | `--check <file>` | frontend analysis only, LSP-shaped diagnostics JSON |
 | `--settings <path> --print-effective-settings` | inspect the merged settings JSON and exit; see current limitation below |
 
-共享设置辅助程序在编译语法分析器之前运行。当前只有带 `--print-effective-settings` 时才读取/打印设置并立即退出；单独给 `polyc --settings <path> source.ploy` 时辅助程序返回“未处理”，随后 `ParseArgs` 仅跳过该参数，设置内容不会进入 `DriverSettings`。因此它目前是检查路径，不是可靠的编译-配置路径：
+共享设置辅助程序在编译语法分析器之前运行。当前只有带 `--print-effective-settings` 时才读取/打印设置并立即退出；单独给 `polyc --settings <path> source.poly` 时辅助程序返回“未处理”，随后 `ParseArgs` 仅跳过该参数，设置内容不会进入 `DriverSettings`。因此它目前是检查路径，不是可靠的编译-配置路径：
 
 ```sh
 build/polyc --settings .polyglot/settings.json --print-effective-settings
@@ -5749,7 +5749,7 @@ Version flags constrain frontend syntax and toolchain selection, but CLI accepta
 | `--ruby-version=` | `2.7/3.0/3.2/3.3` |
 | `--list-language-versions` | print matrix and exit |
 
-这个表描述 CLI 接受的集合，不会自动证明前端完整支持每个特性。语言版本来源优先级为：明确的 CLI 或 Ploy 作用域版本固定、源码或项目元数据、工具链探测、保守默认值。显式固定版本却找不到工具链时应报告 600x 诊断，不能静默换用另一个主版本或次版本。
+这个表描述 CLI 接受的集合，不会自动证明前端完整支持每个特性。语言版本来源优先级为：明确的 CLI 或 Poly 作用域版本固定、源码或项目元数据、工具链探测、保守默认值。显式固定版本却找不到工具链时应报告 600x 诊断，不能静默换用另一个主版本或次版本。
 
 The table defines accepted selections, not complete feature coverage. Explicit pins outrank discovery and must not silently fall back to a different toolchain.
 
@@ -5784,7 +5784,7 @@ The preceding options become meaningful in end-to-end tasks. These five workflow
 
 ```sh
 # 1. Fast semantic check, machine-readable diagnostics.
-build/polyc --check src/main.ploy > build/main.check.json
+build/polyc --check src/main.poly > build/main.check.json
 # Check mode currently uses the default frontend options; exercise --strict
 # with a normal compile workflow such as workflows 3 and 4 below.
 
@@ -5792,21 +5792,21 @@ build/polyc --check src/main.ploy > build/main.check.json
 build/polyc --lang=cpp --std=c++23 -Iinclude -isystem third_party/include \
   -DAPP_VERSION=3 -UDEBUG -c src/native.cpp -o build/native.o
 
-# 3. Ploy cross-language compile with explicit dependency roots.
-build/polyc src/main.ploy --strict -O2 \
+# 3. Poly cross-language compile with explicit dependency roots.
+build/polyc src/main.poly --strict -O2 \
   --python-stubs=typeshed --crate-dir=rust \
   --js-project=web --node-modules=web/node_modules \
   --emit-ir=build/main.ir --emit=call-graph:build/main.cg.json \
   -o build/app
 
 # 4. Profile-guided release.
-build/polyc src/main.ploy -O2 --pgo-generate -o build/train
+build/polyc src/main.poly -O2 --pgo-generate -o build/train
 # run build/train under representative workload, then:
-build/polyc src/main.ploy -O2 --pgo-use build/train.prof --lto \
+build/polyc src/main.poly -O2 --pgo-use build/train.prof --lto \
   --regalloc=graph-coloring --strict -o build/app.release
 
 # 5. Cross-target Wasm plus all inspectable artifacts.
-build/polyc src/main.ploy --target=wasm32-wasi --container=wasm \
+build/polyc src/main.poly --target=wasm32-wasi --container=wasm \
   --emit-ir=build/main.wasm.ir --emit-asm=build/main.wat \
   --emit-obj=build/main.wasm -o build/main.wasm
 ```
@@ -6051,7 +6051,7 @@ The target option records a target-triple header rather than emitting code. Stan
 
 ```sh
 # Reproducible optimiser bug isolation.
-build/polyc src/main.ploy -O0 --emit-ir=build/before.ir -c -o build/before.o
+build/polyc src/main.poly -O0 --emit-ir=build/before.ir -c -o build/before.o
 build/polyopt -O1 build/before.ir -o build/o1.ir
 build/polyopt -O2 build/before.ir -o build/o2.ir
 build/polyopt -O3 --target=x86_64-unknown-linux-gnu \
@@ -6219,9 +6219,9 @@ The minimum correctness pipeline is IR legalisation, instruction selection, virt
 build/polyld build/main.o build/reader.o   --target=x86_64-unknown-linux-gnu   --container=elf   --no-undefined   --gc-sections   -o build/app
 ```
 
-重要选项包括 `-L` 和 `-l`、`-e` 和 `--entry`、`-static`、`-shared`、`-r`、`--strip-all`、`--strip-debug`、`--pie`、`--ploy-desc`、`--aux-dir`、`--allow-adhoc-link`，以及 PE 导出和追踪选项。
+重要选项包括 `-L` 和 `-l`、`-e` 和 `--entry`、`-static`、`-shared`、`-r`、`--strip-all`、`--strip-debug`、`--pie`、`--poly-desc`、`--aux-dir`、`--allow-adhoc-link`，以及 PE 导出和追踪选项。
 
-Important options include `-L` and `-l`, `-e` and `--entry`, `-static`, `-shared`, `-r`, `--strip-all`, `--strip-debug`, `--pie`, `--ploy-desc`, `--aux-dir`, `--allow-adhoc-link`, PE export controls, and tracing.
+Important options include `-L` and `-l`, `-e` and `--entry`, `-static`, `-shared`, `-r`, `--strip-all`, `--strip-debug`, `--pie`, `--poly-desc`, `--aux-dir`, `--allow-adhoc-link`, PE export controls, and tracing.
 
 `-T` 既可表示链接器脚本，也可在参数能被解析时表示目标三元组；新代码应优先使用无歧义的 `--target`。
 
@@ -6229,9 +6229,9 @@ Important options include `-L` and `-l`, `-e` and `--entry`, `-static`, `-shared
 
 #### 完整 CLI / Complete CLI
 
-链接器选项分散在输入搜索、目标容器、符号策略和 Ploy 粘合代码生成几个维度。该表按责任重组参数，便于脚本只启用自己理解的行为。
+链接器选项分散在输入搜索、目标容器、符号策略和 Poly 粘合代码生成几个维度。该表按责任重组参数，便于脚本只启用自己理解的行为。
 
-Linker options span input search, target containers, symbol policy, and Ploy glue generation. The table reorganises them by responsibility so scripts enable only behaviour they understand.
+Linker options span input search, target containers, symbol policy, and Poly glue generation. The table reorganises them by responsibility so scripts enable only behaviour they understand.
 
 | 类别 | 参数 | 行为 |
 |---|---|---|
@@ -6243,7 +6243,7 @@ Linker options span input search, target containers, symbol policy, and Ploy glu
 | 安全 | `--no-undefined`、`--allow-multiple-definition` | 控制 unresolved/duplicate symbol 是否为 fatal |
 | 优化 | `--gc-sections`、`--icf`、`--build-id`、`--pie`/`-pie` | dead-section collection、identical-code folding、build id、PIE |
 | Strip | `-s`/`--strip-all`、`-S`/`--strip-debug` | 删除全部 symbols 或仅 debug data |
-| Ploy | `--ploy-desc <file>`、`--aux-dir <dir>`、`--allow-adhoc-link` | 加载正式跨语言描述，或显式允许临时 stub |
+| Poly | `--poly-desc <file>`、`--aux-dir <dir>`、`--allow-adhoc-link` | 加载正式跨语言描述，或显式允许临时 stub |
 | PE | `--subsystem=<name>`、`--def <file>`、`/EXPORT:<spec>`、`--export <symbol>`、`--dll-name <name>` | subsystem 与 export directory 输入 |
 | 诊断 | `-v`/`--verbose`、`--trace`、`-h`/`--help` | stats、file loading trace、usage |
 
@@ -6301,9 +6301,9 @@ Before assigning final addresses, the linker must select one legal definition fo
 
 #### 跨语言链接描述 / Cross-language descriptors
 
-Ploy 前端和中间表示降低生成 `LinkEntry` 与 `CrossLangCallDescriptor`，它们可通过 `--ploy-desc` 逐个加载，也可由 `--aux-dir` 自动发现。`PolyglotLinker` 依照下列顺序工作：
+Poly 前端和中间表示降低生成 `LinkEntry` 与 `CrossLangCallDescriptor`，它们可通过 `--poly-desc` 逐个加载，也可由 `--aux-dir` 自动发现。`PolyglotLinker` 依照下列顺序工作：
 
-The Ploy frontend and IR lowering produce `LinkEntry` and `CrossLangCallDescriptor` records, loaded individually through `--ploy-desc` or discovered automatically through `--aux-dir`. `PolyglotLinker` follows this order:
+The Poly frontend and IR lowering produce `LinkEntry` and `CrossLangCallDescriptor` records, loaded individually through `--poly-desc` or discovered automatically through `--aux-dir`. `PolyglotLinker` follows this order:
 
 1. `AddLinkEntry` 和 `AddCallDescriptor` 注册经过语义检查的请求；
 2. `AddCrossLangSymbol` 注册在对象文件中发现的语言符号；
@@ -6364,7 +6364,7 @@ Link failures occur after inputs already exist, so inspecting symbols, relocatio
 | undefined symbol | `--trace`、symbol table、descriptor | archive 顺序、mangling、漏 host object |
 | duplicate definition | symbol binding/origin | 两个 strong definitions 或重复 runtime |
 | relocation overflow | target relocation/range/layout | code model、branch range、错误 relocation kind |
-| descriptor mismatch | Ploy signature 与 object symbol | 类型、language、ABI 或版本漂移 |
+| descriptor mismatch | Poly signature 与 object symbol | 类型、language、ABI 或版本漂移 |
 | 可生成但目标不能运行 | header + target runtime | 只验证了 emission，未验证目标环境 |
 
 ### 练习 / Exercise
@@ -6721,14 +6721,14 @@ Committing the lock file is a project policy. If it contains machine-absolute pa
 
 ### 25.2 `polydoc`
 
-`polydoc` 从 Ploy AST 附着的三斜线注释生成 Markdown 或 JSON。示例先展示单文件调用，随后解释多文件 JSON 和语法分析器诊断的边界。
+`polydoc` 从 Poly AST 附着的三斜线注释生成 Markdown 或 JSON。示例先展示单文件调用，随后解释多文件 JSON 和语法分析器诊断的边界。
 
-`polydoc` generates Markdown or JSON from triple-slash comments attached to Ploy AST declarations. The examples begin with one file before explaining multi-file JSON and parser-diagnostic boundaries.
+`polydoc` generates Markdown or JSON from triple-slash comments attached to Poly AST declarations. The examples begin with one file before explaining multi-file JSON and parser-diagnostic boundaries.
 
 ```sh
-build/polydoc source.ploy
-build/polydoc --json source.ploy
-build/polydoc -o build/api.md source.ploy
+build/polydoc source.poly
+build/polydoc --json source.poly
+build/polydoc -o build/api.md source.poly
 ```
 
 提取器接受多个文件，解析 `///` 文档注释与声明。Markdown 输出面向人类读者，JSON 输出面向索引和语言服务器。
@@ -6741,7 +6741,7 @@ The extractor accepts multiple files and parses `///` documentation with declara
 
 Only a line with exactly three slashes is documentation: `/// text`. Ordinary `//` comments and four-slash banners `////` are ignored. The lexer removes one optional leading space and a trailing carriage return while preserving source order and line text. A documentation block binds to the following top-level `FUNC`, `STRUCT`, `LET`, or `VAR`; the current extractor does not recurse into methods or local declarations.
 
-```ploy
+```poly
 /// Adds two signed values.
 /// The operation uses I32 arithmetic.
 FUNC add(a: I32, b: I32) -> I32 {
@@ -6759,7 +6759,7 @@ JSON emits one object per input file with `file` and `entries[]`. Each entry con
 
 ```json
 {
-  "file": "src/math.ploy",
+  "file": "src/math.poly",
   "entries": [{
     "kind": "func",
     "name": "add",
@@ -6828,17 +6828,17 @@ A benchmark review records at least the commit, release or debug build, compiler
 
 ### 25.4 `polytopo`
 
-`polytopo` 从 Ploy 源码构建带带类型的端口的拓扑图图，并支持验证、渲染和反向生成。它不消费编译器调用-图 JSON，输入数据模式必须先区分。
+`polytopo` 从 Poly 源码构建带带类型的端口的拓扑图图，并支持验证、渲染和反向生成。它不消费编译器调用-图 JSON，输入数据模式必须先区分。
 
-`polytopo` builds a typed-port topology graph from Ploy source and supports validation, rendering, and reverse generation. It does not consume compiler call-graph JSON, so input schemas must be distinguished first.
+`polytopo` builds a typed-port topology graph from Poly source and supports validation, rendering, and reverse generation. It does not consume compiler call-graph JSON, so input schemas must be distinguished first.
 
 ```sh
-build/polytopo project.ploy --validate --strict
-build/polytopo project.ploy --format text
-build/polytopo project.ploy --format summary
-build/polytopo project.ploy --format dot -o build/topology.dot
-build/polytopo project.ploy --format json -o build/topology.json
-build/polytopo generate build/topology.json -o build/generated.ploy
+build/polytopo project.poly --validate --strict
+build/polytopo project.poly --format text
+build/polytopo project.poly --format summary
+build/polytopo project.poly --format dot -o build/topology.dot
+build/polytopo project.poly --format json -o build/topology.json
+build/polytopo generate build/topology.json -o build/generated.poly
 ```
 
 输出格式为 `text`、`dot`、`json` 或 `summary`；`--view-mode` 只接受 `link` 或 `call`，它不是输出格式。还可以按语言过滤、显示源码位置、允许环，以及选择 DOT 方向。
@@ -6870,13 +6870,13 @@ CLI 结果来自词法分析器、语法分析器、图构建器、验证器和�
 CLI output passes through lexer, parser, graph builder, validator, and renderer. The stages assign responsibility for empty graphs, validation failures, and rendering defects.
 
 1. 词法分析器收集词法单元，空词法单元流会失败；
-2. 语法分析器产生 Ploy 模块；
+2. 语法分析器产生 Poly 模块；
 3. `PloySema` 执行分析，关闭包发现，并把 `--strict` 传给严格模式；
 4. `TopologyAnalyzer` 两遍建图：第一遍注册声明和节点，第二遍遍历主体，追踪调用、新建、方法、变量和生产者端口；
 5. 只有指定 `--validate` 时才运行验证器，否则向标准错误明确写入 `Skipping validation`。
 
 1. The lexer collects tokens and rejects an empty token stream.
-2. The parser produces a Ploy module.
+2. The parser produces a Poly module.
 3. `PloySema` analyses it with package discovery disabled and propagates `--strict` into strict mode.
 4. `TopologyAnalyzer` builds the graph in two passes: declarations and nodes first, then bodies for calls, construction, methods, variables, and producer ports.
 5. The validator runs only with `--validate`; otherwise the tool writes `Skipping validation` to standard error.
@@ -6915,20 +6915,20 @@ One topology model can be rendered for humans, Graphviz, automation, or summarie
 
 Progress and final statistics go to standard error, while the graph goes to standard output or `-o`, so pipelines are safe. Unknown formats or view modes, missing or unreadable files, and validation errors return 1.
 
-#### JSON → Ploy code generation / 反向生成
+#### JSON → Poly code generation / 反向生成
 
-`generate` 分三步：`ParseJsonToGraph` → `GeneratePloySrc` → Ploy 语法与语义验证。节点生成规则为：函数生成 `FUNC`，构造器生成 `NEW`，方法生成 `METHOD`，管线生成 `PIPELINE`，映射节点生成 `MAP_FUNC`。外部节点成为调用目标，而不会重复声明。跨语言边生成 `LINK`，类型不匹配时生成 `MAP_TYPE`，同语言边生成 `CALL`，同时收集外部模块的 `IMPORT` 和本地可调用对象的 `EXPORT`。
+`generate` 分三步：`ParseJsonToGraph` → `GeneratePloySrc` → Poly 语法与语义验证。节点生成规则为：函数生成 `FUNC`，构造器生成 `NEW`，方法生成 `METHOD`，管线生成 `PIPELINE`，映射节点生成 `MAP_FUNC`。外部节点成为调用目标，而不会重复声明。跨语言边生成 `LINK`，类型不匹配时生成 `MAP_TYPE`，同语言边生成 `CALL`，同时收集外部模块的 `IMPORT` 和本地可调用对象的 `EXPORT`。
 
-`generate` has three steps: `ParseJsonToGraph`, `GeneratePloySrc`, and Ploy parser and Sema verification. Function nodes become `FUNC`, constructors `NEW`, methods `METHOD`, pipelines `PIPELINE`, and mapping nodes `MAP_FUNC`. Foreign nodes are call targets rather than duplicate declarations. Cross-language edges generate `LINK`; type mismatches generate `MAP_TYPE`; same-language edges generate `CALL`; and the generator collects `IMPORT` declarations for foreign modules and `EXPORT` declarations for native callables.
+`generate` has three steps: `ParseJsonToGraph`, `GeneratePloySrc`, and Poly parser and Sema verification. Function nodes become `FUNC`, constructors `NEW`, methods `METHOD`, pipelines `PIPELINE`, and mapping nodes `MAP_FUNC`. Foreign nodes are call targets rather than duplicate declarations. Cross-language edges generate `LINK`; type mismatches generate `MAP_TYPE`; same-language edges generate `CALL`; and the generator collects `IMPORT` declarations for foreign modules and `EXPORT` declarations for native callables.
 
 当前验证遇到解析诊断时会警告，但生成路径仍可能写入文件并返回 0。因此生成后仍必须执行严格编译：
 
 Current verification warns on parse diagnostics, yet the generation path may still write a file and return 0. Always run strict compilation after generation:
 
 ```sh
-build/polytopo input.ploy --validate --strict --format json -o build/topology.json
-build/polytopo generate build/topology.json -o build/generated.ploy
-build/polyc --check build/generated.ploy
+build/polytopo input.poly --validate --strict --format json -o build/topology.json
+build/polytopo generate build/topology.json -o build/generated.poly
+build/polyc --check build/generated.poly
 ```
 
 集成开发环境的拓扑图面板使用相同的图、分析器、验证器、打印器和代码生成库。文件保存后，系统以 200 毫秒防抖执行全量重建；创建或删除边可以同步到文本。创建或删除节点、重命名重构、边操作的撤销与重做，以及增量解析尚未完成。用户界面不得把这些路线图项目显示为已实现功能。
@@ -6958,10 +6958,10 @@ This chapter separates artifact emission from target-platform validation and pac
 Cross-target release begins by distinguishing container generation from execution on the target system. These commands cover the principal matrix cells, while runtime validation still requires the appropriate loader and host environment.
 
 ```sh
-build/polyc main.ploy --target=x86_64-pc-windows-msvc --container=pe -o build/main.exe
-build/polyc main.ploy --target=x86_64-unknown-linux-gnu --container=elf -o build/main
-build/polyc main.ploy --target=aarch64-apple-darwin --container=macho -o build/main
-build/polyc main.ploy --target=wasm32-wasi --container=wasm -o build/main.wasm
+build/polyc main.poly --target=x86_64-pc-windows-msvc --container=pe -o build/main.exe
+build/polyc main.poly --target=x86_64-unknown-linux-gnu --container=elf -o build/main
+build/polyc main.poly --target=aarch64-apple-darwin --container=macho -o build/main
+build/polyc main.poly --target=wasm32-wasi --container=wasm -o build/main.wasm
 ```
 
 Emission success only proves writer/backend behaviour. Runtime validation needs the target OS, VM, emulator, or Wasm runtime plus compatible host-language dependencies.
@@ -7109,13 +7109,13 @@ This tutorial records the gap but does not modify the user's existing packaging 
 
 ### 26.4 Version consistency / 版本一致性
 
-项目版本来自当前 `CMakeLists.txt`，并应同步到 CLI 版本横幅、UI 元数据、软件包名称、安装器和文档。旧发布规范中的 `1.0.0` 示例是历史占位，不能覆盖当前的 `1.47.4`。
+项目版本来自当前 `CMakeLists.txt`，并应同步到 CLI 版本横幅、UI 元数据、软件包名称、安装器和文档。旧发布规范中的 `1.0.0` 示例是历史占位，不能覆盖当前的 `1.48.0`。
 
 The current project version overrides historical packaging examples.
 
-当前唯一的构建版本源是根目录 `CMakeLists.txt` 中的 `project(PolyglotCompiler VERSION 1.47.4)`。配置过程会向 `VERSION.txt` 写入两行，并通过生成或当前的 `common/include/version.h` 把版本传播到命令行工具、语言服务器、插件、集成开发环境和调试信息生成者字符串。打包从 `VERSION.txt` 读取版本。正确的版本修改顺序是：
+当前唯一的构建版本源是根目录 `CMakeLists.txt` 中的 `project(PolyglotCompiler VERSION 1.48.0)`。配置过程会向 `VERSION.txt` 写入两行，并通过生成或当前的 `common/include/version.h` 把版本传播到命令行工具、语言服务器、插件、集成开发环境和调试信息生成者字符串。打包从 `VERSION.txt` 读取版本。正确的版本修改顺序是：
 
-The single build-version source is `project(PolyglotCompiler VERSION 1.47.4)` in the root `CMakeLists.txt`. Configuration writes two lines to `VERSION.txt` and propagates the version through generated or current `common/include/version.h` into CLI tools, the language server, plugins, the IDE, and debug producer strings. Packaging reads `VERSION.txt`. Change a version in this order:
+The single build-version source is `project(PolyglotCompiler VERSION 1.48.0)` in the root `CMakeLists.txt`. Configuration writes two lines to `VERSION.txt` and propagates the version through generated or current `common/include/version.h` into CLI tools, the language server, plugins, the IDE, and debug producer strings. Packaging reads `VERSION.txt`. Change a version in this order:
 
 1. 修改 CMake 项目版本和后缀；
 2. 重新配置，生成 `VERSION.txt` 和版本头文件；
@@ -7329,9 +7329,9 @@ Clients must still capability-gate every action; protocol types alone never prov
 
 ### 27.6 Completion、hover 与 signature help
 
-这些功能目前使用轻量源码扫描，而不是复用完整的 Ploy 抽象语法树和语义分析器：
+这些功能目前使用轻量源码扫描，而不是复用完整的 Poly 抽象语法树和语义分析器：
 
-These features currently use lightweight source scanning rather than the complete Ploy AST and Sema:
+These features currently use lightweight source scanning rather than the complete Poly AST and Sema:
 
 - `CollectDocumentSymbols` 单遍扫描当前文档中的 `FUNC`、`PIPELINE`、`LET`、`VAR`、`STRUCT` 和 `IMPORT`；
 - 补全先匹配当前前缀，再提供关键字、代码段和本文件符号；
@@ -7363,7 +7363,7 @@ Navigation handlers：
 | declaration | index declaration |
 | implementation | implementation; LINK additionally resolves host target |
 | typeDefinition | index type target |
-| references | index refs; host symbol additionally gets reverse Ploy LINK refs |
+| references | index refs; host symbol additionally gets reverse Poly LINK refs |
 
 当前的限定词法单元语言识别器明确列出 `cpp`、`python`、`rust`、`java`、`dotnet` 和 `csharp`。因此，即使编译器支持 Go、JavaScript 和 Ruby，也不能对这三种语言的跨语言跳转承诺同等成熟度。导航依赖光标下的词法单元和索引启发式规则，而不是链接器符号表。
 
@@ -7393,9 +7393,9 @@ The qualified-token language recogniser explicitly lists `cpp`, `python`, `rust`
 
 The initial legend contains eleven fixed token types: namespace, type, struct, function, variable, parameter, keyword, comment, string, number, and operator. Modifiers are declaration, readonly, static, deprecated, and definition.
 
-全文和范围处理器调用语法描述符与类 tree-sitter 运行时系统，得到绝对词法单元后，按 LSP 差分编码输出。当前内置语法表覆盖 Ploy、C++、Python、Rust、Java 和 C#。未知语言的全文请求返回空词法单元流，由集成开发环境的正则表达式高亮规则接管。范围请求按行范围过滤。
+全文和范围处理器调用语法描述符与类 tree-sitter 运行时系统，得到绝对词法单元后，按 LSP 差分编码输出。当前内置语法表覆盖 Poly、C++、Python、Rust、Java 和 C#。未知语言的全文请求返回空词法单元流，由集成开发环境的正则表达式高亮规则接管。范围请求按行范围过滤。
 
-Full and range handlers invoke a syntax descriptor and a tree-sitter-shaped Runtime, then encode absolute tokens as LSP deltas. The built-in syntax table covers Ploy, C++, Python, Rust, Java, and C#. A full request for an unknown language returns an empty token stream so the IDE regex highlighter can take over. Range requests filter by line range.
+Full and range handlers invoke a syntax descriptor and a tree-sitter-shaped Runtime, then encode absolute tokens as LSP deltas. The built-in syntax table covers Poly, C++, Python, Rust, Java, and C#. A full request for an unknown language returns an empty token stream so the IDE regex highlighter can take over. Range requests filter by line range.
 
 词法单元数据每五个无符号整数为一组：`deltaLine, deltaStart, length, tokenType, modifierBits`。客户端解码时必须累加行号和开始位置，并验证类型索引没有越出图例。
 
@@ -7403,9 +7403,9 @@ Token data is grouped in five unsigned integers: `deltaLine, deltaStart, length,
 
 ### 27.10 Formatting
 
-Ploy 格式化读取 `tabSize`、`insertSpaces`、`trimTrailingWhitespace` 和 `insertFinalNewline`，再调用 `FormatPloy`。如果内容发生变化，返回一个覆盖全文的 `TextEdit`；没有变化则返回空数组。范围格式化和输入时格式化目前都退化为全文格式化，因为脱离花括号上下文后，局部缩进不稳定。
+Poly 格式化读取 `tabSize`、`insertSpaces`、`trimTrailingWhitespace` 和 `insertFinalNewline`，再调用 `FormatPloy`。如果内容发生变化，返回一个覆盖全文的 `TextEdit`；没有变化则返回空数组。范围格式化和输入时格式化目前都退化为全文格式化，因为脱离花括号上下文后，局部缩进不稳定。
 
-Ploy formatting reads `tabSize`, `insertSpaces`, `trimTrailingWhitespace`, and `insertFinalNewline`, then calls `FormatPloy`. If content changes it returns one full-document `TextEdit`; otherwise it returns an empty array. Range and on-type formatting currently fall back to whole-document formatting because local indentation is unstable without brace context.
+Poly formatting reads `tabSize`, `insertSpaces`, `trimTrailingWhitespace`, and `insertFinalNewline`, then calls `FormatPloy`. If content changes it returns one full-document `TextEdit`; otherwise it returns an empty array. Range and on-type formatting currently fall back to whole-document formatting because local indentation is unstable without brace context.
 
 外部语言编号返回空编辑，由各自的服务器处理。输入时格式化可能在每个换行处触发全文编辑，客户端应防抖，并避免“编辑 → 变更 → 格式化”循环。
 
@@ -7417,13 +7417,13 @@ Foreign-language identifiers return empty edits and defer to their own servers. 
 
 Every open or change publishes `publishDiagnostics`; close publishes an empty array to clear overlays. Ranges convert from one-based frontend `SourceLoc` to zero-based LSP positions. Severity maps to error, warning, or information, and the source is `polyls`.
 
-当前只对语言编号 `ploy` 或 `poly` 运行 `PloyLanguageFrontend::Analyze`，且 `FrontendOptions.strict=false`；其他语言发布空诊断。每条范围目前是单字符 `[line,col]..[line,col+1]`。非未知错误代码以 `E` 加枚举数值输出，而不是旧问题快速入门所声称的 `polyc-(err|warn)-E####` 稳定标识格式。
+当前只对规范语言编号 `poly` 运行 `PloyLanguageFrontend::Analyze`；旧别名 `ploy` 会在 `didOpen` 边界先归一化为 `poly`。`FrontendOptions.strict=false`，其他语言发布空诊断。每条范围目前是单字符 `[line,col]..[line,col+1]`。非未知错误代码以 `E` 加枚举数值输出，而不是旧问题快速入门所声称的 `polyc-(err|warn)-E####` 稳定标识格式。
 
-`PloyLanguageFrontend::Analyze` currently runs only for language identifiers `ploy` or `poly`, with `FrontendOptions.strict=false`; other languages receive empty diagnostics. Every range is currently one character, `[line,col]..[line,col+1]`. A known error code is emitted as `E` plus the enum numeric value, not the stable `polyc-(err|warn)-E####` identifier claimed by an older issue quickstart.
+`PloyLanguageFrontend::Analyze` currently runs only for the canonical language id `poly`; the legacy `ploy` alias is normalized to `poly` at the `didOpen` boundary. `FrontendOptions.strict=false`, and other languages receive empty diagnostics. Every range is currently one character, `[line,col]..[line,col+1]`. A known error code is emitted as `E` plus the enum numeric value, not the stable `polyc-(err|warn)-E####` identifier claimed by an older issue quickstart.
 
-这意味着，集成开发环境实时诊断与 `polyc --check file.ploy` 已不保证完全相同，与普通的 `polyc file.ploy --strict ...` 构建差异更大：严格度、驱动程序阶段、链接错误和后端错误都不同。问题面板应按源保留它们，而不是互相覆盖。
+这意味着，集成开发环境实时诊断与 `polyc --check file.poly` 已不保证完全相同，与普通的 `polyc file.poly --strict ...` 构建差异更大：严格度、驱动程序阶段、链接错误和后端错误都不同。问题面板应按源保留它们，而不是互相覆盖。
 
-IDE live diagnostics are therefore not guaranteed to match `polyc --check file.ploy`, and they differ even more from a normal `polyc file.ploy --strict ...` build because strictness, driver phases, link errors, and backend errors differ. The Problems view must retain them by source rather than overwrite one with another.
+IDE live diagnostics are therefore not guaranteed to match `polyc --check file.poly`, and they differ even more from a normal `polyc file.poly --strict ...` build because strictness, driver phases, link errors, and backend errors differ. The Problems view must retain them by source rather than overwrite one with another.
 
 ### 27.12 URI handling
 
@@ -7459,16 +7459,16 @@ When opening a file, the bridge reads `languageServers.servers.<language>`. It d
 
 ### 27.14 Settings / 设置
 
-当前捆绑的默认值包含 Ploy、C++、Python、Rust、Java 和 C# 六个服务器：
+当前捆绑的默认值包含 Poly、C++、Python、Rust、Java 和 C# 六个服务器：
 
-The bundled defaults currently contain six servers for Ploy, C++, Python, Rust, Java, and C#:
+The bundled defaults currently contain six servers for Poly, C++, Python, Rust, Java, and C#:
 
 ```json
 {
   "languageServers.enabled": true,
   "languageServers.changeDebounceMs": 200,
   "languageServers.logCapacity": 2000,
-  "languageServers.servers.ploy": {"command": "polyls", "args": []},
+  "languageServers.servers.poly": {"command": "polyls", "args": []},
   "languageServers.servers.cpp": {"command": "clangd", "args": ["--background-index", "--clang-tidy"]},
   "languageServers.servers.python": {"command": "pyright-langserver", "args": ["--stdio"]},
   "languageServers.servers.rust": {"command": "rust-analyzer", "args": []},
@@ -7595,9 +7595,9 @@ Protocol data types are reusable infrastructure; the initialize result proves av
 
 ### 28.3 Cross-language navigation / 跨语言跳转
 
-Ploy `LINK` 限定名到宿主定义的跳转，以及宿主符号到 Ploy 链接的反向引用，都依赖工作区符号索引。排错顺序如下：
+Poly `LINK` 限定名到宿主定义的跳转，以及宿主符号到 Poly 链接的反向引用，都依赖工作区符号索引。排错顺序如下：
 
-Navigation from a Ploy `LINK` qualifier to a host definition, and back-references from host symbols to Ploy links, depend on the workspace symbol index. Diagnose in this order:
+Navigation from a Poly `LINK` qualifier to a host definition, and back-references from host symbols to Poly links, depend on the workspace symbol index. Diagnose in this order:
 
 1. 宿主文件是否被工作区扫描器和索引收录；
 2. 语言编号是否受识别器支持；
@@ -7659,11 +7659,11 @@ The snapshot first applies the severity mask, file substring, source substring, 
 
 ### 28.6 操作教程 / Walkthrough
 
-这个流程从制造一个 Ploy 错误开始，观察 LSP 更新、构建结果共存以及修复后的清理。它把前面的模型契约转为用户可以复现的行为。
+这个流程从制造一个 Poly 错误开始，观察 LSP 更新、构建结果共存以及修复后的清理。它把前面的模型契约转为用户可以复现的行为。
 
-This walkthrough begins with a Ploy error and observes LSP updates, coexistence with build results, and cleanup after repair. It turns the preceding model contract into reproducible user behaviour.
+This walkthrough begins with a Poly error and observes LSP updates, coexistence with build results, and cleanup after repair. It turns the preceding model contract into reproducible user behaviour.
 
-1. 打开 `.ploy`；
+1. 打开 `.poly`；
 2. 删除一个分号或引用未知符号；
 3. 等待防抖和重新分析；
 4. 打开问题；
@@ -7674,7 +7674,7 @@ This walkthrough begins with a Ploy error and observes LSP updates, coexistence 
 CLI fallback：
 
 ```sh
-build/polyc --check broken.ploy > build/broken.diagnostics.json
+build/polyc --check broken.poly > build/broken.diagnostics.json
 ```
 
 如果命令行工具有诊断而集成开发环境没有，应检查进程、帧、URI、会话和路由；如果两边都没有，就回到前端检查。
@@ -7693,7 +7693,7 @@ The companion [`06_diagnostics`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/06
 
 ```json
 {
-  "uri": "file://<SOURCE>/06_diagnostics/type_error.ploy",
+  "uri": "file://<SOURCE>/06_diagnostics/type_error.poly",
   "diagnostics": [{
     "range": {
       "start": {"line": 1, "character": 4},
@@ -7891,7 +7891,7 @@ dropped_events
     "entries": [
       {
         "name": "main",
-        "language": "ploy",
+        "language": "poly",
         "call_count": 1,
         "inclusive_ns": 5000,
         "self_ns": 1000
@@ -7915,11 +7915,11 @@ Document mode wraps samples as `{"schema":"polyglot.profile.v1","samples":[...]}
 
 `ProfileSession` currently parses the old UI-oriented shape:
 
-- 时间线从样本顶层读取函数、语言、线程和数值调用；实际的嵌套样本会退化为 `<sample>/ploy/main/0`；
+- 时间线从样本顶层读取函数、语言、线程和数值调用；实际的嵌套样本会退化为 `<sample>/poly/main/0`；
 - 火焰图从文档的 `frames` 或 `hotspots` 建树；实际文档两者都没有，因此为空；
 - 调用图叠加层只读取 `hotspots`；实际文档无法叠加。
 
-- Timeline reads function, language, thread, and numeric calls from the sample top level; actual nested samples fall back to `<sample>/ploy/main/0`.
+- Timeline reads function, language, thread, and numeric calls from the sample top level; actual nested samples fall back to `<sample>/poly/main/0`.
 - The flame graph builds from document `frames` or `hotspots`; actual documents contain neither and therefore yield an empty graph.
 - The call-graph overlay reads only `hotspots`; actual documents cannot be overlaid.
 
@@ -7996,7 +7996,7 @@ The companion [`07_profile_fixture`](POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLE
 ```json
 {
   "name": "main",
-  "language": "ploy",
+  "language": "poly",
   "call_count": 2,
   "inclusive_ns": 5000,
   "self_ns": 1000
@@ -8018,7 +8018,7 @@ To feed the current IDE models, explicitly transform nested entries into timelin
 The intended workflow requires instrumentation, a symbol map, a static graph, and a target-process collection channel. The example explicitly labels the missing launcher or attach command so it is not confused with current CLI behaviour.
 
 ```sh
-build/polyc main.ploy \
+build/polyc main.poly \
   --profile-instrument \
   --emit=profile-symbols:build/main.sym.json \
   --emit=call-graph:build/main.cgjson \
@@ -8046,9 +8046,9 @@ The target UI shows timeline lanes by thread, flame graphs by stack prefix, hots
 - node fields `id`, assigned numerically in encounter order, plus `name`, `language`, `is_external`, `is_bridge_stub`, and `block_count`;
 - edge fields numeric `from` and `to`, plus the diagnostic `callee` name.
 
-发射器扫描中间表示函数，已定义函数按遇到顺序编号。每个调用方中相同的直接被调用方会去重，间接调用被跳过。桥接层函数的语言标记为 `bridge`；其他函数的名称含 `::` 时取第一段，否则使用 `ploy`。性能数据符号文档另外输出 `id`、`qualified_name`、语言和 `block_count`。
+发射器扫描中间表示函数，已定义函数按遇到顺序编号。每个调用方中相同的直接被调用方会去重，间接调用被跳过。桥接层函数的语言标记为 `bridge`；其他函数的名称含 `::` 时取第一段，否则使用 `poly`。性能数据符号文档另外输出 `id`、`qualified_name`、语言和 `block_count`。
 
-The emitter scans IR functions and numbers definitions by encounter order. It deduplicates identical direct callees within each caller and skips indirect calls. Bridge functions use language `bridge`; other names containing `::` use their first segment, otherwise `ploy`. A profile-symbol document separately emits `id`, `qualified_name`, language, and `block_count`.
+The emitter scans IR functions and numbers definitions by encounter order. It deduplicates identical direct callees within each caller and skips indirect calls. Bridge functions use language `bridge`; other names containing `::` use their first segment, otherwise `poly`. A profile-symbol document separately emits `id`, `qualified_name`, language, and `block_count`.
 
 当前发射器不输出节点的文件和行号，也不在边中输出两端语言。消费者可以从节点回填语言，但无法跳转到源码。
 
@@ -8112,8 +8112,8 @@ The Call Analyzer combines graph queries, filtering, path search, and runtime ov
 Headless：
 
 ```sh
-build/polytopo main.ploy --view-mode=call --format=summary
-build/polytopo main.ploy --filter-language=python --format=dot -o build/python.dot
+build/polytopo main.poly --view-mode=call --format=summary
+build/polytopo main.poly --filter-language=python --format=dot -o build/python.dot
 ```
 
 `polytopo` 的完整参数与从源码构建拓扑图的能力见第 25 章。它不会自动修复上述 `.cgjson` 加载器不匹配；必须按当前命令行帮助和解析器验证所使用的输入。
@@ -8295,9 +8295,9 @@ Legacy QSettings migration runs once, maps old keys into dotted namespaces, and 
 
 ### 30.4 LSP settings / Language-server settings
 
-`languageServers.enabled`、`changeDebounceMs`、`logCapacity` 以及每种语言的命令、参数、环境和 `initializationOptions` 控制会话。当前捆绑的默认值包括 Ploy `polyls`、C++ clangd、Python pyright、Rust 分析器、Java jdtls 和 C# OmniSharp；Go、JavaScript 和 Ruby 可配置，但不是默认条目。可执行文件是否存在需要在运行时探测，详见第 27 章。
+`languageServers.enabled`、`changeDebounceMs`、`logCapacity` 以及每种语言的命令、参数、环境和 `initializationOptions` 控制会话。当前捆绑的默认值包括 Poly `polyls`、C++ clangd、Python pyright、Rust 分析器、Java jdtls 和 C# OmniSharp；Go、JavaScript 和 Ruby 可配置，但不是默认条目。可执行文件是否存在需要在运行时探测，详见第 27 章。
 
-`languageServers.enabled`, `changeDebounceMs`, `logCapacity`, and each language's command, arguments, environment, and `initializationOptions` control sessions. Bundled defaults include Ploy `polyls`, C++ clangd, Python pyright, rust-analyzer, Java jdtls, and C# OmniSharp. Go, JavaScript, and Ruby are configurable but not defaults. Executable presence is probed at runtime as described in Chapter 27.
+`languageServers.enabled`, `changeDebounceMs`, `logCapacity`, and each language's command, arguments, environment, and `initializationOptions` control sessions. Bundled defaults include Poly `polyls`, C++ clangd, Python pyright, rust-analyzer, Java jdtls, and C# OmniSharp. Go, JavaScript, and Ruby are configurable but not defaults. Executable presence is probed at runtime as described in Chapter 27.
 
 更改命令、参数、环境或 `initializationOptions` 需要重启相关会话；只更改 `logCapacity` 可以直接更新模型；防抖变化会影响后续定时器。设置界面应明确区分“即时生效”和“需要重启”。
 
@@ -8340,22 +8340,22 @@ Theme discovery has three layers: built-in resources, user configuration, then w
 
 Reject inheritance cycles, missing parents, invalid colours, schema mismatches, malicious QSS, and path traversal. Theme failure preserves the last known good or current built-in theme instead of applying a partial palette.
 
-#### 30.6.1 Typora 的 Poly/Ploy 代码块高亮 / Typora fenced-code highlighting
+#### 30.6.1 Typora 的 Poly 与旧拼写代码块高亮 / Typora fenced-code highlighting
 
-设计上的规范源码扩展名与语言名是 `.poly` 和 Poly；当前项目使用的 `.ploy`、`ploy` 与 Ploy 是已知的历史命名错误，迁移工作暂未进行。编辑器集成现阶段兼容两组拼写，避免现有教材示例与新写的规范 `poly` 代码围栏出现不同体验。仓库因此提供一份共享规则：两个代码围栏标签、两个 MIME 名称和两个 CodeMirror 模式名称最终都解析到同一个词法分析器。
+规范源码扩展名、语言标识和语言名是 `.poly`、`poly` 与 Poly。编辑器集成在 1.x 期间仍接受旧代码围栏标签 `ploy` 和旧 MIME 名称 `text/x-ploy`，并将其归一化到规范 `poly` 模式；这些别名最早在 2.0.0 才可移除。
 
-The intended canonical source extension and language name are `.poly` and Poly. The current project's `.ploy`, `ploy`, and Ploy spellings are a known historical naming defect whose migration is deferred. For now, the editor integration accepts both spelling families and routes them to one lexer, so existing textbook blocks and new canonical `poly` fences behave identically.
+The canonical source extension, language identifier, and language name are `.poly`, `poly`, and Poly. During the 1.x series the editor integration also accepts the legacy `ploy` fence and `text/x-ploy` MIME name, normalizing both to the canonical `poly` mode; these aliases may be removed no earlier than 2.0.0.
 
-Typora 的代码块由 CodeMirror 5 产生词法单元类；CSS 只负责给 `cm-keyword`、`cm-string` 等类配色，不能让未知语言获得词法分析。Typora 当前又没有公开的用户级自定义模式目录，所以完整接入包含两层：[`editors/typora/poly.js`](editors/typora/poly.js) 注册模式和 MIME 类型，安全安装器再把 `poly`/`ploy` 加入 Typora 的语言映射器与自动补全配置。安装器识别不到已知内部锚点时会在写入前停止，不尝试猜测应用程序包结构。
+Typora 的代码块由 CodeMirror 5 产生词法单元类；CSS 只负责给 `cm-keyword`、`cm-string` 等类配色，不能让未知语言获得词法分析。Typora 当前又没有公开的用户级自定义模式目录，所以完整接入包含两层：[`editors/typora/poly.js`](editors/typora/poly.js) 注册模式和 MIME 类型，安全安装器再把规范 `poly` 与旧别名 `ploy` 加入 Typora 的语言映射器与自动补全配置。安装器识别不到已知内部锚点时会在写入前停止，不尝试猜测应用程序包结构。
 
 Typora uses CodeMirror 5 token classes for fenced blocks. CSS can colour those classes but cannot tokenize an unknown language. Because Typora exposes no documented user custom-mode directory, the integration registers the mode and MIME types in [`poly.js`](editors/typora/poly.js) and adds both names to Typora's mapper and autocomplete list through a guarded installer.
 
-这套规则不是 C 或 Rust 模式的别名，而是从当前 Ploy 词法分析器导出：82 个全局关键字按 ASCII 不区分大小写识别；`CLASS`、`HANDLE` 和 `ATTR` 获得稳定的上下文相关颜色；原始类型、容器类型、位宽类型、`TRUE/FALSE/NULL`、`@attribute`、定义名称、属性、`//`、`///`、`/* */`、十六进制数、二进制数、八进制数、浮点数、普通字符串、原始字符串、带填充井号的原始字符串、模板字符串、三引号字符串和完整运算符族分别产生标准 CodeMirror 样式。`Some` 和 `None` 保持语法分析器要求的源码大小写敏感构造器行为。
+这套规则不是 C 或 Rust 模式的别名，而是从当前 Poly 词法分析器导出：82 个全局关键字按 ASCII 不区分大小写识别；`CLASS`、`HANDLE` 和 `ATTR` 获得稳定的上下文相关颜色；原始类型、容器类型、位宽类型、`TRUE/FALSE/NULL`、`@attribute`、定义名称、属性、`//`、`///`、`/* */`、十六进制数、二进制数、八进制数、浮点数、普通字符串、原始字符串、带填充井号的原始字符串、模板字符串、三引号字符串和完整运算符族分别产生标准 CodeMirror 样式。`Some` 和 `None` 保持语法分析器要求的源码大小写敏感构造器行为。
 
-The mode is derived from the real Ploy lexer rather than aliased to C or Rust. It classifies the 82 case-insensitive global keywords, contextual schema words, types, atoms, attributes, definitions, properties, all comment and number forms, regular/raw/template/triple-quoted strings, and operators. `Some` and `None` remain source-case-sensitive parser constructors.
+The mode is derived from the real Poly lexer rather than aliased to C or Rust. It classifies the 82 case-insensitive global keywords, contextual schema words, types, atoms, attributes, definitions, properties, all comment and number forms, regular/raw/template/triple-quoted strings, and operators. `Some` and `None` remain source-case-sensitive parser constructors.
 
 ```poly
-/// Both `poly` and `ploy` fences select this mode.
+/// Canonical `poly` and legacy `ploy` fences select this mode in 1.x.
 @inline PUB ASYNC FUNC describe<T: Display>(value: T) -> STRING {
     LET code: u16 = 0x2A;
     LET path = r#"C:\data\"quoted\""#;
@@ -8374,7 +8374,7 @@ node docs/editors/typora/tests/test_poly_mode.js
 本机实测输出 / Observed 输出:
 
 ```text
-poly mode: 131 tokens checked; aliases poly/ploy ready
+poly mode: 131 tokens checked; canonical poly and legacy ploy alias ready
 ```
 
 安装、独立应用副本、macOS 代码签名边界、Windows 与 Linux 路径、可选主题配色、检查与逐字节可逆卸载步骤统一记录在双语 [`editors/typora/README.md`](editors/typora/README.md)。视觉验收文件是 [`poly-highlight-demo.md`](editors/typora/examples/poly-highlight-demo.md)。不要把安装器理解为“普通主题安装”：它修改的是应用资源。macOS 上推荐只处理 `~/Applications/Typora-Poly.app` 副本并进行临时本地签名，保留厂商原应用用于更新和回滚。Typora 更新后必须重新运行 `--check`；内部布局发生变化时，应等待规则或安装器适配。
@@ -8684,7 +8684,7 @@ polyglot
 ├── core / utils / debug       types, symbols, configuration, source/debug data
 ├── frontends                  shared lexer/parser/sema infrastructure
 │   ├── cpp / python / rust / java / dotnet
-│   └── ploy                   language + cross-language descriptors
+│   └── poly                   language + cross-language descriptors
 ├── ir                         IRContext, CFG/SSA/verifier, dialects
 ├── passes                     analysis and transform
 ├── pgo / lto                  profile-guided and cross-module optimisation
@@ -8702,7 +8702,7 @@ polyglot
 
 Directory and namespace boundaries are related but not identical. Internal and test-only namespaces must not be promoted into public architecture.
 
-历史扫描按“声明该命名空间的文件数”得到主要热点：匿名命名空间 70、`polyglot::ir` 28、`runtime::interop` 与 `passes::transform` 各 14、`backends`、`x86_64`、`cpp` 各 11、`runtime::gc` 10；arm64、Rust、Python、Java、.NET、Ploy 各 9；共享前端 8；运行时系统服务与核心各 6；链接器和工具函数各 4；调试、编译遍次、IR 方言和工具各 3；IR 编译遍次、Wasm、分析、LTO、PGO 各 2。数字主要说明“哪些边界具有高扇入”，不代表代码质量或运行成本。
+历史扫描按“声明该命名空间的文件数”得到主要热点：匿名命名空间 70、`polyglot::ir` 28、`runtime::interop` 与 `passes::transform` 各 14、`backends`、`x86_64`、`cpp` 各 11、`runtime::gc` 10；arm64、Rust、Python、Java、.NET、Poly 各 9；共享前端 8；运行时系统服务与核心各 6；链接器和工具函数各 4；调试、编译遍次、IR 方言和工具各 3；IR 编译遍次、Wasm、分析、LTO、PGO 各 2。数字主要说明“哪些边界具有高扇入”，不代表代码质量或运行成本。
 
 Historical namespace coverage identifies high-fan-in surfaces; it is not a quality or performance ranking.
 
@@ -8765,7 +8765,7 @@ Each subsystem should communicate through a small stable surface while keeping a
 |---|---|---|
 | common | `Type`, `TypeSystem`, `TypeUnifier`, `TypeRegistry`, `SymbolTable`, `Config`, `SourceLoc`, diagnostics; Arena/StringPool/Logger | arena layout, caches, storage strategy |
 | frontend common | `Token`, `LexerBase`, `ParserBase`, `Diagnostics`, `Preprocessor`, `SemaContext`, pools/arenas/identifier table | recovery heuristics and language AST storage |
-| language frontend | lexer/parser, `AnalyzeModule`, `LowerToIR`; Ploy additionally exports link/call descriptors | language-specific AST and desugaring |
+| language frontend | lexer/parser, `AnalyzeModule`, `LowerToIR`; Poly additionally exports link/call descriptors | language-specific AST and desugaring |
 | middle/IR | `IRContext`, block/function model, CFG/dominators/SSA/verifier, parser/printer, pass APIs | worklists, scheduling and local profitability |
 | PGO/LTO | profile data/workflow, modules/context/linker/inliner/global optimiser | sampling policy and cost heuristics |
 | backend | `ITargetBackend`, registry, traits/MachineIR, ABI/relocation/artifacts | instruction encoding and target scheduling internals |
@@ -8829,7 +8829,7 @@ The table preserves the original audit's fine-grained `UEDGE` values for future 
 | Rust frontend | frontend common / common / middle | 4 / 2 / 1 | same pipeline shape |
 | Java frontend | frontend common / common / middle | 4 / 2 / 1 | same pipeline shape |
 | .NET frontend | frontend common / common / middle | 4 / 2 / 1 | same pipeline shape |
-| Ploy frontend | frontend common / common / middle | 4 / 4 / 1 | extra cross-language/core metadata |
+| Poly frontend | frontend common / common / middle | 4 / 4 / 1 | extra cross-language/core metadata |
 | x86_64 / arm64 backend | middle / backend common | 3 / 1 each | IR lowering + shared machine layer |
 | Wasm backend | middle / backend common | 2 / 1 | IR input + shared outer contract |
 | backend common | common | 1 | shared foundation |
@@ -8847,8 +8847,8 @@ The historical tool graph identifies the responsibility of each executable:
 
 | Tool | Direct architectural dependencies | Responsibility |
 |---|---|---|
-| `polyc` | shared + C++/Python/Rust/Java/.NET/Ploy frontends, middle, common, all backends, runtime, polyld | select frontend, verify/optimise, emit, invoke link |
-| `polyld` | Ploy descriptors plus linker implementation | load ELF/Mach-O/COFF/archive, resolve/relocate, generate glue |
+| `polyc` | shared + C++/Python/Rust/Java/.NET/Poly frontends, middle, common, all backends, runtime, polyld | select frontend, verify/optimise, emit, invoke link |
+| `polyld` | Poly descriptors plus linker implementation | load ELF/Mach-O/COFF/archive, resolve/relocate, generate glue |
 | `polyopt` | middle + common | standalone textual IR optimisation |
 | `polyasm` | x86_64 + arm64 + Wasm + common | IR/assembly-to-object/container path |
 | `polyrt` | runtime | status, GC/thread/profile diagnostics |
@@ -8866,9 +8866,9 @@ The historical module edges were tests → frontends 32, middle end 25, common 1
 
 | Test layer | Strongest direct UEDGE |
 |---|---|
-| unit | middle 20; shared frontend 16; common 10; Python 10; Rust 8; C++/runtime 5 each; x86_64 4; arm64 3; Java/.NET/Ploy/polyld 1 each |
-| integration | Ploy/shared frontend/middle/common 3 each; each backend and polyld 1 |
-| benchmarks | Ploy/shared frontend/middle/common 2 each |
+| unit | middle 20; shared frontend 16; common 10; Python 10; Rust 8; C++/runtime 5 each; x86_64 4; arm64 3; Java/.NET/Poly/polyld 1 each |
+| integration | Poly/shared frontend/middle/common 3 each; each backend and polyld 1 |
+| benchmarks | Poly/shared frontend/middle/common 2 each |
 
 测试可以同时包含多层来做契约/端到端，但生产目标绝不能包含测试。一个端到端失败要按前端 → IR/验证器 → 后端/产物 → 链接器 → 运行时系统 → 模型/UI 分解，先找到最小失败层；否则“集成测试红了”并没有说明责任边界。
 
@@ -8892,7 +8892,7 @@ cmake --build build --target <owner-or-consumer-target>
 ctest --test-dir build -R '<owner|consumer|integration>' --output-on-failure
 ```
 
-代码搜索只回答静态引用；还要检查 `dlsym/GetProcAddress`、插件导出、JSON 字段、CLI 字符串、生成的符号、Ploy 描述符和运行时系统调用。删除/改名公共符号前必须先提供弃用/迁移；本教材要求保留原文档同样不等于公共 ABI 可以无迁移删除。
+代码搜索只回答静态引用；还要检查 `dlsym/GetProcAddress`、插件导出、JSON 字段、CLI 字符串、生成的符号、Poly 描述符和运行时系统调用。删除/改名公共符号前必须先提供弃用/迁移；本教材要求保留原文档同样不等于公共 ABI 可以无迁移删除。
 
 Text search alone misses dynamic symbols, plugins, schemas, generated names, and runtime descriptors. Compatibility-sensitive changes require a migration path.
 
@@ -9335,7 +9335,7 @@ types.RegisterAlias("RowId", row_id);
 Symbol decl;
 decl.name = "row";
 decl.type = types.ResolveAlias("RowId");
-decl.loc = SourceLoc{"analytics.ploy", 12, 5};
+decl.loc = SourceLoc{"analytics.poly", 12, 5};
 decl.kind = SymbolKind::kVariable;
 
 if (!symbols.Declare(decl)) {
@@ -9346,7 +9346,7 @@ if (!symbols.Declare(decl)) {
 
 auto use = symbols.Lookup("row");
 if (!use) {
-  diags.ReportError(SourceLoc{"analytics.ploy", 20, 9},
+  diags.ReportError(SourceLoc{"analytics.poly", 20, 9},
                     ErrorCode::kUndefinedSymbol,
                     "unknown identifier row");
 }
@@ -9415,11 +9415,11 @@ The frontend contract separates lexing, parsing, analysis, and lowering, each wi
 | Sema | AST + context → validated AST/symbols |
 | Lowering | validated AST → unified IR |
 
-C++、Python、Rust、Java、.NET、Go、JavaScript、Ruby 和 Ploy 都应遵循这一阶段划分。Go 解析器读取 `go.mod`、`GOROOT` 和缓存；JavaScript 解析器处理 `package.json`、ESM、CommonJS 和 `.d.ts`；Ruby 解析器处理 `require`、`RUBYLIB`、Bundler 和 gem 包。
+C++、Python、Rust、Java、.NET、Go、JavaScript、Ruby 和 Poly 都应遵循这一阶段划分。Go 解析器读取 `go.mod`、`GOROOT` 和缓存；JavaScript 解析器处理 `package.json`、ESM、CommonJS 和 `.d.ts`；Ruby 解析器处理 `require`、`RUBYLIB`、Bundler 和 gem 包。
 
-C++, Python, Rust, Java, .NET, Go, JavaScript, Ruby, and Ploy all follow this phase structure. The Go resolver reads `go.mod`, `GOROOT`, and caches; the JavaScript resolver handles `package.json`, ESM, CommonJS, and `.d.ts`; the Ruby resolver handles `require`, `RUBYLIB`, Bundler, and gems.
+C++, Python, Rust, Java, .NET, Go, JavaScript, Ruby, and Poly all follow this phase structure. The Go resolver reads `go.mod`, `GOROOT`, and caches; the JavaScript resolver handles `package.json`, ESM, CommonJS, and `.d.ts`; the Ruby resolver handles `require`, `RUBYLIB`, Bundler, and gems.
 
-### 34.5 Ploy Sema / Ploy 语义层
+### 34.5 Poly Sema / Poly 语义层
 
 `PloySemaOptions` 控制严格模式、包发现与缓存以及命令执行器。当前头文件规定 `strict_mode` 默认为 `false`；正式驱动程序或发布流程可以显式启用严格模式。旧 API 文档所写的默认值 `true` 已经过时。`PloySema` 管理已知签名、类数据模式、类型映射、版本作用域和诊断。
 
@@ -9647,7 +9647,7 @@ FrontendOptions is the configuration boundary among the driver, LSP, and standal
 | Versions | `cpp_dialect`, `python_version`, `java_release`, `dotnet_lang_version`, `dotnet_target_framework`, `rust_edition`, `go_version`, `ecma_version`, `ruby_version` |
 | Shared storage | `SharedTokenPool* token_pool`, `dump_token_pool_stats` |
 
-所有语言版本字段都默认使用 `kAuto`。解析顺序是源码编译指示或前导注释、项目配置、工具链探测、保守的语言默认值；CLI 和 Ploy 的 `LANG` 作用域可以显式覆盖该结果。传入的词法单元池由调用方拥有，其生命周期必须长于前端调用。
+所有语言版本字段都默认使用 `kAuto`。解析顺序是源码编译指示或前导注释、项目配置、工具链探测、保守的语言默认值；CLI 和 Poly 的 `LANG` 作用域可以显式覆盖该结果。传入的词法单元池由调用方拥有，其生命周期必须长于前端调用。
 
 Version fields default to `kAuto` and resolve through source hints, project configuration, toolchain probing, and conservative defaults. A supplied token pool remains caller-owned.
 
@@ -9697,13 +9697,13 @@ Shared interfaces do not eliminate language-specific parsers, Sema, and resolver
 | Go | `...::go` | `GoLexer`, `GoParser` | same | `GoImportResolver`: go.mod, GOROOT, GOPATH/cache |
 | JavaScript | `...::javascript` | `JavaScriptLexer`, `JavaScriptParser` | same | package.json main/module/types/exports, ESM/CJS, prefer `.d.ts` |
 | Ruby | `...::ruby` | `RubyLexer`, `RubyParser` | same | require/load/autoload, RUBYLIB, Bundler, gem paths |
-| Ploy | `polyglot::frontends::ploy` and `polyglot::ploy` sema | `PloyLexer`, `PloyParser` | `PloySema`, `PloyLowering` | LINK/import/type/version orchestration |
+| Poly | `polyglot::frontends::ploy` and `polyglot::ploy` sema | `PloyLexer`, `PloyParser` | `PloySema`, `PloyLowering` | LINK/import/type/version orchestration |
 
 表只给共同公共入口；每种语言 AST 可以保持专用。统一的不是语法树形状，而是输入/诊断/IR 契约。
 
 The AST remains language-specific. What is shared is the input, diagnostics, signature, and IR contract.
 
-### 34.13 PloySema 数据结构与结果 / Ploy semantic data and results
+### 34.13 PloySema 数据结构与结果 / Poly semantic data and results
 
 `PloySema` 额外保存跨语言数据模式、签名和描述符事实，因此结果比普通符号表更丰富。接口片段说明 IR 降低过程和工具实际读取哪些结构。
 
@@ -12473,7 +12473,7 @@ A manifest combines identity, version, activation, capabilities, and contributio
   "main": "out/extension.js",
   "loader": "javascript",
   "activation": [
-    {"event": "onLanguage", "argument": "ploy"},
+    {"event": "onLanguage", "argument": "poly"},
     {"event": "onCommand", "argument": "analytics.profile"}
   ],
   "capabilities": ["filesystem"],
@@ -12694,12 +12694,12 @@ The complete example jointly exercises manifest parsing, activation matching, ca
   "name": "Analytics Workbench",
   "version": "0.2.1",
   "publisher": "polyglot",
-  "description": "Profile and inspect Ploy analytics pipelines",
+  "description": "Profile and inspect Poly analytics pipelines",
   "main": "out/extension.js",
   "loader": "javascript",
   "activation": [
     "onStartup",
-    {"event": "onLanguage", "argument": "ploy"},
+    {"event": "onLanguage", "argument": "poly"},
     {"event": "onCommand", "argument": "analytics.profile"},
     {"event": "onView", "argument": "analytics.results"}
   ],
@@ -12762,7 +12762,7 @@ assert(host.Reload(manifest->id));
 assert(host.ContributionsOfKind(ContributionKind::kCommand).size() == 1);
 assert(host.MatchesActivationEvent(manifest->id,
                                    ActivationEvent::kOnLanguage,
-                                   "ploy"));
+                                   "poly"));
 assert(host.Deactivate(manifest->id));
 assert(host.Contributions().empty());
 ```
@@ -12903,7 +12903,7 @@ frontends/<lang>/
 3. scopes、symbols、types、overload/generic/control-flow sema；
 4. 导入/包/元数据解析器，禁止默认网络副作用；
 5. 了解 CFG 与 SSA 的 IR 降低，失败后不留下看似有效的半成品模块；
-6. `ExtractSignatures`，用于 Ploy、拓扑图与 IDE；
+6. `ExtractSignatures`，用于 Poly、拓扑图与 IDE；
 7. 适配器类，把诊断/选项/生命周期串起来。
 
 The implementation sequence makes source ownership, recovery, semantic state, imports, lowering, signature extraction, and adapter lifetimes explicit.
@@ -12932,7 +12932,7 @@ Add a `frontend_<lang>` library to `frontends/CMakeLists.txt`, publish its inclu
 
 - `polyc --lang=<id>` 和按扩展名自动检测；
 - project/default/user/workspace settings schema；
-- Ploy `LANG/WITH LANG/@LANG` version propagation；
+- Poly `LANG/WITH LANG/@LANG` version propagation；
 - polyls/PolyUI language id、server configuration、syntax/semantic-token legend；
 - `polyver` toolchain discovery；
 - package/import roots；
@@ -13161,26 +13161,26 @@ A bridge contribution combines stable C ABI, host-specific implementation, compi
 
 Conversions validate before committing ownership or maintain rollback. Borrowed views require pinning and bounded lifetimes; managed objects cross as rooted handles.
 
-### 41.14 Bridge 与 Ploy/工具链接入 / Bridge integration with Ploy and tools
+### 41.14 Bridge 与 Poly/工具链接入 / Bridge integration with Poly and tools
 
-实现运行时系统函数后，还必须让 Ploy、驱动程序、`polyver`、`polyrt` 和软件包脚本能够发现它。以下接线清单确保用户路径与底层 API 同时到位。
+实现运行时系统函数后，还必须让 Poly、驱动程序、`polyver`、`polyrt` 和软件包脚本能够发现它。以下接线清单确保用户路径与底层 API 同时到位。
 
-After implementing Runtime functions, Ploy, the driver, polyver, polyrt, and packaging must all discover them. This integration list brings user paths online together with low-level APIs.
+After implementing Runtime functions, Poly, the driver, polyver, polyrt, and packaging must all discover them. This integration list brings user paths online together with low-level APIs.
 
 - 在运行时系统的包含目录和源码目录中建立公共 C 头文件与私有实现；
 - CMake 将宿主运行时系统/库链接到 `runtime` 或独立适配器目标；
-- Ploy 类型映射/描述符只引用稳定 C ABI 符号；
+- Poly 类型映射/描述符只引用稳定 C ABI 符号；
 - `polyver` 与设置提供工具链/运行时系统位置；
 - 链接器与阶段桥接层生成或引用正确的桩，不让宿主名称改编后的符号泄漏；
 - 性能剖析器/调用图标注源码语言、目标语言、桥接层函数；
 - 软件包与发布产物包含动态库、许可证和运行时系统搜索路径；
 - 未安装宿主运行时系统时产生可操作的诊断，同时允许无关语言正常工作。
 
-The bridge joins runtime, build, Ploy descriptors, toolchain discovery, linker stubs, observability, packaging, and graceful unavailability.
+The bridge joins runtime, build, Poly descriptors, toolchain discovery, linker stubs, observability, packaging, and graceful unavailability.
 
-桥接层测试分三层：纯 C ABI、句柄和转换器单元测试；带真实宿主运行时系统的适配器集成测试；Ploy 源码 → 编译和链接 → 宿主调用 → 结果、错误与清理的端到端测试。CI 没有宿主运行时系统时，单元测试仍必须运行；集成测试则要明确记录跳过原因，不能把“没有运行”显示成通过。
+桥接层测试分三层：纯 C ABI、句柄和转换器单元测试；带真实宿主运行时系统的适配器集成测试；Poly 源码 → 编译和链接 → 宿主调用 → 结果、错误与清理的端到端测试。CI 没有宿主运行时系统时，单元测试仍必须运行；集成测试则要明确记录跳过原因，不能把“没有运行”显示成通过。
 
-Bridge tests separate host-free unit contracts, real-runtime integration, and Ploy E2E. A missing host runtime is an explicit skip, never a silent pass.
+Bridge tests separate host-free unit contracts, real-runtime integration, and Poly E2E. A missing host runtime is an explicit skip, never a silent pass.
 
 ### 41.15 完成定义 / Definition of done
 
@@ -13242,7 +13242,7 @@ The current build combines per-module binaries, compatibility aggregates, and co
 | Group | Registered tests |
 |---|---|
 | foundation | `test_core`, `test_plugins` |
-| frontends | `test_frontend_common`, Python, C++, Rust, Ploy, Java, .NET, JavaScript, Ruby, Go |
+| frontends | `test_frontend_common`, Python, C++, Rust, Poly, Java, .NET, JavaScript, Ruby, Go |
 | compiler | `test_middle`, `test_backends`, `test_runtime`, `test_linker`, `test_e2e` |
 | tools/protocol | `test_topology`, `test_settings`, `test_lsp`, `test_polyls` |
 | headless UI | `test_problems`, `test_completion_ranker` |
@@ -13283,7 +13283,7 @@ ctest --test-dir build -L runtime --output-on-failure
 ctest --test-dir build -LE benchmark --output-on-failure
 
 # Catch2 case/tag filtering by invoking a binary.
-build/test_frontend_ploy '[ploy][sema]'
+build/test_frontend_ploy '[poly][sema]'
 build/integration_tests '[samples]'
 
 # Repeat flaky failures and bound hangs.
@@ -13498,9 +13498,9 @@ Triage first proves selection and preserves the first failure, then narrows by c
 
 ### 练习 / Exercise
 
-为“Python 列表 → Ploy `Array<i32>`”转换器编写测试计划，其中包括：第 3 个元素转换失败时的回滚、空值与列表长度溢出、错误的元素类型、借用值与自有值的生命周期、全局解释器锁（GIL）与线程、宿主异常、异步取消、性能分析事件，以及 Ploy 端到端路径。标明哪些测试可以在没有 Python 运行时系统的伪适配器 CI 环境中运行，哪些必须显式跳过。
+为“Python 列表 → Poly `Array<i32>`”转换器编写测试计划，其中包括：第 3 个元素转换失败时的回滚、空值与列表长度溢出、错误的元素类型、借用值与自有值的生命周期、全局解释器锁（GIL）与线程、宿主异常、异步取消、性能分析事件，以及 Poly 端到端路径。标明哪些测试可以在没有 Python 运行时系统的伪适配器 CI 环境中运行，哪些必须显式跳过。
 
-Write a test plan for a “Python list → Ploy `Array<i32>`” converter. Cover rollback when conversion of the third element fails, null values and list-length overflow, incorrect element types, borrowed and owned lifetimes, the global interpreter lock (GIL) and threading, host exceptions, asynchronous cancellation, profiling events, and the Ploy end-to-end path. Mark which tests can run in CI with a fake adapter and no Python runtime, and which must be skipped explicitly.
+Write a test plan for a “Python list → Poly `Array<i32>`” converter. Cover rollback when conversion of the third element fails, null values and list-length overflow, incorrect element types, borrowed and owned lifetimes, the global interpreter lock (GIL) and threading, host exceptions, asynchronous cancellation, profiling events, and the Poly end-to-end path. Mark which tests can run in CI with a fake adapter and no Python runtime, and which must be skipped explicitly.
 
 ---
 
@@ -13542,7 +13542,7 @@ The project has several independent compatibility surfaces; product semver alone
 | Runtime C ABI | fixed-width records/functions; ownership/error/thread rules; bump ABI on incompatible layout/signature |
 | Native plugin ABI | `POLYGLOT_PLUGIN_API_VERSION`; append optional fields/exports only when size/version probing is safe |
 | CLI | preserve option meaning, exit classes, stdout/stderr and machine formats; deprecate before removal |
-| Ploy grammar | parser/version gate, warning and source migration; intended/current gaps stay labelled |
+| Poly grammar | parser/version gate, warning and source migration; intended/current gaps stay labelled |
 | IR/bitcode/object | reader version/magic and round-trip fixture; reject unsupported versions clearly |
 | JSON/NDJSON schemas | additive optional fields can remain v1; required/remove/rename/type change needs new schema/version |
 | LSP | standard capability negotiation; custom methods namespaced/versioned |
@@ -13561,7 +13561,7 @@ Compatibility means tested producer/consumer combinations, unknown and missing f
 当前顶层 CMake 定义：
 
 ```cmake
-project(PolyglotCompiler VERSION 1.47.4 LANGUAGES C CXX)
+project(PolyglotCompiler VERSION 1.48.0 LANGUAGES C CXX)
 set(POLYGLOT_VERSION_SUFFIX "")
 set(POLYGLOT_VERSION_FULL "${PROJECT_VERSION}${POLYGLOT_VERSION_SUFFIX}")
 ```
@@ -13602,7 +13602,7 @@ introduce replacement
  → retain parser/loader error with actionable replacement
 ```
 
-警告必须具有机器可读的代码，不能因每次修改文字而破坏 CI 过滤器。`--strict` 是否把弃用提升为错误必须写入策略；当前 Ploy 旧式链接形式可解析但会产生警告，这一事实应与目标具名形式的实现缺口同时记录，不能先删除唯一可工作的路径。
+警告必须具有机器可读的代码，不能因每次修改文字而破坏 CI 过滤器。`--strict` 是否把弃用提升为错误必须写入策略；当前 Poly 旧式链接形式可解析但会产生警告，这一事实应与目标具名形式的实现缺口同时记录，不能先删除唯一可工作的路径。
 
 Deprecation warnings have stable codes and a documented strict-mode policy. Never remove the only working compatibility path before its replacement works end-to-end.
 
@@ -13783,11 +13783,11 @@ Maintainability comes from aligned boundaries, versions, and evidence.
 
 # 附录 / Appendices
 
-## 附录 A：Ploy 语法与关键字 / Ploy grammar and keywords
+## 附录 A：Poly 语法与关键字 / Poly grammar and keywords
 
-本附录把正文中的 Ploy 表面语法压缩为可搜索模板。它适合查拼写和当前状态，但语义、实现缺口与验证方法仍应回到第 6–20 章。
+本附录把正文中的 Poly 表面语法压缩为可搜索模板。它适合查拼写和当前状态，但语义、实现缺口与验证方法仍应回到第 6–20 章。
 
-This appendix condenses Ploy surface syntax into searchable templates. Use it for spellings and current status, while returning to Chapters 6–20 for semantics, implementation gaps, and validation.
+This appendix condenses Poly surface syntax into searchable templates. Use it for spellings and current status, while returning to Chapters 6–20 for semantics, implementation gaps, and validation.
 
 ### A.1 82 个全局 canonical keywords / Global keywords
 
@@ -13816,7 +13816,7 @@ The lexer case-folds these keywords. `CLASS`, `HANDLE`, and `ATTR` are contextua
 
 These templates cover types, bindings, functions, imports, versions, LINK declarations, mappings, and exports. They show the syntax family side by side; choose only one LINK migration path when copying into a real module.
 
-```ploy
+```poly
 TYPE Alias = i32;
 CONST LIMIT: i32 = 100;
 LET value: i32 = 1;
@@ -13836,7 +13836,7 @@ LANG python = "3.11";
 LINK cpp::module::f AS FUNC(i32) -> i32;
 
 // Current compatibility form; accepted with deprecation warnings.
-LINK(cpp, ploy, module::f, f) RETURNS i32 {
+LINK(cpp, poly, module::f, f) RETURNS i32 {
     MAP_TYPE(cpp::int, i32);
 }
 
@@ -13855,7 +13855,7 @@ Do not place both link declarations in one real module; they are shown side by s
 
 These templates collect branch, loop, pattern, and exception block structures. Empty bodies illustrate grammar only; real code must still satisfy return, binding, and exhaustiveness rules.
 
-```ploy
+```poly
 IF condition { } ELSE { }
 IF LET Some(x) = option { } ELSE { }
 WHILE condition { }
@@ -13906,7 +13906,7 @@ NamedType Generic<T, U>
 
 These templates place class schemas, object operations, resource scopes, deletion, extension, and explicit conversion in one lifecycle view. A copied example also requires the corresponding bridge release and error paths.
 
-```ploy
+```poly
 CLASS python::pkg::Widget {
     METHOD __init__(size: i32) -> VOID;
     METHOD score(x: f64) -> f64;
@@ -13943,7 +13943,7 @@ MAP_FUNC widen(x: i32) -> f64 {
 
 This section summarises higher-level composition syntax and contrasts declaration metadata with executable stages. Generic and topology support remains layered, so the status notes are part of the template contract.
 
-```ploy
+```poly
 PIPELINE analytics {
     STAGE load CALL cpp::io::load;
     STAGE score CALL python::model::score;
@@ -13971,8 +13971,8 @@ Pipeline stages carry topology metadata. Generic lowering remains an MVP/type-er
 
 Imports, package managers, and language versions jointly form resolution input. These are canonical forms only; toolchain and package availability still require the external evidence in Chapters 11, 21, and 25.
 
-```ploy
-IMPORT "relative/path.ploy" AS local;
+```poly
+IMPORT "relative/path.poly" AS local;
 IMPORT cpp::module;
 IMPORT python PACKAGE numpy >= 1.20 AS np;
 IMPORT python PACKAGE numpy::(array, mean);
@@ -14004,7 +14004,7 @@ This appendix quickly aligns semantic types, machine ABI, Runtime layouts, conve
 
 This table answers which concepts are closest across languages for API discussion, not whether their memory layouts match. Complex values still require element, encoding, nullability, and ownership descriptors.
 
-| Ploy | C++ | Python | Rust | Java/.NET | JS/Ruby |
+| Poly | C++ | Python | Rust | Java/.NET | JS/Ruby |
 |---|---|---|---|---|---|
 | `i32` | int32_t | int + range check | i32 | int | Number/Integer |
 | `i64` | int64_t | int | i64 | long | BigInt/Integer |
@@ -14223,7 +14223,7 @@ Driver textual identifiers are a separate surface from the shared enum. Consumer
 
 ### C.5 历史教程诊断与当前状态 / Historical tutorial identifiers
 
-原 Ploy 教程列出 `E2102` 未知标识符、`E2402` 未知属性、`E2410` 私有导出、`E3104–E3106` 链接、映射与返回值编组，以及 `W2101/W2401/W2501` 容器不匹配、已弃用和未使用导入。这些是规范阶段的分类意图，但当前共享枚举没有这些成员；相同行为可能使用 `E3001/E3004/E3024/E3099`，或使用驱动程序的文本警告。
+原 Poly 教程列出 `E2102` 未知标识符、`E2402` 未知属性、`E2410` 私有导出、`E3104–E3106` 链接、映射与返回值编组，以及 `W2101/W2401/W2501` 容器不匹配、已弃用和未使用导入。这些是规范阶段的分类意图，但当前共享枚举没有这些成员；相同行为可能使用 `E3001/E3004/E3024/E3099`，或使用驱动程序的文本警告。
 
 The original tutorial catalogued `E2102`, `E2402`, `E2410`, `E3104–E3106`, and `W2101/W2401/W2501`. They express intended categories but are not current shared-enum members. Treat them as migration aliases until implementation and documentation converge.
 
@@ -14273,7 +14273,7 @@ This appendix serves readers who understand the concepts and need exact flag spe
 
 | Purpose | Flags |
 |---|---|
-| language/input | `--lang=ploy|python|cpp|rust|java|dotnet|javascript|ruby|go`; file path or inline code |
+| language/input | `--lang=poly|python|cpp|rust|java|dotnet|javascript|ruby|go`; file path or inline code |
 | optimisation/output | `-O0..3`, `-o`, `-c`, `--mode=compile|assemble|link` |
 | target | `--arch=x86_64|arm64|wasm`, `--target=<triple>`, `--container=auto|elf|pe|macho|wasm`, `--subsystem`, `--entry` |
 | inspectable artifacts | `--emit-ir=<path>`, `--emit-asm=<path>`, `--emit-obj=<path>`, `--obj-format=pobj|coff|elf|macho` |
@@ -14329,7 +14329,7 @@ polyld [options] files...
   --target=<triple>  --container=auto|elf|pe|macho|wasm
   --subsystem=<s>  -static|-shared|-r  --pe|--elf
   -s|--strip-all  -S|--strip-debug  --gc-sections  --no-undefined  --pie
-  --ploy-desc <file>  --aux-dir <dir>  --allow-adhoc-link
+  --poly-desc <file>  --aux-dir <dir>  --allow-adhoc-link
   --def <file>  /EXPORT:<spec>  --export <spec>  --dll-name <name>
   --trace  --verbose
 ```
@@ -14374,12 +14374,12 @@ polyver path <lang> <version>
 
 polydoc [--json] [-o OUT] FILE [FILE ...]
 
-polytopo file.ploy
+polytopo file.poly
   --format text|dot|json|summary  --validate  --strict
   --no-color  --show-locations  --compact  --allow-cycles
   --dot-horizontal  --view-mode link|call  --filter-language <lang>
   --output|-o <file>
-polytopo generate topo.json -o output.ploy
+polytopo generate topo.json -o output.poly
 
 polybench gc|compile|opt|e2e|compare|link|all [--target=<triple>]
 ```
@@ -14442,12 +14442,12 @@ This appendix separates the intended schema, current producer bytes, and current
 ```json
 {
   "schema": "polyglot.callgraph.v1",
-  "source": "main.ploy",
+  "source": "main.poly",
   "nodes": [
     {
       "id": 0,
       "name": "main",
-      "language": "ploy",
+      "language": "poly",
       "is_external": false,
       "is_bridge_stub": false,
       "block_count": 1
@@ -14496,12 +14496,12 @@ The repair either parses numeric ids safely or versions a coordinated string-id 
 ```json
 {
   "schema": "polyglot.profilesymbols.v1",
-  "source": "main.ploy",
+  "source": "main.poly",
   "symbols": [
     {
       "id": 0,
       "qualified_name": "main",
-      "language": "ploy",
+      "language": "poly",
       "block_count": 1
     }
   ]
@@ -14524,7 +14524,7 @@ This is an IR symbol index rather than a native address map. Numeric profile ids
   "entries": [
     {
       "name": "main",
-      "language": "ploy",
+      "language": "poly",
       "call_count": 2,
       "inclusive_ns": 5000,
       "self_ns": 1000
@@ -14556,7 +14556,7 @@ The actual `ProfileSink::SerializeSample` does not emit the specification's flat
     "entries": [
       {
         "name": "main",
-        "language": "ploy",
+        "language": "poly",
         "call_count": 2,
         "inclusive_ns": 5000,
         "self_ns": 1000
@@ -14582,7 +14582,7 @@ The original profiling specification and `ProfileSession` expect:
   "samples": [
     {
       "function": "main",
-      "language": "ploy",
+      "language": "poly",
       "thread": "T0",
       "timestamp_ns": 0,
       "window_ns": 200000000,
@@ -14592,7 +14592,7 @@ The original profiling specification and `ProfileSession` expect:
   ],
   "frames": [
     {
-      "language": "ploy",
+      "language": "poly",
       "stack": ["main"],
       "inclusive_ns": 5000,
       "self_ns": 1000,
@@ -14602,7 +14602,7 @@ The original profiling specification and `ProfileSession` expect:
   "hotspots": [
     {
       "function": "main",
-      "language": "ploy",
+      "language": "poly",
       "calls": 2,
       "inclusive_ns": 5000,
       "self_ns": 1000
@@ -14678,9 +14678,9 @@ Samples are divided into four units by learning dependency rather than creation 
 
 ### F.1 使用方法 / How to use the samples
 
-阅读每个样例时，应依次查看 Ploy 入口、宿主源码、README、预期输出和相关测试。运行测试框架前先问：它验证的是真实业务行为，还是只有确定性的标记？
+阅读每个样例时，应依次查看 Poly 入口、宿主源码、README、预期输出和相关测试。运行测试框架前先问：它验证的是真实业务行为，还是只有确定性的标记？
 
-Read the Ploy entry, host sources, README, expected output, and tests. Determine whether the harness checks real behaviour or only a marker.
+Read the Poly entry, host sources, README, expected output, and tests. Determine whether the harness checks real behaviour or only a marker.
 
 ### F.2 单元一：基础与链接 / Unit 1: foundations
 
@@ -14741,11 +14741,11 @@ The third unit applies boundary modelling to text, numerics, I/O, networking, co
 | `29_data_analytics` | analytics pipeline |
 | `30_game_loop_demo` | loop and latency |
 
-### F.5 单元四：现代 Ploy / Unit 4: modern Ploy
+### F.5 单元四：现代 Poly / Unit 4: modern Poly
 
-第四单元覆盖较新的 Ploy 语法与类型能力，部分目录的确定性的标记只证明测试框架接线。证据说明指出何时必须以单元测试或运行时契约为主要证据。
+第四单元覆盖较新的 Poly 语法与类型能力，部分目录的确定性的标记只证明测试框架接线。证据说明指出何时必须以单元测试或运行时契约为主要证据。
 
-The fourth unit covers newer Ploy syntax and type features, where some deterministic markers prove only harness wiring. The evidence note identifies when unit tests or Runtime contracts are the primary proof.
+The fourth unit covers newer Poly syntax and type features, where some deterministic markers prove only harness wiring. The evidence note identifies when unit tests or Runtime contracts are the primary proof.
 
 | Directory | Focus | Evidence note |
 |---|---|---|
@@ -14798,7 +14798,7 @@ Frontend APIs combine shared infrastructure, per-language entry points, and reso
 | Parsing/sema | `ParserBase`, `SemaContext` |
 | Storage | `TokenPool`, `SharedTokenPool`, `StringArena`, `IdentifierTable` |
 | Frontends | `CppLexer/Parser`, `PythonLexer/Parser`, `RustLexer/Parser`, Java/.NET/Go/JavaScript/Ruby counterparts, `PloyLexer/Parser/Sema` |
-| Ploy schemas | `PloySemaOptions`, `ForeignClassSchema`, Field/Method/Constructor, Register/LookupClassSchema |
+| Poly schemas | `PloySemaOptions`, `ForeignClassSchema`, Field/Method/Constructor, Register/LookupClassSchema |
 | Resolvers | `GoImportResolver`, `JavaScriptImportResolver`, `RubyImportResolver` |
 
 ### G.3 IR and optimisation
@@ -14881,7 +14881,7 @@ This index begins with visible symptoms and gives a first check plus the chapter
 |---|---|---:|
 | CMake dependency failure | cache/network/FetchContent | 3 |
 | Qt not found | QT_ROOT/CMAKE_PREFIX_PATH/kit | 3 |
-| Ploy parse error | minimal token/grammar | 6–10 |
+| Poly parse error | minimal token/grammar | 6–10 |
 | Unknown import/package | CONFIG/version/search settings | 11 |
 | Check passes, compile fails | lowering/strict IR verifier | 2, 21, 35 |
 | Undefined symbol | LINK form/status, object, bridge, host symbol | 15, 17, 23 |
@@ -14943,8 +14943,8 @@ This matrix maps source knowledge into integrated chapters; it is not a location
 |---|---|
 | `docs/tutorial/project_tutorial.md` | 1–5, 21–26, 32, 41–43, F–H |
 | `docs/tutorial/project_tutorial_zh.md` | 1–5, 21–26, 32, 41–43, F–H |
-| `docs/tutorial/ploy_language_tutorial.md` | 6–20, A–C |
-| `docs/tutorial/ploy_language_tutorial_zh.md` | 6–20, A–C |
+| `docs/tutorial/poly_language_tutorial.md` | 6–20, A–C |
+| `docs/tutorial/poly_language_tutorial_zh.md` | 6–20, A–C |
 | `docs/tutorial/lsp_quickstart.md` | 27–28, D |
 | `docs/tutorial/lsp_quickstart_zh.md` | 27–28, D |
 | `docs/tutorial/problems_panel_quickstart.md` | 28, H |

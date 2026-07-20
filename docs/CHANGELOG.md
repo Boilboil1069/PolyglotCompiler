@@ -11,7 +11,31 @@ The version range covered below is **v0.1.0 (2026-01-15) 鈫?v1.9.0 (2026-04-29)
 Newer entries appear first.  Each `### vX.Y.Z (YYYY-MM-DD)` block lists the
 shipped behaviour, not the underlying tracking item.
 
+> **Historical naming note:** entries before v1.48.0 intentionally preserve
+> the `Ploy`, `ploy`, and `.ploy` spellings used by the releases they describe.
+> Those spellings are legacy aliases, not the current canonical public name.
+
 ---
+
+## v1.48.0 (2026-07-20) — «Poly naming canonicalisation»
+
+- **One canonical public spelling.** The language is now documented as
+  **Poly**, its language identifier as `poly`, and its source extension as
+  `.poly` throughout current documentation, samples, diagnostics, and
+  generated metadata.
+- **The 1.x compatibility window is explicit.** Every 1.x release accepts
+  the historical `Ploy`, `ploy`, and `.ploy` aliases. They cannot be removed
+  before 2.0.0; accepted legacy input is normalised to `poly` in diagnostics
+  and generated metadata.
+- **Implementation and ABI compatibility is preserved.** Historical internal
+  identifiers such as `frontends/ploy`, `frontend_ploy`, `Ploy*`, and
+  `__ploy_*` remain intentionally unchanged. Sample discovery prefers the
+  canonical extension, accepts one unambiguous legacy entry as a fallback,
+  and rejects mixed or ambiguous entry sets.
+- **Documentation and regression assets migrated together.** Tutorials,
+  specifications, sample sources, expected diagnostics, symbol indexes, and
+  language-version fixtures now use canonical public names, with a naming
+  audit guarding current-facing documentation against accidental regressions.
 
 ## v1.47.4 (2026-07-17) — «Sidecar and final-output mode resolution»
 
@@ -148,7 +172,7 @@ shipped behaviour, not the underlying tracking item.
   callee gate and the `println.msg<N>` / `str<N>` interner prefix
   list, and the symbol-table lookup tries both the unmangled and
   Mach-O-mangled forms.  ELF and COFF inputs are unaffected.
-- **`tests/samples/00_minimal/print_then_exit.ploy` now passes
+- **`tests/samples/00_minimal/print_then_exit.poly` now passes
   end-to-end on macOS arm64.**  The full polyc → polyld → execve
   pipeline produces an executable whose stdout is exactly `ok\n`
   with rc=0; `bash scripts/build_all_samples.sh` reports
@@ -202,7 +226,7 @@ shipped behaviour, not the underlying tracking item.
 ## v1.45.0 (2026-05-06)
 
 - Sample regression matrix is now driven by a shared minimum sample
-  `tests/samples/00_minimal/print_then_exit.ploy` whose stdout is
+  `tests/samples/00_minimal/print_then_exit.poly` whose stdout is
   byte-pinned in `expected_output.txt`.  Both `build_all_samples.ps1`
   and `build_all_samples.sh` recognise a sibling `expected_output.skip`
   marker and route those samples to the SKIP bucket without invoking
@@ -281,7 +305,7 @@ shipped behaviour, not the underlying tracking item.
     when `data` / `bss_size` are non-empty.
   - `tests/integration/elf_exec_smoke_test.cpp`
     (`[elf][exec][integration]`) drives `polyc` + `polyld` on the
-    `00_minimal/print_then_exit.ploy` sample, then `fork + execve +
+    `00_minimal/print_then_exit.poly` sample, then `fork + execve +
     waitpid`s the produced `/tmp/polyld_elf_smoke` binary and
     asserts `WEXITSTATUS == 0` with stdout `"ok\n"`.  Compiled only
     on `__linux__`; other hosts get a placeholder pass.
@@ -328,10 +352,10 @@ shipped behaviour, not the underlying tracking item.
 - New integration test `integration/macho_exec_smoke_test.cpp`
   (`[macho][exec][integration]`, compiled only on `__APPLE__ &&
   __aarch64__`) drives `polyc` + `polyld` over the new
-  `tests/samples/00_minimal/print_then_exit.ploy` source, `posix_spawn`s
+  `tests/samples/00_minimal/print_then_exit.poly` source, `posix_spawn`s
   the produced `/tmp/polyld_macho_smoke`, and asserts `WEXITSTATUS == 0`
   with stdout equal to `"ok\n"`.
-- New sample `tests/samples/00_minimal/print_then_exit.ploy` plus
+- New sample `tests/samples/00_minimal/print_then_exit.poly` plus
   bilingual `README.md` / `README_zh.md` and `expected_output.txt`
   serve as the cross-platform smoke source shared by macOS / Linux /
   Windows backends.
@@ -1456,7 +1480,7 @@ samples.
   `golang`) are rejected with a fix-it suggesting a local Ploy
   `FUNC` wrapper that uses `CALL` / `METHOD` instead.
 
-* **Central `AS`-semantics chapter.** `docs/realization/ploy_language_spec.md`
+* **Central `AS`-semantics chapter.** `docs/realization/poly_language_spec.md`
   §4.17 (and its Chinese mirror) lists the five binding sites
   (`IMPORT … AS`, `EXPORT … AS`, `LINK … AS`, language-level
   `IMPORT … AS`, and `EXTEND … AS`) plus a set of anti-examples
@@ -1478,10 +1502,10 @@ samples.
   suite: 371 cases / 2348 assertions.
 
 * **Docs.** `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`,
-  `docs/tutorial/ploy_language_tutorial.md` /
-  `docs/tutorial/ploy_language_tutorial_zh.md` and
-  `docs/realization/ploy_language_spec.md` /
-  `docs/realization/ploy_language_spec_zh.md` updated for the new
+  `docs/tutorial/poly_language_tutorial.md` /
+  `docs/tutorial/poly_language_tutorial_zh.md` and
+  `docs/realization/poly_language_spec.md` /
+  `docs/realization/poly_language_spec_zh.md` updated for the new
   defaults / named-arg syntax, the EXTEND restriction, and the
   unified `AS` table.
 
@@ -1684,7 +1708,7 @@ a reserved keyword that may only appear inside a `PIPELINE` body.**
 - `PloySema::AnalyzeLinkDecl` now emits a `kDeprecatedKeyword` warning
   whenever it encounters a `LinkDecl` whose `is_legacy_form` flag is
   true.
-- `docs/realization/ploy_language_spec.md` (and `_zh.md`) 搂4.2 now
+- `docs/realization/poly_language_spec.md` (and `_zh.md`) 搂4.2 now
   documents both forms with the signed form listed first as the
   recommendation.
 - `docs/USER_GUIDE.md` (and `_zh.md`): top-of-file notice describing the
@@ -1747,7 +1771,7 @@ width-mismatch warnings.**
   path and treats `TypeAliasDecl` as a non-executable declaration in
   the synthetic-`main` classifier.
 - `docs/specs/language_spec.md{,_zh}` and
-  `docs/realization/ploy_language_spec.md{,_zh}` document the new
+  `docs/realization/poly_language_spec.md{,_zh}` document the new
   keyword set, alias rules, constant-folding contract, and updated
   primitive type table.
 - `tests/samples/README.md{,_zh}` index lists the new sample under the
@@ -2467,7 +2491,7 @@ Quality gates exercised before merge:
   builds the PE in-process, writes it to a temp file, spawns it via
   `std::system`, and asserts the exit code is 0 鈥?both for the minimal
   image and for an image wrapping 256 bytes of arbitrary user code.
-- End-to-end repro: `polyc tests/samples/01_basic_linking/basic_linking.ploy
+- End-to-end repro: `polyc tests/samples/01_basic_linking/basic_linking.poly
   -o tests/samples/01_basic_linking/test_bin.exe` now produces a 1536-byte
   PE32+ (`MZ` magic, `dumpbin /imports` shows
   `kernel32.dll: ExitProcess` resolved cleanly) that exits with code 0.
@@ -2532,7 +2556,7 @@ reported success and the `.obj` was produced correctly.
   when `polyld` is bogus; non-empty `LinkerChoice` for `pobj` when
   `polyld` is reachable; `ExpandLinkCommand` placeholder substitution
   and polyld-only flag gating.
-- 鉁?Reproducer `polyc.exe tests/samples/03_pipeline/pipeline.ploy`
+- 鉁?Reproducer `polyc.exe tests/samples/03_pipeline/pipeline.poly`
   now exits 0 with zero shell-noise lines on a host without
   `link.exe` / `lld-link.exe` on `PATH`; the link stage transparently
   falls back to bundled `polyld`.

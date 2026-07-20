@@ -55,7 +55,7 @@ TEST_CASE("ProfileSession loads call-graph JSON into model",
   const QString payload = R"({
     "schema": "polyglot.callgraph.v1",
     "nodes": [
-      {"id": "main",  "name": "main",  "language": "ploy",   "file": "a.ploy", "line": 1, "block_count": 3},
+      {"id": "main",  "name": "main",  "language": "PloY",   "file": "legacy.ploy", "line": 1, "block_count": 3},
       {"id": "calc",  "name": "calc",  "language": "python", "file": "a.py",   "line": 7},
       {"id": "stub",  "name": "stub",  "language": "cpp",    "is_bridge_stub": true}
     ],
@@ -73,8 +73,9 @@ TEST_CASE("ProfileSession loads call-graph JSON into model",
   REQUIRE(model->Edges().size() == 2);
   REQUIRE(model->RowForId("main") == 0);
   REQUIRE(model->Nodes().at(2).is_bridge_stub);
+  REQUIRE(model->Nodes().at(0).language == QStringLiteral("poly"));
   // Edge language back-fill from node table.
-  REQUIRE(model->Edges().at(0).from_language == QStringLiteral("ploy"));
+  REQUIRE(model->Edges().at(0).from_language == QStringLiteral("poly"));
   REQUIRE(model->Edges().at(0).to_language == QStringLiteral("python"));
 
   QFile::remove(path);
@@ -88,11 +89,11 @@ TEST_CASE("ProfileSession loads profile JSON and builds flame tree",
   const QString payload = R"({
     "schema": "polyglot.profile.v1",
     "samples": [
-      {"function": "main", "language": "ploy",   "thread": "T0", "timestamp_ns": 0,    "window_ns": 1000, "calls": 1},
+      {"function": "main", "language": "PLOY",   "thread": "T0", "timestamp_ns": 0,    "window_ns": 1000, "calls": 1},
       {"function": "calc", "language": "python", "thread": "T0", "timestamp_ns": 1000, "window_ns": 2000, "calls": 5}
     ],
     "frames": [
-      {"language": "ploy",   "stack": ["main"],          "inclusive_ns": 5000, "self_ns": 1000, "calls": 1},
+      {"language": "PoLy",   "stack": ["main"],          "inclusive_ns": 5000, "self_ns": 1000, "calls": 1},
       {"language": "python", "stack": ["main", "calc"],  "inclusive_ns": 4000, "self_ns": 4000, "calls": 5}
     ],
     "hotspots": [
@@ -108,6 +109,7 @@ TEST_CASE("ProfileSession loads profile JSON and builds flame tree",
   REQUIRE(flame != nullptr);
 
   REQUIRE(tl->rowCount(QModelIndex()) == 2);
+  REQUIRE(tl->Events().at(0).language == QStringLiteral("poly"));
   REQUIRE(tl->Lanes().size() == 1);
   REQUIRE(tl->LaneIndex(QStringLiteral("T0")) == 0);
 
@@ -115,6 +117,7 @@ TEST_CASE("ProfileSession loads profile JSON and builds flame tree",
   REQUIRE(root != nullptr);
   REQUIRE(root->children.size() == 1);
   REQUIRE(root->children.front()->function == QStringLiteral("main"));
+  REQUIRE(root->children.front()->language == QStringLiteral("poly"));
   REQUIRE(root->children.front()->children.size() == 1);
   REQUIRE(root->children.front()->children.front()->function ==
           QStringLiteral("calc"));

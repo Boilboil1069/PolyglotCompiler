@@ -8,7 +8,7 @@
 ## 目录
 
 1. [支持的源语言](#1-支持的源语言)
-2. [.ploy 语言规范](#2-ploy-语言规范)
+2. [.poly 语言规范](#2-poly-语言规范)
 3. [统一 IR 规范](#3-统一-ir-规范)
 4. [跨语言调用约定](#4-跨语言调用约定)
 5. [类型编组规则](#5-类型编组规则)
@@ -27,7 +27,7 @@
 | Rust | `frontend_rust` | `.rs` | 2018/2021 edition | �?|
 | Java | `frontend_java` | `.java` | 8, 17, 21, 23 | �?|
 | C# (.NET) | `frontend_dotnet` | `.cs`, `.vb` | .NET 6, 7, 8, 9 | �?|
-| .ploy | `frontend_ploy` | `.ploy` | 1.0 | �?|
+| .poly | `frontend_ploy` | `.poly` | 1.0 | �?|
 
 ## 1.2 检测规�?
 
@@ -40,21 +40,21 @@
 | `.rs` | Rust |
 | `.java` | Java |
 | `.cs`, `.vb` | C# (.NET) |
-| `.ploy` | .ploy |
+| `.poly` | .poly |
 
 手动指定：`polyc --lang=<语言> 输入文件`
 
 ---
 
-# 2. .ploy 语言规范
+# 2. .poly 语言规范
 
 ## 2.1 概述
 
-`.ploy` 是一种领域特定语言，用于表达跨语言函数级链接、面向对象互操作、类型映射和多语言管道编排�?
+`.poly` 是一种领域特定语言，用于表达跨语言函数级链接、面向对象互操作、类型映射和多语言管道编排�?
 
 ## 2.2 关键字（�?56 �?�?大小写不敏感�?
 
-�?`Ploy 1.5.2` 起，所有保留字均按 **大小写不敏感** 方式识别。词法器�?
+�?`Poly 1.5.2` 起，所有保留字均按 **大小写不敏感** 方式识别。词法器�?
 将每个关键字统一规范化为标准�?UPPER 大写拼写后再交给语法分析器，同时
 将用户在源码中实际书写的拼写保留�?token 上（`Token::raw_lexeme`），�?
 便诊断信息和"忠于源码"的格式化器仍然可以打印出用户原本写下的字面量�?
@@ -80,14 +80,14 @@ ERROR       ASYNC       AWAIT       WHERE       PUB
 PRIVATE
 ```
 
-`*` `RETURNS` �?`Ploy 1.5.2` 起已 **弃用**。遗留的
+`*` `RETURNS` �?`Poly 1.5.2` 起已 **弃用**。遗留的
 `LINK(...) RETURNS Type { ... }` 写法仍然可以解析并产出与之前完全一致的
 AST，但语法分析器会发出 `kDeprecatedKeyword` 警告，警告文本中会回显用�?
 源码中真实写下的拼写。新代码请改�?LINK 签名上的标准 `-> Type` 箭头�?
 声明返回类型�?
 
 > **大小写约定建议�?* 本文档中所有示例继续使�?UPPER 大写的关键字纯粹
-> 是出于阅读对齐需要。新写的 `.ploy` 程序推荐遵循通用编程语言常见�?
+> 是出于阅读对齐需要。新写的 `.poly` 程序推荐遵循通用编程语言常见�?
 > 小写约定 —�?`link`、`func`、`var`、`return`、`if`、`else` —�?词法�?
 > 会以完全相同的方式接受它们。`If` / `Func` 这样的混合大小写也会被接受，
 > 但出于一致性原因不推荐�?
@@ -99,7 +99,7 @@ AST，但语法分析器会发出 `kDeprecatedKeyword` 警告，警告文本中�
 
 ### 字符串字面量（v1.17.0 起）
 
-Ploy 识别四种字符串字面量形式。四者共享同一 `kString` 词法 token，
+Poly 识别四种字符串字面量形式。四者共享同一 `kString` 词法 token，
 并通过既有的 `polyrt_println` 风格驻留路径下沉为无 NUL 的 `(ptr,
 len)` 二元组。
 
@@ -122,25 +122,25 @@ v1.17.0 的下沉层在所有插值都是编译期 `Literal` 时进行立即折�
 
 ### LINK �?跨语言函数链接
 
-```ploy
+```poly
 LINK <目标语言>::<模块>::<函数> AS FUNC(<参数类型>) -> <返回类型>;
 ```
 
 **示例**:
-```ploy
+```poly
 LINK cpp::math::add AS FUNC(INT, INT) -> INT;
 LINK python::utils::format_string AS FUNC(STRING) -> STRING;
 ```
 
 ### IMPORT �?模块导入
 
-```ploy
+```poly
 IMPORT <语言> MODULE <模块路径>;
 ```
 
 ### IMPORT PACKAGE �?带版本约束的包导�?
 
-```ploy
+```poly
 IMPORT <语言> PACKAGE <包名>;
 IMPORT <语言> PACKAGE <包名> >= <版本�?;
 IMPORT <语言> PACKAGE <包名>::(<符号1>, <符号2>) >= <版本�?;
@@ -150,22 +150,22 @@ IMPORT <语言> PACKAGE <包名>::(<符号1>, <符号2>) >= <版本�?;
 
 ### EXPORT �?符号导出
 
-```ploy
+```poly
 EXPORT <符号�?;
 EXPORT <符号�? AS <别名>;
 ```
 
 ### MAP_TYPE �?跨语言类型映射
 
-```ploy
-MAP_TYPE <ploy类型> = <语言>::<类型�?;
+```poly
+MAP_TYPE <poly类型> = <语言>::<类型�?;
 ```
 
 ### CONFIG �?包管理器配置
 
 字符串化的规范形式（自 v1.12.0 起）：
 
-```ploy
+```poly
 CONFIG <语言> "<包管理器>" "<路径或环境名>";
 
 // 示例
@@ -184,7 +184,7 @@ CONFIG go       "gomod"   "./go.mod";
 
 旧的关键字形式（已弃用，仍可解析以保持源代码兼容）：
 
-```ploy
+```poly
 CONFIG VENV "<路径>";          // Python venv
 CONFIG CONDA "<环境名>";       // Conda 环境
 CONFIG UV "<项目路径>";         // uv 项目
@@ -198,7 +198,7 @@ CONFIG POETRY "<项目路径>";     // Poetry 项目
 
 ## 2.4 函数
 
-```ploy
+```poly
 FUNC <名称>(<参数>: <类型>, ...) -> <返回类型> {
     <函数�?
 }
@@ -206,14 +206,14 @@ FUNC <名称>(<参数>: <类型>, ...) -> <返回类型> {
 
 ## 2.5 变量
 
-```ploy
+```poly
 LET <名称>: <类型> = <表达�?;   // 不可�?
 VAR <名称>: <类型> = <表达�?;   // 可变
 ```
 
-### TYPE —— 类型别名（自 `Ploy 1.7.0` 起）
+### TYPE —— 类型别名（自 `Poly 1.7.0` 起）
 
-```ploy
+```poly
 TYPE <别名> = <类型表达式>;
 ```
 
@@ -221,24 +221,24 @@ TYPE <别名> = <类型表达式>;
 声明相同的命名空间，重复定义或屏蔽内置宽度关键字会以 `kRedefinedSymbol`
 报错。诊断信息触及别名时会同时打印底层类型，例如 `Pixel (alias of i32)`。
 
-```ploy
+```poly
 TYPE Pixel        = i32;           // 宽度感知的整型别名
 TYPE ChannelCount = u32;
 TYPE PixelBuffer  = LIST(Pixel);   // 别名透传到泛型实参
 ```
 
-### CONST —— 编译期常量（自 `Ploy 1.7.0` 起）
+### CONST —— 编译期常量（自 `Poly 1.7.0` 起）
 
-```ploy
+```poly
 CONST <名称>: <类型> = <表达式>;
 ```
 
-`CONST` 声明必须显式标注类型，初始化器由 ploy 语义分析器折叠：支持字面量、
+`CONST` 声明必须显式标注类型，初始化器由 poly 语义分析器折叠：支持字面量、
 对此前 `CONST` 的引用、一元 `-` / `!` / `NOT` 以及二元的算术、比较、逻辑
 运算符。声明类型与折叠结果出现宽度不匹配时发出警告。折叠后的常量会作为
 不可变变量注册到符号表，下游各阶段通过常规符号查找即可消费。
 
-```ploy
+```poly
 CONST KMaxRetry: i32 = 5;
 CONST KAlias:    i32 = KMaxRetry;   // CONST 引用 CONST
 CONST KArea:     i64 = 10 * 20;     // 由 sema 折叠
@@ -248,7 +248,7 @@ CONST KArea:     i64 = 10 * 20;     // 由 sema 折叠
 
 ### 条件语句
 
-```ploy
+```poly
 IF (<条件>) { <主体> }
 ELSE IF (<条件>) { <主体> }
 ELSE { <主体> }
@@ -256,14 +256,14 @@ ELSE { <主体> }
 
 ### 循环
 
-```ploy
+```poly
 WHILE (<条件>) { <主体> }
 FOR (<变量> IN <可迭代对�?) { <主体> }
 ```
 
 ### 模式匹配
 
-```ploy
+```poly
 MATCH (<表达�?) {
     CASE <模式> => { <主体> }
     DEFAULT => { <主体> }
@@ -272,10 +272,10 @@ MATCH (<表达�?) {
 
 ### 错误处理
 
-自 `Ploy 1.13.0` 起，可通过 `TRY` / `CATCH` / `FINALLY` / `THROW`
+自 `Poly 1.13.0` 起，可通过 `TRY` / `CATCH` / `FINALLY` / `THROW`
 进行结构化异常处理：
 
-```ploy
+```poly
 TRY {
     <受保护体>
 }
@@ -299,9 +299,9 @@ THROW <表达式>;
 
 ### 异步 / Await
 
-自 `Ploy 1.14.0` 起，可通过 `ASYNC` / `AWAIT` 使用协作式异步函数：
+自 `Poly 1.14.0` 起，可通过 `ASYNC` / `AWAIT` 使用协作式异步函数：
 
-```ploy
+```poly
 ASYNC FUNC fetch() -> i32 {
     LET v = AWAIT load_value();
     RETURN v;
@@ -319,10 +319,10 @@ Rust `Future`、C++20 `std::coroutine`、Java `CompletableFuture`、
 
 ### 泛型
 
-自 `Ploy 1.15.0` 起，`FUNC` 与 `STRUCT` 声明可携带带可选 trait
+自 `Poly 1.15.0` 起，`FUNC` 与 `STRUCT` 声明可携带带可选 trait
 bound 的泛型类型参数列表：
 
-```ploy
+```poly
 FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
 STRUCT Pair<A, B> { first: A, second: B }
 FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
@@ -338,10 +338,10 @@ sema 拒绝未知 bound。v1.15.0 的下沉路径是类型擦除（每个
 
 ### 可见性与属性
 
-自 `Ploy 1.16.0` 起，顶层 `FUNC`、`ASYNC FUNC` 与 `STRUCT`
+自 `Poly 1.16.0` 起，顶层 `FUNC`、`ASYNC FUNC` 与 `STRUCT`
 声明可携带属性 / 可见性前缀：
 
-```ploy
+```poly
 @inline @hot PUB FUNC fast(a: i32, b: i32) -> i32 { RETURN a + b; }
 PRIVATE STRUCT Internal { x: i32 }
 ```
@@ -359,26 +359,26 @@ PRIVATE STRUCT Internal { x: i32 }
 
 ### 对象创建
 
-```ploy
+```poly
 LET obj = NEW(<语言>, <类路�?, <参数...>);
 ```
 
 ### 方法调用
 
-```ploy
+```poly
 LET result = METHOD(<语言>, <对象>, <方法�?, <参数...>);
 ```
 
 ### 属性访�?
 
-```ploy
+```poly
 LET value = GET(<语言>, <对象>, <属�?);
 SET(<语言>, <对象>, <属�?, <�?);
 ```
 
 ### 资源管理
 
-```ploy
+```poly
 WITH (<语言>, <对象>) {
     // 对象在块退出时自动关闭/释放
 }
@@ -386,13 +386,13 @@ WITH (<语言>, <对象>) {
 
 ### 对象销�?
 
-```ploy
+```poly
 DELETE(<语言>, <对象>);
 ```
 
 ### 类继承扩�?
 
-```ploy
+```poly
 EXTEND(<语言>, <基类>) {
     // 定义扩展行为
 }
@@ -400,7 +400,7 @@ EXTEND(<语言>, <基类>) {
 
 ## 2.8 管道
 
-```ploy
+```poly
 PIPELINE <名称> {
     STAGE <阶段�? = CALL(<语言>, <函数>, <参数...>);
     STAGE <阶段�? = CALL(<语言>, <函数>, <上一阶段>);
@@ -411,7 +411,7 @@ PIPELINE <名称> {
 
 ### 原始类型
 
-自 `Ploy 1.7.0`（需求 2026-04-28-7）起，原始类型扩展为显式宽度的有/无符号
+自 `Poly 1.7.0`（需求 2026-04-28-7）起，原始类型扩展为显式宽度的有/无符号
 整型与浮点型关键字。旧式拼写继续可用并按别名解析：
 
 - `INT` ≡ `i64`
@@ -421,7 +421,7 @@ PIPELINE <名称> {
 `kTypeMismatch` 等级发出 **警告**；当诊断信息触及用户 `TYPE` 别名时，
 会同步打印底层原始类型，例如 `Pixel (alias of i32)`。
 
-| .ploy 关键字 | 底层 `core::Type` | 位宽 | 符号 |
+| .poly 关键字 | 底层 `core::Type` | 位宽 | 符号 |
 | --- | --- | --- | --- |
 | `i8` / `i16` / `i32` / `i64` | `Int(N, true)` | 8 / 16 / 32 / 64 | 有符号 |
 | `u8` / `u16` / `u32` / `u64` | `Int(N, false)` | 8 / 16 / 32 / 64 | 无符号 |
@@ -430,7 +430,7 @@ PIPELINE <名称> {
 | `INT`（`i64` 旧别名） | `Int(64, true)` | 64 | 有符号 |
 | `FLOAT`（`f64` 旧别名） | `Float(64)` | 64 | 不适用 |
 
-| .ploy 类型 | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
+| .poly 类型 | C++ | Python | Rust | Java | C# | Go | JavaScript | Ruby |
 |-----------|-----|--------|------|------|-----|------|-----------|------|
 | `INT`     | `int`         | `int`   | `i32`     | `int`     | `int`    | `int`     | `number`        | `Integer` |
 | `FLOAT`   | `double`      | `float` | `f64`     | `double`  | `double` | `float64` | `number`        | `Float`   |
@@ -440,7 +440,7 @@ PIPELINE <名称> {
 
 ### 容器类型
 
-| .ploy 类型 | C++ | Python | Rust | Go | JavaScript | Ruby |
+| .poly 类型 | C++ | Python | Rust | Go | JavaScript | Ruby |
 |------------|-----|--------|------|------|-----------|------|
 | `LIST<T>`        | `std::vector<T>`           | `list[T]`     | `Vec<T>`        | `[]T`            | `Array`         | `Array`     |
 | `TUPLE<T...>`    | `std::tuple<T...>`         | `tuple`       | `(T...)`        | `struct{...}`    | （定�?Array�? | `Array`     |
@@ -459,7 +459,7 @@ PIPELINE <名称> {
 
 `IF` / `WHILE` / `FOR` 头部支持可选的外层括号，下列写法解析等价：
 
-```ploy
+```poly
 IF cond { … }            IF (cond) { … }
 WHILE cond { … }         WHILE (cond) { … }
 FOR i IN xs { … }        FOR (i IN xs) { … }
@@ -467,7 +467,7 @@ FOR i IN xs { … }        FOR (i IN xs) { … }
 
 ### `IF LET` 解构 `OPTION<T>`（自 v1.18.0 起）
 
-```ploy
+```poly
 IF LET Some(x) = opt { use(x); } ELSE { fallback(); }
 IF LET None    = opt { … }
 ```
@@ -477,7 +477,7 @@ IF LET None    = opt { … }
 
 ### 后缀 `?` 短路解包（自 v1.19.0 起）
 
-```ploy
+```poly
 FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
     LET v = opt?;        // opt 为 None 时立即返回 None
     RETURN Some(v + 1);
@@ -521,7 +521,7 @@ token）通过**操作数类型**与本节区分：操作数为 `OPTION` 时按�
 | 赋�?| `=` |
 | 成员访问 | `.`, `::` |
 
-> **逻辑运算符别名（Ploy 1.5.2+）�?* 关键字形�?`AND`、`OR`、`NOT`
+> **逻辑运算符别名（Poly 1.5.2+）�?* 关键字形�?`AND`、`OR`、`NOT`
 > 是符号形�?`&&`、`||`、`!` 的精确别名，会产生完全相同的 AST 节点�?
 > 两种写法都长期保留，但新代码推荐使用符号形式，以便源文件能够�?
 > 自然地与本语言要桥接的 C/C++/Rust/JavaScript 等生态保持一致�?
@@ -530,7 +530,7 @@ token）通过**操作数类型**与本节区分：操作数为 `OPTION` 时按�
 
 所有语句以分号 (`;`) 终止�?
 
-## 2.12 PRINTLN —— 标准输出语句（自 `Ploy 1.5.3` 起）
+## 2.12 PRINTLN —— 标准输出语句（自 `Poly 1.5.3` 起）
 
 ```
 PRINTLN STRING_LITERAL ';'
@@ -549,7 +549,7 @@ PRINTLN STRING_LITERAL ';'
   以及发射出的 `.rdata` 段三方对同一份字面量解释完全一致。
 - 空字面量（`PRINTLN "";`）是合法的，输出零字节。
 
-`PRINTLN` 关键字遵循与其它 Ploy 关键字一致的大小写不敏感规则
+`PRINTLN` 关键字遵循与其它 Poly 关键字一致的大小写不敏感规则
 （`println`、`Println`、`PRINTLN` 等价）。
 
 ---
@@ -680,11 +680,11 @@ PolyglotCompiler 生成 FFI 粘合代码以桥接不同源语言之间的函数�
 
 | �?�?目标 | 约定 | 桥接 |
 |----------|------|------|
-| .ploy �?C++ | cdecl | 直接 FFI |
-| .ploy �?Python | CPython C API | `__ploy_python_*` 运行�?|
-| .ploy �?Rust | Rust ABI (extern "C") | 直接 FFI |
-| .ploy �?Java | JNI | `__ploy_java_*` 运行�?|
-| .ploy �?.NET | CoreCLR Hosting | `__ploy_dotnet_*` 运行�?|
+| .poly �?C++ | cdecl | 直接 FFI |
+| .poly �?Python | CPython C API | `__ploy_python_*` 运行�?|
+| .poly �?Rust | Rust ABI (extern "C") | 直接 FFI |
+| .poly �?Java | JNI | `__ploy_java_*` 运行�?|
+| .poly �?.NET | CoreCLR Hosting | `__ploy_dotnet_*` 运行�?|
 
 ## 4.3 运行时桥接函�?
 
@@ -703,14 +703,14 @@ PolyglotCompiler 生成 FFI 粘合代码以桥接不同源语言之间的函数�
 
 ## 5.1 原始类型编组
 
-| .ploy �?C++ | 规则 |
+| .poly �?C++ | 规则 |
 |-------------|------|
 | `INT` �?`int` | 直接传递（相同 ABI 表示�?|
 | `FLOAT` �?`double` | 直接传�?|
 | `STRING` �?`std::string` | 复制字符串数�?|
 | `BOOL` �?`bool` | 直接传递（i1 �?i8�?|
 
-| .ploy �?Python | 规则 |
+| .poly �?Python | 规则 |
 |----------------|------|
 | `INT` �?`int` | 转换�?`PyLong` / �?`PyLong` 转换 |
 | `FLOAT` �?`float` | 转换�?`PyFloat` / �?`PyFloat` 转换 |
@@ -719,7 +719,7 @@ PolyglotCompiler 生成 FFI 粘合代码以桥接不同源语言之间的函数�
 
 ## 5.2 容器类型编组
 
-| .ploy 类型 | 编组策略 |
+| .poly 类型 | 编组策略 |
 |-----------|---------|
 | `LIST<T>` | 逐元素复制并进行类型转换 |
 | `TUPLE<T...>` | 按位置逐元素复�?|

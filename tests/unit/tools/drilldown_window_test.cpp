@@ -64,10 +64,10 @@ QApplication &GetOrCreateApp() {
 }
 
 /**
- * @brief Write a temporary .ploy file and return its path.
+ * @brief Write a temporary .poly file and return its path.
  */
 QString WriteTempPloy(const std::string &source) {
-    QString path = QDir::temp().filePath("drilldown_test.ploy");
+    QString path = QDir::temp().filePath("drilldown_test.poly");
     QFile f(path);
     if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
         f.write(source.c_str(), static_cast<qint64>(source.size()));
@@ -341,7 +341,7 @@ FUNC helper(z: Int) -> Int {
 
 PIPELINE main_pipe {
     FUNC step_a(x: Int) -> Int {
-        VAR a = CALL(ploy, helper, x);
+        VAR a = CALL(poly, helper, x);
         RETURN a;
     }
     FUNC step_b(y: Int) -> Int {

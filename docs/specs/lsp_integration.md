@@ -5,7 +5,7 @@
 PolyglotCompiler ships an in-process Language Server Protocol (LSP)
 client framework inside the polyui IDE plus a self-developed language
 server, **polyls**, that exposes the polyglot frontends (starting with
-the `.ploy` language) over the standard LSP wire format.  This document
+the `.poly` language) over the standard LSP wire format.  This document
 describes the architecture, the wire-level guarantees, the public types,
 and the configuration surface.
 
@@ -128,7 +128,7 @@ JSON keys (defaults shipped via the QRC bundle):
 | `languageServers.servers.<lang>.env`      | object   | `{}`    | Extra environment. |
 | `languageServers.servers.<lang>.initializationOptions` | object | `{}` | Forwarded to `initialize`. |
 
-Default servers: `polyls` for `.ploy`, `clangd` for `cpp`,
+Default servers: `polyls` for `.poly`, `clangd` for `cpp`,
 `pyright-langserver --stdio` for `python`, `rust-analyzer` for `rust`,
 `jdtls` for `java`, `omnisharp -lsp` for `csharp`.
 
@@ -144,7 +144,7 @@ Default servers: `polyls` for `.ploy`, `clangd` for `cpp`,
   mechanics, syntax-error → `publishDiagnostics`, shutdown→exit.
 * `tests/integration/lsp_diagnostics_e2e_test.cpp` — drives a real
   `LspClient` against an in-process `PolylsServer` through a loopback
-  transport pair, opens malformed `.ploy` source, asserts an error
+  transport pair, opens malformed `.poly` source, asserts an error
   diagnostic with `source = "polyls"` is published, then validates the
   empty-publish-on-close + shutdown / exit handshake.
 

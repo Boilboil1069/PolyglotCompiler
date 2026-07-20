@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, Go |
-| Entry | `http_client.ploy` |
+| Entry | `http_client.poly` |
 | Theme | HTTP client demo |
 | Expected stdout | `23_http_client: ok\r\n` |
 
 ## Files
 
-- `http_client.ploy` — `.ploy` entry that wires the host sources together.
+- `http_client.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `HttpTransport.go` — host source file
 - `response_decoder.py` — host source file
@@ -23,7 +23,7 @@
 ## Build
 
 ```powershell
-polyc http_client.ploy --emit-obj=build/http_client.obj --quiet
+polyc http_client.poly --emit-obj=build/http_client.obj --quiet
 polyld build/http_client.obj -o build/http_client.exe
 ./build/http_client.exe
 ```

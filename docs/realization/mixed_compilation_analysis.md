@@ -6,9 +6,9 @@
 
 ## 2. Short Answer
 
-**Yes, with specific architectural constraints.** The `.ploy` language and the PolyglotCompiler infrastructure can achieve mixed compilation of different languages at the **function-level linking** granularity. It does not perform traditional "unified compilation" (compiling all languages down to the same IR from source), but rather implements **cross-language interop at the object code level** through automated glue code generation.
+**Yes, with specific architectural constraints.** The `.poly` language and the PolyglotCompiler infrastructure can achieve mixed compilation of different languages at the **function-level linking** granularity. It does not perform traditional "unified compilation" (compiling all languages down to the same IR from source), but rather implements **cross-language interop at the object code level** through automated glue code generation.
 
-## 3. What ".ploy Mixed Compilation" Means
+## 3. What ".poly Mixed Compilation" Means
 
 ### 3.1 Traditional Mixed Compilation (Not What We Do)
 
@@ -54,7 +54,7 @@ Our approach is **unified IR + function-level linking with automated marshalling
                     │                 │
                     ▼                 ▼
               ┌───────────┐    ┌───────────┐
-              │  .ploy    │    │ Polyglot  │
+              │  .poly    │    │ Polyglot  │
               │ Frontend  │───▶│  Linker   │
               └───────────┘    └─────┬─────┘
                                      │
@@ -65,7 +65,7 @@ Our approach is **unified IR + function-level linking with automated marshalling
                               └───────────┘
 ```
 
-PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, `frontend_rust`) to compile all language source code into a shared IR. The `.ploy` file describes the cross-language connections, and the PolyglotLinker generates glue code to connect them.
+PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, `frontend_rust`) to compile all language source code into a shared IR. The `.poly` file describes the cross-language connections, and the PolyglotLinker generates glue code to connect them.
 
 **Relationship to external compilers:**
 
@@ -80,7 +80,7 @@ PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, 
 - C++ Frontend: `frontends/cpp/src/` — lexer/parser/sema/lowering/constexpr (5 compilation units)
 - Python Frontend: `frontends/python/src/` — lexer/parser/sema/lowering (4 compilation units)
 - Rust Frontend: `frontends/rust/src/` — lexer/parser/sema/lowering (4 compilation units)
-- .ploy Frontend: `frontends/ploy/src/` — lexer/parser/sema/lowering (4 compilation units)
+- .poly Frontend: `frontends/ploy/src/` — lexer/parser/sema/lowering (4 compilation units)
 - Compiler Driver: `tools/polyc/src/driver.cpp` (~1069 lines, integrates all frontends)
 - Polyglot Linker: `tools/polyld/src/polyglot_linker.cpp` (~522 lines)
 
@@ -100,7 +100,7 @@ PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, 
 | Struct mapping | ⚠️ Partial | Cross-language struct field conversion via MAP_TYPE; opaque pointer fallback |
 | Package imports | ✅ Implemented | IMPORT python PACKAGE numpy AS np |
 | Multi-stage pipelines | ✅ Implemented | PIPELINE with CALL across languages |
-| Control flow orchestration | ✅ Implemented | IF/WHILE/FOR/MATCH in .ploy |
+| Control flow orchestration | ✅ Implemented | IF/WHILE/FOR/MATCH in .poly |
 
 ### 4.2 Architectural Constraints
 
@@ -128,7 +128,7 @@ PolyglotCompiler uses its **own frontends** (`frontend_cpp`, `frontend_python`, 
 
 A real-world pipeline using three languages:
 
-```ploy
+```poly
 // Rust: Fast parallel I/O
 IMPORT rust PACKAGE rayon;
 LINK(cpp, rust, load_images, rayon::par_load) {
@@ -169,7 +169,7 @@ EXPORT image_pipeline AS "classify_images";
 1. **Rust code** is compiled by `frontend_rust` → IR → object code
 2. **Python code** is compiled by `frontend_python` → IR → object code
 3. **C++ code** is compiled by `frontend_cpp` → IR → object code
-4. **`.ploy` file** is processed by `frontend_ploy` → generates IR → `PolyglotLinker` generates glue stubs
+4. **`.poly` file** is processed by `frontend_ploy` → generates IR → `PolyglotLinker` generates glue stubs
 5. **Final binary** links all object files + glue stubs + runtime libraries
 
 > **Note:** All languages are compiled through PolyglotCompiler's own frontends, not external compilers (MSVC/GCC/rustc/CPython).
@@ -187,7 +187,7 @@ EXPORT image_pipeline AS "classify_images";
 
 ## 7. Conclusion
 
-The PolyglotCompiler with `.ploy` achieves **practical mixed compilation** at the function-level linking granularity. It is not a unified compiler that produces one IR for all languages, but rather an **intelligent linker** that:
+The PolyglotCompiler with `.poly` achieves **practical mixed compilation** at the function-level linking granularity. It is not a unified compiler that produces one IR for all languages, but rather an **intelligent linker** that:
 
 1. Understands the type systems of multiple languages
 2. Automatically generates type marshalling code

@@ -68,7 +68,7 @@ struct LinkerChoice {
 LinkerChoice SelectAvailableLinker(const std::string &format, const std::string &polyld_path);
 
 /// Substitute {OBJ} / {OUT} placeholders in `choice.command_template` and
-/// append optional `--ploy-desc` / `--aux-dir` flags (only meaningful when
+/// append optional `--poly-desc` / `--aux-dir` flags (only meaningful when
 /// the chosen linker is polyld; ignored otherwise).
 std::string ExpandLinkCommand(const LinkerChoice &choice, const std::string &obj_path,
                               const std::string &out_path, const std::string &ploy_desc_file,

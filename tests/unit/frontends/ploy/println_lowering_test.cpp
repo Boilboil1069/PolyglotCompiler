@@ -82,7 +82,7 @@ std::string IrText(const IRContext &ctx) {
 }  // namespace
 
 TEST_CASE("PRINTLN lowers to a polyrt_println call against an interned global",
-          "[ploy][lowering][println]") {
+          "[poly][lowering][println]") {
     LowerEnv env;
     REQUIRE(LowerSource("PRINTLN \"Hello\\r\\n\";\n", env));
     REQUIRE_FALSE(env.diags.HasErrors());
@@ -111,7 +111,7 @@ TEST_CASE("PRINTLN lowers to a polyrt_println call against an interned global",
 }
 
 TEST_CASE("PRINTLN with an empty literal still emits a single call with len=0",
-          "[ploy][lowering][println]") {
+          "[poly][lowering][println]") {
     LowerEnv env;
     REQUIRE(LowerSource("PRINTLN \"\";\n", env));
     REQUIRE_FALSE(env.diags.HasErrors());
@@ -123,7 +123,7 @@ TEST_CASE("PRINTLN with an empty literal still emits a single call with len=0",
 }
 
 TEST_CASE("Repeated identical PRINTLN literals share a single interned global",
-          "[ploy][lowering][println]") {
+          "[poly][lowering][println]") {
     LowerEnv env;
     REQUIRE(LowerSource(
         "PRINTLN \"same\";\n"
@@ -145,7 +145,7 @@ TEST_CASE("Repeated identical PRINTLN literals share a single interned global",
 }
 
 TEST_CASE("PRINTLN inside a FUNC body lands in that function, not entry_fn",
-          "[ploy][lowering][println]") {
+          "[poly][lowering][println]") {
     LowerEnv env;
     REQUIRE(LowerSource(
         "FUNC main() {\n"
@@ -184,7 +184,7 @@ TEST_CASE("PRINTLN inside a FUNC body lands in that function, not entry_fn",
 }
 
 TEST_CASE("Unknown escape sequences in PRINTLN are reported but do not abort lowering",
-          "[ploy][lowering][println][warning]") {
+          "[poly][lowering][println][warning]") {
     LowerEnv env;
     // `\q` is not in our escape table.
     REQUIRE(LowerSource("PRINTLN \"oops\\q\";\n", env));

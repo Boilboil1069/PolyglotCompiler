@@ -1,11 +1,11 @@
 # 37_async_await — 协作式异步 / await
 
-`async_await.ploy` 演示 v1.14.0 引入的 `ASYNC` / `AWAIT` 语法。
+`async_await.poly` 演示 v1.14.0 引入的 `ASYNC` / `AWAIT` 语法。
 `ASYNC FUNC` 声明的函数返回值会被隐式包装为 `Future<T>`；
 `AWAIT <expr>` 暂停当前异步帧直至操作数的 future 解析完成，
 随后产出已解析的负载。
 
-```ploy
+```poly
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
@@ -42,7 +42,7 @@ ASYNC FUNC chained() -> i32 {
 | Rust     | `Future`                 | `rsloy_async_resolve`        |
 
 每个适配器通过 `__ploy_rt_future_resolve` 将原生 awaitable 解析为
-Ploy `Future<T>`，事件循环随后唤醒挂在该句柄上的任务。
+Poly `Future<T>`，事件循环随后唤醒挂在该句柄上的任务。
 
 ## 调度器观测
 

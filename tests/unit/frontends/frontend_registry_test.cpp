@@ -54,7 +54,7 @@ TEST_CASE("[registry] All built-in frontends are registered", "[frontend_registr
     auto langs = reg.SupportedLanguages();
 
     REQUIRE(langs.size() >= 6);
-    CHECK(Contains(langs, "ploy"));
+    CHECK(Contains(langs, "poly"));
     CHECK(Contains(langs, "cpp"));
     CHECK(Contains(langs, "python"));
     CHECK(Contains(langs, "rust"));
@@ -69,11 +69,11 @@ TEST_CASE("[registry] All built-in frontends are registered", "[frontend_registr
 TEST_CASE("[registry] Lookup by canonical name", "[frontend_registry]") {
     auto &reg = FrontendRegistry::Instance();
 
-    SECTION("ploy") {
-        auto *fe = reg.GetFrontend("ploy");
+    SECTION("poly") {
+        auto *fe = reg.GetFrontend("poly");
         REQUIRE(fe != nullptr);
-        CHECK(fe->Name() == "ploy");
-        CHECK(fe->DisplayName() == "Ploy");
+        CHECK(fe->Name() == "poly");
+        CHECK(fe->DisplayName() == "Poly");
     }
 
     SECTION("cpp") {
@@ -118,6 +118,13 @@ TEST_CASE("[registry] Lookup by canonical name", "[frontend_registry]") {
 TEST_CASE("[registry] Lookup by alias", "[frontend_registry]") {
     auto &reg = FrontendRegistry::Instance();
 
+    SECTION("legacy 'ploy' resolves to canonical poly frontend") {
+        auto *fe = reg.GetFrontend("ploy");
+        REQUIRE(fe != nullptr);
+        CHECK(fe->Name() == "poly");
+        CHECK(fe->DisplayName() == "Poly");
+    }
+
     SECTION("'c' resolves to cpp frontend") {
         auto *fe = reg.GetFrontend("c");
         REQUIRE(fe != nullptr);
@@ -150,10 +157,17 @@ TEST_CASE("[registry] Lookup by alias", "[frontend_registry]") {
 TEST_CASE("[registry] Lookup by file extension", "[frontend_registry]") {
     auto &reg = FrontendRegistry::Instance();
 
-    SECTION(".ploy -> ploy") {
+    SECTION(".poly -> poly") {
+        auto *fe = reg.GetFrontendByExtension(".poly");
+        REQUIRE(fe != nullptr);
+        CHECK(fe->Name() == "poly");
+        CHECK((fe->Extensions() == std::vector<std::string>{".poly", ".ploy"}));
+    }
+
+    SECTION("legacy .ploy -> poly") {
         auto *fe = reg.GetFrontendByExtension(".ploy");
         REQUIRE(fe != nullptr);
-        CHECK(fe->Name() == "ploy");
+        CHECK(fe->Name() == "poly");
     }
 
     SECTION(".cpp -> cpp") {
@@ -211,7 +225,8 @@ TEST_CASE("[registry] Lookup by file extension", "[frontend_registry]") {
 TEST_CASE("[registry] DetectLanguage from file path", "[frontend_registry]") {
     auto &reg = FrontendRegistry::Instance();
 
-    CHECK(reg.DetectLanguage("main.ploy") == "ploy");
+    CHECK(reg.DetectLanguage("main.poly") == "poly");
+    CHECK(reg.DetectLanguage("legacy.ploy") == "poly");
     CHECK(reg.DetectLanguage("src/app.cpp") == "cpp");
     CHECK(reg.DetectLanguage("lib/utils.py") == "python");
     CHECK(reg.DetectLanguage("mod.rs") == "rust");
@@ -267,8 +282,8 @@ TEST_CASE("[registry] NeedsPreprocessing reflects frontend capabilities", "[fron
     REQUIRE(py_fe != nullptr);
     CHECK(py_fe->NeedsPreprocessing() == false);
 
-    // Ploy does not require preprocessing
-    auto *ploy_fe = reg.GetFrontend("ploy");
+    // Poly does not require preprocessing
+    auto *ploy_fe = reg.GetFrontend("poly");
     REQUIRE(ploy_fe != nullptr);
     CHECK(ploy_fe->NeedsPreprocessing() == false);
 }
@@ -280,10 +295,10 @@ TEST_CASE("[registry] NeedsPreprocessing reflects frontend capabilities", "[fron
 TEST_CASE("[registry] Tokenize produces tokens for valid source", "[frontend_registry]") {
     auto &reg = FrontendRegistry::Instance();
 
-    SECTION("ploy tokenization") {
-        auto *fe = reg.GetFrontend("ploy");
+    SECTION("poly tokenization") {
+        auto *fe = reg.GetFrontend("poly");
         REQUIRE(fe != nullptr);
-        auto tokens = fe->Tokenize("LET x = 42;", "test.ploy");
+        auto tokens = fe->Tokenize("LET x = 42;", "test.poly");
         CHECK(!tokens.empty());
     }
 
@@ -332,10 +347,10 @@ TEST_CASE("[registry] Analyze reports diagnostics for invalid source", "[fronten
     polyglot::frontends::Diagnostics diags;
     polyglot::frontends::FrontendOptions opts;
 
-    SECTION("ploy analysis on valid source succeeds") {
-        auto *fe = reg.GetFrontend("ploy");
+    SECTION("poly analysis on valid source succeeds") {
+        auto *fe = reg.GetFrontend("poly");
         REQUIRE(fe != nullptr);
-        bool ok = fe->Analyze("LET x = 42;", "test.ploy", diags, opts);
+        bool ok = fe->Analyze("LET x = 42;", "test.poly", diags, opts);
         CHECK(ok);
     }
 
@@ -363,7 +378,7 @@ TEST_CASE("[registry] Clear removes all frontends", "[frontend_registry]") {
     // Clear
     reg.Clear();
     CHECK(reg.SupportedLanguages().empty());
-    CHECK(reg.GetFrontend("ploy") == nullptr);
+    CHECK(reg.GetFrontend("poly") == nullptr);
     CHECK(reg.GetFrontend("cpp") == nullptr);
 
     // Re-register all frontends
@@ -380,7 +395,7 @@ TEST_CASE("[registry] Clear removes all frontends", "[frontend_registry]") {
     // Verify restoration
     auto restored = reg.SupportedLanguages();
     CHECK(restored.size() == original_langs.size());
-    CHECK(reg.GetFrontend("ploy") != nullptr);
+    CHECK(reg.GetFrontend("poly") != nullptr);
     CHECK(reg.GetFrontend("cpp") != nullptr);
 }
 

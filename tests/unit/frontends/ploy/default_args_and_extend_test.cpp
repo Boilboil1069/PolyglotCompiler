@@ -10,7 +10,7 @@
 //   - Call site `f(1, y: 5)` is accepted (positional + named mix).
 //   - Required parameter cannot follow a defaulted one (parse-time error).
 //   - Default expression must be constant-foldable (literal / unary /
-//     binary of literals / pure intra-Ploy call).
+//     binary of literals / pure intra-Poly call).
 //   - Calls that omit a required parameter are rejected.
 //   - EXTEND on cpp / rust / java / dotnet / csharp / go is rejected
 //     with a sema diagnostic that points at the wrapper-function
@@ -69,7 +69,7 @@ bool MessageContains(const Diagnostics &d, const std::string &needle) {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("FUNC default value is parsed and stored in the signature",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC add(x: i32, y: i32 = 0) -> i32 {
     RETURN x;
@@ -92,7 +92,7 @@ FUNC add(x: i32, y: i32 = 0) -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Call site can omit a defaulted trailing argument",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC add(x: i32, y: i32 = 0) -> i32 {
     RETURN x;
@@ -111,7 +111,7 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Call site can name the only required argument",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC add(x: i32, y: i32 = 0) -> i32 {
     RETURN x;
@@ -130,7 +130,7 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Call site can mix a positional arg with a trailing named arg",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC add(x: i32, y: i32 = 0) -> i32 {
     RETURN x;
@@ -149,7 +149,7 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Required parameter after a defaulted one is rejected",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC bad(x: i32, y: i32 = 0, z: i32) -> i32 {
     RETURN x;
@@ -165,7 +165,7 @@ FUNC bad(x: i32, y: i32 = 0, z: i32) -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Default expression that reads a parameter is rejected",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC bad(x: i32, y: i32 = x) -> i32 {
     RETURN x;
@@ -179,8 +179,8 @@ FUNC bad(x: i32, y: i32 = x) -> i32 {
 // 7. Pure-call default is accepted (demand: "CONST 可折叠或纯函数调用").
 // ----------------------------------------------------------------------------
 
-TEST_CASE("Default expression may be a pure intra-Ploy call",
-          "[ploy][default_args]") {
+TEST_CASE("Default expression may be a pure intra-Poly call",
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC zero() -> i32 {
     RETURN 0;
@@ -199,7 +199,7 @@ FUNC add(x: i32, y: i32 = zero()) -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Call that omits a required parameter is rejected",
-          "[ploy][default_args]") {
+          "[poly][default_args]") {
   auto r = AnalyzeSource(R"(
 FUNC add(x: i32, y: i32 = 0) -> i32 {
     RETURN x;
@@ -218,7 +218,7 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("EXTEND on cpp is rejected by sema",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(cpp, foo::Bar) AS Wrapper {
     FUNC tick() -> i32 { RETURN 0; }
@@ -229,7 +229,7 @@ EXTEND(cpp, foo::Bar) AS Wrapper {
 }
 
 TEST_CASE("EXTEND on java is rejected by sema",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(java, com::foo::Bar) AS Wrapper {
     FUNC tick() -> i32 { RETURN 0; }
@@ -240,7 +240,7 @@ EXTEND(java, com::foo::Bar) AS Wrapper {
 }
 
 TEST_CASE("EXTEND on rust is rejected by sema",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(rust, tokio::Task) AS Wrapper {
     FUNC tick() -> i32 { RETURN 0; }
@@ -251,7 +251,7 @@ EXTEND(rust, tokio::Task) AS Wrapper {
 }
 
 TEST_CASE("EXTEND on dotnet is rejected by sema",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(dotnet, System::Object) AS Wrapper {
     FUNC tick() -> i32 { RETURN 0; }
@@ -266,7 +266,7 @@ EXTEND(dotnet, System::Object) AS Wrapper {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("EXTEND on python is accepted",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(python, torch::nn::Module) AS Net {
     FUNC forward(x: f64) -> f64 { RETURN x; }
@@ -277,7 +277,7 @@ EXTEND(python, torch::nn::Module) AS Net {
 }
 
 TEST_CASE("EXTEND on ruby is accepted",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(ruby, ActiveRecord::Base) AS User {
     FUNC name() -> i32 { RETURN 0; }
@@ -288,7 +288,7 @@ EXTEND(ruby, ActiveRecord::Base) AS User {
 }
 
 TEST_CASE("EXTEND on javascript is accepted",
-          "[ploy][extend][restrict]") {
+          "[poly][extend][restrict]") {
   auto r = AnalyzeSource(R"(
 EXTEND(javascript, EventEmitter) AS Bus {
     FUNC tick() -> i32 { RETURN 0; }

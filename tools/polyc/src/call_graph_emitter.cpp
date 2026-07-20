@@ -53,7 +53,7 @@ void EscapeJson(std::ostringstream &os, const std::string &s) {
 
 // Best-effort language detection from an IR function name.  Bridge
 // stubs preserve the host language as a "::" prefix segment in their
-// canonical name; native ploy functions are tagged "ploy".
+// canonical name; native poly functions are tagged "poly".
 std::string DetectLanguage(const ir::Function &fn) {
   if (fn.is_bridge_stub) {
     return "bridge";
@@ -62,7 +62,7 @@ std::string DetectLanguage(const ir::Function &fn) {
   if (pos != std::string::npos) {
     return fn.name.substr(0, pos);
   }
-  return "ploy";
+  return "poly";
 }
 
 } // namespace

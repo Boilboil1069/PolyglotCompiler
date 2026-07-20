@@ -41,7 +41,7 @@
 polyglot
 ├─ core / utils / debug
 ├─ frontends
-│  ├─ cpp / rust / python / java / dotnet / ploy
+│  ├─ cpp / rust / python / java / dotnet / poly
 ├─ ir
 │  ├─ dialects
 │  └─ passes
@@ -118,9 +118,9 @@ polyglot
 | Python | `Lexer -> Parser -> AnalyzeModule -> LowerToIR` | `frontends/python/include/*.h`、`frontends/python/src/*/*.cpp` |
 | Java | `Lexer -> Parser -> AnalyzeModule -> LowerToIR` | `frontends/java/include/*.h`、`frontends/java/src/*/*.cpp` |
 | Dotnet | `Lexer -> Parser -> AnalyzeModule -> LowerToIR` | `frontends/dotnet/include/*.h`、`frontends/dotnet/src/*/*.cpp` |
-| Ploy | `Lexer -> Parser -> PloySema -> PloyLowering` | `frontends/ploy/include/*.h`、`frontends/ploy/src/*/*.cpp` |
+| Poly | `Lexer -> Parser -> PloySema -> PloyLowering` | `frontends/ploy/include/*.h`、`frontends/ploy/src/*/*.cpp` |
 
-Ploy 独有职责：
+Poly 独有职责：
 - 生成跨语言链接描述（`LinkEntry`、`CrossLangCallDescriptor`），供 `tools/polyld` 的 `PolyglotLinker` 消费。
 
 ### 3.3 `middle`（IR/优化层）

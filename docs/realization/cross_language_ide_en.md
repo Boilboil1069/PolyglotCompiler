@@ -3,7 +3,7 @@
 ## Goal
 
 Promote the cross-language story to a first-class IDE experience:
-let users jump and rename across `.ploy` and host-language sources
+let users jump and rename across `.poly` and host-language sources
 through one coordinated edit, browse every generated bridge with
 its live runtime call count, and inspect the conversion pipeline
 that connects the two sides.
@@ -12,20 +12,20 @@ that connects the two sides.
 
 | Component | Header | Purpose |
 | --- | --- | --- |
-| `LinkRegistry` | [`tools/ui/common/cross_language/cross_language_navigator.h`](../../tools/ui/common/cross_language/cross_language_navigator.h) | Catalogue of `.ploy` LINK sites + host-language definitions; goto-def, reverse references, CodeLens reference counts. |
-| `RenamePlanner` | same | Builds a single coordinated `WorkspaceEdit` plan covering host-language definitions, every `.ploy` LINK site and the references discovered by the host-language LSP. |
+| `LinkRegistry` | [`tools/ui/common/cross_language/cross_language_navigator.h`](../../tools/ui/common/cross_language/cross_language_navigator.h) | Catalogue of `.poly` LINK sites + host-language definitions; goto-def, reverse references, CodeLens reference counts. |
+| `RenamePlanner` | same | Builds a single coordinated `WorkspaceEdit` plan covering host-language definitions, every `.poly` LINK site and the references discovered by the host-language LSP. |
 | `BridgePanelModel` | [`tools/ui/common/cross_language/bridge_panel.h`](../../tools/ui/common/cross_language/bridge_panel.h) | Bridge inventory loaded from `aux/bridges.json`; tracks marshalling strategy, source location and live call count fed by polyrt calltrace. Re-import preserves runtime counts. |
 | `MarshallingViewBuilder` | [`tools/ui/common/cross_language/marshalling_view.h`](../../tools/ui/common/cross_language/marshalling_view.h) | Per-bridge IR-lowering → helper → ABI-adapter chain. Loads `aux/marshalling.json` or synthesises the canonical pipeline from bridge metadata. |
 
 ## Pipelines
 
 * **Goto definition.** polyls feeds the registry both the LINK sites
-  parsed from `.ploy` and the host-language definitions resolved by
+  parsed from `.poly` and the host-language definitions resolved by
   the per-language LSP.  `GotoDefinition(site)` returns the matching
   definition in O(N) over the catalogue.
 * **Reverse references / CodeLens.** `FindLinkReferences(def)` scans
   the LINK sites; `CodeLensFor(file)` yields per-definition lenses
-  showing the count of `.ploy` references, anchored at the
+  showing the count of `.poly` references, anchored at the
   definition's source position.
 * **Coordinated rename.** `RenamePlanner::Plan(language, symbol,
   new_name, extra_references)` walks every catalogued definition,

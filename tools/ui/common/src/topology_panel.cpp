@@ -110,7 +110,7 @@ static QColor LanguageColor(const QString &lang) {
     return QColor("#FF9800");
   if (lang == "dotnet")
     return QColor("#9C27B0");
-  if (lang == "ploy")
+  if (lang == "poly")
     return QColor("#00BCD4");
   return QColor("#607D8B");
 }
@@ -738,7 +738,7 @@ void TopoEdgeItem::contextMenuEvent(QGraphicsSceneContextMenuEvent *event) {
   QAction *chosen = menu.exec(event->screenPos());
   if (chosen == remove_action) {
     // Find the panel through the TopoGraphicsView and request proper removal
-    // which also syncs the .ploy file and updates the edge_items_ vector.
+    // which also syncs the .poly file and updates the edge_items_ vector.
     for (auto *v : scene()->views()) {
       auto *tgv = qobject_cast<TopoGraphicsView *>(v);
       if (tgv && tgv->Panel()) {
@@ -1050,7 +1050,7 @@ void TopologyPanel::SetupToolbar() {
 
   toolbar_->addSeparator();
 
-  auto *gen_ploy = new QPushButton("Generate .ploy", toolbar_);
+  auto *gen_ploy = new QPushButton("Generate .poly", toolbar_);
   connect(gen_ploy, &QPushButton::clicked, this, &TopologyPanel::OnGeneratePloy);
   toolbar_->addWidget(gen_ploy);
 }
@@ -1213,7 +1213,7 @@ void TopologyPanel::TryCreateEdge(TopoPortItem *source, TopoPortItem *target) {
                                            .arg(from->ParentNode()->NodeName(), from->PortName(),
                                                 to->ParentNode()->NodeName(), to->PortName()));
 
-  // Sync the new edge back to the .ploy file as a LINK declaration
+  // Sync the new edge back to the .poly file as a LINK declaration
   SyncEdgeToFile(edge);
 
   emit GraphModified();
@@ -1223,7 +1223,7 @@ void TopologyPanel::RemoveEdge(TopoEdgeItem *edge) {
   if (!edge)
     return;
 
-  // Sync-remove the corresponding LINK/CALL line from the .ploy file
+  // Sync-remove the corresponding LINK/CALL line from the .poly file
   RemoveEdgeFromFile(edge);
 
   auto it = std::find(edge_items_.begin(), edge_items_.end(), edge);
@@ -1289,7 +1289,7 @@ void TopologyPanel::SyncEdgeToFile(TopoEdgeItem *edge) {
     }
   }
 
-  // Build the LINK statement in correct ploy syntax:
+  // Build the LINK statement in correct poly syntax:
   // LINK(src_lang, tgt_lang, src_func, tgt_func) RETURNS type { MAP_TYPE(...); }
   QString link_stmt = QString("\nLINK(%1, %2, %3, %4)%5 {\n%6}\n")
                           .arg(src_lang, tgt_lang, src_name, tgt_name)
@@ -1299,7 +1299,7 @@ void TopologyPanel::SyncEdgeToFile(TopoEdgeItem *edge) {
   // Temporarily remove the file watcher to avoid triggering a reload loop
   file_watcher_->removePath(current_file_);
 
-  // Append the LINK statement to the .ploy file
+  // Append the LINK statement to the .poly file
   QFile file(current_file_);
   if (file.open(QIODevice::ReadWrite | QIODevice::Text)) {
     // Count existing lines to determine the appended line number
@@ -2285,7 +2285,7 @@ void TopologyPanel::OnExportPng() {
 void TopologyPanel::OnGeneratePloy() {
   if (current_file_.isEmpty()) {
     diagnostics_output_->appendPlainText(
-        "[Generate] No topology loaded — open a .ploy file first.");
+        "[Generate] No topology loaded — open a .poly file first.");
     return;
   }
 
@@ -2322,7 +2322,7 @@ void TopologyPanel::OnGeneratePloy() {
   auto &graph = analyzer.MutableGraph();
   graph.source_file = current_file_.toStdString();
 
-  // Generate .ploy source
+  // Generate .poly source
   std::string generated = topo::GeneratePloySrc(graph);
 
   // Verify the generated source is parseable
@@ -2348,11 +2348,11 @@ void TopologyPanel::OnGeneratePloy() {
     }
   }
 
-  // Write to <basename>_generated.ploy in the same directory
+  // Write to <basename>_generated.poly in the same directory
   namespace fs = std::filesystem;
   fs::path src_path(current_file_.toStdString());
   std::string stem = src_path.stem().string();
-  fs::path gen_path = src_path.parent_path() / (stem + "_generated.ploy");
+  fs::path gen_path = src_path.parent_path() / (stem + "_generated.poly");
 
   std::ofstream ofs(gen_path.string());
   if (!ofs.is_open()) {
@@ -2364,7 +2364,7 @@ void TopologyPanel::OnGeneratePloy() {
   ofs.close();
 
   QString gen_path_q = QString::fromStdString(gen_path.string());
-  diagnostics_output_->appendPlainText("[Generate] Generated .ploy source: " + gen_path_q);
+  diagnostics_output_->appendPlainText("[Generate] Generated .poly source: " + gen_path_q);
 
   // Request the editor to open the generated file
   emit OpenFileRequested(gen_path_q);

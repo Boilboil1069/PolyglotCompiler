@@ -13,7 +13,7 @@
 ## 设计目标
 
 * 每次重命名生成单一原子 `WorkspaceEdit`，编辑器单步 undo 即可整体回滚。
-* 跨语言重命名：宿主语言端重命名同步更新所有引用该符号的 `.ploy` `LINK` /
+* 跨语言重命名：宿主语言端重命名同步更新所有引用该符号的 `.poly` `LINK` /
   `EXPORT` 站点，反向亦然。
 * 词法感知的文本改写：跳过字符串字面量与 `//` / `#` 注释中的标识符子串，
   确保不会破坏字符串负载。
@@ -31,7 +31,7 @@
    `SymbolIndex::References` 记录的位置生成编辑项，由编辑器自行通过文件 IO
    施加。
 5. **跨语言跳转**——当重命名从宿主语言文件发起时，额外调用
-   `SymbolIndex::CrossLanguageBackrefs`，使相同的编辑同时改写所有 `.ploy`
+   `SymbolIndex::CrossLanguageBackrefs`，使相同的编辑同时改写所有 `.poly`
    LINK 限定名。
 
 ## CodeAction 目录
@@ -63,4 +63,4 @@ polyls 静态分析深度的前提下展示相同菜单。
 * [tests/integration/lsp_refactor_e2e_test.cpp](../../tests/integration/lsp_refactor_e2e_test.cpp)
   ——在 `09_mixed_pipeline` 上完整 client ↔ server 往返：从
   `image_processor.cpp` 发起的重命名同时改写宿主文件与
-  `mixed_pipeline.ploy`。
+  `mixed_pipeline.poly`。

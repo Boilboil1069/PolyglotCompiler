@@ -1,13 +1,13 @@
 ﻿# PolyglotCompiler User Guide
 
-> **Document Version**: 4.0.0  
-> **Last Updated**: 2026-05-07  
-> **Project**: PolyglotCompiler 1.45.2  
+> **Document Version**: 4.0.0<br>
+> **Last Updated**: 2026-07-20<br>
+> **Project**: PolyglotCompiler 1.48.0<br>
 > **Companion**: [USER_GUIDE_zh.md](USER_GUIDE_zh.md)
 
 A complete, hands-on guide to PolyglotCompiler — a multi-language compiler
 toolchain that ingests C++, Python, Rust, Java, C#/.NET, Go, JavaScript,
-Ruby, and the in-house **Ploy** glue language, lowers everything to a
+Ruby, and the in-house **Poly** glue language, lowers everything to a
 single unified IR, and emits native code for **x86_64**, **ARM64**, and
 **WebAssembly**. The companion IDE (`polyui`) ships an LSP-driven
 multi-language editor, debugger, profiler, call analyzer, package
@@ -20,7 +20,7 @@ manager view, and test explorer.
 1. [Introduction](#1-introduction)
 2. [Getting Started](#2-getting-started)
 3. [Architecture Overview](#3-architecture-overview)
-4. [The Ploy Glue Language](#4-the-ploy-glue-language)
+4. [The Poly Glue Language](#4-the-poly-glue-language)
 5. [Language Frontends](#5-language-frontends)
 6. [Tools and CLI Drivers](#6-tools-and-cli-drivers)
 7. [Unified IR](#7-unified-ir)
@@ -44,7 +44,7 @@ manager view, and test explorer.
 
 PolyglotCompiler turns mixed-language source trees into a single linked
 artefact. A program may import a C++ image filter, a Rust serialiser,
-a Python ML model, and a Go HTTP client, glue them with a `.ploy` driver
+a Python ML model, and a Go HTTP client, glue them with a `.poly` driver
 file, and produce one executable for x86_64, ARM64, or WebAssembly. The
 compiler is built around three guarantees:
 
@@ -62,9 +62,9 @@ compiler is built around three guarantees:
 
 ### 1.2 Capability matrix at a glance
 
-| Domain                     | Status in 1.45.2                                                                                          |
+| Domain                     | Status in 1.48.0                                                                                          |
 |----------------------------|-----------------------------------------------------------------------------------------------------------|
-| Frontends                  | C++, Python, Rust, Java, .NET (C#), Go, JavaScript, Ruby, Ploy — 9 in total.                              |
+| Frontends                  | C++, Python, Rust, Java, .NET (C#), Go, JavaScript, Ruby, Poly — 9 in total.                              |
 | Backends                   | x86_64 (System V + Win64 + macOS Mach-O), ARM64 (AAPCS64, Linux ELF + macOS Mach-O), WebAssembly MVP+SIMD. |
 | Tool drivers               | `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`, `polytopo`, `polyls`, `polydoc`, `polyver`, `polyui` — 11 in total. |
 | Garbage collectors         | Mark-and-Sweep, Tri-colour, Generational, Reference-Counting (4 algorithms, runtime-selectable).          |
@@ -101,7 +101,7 @@ should head straight to chapters 12–14. Plugin authors can skip to
 | Build the project for the first time           | [§ 2.2](#22-cloning-and-building)                                                   |
 | Compile a single C++ file                      | [§ 2.3](#23-first-c-program)                                                        |
 | Wire C++ into a Python pipeline                | [§ 2.4](#24-first-cross-language-pipeline)                                          |
-| Understand the Ploy grammar                    | [Chapter 4](#4-the-ploy-glue-language) and [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md) |
+| Understand the Poly grammar                    | [Chapter 4](#4-the-poly-glue-language) and [tutorial/poly_language_tutorial.md](tutorial/poly_language_tutorial.md) |
 | Write a new optimisation pass                  | [§ 8.6](#86-writing-a-pass) and [§ 16.4](#164-adding-a-middle-end-pass)              |
 | Add a brand-new source language                | [§ 16.5](#165-adding-a-new-frontend) and [§ 17.3](#173-mandatory-exports)            |
 | Profile a long-running program                 | [§ 13.3](#133-profiler) and [tutorial/profiling_quickstart.md](tutorial/profiling_quickstart.md) |
@@ -206,10 +206,10 @@ build/polyc hello.cpp -o hello --opt=O0 -g        # debug build
 
 ### 2.4 First cross-language pipeline
 
-`tests/samples/09_mixed_pipeline/mixed_pipeline.ploy` glues a C++ image
+`tests/samples/09_mixed_pipeline/mixed_pipeline.poly` glues a C++ image
 filter and a Python classifier:
 
-```ploy
+```poly
 LINK cpp::filter::sharpen   AS sharpen(image: bytes) -> bytes;
 LINK python::ml::classify   AS classify(image: bytes) -> string;
 
@@ -223,7 +223,7 @@ PIPELINE main(path: string) -> string {
 Build and run:
 
 ```sh
-build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy \
+build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.poly \
             -o build/mixed_pipeline
 build/mixed_pipeline tests/samples/09_mixed_pipeline/sample.png
 ```
@@ -243,9 +243,9 @@ wasmtime hello.wasm; echo $?
 The wasm backend writes a valid WASM 1.0 module with the SIMD-128
 opcode extension; see [chapter 10](#10-backends).
 
-### 2.6 First Ploy program from scratch
+### 2.6 First Poly program from scratch
 
-```ploy
+```poly
 FN factorial(n: i64) -> i64 {
     IF n <= 1 { RETURN 1; }
     RETURN n * factorial(n - 1);
@@ -258,7 +258,7 @@ FN main() -> i32 {
 ```
 
 ```sh
-build/polyc fact.ploy -o fact && ./fact
+build/polyc fact.poly -o fact && ./fact
 3628800
 ```
 
@@ -289,7 +289,7 @@ panel logs the `initialize` exchange with `polyls`, `pyright`, and
 ```
                           ┌─────────────┐
    .cpp .py .rs .java .cs │  Frontends  │   ──►  unified IR (text or binary)
-   .go .js .rb .ploy      └─────┬───────┘
+   .go .js .rb .poly      └─────┬───────┘
                                 │
                                 ▼
                        ┌────────────────┐
@@ -377,13 +377,13 @@ documented in [realization/telemetry_en.md](realization/telemetry_en.md).
 
 ---
 
-## 4. The Ploy Glue Language
+## 4. The Poly Glue Language
 
-Full reference: [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md).
+Full reference: [tutorial/poly_language_tutorial.md](tutorial/poly_language_tutorial.md).
 
-### 4.1 Why Ploy
+### 4.1 Why Poly
 
-Ploy exists to glue heterogeneous code units. A `.ploy` file declares
+Poly exists to glue heterogeneous code units. A `.poly` file declares
 imports, type maps, conversions, and pipelines without re-implementing
 the host languages. It is intentionally small: the entire grammar fits
 in 54 keywords.
@@ -422,7 +422,7 @@ tutorial.
 
 ### 4.4 Package manager auto-discovery
 
-When `polyc` is invoked with a `.ploy` driver it walks sibling
+When `polyc` is invoked with a `.poly` driver it walks sibling
 directories and recognises the manifests below, then asks the matching
 frontend to ingest the project:
 
@@ -436,11 +436,11 @@ frontend to ingest the project:
 | `go.mod`                              | Go           | `GOPATH`-free modules only.                |
 | `package.json`                        | JavaScript   | npm / pnpm / yarn lockfiles used for resolution. |
 | `Gemfile`                             | Ruby         | Bundler resolves; `ruby` for the runtime.  |
-| `.ploy.toml`                          | Ploy         | Project-level Ploy settings.               |
+| `.poly.toml`                          | Poly         | Project-level Poly settings.               |
 
 ### 4.5 IMPORT package syntax
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy >= 1.20;                  // version constraint
 IMPORT python PACKAGE numpy::(array, mean);           // selective import
 IMPORT python PACKAGE numpy >= 1.20 AS np;            // alias the package
@@ -455,7 +455,7 @@ diagnostic id `polyc-err-E0612`.
 
 ### 4.6 Cross-language calls
 
-```ploy
+```poly
 LINK cpp::graphics::draw_point  AS draw(p: ptr<u8>) -> void;
 LINK python::numpy::mean        AS mean(xs: list<f64>) -> f64;
 LINK rust::serde_json::to_string AS to_json<T>(value: T) -> string;
@@ -472,7 +472,7 @@ verifies. Type marshalling rules live in
 
 ### 4.7 Class instantiation across languages
 
-```ploy
+```poly
 LINK cpp::geometry::Point AS Point CLASS {
     NEW(x: f64, y: f64) -> Point;
     FN  norm(self: Point) -> f64;
@@ -491,7 +491,7 @@ FN distance() -> f64 {
 ### 4.8 Compilation model
 
 ```
-.ploy → ploy frontend ──┐
+.poly → poly frontend ──┐
 .cpp  → cpp  frontend ──┤
 .py   → py   frontend ──┼──► unified IR ──► middle-end ──► backend ──► polyld ──► artefact
 .rs   → rust frontend ──┘
@@ -504,7 +504,7 @@ render them in a contrasting colour.
 
 ### 4.9 Diagnostic identifiers
 
-Ploy diagnostics share the catalogue with every other frontend; ids are
+Poly diagnostics share the catalogue with every other frontend; ids are
 formatted `polyc-(err|warn)-<E####|W####>`. Common entries:
 
 | Id            | Meaning                                                |
@@ -517,7 +517,8 @@ formatted `polyc-(err|warn)-<E####|W####>`. Common entries:
 | `polyc-warn-W0701`| Unused `LINK` declaration.                         |
 | `polyc-warn-W0903`| Bridge call without matching counterpart symbol.   |
 
-The full catalogue is at [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md).
+The maintained Poly catalogue is in
+[the Poly language tutorial, section 20](tutorial/poly_language_tutorial.md#20-diagnostic-codes).
 
 ---
 
@@ -557,7 +558,7 @@ Supports C++20 with a few practical restrictions:
 * Templates are instantiated lazily; constraint folding runs before
   instantiation.
 
-Example C++ that becomes part of a `.ploy` pipeline:
+Example C++ that becomes part of a `.poly` pipeline:
 
 ```cpp
 // frontends/cpp/examples/sharpen.cpp
@@ -588,7 +589,7 @@ def classify(image: bytes) -> str:
 ```
 
 The frontend resolves `numpy` via the package-manager probe; the
-matching `IMPORT python PACKAGE numpy` declaration in the Ploy driver
+matching `IMPORT python PACKAGE numpy` declaration in the Poly driver
 is what makes the import valid at link time.
 
 ### 5.3 Rust frontend
@@ -627,7 +628,7 @@ Ruby 3.3 subset; blocks lower to closures, common DSL patterns
 (`define_method`, `attr_accessor`) are recognised and folded during
 lowering.
 
-### 5.9 Ploy frontend
+### 5.9 Poly frontend
 
 The reference frontend; entire grammar in 54 keywords. Drives package
 discovery, bridge declaration, conversions, pipelines, async, and
@@ -667,13 +668,13 @@ polyc [options] <inputs…> [-o <output>]
 Examples:
 
 ```sh
-polyc main.ploy -o main                                          # default O2
-polyc main.ploy --opt=O3 --lto=thin -o main                      # release
-polyc main.ploy --target=aarch64-apple-darwin -o main.arm64
-polyc --check main.ploy | jq '.diagnostics[].message'
-polyc --emit=ir:main.ir --emit=asm:main.s main.ploy
-polyc --pgo=instrument main.ploy -o main_inst
-polyc --pgo=use=main.profdata main.ploy -o main_pgo
+polyc main.poly -o main                                          # default O2
+polyc main.poly --opt=O3 --lto=thin -o main                      # release
+polyc main.poly --target=aarch64-apple-darwin -o main.arm64
+polyc --check main.poly | jq '.diagnostics[].message'
+polyc --emit=ir:main.ir --emit=asm:main.s main.poly
+polyc --pgo=instrument main.poly -o main_inst
+polyc --pgo=use=main.profdata main.poly -o main_pgo
 ```
 
 Exit codes:
@@ -1088,7 +1089,7 @@ A bridged call site looks like:
 
 ### 9.3 Language runtimes
 
-`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,ploy}/` provide the
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` provide the
 minimum machinery each frontend needs at run time: exception unwinder,
 async scheduler, value boxing, intrinsic helpers. Each runtime exposes
 an `Init(Host *host)` and `Shutdown()` pair invoked from the main
@@ -1110,8 +1111,8 @@ program prologue / epilogue.
 ### 9.5 Debug information
 
 DWARF 5 on ELF/Mach-O, CodeView on PE, and the wasm "name" + DWARF
-sections on WebAssembly. Source maps cover Ploy line directives so the
-debugger steps in the original `.ploy` file even when execution is
+sections on WebAssembly. Source maps cover Poly line directives so the
+debugger steps in the original `.poly` file even when execution is
 inside a host-language frame.
 
 ### 9.6 Exceptions
@@ -1245,7 +1246,7 @@ SECTIONS {
 ### 12.1 Components
 
 * `polyui` — Qt 6 shell.
-* `polyls` — stdio LSP server for Ploy plus dispatcher for third-party
+* `polyls` — stdio LSP server for Poly plus dispatcher for third-party
   servers per language.
 * `IdeLspBridge` — IDE-side adapter that translates editor events into
   LSP messages, debounced at 200 ms.
@@ -1256,7 +1257,7 @@ SECTIONS {
 
 | Language     | Default `command`                       |
 |--------------|-----------------------------------------|
-| ploy         | `polyls`                                |
+| poly         | `polyls`                                |
 | cpp          | `clangd`                                |
 | python       | `pyright-langserver --stdio`            |
 | rust         | `rust-analyzer`                         |
@@ -1446,8 +1447,8 @@ SQLite client with SQL console. See
 ### 13.1 Diagnostic identifiers
 
 Every diagnostic carries a stable id of the form
-`polyc-(err|warn)-<E####|W####>`. The full catalogue lives in
-[specs/ploy_diagnostics.md](specs/ploy_diagnostics.md).
+`polyc-(err|warn)-<E####|W####>`. The maintained Poly catalogue is in
+[the Poly language tutorial, section 20](tutorial/poly_language_tutorial.md#20-diagnostic-codes).
 
 Severity mapping:
 
@@ -1471,7 +1472,7 @@ batches per 50 ms tick. Quickstart:
 Workflow:
 
 ```sh
-polyc --profile-instrument main.ploy -o build/main \
+polyc --profile-instrument main.poly -o build/main \
       --emit=call-graph:build/main.cgjson \
       --emit=profile-symbols:build/main.symjson
 polyrt profile --json build/main.profile.json --duration-ms 2000 build/main
@@ -1552,7 +1553,7 @@ graduated tour of the language and tooling. Each sample has its own
 
 | Sample                                | Demonstrates                                  |
 |---------------------------------------|-----------------------------------------------|
-| `00_minimal`                          | Single `.ploy` file, no host imports.         |
+| `00_minimal`                          | Single `.poly` file, no host imports.         |
 | `01_basic_linking` / `_v2`            | Cross-language linking with `LINK`.           |
 | `02_struct_types`                     | Aggregate types and pattern matching.         |
 | `03_generic_functions`                | Constrained generics.                         |
@@ -1562,11 +1563,11 @@ graduated tour of the language and tooling. Each sample has its own
 | `07_io_and_files`                     | Standard I/O bridges.                         |
 | `08_collections`                      | List / map / set bridging across languages.   |
 | `09_mixed_pipeline`                   | C++ + Python pipeline driver.                 |
-| `10_rust_serde`                       | Rust serde bridged from Ploy.                 |
+| `10_rust_serde`                       | Rust serde bridged from Poly.                 |
 | `11_java_records`                     | Java records mapped to IR `struct`.           |
 | `12_dotnet_async`                     | C# async lowered to the runtime scheduler.    |
 | `13_go_concurrency`                   | Goroutines and channels.                      |
-| `14_javascript_promises`              | JS Promise interop with Ploy `ASYNC`.         |
+| `14_javascript_promises`              | JS Promise interop with Poly `ASYNC`.         |
 | `15_async_await`                      | Async functions and the task scheduler.       |
 | `16_ruby_blocks`                      | Ruby blocks lowered to closures.              |
 | `17_optional_match`                   | `OPTION` / `MATCH` exhaustiveness.            |
@@ -1681,13 +1682,13 @@ docker run --rm -it -v "$PWD":/work polyglot/ubuntu-ci \
 
 The project version is the single source of truth in the root
 [CMakeLists.txt](CMakeLists.txt) (`project(PolyglotCompiler VERSION
-1.45.2)`). All bumps must touch that line; tooling in
+1.48.0)`). All bumps must touch that line; tooling in
 `scripts/bump_version.py` enforces this.
 
 ```sh
-python scripts/bump_version.py --part=patch   # 1.45.2 → 1.45.3
-python scripts/bump_version.py --part=minor   # 1.45.2 → 1.46.0
-python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
+python scripts/bump_version.py --part=patch   # 1.48.0 → 1.48.1
+python scripts/bump_version.py --part=minor   # 1.48.0 → 1.49.0
+python scripts/bump_version.py --part=major   # 1.48.0 → 2.0.0
 ```
 
 The script updates the root `CMakeLists.txt`, the version embedded in
@@ -1711,13 +1712,13 @@ The script updates the root `CMakeLists.txt`, the version embedded in
 
 ## 16. Extending the Compiler
 
-### 16.1 Adding a Ploy keyword
+### 16.1 Adding a Poly keyword
 
 1. Extend the lexer table in `frontends/ploy/lexer.cpp`.
 2. Add the grammar production in `frontends/ploy/parser.cpp`.
 3. Lower in `frontends/ploy/lower.cpp` to existing IR.
 4. Document the keyword in
-   [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
+   [tutorial/poly_language_tutorial.md](tutorial/poly_language_tutorial.md)
    and its ZH counterpart.
 5. Add a sample under `tests/samples/`.
 6. Add a frontend test under `tests/unit/frontend_ploy/`.
@@ -1769,7 +1770,7 @@ See [§ 8.6](#86-writing-a-pass) for the code skeleton. Then:
 
 * C++: clang-format config at `.clang-format`. clang-tidy gate enforces
   modernize-* and bugprone-*.
-* Ploy: built-in `polyc --format` is the formatter of record.
+* Poly: built-in `polyc --format` is the formatter of record.
 * All in-source comments must be English.
 * No "minimal", "stub", or "placeholder" prose in comments.
 * Public APIs have `///` doc comments parsed by `polydoc`.
@@ -1911,7 +1912,7 @@ for clean shutdown.
 | CTest target    | A logical test executable registered with CTest (30 in this project).   |
 | Driver          | Any of the 11 tool binaries shipped under `build/`.                     |
 | Frontend        | A static library that lowers one source language to unified IR.         |
-| Pipeline        | A `PIPELINE` chain in Ploy; also the optimisation pass sequence.        |
+| Pipeline        | A `PIPELINE` chain in Poly; also the optimisation pass sequence.        |
 | Sample          | A numbered project under `tests/samples/`.                              |
 | Triple          | The `arch-vendor-os-abi` string passed to `--target=`.                  |
 | Sysroot         | Toolchain-relative root used during cross-compile.                      |
@@ -1985,8 +1986,8 @@ Output bundles land in `build/release/`. Each bundle ships:
 
 * [tutorial/project_tutorial.md](tutorial/project_tutorial.md) — guided
   tour for newcomers.
-* [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
-  — Ploy language reference.
+* [tutorial/poly_language_tutorial.md](tutorial/poly_language_tutorial.md)
+  — Poly language reference.
 * [specs/](specs/) — machine-readable schemas (call graph, profile
   stream, diagnostics).
 * [realization/](realization/) — design notes per subsystem.
@@ -2001,7 +2002,7 @@ because pretending these were intrinsics forced too many backend
 work-arounds.
 
 **Q. Can I use only one frontend?**
-A. Yes. Set `POLY_BUILD_FRONTENDS="cpp;ploy"` at configure time to drop
+A. Yes. Set `POLY_BUILD_FRONTENDS="cpp;poly"` at configure time to drop
 the rest.
 
 **Q. Are macOS arm64 binaries notarisable?**
@@ -2022,7 +2023,7 @@ plugin host refuses to load plugins compiled against a different
 
 A condensed changelog ships in [VERSION.txt](../VERSION.txt) and the
 release notes generated by `scripts/release_notes.py`. The current
-release is **PolyglotCompiler 1.45.2**.
+release is **PolyglotCompiler 1.48.0**.
 
 ### 18.9 Licence
 

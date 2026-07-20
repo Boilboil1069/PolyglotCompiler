@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、Go |
-| 入口 | `http_client.ploy` |
+| 入口 | `http_client.poly` |
 | 主题 | HTTP 客户端示例 |
 | 预期 stdout | `23_http_client: ok\r\n` |
 
 ## 文件
 
-- `http_client.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `http_client.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `HttpTransport.go` — 宿主语言源文件
 - `response_decoder.py` — 宿主语言源文件
@@ -23,7 +23,7 @@
 ## 构建
 
 ```powershell
-polyc http_client.ploy --emit-obj=build/http_client.obj --quiet
+polyc http_client.poly --emit-obj=build/http_client.obj --quiet
 polyld build/http_client.obj -o build/http_client.exe
 ./build/http_client.exe
 ```

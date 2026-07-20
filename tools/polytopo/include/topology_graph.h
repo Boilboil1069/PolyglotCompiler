@@ -67,7 +67,7 @@ struct TopologyNode {
   std::vector<Port> inputs;  // Input ports (parameters)
   std::vector<Port> outputs; // Output ports (return values)
 
-  core::SourceLoc loc{}; // Source location in .ploy file
+  core::SourceLoc loc{}; // Source location in .poly file
 
   // Optional metadata
   std::string description;          // Human-readable description
@@ -154,7 +154,7 @@ struct ValidationDiagnostic {
 };
 
 // ============================================================================
-// TopologyGraph — the complete topology graph for a .ploy module
+// TopologyGraph — the complete topology graph for a .poly module
 // ============================================================================
 
 /** @brief TopologyGraph class. */
@@ -241,8 +241,8 @@ public:
 
   // -- Metadata ------------------------------------------------------------
 
-  std::string module_name; // Name of the .ploy module
-  std::string source_file; // Path to the .ploy file
+  std::string module_name; // Name of the .poly module
+  std::string source_file; // Path to the .poly file
 
 private:
   uint64_t next_node_id_{1};

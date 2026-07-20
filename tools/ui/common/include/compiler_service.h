@@ -149,7 +149,7 @@ private:
   std::vector<CompletionItem> GetPloyCompletions(const std::string &source, size_t line,
                                                  size_t column) const;
 
-  // Extract FUNC/PIPELINE/LINK/LET/VAR/STRUCT/IMPORT symbols from .ploy source
+  // Extract FUNC/PIPELINE/LINK/LET/VAR/STRUCT/IMPORT symbols from .poly source
   void ExtractSourceSymbols(const std::string &source, std::vector<CompletionItem> &out) const;
 
   // Workspace symbol index — maps symbol name to file + line

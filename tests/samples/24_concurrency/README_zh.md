@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Rust |
-| 入口 | `concurrency.ploy` |
+| 入口 | `concurrency.poly` |
 | 主题 | 并发原语 |
 | 预期 stdout | `24_concurrency: ok\r\n` |
 
 ## 文件
 
-- `concurrency.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `concurrency.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `atomic_counter.cpp` — 宿主语言源文件
 - `worker_pool.rs` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc concurrency.ploy --emit-obj=build/concurrency.obj --quiet
+polyc concurrency.poly --emit-obj=build/concurrency.obj --quiet
 polyld build/concurrency.obj -o build/concurrency.exe
 ./build/concurrency.exe
 ```

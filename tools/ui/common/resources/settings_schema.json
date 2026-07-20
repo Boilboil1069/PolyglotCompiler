@@ -83,9 +83,9 @@
     "toolchains.js.default":     { "type": "string",  "default": "", "description": "Default JS toolchain id.", "descriptionZh": "默认 JS 工具链 id。" },
     "toolchains.ruby.default":   { "type": "string",  "default": "", "description": "Default Ruby toolchain id.", "descriptionZh": "默认 Ruby 工具链 id。" },
 
-    "ploy.strictMode":           { "type": "boolean", "default": false, "description": "Enable polyc strict mode.", "descriptionZh": "启用严格模式。" },
-    "ploy.packageDiscoveryEnabled": { "type": "boolean", "default": true, "description": "Enable package discovery.", "descriptionZh": "启用包发现。" },
-    "ploy.langDirectiveAutoInfer": { "type": "boolean", "default": true, "description": "Auto-infer #lang directive.", "descriptionZh": "自动推断 #lang 指令。" },
+    "poly.strictMode":           { "type": "boolean", "default": false, "description": "Enable polyc strict mode.", "descriptionZh": "启用严格模式。" },
+    "poly.packageDiscoveryEnabled": { "type": "boolean", "default": true, "description": "Enable package discovery.", "descriptionZh": "启用包发现。" },
+    "poly.langDirectiveAutoInfer": { "type": "boolean", "default": true, "description": "Auto-infer #lang directive.", "descriptionZh": "自动推断 #lang 指令。" },
 
     "languageServers.enabled":         { "type": "boolean", "default": true, "description": "Master switch for the LSP integration layer.", "descriptionZh": "LSP 集成层总开关。" },
     "languageServers.changeDebounceMs":{ "type": "integer", "default": 200, "minimum": 0, "maximum": 5000, "description": "Debounce window before forwarding editor changes as didChange.", "descriptionZh": "编辑变更转发为 didChange 前的 debounce 窗口（毫秒）。" },

@@ -108,7 +108,7 @@ polyc --check <file> [--lang=<id>]
 
 ```json
 {
-  "uri": "file:///abs/path/to/file.ploy",
+  "uri": "file:///abs/path/to/file.poly",
   "diagnostics": [
     {
       "range": {

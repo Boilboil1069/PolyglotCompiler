@@ -2,19 +2,19 @@
  * @file     cross_language_navigator.h
  * @brief    Goto-def, reverse references and rename across LSPs.
  *
- * `.ploy` carries `LINK <lang>::<symbol>` references that resolve
+ * `.poly` carries `LINK <lang>::<symbol>` references that resolve
  * to host-language definitions (C++, Rust, Python, Java, .NET).
  * The navigator owns a catalogue of these link sites alongside the
  * resolved definitions, and answers three questions on the IDE's
  * behalf:
  *
- *   * **Goto definition** — given a `.ploy` link site, locate the
+ *   * **Goto definition** — given a `.poly` link site, locate the
  *     host-language file/line that owns the target symbol.
  *   * **Reverse references** — for a host-language definition,
- *     enumerate every `.ploy` site that links to it (used by the
- *     "X `.ploy` LINK references" CodeLens).
+ *     enumerate every `.poly` site that links to it (used by the
+ *     "X `.poly` LINK references" CodeLens).
  *   * **Coordinated rename** — produce a single `WorkspaceEdit`
- *     plan that touches both `.ploy` link sites and host-language
+ *     plan that touches both `.poly` link sites and host-language
  *     definitions/references in lockstep, so polyls can submit it
  *     atomically across the underlying LSPs.
  *
@@ -53,7 +53,7 @@ struct SourceLocation {
 
 struct LinkSite {
   std::string id;            ///< Stable id for the catalogue.
-  SourceLocation location;   ///< Position in the `.ploy` file.
+  SourceLocation location;   ///< Position in the `.poly` file.
   HostLanguage target_language{HostLanguage::kCpp};
   std::string target_symbol; ///< e.g. "math::add" or "pkg.module.fn".
 };
@@ -85,11 +85,11 @@ class LinkRegistry {
   /// Resolve `site.target_symbol` to its host-language definition.
   std::optional<Definition> GotoDefinition(const LinkSite &site) const;
 
-  /// All `.ploy` LINK sites pointing at `definition`.
+  /// All `.poly` LINK sites pointing at `definition`.
   std::vector<LinkSite> FindLinkReferences(const Definition &def) const;
 
   /// CodeLens entries that should appear above each definition in
-  /// `file`; reports the count of `.ploy` LINK references per
+  /// `file`; reports the count of `.poly` LINK references per
   /// definition.
   struct CodeLens {
     SourceLocation anchor;
@@ -107,7 +107,7 @@ class LinkRegistry {
 };
 
 /// Build a coordinated `WorkspaceEdit` plan for renaming `symbol`
-/// to `new_name`.  The plan covers every `.ploy` link site and
+/// to `new_name`.  The plan covers every `.poly` link site and
 /// every host-language definition/reference recorded in the
 /// registry plus the supplied `extra_references`.
 class RenamePlanner {

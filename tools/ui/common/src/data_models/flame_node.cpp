@@ -160,7 +160,7 @@ QColor FlameTreeModel::LanguageColor(const QString &language) {
       {QStringLiteral("javascript"), QColor(0xF0, 0xDB, 0x4F)},
       {QStringLiteral("go"), QColor(0x00, 0xAD, 0xD8)},
       {QStringLiteral("ruby"), QColor(0xCC, 0x34, 0x2D)},
-      {QStringLiteral("ploy"), QColor(0x57, 0xB0, 0x7B)},
+      {QStringLiteral("poly"), QColor(0x57, 0xB0, 0x7B)},
       {QStringLiteral("bridge"), QColor(0x9E, 0x9E, 0x9E)},
   };
   auto it = kPalette.find(language);

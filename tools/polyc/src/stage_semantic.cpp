@@ -26,8 +26,8 @@ SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendRe
   SemanticResult result;
   const bool V = settings.verbose;
 
-  // Non-.ploy: the frontend already produced IR — nothing to do here.
-  if (settings.language != "ploy" || !frontend.ast) {
+  // Non-.poly: the frontend already produced IR — nothing to do here.
+  if (settings.language != "poly" || !frontend.ast) {
     result.success = frontend.success;
     return result;
   }
@@ -42,14 +42,14 @@ SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendRe
   const bool ok = result.sema->Analyze(frontend.ast);
 
   // ── Foreign Signature Extraction ─────────────────────────────────────────
-  // After sema has processed the .ploy AST (which registers LINK-based
+  // After sema has processed the .poly AST (which registers LINK-based
   // signatures), extract type signatures from the actual foreign source
   // files referenced by IMPORT declarations.  This fills in real
   // parameter/return types for functions that were otherwise only known as
   // "Any".
   {
     ForeignExtractionOptions feopts;
-    // Base directory = directory containing the .ploy source file.
+    // Base directory = directory containing the .poly source file.
     if (!settings.source_path.empty()) {
       feopts.base_directory = fs::path(settings.source_path).parent_path().string();
     }

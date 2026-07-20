@@ -104,7 +104,7 @@ MarshallingChain MarshallingViewBuilder::Synthesize(const Bridge &bridge) {
     ir.description = "lower " + arg_label + " from " +
                      HostLanguageName(bridge.host_language) +
                      " IR to bridge IR";
-    ir.code_snippet = "; ploy.bridge.lower " + arg_label;
+    ir.code_snippet = "; poly.bridge.lower " + arg_label;
     steps.push_back(std::move(ir));
 
     MarshallingStep helper;

@@ -197,7 +197,7 @@ TEST_CASE("BuildPrintlnSequencePE: multi-message PE prints all lines in order",
 // Stage B5 — demand 2026-04-28-49.
 //
 // Smoke-test the full polyld stdout pipeline: hand-craft the kind of
-// ObjectFile state that polyc would emit for a `.ploy` program of the form
+// ObjectFile state that polyc would emit for a `.poly` program of the form
 //
 //     PRINTLN "alpha\r\n";
 //     PRINTLN "beta\r\n";

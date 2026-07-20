@@ -11,7 +11,7 @@ using polyglot::frontends::Diagnostics;
 using polyglot::ploy::PloyLexer;
 using polyglot::ploy::PloyParser;
 
-TEST_CASE("STAGE outside PIPELINE produces diagnostic", "[ploy][stage]") {
+TEST_CASE("STAGE outside PIPELINE produces diagnostic", "[poly][stage]") {
   const char *src = "STAGE cpp CALL foo::bar;";
   Diagnostics diags;
   PloyLexer lexer(std::string(src), "<test>");

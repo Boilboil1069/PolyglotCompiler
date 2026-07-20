@@ -28,17 +28,17 @@ TEST_CASE("ImportFromAux loads bridges across all five languages",
           "[polyui][crosslang][bridge]") {
   std::string aux = R"({
     "bridges": [
-      {"id":"br-1","name":"add","host":"ploy","target":"cpp",
+      {"id":"br-1","name":"add","host":"poly","target":"cpp",
        "stub":"polyglot_add","strategy":"copy-by-value",
-       "source":{"file":"a.ploy","line":10,"column":2},
+       "source":{"file":"a.poly","line":10,"column":2},
        "target_location":{"file":"a.cpp","line":3,"column":1}},
-      {"id":"br-2","name":"hash","host":"ploy","target":"rust",
+      {"id":"br-2","name":"hash","host":"poly","target":"rust",
        "stub":"polyglot_hash","strategy":"zero-copy"},
-      {"id":"br-3","name":"sum","host":"ploy","target":"python",
+      {"id":"br-3","name":"sum","host":"poly","target":"python",
        "stub":"polyglot_sum","strategy":"json-roundtrip"},
-      {"id":"br-4","name":"size","host":"ploy","target":"java",
+      {"id":"br-4","name":"size","host":"poly","target":"java",
        "stub":"polyglot_size","strategy":"handle-table"},
-      {"id":"br-5","name":"min","host":"ploy","target":"dotnet",
+      {"id":"br-5","name":"min","host":"poly","target":"dotnet",
        "stub":"polyglot_min","strategy":"protobuf-roundtrip"}
     ]
   })";
@@ -64,7 +64,7 @@ TEST_CASE("Re-importing preserves runtime call counts",
   CHECK(m.FindById("br-1")->call_count == 7);
 
   std::string reimport = R"({"bridges":[{"id":"br-1","name":"add",
-    "host":"ploy","target":"cpp","stub":"polyglot_add",
+    "host":"poly","target":"cpp","stub":"polyglot_add",
     "strategy":"copy-by-value"}]})";
   REQUIRE(m.ImportFromAux(reimport));
   CHECK(m.bridges().size() == 1);

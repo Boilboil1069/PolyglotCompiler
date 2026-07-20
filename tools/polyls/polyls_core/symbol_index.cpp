@@ -63,6 +63,25 @@ std::string Trim(std::string s) {
   return s;
 }
 
+std::string CanonicalLanguageId(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return language;
+}
+
+std::string CanonicalQualifiedName(std::string qualified) {
+  const std::size_t separator = qualified.find("::");
+  if (separator != std::string::npos &&
+      CanonicalLanguageId(qualified.substr(0, separator)) == "poly") {
+    qualified.replace(0, separator, "poly");
+  }
+  return qualified;
+}
+
 bool StartsWithKeyword(std::string_view line, std::size_t pos,
                        std::string_view kw) {
   if (line.size() - pos < kw.size()) return false;
@@ -258,19 +277,21 @@ void SymbolIndex::IndexDocument(const std::string &uri,
   refs_by_uri_.erase(uri);
   if (text.empty()) return;
 
-  if (language_id == "ploy" || language_id == "poly") {
+  const std::string canonical_language = CanonicalLanguageId(language_id);
+  if (canonical_language == "poly") {
     IndexPloy(uri, text);
-  } else if (language_id == "cpp" || language_id == "c++" ||
-             language_id == "cxx") {
+  } else if (canonical_language == "cpp" || canonical_language == "c++" ||
+             canonical_language == "cxx") {
     IndexCpp(uri, text);
-  } else if (language_id == "python") {
+  } else if (canonical_language == "python") {
     IndexPython(uri, text);
-  } else if (language_id == "rust") {
+  } else if (canonical_language == "rust") {
     IndexRust(uri, text);
-  } else if (language_id == "java") {
+  } else if (canonical_language == "java") {
     IndexJava(uri, text);
-  } else if (language_id == "csharp" || language_id == "dotnet" ||
-             language_id == "cs") {
+  } else if (canonical_language == "csharp" ||
+             canonical_language == "dotnet" ||
+             canonical_language == "cs") {
     IndexDotnet(uri, text);
   } else {
     return;
@@ -308,7 +329,7 @@ std::vector<IndexEntry> SymbolIndex::Entries() const {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// .ploy indexer — covers FUNC / PIPELINE / STRUCT / LET / VAR / IMPORT /
+// .poly indexer — covers FUNC / PIPELINE / STRUCT / LET / VAR / IMPORT /
 // EXPORT / LINK / MAP_TYPE.  LINK supports both legacy
 // `LINK lang::module::func AS …` and tuple form
 // `LINK(target_lang, source_lang, target_func, source_func)`.
@@ -334,8 +355,8 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
 
       IndexEntry e;
       e.name = name;
-      e.qualified_name = "ploy::" + name;
-      e.language = "ploy";
+      e.qualified_name = "poly::" + name;
+      e.language = "poly";
       e.kind = IndexEntryKind::kFunction;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(name_pos),
                               static_cast<std::uint32_t>(name.size()));
@@ -368,8 +389,8 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
       if (name.empty()) continue;
       IndexEntry e;
       e.name = name;
-      e.qualified_name = "ploy::pipeline::" + name;
-      e.language = "ploy";
+      e.qualified_name = "poly::pipeline::" + name;
+      e.language = "poly";
       e.kind = IndexEntryKind::kPipeline;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(name_pos),
                               static_cast<std::uint32_t>(name.size()));
@@ -386,8 +407,8 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
       if (name.empty()) continue;
       IndexEntry e;
       e.name = name;
-      e.qualified_name = "ploy::" + name;
-      e.language = "ploy";
+      e.qualified_name = "poly::" + name;
+      e.language = "poly";
       e.kind = IndexEntryKind::kStruct;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(name_pos),
                               static_cast<std::uint32_t>(name.size()));
@@ -406,8 +427,8 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
       if (name.empty()) continue;
       IndexEntry e;
       e.name = name;
-      e.qualified_name = "ploy::" + name;
-      e.language = "ploy";
+      e.qualified_name = "poly::" + name;
+      e.language = "poly";
       e.kind = IndexEntryKind::kVariable;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(name_pos),
                               static_cast<std::uint32_t>(name.size()));
@@ -479,8 +500,8 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
       if (name.empty()) continue;
       IndexEntry e;
       e.name = name;
-      e.qualified_name = "ploy::export::" + name;
-      e.language = "ploy";
+      e.qualified_name = "poly::export::" + name;
+      e.language = "poly";
       e.kind = IndexEntryKind::kFunction;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(name_pos),
                               static_cast<std::uint32_t>(name.size()));
@@ -489,7 +510,7 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
     }
 
     // ── LINK ────────────────────────────────────────────────────────────
-    // Two forms supported by the .ploy frontend:
+    // Two forms supported by the .poly frontend:
     //   1. LINK target_lang::mod::func AS …
     //   2. LINK(target_lang, source_lang, target_func, source_func)
     //      { MAP_TYPE … }
@@ -501,7 +522,7 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
         // Tuple form.  Pick out the four idents inside the parens, on
         // this line or the next.  We tolerate trailing whitespace.
         std::string body(line.substr(c + 1));
-        // Most .ploy files keep all four args on the same line.
+        // Most .poly files keep all four args on the same line.
         const std::size_t close = body.find(')');
         if (close != std::string::npos) body = body.substr(0, close);
 
@@ -511,7 +532,7 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
         while (std::getline(ss, tok, ',')) args.push_back(Trim(tok));
         if (args.size() < 4) continue;
 
-        const std::string &tlang = args[0];
+        const std::string tlang = CanonicalLanguageId(args[0]);
         const std::string &tfunc = args[2];
         // Bare = last component of "a::b::c".
         std::string bare = tfunc;
@@ -521,7 +542,7 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
         IndexEntry e;
         e.name = bare;
         e.qualified_name = tlang + "::" + tfunc;
-        e.language = "ploy";
+        e.language = "poly";
         e.kind = IndexEntryKind::kLink;
         // The LINK keyword position is the navigation anchor.
         e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(i), 4);
@@ -542,16 +563,16 @@ void SymbolIndex::IndexPloy(const std::string &uri, const std::string &text) {
       std::string rest;
       const std::size_t sep = qual.find("::");
       if (sep != std::string::npos) {
-        tlang = qual.substr(0, sep);
+        tlang = CanonicalLanguageId(qual.substr(0, sep));
         rest = qual.substr(sep + 2);
       } else {
-        tlang = qual;
+        tlang = CanonicalLanguageId(qual);
         rest = qual;
       }
       IndexEntry e;
       e.name = bare;
-      e.qualified_name = qual;
-      e.language = "ploy";
+      e.qualified_name = CanonicalQualifiedName(qual);
+      e.language = "poly";
       e.kind = IndexEntryKind::kLink;
       e.definition = MakeLoc(uri, ln, static_cast<std::uint32_t>(qpos),
                               static_cast<std::uint32_t>(qual.size()));
@@ -966,7 +987,7 @@ std::vector<SymbolLocation> SymbolIndex::TypeDefinition(
     for (const auto &e : kv.second) {
       if (e.name != name) continue;
       if (e.type_definition_name.empty()) continue;
-      // Resolve the type name to its definition (within .ploy or any
+      // Resolve the type name to its definition (within .poly or any
       // imported language).  Strip generic parameters for matching.
       std::string tname = e.type_definition_name;
       const std::size_t lt = tname.find('<');
@@ -1140,8 +1161,11 @@ bool SymbolIndex::LoadFromCache(const std::string &cache_dir) {
     for (const auto &je : d.value("entries", Json::array())) {
       IndexEntry e;
       e.name = je.value("name", std::string());
-      e.qualified_name = je.value("qualifiedName", std::string());
-      e.language = je.value("language", std::string());
+      const std::string cached_language =
+          je.value("language", std::string());
+      e.language = CanonicalLanguageId(cached_language);
+      e.qualified_name = CanonicalQualifiedName(
+          je.value("qualifiedName", std::string()));
       e.kind = KindFromString(je.value("kind", std::string("function")));
       if (je.contains("definition"))
         e.definition = LocFromJson(je["definition"]);
@@ -1149,10 +1173,11 @@ bool SymbolIndex::LoadFromCache(const std::string &cache_dir) {
         e.declaration = LocFromJson(je["declaration"]);
       if (je.contains("implementation"))
         e.implementation = LocFromJson(je["implementation"]);
-      e.link_target_language =
+      const std::string cached_target_language =
           je.value("linkTargetLanguage", std::string());
-      e.link_target_qualified =
-          je.value("linkTargetQualified", std::string());
+      e.link_target_language = CanonicalLanguageId(cached_target_language);
+      e.link_target_qualified = CanonicalQualifiedName(
+          je.value("linkTargetQualified", std::string()));
       e.type_definition_name =
           je.value("typeDefinitionName", std::string());
       e.signature = je.value("signature", std::string());

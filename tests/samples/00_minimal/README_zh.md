@@ -1,6 +1,6 @@
 # 00_minimal — print_then_exit
 
-整个工具链最小的端到端冒烟样例。源文件 `print_then_exit.ploy` 中声明
+整个工具链最小的端到端冒烟样例。源文件 `print_then_exit.poly` 中声明
 了一个 `main` 函数：先打印一行 `ok`，再返回退出码 `0`。
 
 本样例同时被 macOS Mach-O 的 execve 冒烟测试
@@ -11,7 +11,7 @@
 ## 构建与运行
 
 ```sh
-polyc print_then_exit.ploy -o /tmp/print_then_exit
+polyc print_then_exit.poly -o /tmp/print_then_exit
 /tmp/print_then_exit
 echo "exit=$?"
 ```
@@ -28,6 +28,6 @@ ok
 
 | 文件 | 作用 |
 |------|------|
-| `print_then_exit.ploy` | 单一函数的源文件。 |
+| `print_then_exit.poly` | 单一函数的源文件。 |
 | `expected_output.txt`  | 真实运行得到的单行 `ok`，由样例回归框架读取比对。 |
 | `README.md` / `README_zh.md` | 中英双语文档。 |

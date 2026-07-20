@@ -6,12 +6,12 @@ Cross-language NEW / METHOD against a Java class with Python feeding it analysis
 | --- | --- |
 | Languages | Java, Python |
 | Keywords  | NEW, METHOD (Java) |
-| Entry     | `java_interop.ploy` |
+| Entry     | `java_interop.poly` |
 
 ## Build
 
 ```powershell
-polyc 11_java_interop\java_interop.ploy --emit-obj=java_interop.pobj --obj-format=pobj
+polyc 11_java_interop\java_interop.poly --emit-obj=java_interop.pobj --obj-format=pobj
 polyld java_interop.pobj -o java_interop.exe
 ```
 

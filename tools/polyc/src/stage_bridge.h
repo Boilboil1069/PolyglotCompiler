@@ -17,7 +17,7 @@
 //   - Build PolyglotLinker with all CallDescriptors + LinkEntries + Symbols
 //   - Call ResolveLinks() to generate glue stubs
 //   - Write serialized cross-language descriptor file to aux dir
-//     (text format: LINK/CALL/SYMBOL lines, readable by polyld --ploy-desc)
+//     (text format: LINK/CALL/SYMBOL lines, readable by polyld --poly-desc)
 // ============================================================================
 
 #include <string>

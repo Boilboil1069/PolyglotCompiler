@@ -1,14 +1,18 @@
-# `.ploy` 样例程序
+# `.poly` 样例程序
 
 本目录承载 PolyglotCompiler 的标准样例矩阵。每个子目录都包含：
 
-- 一个演示某一特性主题的 `.ploy` 入口文件。
+- 一个演示某一特性主题的 `.poly` 入口文件。
 - 一个或多个宿主语言源文件（C++、Python、Rust、Java、C#、Go、JavaScript）。
 - `expected_output.txt`——回归脚本用作字节对比基准的预期 stdout。
 - 双语 README：`README.md`（英文）与 `README_zh.md`（中文）。
 
-回归脚本 `scripts/build_all_samples.ps1`（POSIX 版本：
-`scripts/build_all_samples.sh`）会遍历每个目录、依次运行 `polyc` 与
+PolyglotCompiler 1.48.0 将公开规范名称统一为 **Poly**、语言标识符 `poly`
+和源码扩展名 `.poly`。1.x 工具链仍把单个历史 `.ploy` 入口作为兼容回退
+（至少持续到 1.x 结束），但新增或迁移后的样例必须使用 `.poly`；生成的诊断
+和元数据统一使用 `poly`。
+
+仓库跟踪的回归脚本 `scripts/build_all_samples.sh` 会遍历每个目录、依次运行 `polyc` 与
 `polyld`，执行产物并捕获 stdout，按字节与 `expected_output.txt` 比对，把结
 果归入下列状态之一：
 
@@ -18,11 +22,11 @@
 - `RUN_FAIL`——产物在运行期失败。
 - `LINK_FAIL`——`polyld` 失败。
 - `COMPILE_FAIL`——`polyc` 失败。
-- `SKIP`——目录缺少 `.ploy` 入口。
+- `SKIP`——目录缺少可接受的 Poly 入口。
 
 脚本默认写出 `build/samples_report.json` 并以 0 退出，从而既能如实记录工
-具链成熟度又不会阻塞构建。如需严格门禁，可改用 PowerShell 的
-`-FailOnMismatch` 或 bash 的 `--fail-on-mismatch` 开关。
+具链成熟度又不会阻塞构建。如需严格门禁，可使用
+`--fail-on-mismatch` 开关。
 
 ## 目录矩阵
 
@@ -59,17 +63,17 @@
 | `28_ml_inference/` | Python, Rust | ML inference pipeline | Tokenizer + softmax scorer. |
 | `29_data_analytics/` | Python, Java | Data analytics | Loader + count/min/max/mean aggregator. |
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
-| `31_explicit_widths/` | Ploy, C++ | 显式宽度数值类型 + CONST | 演示 `i32` / `u32` / `i64`、`TYPE` 别名与折叠后的 `CONST`。 |
-| `32_typed_handles/` | Ploy, Python, C++ | 静态类型化的跨语言句柄 | `CLASS` 模式 + `HANDLE<lang::T>`，对 `NEW` / `METHOD` / `GET` / `SET` 进行编译期类型检查。 |
-| `33_pattern_matching/` | Ploy | 模式匹配派发 | 在同一个 MATCH 中演示字面量、范围、OR 模式、绑定、类型守卫、元组 / 结构体解构以及 `OPTION` 构造子。 |
-| `34_default_args/` | Ploy | 命名参数与默认值 | 带常量默认值的尾部参数；位置 / 命名 / 混合调用点；以及以纯调用作为默认值。 |
-| `35_extend_dynamic/` | Ploy, Python | EXTEND 仅限动态宿主 | EXTEND 只在 python / ruby / javascript 上被接受；静态语言目标会得到 sema 给出的修正提示。 |
-| `36_try_catch/` | Ploy | 结构化异常处理 | TRY / CATCH / FINALLY / THROW 以及内建 `Error` 句柄与跨语言运行时桥。 |
-| `37_async_await/` | Ploy | 协作式异步 / await | `ASYNC FUNC` + `AWAIT` 驱动 `runtime/services/async_bridge.cpp` 中的协作事件循环。 |
-| `38_generics/` | Ploy | 泛型 FUNC / STRUCT | 带 bound 的类型参数与 WHERE 子句；类型擦除的 MVP 下沉。 |
-| `39_visibility_attrs/` | Ploy | PUB / PRIVATE 与 `@name` 注解 | 模块边界可见性、EXPORT 要求 PUB 规则、内建属性目录（`@inline`、`@hot`、`@deprecated` 等）。 |
-| `40_string_literals/` | Ploy | 原始 / 多行 / 模板字符串字面量 | `r"..."`、`r#"..."#`、`"""..."""` 与 `f"..."` 插值；sema 校验可格式化类型。 |
-| `41_grammar_polish/` | Ploy | IF/WHILE/FOR 可选括号、`IF LET Some(x)`、`///` 文档注释 | v1.18.0 P3 收尾包；`polydoc` 抽取文档块为 Markdown/JSON。 |
+| `31_explicit_widths/` | Poly, C++ | 显式宽度数值类型 + CONST | 演示 `i32` / `u32` / `i64`、`TYPE` 别名与折叠后的 `CONST`。 |
+| `32_typed_handles/` | Poly, Python, C++ | 静态类型化的跨语言句柄 | `CLASS` 模式 + `HANDLE<lang::T>`，对 `NEW` / `METHOD` / `GET` / `SET` 进行编译期类型检查。 |
+| `33_pattern_matching/` | Poly | 模式匹配派发 | 在同一个 MATCH 中演示字面量、范围、OR 模式、绑定、类型守卫、元组 / 结构体解构以及 `OPTION` 构造子。 |
+| `34_default_args/` | Poly | 命名参数与默认值 | 带常量默认值的尾部参数；位置 / 命名 / 混合调用点；以及以纯调用作为默认值。 |
+| `35_extend_dynamic/` | Poly, Python | EXTEND 仅限动态宿主 | EXTEND 只在 python / ruby / javascript 上被接受；静态语言目标会得到 sema 给出的修正提示。 |
+| `36_try_catch/` | Poly | 结构化异常处理 | TRY / CATCH / FINALLY / THROW 以及内建 `Error` 句柄与跨语言运行时桥。 |
+| `37_async_await/` | Poly | 协作式异步 / await | `ASYNC FUNC` + `AWAIT` 驱动 `runtime/services/async_bridge.cpp` 中的协作事件循环。 |
+| `38_generics/` | Poly | 泛型 FUNC / STRUCT | 带 bound 的类型参数与 WHERE 子句；类型擦除的 MVP 下沉。 |
+| `39_visibility_attrs/` | Poly | PUB / PRIVATE 与 `@name` 注解 | 模块边界可见性、EXPORT 要求 PUB 规则、内建属性目录（`@inline`、`@hot`、`@deprecated` 等）。 |
+| `40_string_literals/` | Poly | 原始 / 多行 / 模板字符串字面量 | `r"..."`、`r#"..."#`、`"""..."""` 与 `f"..."` 插值；sema 校验可格式化类型。 |
+| `41_grammar_polish/` | Poly | IF/WHILE/FOR 可选括号、`IF LET Some(x)`、`///` 文档注释 | v1.18.0 P3 收尾包；`polydoc` 抽取文档块为 Markdown/JSON。 |
 
 ## 按主题分组
 
@@ -119,26 +123,22 @@
 - **Java, Python**：`11_java_interop`、`20_json_pipeline`、`22_database_access`、`29_data_analytics`
 - **JavaScript, Python**：`25_event_loop`
 - **Python, Rust**：`17_string_processing`、`28_ml_inference`
-- **Ploy, C++**：`31_explicit_widths`
-- **Ploy, Python, C++**：`32_typed_handles`
-- **Ploy**：`33_pattern_matching`、`34_default_args`、`36_try_catch`、`37_async_await`、`38_generics`、`39_visibility_attrs`、`40_string_literals`、`41_grammar_polish`
-- **Ploy, Python**：`35_extend_dynamic`
+- **Poly, C++**：`31_explicit_widths`
+- **Poly, Python, C++**：`32_typed_handles`
+- **Poly**：`33_pattern_matching`、`34_default_args`、`36_try_catch`、`37_async_await`、`38_generics`、`39_visibility_attrs`、`40_string_literals`、`41_grammar_polish`
+- **Poly, Python**：`35_extend_dynamic`
 
 ## 构建单个样例
 
 ```powershell
-polyc 09_mixed_pipeline/mixed_pipeline.ploy --emit-obj=build/sample.obj --quiet
+polyc 09_mixed_pipeline/mixed_pipeline.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 ./build/sample.exe
 ```
 
 ## 一次性构建全部样例
 
-```powershell
-# Windows
-./scripts/build_all_samples.ps1
-
-# POSIX
+```bash
 ./scripts/build_all_samples.sh
 ```
 

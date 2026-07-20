@@ -23,15 +23,15 @@ LinkRegistry MakeRegistry() {
   r.AddDefinition(d);
 
   LinkSite s1;
-  s1.id = "ploy-1";
+  s1.id = "poly-1";
   s1.target_language = HostLanguage::kCpp;
   s1.target_symbol = "math::add";
-  s1.location = {"app.ploy", 7, 3};
+  s1.location = {"app.poly", 7, 3};
   r.AddSite(s1);
 
   LinkSite s2 = s1;
-  s2.id = "ploy-2";
-  s2.location = {"app.ploy", 19, 3};
+  s2.id = "poly-2";
+  s2.location = {"app.poly", 19, 3};
   r.AddSite(s2);
   return r;
 }
@@ -78,7 +78,7 @@ TEST_CASE("RenamePlanner emits coordinated WorkspaceEdits",
   extra.symbol = "math::add";
   extra.location = {"src/math.cpp", 30, 9};
   auto edits = p.Plan(HostLanguage::kCpp, "math::add", "math::sum", {extra});
-  // 1 def + 2 ploy sites + 1 extra reference.
+  // 1 def + 2 poly sites + 1 extra reference.
   REQUIRE(edits.size() == 4);
   for (const auto &e : edits) CHECK(e.new_text == "math::sum");
   // length matches the old symbol length.

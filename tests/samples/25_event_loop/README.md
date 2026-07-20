@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, JavaScript |
-| Entry | `event_loop.ploy` |
+| Entry | `event_loop.poly` |
 | Theme | Event loop simulation |
 | Expected stdout | `25_event_loop: ok\r\n` |
 
 ## Files
 
-- `event_loop.ploy` — `.ploy` entry that wires the host sources together.
+- `event_loop.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `scheduler.js` — host source file
 - `dispatcher.py` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc event_loop.ploy --emit-obj=build/event_loop.obj --quiet
+polyc event_loop.poly --emit-obj=build/event_loop.obj --quiet
 polyld build/event_loop.obj -o build/event_loop.exe
 ./build/event_loop.exe
 ```

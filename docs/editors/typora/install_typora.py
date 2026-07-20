@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install the Poly / Ploy CodeMirror mode into a local Typora bundle.
+"""Install the Poly CodeMirror mode into a local Typora bundle.
 
 Typora does not expose an official custom-language directory. Its CodeMirror
 modes and language-name mapping are bundled into application resources, so a
@@ -231,7 +231,7 @@ def install(root: Path, mode_path: Path) -> None:
             atomic_write(main_path, original_main)
         raise
 
-    print("Installed Poly / Ploy syntax highlighting.")
+    print("Installed Poly syntax highlighting (including the legacy ploy alias).")
     print("Backups preserved:")
     for backup in backups:
         print(f"  - {backup}")
@@ -255,7 +255,7 @@ def uninstall(root: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Check, install, or uninstall Typora highlighting for Poly / Ploy."
+        description="Check, install, or uninstall Typora highlighting for Poly."
     )
     action = parser.add_mutually_exclusive_group()
     action.add_argument("--install", action="store_true", help="inject the mode and aliases")

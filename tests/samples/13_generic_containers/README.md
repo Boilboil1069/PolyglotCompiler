@@ -6,12 +6,12 @@ Generic container interop: java.util.ArrayList / HashMap, std::vector and Python
 | --- | --- |
 | Languages | C++, Java, Python |
 | Keywords  | MAP_TYPE containers |
-| Entry     | `generic_containers.ploy` |
+| Entry     | `generic_containers.poly` |
 
 ## Build
 
 ```powershell
-polyc 13_generic_containers\generic_containers.ploy --emit-obj=generic_containers.pobj --obj-format=pobj
+polyc 13_generic_containers\generic_containers.poly --emit-obj=generic_containers.pobj --obj-format=pobj
 polyld generic_containers.pobj -o generic_containers.exe
 ```
 

@@ -12,13 +12,13 @@ results across kernels.
 
 | Component | Header | Purpose |
 | --- | --- | --- |
-| `PackageManagerService` | [`tools/ui/common/packages/package_manager.h`](../../tools/ui/common/packages/package_manager.h) | Discovery + install / upgrade / remove + lockfile reads + `.ploy CONFIG` sync. Subprocess I/O is delegated to an injected `CommandExecutor`. |
+| `PackageManagerService` | [`tools/ui/common/packages/package_manager.h`](../../tools/ui/common/packages/package_manager.h) | Discovery + install / upgrade / remove + lockfile reads + `.poly CONFIG` sync. Subprocess I/O is delegated to an injected `CommandExecutor`. |
 | `PackageManagerRegistry` | same | Owns the twelve concrete backends and locates them by `Ecosystem` or by manifest filename. |
 | `PipBackend` / `CondaBackend` / `UvBackend` / `PipenvBackend` / `PoetryBackend` | same | Python ecosystems. Parsers cover `requirements.txt`, `environment.yml`, `uv.lock` (TOML), `Pipfile.lock` (JSON) and `poetry.lock`. |
 | `CargoBackend` / `NpmBackend` / `MavenBackend` / `GradleBackend` / `NugetBackend` / `GemBackend` / `GoModBackend` | same | Cargo, npm, Maven, Gradle, NuGet, Bundler and Go-Mod parsers. Each declares its manifest, its lockfile and the install / upgrade / remove argv. |
 | `DependencyGraph` | [`tools/ui/common/packages/dependency_graph.h`](../../tools/ui/common/packages/dependency_graph.h) | Node + edge model, conflict detection, deterministic SVG export. `TreeView()` projects the graph from marked roots. |
 | `VulnerabilityScanner` | [`tools/ui/common/packages/vulnerability_scanner.h`](../../tools/ui/common/packages/vulnerability_scanner.h) | Loads `Advisory` records via `ParseOsvDocument` / `ParseGitHubAdvisory`, matches versions through `VersionInRange`, supports per-id suppressions. |
-| `ReplSession` | [`tools/ui/common/notebook/repl_session.h`](../../tools/ui/common/notebook/repl_session.h) | Long-lived engine wrapper. `DefaultSpec` ships argv / prompt / exit for `.ploy`, Python, IRust, IRB and dotnet-script. Actual I/O sits behind the pluggable `ReplTransport`. |
+| `ReplSession` | [`tools/ui/common/notebook/repl_session.h`](../../tools/ui/common/notebook/repl_session.h) | Long-lived engine wrapper. `DefaultSpec` ships argv / prompt / exit for `.poly`, Python, IRust, IRB and dotnet-script. Actual I/O sits behind the pluggable `ReplTransport`. |
 | `Notebook` | [`tools/ui/common/notebook/notebook.h`](../../tools/ui/common/notebook/notebook.h) | Cell list (code / markdown / cross-language link). `Execute` routes cells to sessions; `ToJson` / `LoadJson` round-trip the `.polynb` envelope. |
 
 ## Pipelines
@@ -28,7 +28,7 @@ results across kernels.
   matching files against each backend's `manifest_filename()`.  The
   resulting `Environment` records are activated one-per-ecosystem
   through `Activate`.  `SyncWithConfig` reconciles the resolved
-  lockfile with the `.ploy CONFIG` requirement list, returning both
+  lockfile with the `.poly CONFIG` requirement list, returning both
   `missing_in_lockfile` and `missing_in_config` so that the UI can
   highlight either drift direction.
 * **Install / upgrade / remove.** Each backend builds the right

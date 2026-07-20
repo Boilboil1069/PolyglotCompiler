@@ -6,7 +6,7 @@ Multi-stage signal processing PIPELINE with C++ DSP, Rust async loader and Pytho
 | --- | --- |
 | Languages | C++, Rust, Python |
 | Keywords  | PIPELINE, IF / ELSE |
-| Entry     | `async_pipeline.ploy` |
+| Entry     | `async_pipeline.poly` |
 
 ## How to run
 
@@ -15,7 +15,7 @@ Multi-stage signal processing PIPELINE with C++ DSP, Rust async loader and Pytho
 ## Build
 
 ```powershell
-polyc 14_async_pipeline\async_pipeline.ploy --emit-obj=async_pipeline.pobj --obj-format=pobj
+polyc 14_async_pipeline\async_pipeline.poly --emit-obj=async_pipeline.pobj --obj-format=pobj
 polyld async_pipeline.pobj -o async_pipeline.exe
 ```
 

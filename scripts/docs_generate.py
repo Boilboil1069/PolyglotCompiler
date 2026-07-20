@@ -141,8 +141,8 @@ def gen_tools_table(v: Dict) -> str:
 def gen_version_footer_en(v: Dict) -> str:
     """Generate English version footer."""
     return (
-        f'*Maintained by {v["project_name"]} Team*  \n'
-        f'*Last Updated: {v["last_updated"]}*  \n'
+        f'*Maintained by {v["project_name"]} Team*<br>\n'
+        f'*Last Updated: {v["last_updated"]}*<br>\n'
         f'*Document Version: v{v["doc_version"]}*'
     )
 
@@ -150,8 +150,8 @@ def gen_version_footer_en(v: Dict) -> str:
 def gen_version_footer_zh(v: Dict) -> str:
     """Generate Chinese version footer."""
     return (
-        f'*本文档由 {v["project_name"]} 团队维护*  \n'
-        f'*最后更新: {v["last_updated"]}*  \n'
+        f'*本文档由 {v["project_name"]} 团队维护*<br>\n'
+        f'*最后更新: {v["last_updated"]}*<br>\n'
         f'*文档版本: v{v["doc_version"]}*'
     )
 

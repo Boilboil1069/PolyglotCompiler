@@ -124,7 +124,7 @@ Central type mapping, compatibility checking, and size computation.
 
 ```cpp
 // Map a language-specific type name to the unified Type representation.
-// Supported languages: "python", "cpp", "rust", "java", "dotnet", "ploy"
+// Supported languages: "python", "cpp", "rust", "java", "dotnet", "poly"
 Type MapFromLanguage(const std::string& lang, const std::string& type_name) const;
 
 // Check if 'from' is implicitly convertible to 'to'.
@@ -714,7 +714,7 @@ Each language frontend exposes the same four-phase pipeline:
 | `frontends/ruby/include/ruby_lowering.h` | `void LowerToIR(const RubyModule&, ir::IRContext&, Diagnostics&)` |
 | `frontends/ruby/include/ruby_import_resolver.h` | `RubyImportResolver` — `require` / `require_relative` / `load` / `autoload`, honours `RUBYLIB`, `Gemfile` (Bundler), and `--gem-path` |
 
-## 7.9 .ploy Frontend
+## 7.9 .poly Frontend
 
 **Namespace**: `polyglot::frontends::ploy`
 
@@ -1298,7 +1298,7 @@ struct Method {
 
 ## 10.2 PloySemaOptions
 
-Configuration options for the `.ploy` semantic analysis pass.
+Configuration options for the `.poly` semantic analysis pass.
 
 ```cpp
 struct PloySemaOptions {

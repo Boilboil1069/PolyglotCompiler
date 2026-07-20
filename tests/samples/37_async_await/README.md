@@ -1,12 +1,12 @@
 # 37_async_await — Cooperative async / await
 
-`async_await.ploy` demonstrates the `ASYNC` / `AWAIT` syntax
+`async_await.poly` demonstrates the `ASYNC` / `AWAIT` syntax
 introduced by the v1.14.0 release.  An `ASYNC FUNC` declares a
 function whose return value is implicitly wrapped as `Future<T>`;
 `AWAIT <expr>` suspends the surrounding async frame until the
 operand future resolves and yields the resolved payload.
 
-```ploy
+```poly
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
@@ -43,7 +43,7 @@ prologue, `__ploy_rt_async_complete` at the implicit return path, and
 | .NET          | `Task<T>`                 | `clrloy_async_resolve`       |
 | Rust          | `Future`                  | `rsloy_async_resolve`        |
 
-Each adapter resolves a Ploy `Future<T>` from its native awaitable
+Each adapter resolves a Poly `Future<T>` from its native awaitable
 through `__ploy_rt_future_resolve`; the cooperative event loop then
 wakes any task suspended on that handle.
 

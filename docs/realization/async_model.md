@@ -2,7 +2,7 @@
 
 ## Surface syntax
 
-```ploy
+```poly
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
@@ -86,7 +86,7 @@ The C++ surface in `runtime/include/services/async_bridge.h`
 Each adapter wraps its native awaitable, drives it to readiness on
 the host side, and surfaces the resolved payload through
 `__ploy_rt_future_resolve`.  The cooperative event loop wakes the
-suspended Ploy task on the next tick.
+suspended Poly task on the next tick.
 
 ## Inspecting the scheduler
 

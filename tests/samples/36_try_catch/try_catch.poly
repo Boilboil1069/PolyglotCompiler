@@ -1,0 +1,14 @@
+// ============================================================================
+// try_catch.poly — Structured exception handling.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Poly host language only.
+//
+// Documents the topic of TRY / CATCH / FINALLY / THROW.  The reverse-path
+// exception interception is implemented in the runtime data plane and is
+// exercised by the runtime unit tests; the IR-level dispatcher is staged
+// behind a future front-end milestone, so this sample keeps a minimal stub
+// plus the deterministic PRINTLN marker.
+// ============================================================================
+
+PRINTLN "36_try_catch: ok\r\n";

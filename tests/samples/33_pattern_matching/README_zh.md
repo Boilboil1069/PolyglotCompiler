@@ -20,7 +20,7 @@ OR 模式、绑定、类型守卫以及 `OPTION` 构造子模式，并由前端�
 ## 运行方式
 
 ```powershell
-polyc 33_pattern_matching/pattern_matching.ploy --emit-obj=build/sample.obj --quiet
+polyc 33_pattern_matching/pattern_matching.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 .\build\sample.exe
 ```

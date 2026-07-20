@@ -116,7 +116,7 @@ writes a single JSON document to `stdout` matching the LSP
 
 ```json
 {
-  "uri": "file:///abs/path/to/file.ploy",
+  "uri": "file:///abs/path/to/file.poly",
   "diagnostics": [
     {
       "range": {

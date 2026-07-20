@@ -461,7 +461,7 @@ void polyglot_java_release_object(void *object) {
 // ============================================================================
 // __ploy_java_* aliases
 //
-// The ploy frontend emits calls to __ploy_java_* symbols.  These thin
+// The poly frontend emits calls to __ploy_java_* symbols.  These thin
 // forwarding functions align the frontend names with the runtime's
 // polyglot_java_* ABI so that linking succeeds without special renaming.
 // ============================================================================

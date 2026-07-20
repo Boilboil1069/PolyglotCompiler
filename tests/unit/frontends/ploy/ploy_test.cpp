@@ -105,7 +105,7 @@ LowerResult LowerAndGetDescriptors(const std::string &code, Diagnostics &diags) 
 // Lexer Tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer tokenizes keywords", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes keywords", "[poly][lexer]") {
     auto tokens = Tokenize("LINK IMPORT EXPORT FUNC LET VAR IF ELSE WHILE FOR RETURN");
     // All should be keywords except EOF
     size_t keyword_count = 0;
@@ -115,7 +115,7 @@ TEST_CASE("Ploy lexer tokenizes keywords", "[ploy][lexer]") {
     REQUIRE(keyword_count == 11);
 }
 
-TEST_CASE("Ploy lexer tokenizes identifiers", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes identifiers", "[poly][lexer]") {
     auto tokens = Tokenize("foo bar_baz myVar123");
     size_t id_count = 0;
     for (const auto &t : tokens) {
@@ -124,7 +124,7 @@ TEST_CASE("Ploy lexer tokenizes identifiers", "[ploy][lexer]") {
     REQUIRE(id_count == 3);
 }
 
-TEST_CASE("Ploy lexer tokenizes numbers", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes numbers", "[poly][lexer]") {
     auto tokens = Tokenize("42 3.14 0xFF 0b1010 0o777");
     size_t num_count = 0;
     for (const auto &t : tokens) {
@@ -133,7 +133,7 @@ TEST_CASE("Ploy lexer tokenizes numbers", "[ploy][lexer]") {
     REQUIRE(num_count == 5);
 }
 
-TEST_CASE("Ploy lexer tokenizes strings", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes strings", "[poly][lexer]") {
     auto tokens = Tokenize(R"("hello" "world with spaces" "escape\n")");
     size_t str_count = 0;
     for (const auto &t : tokens) {
@@ -142,7 +142,7 @@ TEST_CASE("Ploy lexer tokenizes strings", "[ploy][lexer]") {
     REQUIRE(str_count == 3);
 }
 
-TEST_CASE("Ploy lexer tokenizes operators", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes operators", "[poly][lexer]") {
     auto tokens = Tokenize("+ - * / == != <= >= -> :: ..");
     size_t sym_count = 0;
     for (const auto &t : tokens) {
@@ -151,7 +151,7 @@ TEST_CASE("Ploy lexer tokenizes operators", "[ploy][lexer]") {
     REQUIRE(sym_count >= 10);
 }
 
-TEST_CASE("Ploy lexer skips single-line comments", "[ploy][lexer]") {
+TEST_CASE("Poly lexer skips single-line comments", "[poly][lexer]") {
     auto tokens = Tokenize("FUNC // this is a comment\nfoo");
     // Should have: FUNC, foo, EOF
     size_t non_eof = 0;
@@ -161,7 +161,7 @@ TEST_CASE("Ploy lexer skips single-line comments", "[ploy][lexer]") {
     REQUIRE(non_eof == 2);
 }
 
-TEST_CASE("Ploy lexer skips block comments", "[ploy][lexer]") {
+TEST_CASE("Poly lexer skips block comments", "[poly][lexer]") {
     auto tokens = Tokenize("FUNC /* block comment */ foo");
     size_t non_eof = 0;
     for (const auto &t : tokens) {
@@ -170,7 +170,7 @@ TEST_CASE("Ploy lexer skips block comments", "[ploy][lexer]") {
     REQUIRE(non_eof == 2);
 }
 
-TEST_CASE("Ploy lexer tokenizes qualified name", "[ploy][lexer]") {
+TEST_CASE("Poly lexer tokenizes qualified name", "[poly][lexer]") {
     auto tokens = Tokenize("cpp::std::vector");
     // Should produce: cpp :: std :: vector
     REQUIRE(tokens.size() >= 6); // 5 tokens + EOF
@@ -180,7 +180,7 @@ TEST_CASE("Ploy lexer tokenizes qualified name", "[ploy][lexer]") {
 // Parser Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser parses LINK function declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses LINK function declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LINK(cpp, python, math::add, utils::get_values);
@@ -197,21 +197,21 @@ LINK(cpp, python, math::add, utils::get_values);
     REQUIRE(link->source_symbol == "utils::get_values");
 }
 
-TEST_CASE("Ploy parser parses IMPORT declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses IMPORT declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
-IMPORT "mylib.ploy" AS mylib;
+IMPORT "mylib.poly" AS mylib;
 )", diags);
     REQUIRE(module);
     REQUIRE(!diags.HasErrors());
     REQUIRE(module->declarations.size() == 1);
     auto import = std::dynamic_pointer_cast<ImportDecl>(module->declarations[0]);
     REQUIRE(import);
-    REQUIRE(import->module_path == "mylib.ploy");
+    REQUIRE(import->module_path == "mylib.poly");
     REQUIRE(import->alias == "mylib");
 }
 
-TEST_CASE("Ploy parser parses EXPORT declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses EXPORT declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 EXPORT my_func AS "external_name";
@@ -225,7 +225,7 @@ EXPORT my_func AS "external_name";
     REQUIRE(export_decl->external_name == "external_name");
 }
 
-TEST_CASE("Ploy parser parses MAP_TYPE declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses MAP_TYPE declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 MAP_TYPE(cpp::int, python::int);
@@ -237,7 +237,7 @@ MAP_TYPE(cpp::int, python::int);
     REQUIRE(map_type);
 }
 
-TEST_CASE("Ploy parser parses PIPELINE declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses PIPELINE declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 PIPELINE my_pipeline {
@@ -254,7 +254,7 @@ PIPELINE my_pipeline {
     REQUIRE(pipeline->body.size() >= 2);
 }
 
-TEST_CASE("Ploy parser parses FUNC declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser parses FUNC declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC add(a: i32, b: i32) -> i32 {
@@ -273,7 +273,7 @@ FUNC add(a: i32, b: i32) -> i32 {
     REQUIRE(func->return_type);
 }
 
-TEST_CASE("Ploy parser parses IF/ELSE statement", "[ploy][parser]") {
+TEST_CASE("Poly parser parses IF/ELSE statement", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC test() -> i32 {
@@ -293,7 +293,7 @@ FUNC test() -> i32 {
     REQUIRE(func->body.size() >= 2);
 }
 
-TEST_CASE("Ploy parser parses WHILE statement", "[ploy][parser]") {
+TEST_CASE("Poly parser parses WHILE statement", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC loop() -> i32 {
@@ -308,7 +308,7 @@ FUNC loop() -> i32 {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses FOR..IN statement", "[ploy][parser]") {
+TEST_CASE("Poly parser parses FOR..IN statement", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC sum_range() -> i32 {
@@ -323,7 +323,7 @@ FUNC sum_range() -> i32 {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses MATCH statement", "[ploy][parser]") {
+TEST_CASE("Poly parser parses MATCH statement", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC classify(x: i32) -> i32 {
@@ -344,7 +344,7 @@ FUNC classify(x: i32) -> i32 {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses nested expressions", "[ploy][parser]") {
+TEST_CASE("Poly parser parses nested expressions", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC compute(a: i32, b: i32) -> i32 {
@@ -356,7 +356,7 @@ FUNC compute(a: i32, b: i32) -> i32 {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses multiple declarations", "[ploy][parser]") {
+TEST_CASE("Poly parser parses multiple declarations", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LINK(cpp, python, math::sin, pymath::sin);
@@ -377,7 +377,7 @@ FUNC combine(x: f64) -> f64 {
 // Semantic Analysis Tests
 // ============================================================================
 
-TEST_CASE("Ploy sema validates LINK declarations", "[ploy][sema]") {
+TEST_CASE("Poly sema validates LINK declarations", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -389,7 +389,7 @@ LINK(cpp, python, math::add, utils::get_values);
     REQUIRE(sema.Links()[0].source_language == "python");
 }
 
-TEST_CASE("Ploy sema rejects invalid language", "[ploy][sema]") {
+TEST_CASE("Poly sema rejects invalid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -399,7 +399,7 @@ LINK(kotlin, python, console::log, utils::print);
     REQUIRE(!ok);
 }
 
-TEST_CASE("Ploy sema validates FUNC declarations", "[ploy][sema]") {
+TEST_CASE("Poly sema validates FUNC declarations", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -413,7 +413,7 @@ FUNC add(a: i32, b: i32) -> i32 {
     REQUIRE(it->second.kind == PloySymbol::Kind::kFunction);
 }
 
-TEST_CASE("Ploy sema validates variable declarations", "[ploy][sema]") {
+TEST_CASE("Poly sema validates variable declarations", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -426,7 +426,7 @@ FUNC test() -> i32 {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates MAP_TYPE", "[ploy][sema]") {
+TEST_CASE("Poly sema validates MAP_TYPE", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -436,7 +436,7 @@ MAP_TYPE(cpp::int, python::int);
     REQUIRE(sema.TypeMappings().size() == 1);
 }
 
-TEST_CASE("Ploy sema validates PIPELINE", "[ploy][sema]") {
+TEST_CASE("Poly sema validates PIPELINE", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -451,7 +451,7 @@ PIPELINE my_pipeline {
     REQUIRE(it->second.kind == PloySymbol::Kind::kPipeline);
 }
 
-TEST_CASE("Ploy sema validates EXPORT references", "[ploy][sema]") {
+TEST_CASE("Poly sema validates EXPORT references", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -463,7 +463,7 @@ EXPORT my_func AS "external_func";
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates loop control flow", "[ploy][sema]") {
+TEST_CASE("Poly sema validates loop control flow", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -481,7 +481,7 @@ FUNC test() -> void {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema rejects BREAK outside loop", "[ploy][sema]") {
+TEST_CASE("Poly sema rejects BREAK outside loop", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -496,7 +496,7 @@ FUNC test() -> void {
 // Lowering / IR Generation Tests
 // ============================================================================
 
-TEST_CASE("Ploy lowering generates function", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates function", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC add(a: i32, b: i32) -> i32 {
@@ -507,7 +507,7 @@ FUNC add(a: i32, b: i32) -> i32 {
     REQUIRE(ir.find("add") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates LINK bridge stub", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates LINK bridge stub", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, math::add, utils::get_values);
@@ -516,7 +516,7 @@ LINK(cpp, python, math::add, utils::get_values);
     REQUIRE(ir.find("__ploy_bridge") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates PIPELINE function", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates PIPELINE function", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 PIPELINE process_data {
@@ -527,7 +527,7 @@ PIPELINE process_data {
     REQUIRE(ir.find("__ploy_pipeline_process_data") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates IF with branches", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates IF with branches", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test(x: i32) -> i32 {
@@ -543,7 +543,7 @@ FUNC test(x: i32) -> i32 {
     REQUIRE(ir.find("test") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates WHILE loop", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates WHILE loop", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC count() -> i32 {
@@ -558,7 +558,7 @@ FUNC count() -> i32 {
     REQUIRE(ir.find("count") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates FOR loop", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates FOR loop", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC sum_range() -> i32 {
@@ -573,7 +573,7 @@ FUNC sum_range() -> i32 {
     REQUIRE(ir.find("sum_range") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering handles variable declarations", "[ploy][lowering]") {
+TEST_CASE("Poly lowering handles variable declarations", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> i32 {
@@ -587,7 +587,7 @@ FUNC test() -> i32 {
     REQUIRE(ir.find("test") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates call descriptors for LINK", "[ploy][lowering]") {
+TEST_CASE("Poly lowering generates call descriptors for LINK", "[poly][lowering]") {
     Diagnostics diags;
     PloyLexer lexer(R"(
 LINK(cpp, python, math::sin, pymath::sin);
@@ -611,7 +611,21 @@ LINK(python, rust, numpy::dot, vec::dot);
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy lowering generates MATCH with switch", "[ploy][lowering]") {
+TEST_CASE("Poly parser canonicalizes legacy ploy language identifiers",
+          "[poly][compat][language-id]") {
+    Diagnostics diags;
+    auto module = Parse("LINK(cpp, ploy, native::work, local_work);", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    REQUIRE(sema.Links().size() == 1);
+    CHECK(sema.Links().front().target_language == "cpp");
+    CHECK(sema.Links().front().source_language == "poly");
+}
+
+TEST_CASE("Poly lowering generates MATCH with switch", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC classify(x: i32) -> i32 {
@@ -636,7 +650,7 @@ FUNC classify(x: i32) -> i32 {
 // Integration Tests
 // ============================================================================
 
-TEST_CASE("Ploy full pipeline: LINK + FUNC + CALL", "[ploy][integration]") {
+TEST_CASE("Poly full pipeline: LINK + FUNC + CALL", "[poly][integration]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, math::add, utils::get_values);
@@ -651,7 +665,7 @@ FUNC use_add(a: i32, b: i32) -> i32 {
     REQUIRE(ir.find("use_add") != std::string::npos);
 }
 
-TEST_CASE("Ploy full pipeline: PIPELINE with control flow", "[ploy][integration]") {
+TEST_CASE("Poly full pipeline: PIPELINE with control flow", "[poly][integration]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 PIPELINE transform {
@@ -670,7 +684,7 @@ PIPELINE transform {
     REQUIRE(ir.find("__ploy_pipeline_transform") != std::string::npos);
 }
 
-TEST_CASE("Ploy full pipeline: multiple LINKs with PIPELINE", "[ploy][integration]") {
+TEST_CASE("Poly full pipeline: multiple LINKs with PIPELINE", "[poly][integration]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, math::sin, pymath::sin);
@@ -691,7 +705,7 @@ PIPELINE compute {
 // Complex Type Extension - Lexer Tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]") {
+TEST_CASE("Poly lexer tokenizes complex type keywords", "[poly][lexer][complex]") {
     auto tokens = Tokenize("LIST TUPLE DICT OPTION MAP_FUNC CONVERT STRUCT");
     size_t keyword_count = 0;
     for (const auto &t : tokens) {
@@ -704,7 +718,7 @@ TEST_CASE("Ploy lexer tokenizes complex type keywords", "[ploy][lexer][complex]"
 // Complex Type Extension - Parser Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser parses STRUCT declaration", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses STRUCT declaration", "[poly][parser][complex]") {
     Diagnostics diags;
     auto module = Parse(R"(
 STRUCT Point {
@@ -723,10 +737,10 @@ STRUCT Point {
     REQUIRE(sd->fields[1].name == "y");
 }
 
-TEST_CASE("Ploy parser parses STRUCT with multiple fields", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses STRUCT with multiple fields", "[poly][parser][complex]") {
     Diagnostics diags;
     // NOTE: 'Config' would collide with the CONFIG keyword (case-insensitive
-    // keyword recognition since Ploy 1.5.2), so the struct is named
+    // keyword recognition since Poly 1.5.2), so the struct is named
     // 'MyConfig' to keep this test focused on the multi-field shape.
     auto module = Parse(R"(
 STRUCT MyConfig {
@@ -745,7 +759,7 @@ STRUCT MyConfig {
     REQUIRE(sd->fields[2].name == "title");
 }
 
-TEST_CASE("Ploy parser parses MAP_FUNC declaration", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses MAP_FUNC declaration", "[poly][parser][complex]") {
     Diagnostics diags;
     auto module = Parse(R"(
 MAP_FUNC convert_point(p: ptr) -> ptr {
@@ -762,7 +776,7 @@ MAP_FUNC convert_point(p: ptr) -> ptr {
     REQUIRE(mf->return_type != nullptr);
 }
 
-TEST_CASE("Ploy parser parses list literal", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses list literal", "[poly][parser][complex]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC test() -> void {
@@ -774,7 +788,7 @@ FUNC test() -> void {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses struct literal", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses struct literal", "[poly][parser][complex]") {
     Diagnostics diags;
     auto module = Parse(R"(
 STRUCT Point {
@@ -790,7 +804,7 @@ FUNC test() -> void {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser parses CONVERT expression", "[ploy][parser][complex]") {
+TEST_CASE("Poly parser parses CONVERT expression", "[poly][parser][complex]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC test(x: i32) -> f64 {
@@ -806,7 +820,7 @@ FUNC test(x: i32) -> f64 {
 // Complex Type Extension - Sema Tests
 // ============================================================================
 
-TEST_CASE("Ploy sema validates STRUCT declaration", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates STRUCT declaration", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -818,7 +832,7 @@ STRUCT Point {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates MAP_FUNC declaration", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates MAP_FUNC declaration", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -829,7 +843,7 @@ MAP_FUNC to_list(x: i32) -> i32 {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates LIST type resolution", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates LIST type resolution", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -840,7 +854,7 @@ FUNC test(xs: LIST[i32]) -> void {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates DICT type resolution", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates DICT type resolution", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -851,7 +865,7 @@ FUNC test(m: DICT[str, i32]) -> void {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates TUPLE type resolution", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates TUPLE type resolution", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -862,7 +876,7 @@ FUNC test(t: TUPLE[i32, f64]) -> void {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates OPTION type resolution", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates OPTION type resolution", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -873,7 +887,7 @@ FUNC test(x: OPTION[i32]) -> void {
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema validates CONVERT expression", "[ploy][sema][complex]") {
+TEST_CASE("Poly sema validates CONVERT expression", "[poly][sema][complex]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -889,7 +903,7 @@ FUNC test(x: i32) -> f64 {
 // Complex Type Extension - Lowering Tests
 // ============================================================================
 
-TEST_CASE("Ploy lowering generates list literal IR", "[ploy][lowering][complex]") {
+TEST_CASE("Poly lowering generates list literal IR", "[poly][lowering][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> void {
@@ -901,7 +915,7 @@ FUNC test() -> void {
     REQUIRE(ir.find("test") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates struct definition", "[ploy][lowering][complex]") {
+TEST_CASE("Poly lowering generates struct definition", "[poly][lowering][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 STRUCT Point {
@@ -917,7 +931,7 @@ FUNC make_point() -> void {
     REQUIRE(ir.find("make_point") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates MAP_FUNC conversion function", "[ploy][lowering][complex]") {
+TEST_CASE("Poly lowering generates MAP_FUNC conversion function", "[poly][lowering][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 MAP_FUNC identity(x: i32) -> i32 {
@@ -928,7 +942,7 @@ MAP_FUNC identity(x: i32) -> i32 {
     REQUIRE(ir.find("__ploy_mapfunc_identity") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates CONVERT call", "[ploy][lowering][complex]") {
+TEST_CASE("Poly lowering generates CONVERT call", "[poly][lowering][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test(x: i32) -> void {
@@ -944,7 +958,7 @@ FUNC test(x: i32) -> void {
 // Complex Type Extension - Integration Tests
 // ============================================================================
 
-TEST_CASE("Ploy complex type full pipeline: STRUCT + LINK + FUNC", "[ploy][integration][complex]") {
+TEST_CASE("Poly complex type full pipeline: STRUCT + LINK + FUNC", "[poly][integration][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, graphics::draw, numpy::make_point);
@@ -963,7 +977,7 @@ FUNC render() -> void {
     REQUIRE(ir.find("render") != std::string::npos);
 }
 
-TEST_CASE("Ploy complex type full pipeline: LIST + MAP_FUNC", "[ploy][integration][complex]") {
+TEST_CASE("Poly complex type full pipeline: LIST + MAP_FUNC", "[poly][integration][complex]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 MAP_FUNC to_list(x: i32) -> i32 {
@@ -984,7 +998,7 @@ FUNC process() -> void {
 // Package Import Tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer tokenizes PACKAGE keyword", "[ploy][lexer][package]") {
+TEST_CASE("Poly lexer tokenizes PACKAGE keyword", "[poly][lexer][package]") {
     auto tokens = Tokenize("IMPORT PACKAGE");
     size_t keyword_count = 0;
     for (const auto &t : tokens) {
@@ -993,7 +1007,7 @@ TEST_CASE("Ploy lexer tokenizes PACKAGE keyword", "[ploy][lexer][package]") {
     REQUIRE(keyword_count == 2);
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE declaration", "[ploy][parser][package]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE declaration", "[poly][parser][package]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy;
@@ -1008,7 +1022,7 @@ IMPORT python PACKAGE numpy;
     REQUIRE(import->module_path == "numpy");
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with alias", "[ploy][parser][package]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with alias", "[poly][parser][package]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy AS np;
@@ -1022,7 +1036,7 @@ IMPORT python PACKAGE numpy AS np;
     REQUIRE(import->alias == "np");
 }
 
-TEST_CASE("Ploy parser parses IMPORT qualified module", "[ploy][parser][package]") {
+TEST_CASE("Poly parser parses IMPORT qualified module", "[poly][parser][package]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT cpp::math_utils;
@@ -1035,7 +1049,7 @@ IMPORT cpp::math_utils;
     REQUIRE(import->module_path == "math_utils");
 }
 
-TEST_CASE("Ploy sema validates IMPORT PACKAGE", "[ploy][sema][package]") {
+TEST_CASE("Poly sema validates IMPORT PACKAGE", "[poly][sema][package]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1048,7 +1062,7 @@ IMPORT python PACKAGE numpy AS np;
     REQUIRE(it->second.language == "python");
 }
 
-TEST_CASE("Ploy sema rejects invalid language in IMPORT PACKAGE", "[ploy][sema][package]") {
+TEST_CASE("Poly sema rejects invalid language in IMPORT PACKAGE", "[poly][sema][package]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1058,7 +1072,7 @@ IMPORT cobol PACKAGE legacy.system;
     REQUIRE(!ok);
 }
 
-TEST_CASE("Ploy lowering generates IMPORT PACKAGE global", "[ploy][lowering][package]") {
+TEST_CASE("Poly lowering generates IMPORT PACKAGE global", "[poly][lowering][package]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE numpy AS np;
@@ -1069,15 +1083,55 @@ FUNC test() -> void {
     REQUIRE(!ir.empty());
 }
 
+TEST_CASE("Poly import aliases preserve the historical module ABI token",
+          "[poly][lowering][compat][abi]") {
+    for (const std::string language : {"poly", "ploy", "PloY", "POLY"}) {
+        DYNAMIC_SECTION(language) {
+            Diagnostics diags;
+            auto module = Parse(
+                "IMPORT poly::helpers;\n"
+                "FUNC main() -> i32 { RETURN 0; }\n",
+                diags);
+            REQUIRE(module);
+            REQUIRE_FALSE(diags.HasErrors());
+
+            PloySema sema(diags, PloySemaOptions{});
+            REQUIRE(sema.Analyze(module));
+
+            // Exercise the lowering API boundary directly: embedders can
+            // construct or mutate an AST without going back through parser
+            // and semantic identifier normalization.
+            auto import = std::dynamic_pointer_cast<ImportDecl>(
+                module->declarations.front());
+            REQUIRE(import);
+            import->language = language;
+
+            IRContext ctx;
+            PloyLowering lowering(ctx, diags, sema);
+            REQUIRE(lowering.Lower(module));
+
+            bool found_legacy_abi_symbol = false;
+            bool found_canonicalized_abi_symbol = false;
+            for (const auto &global : ctx.Globals()) {
+                REQUIRE(global);
+                found_legacy_abi_symbol |= global->name == "__ploy_module_ploy_helpers";
+                found_canonicalized_abi_symbol |= global->name == "__ploy_module_poly_helpers";
+            }
+            CHECK(found_legacy_abi_symbol);
+            CHECK_FALSE(found_canonicalized_abi_symbol);
+        }
+    }
+}
+
 // ============================================================================
 // Unified Syntax Validation Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser enforces semicolons on LINK", "[ploy][parser][syntax]") {
+TEST_CASE("Poly parser enforces semicolons on LINK", "[poly][parser][syntax]") {
     Diagnostics diags;
     // NOTE: the symbol after the qualifier is named 'getter' rather than
     // 'get' because GET is a reserved keyword (case-insensitive recognition
-    // since Ploy 1.5.2).
+    // since Poly 1.5.2).
     auto module = Parse(R"(
 LINK(cpp, python, math::add, utils::getter);
 )", diags);
@@ -1085,7 +1139,7 @@ LINK(cpp, python, math::add, utils::getter);
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser enforces semicolons on MAP_TYPE", "[ploy][parser][syntax]") {
+TEST_CASE("Poly parser enforces semicolons on MAP_TYPE", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 MAP_TYPE(cpp::int, python::int);
@@ -1094,7 +1148,7 @@ MAP_TYPE(cpp::int, python::int);
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser enforces semicolons on IMPORT", "[ploy][parser][syntax]") {
+TEST_CASE("Poly parser enforces semicolons on IMPORT", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT cpp::math;
@@ -1103,7 +1157,7 @@ IMPORT cpp::math;
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser enforces semicolons on EXPORT", "[ploy][parser][syntax]") {
+TEST_CASE("Poly parser enforces semicolons on EXPORT", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC f() -> void { RETURN; }
@@ -1113,7 +1167,7 @@ EXPORT f;
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser enforces semicolons on statements", "[ploy][parser][syntax]") {
+TEST_CASE("Poly parser enforces semicolons on statements", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC test() -> i32 {
@@ -1127,7 +1181,7 @@ FUNC test() -> i32 {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy LINK with body does not require semicolons", "[ploy][parser][syntax]") {
+TEST_CASE("Poly LINK with body does not require semicolons", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LINK(cpp, python, math::process, data::load) {
@@ -1141,7 +1195,7 @@ LINK(cpp, python, math::process, data::load) {
     REQUIRE(link->body.size() == 1);
 }
 
-TEST_CASE("Ploy LINK AS VAR and AS STRUCT", "[ploy][parser][syntax]") {
+TEST_CASE("Poly LINK AS VAR and AS STRUCT", "[poly][parser][syntax]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LINK(cpp, python, config_data, py_config) AS VAR;
@@ -1162,7 +1216,7 @@ LINK(cpp, rust, Point, RustPoint) AS STRUCT {
 // Version Constraint Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with version constraint >=", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with version constraint >=", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy >= 1.20;
@@ -1177,7 +1231,7 @@ IMPORT python PACKAGE numpy >= 1.20;
     REQUIRE(import->version_constraint == "1.20");
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with version constraint ==", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with version constraint ==", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE torch == 2.0.0;
@@ -1191,7 +1245,7 @@ IMPORT python PACKAGE torch == 2.0.0;
     REQUIRE(import->version_constraint == "2.0.0");
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with version and alias", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with version and alias", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy >= 1.20 AS np;
@@ -1206,7 +1260,7 @@ IMPORT python PACKAGE numpy >= 1.20 AS np;
     REQUIRE(import->alias == "np");
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with version <=", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with version <=", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE scipy <= 1.10.0;
@@ -1219,7 +1273,7 @@ IMPORT python PACKAGE scipy <= 1.10.0;
     REQUIRE(import->version_constraint == "1.10.0");
 }
 
-TEST_CASE("Ploy parser parses IMPORT PACKAGE with version ~=", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses IMPORT PACKAGE with version ~=", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE flask ~= 2.3;
@@ -1232,7 +1286,7 @@ IMPORT python PACKAGE flask ~= 2.3;
     REQUIRE(import->version_constraint == "2.3");
 }
 
-TEST_CASE("Ploy sema validates version constraint format", "[ploy][sema][version]") {
+TEST_CASE("Poly sema validates version constraint format", "[poly][sema][version]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1241,7 +1295,7 @@ IMPORT python PACKAGE numpy >= 1.20;
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema rejects invalid version operator on non-package import", "[ploy][sema][version]") {
+TEST_CASE("Poly sema rejects invalid version operator on non-package import", "[poly][sema][version]") {
     // version_op can only be set via PACKAGE imports,
     // so any well-formed PACKAGE import with a valid version should pass
     Diagnostics diags;
@@ -1252,7 +1306,7 @@ IMPORT python PACKAGE pandas >= 1.5.0;
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy lowering generates version constraint metadata", "[ploy][lowering][version]") {
+TEST_CASE("Poly lowering generates version constraint metadata", "[poly][lowering][version]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE numpy >= 1.20;
@@ -1267,7 +1321,7 @@ FUNC test() -> void {
 // Selective Import Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser parses selective import", "[ploy][parser][selective]") {
+TEST_CASE("Poly parser parses selective import", "[poly][parser][selective]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy::(np_array, mean, std);
@@ -1284,7 +1338,7 @@ IMPORT python PACKAGE numpy::(np_array, mean, std);
     REQUIRE(import->selected_symbols[2] == "std");
 }
 
-TEST_CASE("Ploy parser parses selective import with single symbol", "[ploy][parser][selective]") {
+TEST_CASE("Poly parser parses selective import with single symbol", "[poly][parser][selective]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE os::(path);
@@ -1297,7 +1351,7 @@ IMPORT python PACKAGE os::(path);
     REQUIRE(import->selected_symbols[0] == "path");
 }
 
-TEST_CASE("Ploy parser parses selective import with version", "[ploy][parser][selective]") {
+TEST_CASE("Poly parser parses selective import with version", "[poly][parser][selective]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy::(np_array, mean) >= 1.20;
@@ -1311,7 +1365,7 @@ IMPORT python PACKAGE numpy::(np_array, mean) >= 1.20;
     REQUIRE(import->version_constraint == "1.20");
 }
 
-TEST_CASE("Ploy parser parses selective import with alias", "[ploy][parser][selective]") {
+TEST_CASE("Poly parser parses selective import with alias", "[poly][parser][selective]") {
     // Parser accepts this syntax, but sema will reject it
     Diagnostics diags;
     auto module = Parse(R"(
@@ -1325,7 +1379,7 @@ IMPORT python PACKAGE numpy::(np_array, mean) AS np;
     REQUIRE(import->alias == "np");
 }
 
-TEST_CASE("Ploy sema rejects selective import with alias", "[ploy][sema][selective]") {
+TEST_CASE("Poly sema rejects selective import with alias", "[poly][sema][selective]") {
     // Selective import + AS alias is ambiguous and must be rejected
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
@@ -1335,7 +1389,7 @@ IMPORT python PACKAGE numpy::(np_array, mean) AS np;
     REQUIRE(!ok);
 }
 
-TEST_CASE("Ploy sema validates selective import", "[ploy][sema][selective]") {
+TEST_CASE("Poly sema validates selective import", "[poly][sema][selective]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1352,7 +1406,7 @@ IMPORT python PACKAGE numpy::(np_array, mean);
     REQUIRE(it_numpy != sema.Symbols().end());
 }
 
-TEST_CASE("Ploy sema rejects duplicate symbols in selective import", "[ploy][sema][selective]") {
+TEST_CASE("Poly sema rejects duplicate symbols in selective import", "[poly][sema][selective]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1364,7 +1418,7 @@ IMPORT python PACKAGE numpy::(np_array, np_array);
     REQUIRE(!ok);
 }
 
-TEST_CASE("Ploy lowering generates selective import metadata", "[ploy][lowering][selective]") {
+TEST_CASE("Poly lowering generates selective import metadata", "[poly][lowering][selective]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE numpy::(np_array, mean);
@@ -1379,7 +1433,7 @@ FUNC test() -> void {
 // CONFIG VENV Tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer tokenizes CONFIG and VENV keywords", "[ploy][lexer][venv]") {
+TEST_CASE("Poly lexer tokenizes CONFIG and VENV keywords", "[poly][lexer][venv]") {
     auto tokens = Tokenize("CONFIG VENV");
     size_t keyword_count = 0;
     for (const auto &t : tokens) {
@@ -1388,7 +1442,7 @@ TEST_CASE("Ploy lexer tokenizes CONFIG and VENV keywords", "[ploy][lexer][venv]"
     REQUIRE(keyword_count == 2);
 }
 
-TEST_CASE("Ploy parser parses CONFIG VENV declaration", "[ploy][parser][venv]") {
+TEST_CASE("Poly parser parses CONFIG VENV declaration", "[poly][parser][venv]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG VENV python "C:/Users/me/venvs/myenv";
@@ -1402,7 +1456,7 @@ CONFIG VENV python "C:/Users/me/venvs/myenv";
     REQUIRE(venv->venv_path == "C:/Users/me/venvs/myenv");
 }
 
-TEST_CASE("Ploy parser parses CONFIG VENV without language", "[ploy][parser][venv]") {
+TEST_CASE("Poly parser parses CONFIG VENV without language", "[poly][parser][venv]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG VENV "/home/user/.virtualenvs/ml";
@@ -1415,7 +1469,7 @@ CONFIG VENV "/home/user/.virtualenvs/ml";
     REQUIRE(venv->venv_path == "/home/user/.virtualenvs/ml");
 }
 
-TEST_CASE("Ploy sema validates CONFIG VENV", "[ploy][sema][venv]") {
+TEST_CASE("Poly sema validates CONFIG VENV", "[poly][sema][venv]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1428,7 +1482,7 @@ IMPORT python PACKAGE numpy;
     REQUIRE(sema.VenvConfigs()[0].venv_path == "C:/envs/myenv");
 }
 
-TEST_CASE("Ploy sema rejects duplicate CONFIG VENV", "[ploy][sema][venv]") {
+TEST_CASE("Poly sema rejects duplicate CONFIG VENV", "[poly][sema][venv]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1438,7 +1492,7 @@ CONFIG VENV python "C:/envs/env2";
     REQUIRE(!ok);  // duplicate venv config for same language
 }
 
-TEST_CASE("Ploy sema rejects CONFIG VENV with invalid language", "[ploy][sema][venv]") {
+TEST_CASE("Poly sema rejects CONFIG VENV with invalid language", "[poly][sema][venv]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1451,7 +1505,7 @@ CONFIG VENV cobol "/opt/legacy";
 // Complex Import Combinations
 // ============================================================================
 
-TEST_CASE("Ploy parser parses dotted package with selective import", "[ploy][parser][package]") {
+TEST_CASE("Poly parser parses dotted package with selective import", "[poly][parser][package]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy.linalg::(solve, inv);
@@ -1466,7 +1520,7 @@ IMPORT python PACKAGE numpy.linalg::(solve, inv);
     REQUIRE(import->selected_symbols[1] == "inv");
 }
 
-TEST_CASE("Ploy full pipeline: VENV + versioned import + selective", "[ploy][integration][package]") {
+TEST_CASE("Poly full pipeline: VENV + versioned import + selective", "[poly][integration][package]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG VENV python "C:/envs/ml";
@@ -1481,7 +1535,7 @@ FUNC compute() -> void {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy parser parses multiple versioned imports", "[ploy][parser][version]") {
+TEST_CASE("Poly parser parses multiple versioned imports", "[poly][parser][version]") {
     Diagnostics diags;
     auto module = Parse(R"(
 IMPORT python PACKAGE numpy >= 1.20;
@@ -1514,7 +1568,7 @@ IMPORT rust PACKAGE serde >= 1.0;
 // Package Import with LINK Integration
 // ============================================================================
 
-TEST_CASE("Ploy versioned import with LINK and PIPELINE", "[ploy][integration][version]") {
+TEST_CASE("Poly versioned import with LINK and PIPELINE", "[poly][integration][version]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE numpy >= 1.20 AS np;
@@ -1537,7 +1591,7 @@ PIPELINE analysis {
 // Multi Package Manager Tests (CONFIG CONDA / UV / PIPENV / POETRY)
 // ============================================================================
 
-TEST_CASE("Ploy lexer tokenizes new package manager keywords", "[ploy][lexer][pkgmgr]") {
+TEST_CASE("Poly lexer tokenizes new package manager keywords", "[poly][lexer][pkgmgr]") {
     auto tokens = Tokenize("CONFIG CONDA UV PIPENV POETRY VENV");
     size_t keyword_count = 0;
     for (const auto &t : tokens) {
@@ -1546,7 +1600,7 @@ TEST_CASE("Ploy lexer tokenizes new package manager keywords", "[ploy][lexer][pk
     REQUIRE(keyword_count == 6);
 }
 
-TEST_CASE("Ploy parser parses CONFIG CONDA declaration", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses CONFIG CONDA declaration", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG CONDA python "ml_env";
@@ -1561,7 +1615,7 @@ CONFIG CONDA python "ml_env";
     REQUIRE(venv->venv_path == "ml_env");
 }
 
-TEST_CASE("Ploy parser parses CONFIG CONDA without language", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses CONFIG CONDA without language", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG CONDA "data_science";
@@ -1575,7 +1629,7 @@ CONFIG CONDA "data_science";
     REQUIRE(venv->venv_path == "data_science");
 }
 
-TEST_CASE("Ploy parser parses CONFIG UV declaration", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses CONFIG UV declaration", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG UV python "D:/venvs/uv_env";
@@ -1589,7 +1643,7 @@ CONFIG UV python "D:/venvs/uv_env";
     REQUIRE(venv->venv_path == "D:/venvs/uv_env");
 }
 
-TEST_CASE("Ploy parser parses CONFIG PIPENV declaration", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses CONFIG PIPENV declaration", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG PIPENV python "C:/projects/myapp";
@@ -1603,7 +1657,7 @@ CONFIG PIPENV python "C:/projects/myapp";
     REQUIRE(venv->venv_path == "C:/projects/myapp");
 }
 
-TEST_CASE("Ploy parser parses CONFIG POETRY declaration", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses CONFIG POETRY declaration", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG POETRY "C:/projects/poetry_app";
@@ -1617,7 +1671,7 @@ CONFIG POETRY "C:/projects/poetry_app";
     REQUIRE(venv->venv_path == "C:/projects/poetry_app");
 }
 
-TEST_CASE("Ploy sema validates CONFIG CONDA", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema validates CONFIG CONDA", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1631,7 +1685,7 @@ IMPORT python PACKAGE numpy;
     REQUIRE(sema.VenvConfigs()[0].venv_path == "ml_env");
 }
 
-TEST_CASE("Ploy sema validates CONFIG UV", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema validates CONFIG UV", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1643,7 +1697,7 @@ IMPORT python PACKAGE requests;
     REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kUv);
 }
 
-TEST_CASE("Ploy sema validates CONFIG PIPENV", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema validates CONFIG PIPENV", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1655,7 +1709,7 @@ IMPORT python PACKAGE flask;
     REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kPipenv);
 }
 
-TEST_CASE("Ploy sema validates CONFIG POETRY", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema validates CONFIG POETRY", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1667,7 +1721,7 @@ IMPORT python PACKAGE django;
     REQUIRE(sema.VenvConfigs()[0].manager == VenvConfigDecl::ManagerKind::kPoetry);
 }
 
-TEST_CASE("Ploy sema rejects duplicate CONFIG for same language", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema rejects duplicate CONFIG for same language", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1677,7 +1731,7 @@ CONFIG UV python "env2";
     REQUIRE(!ok);  // duplicate config for language python
 }
 
-TEST_CASE("Ploy sema rejects CONFIG CONDA with invalid language", "[ploy][sema][pkgmgr]") {
+TEST_CASE("Poly sema rejects CONFIG CONDA with invalid language", "[poly][sema][pkgmgr]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1686,7 +1740,7 @@ CONFIG CONDA cobol "legacy_env";
     REQUIRE(!ok);  // cobol is not a supported language
 }
 
-TEST_CASE("Ploy lowering handles CONFIG CONDA correctly", "[ploy][lowering][pkgmgr]") {
+TEST_CASE("Poly lowering handles CONFIG CONDA correctly", "[poly][lowering][pkgmgr]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG CONDA python "ml_env";
@@ -1700,7 +1754,7 @@ FUNC compute() -> void {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy lowering handles CONFIG UV correctly", "[ploy][lowering][pkgmgr]") {
+TEST_CASE("Poly lowering handles CONFIG UV correctly", "[poly][lowering][pkgmgr]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG UV python "D:/venvs/uv_env";
@@ -1714,7 +1768,7 @@ FUNC train() -> void {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy parser parses mixed configs and imports", "[ploy][parser][pkgmgr]") {
+TEST_CASE("Poly parser parses mixed configs and imports", "[poly][parser][pkgmgr]") {
     Diagnostics diags;
     auto module = Parse(R"(
 CONFIG CONDA python "ml_env";
@@ -1737,7 +1791,7 @@ IMPORT rust PACKAGE serde >= 1.0;
     REQUIRE(np_import->version_constraint == "1.20");
 }
 
-TEST_CASE("Ploy full pipeline: CONDA + versioned imports + selective", "[ploy][integration][pkgmgr]") {
+TEST_CASE("Poly full pipeline: CONDA + versioned imports + selective", "[poly][integration][pkgmgr]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG CONDA python "data_science";
@@ -1758,7 +1812,7 @@ PIPELINE analysis {
     REQUIRE(ir.find("__ploy_pipeline_analysis") != std::string::npos);
 }
 
-TEST_CASE("Ploy full pipeline: POETRY + multiple packages", "[ploy][integration][pkgmgr]") {
+TEST_CASE("Poly full pipeline: POETRY + multiple packages", "[poly][integration][pkgmgr]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG POETRY python "C:/my_project";
@@ -1781,21 +1835,21 @@ EXPORT serve AS "start_server";
 
 // -- Lexer tests --
 
-TEST_CASE("Ploy lexer tokenizes NEW keyword", "[ploy][lexer][class]") {
+TEST_CASE("Poly lexer tokenizes NEW keyword", "[poly][lexer][class]") {
     auto tokens = Tokenize("NEW");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].kind == TokenKind::kKeyword);
     CHECK(tokens[0].lexeme == "NEW");
 }
 
-TEST_CASE("Ploy lexer tokenizes METHOD keyword", "[ploy][lexer][class]") {
+TEST_CASE("Poly lexer tokenizes METHOD keyword", "[poly][lexer][class]") {
     auto tokens = Tokenize("METHOD");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].kind == TokenKind::kKeyword);
     CHECK(tokens[0].lexeme == "METHOD");
 }
 
-TEST_CASE("Ploy lexer tokenizes NEW and METHOD in context", "[ploy][lexer][class]") {
+TEST_CASE("Poly lexer tokenizes NEW and METHOD in context", "[poly][lexer][class]") {
     auto tokens = Tokenize("LET obj = NEW(python, MyClass, 42);");
     bool found_new = false;
     bool found_method = false;
@@ -1813,7 +1867,7 @@ TEST_CASE("Ploy lexer tokenizes NEW and METHOD in context", "[ploy][lexer][class
 
 // -- Parser tests --
 
-TEST_CASE("Ploy parser parses NEW expression", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses NEW expression", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET model = NEW(python, torch::nn::Linear, 784, 10);
@@ -1833,7 +1887,7 @@ LET model = NEW(python, torch::nn::Linear, 784, 10);
     CHECK(new_expr->args.size() == 2);
 }
 
-TEST_CASE("Ploy parser parses NEW with no args", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses NEW with no args", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET obj = NEW(python, MyClass);
@@ -1851,7 +1905,7 @@ LET obj = NEW(python, MyClass);
     CHECK(new_expr->args.empty());
 }
 
-TEST_CASE("Ploy parser parses NEW with string args", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses NEW with string args", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET conn = NEW(python, sqlite3::Connection, "database.db");
@@ -1868,7 +1922,7 @@ LET conn = NEW(python, sqlite3::Connection, "database.db");
     CHECK(new_expr->args.size() == 1);
 }
 
-TEST_CASE("Ploy parser parses METHOD expression", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses METHOD expression", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET model = NEW(python, Model);
@@ -1893,7 +1947,7 @@ LET output = METHOD(python, model, forward, data);
     CHECK(obj_id->name == "model");
 }
 
-TEST_CASE("Ploy parser parses METHOD with no extra args", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses METHOD with no extra args", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET obj = NEW(python, Tokenizer);
@@ -1911,7 +1965,7 @@ LET text = METHOD(python, obj, get_vocab);
     CHECK(method->args.empty());
 }
 
-TEST_CASE("Ploy parser parses METHOD with qualified method name", "[ploy][parser][class]") {
+TEST_CASE("Poly parser parses METHOD with qualified method name", "[poly][parser][class]") {
     Diagnostics diags;
     auto module = Parse(R"(
 LET obj = NEW(python, Module);
@@ -1929,7 +1983,7 @@ LET val = METHOD(python, obj, utils::serialize, data);
 
 // -- Sema tests --
 
-TEST_CASE("Ploy sema validates NEW expression", "[ploy][sema][class]") {
+TEST_CASE("Poly sema validates NEW expression", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1939,7 +1993,7 @@ LET model = NEW(python, torch::nn::Linear, 784, 10);
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema rejects NEW with invalid language", "[ploy][sema][class]") {
+TEST_CASE("Poly sema rejects NEW with invalid language", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1948,7 +2002,7 @@ LET obj = NEW(cobol, SomeClass);
     REQUIRE(!ok);
 }
 
-TEST_CASE("Ploy sema validates METHOD expression", "[ploy][sema][class]") {
+TEST_CASE("Poly sema validates METHOD expression", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1961,7 +2015,7 @@ LET output = METHOD(python, model, forward, data);
     REQUIRE(!ok); // 'data' is undefined
 }
 
-TEST_CASE("Ploy sema validates METHOD with defined args", "[ploy][sema][class]") {
+TEST_CASE("Poly sema validates METHOD with defined args", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1973,7 +2027,7 @@ LET result = METHOD(python, model, predict, input);
     REQUIRE(ok);
 }
 
-TEST_CASE("Ploy sema rejects METHOD with invalid language", "[ploy][sema][class]") {
+TEST_CASE("Poly sema rejects METHOD with invalid language", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -1985,7 +2039,7 @@ LET result = METHOD(kotlin, obj, run);
 
 // -- Lowering tests --
 
-TEST_CASE("Ploy lowering generates NEW constructor stub", "[ploy][lowering][class]") {
+TEST_CASE("Poly lowering generates NEW constructor stub", "[poly][lowering][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE torch;
@@ -2000,7 +2054,7 @@ FUNC create_model() -> INT {
     CHECK(ir.find("__ploy_bridge") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates METHOD call stub", "[ploy][lowering][class]") {
+TEST_CASE("Poly lowering generates METHOD call stub", "[poly][lowering][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE torch;
@@ -2017,7 +2071,7 @@ FUNC run_model() -> INT {
     CHECK(ir.find("__ploy_bridge") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering generates correct call descriptor for NEW", "[ploy][lowering][class]") {
+TEST_CASE("Poly lowering generates correct call descriptor for NEW", "[poly][lowering][class]") {
     Diagnostics diags;
     PloyLexer lexer(R"(
 IMPORT python PACKAGE sklearn;
@@ -2051,7 +2105,7 @@ FUNC build() -> INT {
     CHECK(found_ctor);
 }
 
-TEST_CASE("Ploy lowering generates correct call descriptor for METHOD", "[ploy][lowering][class]") {
+TEST_CASE("Poly lowering generates correct call descriptor for METHOD", "[poly][lowering][class]") {
     Diagnostics diags;
     PloyLexer lexer(R"(
 IMPORT python PACKAGE torch;
@@ -2091,7 +2145,7 @@ FUNC infer() -> INT {
 
 // -- Integration tests --
 
-TEST_CASE("Ploy full pipeline: NEW + METHOD + LINK", "[ploy][integration][class]") {
+TEST_CASE("Poly full pipeline: NEW + METHOD + LINK", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE torch;
@@ -2112,7 +2166,7 @@ FUNC inference_pipeline() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy full pipeline: multiple NEW + METHOD chain", "[ploy][integration][class]") {
+TEST_CASE("Poly full pipeline: multiple NEW + METHOD chain", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE sklearn;
@@ -2130,7 +2184,7 @@ FUNC ml_pipeline() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy full pipeline: NEW inside PIPELINE", "[ploy][integration][class]") {
+TEST_CASE("Poly full pipeline: NEW inside PIPELINE", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE torch;
@@ -2145,7 +2199,7 @@ PIPELINE ml_pipeline {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy full pipeline: NEW with Rust classes", "[ploy][integration][class]") {
+TEST_CASE("Poly full pipeline: NEW with Rust classes", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT rust PACKAGE tokio;
@@ -2163,28 +2217,28 @@ FUNC async_io() -> INT {
 // GET / SET / WITH - Lexer Tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer: GET keyword recognised", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: GET keyword recognised", "[poly][lexer]") {
     auto tokens = Tokenize("GET");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].kind == TokenKind::kKeyword);
     CHECK(tokens[0].lexeme == "GET");
 }
 
-TEST_CASE("Ploy lexer: SET keyword recognised", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: SET keyword recognised", "[poly][lexer]") {
     auto tokens = Tokenize("SET");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].kind == TokenKind::kKeyword);
     CHECK(tokens[0].lexeme == "SET");
 }
 
-TEST_CASE("Ploy lexer: WITH keyword recognised", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: WITH keyword recognised", "[poly][lexer]") {
     auto tokens = Tokenize("WITH");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].kind == TokenKind::kKeyword);
     CHECK(tokens[0].lexeme == "WITH");
 }
 
-TEST_CASE("Ploy lexer: GET SET WITH in context", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: GET SET WITH in context", "[poly][lexer]") {
     auto tokens = Tokenize("GET(python, obj, attr); SET(python, obj, x, 42); WITH(python, res) AS r {}");
     int get_count = 0, set_count = 0, with_count = 0;
     for (const auto &t : tokens) {
@@ -2201,7 +2255,7 @@ TEST_CASE("Ploy lexer: GET SET WITH in context", "[ploy][lexer]") {
 // GET / SET - Parser Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser: GET attribute expression", "[ploy][parser]") {
+TEST_CASE("Poly parser: GET attribute expression", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2223,7 +2277,7 @@ FUNC test() -> INT {
     CHECK(get->attr_name == "my_attr");
 }
 
-TEST_CASE("Ploy parser: SET attribute expression", "[ploy][parser]") {
+TEST_CASE("Poly parser: SET attribute expression", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2245,7 +2299,7 @@ FUNC test() -> INT {
     CHECK(set_expr->attr_name == "x");
 }
 
-TEST_CASE("Ploy parser: GET with qualified object", "[ploy][parser]") {
+TEST_CASE("Poly parser: GET with qualified object", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2257,7 +2311,7 @@ FUNC test() -> INT {
     REQUIRE(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser: SET with expression value", "[ploy][parser]") {
+TEST_CASE("Poly parser: SET with expression value", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2273,7 +2327,7 @@ FUNC test() -> INT {
 // WITH Statement - Parser Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser: WITH statement basic", "[ploy][parser]") {
+TEST_CASE("Poly parser: WITH statement basic", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2295,7 +2349,7 @@ FUNC test() -> INT {
     REQUIRE(with_stmt->body.size() == 1);
 }
 
-TEST_CASE("Ploy parser: WITH with multiple statements", "[ploy][parser]") {
+TEST_CASE("Poly parser: WITH with multiple statements", "[poly][parser]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2319,7 +2373,7 @@ FUNC test() -> INT {
 // GET / SET - Sema Tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: GET valid language", "[ploy][sema]") {
+TEST_CASE("Poly sema: GET valid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2332,7 +2386,7 @@ FUNC test() -> INT {
     CHECK(ok);
 }
 
-TEST_CASE("Ploy sema: GET invalid language", "[ploy][sema]") {
+TEST_CASE("Poly sema: GET invalid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2345,7 +2399,7 @@ FUNC test() -> INT {
     CHECK(!ok);
 }
 
-TEST_CASE("Ploy sema: SET valid", "[ploy][sema]") {
+TEST_CASE("Poly sema: SET valid", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2358,7 +2412,7 @@ FUNC test() -> INT {
     CHECK(ok);
 }
 
-TEST_CASE("Ploy sema: SET invalid language", "[ploy][sema]") {
+TEST_CASE("Poly sema: SET invalid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2375,7 +2429,7 @@ FUNC test() -> INT {
 // WITH - Sema Tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: WITH valid", "[ploy][sema]") {
+TEST_CASE("Poly sema: WITH valid", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2389,7 +2443,7 @@ FUNC test() -> INT {
     CHECK(ok);
 }
 
-TEST_CASE("Ploy sema: WITH invalid language", "[ploy][sema]") {
+TEST_CASE("Poly sema: WITH invalid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2403,7 +2457,7 @@ FUNC test() -> INT {
     CHECK(!ok);
 }
 
-TEST_CASE("Ploy sema: WITH variable accessible in body", "[ploy][sema]") {
+TEST_CASE("Poly sema: WITH variable accessible in body", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2422,7 +2476,7 @@ FUNC test() -> INT {
 // GET / SET - Lowering Tests
 // ============================================================================
 
-TEST_CASE("Ploy lowering: GET generates getattr stub", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: GET generates getattr stub", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2435,7 +2489,7 @@ FUNC test() -> INT {
     CHECK(ir.find("__getattr__") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering: SET generates setattr stub", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: SET generates setattr stub", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2448,7 +2502,7 @@ FUNC test() -> INT {
     CHECK(ir.find("__setattr__") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering: GET descriptor recorded", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: GET descriptor recorded", "[poly][lowering]") {
     Diagnostics diags;
     auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
 FUNC test() -> INT {
@@ -2470,7 +2524,7 @@ FUNC test() -> INT {
     CHECK(found_getattr);
 }
 
-TEST_CASE("Ploy lowering: SET descriptor recorded", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: SET descriptor recorded", "[poly][lowering]") {
     Diagnostics diags;
     auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
 FUNC test() -> INT {
@@ -2496,7 +2550,7 @@ FUNC test() -> INT {
 // WITH - Lowering Tests
 // ============================================================================
 
-TEST_CASE("Ploy lowering: WITH generates enter/exit stubs", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: WITH generates enter/exit stubs", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2511,7 +2565,7 @@ FUNC test() -> INT {
     CHECK(ir.find("__exit__") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering: WITH descriptor records enter and exit", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: WITH descriptor records enter and exit", "[poly][lowering]") {
     Diagnostics diags;
     auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
 FUNC test() -> INT {
@@ -2536,7 +2590,7 @@ FUNC test() -> INT {
 // Type Annotation Tests
 // ============================================================================
 
-TEST_CASE("Ploy parser: qualified type annotation on NEW", "[ploy][parser][class]") {
+TEST_CASE("Poly parser: qualified type annotation on NEW", "[poly][parser][class]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 FUNC test() -> INT {
@@ -2556,7 +2610,7 @@ FUNC test() -> INT {
     CHECK(qt->type_name == "nn::Module");
 }
 
-TEST_CASE("Ploy sema: qualified type annotation with NEW accepted", "[ploy][sema][class]") {
+TEST_CASE("Poly sema: qualified type annotation with NEW accepted", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2573,7 +2627,7 @@ FUNC test() -> INT {
 // Interface Mapping Tests (MAP_TYPE with classes)
 // ============================================================================
 
-TEST_CASE("Ploy parser: MAP_TYPE for class interface", "[ploy][parser][class]") {
+TEST_CASE("Poly parser: MAP_TYPE for class interface", "[poly][parser][class]") {
     Diagnostics diags;
     auto mod = Parse(R"(
 MAP_TYPE(python::nn::Module, cpp::NeuralNet);
@@ -2586,7 +2640,7 @@ LINK(cpp, python, run_model, torch::forward) {
     REQUIRE(mod->declarations.size() >= 2);
 }
 
-TEST_CASE("Ploy sema: MAP_TYPE interface mapping valid", "[ploy][sema][class]") {
+TEST_CASE("Poly sema: MAP_TYPE interface mapping valid", "[poly][sema][class]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2599,7 +2653,7 @@ MAP_TYPE(python::nn::Module, cpp::NeuralNet);
 // Integration Tests - GET / SET / WITH combined
 // ============================================================================
 
-TEST_CASE("Ploy integration: GET + SET + METHOD combined", "[ploy][integration][class]") {
+TEST_CASE("Poly integration: GET + SET + METHOD combined", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2613,7 +2667,7 @@ FUNC test() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy integration: WITH + GET + SET pipeline", "[ploy][integration][class]") {
+TEST_CASE("Poly integration: WITH + GET + SET pipeline", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2627,7 +2681,7 @@ FUNC test() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy integration: mixed cross-lang class instantiation", "[ploy][integration][class]") {
+TEST_CASE("Poly integration: mixed cross-lang class instantiation", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE sklearn.preprocessing;
@@ -2644,9 +2698,9 @@ FUNC cross_lang_demo() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Ploy integration: WITH for database connection", "[ploy][integration][class]") {
+TEST_CASE("Poly integration: WITH for database connection", "[poly][integration][class]") {
     Diagnostics diags;
-    std::string ir = LowerAndGetIR(R"ploy(
+    std::string ir = LowerAndGetIR(R"poly(
 FUNC db_query() -> INT {
     WITH(python, NEW(python, sqlite3::connect, "app.db")) AS conn {
         LET cursor = METHOD(python, conn, cursor);
@@ -2655,7 +2709,7 @@ FUNC db_query() -> INT {
     }
     RETURN 0;
 }
-)ploy", diags);
+)poly", diags);
     REQUIRE(!ir.empty());
 }
 
@@ -2663,14 +2717,14 @@ FUNC db_query() -> INT {
 // DELETE keyword tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer: DELETE keyword", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: DELETE keyword", "[poly][lexer]") {
     auto tokens = Tokenize("DELETE(python, obj)");
     REQUIRE(tokens.size() >= 2);
     CHECK(tokens[0].lexeme == "DELETE");
     CHECK(tokens[0].kind == TokenKind::kKeyword);
 }
 
-TEST_CASE("Ploy parser: DELETE expression", "[ploy][parser]") {
+TEST_CASE("Poly parser: DELETE expression", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 FUNC cleanup() {
@@ -2682,7 +2736,7 @@ FUNC cleanup() {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: DELETE valid expression", "[ploy][sema]") {
+TEST_CASE("Poly sema: DELETE valid expression", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2695,7 +2749,7 @@ FUNC cleanup() {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: DELETE invalid language", "[ploy][sema]") {
+TEST_CASE("Poly sema: DELETE invalid language", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2708,7 +2762,7 @@ FUNC cleanup() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy lowering: DELETE generates cleanup call", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: DELETE generates cleanup call", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC cleanup() {
@@ -2720,7 +2774,7 @@ FUNC cleanup() {
     CHECK(ir.find("__ploy_py_del") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering: DELETE cpp generates cpp_delete call", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: DELETE cpp generates cpp_delete call", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC cleanup() {
@@ -2732,7 +2786,7 @@ FUNC cleanup() {
     CHECK(ir.find("__ploy_cpp_delete") != std::string::npos);
 }
 
-TEST_CASE("Ploy lowering: DELETE rust generates rust_drop call", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: DELETE rust generates rust_drop call", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC cleanup() {
@@ -2744,18 +2798,33 @@ FUNC cleanup() {
     CHECK(ir.find("__ploy_rust_drop") != std::string::npos);
 }
 
+TEST_CASE("Poly delete aliases preserve the historical cleanup ABI token",
+          "[poly][lowering][compat][abi]") {
+    for (const std::string language : {"poly", "ploy"}) {
+        DYNAMIC_SECTION(language) {
+            Diagnostics diags;
+            const std::string ir = LowerAndGetIR(
+                "FUNC cleanup() { LET obj = 0; DELETE(" + language + ", obj); }\n",
+                diags);
+            REQUIRE(!ir.empty());
+            CHECK(ir.find("__ploy_delete_ploy") != std::string::npos);
+            CHECK(ir.find("__ploy_delete_poly") == std::string::npos);
+        }
+    }
+}
+
 // ============================================================================
 // EXTEND keyword tests
 // ============================================================================
 
-TEST_CASE("Ploy lexer: EXTEND keyword", "[ploy][lexer]") {
+TEST_CASE("Poly lexer: EXTEND keyword", "[poly][lexer]") {
     auto tokens = Tokenize("EXTEND(python, Base) AS Derived");
     REQUIRE(tokens.size() >= 4);
     CHECK(tokens[0].lexeme == "EXTEND");
     CHECK(tokens[0].kind == TokenKind::kKeyword);
 }
 
-TEST_CASE("Ploy parser: EXTEND declaration", "[ploy][parser]") {
+TEST_CASE("Poly parser: EXTEND declaration", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 EXTEND(python, Animal) AS Dog {
@@ -2768,7 +2837,7 @@ EXTEND(python, Animal) AS Dog {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser: EXTEND with multiple methods", "[ploy][parser]") {
+TEST_CASE("Poly parser: EXTEND with multiple methods", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 EXTEND(cpp, Shape) AS Circle {
@@ -2784,7 +2853,7 @@ EXTEND(cpp, Shape) AS Circle {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy parser: EXTEND with qualified base class", "[ploy][parser]") {
+TEST_CASE("Poly parser: EXTEND with qualified base class", "[poly][parser]") {
     Diagnostics diags;
     auto module = Parse(R"(
 EXTEND(python, sklearn::base::BaseEstimator) AS CustomEstimator {
@@ -2797,7 +2866,7 @@ EXTEND(python, sklearn::base::BaseEstimator) AS CustomEstimator {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: EXTEND registers derived type", "[ploy][sema]") {
+TEST_CASE("Poly sema: EXTEND registers derived type", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2814,7 +2883,7 @@ EXTEND(python, Animal) AS Dog {
     CHECK(symbols.count("Dog") == 1);
 }
 
-TEST_CASE("Ploy sema: EXTEND invalid language error", "[ploy][sema]") {
+TEST_CASE("Poly sema: EXTEND invalid language error", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2825,7 +2894,7 @@ EXTEND(cobol, Base) AS Derived {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: EXTEND registers method signatures", "[ploy][sema]") {
+TEST_CASE("Poly sema: EXTEND registers method signatures", "[poly][sema]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2844,7 +2913,7 @@ EXTEND(python, Animal) AS Dog {
     }
 }
 
-TEST_CASE("Ploy lowering: EXTEND generates bridge functions", "[ploy][lowering]") {
+TEST_CASE("Poly lowering: EXTEND generates bridge functions", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 EXTEND(python, Animal) AS Dog {
@@ -2862,7 +2931,7 @@ EXTEND(python, Animal) AS Dog {
 // Parameter count mismatch error checking tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: param count mismatch in local function call", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: param count mismatch in local function call", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2877,7 +2946,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: param count mismatch too many args", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: param count mismatch too many args", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2892,7 +2961,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: param count correct passes", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: param count correct passes", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2911,7 +2980,7 @@ FUNC main() {
 // Type mismatch error checking tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: type mismatch in function call", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: type mismatch in function call", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2926,7 +2995,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: type mismatch multiple params", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: type mismatch multiple params", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2941,7 +3010,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: compatible types pass", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: compatible types pass", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -2960,7 +3029,7 @@ FUNC main() {
 // Error code and diagnostics tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: undefined variable produces error", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: undefined variable produces error", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2972,7 +3041,7 @@ FUNC main() {
     CHECK(diags.ErrorCount() >= 1);
 }
 
-TEST_CASE("Ploy sema: redefined symbol produces error", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: redefined symbol produces error", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2984,7 +3053,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: BREAK outside loop error", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: BREAK outside loop error", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -2995,7 +3064,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: CONTINUE outside loop error", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: CONTINUE outside loop error", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3006,7 +3075,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: immutable assignment error", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: immutable assignment error", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3018,7 +3087,7 @@ FUNC main() {
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: mutable assignment ok", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: mutable assignment ok", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -3035,27 +3104,27 @@ FUNC main() {
 // Diagnostics infrastructure tests
 // ============================================================================
 
-TEST_CASE("Diagnostics: error count tracking", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: error count tracking", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    polyglot::core::SourceLoc loc{"test.poly", 1, 1};
     diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "test error 1");
     diags.ReportError(loc, ErrorCode::kTypeMismatch, "test error 2");
     CHECK(diags.ErrorCount() == 2);
     CHECK(diags.HasErrors());
 }
 
-TEST_CASE("Diagnostics: warning count tracking", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: warning count tracking", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    polyglot::core::SourceLoc loc{"test.poly", 1, 1};
     diags.ReportWarning(loc, ErrorCode::kGenericWarning, "test warning");
     CHECK(diags.WarningCount() == 1);
     CHECK(diags.HasWarnings());
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Diagnostics: error with suggestion", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: error with suggestion", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc loc{"test.ploy", 1, 1};
+    polyglot::core::SourceLoc loc{"test.poly", 1, 1};
     diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "undefined 'x'", "did you mean 'y'?");
     CHECK(diags.ErrorCount() == 1);
     auto &all = diags.All();
@@ -3063,10 +3132,10 @@ TEST_CASE("Diagnostics: error with suggestion", "[ploy][diagnostics]") {
     CHECK(all[0].suggestion == "did you mean 'y'?");
 }
 
-TEST_CASE("Diagnostics: error with traceback", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: error with traceback", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc call_loc{"test.ploy", 10, 5};
-    polyglot::core::SourceLoc decl_loc{"test.ploy", 2, 1};
+    polyglot::core::SourceLoc call_loc{"test.poly", 10, 5};
+    polyglot::core::SourceLoc decl_loc{"test.poly", 2, 1};
 
     // Build related diagnostic for traceback chain
     polyglot::frontends::Diagnostic related_diag;
@@ -3084,20 +3153,20 @@ TEST_CASE("Diagnostics: error with traceback", "[ploy][diagnostics]") {
     CHECK(all[0].related[0].message == "function declared here");
 }
 
-TEST_CASE("Diagnostics: Format produces non-empty output", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: Format produces non-empty output", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc loc{"test.ploy", 5, 10};
+    polyglot::core::SourceLoc loc{"test.poly", 5, 10};
     diags.ReportError(loc, ErrorCode::kUndefinedSymbol, "undefined identifier 'foo'");
     std::string formatted = diags.Format(diags.All()[0]);
     CHECK(!formatted.empty());
-    CHECK(formatted.find("test.ploy") != std::string::npos);
+    CHECK(formatted.find("test.poly") != std::string::npos);
     CHECK(formatted.find("undefined identifier") != std::string::npos);
 }
 
-TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics]") {
+TEST_CASE("Diagnostics: FormatAll produces combined output", "[poly][diagnostics]") {
     Diagnostics diags;
-    polyglot::core::SourceLoc loc1{"a.ploy", 1, 1};
-    polyglot::core::SourceLoc loc2{"b.ploy", 2, 2};
+    polyglot::core::SourceLoc loc1{"a.poly", 1, 1};
+    polyglot::core::SourceLoc loc2{"b.poly", 2, 2};
     diags.ReportError(loc1, ErrorCode::kUndefinedSymbol, "error one");
     diags.ReportWarning(loc2, ErrorCode::kGenericWarning, "warning one");
     std::string formatted = diags.FormatAll();
@@ -3110,7 +3179,7 @@ TEST_CASE("Diagnostics: FormatAll produces combined output", "[ploy][diagnostics
 // Cross-language param count validation tests
 // ============================================================================
 
-TEST_CASE("Ploy sema: LINK MAP_TYPE entries are type mappings not arity", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: LINK MAP_TYPE entries are type mappings not arity", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -3129,7 +3198,7 @@ FUNC main() {
     CHECK_FALSE(diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema: LINK function correct arg count passes", "[ploy][sema][error-check]") {
+TEST_CASE("Poly sema: LINK function correct arg count passes", "[poly][sema][error-check]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -3146,7 +3215,7 @@ FUNC main() {
     CHECK(!diags.HasErrors());
 }
 
-TEST_CASE("Ploy sema strict: METHOD requires declared signature", "[ploy][sema][strict][abi]") {
+TEST_CASE("Poly sema strict: METHOD requires declared signature", "[poly][sema][strict][abi]") {
     Diagnostics diags;
     PloySemaOptions options;
     options.strict_mode = true;
@@ -3173,7 +3242,7 @@ FUNC main(model: python::Model) -> INT {
     CHECK(found_missing_signature);
 }
 
-TEST_CASE("Ploy sema strict: WITH requires 4-arg __exit__", "[ploy][sema][strict][with]") {
+TEST_CASE("Poly sema strict: WITH requires 4-arg __exit__", "[poly][sema][strict][with]") {
     Diagnostics diags;
     PloySemaOptions options;
     options.strict_mode = true;
@@ -3212,7 +3281,7 @@ FUNC main(cm: python::Ctx) {
 // DELETE + EXTEND combined integration test
 // ============================================================================
 
-TEST_CASE("Ploy integration: EXTEND and DELETE together", "[ploy][integration][class]") {
+TEST_CASE("Poly integration: EXTEND and DELETE together", "[poly][integration][class]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 EXTEND(python, Animal) AS Dog {
@@ -3289,7 +3358,7 @@ E2EFailureResult RunAndExpectFailure(const std::string &code,
 // ============================================================================
 
 TEST_CASE("E2E failure: too few args to local function produces error with count hint",
-          "[ploy][e2e][failure][param-count]") {
+          "[poly][e2e][failure][param-count]") {
     auto r = RunAndExpectFailure(R"(
 FUNC add(a: INT, b: INT) -> INT { RETURN a; }
 FUNC main() { LET x = add(1); }
@@ -3301,7 +3370,7 @@ FUNC main() { LET x = add(1); }
 }
 
 TEST_CASE("E2E failure: too many args to local function produces error",
-          "[ploy][e2e][failure][param-count]") {
+          "[poly][e2e][failure][param-count]") {
     auto r = RunAndExpectFailure(R"(
 FUNC greet(name: STRING) -> STRING { RETURN name; }
 FUNC main() { LET x = greet("a", "b", "c"); }
@@ -3312,7 +3381,7 @@ FUNC main() { LET x = greet("a", "b", "c"); }
 }
 
 TEST_CASE("E2E failure: zero-arg function called with args produces error",
-          "[ploy][e2e][failure][param-count]") {
+          "[poly][e2e][failure][param-count]") {
     auto r = RunAndExpectFailure(R"(
 FUNC no_args() -> INT { RETURN 0; }
 FUNC main() { LET x = no_args(42, 99); }
@@ -3323,7 +3392,7 @@ FUNC main() { LET x = no_args(42, 99); }
 }
 
 TEST_CASE("E2E failure: error count equals number of mismatched call sites",
-          "[ploy][e2e][failure][param-count]") {
+          "[poly][e2e][failure][param-count]") {
     // Two call sites with wrong arg counts - two separate diagnostics
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
@@ -3343,7 +3412,7 @@ FUNC main() {
 // ============================================================================
 
 TEST_CASE("E2E failure: passing STRING to INT parameter produces type-mismatch error",
-          "[ploy][e2e][failure][type-mismatch]") {
+          "[poly][e2e][failure][type-mismatch]") {
     auto r = RunAndExpectFailure(R"(
 FUNC process(value: INT) -> INT { RETURN value; }
 FUNC main() { LET x = process("not_a_number"); }
@@ -3354,7 +3423,7 @@ FUNC main() { LET x = process("not_a_number"); }
 }
 
 TEST_CASE("E2E failure: passing INT to STRING parameter produces type-mismatch error",
-          "[ploy][e2e][failure][type-mismatch]") {
+          "[poly][e2e][failure][type-mismatch]") {
     auto r = RunAndExpectFailure(R"(
 FUNC label(name: STRING) -> STRING { RETURN name; }
 FUNC main() { LET x = label(42); }
@@ -3365,7 +3434,7 @@ FUNC main() { LET x = label(42); }
 }
 
 TEST_CASE("E2E failure: type mismatch in second argument is caught",
-          "[ploy][e2e][failure][type-mismatch]") {
+          "[poly][e2e][failure][type-mismatch]") {
     auto r = RunAndExpectFailure(R"(
 FUNC compute(x: FLOAT, y: INT) -> FLOAT { RETURN x; }
 FUNC main() { LET r = compute(1.0, "oops"); }
@@ -3380,7 +3449,7 @@ FUNC main() { LET r = compute(1.0, "oops"); }
 // ============================================================================
 
 TEST_CASE("E2E failure: calling unregistered symbol produces undefined-symbol error",
-          "[ploy][e2e][failure][unregistered]") {
+          "[poly][e2e][failure][unregistered]") {
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
     LET result = no_such_function(1, 2);
@@ -3392,7 +3461,7 @@ FUNC main() {
 }
 
 TEST_CASE("E2E failure: reading unregistered variable produces error",
-          "[ploy][e2e][failure][unregistered]") {
+          "[poly][e2e][failure][unregistered]") {
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
     LET x = totally_unknown_var + 1;
@@ -3404,7 +3473,7 @@ FUNC main() {
 }
 
 TEST_CASE("E2E failure: CALL to unlinked cross-lang symbol produces error",
-          "[ploy][e2e][failure][unregistered]") {
+          "[poly][e2e][failure][unregistered]") {
     // math::add is never declared via LINK - must be rejected
     auto r = RunAndExpectFailure(R"(
 FUNC main() {
@@ -3418,7 +3487,7 @@ FUNC main() {
 }
 
 TEST_CASE("E2E failure: LINK to unsupported language is rejected with specific error",
-          "[ploy][e2e][failure][unregistered]") {
+          "[poly][e2e][failure][unregistered]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3441,7 +3510,7 @@ LINK(haskell, python, some::fn, py::fn);
 // ============================================================================
 
 TEST_CASE("E2E: LINK MAP_TYPE arity is not enforced by sema",
-          "[ploy][e2e][failure][abi]") {
+          "[poly][e2e][failure][abi]") {
     // MAP_TYPE entries declare type mappings, not parameter counts.
     // Calling with fewer args than MAP_TYPE entries should still pass sema.
     Diagnostics diags;
@@ -3459,7 +3528,7 @@ FUNC main() {
 }
 
 TEST_CASE("E2E failure: LINK MAP_TYPE correct arity passes",
-          "[ploy][e2e][failure][abi]") {
+          "[poly][e2e][failure][abi]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     bool ok = AnalyzeCode(R"(
@@ -3481,7 +3550,7 @@ FUNC main() {
 // ============================================================================
 
 TEST_CASE("E2E failure: kParamCountMismatch error code is emitted",
-          "[ploy][e2e][failure][error-code]") {
+          "[poly][e2e][failure][error-code]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3500,7 +3569,7 @@ FUNC main() { LET r = f(1); }
 }
 
 TEST_CASE("E2E failure: kTypeMismatch error code is emitted",
-          "[ploy][e2e][failure][error-code]") {
+          "[poly][e2e][failure][error-code]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3519,7 +3588,7 @@ FUNC main() { LET r = take_int("hello"); }
 }
 
 TEST_CASE("E2E failure: kUndefinedSymbol error code is emitted",
-          "[ploy][e2e][failure][error-code]") {
+          "[poly][e2e][failure][error-code]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3537,7 +3606,7 @@ FUNC main() { LET r = ghost_function(); }
 }
 
 TEST_CASE("E2E failure: diagnostic source location points to the offending call site",
-          "[ploy][e2e][failure][location]") {
+          "[poly][e2e][failure][location]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3557,7 +3626,7 @@ FUNC main() { LET r = f(1, 2); }
 }
 
 TEST_CASE("E2E failure: traceback points to function declaration when param count wrong",
-          "[ploy][e2e][failure][traceback]") {
+          "[poly][e2e][failure][traceback]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(
@@ -3578,7 +3647,7 @@ FUNC main() { LET r = multiply(5); }
 }
 
 TEST_CASE("E2E failure: formatted error message is non-empty and includes file name",
-          "[ploy][e2e][failure][format]") {
+          "[poly][e2e][failure][format]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
     (void)AnalyzeCode(R"(

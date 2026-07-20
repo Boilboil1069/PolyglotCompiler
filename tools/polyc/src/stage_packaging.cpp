@@ -287,7 +287,7 @@ std::vector<ImportedFunction> CollectImportedFunctions(const DriverSettings &set
       std::string language;
       std::string mangled;
       in >> name >> language >> mangled;
-      if (language == "ploy")
+      if (language == "poly")
         continue;
       const std::string module = SourceModuleFromSymbol(name);
       const std::string function = FunctionFromSymbol(name);
@@ -451,7 +451,7 @@ std::vector<std::string> BuildForeignInputs(const DriverSettings &settings,
                                             const std::string &stem, bool verbose,
                                             frontends::Diagnostics &diagnostics) {
   std::vector<std::string> inputs;
-  if (settings.language != "ploy" || bridge.descriptor_file.empty() || settings.mode != "link")
+  if (settings.language != "poly" || bridge.descriptor_file.empty() || settings.mode != "link")
     return inputs;
 
   const auto imports = CollectImportedFunctions(settings, bridge);
@@ -1432,7 +1432,7 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
   WriteAuxBinarySingle(aux_dir, stem + ".asm.paux", "assembly", backend.assembly_text, V);
 
   // ── Per-language bridge library emission ──────────────────────────────
-  if (!aux_dir.empty() && settings.language == "ploy") {
+  if (!aux_dir.empty() && settings.language == "poly") {
     std::unordered_map<std::string, std::vector<std::size_t>> lang_groups;
     for (std::size_t i = 0; i < symbols.size(); ++i) {
       const auto &name = symbols[i].name;
@@ -1528,7 +1528,7 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
 
     std::string out_exe = settings.output;
     std::string desc_arg =
-        bridge.descriptor_file.empty() ? std::string{} : " --ploy-desc " +
+        bridge.descriptor_file.empty() ? std::string{} : " --poly-desc " +
                                                              ShellQuoteArg(bridge.descriptor_file);
     std::string aux_arg = aux_dir.empty() ? std::string{} : " --aux-dir " + ShellQuoteArg(aux_dir);
 
@@ -1597,7 +1597,7 @@ PackagingResult RunPackagingStage(const DriverSettings &settings, const BackendR
           replace_all("{OUT}", ShellQuoteArg(out_exe));
           if (choice.display_name.rfind("polyld", 0) == 0) {
             if (!bridge.descriptor_file.empty())
-              cmd += " --ploy-desc " + ShellQuoteArg(bridge.descriptor_file);
+              cmd += " --poly-desc " + ShellQuoteArg(bridge.descriptor_file);
             if (!aux_dir.empty())
               cmd += " --aux-dir " + ShellQuoteArg(aux_dir);
           }

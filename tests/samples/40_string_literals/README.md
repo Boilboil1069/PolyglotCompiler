@@ -13,7 +13,7 @@ Demonstrates the four string literal forms shipped in v1.17.0.
 ## Build
 
 ```bash
-polyc string_literals.ploy -o string_literals
+polyc string_literals.poly -o string_literals
 ./string_literals
 ```
 

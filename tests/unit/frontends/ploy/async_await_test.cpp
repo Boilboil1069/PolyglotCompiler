@@ -55,7 +55,7 @@ AnalyzeResult Analyze(const std::string &code) {
 }  // namespace
 
 TEST_CASE("ASYNC FUNC parses and is marked async",
-          "[ploy][parser][sema][async]") {
+          "[poly][parser][sema][async]") {
     auto r = Analyze(
         "ASYNC FUNC fetch() -> i32 { RETURN 42; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -66,7 +66,7 @@ TEST_CASE("ASYNC FUNC parses and is marked async",
     CHECK(fn->is_async);
 }
 
-TEST_CASE("Plain FUNC stays non-async", "[ploy][parser][async]") {
+TEST_CASE("Plain FUNC stays non-async", "[poly][parser][async]") {
     auto r = Analyze("FUNC plain() -> i32 { RETURN 1; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);
@@ -75,7 +75,7 @@ TEST_CASE("Plain FUNC stays non-async", "[ploy][parser][async]") {
 }
 
 TEST_CASE("AWAIT inside ASYNC body parses and type-checks",
-          "[ploy][parser][sema][async][await]") {
+          "[poly][parser][sema][async][await]") {
     auto r = Analyze(
         "ASYNC FUNC outer() -> i32 { "
         "  LET v = AWAIT inner(); "
@@ -93,7 +93,7 @@ TEST_CASE("AWAIT inside ASYNC body parses and type-checks",
     REQUIRE(await);
 }
 
-TEST_CASE("AWAIT outside ASYNC is rejected", "[ploy][sema][async][await]") {
+TEST_CASE("AWAIT outside ASYNC is rejected", "[poly][sema][async][await]") {
     auto r = Analyze(
         "FUNC outer() { "
         "  LET v = AWAIT inner(); "
@@ -109,13 +109,13 @@ TEST_CASE("AWAIT outside ASYNC is rejected", "[ploy][sema][async][await]") {
     CHECK(found);
 }
 
-TEST_CASE("ASYNC keyword without FUNC is rejected", "[ploy][parser][async]") {
+TEST_CASE("ASYNC keyword without FUNC is rejected", "[poly][parser][async]") {
     auto r = Analyze("ASYNC LET x = 1;");
     REQUIRE(r.diags.HasErrors());
 }
 
 TEST_CASE("Nested AWAITs inside ASYNC body all parse",
-          "[ploy][parser][sema][async][await]") {
+          "[poly][parser][sema][async][await]") {
     auto r = Analyze(
         "ASYNC FUNC chained() -> i32 { "
         "  LET a = AWAIT first(); "

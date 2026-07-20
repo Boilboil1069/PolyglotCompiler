@@ -76,15 +76,15 @@
   "toolchains.js.default": "",
   "toolchains.ruby.default": "",
 
-  "ploy.strictMode": false,
-  "ploy.packageDiscoveryEnabled": true,
-  "ploy.langDirectiveAutoInfer": true,
+  "poly.strictMode": false,
+  "poly.packageDiscoveryEnabled": true,
+  "poly.langDirectiveAutoInfer": true,
 
   "languageServers.enabled": true,
   "languageServers.changeDebounceMs": 200,
   "languageServers.logCapacity": 2000,
   "languageServers.servers": {
-    "ploy": {
+    "poly": {
       "command": "polyls",
       "args": [],
       "env": {},
@@ -139,7 +139,8 @@
   "keybindings.workbench.action.debug.stop": "Shift+F5",
 
   "files.associations": {
-    "*.ploy": "ploy",
+    "*.poly": "poly",
+    "*.ploy": "poly",
     "*.md": "markdown",
     "*.markdown": "markdown"
   },

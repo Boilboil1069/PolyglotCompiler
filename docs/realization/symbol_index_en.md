@@ -14,7 +14,7 @@ workspace.
 * Sub-millisecond per-keystroke updates: the index relies on regex-free,
   single-pass scans tuned to the cross-language `LINK` / `IMPORT` /
   `EXPORT` vocabulary instead of running a full parser.
-* Cross-language `.ploy` ↔ host-language jumps for `cpp`, `python`,
+* Cross-language `.poly` ↔ host-language jumps for `cpp`, `python`,
   `rust`, `java`, and `dotnet`.
 * A self-describing JSON cache so an editor restart finds an already-
   populated workspace immediately.
@@ -23,10 +23,10 @@ workspace.
 
 | Source           | Entity captured                                           |
 |------------------|-----------------------------------------------------------|
-| `.ploy`          | `FUNC`, `PIPELINE`, `STRUCT`, `LET`/`VAR` bindings        |
-| `.ploy`          | `IMPORT lang::module` and `IMPORT lang PACKAGE pkg`       |
-| `.ploy`          | `LINK target_lang::… AS …` and tuple `LINK(target,…)`     |
-| `.ploy`          | `EXPORT name AS lang::func`                               |
+| `.poly`          | `FUNC`, `PIPELINE`, `STRUCT`, `LET`/`VAR` bindings        |
+| `.poly`          | `IMPORT lang::module` and `IMPORT lang PACKAGE pkg`       |
+| `.poly`          | `LINK target_lang::… AS …` and tuple `LINK(target,…)`     |
+| `.poly`          | `EXPORT name AS lang::func`                               |
 | C++              | `namespace`-qualified classes / structs and free functions |
 | Python           | `def name`, `class Name`                                  |
 | Rust             | `fn`, `struct`, `enum`, `trait`, `impl` (incl. `pub`)     |
@@ -51,17 +51,17 @@ language keywords never count as references.
 
 `SymbolIndex::CrossLanguageTarget(lang, qualified)` looks up the host
 language's `kForeignFunction` / `kForeignClass` entries by either the
-fully-qualified name or its bare last component (so a `.ploy`
+fully-qualified name or its bare last component (so a `.poly`
 declaration `LINK cpp::image_processor::enhance` can find a top-level
 `void enhance(...)` defined without an enclosing namespace in the C++
 file).
 
 `CrossLanguageBackrefs(lang, qualified)` performs the reverse lookup:
-given a host-language symbol, return every `.ploy` `LINK` site whose
+given a host-language symbol, return every `.poly` `LINK` site whose
 `link_target_language` and `link_target_qualified` match.  This is what
 powers a `references` query issued from inside a host-language file: in
 addition to the host-language uses, the response includes every
-`.ploy` LINK that imports the symbol.
+`.poly` LINK that imports the symbol.
 
 ## Server wiring
 
@@ -99,7 +99,7 @@ endpoints to the standard navigation shortcuts:
   "generator": "polyls.symbol_index",
   "documents": [
     {
-      "uri": "file:///path/main.ploy",
+      "uri": "file:///path/main.poly",
       "entries": [ { "name": "compute", "kind": "function", … } ],
       "references": [ { "name": "compute", "isDefinition": true, … } ]
     }
@@ -118,4 +118,4 @@ causes a silent re-index from in-memory documents on next start.
   exercised through the JSON-RPC façade.
 * `tests/integration/lsp_navigation_e2e_test.cpp` — full client ↔
   server round trip using the `09_mixed_pipeline` sample, validating
-  forward (.ploy → C++) and reverse (C++ → .ploy) navigation.
+  forward (.poly → C++) and reverse (C++ → .poly) navigation.

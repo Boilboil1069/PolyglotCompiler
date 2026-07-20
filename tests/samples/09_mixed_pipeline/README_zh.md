@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python, Rust |
 | 关键字   | LINK, PIPELINE, NEW, METHOD, WITH, DELETE, EXTEND |
-| 入口文件 | `mixed_pipeline.ploy` |
+| 入口文件 | `mixed_pipeline.poly` |
 
 ## 编译
 
 ```powershell
-polyc 09_mixed_pipeline\mixed_pipeline.ploy --emit-obj=mixed_pipeline.pobj --obj-format=pobj
+polyc 09_mixed_pipeline\mixed_pipeline.poly --emit-obj=mixed_pipeline.pobj --obj-format=pobj
 polyld mixed_pipeline.pobj -o mixed_pipeline.exe
 ```
 

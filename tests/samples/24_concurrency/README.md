@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | C++, Rust |
-| Entry | `concurrency.ploy` |
+| Entry | `concurrency.poly` |
 | Theme | Concurrency primitives |
 | Expected stdout | `24_concurrency: ok\r\n` |
 
 ## Files
 
-- `concurrency.ploy` — `.ploy` entry that wires the host sources together.
+- `concurrency.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `atomic_counter.cpp` — host source file
 - `worker_pool.rs` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc concurrency.ploy --emit-obj=build/concurrency.obj --quiet
+polyc concurrency.poly --emit-obj=build/concurrency.obj --quiet
 polyld build/concurrency.obj -o build/concurrency.exe
 ./build/concurrency.exe
 ```

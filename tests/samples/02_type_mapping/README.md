@@ -6,12 +6,12 @@ Per-parameter MAP_TYPE plus STRUCT and CONVERT showing how complex types cross t
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | MAP_TYPE, STRUCT, CONVERT |
-| Entry     | `type_mapping.ploy` |
+| Entry     | `type_mapping.poly` |
 
 ## Build
 
 ```powershell
-polyc 02_type_mapping\type_mapping.ploy --emit-obj=type_mapping.pobj --obj-format=pobj
+polyc 02_type_mapping\type_mapping.poly --emit-obj=type_mapping.pobj --obj-format=pobj
 polyld type_mapping.pobj -o type_mapping.exe
 ```
 

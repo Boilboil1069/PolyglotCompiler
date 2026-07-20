@@ -1,8 +1,8 @@
 # Quickstart: Exploring a Cross-Language Call Graph
 
-> **Document Version**: 2.0.0  
-> **Last Updated**: 2026-05-07  
-> **Project**: PolyglotCompiler 1.45.2  
+> **Document Version**: 2.0.0<br>
+> **Last Updated**: 2026-07-20<br>
+> **Project**: PolyglotCompiler 1.48.0<br>
 > **Companion**: [call_analyzer_quickstart_zh.md](call_analyzer_quickstart_zh.md)
 
 The Call Analyzer panel visualises the static call graph emitted by `polyc --emit=call-graph:<path>`, optionally overlaid with runtime call counts from a Profiler session.
@@ -11,12 +11,12 @@ The Call Analyzer panel visualises the static call graph emitted by `polyc --emi
 
 ```sh
 polyc --emit=call-graph:build/mixed.cgjson \
-      tests/samples/09_mixed_pipeline/mixed_pipeline.ploy
+      tests/samples/09_mixed_pipeline/mixed_pipeline.poly
 ```
 
 ```powershell
 polyc --emit=call-graph:build\mixed.cgjson `
-      tests\samples\09_mixed_pipeline\mixed_pipeline.ploy
+      tests\samples\09_mixed_pipeline\mixed_pipeline.poly
 ```
 
 The output JSON conforms to [polyglot.callgraph.v1](../specs/call_graph_schema.md).

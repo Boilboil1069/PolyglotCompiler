@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、C++ |
-| 入口 | `file_io.ploy` |
+| 入口 | `file_io.poly` |
 | 主题 | 流式文件 I/O |
 | 预期 stdout | `19_file_io: ok\r\n` |
 
 ## 文件
 
-- `file_io.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `file_io.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `binary_reader.cpp` — 宿主语言源文件
 - `text_decoder.py` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc file_io.ploy --emit-obj=build/file_io.obj --quiet
+polyc file_io.poly --emit-obj=build/file_io.obj --quiet
 polyld build/file_io.obj -o build/file_io.exe
 ./build/file_io.exe
 ```

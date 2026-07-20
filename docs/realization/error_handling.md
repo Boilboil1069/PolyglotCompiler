@@ -1,12 +1,12 @@
 # Error Handling Realization
 
 This note describes how the PolyglotCompiler v1.13.0 release realises
-structured exception handling for Ploy and how the runtime bridge maps
+structured exception handling for Poly and how the runtime bridge maps
 host-language exceptions onto the unified `Error` handle.
 
 ## Surface syntax
 
-Ploy v1.13.0 adds five keywords:
+Poly v1.13.0 adds five keywords:
 
 | keyword   | role                                                           |
 | --------- | -------------------------------------------------------------- |
@@ -18,7 +18,7 @@ Ploy v1.13.0 adds five keywords:
 
 A complete form is:
 
-```ploy
+```poly
 TRY {
     body_statements;
 }
@@ -40,7 +40,7 @@ is allowed.
 
 The catch binding has the built-in handle type `Error`, defined as
 
-```ploy
+```poly
 HANDLE Error {
     message:    String;
     source_lang: String;
@@ -49,7 +49,7 @@ HANDLE Error {
 ```
 
 The runtime owns the storage; the fields are valid only inside the
-enclosing `CATCH` body.  `source_lang` carries one of `ploy`,
+enclosing `CATCH` body.  `source_lang` carries one of `poly`,
 `python`, `cpp`, `java`, `dotnet`, `rust`.
 
 ## IR shape
@@ -90,7 +90,7 @@ followed by `unreachable`.
 | ----------------------------------------------- | ------------------------------------------------------- |
 | `__ploy_rt_try_begin()`                         | push handler scope; returns 0 on first entry            |
 | `__ploy_rt_try_end()`                           | pop handler scope on normal exit                        |
-| `__ploy_rt_throw(msg)`                          | raise an Error tagged `ploy`                            |
+| `__ploy_rt_throw(msg)`                          | raise an Error tagged `poly`                            |
 | `__ploy_rt_throw_from(msg, lang)`               | raise an Error tagged with a host-language label        |
 | `__ploy_rt_current_error()`                     | opaque pointer to the live Error                        |
 | `__ploy_rt_current_error_message()`             | NUL-terminated message                                  |
@@ -120,8 +120,8 @@ branch with the C++ unwind path is tracked under future work.
 
 Each adapter calls `__ploy_rt_throw_from(msg, lang)` with the
 language tag from the table above.  The reverse direction — handing a
-Ploy `Error` back to host-language code — is performed by the
-language-specific bridge layers when a Ploy callee returns through a
+Poly `Error` back to host-language code — is performed by the
+language-specific bridge layers when a Poly callee returns through a
 foreign call boundary; today this is implemented for the data plane
 only (the foreign caller can read the current Error via
 `__ploy_rt_current_error_*`) with the IR-level dispatcher tracked
@@ -137,6 +137,6 @@ under future work.
 * Postfix `?` short-circuit propagation (`expr?`): rewritten to a
   synthetic `TRY` that re-raises a caught Error from the enclosing
   function.
-* Cross-language reverse-path interception: routing a Ploy `Error`
-  raised inside a Ploy callback into the host-language exception
+* Cross-language reverse-path interception: routing a Poly `Error`
+  raised inside a Poly callback into the host-language exception
   hierarchy of the foreign caller.

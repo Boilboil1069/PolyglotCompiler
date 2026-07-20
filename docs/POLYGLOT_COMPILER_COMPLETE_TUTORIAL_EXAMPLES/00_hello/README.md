@@ -5,8 +5,8 @@
 This is the minimal Chapter 4 program. `PRINTLN` does not append a newline, so the literal contains `\n` explicitly.
 
 ```sh
-build/polyc --check docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.ploy
-build/polyc docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.ploy \
+build/polyc --check docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.poly
+build/polyc docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/00_hello/main.poly \
   --strict --no-aux \
   --emit-ir=build/tutorial-examples/hello.ir \
   --emit-asm=build/tutorial-examples/hello.s \

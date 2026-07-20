@@ -1,6 +1,6 @@
-# `polydoc` — Ploy 文档注释抽取工具（自 v1.18.0 起）
+# `polydoc` — Poly 文档注释抽取工具（自 v1.18.0 起）
 
-`polydoc` 是一个小型命令行工具，遍历一个或多个 `.ploy` 源文件，
+`polydoc` 是一个小型命令行工具，遍历一个或多个 `.poly` 源文件，
 收集所有挂在顶层 `FUNC` / `STRUCT` / `LET` / `VAR` 声明上的 `///`
 文档块，并以 Markdown 或 JSON 形式输出。
 
@@ -24,7 +24,7 @@ polydoc [--json] [-o OUT] FILE [FILE ...]
 
 文档注释是恰好以**三个**斜杠开头的行：
 
-```ploy
+```poly
 /// 第一行。
 /// 第二行。
 FUNC add(a: i32, b: i32) -> i32 { … }
@@ -42,13 +42,13 @@ FUNC add(a: i32, b: i32) -> i32 { … }
 ## Markdown 输出
 
 ```sh
-polydoc src/api.ploy
+polydoc src/api.poly
 ```
 
 对上例输出：
 
 ```markdown
-# src/api.ploy
+# src/api.poly
 
 ## `FUNC add(a: I32, b: I32) -> I32`
 
@@ -61,14 +61,14 @@ polydoc src/api.ploy
 ## JSON 输出
 
 ```sh
-polydoc --json src/api.ploy
+polydoc --json src/api.poly
 ```
 
 输出单个对象：
 
 ```json
 {
-  "file": "src/api.ploy",
+  "file": "src/api.poly",
   "entries": [
     {
       "kind": "func",

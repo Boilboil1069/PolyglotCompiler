@@ -10,7 +10,23 @@
 下述版本范围为 **v0.1.0 (2026-01-15) → v1.9.1 (2026-04-29)**，新版本在前。
 每个 `### vX.Y.Z (YYYY-MM-DD)` 段落只描述发布行为本身。
 
+> **历史命名说明：** v1.48.0 以前的条目有意保留当时版本使用的
+> `Ploy`、`ploy` 与 `.ploy` 拼写。这些拼写属于旧别名，不是当前公开规范名称。
+
 ---
+
+## v1.48.0 (2026-07-20) — 「Poly 命名规范化」
+
+- **公开拼写统一。** 当前文档、样例、诊断与生成元数据统一使用语言名
+  **Poly**、语言标识符 `poly` 和源码扩展名 `.poly`。
+- **明确 1.x 兼容窗口。** 所有 1.x 版本继续接受历史别名 `Ploy`、`ploy`
+  与 `.ploy`，最早只会在 2.0.0 移除；诊断和生成元数据会把接受的旧输入
+  规范化为 `poly`。
+- **保持实现与 ABI 兼容。** `frontends/ploy`、`frontend_ploy`、`Ploy*`、
+  `__ploy_*` 等历史内部标识符有意保持不变。样例发现优先使用规范扩展名，
+  仅在无歧义时回退到单个旧入口，并拒绝新旧混用或多个候选入口。
+- **文档与回归资产同步迁移。** 教程、规范、样例源码、预期诊断、符号索引
+  与语言版本 fixture 均改用公开规范名称，并由命名审计防止当前文档回退到旧拼写。
 
 ## v1.47.4 (2026-07-17) — 「旁路产物与最终输出的模式判定」
 
@@ -127,7 +143,7 @@
   再测试 `polyrt_println` callee gate 与 `println.msg<N>` /
   `str<N>` 实习池前缀，符号表查找则同时尝试不带与带前导
   `_` 两种形式。ELF / COFF 输入不受影响。
-- **`tests/samples/00_minimal/print_then_exit.ploy` 在 macOS
+- **`tests/samples/00_minimal/print_then_exit.poly` 在 macOS
   arm64 上端到端跑通。**  完整 polyc → polyld → execve 流水线
   产出的可执行文件 stdout 恰为 `ok\n` 且 rc=0；
   `bash scripts/build_all_samples.sh` 的
@@ -177,7 +193,7 @@
 ## v1.45.0 (2026-05-06)
 
 - 样例回归矩阵新增共享的最小样例
-  `tests/samples/00_minimal/print_then_exit.ploy`，其 stdout 由
+  `tests/samples/00_minimal/print_then_exit.poly`，其 stdout 由
   `expected_output.txt` 字节级固定。`build_all_samples.ps1` 与
   `build_all_samples.sh` 现在识别同目录下的 `expected_output.skip`
   标记，把对应样例归入 SKIP 桶，且不再调用 polyc / polyld；SKIP
@@ -242,7 +258,7 @@
     16 字节与架构桩模板做完全相等比对。另有一例验证当
     `data` / `bss_size` 非空时 R/W `PT_LOAD` 的形状与对齐约束。
   - `tests/integration/elf_exec_smoke_test.cpp`
-    （`[elf][exec][integration]`）以 `00_minimal/print_then_exit.ploy`
+    （`[elf][exec][integration]`）以 `00_minimal/print_then_exit.poly`
     为输入串联 `polyc` 与 `polyld`，再对 `/tmp/polyld_elf_smoke`
     执行 `fork + execve + waitpid`，断言 `WEXITSTATUS == 0` 且
     stdout 捕获到 `"ok\n"`。仅在 `__linux__` 下编译，其他平台
@@ -285,10 +301,10 @@
 - 新增集成测试 `integration/macho_exec_smoke_test.cpp`
   （`[macho][exec][integration]`，仅在 `__APPLE__ && __aarch64__`
   下编译）：驱动 `polyc` + `polyld` 编译并链接新增的
-  `tests/samples/00_minimal/print_then_exit.ploy`，通过
+  `tests/samples/00_minimal/print_then_exit.poly`，通过
   `posix_spawn` 启动 `/tmp/polyld_macho_smoke` 并断言
   `WEXITSTATUS == 0` 且 stdout 为 `"ok\n"`。
-- 新增样例 `tests/samples/00_minimal/print_then_exit.ploy` 与中英双语
+- 新增样例 `tests/samples/00_minimal/print_then_exit.poly` 与中英双语
   `README.md` / `README_zh.md`，以及由真实运行得到的
   `expected_output.txt`，作为跨平台冒烟用源文件。
 
@@ -1273,7 +1289,7 @@ Rust / Python / TypeScript 迁移过来的用户：控制流头部可省略外�
   并给出"改为本地 ploy `FUNC` 包装并使用 `CALL` / `METHOD`"的
   修正提示。
 
-* **集中化的 `AS` 语义专章。** `docs/realization/ploy_language_spec_zh.md`
+* **集中化的 `AS` 语义专章。** `docs/realization/poly_language_spec_zh.md`
   §4.17（及英文镜像）列出五个绑定位置（`IMPORT … AS`、
   `EXPORT … AS`、`LINK … AS`、语言级 `IMPORT … AS`、以及
   `EXTEND … AS`），并给出一组反例，明确哪些写法属于歧义 / 被禁。
@@ -1292,10 +1308,10 @@ Rust / Python / TypeScript 迁移过来的用户：控制流头部可省略外�
   断言。
 
 * **文档。** `docs/USER_GUIDE.md` / `docs/USER_GUIDE_zh.md`、
-  `docs/tutorial/ploy_language_tutorial.md` /
-  `docs/tutorial/ploy_language_tutorial_zh.md` 与
-  `docs/realization/ploy_language_spec.md` /
-  `docs/realization/ploy_language_spec_zh.md` 同步更新默认值 /
+  `docs/tutorial/poly_language_tutorial.md` /
+  `docs/tutorial/poly_language_tutorial_zh.md` 与
+  `docs/realization/poly_language_spec.md` /
+  `docs/realization/poly_language_spec_zh.md` 同步更新默认值 /
   命名实参语法、EXTEND 使用限制以及统一 `AS` 表格。
 
 ## v1.10.0 (2026-05-04)
@@ -1424,7 +1440,7 @@ Rust / Python / TypeScript 迁移过来的用户：控制流头部可省略外�
 
 - `PloySema::AnalyzeLinkDecl` 在遇到 `is_legacy_form` 为 true 的
   `LinkDecl` 时会发出 `kDeprecatedKeyword` 警告。
-- `docs/realization/ploy_language_spec.md`（含 `_zh.md`）§4.2 同时收录
+- `docs/realization/poly_language_spec.md`（含 `_zh.md`）§4.2 同时收录
   两种形式，且把带签名形式列在前面作为推荐写法。
 - `docs/USER_GUIDE.md`（含 `_zh.md`）：在文档顶部新增弃用通告；
   关键字速查表的 `LINK` 示例更新为带签名形式，并新增 `STAGE` 行。
@@ -1476,7 +1492,7 @@ Rust / Python / TypeScript 迁移过来的用户：控制流头部可省略外�
 - `PloyLowering` 将 `ConstDecl` 转交不可变 `VarDecl` 路径处理；并在合成
   `main` 分类器中把 `TypeAliasDecl` 视为非执行声明。
 - `docs/specs/language_spec.md{,_zh}` 与
-  `docs/realization/ploy_language_spec.md{,_zh}` 同步记录新关键字集、
+  `docs/realization/poly_language_spec.md{,_zh}` 同步记录新关键字集、
   别名规则、常量折叠契约与原始类型表的更新。
 - `tests/samples/README.md{,_zh}` 索引在“显式宽度数值类型”主题下列出
   新样例。
@@ -2097,7 +2113,7 @@ v1.5.0 的 PE 写入器只能产出"入口直接调用 `kernel32!ExitProcess(0)`
   `tests/integration/pe_runtime_smoke_test.cpp`（2 个用例、8 个断言）：
   进程内构建 PE，落到临时文件，用 `std::system` 启动子进程，
   断言退出码为 0；分别测试最小镜像与包装了 256 字节用户代码的镜像。
-- 端到端复现：`polyc tests/samples/01_basic_linking/basic_linking.ploy
+- 端到端复现：`polyc tests/samples/01_basic_linking/basic_linking.poly
   -o tests/samples/01_basic_linking/test_bin.exe` 现在产出 1536 字节
   的 PE32+（`MZ` magic、`dumpbin /imports` 显示
   `kernel32.dll: ExitProcess` 已正确解析），退出码 0。
@@ -2154,7 +2170,7 @@ Windows CMD 自身会向 `stderr` 输出
   的拒绝；现存绝对路径走 stat 快路径的接受；`pobj` 在 `polyld` 伪造
   时返回空 `LinkerChoice`；`pobj` 在 `polyld` 可达时返回非空 `LinkerChoice`；
   以及 `ExpandLinkCommand` 占位符替换与 polyld 专属标志门控。
-- ✅ 复现命令 `polyc.exe tests/samples/03_pipeline/pipeline.ploy`
+- ✅ 复现命令 `polyc.exe tests/samples/03_pipeline/pipeline.poly`
   在主机 `PATH` 上没有 `link.exe` / `lld-link.exe` 的情况下，
   现在以退出码 0 结束、输出零条 shell 噪声行；链接阶段自动透明回退到
   内置 `polyld`。

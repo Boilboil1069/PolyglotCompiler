@@ -3,7 +3,7 @@
  * @brief    macOS host end-to-end smoke for the polyld Mach-O writer.
  *           Drives both the single-command `polyc -o` path and the
  *           historical `polyc --emit-obj` compile-only + `polyld` path
- *           for `tests/samples/00_minimal/print_then_exit.ploy`, then
+ *           for `tests/samples/00_minimal/print_then_exit.poly`, then
  *           `posix_spawn`s each produced binary with stdout captured
  *           through a pipe and asserts `WEXITSTATUS == 0` plus stdout
  *           text equal to `"ok\n"`.  Compiled only on macOS; on every
@@ -124,7 +124,7 @@ TEST_CASE("polyld Mach-O smoke: 00_minimal/print_then_exit runs to ok\\n",
     return;
   }
   fs::path source = repo / "tests" / "samples" / "00_minimal" /
-                    "print_then_exit.ploy";
+                    "print_then_exit.poly";
   REQUIRE(fs::exists(source));
 
   fs::path object = "/tmp/polyld_macho_smoke.o";
@@ -175,7 +175,7 @@ TEST_CASE("polyc Mach-O single-command link emits a runnable executable",
     return;
   }
   fs::path source = repo / "tests" / "samples" / "00_minimal" /
-                    "print_then_exit.ploy";
+                    "print_then_exit.poly";
   REQUIRE(fs::exists(source));
 
   fs::path image = "/tmp/polyc_macho_single_command_smoke";

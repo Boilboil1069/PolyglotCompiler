@@ -42,7 +42,7 @@ TEST_CASE("polyls advertises formatting providers",
   REQUIRE(caps["documentOnTypeFormattingProvider"].is_object());
 }
 
-TEST_CASE("polyls textDocument/formatting reflows a ploy buffer",
+TEST_CASE("polyls textDocument/formatting reflows a poly buffer",
           "[polyls][format]") {
   Captured cap;
   PolylsServer s;
@@ -53,8 +53,8 @@ TEST_CASE("polyls textDocument/formatting reflows a ploy buffer",
   const std::string text = "FUNC f() {\nRETURN 1\n}\n";
   Json open_params = {
       {"textDocument", {
-          {"uri", "file:///tmp/sample.ploy"},
-          {"languageId", "ploy"},
+          {"uri", "file:///tmp/sample.poly"},
+          {"languageId", "poly"},
           {"version", 1},
           {"text", text},
       }},
@@ -63,7 +63,7 @@ TEST_CASE("polyls textDocument/formatting reflows a ploy buffer",
   cap.outbound.clear();
 
   Json req_params = {
-      {"textDocument", {{"uri", "file:///tmp/sample.ploy"}}},
+      {"textDocument", {{"uri", "file:///tmp/sample.poly"}}},
       {"options", {{"tabSize", 4}, {"insertSpaces", true}}},
   };
   s.HandleIncoming(MakeRequest(2, "textDocument/formatting", req_params));
@@ -76,7 +76,7 @@ TEST_CASE("polyls textDocument/formatting reflows a ploy buffer",
   REQUIRE(new_text.find("    RETURN 1") != std::string::npos);
 }
 
-TEST_CASE("polyls formatting on non-ploy buffer returns no edits",
+TEST_CASE("polyls formatting on non-poly buffer returns no edits",
           "[polyls][format]") {
   Captured cap;
   PolylsServer s;

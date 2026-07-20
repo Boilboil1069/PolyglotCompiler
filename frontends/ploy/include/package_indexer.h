@@ -1,8 +1,8 @@
 /**
  * @file     package_indexer.h
- * @brief    Ploy language frontend
+ * @brief    Poly language frontend
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */

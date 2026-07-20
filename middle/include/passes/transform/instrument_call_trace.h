@@ -35,9 +35,9 @@ struct CallTraceInstrumentationStats {
 //
 // The opt argument controls which language tag is attached to the call.
 // When the function carries a language attribute we honour it, otherwise
-// we fall back to the supplied default (typically "ploy" for the
+// we fall back to the supplied default (typically "poly" for the
 // driver's main IR context).
 CallTraceInstrumentationStats RunInstrumentCallTrace(ir::IRContext &context,
-                                                     const std::string &default_language = "ploy");
+                                                     const std::string &default_language = "poly");
 
 } // namespace polyglot::passes::transform

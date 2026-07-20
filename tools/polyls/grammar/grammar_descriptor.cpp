@@ -13,6 +13,9 @@
  */
 #include "tools/polyls/grammar/grammar_descriptor.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace polyglot::polyls::grammar {
 
 namespace {
@@ -39,9 +42,9 @@ std::unordered_map<std::string, SemanticMapping> BaselineKindMap() {
 
 GrammarDescriptor MakePloy() {
   GrammarDescriptor g;
-  g.name = "ploy";
-  g.display_name = "Ploy";
-  g.file_extensions = {".ploy", ".poly"};
+  g.name = "poly";
+  g.display_name = "Poly";
+  g.file_extensions = {".poly", ".ploy"};
   g.keywords = {"FUNC",     "PIPELINE", "STRUCT", "LET",      "VAR",
                 "RETURN",   "IF",       "ELSE",   "WHILE",    "FOR",
                 "BREAK",    "CONTINUE", "IMPORT", "EXPORT",   "LINK",
@@ -198,7 +201,7 @@ const std::unordered_map<std::string, GrammarDescriptor> &KnownGrammars() {
     // Aliases so `language_id` strings sent by various editors all
     // route to the same descriptor.
     m["c++"] = m["cpp"];
-    m["poly"] = m["ploy"];
+    m["ploy"] = m["poly"];
     m["dotnet"] = m["csharp"];
     m["c#"] = m["csharp"];
     return m;
@@ -208,7 +211,14 @@ const std::unordered_map<std::string, GrammarDescriptor> &KnownGrammars() {
 
 const GrammarDescriptor *FindGrammar(const std::string &language_id) {
   const auto &t = KnownGrammars();
-  auto it = t.find(language_id);
+  std::string key = language_id;
+  std::string folded = language_id;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") key = "poly";
+  auto it = t.find(key);
   if (it == t.end()) return nullptr;
   return &it->second;
 }

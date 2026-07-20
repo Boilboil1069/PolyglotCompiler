@@ -160,7 +160,7 @@ TEST_CASE("Plugin API - Host services struct is zero-initializable", "[plugins][
 
 TEST_CASE("Plugin API - Diagnostic struct", "[plugins][api]") {
     PolyglotDiagnostic diag{};
-    diag.file = "test.ploy";
+    diag.file = "test.poly";
     diag.line = 10;
     diag.column = 5;
     diag.severity = POLYGLOT_DIAG_ERROR;
@@ -214,9 +214,9 @@ TEST_CASE("PluginManager - Subscribe/unsubscribe with no plugin", "[plugins][man
 TEST_CASE("PluginManager - FireEvent with no subscribers", "[plugins][manager]") {
     auto &pm = PluginManager::Instance();
     // Should not crash when firing events with no subscribers
-    pm.FireFileOpened("/test/file.ploy");
-    pm.FireFileSaved("/test/file.ploy");
-    pm.FireFileClosed("/test/file.ploy");
+    pm.FireFileOpened("/test/file.poly");
+    pm.FireFileSaved("/test/file.poly");
+    pm.FireFileClosed("/test/file.poly");
     pm.FireBuildStarted();
     pm.FireBuildFinished(0);
     pm.FireWorkspaceChanged("/test/workspace");
@@ -286,10 +286,10 @@ TEST_CASE("PluginManager - DispatchOpenFile with callback", "[plugins][manager]"
         received_line = line;
     });
 
-    pm.DispatchOpenFile("/test/path.ploy", 42);
+    pm.DispatchOpenFile("/test/path.poly", 42);
 
     REQUIRE(called);
-    REQUIRE(received_path == "/test/path.ploy");
+    REQUIRE(received_path == "/test/path.poly");
     REQUIRE(received_line == 42);
 
     // Clear callback
@@ -300,7 +300,7 @@ TEST_CASE("PluginManager - DispatchOpenFile without callback", "[plugins][manage
     auto &pm = PluginManager::Instance();
     pm.SetOpenFileCallback(nullptr);
     // Should not crash
-    pm.DispatchOpenFile("/test/path.ploy", 1);
+    pm.DispatchOpenFile("/test/path.poly", 1);
 }
 
 TEST_CASE("PluginManager - FileType registered callback", "[plugins][manager]") {

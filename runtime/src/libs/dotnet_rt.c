@@ -278,7 +278,7 @@ void *polyglot_dotnet_new_object(const char *assembly_name, const char *type_nam
     return NULL;
 
   // To instantiate a .NET object from native code we call a factory
-  // method "__PolyglotFactory" on the type, which the .ploy code-gen
+  // method "__PolyglotFactory" on the type, which the .poly code-gen
   // emits during the NEW lowering step.
   typedef void *(*FactoryMethod_fn)(const void *const *, int);
   FactoryMethod_fn factory = NULL;
@@ -397,7 +397,7 @@ void polyglot_dotnet_release_object(void *object) {
 // ============================================================================
 // __ploy_dotnet_* aliases
 //
-// The ploy frontend emits calls to __ploy_dotnet_* symbols.  These thin
+// The poly frontend emits calls to __ploy_dotnet_* symbols.  These thin
 // forwarding functions align the frontend names with the runtime's
 // polyglot_dotnet_* ABI so that linking succeeds without special renaming.
 // ============================================================================

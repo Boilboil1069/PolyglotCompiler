@@ -10,9 +10,9 @@
 //   * Python      — PyiLoader resolves a fake `numlib` package via --python-stubs.
 //   * Rust        — CrateLoader resolves a fake `miniutils` crate via --extern.
 //
-// (Java .class/.jar, .NET .dll and Ploy IMPORT PACKAGE happy-paths are
+// (Java .class/.jar, .NET .dll and Poly IMPORT PACKAGE happy-paths are
 // already exercised by the dedicated unit-test suites under
-// tests/unit/frontends/{java,dotnet,ploy}/.)
+// tests/unit/frontends/{java,dotnet,poly}/.)
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>

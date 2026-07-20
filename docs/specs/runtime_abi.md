@@ -99,7 +99,7 @@ GC-anchored strings.
 
 ## 4 Interop / Object Lifecycle (`runtime/include/interop/object_lifecycle.h`)
 
-These `__ploy_*` symbols are emitted by the `.ploy` IR lowering pass and
+These `__ploy_*` symbols are emitted by the `.poly` IR lowering pass and
 resolved at link time:
 
 | Symbol | Signature | Description |

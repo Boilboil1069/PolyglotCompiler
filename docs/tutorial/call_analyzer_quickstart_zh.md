@@ -1,8 +1,8 @@
 # 快速上手：浏览跨语言调用图
 
-> **文档版本**：2.0.0  
-> **更新日期**：2026-05-07  
-> **项目**：PolyglotCompiler 1.45.2  
+> **文档版本**：2.0.0<br>
+> **更新日期**：2026-07-20<br>
+> **项目**：PolyglotCompiler 1.48.0<br>
 > **配套文件**：[call_analyzer_quickstart.md](call_analyzer_quickstart.md)
 
 Call Analyzer 面板可视化 `polyc --emit=call-graph:<path>` 输出的静态调用图，并可叠加 Profiler 会话采集到的运行时调用次数。
@@ -11,12 +11,12 @@ Call Analyzer 面板可视化 `polyc --emit=call-graph:<path>` 输出的静态�
 
 ```sh
 polyc --emit=call-graph:build/mixed.cgjson \
-      tests/samples/09_mixed_pipeline/mixed_pipeline.ploy
+      tests/samples/09_mixed_pipeline/mixed_pipeline.poly
 ```
 
 ```powershell
 polyc --emit=call-graph:build\mixed.cgjson `
-      tests\samples\09_mixed_pipeline\mixed_pipeline.ploy
+      tests\samples\09_mixed_pipeline\mixed_pipeline.poly
 ```
 
 输出 JSON 遵循 [polyglot.callgraph.v1](../specs/call_graph_schema.md)。

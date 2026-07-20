@@ -112,8 +112,8 @@ std::unordered_map<std::string, ploy::FunctionSignature> ForeignSignatureExtract
     const std::string &language = import->language;
     const std::string &module_name = import->module_path;
 
-    // Don't process ploy-to-ploy imports
-    if (language == "ploy")
+    // Don't process poly-to-poly imports
+    if (language == "poly")
       continue;
 
     // Resolve the source file on disk.

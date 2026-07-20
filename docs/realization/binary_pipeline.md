@@ -1,7 +1,7 @@
-# Binary pipeline: `.ploy` -> `.obj` -> `.exe` -> exit code
+# Binary pipeline: `.poly` -> `.obj` -> `.exe` -> exit code
 
 This note documents the end-to-end native binary pipeline that turns a
-`.ploy` source file into a Windows AMD64 process whose exit code is the
+`.poly` source file into a Windows AMD64 process whose exit code is the
 value the source program returned from `main`.  It complements
 [`compilation_model.md`](compilation_model.md) (which covers the
 front-end / IR side) and [`runtime_stdout_pipeline.md`](runtime_stdout_pipeline.md)
@@ -15,7 +15,7 @@ The Chinese counterpart is maintained at
 ## Stages
 
 ```
-   .ploy source
+   .poly source
        |
        |  polyc (frontend + IR + backend)
        v
@@ -201,7 +201,7 @@ of the writer.
 `tests/integration/ploy_e2e_real_exit_code_test.cpp` is the live
 contract:
 
-| `.ploy` body                                | observed `GetExitCodeProcess` |
+| `.poly` body                                | observed `GetExitCodeProcess` |
 |---------------------------------------------|--------------------------------|
 | `FUNC main() -> i32 { RETURN 42; }`         | `42`                           |
 | `FUNC main() -> i32 { RETURN 0;  }`         | `0`                            |

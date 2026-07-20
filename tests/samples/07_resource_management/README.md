@@ -6,12 +6,12 @@ WITH binding the Python __enter__ / __exit__ protocol so resources are released 
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | WITH |
-| Entry     | `resource_management.ploy` |
+| Entry     | `resource_management.poly` |
 
 ## Build
 
 ```powershell
-polyc 07_resource_management\resource_management.ploy --emit-obj=resource_management.pobj --obj-format=pobj
+polyc 07_resource_management\resource_management.poly --emit-obj=resource_management.pobj --obj-format=pobj
 polyld resource_management.pobj -o resource_management.exe
 ```
 

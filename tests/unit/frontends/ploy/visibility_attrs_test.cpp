@@ -4,7 +4,7 @@
  *           attribute prefixes on top-level FUNC and STRUCT declarations
  *           (since v1.16.0).
  *
- * @ingroup  Tests / Ploy / Visibility-Attributes
+ * @ingroup  Tests / Poly / Visibility-Attributes
  * @author   Manning Cyrus
  * @date     2026-05-04
  */
@@ -57,7 +57,7 @@ bool DiagsContain(const Diagnostics &diags, const std::string &needle) {
 
 }  // namespace
 
-TEST_CASE("PUB FUNC parses and is marked public", "[ploy][parser][visibility]") {
+TEST_CASE("PUB FUNC parses and is marked public", "[poly][parser][visibility]") {
     auto r = Analyze("PUB FUNC api() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);
@@ -67,7 +67,7 @@ TEST_CASE("PUB FUNC parses and is marked public", "[ploy][parser][visibility]") 
 }
 
 TEST_CASE("PRIVATE FUNC parses and is marked private",
-          "[ploy][parser][visibility]") {
+          "[poly][parser][visibility]") {
     auto r = Analyze("PRIVATE FUNC helper() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);
@@ -77,7 +77,7 @@ TEST_CASE("PRIVATE FUNC parses and is marked private",
 }
 
 TEST_CASE("Default FUNC visibility is private but not explicit",
-          "[ploy][parser][visibility]") {
+          "[poly][parser][visibility]") {
     auto r = Analyze("FUNC plain() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);
@@ -87,7 +87,7 @@ TEST_CASE("Default FUNC visibility is private but not explicit",
 }
 
 TEST_CASE("PUB STRUCT parses and is marked public",
-          "[ploy][parser][visibility][struct]") {
+          "[poly][parser][visibility][struct]") {
     auto r = Analyze("PUB STRUCT Point { x: i32, y: i32 }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto sd = std::dynamic_pointer_cast<StructDecl>(r.module->declarations[0]);
@@ -96,7 +96,7 @@ TEST_CASE("PUB STRUCT parses and is marked public",
     CHECK(sd->visibility_explicit);
 }
 
-TEST_CASE("Built-in attribute parses on FUNC", "[ploy][parser][attributes]") {
+TEST_CASE("Built-in attribute parses on FUNC", "[poly][parser][attributes]") {
     auto r = Analyze("@inline PUB FUNC fast() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);
@@ -107,7 +107,7 @@ TEST_CASE("Built-in attribute parses on FUNC", "[ploy][parser][attributes]") {
 }
 
 TEST_CASE("Multiple attributes parse and order is preserved",
-          "[ploy][parser][attributes]") {
+          "[poly][parser][attributes]") {
     auto r = Analyze(
         "@hot @always_inline PUB FUNC tight() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -119,7 +119,7 @@ TEST_CASE("Multiple attributes parse and order is preserved",
 }
 
 TEST_CASE("Attribute with arguments parses and captures arg text",
-          "[ploy][parser][attributes]") {
+          "[poly][parser][attributes]") {
     auto r = Analyze(
         "@deprecated(\"use new_api\") PUB FUNC old() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -132,7 +132,7 @@ TEST_CASE("Attribute with arguments parses and captures arg text",
 }
 
 TEST_CASE("Unknown attribute warns but does not error",
-          "[ploy][sema][attributes]") {
+          "[poly][sema][attributes]") {
     auto r = Analyze(
         "@made_up PUB FUNC api() -> i32 { RETURN 0; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -140,7 +140,7 @@ TEST_CASE("Unknown attribute warns but does not error",
 }
 
 TEST_CASE("EXPORT of explicitly PRIVATE symbol is rejected",
-          "[ploy][sema][visibility][export]") {
+          "[poly][sema][visibility][export]") {
     auto r = Analyze(R"(
 PRIVATE FUNC inner() -> i32 { RETURN 0; }
 EXPORT inner;
@@ -150,7 +150,7 @@ EXPORT inner;
 }
 
 TEST_CASE("EXPORT of PUB symbol succeeds without warning",
-          "[ploy][sema][visibility][export]") {
+          "[poly][sema][visibility][export]") {
     auto r = Analyze(R"(
 PUB FUNC api() -> i32 { RETURN 0; }
 EXPORT api AS "api_external";
@@ -163,7 +163,7 @@ EXPORT api AS "api_external";
 }
 
 TEST_CASE("EXPORT of legacy default-visibility symbol auto-promotes with warning",
-          "[ploy][sema][visibility][export]") {
+          "[poly][sema][visibility][export]") {
     auto r = Analyze(R"(
 FUNC legacy() -> i32 { RETURN 0; }
 EXPORT legacy;
@@ -173,14 +173,14 @@ EXPORT legacy;
 }
 
 TEST_CASE("Visibility / attribute prefix on a non-FUNC is rejected",
-          "[ploy][parser][visibility]") {
+          "[poly][parser][visibility]") {
     auto r = Analyze("PUB CONST K: i32 = 1;");
     CHECK(DiagsContain(r.diags,
                        "PUB / PRIVATE / @attribute prefix is only allowed"));
 }
 
 TEST_CASE("Duplicate visibility modifier is reported",
-          "[ploy][parser][visibility]") {
+          "[poly][parser][visibility]") {
     auto r = Analyze("PUB PRIVATE FUNC a() -> i32 { RETURN 0; }");
     CHECK(DiagsContain(r.diags, "duplicate visibility modifier"));
 }

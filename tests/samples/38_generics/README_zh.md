@@ -3,7 +3,7 @@
 本示例演示 [demand 2026-04-28-15](../../docs/demand/demand.md) 引入的
 表层语法：
 
-```ploy
+```poly
 STRUCT Pair<A, B> { first: A, second: B }
 FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
 FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
@@ -42,7 +42,7 @@ v1.15.0 的实现把每个类型参数解析为 `Any`（类型擦除），泛型
 ## 构建与运行
 
 ```bash
-polyc 38_generics/generics.ploy --emit-obj=build/sample.obj --quiet
+polyc 38_generics/generics.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 ./build/sample.exe
 # 38_generics: ok

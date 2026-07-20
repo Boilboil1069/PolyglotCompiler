@@ -73,7 +73,7 @@ const std::array<Row, 7> kTargets = {{
 // doc calls out (basic linking, polymorphism, database access) and
 // three more that exercise interop / async / filesystem layers — each
 // is rooted at `tests/samples/<name>/` and carries the canonical
-// `<name>.ploy` entry file.
+// `<name>.poly` entry file.
 const std::array<const char *, 6> kSamples = {{
     "01_basic_linking",
     "05_class_instantiation",
@@ -160,7 +160,7 @@ TEST_CASE("BIN-8 static matrix: every (sample × target) cell agrees on containe
       REQUIRE(std::string(sufs.executable).empty());
     }
     // Per-sample static cell: every sample directory must exist and
-    // own a `.ploy` entry whose name matches the directory.  The cell
+    // own a `.poly` entry whose name matches the directory.  The cell
     // is "OK" when both the directory and the resolver agree.
     fs::path repo = FindRepoRootHere();
     if (repo.empty()) {
@@ -189,7 +189,7 @@ TEST_CASE("BIN-8 host-target column produces a real binary with matching magic",
     return;
   }
   fs::path sample = repo / "tests" / "samples" / "01_basic_linking" /
-                    "basic_linking.ploy";
+                    "basic_linking.poly";
   if (!fs::exists(sample)) {
     SUCCEED("sample 01 missing — skipping live column");
     return;
@@ -233,7 +233,7 @@ TEST_CASE("BIN-8 reverse assertion: '.exe' on a non-Windows host carries host ma
     return;
   }
   fs::path sample = repo / "tests" / "samples" / "01_basic_linking" /
-                    "basic_linking.ploy";
+                    "basic_linking.poly";
   if (!fs::exists(sample)) {
     SUCCEED("sample 01 missing — skipping reverse assertion");
     return;

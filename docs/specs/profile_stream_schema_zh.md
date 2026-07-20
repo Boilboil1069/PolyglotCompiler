@@ -13,7 +13,7 @@
   "samples": [
     {
       "function": "main",
-      "language": "ploy",
+      "language": "poly",
       "thread": "T0",
       "timestamp_ns": 0,
       "window_ns": 200000000,
@@ -22,7 +22,7 @@
     }
   ],
   "frames": [
-    { "language": "ploy",  "stack": ["main"],         "inclusive_ns": 5000, "self_ns": 1000, "calls": 1 },
+    { "language": "poly",  "stack": ["main"],         "inclusive_ns": 5000, "self_ns": 1000, "calls": 1 },
     { "language": "python","stack": ["main", "calc"], "inclusive_ns": 4000, "self_ns": 4000, "calls": 5 }
   ],
   "hotspots": [

@@ -86,7 +86,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
   auto session_pool = std::make_unique<frontends::SharedTokenPool>(arena_chunk);
 
   // ---- Stage 1a: Preprocessing ------------------------------------------
-  if (settings.language != "ploy") {
+  if (settings.language != "poly") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
     if (fe && fe->NeedsPreprocessing()) {
       // Built-in per-language preprocessing defaults: C/C++ goes through the
@@ -119,10 +119,10 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
       }
     }
   }
-  // .ploy never uses the preprocessor
+  // .poly never uses the preprocessor
 
-  // ---- Stage 1b: Non-.ploy -> FrontendRegistry -> IR directly -----------
-  if (settings.language != "ploy") {
+  // ---- Stage 1b: Non-.poly -> FrontendRegistry -> IR directly -----------
+  if (settings.language != "poly") {
     auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(settings.language);
     if (!fe) {
       result.diagnostics.Report(core::SourceLoc{result.source_label, 1, 1},
@@ -184,7 +184,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     return result;
   }
 
-  // ---- Stage 1c: .ploy - Lexing -----------------------------------------
+  // ---- Stage 1c: .poly - Lexing -----------------------------------------
   {
     ploy::PloyLexer token_lexer(result.processed_source, result.source_label);
     token_lexer.SetTokenPool(session_pool.get());
@@ -204,7 +204,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
       std::cerr << "[stage/frontend] lexing done (" << result.tokens.size() << " tokens)\n";
   }
 
-  // ---- Stage 1d: .ploy - Parsing ----------------------------------------
+  // ---- Stage 1d: .poly - Parsing ----------------------------------------
   {
     ploy::PloyLexer parse_lexer(result.processed_source, result.source_label);
     ploy::PloyParser parser(parse_lexer, result.diagnostics);
@@ -230,7 +230,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     result.ast_dump = ast_oss.str();
   }
 
-  // ---- Stage 1e: .ploy - Package index ----------------------------------
+  // ---- Stage 1e: .poly - Package index ----------------------------------
   if (settings.package_index && result.ast) {
     std::unordered_set<std::string> seen;
     std::vector<std::string> languages;

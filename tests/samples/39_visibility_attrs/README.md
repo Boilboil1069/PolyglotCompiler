@@ -37,7 +37,7 @@ tooling can extend the catalog without modifying the compiler.
 ## Build
 
 ```bash
-./build/polyc tests/samples/39_visibility_attrs/visibility_attrs.ploy \
+./build/polyc tests/samples/39_visibility_attrs/visibility_attrs.poly \
     -o /tmp/sample39.o
 ```
 

@@ -8,12 +8,12 @@
  */
 // polytopo — Polyglot Topology Analysis Tool
 //
-// Parses .ploy files, builds a function-level I/O topology graph,
+// Parses .poly files, builds a function-level I/O topology graph,
 // validates type compatibility across language boundaries, and outputs
 // the graph in various formats (text, DOT, JSON).
 //
 // Usage:
-//   polytopo <file.ploy> [options]
+//   polytopo <file.poly> [options]
 //
 // Options:
 //   --format <text|dot|json|summary>  Output format (default: text)
@@ -25,6 +25,8 @@
 //   --help                            Show help
 //   --version                         Show version
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -52,6 +54,15 @@ namespace polyglot::tools {
 
 constexpr const char *kTopoVersion = POLYGLOT_VERSION_STRING;
 constexpr const char *kTopoName = POLYGLOT_POLYTOPO_NAME;
+
+static std::string CanonicalPolyLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return folded == "poly" || folded == "ploy" ? "poly" : language;
+}
 
 // ============================================================================
 // CLI Options
@@ -82,10 +93,10 @@ struct TopoOptions {
 static void PrintHelp() {
   std::cout << "polytopo — Polyglot Topology Analysis Tool v" << kTopoVersion << "\n\n"
             << "Usage:\n"
-            << "  polytopo <file.ploy> [options]\n"
-            << "  polytopo generate <topo.json> -o <output.ploy>\n\n"
+            << "  polytopo <file.poly> [options]\n"
+            << "  polytopo generate <topo.json> -o <output.poly>\n\n"
             << "Subcommands:\n"
-            << "  generate <topo.json>              Generate .ploy source from a JSON\n"
+            << "  generate <topo.json>              Generate .poly source from a JSON\n"
             << "                                    topology graph (produced by --format json)\n\n"
             << "Options:\n"
             << "  --format <text|dot|json|summary>  Output format (default: text)\n"
@@ -102,11 +113,11 @@ static void PrintHelp() {
             << "  --help                            Show this help message\n"
             << "  --version                         Show version\n\n"
             << "Examples:\n"
-            << "  polytopo my_project.ploy\n"
-            << "  polytopo my_project.ploy --format dot --output graph.dot\n"
-            << "  polytopo my_project.ploy --validate --strict\n"
-            << "  polytopo my_project.ploy --format json --output graph.json\n"
-            << "  polytopo generate graph.json -o generated.ploy\n";
+            << "  polytopo my_project.poly\n"
+            << "  polytopo my_project.poly --format dot --output graph.dot\n"
+            << "  polytopo my_project.poly --validate --strict\n"
+            << "  polytopo my_project.poly --format json --output graph.json\n"
+            << "  polytopo generate graph.json -o generated.poly\n";
 }
 
 static void PrintVersion() {
@@ -150,7 +161,7 @@ static TopoOptions ParseArgs(int argc, char *argv[]) {
     } else if (arg == "--view-mode" && i + 1 < argc) {
       opts.view_mode = argv[++i];
     } else if (arg == "--filter-language" && i + 1 < argc) {
-      opts.filter_language = argv[++i];
+      opts.filter_language = CanonicalPolyLanguage(argv[++i]);
     } else if (arg[0] != '-' && opts.input_file.empty()) {
       opts.input_file = arg;
     } else {
@@ -161,13 +172,13 @@ static TopoOptions ParseArgs(int argc, char *argv[]) {
 }
 
 // ============================================================================
-// Generate subcommand — converts JSON topology graph to .ploy source
+// Generate subcommand — converts JSON topology graph to .poly source
 // ============================================================================
 
 static int RunGenerate(const TopoOptions &opts) {
   if (opts.input_file.empty()) {
     std::cerr << "Error: No input JSON file specified.\n"
-              << "Usage: polytopo generate <topo.json> -o <output.ploy>\n";
+              << "Usage: polytopo generate <topo.json> -o <output.poly>\n";
     return 1;
   }
 
@@ -194,10 +205,10 @@ static int RunGenerate(const TopoOptions &opts) {
     return 1;
   }
 
-  std::cerr << "[2/3] Generating .ploy source (" << graph.NodeCount() << " nodes, "
+  std::cerr << "[2/3] Generating .poly source (" << graph.NodeCount() << " nodes, "
             << graph.EdgeCount() << " edges)...\n";
 
-  // Generate .ploy source
+  // Generate .poly source
   std::string ploy_src = topo::GeneratePloySrc(graph);
 
   // Verify generated source is parseable

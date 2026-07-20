@@ -6,12 +6,12 @@ CONFIG VENV 与 IMPORT PACKAGE 版本约束驱动 Python 数据科学任务，�
 | --- | --- |
 | 涉及语言 | Python, C# |
 | 关键字   | CONFIG VENV, IMPORT PACKAGE, CONVERT |
-| 入口文件 | `config_and_venv.ploy` |
+| 入口文件 | `config_and_venv.poly` |
 
 ## 编译
 
 ```powershell
-polyc 16_config_and_venv\config_and_venv.ploy --emit-obj=config_and_venv.pobj --obj-format=pobj
+polyc 16_config_and_venv\config_and_venv.poly --emit-obj=config_and_venv.pobj --obj-format=pobj
 polyld config_and_venv.pobj -o config_and_venv.exe
 ```
 

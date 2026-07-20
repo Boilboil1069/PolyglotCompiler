@@ -37,7 +37,7 @@ void StatusBar::RegisterBuiltins() {
   } kBuiltins[] = {
       {"branch",         "main",        StatusAlignment::kLeft,  100},
       {"problems",       "0 ✗ 0 ⚠",     StatusAlignment::kLeft,   90},
-      {"language",       "ploy",        StatusAlignment::kRight, 100},
+      {"language",       "poly",        StatusAlignment::kRight, 100},
       {"language_server","polyls: ok",  StatusAlignment::kRight,  90},
       {"encoding",       "UTF-8",       StatusAlignment::kRight,  80},
       {"eol",            "LF",          StatusAlignment::kRight,  70},

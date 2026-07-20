@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | PIPELINE, IF, WHILE, FOR, MATCH |
-| 入口文件 | `pipeline.ploy` |
+| 入口文件 | `pipeline.poly` |
 
 ## 编译
 
 ```powershell
-polyc 03_pipeline\pipeline.ploy --emit-obj=pipeline.pobj --obj-format=pobj
+polyc 03_pipeline\pipeline.poly --emit-obj=pipeline.pobj --obj-format=pobj
 polyld pipeline.pobj -o pipeline.exe
 ```
 

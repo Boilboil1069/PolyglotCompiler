@@ -6,7 +6,7 @@ Bring VS-Code-grade build / test / lint / format orchestration to
 PolyUI, fuse it with the launch-config picker delivered alongside
 the DAP integration, and route file-save events through a
 language-aware Hot Reload engine that can swap symbols inside a
-running `.ploy` / Python / C++ / Rust / Java / .NET process.
+running `.poly` / Python / C++ / Rust / Java / .NET process.
 
 ## Components
 

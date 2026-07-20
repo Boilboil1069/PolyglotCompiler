@@ -85,16 +85,16 @@ public:
   explicit PolyglotLinker(const LinkerConfig &config);
   ~PolyglotLinker() = default;
 
-  // Register a cross-language call descriptor from the .ploy frontend lowering
+  // Register a cross-language call descriptor from the .poly frontend lowering
   void AddCallDescriptor(const ploy::CrossLangCallDescriptor &desc);
 
-  // Register a validated link entry from the .ploy sema
+  // Register a validated link entry from the .poly sema
   void AddLinkEntry(const ploy::LinkEntry &entry);
 
   // Register symbols discovered from language-specific object files
   void AddCrossLangSymbol(const CrossLangSymbol &sym);
 
-  // Load cross-language descriptors from a serialized file (--ploy-desc)
+  // Load cross-language descriptors from a serialized file (--poly-desc)
   bool LoadDescriptorFile(const std::string &path);
 
   // Auto-discover descriptor files from an aux directory

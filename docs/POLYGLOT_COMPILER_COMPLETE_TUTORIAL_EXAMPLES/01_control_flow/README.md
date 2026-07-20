@@ -5,8 +5,8 @@
 The example combines mutable bindings, `WHILE`, and `MATCH`. It is both a syntax example and a regression probe for the current x86_64 control-flow lowering.
 
 ```sh
-build/polyc --check docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/01_control_flow/main.ploy
-build/polyc docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/01_control_flow/main.ploy \
+build/polyc --check docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/01_control_flow/main.poly
+build/polyc docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/01_control_flow/main.poly \
   --strict --no-aux \
   --emit-ir=build/tutorial-examples/control_flow.ir \
   --emit-asm=build/tutorial-examples/control_flow.s \

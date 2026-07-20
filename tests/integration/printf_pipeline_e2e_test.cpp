@@ -1,6 +1,6 @@
 ﻿/**
  * @file     printf_pipeline_e2e_test.cpp
- * @brief    Compile a `.ploy` program with two `PRINTLN` calls, link it,
+ * @brief    Compile a `.poly` program with two `PRINTLN` calls, link it,
  *           execute the produced image with stdout captured into a file,
  *           and assert the captured bytes exactly equal the concatenation
  *           of the two message payloads.  This pins the entire frontend
@@ -77,19 +77,19 @@ TEST_CASE("PE-7 end-to-end: two PRINTLN calls deliver concatenated bytes to stdo
     REQUIRE(fs::exists(polyld));
 
     const fs::path scratch = UniqueScratch("printf_e2e");
-    const fs::path src = scratch / "two_prints.ploy";
+    const fs::path src = scratch / "two_prints.poly";
     const fs::path obj = scratch / "two_prints.obj";
     const fs::path exe = scratch / "two_prints.exe";
     const fs::path cap = scratch / "two_prints.stdout";
 
-    // Two literal PRINTLN payloads at top-level (the .ploy script form
+    // Two literal PRINTLN payloads at top-level (the .poly script form
     // used throughout the sample matrix); the runtime lowering writes each
     // payload verbatim, so the captured stdout must equal their
     // concatenation.
-    const std::string ploy =
+    const std::string poly =
         "PRINTLN \"alpha\\r\\n\";\n"
         "PRINTLN \"beta\\r\\n\";\n";
-    WriteAll(src, ploy);
+    WriteAll(src, poly);
 
     const std::string compile_cmd =
         "\"" + polyc.string() + "\" \"" + src.string() +
@@ -194,13 +194,13 @@ TEST_CASE("PE-7 end-to-end: two PRINTLN calls deliver concatenated bytes to stdo
     std::error_code ec;
     fs::create_directories(scratch, ec);
 
-    const fs::path src = scratch / "two_prints.ploy";
+    const fs::path src = scratch / "two_prints.poly";
     const fs::path obj = scratch / "two_prints.o";
     const fs::path exe = scratch / "two_prints.elf";
-    const std::string ploy =
+    const std::string poly =
         "PRINTLN \"alpha\\r\\n\";\n"
         "PRINTLN \"beta\\r\\n\";\n";
-    WriteAllPosix(src, ploy);
+    WriteAllPosix(src, poly);
 
     const std::string compile_cmd =
         polyc.string() + " " + src.string() + " --emit-obj=" + obj.string();

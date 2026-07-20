@@ -134,9 +134,9 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
       (settings.arch == "wasm" || settings.arch == "wasm32" || settings.arch == "wasm64");
 
   // ── Select / create IR context ───────────────────────────────────────────
-  // Non-.ploy: the frontend already produced an IRContext
+  // Non-.poly: the frontend already produced an IRContext
   std::shared_ptr<ir::IRContext> ir_ctx;
-  if (settings.language != "ploy") {
+  if (settings.language != "poly") {
     ir_ctx = frontend.ir_ctx;
     if (!ir_ctx) {
       result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1},
@@ -146,10 +146,10 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
       return result;
     }
   } else {
-    // .ploy: run lowering now that we have a validated sema instance
+    // .poly: run lowering now that we have a validated sema instance
     if (!semantic.sema) {
       result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1},
-                                "semantic stage did not produce a PloySema instance");
+                                "semantic stage did not produce Poly semantic state");
       result.success = false;
       return result;
     }
@@ -186,7 +186,7 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
   // resulting calls go through the standard SSA renamer and become
   // visible to LTO dead-code stripping when the runtime sink is unused.
   if (settings.profile_instrument && ir_ctx) {
-    auto stats = passes::transform::RunInstrumentCallTrace(*ir_ctx, "ploy");
+    auto stats = passes::transform::RunInstrumentCallTrace(*ir_ctx, "poly");
     if (V) {
       std::cerr << "[stage/backend]  call-trace instrumented "
                 << stats.functions_instrumented << "/" << stats.functions_visited

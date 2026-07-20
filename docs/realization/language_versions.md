@@ -10,7 +10,7 @@ for a particular translation unit.
 
 > Phase 1 (this milestone) ships the type system, the CLI surface, the
 > `polyver` tool-chain manager, the diagnostic codes, and the wiring through
-> `polyc`. Per-frontend version gating, ploy `LANG` syntax, runtime ABI
+> `polyc`. Per-frontend version gating, poly `LANG` syntax, runtime ABI
 > selection, the UI Toolchains tab and the integration tests are tracked
 > separately in Phase 2 and Phase 3.
 
@@ -35,7 +35,7 @@ below.
 
 For a given translation unit, the effective version is resolved as:
 
-1. **Explicit per-call annotation** (Phase 2 — ploy `@LANG(version)` /
+1. **Explicit per-call annotation** (Phase 2 — poly `@LANG(version)` /
    `WITH LANG`).
 2. **File-level pragma** (frontend-specific; e.g. C++ `#pragma poly std=c++23`).
 3. **Project pin** &mdash; the value recorded in `<project>/.polyglot/toolchains.lock`
@@ -141,10 +141,10 @@ The same schema is used for the project lock file.
 
 ## Roadmap (still WIP)
 
-* **Phase 2 &mdash; ploy syntax (done)**: module-level
+* **Phase 2 &mdash; poly syntax (done)**: module-level
   `LANG <name> = "<ver>";`, scoped `WITH LANG (name=ver, …) { … }` blocks,
   and single-statement `@LANG (name=ver) <stmt>` annotations are wired
-  through the ploy lexer / parser / sema pipeline. Sema keeps a stack of
+  through the poly lexer / parser / sema pipeline. Sema keeps a stack of
   pin frames: the module-level pragma populates the bottom frame, while
   `WITH LANG` / `@LANG` push and pop inner frames. When sema visits each
   cross-language site (`AnalyzeCrossLangCall`, `AnalyzeNewExpression`,
@@ -176,7 +176,7 @@ The same schema is used for the project lock file.
   `WithLangBlock::body` and `LangAnnotation::target` so wrapped LINKs
   and CALLs reach the descriptor pipeline.
 * **Phase 3 (done)** &mdash; `polyui` Tool-chains tab calling
-  `polyver list/detect`, ploy LANG syntax highlighting, and nine
+  `polyver list/detect`, poly LANG syntax highlighting, and nine
   integration test directories under
   `tests/integration/language_versions/` exercising every supported
   language plus the per-callsite dual-pin coexistence path.

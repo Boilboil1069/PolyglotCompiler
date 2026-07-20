@@ -6,9 +6,9 @@
 
 ## 2. 简短回答
 
-**可以，但有特定的架构约束。** `.ploy` 语言和 PolyglotCompiler 基础设施能够在**函数级别链接**粒度上实现不同语言的混合编译。它不执行传统的"统一编译"（将所有语言从源代码编译到相同的 IR），而是通过自动化粘合代码生成实现**目标代码级别的跨语言互操作**。
+**可以，但有特定的架构约束。** `.poly` 语言和 PolyglotCompiler 基础设施能够在**函数级别链接**粒度上实现不同语言的混合编译。它不执行传统的"统一编译"（将所有语言从源代码编译到相同的 IR），而是通过自动化粘合代码生成实现**目标代码级别的跨语言互操作**。
 
-## 3. ".ploy 混合编译"的含义
+## 3. ".poly 混合编译"的含义
 
 ### 3.1 传统混合编译（我们不做的方式）
 
@@ -57,7 +57,7 @@
                     │                 │
                     ▼                 ▼
               ┌───────────┐    ┌───────────┐
-              │  .ploy    │    │  多语言    │
+              │  .poly    │    │  多语言    │
               │  前端      │───▶│  链接器    │
               └───────────┘    └─────┬─────┘
                                      │
@@ -68,7 +68,7 @@
                               └───────────┘
 ```
 
-> **核心思想：** PolyglotCompiler 使用**自己的前端**（`frontend_cpp`、`frontend_python`、`frontend_rust`）将所有语言的源代码编译为统一的中间表示（IR）。`.ploy` 文件描述跨语言连接关系，PolyglotLinker 生成粘合代码将它们连接起来。
+> **核心思想：** PolyglotCompiler 使用**自己的前端**（`frontend_cpp`、`frontend_python`、`frontend_rust`）将所有语言的源代码编译为统一的中间表示（IR）。`.poly` 文件描述跨语言连接关系，PolyglotLinker 生成粘合代码将它们连接起来。
 
 **与外部编译器的关系：**
 
@@ -83,7 +83,7 @@
 - C++ 前端: `frontends/cpp/src/` — lexer/parser/sema/lowering/constexpr（5 编译单元）
 - Python 前端: `frontends/python/src/` — lexer/parser/sema/lowering（4 编译单元）
 - Rust 前端: `frontends/rust/src/` — lexer/parser/sema/lowering（4 编译单元）
-- .ploy 前端: `frontends/ploy/src/` — lexer/parser/sema/lowering（4 编译单元）
+- .poly 前端: `frontends/ploy/src/` — lexer/parser/sema/lowering（4 编译单元）
 - 编译器驱动: `tools/polyc/src/driver.cpp`（~1069 行，包含所有前端的调用逻辑）
 - 多语言链接器: `tools/polyld/src/polyglot_linker.cpp`（~522 行）
 
@@ -134,7 +134,7 @@
 
 使用三种语言的实际管道：
 
-```ploy
+```poly
 // 配置包管理器（支持多种方式）
 // 标准 venv:      CONFIG VENV python "/opt/ml-env";
 // Conda 环境:     CONFIG CONDA python "ml_env";
@@ -193,7 +193,7 @@ EXPORT image_pipeline AS "classify_images";
 | 1 | `frontend_rust` 编译 Rust 代码 | IR → 目标代码 |
 | 2 | `frontend_python` 编译 Python 代码 | IR → 目标代码 |
 | 3 | `frontend_cpp` 编译 C++ 代码 | IR → 目标代码 |
-| 4 | `frontend_ploy` 处理 .ploy 文件 | 生成 IR → 粘合代码 |
+| 4 | `frontend_ploy` 处理 .poly 文件 | 生成 IR → 粘合代码 |
 | 5 | `PolyglotLinker` 链接所有产物 | 统一二进制文件 |
 
 > **注意：** 所有语言均通过 PolyglotCompiler 自身的前端编译，不依赖外部编译器（MSVC/GCC/rustc/CPython）。
@@ -217,13 +217,13 @@ EXPORT image_pipeline AS "classify_images";
 
 ## 7. 与其他方案的对比
 
-| 特性 | PolyglotCompiler (.ploy) | GraalVM | FFI 手写绑定 | SWIG |
+| 特性 | PolyglotCompiler (.poly) | GraalVM | FFI 手写绑定 | SWIG |
 |------|--------------------------|---------|-------------|------|
 | 支持 C++ | ✅ | ❌ (仅 LLVM bitcode) | ✅ | ✅ |
 | 支持 Python | ✅ | ✅ (GraalPython) | ✅ | ✅ |
 | 支持 Rust | ✅ | ❌ | ✅ | ❌ |
 | 自动类型编组 | ✅ | ✅ | ❌ (手动) | 部分 |
-| 声明式语法 | ✅ (.ploy) | ❌ | ❌ | ❌ |
+| 声明式语法 | ✅ (.poly) | ❌ | ❌ | ❌ |
 | 容器类型支持 | ✅ | ✅ | ❌ (手动) | 部分 |
 | 包导入 | ✅ | ✅ | ❌ | ❌ |
 | 版本约束 | ✅ (`>= 1.20`) | ❌ | ❌ | ❌ |
@@ -236,7 +236,7 @@ EXPORT image_pipeline AS "classify_images";
 
 ## 8. 结论
 
-PolyglotCompiler 通过 `.ploy` 实现了**实用的混合编译**，工作在函数级别链接粒度上。它不是将所有语言统一编译到一个 IR 的编译器，而是一个**智能链接器**，它：
+PolyglotCompiler 通过 `.poly` 实现了**实用的混合编译**，工作在函数级别链接粒度上。它不是将所有语言统一编译到一个 IR 的编译器，而是一个**智能链接器**，它：
 
 1. **理解多种语言的类型系统** — 知道 C++ 的 `int` 对应 Python 的 `int` 和 Rust 的 `i32`
 2. **自动生成类型编组代码** — 无需手写类型转换

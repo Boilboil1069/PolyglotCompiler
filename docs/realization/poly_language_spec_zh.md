@@ -1,0 +1,866 @@
+# .poly 语言规范 — 多语言链接语言
+
+## 1. 概述
+
+`.poly` 是为 PolyglotCompiler 项目设计的领域特定语言（DSL）。它作为 **多语言链接描述语言**，使开发者能够表达跨语言函数级别的链接、变量共享、类型映射，以及在异构源语言（C++、Python、Rust 等）之间的控制流编排。
+
+> **为什么需要 .poly？** 传统的跨语言调用需要手写 FFI 绑定代码，涉及大量重复的类型转换和函数包装。`.poly` 通过声明式语法自动化了这一过程：开发者只需声明"哪个函数连接哪个函数"，编译器自动生成所有胶水代码。
+
+`.poly` 文件由专用前端 (`frontend_ploy`) 处理，生成适合中端和链接器使用的 IR，用于产生跨语言粘合代码和互操作存根。
+
+### 1.1 规范名称与 1.x 兼容性
+
+从 PolyglotCompiler 1.48.0 起，公开规范名称为 **Poly**，语言标识符为 `poly`，源码扩展名为 `.poly`。所有 1.x 版本仍接受历史别名 `Ploy`、`ploy` 与 `.ploy`，最早只会在 2.0.0 移除。诊断、清单、符号索引及其它生成元数据会把接受的旧输入统一规范化为 `poly`。为保持源码与二进制兼容，`frontends/ploy`、`frontend_ploy`、`Ploy*`、`__ploy_*` 等历史实现或 ABI 标识符有意保持不变；它们不是公开规范拼写。
+
+## 2. 设计目标
+
+| 目标 | 说明 |
+|------|------|
+| **显式跨语言链接** | 提供 `LINK` 指令，将一种语言中的目标函数/变量映射到另一种语言中的源函数/变量。开发者明确指定"谁连接谁"，避免隐式行为。 |
+| **类型桥接** | 通过 `MAP_TYPE` 声明如何在语言边界之间进行类型编组。例如 C++ 的 `int` 对应 Python 的 `int`。 |
+| **模块导入** | 通过 `IMPORT` 引用来自不同语言的已编译模块，支持 `language::module` 形式。 |
+| **包导入** | 通过 `IMPORT ... PACKAGE` 引用目标语言的原生包（如 Python 的 numpy、Rust 的 serde），扩展了互操作范围。 |
+| **控制流** | 支持 `IF/ELSE`、`WHILE`、`FOR`、`MATCH`，用于编排复杂的链接逻辑和数据处理流程。 |
+| **变量声明** | 支持 `LET`（不可变）和 `VAR`（可变）绑定，用于保存中间计算结果。 |
+| **函数定义** | 支持原生 `.poly` 函数，用于编写胶水逻辑和数据转换。 |
+| **管道组合** | `PIPELINE` 块用于串联多语言函数调用，形成多阶段处理流水线。 |
+| **自定义类型转换** | `MAP_FUNC` 用于定义复杂类型的转换函数。 |
+| **包生态系统访问** | 通过 `IMPORT ... PACKAGE` 使用目标语言的包生态系统（如 Python 的 numpy、scipy）。 |
+
+## 3. 词法结构
+
+### 3.1 关键字
+
+`.poly` 语言共有 **71 个保留关键字**（含弃用的 `RETURNS`、版本钉桩用的
+`LANG`、标准输出语句 `PRINTLN`，以及 `Poly 1.7.0` 引入的显式宽度类型与
+`TYPE` / `CONST`）：
+
+```
+LINK        IMPORT      EXPORT      MAP_TYPE    PIPELINE
+FUNC        LET         VAR         RETURN      RETURNS*
+IF          ELSE        WHILE       FOR         IN
+MATCH       CASE        DEFAULT     BREAK       CONTINUE
+AS          TRUE        FALSE       NULL        AND
+OR          NOT         CALL        VOID        INT
+FLOAT       STRING      BOOL        ARRAY       STRUCT
+PACKAGE     LIST        TUPLE       DICT        OPTION
+MAP_FUNC    CONVERT     CONFIG      VENV        CONDA
+UV          PIPENV      POETRY      NEW         METHOD
+GET         SET         WITH        DELETE      EXTEND
+LANG        PRINTLN     TYPE        CONST       I8
+I16         I32         I64         U8          U16
+U32         U64         F32         F64         USIZE
+ISIZE
+```
+
+**大小写不敏感（Poly 1.5.2+）。** 自该版本起，所有保留字在词法层
+按大小写不敏感识别：`link`、`Link`、`LINK`、`LiNk` 都识别为同一个
+LINK 关键字。`Token::lexeme` 始终被规范化为标准的 UPPER 大写拼写以
+便下游统一比较；用户在源码中真正写下的拼写则保留在
+`Token::raw_lexeme` 字段并通过 `Token::SourceText()` 暴露。**标识符
+仍然大小写敏感**——只有关键字集合参与折叠。过去仅在大小写上与关键字
+不同的标识符（`config`、`array`、`get`、…）现在变为保留字。
+
+`*` `RETURNS` 仍然为了向后兼容而被解析，但语法分析器会在该 token
+所在位置发出非致命的 `kDeprecatedKeyword` 警告（ErrorCode = 3024）。
+新代码请使用 LINK 签名上的 `-> Type` 箭头来声明返回类型。
+
+> **关键字分类：**
+> - **链接相关**：`LINK`、`IMPORT`、`EXPORT`、`MAP_TYPE`、`PACKAGE` — 用于定义跨语言链接关系
+> - **程序结构**：`FUNC`、`PIPELINE`、`STRUCT`、`MAP_FUNC` — 用于定义代码组织单元
+> - **变量**：`LET`、`VAR` — 用于声明不可变和可变变量
+> - **控制流**：`IF`、`ELSE`、`WHILE`、`FOR`、`IN`、`MATCH`、`CASE`、`DEFAULT`、`BREAK`、`CONTINUE`、`RETURN` — 用于控制程序执行流程
+> - **运算符关键字**：`AND`、`OR`、`NOT`、`AS` — 逻辑运算和类型别名
+> - **字面量关键字**：`TRUE`、`FALSE`、`NULL` — 布尔值和空值
+> - **类型关键字**：`VOID`、`INT`、`FLOAT`、`STRING`、`BOOL`、`ARRAY`、`LIST`、`TUPLE`、`DICT`、`OPTION` — 内置类型名称
+> - **操作关键字**：`CALL`、`CONVERT`、`NEW`、`METHOD`、`GET`、`SET`、`DELETE` — 跨语言调用、类型转换、类实例化、方法调用、属性访问、对象销毁
+> - **OOP 扩展**：`WITH`、`EXTEND` — 资源管理和类继承扩展
+> - **包管理器**：`CONFIG`、`VENV`、`CONDA`、`UV`、`PIPENV`、`POETRY` — 包管理器环境配置
+
+### 3.2 标识符
+
+标识符遵循 C 风格规则：以字母或下划线开头，后跟字母、数字或下划线。
+
+> **限定名称说明：**
+> - `::` 用于作用域解析，如 `cpp::math::add` 表示 C++ 的 math 模块中的 add 函数
+> - `.` 用于包路径分隔，如 `numpy.linalg` 表示 numpy 的 linalg 子包
+
+### 3.3 字面量
+
+| 类型 | 示例 | 说明 |
+|------|------|------|
+| **整数** | `42`、`0xFF`、`0b1010`、`0o77` | 支持十进制、十六进制、二进制、八进制 |
+| **浮点数** | `3.14`、`1.0e-5` | 支持科学记数法 |
+| **字符串** | `"hello"`、`"转义 \"引号\""` | 双引号括起，支持转义字符 |
+| **布尔值** | `TRUE`、`FALSE` | 逻辑真和假 |
+| **空值** | `NULL` | 表示空/无值 |
+| **列表** | `[1, 2, 3]` | 方括号括起的有序集合 |
+| **元组** | `(1, "hello")` | 圆括号括起的不可变异构集合 |
+| **结构体** | `Point { x: 1.0, y: 2.0 }` | 命名字段的结构化数据 |
+
+### 3.4 运算符
+
+```
++  -  *  /  %          （算术运算：加、减、乘、除、取模）
+== != < > <= >=        （比较运算：等于、不等于、小于、大于等）
+&& || !                （逻辑运算：与、或、非）
+=                      （赋值运算）
+->                     （箭头：用于函数返回类型声明）
+::                     （作用域解析：用于语言::模块::函数的限定）
+.                      （成员访问 / 包路径分隔符）
+,  ;  :                （分隔符：逗号、分号、冒号）
+( ) { } [ ]            （分组：圆括号、花括号、方括号）
+```
+
+### 3.5 注释
+
+```poly
+// 单行注释：从 // 到行末
+/* 多行注释：
+   可以跨越多行 */
+```
+
+### 3.6 分号规则
+
+> **这是 .poly 语法中最重要的规则之一。** 分号的使用遵循以下明确规则：
+
+#### 需要分号的语句（简单语句）：
+
+所有 **非块级语句** 必须以分号结尾：
+
+```poly
+LET x = 42;                                 // 变量声明 — 必须有分号
+VAR y = 0;                                  // 可变变量声明 — 必须有分号
+RETURN x;                                   // 返回语句 — 必须有分号
+BREAK;                                      // 循环中断 — 必须有分号
+CONTINUE;                                   // 循环继续 — 必须有分号
+x = x + 1;                                  // 表达式语句 — 必须有分号
+IMPORT cpp::math;                           // 模块导入 — 必须有分号
+IMPORT python PACKAGE numpy AS np;          // 包导入 — 必须有分号
+EXPORT f AS "fn";                           // 导出声明 — 必须有分号
+LINK(cpp, python, f, g);                    // 简单链接 — 必须有分号
+MAP_TYPE(cpp::int, python::int);            // 类型映射 — 必须有分号
+```
+
+#### 不需要分号的语句（块级语句）：
+
+所有 **以花括号 `{}` 结尾** 的声明/语句不需要分号：
+
+```poly
+FUNC f() -> void { RETURN; }                 // 函数声明 — 不需要分号
+PIPELINE p { }                               // 管道声明 — 不需要分号
+IF x > 0 { } ELSE { }                        // 条件语句 — 不需要分号
+WHILE x > 0 { }                              // 循环语句 — 不需要分号
+FOR i IN items { }                           // 遍历语句 — 不需要分号
+MATCH x { CASE 1 => { } }                    // 匹配语句 — 不需要分号
+STRUCT S { x: i32; }                         // 结构体声明 — 不需要分号
+MAP_FUNC f(x: i32) -> i32 { RETURN x; }      // 映射函数 — 不需要分号
+LINK(a, b, c, d) { MAP_TYPE(a::t, b::t); }   // 带体的链接 — 不需要分号
+```
+
+> **简记规则：** 如果语句以 `}` 结束，不加分号；否则加分号。
+
+## 4. 语法
+
+### 4.1 顶层声明
+
+```
+program         ::= (top_level_decl)*
+top_level_decl  ::= link_decl | import_decl | export_decl | map_type_decl
+                   | pipeline_decl | func_decl | struct_decl | map_func_decl
+                   | var_decl | statement
+```
+
+> **说明：** `.poly` 文件由零个或多个顶层声明组成。声明的顺序不影响语义——所有声明在编译前都会被收集和解析。
+
+### 4.2 LINK 指令
+
+> **这是 .poly 最核心的指令。** `LINK` 声明跨语言函数级链接关系，告诉编译器"目标语言的某个函数需要调用源语言的某个函数"。
+
+解析器现在识别 **两种** 表面形式：
+
+#### 4.2.1 标准 / 带签名形式（v1.8.0 起推荐）
+
+```poly
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type>;
+LINK <lang>::<module>::<func> AS FUNC(<param_types>) -> <return_type> {
+    MAP_TYPE(<target_type>, <source_type>);
+    // ... 每个参数一条 MAP_TYPE
+}
+```
+
+> 带签名形式把目标符号写成完全限定的 `lang::module::func`，并把
+> 函数签名直接嵌入语法，便于 sema 静态校验，也更接近自然阅读
+> "把这个符号 *作为* 这种签名的函数链接进来"。
+
+示例：
+
+```poly
+// 简单签名链接（无 body）
+LINK cpp::math::add AS FUNC(cpp::int, cpp::int) -> cpp::int;
+
+// 带 MAP_TYPE body 的签名链接
+LINK cpp::math::process AS FUNC(cpp::double, cpp::int) -> cpp::double {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+```
+
+#### 4.2.2 旧的逗号形式（已弃用，仍可解析）
+
+```poly
+LINK(target_language, source_language, target_function, source_function);
+
+// 带 body
+LINK(cpp, python, math::process, data::load) {
+    MAP_TYPE(cpp::double, python::float);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+// AS VAR / AS STRUCT 修饰符（目前仍只作用于旧形式）
+LINK(cpp, python, config_data, py_config) AS VAR;
+LINK(cpp, rust, Point, RustPoint) AS STRUCT {
+    MAP_TYPE(cpp::double, rust::f64);
+    MAP_TYPE(cpp::int, rust::i32);
+}
+```
+
+语义分析器会对每条旧形式的 `LINK(...)` 发出 `kDeprecatedKeyword` 警告。
+**新代码应使用带签名形式**；现有示例在 `tests/samples/<n>_v2/` 下提供
+镜像版本（参见 `01_basic_linking_v2/`）。
+
+### 4.3 IMPORT 指令
+
+> **IMPORT 用于引入外部模块和包。** 支持三种形式，覆盖不同的导入场景。
+
+#### 形式 1：路径导入
+
+```poly
+IMPORT "path/to/module" AS my_module;
+```
+
+> **说明：** 从文件路径导入模块，必须指定别名。适合导入本地的 `.poly` 文件。
+
+#### 形式 2：限定模块导入
+
+```poly
+IMPORT cpp::math_utils;
+IMPORT python::data_loader;
+IMPORT rust::validator;
+```
+
+> **说明：** 使用 `语言::模块名` 形式导入已编译的模块。编译器会在对应语言的模块搜索路径中查找。
+
+#### 形式 3：包导入
+
+```poly
+IMPORT python PACKAGE numpy AS np;
+IMPORT python PACKAGE scipy.optimize AS opt;
+IMPORT rust PACKAGE serde;
+```
+
+> **说明：** `PACKAGE` 关键字表示导入目标语言的原生包。支持用 `.` 分隔的子包路径（如 `scipy.optimize`）。`AS` 别名可选——如果不指定，则使用包名作为标识符。
+>
+> **使用场景：** 当需要在跨语言管道中使用 Python 的 numpy 进行矩阵运算，或使用 Rust 的 serde 进行序列化时。
+
+### 4.4 EXPORT 指令
+
+> **EXPORT 将 .poly 定义的函数暴露给外部使用。**
+
+```poly
+EXPORT function_name;                    // 使用原始名称导出
+EXPORT function_name AS "external_name"; // 使用指定的外部名称导出
+```
+
+> **说明：** 导出的函数可以被其他语言的代码直接调用。`AS "外部名称"` 允许指定一个对外可见的名称，与内部名称不同。
+
+### 4.5 MAP_TYPE 指令
+
+> **MAP_TYPE 声明两种语言之间的类型映射关系。**
+
+```poly
+MAP_TYPE(source_language::type, target_language::type);
+```
+
+示例：
+
+```poly
+MAP_TYPE(cpp::int, python::int);           // C++ int ↔ Python int
+MAP_TYPE(cpp::double, python::float);      // C++ double ↔ Python float
+MAP_TYPE(cpp::std::string, python::str);   // C++ string ↔ Python str
+MAP_TYPE(rust::f64, cpp::double);          // Rust f64 ↔ C++ double
+```
+
+> **说明：** 编译器使用这些映射自动生成类型转换（编组/反编组）代码。如果两种类型在内存布局上兼容，编译器会优化为零拷贝转换。
+
+### 4.6 STRUCT 声明
+
+> **STRUCT 定义命名的聚合类型，用于跨语言结构体映射。**
+
+```poly
+STRUCT Point {
+    x: f64;
+    y: f64;
+    label: STRING;
+}
+```
+
+> **说明：** 结构体的每个字段有名称和类型。字段之间用分号分隔。结构体可用于 `LINK ... AS STRUCT` 中进行跨语言结构映射。
+
+```poly
+STRUCT DataSet {
+    name: STRING;
+    values: LIST(f64);
+    metadata: DICT(STRING, STRING);
+}
+```
+
+> **说明：** 字段类型可以是容器类型（`LIST`、`DICT` 等），支持嵌套的复杂数据结构。
+
+### 4.7 MAP_FUNC 声明
+
+> **MAP_FUNC 定义自定义的类型转换函数。** 当 `MAP_TYPE` 无法表达的复杂转换逻辑时使用。
+
+```poly
+MAP_FUNC normalize(x: f64) -> f64 {
+    IF x < 0.0 {
+        RETURN 0.0;
+    }
+    IF x > 1.0 {
+        RETURN 1.0;
+    }
+    RETURN x;
+}
+```
+
+> **说明：** `MAP_FUNC` 与普通 `FUNC` 的区别在于：`MAP_FUNC` 会被注册到转换函数表中，在跨语言调用时可被自动调用进行类型转换。
+
+### 4.8 PIPELINE 指令
+
+> **PIPELINE 定义多阶段、多语言处理流水线。**
+
+```poly
+PIPELINE data_analysis {
+    FUNC load() -> LIST(f64) {
+        LET data = CALL(python, loader::read, "data.csv");
+        RETURN data;
+    }
+
+    FUNC process(data: LIST(f64)) -> f64 {
+        LET result = CALL(cpp, math::compute, data);
+        RETURN result;
+    }
+}
+```
+
+> **说明：** PIPELINE 内部包含一系列 FUNC 声明，代表处理流水线的不同阶段。每个阶段可以使用不同语言的函数，编译器自动在阶段间插入类型转换代码。
+
+### 4.9 函数定义
+
+> **FUNC 定义 .poly 原生函数。**
+
+```poly
+FUNC add(a: i32, b: i32) -> i32 {
+    RETURN a + b;
+}
+```
+
+> **语法详解：**
+> - `FUNC` — 关键字，声明函数
+> - `add` — 函数名
+> - `(a: i32, b: i32)` — 参数列表，每个参数格式为 `名称: 类型`
+> - `-> i32` — 返回类型声明
+> - `{ ... }` — 函数体
+
+#### 4.9.1 默认参数值 *（自 1.11.0 起）*
+
+末尾的形参可以通过 `=` 携带**默认表达式**：
+
+```poly
+FUNC add(x: i32, y: i32 = 0) -> i32 {
+    RETURN x + y;
+}
+```
+
+parser 与 sema 强制以下规则：
+
+* 所有带默认值的参数必须出现在所有无默认值参数**之后**；顺序颠倒
+  是 parse 期错误。
+* 默认表达式必须是常量可折叠的字面量 / 一元 / 二元表达式，**或者**
+  一次纯的 poly 内部 FUNC 调用（同模块的 FUNC）。跨语言 `CALL`、
+  读取其他形参以及闭包捕获都会被拒绝，错误信息为
+  `"must be a constant expression (literal, unary or binary of
+  literals, or a pure intra-Poly call)"`。
+* lowering 会在每一个省略对应实参的调用点物化默认表达式的副本，
+  后端永远看不到"短调用"。
+
+#### 4.9.2 调用点的命名参数 *（自 1.11.0 起）*
+
+任何实参都可以通过 `名字: 值` 的语法按**名字**传递：
+
+```poly
+add(x: 7);          // y 取默认值 0
+add(2, y: 5);       // 位置 + 命名 混合
+add(x: 1, y: 2);    // 全部按名字传
+```
+
+规则：
+
+* 位置实参不可出现在命名实参**之后**。
+* 同一个形参至多被提供一次。
+* 每个必需（无默认值）的形参都必须由位置或名字提供，否则 sema 报告
+  `"required parameter 'X' of 'F' is not supplied"`。
+
+### 4.10 变量声明
+
+> **LET 和 VAR 分别声明不可变和可变变量。**
+
+```poly
+LET x = 42;                              // 不可变变量，类型由字面量推断为 i32
+VAR y = 3.14;                            // 可变变量，类型推断为 f64
+LET result = CALL(cpp, compute, x);      // 类型由跨语言调用的返回类型推断
+```
+
+> **区别：**
+> - `LET` 声明的变量不可重新赋值（类似 Rust 的 `let` 或 C++ 的 `const auto`）
+> - `VAR` 声明的变量可以重新赋值（类似普通变量）
+
+### 4.11 控制流
+
+#### IF/ELSE — 条件分支
+
+```poly
+IF condition {
+    LET a = 1;
+} ELSE IF other_condition {
+    LET b = 2;
+} ELSE {
+    LET c = 3;
+}
+```
+
+> **说明：** 条件表达式不需要括号（与 Go/Rust 类似）。支持 `ELSE IF` 链式条件。
+
+#### WHILE — 条件循环
+
+```poly
+VAR i = 0;
+WHILE i < 10 {
+    i = i + 1;
+}
+```
+
+> **说明：** 当条件为真时重复执行循环体。支持 `BREAK` 提前退出和 `CONTINUE` 跳过本次迭代。
+
+#### FOR — 遍历循环
+
+```poly
+FOR item IN collection {
+    LET processed = item + 1;
+}
+```
+
+> **说明：** 遍历集合中的每个元素。`collection` 可以是列表、数组或其他可迭代类型。
+
+#### MATCH — 模式匹配
+
+`MATCH` 对单个被检值进行派发；每个 `CASE` 携带一个**模式**与
+可选的 `IF` 守卫。模式与分支体之间的箭头（`->` 或 `=>`）可选，
+标准写法不带箭头。
+
+```poly
+MATCH value {
+    CASE 0 { RETURN "zero"; }
+    CASE 1 { RETURN "one"; }
+    DEFAULT { RETURN "other"; }
+}
+```
+
+支持的模式形态：
+
+| 模式                | 示例                                 |
+| ------------------- | ------------------------------------ |
+| 字面量              | `CASE 0`、`CASE "hi"`、`CASE TRUE`    |
+| 通配                | `CASE _`                             |
+| 半开范围            | `CASE 1..10`                         |
+| 闭合范围            | `CASE 1..=10`                        |
+| 元组解构            | `CASE (a, b)`、`CASE (_, b)`          |
+| 结构体解构          | `CASE Point { x, y, .. }`            |
+| OR 模式             | `CASE 1 \| 2 \| 3`                   |
+| 绑定                | `CASE n @ 0..=100`                   |
+| 类型守卫            | `CASE x: i32 IF x > 0`               |
+| `OPTION` 构造子     | `CASE Some(x)`、`CASE None`           |
+
+语义规则：
+
+* `MATCH` 不会贯穿，分支执行完毕后立即跳到 `MATCH` 之后的汇合点。
+* 对 `bool` 必须同时覆盖 `TRUE` 与 `FALSE`（或使用 `CASE _` /
+  `DEFAULT`）；对 `OPTION` 必须同时覆盖 `Some(_)` 与 `None`；
+  对其他类型必须包含 `CASE _` 或 `DEFAULT`，除非有不可拒绝分支
+  覆盖了所有取值。
+* 出现在不可拒绝分支或 `DEFAULT` 之后的分支，以及字面量重复的
+  分支，都会被标记为不可达警告。
+* 完整实现说明请见 [`pattern_matching_zh.md`](pattern_matching_zh.md)，
+  其中包括降级策略与诊断列表。
+
+### 4.12 CALL 表达式
+
+> **CALL 是执行跨语言函数调用的核心表达式。**
+
+```poly
+CALL(language, function_name, arg1, arg2, ...);
+```
+
+> **参数说明：**
+> - `language`：目标语言标识符
+> - `function_name`：要调用的函数名（可限定）
+> - `arg1, arg2, ...`：传递给函数的参数
+
+示例：
+
+```poly
+LET data = CALL(python, loader::read, "input.csv");   // 调用 Python 函数
+LET result = CALL(cpp, math::compute, data, 42);       // 调用 C++ 函数
+LET valid = CALL(rust, validator::check, result);       // 调用 Rust 函数
+```
+
+> **说明：** 编译器根据已注册的 `MAP_TYPE` 规则，自动在参数传递和返回值接收时插入类型转换代码。
+
+### 4.13 CONVERT 表达式
+
+> **CONVERT 用于显式类型转换。**
+
+```poly
+LET x = CONVERT(python_value, i32);
+LET items = CONVERT(raw_list, LIST(f64));
+```
+
+> **说明：** 将表达式转换为目标类型。编译器会查找注册的转换路径（直接映射、MAP_TYPE 或 MAP_FUNC），如果找不到合法路径则报错。
+
+### 4.14 表达式语法
+
+```
+expression      ::= assignment_expr
+assignment_expr ::= logical_or ('=' assignment_expr)?
+logical_or      ::= logical_and ('||' logical_and)*
+logical_and     ::= equality ('&&' equality)*
+equality        ::= comparison (('==' | '!=') comparison)*
+comparison      ::= addition (('<' | '>' | '<=' | '>=') addition)*
+addition        ::= multiplication (('+' | '-') multiplication)*
+multiplication  ::= unary (('*' | '/' | '%') unary)*
+unary           ::= ('!' | '-' | 'NOT') unary | call_expr
+call_expr       ::= primary ('(' arguments? ')')* ('.' identifier)*
+primary         ::= identifier | literal | '(' expression ')'
+                   | call_directive | list_literal | struct_literal
+                   | convert_expr
+```
+
+> **优先级从低到高：** 赋值 < 逻辑或 < 逻辑与 < 相等 < 比较 < 加减 < 乘除 < 一元运算 < 调用
+
+### 4.15 CLASS 模式与 `HANDLE<>` 类型 *（自 1.9.0 起）*
+
+跨语言对象可通过声明**类模式**并以 `HANDLE<lang::class_path>` 引用其
+实例的方式，纳入静态类型系统。
+
+```
+class_decl   ::= "CLASS" lang "::" class_path "{" class_row* "}"
+class_row    ::= "METHOD" name "(" param_list? ")" ("->" type)? ";"
+              |  "ATTR"   name ":" type ";"
+handle_type  ::= "HANDLE" "<" lang "::" class_path ">"
+```
+
+* `CLASS`、`HANDLE` 与 `ATTR` 是**上下文关键字**：在非模式位置上拼写
+  相同的标识符仍按标识符返回词法层，因此把 `handle`、`class`、`attr`
+  当作变量名使用的现有代码不受影响。
+* 名为 `__init__`、`new` 或 `ctor` 的方法填充模式的构造签名，被
+  `NEW(lang, class_path, ...)` 取用。
+* 对接收者类型为 `HANDLE<lang::T>` 的 `METHOD(lang, recv, name, ...)`、
+  `GET(lang, recv, attr)` 与 `SET(lang, recv, attr, value)`，编译期
+  会按模式类型检查；未知方法名或属性名产生**警告**（外语对象通常会
+  动态挂载成员），而实参个数、实参类型与 `SET` 写入值类型不匹配则是
+  硬**错误**。
+* 即便类名相同，`HANDLE<a::T>` 与 `HANDLE<b::U>` 在静态类型上也是
+  互不相等的；跨语言 handle 赋值属于错误，必须通过 `CONVERT` +
+  `MAP_FUNC` 显式转换。
+
+```poly
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: i32, out_features: i32);
+    METHOD forward(x: f32) -> f32;
+    ATTR in_features: i32;
+}
+
+LET model: HANDLE<python::torch::nn::Linear> =
+    NEW(python, torch::nn::Linear, 128, 10);
+LET y: f32 = METHOD(python, model, forward, 0.5);
+LET in_dim: i32 = GET(python, model, in_features);
+```
+
+若 `NEW`/`METHOD`/`GET`/`SET` 的目标**没有**已注册模式，则回退到
+1.8.x 的动态 `Any` 类型路径，保留对现有样例的向后兼容。
+
+### 4.16 EXTEND 的使用限制 *（自 1.11.0 起）*
+
+`EXTEND(<lang>, <class_path>) AS <Name> { ... }` 在加载时通过修补宿
+主运行时的方法派发表来安装一个覆写。由于外部对象**不会**进入
+poly 的静态类型系统，这种 monkey-patch 模型只在宿主语言本身允许
+临时方法替换的前提下才是健全的。因此 sema 把 language 参数限制在
+**动态宿主**集合：
+
+| 接受的宿主语言 | 同时接受的标签别名         |
+| -------------- | -------------------------- |
+| `python`       | —                          |
+| `ruby`         | `rb`                       |
+| `javascript`   | `js`、`typescript`、`ts`   |
+
+其他已注册语言 —— `cpp`、`c`、`rust`、`java`、`dotnet` / `csharp`、
+`go` / `golang` —— 都会被**拒绝**，诊断信息为：
+
+```
+EXTEND is not allowed on statically-typed language '<lang>'
+  — its type system cannot accept an out-of-source subclass without
+    breaking soundness
+suggestion: wrap the foreign API in a local Poly FUNC and use
+            CALL / METHOD instead, or move the EXTEND target to a
+            dynamic host (python / ruby / javascript)
+```
+
+推荐的替代写法是用一个本地 poly `FUNC` 通过 `CALL` / `METHOD` 委托
+给外部 API，这样扩展点保留在 poly 的类型系统内，也不需要修改外部
+模块。完整迁移示例参见
+[`tests/samples/35_extend_dynamic`](../../tests/samples/35_extend_dynamic/)。
+
+### 4.17 `AS` 关键字的统一用法 *（自 1.11.0 起）*
+
+同一个 `AS` 关键字在五个不同的绑定位置被复用。本节集中列出全部
+五种用法，便于作者和工具一眼区分。
+
+| # | 形式                                                             | `AS` 的角色                                       | 示例 |
+|---|------------------------------------------------------------------|---------------------------------------------------|------|
+| 1 | `IMPORT <lang> PACKAGE <path> AS <alias>;`                       | 导入包的本地**别名**。                            | `IMPORT python PACKAGE numpy AS np;` |
+| 2 | `EXPORT <symbol> AS <"external_name">;`                          | poly 符号被对外暴露时使用的**外部名**。           | `EXPORT f AS "fn";` |
+| 3 | `LINK <lang>::<mod>::<func> AS FUNC(<types>) -> <ret>;`          | 引出外部符号**已声明签名**的分隔符。              | `LINK cpp::math::add AS FUNC(i32, i32) -> i32;` |
+| 4 | `IMPORT <lang> AS <alias>;` / `PACKAGE` 形式的别名               | 与 (1) 同，只是作用在**语言**层级。               | `IMPORT cpp AS C;` |
+| 5 | `EXTEND(<lang>, <class>) AS <NewName> { ... }`                   | 被修补类的本地**句柄名**。                        | `EXTEND(python, base::Component) AS HealthComponent { ... }` |
+
+> 虽然 `CONVERT(value, T)` 直觉上读作"把这个值当作 T 来转"，但
+> 表面语法用的是逗号而不是 `AS`；并不存在 `CONVERT value AS T`
+> 这种写法。这是唯一一处值得专门指出的"缺席的 AS 绑定"。
+
+#### 反例（被禁 / 歧义）
+
+下列写法**不被**接受，会触发 parser 或 sema 错误：
+
+```poly
+// (a) 把 AS 当作绑定位置之外的二元运算符：
+LET y = 3 AS i64;                 // 拒绝 —— 请用 CONVERT(3, i64)
+
+// (b) 用 AS 给 CALL 结果起别名：
+LET v = CALL(python, work) AS Handle;   // 拒绝 —— 先绑定到变量，
+                                        //    再显式 CONVERT
+
+// (c) 在一条 LINK 里出现两次 AS 绑定：
+LINK cpp::f AS FUNC(i32) -> i32 AS g;   // 拒绝 —— 每条 LINK 只允许
+                                        //    一个尾随 AS 块（签名）
+
+// (d) IMPORT 后的 AS 没有标识符：
+IMPORT python PACKAGE numpy AS;         // 拒绝 —— 缺别名
+
+// (e) EXTEND 没有函数体：
+EXTEND(python, m::C) AS Sub;            // 拒绝 —— 必须给 { ... } 体
+```
+
+需要"as-cast"语义时请使用 `CONVERT`；需要给值改名时请使用
+`LET` + `CONVERT` 的组合。
+
+## 5. 类型系统
+
+### 5.1 内置原始类型
+
+| .poly 类型    | C++ 等价 | Python 等价 | Rust 等价 | 说明 |
+|-------------|----------|------------|----------|------|
+| i32         | int32_t  | int        | i32      | 32位有符号整数 |
+| i64         | int64_t  | int        | i64      | 64位有符号整数 |
+| f32         | float    | float      | f32      | 32位浮点数 |
+| f64         | double   | float      | f64      | 64位浮点数 |
+| BOOL        | bool     | bool       | bool     | 布尔值（真/假） |
+| STRING / str| std::string | str     | String   | UTF-8 字符串 |
+| VOID        | void     | None       | ()       | 无返回值 |
+| ptr         | void*    | object     | *mut u8  | 不透明指针类型 |
+
+### 5.2 容器类型
+
+| .poly 类型        | C++ 等价                     | Python 等价  | Rust 等价              | 说明 |
+|-------------------|----------------------------|-------------|------------------------|------|
+| LIST(T)           | std::vector\<T\>           | list        | Vec\<T\>               | 动态长度的有序集合 |
+| TUPLE(T1, T2)     | std::tuple\<T1, T2\>      | tuple       | (T1, T2)               | 固定大小的异构集合 |
+| DICT(K, V)        | std::unordered_map\<K, V\> | dict        | HashMap\<K, V\>        | 键值对映射 |
+| OPTION(T)         | std::optional\<T\>         | Optional[T] | Option\<T\>            | 可空包装类型 |
+
+> **容器类型语法注意：** 容器类型使用圆括号 `()` 包裹类型参数，如 `LIST(f64)`、`DICT(STRING, i32)`。
+
+### 5.3 跨语言类型转换
+
+编译器根据 `MAP_TYPE` 指令和内置类型转换表生成编组代码。在安全的情况下，自动生成：
+
+| 转换类型 | 生成策略 |
+|---------|---------|
+| 数值类型（int → float 等） | 类型转换指令 |
+| 字符串 | UTF-8 编码标准化 |
+| 数组/列表 | 逐元素复制 + 元素类型转换 |
+| 结构体 | 逐字段编组 |
+| 字典 | 遍历条目 + 键值转换 |
+| 指针/句柄 | ForeignHandle 包装 + 所有权追踪 |
+
+### 5.4 严格类型注解要求（自 2026-04-09-12 起）
+
+**跨语言边界处的所有参数和返回值都必须携带显式类型注解。**
+
+当语义分析阶段处理 `LINK` 声明时，任何没有显式类型注解的参数或返回值都会在内部被赋予 `Type::Unknown()`。该类型在管道中传播，并在 IR lowering 阶段产生 `IRTypeKind::kInvalid` 类型。IR 验证器随后以以下错误拒绝编译：
+
+```
+strict: function '<name>' has unresolved Invalid return type —
+    add an explicit type annotation or LINK with MAP_TYPE
+```
+
+或者：
+
+```
+strict: function '<name>' parameter N has unresolved Invalid type —
+    add an explicit type annotation
+```
+
+**这种严格行为默认启用**（即 `PloySemaOptions::strict_mode` 默认为 `true`，且驱动程序在 `--dev` 未激活时启用 IR 验证器严格模式）。
+
+#### 修复方法
+
+在 `LINK` 声明的所有参数和返回值上添加显式类型注解：
+
+```poly
+// ✗ 缺少注解 — 在严格模式下编译报错
+LINK(cpp, python, f, g);
+
+// ✓ 带有显式注解
+LINK(cpp, python, f, g) {
+    MAP_TYPE(cpp::int, python::int);
+}
+```
+
+或直接在函数签名上标注类型：
+
+```poly
+// ✓ 内联类型注解
+LINK(cpp, python, process(x: f64) -> f64, np::process);
+```
+
+#### 退出严格模式（不推荐）
+
+暂时无法添加注解的遗留代码可在构造 `PloySema` 时传入 `PloySemaOptions{.strict_mode = false}`。这将抑制 `Type::Unknown()` 错误，但允许产生 I64 占位符 IR，可能导致运行时的错误代码生成。
+
+
+
+```
+.poly 源代码
+    │
+    ▼
+┌──────────┐
+│  词法器   │  → Token 流（71 个关键字，大小写不敏感 + 运算符 + 字面量）
+│  Lexer   │     识别关键字、标识符、数字、字符串、符号、注释
+└──────────┘
+    │
+    ▼
+┌──────────┐
+│  解析器   │  → AST（抽象语法树）
+│  Parser  │     将 Token 流构建为声明、语句、表达式的树结构
+└──────────┘
+    │
+    ▼
+┌──────────┐
+│ 语义分析  │  → 类型检查后的 AST、符号解析、链接验证
+│   Sema   │     验证类型兼容性、解析标识符、检查链接目标有效性
+└──────────┘
+    │
+    ▼
+┌───────────┐
+│   降级     │  → 多语言 IR（中间表示）
+│ Lowering  │     将 AST 转换为 IR 指令，包含跨语言调用节点和编组代码
+└───────────┘
+    │
+    ▼
+┌───────────┐
+│  链接器    │  → 粘合代码生成、存根发射
+│  Linker   │     为每个 LINK 生成包装函数和 FFI 桥接代码
+└───────────┘
+```
+
+## 7. 完整示例
+
+```poly
+// ===== 模块和包导入 =====
+IMPORT cpp::math_utils;                     // 导入 C++ 的 math_utils 模块
+IMPORT python PACKAGE numpy AS np;          // 导入 Python 的 numpy 包，别名 np
+IMPORT rust::validator;                     // 导入 Rust 的 validator 模块
+
+// ===== 类型映射 =====
+MAP_TYPE(cpp::int, python::int);            // C++ int ↔ Python int
+MAP_TYPE(cpp::double, python::float);       // C++ double ↔ Python float
+MAP_TYPE(cpp::std::string, python::str);    // C++ string ↔ Python str
+
+// ===== 结构体定义 =====
+STRUCT DataPoint {
+    timestamp: i64;                         // 时间戳
+    value: f64;                             // 数据值
+    label: STRING;                          // 标签
+}
+
+// ===== 类型转换函数 =====
+MAP_FUNC normalize(x: f64) -> f64 {
+    IF x < 0.0 {
+        RETURN 0.0;                         // 下限截断
+    }
+    IF x > 1.0 {
+        RETURN 1.0;                         // 上限截断
+    }
+    RETURN x;                               // 已在范围内
+}
+
+// ===== 跨语言链接 =====
+LINK(cpp, python, math_utils::process, np::compute) {
+    MAP_TYPE(cpp::double, python::float);   // 参数类型转换
+}
+
+LINK(cpp, rust, Point, RustPoint) AS STRUCT {
+    MAP_TYPE(cpp::double, rust::f64);       // 结构体字段类型转换
+}
+
+// ===== 处理管道 =====
+PIPELINE analyze_data {
+    FUNC load() -> LIST(f64) {
+        LET raw = CALL(python, np::loadtxt, "input.csv");
+        RETURN raw;
+    }
+
+    FUNC process(data: LIST(f64)) -> f64 {
+        LET result = CALL(cpp, math_utils::process, data);
+        RETURN result;
+    }
+
+    FUNC validate(value: f64) -> BOOL {
+        LET ok = CALL(rust, validator::check, value);
+        RETURN ok;
+    }
+}
+
+// ===== 胶水函数 =====
+FUNC transform(input: f64, scale: i32) -> f64 {
+    VAR result = input * scale;
+    WHILE result > 1000.0 {
+        result = result / 2.0;              // 缩放到合理范围
+    }
+    RETURN result;
+}
+
+// ===== 导出 =====
+EXPORT analyze_data AS "data_pipeline";     // 导出管道
+EXPORT transform AS "transform_fn";         // 导出函数
+```

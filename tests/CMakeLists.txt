@@ -342,7 +342,7 @@ add_executable(test_frontend_rust ${UNIT_TEST_FRONTEND_RUST})
 target_link_libraries(test_frontend_rust PRIVATE
     frontend_rust ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})
 
-# -- Ploy frontend -----------------------------------------------------------
+# -- Poly frontend (historical target name: test_frontend_ploy) ---------------
 add_executable(test_frontend_ploy ${UNIT_TEST_FRONTEND_PLOY})
 target_link_libraries(test_frontend_ploy PRIVATE
     frontend_ploy ${POLYGLOT_ALL_BACKENDS} runtime ${CATCH2_LIBS})

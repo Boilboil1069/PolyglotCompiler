@@ -1,6 +1,6 @@
-# 二进制管线：`.ploy` -> `.obj` -> `.exe` -> 进程退出码
+# 二进制管线：`.poly` -> `.obj` -> `.exe` -> 进程退出码
 
-本文档描述将 `.ploy` 源文件转换为 Windows AMD64 进程、且其退出码等于
+本文档描述将 `.poly` 源文件转换为 Windows AMD64 进程、且其退出码等于
 源程序 `main` 返回值的端到端原生二进制管线。它是
 [`compilation_model_zh.md`](compilation_model_zh.md)（前端 / IR 侧）与
 [`runtime_stdout_pipeline_zh.md`](runtime_stdout_pipeline_zh.md)
@@ -13,7 +13,7 @@
 ## 阶段总览
 
 ```
-   .ploy 源代码
+   .poly 源代码
        |
        |  polyc（前端 + IR + 后端）
        v
@@ -182,7 +182,7 @@ shim 中的 `disp32` 在字节发射前就能定下来——和写入器其它�
 
 `tests/integration/ploy_e2e_real_exit_code_test.cpp` 锁定如下契约：
 
-| `.ploy` 函数体                              | 观察到的 `GetExitCodeProcess` |
+| `.poly` 函数体                              | 观察到的 `GetExitCodeProcess` |
 |---------------------------------------------|--------------------------------|
 | `FUNC main() -> i32 { RETURN 42; }`         | `42`                           |
 | `FUNC main() -> i32 { RETURN 0;  }`         | `0`                            |

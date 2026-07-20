@@ -1,8 +1,8 @@
 /**
  * @file     ploy_frontend.cpp
- * @brief    Ploy language frontend adapter implementation
+ * @brief    Poly language frontend adapter implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */

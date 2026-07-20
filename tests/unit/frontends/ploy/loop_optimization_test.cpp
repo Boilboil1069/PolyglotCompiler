@@ -1,15 +1,15 @@
 // ============================================================================
-// Ploy Frontend Loop Optimisation Tests
+// Poly Frontend Loop Optimisation Tests
 //
-// These tests verify that ploy loop constructs (WHILE, FOR..IN, recursive
+// These tests verify that poly loop constructs (WHILE, FOR..IN, recursive
 // functions) produce IR with the correct structural properties — block counts,
 // tail-call eligibility markers, and LICM-friendly instruction placement —
-// as observed through the ploy→IR lowering pipeline.
+// as observed through the poly→IR lowering pipeline.
 //
 // Unlike the IR-level loop optimisation tests (tests/unit/loop_optimization_test.cpp,
 // which applies optimisation passes directly to handcrafted IR), these tests
-// work at the ploy source language level and confirm observable IR structure
-// changes when the ploy lowering pipeline processes loop constructs.
+// work at the poly source language level and confirm observable IR structure
+// changes when the poly lowering pipeline processes loop constructs.
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
@@ -113,7 +113,7 @@ int CountBasicBlocks(const std::string &ir_text, const std::string &fn_name) {
 // 1. WHILE loop: must produce multiple basic blocks (header, body, exit)
 // ============================================================================
 
-TEST_CASE("Ploy loop: WHILE generates at least 3 basic blocks", "[ploy][loop]") {
+TEST_CASE("Poly loop: WHILE generates at least 3 basic blocks", "[poly][loop]") {
     Diagnostics diags;
     auto result = Compile(R"(
 FUNC count_up() -> INT {
@@ -138,7 +138,7 @@ FUNC count_up() -> INT {
 // 2. FOR..IN loop: must also produce multiple basic blocks
 // ============================================================================
 
-TEST_CASE("Ploy loop: FOR..IN generates at least 3 basic blocks", "[ploy][loop]") {
+TEST_CASE("Poly loop: FOR..IN generates at least 3 basic blocks", "[poly][loop]") {
     Diagnostics diags;
     auto result = Compile(R"(
 FUNC sum_range() -> INT {
@@ -163,7 +163,7 @@ FUNC sum_range() -> INT {
 //    number of basic blocks (structural equivalence check)
 // ============================================================================
 
-TEST_CASE("Ploy loop: FOR..IN and equivalent WHILE have matching block counts", "[ploy][loop]") {
+TEST_CASE("Poly loop: FOR..IN and equivalent WHILE have matching block counts", "[poly][loop]") {
     Diagnostics for_diags;
     auto for_result = Compile(R"(
 FUNC sum_for() -> INT {
@@ -203,7 +203,7 @@ FUNC sum_while() -> INT {
 // 4. Nested loops: must produce more blocks than a single loop
 // ============================================================================
 
-TEST_CASE("Ploy loop: nested loops produce more blocks than a single loop", "[ploy][loop]") {
+TEST_CASE("Poly loop: nested loops produce more blocks than a single loop", "[poly][loop]") {
     Diagnostics single_diags;
     auto single = Compile(R"(
 FUNC single_loop() -> INT {
@@ -239,11 +239,11 @@ FUNC nested_loop() -> INT {
 
 // ============================================================================
 // 5. Tail-recursive function: tail position call must appear in IR
-//    This validates that ploy's recursive CALL in tail position is emitted,
+//    This validates that poly's recursive CALL in tail position is emitted,
 //    which is the precondition for tail-call optimisation by middle-end passes.
 // ============================================================================
 
-TEST_CASE("Ploy loop: tail-recursive function emits call in tail position", "[ploy][loop]") {
+TEST_CASE("Poly loop: tail-recursive function emits call in tail position", "[poly][loop]") {
     Diagnostics diags;
     auto result = Compile(R"(
 FUNC factorial(n: INT, acc: INT) -> INT {
@@ -272,7 +272,7 @@ FUNC factorial(n: INT, acc: INT) -> INT {
 //    (loop body → exit-block path via the break)
 // ============================================================================
 
-TEST_CASE("Ploy loop: WHILE with BREAK generates conditional exit edge", "[ploy][loop]") {
+TEST_CASE("Poly loop: WHILE with BREAK generates conditional exit edge", "[poly][loop]") {
     Diagnostics with_break_diags;
     auto with_break = Compile(R"(
 FUNC find_first() -> INT {
@@ -311,7 +311,7 @@ FUNC count_to() -> INT {
 // 7. WHILE with CONTINUE: must generate a backward edge that bypasses body
 // ============================================================================
 
-TEST_CASE("Ploy loop: WHILE with CONTINUE generates extra branch block", "[ploy][loop]") {
+TEST_CASE("Poly loop: WHILE with CONTINUE generates extra branch block", "[poly][loop]") {
     Diagnostics with_cont_diags;
     auto with_cont = Compile(R"(
 FUNC skip_evens() -> INT {
@@ -355,7 +355,7 @@ FUNC sum_all() -> INT {
 //    (the call is emitted inside the loop body — middle-end LICM can hoist it)
 // ============================================================================
 
-TEST_CASE("Ploy loop: loop-invariant CALL appears in loop body in IR", "[ploy][loop]") {
+TEST_CASE("Poly loop: loop-invariant CALL appears in loop body in IR", "[poly][loop]") {
     Diagnostics diags;
     auto result = Compile(R"(
 LINK(cpp, python, math::get_pi, pymath::pi);
@@ -386,7 +386,7 @@ FUNC sum_with_pi() -> INT {
 // 9. FOR..IN with conditional inside: verifies correct block nesting
 // ============================================================================
 
-TEST_CASE("Ploy loop: FOR with nested IF produces more blocks than plain FOR", "[ploy][loop]") {
+TEST_CASE("Poly loop: FOR with nested IF produces more blocks than plain FOR", "[poly][loop]") {
     Diagnostics plain_diags;
     auto plain = Compile(R"(
 FUNC plain_sum() -> INT {
@@ -425,9 +425,9 @@ FUNC cond_sum() -> INT {
 //     (block structure is well-formed even without an exit edge from the loop)
 // ============================================================================
 
-TEST_CASE("Ploy loop: infinite WHILE produces valid IR structure", "[ploy][loop]") {
+TEST_CASE("Poly loop: infinite WHILE produces valid IR structure", "[poly][loop]") {
     Diagnostics diags;
-    // Use 1 == 1 as a numeric comparison that the ploy sema will accept
+    // Use 1 == 1 as a numeric comparison that the poly sema will accept
     auto result = Compile(R"(
 FUNC infinite_work() -> INT {
     VAR x = 0;
@@ -456,7 +456,7 @@ FUNC infinite_work() -> INT {
 // 11. Loop in PIPELINE: block structure is preserved inside pipeline functions
 // ============================================================================
 
-TEST_CASE("Ploy loop: PIPELINE with loop produces multi-block IR", "[ploy][loop]") {
+TEST_CASE("Poly loop: PIPELINE with loop produces multi-block IR", "[poly][loop]") {
     Diagnostics diags;
     auto result = Compile(R"(
 PIPELINE aggregate {
@@ -481,8 +481,8 @@ PIPELINE aggregate {
 // 12. Multiple loops in one function: total block count grows additively
 // ============================================================================
 
-TEST_CASE("Ploy loop: function with two sequential loops has more blocks than one loop",
-          "[ploy][loop]") {
+TEST_CASE("Poly loop: function with two sequential loops has more blocks than one loop",
+          "[poly][loop]") {
     Diagnostics one_diags;
     auto one = Compile(R"(
 FUNC one_loop() -> INT {

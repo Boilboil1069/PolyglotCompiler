@@ -2,7 +2,7 @@
 
 ## 1. Architecture Overview
 
-The topology analysis tool (`polytopo`) provides Simulink-style function I/O identification, link checking, and validation for `.ploy` cross-language programs. It models every function, constructor, method, pipeline, and cross-language call as a **TopologyNode** with typed input/output **Ports**. Connections between ports are represented as **TopologyEdges** with type-compatibility status.
+The topology analysis tool (`polytopo`) provides Simulink-style function I/O identification, link checking, and validation for `.poly` cross-language programs. It models every function, constructor, method, pipeline, and cross-language call as a **TopologyNode** with typed input/output **Ports**. Connections between ports are represented as **TopologyEdges** with type-compatibility status.
 
 The system consists of four core library modules, a CLI executable, and a Qt-based GUI panel integrated into the PolyglotCompiler IDE (`polyui`).
 
@@ -37,7 +37,7 @@ tests/unit/tools/
 The `topo_lib` CMake library (`tools/CMakeLists.txt`) links against `polyglot_common` and `frontend_ploy`, providing:
 
 - `TopologyGraph` — graph data structure with topological sort (Kahn's algorithm) and DFS cycle detection.
-- `TopologyAnalyzer` — builds the graph from a parsed and semantically analyzed ploy AST.
+- `TopologyAnalyzer` — builds the graph from a parsed and semantically analyzed poly AST.
 - `TopologyValidator` — validates type compatibility, port connectivity, parameter counts, and language interop constraints.
 - `TopologyPrinter` — renders the graph in multiple formats.
 
@@ -51,7 +51,7 @@ Each port represents a typed parameter (input) or return value (output) on a fun
 |-------------|-----------------|-----------------------------------------------|
 | `name`      | `std::string`   | Parameter or return-value name                |
 | `direction` | `Direction`     | `kInput` or `kOutput`                         |
-| `type`      | `core::Type`    | Semantic type from the ploy type system       |
+| `type`      | `core::Type`    | Semantic type from the poly type system       |
 | `language`  | `std::string`   | Owning language (e.g. `"cpp"`, `"python"`)    |
 | `index`     | `int`           | Positional index within the node              |
 | `id`        | `uint64_t`      | Unique identifier assigned at graph-build time|
@@ -131,7 +131,7 @@ The validator uses a multi-level type compatibility check:
 ### 4.1 Usage
 
 ```
-polytopo [options] <file.ploy>
+polytopo [options] <file.poly>
 
 Options:
   --format <text|dot|json|summary>   Output format (default: text)
@@ -198,11 +198,11 @@ Unit tests are in `tests/unit/tools/topology_test.cpp` and registered as the `te
 | `[topology][graph]`    | Node/edge CRUD, find-by-name, roots/leaves, topo-sort, cycle detect, language distribution |
 | `[topology][validator]`| Valid edges pass, cycle detection raises error          |
 | `[topology][printer]`  | Text/DOT/JSON/summary output format verification       |
-| `[topology][analyzer]` | FUNC, LINK, PIPELINE, CALL end-to-end from .ploy source|
+| `[topology][analyzer]` | FUNC, LINK, PIPELINE, CALL end-to-end from .poly source|
 
 ## 7. Code Generation — `GeneratePloySrc`
 
-The `topology_codegen.h`/`.cpp` module (shared between the polyui IDE and the polytopo CLI) converts a `TopologyGraph` into valid `.ploy` source code.
+The `topology_codegen.h`/`.cpp` module (shared between the polyui IDE and the polytopo CLI) converts a `TopologyGraph` into valid `.poly` source code.
 
 ### 7.1 Component Location
 
@@ -216,7 +216,7 @@ tools/polytopo/
 
 ### 7.2 Code Generation Rules
 
-| Node Kind       | Generated .ploy Construct                                   |
+| Node Kind       | Generated .poly Construct                                   |
 |-----------------|-------------------------------------------------------------|
 | `kFunction`     | `FUNC name(inputs) -> output_type { body }`                |
 | `kConstructor`  | `LET v = NEW(language, class, args);` inside caller body   |
@@ -233,7 +233,7 @@ tools/polytopo/
 
 Additional directives:
 - `IMPORT lang::module;` — emitted for each distinct foreign-language module.
-- `EXPORT name;` — emitted for all non-external, non-map ploy-native functions.
+- `EXPORT name;` — emitted for all non-external, non-map poly-native functions.
 
 ### 7.3 Verification
 
@@ -241,8 +241,8 @@ The generated code is always verified by running `PloyParser` + `PloySema` befor
 
 ### 7.4 Shared Usage
 
-- **polyui IDE**: Click **Generate .ploy** in the toolbar → `OnGeneratePloy()` → writes `<basename>_generated.ploy` and opens in editor.
-- **polytopo CLI**: `polytopo generate <topo.json> -o <output.ploy>` → `ParseJsonToGraph()` → `GeneratePloySrc()`.
+- **polyui IDE**: Click **Generate .poly** in the toolbar → `OnGeneratePloy()` → writes `<basename>_generated.poly` and opens in editor.
+- **polytopo CLI**: `polytopo generate <topo.json> -o <output.poly>` → `ParseJsonToGraph()` → `GeneratePloySrc()`.
 
 Both paths use the same `GeneratePloySrc()` function from `topo_lib`, ensuring consistent output.
 
@@ -253,7 +253,7 @@ The topology panel and the code editor maintain a bidirectional live-sync relati
 ### 8.1 Editor → Topology (File Watcher)
 
 ```
-Editor saves .ploy file
+Editor saves .poly file
     → QFileSystemWatcher detects change
     → 200 ms debounce timer fires
     → TopologyPanel::BuildGraphFromFile() rebuilds graph
@@ -268,7 +268,7 @@ This is a complete re-parse and rebuild — the topology graph is reconstructed 
 User drags to create an edge
     → TopologyPanel::TryCreateEdge()
     → TopologyPanel::SyncEdgeToFile()
-        - Appends "LINK src.port -> tgt.port" to .ploy file
+        - Appends "LINK src.port -> tgt.port" to .poly file
         - Emits FileContentChanged(file, line)
     → MainWindow handler:
         - Reloads file content in editor
@@ -278,7 +278,7 @@ User drags to create an edge
 User right-clicks to delete an edge
     → TopologyPanel::RemoveEdge()
     → TopologyPanel::RemoveEdgeFromFile()
-        - Removes matching LINK/CALL line from .ploy file
+        - Removes matching LINK/CALL line from .poly file
         - Emits FileContentChanged(file, removed_line)
     → MainWindow handler (same highlight flow)
 ```
@@ -287,8 +287,8 @@ User right-clicks to delete an edge
 
 | Capability                                | Status      |
 |-------------------------------------------|-------------|
-| Parse `.ploy` → build topology graph      | ✅ Full     |
-| Generate `.ploy` from topology graph      | ✅ Full     |
+| Parse `.poly` → build topology graph      | ✅ Full     |
+| Generate `.poly` from topology graph      | ✅ Full     |
 | Live reload on file change                | ✅ 200 ms   |
 | Edge creation syncs LINK to file          | ✅ Append   |
 | Edge deletion syncs removal from file     | ✅ Line-match removal |
@@ -326,8 +326,8 @@ graph produce identical layouts (deterministic).
 
 ### 9.2 Interactive Edge Creation/Deletion
 
-- **Create**: Drag from an output `TopoPortItem` to an input port. A temporary `QGraphicsLineItem` previews the connection. On release, validation checks (no self-loops, no duplicates, output→input directionality) are performed. The new `LINK` statement is appended to the `.ploy` file.
-- **Delete**: Right-click an edge → "Delete Edge". The panel removes the edge from `edge_items_`, syncs the removal to the `.ploy` file, and emits `GraphModified()`.
+- **Create**: Drag from an output `TopoPortItem` to an input port. A temporary `QGraphicsLineItem` previews the connection. On release, validation checks (no self-loops, no duplicates, output→input directionality) are performed. The new `LINK` statement is appended to the `.poly` file.
+- **Delete**: Right-click an edge → "Delete Edge". The panel removes the edge from `edge_items_`, syncs the removal to the `.poly` file, and emits `GraphModified()`.
 
 ### 9.3 Debug Execution Highlighting
 

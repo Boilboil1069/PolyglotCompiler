@@ -85,10 +85,10 @@ TEST_CASE("Replace stores entries and Snapshot returns them sorted",
 
 TEST_CASE("Replace with empty vector clears the slice", "[problems][replace]") {
   ProblemsAggregator agg;
-  agg.Replace("/x.ploy", "polyls",
-              {MakeEntry("/x.ploy", "polyls", Severity::kError, 1, "oops")});
+  agg.Replace("/x.poly", "polyls",
+              {MakeEntry("/x.poly", "polyls", Severity::kError, 1, "oops")});
   REQUIRE(agg.CountAll().Total() == 1);
-  agg.Replace("/x.ploy", "polyls", {});
+  agg.Replace("/x.poly", "polyls", {});
   REQUIRE(agg.CountAll().Total() == 0);
   REQUIRE(agg.KnownSources().empty());
 }
@@ -151,8 +151,8 @@ TEST_CASE("Substring filters are case-insensitive", "[problems][filter]") {
   ProblemsAggregator agg;
   agg.Replace("/work/Foo.cpp", "polyc",
               {MakeEntry("/work/Foo.cpp", "polyc", Severity::kError, 1, "alpha")});
-  agg.Replace("/work/bar.ploy", "polyls",
-              {MakeEntry("/work/bar.ploy", "polyls", Severity::kError, 1, "beta")});
+  agg.Replace("/work/bar.poly", "polyls",
+              {MakeEntry("/work/bar.poly", "polyls", Severity::kError, 1, "beta")});
 
   ProblemFilter f;
   f.file_substring = "FOO";
@@ -246,7 +246,7 @@ TEST_CASE("ReplaceFromDiagnosticInfo converts UI struct to ProblemEntry",
   d.suggestion = "delete the binding";
   diags.push_back(d);
 
-  agg.ReplaceFromDiagnosticInfo("/a.ploy", "polyls:ploy", diags);
+  agg.ReplaceFromDiagnosticInfo("/a.poly", "polyls:poly", diags);
   const auto snap = agg.Snapshot(ProblemFilter{});
   REQUIRE(snap.size() == 1);
   REQUIRE(snap[0].severity == Severity::kWarning);
@@ -255,6 +255,6 @@ TEST_CASE("ReplaceFromDiagnosticInfo converts UI struct to ProblemEntry",
   REQUIRE(snap[0].end_column == 12);
   REQUIRE(snap[0].code == "W2001");
   REQUIRE(snap[0].suggestion == "delete the binding");
-  REQUIRE(snap[0].file == "/a.ploy");
-  REQUIRE(snap[0].source == "polyls:ploy");
+  REQUIRE(snap[0].file == "/a.poly");
+  REQUIRE(snap[0].source == "polyls:poly");
 }

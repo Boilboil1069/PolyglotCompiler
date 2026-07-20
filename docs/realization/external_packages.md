@@ -37,7 +37,7 @@ options" in `--help`:
 
 Each flag flows through `DriverSettings`, then `FrontendOptions`
 (see `frontends/common/include/language_frontend.h`) and is consumed
-by the matching frontend's `Lower()` entry point and by the ploy
+by the matching frontend's `Lower()` entry point and by the poly
 `PackageIndexer` (see below).
 
 ## 2. C++ — preprocessor wiring
@@ -118,7 +118,7 @@ entries when only artefacts are available.
 **Indexer-level cargo integration** (`frontends/ploy/src/sema/package_indexer.cpp`)
 runs `cargo metadata --format-version 1 --no-deps` against the
 crate root supplied by `--crate-dir`.  A small purpose-built JSON
-walker (so the ploy frontend stays free of heavy dependencies)
+walker (so the poly frontend stays free of heavy dependencies)
 extracts each package's `name`, `version`, and `manifest_path`
 into `PackageInfo.install_path`.  When no crate root is provided,
 `cargo install --list` is queried for globally-installed binary
@@ -130,7 +130,7 @@ to `ParseFreezeOutput`.
 unchanged so `use external_crate::Item` resolves to the artefact
 on disk.
 
-## 7. Ploy package indexing
+## 7. Poly package indexing
 
 `PackageIndexer::IndexLanguage` accepts a `VenvConfig` per
 language; for Rust the `venv_path` field is interpreted as the

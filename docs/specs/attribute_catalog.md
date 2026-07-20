@@ -1,6 +1,6 @@
 # Attribute Catalog (since v1.16.0)
 
-This catalog enumerates every annotation recognised by the Ploy
+This catalog enumerates every annotation recognised by the Poly
 front-end's built-in registry.  Annotations not listed here are
 accepted with a sema warning so third-party tooling can extend the
 set without modifying the compiler.
@@ -56,7 +56,7 @@ is tracked as follow-up work in
 The MVP does not yet propagate annotations into host-language
 bindings.  The intended mapping when wiring is added is:
 
-| Ploy attribute     | C++                          | Rust                       | Java / .NET / Python   |
+| Poly attribute     | C++                          | Rust                       | Java / .NET / Python   |
 |--------------------|------------------------------|----------------------------|------------------------|
 | `@inline`          | `inline`                     | `#[inline]`                | (host-default hint)    |
 | `@always_inline`   | `[[gnu::always_inline]]`     | `#[inline(always)]`        | (host-default hint)    |

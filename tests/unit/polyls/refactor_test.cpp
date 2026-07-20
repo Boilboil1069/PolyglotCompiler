@@ -77,9 +77,9 @@ TEST_CASE("IsValidIdentifier rejects keywords and bad shapes",
 TEST_CASE("PrepareRename returns identifier range under the cursor",
           "[polyls][refactor][rename]") {
   std::vector<DocumentView> docs = {
-      {"file:///w/a.ploy", "ploy",
+      {"file:///w/a.poly", "poly",
        "FUNC compute(a: INT) -> INT { RETURN a }\n"}};
-  auto r = PrepareRename(docs, "file:///w/a.ploy", 0, /*char=*/7);
+  auto r = PrepareRename(docs, "file:///w/a.poly", 0, /*char=*/7);
   REQUIRE(r.has_value());
   REQUIRE(r->start.line == 0);
   REQUIRE(r->start.character == 5);
@@ -89,23 +89,23 @@ TEST_CASE("PrepareRename returns identifier range under the cursor",
 TEST_CASE("PrepareRename refuses keywords / whitespace",
           "[polyls][refactor][rename]") {
   std::vector<DocumentView> docs = {
-      {"file:///w/a.ploy", "ploy", "FUNC foo() -> INT { RETURN 1 }\n"}};
+      {"file:///w/a.poly", "poly", "FUNC foo() -> INT { RETURN 1 }\n"}};
   REQUIRE_FALSE(
-      PrepareRename(docs, "file:///w/a.ploy", 0, 1).has_value());  // FUNC
+      PrepareRename(docs, "file:///w/a.poly", 0, 1).has_value());  // FUNC
   REQUIRE_FALSE(
-      PrepareRename(docs, "file:///w/a.ploy", 0, 11).has_value());  // space
+      PrepareRename(docs, "file:///w/a.poly", 0, 11).has_value());  // space
 }
 
 TEST_CASE("BuildRenameEdit rewrites every reference in the open buffer",
           "[polyls][refactor][rename]") {
   SymbolIndex idx;
-  const std::string uri = "file:///w/a.ploy";
+  const std::string uri = "file:///w/a.poly";
   const std::string text =
       "FUNC compute(a: INT) -> INT { RETURN a }\n"
       "LET total: INT = compute(1)\n"
       "LET other: INT = compute(2)\n";
-  idx.IndexDocument(uri, "ploy", text);
-  std::vector<DocumentView> docs = {{uri, "ploy", text}};
+  idx.IndexDocument(uri, "poly", text);
+  std::vector<DocumentView> docs = {{uri, "poly", text}};
 
   auto edit = BuildRenameEdit(idx, docs, uri, /*line=*/0, /*char=*/7,
                               "evaluate");
@@ -122,12 +122,12 @@ TEST_CASE("BuildRenameEdit rewrites every reference in the open buffer",
 TEST_CASE("BuildRenameEdit ignores identifier substrings inside strings",
           "[polyls][refactor][rename]") {
   SymbolIndex idx;
-  const std::string uri = "file:///w/a.ploy";
+  const std::string uri = "file:///w/a.poly";
   const std::string text =
       "FUNC tag() -> STRING { RETURN \"tag is safe\" }\n"
       "LET v: STRING = tag()\n";
-  idx.IndexDocument(uri, "ploy", text);
-  std::vector<DocumentView> docs = {{uri, "ploy", text}};
+  idx.IndexDocument(uri, "poly", text);
+  std::vector<DocumentView> docs = {{uri, "poly", text}};
   auto edit = BuildRenameEdit(idx, docs, uri, 0, 6, "label");
   REQUIRE(edit.has_value());
   // 1 definition + 1 call site = 2; the "tag" inside the string literal
@@ -138,18 +138,18 @@ TEST_CASE("BuildRenameEdit ignores identifier substrings inside strings",
 TEST_CASE("BuildRenameEdit rejects invalid new names",
           "[polyls][refactor][rename]") {
   SymbolIndex idx;
-  const std::string uri = "file:///w/a.ploy";
+  const std::string uri = "file:///w/a.poly";
   const std::string text = "FUNC foo() -> INT { RETURN 1 }\n";
-  idx.IndexDocument(uri, "ploy", text);
-  std::vector<DocumentView> docs = {{uri, "ploy", text}};
+  idx.IndexDocument(uri, "poly", text);
+  std::vector<DocumentView> docs = {{uri, "poly", text}};
   REQUIRE_FALSE(BuildRenameEdit(idx, docs, uri, 0, 6, "").has_value());
   REQUIRE_FALSE(BuildRenameEdit(idx, docs, uri, 0, 6, "1bad").has_value());
 }
 
-TEST_CASE("BuildRenameEdit propagates across .ploy LINK reverse refs",
+TEST_CASE("BuildRenameEdit propagates across .poly LINK reverse refs",
           "[polyls][refactor][rename][cross]") {
   SymbolIndex idx;
-  const std::string ploy_uri = "file:///w/main.ploy";
+  const std::string ploy_uri = "file:///w/main.poly";
   const std::string ploy_text =
       "IMPORT cpp::image_processor;\n"
       "LINK cpp::image_processor::enhance AS FUNC(double) -> double;\n";
@@ -159,10 +159,10 @@ TEST_CASE("BuildRenameEdit propagates across .ploy LINK reverse refs",
       "  void enhance(double x) {}\n"
       "  void other(double x) { enhance(x); }\n"
       "}\n";
-  idx.IndexDocument(ploy_uri, "ploy", ploy_text);
+  idx.IndexDocument(ploy_uri, "poly", ploy_text);
   idx.IndexDocument(cpp_uri, "cpp", cpp_text);
   std::vector<DocumentView> docs = {
-      {ploy_uri, "ploy", ploy_text},
+      {ploy_uri, "poly", ploy_text},
       {cpp_uri, "cpp", cpp_text},
   };
 
@@ -173,7 +173,7 @@ TEST_CASE("BuildRenameEdit propagates across .ploy LINK reverse refs",
   REQUIRE(edit.has_value());
   // C++ buffer: definition + intra-file call = 2 edits.
   REQUIRE(edit->changes[cpp_uri].size() == 2);
-  // .ploy buffer: at least the LINK qualifier site rewritten.
+  // .poly buffer: at least the LINK qualifier site rewritten.
   REQUIRE(edit->changes.count(ploy_uri) == 1);
   REQUIRE_FALSE(edit->changes[ploy_uri].empty());
 }
@@ -181,14 +181,14 @@ TEST_CASE("BuildRenameEdit propagates across .ploy LINK reverse refs",
 TEST_CASE("BuildCodeActions surfaces extract / inline / change-sig / move",
           "[polyls][refactor][codeAction]") {
   SymbolIndex idx;
-  const std::string uri = "file:///w/a.ploy";
+  const std::string uri = "file:///w/a.poly";
   const std::string text =
       "FUNC foo() -> INT {\n"
       "    LET x: INT = 1 + 2\n"
       "    RETURN x\n"
       "}\n";
-  idx.IndexDocument(uri, "ploy", text);
-  std::vector<DocumentView> docs = {{uri, "ploy", text}};
+  idx.IndexDocument(uri, "poly", text);
+  std::vector<DocumentView> docs = {{uri, "poly", text}};
 
   polyglot::tools::ui::lsp::Range r;
   r.start.line = 1;
@@ -221,14 +221,14 @@ TEST_CASE("polyls dispatches prepareRename / rename / codeAction",
   Captured cap;
   PolylsServer s;
   MakeReadyServer(s, cap);
-  Open(s, "file:///w/a.ploy", "ploy",
+  Open(s, "file:///w/a.poly", "poly",
        "FUNC compute(a: INT) -> INT { RETURN a }\n"
        "LET total: INT = compute(1)\n");
 
   // prepareRename
   s.HandleIncoming(MakeRequest(
       10, "textDocument/prepareRename",
-      Json{{"textDocument", {{"uri", "file:///w/a.ploy"}}},
+      Json{{"textDocument", {{"uri", "file:///w/a.poly"}}},
            {"position", Position(0, 7)}}));
   const Json *prep = FindResponse(cap, 10);
   REQUIRE(prep != nullptr);
@@ -237,19 +237,19 @@ TEST_CASE("polyls dispatches prepareRename / rename / codeAction",
   // rename
   s.HandleIncoming(MakeRequest(
       11, "textDocument/rename",
-      Json{{"textDocument", {{"uri", "file:///w/a.ploy"}}},
+      Json{{"textDocument", {{"uri", "file:///w/a.poly"}}},
            {"position", Position(0, 7)},
            {"newName", "evaluate"}}));
   const Json *ren = FindResponse(cap, 11);
   REQUIRE(ren != nullptr);
   const auto &changes = (*ren)["result"]["changes"];
-  REQUIRE(changes.contains("file:///w/a.ploy"));
-  REQUIRE(changes["file:///w/a.ploy"].size() == 2);
+  REQUIRE(changes.contains("file:///w/a.poly"));
+  REQUIRE(changes["file:///w/a.poly"].size() == 2);
 
   // codeAction
   s.HandleIncoming(MakeRequest(
       12, "textDocument/codeAction",
-      Json{{"textDocument", {{"uri", "file:///w/a.ploy"}}},
+      Json{{"textDocument", {{"uri", "file:///w/a.poly"}}},
            {"range",
             {{"start", Position(0, 0)}, {"end", Position(0, 30)}}}}));
   const Json *ca = FindResponse(cap, 12);
@@ -263,10 +263,10 @@ TEST_CASE("polyls rename rejects invalid newName at LSP boundary",
   Captured cap;
   PolylsServer s;
   MakeReadyServer(s, cap);
-  Open(s, "file:///w/a.ploy", "ploy", "FUNC foo() -> INT { RETURN 1 }\n");
+  Open(s, "file:///w/a.poly", "poly", "FUNC foo() -> INT { RETURN 1 }\n");
   s.HandleIncoming(MakeRequest(
       20, "textDocument/rename",
-      Json{{"textDocument", {{"uri", "file:///w/a.ploy"}}},
+      Json{{"textDocument", {{"uri", "file:///w/a.poly"}}},
            {"position", Position(0, 6)},
            {"newName", "1bad"}}));
   const Json *resp = FindResponse(cap, 20);

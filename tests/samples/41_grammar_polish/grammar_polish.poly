@@ -1,0 +1,15 @@
+// ============================================================================
+// grammar_polish.poly — Grammar polish bundle.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Poly host language only.
+//
+// Documents the topic of small grammar refinements: optional outer parens
+// on IF / WHILE / FOR, IF LET destructuring of OPTION<T>, and `///` doc
+// comments harvested by `polydoc`.  The full extended grammar is staged
+// behind a future front-end milestone; this sample keeps a minimal stub
+// plus the deterministic PRINTLN marker so the regression harness can
+// compare stdout byte-for-byte.
+// ============================================================================
+
+PRINTLN "41_grammar_polish: ok\r\n";

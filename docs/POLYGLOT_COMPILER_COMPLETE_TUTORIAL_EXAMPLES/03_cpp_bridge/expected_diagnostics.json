@@ -1,5 +1,5 @@
 {
-  "uri": "file://<SOURCE>/03_cpp_bridge/main.ploy",
+  "uri": "file://<SOURCE>/03_cpp_bridge/main.poly",
   "diagnostics": [
     {
       "range": {"start":{"line":2,"character":48},"end":{"line":2,"character":48}},

@@ -1,7 +1,7 @@
 /**
  * @file     async_bridge.cpp
  * @brief    Cooperative async-task / Future bridge backing the
- *           Ploy `ASYNC` / `AWAIT` runtime ABI.  The C surface
+ *           Poly `ASYNC` / `AWAIT` runtime ABI.  The C surface
  *           defined in `async_bridge.h` is implemented as thin
  *           wrappers around the cooperative event loop in
  *           `event_loop.{h,cpp}`; per-language adapters resolve
@@ -59,7 +59,7 @@ std::uint64_t RegisterHandle(const std::string &lang) {
 } // namespace
 
 std::uint64_t SpawnPloyTask(std::function<void()> task) {
-  std::uint64_t id = RegisterHandle("ploy");
+  std::uint64_t id = RegisterHandle("poly");
   EventLoopSchedule([id, fn = std::move(task)]() {
     fn();
     auto &r = Registry();

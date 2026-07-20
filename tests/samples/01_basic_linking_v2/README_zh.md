@@ -6,19 +6,19 @@
 | ---      | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | LINK（带签名形式）, CALL, IMPORT, EXPORT, MAP_TYPE |
-| 入口文件 | `basic_linking.ploy` |
+| 入口文件 | `basic_linking.poly` |
 
 ## 与 v1 的差异
 
 v1 示例使用历史悠久的逗号形式：
 
-```ploy
+```poly
 LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int { ... }
 ```
 
 本 v2 示例改用推荐的**带签名**形式，函数签名作为语法的一部分被显式嵌入：
 
-```ploy
+```poly
 LINK cpp::math_ops::add AS FUNC(cpp::int, cpp::int) -> cpp::int { ... }
 ```
 
@@ -28,7 +28,7 @@ LINK cpp::math_ops::add AS FUNC(cpp::int, cpp::int) -> cpp::int { ... }
 ## 编译
 
 ```powershell
-polyc 01_basic_linking_v2\basic_linking.ploy --emit-obj=basic_linking.pobj --obj-format=pobj
+polyc 01_basic_linking_v2\basic_linking.poly --emit-obj=basic_linking.pobj --obj-format=pobj
 polyld basic_linking.pobj -o basic_linking.exe
 ```
 

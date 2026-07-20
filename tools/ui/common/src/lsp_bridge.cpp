@@ -29,6 +29,18 @@
 
 namespace polyglot::tools::ui {
 
+namespace {
+
+QString CanonicalLanguageId(QString language_id) {
+  if (language_id.compare(QStringLiteral("poly"), Qt::CaseInsensitive) == 0 ||
+      language_id.compare(QStringLiteral("ploy"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("poly");
+  }
+  return language_id;
+}
+
+}  // namespace
+
 // ============================================================================
 // StdioTransport
 // ============================================================================
@@ -131,19 +143,22 @@ std::shared_ptr<lsp::LspSession> IdeLspBridge::EnsureSession(const QString &lang
   if (!settings_ || !settings_->GetBool(QStringLiteral("languageServers.enabled"), true)) {
     return nullptr;
   }
+  const QString canonical_language_id = CanonicalLanguageId(language_id);
   const QString workspace_root = settings_ ? settings_->WorkspaceRoot() : QString();
   const QString workspace_uri = workspace_root.isEmpty()
                                     ? QStringLiteral("file:///")
                                     : FilePathToUri(workspace_root);
 
-  lsp::SessionKey key{workspace_uri.toStdString(), language_id.toStdString()};
+  lsp::SessionKey key{workspace_uri.toStdString(),
+                      canonical_language_id.toStdString()};
   if (auto existing = sessions_.Find(key)) {
     return existing;
   }
 
   // Lookup configured server for this language.
-  const QString cfg_key = QStringLiteral("languageServers.servers.%1").arg(language_id);
-  const QJsonValue cfg = settings_->GetJson(cfg_key);
+  const QJsonObject configured_servers =
+      settings_->GetJson(QStringLiteral("languageServers.servers")).toObject();
+  const QJsonValue cfg = configured_servers.value(canonical_language_id);
   if (!cfg.isObject()) {
     return nullptr;
   }
@@ -184,7 +199,8 @@ std::shared_ptr<lsp::LspSession> IdeLspBridge::EnsureSession(const QString &lang
   }
 
   // Build the session.
-  auto session_id_str = workspace_uri.toStdString() + "|" + language_id.toStdString();
+  auto session_id_str =
+      workspace_uri.toStdString() + "|" + canonical_language_id.toStdString();
   auto session = sessions_.GetOrCreate(key, [transport]() {
     return std::make_shared<lsp::LspClient>(transport);
   });
@@ -288,12 +304,13 @@ void IdeLspBridge::PublishDiagnosticsToEditor(CodeEditor *editor,
 void IdeLspBridge::TrackEditor(CodeEditor *editor, const QString &language_id) {
   if (!editor) return;
   if (editors_.contains(editor)) return;
-  auto session = EnsureSession(language_id);
+  const QString canonical_language_id = CanonicalLanguageId(language_id);
+  auto session = EnsureSession(canonical_language_id);
   if (!session) return;
 
   auto *state = new EditorState();
   state->editor = editor;
-  state->language_id = language_id;
+  state->language_id = canonical_language_id;
   state->uri = FilePathToUri(editor->FilePath());
   state->session = session;
   state->debounce = new QTimer(this);
@@ -310,7 +327,7 @@ void IdeLspBridge::TrackEditor(CodeEditor *editor, const QString &language_id) {
   }
   lsp::DidOpenParams open;
   open.text_document.uri = state->uri.toStdString();
-  open.text_document.language_id = language_id.toStdString();
+  open.text_document.language_id = canonical_language_id.toStdString();
   open.text_document.version = state->version;
   open.text_document.text = editor->toPlainText().toStdString();
   session->client->DidOpen(open);

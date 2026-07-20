@@ -124,7 +124,7 @@ bool operator!=(const Type& other) const;
 
 ```cpp
 // 将特定语言的类型名称映射为统一的 Type 表示
-// 支持的语言: "python", "cpp", "rust", "java", "dotnet", "ploy"
+// 支持的语言: "python", "cpp", "rust", "java", "dotnet", "poly"
 Type MapFromLanguage(const std::string& lang, const std::string& type_name) const;
 
 // 检查 from 类型是否可以隐式转换为 to 类型
@@ -716,7 +716,7 @@ std::string Dump(const Function& func);                       // 将函数 IR �
 | `frontends/ruby/include/ruby_lowering.h` | `void LowerToIR(const RubyModule&, ir::IRContext&, Diagnostics&)` |
 | `frontends/ruby/include/ruby_import_resolver.h` | `RubyImportResolver` —— 处理 `require` / `require_relative` / `load` / `autoload`，遵循 `RUBYLIB`、`Gemfile`（Bundler）与 `--gem-path` |
 
-## 7.9 .ploy 前端
+## 7.9 .poly 前端
 
 **命名空间**: `polyglot::frontends::ploy`
 
@@ -1116,7 +1116,7 @@ struct Method {
 
 ## 10.2 PloySemaOptions
 
-`.ploy` 语义分析阶段的配置选项。
+`.poly` 语义分析阶段的配置选项。
 
 ```cpp
 struct PloySemaOptions {

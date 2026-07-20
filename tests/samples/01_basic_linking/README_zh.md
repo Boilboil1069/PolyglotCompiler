@@ -10,12 +10,12 @@ C++ 数学操作与 Python 字符串工具之间的 LINK / CALL / IMPORT / EXPOR
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | LINK, CALL, IMPORT, EXPORT, MAP_TYPE |
-| 入口文件 | `basic_linking.ploy` |
+| 入口文件 | `basic_linking.poly` |
 
 ## 编译
 
 ```powershell
-polyc 01_basic_linking\basic_linking.ploy --emit-obj=basic_linking.pobj --obj-format=pobj
+polyc 01_basic_linking\basic_linking.poly --emit-obj=basic_linking.pobj --obj-format=pobj
 polyld basic_linking.pobj -o basic_linking.exe
 ```
 

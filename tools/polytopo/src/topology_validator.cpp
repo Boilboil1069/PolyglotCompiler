@@ -255,8 +255,8 @@ void TopologyValidator::ValidateLanguageCompatibility(const TopologyGraph &graph
     if (!src || !tgt)
       continue;
 
-    // Same-language edges within ploy are normal
-    if (src->language == tgt->language && src->language == "ploy")
+    // Same-language edges within poly are normal
+    if (src->language == tgt->language && src->language == "poly")
       continue;
 
     // Cross-language edges require marshalling — just informational

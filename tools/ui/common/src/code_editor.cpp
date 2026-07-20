@@ -681,7 +681,7 @@ std::vector<CompletionItem> CodeEditor::CollectIdentifierCompletions(
       }
       std::string word = doc_text.mid(start, i - start).toStdString();
       if (word.size() >= 2 && word != prefix && seen.insert(word).second) {
-        // Check prefix match (case-insensitive for Ploy uppercase keywords)
+        // Check prefix match (case-insensitive for Poly uppercase keywords)
         bool match = false;
         if (prefix.empty()) {
           match = false; // Don't suggest everything when no prefix

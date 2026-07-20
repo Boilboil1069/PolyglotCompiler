@@ -32,10 +32,10 @@ TEST_CASE("Choices use first option as default", "[polyui][snippet]") {
 TEST_CASE("Variables substitute from map", "[polyui][snippet]") {
   std::map<std::string, std::string> vars{
       {"CURRENT_DATE", "2026-05-05"},
-      {"TM_FILENAME", "main.ploy"},
+      {"TM_FILENAME", "main.poly"},
   };
   auto e = ExpandSnippet("// $CURRENT_DATE — ${TM_FILENAME}", vars);
-  REQUIRE(e.text == "// 2026-05-05 — main.ploy");
+  REQUIRE(e.text == "// 2026-05-05 — main.poly");
 }
 
 TEST_CASE("Library loads JSON object map", "[polyui][snippet]") {

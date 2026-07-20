@@ -6,12 +6,12 @@ DELETE 确定性地销毁外部对象，EXTEND 派生跨语言子类。
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | DELETE, EXTEND |
-| 入口文件 | `delete_extend.ploy` |
+| 入口文件 | `delete_extend.poly` |
 
 ## 编译
 
 ```powershell
-polyc 08_delete_extend\delete_extend.ploy --emit-obj=delete_extend.pobj --obj-format=pobj
+polyc 08_delete_extend\delete_extend.poly --emit-obj=delete_extend.pobj --obj-format=pobj
 polyld delete_extend.pobj -o delete_extend.exe
 ```
 
@@ -39,12 +39,12 @@ stdout 与 `expected_output.txt` 做字节级比对。上面描述的其他跨�
 选择 `python`，原因如下：
 
 * 覆写是在加载时向外部运行时的方法表打补丁实现的；
-* 外部对象**不会**进入 ploy 的静态类型系统，因此从外部插入子类
+* 外部对象**不会**进入 poly 的静态类型系统，因此从外部插入子类
   也不会破坏宿主的类型健全。
 
 书写 `EXTEND(cpp, ...)`、`EXTEND(rust, ...)`、`EXTEND(java, ...)`
 以及其他静态类型语言作为目标都会被 sema 拒绝，诊断信息为
 `EXTEND is not allowed on statically-typed language '<lang>'`。
-推荐的替代方案是用一个本地 ploy `FUNC` 包装该接口，再用
+推荐的替代方案是用一个本地 poly `FUNC` 包装该接口，再用
 `CALL` / `METHOD` 调用外部 API；完整的迁移示例参见
 [`35_extend_dynamic`](../35_extend_dynamic/)。

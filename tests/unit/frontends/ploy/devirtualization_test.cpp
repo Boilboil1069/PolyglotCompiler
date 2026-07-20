@@ -1,13 +1,13 @@
 // ============================================================================
-// Ploy Frontend Devirtualization Tests
+// Poly Frontend Devirtualization Tests
 //
-// These tests verify that after ploy lowering the cross-language call
+// These tests verify that after poly lowering the cross-language call
 // descriptors reflect proper devirtualization: direct method-call stubs
 // replace virtual dispatch paths when the concrete type is statically known
 // (via EXTEND declarations and typed NEW expressions).
 //
 // Unlike the IR-level devirtualization tests (tests/unit/devirtualization_test.cpp
-// which operates on raw IR class hierarchies), these tests work at the ploy
+// which operates on raw IR class hierarchies), these tests work at the poly
 // source language level and verify the observable effects through
 // CrossLangCallDescriptor counts and stub naming conventions.
 // ============================================================================
@@ -84,7 +84,7 @@ int CountDescriptorsMatching(const std::vector<CrossLangCallDescriptor> &descs,
 //    Expected: descriptor for 'forward' is recorded with generic bridge name
 // ============================================================================
 
-TEST_CASE("Ploy devirt: generic METHOD produces one call descriptor", "[ploy][devirt]") {
+TEST_CASE("Poly devirt: generic METHOD produces one call descriptor", "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 IMPORT python PACKAGE torch;
@@ -119,7 +119,7 @@ FUNC run(model: python::Module) -> INT {
 //    class name (Dog::speak) rather than a generic __ploy_bridge.
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND produces specialised extend-bridge descriptor", "[ploy][devirt]") {
+TEST_CASE("Poly devirt: EXTEND produces specialised extend-bridge descriptor", "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Animal) AS Dog {
@@ -161,8 +161,8 @@ FUNC make_noise() -> INT {
 //    descriptors (one per concrete type), not collapsed into a single entry.
 // ============================================================================
 
-TEST_CASE("Ploy devirt: two EXTEND classes with same method produce distinct descriptors",
-          "[ploy][devirt]") {
+TEST_CASE("Poly devirt: two EXTEND classes with same method produce distinct descriptors",
+          "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Animal) AS Dog {
@@ -204,8 +204,8 @@ FUNC chorus() -> INT {
 // 4. EXTEND with multiple methods: each method must get its own descriptor
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND with multiple methods generates one descriptor per method",
-          "[ploy][devirt]") {
+TEST_CASE("Poly devirt: EXTEND with multiple methods generates one descriptor per method",
+          "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Shape) AS Circle {
@@ -241,8 +241,8 @@ FUNC measure() -> INT {
 //    generic bridge, which would appear differently in the descriptor list.
 // ============================================================================
 
-TEST_CASE("Ploy devirt: call graph narrows from generic bridge to direct bridge",
-          "[ploy][devirt]") {
+TEST_CASE("Poly devirt: call graph narrows from generic bridge to direct bridge",
+          "[poly][devirt]") {
     // ---- Before: untyped object (generic bridge) ----
     Diagnostics before_diags;
     auto before = CompileWithDescriptors(R"(
@@ -301,8 +301,8 @@ FUNC run_concrete() -> INT {
 // 6. EXTEND on a statically-typed language is rejected by sema
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND on Rust base is rejected (static-language guard)",
-          "[ploy][devirt]") {
+TEST_CASE("Poly devirt: EXTEND on Rust base is rejected (static-language guard)",
+          "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 IMPORT rust PACKAGE tokio;
@@ -330,8 +330,8 @@ EXTEND(rust, tokio::Task) AS MyTask {
 // 7. EXTEND + DELETE: object cleanup path must also appear in IR
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND + DELETE produces both bridge and cleanup stubs",
-          "[ploy][devirt]") {
+TEST_CASE("Poly devirt: EXTEND + DELETE produces both bridge and cleanup stubs",
+          "[poly][devirt]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Widget) AS Button {
@@ -360,8 +360,8 @@ FUNC ui_test() -> INT {
 //    must be rejected (validates devirt ABI contract enforcement)
 // ============================================================================
 
-TEST_CASE("Ploy devirt: strict sema rejects METHOD with wrong param count for EXTEND method",
-          "[ploy][devirt][strict]") {
+TEST_CASE("Poly devirt: strict sema rejects METHOD with wrong param count for EXTEND method",
+          "[poly][devirt][strict]") {
     Diagnostics diags;
     PloySemaOptions opts;
     opts.strict_mode = true;
@@ -405,7 +405,7 @@ FUNC main() -> INT {
 // 9. EXTEND method signature is registered in KnownSignatures
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND registers method signatures in sema", "[ploy][devirt]") {
+TEST_CASE("Poly devirt: EXTEND registers method signatures in sema", "[poly][devirt]") {
     Diagnostics diags;
     PloySema sema(diags, PloySemaOptions{});
 
@@ -439,8 +439,8 @@ EXTEND(python, Animal) AS Cat {
 // 10. Full pipeline: EXTEND + inheritance chain → PIPELINE call
 // ============================================================================
 
-TEST_CASE("Ploy devirt: EXTEND inside PIPELINE generates correct bridge stubs",
-          "[ploy][devirt][integration]") {
+TEST_CASE("Poly devirt: EXTEND inside PIPELINE generates correct bridge stubs",
+          "[poly][devirt][integration]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Estimator) AS RidgeRegression {

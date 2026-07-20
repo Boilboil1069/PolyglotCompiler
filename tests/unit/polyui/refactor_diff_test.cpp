@@ -18,7 +18,7 @@ RefactorSuggestResponse MakeResponse() {
   RefactorSuggestResponse r;
   r.summary = "extract helper";
   RefactorHunk a;
-  a.file_path = "src/a.ploy";
+  a.file_path = "src/a.poly";
   a.start_line = 10;
   a.end_line = 12;
   a.original = "x=1\ny=2\nz=3\n";
@@ -26,7 +26,7 @@ RefactorSuggestResponse MakeResponse() {
   a.rationale = "tuple";
   r.hunks.push_back(a);
   RefactorHunk b;
-  b.file_path = "src/b.ploy";
+  b.file_path = "src/b.poly";
   b.start_line = 4;
   b.end_line = 4;
   b.original = "old\n";
@@ -61,7 +61,7 @@ TEST_CASE("Per-hunk accept / reject tracking",
 
   auto accepted = s.AcceptedHunks();
   REQUIRE(accepted.size() == 1);
-  CHECK(accepted.front().file_path == "src/a.ploy");
+  CHECK(accepted.front().file_path == "src/a.poly");
 }
 
 TEST_CASE("Bulk accept / reject", "[polyui][ai][refactor]") {
@@ -80,9 +80,9 @@ TEST_CASE("Unified diff emits accepted hunks only",
   s.Load(MakeResponse());
   s.Accept(0);
   auto diff = s.RenderUnifiedDiff();
-  CHECK(diff.find("--- src/a.ploy") != std::string::npos);
+  CHECK(diff.find("--- src/a.poly") != std::string::npos);
   CHECK(diff.find("@@ -10,3 +10,1 @@") != std::string::npos);
   CHECK(diff.find("-x=1") != std::string::npos);
   CHECK(diff.find("+x,y,z = 1,2,3") != std::string::npos);
-  CHECK(diff.find("src/b.ploy") == std::string::npos);
+  CHECK(diff.find("src/b.poly") == std::string::npos);
 }

@@ -27,6 +27,7 @@
 #include "middle/include/ir/ssa.h"
 #include "middle/include/ir/verifier.h"
 #include "middle/include/passes/pass_manager.h"
+#include "middle/include/passes/transform/instrument_call_trace.h"
 
 #include "backends/arm64/include/arm64_target.h"
 #include "backends/common/include/backend_registry.h"
@@ -54,6 +55,20 @@ using polyglot::tools::linker_probe::LinkerChoice;
 using polyglot::tools::linker_probe::SelectAvailableLinker;
 
 constexpr std::uint32_t kPobjSectionFlagBss = 1u << 1;
+
+std::string CanonicalSourceLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (folded == "poly" || folded == "ploy")
+    return "poly";
+  return language;
+}
+
+std::string AbiLanguageToken(const std::string &language) {
+  const std::string canonical = CanonicalSourceLanguage(language);
+  return canonical == "poly" ? "ploy" : canonical;
+}
 
 #pragma pack(push, 1)
 struct PobjFileHeader {
@@ -466,7 +481,7 @@ std::vector<ImportedFunction> CollectImportedFunctions(const CompilationContext:
       std::string language;
       std::string mangled;
       in >> name >> language >> mangled;
-      if (language == "ploy")
+      if (language == "poly")
         continue;
       const std::string module = ModuleFromQualified(name);
       const std::string function = FunctionFromQualified(name);
@@ -670,12 +685,12 @@ public:
     out.source_file = config.source_file;
     out.language = config.source_language;
 
-    if (config.source_language != "ploy") {
+    if (config.source_language != "poly") {
       diagnostics.ReportError(
           core::SourceLoc{config.source_label.empty() ? config.source_file : config.source_label, 1,
                           1},
           frontends::ErrorCode::kInvalidLanguage,
-          "staged compilation pipeline currently accepts only '.ploy' sources");
+          "staged compilation pipeline currently accepts only '.poly' sources");
       AppendDiagnostics(diagnostics, out.parse_diagnostics);
       out.success = false;
       return out;
@@ -843,11 +858,12 @@ public:
     // Build descriptors from marshal plan.
     for (const auto &cp : plan.call_plans) {
       ploy::CrossLangCallDescriptor desc;
-      // Mirror the mangling rule from `MangleStubName` in ploy lowering:
+      // Mirror the mangling rule from `MangleStubName` in poly lowering:
       // weave a `_v<sanitized_version>_` segment into the stub name when a
       // foreign-language version is pinned, so that the linker can route to
       // the matching versioned bridge variant.
-      desc.stub_name = "__ploy_bridge_" + cp.target_language + "_" + cp.source_language + "_";
+      desc.stub_name = "__ploy_bridge_" + AbiLanguageToken(cp.target_language) + "_" +
+                       AbiLanguageToken(cp.source_language) + "_";
       if (!cp.lang_version.empty()) {
         desc.stub_name += "v";
         for (char c : cp.lang_version) {
@@ -960,8 +976,8 @@ public:
       return out;
     }
 
-    ir::IRContext ir_module;
-    ploy::PloyLowering lowering(ir_module, diagnostics, *sema_db.sema_instance);
+    auto ir_module = std::make_shared<ir::IRContext>();
+    ploy::PloyLowering lowering(*ir_module, diagnostics, *sema_db.sema_instance);
     if (!lowering.Lower(sema_db.validated_ast)) {
       AppendDiagnostics(diagnostics, out.backend_diagnostics);
       out.success = false;
@@ -970,7 +986,7 @@ public:
 
     // Inject resolved bridge stubs into IR before backend emission.
     for (const auto &stub : bridges.stubs) {
-      auto fn = ir_module.CreateFunction(stub.stub_name);
+      auto fn = ir_module->CreateFunction(stub.stub_name);
       fn->is_external = false;
       fn->is_bridge_stub = true;
       fn->precompiled_code = stub.code;
@@ -986,14 +1002,26 @@ public:
       }
     }
 
-    for (auto &fn : ir_module.Functions()) {
+    // Preserve the historical __ploy_rt_* hook ABI while publishing the
+    // canonical language identifier in the hook payload.
+    if (config.profile_instrument) {
+      const auto stats = passes::transform::RunInstrumentCallTrace(*ir_module, "poly");
+      if (config.verbose) {
+        std::cerr << "[pipeline/backend] call-trace instrumented "
+                  << stats.functions_instrumented << "/" << stats.functions_visited
+                  << " functions, +" << stats.enter_calls_inserted << " enter, +"
+                  << stats.exit_calls_inserted << " exit\n";
+      }
+    }
+
+    for (auto &fn : ir_module->Functions()) {
       ir::ConvertToSSA(*fn);
     }
 
     std::string verify_msg;
     ir::VerifyOptions verify_opts;
     verify_opts.strict = config.strict_mode;
-    if (!ir::Verify(ir_module, verify_opts, &verify_msg)) {
+    if (!ir::Verify(*ir_module, verify_opts, &verify_msg)) {
       diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
                               frontends::ErrorCode::kLoweringUndefined,
                               "IR verification failed: " + verify_msg);
@@ -1005,7 +1033,7 @@ public:
     if (config.opt_level > 0) {
       passes::PassManager pm(static_cast<passes::PassManager::OptLevel>(config.opt_level));
       pm.Build();
-      pm.RunOnModule(ir_module, config.verbose);
+      pm.RunOnModule(*ir_module, config.verbose);
     }
 
     // Translate a TargetArtifacts result from any backend (registered via
@@ -1094,7 +1122,7 @@ public:
     // historical default.
     backend_options.reg_alloc = backends::RegAllocStrategy::kLinearScan;
 
-    backends::CompileResult bres = backend->Compile(ir_module, backend_options);
+    backends::CompileResult bres = backend->Compile(*ir_module, backend_options);
 
     // Surface every backend diagnostic through the driver's diagnostics sink
     // so that --strict / --force semantics are honoured uniformly.
@@ -1127,6 +1155,7 @@ public:
     }
 
     absorb_artifacts(bres.artifacts, backend->TargetTriple());
+    out.ir_ctx = std::move(ir_module);
     out.success = true;
     return out;
   }
@@ -1403,7 +1432,7 @@ public:
           replace_all("{OUT}", ShellQuoteArg(out_path));
           if (choice.display_name.rfind("polyld", 0) == 0) {
             if (!config.ploy_desc_file.empty())
-              cmd += " --ploy-desc " + ShellQuoteArg(config.ploy_desc_file);
+              cmd += " --poly-desc " + ShellQuoteArg(config.ploy_desc_file);
             if (!config.aux_dir.empty())
               cmd += " --aux-dir " + ShellQuoteArg(config.aux_dir);
           }
@@ -1529,6 +1558,7 @@ void CompilationContext::Config::SetTargetOs(const std::string &os) {
 }
 
 CompilationPipeline::CompilationPipeline(CompilationContext::Config config) {
+  config.source_language = CanonicalSourceLanguage(std::move(config.source_language));
   context_.config = std::move(config);
 
   // ---- BIN-7: keep target_triple / target_os / target_arch in sync.
@@ -1645,7 +1675,7 @@ bool CompilationPipeline::RunBridgeGeneration() {
   // ── Serialize cross-language descriptors to a PAUX text file ──────────
   // The file uses the same text format that PolyglotLinker::LoadDescriptorFile()
   // understands (LINK / CALL / SYMBOL lines), so polyld can ingest it via
-  // --ploy-desc without any additional parsing logic.
+  // --poly-desc without any additional parsing logic.
   if (!context_.config.aux_dir.empty() && context_.semantic_db.has_value()) {
     namespace fs = std::filesystem;
     std::string stem;
@@ -1683,11 +1713,11 @@ bool CompilationPipeline::RunBridgeGeneration() {
 
       // Emit CALL descriptors (from lowering, carried through marshal plan)
       for (const auto &cp : context_.marshal_plan->call_plans) {
-        // Mirror the mangling rule from `MangleStubName` in ploy lowering:
+        // Mirror the mangling rule from `MangleStubName` in poly lowering:
         // include a `_v<sanitized_version>_` segment when a version is
         // pinned so polyld can resolve the right versioned bridge.
-        std::string stub_name =
-            "__ploy_bridge_" + cp.target_language + "_" + cp.source_language + "_";
+        std::string stub_name = "__ploy_bridge_" + AbiLanguageToken(cp.target_language) + "_" +
+                                AbiLanguageToken(cp.source_language) + "_";
         if (!cp.lang_version.empty()) {
           stub_name += "v";
           for (char c : cp.lang_version) {

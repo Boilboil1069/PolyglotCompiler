@@ -12,7 +12,7 @@ This dictionary is the translation and editorial source of truth for the complet
 
 1. 中文段落使用“中文定稿”列中的术语；英文段落使用“English”列中的术语。
 2. 源码关键字、类型名、函数名、命令、参数、文件名、诊断码和 ABI 符号保持原始拼写，并使用反引号，例如 `MATCH`、`OPTION<T>`、`PloySema::AnalyzeExpression`、`--strict`。
-3. 产品名和语言名保持原名，例如 PolyglotCompiler、Poly、C++、Rust、Python、Java、.NET、JavaScript、Qt。Poly 的规范扩展名为 `.poly`；`Ploy`、`ploy` 与 `.ploy` 只用于准确引用当前尚未迁移的历史标识，不得表述为规范名称。
+3. 产品名和语言名保持原名，例如 PolyglotCompiler、Poly、C++、Rust、Python、Java、.NET、JavaScript、Qt。Poly 的规范扩展名为 `.poly`；`Ploy`、`ploy` 与 `.ploy` 只用于准确引用历史实现标识或 1.x 兼容行为，不得表述为规范名称。
 4. 缩写首次出现时写成“中文全称（缩写）”，后续可只写缩写，例如“应用二进制接口（ABI）”。源码标识符中的缩写不展开。
 5. 中文正文不得直接使用 parser、sema、lowering、runtime、backend、binding、warning、shape 等普通英文术语；若专指源码类或函数，必须放入反引号。
 6. 每个中文说明段落后紧跟语义等价的英文段落。英文不能只概括中文的一部分，也不能增加中文没有的承诺。
@@ -22,13 +22,34 @@ This dictionary is the translation and editorial source of truth for the complet
 
 1. Chinese prose uses the canonical Chinese term; English prose uses the canonical English term.
 2. Source keywords, type names, functions, commands, options, filenames, diagnostic codes, and ABI symbols keep their exact spelling and use backticks.
-3. Product and language names remain unchanged.
+3. Product and language names remain unchanged. Poly uses the canonical identifier `poly` and extension `.poly`; `Ploy`, `ploy`, and `.ploy` may appear only when documenting historical implementation identifiers or 1.x compatibility.
 4. Introduce an acronym with its full Chinese name on first use; source identifiers are exempt.
 5. Do not insert ordinary English words such as parser, lowering, runtime, binding, or warning into Chinese prose. Use backticks only when referring to an exact source identifier.
 6. Every Chinese explanatory paragraph is followed by a semantically equivalent English paragraph.
 7. Prefer separate Chinese and English tables when cells contain prose. Machine fields may remain in one shared table.
 8. Code, commands, JSON, IR, terminal output, and diagrams appear once, with paired explanations around them.
 9. Translation must preserve implementation-status distinctions exactly.
+
+### 1.1 版本化命名兼容 / Versioned naming compatibility
+
+自 PolyglotCompiler 1.48.0 起，规范语言名、语言标识和源码扩展名分别为
+**Poly**、`poly` 和 `.poly`。1.x 系列继续接受历史拼写 `Ploy`、`ploy` 和
+`.ploy` 作为兼容别名，最早在 2.0.0 才可移除。无论输入使用哪种兼容形式，
+诊断、序列化元数据和新文档都必须输出规范拼写 `poly`。
+
+Starting with PolyglotCompiler 1.48.0, the canonical language name,
+identifier, and source extension are **Poly**, `poly`, and `.poly`. The 1.x
+series continues to accept `Ploy`, `ploy`, and `.ploy` as historical
+compatibility aliases; removal may occur no earlier than 2.0.0. Diagnostics,
+serialized metadata, and new documentation always emit the canonical `poly`
+spelling regardless of which accepted input spelling was used.
+
+`frontends/ploy`、`Ploy*` 与 `__ploy_*` 是为源码、构建依赖和 ABI 稳定性保留的
+历史内部标识，不定义语言的规范名称。引用这些标识时必须使用反引号并说明其兼容性质。
+
+`frontends/ploy`, `Ploy*`, and `__ploy_*` are historical internal identifiers
+retained for source, build, and ABI compatibility. They do not define the
+canonical language name and must be presented as exact implementation names.
 
 ## 2. 编译器阶段 / Compiler stages
 
@@ -391,7 +412,7 @@ This dictionary is the translation and editorial source of truth for the complet
 
 The following spellings may appear in Chinese prose only as proper names, established acronyms, or backticked source text—not as untranslated ordinary words:
 
-- 产品与组件：PolyglotCompiler、Polyglot、Poly、PolyUI、CodeMirror、Typora；历史实现标识 `Ploy`、`ploy` 与 `.ploy` 仅在说明现状或兼容性时保留；
+- 产品与组件：PolyglotCompiler、Polyglot、Poly、PolyUI、CodeMirror、Typora；历史实现标识 `Ploy`、`ploy` 与 `.ploy` 仅在说明历史或 1.x 兼容性时保留；
 - 语言与平台：C、C++、Rust、Python、Java、.NET、JavaScript、TypeScript、Go、Ruby、Lua、Qt、Windows、Linux、macOS、Apple、Unix；
 - 标准缩写：API、ABI、FFI、IR、AST、SSA、CFG、CLI、IDE、LSP、UI、GC、EH、PGO、LTO、JIT、AOT、JSON、NDJSON、UTF-8、CRLF、JS、TS、VM、OS、Hz、RAII、LIFO；
 - 文件、对象与图像格式：ELF、Mach-O、COFF、PE、Wasm、WAT、DWARF、PDB、CSV、PNG、JPEG、WebP、GIF、SVG、BMP；
@@ -400,7 +421,7 @@ The following spellings may appear in Chinese prose only as proper names, establ
 - 规范化缩写与源码标记：POBJ、BSS、CIE、FDE、GOT、PLT、PRE、ThinLTO、SCCP、ASan、UBSan、LSan、DDL、DML、TODO、FIXME、cgo、UEDGE、SQL、CodeView、GiB、KiB、RGBA、ECMAScript、HTML、DLL、ICU、DOT、Kahn、RPATH、RUNNABLE；
 - 源码与命令：所有反引号包围的关键字、标识符、路径、命令、参数、符号、类型和诊断码。
 
-- Products and components: PolyglotCompiler, Polyglot, Poly, PolyUI, CodeMirror, and Typora; historical implementation identifiers `Ploy`, `ploy`, and `.ploy` are retained only when documenting current state or compatibility;
+- Products and components: PolyglotCompiler, Polyglot, Poly, PolyUI, CodeMirror, and Typora; historical implementation identifiers `Ploy`, `ploy`, and `.ploy` are retained only when documenting history or 1.x compatibility;
 - languages and platforms: C, C++, Rust, Python, Java, .NET, JavaScript, TypeScript, Go, Ruby, Lua, Qt, Windows, Linux, macOS, Apple, and Unix;
 - standard abbreviations: API, ABI, FFI, IR, AST, SSA, CFG, CLI, IDE, LSP, UI, GC, EH, PGO, LTO, JIT, AOT, JSON, NDJSON, UTF-8, CRLF, JS, TS, VM, OS, Hz, RAII, and LIFO;
 - file, object, and image formats: ELF, Mach-O, COFF, PE, Wasm, WAT, DWARF, PDB, CSV, PNG, JPEG, WebP, GIF, SVG, and BMP;

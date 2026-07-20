@@ -1,6 +1,6 @@
-# `polydoc` — Ploy doc-comment extractor (since v1.18.0)
+# `polydoc` — Poly doc-comment extractor (since v1.18.0)
 
-`polydoc` is a small command-line tool that walks one or more `.ploy`
+`polydoc` is a small command-line tool that walks one or more `.poly`
 source files, harvests every `///` documentation block attached to a
 top-level `FUNC` / `STRUCT` / `LET` / `VAR` declaration, and emits the
 result as Markdown or JSON.
@@ -25,7 +25,7 @@ polydoc [--json] [-o OUT] FILE [FILE ...]
 
 A doc comment is a line beginning with **exactly three** slashes:
 
-```ploy
+```poly
 /// First line.
 /// Second line.
 FUNC add(a: i32, b: i32) -> i32 { … }
@@ -45,13 +45,13 @@ or a blank that contains another non-doc token clears the buffer.
 ## Markdown output
 
 ```sh
-polydoc src/api.ploy
+polydoc src/api.poly
 ```
 
 emits, for the example above:
 
 ```markdown
-# src/api.ploy
+# src/api.poly
 
 ## `FUNC add(a: I32, b: I32) -> I32`
 
@@ -65,14 +65,14 @@ upper-case spelling of built-in primitive types.
 ## JSON output
 
 ```sh
-polydoc --json src/api.ploy
+polydoc --json src/api.poly
 ```
 
 emits a single object:
 
 ```json
 {
-  "file": "src/api.ploy",
+  "file": "src/api.poly",
   "entries": [
     {
       "kind": "func",

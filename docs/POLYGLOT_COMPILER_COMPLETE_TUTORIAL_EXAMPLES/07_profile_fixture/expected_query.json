@@ -1,6 +1,6 @@
 {
   "name": "main",
-  "language": "ploy",
+  "language": "poly",
   "call_count": 2,
   "inclusive_ns": 5000,
   "self_ns": 1000

@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, Rust |
-| Entry | `ml_inference.ploy` |
+| Entry | `ml_inference.poly` |
 | Theme | ML inference pipeline |
 | Expected stdout | `28_ml_inference: ok\r\n` |
 
 ## Files
 
-- `ml_inference.ploy` — `.ploy` entry that wires the host sources together.
+- `ml_inference.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `tokenizer.py` — host source file
 - `scorer.rs` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc ml_inference.ploy --emit-obj=build/ml_inference.obj --quiet
+polyc ml_inference.poly --emit-obj=build/ml_inference.obj --quiet
 polyld build/ml_inference.obj -o build/ml_inference.exe
 ./build/ml_inference.exe
 ```

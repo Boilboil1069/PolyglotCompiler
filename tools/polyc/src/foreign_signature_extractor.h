@@ -8,7 +8,7 @@
  */
 // ============================================================================
 // foreign_signature_extractor.h — Extract function signatures from foreign
-// source files referenced by IMPORT declarations in .ploy modules.
+// source files referenced by IMPORT declarations in .poly modules.
 // ============================================================================
 
 #pragma once
@@ -27,7 +27,7 @@ namespace polyglot::tools {
 // ============================================================================
 // ForeignSignatureExtractor
 //
-// Given a parsed .ploy Module, walks all IMPORT declarations that reference
+// Given a parsed .poly Module, walks all IMPORT declarations that reference
 // foreign-language source files (e.g., IMPORT cpp::math_ops;).
 // For each import, it:
 //   1. Locates the corresponding source file on disk.
@@ -38,7 +38,7 @@ namespace polyglot::tools {
 
 /** @brief ForeignExtractionOptions data structure. */
 struct ForeignExtractionOptions {
-  /// Directory containing the .ploy file (used as base for relative paths).
+  /// Directory containing the .poly file (used as base for relative paths).
   std::string base_directory;
 
   /// Additional search directories for foreign source files.
@@ -53,7 +53,7 @@ class ForeignSignatureExtractor {
 public:
   explicit ForeignSignatureExtractor(const ForeignExtractionOptions &opts);
 
-  /// Walk the ploy Module's IMPORT declarations and extract signatures from
+  /// Walk the poly Module's IMPORT declarations and extract signatures from
   /// all referenced foreign-language source files.
   /// Returns a map of qualified_name → FunctionSignature.
   std::unordered_map<std::string, ploy::FunctionSignature> ExtractAll(

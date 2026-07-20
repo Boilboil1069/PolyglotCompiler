@@ -13,7 +13,7 @@
 `(expr)` 作为分组表达式。`FOR` 显式吸收一个可选的前导 `(`，并
 在见到时要求迭代值后有匹配的 `)`。
 
-```ploy
+```poly
 IF (n > 0) { … }            // 等价于 IF n > 0 { … }
 WHILE (running) { … }       // 等价于 WHILE running { … }
 FOR (x IN xs) { … }         // 等价于 FOR x IN xs { … }
@@ -23,7 +23,7 @@ FOR (x IN xs) { … }         // 等价于 FOR x IN xs { … }
 
 新增语句形式，将 `OPTION<T>` 解包并把内部值绑定到 THEN 体作用域：
 
-```ploy
+```poly
 IF LET Some(x) = opt { use(x); }
 IF LET Some(x) = opt { use(x); } ELSE { fallback(); }
 IF LET None    = opt { … }       // 无绑定
@@ -47,7 +47,7 @@ IF LET None    = opt { … }       // 无绑定
 `NULL` 仅用于裸指针互操作。用它构造 `OPTION<T>` 现在会被 sema
 拒绝并给出明确建议：
 
-```ploy
+```poly
 LET o: OPTION<i32> = NULL;
 // error: cannot initialise OPTION<T> with NULL; use 'None' instead
 ```
@@ -62,7 +62,7 @@ LET o: OPTION<i32> = NULL;
 缓冲并写入对应 AST 节点。普通 `//` 行注释与 `////`（四斜杠）横幅
 仍为普通行注释。
 
-```ploy
+```poly
 /// 计算两个整数之和。
 /// 溢出按 2^64 取模。
 FUNC add(a: i64, b: i64) -> i64 { RETURN a + b; }
@@ -71,12 +71,12 @@ FUNC add(a: i64, b: i64) -> i64 { RETURN a + b; }
 ## 5. `polydoc` 抽取工具
 
 新增可执行文件 `polydoc`（`tools/polydoc/`），遍历一个或多个
-`.ploy` 文件，收集所有带文档的顶层声明，输出 Markdown 或 JSON：
+`.poly` 文件，收集所有带文档的顶层声明，输出 Markdown 或 JSON：
 
 ```sh
-polydoc src/foo.ploy                 # Markdown 到 stdout
-polydoc --json src/foo.ploy          # JSON 到 stdout
-polydoc -o api.md src/foo.ploy       # 写入 api.md
+polydoc src/foo.poly                 # Markdown 到 stdout
+polydoc --json src/foo.poly          # JSON 到 stdout
+polydoc -o api.md src/foo.poly       # 写入 api.md
 ```
 
 Markdown 形式为每个条目合成一行签名（`FUNC name(params) -> R`、
@@ -87,7 +87,7 @@ Markdown 形式为每个条目合成一行签名（`FUNC name(params) -> R`、
 
 `expr?` 是后缀表达式，对 `OPTION<T>` 操作数解包：
 
-```ploy
+```poly
 FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
     LET v = opt?;        // opt 为 None 时立即返回 None
     RETURN Some(v + 1);

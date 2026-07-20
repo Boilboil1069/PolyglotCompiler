@@ -2,7 +2,7 @@
 
 ## 表层语法
 
-```ploy
+```poly
 ASYNC FUNC fetch_one() -> i32 { RETURN 1; }
 ASYNC FUNC fetch_two() -> i32 { RETURN 2; }
 
@@ -80,7 +80,7 @@ CLI 与宿主适配器使用的入口。
 
 每个适配器封装其原生 awaitable，在宿主侧驱动至就绪态，
 通过 `__ploy_rt_future_resolve` 上交解析后的负载。
-事件循环在下一个 tick 唤醒挂起的 Ploy 任务。
+事件循环在下一个 tick 唤醒挂起的 Poly 任务。
 
 ## 调度器观测
 

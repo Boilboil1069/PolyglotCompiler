@@ -1,6 +1,6 @@
 ﻿# Runtime stdout pipeline
 
-This document describes the end-to-end pipeline that turns a `.ploy`
+This document describes the end-to-end pipeline that turns a `.poly`
 `PRINTLN "literal";` statement into bytes on the host process's standard
 output.  The pipeline is built incrementally as eight stages B1鈥揃8 tracked by
 demand `2026-04-28-49`; stages **B1 through B4** are shipped, the rest are
@@ -15,13 +15,13 @@ The Chinese counterpart of this document lives at
 ## 1. Layer map
 
 ```
-+------------------+   PRINTLN "hi";       (.ploy source)
-|  B2  ploy front  |
++------------------+   PRINTLN "hi";       (.poly source)
+|  B2  poly front  |
 +------------------+
         |  PrintlnStmt AST node + sema validation
         v
 +------------------+
-|  B3  ploy lower  |
+|  B3  poly lower  |
 +------------------+
         |  IR:  @str.<hash> = constant [N x i8] c"..."
         |       call void @polyrt_println(i8* ptr, i64 len)
@@ -42,7 +42,7 @@ earlier ones.
 
 ---
 
-## 2. B2 鈥?ploy front-end (shipped in v1.5.3)
+## 2. B2 鈥?poly front-end (shipped in v1.5.3)
 
 The lexer recognises the keyword `PRINTLN`, the parser produces a
 `PrintlnStmt` AST node carrying the **raw** literal bytes (escape sequences
@@ -229,7 +229,7 @@ issuing one `WriteFile` per call.
 The 16 pre-existing `tests/samples/<NN>_<name>/` folders each gained:
 
 - A trailing `PRINTLN "<NN>_<name>: ok\r\n";` marker statement appended to
-  the `.ploy` entry file.  The marker is the contract every sample is
+  the `.poly` entry file.  The marker is the contract every sample is
   required to honour at runtime so that the harness can compare stdout
   byte-for-byte against the sibling `expected_output.txt`.
 - A `expected_output.txt` file containing exactly the marker line, in
@@ -252,7 +252,7 @@ one of seven status buckets:
 | `RUN_FAIL` | produced binary returned a non-zero exit code. |
 | `LINK_FAIL` | `polyld` failed. |
 | `COMPILE_FAIL` | `polyc` failed. |
-| `SKIP` | folder lacked a `.ploy` entry. |
+| `SKIP` | folder lacked a `.poly` entry. |
 
 The summary lands in `build/samples_report.json` with a per-sample object
 holding `{name, status, polyc_rc, polyld_rc, exe_rc, stdout_bytes,
@@ -266,7 +266,7 @@ it gate.
 Fourteen new themed samples were authored in
 `tests/samples/17_string_processing/` through
 `tests/samples/30_game_loop_demo/`.  Each folder follows the same
-contract as the B6 supplements: a `.ploy` entry, two host-language source
+contract as the B6 supplements: a `.poly` entry, two host-language source
 files (real, compilable code 鈥?no placeholders), bilingual READMEs and an
 `expected_output.txt` whose bytes match the closing PRINTLN marker.
 
@@ -357,7 +357,7 @@ recovery / resolution paths key off non-empty `name` and only consider
 ### 9.3  Generalising `CollectPolyrtPrintlnSequence`
 
 The recovery pass keyed exclusively off the legacy `println.msg<N>`
-hint prefix that the early ploy lowering used.  Today
+hint prefix that the early poly lowering used.  Today
 `IRBuilder::MakeStringLiteral` is generic and emits `str<N>` symbols for
 any string literal (PRINTLN included), so the recovery returned an empty
 sequence and the linker fell through to `BuildExitZeroPE`.  The pass
@@ -378,7 +378,7 @@ now:
 ### 9.4  End-to-end gate
 
 `tests/integration/printf_pipeline_e2e_test.cpp`
-(`[printf][pe7][integration]`) writes a top-level two-`PRINTLN` `.ploy`
+(`[printf][pe7][integration]`) writes a top-level two-`PRINTLN` `.poly`
 source, runs `polyc --emit-obj --obj-format=coff` and `polyld`, executes
 the produced image, and captures stdout via `cmd /c >` (Win32) or
 `fork/pipe/dup2` (POSIX).  The test fails unless the captured bytes

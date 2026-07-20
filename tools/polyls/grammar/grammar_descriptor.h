@@ -3,7 +3,7 @@
  * @brief    Grammar descriptors for the PolyglotCompiler tree-sitter
  *           runtime adapter (demand 2026-04-28-24).
  *
- * Each descriptor binds one editor language id (e.g. "ploy", "cpp",
+ * Each descriptor binds one editor language id (e.g. "poly", "cpp",
  * "python", "rust", "java", "csharp") to:
  *
  *   • a stable name (used by the runtime to pick the right grammar);

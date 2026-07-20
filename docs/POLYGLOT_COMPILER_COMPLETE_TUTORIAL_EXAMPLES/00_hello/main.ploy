@@ -1,5 +1,0 @@
-FUNC main() -> i32 {
-    PRINTLN "hello from Ploy\n";
-    RETURN 0;
-}
-

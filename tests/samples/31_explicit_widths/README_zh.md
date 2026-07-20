@@ -4,15 +4,15 @@
 
 | 字段 | 取值 |
 | --- | --- |
-| 涉及语言 | Ploy、C++ |
-| 入口 | `explicit_widths.ploy` |
+| 涉及语言 | Poly、C++ |
+| 入口 | `explicit_widths.poly` |
 | 主题 | 显式宽度数值类型 + 编译期常量 |
 | 期望 stdout | `31_explicit_widths: ok\r\n` |
 
 ## 文件清单
 
-- `explicit_widths.ploy` —— 演示 `i32` / `u32` / `i64` / `f32` 等显式宽度类型，
-  声明 `TYPE Pixel = i32` 与 `TYPE ChannelCount = u32`，并通过 ploy 语义分析器
+- `explicit_widths.poly` —— 演示 `i32` / `u32` / `i64` / `f32` 等显式宽度类型，
+  声明 `TYPE Pixel = i32` 与 `TYPE ChannelCount = u32`，并通过 poly 语义分析器
   折叠 3 个 `CONST` 常量。
 - `width_kernel.cpp` —— 宿主侧内核，消费宽度敏感的缓冲并返回 `i64` 累加结果。
 - `expected_output.txt` —— 回归用例按字节比对的期望 stdout。
@@ -34,7 +34,7 @@
 ## 构建
 
 ```powershell
-polyc explicit_widths.ploy --emit-obj=build/explicit_widths.obj --quiet
+polyc explicit_widths.poly --emit-obj=build/explicit_widths.obj --quiet
 polyld build/explicit_widths.obj -o build/explicit_widths.exe
 ./build/explicit_widths.exe
 ```

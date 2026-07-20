@@ -10,9 +10,9 @@
   <img alt="CMake"    src="https://img.shields.io/badge/CMake-3.20+-green.svg"/>
   <img alt="License"  src="https://img.shields.io/badge/License-GPLv3-blue.svg"/>
 <!-- BEGIN:test_badge -->
-  <img alt="Tests"    src="https://img.shields.io/badge/CTest-30%20targets-brightgreen.svg"/>
+  <img alt="Tests" src="https://img.shields.io/badge/Suites-5%20core%20%2B%208%20frontend-brightgreen.svg"/>
 <!-- END:test_badge -->
-  <img alt="Version"  src="https://img.shields.io/badge/Version-1.47.2-informational.svg"/>
+  <img alt="Version"  src="https://img.shields.io/badge/Version-1.48.0-informational.svg"/>
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg"/>
 </p>
 
@@ -20,11 +20,11 @@
 
 ## Overview / 项目概述
 
-PolyglotCompiler compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **JavaScript**, **Ruby** and **Go** sources into a single SSA-form intermediate representation, then emits native code for **x86_64**, **ARM64** and **WebAssembly**. The **`.ploy`** domain-specific language sits on top as the cross-language glue layer that links functions, classes, methods, attributes and resources across language boundaries.
+PolyglotCompiler compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **JavaScript**, **Ruby** and **Go** sources into a single SSA-form intermediate representation, then emits native code for **x86_64**, **ARM64** and **WebAssembly**. The **`.poly`** domain-specific language sits on top as the cross-language glue layer that links functions, classes, methods, attributes and resources across language boundaries.
 
 The toolchain is **self-hosted**: every supported language is parsed and lowered by a first-party frontend (`frontend_*`), the linker (`polyld`) emits ELF / PE32+ / Mach-O / Wasm directly, and only the optional system linker may be invoked at the very end of the pipeline.
 
-PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）**、**JavaScript**、**Ruby** 与 **Go** 源代码编译为统一的 SSA 形式中间表示（IR），并为 **x86_64**、**ARM64**、**WebAssembly** 生成原生代码。**`.ploy`** 领域特定语言作为跨语言粘合层，描述函数、类、方法、属性、资源在语言边界之间的链接。
+PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）**、**JavaScript**、**Ruby** 与 **Go** 源代码编译为统一的 SSA 形式中间表示（IR），并为 **x86_64**、**ARM64**、**WebAssembly** 生成原生代码。**`.poly`** 领域特定语言作为跨语言粘合层，描述函数、类、方法、属性、资源在语言边界之间的链接。
 
 整条工具链是**自举的**：所有支持的语言都由项目自带的前端（`frontend_*`）解析与降级，链接器 `polyld` 直接生成 ELF / PE32+ / Mach-O / Wasm，仅在最终成品阶段可选地调用系统链接器。
 
@@ -32,7 +32,7 @@ PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）
 
 - **9 first-party frontends** — `frontend_cpp`, `frontend_python`, `frontend_rust`, `frontend_java`, `frontend_dotnet`, `frontend_go`, `frontend_javascript`, `frontend_ruby`, `frontend_ploy`，统一由 `FrontendRegistry` 注册与分发。
 - **Shared SSA IR** — 所有语言降级到同一份 IR，复用 `middle/` 目录下的 25+ 优化 Pass（含 PGO、LTO、循环优化、去虚化、GVN、DCE 等）。
-- **Cross-Language Linking** — `.ploy` DSL 提供 `LINK` / `CALL` / `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 等关键字，实现函数级与对象级互操作；签名/元数/类型在 `.ploy` 语义分析与 `polyld` 链接阶段双重校验。
+- **Cross-Language Linking** — `.poly` DSL 提供 `LINK` / `CALL` / `NEW` / `METHOD` / `GET` / `SET` / `WITH` / `DELETE` / `EXTEND` 等关键字，实现函数级与对象级互操作；签名/元数/类型在 `.poly` 语义分析与 `polyld` 链接阶段双重校验。
 - **Triple Backend** — `backends/x86_64`（含 SSE/AVX 调度）、`backends/arm64`（含 NEON）、`backends/wasm`（含影子栈、WAT/二进制双输出）。
 - **Container Matrix** — `polyld` 直接生成 ELF（Linux）、PE32+（Windows）、Mach-O（macOS，arm64 段按 16 KiB 对齐、`__DATA_CONST` 携带 `SG_READ_ONLY`）与 Wasm；`tests/integration/binary_matrix/` 在 CI 守护整张矩阵。
 - **Package Manager Integration** — `IMPORT … PACKAGE …` 自动识别 pip / conda / uv / pipenv / poetry / cargo / NuGet / Maven / Gradle / pkg-config / `go.mod` / `node_modules` / `package.json` / Gemfile。
@@ -50,11 +50,11 @@ PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .ploy│
+│  Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .poly│
 └──────────────┬─────────────────────────────────────────────────────┬────────────┘
                ▼                                                     ▼
 ┌──────────────────────────────────────┐                  ┌────────────────────┐
-│ Language Frontends (FrontendRegistry)│                  │   Ploy Frontend    │
+│ Language Frontends (FrontendRegistry)│                  │   Poly Frontend    │
 │  cpp • python • rust • java • dotnet │                  │ (orchestration DSL)│
 │  go  • javascript • ruby             │                  └─────────┬──────────┘
 └───────────────────┬──────────────────┘                            │
@@ -127,8 +127,8 @@ cd build && ctest --output-on-failure
 # Compile a single source
 polyc --lang=cpp -O2 -o output input.cpp
 
-# Compile a .ploy cross-language specification
-polyc --lang=ploy input.ploy
+# Compile a .poly cross-language specification
+polyc --lang=poly input.poly
 
 # Cross-target compilation
 polyc --target=aarch64-apple-darwin --container=macho -o app main.cpp
@@ -142,13 +142,28 @@ polyopt -O3 input.ir -o optimised.ir
 
 ---
 
-## The .ploy Language / .ploy 跨语言链接语言
+## The .poly Language / .poly 跨语言链接语言
 
-`.ploy` is the orchestration DSL that describes interoperability between every supported language. It exposes function calls, class instantiation, method invocation, attribute access, resource management (`WITH`), object destruction, class extension, and data-flow pipelines as first-class syntax.
+`.poly` is the orchestration DSL that describes interoperability between every supported language. It exposes function calls, class instantiation, method invocation, attribute access, resource management (`WITH`), object destruction, class extension, and data-flow pipelines as first-class syntax.
+
+**Naming compatibility (v1.48.0):** **Poly**, `poly`, and `.poly` are the
+canonical language name, language identifier, and source extension. All 1.x
+releases continue to accept the historical `Ploy`, `ploy`, and `.ploy`
+spellings as compatibility aliases; they may be removed no earlier than 2.0.0.
+Diagnostics and generated metadata use the canonical `poly` spelling even
+when a legacy alias is accepted. Internal names such as `frontends/ploy`,
+`Ploy*`, and `__ploy_*` are retained implementation and ABI compatibility
+identifiers, not canonical user-facing names.
+
+**命名兼容政策（v1.48.0）：** **Poly**、`poly` 与 `.poly` 分别是规范语言名、
+语言标识和源码扩展名。整个 1.x 系列继续接受历史拼写 `Ploy`、`ploy` 与 `.ploy`
+作为兼容别名，最早到 2.0.0 才可能移除。即使输入使用旧别名，诊断和生成的元数据
+也统一输出规范拼写 `poly`。`frontends/ploy`、`Ploy*` 与 `__ploy_*` 等内部名称
+为实现及 ABI 兼容标识，不代表面向用户的规范名称。
 
 ### Example / 示例
 
-```ploy
+```poly
 IMPORT python PACKAGE torch >= 2.0;
 IMPORT python PACKAGE numpy >= 1.20 AS np;
 IMPORT cpp::image_processing;
@@ -206,7 +221,7 @@ EXPORT ml_pipeline AS "train_model";
 | Package Manager Config | `CONFIG CONDA "env_name";`                             | Configure package discovery                  |
 | Type Annotation        | `LET model: python::nn::Module = NEW(...);`            | Qualified type annotations                   |
 
-For the full grammar, semantics and 54 reserved keywords see [`docs/specs/ploy_language_spec.md`](docs/specs/ploy_language_spec.md) (English) and [`docs/specs/ploy_language_spec_zh.md`](docs/specs/ploy_language_spec_zh.md) (中文).
+For the full grammar and semantics, see [`docs/realization/poly_language_spec.md`](docs/realization/poly_language_spec.md) (English) and [`docs/realization/poly_language_spec_zh.md`](docs/realization/poly_language_spec_zh.md) (中文).
 
 ---
 
@@ -221,7 +236,7 @@ For the full grammar, semantics and 54 reserved keywords see [`docs/specs/ploy_l
 | Runtime Tool      | `polyrt`     | GC tuning, FFI registration, thread management, runtime statistics dump.                                                               |
 | Topology Analyser | `polytopo`   | Function I/O topology graph, link validation, text / DOT / JSON export, `--view-mode` and `--filter-language`.                          |
 | Language Server   | `polyls`     | Self-hosted LSP over stdio JSON-RPC: completion, diagnostics, navigation, symbol index; consumed by `polyui` and any LSP-aware editor. |
-| Doc Extractor     | `polydoc`    | Walks `.ploy` files, extracts `///` doc-comment blocks attached to top-level `FUNC` / `STRUCT` / `LET` / `VAR`; emits Markdown or JSON. |
+| Doc Extractor     | `polydoc`    | Walks `.poly` files, extracts `///` doc-comment blocks attached to top-level `FUNC` / `STRUCT` / `LET` / `VAR`; emits Markdown or JSON. |
 | Toolchain Probe   | `polyver`    | Detects host toolchains (compilers, linkers, package managers) and writes the result into the toolchain database used by `polyc`.       |
 | Benchmark         | `polybench`  | Performance evaluation suite (micro + macro, fast / full modes).                                                                       |
 | IDE               | `polyui`     | Qt desktop IDE: highlighting, real-time diagnostics, Topology / Profiler (`Ctrl+Alt+P`) / Call Analyzer (`Ctrl+Alt+G`) panels, templates, build tasks. |
@@ -286,7 +301,7 @@ PolyglotCompiler/
 │   ├── go/             # Go frontend
 │   ├── javascript/     # JavaScript frontend
 │   ├── ruby/           # Ruby frontend
-│   └── ploy/           # .ploy cross-language frontend
+│   └── ploy/           # Historical internal path for the canonical .poly frontend
 ├── middle/             # SSA IR, CFG, optimisation passes, PGO, LTO
 ├── backends/
 │   ├── common/         # Shared backend (debug info, DWARF, PDB, object emission)
@@ -302,14 +317,14 @@ PolyglotCompiler/
 │   ├── unit/           # Per-module unit tests (Catch2)
 │   ├── integration/    # Full-pipeline / binary-matrix integration tests
 │   ├── benchmarks/     # Micro + macro performance benchmarks
-│   └── samples/        # 49 categorised sample programs (.ploy/.cpp/.py/.rs/.java/.cs/.go/.js/.rb)
+│   └── samples/        # 49 categorised sample programs (.poly/.cpp/.py/.rs/.java/.cs/.go/.js/.rb)
 ├── scripts/            # CI helpers, packaging, sample harness, doc-sync gates
 └── docs/               # Bilingual documentation (Chinese + English)
     ├── design.md       # Kiro spec-style system design
     ├── api/            # API reference
     ├── specs/          # Language & IR specifications, ABI, plugin spec
     ├── realization/    # Implementation details
-    ├── tutorial/       # Tutorials (.ploy + project)
+    ├── tutorial/       # Tutorials (.poly + project)
     └── demand/         # Demand log driving the project
 ```
 
@@ -327,7 +342,7 @@ The project uses **Catch2** with a per-module CTest matrix of **30 targets**. Th
 | 4  | `test_frontend_python`    | Python frontend                                         |
 | 5  | `test_frontend_cpp`       | C++ frontend                                            |
 | 6  | `test_frontend_rust`      | Rust frontend                                           |
-| 7  | `test_frontend_ploy`      | `.ploy` frontend                                        |
+| 7  | `test_frontend_ploy`      | `.poly` frontend                                        |
 | 8  | `test_frontend_java`      | Java frontend                                           |
 | 9  | `test_frontend_dotnet`    | .NET (C#) frontend                                      |
 | 10 | `test_frontend_javascript`| JavaScript frontend                                     |
@@ -403,12 +418,13 @@ cd build-san && ctest --output-on-failure -LE benchmark
 Managed automatically via CMake `FetchContent`:
 
 <!-- BEGIN:dependencies_table -->
-| Dependency                                              | Purpose                                                                                                  |
-|---------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| [fmt](https://github.com/fmtlib/fmt)                    | Formatted output (≥ 11.2.0 required for Apple Clang 21)                                                   |
-| [nlohmann/json](https://github.com/nlohmann/json)       | JSON processing                                                                                          |
-| [Catch2](https://github.com/catchorg/Catch2)            | Unit testing framework                                                                                   |
-| [mimalloc](https://github.com/microsoft/mimalloc)       | High-performance memory allocator (`mi_*` APIs only; global malloc override disabled across dylib bounds) |
+| Dependency | Purpose |
+|-----------|---------|
+| [fmt](https://github.com/fmtlib/fmt) | Formatted output (>= 11.2.0 required for Apple Clang 21) |
+| [nlohmann/json](https://github.com/nlohmann/json) | JSON processing |
+| [Catch2](https://github.com/catchorg/Catch2) | Unit testing framework |
+| [mimalloc](https://github.com/microsoft/mimalloc) | High-performance memory allocator (mi_* APIs only; global malloc override disabled to keep allocator consistent across dylib boundaries) |
+| [Qt 6](https://www.qt.io/) | Desktop IDE (polyui) |
 <!-- END:dependencies_table -->
 
 **Optional / 可选（不由 CMake 拉取，需预先安装）：**
@@ -431,7 +447,7 @@ All documentation is bilingual (中文 + English) under [`docs/`](docs/):
 | [`docs/api/`](docs/api/)                                              | API reference                                                              |
 | [`docs/specs/`](docs/specs/)                                          | Language & IR specifications, runtime ABI, plugin specification, packaging |
 | [`docs/realization/`](docs/realization/)                              | Implementation details                                                     |
-| [`docs/tutorial/`](docs/tutorial/)                                    | Tutorials for the `.ploy` language and the project as a whole              |
+| [`docs/tutorial/`](docs/tutorial/)                                    | Tutorials for the `.poly` language and the project as a whole              |
 
 ---
 
@@ -462,7 +478,7 @@ This project is licensed under the **GNU General Public License v3.0**. See [LIC
 ---
 
 <!-- BEGIN:version_footer_en -->
-*Maintained by the PolyglotCompiler Team*  
-*Last Updated: 2026-05-26*  
-*Document Version: v1.47.2*
+*Maintained by PolyglotCompiler Team*<br>
+*Last Updated: 2026-07-20*<br>
+*Document Version: v1.2.0*
 <!-- END:version_footer_en -->

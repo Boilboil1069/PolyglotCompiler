@@ -7,7 +7,7 @@
 
 ## 1. polyui Editor Enhancements
 
-### 1.1 Enhanced .ploy Completions
+### 1.1 Enhanced .poly Completions
 
 `CompilerService::GetPloyCompletions()` now returns a richer set of items:
 
@@ -20,7 +20,7 @@
 
 | Language | Patterns |
 |----------|----------|
-| ploy | `FUNC`, `STRUCT`, `ENUM`, `VAR`, `PIPELINE` declarations |
+| poly | `FUNC`, `STRUCT`, `ENUM`, `VAR`, `PIPELINE` declarations |
 | cpp | function definitions, `class`, `struct`, `enum`, `namespace` |
 | python | `def`, `class` |
 | rust | `fn`, `struct`, `enum`, `impl`, `mod` |
@@ -68,7 +68,7 @@ Three batch buttons operate on the current selection:
 - **Highlight**: starts a pulse animation on selected nodes.
 - **Export**: builds a DOT subgraph of selected nodes and saves it to a file.
 
-### 2.3 Source Location Comments in Generated .ploy
+### 2.3 Source Location Comments in Generated .poly
 
 `GeneratePloySrc()` now emits `@source file:line` comments for LINK directives, PIPELINE node headers, and FUNC declarations when `SourceLoc` data is available.
 

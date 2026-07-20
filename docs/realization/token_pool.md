@@ -70,7 +70,7 @@ Building blocks:
 - `FrontendOptions::dump_token_pool_stats` – mirror of the new
   `--dump-token-pool` driver flag.
 - `tools/polyc/src/stage_frontend.cpp` allocates a session-scoped
-  `SharedTokenPool`, attaches it to the `Preprocessor` and (for `.ploy`)
+  `SharedTokenPool`, attaches it to the `Preprocessor` and (for `.poly`)
   the `PloyLexer`, then captures `TokenPool::Stats()` into
   `FrontendResult::token_pool_stats_json`.
 - `tools/polyc/src/driver.cpp` writes

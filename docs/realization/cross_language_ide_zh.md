@@ -2,7 +2,7 @@
 
 ## 目标
 
-把跨语言能力提升为 IDE 一等体验：用户可在 `.ploy` 与各宿主语言
+把跨语言能力提升为 IDE 一等体验：用户可在 `.poly` 与各宿主语言
 源码之间跳转，并以一次协调的编辑完成跨语言重命名；可在面板中
 浏览每个生成的 bridge 及其实时调用次数；并能直观查看连接两侧的
 转换流水线。
@@ -11,19 +11,19 @@
 
 | 组件 | 头文件 | 作用 |
 | --- | --- | --- |
-| `LinkRegistry` | [`tools/ui/common/cross_language/cross_language_navigator.h`](../../tools/ui/common/cross_language/cross_language_navigator.h) | `.ploy` LINK 点位与宿主语言定义的目录；提供 goto-def、反向引用、CodeLens 引用计数。 |
-| `RenamePlanner` | 同上 | 生成贯穿宿主语言定义、所有 `.ploy` LINK 点位与宿主 LSP 报告的引用的协调 `WorkspaceEdit` 方案。 |
+| `LinkRegistry` | [`tools/ui/common/cross_language/cross_language_navigator.h`](../../tools/ui/common/cross_language/cross_language_navigator.h) | `.poly` LINK 点位与宿主语言定义的目录；提供 goto-def、反向引用、CodeLens 引用计数。 |
+| `RenamePlanner` | 同上 | 生成贯穿宿主语言定义、所有 `.poly` LINK 点位与宿主 LSP 报告的引用的协调 `WorkspaceEdit` 方案。 |
 | `BridgePanelModel` | [`tools/ui/common/cross_language/bridge_panel.h`](../../tools/ui/common/cross_language/bridge_panel.h) | 从 `aux/bridges.json` 加载 bridge 清单；记录 marshalling 策略、源码位置以及来自 polyrt calltrace 的实时调用计数；重新导入时保留运行期计数。 |
 | `MarshallingViewBuilder` | [`tools/ui/common/cross_language/marshalling_view.h`](../../tools/ui/common/cross_language/marshalling_view.h) | 每个 bridge 的 IR 下降 → helper → ABI 适配器链路；可加载 `aux/marshalling.json`，或基于 bridge 元数据合成标准三阶段流水线。 |
 
 ## 流程
 
-* **跳转定义。** polyls 同时把 `.ploy` 中解析到的 LINK 点位以及
+* **跳转定义。** polyls 同时把 `.poly` 中解析到的 LINK 点位以及
   各宿主语言 LSP 解析出的定义灌入注册表；`GotoDefinition(site)`
   在目录上以 O(N) 返回匹配定义。
 * **反向引用 / CodeLens。** `FindLinkReferences(def)` 扫描 LINK
   点位；`CodeLensFor(file)` 返回每个定义对应的 lens，锚点位于
-  定义源位置，带 `.ploy` 引用计数。
+  定义源位置，带 `.poly` 引用计数。
 * **协调重命名。** `RenamePlanner::Plan(language, symbol,
   new_name, extra_references)` 遍历所有目录中的定义、LINK 点位
   以及 LSP 报告的引用，为每个改写位置发出一条 `WorkspaceEdit`；

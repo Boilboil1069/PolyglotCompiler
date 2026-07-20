@@ -2,7 +2,7 @@
  * @file     topology_ui_extended_test.cpp
  * @brief    Extended unit tests for TopologyPanel UI interactions
  *
- * Tests exercise the TopologyPanel widget with realistic .ploy sources:
+ * Tests exercise the TopologyPanel widget with realistic .poly sources:
  *   1. LoadFromFile populates node_items_ and edge_items_.
  *   2. LINK-only source produces correct node count.
  *   3. PIPELINE source produces expandable stage nodes.
@@ -90,7 +90,7 @@ FUNC compute(a: INT) -> INT {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_1.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_1.poly");
     panel.LoadFromFile(path);
 
     // After loading, at least 1 node should exist (LINK/FUNC produce nodes)
@@ -119,7 +119,7 @@ LINK(rust, python, crypto::hash, hashlib::sha256) {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_2.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_2.poly");
     panel.LoadFromFile(path);
 
     // Two LINK declarations should produce at least 2 nodes
@@ -152,7 +152,7 @@ PIPELINE data_pipeline {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_3.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_3.poly");
     panel.LoadFromFile(path);
 
     // The pipeline should produce several nodes
@@ -193,7 +193,7 @@ FUNC run(x: FLOAT, y: FLOAT) -> FLOAT {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_4.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_4.poly");
     panel.LoadFromFile(path);
 
     // Edges connect linked symbols (LINK declaration creates edges)
@@ -217,7 +217,7 @@ FUNC f(x: INT) -> INT { RETURN x; }
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_5.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_5.poly");
     panel.LoadFromFile(path);
 
     // Verify something is loaded
@@ -253,7 +253,7 @@ PIPELINE etl {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_6.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_6.poly");
     panel.LoadFromFile(path);
 
     // Try to find an expandable node and open drill-down
@@ -300,7 +300,7 @@ PIPELINE pipe {
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_7.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_7.poly");
     panel.LoadFromFile(path);
 
     // Find an expandable node
@@ -339,11 +339,11 @@ FUNC dbg_target(x: INT) -> INT { RETURN x; }
 )";
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSource, "topo_ext_test_8.ploy");
+    QString path = WriteTempPloy(kSource, "topo_ext_test_8.poly");
     panel.LoadFromFile(path);
 
     // These should not crash even when no matching node exists
-    panel.HighlightDebugNode("nonexistent.ploy", 1);
+    panel.HighlightDebugNode("nonexistent.poly", 1);
     panel.ClearDebugHighlights();
 
     // Execution highlighting with invalid id

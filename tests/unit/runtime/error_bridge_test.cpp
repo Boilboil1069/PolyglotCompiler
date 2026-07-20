@@ -37,7 +37,7 @@ TEST_CASE("error_bridge: throw inside try populates the payload",
     CHECK(std::string(msg) == "boom");
     const char *src = __ploy_rt_current_error_source_lang();
     REQUIRE(src != nullptr);
-    CHECK(std::string(src) == "ploy");
+    CHECK(std::string(src) == "poly");
     __ploy_rt_clear_error();
 }
 
@@ -63,6 +63,21 @@ TEST_CASE("error_bridge: throw_from tags the source language",
     CHECK(std::string(__ploy_rt_current_error_message()) == "py boom");
     CHECK(std::string(__ploy_rt_current_error_source_lang()) == "python");
     __ploy_rt_clear_error();
+}
+
+TEST_CASE("error_bridge: legacy ploy source metadata canonicalizes to poly",
+          "[runtime][error-bridge][compat]") {
+    for (const char *alias : {"ploy", "Ploy", "PLOY", "Poly", "POLY"}) {
+        REQUIRE(__ploy_rt_try_begin() == 0);
+        try {
+            __ploy_rt_throw_from("legacy boom", alias);
+            FAIL("unreachable");
+        } catch (const RuntimeError &) {}
+        __ploy_rt_try_end();
+        REQUIRE(__ploy_rt_current_error_source_lang() != nullptr);
+        CHECK(std::string(__ploy_rt_current_error_source_lang()) == "poly");
+        __ploy_rt_clear_error();
+    }
 }
 
 TEST_CASE("error_bridge: nested try-catch surfaces the inner error",

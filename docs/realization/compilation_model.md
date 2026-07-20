@@ -2,30 +2,30 @@
 
 ## Question / 问题
 
-> 现有 ploy 代码内部有 cpp 与 python 代码，编译后的二进制文件是编译了 cpp 与 python 后混合而成的吗？
+> 现有 poly 代码内部有 cpp 与 python 代码，编译后的二进制文件是编译了 cpp 与 python 后混合而成的吗？
 
-> If a `.ploy` file references both C++ and Python code, is the resulting binary a mix of compiled C++ and Python?
+> If a `.poly` file references both C++ and Python code, is the resulting binary a mix of compiled C++ and Python?
 
 ---
 
 ## Answer / 回答
 
-**A `.ploy` build produces one final native output only when every referenced implementation and runtime symbol is available to the linker.**
+**A `.poly` build produces one final native output only when every referenced implementation and runtime symbol is available to the linker.**
 
-PolyglotCompiler does **not** invoke MSVC, GCC, rustc, or CPython during its frontend stages. Each supported source language is parsed, type-checked, and lowered by the project's own frontends when that source is explicitly compiled. During the link stage, the built-in `polyld` linker or a platform linker may be invoked to produce the final executable. For `.ploy` cross-language builds, descriptors now participate in strict link validation: missing external implementation symbols or runtime symbols stop the build.
+PolyglotCompiler does **not** invoke MSVC, GCC, rustc, or CPython during its frontend stages. Each supported source language is parsed, type-checked, and lowered by the project's own frontends when that source is explicitly compiled. During the link stage, the built-in `polyld` linker or a platform linker may be invoked to produce the final executable. For `.poly` cross-language builds, descriptors now participate in strict link validation: missing external implementation symbols or runtime symbols stop the build.
 
 ### Compilation Flow / 编译流程
 
 ```
 ┌─────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  C++ Source  │   │ Python Source │   │  Rust Source  │   │  .ploy Source │
-│  (*.cpp)     │   │  (*.py)      │   │  (*.rs)      │   │  (*.ploy)    │
+│  C++ Source  │   │ Python Source │   │  Rust Source  │   │  .poly Source │
+│  (*.cpp)     │   │  (*.py)      │   │  (*.rs)      │   │  (*.poly)    │
 └──────┬──────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
        │                 │                   │                   │
        ▼                 ▼                   ▼                   ▼
   ┌──────────┐    ┌──────────┐      ┌──────────┐       ┌──────────┐
   │frontend_ │    │frontend_ │      │frontend_ │       │frontend_ │
-  │  cpp     │    │ python   │      │  rust    │       │  ploy    │
+  │  cpp     │    │ python   │      │  rust    │       │  poly    │
   │(polyglot)│    │(polyglot)│      │(polyglot)│       │(polyglot)│
   └────┬─────┘    └────┬─────┘      └────┬─────┘       └────┬─────┘
        │               │                 │                   │
@@ -72,14 +72,14 @@ PolyglotCompiler does **not** invoke MSVC, GCC, rustc, or CPython during its fro
    - Rust files → `frontend_rust` (Lexer → Parser → Sema → Lowering)
    - All three frontends produce the **same shared IR** (SSA form)
 
-2. **The `.ploy` file describes cross-language connections**  
-   `.ploy` 文件描述跨语言连接关系：
+2. **The `.poly` file describes cross-language connections**
+   `.poly` 文件描述跨语言连接关系：
    - `LINK`, `IMPORT`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH` — declare how functions/classes/attributes from different languages interact
-   - The `.ploy` frontend produces **cross-language call descriptors** (`CrossLangCallDescriptor`)
+   - The `.poly` frontend produces **cross-language call descriptors** (`CrossLangCallDescriptor`)
 
 3. **The PolyglotLinker generates glue code**
    PolyglotLinker 生成粘合代码：
-   - Reads the cross-language call descriptors from the `.ploy` frontend
+   - Reads the cross-language call descriptors from the `.poly` frontend
    - Automatically synthesizes cross-language symbol entries from LINK declarations and known function signatures — no manual symbol registration required
    - Generates **FFI bridge stubs** (e.g., `__ploy_bridge_ploy_python___init__`, `__ploy_bridge_ploy_python___getattr__weight`)
    - Generates **type marshalling code** (converting between language-specific representations)
@@ -127,8 +127,8 @@ def predict(data: list) -> float:
     return sum(data) / len(data)
 ```
 
-```ploy
-// pipeline.ploy
+```poly
+// pipeline.poly
 IMPORT cpp::image_processor;
 IMPORT python PACKAGE ml_model;
 
@@ -150,10 +150,10 @@ EXPORT process AS "run_pipeline";
 
 #### Single-Command Compilation / 一步编译
 
-PolyglotCompiler supports compiling a `.ploy` file directly. For local source imports such as `IMPORT cpp::image_processor;` or `IMPORT python::ml_model;`, `polyc` searches next to the `.ploy` file and in `-I` include roots, compiles the discovered source files automatically, and writes the generated objects into `aux/`. The build also emits a `<stem>_foreign_aliases.pobj` object that exports module-qualified bridge symbols such as `image_processor::enhance` and `image_processor__enhance`.
+PolyglotCompiler supports compiling a `.poly` file directly. For local source imports such as `IMPORT cpp::image_processor;` or `IMPORT python::ml_model;`, `polyc` searches next to the `.poly` file and in `-I` include roots, compiles the discovered source files automatically, and writes the generated objects into `aux/`. The build also emits a `<stem>_foreign_aliases.pobj` object that exports module-qualified bridge symbols such as `image_processor::enhance` and `image_processor__enhance`.
 
 ```bash
-polyc pipeline.ploy -o program
+polyc pipeline.poly -o program
 ```
 
 The equivalent explicit multi-source flow is still available for debugging:
@@ -161,8 +161,8 @@ The equivalent explicit multi-source flow is still available for debugging:
 ```bash
 polyc --lang=cpp -c image_processor.cpp -o image_processor.o
 polyc --lang=python -c ml_model.py -o ml_model.o
-polyc --lang=ploy -c pipeline.ploy -o pipeline.o
-polyld -o program image_processor.o ml_model.o pipeline.o --ploy-desc aux/pipeline_link_descriptors.paux
+polyc --lang=poly -c pipeline.poly -o pipeline.o
+polyld -o program image_processor.o ml_model.o pipeline.o --poly-desc aux/pipeline_link_descriptors.paux
 ```
 
 The final `program` is a native x86_64, ARM64, or WebAssembly output when every referenced implementation and runtime symbol resolves. Local source imports are now part of that closure; package imports and external runtime libraries still have to resolve through their configured package/runtime paths.

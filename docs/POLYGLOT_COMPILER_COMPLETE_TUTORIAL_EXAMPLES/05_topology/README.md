@@ -5,6 +5,6 @@
 The three `STAGE` declarations are pipeline-body syntax markers, but the current analyser collapses `PIPELINE audit` to one node and creates no per-stage edges. `expected_summary.txt` and `expected.json` preserve this real result and therefore document the tool boundary.
 
 ```sh
-build/polytopo docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/05_topology/pipeline.ploy --format summary
-build/polytopo docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/05_topology/pipeline.ploy --format json
+build/polytopo docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/05_topology/pipeline.poly --format summary
+build/polytopo docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/05_topology/pipeline.poly --format json
 ```

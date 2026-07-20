@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | C++, Rust |
-| Entry | `game_loop_demo.ploy` |
+| Entry | `game_loop_demo.poly` |
 | Theme | Game loop skeleton |
 | Expected stdout | `30_game_loop_demo: ok\r\n` |
 
 ## Files
 
-- `game_loop_demo.ploy` — `.ploy` entry that wires the host sources together.
+- `game_loop_demo.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `tick_scheduler.cpp` — host source file
 - `physics_step.rs` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc game_loop_demo.ploy --emit-obj=build/game_loop_demo.obj --quiet
+polyc game_loop_demo.poly --emit-obj=build/game_loop_demo.obj --quiet
 polyld build/game_loop_demo.obj -o build/game_loop_demo.exe
 ./build/game_loop_demo.exe
 ```

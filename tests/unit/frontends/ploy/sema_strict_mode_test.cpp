@@ -15,7 +15,7 @@
  *   7. Multiple strict diagnostics accumulate correctly.
  *   8. Pure programs with full type annotations pass both modes.
  *
- * @ingroup  Tests / Frontends / Ploy
+ * @ingroup  Tests / Frontends / Poly
  * @author   Manning Cyrus
  * @date     2026-04-11
  */
@@ -41,7 +41,7 @@ using polyglot::ploy::PloySemaOptions;
 
 namespace {
 
-// Parse and analyse a .ploy source string with the given strict mode setting.
+// Parse and analyse a .poly source string with the given strict mode setting.
 // Returns true if Analyze succeeds (no hard errors).
 struct SemaResult {
     bool analyze_ok{false};
@@ -81,10 +81,10 @@ SemaResult RunSema(const std::string &source, bool strict) {
 // ============================================================================
 
 TEST_CASE("Strict mode: CALL unknown return type is warning in non-strict, error in strict",
-          "[ploy][sema][strict]") {
+          "[poly][sema][strict]") {
     // CALL to a linked cross-language function whose return type cannot be
     // statically inferred; sema emits strict diagnostic.
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, math::transform, util::transform) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -93,7 +93,7 @@ FUNC use_transform(a: INT) -> INT {
     LET r = CALL(cpp, math::transform, a);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     SECTION("non-strict: analysis succeeds with warnings") {
         auto r = RunSema(kSource, false);
@@ -113,10 +113,10 @@ FUNC use_transform(a: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: variable with no annotation resolved to Any/Unknown",
-          "[ploy][sema][strict]") {
+          "[poly][sema][strict]") {
     // cross-language CALL whose return type is unknown → variable 'r'
     // becomes Any/Unknown type.
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, math::transform, util::transform) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -125,7 +125,7 @@ FUNC use_result(a: INT) -> INT {
     LET r = CALL(cpp, math::transform, a);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     SECTION("non-strict: accepted with warnings") {
         auto r = RunSema(kSource, false);
@@ -146,8 +146,8 @@ FUNC use_result(a: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: cross-language CALL unknown return type",
-          "[ploy][sema][strict]") {
-    const std::string kSource = R"ploy(
+          "[poly][sema][strict]") {
+    const std::string kSource = R"poly(
 LINK(cpp, python, net::send, socket::send) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -156,7 +156,7 @@ FUNC transmit(payload: INT) -> INT {
     LET status = CALL(cpp, net::send, payload);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     auto non_strict = RunSema(kSource, false);
     auto strict     = RunSema(kSource, true);
@@ -175,8 +175,8 @@ FUNC transmit(payload: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: fully typed program passes both strict and non-strict",
-          "[ploy][sema][strict]") {
-    const std::string kSource = R"ploy(
+          "[poly][sema][strict]") {
+    const std::string kSource = R"poly(
 FUNC add(a: INT, b: INT) -> INT {
     RETURN a + b;
 }
@@ -185,7 +185,7 @@ FUNC mul(a: INT, b: INT) -> INT {
     VAR result: INT = a * b;
     RETURN result;
 }
-)ploy";
+)poly";
 
     auto non_strict = RunSema(kSource, false);
     auto strict     = RunSema(kSource, true);
@@ -202,13 +202,13 @@ FUNC mul(a: INT, b: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: undefined symbol is error in both modes",
-          "[ploy][sema][strict]") {
-    const std::string kSource = R"ploy(
+          "[poly][sema][strict]") {
+    const std::string kSource = R"poly(
 FUNC main() -> INT {
     LET r = CALL(cpp, math::sqrt, 9.0);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     auto non_strict = RunSema(kSource, false);
     auto strict     = RunSema(kSource, true);
@@ -223,8 +223,8 @@ FUNC main() -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: SetStrictMode(true) after construction enables strict",
-          "[ploy][sema][strict][api]") {
-    const std::string kSource = R"ploy(
+          "[poly][sema][strict][api]") {
+    const std::string kSource = R"poly(
 LINK(cpp, python, net::send, socket::send) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -233,7 +233,7 @@ FUNC transmit(payload: INT) -> INT {
     LET status = CALL(cpp, net::send, payload);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     Diagnostics diags;
     PloyLexer lexer(kSource, "<strict_set_test>");
@@ -261,10 +261,10 @@ FUNC transmit(payload: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: multiple strict diagnostics accumulate in strict mode",
-          "[ploy][sema][strict]") {
+          "[poly][sema][strict]") {
     // Two separate cross-language calls with unknown return types →
     // two strict diagnostics (one per CALL).
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, math::add, util::add) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -278,7 +278,7 @@ FUNC calc(a: INT, b: INT) -> INT {
     LET y = CALL(cpp, math::sub, a, b);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     auto r = RunSema(kSource, true);
     // Each CALL triggers a separate strict diagnostic
@@ -290,10 +290,10 @@ FUNC calc(a: INT, b: INT) -> INT {
 // ============================================================================
 
 TEST_CASE("Strict mode: variable from cross-language CALL typed Unknown",
-          "[ploy][sema][strict]") {
+          "[poly][sema][strict]") {
     // A VAR assigned from a CALL whose return type cannot be inferred
     // should trigger the variable-type strict diagnostic.
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 LINK(cpp, python, io::read, os::read) {
     MAP_TYPE(cpp::int, python::int);
 }
@@ -302,7 +302,7 @@ FUNC read_data(fd: INT) -> INT {
     VAR data = CALL(cpp, io::read, fd);
     RETURN 0;
 }
-)ploy";
+)poly";
 
     auto non_strict = RunSema(kSource, false);
     CHECK(non_strict.analyze_ok);

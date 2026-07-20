@@ -6,7 +6,7 @@
  * negotiated by demand item 2026-04-28-23:
  *   • `textDocument/prepareRename` and `textDocument/rename`
  *     (cross-file, cross-language identifier rename driven by
- *     @ref SymbolIndex references plus the .ploy LINK reverse map);
+ *     @ref SymbolIndex references plus the .poly LINK reverse map);
  *   • `textDocument/codeAction` quick fixes for
  *       - `refactor.extract.function`,
  *       - `refactor.inline.variable`,
@@ -77,8 +77,8 @@ std::optional<lsp::Range> PrepareRename(const std::vector<DocumentView> &docs,
 /// @p new_name across every open document plus every workspace
 /// reference recorded in @p index.
 ///
-/// Rename also follows .ploy LINK reverse references: renaming a
-/// host-language symbol updates the LINK / EXPORT sites in any .ploy
+/// Rename also follows .poly LINK reverse references: renaming a
+/// host-language symbol updates the LINK / EXPORT sites in any .poly
 /// file that imports it, and renaming a LINK site keeps both sides in
 /// sync.  Locations that fall outside the open document set are still
 /// recorded in the resulting edit so the editor can apply them through

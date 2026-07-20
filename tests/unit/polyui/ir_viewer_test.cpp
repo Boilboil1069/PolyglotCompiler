@@ -59,14 +59,14 @@ TEST_CASE("LineBindingTable resolves source/IR/asset round-trips",
           "[polyui][pipeline][ir]") {
   LineBindingTable t;
   LineBinding b;
-  b.source_file = "main.ploy";
+  b.source_file = "main.poly";
   b.source_line = 12;
   b.ir_line = 34;
   b.asset_file = "main.s";
   b.asset_line = 56;
   t.Add(b);
 
-  auto from_src = t.FromSource("main.ploy", 12);
+  auto from_src = t.FromSource("main.poly", 12);
   REQUIRE(from_src);
   CHECK(from_src->ir_line == 34);
   auto from_ir = t.FromIr(34);
@@ -75,5 +75,5 @@ TEST_CASE("LineBindingTable resolves source/IR/asset round-trips",
   auto from_asset = t.FromAsset("main.s", 56);
   REQUIRE(from_asset);
   CHECK(from_asset->source_line == 12);
-  CHECK_FALSE(t.FromSource("missing.ploy", 1));
+  CHECK_FALSE(t.FromSource("missing.poly", 1));
 }

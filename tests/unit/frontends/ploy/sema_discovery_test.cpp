@@ -89,7 +89,7 @@ class MockCommandRunner : public ICommandRunner {
     bool force_timeout_{false};
 };
 
-// Helper: parse + sema-analyze a .ploy source string.
+// Helper: parse + sema-analyze a .poly source string.
 bool AnalyzeCode(const std::string &code, Diagnostics &diags, PloySema &sema) {
     PloyLexer lexer(code, "<test>");
     PloyParser parser(lexer, diags);
@@ -105,12 +105,12 @@ bool AnalyzeCode(const std::string &code, Diagnostics &diags, PloySema &sema) {
 // PackageDiscoveryCache unit tests
 // ============================================================================
 
-TEST_CASE("PackageDiscoveryCache: MakeKey builds canonical key", "[ploy][discovery][cache]") {
+TEST_CASE("PackageDiscoveryCache: MakeKey builds canonical key", "[poly][discovery][cache]") {
     auto key = PackageDiscoveryCache::MakeKey("python", "pip", "/env/py310");
     REQUIRE(key == "python|pip|/env/py310");
 }
 
-TEST_CASE("PackageDiscoveryCache: store and retrieve round-trip", "[ploy][discovery][cache]") {
+TEST_CASE("PackageDiscoveryCache: store and retrieve round-trip", "[poly][discovery][cache]") {
     PackageDiscoveryCache cache;
     const auto key = PackageDiscoveryCache::MakeKey("python", "pip", "");
 
@@ -128,7 +128,7 @@ TEST_CASE("PackageDiscoveryCache: store and retrieve round-trip", "[ploy][discov
     REQUIRE(retrieved["numpy"].version == "1.24.3");
 }
 
-TEST_CASE("PackageDiscoveryCache: different keys do not cross-contaminate", "[ploy][discovery][cache]") {
+TEST_CASE("PackageDiscoveryCache: different keys do not cross-contaminate", "[poly][discovery][cache]") {
     PackageDiscoveryCache cache;
     const auto key_pip   = PackageDiscoveryCache::MakeKey("python", "pip", "/env/pip");
     const auto key_conda = PackageDiscoveryCache::MakeKey("python", "conda", "myenv");
@@ -149,7 +149,7 @@ TEST_CASE("PackageDiscoveryCache: different keys do not cross-contaminate", "[pl
     REQUIRE(pip_result.count("requests") == 1);
 }
 
-TEST_CASE("PackageDiscoveryCache: Clear removes all entries", "[ploy][discovery][cache]") {
+TEST_CASE("PackageDiscoveryCache: Clear removes all entries", "[poly][discovery][cache]") {
     PackageDiscoveryCache cache;
     const auto key = PackageDiscoveryCache::MakeKey("rust", "cargo", "");
 
@@ -168,7 +168,7 @@ TEST_CASE("PackageDiscoveryCache: Clear removes all entries", "[ploy][discovery]
 // PloySema discovery integration tests
 // ============================================================================
 
-TEST_CASE("Discovery disabled — no external commands triggered", "[ploy][discovery][sema]") {
+TEST_CASE("Discovery disabled — no external commands triggered", "[poly][discovery][sema]") {
     auto mock = std::make_shared<MockCommandRunner>();
     // Return some fake package output — should never be used when disabled
     mock->SetOutput("numpy==1.24.3\nrequests==2.31.0\n");
@@ -193,7 +193,7 @@ TEST_CASE("Discovery disabled — no external commands triggered", "[ploy][disco
     REQUIRE(mock->CallCount() == 0);
 }
 
-TEST_CASE("PloySemaOptions defaults to discovery disabled", "[ploy][discovery][sema]") {
+TEST_CASE("PloySemaOptions defaults to discovery disabled", "[poly][discovery][sema]") {
     PloySemaOptions opts;
     REQUIRE_FALSE(opts.enable_package_discovery);
 
@@ -202,7 +202,7 @@ TEST_CASE("PloySemaOptions defaults to discovery disabled", "[ploy][discovery][s
     REQUIRE_FALSE(sema.IsDiscoveryEnabled());
 }
 
-TEST_CASE("Same config repeated Analyze — discovery runs only once", "[ploy][discovery][sema]") {
+TEST_CASE("Same config repeated Analyze — discovery runs only once", "[poly][discovery][sema]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("numpy==1.24.3\nrequests==2.31.0\n");
 
@@ -236,7 +236,7 @@ TEST_CASE("Same config repeated Analyze — discovery runs only once", "[ploy][d
     REQUIRE(second_count == first_count);
 }
 
-TEST_CASE("Different discovery keys do not share cache", "[ploy][discovery][sema]") {
+TEST_CASE("Different discovery keys do not share cache", "[poly][discovery][sema]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("serde==1.0.0\n");
 
@@ -273,7 +273,7 @@ TEST_CASE("Different discovery keys do not share cache", "[ploy][discovery][sema
     REQUIRE(after_rust > after_python);
 }
 
-TEST_CASE("Discovery with shared cache surfaces packages to new sema instances", "[ploy][discovery][sema]") {
+TEST_CASE("Discovery with shared cache surfaces packages to new sema instances", "[poly][discovery][sema]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("flask==3.0.0\nrequests==2.31.0\n");
 
@@ -310,7 +310,7 @@ TEST_CASE("Discovery with shared cache surfaces packages to new sema instances",
     }
 }
 
-TEST_CASE("MockCommandRunner records commands in order", "[ploy][discovery][mock]") {
+TEST_CASE("MockCommandRunner records commands in order", "[poly][discovery][mock]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("result");
 
@@ -329,7 +329,7 @@ TEST_CASE("MockCommandRunner records commands in order", "[ploy][discovery][mock
 // CommandResult tests
 // ============================================================================
 
-TEST_CASE("CommandResult::Ok() reports success correctly", "[ploy][discovery][result]") {
+TEST_CASE("CommandResult::Ok() reports success correctly", "[poly][discovery][result]") {
     CommandResult ok_result;
     ok_result.exit_code = 0;
     ok_result.timed_out = false;
@@ -349,7 +349,7 @@ TEST_CASE("CommandResult::Ok() reports success correctly", "[ploy][discovery][re
     REQUIRE_FALSE(failed_result.Ok());
 }
 
-TEST_CASE("MockCommandRunner returns structured CommandResult", "[ploy][discovery][result]") {
+TEST_CASE("MockCommandRunner returns structured CommandResult", "[poly][discovery][result]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("some output");
     mock->SetExitCode(0);
@@ -361,7 +361,7 @@ TEST_CASE("MockCommandRunner returns structured CommandResult", "[ploy][discover
     REQUIRE(result.Ok());
 }
 
-TEST_CASE("MockCommandRunner can simulate timeout", "[ploy][discovery][result]") {
+TEST_CASE("MockCommandRunner can simulate timeout", "[poly][discovery][result]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("partial");
     mock->SetForceTimeout(true);
@@ -376,7 +376,7 @@ TEST_CASE("MockCommandRunner can simulate timeout", "[ploy][discovery][result]")
 // PackageIndexer tests
 // ============================================================================
 
-TEST_CASE("PackageIndexer populates cache from mock commands", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer populates cache from mock commands", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("numpy==1.24.3\nrequests==2.31.0\n");
 
@@ -406,7 +406,7 @@ TEST_CASE("PackageIndexer populates cache from mock commands", "[ploy][discovery
     REQUIRE(stats.packages_found >= 2);
 }
 
-TEST_CASE("PackageIndexer skips already-cached languages", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer skips already-cached languages", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("flask==3.0.0\n");
 
@@ -425,7 +425,7 @@ TEST_CASE("PackageIndexer skips already-cached languages", "[ploy][discovery][in
     REQUIRE(second_count == first_count);
 }
 
-TEST_CASE("PackageIndexer handles timeout gracefully", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer handles timeout gracefully", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetForceTimeout(true);
 
@@ -443,7 +443,7 @@ TEST_CASE("PackageIndexer handles timeout gracefully", "[ploy][discovery][indexe
     REQUIRE(stats.packages_found == 0);
 }
 
-TEST_CASE("PackageIndexer indexes multiple languages independently", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer indexes multiple languages independently", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("serde==1.0.0\n");
 
@@ -462,7 +462,7 @@ TEST_CASE("PackageIndexer indexes multiple languages independently", "[ploy][dis
     REQUIRE(cache->HasDiscovered(rs_key));
 }
 
-TEST_CASE("PackageIndexer pre-phase feeds sema via shared cache", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer pre-phase feeds sema via shared cache", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("numpy==1.24.3\n");
 
@@ -493,7 +493,7 @@ TEST_CASE("PackageIndexer pre-phase feeds sema via shared cache", "[ploy][discov
     REQUIRE(mock->CallCount() == index_count);
 }
 
-TEST_CASE("PackageIndexer progress callback is invoked", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer progress callback is invoked", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("pkg==1.0.0\n");
 
@@ -519,7 +519,7 @@ TEST_CASE("PackageIndexer progress callback is invoked", "[ploy][discovery][inde
 // PackageIndexer — newly added languages (JavaScript / Ruby / Go)
 // ============================================================================
 
-TEST_CASE("PackageIndexer indexes JavaScript via yarn output", "[ploy][discovery][indexer][js]") {
+TEST_CASE("PackageIndexer indexes JavaScript via yarn output", "[poly][discovery][indexer][js]") {
     auto mock = std::make_shared<MockCommandRunner>();
     // Yarn-style NDJSON.  npm / pnpm walkers look for "dependencies" first
     // and return early when absent, so only the yarn parser populates here.
@@ -552,7 +552,7 @@ TEST_CASE("PackageIndexer indexes JavaScript via yarn output", "[ploy][discovery
     REQUIRE(pkgs.count("javascript::http") == 1);
 }
 
-TEST_CASE("PackageIndexer indexes JavaScript via npm JSON output", "[ploy][discovery][indexer][js]") {
+TEST_CASE("PackageIndexer indexes JavaScript via npm JSON output", "[poly][discovery][indexer][js]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput(
         "{\"name\":\"app\",\"dependencies\":{"
@@ -574,7 +574,7 @@ TEST_CASE("PackageIndexer indexes JavaScript via npm JSON output", "[ploy][disco
     REQUIRE(pkgs["javascript::axios"].version == "1.4.0");
 }
 
-TEST_CASE("PackageIndexer indexes Ruby via gem list output", "[ploy][discovery][indexer][ruby]") {
+TEST_CASE("PackageIndexer indexes Ruby via gem list output", "[poly][discovery][indexer][ruby]") {
     auto mock = std::make_shared<MockCommandRunner>();
     // `gem list --local` emits lines like `name (version, version, ...)`.
     // The "default: " prefix occurs for stdlib-bundled gems and must be stripped.
@@ -605,7 +605,7 @@ TEST_CASE("PackageIndexer indexes Ruby via gem list output", "[ploy][discovery][
     REQUIRE(pkgs.count("ruby::time") == 1);
 }
 
-TEST_CASE("PackageIndexer indexes Go via `go list -m all`", "[ploy][discovery][indexer][go]") {
+TEST_CASE("PackageIndexer indexes Go via `go list -m all`", "[poly][discovery][indexer][go]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput(
         "github.com/example/app\n"
@@ -643,7 +643,7 @@ TEST_CASE("PackageIndexer indexes Go via `go list -m all`", "[ploy][discovery][i
 // ----------------------------------------------------------------------------
 
 TEST_CASE("PackageIndexer parses cargo metadata JSON for crate dir",
-          "[ploy][discovery][indexer][rust][cargo-metadata]") {
+          "[poly][discovery][indexer][rust][cargo-metadata]") {
     // Canned output mimics the "packages" array of `cargo metadata`.
     // Two crates at distinct manifest paths so we can verify install_path
     // extraction (= parent of manifest_path).
@@ -709,7 +709,7 @@ TEST_CASE("PackageIndexer parses cargo metadata JSON for crate dir",
     CHECK(pkgs["rust::tokio"].language == "rust");
 }
 
-TEST_CASE("PackageIndexer treats new-language aliases as same family", "[ploy][discovery][indexer]") {
+TEST_CASE("PackageIndexer treats new-language aliases as same family", "[poly][discovery][indexer]") {
     auto mock = std::make_shared<MockCommandRunner>();
     mock->SetOutput("");
     auto cache = std::make_shared<PackageDiscoveryCache>();

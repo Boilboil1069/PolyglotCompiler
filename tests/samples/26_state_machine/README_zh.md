@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Java |
-| 入口 | `state_machine.ploy` |
+| 入口 | `state_machine.poly` |
 | 主题 | 有限状态机 |
 | 预期 stdout | `26_state_machine: ok\r\n` |
 
 ## 文件
 
-- `state_machine.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `state_machine.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `transition_table.cpp` — 宿主语言源文件
 - `FsmRunner.java` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc state_machine.ploy --emit-obj=build/state_machine.obj --quiet
+polyc state_machine.poly --emit-obj=build/state_machine.obj --quiet
 polyld build/state_machine.obj -o build/state_machine.exe
 ./build/state_machine.exe
 ```

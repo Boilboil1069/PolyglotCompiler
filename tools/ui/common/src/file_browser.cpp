@@ -70,7 +70,7 @@ void FileBrowser::SetupUi() {
   name_filters << "*.cpp" << "*.h" << "*.hpp" << "*.c" << "*.cc"
                << "*.py" << "*.rs" << "*.java" << "*.cs" << "*.js" << "*.mjs" << "*.cjs" << "*.rb"
                << "*.go"
-               << "*.ploy" << "*.cmake" << "CMakeLists.txt"
+               << "*.poly" << "*.ploy" << "*.cmake" << "CMakeLists.txt"
                << "*.json" << "*.yml" << "*.yaml" << "*.md"
                << "*.txt" << "*.sh" << "*.ps1" << "*.bat"
                << "*.proto" << "*.inl" << "*.ipp";
@@ -223,7 +223,7 @@ void FileBrowser::OnFilterTextChanged(const QString &text) {
     name_filters << "*.cpp" << "*.h" << "*.hpp" << "*.c" << "*.cc"
                  << "*.py" << "*.rs" << "*.java" << "*.cs" << "*.js" << "*.mjs" << "*.cjs" << "*.rb"
                  << "*.go"
-                 << "*.ploy" << "*.cmake" << "CMakeLists.txt"
+                 << "*.poly" << "*.ploy" << "*.cmake" << "CMakeLists.txt"
                  << "*.json" << "*.yml" << "*.yaml" << "*.md"
                  << "*.txt" << "*.sh" << "*.ps1" << "*.bat";
     model_->setNameFilters(name_filters);
@@ -237,7 +237,10 @@ void FileBrowser::OnContextMenuRequested(const QPoint &pos) {
   bool has_selection = index.isValid();
   bool is_dir = has_selection && model_->isDir(index);
   bool is_file = has_selection && !is_dir;
-  bool is_ploy = is_file && model_->filePath(index).endsWith(".ploy", Qt::CaseInsensitive);
+  const QString selected_path = is_file ? model_->filePath(index) : QString();
+  const bool is_ploy =
+      selected_path.endsWith(".poly", Qt::CaseInsensitive) ||
+      selected_path.endsWith(".ploy", Qt::CaseInsensitive);
 
   // Show/hide actions based on selection context
   action_open_->setVisible(is_file);
@@ -436,7 +439,8 @@ void FileBrowser::ContextGenerateTopology(const QModelIndex &index) {
   if (!index.isValid())
     return;
   QString path = model_->filePath(index);
-  if (path.endsWith(".ploy", Qt::CaseInsensitive)) {
+  if (path.endsWith(".poly", Qt::CaseInsensitive) ||
+      path.endsWith(".ploy", Qt::CaseInsensitive)) {
     emit GenerateTopologyRequested(path);
   }
 }

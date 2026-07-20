@@ -9,6 +9,7 @@
 #include "tools/ui/common/samples/sample_browser.h"
 
 #include <algorithm>
+#include <cctype>
 
 #include <nlohmann/json.hpp>
 
@@ -30,12 +31,26 @@ bool ContainsCi(const std::string &haystack, const std::string &needle) {
   return h.find(n) != std::string::npos;
 }
 
+std::string CanonicalLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return language;
+}
+
 bool ContainsAll(const std::vector<std::string> &set,
                  const std::vector<std::string> &required) {
   for (const auto &r : required) {
+    const std::string canonical_required = CanonicalLanguage(r);
     bool found = false;
     for (const auto &s : set) {
-      if (s == r) { found = true; break; }
+      if (CanonicalLanguage(s) == canonical_required) {
+        found = true;
+        break;
+      }
     }
     if (!found) return false;
   }
@@ -107,7 +122,8 @@ bool SampleCatalogue::LoadIndex(const std::string &json) {
     if (diff) entry.difficulty = *diff;
     if (e.contains("languages") && e["languages"].is_array())
       for (const auto &l : e["languages"])
-        entry.languages.push_back(l.get<std::string>());
+        entry.languages.push_back(
+            CanonicalLanguage(l.get<std::string>()));
     if (e.contains("topics") && e["topics"].is_array())
       for (const auto &t : e["topics"])
         entry.topics.push_back(t.get<std::string>());

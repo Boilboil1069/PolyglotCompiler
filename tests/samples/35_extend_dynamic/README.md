@@ -1,14 +1,14 @@
 # 35_extend_dynamic — `EXTEND` is restricted to dynamic host languages
 
-`extend_dynamic.ploy` shows the **accepted** form of `EXTEND` after
+`extend_dynamic.poly` shows the **accepted** form of `EXTEND` after
 demand 2026-04-28-11: only `python`, `ruby`, and `javascript`
 (plus their tag aliases `rb`, `js`, `ts`) may appear as the language
 argument.  The semantics is "host-language monkey-patch": the
 override is installed in the foreign runtime's method dispatch table
 when the program loads.  The foreign object **does not** enter the
-Ploy static type system.
+Poly static type system.
 
-```ploy
+```poly
 EXTEND(python, torch::nn::Module) AS LinearReLU {
     FUNC forward(x: f64) -> f64 { RETURN x; }
 }
@@ -23,7 +23,7 @@ diagnostic:
 EXTEND is not allowed on statically-typed language 'rust'
   — its type system cannot accept an out-of-source subclass without
     breaking soundness
-suggestion: wrap the foreign API in a local Ploy FUNC and use
+suggestion: wrap the foreign API in a local Poly FUNC and use
             CALL / METHOD instead, or move the EXTEND target to a
             dynamic host (python / ruby / javascript)
 ```
@@ -34,9 +34,9 @@ The covered rejection set is `cpp`, `c`, `rust`, `java`, `dotnet`,
 ## Migration path
 
 For a static-language extension point, replace the `EXTEND` block
-with a local Ploy FUNC plus `CALL` / `METHOD`:
+with a local Poly FUNC plus `CALL` / `METHOD`:
 
-```ploy
+```poly
 // Before (rejected):
 //   EXTEND(rust, tokio::Task) AS MyTask { FUNC run(id: i32) -> i32 { ... } }
 

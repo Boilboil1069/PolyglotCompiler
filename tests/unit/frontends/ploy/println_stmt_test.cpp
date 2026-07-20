@@ -1,7 +1,7 @@
 // ============================================================================
 // Unit tests for the `PRINTLN "literal";` statement (demand 2026-04-28-49 B2).
 //
-// PRINTLN is the very first runtime-IO primitive in .ploy. It accepts a single
+// PRINTLN is the very first runtime-IO primitive in .poly. It accepts a single
 // string literal and (eventually, once B3+B4 land) lowers to a WriteFile call
 // against the host's standard-output handle. For Stage B2 we only validate
 // the front-end shape: lexer recognition, parser AST, sema acceptance, and
@@ -46,7 +46,7 @@ struct ParseResult {
     Diagnostics diags;
 };
 
-// Small helper that mirrors the convention of the other ploy unit tests:
+// Small helper that mirrors the convention of the other poly unit tests:
 // run the lexer + parser on a source snippet and hand back both the module
 // and its diagnostics so callers can check warnings/errors after the fact.
 ParseResult ParseSource(const std::string &code) {
@@ -61,7 +61,7 @@ ParseResult ParseSource(const std::string &code) {
 }  // namespace
 
 TEST_CASE("PRINTLN top-level produces a PrintlnStmt with the unquoted message",
-          "[ploy][parser][println]") {
+          "[poly][parser][println]") {
     auto result = ParseSource("PRINTLN \"Hello, world!\";\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.module);
@@ -74,7 +74,7 @@ TEST_CASE("PRINTLN top-level produces a PrintlnStmt with the unquoted message",
 }
 
 TEST_CASE("PRINTLN preserves backslash escape bytes verbatim for downstream codegen",
-          "[ploy][parser][println]") {
+          "[poly][parser][println]") {
     // The lexer does NOT decode escapes; it is the eventual codegen stage's
     // job to interpret \r\n etc. We assert that contract here so a future
     // refactor that adds early decoding will trip this test before silently
@@ -89,8 +89,8 @@ TEST_CASE("PRINTLN preserves backslash escape bytes verbatim for downstream code
     CHECK(stmt->message == "line\\r\\n");
 }
 
-TEST_CASE("PRINTLN keyword is case-insensitive like every other ploy keyword",
-          "[ploy][lexer][println]") {
+TEST_CASE("PRINTLN keyword is case-insensitive like every other poly keyword",
+          "[poly][lexer][println]") {
     for (const std::string &spelling : {"PRINTLN", "println", "PrintLn", "PRINTln"}) {
         CAPTURE(spelling);
         auto result = ParseSource(spelling + " \"ok\";\n");
@@ -104,7 +104,7 @@ TEST_CASE("PRINTLN keyword is case-insensitive like every other ploy keyword",
 }
 
 TEST_CASE("PRINTLN inside a function body parses through ParseStatement dispatch",
-          "[ploy][parser][println]") {
+          "[poly][parser][println]") {
     const std::string src =
         "FUNC main() {\n"
         "  PRINTLN \"inside\";\n"
@@ -123,7 +123,7 @@ TEST_CASE("PRINTLN inside a function body parses through ParseStatement dispatch
 }
 
 TEST_CASE("PRINTLN without a string literal reports a diagnostic and recovers",
-          "[ploy][parser][println][error]") {
+          "[poly][parser][println][error]") {
     // After PRINTLN we hand the parser a numeric literal; this must surface
     // an error rather than silently producing junk, and recovery must let
     // the following well-formed statement still parse.
@@ -146,7 +146,7 @@ TEST_CASE("PRINTLN without a string literal reports a diagnostic and recovers",
 }
 
 TEST_CASE("Sema accepts PRINTLN including the empty-message corner case",
-          "[ploy][sema][println]") {
+          "[poly][sema][println]") {
     auto result = ParseSource(
         "PRINTLN \"hello\";\n"
         "PRINTLN \"\";\n");

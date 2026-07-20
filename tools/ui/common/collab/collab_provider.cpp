@@ -189,7 +189,7 @@ class InMemoryProvider final : public CollabProvider {
     pr.body = "Initial scaffolding.";
     prs_[1] = pr;
     DiffHunk h;
-    h.file_path = "src/main.ploy";
+    h.file_path = "src/main.poly";
     h.old_start = 1;
     h.old_count = 0;
     h.new_start = 1;

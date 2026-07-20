@@ -1,0 +1,23 @@
+// ============================================================================
+// database_access.poly — Database access layer.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Python, Java.
+//
+// Documents the topic of cross-language database handles: a Python
+// connection wrapper hands rows to a Java DAO for typed mapping.  The
+// foreign object-handle bridge is exercised by the unit-test matrix;
+// this sample keeps a minimal IMPORT + LINK skeleton plus the
+// deterministic PRINTLN marker so the regression harness can compare
+// stdout byte-for-byte.
+// ============================================================================
+
+IMPORT python::db_connection;
+IMPORT java::UserDao;
+
+LINK(python, java, db_connection::query, UserDao::map) {
+    MAP_TYPE(python::str, java::String);
+    MAP_TYPE(python::list, java::List_String);
+}
+
+PRINTLN "22_database_access: ok\r\n";

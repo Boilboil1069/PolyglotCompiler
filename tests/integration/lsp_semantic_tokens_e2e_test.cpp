@@ -1,9 +1,9 @@
 /**
  * @file     lsp_semantic_tokens_e2e_test.cpp
- * @brief    End-to-end LSP semantic-tokens round-trip against a Ploy
+ * @brief    End-to-end LSP semantic-tokens round-trip against a Poly
  *           module (demand 2026-04-28-24).
  *
- * Spins up a loopback LSP client, opens a Ploy buffer in-process and
+ * Spins up a loopback LSP client, opens a Poly buffer in-process and
  * verifies that `textDocument/semanticTokens/full` returns the
  * delta-encoded payload that the editor consumes.
  *
@@ -55,7 +55,7 @@ class Harness {
 
 }  // namespace
 
-TEST_CASE("LSP semantic tokens e2e: ploy buffer round-trips delta stream",
+TEST_CASE("LSP semantic tokens e2e: poly buffer round-trips delta stream",
           "[lsp][integration][semantic]") {
   Harness h;
   std::atomic<bool> init_done{false};
@@ -75,8 +75,8 @@ TEST_CASE("LSP semantic tokens e2e: ploy buffer round-trips delta stream",
   REQUIRE(advertised.semantic_token_types[6] == "keyword");
 
   lsp::DidOpenParams open;
-  open.text_document.uri = "file:///mem.ploy";
-  open.text_document.language_id = "ploy";
+  open.text_document.uri = "file:///mem.poly";
+  open.text_document.language_id = "poly";
   open.text_document.version = 1;
   open.text_document.text =
       "FUNC compute() -> INT {\n"
@@ -89,7 +89,7 @@ TEST_CASE("LSP semantic tokens e2e: ploy buffer round-trips delta stream",
   lsp::SemanticTokens st;
   h.client()->SendRequest(
       "textDocument/semanticTokens/full",
-      lsp::Json{{"textDocument", {{"uri", "file:///mem.ploy"}}}},
+      lsp::Json{{"textDocument", {{"uri", "file:///mem.poly"}}}},
       [&](const lsp::Json &result, const lsp::Json &err) {
         REQUIRE(err.is_null());
         lsp::FromJson(result, st);
@@ -107,7 +107,7 @@ TEST_CASE("LSP semantic tokens e2e: ploy buffer round-trips delta stream",
   lsp::SemanticTokens range_st;
   h.client()->SendRequest(
       "textDocument/semanticTokens/range",
-      lsp::Json{{"textDocument", {{"uri", "file:///mem.ploy"}}},
+      lsp::Json{{"textDocument", {{"uri", "file:///mem.poly"}}},
                 {"range",
                  {{"start", {{"line", 1}, {"character", 0}}},
                   {"end", {{"line", 1}, {"character", 0}}}}}},

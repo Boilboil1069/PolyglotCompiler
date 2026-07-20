@@ -1,8 +1,8 @@
 // ============================================================================
-// Synthetic-entry tests for the ploy lowering layer.
+// Synthetic-entry tests for the poly lowering layer.
 //
 // What we lock in here:
-//   1. A .ploy source that contains only top-level executable statements
+//   1. A .poly source that contains only top-level executable statements
 //      (e.g. a lone PRINTLN) is wrapped in a synthesised function whose name
 //      is `__ploy_main`, whose return type is i32, and whose entry block is
 //      properly terminated by `RETURN <i32 0>`. Without that wrapper the IR
@@ -12,7 +12,7 @@
 //   2. When the source already declares its own `FUNC main(...)` the
 //      lowering layer must not invent a competing `__ploy_main`; a
 //      hand-written entry point always wins.
-//   3. A pure "definitions only" .ploy (e.g. just `LINK` directives or a
+//   3. A pure "definitions only" .poly (e.g. just `LINK` directives or a
 //      single `STRUCT`) produces no synthetic wrapper either — the wrapper
 //      exists solely to give orphan executable statements a home.
 //   4. The synthetic entry interleaves correctly with user-defined helper
@@ -82,7 +82,7 @@ bool AllBlocksTerminated(const Function &fn) {
 }  // namespace
 
 TEST_CASE("Top-level PRINTLN is wrapped in a synthesised __ploy_main entry",
-          "[ploy][lowering][synthetic_main]") {
+          "[poly][lowering][synthetic_main]") {
     LowerEnv env;
     REQUIRE(LowerSource("PRINTLN \"x\";\n", env));
     REQUIRE_FALSE(env.diags.HasErrors());
@@ -115,7 +115,7 @@ TEST_CASE("Top-level PRINTLN is wrapped in a synthesised __ploy_main entry",
 }
 
 TEST_CASE("User-supplied FUNC main is preserved verbatim and no wrapper is invented",
-          "[ploy][lowering][synthetic_main]") {
+          "[poly][lowering][synthetic_main]") {
     LowerEnv env;
     REQUIRE(LowerSource(
         "FUNC main() -> i32 {\n"
@@ -130,7 +130,7 @@ TEST_CASE("User-supplied FUNC main is preserved verbatim and no wrapper is inven
 }
 
 TEST_CASE("Definition-only modules do not get a synthetic __ploy_main",
-          "[ploy][lowering][synthetic_main]") {
+          "[poly][lowering][synthetic_main]") {
     LowerEnv env;
     REQUIRE(LowerSource(
         "STRUCT Point { x: i32, y: i32 }\n",
@@ -141,7 +141,7 @@ TEST_CASE("Definition-only modules do not get a synthetic __ploy_main",
 }
 
 TEST_CASE("Synthetic __ploy_main coexists with user-defined helper functions",
-          "[ploy][lowering][synthetic_main]") {
+          "[poly][lowering][synthetic_main]") {
     LowerEnv env;
     REQUIRE(LowerSource(
         "FUNC helper() -> i32 {\n"

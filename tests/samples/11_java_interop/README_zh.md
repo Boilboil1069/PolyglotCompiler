@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | Java, Python |
 | 关键字   | NEW, METHOD (Java) |
-| 入口文件 | `java_interop.ploy` |
+| 入口文件 | `java_interop.poly` |
 
 ## 编译
 
 ```powershell
-polyc 11_java_interop\java_interop.ploy --emit-obj=java_interop.pobj --obj-format=pobj
+polyc 11_java_interop\java_interop.poly --emit-obj=java_interop.pobj --obj-format=pobj
 polyld java_interop.pobj -o java_interop.exe
 ```
 

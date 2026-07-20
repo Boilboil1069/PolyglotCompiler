@@ -4,16 +4,16 @@
 
 | Field | Value |
 | --- | --- |
-| Languages | Ploy, C++ |
-| Entry | `explicit_widths.ploy` |
+| Languages | Poly, C++ |
+| Entry | `explicit_widths.poly` |
 | Theme | Width-aware numeric types + compile-time constants |
 | Expected stdout | `31_explicit_widths: ok\r\n` |
 
 ## Files
 
-- `explicit_widths.ploy` — `.ploy` entry that exercises `i32` / `u32` / `i64` / `f32`,
+- `explicit_widths.poly` — `.poly` entry that exercises `i32` / `u32` / `i64` / `f32`,
   declares `TYPE Pixel = i32` and `TYPE ChannelCount = u32`, and folds three
-  `CONST` declarations through the ploy semantic analyser.
+  `CONST` declarations through the poly semantic analyser.
 - `width_kernel.cpp` — host kernel that consumes the width-aware buffer and
   returns an `i64` accumulator.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness
@@ -38,7 +38,7 @@ underlying type for clarity, e.g. `Pixel (alias of i32)`.
 ## Build
 
 ```powershell
-polyc explicit_widths.ploy --emit-obj=build/explicit_widths.obj --quiet
+polyc explicit_widths.poly --emit-obj=build/explicit_widths.obj --quiet
 polyld build/explicit_widths.obj -o build/explicit_widths.exe
 ./build/explicit_widths.exe
 ```

@@ -1,8 +1,8 @@
 # PolyglotCompiler 项目教程
 
-> **版本**：3.0.0  
-> **更新日期**：2026-05-07  
-> **项目**：PolyglotCompiler 1.45.2  
+> **版本**：3.0.0<br>
+> **更新日期**：2026-07-20<br>
+> **项目**：PolyglotCompiler 1.48.0<br>
 > **读者对象**：贡献者、集成方与工具链作者
 
 ---
@@ -32,7 +32,7 @@
 
 ## 1.1 PolyglotCompiler 是什么
 
-PolyglotCompiler 是一款使用 **C++20** 实现的自举多语言编译器。它将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）**、**Go**、**JavaScript**、**Ruby** 与跨语言 DSL **`.ploy`** 编译为统一的 SSA 形式中间表示（IR），并为 **x86_64**、**ARM64**、**WebAssembly** 生成原生代码。链接器（`polyld`）直接生成 ELF、PE32+、Mach-O 与 Wasm，代码生成阶段不依赖任何外部编译器。
+PolyglotCompiler 是一款使用 **C++20** 实现的自举多语言编译器。它将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）**、**Go**、**JavaScript**、**Ruby** 与跨语言 DSL **`.poly`** 编译为统一的 SSA 形式中间表示（IR），并为 **x86_64**、**ARM64**、**WebAssembly** 生成原生代码。链接器（`polyld`）直接生成 ELF、PE32+、Mach-O 与 Wasm，代码生成阶段不依赖任何外部编译器。
 
 ### 核心能力
 
@@ -40,7 +40,7 @@ PolyglotCompiler 是一款使用 **C++20** 实现的自举多语言编译器。�
 - **3 个后端**（`backend_x86_64`、`backend_arm64`、`backend_wasm`）共享 `MachineIR` 层与统一的寄存器/调度框架。
 - **11 个工具链可执行文件**：`polyc`、`polyld`、`polyasm`、`polyopt`、`polyrt`、`polytopo`、`polybench`、`polyls`、`polydoc`、`polyver`、`polyui`。
 - **30 个 CTest 目标**，按模块拆分（按前端、后端、运行时、链接器、LSP、设置、样例回归、基准等）。
-- **跨语言互操作**：通过 `.ploy`（`LINK`、`CALL`、`NEW`、`METHOD`、`GET`、`SET`、`WITH`、`DELETE`、`EXTEND`、`IMPORT … PACKAGE`、`MAP_TYPE`、`CONVERT`、`PIPELINE`）。
+- **跨语言互操作**：通过 `.poly`（`LINK`、`CALL`、`NEW`、`METHOD`、`GET`、`SET`、`WITH`、`DELETE`、`EXTEND`、`IMPORT … PACKAGE`、`MAP_TYPE`、`CONVERT`、`PIPELINE`）。
 - **容器矩阵**：`polyc --target=<triple> --container=<auto|elf|pe|macho|wasm>` 覆盖 Linux / Windows / macOS / WASI 上的 x86_64 与 arm64。
 - **自举语言服务器**（`polyls`）通过 stdio JSON-RPC 提供服务，被 `polyui` 与任意 LSP 客户端使用。
 - **插件系统**：稳定的 C ABI（前端、优化、后端、IDE 面板、Formatter、Linter、Debugger、补全 / 诊断提供者）。
@@ -155,7 +155,7 @@ cmake --build build -j
 | `polytopo`          | 拓扑图分析                                       | `polytopo[.exe]`            |
 | `polybench`         | 基准套件                                         | `polybench[.exe]`           |
 | `polyls`            | 语言服务器（stdio JSON-RPC）                    | `polyls[.exe]`              |
-| `polydoc`           | `.ploy` 文档抽取                                 | `polydoc[.exe]`             |
+| `polydoc`           | `.poly` 文档抽取                                 | `polydoc[.exe]`             |
 | `polyver`           | 工具链探测与数据库写入                           | `polyver[.exe]`             |
 | `polyui`            | Qt 桌面 IDE（未找到 Qt 时静默跳过）              | `polyui[.exe]` / `polyui.app` |
 | `unit_tests` …      | 聚合 + 各模块测试二进制（见第 7 章）            | 多个                         |
@@ -208,7 +208,7 @@ PolyglotCompiler/
 │   ├── go/                 #   Go 前端（go.mod + GOROOT / GOPATH 解析）
 │   ├── javascript/         #   JavaScript / TypeScript 前端（Node.js 解析）
 │   ├── ruby/               #   Ruby 前端（require / Gemfile / Bundler）
-│   └── ploy/               #   .ploy 跨语言前端
+│   └── ploy/               #   `.poly` 前端的历史内部路径
 ├── middle/                 # SSA IR、优化 Pass、PGO、LTO
 ├── backends/               # 3 个架构后端
 │   ├── common/             #   MachineIR、调试信息（DWARF / PDB）、对象发射
@@ -243,7 +243,7 @@ PolyglotCompiler/
 ## 4.2 编译管线
 
 ```
-源代码（.cpp / .py / .rs / .java / .cs / .go / .js / .rb / .ploy）
+源代码（.cpp / .py / .rs / .java / .cs / .go / .js / .rb / .poly）
         │
         ▼
 ┌─────────┐  Token  ┌─────────┐  AST   ┌─────────┐ 标注 AST  ┌──────────┐  IR
@@ -308,7 +308,7 @@ PolyglotCompiler/
 
 ```bash
 # 后缀自动识别
-polyc sample.ploy   -o sample
+polyc sample.poly   -o sample
 polyc hello.cpp     -o hello
 polyc script.py     -o script
 polyc Main.java     -o main
@@ -321,10 +321,10 @@ polyc gem.rb        -o gem
 polyc --lang=cpp    input_file -o output
 
 # 输出中间产物
-polyc --emit-ir=output.ir   input.ploy
-polyc --emit-asm=output.s   input.ploy
-polyc --emit=call-graph:cg.json input.ploy
-polyc --emit-obj=out.o      input.ploy
+polyc --emit-ir=output.ir   input.poly
+polyc --emit-asm=output.s   input.poly
+polyc --emit=call-graph:cg.json input.poly
+polyc --emit-obj=out.o      input.poly
 
 # 跨目标编译
 polyc --target=aarch64-apple-darwin    --container=macho -o app  main.cpp
@@ -333,7 +333,7 @@ polyc --target=wasm32-wasi             --container=wasm  -o app.wasm main.cpp
 
 # 设置与诊断
 polyc --settings ./.polyglot/settings.json --print-effective-settings
-polyc --check broken.ploy            # 在 stdout 输出 LSP 形态的 JSON 诊断
+polyc --check broken.poly            # 在 stdout 输出 LSP 形态的 JSON 诊断
 polyc --dump-token-pool              # SharedTokenPool 统计
 polyc --progress=json                # 机器可读阶段事件
 polyc --clean-cache                  # 清理增量缓存
@@ -401,9 +401,9 @@ polyls --log polyls.log          # 抓取 JSON-RPC 帧用于排查
 ## 5.8 polydoc — 文档抽取
 
 ```bash
-polydoc tests/samples/01_basic_linking/basic_linking.ploy        # Markdown 输出到 stdout
-polydoc --json tests/samples/01_basic_linking/basic_linking.ploy # JSON 输出到 stdout
-polydoc -o docs/out.md tests/samples/01_basic_linking/basic_linking.ploy
+polydoc tests/samples/01_basic_linking/basic_linking.poly        # Markdown 输出到 stdout
+polydoc --json tests/samples/01_basic_linking/basic_linking.poly # JSON 输出到 stdout
+polydoc -o docs/out.md tests/samples/01_basic_linking/basic_linking.poly
 ```
 
 `polydoc` 会扫描每个挂在顶层 `FUNC` / `STRUCT` / `LET` / `VAR` 上的 `///` 文档块。
@@ -479,7 +479,7 @@ macOS arm64 关键点（1.45.2 最近一次修复）：
 | 4  | `test_frontend_python`     | Python 前端                                           |
 | 5  | `test_frontend_cpp`        | C++ 前端                                              |
 | 6  | `test_frontend_rust`       | Rust 前端                                             |
-| 7  | `test_frontend_ploy`       | `.ploy` 前端                                          |
+| 7  | `test_frontend_ploy`       | `.poly` 前端                                          |
 | 8  | `test_frontend_java`       | Java 前端                                             |
 | 9  | `test_frontend_dotnet`     | .NET（C#）前端                                        |
 | 10 | `test_frontend_javascript` | JavaScript 前端                                       |
@@ -512,7 +512,7 @@ ctest --output-on-failure                       # 全部
 ctest -R test_frontend_ploy                     # 单个目标
 ctest -L benchmark                              # 按标签
 ./test_frontend_ploy [parser]                   # 按 Catch2 标签
-./unit_tests "[ploy],[python]"                  # 经聚合二进制运行多个标签
+./unit_tests "[poly],[python]"                  # 经聚合二进制运行多个标签
 ```
 
 ## 7.3 Sanitizer 与覆盖率构建
@@ -546,7 +546,7 @@ lcov --capture --directory . --output-file coverage.info
 | 范围                | 主题                                                                                |
 |---------------------|-------------------------------------------------------------------------------------|
 | `00_minimal`        | 单行最小样例（按宿主固定 stdout）                                                   |
-| `01` … `09`         | 核心 `.ploy` 互操作（LINK、MAP_TYPE、PIPELINE、控制流、OOP、混合）                  |
+| `01` … `09`         | 核心 `.poly` 互操作（LINK、MAP_TYPE、PIPELINE、控制流、OOP、混合）                  |
 | `10` … `16`         | 诊断、Java / .NET 互操作、泛型、async、全栈、CONFIG / VENV                           |
 | `17` … `30`         | 真实领域（字符串 / 数值 / 文件 / JSON / 图像 / SQL / HTTP …）                        |
 | `31` … `41`         | 近期语言特性（带宽类型、类型化句柄、模式匹配、默认参数、动态语言上的 EXTEND、TRY/CATCH、async/await、泛型、可见性/属性、字符串字面量、文法收尾） |
@@ -555,7 +555,7 @@ lcov --capture --directory . --output-file coverage.info
 
 ```
 NN_feature_name/
-├── feature_name.ploy         # .ploy 入口
+├── feature_name.poly         # .poly 入口
 ├── source_file.cpp           # 各语言源码
 ├── source_file.py
 ├── source_file.rs
@@ -571,19 +571,18 @@ NN_feature_name/
 ## 8.3 编译单个样例
 
 ```bash
-polyc tests/samples/01_basic_linking/basic_linking.ploy   -o basic_linking
-polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy -o mixed_pipeline
-polyc tests/samples/15_full_stack/full_stack.ploy         -o full_stack
+polyc tests/samples/01_basic_linking/basic_linking.poly   -o basic_linking
+polyc tests/samples/09_mixed_pipeline/mixed_pipeline.poly -o mixed_pipeline
+polyc tests/samples/15_full_stack/full_stack.poly         -o full_stack
 ```
 
 ## 8.4 驱动整张矩阵
 
 ```bash
-# POSIX
-scripts/build_all_samples.sh   --polyc build/polyc --polyld build/polyld
-# Windows
-scripts\build_all_samples.ps1  -Polyc build\polyc.exe -Polyld build\polyld.exe
+bash scripts/build_all_samples.sh
 ```
+
+Windows 上请从 Git Bash 或 MSYS2 调用仓库跟踪的 Bash 脚本；当前没有受跟踪的 PowerShell 对应脚本。
 
 脚本写出 `samples_report.json`（顶层带按 ASCII 排序的 `ok` 数组），`samples_regression_test.cpp` 据此校验脚本汇报的 OK 集合与 per-sample 状态字段汇总的 OK 集合一致。
 
@@ -845,8 +844,8 @@ backends/<arch>/
 ## 15.3 诊断工具箱
 
 ```bash
-polyc --emit-ir=debug.ir input.ploy            # 查看 IR
-polyc --check input.ploy | jq '.diagnostics[]' # LSP 形态的 JSON 诊断
+polyc --emit-ir=debug.ir input.poly            # 查看 IR
+polyc --check input.poly | jq '.diagnostics[]' # LSP 形态的 JSON 诊断
 ctest -V --output-on-failure -R <target>       # 详细 CTest
 ./test_frontend_ploy "<test name>" -s          # Catch2 详细
 polyrt async --json                             # 事件循环快照

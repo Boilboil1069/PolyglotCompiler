@@ -53,14 +53,14 @@ AnalyzeResult AnalyzeSource(const std::string &src) {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("CLASS schema registers methods and attributes",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::torch::nn::Linear {
     METHOD __init__(in_features: i32, out_features: i32);
     METHOD forward(x: f32) -> f32;
     ATTR in_features: i32;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -82,8 +82,8 @@ CLASS python::torch::nn::Linear {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("NEW with registered CLASS schema produces a typed handle",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::torch::nn::Linear {
     METHOD __init__(in_features: i32, out_features: i32);
     METHOD forward(x: f32) -> f32;
@@ -93,7 +93,7 @@ FUNC build() -> i32 {
     LET m: HANDLE<python::torch::nn::Linear> = NEW(python, torch::nn::Linear, 10, 5);
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -106,8 +106,8 @@ FUNC build() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("METHOD with wrong argument count against schema reports error",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::Foo {
     METHOD bar(x: i32) -> i32;
 }
@@ -117,7 +117,7 @@ FUNC use() -> i32 {
     LET y = METHOD(python, o, bar);
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   // Argument-count mismatch must surface as an error.
@@ -129,8 +129,8 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Unknown METHOD on typed handle warns, does not error",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::Foo {
     METHOD bar(x: i32) -> i32;
 }
@@ -140,7 +140,7 @@ FUNC use() -> i32 {
     LET z = METHOD(python, o, undeclared_method, 1);
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -153,8 +153,8 @@ FUNC use() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("HANDLE<a::T> cannot be assigned to HANDLE<b::T>",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::A {
     METHOD __init__();
 }
@@ -167,7 +167,7 @@ FUNC mix() -> i32 {
     LET cx: HANDLE<cpp::A> = py;
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   // The cross-language assignment must be rejected.
@@ -179,8 +179,8 @@ FUNC mix() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("GET on typed handle resolves declared ATTR type",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::Box {
     METHOD __init__();
     ATTR width: i32;
@@ -191,7 +191,7 @@ FUNC read() -> i32 {
     LET w: i32 = GET(python, b, width);
     RETURN w;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -204,8 +204,8 @@ FUNC read() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("SET on typed handle rejects mismatched value type",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::Box {
     METHOD __init__();
     ATTR width: i32;
@@ -216,7 +216,7 @@ FUNC bad_assign() -> i32 {
     SET(python, b, width, "not-an-int");
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   // The value type ('string') is not compatible with the declared ATTR
@@ -229,8 +229,8 @@ FUNC bad_assign() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Unknown ATTR on typed handle GET warns, does not error",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 CLASS python::Box {
     METHOD __init__();
     ATTR width: i32;
@@ -241,7 +241,7 @@ FUNC dyn() -> i32 {
     LET h = GET(python, b, undeclared);
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -254,13 +254,13 @@ FUNC dyn() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("NEW without CLASS schema still parses (backward compat)",
-          "[ploy][sema][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 FUNC legacy() -> i32 {
     LET m = NEW(python, torch::nn::Linear, 10, 5);
     RETURN 0;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
@@ -273,13 +273,13 @@ FUNC legacy() -> i32 {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("`handle` remains a usable variable identifier",
-          "[ploy][lexer][typed_handle]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][lexer][typed_handle]") {
+  auto r = AnalyzeSource(R"POLY(
 FUNC use_handle_var() -> i32 {
     LET handle: i32 = 42;
     RETURN handle;
 }
-)PLOY");
+)POLY");
 
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);

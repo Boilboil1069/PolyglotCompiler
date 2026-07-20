@@ -3543,7 +3543,7 @@ bool Linker::GeneratePEExecutable() {
   // that invokes that user symbol via the Win64 ABI and forwards the
   // user's `int` return value (low 32 bits of RAX) to
   // `kernel32!ExitProcess` as the process exit code.  This is what lets
-  // a `.ploy` program such as `RETURN 42` produce an `.exe` whose
+  // a `.poly` program such as `RETURN 42` produce an `.exe` whose
   // `GetExitCodeProcess` returns 42.  When no user entry symbol is
   // available the writer falls back to the historical `ExitProcess(0)`
   // shim so the produced image still runs cleanly under Windows AMD64.

@@ -126,7 +126,7 @@ signals:
   /// Shift+F12 — list all references to the identifier under the caret.
   void FindReferencesRequested(const QString &symbol, int line, int column);
   /// Ctrl+F12 — jump to the implementation (host-language target for
-  /// `.ploy` `LINK` declarations).
+  /// `.poly` `LINK` declarations).
   void GoToImplementationRequested(const QString &symbol, int line, int column);
   /// Ctrl+K F12 — show an inline Peek view of the definition.
   void PeekDefinitionRequested(const QString &symbol, int line, int column);

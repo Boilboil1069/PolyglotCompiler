@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、Rust |
-| 入口 | `ml_inference.ploy` |
+| 入口 | `ml_inference.poly` |
 | 主题 | 机器学习推理流水线 |
 | 预期 stdout | `28_ml_inference: ok\r\n` |
 
 ## 文件
 
-- `ml_inference.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `ml_inference.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `tokenizer.py` — 宿主语言源文件
 - `scorer.rs` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc ml_inference.ploy --emit-obj=build/ml_inference.obj --quiet
+polyc ml_inference.poly --emit-obj=build/ml_inference.obj --quiet
 polyld build/ml_inference.obj -o build/ml_inference.exe
 ./build/ml_inference.exe
 ```

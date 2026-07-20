@@ -74,7 +74,7 @@ struct FrontendOptions {
   // conservative default (see `language_versions.h`).
   //
   // These fields are populated by polyc CLI flags (`--std=...`,
-  // `--python-version=...` etc.), by ploy `LANG`/`WITH LANG`/`@LANG`
+  // `--python-version=...` etc.), by poly `LANG`/`WITH LANG`/`@LANG`
   // directives flowing through the SemanticDatabase, or by callers that
   // explicitly set them (UI Toolchains tab, tests).
   // -------------------------------------------------------------------------
@@ -121,7 +121,7 @@ struct FrontendResult {
 // ============================================================================
 // Represents a function/method signature extracted by parsing a source file
 // in its native language.  Used for cross-language type inference in the
-// topology graph and .ploy sema.
+// topology graph and .poly sema.
 
 /** @brief ForeignFunctionSignature data structure. */
 struct ForeignFunctionSignature {
@@ -147,13 +147,13 @@ public:
   /** @name Identity */
   /** @{ */
 
-  // Canonical language name (e.g. "ploy", "cpp", "python")
+  // Canonical language name (e.g. "poly", "cpp", "python")
   virtual std::string Name() const = 0;
 
   // Display name for UI (e.g. "C++", "Python", ".NET/C#")
   virtual std::string DisplayName() const = 0;
 
-  // File extensions this frontend handles (e.g. {".ploy", ".poly"})
+  // File extensions this frontend handles (e.g. {".poly", ".ploy"})
   virtual std::vector<std::string> Extensions() const = 0;
 
   // Alternative language identifiers that resolve to this frontend

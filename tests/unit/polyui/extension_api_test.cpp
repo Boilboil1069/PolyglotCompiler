@@ -45,7 +45,7 @@ TEST_CASE("ParseManifest extracts every interesting field",
     "main":"out/extension.js",
     "loader":"javascript",
     "activation":["onStartup",
-                  {"event":"onLanguage","argument":"ploy"}],
+                  {"event":"onLanguage","argument":"poly"}],
     "capabilities":["filesystem","network"],
     "contributes":{
       "commands":[{"id":"sample.hello","title":"Hello"}],
@@ -59,7 +59,7 @@ TEST_CASE("ParseManifest extracts every interesting field",
   CHECK(m->entry_point == "out/extension.js");
   REQUIRE(m->activation.size() == 2);
   CHECK(m->activation[1].event == ActivationEvent::kOnLanguage);
-  CHECK(m->activation[1].argument == "ploy");
+  CHECK(m->activation[1].argument == "poly");
   CHECK(m->required_capabilities.size() == 2);
   CHECK(m->contributes.size() == 2);
   CHECK_FALSE(ParseManifest("{}"));
@@ -158,7 +158,7 @@ TEST_CASE("Activation event matching", "[polyui][ext][host]") {
   m.activation.clear();
   Trigger lang;
   lang.event = ActivationEvent::kOnLanguage;
-  lang.argument = "ploy";
+  lang.argument = "poly";
   m.activation.push_back(lang);
   Trigger any_startup;
   any_startup.event = ActivationEvent::kOnStartup;
@@ -166,9 +166,30 @@ TEST_CASE("Activation event matching", "[polyui][ext][host]") {
   host.Install(std::move(m));
 
   CHECK(host.MatchesActivationEvent("c.ext", ActivationEvent::kOnLanguage,
-                                    "ploy"));
+                                    "poly"));
   CHECK_FALSE(host.MatchesActivationEvent(
       "c.ext", ActivationEvent::kOnLanguage, "rust"));
   CHECK(host.MatchesActivationEvent("c.ext",
                                     ActivationEvent::kOnStartup));
+}
+
+TEST_CASE("Legacy Poly activation ids match the canonical language",
+          "[polyui][ext][host][compat]") {
+  auto manifest = ParseManifest(R"({
+    "id": "legacy.poly",
+    "name": "Legacy Poly extension",
+    "version": "1.0.0",
+    "main": "legacy.so",
+    "activation": [{"event": "onLanguage", "argument": "PloY"}]
+  })");
+  REQUIRE(manifest.has_value());
+  REQUIRE(manifest->activation.size() == 1);
+  CHECK(manifest->activation.front().argument == "poly");
+
+  ExtensionHost host;
+  REQUIRE(host.Install(*manifest));
+  CHECK(host.MatchesActivationEvent(
+      "legacy.poly", ActivationEvent::kOnLanguage, "poly"));
+  CHECK(host.MatchesActivationEvent(
+      "legacy.poly", ActivationEvent::kOnLanguage, "POLY"));
 }

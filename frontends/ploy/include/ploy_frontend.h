@@ -1,8 +1,8 @@
 /**
  * @file     ploy_frontend.h
- * @brief    Ploy language frontend adapter
+ * @brief    Poly language frontend adapter
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
@@ -39,10 +39,12 @@ struct PloyFrontendResult : public frontends::FrontendResult {
 /** @brief PloyLanguageFrontend class. */
 class PloyLanguageFrontend : public frontends::ILanguageFrontend {
 public:
-  std::string Name() const override { return "ploy"; }
-  std::string DisplayName() const override { return "Ploy"; }
+  std::string Name() const override { return "poly"; }
+  std::string DisplayName() const override { return "Poly"; }
 
-  std::vector<std::string> Extensions() const override { return {".ploy", ".poly"}; }
+  std::vector<std::string> Extensions() const override { return {".poly", ".ploy"}; }
+
+  std::vector<std::string> Aliases() const override { return {"ploy"}; }
 
   std::vector<frontends::Token> Tokenize(const std::string &source,
                                          const std::string &filename) const override;

@@ -10,7 +10,7 @@ Showcases the v1.18.0 grammar polish bundle:
   takes no bindings.
 - `///` documentation comments attached to the immediately following
   `FUNC` / `STRUCT` / `LET` / `VAR` declaration. The `polydoc` tool
-  walks `.ploy` sources and renders the harvested doc blocks as Markdown
+  walks `.poly` sources and renders the harvested doc blocks as Markdown
   or JSON.
 - Reminder: `LIST<T>` is a contiguous sequence container — the same
   shape as Rust `Vec<T>` or C++ `std::vector<T>`. It is *not* a linked
@@ -22,9 +22,9 @@ Showcases the v1.18.0 grammar polish bundle:
 Build and run:
 
 ```sh
-polyc 41_grammar_polish/grammar_polish.ploy -o grammar_polish
+polyc 41_grammar_polish/grammar_polish.poly -o grammar_polish
 ./grammar_polish
 
-polydoc 41_grammar_polish/grammar_polish.ploy           # Markdown
-polydoc --json 41_grammar_polish/grammar_polish.ploy    # JSON
+polydoc 41_grammar_polish/grammar_polish.poly           # Markdown
+polydoc --json 41_grammar_polish/grammar_polish.poly    # JSON
 ```

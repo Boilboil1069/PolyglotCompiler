@@ -25,7 +25,7 @@ using polyglot::ploy::PloySemaOptions;
 
 namespace {
 
-// Local helper mirroring the convention used by the other ploy unit tests
+// Local helper mirroring the convention used by the other poly unit tests
 // (see typed_handle_test.cpp).  Returns diagnostics + the resulting module
 // so each test case can assert on the messages without re-running the
 // pipeline.
@@ -57,8 +57,8 @@ AnalyzeResult AnalyzeSource(const std::string &src) {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH wildcard pattern is irrefutable",
-          "[ploy][sema][pattern_matching]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 5;
     MATCH x {
@@ -66,7 +66,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -77,8 +77,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH range patterns accept numeric scrutinee",
-          "[ploy][sema][pattern_matching]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 7;
     MATCH x {
@@ -87,7 +87,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -98,8 +98,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH OR pattern accepts multiple literal alternatives",
-          "[ploy][sema][pattern_matching]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 2;
     MATCH x {
@@ -107,7 +107,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -118,8 +118,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH binding pattern introduces a bound name",
-          "[ploy][sema][pattern_matching]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 42;
     MATCH x {
@@ -127,7 +127,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -138,8 +138,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH type guard with IF refinement type-checks",
-          "[ploy][sema][pattern_matching]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 5;
     MATCH x {
@@ -147,7 +147,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -158,22 +158,22 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Non-exhaustive boolean MATCH reports an error",
-          "[ploy][sema][pattern_matching][exhaustiveness]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching][exhaustiveness]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR flag: bool = TRUE;
     MATCH flag {
         CASE TRUE -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.diags.HasErrors());
 }
 
 TEST_CASE("Exhaustive boolean MATCH succeeds when both arms present",
-          "[ploy][sema][pattern_matching][exhaustiveness]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching][exhaustiveness]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR flag: bool = TRUE;
     MATCH flag {
@@ -181,7 +181,7 @@ PIPELINE main {
         CASE FALSE -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   REQUIRE(r.sema_ok);
   REQUIRE_FALSE(r.diags.HasErrors());
@@ -192,8 +192,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Duplicate literal arm emits unreachable warning",
-          "[ploy][sema][pattern_matching][unreachable]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching][unreachable]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 1;
     MATCH x {
@@ -202,7 +202,7 @@ PIPELINE main {
         CASE _ -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   // Sema still succeeds (warning, not error) — the unreachable arm is
   // accepted but flagged.  We only require the warning to be present
@@ -215,8 +215,8 @@ PIPELINE main {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Arms following wildcard are flagged unreachable",
-          "[ploy][sema][pattern_matching][unreachable]") {
-  auto r = AnalyzeSource(R"PLOY(
+          "[poly][sema][pattern_matching][unreachable]") {
+  auto r = AnalyzeSource(R"POLY(
 PIPELINE main {
     VAR x: i32 = 1;
     MATCH x {
@@ -224,7 +224,7 @@ PIPELINE main {
         CASE 5 -> { }
     }
 }
-)PLOY");
+)POLY");
   REQUIRE(r.module);
   CHECK(r.diags.HasWarnings());
 }

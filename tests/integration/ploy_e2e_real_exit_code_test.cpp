@@ -1,12 +1,12 @@
 /**
  * @file     ploy_e2e_real_exit_code_test.cpp
- * @brief    End-to-end smoke: compile a `.ploy` source through `polyc` to a
+ * @brief    End-to-end smoke: compile a `.poly` source through `polyc` to a
  *           native COFF object, link it through `polyld` to a Win32 PE32+
  *           executable, spawn the produced `.exe` and assert that its
- *           process exit code matches the literal returned by the .ploy
+ *           process exit code matches the literal returned by the .poly
  *           `main`.
  *
- * This test pins the entire `.ploy` source -> object -> executable -> live
+ * This test pins the entire `.poly` source -> object -> executable -> live
  * process exit code chain. It is what proves that the compiler+linker
  * pipeline actually emits machine code that runs and produces a
  * user-observable result, as opposed to merely producing a structurally
@@ -80,7 +80,7 @@ int RunCommand(const std::string &cmd) {
   return std::system(("\"" + cmd + "\"").c_str());
 }
 
-// Compile, link and execute one .ploy program, returning the live process
+// Compile, link and execute one .poly program, returning the live process
 // exit code observed via std::system.  Aborts the test (via REQUIRE) if any
 // stage fails to produce its output artefact.
 int CompileLinkAndRun(const std::string &ploy_source, const std::string &stem) {
@@ -93,13 +93,13 @@ int CompileLinkAndRun(const std::string &ploy_source, const std::string &stem) {
   const fs::path scratch = ScratchDir();
   static int n = 0;
   const std::string tag = stem + "_" + std::to_string(++n);
-  const fs::path src = scratch / (tag + ".ploy");
+  const fs::path src = scratch / (tag + ".poly");
   const fs::path obj = scratch / (tag + ".obj");
   const fs::path exe = scratch / (tag + ".exe");
 
   WriteFile(src, ploy_source);
 
-  // polyc: .ploy -> COFF .obj
+  // polyc: .poly -> COFF .obj
   const std::string compile_cmd =
       "\"" + polyc.string() + "\" \"" + src.string() + "\" --emit-obj=\"" +
       obj.string() + "\" --obj-format=coff";
@@ -120,19 +120,19 @@ int CompileLinkAndRun(const std::string &ploy_source, const std::string &stem) {
 
 } // namespace
 
-TEST_CASE("Ploy main returning literal 42 yields process exit code 42",
+TEST_CASE("Poly main returning literal 42 yields process exit code 42",
           "[ploy_e2e][exit_code][windows]") {
   const std::string src = "FUNC main() -> i32 { RETURN 42; }\n";
   REQUIRE(CompileLinkAndRun(src, "exit42") == 42);
 }
 
-TEST_CASE("Ploy main returning literal 0 yields process exit code 0",
+TEST_CASE("Poly main returning literal 0 yields process exit code 0",
           "[ploy_e2e][exit_code][windows]") {
   const std::string src = "FUNC main() -> i32 { RETURN 0; }\n";
   REQUIRE(CompileLinkAndRun(src, "exit0") == 0);
 }
 
-TEST_CASE("Ploy main returning literal 7 yields process exit code 7",
+TEST_CASE("Poly main returning literal 7 yields process exit code 7",
           "[ploy_e2e][exit_code][windows]") {
   const std::string src = "FUNC main() -> i32 { RETURN 7; }\n";
   REQUIRE(CompileLinkAndRun(src, "exit7") == 7);
@@ -140,7 +140,7 @@ TEST_CASE("Ploy main returning literal 7 yields process exit code 7",
 
 #else // !_WIN32
 
-TEST_CASE("Ploy end-to-end exit-code smoke is Windows-only",
+TEST_CASE("Poly end-to-end exit-code smoke is Windows-only",
           "[ploy_e2e][exit_code][skip]") {
   SUCCEED("PE32+ exit-code smoke is Windows-host specific; skipped.");
 }

@@ -44,7 +44,7 @@ void OpenPloy(PolylsServer &s, const std::string &uri,
   Json p = {
       {"textDocument",
        {{"uri", uri},
-        {"languageId", "ploy"},
+        {"languageId", "poly"},
         {"version", 1},
         {"text", text}}}};
   s.HandleIncoming(Json{{"jsonrpc", "2.0"},
@@ -54,13 +54,13 @@ void OpenPloy(PolylsServer &s, const std::string &uri,
 
 }  // namespace
 
-TEST_CASE("semanticTokens/full returns delta-encoded tokens for ploy",
+TEST_CASE("semanticTokens/full returns delta-encoded tokens for poly",
           "[polyls][semantic]") {
   Captured cap;
   PolylsServer s;
   MakeServer(s, cap);
   Initialize(s);
-  OpenPloy(s, "file:///t.ploy",
+  OpenPloy(s, "file:///t.poly",
            "FUNC compute() -> INT { LET x = 3; RETURN x; }\n");
   cap.outbound.clear();
   s.HandleIncoming(Json{
@@ -68,7 +68,7 @@ TEST_CASE("semanticTokens/full returns delta-encoded tokens for ploy",
       {"id", 99},
       {"method", "textDocument/semanticTokens/full"},
       {"params",
-       {{"textDocument", {{"uri", "file:///t.ploy"}}}}}});
+       {{"textDocument", {{"uri", "file:///t.poly"}}}}}});
   REQUIRE(!cap.outbound.empty());
   // Find the response that matches our id.
   bool found = false;
@@ -98,7 +98,7 @@ TEST_CASE("semanticTokens/full on unknown document yields null",
       {"id", 7},
       {"method", "textDocument/semanticTokens/full"},
       {"params",
-       {{"textDocument", {{"uri", "file:///missing.ploy"}}}}}});
+       {{"textDocument", {{"uri", "file:///missing.poly"}}}}}});
   bool ok = false;
   for (const auto &msg : cap.outbound) {
     if (msg.contains("id") && msg["id"] == 7) {
@@ -116,7 +116,7 @@ TEST_CASE("semanticTokens/range filters tokens by line window",
   PolylsServer s;
   MakeServer(s, cap);
   Initialize(s);
-  OpenPloy(s, "file:///r.ploy",
+  OpenPloy(s, "file:///r.poly",
            "FUNC a() -> VOID {}\n"
            "FUNC b() -> VOID {}\n"
            "FUNC c() -> VOID {}\n");
@@ -126,7 +126,7 @@ TEST_CASE("semanticTokens/range filters tokens by line window",
       {"id", 5},
       {"method", "textDocument/semanticTokens/range"},
       {"params",
-       {{"textDocument", {{"uri", "file:///r.ploy"}}},
+       {{"textDocument", {{"uri", "file:///r.poly"}}},
         {"range",
          {{"start", {{"line", 1}, {"character", 0}}},
           {"end", {{"line", 1}, {"character", 0}}}}}}}});

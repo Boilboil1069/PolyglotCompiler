@@ -1,17 +1,17 @@
 # 示例 `05_class_instantiation`
 
-通过 NEW / METHOD 在 .ploy 中实例化 Python 类，并经由 C++ 辅助函数转发调用。
+通过 NEW / METHOD 在 .poly 中实例化 Python 类，并经由 C++ 辅助函数转发调用。
 
 | 项目 | 值 |
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | NEW, METHOD |
-| 入口文件 | `class_instantiation.ploy` |
+| 入口文件 | `class_instantiation.poly` |
 
 ## 编译
 
 ```powershell
-polyc 05_class_instantiation\class_instantiation.ploy --emit-obj=class_instantiation.pobj --obj-format=pobj
+polyc 05_class_instantiation\class_instantiation.poly --emit-obj=class_instantiation.pobj --obj-format=pobj
 polyld class_instantiation.pobj -o class_instantiation.exe
 ```
 

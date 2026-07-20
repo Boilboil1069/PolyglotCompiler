@@ -187,14 +187,14 @@ TEST_CASE("Plugin API - TopologyProcessor struct", "[plugins][api][expansion]") 
 TEST_CASE("PluginManager - FindCompletionProviders empty",
           "[plugins][manager][expansion]") {
     auto &pm = PluginManager::Instance();
-    auto providers = pm.FindCompletionProviders("ploy");
+    auto providers = pm.FindCompletionProviders("poly");
     REQUIRE(providers.empty());
 }
 
 TEST_CASE("PluginManager - FindDiagnosticProviders empty",
           "[plugins][manager][expansion]") {
     auto &pm = PluginManager::Instance();
-    auto providers = pm.FindDiagnosticProviders("ploy");
+    auto providers = pm.FindDiagnosticProviders("poly");
     REQUIRE(providers.empty());
 }
 

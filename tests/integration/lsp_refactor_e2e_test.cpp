@@ -5,7 +5,7 @@
  *
  * Drives a full LSP client ↔ polyls round trip and asserts that a
  * rename initiated inside the C++ host file `image_processor.cpp`
- * propagates back into the .ploy LINK declaration that imports it.
+ * propagates back into the .poly LINK declaration that imports it.
  *
  * @ingroup  Tests / integration / LSP
  * @author   Manning Cyrus
@@ -84,9 +84,9 @@ TEST_CASE("LSP refactor e2e: cross-language rename through the sample pipeline",
   const std::filesystem::path samples_root = POLYGLOT_TESTS_SAMPLES_ROOT;
   const std::filesystem::path dir = samples_root / "09_mixed_pipeline";
   REQUIRE(std::filesystem::exists(dir));
-  const auto ploy = dir / "mixed_pipeline.ploy";
+  const auto poly = dir / "mixed_pipeline.poly";
   const auto cpp = dir / "image_processor.cpp";
-  REQUIRE(std::filesystem::exists(ploy));
+  REQUIRE(std::filesystem::exists(poly));
   REQUIRE(std::filesystem::exists(cpp));
 
   Harness h;
@@ -104,10 +104,10 @@ TEST_CASE("LSP refactor e2e: cross-language rename through the sample pipeline",
   h.client()->Initialized();
 
   OpenDoc(*h.client(), cpp, "cpp");
-  OpenDoc(*h.client(), ploy, "ploy");
+  OpenDoc(*h.client(), poly, "poly");
 
   // Rename the host-language symbol `enhance` from inside the C++ file
-  // and confirm the resulting WorkspaceEdit also rewrites the .ploy
+  // and confirm the resulting WorkspaceEdit also rewrites the .poly
   // LINK qualifier that imports it.
   const std::string cpp_text = ReadFile(cpp);
   const std::size_t off = cpp_text.find("enhance");
@@ -143,21 +143,21 @@ TEST_CASE("LSP refactor e2e: cross-language rename through the sample pipeline",
         const auto &changes = result["changes"];
         REQUIRE(changes.is_object());
         if (changes.contains(PathToUri(cpp))) touched_cpp = true;
-        if (changes.contains(PathToUri(ploy))) touched_ploy = true;
+        if (changes.contains(PathToUri(poly))) touched_ploy = true;
         got_rename = true;
       });
   REQUIRE(got_rename.load());
   REQUIRE(touched_cpp);
   REQUIRE(touched_ploy);
 
-  // codeAction over a non-empty selection in the .ploy file should
+  // codeAction over a non-empty selection in the .poly file should
   // surface at least the extract / inline / change-signature / move
   // entries from the refactor catalogue.
   std::atomic<bool> got_actions{false};
   std::size_t action_count = 0;
   h.client()->SendRequest(
       "textDocument/codeAction",
-      lsp::Json{{"textDocument", {{"uri", PathToUri(ploy)}}},
+      lsp::Json{{"textDocument", {{"uri", PathToUri(poly)}}},
                 {"range",
                  {{"start", {{"line", 0}, {"character", 0}}},
                   {"end", {{"line", 0}, {"character", 1}}}}}},

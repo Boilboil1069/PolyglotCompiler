@@ -1,31 +1,32 @@
-# Typora Poly / Ploy syntax highlighting
+# Typora Poly syntax highlighting
 
-This package adds a real CodeMirror 5 lexer for Poly/Ploy code fences. It does
+This package adds a real CodeMirror 5 lexer for canonical `poly` and legacy
+`ploy` code fences. It does
 not merely recolour an existing language: keywords, types, contextual
 keywords, declarations, attributes, comments, numbers, operators, regular/raw/
 template/multiline strings, indentation, and brace folding are classified from
 the current compiler grammar.
 
-本目录为 Typora 提供真正的 CodeMirror 5 Poly/Ploy 词法高亮，而不是把另一种
+本目录为 Typora 的规范 `poly` 与兼容 `ploy` 代码块提供真正的 CodeMirror 5
+词法高亮，而不是把另一种
 语言换个颜色。规则依据当前编译器语法，覆盖关键字、类型、上下文关键字、
 声明、属性、注释、数字、运算符、普通/原始/模板/多行字符串、缩进与大括号
 折叠。
 
-The intended canonical language name and source extension are **Poly** and
-`.poly`. The compiler currently still contains the historical misspellings
-`Ploy`, `ploy`, and `.ploy`; migration is deferred, so both Markdown labels are
-supported deliberately:
+The canonical language name, id, and source extension are **Poly**, `poly`,
+and `.poly`. The historical **Ploy**, `ploy`, and `.ploy` spellings are accepted
+only as compatibility aliases, so both Markdown labels are supported:
 
-设计上的规范语言名与扩展名是 **Poly** 和 `.poly`。编译器当前仍包含历史拼写错误
-`Ploy`、`ploy` 与 `.ploy`；迁移工作暂未进行，因此下面两种 Markdown 标签仍会使用
-完全相同的规则：
+规范语言名、语言 id 与扩展名分别是 **Poly**、`poly` 和 `.poly`。历史拼写
+**Ploy**、`ploy` 与 `.ploy` 仅作为兼容别名输入，因此下面两种 Markdown 标签会使用
+相同的规则：
 
 ````markdown
-```poly
+```ploy
 LET value: i32 = 42;
 ```
 
-```ploy
+```poly
 LET value: i32 = 42;
 ```
 ````
@@ -34,7 +35,7 @@ LET value: i32 = 42;
 
 | File | Purpose / 用途 |
 | --- | --- |
-| `poly.js` | Self-contained CodeMirror 5 mode; registers `poly`, `ploy`, `text/x-poly`, and `text/x-ploy` / 自包含高亮模式与别名 |
+| `poly.js` | Self-contained CodeMirror 5 mode; registers canonical `poly` / `text/x-poly` plus legacy `ploy` / `text/x-ploy` aliases / 自包含高亮模式与兼容别名 |
 | `install_typora.py` | Checks, installs, or surgically uninstalls the Typora integration / 检查、安装、精确卸载 Typora 集成 |
 | `poly.user.css` | Optional consistent light/dark token palette / 可选的明暗主题配色 |
 | `examples/poly-highlight-demo.md` | Visual acceptance document for both fence names / 两种代码块名称的视觉验收文件 |
@@ -52,7 +53,7 @@ and [Code Block Styles/Themes](https://support.typora.io/Code-Block-Styles/).
 Typora 使用 CodeMirror 为代码块高亮，但官方提供的是随应用打包的语言列表。
 官方对未收录语言的建议是先进入 CodeMirror、再申请 Typora 收录，并未提供可从
 用户目录加载任意 mode 的正式接口。因此，CSS 只能改变已有 token 的颜色，无法
-单独识别 Ploy 词法；要让 language tag `poly` 与 `ploy` 真正生效，必须同时注册
+单独识别 Poly 词法；要让 language tag `poly` 与 `ploy` 真正生效，必须同时注册
 CodeMirror mode 和 Typora 的语言名称映射。
 
 `install_typora.py` therefore makes two minimal changes inside a selected

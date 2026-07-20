@@ -60,7 +60,7 @@ AnalyzeResult Analyze(const std::string &code) {
 }  // namespace
 
 TEST_CASE("Literal-initialised CONST is folded and registered",
-          "[ploy][sema][const]") {
+          "[poly][sema][const]") {
     auto result = Analyze("const KMaxRetry: i32 = 5;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.module->declarations.size() == 1);
@@ -83,7 +83,7 @@ TEST_CASE("Literal-initialised CONST is folded and registered",
 }
 
 TEST_CASE("CONST initializer can reference a previously declared CONST",
-          "[ploy][sema][const]") {
+          "[poly][sema][const]") {
     auto result = Analyze(
         "const KBase: i32 = 100;\n"
         "const KOffset: i32 = KBase;\n");
@@ -99,7 +99,7 @@ TEST_CASE("CONST initializer can reference a previously declared CONST",
 }
 
 TEST_CASE("CONST initializer can be an arithmetic literal expression",
-          "[ploy][sema][const]") {
+          "[poly][sema][const]") {
     auto result = Analyze("const KArea: i64 = 10 * 20;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.sema->ConstantCount() == 1);
@@ -113,19 +113,19 @@ TEST_CASE("CONST initializer can be an arithmetic literal expression",
 }
 
 TEST_CASE("CONST without initializer is a parser error",
-          "[ploy][parser][const][diag]") {
+          "[poly][parser][const][diag]") {
     auto result = Analyze("const KMissing: i32;\n");
     REQUIRE(result.diags.HasErrors());
 }
 
 TEST_CASE("CONST without type annotation is a parser error",
-          "[ploy][parser][const][diag]") {
+          "[poly][parser][const][diag]") {
     auto result = Analyze("const KMissing = 5;\n");
     REQUIRE(result.diags.HasErrors());
 }
 
 TEST_CASE("CONST initialised by a non-constant expression is a sema error",
-          "[ploy][sema][const][diag]") {
+          "[poly][sema][const][diag]") {
     auto result = Analyze(
         "let runtime_v: i32 = 0;\n"
         "const KBad: i32 = runtime_v;\n");
@@ -137,7 +137,7 @@ TEST_CASE("CONST initialised by a non-constant expression is a sema error",
 }
 
 TEST_CASE("CONST with type-incompatible initializer is a sema error",
-          "[ploy][sema][const][diag]") {
+          "[poly][sema][const][diag]") {
     auto result = Analyze("const KBad: i32 = \"hello\";\n");
     REQUIRE(result.diags.HasErrors());
     CHECK(result.sema->LookupConstantText("KBad") == nullptr);

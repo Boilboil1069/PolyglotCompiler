@@ -291,7 +291,7 @@ int main(int argc, char **argv) {
       config.build_id = true;
     } else if (arg == "--icf") {
       config.icf = true;
-    } else if (arg == "--ploy-desc" && i + 1 < argc) {
+    } else if ((arg == "--poly-desc" || arg == "--ploy-desc") && i + 1 < argc) {
       config.ploy_descriptor_files.push_back(argv[++i]);
     } else if (arg == "--aux-dir" && i + 1 < argc) {
       config.aux_dir = argv[++i];
@@ -342,7 +342,8 @@ int main(int argc, char **argv) {
                 << "  --gc-sections    Garbage collect unused sections\n"
                 << "  --no-undefined   Report undefined symbols as errors\n"
                 << "  --pie            Create position-independent executable\n"
-                << "  --ploy-desc <f>  Load cross-language descriptors from file\n"
+                << "  --poly-desc <f>  Load cross-language descriptors from file\n"
+                << "  --ploy-desc <f>  Legacy alias for --poly-desc\n"
                 << "  --aux-dir <dir>  Auto-discover descriptors from aux directory\n"
                 << "  --allow-adhoc-link  Allow ad-hoc cross-language stubs\n"
                 << "  --def <file>     Load PE exports from a .def file\n"
@@ -394,7 +395,7 @@ int main(int argc, char **argv) {
   // Load cross-language descriptors and run resolution
   PolyglotLinker poly_linker(config);
 
-  // Load descriptors from explicit --ploy-desc files
+  // Load descriptors from explicit --poly-desc files
   for (const auto &desc_file : config.ploy_descriptor_files) {
     if (!poly_linker.LoadDescriptorFile(desc_file)) {
       std::cerr << "polyld: failed to load descriptor file: " << desc_file << "\n";

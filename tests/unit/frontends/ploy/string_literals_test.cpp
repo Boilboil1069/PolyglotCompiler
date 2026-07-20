@@ -3,7 +3,7 @@
  * @brief    Unit tests for raw / multiline / template string literals
  *           introduced in v1.17.0.
  *
- * @ingroup  Tests / Ploy / String-Literals
+ * @ingroup  Tests / Poly / String-Literals
  * @author   Manning Cyrus
  * @date     2026-05-04
  */
@@ -64,13 +64,13 @@ Token FirstToken(const std::string &src) {
 
 }  // namespace
 
-TEST_CASE("regular string literal still lexes unchanged", "[ploy][lexer][string]") {
+TEST_CASE("regular string literal still lexes unchanged", "[poly][lexer][string]") {
     Token t = FirstToken("\"hello\\n\"");
     REQUIRE(t.kind == TokenKind::kString);
     REQUIRE(t.lexeme == "\"hello\\n\"");
 }
 
-TEST_CASE("raw string r\"...\" preserves backslashes verbatim", "[ploy][lexer][raw]") {
+TEST_CASE("raw string r\"...\" preserves backslashes verbatim", "[poly][lexer][raw]") {
     Token t = FirstToken("r\"C:\\path\\no\\escape\"");
     REQUIRE(t.kind == TokenKind::kString);
     // Raw bodies are re-encoded into the canonical "..." form with
@@ -79,7 +79,7 @@ TEST_CASE("raw string r\"...\" preserves backslashes verbatim", "[ploy][lexer][r
 }
 
 TEST_CASE("raw string r#\"...\"# may contain bare double-quotes",
-          "[ploy][lexer][raw]") {
+          "[poly][lexer][raw]") {
     Token t = FirstToken("r#\"contains \"quotes\" inside\"#");
     REQUIRE(t.kind == TokenKind::kString);
     // The embedded `"` survives — re-encoded as `\"` in the canonical form.
@@ -87,64 +87,64 @@ TEST_CASE("raw string r#\"...\"# may contain bare double-quotes",
 }
 
 TEST_CASE("triple-quoted string preserves newlines as \\n",
-          "[ploy][lexer][multiline]") {
+          "[poly][lexer][multiline]") {
     Token t = FirstToken("\"\"\"line1\nline2\"\"\"");
     REQUIRE(t.kind == TokenKind::kString);
     REQUIRE(t.lexeme.find("line1\\nline2") != std::string::npos);
 }
 
 TEST_CASE("template string f\"...\" parses to a TemplateString node",
-          "[ploy][parser][template]") {
+          "[poly][parser][template]") {
     auto r = Analyze("FUNC main() -> STRING { LET s = f\"x = {42}\"; RETURN s; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     REQUIRE(r.module != nullptr);
 }
 
 TEST_CASE("template string yields String type from sema",
-          "[ploy][sema][template]") {
+          "[poly][sema][template]") {
     auto r = Analyze("FUNC main() -> STRING { RETURN f\"answer = {42}\"; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("template string interpolates literal expressions of all formattable kinds",
-          "[ploy][sema][template]") {
+          "[poly][sema][template]") {
     auto r = Analyze(
         "FUNC main() -> STRING { RETURN f\"i={1} f={3.14} b={TRUE}\"; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("template string with literal-brace escapes {{ }} accepts braces",
-          "[ploy][parser][template]") {
+          "[poly][parser][template]") {
     auto r = Analyze("FUNC main() -> STRING { RETURN f\"raw {{brace}} only\"; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("unterminated template interpolation emits a diagnostic",
-          "[ploy][parser][template]") {
+          "[poly][parser][template]") {
     auto r = Analyze("FUNC main() -> STRING { RETURN f\"oops {x\"; }");
     REQUIRE(DiagsContain(r.diags, "unterminated interpolation"));
 }
 
 TEST_CASE("identifier starting with r is not mis-lexed as a raw string",
-          "[ploy][lexer][raw]") {
+          "[poly][lexer][raw]") {
     auto r = Analyze("FUNC main() -> i32 { LET result: i32 = 1; RETURN result; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("identifier starting with f is not mis-lexed as a template string",
-          "[ploy][lexer][template]") {
+          "[poly][lexer][template]") {
     auto r = Analyze("FUNC main() -> i32 { LET foo: i32 = 1; RETURN foo; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("raw string is usable in source position",
-          "[ploy][parser][raw]") {
+          "[poly][parser][raw]") {
     auto r = Analyze("FUNC main() -> STRING { RETURN r\"C:\\path\\file.txt\"; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }
 
 TEST_CASE("triple-quoted string is usable in source position",
-          "[ploy][parser][multiline]") {
+          "[poly][parser][multiline]") {
     auto r = Analyze("FUNC main() -> STRING { RETURN \"\"\"line one\nline two\"\"\"; }");
     REQUIRE_FALSE(r.diags.HasErrors());
 }

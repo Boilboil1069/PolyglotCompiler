@@ -10,13 +10,13 @@
 
 | 组件 | 头文件 | 作用 |
 | --- | --- | --- |
-| `PackageManagerService` | [`tools/ui/common/packages/package_manager.h`](../../tools/ui/common/packages/package_manager.h) | 发现 + install/upgrade/remove + 锁文件读取 + 与 `.ploy CONFIG` 双向同步。子进程 I/O 通过注入的 `CommandExecutor` 完成。 |
+| `PackageManagerService` | [`tools/ui/common/packages/package_manager.h`](../../tools/ui/common/packages/package_manager.h) | 发现 + install/upgrade/remove + 锁文件读取 + 与 `.poly CONFIG` 双向同步。子进程 I/O 通过注入的 `CommandExecutor` 完成。 |
 | `PackageManagerRegistry` | 同上 | 持有十二个具体后端，可按 `Ecosystem` 或清单文件名查找。 |
 | `PipBackend` / `CondaBackend` / `UvBackend` / `PipenvBackend` / `PoetryBackend` | 同上 | Python 生态：解析 `requirements.txt`、`environment.yml`、`uv.lock`、`Pipfile.lock`、`poetry.lock`。 |
 | `CargoBackend` / `NpmBackend` / `MavenBackend` / `GradleBackend` / `NugetBackend` / `GemBackend` / `GoModBackend` | 同上 | Cargo、npm、Maven、Gradle、NuGet、Bundler、Go-Mod 解析。每个后端声明清单、锁文件以及 install/upgrade/remove 命令行。 |
 | `DependencyGraph` | [`tools/ui/common/packages/dependency_graph.h`](../../tools/ui/common/packages/dependency_graph.h) | 节点+边模型、冲突检测、确定性 SVG 导出。`TreeView()` 由根节点投影出树视图。 |
 | `VulnerabilityScanner` | [`tools/ui/common/packages/vulnerability_scanner.h`](../../tools/ui/common/packages/vulnerability_scanner.h) | 通过 `ParseOsvDocument` / `ParseGitHubAdvisory` 加载告警，使用 `VersionInRange` 匹配版本，支持按 id 抑制。 |
-| `ReplSession` | [`tools/ui/common/notebook/repl_session.h`](../../tools/ui/common/notebook/repl_session.h) | 常驻引擎包装。`DefaultSpec` 提供 `.ploy`、Python、IRust、IRB、dotnet-script 的 argv/提示符/退出指令；真实 I/O 由可插拔 `ReplTransport` 实现。 |
+| `ReplSession` | [`tools/ui/common/notebook/repl_session.h`](../../tools/ui/common/notebook/repl_session.h) | 常驻引擎包装。`DefaultSpec` 提供 `.poly`、Python、IRust、IRB、dotnet-script 的 argv/提示符/退出指令；真实 I/O 由可插拔 `ReplTransport` 实现。 |
 | `Notebook` | [`tools/ui/common/notebook/notebook.h`](../../tools/ui/common/notebook/notebook.h) | 代码/Markdown/跨语言链接单元；`Execute` 将单元路由到对应会话；`ToJson`/`LoadJson` 与 `.polynb` 信封互转。 |
 
 ## 流程
@@ -24,7 +24,7 @@
 * **发现与 CONFIG 同步。** `PackageManagerService::Discover` 遍历
   工作区与候选目录，按 `manifest_filename()` 匹配。生成的
   `Environment` 通过 `Activate` 在每个生态内独占激活；
-  `SyncWithConfig` 比对解析锁文件与 `.ploy CONFIG` 的需求列表，
+  `SyncWithConfig` 比对解析锁文件与 `.poly CONFIG` 的需求列表，
   返回双向漂移 `missing_in_lockfile` 与 `missing_in_config`，UI
   据此做高亮。
 * **install / upgrade / remove。** 每个后端构造对应的 argv

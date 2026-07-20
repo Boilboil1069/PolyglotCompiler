@@ -36,7 +36,7 @@ void MakeReadyServer(PolylsServer &s, Captured &cap) {
 void Open(PolylsServer &s, const std::string &uri, const std::string &text) {
   const Json open = Json{{"textDocument",
                           {{"uri", uri},
-                           {"languageId", "ploy"},
+                           {"languageId", "poly"},
                            {"version", 1},
                            {"text", text}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open));
@@ -56,14 +56,14 @@ bool ContainsLabel(const Json &items, const std::string &label) {
 
 }  // namespace
 
-TEST_CASE("polyls completion emits .ploy keywords for a bare prefix",
+TEST_CASE("polyls completion emits .poly keywords for a bare prefix",
           "[polyls][completion]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
-  Open(s, "file:///a.ploy", "FUN\n");
+  Open(s, "file:///a.poly", "FUN\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///a.ploy"}}},
+      {"textDocument", {{"uri", "file:///a.poly"}}},
       {"position", {{"line", 0}, {"character", 3}}}};
   s.HandleIncoming(MakeRequest(10, "textDocument/completion", params));
 
@@ -79,12 +79,12 @@ TEST_CASE("polyls completion includes user-declared FUNC names",
           "[polyls][completion]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
-  Open(s, "file:///b.ploy",
+  Open(s, "file:///b.poly",
        "FUNC compute_total(a, b) -> INT { RETURN a; }\n"
        "comp\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///b.ploy"}}},
+      {"textDocument", {{"uri", "file:///b.poly"}}},
       {"position", {{"line", 1}, {"character", 4}}}};
   s.HandleIncoming(MakeRequest(11, "textDocument/completion", params));
 
@@ -98,10 +98,10 @@ TEST_CASE("polyls completion offers cross-language template after `LINK cpp::`",
           "[polyls][completion][cross-language]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
-  Open(s, "file:///c.ploy", "LINK cpp::\n");
+  Open(s, "file:///c.poly", "LINK cpp::\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///c.ploy"}}},
+      {"textDocument", {{"uri", "file:///c.poly"}}},
       {"position", {{"line", 0}, {"character", 10}}}};
   s.HandleIncoming(MakeRequest(12, "textDocument/completion", params));
 

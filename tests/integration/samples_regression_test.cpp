@@ -281,7 +281,7 @@ TEST_CASE("sample regression harness produces a well-formed JSON report",
     }
   }
   // The minimum-runnable contract: the shared sample
-  // `00_minimal` (entry `print_then_exit.ploy`) MUST land in the OK
+  // `00_minimal` (entry `print_then_exit.poly`) MUST land in the OK
   // bucket on every supported platform.  This is the floor for the
   // `--require-min-ok 1` gate enforced by the harness.
   REQUIRE_FALSE(ok_walk.empty());

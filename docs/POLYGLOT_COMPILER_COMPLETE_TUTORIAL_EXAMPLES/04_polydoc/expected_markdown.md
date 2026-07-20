@@ -1,4 +1,4 @@
-# <SOURCE>/04_polydoc/api.ploy
+# <SOURCE>/04_polydoc/api.poly
 
 ## `STRUCT Point`
 

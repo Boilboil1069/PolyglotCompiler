@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | MAP_TYPE, STRUCT, CONVERT |
-| 入口文件 | `type_mapping.ploy` |
+| 入口文件 | `type_mapping.poly` |
 
 ## 编译
 
 ```powershell
-polyc 02_type_mapping\type_mapping.ploy --emit-obj=type_mapping.pobj --obj-format=pobj
+polyc 02_type_mapping\type_mapping.poly --emit-obj=type_mapping.pobj --obj-format=pobj
 polyld type_mapping.pobj -o type_mapping.exe
 ```
 

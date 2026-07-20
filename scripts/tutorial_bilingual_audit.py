@@ -31,7 +31,7 @@ BILINGUAL_LABEL_RE = re.compile(r"\*\*[^*]+\s/\s[A-Za-z][^*]+\*\*")
 # Product names, language names, formats, and established acronyms may remain in
 # Chinese prose. Exact source identifiers are separately protected by backticks.
 ALLOWED_WORDS = {
-    "PolyglotCompiler", "Ploy", "PolyUI", "Typora", "CMake", "Ninja",
+    "PolyglotCompiler", "Poly", "PolyUI", "Typora", "CMake", "Ninja",
     "LLVM", "GitHub", "Qt", "Python", "Rust", "Java", "JavaScript",
     "TypeScript", "Ruby", "Go", "Linux", "Windows", "macOS", "Mach-O",
     "ELF", "COFF", "PE", "WebAssembly", "WASM", "JSON", "YAML", "TOML",
