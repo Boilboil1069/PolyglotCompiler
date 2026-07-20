@@ -864,9 +864,9 @@ The observed result from the current build is below. The absolute URI prefix is 
 {"uri":"file://<SOURCE>/09_language_tour/main.ploy","diagnostics":[]}
 ```
 
-> **命名说明**：项目中的规范语言名与扩展名是 **Ploy** 和 `.ploy`。用户常说的“Poly 语言”以及 Markdown 中的 `poly` 代码围栏，只在编辑器层作为别名支持；编译器源码、命令和文档中的正式名称仍是 Ploy。
+> **已知命名错误（暂不迁移）**：设计上的规范语言名与扩展名应为 **Poly** 和 `.poly`。当前源码、命令、示例及部分文档仍广泛使用 `Ploy`、`ploy` 和 `.ploy`；这些是尚未完成迁移的历史拼写错误，不是规范名称。本次只记录问题，不重命名现有接口与文件；旧拼写是否作为兼容别名保留，应在后续迁移方案中决定。
 
-> The canonical language name and extension are **Ploy** / `.ploy`. “Poly language” and the `poly` Markdown fence are supported aliases at the editor layer.
+> **Known naming defect (migration deferred):** the intended canonical language name and extension are **Poly** and `.poly`. The current source tree, commands, examples, and some documentation still widely use `Ploy`, `ploy`, and `.ploy`; these are historical misspellings awaiting migration, not the canonical name. This note records the defect without renaming existing interfaces or files. A later migration must decide whether the old spellings remain compatibility aliases.
 
 ## 6. 词法结构与字面量 / Lexical structure and literals
 
@@ -888,9 +888,9 @@ Braces, explicit semicolons, and a small set of literal prefixes avoid indentati
 
 ### 6.1 文件、语句与标识符 / Files, statements, and identifiers
 
-Ploy 文件使用 `.ploy`。语句通常以 `;` 终止，块使用 `{ ... }`，换行只是空白。标识符满足 `[A-Za-z_][A-Za-z0-9_]*`。
+规范上的 Poly 文件使用 `.poly`。受上述已知命名错误影响，当前仓库中的示例与实现仍主要使用 `.ploy`。语句通常以 `;` 终止，块使用 `{ ... }`，换行只是空白。标识符满足 `[A-Za-z_][A-Za-z0-9_]*`。
 
-Ploy files use `.ploy`, statements normally end in `;`, blocks use braces, and newlines are ordinary whitespace.
+Canonical Poly files use `.poly`. Because of the known naming defect above, the current repository's examples and implementation still mostly use `.ploy`. Statements normally end in `;`, blocks use braces, and newlines are ordinary whitespace.
 
 关键字按 ASCII 大写折叠，因此 `FUNC`、`func` 和 `FuNc` 等价；普通标识符保持大小写敏感。旧教程中“语法分析器对关键字大小写敏感”的说法已经不符合当前词法分析器。
 
@@ -8342,9 +8342,9 @@ Reject inheritance cycles, missing parents, invalid colours, schema mismatches, 
 
 #### 30.6.1 Typora 的 Poly/Ploy 代码块高亮 / Typora fenced-code highlighting
 
-项目的源码扩展名和规范语言名是 `.ploy` 与 Ploy，但作者也经常把 Markdown 代码围栏的语言写成 `poly`。编辑器集成必须兼容两者，否则本教材现有的 `ploy` 示例与用户新写的 `poly` 示例会出现不同体验。仓库因此提供一份共享规则：两个代码围栏标签、两个 MIME 名称和两个 CodeMirror 模式名称最终都解析到同一个词法分析器。
+设计上的规范源码扩展名与语言名是 `.poly` 和 Poly；当前项目使用的 `.ploy`、`ploy` 与 Ploy 是已知的历史命名错误，迁移工作暂未进行。编辑器集成现阶段兼容两组拼写，避免现有教材示例与新写的规范 `poly` 代码围栏出现不同体验。仓库因此提供一份共享规则：两个代码围栏标签、两个 MIME 名称和两个 CodeMirror 模式名称最终都解析到同一个词法分析器。
 
-The canonical source extension and language name are `.ploy` / Ploy, while authors also naturally use `poly` as a Markdown fence language. The editor integration deliberately accepts both labels and routes them to one lexer, so existing textbook blocks and newly written aliases behave identically.
+The intended canonical source extension and language name are `.poly` and Poly. The current project's `.ploy`, `ploy`, and Ploy spellings are a known historical naming defect whose migration is deferred. For now, the editor integration accepts both spelling families and routes them to one lexer, so existing textbook blocks and new canonical `poly` fences behave identically.
 
 Typora 的代码块由 CodeMirror 5 产生词法单元类；CSS 只负责给 `cm-keyword`、`cm-string` 等类配色，不能让未知语言获得词法分析。Typora 当前又没有公开的用户级自定义模式目录，所以完整接入包含两层：[`editors/typora/poly.js`](editors/typora/poly.js) 注册模式和 MIME 类型，安全安装器再把 `poly`/`ploy` 加入 Typora 的语言映射器与自动补全配置。安装器识别不到已知内部锚点时会在写入前停止，不尝试猜测应用程序包结构。
 

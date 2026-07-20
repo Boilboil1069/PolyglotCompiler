@@ -11,11 +11,14 @@ the current compiler grammar.
 声明、属性、注释、数字、运算符、普通/原始/模板/多行字符串、缩进与大括号
 折叠。
 
-The compiler's canonical language name and source extension are **Ploy** and
-`.ploy`. Both Markdown labels are supported deliberately:
+The intended canonical language name and source extension are **Poly** and
+`.poly`. The compiler currently still contains the historical misspellings
+`Ploy`, `ploy`, and `.ploy`; migration is deferred, so both Markdown labels are
+supported deliberately:
 
-编译器中的规范语言名与扩展名是 **Ploy** 和 `.ploy`。为了兼容用户习惯与项目
-现有文档，下面两种 Markdown 标签都会使用完全相同的规则：
+设计上的规范语言名与扩展名是 **Poly** 和 `.poly`。编译器当前仍包含历史拼写错误
+`Ploy`、`ploy` 与 `.ploy`；迁移工作暂未进行，因此下面两种 Markdown 标签仍会使用
+完全相同的规则：
 
 ````markdown
 ```poly

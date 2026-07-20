@@ -12,7 +12,7 @@ This dictionary is the translation and editorial source of truth for the complet
 
 1. 中文段落使用“中文定稿”列中的术语；英文段落使用“English”列中的术语。
 2. 源码关键字、类型名、函数名、命令、参数、文件名、诊断码和 ABI 符号保持原始拼写，并使用反引号，例如 `MATCH`、`OPTION<T>`、`PloySema::AnalyzeExpression`、`--strict`。
-3. 产品名和语言名保持原名，例如 PolyglotCompiler、Ploy、C++、Rust、Python、Java、.NET、JavaScript、Qt。
+3. 产品名和语言名保持原名，例如 PolyglotCompiler、Poly、C++、Rust、Python、Java、.NET、JavaScript、Qt。Poly 的规范扩展名为 `.poly`；`Ploy`、`ploy` 与 `.ploy` 只用于准确引用当前尚未迁移的历史标识，不得表述为规范名称。
 4. 缩写首次出现时写成“中文全称（缩写）”，后续可只写缩写，例如“应用二进制接口（ABI）”。源码标识符中的缩写不展开。
 5. 中文正文不得直接使用 parser、sema、lowering、runtime、backend、binding、warning、shape 等普通英文术语；若专指源码类或函数，必须放入反引号。
 6. 每个中文说明段落后紧跟语义等价的英文段落。英文不能只概括中文的一部分，也不能增加中文没有的承诺。
@@ -391,7 +391,7 @@ This dictionary is the translation and editorial source of truth for the complet
 
 The following spellings may appear in Chinese prose only as proper names, established acronyms, or backticked source text—not as untranslated ordinary words:
 
-- 产品与组件：PolyglotCompiler、Polyglot、Poly、Ploy、PolyUI、CodeMirror、Typora；
+- 产品与组件：PolyglotCompiler、Polyglot、Poly、PolyUI、CodeMirror、Typora；历史实现标识 `Ploy`、`ploy` 与 `.ploy` 仅在说明现状或兼容性时保留；
 - 语言与平台：C、C++、Rust、Python、Java、.NET、JavaScript、TypeScript、Go、Ruby、Lua、Qt、Windows、Linux、macOS、Apple、Unix；
 - 标准缩写：API、ABI、FFI、IR、AST、SSA、CFG、CLI、IDE、LSP、UI、GC、EH、PGO、LTO、JIT、AOT、JSON、NDJSON、UTF-8、CRLF、JS、TS、VM、OS、Hz、RAII、LIFO；
 - 文件、对象与图像格式：ELF、Mach-O、COFF、PE、Wasm、WAT、DWARF、PDB、CSV、PNG、JPEG、WebP、GIF、SVG、BMP；
@@ -400,7 +400,7 @@ The following spellings may appear in Chinese prose only as proper names, establ
 - 规范化缩写与源码标记：POBJ、BSS、CIE、FDE、GOT、PLT、PRE、ThinLTO、SCCP、ASan、UBSan、LSan、DDL、DML、TODO、FIXME、cgo、UEDGE、SQL、CodeView、GiB、KiB、RGBA、ECMAScript、HTML、DLL、ICU、DOT、Kahn、RPATH、RUNNABLE；
 - 源码与命令：所有反引号包围的关键字、标识符、路径、命令、参数、符号、类型和诊断码。
 
-- Products and components: PolyglotCompiler, Polyglot, Poly, Ploy, PolyUI, CodeMirror, and Typora;
+- Products and components: PolyglotCompiler, Polyglot, Poly, PolyUI, CodeMirror, and Typora; historical implementation identifiers `Ploy`, `ploy`, and `.ploy` are retained only when documenting current state or compatibility;
 - languages and platforms: C, C++, Rust, Python, Java, .NET, JavaScript, TypeScript, Go, Ruby, Lua, Qt, Windows, Linux, macOS, Apple, and Unix;
 - standard abbreviations: API, ABI, FFI, IR, AST, SSA, CFG, CLI, IDE, LSP, UI, GC, EH, PGO, LTO, JIT, AOT, JSON, NDJSON, UTF-8, CRLF, JS, TS, VM, OS, Hz, RAII, and LIFO;
 - file, object, and image formats: ELF, Mach-O, COFF, PE, Wasm, WAT, DWARF, PDB, CSV, PNG, JPEG, WebP, GIF, SVG, and BMP;
