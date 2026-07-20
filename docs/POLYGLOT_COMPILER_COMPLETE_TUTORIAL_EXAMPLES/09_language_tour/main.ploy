@@ -1,0 +1,68 @@
+/// Domain vocabulary without a new ABI identity.
+TYPE ReadingId = i64;
+
+/// A value known and folded during semantic analysis.
+CONST MAX_RETRIES: i64 = 2 + 1;
+
+/// A nominal record with named fields.
+STRUCT Reading {
+    id: ReadingId,
+    sensor: STRING,
+    value: f64
+}
+
+/// Clamp a value; callers may override only the policy they need.
+FUNC clamp(value: i32, low: i32 = 0, high: i32 = 100) -> i32 {
+    IF value < low { RETURN low; }
+    IF value > high { RETURN high; }
+    RETURN value;
+}
+
+/// Propagate an expected missing value with postfix `?`.
+FUNC keep_positive(opt: OPTION<i32>) -> OPTION<i32> {
+    LET value: i32 = opt?;
+    IF value > 0 {
+        RETURN opt;
+    }
+    RETURN opt;
+}
+
+/// Deconstruct an existing Option without constructing one at value position.
+FUNC classify(opt: OPTION<i32>) -> i32 {
+    MATCH opt {
+        CASE Some(value) IF value > 0 {
+            RETURN 1;
+        }
+        CASE None {
+            RETURN 0;
+        }
+        DEFAULT {
+            RETURN -1;
+        }
+    }
+}
+
+FUNC main() -> i32 {
+    LET sample = Reading { id: 7, sensor: "lab-a", value: 21.5 };
+    LET limited: i32 = clamp(120, high: 80);
+
+    VAR attempts: i64 = 0;
+    WHILE attempts < MAX_RETRIES {
+        attempts = attempts + 1;
+    }
+
+    IF sample.value >= -273.15 AND attempts == MAX_RETRIES {
+        PRINTLN "reading accepted\n";
+    }
+
+    MATCH limited {
+        CASE 80 {
+            PRINTLN "clamp matched\n";
+        }
+        DEFAULT {
+            PRINTLN "unexpected clamp result\n";
+        }
+    }
+
+    RETURN 0;
+}

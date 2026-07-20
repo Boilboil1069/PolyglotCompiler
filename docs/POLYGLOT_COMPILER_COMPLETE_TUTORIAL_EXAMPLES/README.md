@@ -27,6 +27,7 @@ This directory accompanies `../POLYGLOT_COMPILER_COMPLETE_TUTORIAL.md`. Every ex
 | `06_diagnostics` | 4, 28 | `RUNNABLE` negative case | non-zero check plus structured diagnostic |
 | `07_profile_fixture` | 24, 29, 37 | `FIXTURE` | current nested profile JSON and NDJSON |
 | `08_plugin` | 39, 41 | `RUNNABLE` | shared library exports plus a verified host lifecycle and activation log |
+| `09_language_tour` | 6–13 | `FRONTEND` | one-file Ploy language tour with empty frontend diagnostics |
 
 ## 快速验证 / Quick verification
 

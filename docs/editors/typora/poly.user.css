@@ -1,0 +1,76 @@
+/* Optional Typora colours for ```poly and ```ploy fences.
+ *
+ * The mode only emits standard CodeMirror 5 token classes, so every Typora
+ * theme already has a usable fallback. Install this file only when you want
+ * the same Poly palette across different Typora themes.
+ */
+:root {
+  --poly-code-keyword: #7c3aed;
+  --poly-code-type: #047857;
+  --poly-code-atom: #b45309;
+  --poly-code-definition: #1d4ed8;
+  --poly-code-property: #0369a1;
+  --poly-code-string: #a21caf;
+  --poly-code-number: #0f766e;
+  --poly-code-comment: #6b7280;
+  --poly-code-meta: #be123c;
+  --poly-code-operator: #9f1239;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --poly-code-keyword: #c4b5fd;
+    --poly-code-type: #6ee7b7;
+    --poly-code-atom: #fbbf24;
+    --poly-code-definition: #93c5fd;
+    --poly-code-property: #7dd3fc;
+    --poly-code-string: #f0abfc;
+    --poly-code-number: #5eead4;
+    --poly-code-comment: #9ca3af;
+    --poly-code-meta: #fda4af;
+    --poly-code-operator: #fda4af;
+  }
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-keyword {
+  color: var(--poly-code-keyword);
+  font-weight: 600;
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-variable-3 {
+  color: var(--poly-code-type);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-atom,
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-builtin {
+  color: var(--poly-code-atom);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-def {
+  color: var(--poly-code-definition);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-property {
+  color: var(--poly-code-property);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-string {
+  color: var(--poly-code-string);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-number {
+  color: var(--poly-code-number);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-comment {
+  color: var(--poly-code-comment);
+  font-style: italic;
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-meta {
+  color: var(--poly-code-meta);
+}
+
+pre.md-fences:is([lang="poly" i], [lang="ploy" i]) .cm-operator {
+  color: var(--poly-code-operator);
+}
