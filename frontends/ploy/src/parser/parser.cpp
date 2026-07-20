@@ -1,17 +1,33 @@
 /**
  * @file     parser.cpp
- * @brief    Ploy language frontend implementation
+ * @brief    Poly language frontend implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
+#include <cctype>
 #include <stdexcept>
 
 #include "frontends/ploy/include/ploy_config_registry.h"
 #include "frontends/ploy/include/ploy_parser.h"
 
 namespace polyglot::ploy {
+
+namespace {
+
+// `ploy` is retained solely as a source-compatibility alias.  Normalize it
+// while the parser is still constructing language-bearing AST fields so sema,
+// lowering, descriptors, and tools only ever observe the canonical `poly` id.
+std::string CanonicalizeLanguageIdentifier(const std::string &language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return (folded == "poly" || folded == "ploy") ? "poly" : language;
+}
+
+} // namespace
 
 namespace {
 
@@ -292,7 +308,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
   // target_language
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->target_language = current_.lexeme;
+    node->target_language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected target language identifier");
@@ -304,7 +320,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
   // source_language
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->source_language = current_.lexeme;
+    node->source_language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected source language identifier");
@@ -354,7 +370,7 @@ std::shared_ptr<Statement> PloyParser::ParseLinkDecl() {
 
   // Optional RETURNS clause: LINK(...) RETURNS type { ... }
   // The RETURNS clause is preserved for backward compatibility but is
-  // deprecated since Ploy 1.5.2; new code should declare the return type
+  // deprecated since Poly 1.5.2; new code should declare the return type
   // via the canonical "-> Type" arrow syntax on the function signature.
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "RETURNS") {
     const core::SourceLoc returns_loc = current_.loc;
@@ -501,7 +517,7 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
 
     if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "PACKAGE") {
       // Package import: IMPORT lang PACKAGE pkg [:: (sym1, sym2)] [>= ver] [AS alias];
-      node->language = first;
+      node->language = CanonicalizeLanguageIdentifier(first);
       Advance(); // consume 'PACKAGE'
 
       if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -585,7 +601,7 @@ std::shared_ptr<Statement> PloyParser::ParseImportDecl() {
       }
     } else if (IsSymbol("::")) {
       // Qualified import: IMPORT cpp::module_name
-      node->language = first;
+      node->language = CanonicalizeLanguageIdentifier(first);
       Advance(); // consume '::'
       if (current_.kind == frontends::TokenKind::kIdentifier) {
         node->module_path = current_.lexeme;
@@ -1028,7 +1044,7 @@ std::shared_ptr<Statement> PloyParser::ParseStatement() {
       ExpectSymbol("(", "expected '(' after WITH");
       if (current_.kind == frontends::TokenKind::kIdentifier ||
           current_.kind == frontends::TokenKind::kKeyword) {
-        node->language = current_.lexeme;
+        node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
         Advance();
       } else {
         diagnostics_.Report(current_.loc, "expected language name in WITH");
@@ -2173,7 +2189,7 @@ std::shared_ptr<Expression> PloyParser::ParseCallDirective() {
   // language
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in CALL");
@@ -2219,7 +2235,7 @@ std::shared_ptr<Expression> PloyParser::ParseNewExpression() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in NEW");
@@ -2265,7 +2281,7 @@ std::shared_ptr<Expression> PloyParser::ParseMethodCallDirective() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in METHOD");
@@ -2316,7 +2332,7 @@ std::shared_ptr<Expression> PloyParser::ParseGetAttrExpression() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in GET");
@@ -2354,7 +2370,7 @@ std::shared_ptr<Expression> PloyParser::ParseSetAttrExpression() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in SET");
@@ -2401,7 +2417,7 @@ std::shared_ptr<Expression> PloyParser::ParseDeleteExpression() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in DELETE");
@@ -2431,7 +2447,7 @@ std::shared_ptr<Statement> PloyParser::ParseWithStatement() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in WITH");
@@ -2657,7 +2673,7 @@ std::shared_ptr<Statement> PloyParser::ParseConfigDecl() {
       // Optional language specifier (defaults to "python" — every
       // legacy keyword maps to a Python package manager).
       if (current_.kind == frontends::TokenKind::kIdentifier) {
-        node->language = current_.lexeme;
+        node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
         Advance();
       } else {
         node->language = "python";
@@ -2696,7 +2712,7 @@ std::shared_ptr<Statement> PloyParser::ParseConfigDecl() {
     auto node = std::make_shared<VenvConfigDecl>();
     node->loc = loc;
     node->is_legacy_form = false;
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance(); // consume language identifier
 
     if (current_.kind != frontends::TokenKind::kString) {
@@ -2909,7 +2925,7 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
       ExpectSymbol(">", "expected '>' to close HANDLE<...>");
       return ht;
     }
-    ht->language = current_.lexeme;
+    ht->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
     ExpectSymbol("::", "expected '::' after language inside HANDLE<...>");
 
@@ -2938,7 +2954,7 @@ std::shared_ptr<TypeNode> PloyParser::ParseQualifiedOrSimpleType() {
   if (IsSymbol("::")) {
     auto qt = std::make_shared<QualifiedType>();
     qt->loc = loc;
-    qt->language = name;
+    qt->language = CanonicalizeLanguageIdentifier(name);
     Advance();
     if (current_.kind == frontends::TokenKind::kIdentifier ||
         current_.kind == frontends::TokenKind::kKeyword) {
@@ -3032,7 +3048,7 @@ std::shared_ptr<Statement> PloyParser::ParseExtendDecl() {
   // Language name
   if (current_.kind == frontends::TokenKind::kIdentifier ||
       current_.kind == frontends::TokenKind::kKeyword) {
-    node->language = current_.lexeme;
+    node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
   } else {
     diagnostics_.Report(current_.loc, "expected language name in EXTEND");
@@ -3120,7 +3136,7 @@ std::shared_ptr<Statement> PloyParser::ParseClassDecl() {
     Sync();
     return node;
   }
-  node->language = current_.lexeme;
+  node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
   Advance();
   ExpectSymbol("::", "expected '::' after language in CLASS header");
 
@@ -3317,14 +3333,14 @@ void PloyParser::ParseLangPinList(std::vector<WithLangBlock::Pin> &out_pins) {
       Sync();
       return;
     }
-    pin.language = current_.lexeme;
+    pin.language = CanonicalizeLanguageIdentifier(current_.lexeme);
     Advance();
     ExpectSymbol("=", "expected '=' between language and version");
     // Version token: identifier ("c++23" comes through as 'c' '+' '+' so we
     // accept either an identifier OR a string literal OR a number; we then
     // gather any trailing punctuation that forms a contiguous version token.
     if (current_.kind == frontends::TokenKind::kString) {
-      // The ploy lexer keeps the surrounding quote characters as part of
+      // The poly lexer keeps the surrounding quote characters as part of
       // the string lexeme.  Version pins are pure ASCII tokens, so strip
       // the outer quotes so downstream sema gets `c++23` rather than
       // `"c++23"`.
@@ -3373,7 +3389,7 @@ std::shared_ptr<Statement> PloyParser::ParseLangPragma() {
     Sync();
     return node;
   }
-  node->language = current_.lexeme;
+  node->language = CanonicalizeLanguageIdentifier(current_.lexeme);
   Advance();
   ExpectSymbol("=", "expected '=' after language name in LANG pragma");
   if (current_.kind == frontends::TokenKind::kString) {

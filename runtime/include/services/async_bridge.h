@@ -2,11 +2,11 @@
  * @file     async_bridge.h
  * @brief    Cross-language asynchronous task / Future bridge for the
  *           polyrt runtime.  Implements the C ABI invoked by code
- *           lowered from Ploy's `ASYNC` / `AWAIT` constructs and the
+ *           lowered from Poly's `ASYNC` / `AWAIT` constructs and the
  *           entry points used by per-language adapters to expose
  *           Python `asyncio` coroutines, C++20 `std::coroutine`
  *           awaitables, Java `CompletableFuture`, .NET `Task<T>` and
- *           Rust `Future` instances as unified Ploy `Future<T>`
+ *           Rust `Future` instances as unified Poly `Future<T>`
  *           handles.
  *
  * @ingroup  Runtime / Services
@@ -33,7 +33,7 @@ struct FutureHandle {
   std::uint64_t id{0};
   bool ready{false};
   void *payload{nullptr};
-  std::string source_lang;  // "ploy" | "python" | "cpp" | "java" | "dotnet" | "rust"
+  std::string source_lang;  // "poly" | "python" | "cpp" | "java" | "dotnet" | "rust"
 };
 
 // Snapshot of the cooperative event loop, used by `polyrt async` and
@@ -47,7 +47,7 @@ struct AsyncSchedulerSnapshot {
   std::size_t active_async_frames{0};// frames currently in __ploy_rt_async_enter
 };
 
-// Spawn a Ploy task (a callable with no arguments returning void) on
+// Spawn a Poly task (a callable with no arguments returning void) on
 // the cooperative event loop and return its FutureHandle id.  The
 // callable is captured by value; the runtime owns the heap-allocated
 // state until the task completes and the future is consumed.

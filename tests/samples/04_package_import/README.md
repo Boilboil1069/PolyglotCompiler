@@ -6,13 +6,13 @@ IMPORT PACKAGE with semver constraints and a stringified `CONFIG <lang> "<packag
 | --- | --- |
 | Languages | C++, Python (mirrors: JavaScript, Rust, Java) |
 | Keywords  | IMPORT PACKAGE, CONFIG (stringified, since v1.12.0) |
-| Entry     | `package_import.ploy` |
-| Mirrors   | `package_import_npm.ploy`, `package_import_cargo.ploy`, `package_import_maven.ploy` |
+| Entry     | `package_import.poly` |
+| Mirrors   | `package_import_npm.poly`, `package_import_cargo.poly`, `package_import_maven.poly` |
 
 ## Build
 
 ```powershell
-polyc 04_package_import\package_import.ploy --emit-obj=package_import.pobj --obj-format=pobj
+polyc 04_package_import\package_import.poly --emit-obj=package_import.pobj --obj-format=pobj
 polyld package_import.pobj -o package_import.exe
 ```
 

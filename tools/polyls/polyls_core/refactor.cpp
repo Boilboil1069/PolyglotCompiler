@@ -72,7 +72,7 @@ std::vector<std::string> SplitDocLines(const DocumentView &doc) {
 /// indexers in @ref SymbolIndex.
 const std::unordered_set<std::string> &KnownLanguages() {
   static const std::unordered_set<std::string> kSet{
-      "ploy", "poly", "cpp", "c++", "python", "rust",
+      "poly", "ploy", "cpp", "c++", "python", "rust",
       "java", "dotnet", "csharp"};
   return kSet;
 }
@@ -81,7 +81,7 @@ const std::unordered_set<std::string> &KnownLanguages() {
 /// superset across all front-ends polyls scans.
 const std::unordered_set<std::string> &ReservedIdentifiers() {
   static const std::unordered_set<std::string> kSet{
-      // .ploy keywords
+      // .poly keywords
       "FUNC", "PIPELINE", "STRUCT", "LET", "VAR", "RETURN", "IF", "ELSE",
       "WHILE", "FOR", "BREAK", "CONTINUE", "IMPORT", "EXPORT", "LINK",
       "CONFIG", "PACKAGE", "AS", "NEW", "METHOD", "GET", "SET", "WITH",
@@ -263,9 +263,9 @@ std::optional<lsp::WorkspaceEdit> BuildRenameEdit(
   add_index_locations(index.References(t.bare, /*include_definition=*/true));
 
   // 3. Cross-language hop: a rename initiated inside a host-language
-  //    file additionally rewrites every .ploy LINK / EXPORT site that
+  //    file additionally rewrites every .poly LINK / EXPORT site that
   //    targets the bare identifier.
-  if (t.language != "ploy" && t.language != "poly" && !t.language.empty()) {
+  if (t.language != "poly" && t.language != "ploy" && !t.language.empty()) {
     add_index_locations(
         index.CrossLanguageBackrefs(t.language, t.bare));
   }
@@ -288,7 +288,7 @@ std::string DetectIndent(const std::string &line) {
   return out;
 }
 
-/// Build the textual body of an extracted .ploy FUNC from the snippet
+/// Build the textual body of an extracted .poly FUNC from the snippet
 /// @p body (already de-indented).  The wrapper picks `INT` as a safe
 /// placeholder return type — the user is expected to refine it.
 std::string BuildExtractedFunction(const std::string &name,
@@ -315,7 +315,7 @@ std::vector<lsp::CodeAction> BuildCodeActions(
   if (!doc) return actions;
 
   const auto lines = SplitDocLines(*doc);
-  const bool is_ploy = doc->language_id == "ploy" || doc->language_id == "poly";
+  const bool is_ploy = doc->language_id == "poly" || doc->language_id == "ploy";
 
   // ── Extract function ──────────────────────────────────────────────────
   // Only emit an actionable edit when the selection covers at least one

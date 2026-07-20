@@ -1,6 +1,6 @@
 /**
  * @file     topology_codegen.h
- * @brief    Generates .ploy source code from a TopologyGraph
+ * @brief    Generates .poly source code from a TopologyGraph
  *
  * @ingroup  Tool / polytopo
  * @author   Manning Cyrus
@@ -18,7 +18,7 @@ namespace polyglot::tools::topo {
 // GeneratePloySrc — graph-to-source code generator
 // ============================================================================
 
-// Convert a TopologyGraph into valid .ploy source code.
+// Convert a TopologyGraph into valid .poly source code.
 //
 // Generation rules:
 //   - kFunction   node  ->  FUNC name(inputs) -> output_type { body }

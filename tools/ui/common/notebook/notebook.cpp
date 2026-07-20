@@ -9,6 +9,7 @@
 #include "tools/ui/common/notebook/notebook.h"
 
 #include <algorithm>
+#include <cctype>
 
 #include <nlohmann/json.hpp>
 
@@ -36,7 +37,7 @@ std::string KindName(CellKind k) {
 
 std::string ReplEngineName(ReplEngine e) {
   switch (e) {
-    case ReplEngine::kPloy:         return "ploy";
+    case ReplEngine::kPloy:         return "poly";
     case ReplEngine::kPython:       return "python";
     case ReplEngine::kIRust:        return "irust";
     case ReplEngine::kIRB:          return "irb";
@@ -46,6 +47,12 @@ std::string ReplEngineName(ReplEngine e) {
 }
 
 ReplEngine ReplEngineFromName(const std::string &name) {
+  std::string folded = name;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return ReplEngine::kPloy;
   if (name == "python")        return ReplEngine::kPython;
   if (name == "irust")         return ReplEngine::kIRust;
   if (name == "irb")           return ReplEngine::kIRB;
@@ -180,7 +187,7 @@ bool Notebook::LoadJson(const std::string &text) {
     Cell cell;
     cell.id = c.value("id", std::string{});
     cell.kind = KindFromName(c.value("kind", std::string{"code"}));
-    cell.engine = ReplEngineFromName(c.value("engine", std::string{"ploy"}));
+    cell.engine = ReplEngineFromName(c.value("engine", std::string{"poly"}));
     cell.source = c.value("source", std::string{});
     if (c.contains("output") && c["output"].is_object()) {
       cell.output.stdout_text = c["output"].value("stdout", std::string{});
@@ -189,7 +196,7 @@ bool Notebook::LoadJson(const std::string &text) {
     }
     if (cell.kind == CellKind::kCrossLanguageLink && c.contains("link")) {
       cell.link.target_engine = ReplEngineFromName(
-          c["link"].value("target_engine", std::string{"ploy"}));
+          c["link"].value("target_engine", std::string{"poly"}));
       cell.link.source_engine = ReplEngineFromName(
           c["link"].value("source_engine", std::string{"python"}));
       cell.link.target_symbol = c["link"].value("target_symbol", std::string{});

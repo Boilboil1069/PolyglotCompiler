@@ -18,7 +18,7 @@ expression.  `FOR` was taught explicitly: `ParseForStatement` matches
 an optional leading `(` and, when seen, requires a matching `)` after
 the iterable.
 
-```ploy
+```poly
 IF (n > 0) { … }            // identical to IF n > 0 { … }
 WHILE (running) { … }       // identical to WHILE running { … }
 FOR (x IN xs) { … }         // identical to FOR x IN xs { … }
@@ -29,7 +29,7 @@ FOR (x IN xs) { … }         // identical to FOR x IN xs { … }
 A new statement form unwraps an `OPTION<T>` into a binding visible in
 the THEN-body's scope:
 
-```ploy
+```poly
 IF LET Some(x) = opt { use(x); }
 IF LET Some(x) = opt { use(x); } ELSE { fallback(); }
 IF LET None    = opt { … }       // takes no binding
@@ -55,7 +55,7 @@ dedicated OPTION lowering work track.
 `OPTION<T>` value is now rejected by sema with a targeted message
 suggesting `None`:
 
-```ploy
+```poly
 LET o: OPTION<i32> = NULL;
 // error: cannot initialise OPTION<T> with NULL; use 'None' instead
 ```
@@ -72,7 +72,7 @@ pending buffer at entry and store it on the resulting AST node.  Plain
 `//` line comments and `////` (four-slash) banners remain ordinary
 line comments.
 
-```ploy
+```poly
 /// Adds two integers.
 /// Overflow wraps modulo 2^64.
 FUNC add(a: i64, b: i64) -> i64 { RETURN a + b; }
@@ -81,13 +81,13 @@ FUNC add(a: i64, b: i64) -> i64 { RETURN a + b; }
 ## 5. `polydoc` extractor
 
 The new `polydoc` executable (`tools/polydoc/`) walks one or more
-`.ploy` files, harvests every doc-bearing top-level declaration, and
+`.poly` files, harvests every doc-bearing top-level declaration, and
 emits a Markdown or JSON report.
 
 ```sh
-polydoc src/foo.ploy                 # Markdown to stdout
-polydoc --json src/foo.ploy          # JSON to stdout
-polydoc -o api.md src/foo.ploy       # write Markdown to api.md
+polydoc src/foo.poly                 # Markdown to stdout
+polydoc --json src/foo.poly          # JSON to stdout
+polydoc -o api.md src/foo.poly       # write Markdown to api.md
 ```
 
 The Markdown form pairs each entry with a synthesised signature line
@@ -99,7 +99,7 @@ toolchains can index it.
 
 `expr?` is a postfix expression that unwraps an `OPTION<T>` operand:
 
-```ploy
+```poly
 FUNC head(opt: OPTION<i32>) -> OPTION<i32> {
     LET v = opt?;        // returns None early when `opt` is None
     RETURN Some(v + 1);

@@ -6,12 +6,12 @@ Five-language full-stack analytics demo (C++, Python, Rust, Java, C#) wired thro
 | --- | --- |
 | Languages | C++, Python, Rust, Java, C# |
 | Keywords  | all |
-| Entry     | `full_stack.ploy` |
+| Entry     | `full_stack.poly` |
 
 ## Build
 
 ```powershell
-polyc 15_full_stack\full_stack.ploy --emit-obj=full_stack.pobj --obj-format=pobj
+polyc 15_full_stack\full_stack.poly --emit-obj=full_stack.pobj --obj-format=pobj
 polyld full_stack.pobj -o full_stack.exe
 ```
 

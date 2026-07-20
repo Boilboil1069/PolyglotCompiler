@@ -114,3 +114,38 @@ TEST_CASE("Path resolvers return platform-appropriate paths", "[settings_loader]
   REQUIRE(kb.parent_path() == p.parent_path());
   REQUIRE(kb.filename() == "keybindings.json");
 }
+
+TEST_CASE("Legacy Poly naming settings migrate before layer precedence",
+          "[settings_loader][poly_naming]") {
+  constexpr const char *defaults = R"({
+    "poly.strictMode": false,
+    "languageServers.servers": {
+      "poly": {"command": "default-polyls", "args": []}
+    },
+    "files.associations": {
+      "*.poly": "poly",
+      "*.ploy": "poly"
+    },
+    "poly": {"lint": false}
+  })";
+  const auto user_path = WriteTempJson(
+      "legacy-poly-name-user.json", R"({
+        "PloY.strictMode": true,
+        "languageServers.servers": {
+          "PLOY": {"command": "custom-polyls", "args": ["--stdio"]}
+        },
+        "files.associations": {"*.ploy": "PoLy"},
+        "Ploy": {"lint": true}
+      })");
+
+  auto eff = LoadEffectiveSettingsExplicit(defaults, R"({"properties":{}})",
+                                           user_path, fs::path{});
+  REQUIRE(eff.effective["poly.strictMode"] == true);
+  REQUIRE_FALSE(eff.effective.contains("ploy.strictMode"));
+  REQUIRE(eff.effective["languageServers.servers"]["poly"]["command"] ==
+          "custom-polyls");
+  REQUIRE_FALSE(eff.effective["languageServers.servers"].contains("ploy"));
+  REQUIRE(eff.effective["files.associations"]["*.ploy"] == "poly");
+  REQUIRE(eff.effective["poly"]["lint"] == true);
+  REQUIRE_FALSE(eff.effective.contains("Ploy"));
+}

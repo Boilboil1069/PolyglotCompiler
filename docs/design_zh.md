@@ -16,11 +16,11 @@
 
 PolyglotCompiler 是一个自举式多语言编译器、链接器、运行时、语言服务器、IDE 与样例/测试套件。它通过第一方语言前端解析源码，将受支持语言降级到共享 SSA 风格 IR，执行中端优化，通过 x86_64、ARM64 或 WebAssembly 后端生成目标产物，并由项目自带链接器打包为最终可执行文件或库。
 
-`.ploy` 是跨语言编排层，用于描述导入、包约束、虚拟环境配置、函数级链接、跨语言调用、类实例化、方法调用、属性访问、资源管理、类型映射、控制流、异步流程、错误处理和流水线导出。
+`.poly` 是跨语言编排层，用于描述导入、包约束、虚拟环境配置、函数级链接、跨语言调用、类实例化、方法调用、属性访问、资源管理、类型映射、控制流、异步流程、错误处理和流水线导出。
 
 ### 2.1 产品目标
 
-- 为 C++、Python、Rust、Java、.NET、JavaScript、Ruby、Go 和 `.ploy` 提供统一编译架构。
+- 为 C++、Python、Rust、Java、.NET、JavaScript、Ruby、Go 和 `.poly` 提供统一编译架构。
 - 将源码解析和降级保留在第一方前端内，而不是把外部编译器作为主要实现路径。
 - 在最终打包前校验跨语言签名、参数数量、类型、包约束、ABI 兼容性和运行时桥需求。
 - 通过 x86_64、ARM64 和 WebAssembly 后端输出原生和可移植目标。
@@ -30,7 +30,7 @@ PolyglotCompiler 是一个自举式多语言编译器、链接器、运行时、
 
 ### 2.2 非目标
 
-- `.ploy` 不是所有受支持语言的替代品；它是互操作和编排语言。
+- `.poly` 不是所有受支持语言的替代品；它是互操作和编排语言。
 - `polyui` 不能绕开编译器服务，直接依赖 parser 内部实现来提供用户可见行为。
 - 当必需编译产物缺失时，`polyld` 和后端阶段不能虚构 fallback symbol、合成 object section 或成功输出。
 - 插件 API 不能把不稳定的 C++ 实现 ABI 暴露为宿主契约。
@@ -43,7 +43,7 @@ PolyglotCompiler 是一个自举式多语言编译器、链接器、运行时、
 |---|---|---|
 | `common/` | 编译器共享基础 | 类型、符号、源码位置、目标三元组、二进制容器、调试工具、插件 API 与管理器 |
 | `middle/` | 共享 IR 与优化 | IR context、CFG、SSA、verifier、parser/printer、data layout、模板、优化 Pass、PGO、LTO |
-| `frontends/` | 第一方语言前端 | 前端公共工具，以及 C++、Python、Rust、`.ploy`、Java、.NET、JavaScript、Ruby、Go |
+| `frontends/` | 第一方语言前端 | 前端公共工具，以及 C++、Python、Rust、`.poly`、Java、.NET、JavaScript、Ruby、Go |
 | `backends/` | 代码生成 | 后端注册表、ABI 工具、object builder、debug emitter、x86_64、ARM64、Wasm |
 | `runtime/` | 运行时服务与互操作 | GC、分配、FFI、marshalling、对象生命周期、语言运行时桥、异步/错误/反射/线程/profile 服务 |
 | `tools/` | 用户工具和内部工具 | `polyc`、`polyld`、`polyasm`、`polyopt`、`polyrt`、`polyver`、`polydoc`、`polytopo`、`polyls`、`polybench`、`polyui` |
@@ -76,7 +76,7 @@ PolyglotCompiler 是一个自举式多语言编译器、链接器、运行时、
 | `frontend_python` | `frontends/python/` | Python lexer/parser/sema/lowering/frontend 与 `.pyi` loader |
 | `frontend_cpp` | `frontends/cpp/` | C++ lexer/parser/sema/lowering/frontend 与 constexpr 支持 |
 | `frontend_rust` | `frontends/rust/` | Rust lexer/parser/sema/lowering/frontend 与 crate loader |
-| `frontend_ploy` | `frontends/ploy/` | `.ploy` lexer/parser/sema/lowering/frontend、package discovery、config registry |
+| `frontend_ploy` | `frontends/ploy/` | `.poly` lexer/parser/sema/lowering/frontend、package discovery、config registry |
 | `frontend_java` | `frontends/java/` | Java lexer/parser/sema/lowering/frontend 与 class file reader |
 | `frontend_dotnet` | `frontends/dotnet/` | .NET lexer/parser/sema/lowering/frontend 与 metadata reader |
 | `frontend_javascript` | `frontends/javascript/` | JavaScript lexer/parser/sema/lowering/frontend 与 import resolver |
@@ -99,15 +99,15 @@ PolyglotCompiler 是一个自举式多语言编译器、链接器、运行时、
 | Target | 角色 | 关键依赖 |
 |---|---|---|
 | `polyc` | 编译器驱动 | `polyc_lib`、settings |
-| `polyld` | 链接器和容器写入器 | `linker_lib`、common、`.ploy` frontend、settings |
+| `polyld` | 链接器和容器写入器 | `linker_lib`、common、`.poly` frontend、settings |
 | `polyasm` | 汇编到 object 工具 | 后端和 middle IR |
 | `polyopt` | 独立 IR 优化器 | Middle IR 和后端 |
 | `polyrt` | 运行时启动/控制工具 | Runtime、common、settings |
 | `polyver` | 工具链/包管理器探测 | Common、JSON |
-| `polydoc` | `.ploy` 文档注释提取 | `.ploy` frontend、common |
+| `polydoc` | `.poly` 文档注释提取 | `.poly` frontend、common |
 | `polyls` | 自托管语言服务器 | `polyls_core` |
 | `polybench` | 性能基准运行器 | Frontends、backends、runtime、settings |
-| `polytopo` | 拓扑分析 CLI | `topo_lib`、common、`.ploy` frontend、settings |
+| `polytopo` | 拓扑分析 CLI | `topo_lib`、common、`.poly` frontend、settings |
 | `polyui` | Qt 桌面 IDE | Frontends、backends、runtime、topology、settings、LSP、language server core |
 | `pe_smoke` | PE writer harness | `linker_lib`、common |
 
@@ -132,7 +132,7 @@ polyglot_common
 ### 5.2 端到端编译流
 
 ```text
-源码文件和 .ploy 编排
+源码文件和 .poly 编排
   -> 语言检测或显式 --lang
   -> frontend registry 分发
   -> lexer/parser/sema/lowering
@@ -190,14 +190,14 @@ polyglot_common
 | C++ | `frontend_cpp` | `.cpp`、`.cxx`、`.cc`、`.h`、`.hpp` | AST、lexer、parser、sema、lowering、frontend、constexpr | C++ 语言模型和常量表达式 |
 | Python | `frontend_python` | `.py`、`.pyi` | AST、lexer、parser、sema、lowering、frontend、advanced features、`.pyi` loader | Python 3.8+ 风格特性门控和 stub 加载 |
 | Rust | `frontend_rust` | `.rs` | AST、lexer、parser、sema、lowering、frontend、advanced features、crate loader | Rust edition、crate discovery、borrow/type checks |
-| `.ploy` | `frontend_ploy` | `.ploy` | AST、lexer、parser、sema、lowering、frontend、package cache、command runner、package indexer、config registry | 跨语言编排、包发现、bridge descriptor |
+| `.poly` | `frontend_ploy` | `.poly` | AST、lexer、parser、sema、lowering、frontend、package cache、command runner、package indexer、config registry | 跨语言编排、包发现、bridge descriptor |
 | Java | `frontend_java` | `.java`、class metadata | AST、lexer、parser、sema、lowering、frontend、class file reader | Java 8/17/21/23 特性和 class metadata |
 | .NET | `frontend_dotnet` | `.cs`、`.vb`、metadata | AST、lexer、parser、sema、lowering、frontend、metadata reader | .NET 6/7/8/9 metadata 和语言特性门控 |
 | JavaScript | `frontend_javascript` | `.js` | AST、lexer、parser、sema、lowering、frontend、import resolver | ES 特性解析和模块导入解析 |
 | Ruby | `frontend_ruby` | `.rb` | AST、lexer、parser、sema、lowering、frontend、import resolver | Ruby 导入和动态语言互操作模型 |
 | Go | `frontend_go` | `.go` | AST、lexer、parser、sema、lowering、frontend、import resolver | Go module import 和泛型特性处理 |
 
-### 6.4 `.ploy` 语言能力清单
+### 6.4 `.poly` 语言能力清单
 
 | 能力 | 设计契约 |
 |---|---|
@@ -277,7 +277,7 @@ polyglot_common
 
 ### 7.1 配置面
 
-`CompilationContext::Config` 包含 source file/text/language、output file、target arch/OS/triple、container、subsystem、entry symbol、mode、object format、linker path、optimization level、strict/force flags、aux dir、package indexing、IR/ASM/object emission paths、additional libraries、include/system include paths、defines、Python stub paths、Java classpath、.NET references、Rust crate settings 和 `.ploy` descriptor path。
+`CompilationContext::Config` 包含 source file/text/language、output file、target arch/OS/triple、container、subsystem、entry symbol、mode、object format、linker path、optimization level、strict/force flags、aux dir、package indexing、IR/ASM/object emission paths、additional libraries、include/system include paths、defines、Python stub paths、Java classpath、.NET references、Rust crate settings 和 `.poly` descriptor path。
 
 ### 7.2 Marshal 策略
 
@@ -308,7 +308,7 @@ polyglot_common
 
 ### 8.2 跨语言链接器契约
 
-`PolyglotLinker` 接收 `.ploy` call descriptor、已校验 link entry、跨语言 symbol、descriptor 文件和 aux 目录发现结果。它解析语言/符号对，校验 ABI 兼容性，生成 glue stub，发射 relocation，跟踪 errors/warnings，并把生成 stub 暴露给主链接器。
+`PolyglotLinker` 接收 `.poly` call descriptor、已校验 link entry、跨语言 symbol、descriptor 文件和 aux 目录发现结果。它解析语言/符号对，校验 ABI 兼容性，生成 glue stub，发射 relocation，跟踪 errors/warnings，并把生成 stub 暴露给主链接器。
 
 硬失败条件：
 
@@ -323,14 +323,14 @@ polyglot_common
 
 | 工具 | 主要输入 | 主要输出 | 设计职责 |
 |---|---|---|---|
-| `polyc` | 源文件、`.ploy`、CLI flags、settings | Objects、aux artifacts、binaries/libraries、diagnostics | 完整编译流水线驱动 |
+| `polyc` | 源文件、`.poly`、CLI flags、settings | Objects、aux artifacts、binaries/libraries、diagnostics | 完整编译流水线驱动 |
 | `polyld` | Objects、descriptor files、libraries | ELF/PE/Mach-O/Wasm outputs | 链接和容器发射 |
 | `polyasm` | Assembly | Object files | 后端产物的汇编路径 |
 | `polyopt` | Textual IR | Optimized IR | 独立中端测试与优化 |
 | `polyrt` | Runtime commands/config | Runtime actions/statistics | 运行时工具 |
 | `polyver` | Host environment | Toolchain database | 工具链/包管理器发现 |
-| `polydoc` | `.ploy` source | Markdown/JSON docs | 文档注释提取 |
-| `polytopo` | `.ploy` and descriptors | Text/DOT/JSON topology | 跨语言拓扑分析 |
+| `polydoc` | `.poly` source | Markdown/JSON docs | 文档注释提取 |
+| `polytopo` | `.poly` and descriptors | Text/DOT/JSON topology | 跨语言拓扑分析 |
 | `polyls` | LSP JSON-RPC | LSP responses/notifications | 编辑器集成和诊断 |
 | `polybench` | Bench suites/settings | Benchmark results | 性能验证 |
 | `polyui` | Workspace/project files | IDE UX、panels、diagnostics | 桌面 IDE |
@@ -377,7 +377,7 @@ polyglot_common
 | Themes | `theme_schema.json`、内置 `.polytheme.json` 文件 | VS Code 风格主题发现、校验、预览和 UI 应用 |
 | Plugin API | `common/include/plugins/plugin_api.h`、`docs/specs/plugin_specification.md` | 稳定 C ABI、capability flags、host services、lifecycle |
 | Extension UI | `tools/ui/common/ext/extension_api.*`、`marketplace.*` | UI 侧 extension 和 marketplace 管理 |
-| Docs generation | `scripts/docs_generate.py`、`polydoc` | 生成文档和 `.ploy` 文档注释提取 |
+| Docs generation | `scripts/docs_generate.py`、`polydoc` | 生成文档和 `.poly` 文档注释提取 |
 
 ## 12. 样例与 Fixture
 
@@ -393,7 +393,7 @@ polyglot_common
 | 21-30 | `21_image_processing` 到 `30_game_loop_demo` | 图像、数据库、HTTP、并发、事件循环、状态机、插件系统、ML、分析、game loop |
 | 31-41 | `31_explicit_widths` 到 `41_grammar_polish` | 数值宽度、typed handles、pattern matching、default args、dynamic extend、try/catch、async/await、generics、visibility、strings、grammar polish |
 
-每个样例目录预期包含 README 中英双文档、`.ploy` 文件、必要的支持语言文件，以及 expected output 文件；环境相关场景可按项目约定例外处理。
+每个样例目录预期包含 README 中英双文档、`.poly` 文件、必要的支持语言文件，以及 expected output 文件；环境相关场景可按项目约定例外处理。
 
 ### 12.2 Fixtures
 
@@ -407,7 +407,7 @@ polyglot_common
 | API 文档 | `docs/api/` | API reference、extension API、`polyls`、`polydoc`、profile API |
 | Specs | `docs/specs/` | Language/IR、namespace、optimization、runtime ABI、plugin spec、packaging、LSP、schemas、attributes |
 | Realization notes | `docs/realization/` | 编译器、运行时、UI、互操作、语言特性、打包、settings、themes、tools 的实现说明 |
-| Tutorials | `docs/tutorial/` | `.ploy`、project、LSP、profiling、problems panel、shell、viewers、call analyzer 教程 |
+| Tutorials | `docs/tutorial/` | `.poly`、project、LSP、profiling、problems panel、shell、viewers、call analyzer 教程 |
 | Demand log | `docs/demand/demand.md` | 历史需求流和完成标记 |
 | Changelog | `docs/CHANGELOG.md`、`docs/CHANGELOG_zh.md` | 发布历史 |
 | Design | `docs/design.md`、`docs/design_zh.md` | 本仓库级设计规格 |
@@ -502,7 +502,7 @@ polyglot_common
 | `test_frontend_python` | Python frontend |
 | `test_frontend_cpp` | C++ frontend |
 | `test_frontend_rust` | Rust frontend |
-| `test_frontend_ploy` | `.ploy` frontend |
+| `test_frontend_ploy` | `.poly` frontend |
 | `test_frontend_java` | Java frontend |
 | `test_frontend_dotnet` | .NET frontend |
 | `test_frontend_javascript` | JavaScript frontend |
@@ -555,7 +555,7 @@ python3 scripts/docs_sync_check.py --ci --scope core
 | 需求区域 | 实现面 | 测试/文档面 |
 |---|---|---|
 | 多语言前端 | `frontends/`、`FrontendRegistry` | `test_frontend_*`、`docs/specs/language_spec.md` |
-| `.ploy` 编排 | `frontends/ploy/`、`tools/polyc`、`tools/polyld` | `test_frontend_ploy`、samples、`.ploy` tutorials |
+| `.poly` 编排 | `frontends/ploy/`、`tools/polyc`、`tools/polyld` | `test_frontend_ploy`、samples、`.poly` tutorials |
 | 共享 IR/优化 | `middle/` | `test_middle`、optimization spec |
 | 原生/Wasm 后端 | `backends/` | `test_backends`、binary matrix、object format tests |
 | 运行时互操作 | `runtime/` | `test_runtime`、interop integration tests、runtime ABI docs |
@@ -573,7 +573,7 @@ python3 scripts/docs_sync_check.py --ci --scope core
 
 - 构建目标或依赖方向。
 - 前端/后端/运行时/链接器契约。
-- `.ploy` 语法、语义、诊断或包行为。
+- `.poly` 语法、语义、诊断或包行为。
 - 编译流水线阶段输入/输出。
 - 影响产物的 CLI flags。
 - UI/LSP 用户可见行为。

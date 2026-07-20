@@ -55,6 +55,12 @@ std::string DetectLanguage(const std::string &path) {
   return polyglot::frontends::FrontendRegistry::Instance().DetectLanguage(path);
 }
 
+std::string CanonicalizeLanguage(const std::string &language) {
+  const auto *frontend =
+      polyglot::frontends::FrontendRegistry::Instance().GetFrontend(language);
+  return frontend ? frontend->Name() : language;
+}
+
 std::string ReadFileContent(const std::string &path) {
   std::ifstream ifs(path, std::ios::binary | std::ios::ate);
   if (!ifs.is_open())
@@ -107,7 +113,7 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "Usage: polyc [options] <source-file-or-code>\n"
           << "\n"
           << "Options:\n"
-          << "  --lang=<lang>       Language: ploy|python|cpp|rust|java|dotnet|javascript|ruby|go\n"
+          << "  --lang=<lang>       Language: poly|python|cpp|rust|java|dotnet|javascript|ruby|go\n"
           << "  -O<0-3>             Optimisation level\n"
           << "  -o <output>         Final output path; links unless -c/--mode=compile\n"
           << "  -c                  Compile only; write an object file\n"
@@ -650,6 +656,10 @@ DriverSettings ParseArgs(int argc, char **argv) {
     }
     s.include_paths.push_back(fs::path(s.source_path).parent_path().string());
   }
+  // Store only canonical frontend identifiers after parsing.  In particular,
+  // the historical `--lang=ploy` spelling remains accepted through the
+  // frontend alias table but every downstream stage sees `poly`.
+  s.language = CanonicalizeLanguage(s.language);
   return s;
 }
 
@@ -670,6 +680,38 @@ std::string SetupAuxDir(const DriverSettings &s) {
 
 std::string SourceStem(const DriverSettings &s) {
   return s.source_path.empty() ? "output" : fs::path(s.source_path).stem().string();
+}
+
+// Emit profiler sidecars from the exact IR module consumed by the backend.
+// This helper is shared by the canonical Poly staged pipeline and the
+// multi-language driver path so both produce identical schemas and metadata.
+void EmitProfilingSideOutputs(const DriverSettings &settings,
+                              const ir::IRContext *ir_ctx) {
+  if (!ir_ctx)
+    return;
+
+  const auto write_json = [&](const std::string &path, const std::string &label,
+                              const std::string &json) {
+    if (path.empty())
+      return;
+    std::ofstream ofs(path, std::ios::binary | std::ios::trunc);
+    if (ofs.is_open()) {
+      ofs << json;
+      if (settings.verbose)
+        std::cerr << "[polyc] wrote " << label << ": " << path << "\n";
+    } else if (settings.verbose) {
+      std::cerr << "[warn] could not open " << path << "\n";
+    }
+  };
+
+  if (!settings.emit_call_graph_path.empty()) {
+    write_json(settings.emit_call_graph_path, "call graph",
+               polyglot::tools::polyc::EmitCallGraphJson(*ir_ctx, settings.source_path));
+  }
+  if (!settings.emit_profile_symbols_path.empty()) {
+    write_json(settings.emit_profile_symbols_path, "profile symbols",
+               polyglot::tools::polyc::EmitProfileSymbolsJson(*ir_ctx, settings.source_path));
+  }
 }
 
 // ---- Error summary (aggregated by error code) ---------------------------
@@ -968,7 +1010,7 @@ int main(int argc, char **argv) {
   // ---- BIN-7: target triple + container resolution ----------------------
   // 1. If `--target=<spec>` was provided, parse it; reject malformed
   //    specs early with a structured error code.
-  // 2. Otherwise default to the host triple so a bare `polyc foo.ploy`
+  // 2. Otherwise default to the host triple so a bare `polyc foo.poly`
   //    keeps producing host-native artefacts.
   // 3. Resolve `container` from the triple using the shared helper so
   //    every tool reaches the same conclusion for the same input.
@@ -1069,8 +1111,8 @@ int main(int argc, char **argv) {
   if (settings.jobs > 1 && V)
     std::cerr << "[polyc] -j" << settings.jobs << " noted (single-threaded for now)\n";
 
-  // ---- .ploy: delegate to existing CompilationPipeline ------------------
-  if (settings.language == "ploy") {
+  // ---- .poly: delegate to existing CompilationPipeline ------------------
+  if (settings.language == "poly") {
     std::string aux_dir = SetupAuxDir(settings);
     std::string source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
 
@@ -1095,6 +1137,7 @@ int main(int argc, char **argv) {
     cfg.verbose = settings.verbose;
     cfg.strict_mode = settings.strict;
     cfg.force = settings.force;
+    cfg.profile_instrument = settings.profile_instrument;
     cfg.aux_dir = aux_dir;
     cfg.package_index = settings.package_index;
     cfg.package_index_timeout_ms = settings.package_index_timeout_ms;
@@ -1114,8 +1157,14 @@ int main(int argc, char **argv) {
     polyglot::compilation::CompilationPipeline pipeline(std::move(cfg));
     bool ok = false;
     {
-      StageTimer t("Staged compilation pipeline (.ploy)", V, settings.progress_json, 1, 1);
-      ok = pipeline.RunAll();
+      StageTimer t("Staged compilation pipeline (.poly)", V, settings.progress_json, 1, 1);
+      ok = pipeline.RunFrontend() && pipeline.RunSemantic() && pipeline.RunMarshalPlan() &&
+           pipeline.RunBridgeGeneration() && pipeline.RunBackend();
+      if (ok) {
+        const auto *backend = pipeline.GetBackendOutput();
+        EmitProfilingSideOutputs(settings, backend ? backend->ir_ctx.get() : nullptr);
+        ok = pipeline.RunPackaging();
+      }
       t.Stop();
     }
     if (!ok) {
@@ -1133,7 +1182,7 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  // ---- Non-.ploy: six-stage pipeline -----------------------------------
+  // ---- Non-.poly: six-stage pipeline -----------------------------------
   std::string aux_dir = SetupAuxDir(settings);
   std::string stem = SourceStem(settings);
   if (!aux_dir.empty() && V)
@@ -1230,36 +1279,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Optional emission: static call-graph + profile-symbol map.  Both are
-  // pure side outputs; failure to write the file does not abort the
-  // build, only logs a warning.
-  if (backend.ir_ctx) {
-    if (!settings.emit_call_graph_path.empty()) {
-      const std::string json = polyglot::tools::polyc::EmitCallGraphJson(
-          *backend.ir_ctx, settings.source_path);
-      std::ofstream ofs(settings.emit_call_graph_path);
-      if (ofs.is_open()) {
-        ofs << json;
-        if (V)
-          std::cerr << "[polyc] wrote call graph: " << settings.emit_call_graph_path << "\n";
-      } else if (V) {
-        std::cerr << "[warn] could not open " << settings.emit_call_graph_path << "\n";
-      }
-    }
-    if (!settings.emit_profile_symbols_path.empty()) {
-      const std::string json = polyglot::tools::polyc::EmitProfileSymbolsJson(
-          *backend.ir_ctx, settings.source_path);
-      std::ofstream ofs(settings.emit_profile_symbols_path);
-      if (ofs.is_open()) {
-        ofs << json;
-        if (V)
-          std::cerr << "[polyc] wrote profile symbols: " << settings.emit_profile_symbols_path
-                    << "\n";
-      } else if (V) {
-        std::cerr << "[warn] could not open " << settings.emit_profile_symbols_path << "\n";
-      }
-    }
-  }
+  // Optional profiler side outputs are generated before packaging so an
+  // object/link failure cannot discard metadata from a successful backend.
+  EmitProfilingSideOutputs(settings, backend.ir_ctx.get());
 
   // Stage 6
   PackagingResult packaging;

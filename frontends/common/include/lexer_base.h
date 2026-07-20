@@ -39,7 +39,7 @@ enum class TokenKind {
 struct Token {
   TokenKind kind{TokenKind::kUnknown};
   // Canonical lexeme.  For keywords this is the language's canonical spelling
-  // (e.g. always upper-case in Ploy), so that downstream parser / sema code
+  // (e.g. always upper-case in Poly), so that downstream parser / sema code
   // can compare against a single fixed string regardless of how the user
   // typed the keyword in source.  For identifiers, numbers, strings,
   // operators and punctuation this stores the source text verbatim.

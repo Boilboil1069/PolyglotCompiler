@@ -6,12 +6,12 @@ Multi-stage PIPELINE composing C++ image preprocessing with a Python ML model un
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | PIPELINE, IF, WHILE, FOR, MATCH |
-| Entry     | `pipeline.ploy` |
+| Entry     | `pipeline.poly` |
 
 ## Build
 
 ```powershell
-polyc 03_pipeline\pipeline.ploy --emit-obj=pipeline.pobj --obj-format=pobj
+polyc 03_pipeline\pipeline.poly --emit-obj=pipeline.pobj --obj-format=pobj
 polyld pipeline.pobj -o pipeline.exe
 ```
 

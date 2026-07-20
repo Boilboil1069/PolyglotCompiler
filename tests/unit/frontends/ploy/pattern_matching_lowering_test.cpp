@@ -97,7 +97,7 @@ bool AllBlocksTerminated(const Function &fn) {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH with integer literal arms lowers to a SwitchStatement",
-          "[ploy][lowering][pattern_matching][branch_table]") {
+          "[poly][lowering][pattern_matching][branch_table]") {
   LowerEnv env;
   REQUIRE(LowerSource(
       "FUNC pick(x: i32) -> i32 {\n"
@@ -143,7 +143,7 @@ TEST_CASE("MATCH with integer literal arms lowers to a SwitchStatement",
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH with a range arm falls back to the structural cascade",
-          "[ploy][lowering][pattern_matching][branch_table]") {
+          "[poly][lowering][pattern_matching][branch_table]") {
   LowerEnv env;
   REQUIRE(LowerSource(
       "FUNC bucket(x: i32) -> i32 {\n"
@@ -183,7 +183,7 @@ TEST_CASE("MATCH with a range arm falls back to the structural cascade",
 // ----------------------------------------------------------------------------
 
 TEST_CASE("MATCH on OPTION lowers via the structural cascade",
-          "[ploy][lowering][pattern_matching][branch_table]") {
+          "[poly][lowering][pattern_matching][branch_table]") {
   LowerEnv env;
   REQUIRE(LowerSource(
       "FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {\n"

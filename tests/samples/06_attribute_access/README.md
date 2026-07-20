@@ -6,7 +6,7 @@ GET / SET reading and writing foreign object attributes across the language boun
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | GET, SET |
-| Entry     | `attribute_access.ploy` |
+| Entry     | `attribute_access.poly` |
 
 ## How to run
 
@@ -15,7 +15,7 @@ GET / SET reading and writing foreign object attributes across the language boun
 ## Build
 
 ```powershell
-polyc 06_attribute_access\attribute_access.ploy --emit-obj=attribute_access.pobj --obj-format=pobj
+polyc 06_attribute_access\attribute_access.poly --emit-obj=attribute_access.pobj --obj-format=pobj
 polyld attribute_access.pobj -o attribute_access.exe
 ```
 

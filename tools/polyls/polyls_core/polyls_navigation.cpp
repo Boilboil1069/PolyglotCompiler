@@ -9,9 +9,9 @@
  * The handlers share a uniform `(uri, position) → identifier` lookup
  * step that locates the token under the cursor in the open document.
  * Cross-language navigation goes through @ref SymbolIndex helpers
- * (`CrossLanguageTarget` / `CrossLanguageBackrefs`) so that a `.ploy`
+ * (`CrossLanguageTarget` / `CrossLanguageBackrefs`) so that a `.poly`
  * `LINK` site can hop to its host-language target and host-language
- * symbols can reverse-list the `.ploy` LINK sites that import them.
+ * symbols can reverse-list the `.poly` LINK sites that import them.
  *
  * @ingroup  Tool / polyls
  * @author   Manning Cyrus
@@ -199,7 +199,7 @@ void PolylsServer::HandleDefinition(int id, const Json &params) {
   }
   std::vector<SymbolLocation> hits = index_->Definition(r.token.bare);
 
-  // Cross-language: if we're in a `.ploy` LINK target qualifier
+  // Cross-language: if we're in a `.poly` LINK target qualifier
   // ("cpp::module::func") jump to the host file.
   if (!r.token.language.empty()) {
     const std::size_t sep = r.token.qualified.find("::");
@@ -233,7 +233,7 @@ void PolylsServer::HandleDeclaration(int id, const Json &params) {
 // textDocument/implementation
 // ---------------------------------------------------------------------------
 //
-// For `.ploy` LINK declarations the implementation IS the host-language
+// For `.poly` LINK declarations the implementation IS the host-language
 // target.  For ordinary FUNC / STRUCT entries the implementation
 // coincides with the definition.
 
@@ -299,8 +299,8 @@ void PolylsServer::HandleReferences(int id, const Json &params) {
       index_->References(r.token.bare, include_decl);
 
   // Reverse cross-language: a host-language symbol additionally lists
-  // every `.ploy` LINK site that imports it.
-  if (r.language_id != "ploy" && r.language_id != "poly" &&
+  // every `.poly` LINK site that imports it.
+  if (r.language_id != "poly" && r.language_id != "ploy" &&
       !r.language_id.empty()) {
     auto back = index_->CrossLanguageBackrefs(r.language_id, r.token.bare);
     hits.insert(hits.end(), back.begin(), back.end());

@@ -9,7 +9,7 @@
 * **折叠**：基于括号平衡 + 多行 `/* … */` 注释 + `// region`/`// endregion`
   显式标记。
 * **格式化**：`polyls` 实现 `textDocument/formatting`、`rangeFormatting`、
-  `onTypeFormatting`（针对 `.ploy`）；外语种走各自 LSP。
+  `onTypeFormatting`（针对 `.poly`）；外语种走各自 LSP。
 * **Snippets**：VS Code 风格的 tabstop / 选项 / 变量；用户 JSON 与内置库。
 * **EditorConfig**：精简 `.editorconfig` 解析（支持完整 glob），结果驱动
   格式化器与状态栏。

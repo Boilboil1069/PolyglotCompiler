@@ -1,8 +1,8 @@
-# .ploy 包管理
+# .poly 包管理
 
 ## 概述
 
-`.ploy` 语言提供了全面的包管理功能，允许从不同语言生态系统（Python、Rust、C++、Java、.NET）导入包，
+`.poly` 语言提供了全面的包管理功能，允许从不同语言生态系统（Python、Rust、C++、Java、.NET）导入包，
 支持版本约束、选择性导入、包自动发现和虚拟环境配置。
 
 ## 功能
@@ -13,7 +13,7 @@
 
 **语法：**
 
-```ploy
+```poly
 IMPORT <语言> PACKAGE <包名> <版本运算符> <版本号>;
 ```
 
@@ -34,7 +34,7 @@ IMPORT <语言> PACKAGE <包名> <版本运算符> <版本号>;
 
 **示例：**
 
-```ploy
+```poly
 // 要求 NumPy 版本 1.20 或更高
 IMPORT python PACKAGE numpy >= 1.20;
 
@@ -57,13 +57,13 @@ IMPORT python PACKAGE numpy >= 1.20 AS np;
 
 **语法：**
 
-```ploy
+```poly
 IMPORT <语言> PACKAGE <包名>::(<符号1>, <符号2>, ...);
 ```
 
 **示例：**
 
-```ploy
+```poly
 // 仅从 numpy 导入 array、mean 和 std
 IMPORT python PACKAGE numpy::(array, mean, std);
 
@@ -87,7 +87,7 @@ IMPORT <语言> PACKAGE <包名>[::(<符号列表>)] [<版本运算符> <版本�
 > **注意：** 版本约束 `>= 1.20` 修饰的是**整个包**（如 numpy），而非选择性导入的符号。
 > 选择性导入 `::()` 紧跟包名，表示"从该包中仅导入这些符号"；版本约束在其后，表示"该包的版本要求"。
 
-```ploy
+```poly
 // 选择性导入 + 版本约束：要求 numpy >= 1.20，且仅导入 array 和 mean
 IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 
@@ -136,7 +136,7 @@ IMPORT python PACKAGE torch >= 2.0 AS pt;
 
 **语法（规范形式，自 v1.12.0 起）：**
 
-```ploy
+```poly
 CONFIG <语言> "<包管理器>" "<路径或环境名>";
 ```
 
@@ -146,7 +146,7 @@ CONFIG <语言> "<包管理器>" "<路径或环境名>";
 
 **示例：**
 
-```ploy
+```poly
 // 配置 Python 虚拟环境（语言默认为 "python"）
 CONFIG VENV python "C:/Users/me/envs/data_science";
 
@@ -161,14 +161,14 @@ IMPORT python PACKAGE numpy >= 1.20;
 **规则：**
 - 每个编译单元每种语言只允许一个虚拟环境配置
 - 同一语言的重复 `CONFIG VENV` 会产生编译时错误
-- 语言必须是有效的支持语言（cpp、python、rust、c、ploy）
+- 语言必须是有效的支持语言（cpp、python、rust、c、poly）
 - 虚拟环境路径用于运行包发现命令
 - 在 Windows 上，虚拟环境的 Python 位于 `<venv_path>\Scripts\python.exe`
 - 在 Unix/macOS 上，虚拟环境的 Python 位于 `<venv_path>/bin/python`
 
 ## 完整示例
 
-```ploy
+```poly
 // 配置 Python 虚拟环境
 CONFIG VENV python "C:/Users/me/envs/data_science";
 
@@ -247,7 +247,7 @@ JavaScript 的 `pnpm`）只需修改一行表项，无需触动词法或语法�
 
 完成上述改动后，源码可立即使用新的规范形式：
 
-```ploy
+```poly
 CONFIG python "pdm" "./pyproject.toml";
 ```
 

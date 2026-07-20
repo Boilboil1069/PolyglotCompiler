@@ -1,13 +1,13 @@
 ﻿# PolyglotCompiler 用户指南
 
-> **文档版本**：4.0.0  
-> **最后更新**：2026-05-07  
-> **项目**：PolyglotCompiler 1.45.2  
+> **文档版本**：4.0.0<br>
+> **最后更新**：2026-07-20<br>
+> **项目**：PolyglotCompiler 1.48.0<br>
 > **配套文档**：[USER_GUIDE.md](USER_GUIDE.md)
 
 PolyglotCompiler 完整动手指南——一条多语言编译器工具链：吞入
 C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
-**Ploy** 胶水语言，统一降到同一份中间表示（IR），并为
+**Poly** 胶水语言，统一降到同一份中间表示（IR），并为
 **x86_64**、**ARM64** 与 **WebAssembly** 生成原生代码。配套 IDE
 （`polyui`）提供基于 LSP 的多语言编辑器、调试器、性能分析器、调用关系
 分析器、包管理视图与测试浏览器。
@@ -19,7 +19,7 @@ C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
 1. [简介](#1-简介)
 2. [快速开始](#2-快速开始)
 3. [架构总览](#3-架构总览)
-4. [Ploy 胶水语言](#4-ploy-胶水语言)
+4. [Poly 胶水语言](#4-poly-胶水语言)
 5. [语言前端](#5-语言前端)
 6. [工具与命令行驱动](#6-工具与命令行驱动)
 7. [统一 IR](#7-统一-ir)
@@ -43,7 +43,7 @@ C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
 
 PolyglotCompiler 把多语言混合的源码树编译成一份链接产物。一个程序
 可以同时引入 C++ 图像滤镜、Rust 序列化器、Python 机器学习模型与
-Go HTTP 客户端，由 `.ploy` 驱动文件粘合，最终产出 x86_64、ARM64 或
+Go HTTP 客户端，由 `.poly` 驱动文件粘合，最终产出 x86_64、ARM64 或
 WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建：
 
 1. **统一 IR。** 每种支持语言降到同一份 SSA、三地址形式的 IR；优化、
@@ -57,9 +57,9 @@ WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建�
 
 ### 1.2 能力矩阵速览
 
-| 领域       | 1.45.2 状态                                                                                                  |
+| 领域       | 1.48.0 状态                                                                                                  |
 |------------|--------------------------------------------------------------------------------------------------------------|
-| 前端       | C++、Python、Rust、Java、.NET（C#）、Go、JavaScript、Ruby、Ploy，共 9 个。                                    |
+| 前端       | C++、Python、Rust、Java、.NET（C#）、Go、JavaScript、Ruby、Poly，共 9 个。                                    |
 | 后端       | x86_64（System V + Win64 + macOS Mach-O）、ARM64（AAPCS64，Linux ELF + macOS Mach-O）、WebAssembly MVP+SIMD。 |
 | 工具驱动   | `polyc`、`polyld`、`polyasm`、`polyopt`、`polyrt`、`polybench`、`polytopo`、`polyls`、`polydoc`、`polyver`、`polyui`，共 11 个。 |
 | 垃圾回收器 | 标记—清扫、三色、分代、引用计数（4 种算法，运行时可选）。                                                     |
@@ -89,7 +89,7 @@ WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建�
 | 第一次构建项目                      | [§ 2.2](#22-克隆与构建)                                                          |
 | 编译单个 C++ 文件                   | [§ 2.3](#23-第一个-c-程序)                                                       |
 | 把 C++ 接进 Python 流水线           | [§ 2.4](#24-第一个跨语言流水线)                                                   |
-| 学习 Ploy 文法                      | [第 4 章](#4-ploy-胶水语言) 与 [tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md) |
+| 学习 Poly 文法                      | [第 4 章](#4-poly-胶水语言) 与 [tutorial/poly_language_tutorial_zh.md](tutorial/poly_language_tutorial_zh.md) |
 | 写一个新优化 pass                   | [§ 8.6](#86-编写-pass) 与 [§ 16.4](#164-新增中端-pass)                            |
 | 接入全新源语言                      | [§ 16.5](#165-新增前端) 与 [§ 17.3](#173-必选导出)                                 |
 | 性能分析长时间运行的程序            | [§ 13.3](#133-性能分析器) 与 [tutorial/profiling_quickstart_zh.md](tutorial/profiling_quickstart_zh.md) |
@@ -190,10 +190,10 @@ build/polyc hello.cpp -o hello --opt=O0 -g        # 调试构建
 
 ### 2.4 第一个跨语言流水线
 
-`tests/samples/09_mixed_pipeline/mixed_pipeline.ploy` 把 C++ 图像
+`tests/samples/09_mixed_pipeline/mixed_pipeline.poly` 把 C++ 图像
 滤镜与 Python 分类器粘在一起：
 
-```ploy
+```poly
 LINK cpp::filter::sharpen   AS sharpen(image: bytes) -> bytes;
 LINK python::ml::classify   AS classify(image: bytes) -> string;
 
@@ -207,7 +207,7 @@ PIPELINE main(path: string) -> string {
 构建并运行：
 
 ```sh
-build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy \
+build/polyc tests/samples/09_mixed_pipeline/mixed_pipeline.poly \
             -o build/mixed_pipeline
 build/mixed_pipeline tests/samples/09_mixed_pipeline/sample.png
 ```
@@ -226,9 +226,9 @@ wasmtime hello.wasm; echo $?
 wasm 后端写出符合 WASM 1.0 的模块，并启用 SIMD-128 指令；详见
 [第 10 章](#10-后端)。
 
-### 2.6 从零写一个 Ploy 程序
+### 2.6 从零写一个 Poly 程序
 
-```ploy
+```poly
 FN factorial(n: i64) -> i64 {
     IF n <= 1 { RETURN 1; }
     RETURN n * factorial(n - 1);
@@ -241,7 +241,7 @@ FN main() -> i32 {
 ```
 
 ```sh
-build/polyc fact.ploy -o fact && ./fact
+build/polyc fact.poly -o fact && ./fact
 3628800
 ```
 
@@ -272,7 +272,7 @@ build/polyui &
 ```
                           ┌─────────────┐
    .cpp .py .rs .java .cs │   前端集    │   ──►  统一 IR（文本或二进制）
-   .go .js .rb .ploy      └─────┬───────┘
+   .go .js .rb .poly      └─────┬───────┘
                                 │
                                 ▼
                        ┌────────────────┐
@@ -356,13 +356,13 @@ argv  →  CLI 解析  →  driver
 
 ---
 
-## 4. Ploy 胶水语言
+## 4. Poly 胶水语言
 
-完整参考：[tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md)。
+完整参考：[tutorial/poly_language_tutorial_zh.md](tutorial/poly_language_tutorial_zh.md)。
 
-### 4.1 为什么需要 Ploy
+### 4.1 为什么需要 Poly
 
-Ploy 用来粘合异构代码单元。一份 `.ploy` 文件声明导入、类型映射、
+Poly 用来粘合异构代码单元。一份 `.poly` 文件声明导入、类型映射、
 转换函数与流水线，而不再实现宿主语言。它刻意保持精简：整个文法
 只有 54 个关键字。
 
@@ -397,7 +397,7 @@ Ploy 用来粘合异构代码单元。一份 `.ploy` 文件声明导入、类型
 
 ### 4.4 包管理器自动发现
 
-`polyc` 调用一份 `.ploy` 驱动文件时，会遍历同级目录识别下表清单，
+`polyc` 调用一份 `.poly` 驱动文件时，会遍历同级目录识别下表清单，
 然后请求对应前端引入项目：
 
 | 清单                                  | 前端         | 备注                                          |
@@ -410,11 +410,11 @@ Ploy 用来粘合异构代码单元。一份 `.ploy` 文件声明导入、类型
 | `go.mod`                              | Go           | 仅支持无 `GOPATH` 的模块模式。                |
 | `package.json`                        | JavaScript   | 用 npm / pnpm / yarn 锁文件解析。             |
 | `Gemfile`                             | Ruby         | Bundler 解析；运行时为 `ruby`。               |
-| `.ploy.toml`                          | Ploy         | 项目级 Ploy 设置。                            |
+| `.poly.toml`                          | Poly         | 项目级 Poly 设置。                            |
 
 ### 4.5 IMPORT 包语法
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy >= 1.20;                  // 版本约束
 IMPORT python PACKAGE numpy::(array, mean);           // 选择性导入
 IMPORT python PACKAGE numpy >= 1.20 AS np;            // 别名
@@ -428,7 +428,7 @@ IMPORT java   PACKAGE org.json::(JSONObject) AS json;
 
 ### 4.6 跨语言调用
 
-```ploy
+```poly
 LINK cpp::graphics::draw_point  AS draw(p: ptr<u8>) -> void;
 LINK python::numpy::mean        AS mean(xs: list<f64>) -> f64;
 LINK rust::serde_json::to_string AS to_json<T>(value: T) -> string;
@@ -444,7 +444,7 @@ FN demo() -> void {
 
 ### 4.7 跨语言类实例化
 
-```ploy
+```poly
 LINK cpp::geometry::Point AS Point CLASS {
     NEW(x: f64, y: f64) -> Point;
     FN  norm(self: Point) -> f64;
@@ -463,7 +463,7 @@ FN distance() -> f64 {
 ### 4.8 编译模型
 
 ```
-.ploy → ploy 前端 ──┐
+.poly → poly 前端 ──┐
 .cpp  → cpp  前端 ──┤
 .py   → py   前端 ──┼──► 统一 IR ──► 中端 ──► 后端 ──► polyld ──► 产物
 .rs   → rust 前端 ──┘
@@ -475,7 +475,7 @@ FN distance() -> f64 {
 
 ### 4.9 诊断标识符
 
-Ploy 诊断与其他前端共用统一目录，标识符格式
+Poly 诊断与其他前端共用统一目录，标识符格式
 `polyc-(err|warn)-<E####|W####>`。常见条目：
 
 | Id                | 含义                                                        |
@@ -488,7 +488,8 @@ Ploy 诊断与其他前端共用统一目录，标识符格式
 | `polyc-warn-W0701`| 未使用的 `LINK` 声明。                                       |
 | `polyc-warn-W0903`| bridge 调用缺少对端符号。                                    |
 
-完整目录见 [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md)。
+维护中的 Poly 目录见
+[Poly 语言教程第 20 节](tutorial/poly_language_tutorial_zh.md#20-诊断码)。
 
 ---
 
@@ -523,7 +524,7 @@ Ploy 诊断与其他前端共用统一目录，标识符格式
 * 异常展开使用平台原生 unwinder；wasm 上走 JS trap 路径。
 * 模板按需实例化；约束折叠在实例化前完成。
 
-`.ploy` 流水线里被引入的示例：
+`.poly` 流水线里被引入的示例：
 
 ```cpp
 // frontends/cpp/examples/sharpen.cpp
@@ -586,7 +587,7 @@ ES2023 子集；类型推导无法证明更窄类型时使用 NaN 标记。出�
 Ruby 3.3 子集；block 降为 closure；常见 DSL 模式
 （`define_method`、`attr_accessor`）在降级期被识别折叠。
 
-### 5.9 Ploy 前端
+### 5.9 Poly 前端
 
 参考前端；完整文法 54 关键字。负责包发现、bridge 声明、转换、
 流水线、异步与泛型。该前端同时驱动 `polyc --format`。
@@ -624,13 +625,13 @@ polyc [options] <inputs…> [-o <output>]
 示例：
 
 ```sh
-polyc main.ploy -o main                                          # 默认 O2
-polyc main.ploy --opt=O3 --lto=thin -o main                      # 发布构建
-polyc main.ploy --target=aarch64-apple-darwin -o main.arm64
-polyc --check main.ploy | jq '.diagnostics[].message'
-polyc --emit=ir:main.ir --emit=asm:main.s main.ploy
-polyc --pgo=instrument main.ploy -o main_inst
-polyc --pgo=use=main.profdata main.ploy -o main_pgo
+polyc main.poly -o main                                          # 默认 O2
+polyc main.poly --opt=O3 --lto=thin -o main                      # 发布构建
+polyc main.poly --target=aarch64-apple-darwin -o main.arm64
+polyc --check main.poly | jq '.diagnostics[].message'
+polyc --emit=ir:main.ir --emit=asm:main.s main.poly
+polyc --pgo=instrument main.poly -o main_inst
+polyc --pgo=use=main.profdata main.poly -o main_pgo
 ```
 
 退出码：
@@ -1035,7 +1036,7 @@ bridge 调用点示例：
 
 ### 9.3 各语言运行时
 
-`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,ploy}/` 提供前端在
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` 提供前端在
 运行时所需的最小机制：异常 unwinder、异步调度器、值装箱、内建辅助。
 各运行时暴露 `Init(Host *host)` 与 `Shutdown()`，由主程序的开头/末尾
 调用。
@@ -1054,8 +1055,8 @@ bridge 调用点示例：
 ### 9.5 调试信息
 
 ELF/Mach-O 上为 DWARF 5，PE 上为 CodeView，WebAssembly 上同时输出
-`name` 段与 DWARF 段。Ploy 行指令拥有源码映射，调试器可在原始
-`.ploy` 文件单步，即便执行点位于宿主语言栈帧。
+`name` 段与 DWARF 段。Poly 行指令拥有源码映射，调试器可在原始
+`.poly` 文件单步，即便执行点位于宿主语言栈帧。
 
 ### 9.6 异常
 
@@ -1183,7 +1184,7 @@ SECTIONS {
 ### 12.1 组成
 
 * `polyui` —— Qt 6 外壳。
-* `polyls` —— Ploy 的 stdio LSP 服务器，并按语言分派第三方服务器。
+* `polyls` —— Poly 的 stdio LSP 服务器，并按语言分派第三方服务器。
 * `IdeLspBridge` —— 将编辑器事件翻译为 LSP 消息的 IDE 端适配器，
   以 200 ms 节流。
 * `IdeDapBridge` —— 适配 `lldb-dap`、`debugpy`、`delve`、
@@ -1193,7 +1194,7 @@ SECTIONS {
 
 | 语言         | 默认 `command`                          |
 |--------------|-----------------------------------------|
-| ploy         | `polyls`                                |
+| poly         | `polyls`                                |
 | cpp          | `clangd`                                |
 | python       | `pyright-langserver --stdio`            |
 | rust         | `rust-analyzer`                         |
@@ -1365,8 +1366,8 @@ hex 查看器、覆盖 ELF/PE/Mach-O/WASM 的二进制检查器，以及含 SQL 
 
 ### 13.1 诊断标识符
 
-每条诊断都有稳定的 `polyc-(err|warn)-<E####|W####>` 标识，完整目录
-见 [specs/ploy_diagnostics.md](specs/ploy_diagnostics.md)。
+每条诊断都有稳定的 `polyc-(err|warn)-<E####|W####>` 标识；维护中的 Poly
+目录见 [Poly 语言教程第 20 节](tutorial/poly_language_tutorial_zh.md#20-诊断码)。
 
 严重度映射：
 
@@ -1389,7 +1390,7 @@ hex 查看器、覆盖 ELF/PE/Mach-O/WASM 的二进制检查器，以及含 SQL 
 工作流：
 
 ```sh
-polyc --profile-instrument main.ploy -o build/main \
+polyc --profile-instrument main.poly -o build/main \
       --emit=call-graph:build/main.cgjson \
       --emit=profile-symbols:build/main.symjson
 polyrt profile --json build/main.profile.json --duration-ms 2000 build/main
@@ -1468,7 +1469,7 @@ ctest --test-dir build -T memcheck              # 在 valgrind 下
 
 | 示例                                  | 演示                                          |
 |---------------------------------------|-----------------------------------------------|
-| `00_minimal`                          | 单 `.ploy` 文件，无宿主导入。                 |
+| `00_minimal`                          | 单 `.poly` 文件，无宿主导入。                 |
 | `01_basic_linking` / `_v2`            | 通过 `LINK` 跨语言链接。                      |
 | `02_struct_types`                     | 聚合类型与模式匹配。                          |
 | `03_generic_functions`                | 受约束泛型。                                  |
@@ -1478,11 +1479,11 @@ ctest --test-dir build -T memcheck              # 在 valgrind 下
 | `07_io_and_files`                     | 标准 I/O bridge。                             |
 | `08_collections`                      | 列表 / map / set 跨语言桥接。                 |
 | `09_mixed_pipeline`                   | C++ + Python 流水线驱动。                     |
-| `10_rust_serde`                       | Rust serde 从 Ploy 桥接。                     |
+| `10_rust_serde`                       | Rust serde 从 Poly 桥接。                     |
 | `11_java_records`                     | Java record 映射到 IR `struct`。              |
 | `12_dotnet_async`                     | C# async 降到运行时调度器。                   |
 | `13_go_concurrency`                   | goroutine 与 channel。                        |
-| `14_javascript_promises`              | JS Promise 与 Ploy `ASYNC` 互通。             |
+| `14_javascript_promises`              | JS Promise 与 Poly `ASYNC` 互通。             |
 | `15_async_await`                      | 异步函数与任务调度器。                        |
 | `16_ruby_blocks`                      | Ruby block 降为 closure。                     |
 | `17_optional_match`                   | `OPTION` / `MATCH` 穷尽。                     |
@@ -1593,13 +1594,13 @@ docker run --rm -it -v "$PWD":/work polyglot/ubuntu-ci \
 ### 15.5 版本
 
 项目版本的唯一真源是根 [CMakeLists.txt](CMakeLists.txt)
-（`project(PolyglotCompiler VERSION 1.45.2)`）。所有版本变更必须
+（`project(PolyglotCompiler VERSION 1.48.0)`）。所有版本变更必须
 触动该行；`scripts/bump_version.py` 强制此规则。
 
 ```sh
-python scripts/bump_version.py --part=patch   # 1.45.2 → 1.45.3
-python scripts/bump_version.py --part=minor   # 1.45.2 → 1.46.0
-python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
+python scripts/bump_version.py --part=patch   # 1.48.0 → 1.48.1
+python scripts/bump_version.py --part=minor   # 1.48.0 → 1.49.0
+python scripts/bump_version.py --part=major   # 1.48.0 → 2.0.0
 ```
 
 该脚本同时更新根 `CMakeLists.txt`、内嵌于 `polyver` 的版本与双语
@@ -1623,13 +1624,13 @@ python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
 
 ## 16. 扩展编译器
 
-### 16.1 新增 Ploy 关键字
+### 16.1 新增 Poly 关键字
 
 1. 扩展 `frontends/ploy/lexer.cpp` 的词法表。
 2. 在 `frontends/ploy/parser.cpp` 添加文法产生式。
 3. 在 `frontends/ploy/lower.cpp` 把它降到现有 IR。
 4. 在
-   [tutorial/ploy_language_tutorial.md](tutorial/ploy_language_tutorial.md)
+   [tutorial/poly_language_tutorial.md](tutorial/poly_language_tutorial.md)
    及 ZH 对应文档记录关键字。
 5. 在 `tests/samples/` 增加示例。
 6. 在 `tests/unit/frontend_ploy/` 增加前端测试。
@@ -1679,7 +1680,7 @@ python scripts/bump_version.py --part=major   # 1.45.2 → 2.0.0
 
 * C++：`.clang-format` 配置；clang-tidy 强制 modernize-* 与
   bugprone-*。
-* Ploy：内置 `polyc --format` 是格式化基准。
+* Poly：内置 `polyc --format` 是格式化基准。
 * 所有源内注释一律英文。
 * 不允许在注释中出现 “minimal”、“stub”、“placeholder” 等用语。
 * 公共 API 必须有 `///` 文档注释，由 `polydoc` 解析。
@@ -1817,7 +1818,7 @@ cc -shared -fPIC -I /opt/polyglot/include hello.c \
 | CTest target    | 注册到 CTest 的逻辑测试可执行（本项目共 30 个）。                     |
 | Driver          | `build/` 下任意一个工具二进制（共 11 个）。                           |
 | Frontend        | 把某种源语言降到统一 IR 的静态库。                                    |
-| Pipeline        | Ploy 中的 `PIPELINE` 链；亦指优化 pass 序列。                         |
+| Pipeline        | Poly 中的 `PIPELINE` 链；亦指优化 pass 序列。                         |
 | Sample          | `tests/samples/` 下的编号项目。                                       |
 | Triple          | 传给 `--target=` 的 `arch-vendor-os-abi` 字符串。                     |
 | Sysroot         | 交叉编译时使用的工具链根。                                            |
@@ -1891,8 +1892,8 @@ cmake --build build --target package_windows
 
 * [tutorial/project_tutorial_zh.md](tutorial/project_tutorial_zh.md) ——
   新人导览。
-* [tutorial/ploy_language_tutorial_zh.md](tutorial/ploy_language_tutorial_zh.md)
-  —— Ploy 语言参考。
+* [tutorial/poly_language_tutorial_zh.md](tutorial/poly_language_tutorial_zh.md)
+  —— Poly 语言参考。
 * [specs/](specs/) —— 机器可读的 schema（调用图、profile 流、诊断）。
 * [realization/](realization/) —— 各子系统设计笔记。
 * [api/](api/) —— 公共 ABI 文档（`polyls`、插件 SDK、运行时）。
@@ -1905,7 +1906,7 @@ A. PolyglotCompiler 需要 IR 中的一等 `bridge_call`、GC barrier 与
 变通，所以放弃。
 
 **Q. 可以只用某一个前端吗？**
-A. 可以。configure 时设置 `POLY_BUILD_FRONTENDS="cpp;ploy"` 即可
+A. 可以。configure 时设置 `POLY_BUILD_FRONTENDS="cpp;poly"` 即可
 舍弃其他前端。
 
 **Q. macOS arm64 二进制可公证吗？**
@@ -1924,7 +1925,7 @@ A. 仅在不兼容变更时增大 ABI 版本。插件宿主拒绝加载用不同
 
 精简变更日志见 [VERSION.txt](../VERSION.txt) 与
 `scripts/release_notes.py` 生成的发布说明。当前版本为
-**PolyglotCompiler 1.45.2**。
+**PolyglotCompiler 1.48.0**。
 
 ### 18.9 许可证
 

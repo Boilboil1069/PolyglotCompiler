@@ -1,8 +1,8 @@
 /**
  * @file     sema.cpp
- * @brief    Ploy language frontend implementation
+ * @brief    Poly language frontend implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
@@ -20,6 +20,13 @@
 namespace polyglot::ploy {
 
 namespace {
+
+std::string CanonicalizePolyAlias(const std::string &language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return (folded == "poly" || folded == "ploy") ? "poly" : language;
+}
 
 // Returns true when `expr` is a constant-foldable expression — i.e. a
 // literal, a unary/binary expression whose operands are themselves
@@ -39,7 +46,7 @@ bool IsConstFoldableExpression(const std::shared_ptr<Expression> &expr) {
     return IsConstFoldableExpression(bin->left) &&
            IsConstFoldableExpression(bin->right);
   if (auto call = std::dynamic_pointer_cast<CallExpression>(expr)) {
-    // Only intra-Ploy calls qualify; cross-language calls observe
+    // Only intra-Poly calls qualify; cross-language calls observe
     // foreign runtime state and may have side effects.
     if (!std::dynamic_pointer_cast<Identifier>(call->callee) &&
         !std::dynamic_pointer_cast<QualifiedIdentifier>(call->callee))
@@ -188,6 +195,8 @@ void PloySema::AnalyzeStatement(const std::shared_ptr<Statement> &stmt) {
 // ============================================================================
 
 void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
+  link->target_language = CanonicalizePolyAlias(link->target_language);
+  link->source_language = CanonicalizePolyAlias(link->source_language);
   // Validate languages
   if (!IsValidLanguage(link->target_language)) {
     ReportError(link->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -229,7 +238,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
   entry.defined_at = link->loc;
   // Pin the foreign-side language version to whatever LANG / WITH LANG /
   // @LANG scope the LINK statement is enclosed in.  Conventionally a LINK
-  // is written `LINK(<foreign>, <ploy|host>, <foreign_sym>, <local_sym>)`,
+  // is written `LINK(<foreign>, <poly|host>, <foreign_sym>, <local_sym>)`,
   // so the version that matters for the bridge ABI is `target_language`.
   // Fall back to source_language only when target has no active pin.
   entry.lang_version = ResolveLangVersion(link->target_language);
@@ -243,6 +252,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
       TypeMappingEntry mapping;
       // Resolve source type
       if (auto qt = std::dynamic_pointer_cast<QualifiedType>(map_type->source_type)) {
+        qt->language = CanonicalizePolyAlias(qt->language);
         mapping.source_language = qt->language;
         mapping.source_type = qt->type_name;
       } else if (auto st = std::dynamic_pointer_cast<SimpleType>(map_type->source_type)) {
@@ -250,6 +260,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
       }
       // Resolve target type
       if (auto qt = std::dynamic_pointer_cast<QualifiedType>(map_type->target_type)) {
+        qt->language = CanonicalizePolyAlias(qt->language);
         mapping.target_language = qt->language;
         mapping.target_type = qt->type_name;
       } else if (auto st = std::dynamic_pointer_cast<SimpleType>(map_type->target_type)) {
@@ -401,6 +412,7 @@ void PloySema::AnalyzeLinkDecl(const std::shared_ptr<LinkDecl> &link) {
 // ============================================================================
 
 void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
+  import->language = CanonicalizePolyAlias(import->language);
   if (import->module_path.empty() && import->package_name.empty()) {
     Report(import->loc, "IMPORT module path is empty");
     return;
@@ -593,6 +605,7 @@ void PloySema::AnalyzeMapTypeDecl(const std::shared_ptr<MapTypeDecl> &map_type) 
   TypeMappingEntry mapping;
 
   if (auto qt = std::dynamic_pointer_cast<QualifiedType>(map_type->source_type)) {
+    qt->language = CanonicalizePolyAlias(qt->language);
     mapping.source_language = qt->language;
     mapping.source_type = qt->type_name;
     if (!IsValidLanguage(qt->language)) {
@@ -603,6 +616,7 @@ void PloySema::AnalyzeMapTypeDecl(const std::shared_ptr<MapTypeDecl> &map_type) 
   }
 
   if (auto qt = std::dynamic_pointer_cast<QualifiedType>(map_type->target_type)) {
+    qt->language = CanonicalizePolyAlias(qt->language);
     mapping.target_language = qt->language;
     mapping.target_type = qt->type_name;
     if (!IsValidLanguage(qt->language)) {
@@ -682,7 +696,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
   // Register function signature for parameter validation
   FunctionSignature sig;
   sig.name = func->name;
-  sig.language = "ploy";
+  sig.language = "poly";
   sig.param_types = param_types;
   sig.return_type = ret_type;
   sig.param_count = func->params.size();
@@ -706,7 +720,7 @@ void PloySema::AnalyzeFuncDecl(const std::shared_ptr<FuncDecl> &func) {
         ReportError(param.default_value->loc, frontends::ErrorCode::kTypeMismatch,
                     "default value for parameter '" + param.name +
                         "' must be a constant expression (literal, unary or "
-                        "binary of literals, or a pure intra-Ploy call)",
+                        "binary of literals, or a pure intra-Poly call)",
                     "replace the default with a CONST-foldable expression or "
                     "a pure function call");
       }
@@ -1102,7 +1116,7 @@ void PloySema::AnalyzeMatchStatement(const std::shared_ptr<MatchStatement> &matc
 
   // Exhaustiveness check.  Hard error when the static type has a finite,
   // statically-known cover and the arms missed it; suggestion is to add
-  // `_` (the wildcard) which is the canonical universal arm in `.ploy`.
+  // `_` (the wildcard) which is the canonical universal arm in `.poly`.
   if (!has_default && !has_irrefutable) {
     if (scrutinee.kind == core::TypeKind::kBool) {
       if (!(bool_true_seen && bool_false_seen)) {
@@ -1833,6 +1847,7 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
 }
 
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
+  call->language = CanonicalizePolyAlias(call->language);
   // Validate language
   if (!IsValidLanguage(call->language)) {
     ReportError(call->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -1910,6 +1925,7 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
 }
 
 core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr) {
+  new_expr->language = CanonicalizePolyAlias(new_expr->language);
   // Validate language
   if (!IsValidLanguage(new_expr->language)) {
     ReportError(new_expr->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -1977,6 +1993,7 @@ core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &
 
 core::Type PloySema::AnalyzeMethodCallExpression(
     const std::shared_ptr<MethodCallExpression> &method_call) {
+  method_call->language = CanonicalizePolyAlias(method_call->language);
   // Validate language
   if (!IsValidLanguage(method_call->language)) {
     ReportError(method_call->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -2066,6 +2083,7 @@ core::Type PloySema::AnalyzeMethodCallExpression(
 }
 
 core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpression> &get_attr) {
+  get_attr->language = CanonicalizePolyAlias(get_attr->language);
   // Validate language
   if (!IsValidLanguage(get_attr->language)) {
     ReportError(get_attr->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -2147,6 +2165,7 @@ core::Type PloySema::AnalyzeGetAttrExpression(const std::shared_ptr<GetAttrExpre
 }
 
 core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpression> &set_attr) {
+  set_attr->language = CanonicalizePolyAlias(set_attr->language);
   // Validate language
   if (!IsValidLanguage(set_attr->language)) {
     ReportError(set_attr->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -2209,6 +2228,7 @@ core::Type PloySema::AnalyzeSetAttrExpression(const std::shared_ptr<SetAttrExpre
 }
 
 void PloySema::AnalyzeWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
+  with_stmt->language = CanonicalizePolyAlias(with_stmt->language);
   // Validate language
   if (!IsValidLanguage(with_stmt->language)) {
     ReportError(with_stmt->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -2456,6 +2476,7 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
 
   if (auto qt = std::dynamic_pointer_cast<QualifiedType>(type_node)) {
     // Map from the specified language
+    qt->language = CanonicalizePolyAlias(qt->language);
     return type_system_.MapFromLanguage(qt->language, qt->type_name);
   }
 
@@ -2473,6 +2494,7 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
   // and the originating language so AreTypesCompatible can reject any
   // implicit conversion across languages.
   if (auto ht = std::dynamic_pointer_cast<HandleType>(type_node)) {
+    ht->language = CanonicalizePolyAlias(ht->language);
     return core::Type::Class(ht->class_path, ht->language);
   }
 
@@ -2480,10 +2502,13 @@ core::Type PloySema::ResolveType(const std::shared_ptr<TypeNode> &type_node) {
 }
 
 bool PloySema::IsValidLanguage(const std::string &lang) const {
-  return lang == "cpp" || lang == "python" || lang == "rust" || lang == "c" || lang == "ploy" ||
-         lang == "java" || lang == "dotnet" || lang == "csharp" || lang == "javascript" ||
-         lang == "js" || lang == "typescript" || lang == "ts" || lang == "ruby" || lang == "rb" ||
-         lang == "go" || lang == "golang";
+  const std::string canonical = CanonicalizePolyAlias(lang);
+  return canonical == "cpp" || canonical == "python" || canonical == "rust" ||
+         canonical == "c" || canonical == "poly" ||
+         canonical == "java" || canonical == "dotnet" || canonical == "csharp" ||
+         canonical == "javascript" || canonical == "js" || canonical == "typescript" ||
+         canonical == "ts" || canonical == "ruby" || canonical == "rb" ||
+         canonical == "go" || canonical == "golang";
 }
 
 bool PloySema::AreTypesCompatible(const core::Type &from, const core::Type &to) const {
@@ -2883,7 +2908,7 @@ void PloySema::ValidateCallArgTypes(const core::SourceLoc &call_loc, const std::
   // When the signature comes from a cross-language LINK declaration with
   // MAP_TYPE entries (indicated by a non-null ABI descriptor), the parameter
   // types stored in the signature are the foreign function's native types.
-  // Ploy call-site arguments use Ploy-native types which are intentionally
+  // Poly call-site arguments use Poly-native types which are intentionally
   // different - the MAP_TYPE marshalling code bridges the gap at runtime.
   // Therefore skip strict type checking for these signatures.
   if (sig->abi)
@@ -2967,20 +2992,21 @@ std::string ABISignature::ValidateCompatibility(const ABISignature &other) const
 }
 
 std::string PloySema::CallingConventionForLanguage(const std::string &language) {
-  if (language == "cpp" || language == "c" || language == "rust") {
+  const std::string canonical = CanonicalizePolyAlias(language);
+  if (canonical == "cpp" || canonical == "c" || canonical == "rust") {
 #ifdef _WIN32
     return "win64";
 #else
     return "sysv";
 #endif
   }
-  if (language == "python")
+  if (canonical == "python")
     return "python_c";
-  if (language == "java")
+  if (canonical == "java")
     return "jni";
-  if (language == "dotnet" || language == "csharp")
+  if (canonical == "dotnet" || canonical == "csharp")
     return "dotnet_pinvoke";
-  if (language == "ploy") {
+  if (canonical == "poly") {
 #ifdef _WIN32
     return "win64";
 #else
@@ -3059,8 +3085,8 @@ std::shared_ptr<ABISignature> PloySema::BuildABISignature(const FunctionSignatur
                                                           const std::string &language) const {
   auto abi = std::make_shared<ABISignature>();
   abi->function_name = sig.name;
-  abi->language = language;
-  abi->calling_convention = CallingConventionForLanguage(language);
+  abi->language = CanonicalizePolyAlias(language);
+  abi->calling_convention = CallingConventionForLanguage(abi->language);
   abi->defined_at = sig.defined_at;
 
   // Build parameter descriptors
@@ -3168,6 +3194,7 @@ void PloySema::ValidateContextManagerProtocol(const core::SourceLoc &loc,
 }
 
 void PloySema::AnalyzeVenvConfigDecl(const std::shared_ptr<VenvConfigDecl> &venv_config) {
+  venv_config->language = CanonicalizePolyAlias(venv_config->language);
   // Validate the language
   if (!IsValidLanguage(venv_config->language)) {
     Report(venv_config->loc, "unknown language '" + venv_config->language + "' in CONFIG");
@@ -3647,6 +3674,7 @@ void PloySema::DiscoverCppPackages() {
 // ============================================================================
 
 core::Type PloySema::AnalyzeDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr) {
+  del_expr->language = CanonicalizePolyAlias(del_expr->language);
   // Validate language
   if (!del_expr->language.empty() && !IsValidLanguage(del_expr->language)) {
     ReportError(del_expr->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -3686,6 +3714,7 @@ core::Type PloySema::AnalyzeDeleteExpression(const std::shared_ptr<DeleteExpress
 // ============================================================================
 
 void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
+  extend->language = CanonicalizePolyAlias(extend->language);
   // Validate language
   if (!extend->language.empty() && !IsValidLanguage(extend->language)) {
     ReportError(extend->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -3711,7 +3740,7 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
                     extend->language +
                     "' — its type system cannot accept an out-of-source "
                     "subclass without breaking soundness",
-                "wrap the foreign API in a local Ploy FUNC and use "
+                "wrap the foreign API in a local Poly FUNC and use "
                 "CALL / METHOD instead, or move the EXTEND target to a "
                 "dynamic host (python / ruby / javascript)");
     return;
@@ -3793,11 +3822,11 @@ void PloySema::AnalyzeExtendDecl(const std::shared_ptr<ExtendDecl> &extend) {
 
       // Create a LinkEntry for each EXTEND method so that the marshal
       // plan and bridge generation stages can produce bridge stubs.
-      // Convention: target = foreign language method, source = ploy impl.
+      // Convention: target = foreign language method, source = poly impl.
       LinkEntry method_link;
       method_link.kind = LinkDecl::LinkKind::kFunction;
       method_link.target_language = extend->language;
-      method_link.source_language = "ploy";
+      method_link.source_language = "poly";
       method_link.target_symbol = func->name;
       method_link.source_symbol = qualified;
       method_link.defined_at = func->loc;
@@ -4010,6 +4039,7 @@ void PloySema::AnalyzeClassDecl(const std::shared_ptr<ClassDecl> &cls_decl) {
   if (!cls_decl) {
     return;
   }
+  cls_decl->language = CanonicalizePolyAlias(cls_decl->language);
   // Header-level validation.
   if (cls_decl->language.empty()) {
     ReportError(cls_decl->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -4554,7 +4584,7 @@ std::string CanonicalizeLangName(const std::string &raw) {
   }
   if (s == "ruby" || s == "rb") return "ruby";
   if (s == "c") return "c";
-  if (s == "ploy") return "ploy";
+  if (s == "poly" || s == "ploy") return "poly";
   return {};
 }
 

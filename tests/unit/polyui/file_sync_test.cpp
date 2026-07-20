@@ -34,14 +34,14 @@ TEST_CASE("SyncAction names cover every variant",
 TEST_CASE("Bidirectional plan reflects newer-side wins",
           "[polyui][remote][sync]") {
   std::vector<RemoteFileStat> local = {
-      MakeStat("a.ploy", 100, 10),     // newer locally  -> upload
-      MakeStat("b.ploy",  50,  5),     // older locally  -> download
-      MakeStat("c.ploy", 200, 20),     // missing remote -> upload
+      MakeStat("a.poly", 100, 10),     // newer locally  -> upload
+      MakeStat("b.poly",  50,  5),     // older locally  -> download
+      MakeStat("c.poly", 200, 20),     // missing remote -> upload
   };
   std::vector<RemoteFileStat> remote = {
-      MakeStat("a.ploy",  90, 10),
-      MakeStat("b.ploy", 150,  7),
-      MakeStat("d.ploy", 200, 30),     // missing local  -> download
+      MakeStat("a.poly",  90, 10),
+      MakeStat("b.poly", 150,  7),
+      MakeStat("d.poly", 200, 30),     // missing local  -> download
   };
   auto plan = PlanSync(local, remote);
   int up = 0, down = 0;
@@ -56,22 +56,22 @@ TEST_CASE("Bidirectional plan reflects newer-side wins",
 
 TEST_CASE("Push-only plan suppresses downloads",
           "[polyui][remote][sync]") {
-  std::vector<RemoteFileStat> local = {MakeStat("a.ploy", 100, 10)};
-  std::vector<RemoteFileStat> remote = {MakeStat("b.ploy", 100, 10)};
+  std::vector<RemoteFileStat> local = {MakeStat("a.poly", 100, 10)};
+  std::vector<RemoteFileStat> remote = {MakeStat("b.poly", 100, 10)};
   auto plan = PlanSync(local, remote, SyncDirection::kPushOnly);
   REQUIRE(plan.operations.size() == 1);
   CHECK(plan.operations[0].action == SyncAction::kUpload);
-  CHECK(plan.operations[0].path == "a.ploy");
+  CHECK(plan.operations[0].path == "a.poly");
 }
 
 TEST_CASE("Pull-only plan suppresses uploads",
           "[polyui][remote][sync]") {
-  std::vector<RemoteFileStat> local = {MakeStat("a.ploy", 100, 10)};
-  std::vector<RemoteFileStat> remote = {MakeStat("b.ploy", 100, 10)};
+  std::vector<RemoteFileStat> local = {MakeStat("a.poly", 100, 10)};
+  std::vector<RemoteFileStat> remote = {MakeStat("b.poly", 100, 10)};
   auto plan = PlanSync(local, remote, SyncDirection::kPullOnly);
   REQUIRE(plan.operations.size() == 1);
   CHECK(plan.operations[0].action == SyncAction::kDownload);
-  CHECK(plan.operations[0].path == "b.ploy");
+  CHECK(plan.operations[0].path == "b.poly");
 }
 
 TEST_CASE("Identical indexes produce an empty plan",

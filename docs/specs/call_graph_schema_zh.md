@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `id` | integer | 按出现顺序的稳定 id，被 edges 引用 |
 | `name` | string | 函数全限定名 |
-| `language` | string | `ploy`, `cpp`, `python`, `bridge`, … |
+| `language` | string | `poly`, `cpp`, `python`, `bridge`, … |
 | `is_external` | bool | 仅声明、未在本 TU 定义 |
 | `is_bridge_stub` | bool | 自动生成的跨语言桩 |
 | `block_count` | integer | IR 中基本块数量 |

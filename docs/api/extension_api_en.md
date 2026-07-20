@@ -120,7 +120,7 @@ metadata round-trips through the manifest.
   "loader": "javascript",
   "activation": [
     "onStartup",
-    { "event": "onLanguage", "argument": "ploy" }
+    { "event": "onLanguage", "argument": "poly" }
   ],
   "capabilities": ["filesystem", "network"],
   "contributes": {

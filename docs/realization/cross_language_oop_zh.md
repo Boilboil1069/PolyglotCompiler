@@ -5,7 +5,7 @@
 
 ## 1. 动机
 
-在本特性之前，`.ploy` 中所有跨语言对象表达式都坍缩为不透明的
+在本特性之前，`.poly` 中所有跨语言对象表达式都坍缩为不透明的
 `Any` 类型：
 
 | 表达式                                              | 1.9.0 之前 | 现在                                |
@@ -17,7 +17,7 @@
 
 `Any` 的代价是：**每一个**跨语言调用点都成为运行期赌博 ——
 参数个数、参数类型与返回类型都要等到外语解释器抛错时才被发现，而错误
-栈通常深埋在 `__pyx_call` 之类的帧里，看不到任何 `.ploy` 源位置。
+栈通常深埋在 `__pyx_call` 之类的帧里，看不到任何 `.poly` 源位置。
 
 `HANDLE<lang::Class>` 把这份契约重新交还静态类型系统。一旦类有了已注
 册的模式，sema 就会：
@@ -33,7 +33,7 @@
 
 ### 2.1 `CLASS` 模式声明
 
-```ploy
+```poly
 CLASS python::torch::nn::Linear {
     METHOD __init__(in_features: i32, out_features: i32);
     METHOD forward(x: f32) -> f32;
@@ -63,7 +63,7 @@ class_path   ::= ident ("::" ident)*
 
 ### 2.2 `HANDLE<lang::class_path>` 类型表达式
 
-```ploy
+```poly
 LET model: HANDLE<python::torch::nn::Linear> = NEW(python, torch::nn::Linear, 128, 10);
 ```
 
@@ -113,7 +113,7 @@ LET model: HANDLE<python::torch::nn::Linear> = NEW(python, torch::nn::Linear, 12
 
 如需显式转换，可使用 `CONVERT` + `MAP_FUNC`：
 
-```ploy
+```poly
 LET py_obj: HANDLE<python::A> = ...;
 LET cpp_obj: HANDLE<cpp::A> = CONVERT(py_obj, MAP_FUNC bridge::py_to_cpp);
 ```

@@ -18,9 +18,16 @@
 namespace gr = polyglot::polyls::grammar;
 namespace tsr = polyglot::polyls::ts;
 
-TEST_CASE("grammar table covers ploy and the five host languages",
+TEST_CASE("grammar table covers poly and the five host languages",
           "[polyls][semantic]") {
-  REQUIRE(gr::FindGrammar("ploy") != nullptr);
+  REQUIRE(gr::FindGrammar("poly") != nullptr);
+  const auto *legacy_poly = gr::FindGrammar("ploy");
+  REQUIRE(legacy_poly != nullptr);
+  REQUIRE(legacy_poly->name == "poly");
+  const std::vector<std::string> expected_extensions{".poly", ".ploy"};
+  REQUIRE(legacy_poly->file_extensions == expected_extensions);
+  REQUIRE(gr::FindGrammar("PloY") == legacy_poly);
+  REQUIRE(gr::FindGrammar("POLY") == legacy_poly);
   REQUIRE(gr::FindGrammar("cpp") != nullptr);
   REQUIRE(gr::FindGrammar("c++") != nullptr);  // alias
   REQUIRE(gr::FindGrammar("python") != nullptr);
@@ -31,14 +38,24 @@ TEST_CASE("grammar table covers ploy and the five host languages",
   REQUIRE(gr::FindGrammar("javascript") == nullptr);
 }
 
-TEST_CASE("parser produces semantic tokens for a Ploy module",
+TEST_CASE("legacy ploy language id is normalized to the Poly grammar",
+          "[polyls][semantic][compat]") {
+  const std::string src = "FUNC legacy() -> INT { RETURN 1; }\n";
+  auto tree = tsr::Parse("PloY", src);
+  REQUIRE(tree);
+  REQUIRE_FALSE(tree->Tokens().empty());
+  REQUIRE(tree->Outline().size() == 1);
+  REQUIRE(tree->Outline().front().name == "legacy");
+}
+
+TEST_CASE("parser produces semantic tokens for a Poly module",
           "[polyls][semantic]") {
   const std::string src =
       "FUNC compute() -> INT {\n"
       "    LET answer = 42;\n"
       "    RETURN answer;\n"
       "}\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   const auto &toks = tree->Tokens();
   REQUIRE(!toks.empty());
@@ -63,7 +80,7 @@ TEST_CASE("parser produces semantic tokens for a Ploy module",
 TEST_CASE("LINK / IMPORT directives are emitted as keyword+definition",
           "[polyls][semantic]") {
   const std::string src = "LINK cpp \"foo.cpp\";\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   bool saw_link = false;
   for (const auto &t : tree->Tokens()) {
@@ -80,7 +97,7 @@ TEST_CASE("LINK / IMPORT directives are emitted as keyword+definition",
 TEST_CASE("string literals do not leak into identifier tokens",
           "[polyls][semantic]") {
   const std::string src = "LET msg = \"FUNC inside string\";\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   // No keyword-typed token may overlap the string range.
   for (const auto &t : tree->Tokens()) {
@@ -98,7 +115,7 @@ TEST_CASE("brace-style folding emits one region per nested block",
       "        RETURN;\n"
       "    }\n"
       "}\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   REQUIRE(tree->Folds().size() == 2);
 }
@@ -116,12 +133,12 @@ TEST_CASE("python folding follows indentation",
   REQUIRE(tree->Folds()[0].end_line == 2);
 }
 
-TEST_CASE("outline surfaces top-level FUNC/STRUCT in Ploy",
+TEST_CASE("outline surfaces top-level FUNC/STRUCT in Poly",
           "[polyls][semantic]") {
   const std::string src =
       "STRUCT Point { x: INT; y: INT; }\n"
       "FUNC area() -> INT { RETURN 0; }\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   REQUIRE(tree->Outline().size() == 2);
   REQUIRE(tree->Outline()[0].name == "Point");
@@ -136,7 +153,7 @@ TEST_CASE("smart-select widens token → line → block → document",
       "FUNC compute() -> INT {\n"
       "    LET x = 7;\n"
       "}\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   // Inside identifier `x` on line 1 (column 9).
   auto ranges = tree->SmartSelect(1, 9);
@@ -152,7 +169,7 @@ TEST_CASE("smart-select widens token → line → block → document",
 TEST_CASE("incremental edit reparses to a consistent tree",
           "[polyls][semantic]") {
   const std::string src = "FUNC foo() -> VOID {}\n";
-  auto tree = tsr::Parse("ploy", src);
+  auto tree = tsr::Parse("poly", src);
   REQUIRE(tree);
   const auto before = tree->Outline();
   REQUIRE(before.size() == 1);

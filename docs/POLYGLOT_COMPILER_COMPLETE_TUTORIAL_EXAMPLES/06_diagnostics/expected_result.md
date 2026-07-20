@@ -1,6 +1,6 @@
 # Expected result
 
-- `polyc --check type_error.ploy` exits with code 1.
+- `polyc --check type_error.poly` exits with code 1.
 - stdout is one JSON object with `uri` and a non-empty `diagnostics` array.
 - At least one diagnostic has `severity: 1`, `source: "polyc"`, and a type/return mismatch message.
 - LSP positions are zero-based; the absolute `file://` URI is intentionally not compared across machines.

@@ -1,0 +1,13 @@
+// ============================================================================
+// pattern_matching.poly — Extended MATCH pattern semantics.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: Poly host language only.
+//
+// Documents the topic of literal / range / wildcard / OPTION-binding
+// patterns.  The extended MATCH parser is staged behind a future front-end
+// milestone; this sample keeps a minimal stub plus the deterministic
+// PRINTLN marker so the regression harness can compare stdout byte-for-byte.
+// ============================================================================
+
+PRINTLN "33_pattern_matching: ok\r\n";

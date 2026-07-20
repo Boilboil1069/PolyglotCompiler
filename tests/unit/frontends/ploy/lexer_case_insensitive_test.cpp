@@ -1,5 +1,5 @@
 // ============================================================================
-// Unit tests for ploy lexer keyword case-insensitivity (demand 2026-04-28-6).
+// Unit tests for poly lexer keyword case-insensitivity (demand 2026-04-28-6).
 //
 // Covers:
 //   1. All 54 reserved keywords are recognized in lower-case, UPPER-case and
@@ -34,7 +34,7 @@ using polyglot::ploy::PloyLexer;
 
 namespace {
 
-// Canonical (upper-case) spellings of every Ploy reserved word.  Must stay
+// Canonical (upper-case) spellings of every Poly reserved word.  Must stay
 // in lock-step with `kCanonicalKeywords` in
 // `frontends/ploy/src/lexer/lexer.cpp`.  When the parser learns a new
 // keyword, add it here and to the lexer set in the same change-list.
@@ -104,8 +104,8 @@ std::string ToMixedCase(const std::string &s) {
 
 } // namespace
 
-TEST_CASE("Ploy lexer recognizes every keyword in upper-case (canonical, no raw_lexeme)",
-          "[ploy][lexer][case]") {
+TEST_CASE("Poly lexer recognizes every keyword in upper-case (canonical, no raw_lexeme)",
+          "[poly][lexer][case]") {
     for (const auto &kw : CanonicalKeywords()) {
         CAPTURE(kw);
         const auto tokens = LexAll(kw);
@@ -118,8 +118,8 @@ TEST_CASE("Ploy lexer recognizes every keyword in upper-case (canonical, no raw_
     }
 }
 
-TEST_CASE("Ploy lexer recognizes every keyword in lower-case and remembers the raw spelling",
-          "[ploy][lexer][case]") {
+TEST_CASE("Poly lexer recognizes every keyword in lower-case and remembers the raw spelling",
+          "[poly][lexer][case]") {
     for (const auto &kw : CanonicalKeywords()) {
         const std::string lower = ToLowerAscii(kw);
         CAPTURE(kw, lower);
@@ -132,8 +132,8 @@ TEST_CASE("Ploy lexer recognizes every keyword in lower-case and remembers the r
     }
 }
 
-TEST_CASE("Ploy lexer recognizes every keyword in mixed-case",
-          "[ploy][lexer][case]") {
+TEST_CASE("Poly lexer recognizes every keyword in mixed-case",
+          "[poly][lexer][case]") {
     for (const auto &kw : CanonicalKeywords()) {
         const std::string mixed = ToMixedCase(kw);
         CAPTURE(kw, mixed);
@@ -152,11 +152,11 @@ TEST_CASE("Ploy lexer recognizes every keyword in mixed-case",
     }
 }
 
-TEST_CASE("Ploy lexer keeps identifiers case-sensitive and never promotes them to keywords",
-          "[ploy][lexer][case]") {
+TEST_CASE("Poly lexer keeps identifiers case-sensitive and never promotes them to keywords",
+          "[poly][lexer][case]") {
     // None of these are reserved words after case-folding.
     const std::vector<std::string> identifiers = {
-        "myVar", "MyVar", "MYVAR", "ploy", "Ploy_v2", "_underscore"};
+        "myVar", "MyVar", "MYVAR", "poly", "Ploy_v2", "_underscore"};
     for (const auto &id : identifiers) {
         CAPTURE(id);
         const auto tokens = LexAll(id);
@@ -178,8 +178,8 @@ TEST_CASE("Ploy lexer keeps identifiers case-sensitive and never promotes them t
     REQUIRE(trio[2].lexeme == "ALPHA");
 }
 
-TEST_CASE("Ploy lexer does not split keywords out of longer identifiers",
-          "[ploy][lexer][case]") {
+TEST_CASE("Poly lexer does not split keywords out of longer identifiers",
+          "[poly][lexer][case]") {
     // Each of these contains a keyword as a *prefix* but is itself an
     // identifier; the lexer must consume the whole word before deciding.
     const std::vector<std::string> identifiers = {

@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | `id` | integer | Stable encounter-order id used by edges. |
 | `name` | string | Fully qualified function name. |
-| `language` | string | `ploy`, `cpp`, `python`, `bridge`, ... |
+| `language` | string | `poly`, `cpp`, `python`, `bridge`, ... |
 | `is_external` | bool | Function is declared but not defined in this TU. |
 | `is_bridge_stub` | bool | Generated cross-language marshalling stub. |
 | `block_count` | integer | Number of basic blocks in the IR function. |

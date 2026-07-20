@@ -3,7 +3,7 @@
 This sample demonstrates the surface syntax introduced by
 [demand 2026-04-28-15](../../docs/demand/demand.md):
 
-```ploy
+```poly
 STRUCT Pair<A, B> { first: A, second: B }
 FUNC max<T: Comparable>(a: T, b: T) -> T { ... }
 FUNC sum<T>(a: T, b: T) -> T WHERE T: Numeric { ... }
@@ -46,7 +46,7 @@ per-instantiation monomorphisation is built out (see *future work*).
 ## Build and run
 
 ```bash
-polyc 38_generics/generics.ploy --emit-obj=build/sample.obj --quiet
+polyc 38_generics/generics.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 ./build/sample.exe
 # 38_generics: ok

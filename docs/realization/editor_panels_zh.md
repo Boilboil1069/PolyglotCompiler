@@ -24,7 +24,7 @@
 | Quick Open ranker     | [`tools/ui/common/quickopen/quick_open_ranker.{h,cpp}`](../../tools/ui/common/quickopen/quick_open_ranker.h) | 模糊路径打分 + 最近文件 tie-break。                                            |
 | 搜索引擎              | [`tools/ui/common/search/global_search_engine.{h,cpp}`](../../tools/ui/common/search/global_search_engine.h) | 正则 / glob / 流式 sink / 捕获组替换。                                         |
 | Outline 树            | [`tools/ui/common/outline/outline_model.{h,cpp}`](../../tools/ui/common/outline/outline_model.h)    | 可过滤的符号树，供 Outline 面板与 Breadcrumbs 共享。                          |
-| LSP — 文件符号        | `polyls.HandleDocumentSymbol`                                                                       | 为 `.ploy` 缓冲返回 LSP `DocumentSymbol[]`。                                   |
+| LSP — 文件符号        | `polyls.HandleDocumentSymbol`                                                                       | 为 `.poly` 缓冲返回 LSP `DocumentSymbol[]`。                                   |
 | LSP — 工程符号        | `polyls.HandleWorkspaceSymbol`                                                                      | 遍历 `SymbolIndex::Entries`，按子串过滤。                                      |
 
 ## 主要流水线

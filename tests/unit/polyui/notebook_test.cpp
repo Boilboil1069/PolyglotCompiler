@@ -67,14 +67,14 @@ TEST_CASE("Notebook executes code cells via injected sessions",
   c.source = "let x = 1";
   auto id = nb.AddCell(c);
 
-  ReplSession ploy(DefaultSpec(ReplEngine::kPloy),
-                   std::make_unique<EchoTransport>("ploy"));
-  REQUIRE(ploy.Start());
+  ReplSession poly(DefaultSpec(ReplEngine::kPloy),
+                   std::make_unique<EchoTransport>("poly"));
+  REQUIRE(poly.Start());
   std::unordered_map<ReplEngine, ReplSession *> sessions = {
-      {ReplEngine::kPloy, &ploy}};
+      {ReplEngine::kPloy, &poly}};
   auto out = nb.Execute(id, sessions);
   CHECK_FALSE(out.error);
-  CHECK(out.stdout_text == "[ploy] let x = 1");
+  CHECK(out.stdout_text == "[poly] let x = 1");
   CHECK(nb.Find(id)->output.stdout_text == out.stdout_text);
 }
 
@@ -89,17 +89,17 @@ TEST_CASE("Notebook runs cross-language LINK cells",
   c.link.source_symbol = "produce";
   auto id = nb.AddCell(c);
 
-  ReplSession ploy(DefaultSpec(ReplEngine::kPloy),
-                   std::make_unique<EchoTransport>("ploy"));
+  ReplSession poly(DefaultSpec(ReplEngine::kPloy),
+                   std::make_unique<EchoTransport>("poly"));
   ReplSession py(DefaultSpec(ReplEngine::kPython),
                  std::make_unique<EchoTransport>("py"));
-  REQUIRE(ploy.Start());
+  REQUIRE(poly.Start());
   REQUIRE(py.Start());
   std::unordered_map<ReplEngine, ReplSession *> sessions = {
-      {ReplEngine::kPloy, &ploy}, {ReplEngine::kPython, &py}};
+      {ReplEngine::kPloy, &poly}, {ReplEngine::kPython, &py}};
   auto out = nb.Execute(id, sessions);
   CHECK(out.stdout_text.find("[py] produce") != std::string::npos);
-  CHECK(out.stdout_text.find("[ploy] consume") != std::string::npos);
+  CHECK(out.stdout_text.find("[poly] consume") != std::string::npos);
 }
 
 TEST_CASE("Notebook serialises and round-trips through .polynb JSON",
@@ -122,6 +122,27 @@ TEST_CASE("Notebook serialises and round-trips through .polynb JSON",
   CHECK(nb2.cells()[0].kind == CellKind::kMarkdown);
   CHECK(nb2.cells()[1].engine == ReplEngine::kIRust);
   CHECK(nb2.cells()[1].source == "let v = vec![1,2,3];");
+}
+
+TEST_CASE("Notebook reads legacy engine metadata and writes canonical poly",
+          "[polyui][notebook][compat]") {
+  Notebook nb;
+  REQUIRE(nb.LoadJson(R"({
+    "format": "polynb",
+    "version": 1,
+    "cells": [{
+      "id": "legacy",
+      "kind": "code",
+      "engine": "PloY",
+      "source": "RETURN 1",
+      "output": {"stdout": "", "stderr": "", "error": false}
+    }]
+  })"));
+  REQUIRE(nb.cells().size() == 1);
+  CHECK(nb.cells().front().engine == ReplEngine::kPloy);
+  const std::string saved = nb.ToJson();
+  CHECK(saved.find("\"engine\": \"poly\"") != std::string::npos);
+  CHECK(saved.find("\"engine\": \"ploy\"") == std::string::npos);
 }
 
 TEST_CASE("Notebook supports remove and move cell operations",

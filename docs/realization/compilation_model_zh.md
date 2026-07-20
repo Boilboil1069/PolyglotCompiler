@@ -2,28 +2,28 @@
 
 ## 问题
 
-> 现有 ploy 代码内部有 cpp 与 python 代码，编译后的二进制文件是编译了 cpp 与 python 后混合而成的吗？
+> 现有 poly 代码内部有 cpp 与 python 代码，编译后的二进制文件是编译了 cpp 与 python 后混合而成的吗？
 
 ---
 
 ## 回答
 
-**只有在所有引用的实现符号和运行时符号都能被链接器解析时，`.ploy` 构建才会生成一个最终原生输出。**
+**只有在所有引用的实现符号和运行时符号都能被链接器解析时，`.poly` 构建才会生成一个最终原生输出。**
 
-PolyglotCompiler 在前端阶段不会调用 MSVC、GCC、rustc 或 CPython。每种受支持源码在被显式编译时，会由项目自己的前端解析、类型检查并降级为 IR。链接阶段会使用内置 `polyld` 或平台链接器生成最终可执行文件。对于 `.ploy` 跨语言构建，描述符现在会参与严格链接校验：缺失外部实现符号或运行时符号时，构建会失败。
+PolyglotCompiler 在前端阶段不会调用 MSVC、GCC、rustc 或 CPython。每种受支持源码在被显式编译时，会由项目自己的前端解析、类型检查并降级为 IR。链接阶段会使用内置 `polyld` 或平台链接器生成最终可执行文件。对于 `.poly` 跨语言构建，描述符现在会参与严格链接校验：缺失外部实现符号或运行时符号时，构建会失败。
 
 ### 编译流程
 
 ```
 ┌─────────────┐   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
-│  C++ 源代码  │   │ Python 源代码 │   │  Rust 源代码  │   │  .ploy 源代码 │
-│  (*.cpp)     │   │  (*.py)      │   │  (*.rs)      │   │  (*.ploy)    │
+│  C++ 源代码  │   │ Python 源代码 │   │  Rust 源代码  │   │  .poly 源代码 │
+│  (*.cpp)     │   │  (*.py)      │   │  (*.rs)      │   │  (*.poly)    │
 └──────┬──────┘   └──────┬───────┘   └──────┬───────┘   └──────┬───────┘
        │                 │                  │                  │
        ▼                 ▼                  ▼                  ▼
   ┌──────────┐    ┌──────────┐      ┌──────────┐       ┌──────────┐
   │frontend_ │    │frontend_ │      │frontend_ │       │frontend_ │
-  │  cpp     │    │ python   │      │  rust    │       │  ploy    │
+  │  cpp     │    │ python   │      │  rust    │       │  poly    │
   │(polyglot)│    │(polyglot)│      │(polyglot)│       │(polyglot)│
   └────┬─────┘    └────┬─────┘      └────┬─────┘       └────┬─────┘
        │               │                 │                   │
@@ -69,12 +69,12 @@ PolyglotCompiler 在前端阶段不会调用 MSVC、GCC、rustc 或 CPython。�
    - Rust 文件 → `frontend_rust`（词法分析 → 语法分析 → 语义分析 → IR 生成）
    - 三个前端都生成**相同的共享 IR**（SSA 形式）
 
-2. **`.ploy` 文件描述跨语言连接关系**
+2. **`.poly` 文件描述跨语言连接关系**
    - `LINK`、`IMPORT`、`CALL`、`NEW`、`METHOD`、`GET`、`SET`、`WITH` — 声明不同语言的函数/类/属性如何交互
-   - `.ploy` 前端生成**跨语言调用描述符**（`CrossLangCallDescriptor`）
+   - `.poly` 前端生成**跨语言调用描述符**（`CrossLangCallDescriptor`）
 
 3. **PolyglotLinker 生成粘合代码**
-   - 读取 `.ploy` 前端的跨语言调用描述符
+   - 读取 `.poly` 前端的跨语言调用描述符
    - 自动从 LINK 声明和已知函数签名合成跨语言符号条目 — 无需手动注册符号
    - 生成 **FFI 桥接桩函数**（如 `__ploy_bridge_ploy_python___init__`、`__ploy_bridge_ploy_python___getattr__weight`）
    - 生成**类型编组代码**（在不同语言的数据表示之间转换）
@@ -119,8 +119,8 @@ def predict(data: list) -> float:
     return sum(data) / len(data)
 ```
 
-```ploy
-// pipeline.ploy
+```poly
+// pipeline.poly
 IMPORT cpp::image_processor;
 IMPORT python PACKAGE ml_model;
 
@@ -142,10 +142,10 @@ EXPORT process AS "run_pipeline";
 
 #### 一步编译
 
-PolyglotCompiler 支持直接编译 `.ploy` 文件。对于 `IMPORT cpp::image_processor;` 或 `IMPORT python::ml_model;` 这类本地源码导入，`polyc` 会在 `.ploy` 文件同目录和 `-I` 搜索根中查找源码，自动编译为目标文件，并写入 `aux/`。构建还会生成 `<stem>_foreign_aliases.pobj`，导出 `image_processor::enhance`、`image_processor__enhance` 等模块限定桥接符号。
+PolyglotCompiler 支持直接编译 `.poly` 文件。对于 `IMPORT cpp::image_processor;` 或 `IMPORT python::ml_model;` 这类本地源码导入，`polyc` 会在 `.poly` 文件同目录和 `-I` 搜索根中查找源码，自动编译为目标文件，并写入 `aux/`。构建还会生成 `<stem>_foreign_aliases.pobj`，导出 `image_processor::enhance`、`image_processor__enhance` 等模块限定桥接符号。
 
 ```bash
-polyc pipeline.ploy -o program
+polyc pipeline.poly -o program
 ```
 
 用于调试时，仍可使用等价的显式多源码流程：
@@ -153,8 +153,8 @@ polyc pipeline.ploy -o program
 ```bash
 polyc --lang=cpp -c image_processor.cpp -o image_processor.o
 polyc --lang=python -c ml_model.py -o ml_model.o
-polyc --lang=ploy -c pipeline.ploy -o pipeline.o
-polyld -o program image_processor.o ml_model.o pipeline.o --ploy-desc aux/pipeline_link_descriptors.paux
+polyc --lang=poly -c pipeline.poly -o pipeline.o
+polyld -o program image_processor.o ml_model.o pipeline.o --poly-desc aux/pipeline_link_descriptors.paux
 ```
 
 当所有引用的实现符号和运行时符号都解析成功时，最终的 `program` 是一个原生 x86_64、ARM64 或 WebAssembly 输出。本地源码导入现在属于自动闭包；包导入和外部运行时库仍需要通过对应包/运行时路径解析。

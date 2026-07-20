@@ -17,7 +17,7 @@ plus the LSP wiring in
 * Single, atomic `WorkspaceEdit` for every rename — the editor applies
   it through one undo step.
 * Cross-language rename: a host-language identifier rename also
-  rewrites every `.ploy` `LINK` / `EXPORT` site that imports it, and
+  rewrites every `.poly` `LINK` / `EXPORT` site that imports it, and
   vice-versa.
 * Token-aware text rewrites that skip occurrences inside string
   literals and `//` / `#` comments so identifier substrings inside
@@ -42,7 +42,7 @@ plus the LSP wiring in
    patches them through its own file IO.
 5. **Cross-language hop** — when the rename starts inside a
    host-language file, `SymbolIndex::CrossLanguageBackrefs` is
-   additionally queried so `.ploy` LINK qualifiers are rewritten in
+   additionally queried so `.poly` LINK qualifiers are rewritten in
    the same edit.
 
 ## CodeAction catalogue
@@ -78,4 +78,4 @@ single undo step on the editor's text document.
 * [tests/integration/lsp_refactor_e2e_test.cpp](../../tests/integration/lsp_refactor_e2e_test.cpp)
   — full client ↔ server round trip on `09_mixed_pipeline`: rename
   initiated from `image_processor.cpp` rewrites both the host file and
-  `mixed_pipeline.ploy`.
+  `mixed_pipeline.poly`.

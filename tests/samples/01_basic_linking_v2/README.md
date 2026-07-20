@@ -6,20 +6,20 @@ Mirror of [`01_basic_linking`](../01_basic_linking/) using the **canonical / sig
 | ---       | --- |
 | Languages | C++, Python |
 | Keywords  | LINK (signed form), CALL, IMPORT, EXPORT, MAP_TYPE |
-| Entry     | `basic_linking.ploy` |
+| Entry     | `basic_linking.poly` |
 
 ## What is different from v1
 
 The v1 sample uses the historical comma form:
 
-```ploy
+```poly
 LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int { ... }
 ```
 
 This v2 sample uses the recommended **signed** form, which embeds an
 explicit function signature:
 
-```ploy
+```poly
 LINK cpp::math_ops::add AS FUNC(cpp::int, cpp::int) -> cpp::int { ... }
 ```
 
@@ -34,7 +34,7 @@ semantic analyzer with a deprecation warning (diagnostic
 ## Build
 
 ```powershell
-polyc 01_basic_linking_v2\basic_linking.ploy --emit-obj=basic_linking.pobj --obj-format=pobj
+polyc 01_basic_linking_v2\basic_linking.poly --emit-obj=basic_linking.pobj --obj-format=pobj
 polyld basic_linking.pobj -o basic_linking.exe
 ```
 

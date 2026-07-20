@@ -68,7 +68,7 @@ class SharedTokenPool { /* 同样接口，加上 WithExclusive/WithShared(Fn) */
 - `FrontendOptions::dump_token_pool_stats` —— 与新增驱动开关
   `--dump-token-pool` 同义。
 - `tools/polyc/src/stage_frontend.cpp` 在每次会话分配一个共享池，挂接到
-  `Preprocessor`，并对 `.ploy` 同时挂到 `PloyLexer`，最后把
+  `Preprocessor`，并对 `.poly` 同时挂到 `PloyLexer`，最后把
   `TokenPool::Stats()` 序列化到 `FrontendResult::token_pool_stats_json`。
 - `tools/polyc/src/driver.cpp` 在开启 `--dump-token-pool` 时把 JSON
   写入 `<aux_dir>/<stem>.pool_stats.json`。

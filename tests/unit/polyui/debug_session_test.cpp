@@ -69,11 +69,11 @@ TEST_CASE("DebugSession runs through a full breakpoint hit cycle",
                 Json::object());
   CHECK(session.initialized());
 
-  session.Launch({{"program", "/repo/main.ploy"}});
+  session.Launch({{"program", "/repo/main.poly"}});
   REQUIRE(adapter.requests.size() == 2);
   CHECK(adapter.requests[1]["command"] == "launch");
 
-  session.SetBreakpoints("/repo/main.ploy", {SourceBreakpoint{10, std::nullopt,
+  session.SetBreakpoints("/repo/main.poly", {SourceBreakpoint{10, std::nullopt,
                                                               std::nullopt,
                                                               std::nullopt}});
   REQUIRE(adapter.requests.size() == 3);
@@ -108,12 +108,12 @@ TEST_CASE("DebugSession runs through a full breakpoint hit cycle",
 
   Json frames = Json::array({{{"id", 1000},
                               {"name", "main"},
-                              {"source", {{"path", "/repo/main.ploy"}}},
+                              {"source", {{"path", "/repo/main.poly"}}},
                               {"line", 10},
                               {"column", 1}}});
   adapter.Reply(stack_seq, "stackTrace", {{"stackFrames", frames}});
   REQUIRE(session.stack_frames().size() == 1);
-  CHECK(session.stack_frames()[0].source_path == "/repo/main.ploy");
+  CHECK(session.stack_frames()[0].source_path == "/repo/main.poly");
   CHECK(session.stack_frames()[0].line == 10);
 
   // After stackTrace succeeds, DebugSession requests scopes for

@@ -8,6 +8,7 @@
  */
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -27,7 +28,7 @@
 #include "frontends/common/include/language_frontend.h"
 #include "tools/ui/common/include/compiler_service.h"
 
-// Ploy frontend (needed for completion provider)
+// Poly frontend (needed for completion provider)
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
 #include "frontends/ploy/include/ploy_sema.h"
@@ -47,7 +48,7 @@
 #include "frontends/python/include/python_frontend.h"
 #include "frontends/rust/include/rust_frontend.h"
 
-// Common sema context for non-ploy frontends
+// Common sema context for non-poly frontends
 #include "frontends/common/include/sema_context.h"
 
 /** @name - */
@@ -75,6 +76,16 @@ using polyglot::frontends::FrontendRegistry;
 namespace {
 
 namespace fs = std::filesystem;
+
+std::string CanonicalLanguageId(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return language;
+}
 
 std::string ShellQuote(const std::string &arg) {
   if (arg.empty())
@@ -231,11 +242,11 @@ std::vector<std::string> CompilerService::SupportedLanguages() const {
 static std::string ClassifyToken(frontends::TokenKind kind, const std::string &lexeme) {
   switch (kind) {
   case frontends::TokenKind::kKeyword: {
-    // Ploy primitive type keywords — shown as types (teal)
+    // Poly primitive type keywords — shown as types (teal)
     static const std::unordered_set<std::string> ploy_type_keywords = {
         "INT",  "FLOAT", "STRING", "BOOL",   "VOID",  "ARRAY",
         "LIST", "TUPLE", "DICT",   "OPTION", "STRUCT"};
-    // Ploy literal keywords — shown as builtins (yellow-ish)
+    // Poly literal keywords — shown as builtins (yellow-ish)
     static const std::unordered_set<std::string> ploy_literal_keywords = {"TRUE", "FALSE", "NULL"};
     if (ploy_type_keywords.count(lexeme))
       return "type";
@@ -248,7 +259,7 @@ static std::string ClassifyToken(frontends::TokenKind kind, const std::string &l
     static const std::unordered_set<std::string> type_names = {
         "int", "float", "double", "char", "bool", "void", "string", "String", "str",
         "i32", "i64",   "u32",    "u64",  "f32",  "f64",  "usize",  "isize"};
-    // Classify built-in functions / special identifiers, and Ploy
+    // Classify built-in functions / special identifiers, and Poly
     // language qualifier identifiers (cpp, python, rust, etc.)
     static const std::unordered_set<std::string> builtins = {
         // Python builtins
@@ -256,7 +267,7 @@ static std::string ClassifyToken(frontends::TokenKind kind, const std::string &l
         "isinstance", "hasattr", "getattr", "setattr",
         // Rust builtins
         "Vec", "Box", "Option", "Result", "Some", "None", "Ok", "Err",
-        // Ploy language qualifiers — the language names that appear
+        // Poly language qualifiers — the language names that appear
         // as namespace prefixes in LINK / IMPORT / CALL expressions
         "cpp", "python", "rust", "java", "csharp", "dotnet", "javascript", "ruby", "go"};
     if (type_names.count(lexeme))
@@ -288,7 +299,8 @@ static std::string ClassifyToken(frontends::TokenKind kind, const std::string &l
 std::vector<TokenInfo> CompilerService::Tokenize(const std::string &source,
                                                  const std::string &language) const {
   // Use FrontendRegistry to dispatch tokenization
-  auto *fe = FrontendRegistry::Instance().GetFrontend(language);
+  auto *fe = FrontendRegistry::Instance().GetFrontend(
+      CanonicalLanguageId(language));
   if (!fe)
     return {};
 
@@ -363,7 +375,8 @@ std::vector<DiagnosticInfo> CompilerService::Analyze(const std::string &source,
   frontends::Diagnostics diags;
 
   // Use FrontendRegistry for unified dispatch
-  auto *fe = FrontendRegistry::Instance().GetFrontend(language);
+  auto *fe = FrontendRegistry::Instance().GetFrontend(
+      CanonicalLanguageId(language));
   if (fe) {
     frontends::FrontendOptions opts;
     opts.strict = true;
@@ -388,7 +401,8 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
   // into FrontendOptions and surface its stats on CompileResult.
   frontends::SharedTokenPool pool;
   frontends::Diagnostics      diags;
-  auto                       *fe = frontends::FrontendRegistry::Instance().GetFrontend(language);
+  auto *fe = frontends::FrontendRegistry::Instance().GetFrontend(
+      CanonicalLanguageId(language));
   if (fe) {
     frontends::FrontendOptions opts;
     opts.strict     = false;
@@ -488,7 +502,8 @@ CompileResult CompilerService::Compile(const std::string &source, const std::str
 std::vector<CompletionItem> CompilerService::Complete(const std::string &source,
                                                       const std::string &language, size_t line,
                                                       size_t column) const {
-  if (language == "ploy") {
+  const std::string canonical_language = CanonicalLanguageId(language);
+  if (canonical_language == "poly") {
     return GetPloyCompletions(source, line, column);
   }
 
@@ -566,13 +581,13 @@ std::vector<CompletionItem> CompilerService::Complete(const std::string &source,
   };
 
   std::vector<CompletionItem> result;
-  auto it = lang_keywords.find(language);
+  auto it = lang_keywords.find(canonical_language);
   if (it != lang_keywords.end()) {
     for (const auto &kw : it->second) {
       CompletionItem item;
       item.label = kw;
       item.kind = "keyword";
-      item.detail = language + " keyword";
+      item.detail = canonical_language + " keyword";
       item.insert_text = kw;
       result.push_back(std::move(item));
     }
@@ -606,7 +621,7 @@ std::vector<CompletionItem> CompilerService::GetPloyCompletions(const std::strin
        "WITH ${1:lang}, ${2:resource} {\n    ${3}\n}"},
       {"DELETE", "keyword", "Delete object", "DELETE(${1:lang}, ${2:obj});"},
       {"MAP_TYPE", "keyword", "Map external type",
-       "MAP_TYPE ${1:lang}::${2:type} -> ${3:ploy_type};"},
+       "MAP_TYPE ${1:lang}::${2:type} -> ${3:poly_type};"},
       {"PIPELINE", "keyword", "Define pipeline", "PIPELINE ${1:name} {\n    ${2}\n}"},
       {"IF", "keyword", "If statement", "IF (${1:condition}) {\n    ${2}\n}"},
       {"WHILE", "keyword", "While loop", "WHILE (${1:condition}) {\n    ${2}\n}"},
@@ -773,6 +788,7 @@ void CompilerService::ExtractSourceSymbols(const std::string &source,
 
 void CompilerService::IndexWorkspaceFile(const std::string &path, const std::string &source,
                                          const std::string &language) {
+  const std::string canonical_language = CanonicalLanguageId(language);
   std::lock_guard<std::mutex> lock(index_mutex_);
 
   // Remove existing entries for this file
@@ -793,7 +809,7 @@ void CompilerService::IndexWorkspaceFile(const std::string &path, const std::str
     if (first == std::string::npos)
       continue;
 
-    if (language == "ploy") {
+    if (canonical_language == "poly") {
       // FUNC name, PIPELINE name, LINK qual, STRUCT name
       std::istringstream ls(line_text);
       std::string tok;
@@ -812,7 +828,7 @@ void CompilerService::IndexWorkspaceFile(const std::string &path, const std::str
                              : (tok == "PIPELINE") ? "function"
                                                    : "type";
           workspace_index_[name].push_back(
-              {name, path, line_num, kind, language, tok + " " + name});
+              {name, path, line_num, kind, canonical_language, tok + " " + name});
         }
       } else if (tok == "LINK") {
         ls >> name;
@@ -823,9 +839,9 @@ void CompilerService::IndexWorkspaceFile(const std::string &path, const std::str
           short_name = short_name.substr(0, dot);
         if (!short_name.empty()) {
           workspace_index_[short_name].push_back(
-              {short_name, path, line_num, "function", language, "LINK " + name});
+              {short_name, path, line_num, "function", canonical_language, "LINK " + name});
           workspace_index_[name].push_back(
-              {name, path, line_num, "function", language, "LINK " + name});
+              {name, path, line_num, "function", canonical_language, "LINK " + name});
         }
       }
     } else if (language == "cpp") {
@@ -986,6 +1002,7 @@ CompilerService::DefinitionLocation CompilerService::FindDefinition(
     const std::string &symbol, const std::string &current_file, const std::string &source,
     const std::string &language) const {
   DefinitionLocation result;
+  const std::string canonical_language = CanonicalLanguageId(language);
 
   // First, search in the current file for a definition pattern
   std::istringstream stream(source);
@@ -994,7 +1011,7 @@ CompilerService::DefinitionLocation CompilerService::FindDefinition(
 
   // Patterns that indicate a definition (not just a usage)
   std::vector<std::string> def_patterns;
-  if (language == "ploy") {
+  if (canonical_language == "poly") {
     def_patterns = {
         "FUNC " + symbol,   "PIPELINE " + symbol, "LINK " + symbol,
         "STRUCT " + symbol, "LET " + symbol,      "VAR " + symbol,
@@ -1074,10 +1091,10 @@ CompilerService::DefinitionLocation CompilerService::FindDefinition(
     }
   }
 
-  // For .ploy files: if the symbol is a qualified name (lang::module::func),
+  // For .poly files: if the symbol is a qualified name (lang::module::func),
   // try to find the foreign source file by scanning the workspace for
   // matching function definitions.
-  if (language == "ploy" && symbol.find("::") != std::string::npos) {
+  if (canonical_language == "poly" && symbol.find("::") != std::string::npos) {
     auto last_sep = symbol.rfind("::");
     std::string short_name = symbol.substr(last_sep + 2);
     std::lock_guard<std::mutex> lock(index_mutex_);

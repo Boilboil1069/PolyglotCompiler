@@ -6,7 +6,7 @@ Diagnostic surface for malformed LINK / MAP_TYPE / IMPORT — exercised via deli
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | diagnostics, error recovery |
-| Entry     | `error_handling.ploy` |
+| Entry     | `error_handling.poly` |
 
 ## How to run
 
@@ -15,7 +15,7 @@ Diagnostic surface for malformed LINK / MAP_TYPE / IMPORT — exercised via deli
 ## Build
 
 ```powershell
-polyc 10_error_handling\error_handling.ploy --emit-obj=error_handling.pobj --obj-format=pobj
+polyc 10_error_handling\error_handling.poly --emit-obj=error_handling.pobj --obj-format=pobj
 polyld error_handling.pobj -o error_handling.exe
 ```
 

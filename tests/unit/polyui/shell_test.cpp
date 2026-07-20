@@ -144,7 +144,7 @@ TEST_CASE("SessionStore serialises and re-parses",
   s.split.orientation = SplitOrientation::kVertical;
   SessionPane left;
   left.id = "left";
-  left.tabs.push_back({"/repo/main.ploy", 12, 4, 0,
+  left.tabs.push_back({"/repo/main.poly", 12, 4, 0,
                        {{1, 5}, {10, 20}}, true});
   s.split.panes.push_back(std::move(left));
   s.panels.sidebar_width = 320;
@@ -174,25 +174,25 @@ TEST_CASE("SessionStore serialises and re-parses",
 TEST_CASE("BookmarkStore toggle / relabel / lookups / round-trip",
           "[polyui][shell][bookmarks]") {
   BookmarkStore bm;
-  auto a = bm.Toggle("/repo/main.ploy", 10, "entry", "#ff0");
+  auto a = bm.Toggle("/repo/main.poly", 10, "entry", "#ff0");
   REQUIRE(a);
   CHECK(a->id > 0);
-  auto a2 = bm.Toggle("/repo/main.ploy", 10);    // toggles off
+  auto a2 = bm.Toggle("/repo/main.poly", 10);    // toggles off
   CHECK_FALSE(a2);
   CHECK(bm.All().empty());
 
-  auto b = bm.Toggle("/repo/main.ploy", 20);
+  auto b = bm.Toggle("/repo/main.poly", 20);
   REQUIRE(b);
   CHECK(bm.Relabel(b->id, "loop"));
   CHECK(bm.Recolor(b->id, "#0f0"));
-  auto fetched = bm.AtLine("/repo/main.ploy", 20);
+  auto fetched = bm.AtLine("/repo/main.poly", 20);
   REQUIRE(fetched);
   CHECK(fetched->label == "loop");
   CHECK(fetched->color == "#0f0");
 
-  bm.Toggle("/repo/lib.ploy", 5);
+  bm.Toggle("/repo/lib.poly", 5);
   CHECK(bm.All().size() == 2);
-  CHECK(bm.InFile("/repo/main.ploy").size() == 1);
+  CHECK(bm.InFile("/repo/main.poly").size() == 1);
 
   auto round = bm.Serialize();
   BookmarkStore copy;

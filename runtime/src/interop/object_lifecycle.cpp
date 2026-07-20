@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <mimalloc.h>
@@ -103,6 +104,21 @@ struct ExtensionEntry {
 static std::vector<ExtensionEntry> g_extensions;
 static std::shared_mutex g_extension_mutex;
 
+static const char *CanonicalExtensionLanguage(const char *language) {
+  if (std::strlen(language) == 4) {
+    char folded[5]{};
+    for (std::size_t i = 0; i < 4; ++i) {
+      folded[i] = static_cast<char>(
+          std::tolower(static_cast<unsigned char>(language[i])));
+    }
+    if (std::strcmp(folded, "poly") == 0 ||
+        std::strcmp(folded, "ploy") == 0) {
+      return "poly";
+    }
+  }
+  return language;
+}
+
 void __ploy_extend_register(const char *language, const char *base_class, const char *derived) {
   if (!language || !base_class || !derived)
     return;
@@ -119,7 +135,7 @@ void __ploy_extend_register(const char *language, const char *base_class, const 
   };
 
   g_extensions.push_back(ExtensionEntry{
-      dup(language),
+      dup(CanonicalExtensionLanguage(language)),
       dup(base_class),
       dup(derived),
   });
@@ -134,11 +150,12 @@ const char *__ploy_extend_find_derived(const char *language, const char *base_cl
   if (!language || !base_class)
     return nullptr;
 
+  const char *canonical_language = CanonicalExtensionLanguage(language);
   std::shared_lock<std::shared_mutex> lock(g_extension_mutex);
   for (const ExtensionEntry &entry : g_extensions) {
     if (!entry.language || !entry.base_class || !entry.derived)
       continue;
-    if (std::strcmp(entry.language, language) == 0 &&
+    if (std::strcmp(entry.language, canonical_language) == 0 &&
         std::strcmp(entry.base_class, base_class) == 0) {
       return entry.derived;
     }

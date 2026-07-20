@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, C++ |
-| Entry | `file_io.ploy` |
+| Entry | `file_io.poly` |
 | Theme | Streaming file I/O |
 | Expected stdout | `19_file_io: ok\r\n` |
 
 ## Files
 
-- `file_io.ploy` — `.ploy` entry that wires the host sources together.
+- `file_io.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `binary_reader.cpp` — host source file
 - `text_decoder.py` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc file_io.ploy --emit-obj=build/file_io.obj --quiet
+polyc file_io.poly --emit-obj=build/file_io.obj --quiet
 polyld build/file_io.obj -o build/file_io.exe
 ./build/file_io.exe
 ```

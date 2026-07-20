@@ -3,7 +3,7 @@
  * @brief    End-to-end LSP integration: client ↔ polyls in-process
  *
  * Validates that a full lifecycle — initialize, didOpen with malformed
- * .ploy source, publishDiagnostics, didClose, shutdown — completes
+ * .poly source, publishDiagnostics, didClose, shutdown — completes
  * successfully and that diagnostics produced by the real
  * @ref PloyLanguageFrontend reach the LSP client.  The two endpoints
  * communicate through a @ref polyglot::tools::ui::lsp::LoopbackTransport
@@ -70,7 +70,7 @@ class InProcessHarness {
 
 }  // namespace
 
-TEST_CASE("LSP e2e: malformed .ploy yields publishDiagnostics", "[lsp][integration]") {
+TEST_CASE("LSP e2e: malformed .poly yields publishDiagnostics", "[lsp][integration]") {
   InProcessHarness h;
 
   // Capture publishDiagnostics on the client side.
@@ -97,12 +97,12 @@ TEST_CASE("LSP e2e: malformed .ploy yields publishDiagnostics", "[lsp][integrati
   REQUIRE(init_done.load());
   h.client()->Initialized();
 
-  // didOpen with deliberately malformed .ploy source — unterminated string
+  // didOpen with deliberately malformed .poly source — unterminated string
   // and stray semicolon should both raise lex/parse errors that propagate
   // through the frontend → polyls → publishDiagnostics path.
   lsp::DidOpenParams open;
-  open.text_document.uri = "file:///tmp/wsp/bad.ploy";
-  open.text_document.language_id = "ploy";
+  open.text_document.uri = "file:///tmp/wsp/bad.poly";
+  open.text_document.language_id = "poly";
   open.text_document.version = 1;
   open.text_document.text = "fn main() { let x = \"unterminated\n";
   h.client()->DidOpen(open);
@@ -110,7 +110,7 @@ TEST_CASE("LSP e2e: malformed .ploy yields publishDiagnostics", "[lsp][integrati
   // The loopback path is synchronous, so the server's publishDiagnostics
   // notification has already been dispatched by the time DidOpen returns.
   REQUIRE(diag_calls.load() >= 1);
-  REQUIRE(seen_uri == "file:///tmp/wsp/bad.ploy");
+  REQUIRE(seen_uri == "file:///tmp/wsp/bad.poly");
   REQUIRE(!seen.empty());
   bool any_error = false;
   for (const auto &d : seen) {
@@ -125,7 +125,7 @@ TEST_CASE("LSP e2e: malformed .ploy yields publishDiagnostics", "[lsp][integrati
   diag_calls = 0;
   seen.clear();
   lsp::DidCloseParams cl;
-  cl.text_document.uri = "file:///tmp/wsp/bad.ploy";
+  cl.text_document.uri = "file:///tmp/wsp/bad.poly";
   h.client()->DidClose(cl);
   REQUIRE(diag_calls.load() >= 1);
   REQUIRE(seen.empty());

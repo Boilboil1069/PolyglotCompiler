@@ -26,6 +26,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Enforce canonical Poly naming
+        run: python scripts/poly_naming_audit.py
+
+      - name: Audit generated tutorial bilingual parity
+        run: python scripts/tutorial_bilingual_audit.py
+
       - name: Run docs lint
         run: python scripts/docs_lint.py --ci
 

@@ -36,7 +36,7 @@ namespace {
 
 // Build a tiny module that interns the literal "hi\n" then issues
 // `polyrt_println(<ptr_alias>, 3)` from a single-block function. This is
-// exactly the IR shape the ploy lowering layer hands to the backends for
+// exactly the IR shape the poly lowering layer hands to the backends for
 // every PRINTLN call.
 void BuildPrintlnishModule(IRContext &ctx, std::string *ptr_name_out) {
     auto fn = ctx.CreateFunction("__ploy_main", IRType::I32(), {});

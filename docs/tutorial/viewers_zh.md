@@ -1,8 +1,8 @@
 # 文件类型查看器教程
 
-> **文档版本**：2.0.0  
-> **更新日期**：2026-05-07  
-> **项目**：PolyglotCompiler 1.45.2  
+> **文档版本**：2.0.0<br>
+> **更新日期**：2026-07-20<br>
+> **项目**：PolyglotCompiler 1.48.0<br>
 > **配套文件**：[viewers_en.md](viewers_en.md)
 
 PolyUI 内置图像、Hex / 二进制以及 SQLite 数据库的专用查看器。

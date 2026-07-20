@@ -1,7 +1,7 @@
 # Pattern Matching
 
 This document describes the `MATCH` statement and its pattern grammar
-in `.ploy`, the semantic checks the front-end performs on each arm,
+in `.poly`, the semantic checks the front-end performs on each arm,
 and the two lowering strategies the IR generator selects between.
 The Chinese counterpart lives at
 [`pattern_matching_zh.md`](pattern_matching_zh.md).
@@ -19,7 +19,7 @@ The arrow between the pattern (or guard) and the arm body is optional;
 both `->` and `=>` are accepted for source written against the older
 spec drafts.  The canonical published form omits the arrow:
 
-```ploy
+```poly
 MATCH value {
     CASE 0 { RETURN "zero"; }
     CASE _ { RETURN "other"; }
@@ -182,7 +182,7 @@ basic blocks:
 
 Pattern bindings are materialised before the body block by reusing
 the scrutinee SSA value (or a tuple/struct projection of it); no copy
-is required because `.ploy` values are immutable by default.
+is required because `.poly` values are immutable by default.
 
 The cascade is what enables guards, OR-patterns with mixed
 alternatives, OPTION variants, and arbitrary nested patterns to
@@ -192,7 +192,7 @@ compile down to plain branches the verifier already understands.
 
 ### 5.1 Boolean dispatch — exhaustive without DEFAULT
 
-```ploy
+```poly
 FUNC describe(b: bool) -> STRING {
     MATCH b {
         CASE TRUE  { RETURN "yes"; }
@@ -203,7 +203,7 @@ FUNC describe(b: bool) -> STRING {
 
 ### 5.2 OPTION unwrap
 
-```ploy
+```poly
 FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {
     MATCH opt {
         CASE Some(x) { RETURN x; }
@@ -214,7 +214,7 @@ FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {
 
 ### 5.3 Range / OR / binding / type guard, all in one MATCH
 
-```ploy
+```poly
 FUNC classify(value: i32) -> i32 {
     MATCH value {
         CASE 0                    { RETURN 100; }
@@ -229,7 +229,7 @@ FUNC classify(value: i32) -> i32 {
 
 ### 5.4 Tuple and struct destructuring
 
-```ploy
+```poly
 STRUCT Point { x: i32, y: i32, label: STRING }
 
 FUNC pair_kind(p: TUPLE(i32, i32)) -> i32 {

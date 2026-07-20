@@ -1,9 +1,9 @@
 /*
- * Poly / Ploy mode for CodeMirror 5 and Typora.
+ * Poly mode for CodeMirror 5 and Typora.
  *
- * The compiler calls the language "Ploy" and uses the .ploy extension.
- * "poly" is kept as a first-class fence alias because it is the natural
- * spelling used in documentation. Both names select this same mode.
+ * The compiler calls the language "Poly" and uses the .poly extension.
+ * The historical "Ploy" / `ploy` / `.ploy` spelling remains an input alias.
+ * Both fence names select the canonical `poly` mode.
  */
 (function (root, factory) {
   "use strict";
@@ -269,10 +269,10 @@
   if (Array.isArray(CodeMirror.modeInfo) &&
       !CodeMirror.modeInfo.some(function (item) { return item.mode === "poly"; })) {
     CodeMirror.modeInfo.push({
-      name: "Poly / Ploy",
+      name: "Poly",
       mime: "text/x-poly",
       mode: "poly",
-      ext: ["ploy", "poly"],
+      ext: ["poly", "ploy"],
       alias: ["poly", "ploy"]
     });
   }

@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Rust |
-| 入口 | `numeric_kernels.ploy` |
+| 入口 | `numeric_kernels.poly` |
 | 主题 | 数值内核（BLAS 风格） |
 | 预期 stdout | `18_numeric_kernels: ok\r\n` |
 
 ## 文件
 
-- `numeric_kernels.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `numeric_kernels.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `blas_kernels.cpp` — 宿主语言源文件
 - `reduce_kernels.rs` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc numeric_kernels.ploy --emit-obj=build/numeric_kernels.obj --quiet
+polyc numeric_kernels.poly --emit-obj=build/numeric_kernels.obj --quiet
 polyld build/numeric_kernels.obj -o build/numeric_kernels.exe
 ./build/numeric_kernels.exe
 ```

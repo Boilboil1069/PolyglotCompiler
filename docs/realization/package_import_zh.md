@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-本文档描述了 `.ploy` 语言中 `IMPORT ... PACKAGE` 功能的设计和实现，该功能允许直接导入目标语言的原生包（如 Python 的 numpy、Rust 的 serde），用于跨语言管道中。
+本文档描述了 `.poly` 语言中 `IMPORT ... PACKAGE` 功能的设计和实现，该功能允许直接导入目标语言的原生包（如 Python 的 numpy、Rust 的 serde），用于跨语言管道中。
 
 ## 2. 动机
 
@@ -14,7 +14,7 @@
 > - Python：numpy、scipy、pandas、torch 等
 > - Rust：serde、rayon、tokio 等
 >
-> 没有包导入功能，开发者需要手动编写包装模块来桥接这些包，这违背了 `.ploy` 自动化跨语言互操作的初衷。
+> 没有包导入功能，开发者需要手动编写包装模块来桥接这些包，这违背了 `.poly` 自动化跨语言互操作的初衷。
 
 ## 3. 语法
 
@@ -28,13 +28,13 @@ IMPORT 语言 PACKAGE 包路径 [AS 别名] ';'
 |------|------|------|
 | `语言` | 目标语言标识符（`python`、`rust`、`cpp`、`c`） | 是 |
 | `包路径` | 包名称，支持 `.` 分隔的子包路径 | 是 |
-| `别名` | 在 `.ploy` 文件中使用的简短名称 | 否 |
+| `别名` | 在 `.poly` 文件中使用的简短名称 | 否 |
 
 > **别名规则：** 如果不指定 `AS 别名`，则使用包名本身作为标识符。例如 `IMPORT python PACKAGE numpy;` 后可直接使用 `numpy::mean`。
 
 ### 3.2 语法示例
 
-```ploy
+```poly
 // 基本包导入
 IMPORT python PACKAGE numpy;
 // -> 使用 numpy::mean, numpy::array 等
@@ -60,7 +60,7 @@ IMPORT rust PACKAGE serde;
 
 导入后，包名（或别名）可以在 `LINK` 指令和 `CALL` 表达式中使用：
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy AS np;
 
 // 在 LINK 中使用 — 声明 C++ 函数调用 numpy 的 mean 函数
@@ -71,7 +71,7 @@ LET result = CALL(python, np::mean, data);
 ```
 
 > **完整示例：**
-> ```ploy
+> ```poly
 > IMPORT python PACKAGE numpy AS np;
 > IMPORT cpp::math_engine;
 >
@@ -137,7 +137,7 @@ struct ImportDecl : public Statement {
 
 `AnalyzeImportDecl` 的更新逻辑：
 
-1. **验证语言有效性**：确认语言标识符在支持列表中（`cpp`、`c`、`python`、`rust`、`ploy`、`java`、`dotnet`/`csharp`、`javascript`/`js`/`typescript`/`ts`、`ruby`/`rb`、`go`/`golang`）
+1. **验证语言有效性**：确认语言标识符在支持列表中（`cpp`、`c`、`python`、`rust`、`poly`、`java`、`dotnet`/`csharp`、`javascript`/`js`/`typescript`/`ts`、`ruby`/`rb`、`go`/`golang`）
 2. **确定符号名称**：
    - 如果有 `alias` → 使用别名（如 `np`）
    - 否则如果有 `package_name` → 使用包名（如 `numpy`）

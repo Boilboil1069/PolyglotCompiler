@@ -33,7 +33,7 @@
 
 每个选项都通过 `DriverSettings` → `FrontendOptions`
 （见 `frontends/common/include/language_frontend.h`）流入对应前端
-的 `Lower()` 入口，并由 ploy 的 `PackageIndexer` 共同消费。
+的 `Lower()` 入口，并由 poly 的 `PackageIndexer` 共同消费。
 
 ## 2. C++ — 预处理器接入
 
@@ -103,7 +103,7 @@ PE/CLI 格式：`#Strings`、`#US`、`#GUID`、`#Blob` 堆，以及
 **索引器级 cargo 集成**（`frontends/ploy/src/sema/package_indexer.cpp`）
 对 `--crate-dir` 给出的 crate 根运行
 `cargo metadata --format-version 1 --no-deps`。一个小型专用
-JSON 行走器（避免 ploy 前端引入重型依赖）从结果中提取每个包
+JSON 行走器（避免 poly 前端引入重型依赖）从结果中提取每个包
 的 `name`、`version`、`manifest_path`，写入
 `PackageInfo.install_path`。若未提供 crate 根，则查询
 `cargo install --list` 获取全局安装的二进制 crate。
@@ -113,7 +113,7 @@ JSON 行走器（避免 ploy 前端引入重型依赖）从结果中提取每个
 `--extern <name>=<path>` 原样转发给 Rust crate 加载器，使
 `use external_crate::Item` 直接解析到磁盘上的产物。
 
-## 7. Ploy 包索引
+## 7. Poly 包索引
 
 `PackageIndexer::IndexLanguage` 接收每语言的 `VenvConfig`；
 对 Rust 而言 `venv_path` 字段被解释为 cargo 项目根

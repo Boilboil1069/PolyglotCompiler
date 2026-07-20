@@ -16,11 +16,11 @@
 
 PolyglotCompiler is a self-hosted multi-language compiler, linker, runtime, language server, IDE, and sample/test suite. It parses first-party language frontends, lowers supported languages into a shared SSA-oriented IR, applies middle-end optimization, emits x86_64, ARM64, or WebAssembly artifacts, and packages final executables or libraries through the project linker.
 
-The `.ploy` language is the cross-language orchestration layer. It describes imports, package constraints, virtual environment configuration, function-level linking, cross-language calls, class construction, method calls, attribute access, resource management, type mapping, control flow, async flow, error handling, and pipeline exports.
+The `.poly` language is the cross-language orchestration layer. It describes imports, package constraints, virtual environment configuration, function-level linking, cross-language calls, class construction, method calls, attribute access, resource management, type mapping, control flow, async flow, error handling, and pipeline exports.
 
 ### 2.1 Product Goals
 
-- Provide a single compilation architecture for C++, Python, Rust, Java, .NET, JavaScript, Ruby, Go, and `.ploy`.
+- Provide a single compilation architecture for C++, Python, Rust, Java, .NET, JavaScript, Ruby, Go, and `.poly`.
 - Keep source parsing and lowering inside first-party frontends rather than relying on external compilers as the primary implementation path.
 - Validate cross-language signatures, arity, types, package constraints, ABI compatibility, and runtime bridge requirements before final packaging.
 - Emit native and portable targets through x86_64, ARM64, and WebAssembly backends.
@@ -30,7 +30,7 @@ The `.ploy` language is the cross-language orchestration layer. It describes imp
 
 ### 2.2 Non-Goals
 
-- `.ploy` is not a replacement for every supported language; it is the interoperability and orchestration language.
+- `.poly` is not a replacement for every supported language; it is the interoperability and orchestration language.
 - `polyui` must not bypass compiler services by directly depending on parser internals for user-visible behavior.
 - `polyld` and backend stages must not invent fallback symbols, synthetic object sections, or successful outputs when required compiler artifacts are missing.
 - Plugin APIs must not expose unstable C++ implementation ABI as the host contract.
@@ -43,7 +43,7 @@ The `.ploy` language is the cross-language orchestration layer. It describes imp
 |---|---|---|
 | `common/` | Shared compiler foundation | Types, symbols, source locations, target triples, binary containers, debug utilities, plugin API and manager |
 | `middle/` | Shared IR and optimization | IR context, CFG, SSA, verifier, parser/printer, data layout, templates, optimization passes, PGO, LTO |
-| `frontends/` | First-party language frontends | Common frontend utilities plus C++, Python, Rust, `.ploy`, Java, .NET, JavaScript, Ruby, Go |
+| `frontends/` | First-party language frontends | Common frontend utilities plus C++, Python, Rust, `.poly`, Java, .NET, JavaScript, Ruby, Go |
 | `backends/` | Code generation | Backend registry, ABI helpers, object builders, debug emitters, x86_64, ARM64, Wasm |
 | `runtime/` | Runtime services and interop | GC, allocation, FFI, marshalling, object lifecycle, language runtime bridges, async/error/reflection/threading/profile services |
 | `tools/` | User-facing and internal tools | `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polyver`, `polydoc`, `polytopo`, `polyls`, `polybench`, `polyui` |
@@ -76,7 +76,7 @@ The `.ploy` language is the cross-language orchestration layer. It describes imp
 | `frontend_python` | `frontends/python/` | Python lexer/parser/sema/lowering/frontend and `.pyi` loader |
 | `frontend_cpp` | `frontends/cpp/` | C++ lexer/parser/sema/lowering/frontend and constexpr support |
 | `frontend_rust` | `frontends/rust/` | Rust lexer/parser/sema/lowering/frontend and crate loader |
-| `frontend_ploy` | `frontends/ploy/` | `.ploy` lexer/parser/sema/lowering/frontend, package discovery, config registry |
+| `frontend_ploy` | `frontends/ploy/` | `.poly` lexer/parser/sema/lowering/frontend, package discovery, config registry |
 | `frontend_java` | `frontends/java/` | Java lexer/parser/sema/lowering/frontend and class file reader |
 | `frontend_dotnet` | `frontends/dotnet/` | .NET lexer/parser/sema/lowering/frontend and metadata reader |
 | `frontend_javascript` | `frontends/javascript/` | JavaScript lexer/parser/sema/lowering/frontend and import resolver |
@@ -99,15 +99,15 @@ The `.ploy` language is the cross-language orchestration layer. It describes imp
 | Target | Role | Key Dependencies |
 |---|---|---|
 | `polyc` | Compiler driver | `polyc_lib`, settings |
-| `polyld` | Linker and container writer | `linker_lib`, common, `.ploy` frontend, settings |
+| `polyld` | Linker and container writer | `linker_lib`, common, `.poly` frontend, settings |
 | `polyasm` | Assembly-to-object tool | Backends and middle IR |
 | `polyopt` | Standalone IR optimizer | Middle IR and backends |
 | `polyrt` | Runtime launcher/control utility | Runtime, common, settings |
 | `polyver` | Toolchain/package-manager detector | Common, JSON |
-| `polydoc` | `.ploy` doc-comment extractor | `.ploy` frontend, common |
+| `polydoc` | `.poly` doc-comment extractor | `.poly` frontend, common |
 | `polyls` | Self-hosted language server | `polyls_core` |
 | `polybench` | Performance benchmark runner | Frontends, backends, runtime, settings |
-| `polytopo` | Topology analysis CLI | `topo_lib`, common, `.ploy` frontend, settings |
+| `polytopo` | Topology analysis CLI | `topo_lib`, common, `.poly` frontend, settings |
 | `polyui` | Qt desktop IDE | Frontends, backends, runtime, topology, settings, LSP, language server core |
 | `pe_smoke` | PE writer harness | `linker_lib`, common |
 
@@ -132,7 +132,7 @@ Top-level CMake includes subdirectories in this order: `common`, `middle`, `fron
 ### 5.2 End-to-End Compilation Flow
 
 ```text
-Source files and .ploy orchestration
+Source files and .poly orchestration
   -> language detection or explicit --lang
   -> frontend registry dispatch
   -> lexer/parser/sema/lowering
@@ -190,14 +190,14 @@ Compiled entry point
 | C++ | `frontend_cpp` | `.cpp`, `.cxx`, `.cc`, `.h`, `.hpp` | AST, lexer, parser, sema, lowering, frontend, constexpr | C++ language model and constant expression support |
 | Python | `frontend_python` | `.py`, `.pyi` | AST, lexer, parser, sema, lowering, frontend, advanced features, `.pyi` loader | Python 3.8+ style feature gates and stub loading |
 | Rust | `frontend_rust` | `.rs` | AST, lexer, parser, sema, lowering, frontend, advanced features, crate loader | Rust editions, crate discovery, borrow/type checks |
-| `.ploy` | `frontend_ploy` | `.ploy` | AST, lexer, parser, sema, lowering, frontend, package cache, command runner, package indexer, config registry | Cross-language orchestration, package discovery, bridge descriptors |
+| `.poly` | `frontend_ploy` | `.poly` | AST, lexer, parser, sema, lowering, frontend, package cache, command runner, package indexer, config registry | Cross-language orchestration, package discovery, bridge descriptors |
 | Java | `frontend_java` | `.java`, class metadata | AST, lexer, parser, sema, lowering, frontend, class file reader | Java 8/17/21/23 feature handling and class metadata |
 | .NET | `frontend_dotnet` | `.cs`, `.vb`, metadata | AST, lexer, parser, sema, lowering, frontend, metadata reader | .NET 6/7/8/9 metadata and language feature gates |
 | JavaScript | `frontend_javascript` | `.js` | AST, lexer, parser, sema, lowering, frontend, import resolver | ES feature parsing and module import resolution |
 | Ruby | `frontend_ruby` | `.rb` | AST, lexer, parser, sema, lowering, frontend, import resolver | Ruby import and dynamic language interop model |
 | Go | `frontend_go` | `.go` | AST, lexer, parser, sema, lowering, frontend, import resolver | Go module import and generic feature handling |
 
-### 6.4 `.ploy` Language Capability Inventory
+### 6.4 `.poly` Language Capability Inventory
 
 | Capability | Design Contract |
 |---|---|
@@ -277,7 +277,7 @@ Runtime-generated-code contract: generated code calls C-linkage symbols and trea
 
 ### 7.1 Configuration Surface
 
-`CompilationContext::Config` includes source file/text/language, output file, target arch/OS/triple, container, subsystem, entry symbol, mode, object format, linker path, optimization level, strict/force flags, aux dir, package indexing, IR/ASM/object emission paths, additional libraries, include/system include paths, defines, Python stub paths, Java classpath, .NET references, Rust crate settings, and `.ploy` descriptor path.
+`CompilationContext::Config` includes source file/text/language, output file, target arch/OS/triple, container, subsystem, entry symbol, mode, object format, linker path, optimization level, strict/force flags, aux dir, package indexing, IR/ASM/object emission paths, additional libraries, include/system include paths, defines, Python stub paths, Java classpath, .NET references, Rust crate settings, and `.poly` descriptor path.
 
 ### 7.2 Marshal Strategies
 
@@ -308,7 +308,7 @@ Runtime-generated-code contract: generated code calls C-linkage symbols and trea
 
 ### 8.2 Cross-Language Linker Contract
 
-`PolyglotLinker` accepts `.ploy` call descriptors, validated link entries, cross-language symbols, descriptor files, and aux directory discovery. It resolves language-symbol pairs, validates ABI compatibility, generates glue stubs, emits relocations, tracks errors/warnings, and exposes generated stubs to the main linker.
+`PolyglotLinker` accepts `.poly` call descriptors, validated link entries, cross-language symbols, descriptor files, and aux directory discovery. It resolves language-symbol pairs, validates ABI compatibility, generates glue stubs, emits relocations, tracks errors/warnings, and exposes generated stubs to the main linker.
 
 Hard-failure conditions:
 
@@ -323,14 +323,14 @@ Hard-failure conditions:
 
 | Tool | Primary Inputs | Primary Outputs | Design Responsibility |
 |---|---|---|---|
-| `polyc` | Source files, `.ploy`, CLI flags, settings | Objects, aux artifacts, binaries/libraries, diagnostics | Full compilation pipeline driver |
+| `polyc` | Source files, `.poly`, CLI flags, settings | Objects, aux artifacts, binaries/libraries, diagnostics | Full compilation pipeline driver |
 | `polyld` | Objects, descriptor files, libraries | ELF/PE/Mach-O/Wasm outputs | Linking and container emission |
 | `polyasm` | Assembly | Object files | Assembly path for backend artifacts |
 | `polyopt` | Textual IR | Optimized IR | Standalone middle-end testing and optimization |
 | `polyrt` | Runtime commands/config | Runtime actions/statistics | Runtime utility |
 | `polyver` | Host environment | Toolchain database | Toolchain/package manager discovery |
-| `polydoc` | `.ploy` source | Markdown/JSON docs | Doc-comment extraction |
-| `polytopo` | `.ploy` and descriptors | Text/DOT/JSON topology | Cross-language topology analysis |
+| `polydoc` | `.poly` source | Markdown/JSON docs | Doc-comment extraction |
+| `polytopo` | `.poly` and descriptors | Text/DOT/JSON topology | Cross-language topology analysis |
 | `polyls` | LSP JSON-RPC | LSP responses/notifications | Editor integration and diagnostics |
 | `polybench` | Bench suites/settings | Benchmark results | Performance validation |
 | `polyui` | Workspace/project files | IDE UX, panels, diagnostics | Desktop IDE |
@@ -377,7 +377,7 @@ Hard-failure conditions:
 | Themes | `theme_schema.json`, built-in `.polytheme.json` files | VS Code-style theme discovery, validation, preview, and UI application |
 | Plugin API | `common/include/plugins/plugin_api.h`, `docs/specs/plugin_specification.md` | Stable C ABI, capability flags, host services, lifecycle |
 | Extension UI | `tools/ui/common/ext/extension_api.*`, `marketplace.*` | UI-facing extension and marketplace management |
-| Docs generation | `scripts/docs_generate.py`, `polydoc` | Generated docs and `.ploy` doc extraction |
+| Docs generation | `scripts/docs_generate.py`, `polydoc` | Generated docs and `.poly` doc extraction |
 
 ## 12. Samples and Fixtures
 
@@ -393,7 +393,7 @@ Hard-failure conditions:
 | 21-30 | `21_image_processing` through `30_game_loop_demo` | Image, database, HTTP, concurrency, event loop, state machine, plugin system, ML, analytics, game loop |
 | 31-41 | `31_explicit_widths` through `41_grammar_polish` | Numeric widths, typed handles, pattern matching, default args, dynamic extend, try/catch, async/await, generics, visibility, strings, grammar polish |
 
-Each sample directory is expected to contain a README pair, a `.ploy` file, supporting language files where applicable, and an expected output file unless the scenario is intentionally environment-dependent.
+Each sample directory is expected to contain a README pair, a `.poly` file, supporting language files where applicable, and an expected output file unless the scenario is intentionally environment-dependent.
 
 ### 12.2 Fixtures
 
@@ -407,7 +407,7 @@ Each sample directory is expected to contain a README pair, a `.ploy` file, supp
 | API docs | `docs/api/` | API reference, extension API, `polyls`, `polydoc`, profile API |
 | Specs | `docs/specs/` | Language/IR, namespace, optimization, runtime ABI, plugin spec, packaging, LSP, schemas, attributes |
 | Realization notes | `docs/realization/` | Implementation notes for compiler, runtime, UI, interop, language features, packaging, settings, themes, tools |
-| Tutorials | `docs/tutorial/` | `.ploy`, project, LSP, profiling, problems panel, shell, viewers, call analyzer tutorials |
+| Tutorials | `docs/tutorial/` | `.poly`, project, LSP, profiling, problems panel, shell, viewers, call analyzer tutorials |
 | Demand log | `docs/demand/demand.md` | Historical requirement stream and completion markers |
 | Changelog | `docs/CHANGELOG.md`, `docs/CHANGELOG_zh.md` | Release history |
 | Design | `docs/design.md`, `docs/design_zh.md` | This repository-wide design spec |
@@ -502,7 +502,7 @@ The same diagnostic object model should support:
 | `test_frontend_python` | Python frontend |
 | `test_frontend_cpp` | C++ frontend |
 | `test_frontend_rust` | Rust frontend |
-| `test_frontend_ploy` | `.ploy` frontend |
+| `test_frontend_ploy` | `.poly` frontend |
 | `test_frontend_java` | Java frontend |
 | `test_frontend_dotnet` | .NET frontend |
 | `test_frontend_javascript` | JavaScript frontend |
@@ -555,7 +555,7 @@ python3 scripts/docs_sync_check.py --ci --scope core
 | Requirement Area | Implementation Surface | Test/Doc Surface |
 |---|---|---|
 | Multi-language frontends | `frontends/`, `FrontendRegistry` | `test_frontend_*`, `docs/specs/language_spec.md` |
-| `.ploy` orchestration | `frontends/ploy/`, `tools/polyc`, `tools/polyld` | `test_frontend_ploy`, samples, `.ploy` tutorials |
+| `.poly` orchestration | `frontends/ploy/`, `tools/polyc`, `tools/polyld` | `test_frontend_ploy`, samples, `.poly` tutorials |
 | Shared IR/optimization | `middle/` | `test_middle`, optimization spec |
 | Native/Wasm backends | `backends/` | `test_backends`, binary matrix, object format tests |
 | Runtime interop | `runtime/` | `test_runtime`, interop integration tests, runtime ABI docs |
@@ -573,7 +573,7 @@ Design-impacting changes must update this document when they alter:
 
 - Build targets or dependency direction.
 - Frontend/backend/runtime/linker contracts.
-- `.ploy` syntax, semantics, diagnostics, or package behavior.
+- `.poly` syntax, semantics, diagnostics, or package behavior.
 - Compiler pipeline stage inputs/outputs.
 - CLI flags that affect emitted artifacts.
 - UI/LSP user-visible behavior.

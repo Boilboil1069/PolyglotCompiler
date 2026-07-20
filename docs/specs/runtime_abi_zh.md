@@ -92,7 +92,7 @@ polyglot 链接器所消费的*契约*层。
 
 ## 4 互操作 / 对象生命周期 (`runtime/include/interop/object_lifecycle.h`)
 
-这些 `__ploy_*` 符号由 `.ploy` IR 降低阶段发出，在链接时解析：
+这些 `__ploy_*` 符号由 `.poly` IR 降低阶段发出，在链接时解析：
 
 | 符号 | 签名 | 描述 |
 |------|------|------|

@@ -1,8 +1,8 @@
 /**
  * @file     lexer.cpp
- * @brief    Ploy language frontend implementation
+ * @brief    Poly language frontend implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */

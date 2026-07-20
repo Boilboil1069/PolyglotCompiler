@@ -5,7 +5,7 @@
  *           storage shared with host-language adapters; raising an
  *           Error is implemented as a C++ exception (`RuntimeError`)
  *           so that any enclosing C++ frame on the call stack can
- *           catch it and route control back into Ploy's lowered
+ *           catch it and route control back into Poly's lowered
  *           CATCH dispatch.  Direct setjmp/longjmp at the caller's
  *           IR site is tracked under future work.
  *
@@ -17,6 +17,8 @@
 
 #include "runtime/include/services/exception.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -38,6 +40,15 @@ struct ThreadState {
 
 thread_local ThreadState g_state;
 
+std::string CanonicalLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return folded == "poly" || folded == "ploy" ? "poly" : language;
+}
+
 } // namespace
 
 const ErrorPayload &CurrentErrorPayload() {
@@ -45,6 +56,7 @@ const ErrorPayload &CurrentErrorPayload() {
 }
 
 void SetCurrentErrorPayload(ErrorPayload payload) {
+  payload.source_lang = CanonicalLanguage(std::move(payload.source_lang));
   g_state.current_error = std::move(payload);
   g_state.error_live = true;
 }
@@ -68,13 +80,13 @@ void __ploy_rt_try_end(void) {
 }
 
 void __ploy_rt_throw(const char *message_ptr) {
-  __ploy_rt_throw_from(message_ptr, "ploy");
+  __ploy_rt_throw_from(message_ptr, "poly");
 }
 
 POLYRT_NORETURN void __ploy_rt_throw_from(const char *message_ptr, const char *source_lang_ptr) {
   ErrorPayload payload;
   payload.message = message_ptr ? std::string(message_ptr) : std::string("<unspecified>");
-  payload.source_lang = source_lang_ptr ? std::string(source_lang_ptr) : std::string("ploy");
+  payload.source_lang = source_lang_ptr ? std::string(source_lang_ptr) : std::string("poly");
   payload.stacktrace = CaptureStackTrace(32);
   std::string message_copy = payload.message;
   std::vector<std::string> trace_copy = payload.stacktrace;

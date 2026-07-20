@@ -99,21 +99,21 @@ TEST_CASE("polyls didOpen + didChange + didClose document store",
   // Trivially valid module.
   const Json open_params = Json{
       {"textDocument",
-       {{"uri", "file:///a.ploy"},
-        {"languageId", "ploy"},
+       {{"uri", "file:///a.poly"},
+        {"languageId", "poly"},
         {"version", 1},
         {"text", "FUNC f() { }\n"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open_params));
 
   auto docs = s.SnapshotDocuments();
   REQUIRE(docs.size() == 1);
-  REQUIRE(docs.front().uri == "file:///a.ploy");
+  REQUIRE(docs.front().uri == "file:///a.poly");
   REQUIRE(docs.front().version == 1);
   REQUIRE(docs.front().text == "FUNC f() { }\n");
 
   // didChange (full sync — no range).
   const Json change_params = Json{
-      {"textDocument", {{"uri", "file:///a.ploy"}, {"version", 2}}},
+      {"textDocument", {{"uri", "file:///a.poly"}, {"version", 2}}},
       {"contentChanges", Json::array({Json{{"text", "FUNC g() { }\n"}}})}};
   s.HandleIncoming(MakeNotification("textDocument/didChange", change_params));
   docs = s.SnapshotDocuments();
@@ -123,18 +123,39 @@ TEST_CASE("polyls didOpen + didChange + didClose document store",
   // didClose removes the entry and emits an empty publishDiagnostics.
   cap.outbound.clear();
   const Json close_params =
-      Json{{"textDocument", {{"uri", "file:///a.ploy"}}}};
+      Json{{"textDocument", {{"uri", "file:///a.poly"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didClose", close_params));
   REQUIRE(s.SnapshotDocuments().empty());
 
   const Json *empty = FindNotification(cap, "textDocument/publishDiagnostics");
   REQUIRE(empty != nullptr);
-  REQUIRE((*empty)["params"]["uri"] == "file:///a.ploy");
+  REQUIRE((*empty)["params"]["uri"] == "file:///a.poly");
   REQUIRE((*empty)["params"]["diagnostics"].is_array());
   REQUIRE((*empty)["params"]["diagnostics"].empty());
 }
 
-TEST_CASE("polyls publishDiagnostics carries syntax errors for .ploy",
+TEST_CASE("polyls normalizes legacy didOpen language id to poly",
+          "[polyls][sync][compat]") {
+  Captured cap;
+  PolylsServer s; MakeServer(s, cap);
+  s.HandleIncoming(MakeRequest(1, "initialize", Json::object()));
+  s.HandleIncoming(MakeNotification("initialized", Json::object()));
+
+  const Json open_params = Json{
+      {"textDocument",
+       {{"uri", "file:///legacy.ploy"},
+        {"languageId", "PloY"},
+        {"version", 1},
+        {"text", "FUNC legacy() { }\n"}}}};
+  s.HandleIncoming(MakeNotification("textDocument/didOpen", open_params));
+
+  const auto docs = s.SnapshotDocuments();
+  REQUIRE(docs.size() == 1);
+  REQUIRE(docs.front().uri == "file:///legacy.ploy");
+  REQUIRE(docs.front().language_id == "poly");
+}
+
+TEST_CASE("polyls publishDiagnostics carries syntax errors for .poly",
           "[polyls][diagnostics]") {
   Captured cap;
   PolylsServer s; MakeServer(s, cap);
@@ -144,8 +165,8 @@ TEST_CASE("polyls publishDiagnostics carries syntax errors for .ploy",
   // Deliberate syntax error — unmatched brace.
   const Json open_params = Json{
       {"textDocument",
-       {{"uri", "file:///bad.ploy"},
-        {"languageId", "ploy"},
+       {{"uri", "file:///bad.poly"},
+        {"languageId", "poly"},
         {"version", 1},
         {"text", "FUNC broken( {\n"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open_params));
@@ -153,7 +174,7 @@ TEST_CASE("polyls publishDiagnostics carries syntax errors for .ploy",
   const Json *publish =
       FindNotification(cap, "textDocument/publishDiagnostics");
   REQUIRE(publish != nullptr);
-  REQUIRE((*publish)["params"]["uri"] == "file:///bad.ploy");
+  REQUIRE((*publish)["params"]["uri"] == "file:///bad.poly");
   const Json &diags = (*publish)["params"]["diagnostics"];
   REQUIRE(diags.is_array());
   REQUIRE_FALSE(diags.empty());

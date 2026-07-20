@@ -1,12 +1,13 @@
 /**
  * @file     topology_codegen.cpp
- * @brief    Generates .ploy source code from a TopologyGraph
+ * @brief    Generates .poly source code from a TopologyGraph
  *
  * @ingroup  Tool / polytopo
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <cctype>
 #include <set>
 #include <sstream>
 #include <unordered_set>
@@ -26,7 +27,7 @@ std::string PortTypeName(const Port &port) {
   return port.type.name.empty() ? "Any" : port.type.name;
 }
 
-// Uppercase the first letter of a string for .ploy type names.
+// Uppercase the first letter of a string for .poly type names.
 std::string UpperFirst(const std::string &s) {
   if (s.empty())
     return s;
@@ -35,7 +36,7 @@ std::string UpperFirst(const std::string &s) {
   return out;
 }
 
-// Convert a TopologyEdge::Status to a .ploy-friendly status comment.
+// Convert a TopologyEdge::Status to a .poly-friendly status comment.
 std::string StatusComment(TopologyEdge::Status status) {
   switch (status) {
   case TopologyEdge::Status::kValid:
@@ -71,8 +72,8 @@ std::string KindString(TopologyNode::Kind kind) {
   return "unknown";
 }
 
-// Map a generic type name to a ploy-compatible type keyword.
-// Ploy uses uppercase type names: INT, FLOAT, STRING, BOOL, VOID, ARRAY[T].
+// Map a generic type name to a poly-compatible type keyword.
+// Poly uses uppercase type names: INT, FLOAT, STRING, BOOL, VOID, ARRAY[T].
 std::string ToPloySrcType(const std::string &type_name) {
   if (type_name.empty() || type_name == "Any")
     return "INT";
@@ -129,7 +130,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
   /** @name Header comment */
   /** @{ */
   out << "// ============================================================================\n";
-  out << "// Auto-generated .ploy source from topology graph\n";
+  out << "// Auto-generated .poly source from topology graph\n";
   if (!graph.module_name.empty()) {
     out << "// Module: " << graph.module_name << "\n";
   }
@@ -145,7 +146,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
   /** @{ */
   std::set<std::string> languages;
   for (const auto &node : graph.Nodes()) {
-    if (!node.language.empty() && node.language != "ploy") {
+    if (!node.language.empty() && node.language != "poly") {
       languages.insert(node.language);
     }
   }
@@ -158,7 +159,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
   // from node names (e.g. "cpp::math_ops::add" -> module "math_ops").
   std::set<std::string> emitted_imports;
   for (const auto &node : graph.Nodes()) {
-    if (node.language.empty() || node.language == "ploy")
+    if (node.language.empty() || node.language == "poly")
       continue;
     // Extract module from qualified name: "math_ops::add" -> "math_ops"
     std::string module;
@@ -228,7 +229,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
   /** @name LINK directives from edges */
   /** @{ */
   // For edges connecting nodes from different languages, emit LINK statements.
-  // Use the correct ploy LINK syntax:
+  // Use the correct poly LINK syntax:
   //   LINK(src_lang, tgt_lang, src_func, tgt_func) RETURNS src_lang::type { MAP_TYPE(...); }
   std::set<std::string> emitted_links;
   for (const auto &edge : graph.Edges()) {
@@ -367,7 +368,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
       continue;
     if (node.kind == TopologyNode::Kind::kExternalCall)
       continue;
-    if (node.kind == TopologyNode::Kind::kMapFunc && node.language != "ploy") {
+    if (node.kind == TopologyNode::Kind::kMapFunc && node.language != "poly") {
       continue; // External map functions are not regenerated
     }
 
@@ -490,7 +491,7 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
       continue;
     if (node.kind == TopologyNode::Kind::kMapFunc)
       continue;
-    if (node.language != "ploy" && !node.language.empty())
+    if (node.language != "poly" && !node.language.empty())
       continue;
 
     out << "EXPORT " << node.name << ";\n";
@@ -511,6 +512,15 @@ std::string GeneratePloySrc(const TopologyGraph &graph) {
 // fallback that covers the standard topology JSON schema.
 
 namespace {
+
+std::string CanonicalTopologyLanguage(const std::string &language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return folded == "poly" || folded == "ploy" ? "poly" : language;
+}
 
 // Skip whitespace in a JSON string.
 void SkipWs(const std::string &s, size_t &pos) {
@@ -762,7 +772,7 @@ bool ParseJsonToGraph(const std::string &json_str, TopologyGraph &out_graph) {
           } else if (nkey == "name") {
             node.name = ReadJsonString(json_str, pos);
           } else if (nkey == "language") {
-            node.language = ReadJsonString(json_str, pos);
+            node.language = CanonicalTopologyLanguage(ReadJsonString(json_str, pos));
           } else if (nkey == "kind") {
             node.kind = ParseKind(ReadJsonString(json_str, pos));
           } else if (nkey == "is_linked") {

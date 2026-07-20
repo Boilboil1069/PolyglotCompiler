@@ -26,7 +26,7 @@ The legacy command palette (`Ctrl+Shift+P`) is preserved unchanged.
 | Quick Open ranker   | [`tools/ui/common/quickopen/quick_open_ranker.{h,cpp}`](../../tools/ui/common/quickopen/quick_open_ranker.h) | Fuzzy path scoring with recency tie-break.                                  |
 | Search engine       | [`tools/ui/common/search/global_search_engine.{h,cpp}`](../../tools/ui/common/search/global_search_engine.h) | Regex / glob / streaming sink / capture-group replace.                      |
 | Outline tree        | [`tools/ui/common/outline/outline_model.{h,cpp}`](../../tools/ui/common/outline/outline_model.h)    | Filterable tree consumed by Outline panel + Breadcrumbs.                    |
-| LSP — file symbols  | `polyls.HandleDocumentSymbol`                                                                       | Returns LSP `DocumentSymbol[]` for `.ploy` buffers.                         |
+| LSP — file symbols  | `polyls.HandleDocumentSymbol`                                                                       | Returns LSP `DocumentSymbol[]` for `.poly` buffers.                         |
 | LSP — workspace     | `polyls.HandleWorkspaceSymbol`                                                                      | Walks `SymbolIndex::Entries` and applies the query substring filter.        |
 
 ## Pipelines

@@ -1,12 +1,12 @@
-# Poly / Ploy highlighting demo
+# Poly highlighting demo
 
 This file exercises every token family recognised by the Typora mode. Open it
 in Typora after installation; both fence labels below must be highlighted.
 
 本文件覆盖 Typora 高亮模式识别的所有主要 token 类型。安装后用 Typora
-打开本文件，下面的 `poly` 与 `ploy` 两种代码块都应出现高亮。
+打开本文件，下面的规范 `poly` 与兼容 `ploy` 两种代码块都应出现高亮。
 
-## `poly` alias / `poly` 别名
+## Canonical `poly` name / 规范 `poly` 名称
 
 ```poly
 /// A typed, documented function with attributes.
@@ -35,7 +35,7 @@ Expected categories / 预期分类：
 - `0x03`, `1.25e-2` → number / 数值；
 - regular, raw, and template literals → string / 字符串。
 
-## Canonical `ploy` name / 规范 `ploy` 名称
+## Legacy `ploy` alias / 兼容 `ploy` 别名
 
 ```ploy
 CLASS python::widgets::Counter {

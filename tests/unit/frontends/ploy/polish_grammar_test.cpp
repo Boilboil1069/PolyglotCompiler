@@ -5,7 +5,7 @@
  *           `IF LET None` unwrap, NULL-with-OPTION<T> diagnostic, and
  *           `///` doc-comment capture on FUNC/STRUCT/LET declarations.
  *
- * @ingroup  Tests / Ploy / Grammar Polish
+ * @ingroup  Tests / Poly / Grammar Polish
  * @author   Manning Cyrus
  * @date     2026-05-05
  */
@@ -84,7 +84,7 @@ std::shared_ptr<T> FirstStmtOfKind(const FuncDecl &fn) {
 
 }  // namespace
 
-TEST_CASE("IF accepts optional outer parens", "[ploy][parser][polish]") {
+TEST_CASE("IF accepts optional outer parens", "[poly][parser][polish]") {
     auto r = Parse("FUNC f() -> i32 { IF (1 == 1) { RETURN 1; } RETURN 0; }");
     REQUIRE(r.module->declarations.size() == 1);
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
@@ -93,7 +93,7 @@ TEST_CASE("IF accepts optional outer parens", "[ploy][parser][polish]") {
     REQUIRE(if_stmt);
 }
 
-TEST_CASE("WHILE accepts optional outer parens", "[ploy][parser][polish]") {
+TEST_CASE("WHILE accepts optional outer parens", "[poly][parser][polish]") {
     auto r = Parse("FUNC f() { WHILE (1 == 1) { BREAK; } }");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
     REQUIRE(fn);
@@ -101,7 +101,7 @@ TEST_CASE("WHILE accepts optional outer parens", "[ploy][parser][polish]") {
     REQUIRE(w);
 }
 
-TEST_CASE("FOR accepts optional outer parens", "[ploy][parser][polish]") {
+TEST_CASE("FOR accepts optional outer parens", "[poly][parser][polish]") {
     auto r = Parse("FUNC f() { FOR (i IN [1, 2, 3]) { CONTINUE; } }");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
     REQUIRE(fn);
@@ -110,7 +110,7 @@ TEST_CASE("FOR accepts optional outer parens", "[ploy][parser][polish]") {
     REQUIRE(fr->iterator_name == "i");
 }
 
-TEST_CASE("FOR still accepts the no-parens form", "[ploy][parser][polish]") {
+TEST_CASE("FOR still accepts the no-parens form", "[poly][parser][polish]") {
     auto r = Parse("FUNC f() { FOR i IN [1, 2, 3] { CONTINUE; } }");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
     REQUIRE(fn);
@@ -118,7 +118,7 @@ TEST_CASE("FOR still accepts the no-parens form", "[ploy][parser][polish]") {
     REQUIRE(fr);
 }
 
-TEST_CASE("IF LET Some(x) parses with binding", "[ploy][parser][polish][iflet]") {
+TEST_CASE("IF LET Some(x) parses with binding", "[poly][parser][polish][iflet]") {
     auto r = Parse("FUNC f(opt: OPTION<i32>) { IF LET Some(x) = opt { RETURN; } }");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
     REQUIRE(fn);
@@ -130,7 +130,7 @@ TEST_CASE("IF LET Some(x) parses with binding", "[ploy][parser][polish][iflet]")
 }
 
 TEST_CASE("IF LET None parses without bindings and supports ELSE",
-          "[ploy][parser][polish][iflet]") {
+          "[poly][parser][polish][iflet]") {
     auto r = Parse("FUNC f(opt: OPTION<i32>) { IF LET None = opt { RETURN; } "
                    "ELSE { RETURN; } }");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
@@ -143,12 +143,12 @@ TEST_CASE("IF LET None parses without bindings and supports ELSE",
 }
 
 TEST_CASE("NULL bound to OPTION<T> raises a targeted diagnostic",
-          "[ploy][sema][polish][null-option]") {
+          "[poly][sema][polish][null-option]") {
     auto r = Analyze("FUNC f() { LET o: OPTION<i32> = NULL; }");
     REQUIRE(DiagsContain(r.diags, "OPTION<T> with NULL"));
 }
 
-TEST_CASE("/// doc comments attach to FUNC", "[ploy][lexer][polish][doc]") {
+TEST_CASE("/// doc comments attach to FUNC", "[poly][lexer][polish][doc]") {
     auto r = Parse("/// First line\n"
                    "/// Second line\n"
                    "FUNC add(a: i32, b: i32) -> i32 { RETURN a + b; }\n");
@@ -160,7 +160,7 @@ TEST_CASE("/// doc comments attach to FUNC", "[ploy][lexer][polish][doc]") {
 }
 
 TEST_CASE("/// doc comments attach to STRUCT and LET",
-          "[ploy][lexer][polish][doc]") {
+          "[poly][lexer][polish][doc]") {
     auto r = Parse("/// A point.\n"
                    "STRUCT Point { x: i32, y: i32 }\n"
                    "/// The answer.\n"
@@ -177,7 +177,7 @@ TEST_CASE("/// doc comments attach to STRUCT and LET",
 }
 
 TEST_CASE("Plain // comments do not become docs",
-          "[ploy][lexer][polish][doc]") {
+          "[poly][lexer][polish][doc]") {
     auto r = Parse("// not a doc\n"
                    "FUNC f() {}\n");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
@@ -186,7 +186,7 @@ TEST_CASE("Plain // comments do not become docs",
 }
 
 TEST_CASE("//// (four slashes) is a regular line comment",
-          "[ploy][lexer][polish][doc]") {
+          "[poly][lexer][polish][doc]") {
     auto r = Parse("//// banner line\n"
                    "FUNC f() {}\n");
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
@@ -226,7 +226,7 @@ FirstUnwrapInFunc(const FuncDecl &fn) {
 }  // namespace
 
 TEST_CASE("Postfix '?' parses on an OPTION<T> identifier",
-          "[ploy][parser][polish][unwrap]") {
+          "[poly][parser][polish][unwrap]") {
     auto r = Parse("FUNC f(opt: OPTION<i32>) -> OPTION<i32> { RETURN opt?; }");
     REQUIRE(r.module->declarations.size() == 1);
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations.front());
@@ -237,21 +237,21 @@ TEST_CASE("Postfix '?' parses on an OPTION<T> identifier",
 }
 
 TEST_CASE("Postfix '?' on a non-optional value reports a typed error",
-          "[ploy][sema][polish][unwrap]") {
+          "[poly][sema][polish][unwrap]") {
     auto r = Analyze(
         "FUNC f() -> OPTION<i32> { LET x: i32 = 1; RETURN x?; }");
     REQUIRE(DiagsContain(r.diags, "OPTION<T> operand"));
 }
 
 TEST_CASE("Postfix '?' inside a non-OPTION FUNC reports a typed error",
-          "[ploy][sema][polish][unwrap]") {
+          "[poly][sema][polish][unwrap]") {
     auto r = Analyze(
         "FUNC f(opt: OPTION<i32>) -> i32 { RETURN opt?; }");
     REQUIRE(DiagsContain(r.diags, "OPTION<U>"));
 }
 
 TEST_CASE("Postfix '?' chains with member and call expressions",
-          "[ploy][parser][polish][unwrap]") {
+          "[poly][parser][polish][unwrap]") {
     // `expr.fn()?` should bind tighter than the binary operators so the
     // `?` wraps the entire postfix chain rather than just the trailing
     // call.

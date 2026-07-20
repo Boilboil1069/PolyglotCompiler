@@ -79,16 +79,16 @@ TEST_CASE("ContainsPath + cross-root Search",
   w.AddRoot({"core", "/repo/core", {}});
   w.AddRoot({"sdk",  "/repo/sdk",  {}});
   std::string root;
-  CHECK(w.ContainsPath("/repo/core/main.ploy", &root));
+  CHECK(w.ContainsPath("/repo/core/main.poly", &root));
   CHECK(root == "core");
   CHECK_FALSE(w.ContainsPath("/elsewhere/x"));
 
   std::vector<std::pair<std::string, std::string>> index = {
-      {"/repo/core/a.ploy",   "FN main() {}"},
-      {"/repo/core/b.ploy",   "FN helper() {}"},
-      {"/repo/sdk/api.ploy",  "FN api_main() {}"},
-      {"/repo/sdk/log.ploy",  "FN log() {}"},
-      {"/elsewhere/y.ploy",   "FN main() {}"},
+      {"/repo/core/a.poly",   "FN main() {}"},
+      {"/repo/core/b.poly",   "FN helper() {}"},
+      {"/repo/sdk/api.poly",  "FN api_main() {}"},
+      {"/repo/sdk/log.poly",  "FN log() {}"},
+      {"/elsewhere/y.poly",   "FN main() {}"},
   };
   auto hits = w.Search(index, "main");
   REQUIRE(hits.size() == 2);
@@ -98,15 +98,15 @@ TEST_CASE("ContainsPath + cross-root Search",
 TEST_CASE("LanguageServerPool isolates per (folder,language,version)",
           "[polyui][workspace][lsp]") {
   LanguageServerPool pool;
-  auto a = pool.Acquire({"core", "ploy", "1.0"});
-  auto b = pool.Acquire({"core", "ploy", "1.0"});
+  auto a = pool.Acquire({"core", "poly", "1.0"});
+  auto b = pool.Acquire({"core", "poly", "1.0"});
   CHECK(a == b);
-  auto c = pool.Acquire({"sdk", "ploy", "1.0"});
+  auto c = pool.Acquire({"sdk", "poly", "1.0"});
   CHECK(c != a);
-  auto d = pool.Acquire({"core", "ploy", "2.0"});
+  auto d = pool.Acquire({"core", "poly", "2.0"});
   CHECK(d != a);
   CHECK(pool.size() == 3);
-  CHECK(pool.Release({"core", "ploy", "1.0"}));
-  CHECK_FALSE(pool.Release({"core", "ploy", "1.0"}));
+  CHECK(pool.Release({"core", "poly", "1.0"}));
+  CHECK_FALSE(pool.Release({"core", "poly", "1.0"}));
   CHECK(pool.size() == 2);
 }

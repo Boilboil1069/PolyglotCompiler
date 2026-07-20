@@ -15,7 +15,7 @@
 //      through ResolveType without losing structure.
 //   4. Redefining an alias is a hard error (kRedefinedSymbol).
 //   5. Shadowing a built-in primitive keyword (`I32`) is rejected — no
-//      .ploy program can rebind `i32` to a struct.
+//      .poly program can rebind `i32` to a struct.
 //   6. The alias-origin reverse map is populated so width-mismatch
 //      diagnostics emitted later can render `Pixel (alias of i32)`.
 // ============================================================================
@@ -67,7 +67,7 @@ AnalyzeResult Analyze(const std::string &code) {
 }  // namespace
 
 TEST_CASE("TYPE alias for a width-aware integer registers the aliased core::Type",
-          "[ploy][sema][type_alias]") {
+          "[poly][sema][type_alias]") {
     auto result = Analyze("type Pixel = i32;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.module);
@@ -86,7 +86,7 @@ TEST_CASE("TYPE alias for a width-aware integer registers the aliased core::Type
 }
 
 TEST_CASE("TYPE alias propagates into subsequent VarDecl resolution",
-          "[ploy][sema][type_alias]") {
+          "[poly][sema][type_alias]") {
     auto result = Analyze(
         "type Pixel = i32;\n"
         "let p: Pixel = 0;\n");
@@ -110,7 +110,7 @@ TEST_CASE("TYPE alias propagates into subsequent VarDecl resolution",
 }
 
 TEST_CASE("TYPE alias preserves parameterised structure",
-          "[ploy][sema][type_alias]") {
+          "[poly][sema][type_alias]") {
     auto result = Analyze("type IntList = LIST(i64);\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     const auto &table = result.sema->TypeAliases();
@@ -126,7 +126,7 @@ TEST_CASE("TYPE alias preserves parameterised structure",
 }
 
 TEST_CASE("TYPE alias preserves qualified cross-language types",
-          "[ploy][sema][type_alias]") {
+          "[poly][sema][type_alias]") {
     auto result = Analyze("type Tensor = python::numpy::ndarray;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     const auto &table = result.sema->TypeAliases();
@@ -137,7 +137,7 @@ TEST_CASE("TYPE alias preserves qualified cross-language types",
 }
 
 TEST_CASE("Redefining a TYPE alias is a hard error",
-          "[ploy][sema][type_alias][diag]") {
+          "[poly][sema][type_alias][diag]") {
     auto result = Analyze(
         "type Foo = i32;\n"
         "type Foo = i64;\n");
@@ -145,7 +145,7 @@ TEST_CASE("Redefining a TYPE alias is a hard error",
 }
 
 TEST_CASE("TYPE alias cannot shadow a built-in primitive keyword",
-          "[ploy][sema][type_alias][diag]") {
+          "[poly][sema][type_alias][diag]") {
     auto result = Analyze("type i32 = i64;\n");
     // Note: the lexer canonicalises `i32` to `I32` and reserves it as a
     // keyword; the parser path that calls ParseTypeAliasDecl still runs

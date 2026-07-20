@@ -94,7 +94,7 @@ std::vector<WorkspaceEdit> RenamePlanner::Plan(
     plan.push_back(std::move(e));
   }
 
-  // 2. Update every `.ploy` LINK site that targets the symbol.
+  // 2. Update every `.poly` LINK site that targets the symbol.
   for (const auto &s : registry_.sites()) {
     if (s.target_language != language || s.target_symbol != symbol) continue;
     WorkspaceEdit e;

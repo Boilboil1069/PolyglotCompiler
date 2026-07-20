@@ -37,7 +37,7 @@ struct ReloadResult {
 };
 
 struct ReloadRequest {
-  std::string language;     ///< "ploy", "python", "cpp", "rust", "java", "dotnet".
+  std::string language;     ///< "poly", "python", "cpp", "rust", "java", "dotnet".
   std::string file;
   std::string session_id;   ///< Active DAP session, if any.
   bool debugger_attached{false};

@@ -1434,7 +1434,7 @@ bool Linker::GenerateWasmModule() {
     // merged section table so a downstream `wasmtime` invocation still
     // accepts the file.  This path is exercised by the polyc pipeline
     // when the wasm backend has not yet emitted an intermediate `.wasm`
-    // (e.g. the polyc smoke tests that pass through ploy IR directly).
+    // (e.g. the polyc smoke tests that pass through poly IR directly).
     lw::Module m;
     lw::FuncType empty;
     m.types.push_back(empty);

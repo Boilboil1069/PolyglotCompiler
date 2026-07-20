@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | GET, SET |
-| 入口文件 | `attribute_access.ploy` |
+| 入口文件 | `attribute_access.poly` |
 
 ## 编译
 
 ```powershell
-polyc 06_attribute_access\attribute_access.ploy --emit-obj=attribute_access.pobj --obj-format=pobj
+polyc 06_attribute_access\attribute_access.poly --emit-obj=attribute_access.pobj --obj-format=pobj
 polyld attribute_access.pobj -o attribute_access.exe
 ```
 

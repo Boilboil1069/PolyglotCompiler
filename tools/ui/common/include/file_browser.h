@@ -59,7 +59,7 @@ signals:
   // Emitted when the user requests to open a terminal at a directory
   void OpenTerminalRequested(const QString &directory);
 
-  // Emitted when the user requests to generate a topology graph for a .ploy file
+  // Emitted when the user requests to generate a topology graph for a .poly file
   void GenerateTopologyRequested(const QString &ploy_file_path);
 
   // Emitted when the user requests to create a file from a template

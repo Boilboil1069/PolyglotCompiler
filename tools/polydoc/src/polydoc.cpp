@@ -1,18 +1,18 @@
 /**
  * @file     polydoc.cpp
- * @brief    Documentation extractor for `.ploy` source files.
+ * @brief    Documentation extractor for `.poly` source files.
  *
  * @ingroup  Tools / polydoc
  * @author   Manning Cyrus
  *
- * Walks one or more `.ploy` files, extracts `///` doc-comment blocks
+ * Walks one or more `.poly` files, extracts `///` doc-comment blocks
  * attached to top-level FUNC / STRUCT / LET / VAR declarations, and
  * emits the result as Markdown or JSON.  Introduced in v1.18.0.
  *
  * Usage:
- *   polydoc <file.ploy> [file2.ploy ...]      # Markdown to stdout
- *   polydoc --json <file.ploy>                # JSON to stdout
- *   polydoc -o out.md <file.ploy>             # write to file
+ *   polydoc <file.poly> [file2.poly ...]      # Markdown to stdout
+ *   polydoc --json <file.poly>                # JSON to stdout
+ *   polydoc -o out.md <file.poly>             # write to file
  */
 #include <cstdio>
 #include <cstring>
@@ -153,7 +153,7 @@ bool ReadFile(const std::string &path, std::string &out) {
 }
 
 void PrintUsage() {
-  std::cerr << "polydoc — extract `///` doc comments from .ploy sources (since v1.18.0)\n"
+  std::cerr << "polydoc — extract `///` doc comments from .poly sources (since v1.18.0)\n"
                "Usage: polydoc [--json] [-o OUT] FILE [FILE ...]\n";
 }
 

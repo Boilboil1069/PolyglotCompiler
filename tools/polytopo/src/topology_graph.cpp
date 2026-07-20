@@ -7,6 +7,7 @@
  * @date     2026-04-10
  */
 #include <algorithm>
+#include <cctype>
 #include <queue>
 #include <stack>
 #include <unordered_set>
@@ -15,18 +16,46 @@
 
 namespace polyglot::tools::topo {
 
+namespace {
+
+std::string CanonicalPolyLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return folded == "poly" || folded == "ploy" ? "poly" : language;
+}
+
+std::string CanonicalQualifiedName(std::string name) {
+  const std::size_t separator = name.find("::");
+  if (separator != std::string::npos &&
+      CanonicalPolyLanguage(name.substr(0, separator)) == "poly") {
+    name.replace(0, separator, "poly");
+  }
+  return name;
+}
+
+}  // namespace
+
 // ============================================================================
 // Node management
 // ============================================================================
 
 uint64_t TopologyGraph::AddNode(TopologyNode node) {
   node.id = next_node_id_++;
+  node.name = CanonicalQualifiedName(std::move(node.name));
+  node.language = CanonicalPolyLanguage(std::move(node.language));
+  node.link_source_language =
+      CanonicalPolyLanguage(std::move(node.link_source_language));
 
   // Assign port ids
   for (auto &port : node.inputs) {
+    port.language = CanonicalPolyLanguage(std::move(port.language));
     port.id = AllocPortId();
   }
   for (auto &port : node.outputs) {
+    port.language = CanonicalPolyLanguage(std::move(port.language));
     port.id = AllocPortId();
   }
 
@@ -53,7 +82,7 @@ TopologyNode *TopologyGraph::GetMutableNode(uint64_t id) {
 }
 
 const TopologyNode *TopologyGraph::FindNodeByName(const std::string &name) const {
-  auto it = name_index_.find(name);
+  auto it = name_index_.find(CanonicalQualifiedName(name));
   if (it == name_index_.end())
     return nullptr;
   return GetNode(it->second);

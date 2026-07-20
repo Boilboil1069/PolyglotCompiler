@@ -3,7 +3,7 @@
  * @brief    Multi-language REPL session abstraction.
  *
  * Wraps a long-lived child process (or in-process kernel) speaking
- * one of the built-in REPL protocols (`.ploy` via `polyc --repl`,
+ * one of the built-in REPL protocols (`.poly` via `polyc --repl`,
  * Python, IRust, IRB, dotnet-script).  The session keeps a
  * transcript of inputs and outputs so the Notebook view can replay
  * results across reloads.

@@ -4,13 +4,13 @@ Frontend command / 前端检查命令：
 
 ```sh
 build/polyc --check \
-  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.ploy
+  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.poly
 ```
 
 Stable normalised payload / 稳定的正规化结果：
 
 ```json
-{"uri":"file://<SOURCE>/09_language_tour/main.ploy","diagnostics":[]}
+{"uri":"file://<SOURCE>/09_language_tour/main.poly","diagnostics":[]}
 ```
 
 The command exits with status `0`. `<SOURCE>` replaces the machine-dependent

@@ -4,7 +4,7 @@
 
 Bring full Debug Adapter Protocol support to PolyUI so any DAP-
 speaking adapter (debugpy, lldb-vscode, codelldb, netcoredbg, …) can
-drive the IDE's debug surface — and so the bundled `.ploy` runtime
+drive the IDE's debug surface — and so the bundled `.poly` runtime
 debugger can plug into the same UI.
 
 ## Components

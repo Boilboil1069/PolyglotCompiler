@@ -23,7 +23,7 @@ exhaustiveness and reachability.
 ## Run it
 
 ```powershell
-polyc 33_pattern_matching/pattern_matching.ploy --emit-obj=build/sample.obj --quiet
+polyc 33_pattern_matching/pattern_matching.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 .\build\sample.exe
 ```
@@ -34,7 +34,7 @@ Expected stdout: `33_pattern_matching: ok` (followed by `\r\n`).
 
 * **No silent fall-through.** Each arm executes its body and exits
   the `MATCH` — the historical C-style fall-through hazard does not
-  exist in `.ploy`.
+  exist in `.poly`.
 * **Compile-time exhaustiveness.** Boolean and `OPTION` MATCHes are
   required to cover every variant; for any other type the front-end
   insists on either `CASE _` or a `DEFAULT` arm.

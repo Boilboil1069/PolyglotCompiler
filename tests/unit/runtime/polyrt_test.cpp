@@ -261,3 +261,23 @@ TEST_CASE("Object lifecycle - extension registry is thread-safe", "[runtime][int
     REQUIRE(resolved != nullptr);
     REQUIRE(std::string(resolved) == "Derived3_7");
 }
+
+TEST_CASE("Object lifecycle - extension registry canonicalizes legacy Poly language",
+          "[runtime][interop][lifecycle]") {
+    __ploy_extend_reset_registry_for_tests();
+
+    __ploy_extend_register("PloY", "LegacyBase", "LegacyDerived");
+    const char *from_canonical =
+        __ploy_extend_find_derived("POLY", "LegacyBase");
+    REQUIRE(from_canonical != nullptr);
+    CHECK(std::string(from_canonical) == "LegacyDerived");
+
+    __ploy_extend_register("PoLy", "CanonicalBase", "CanonicalDerived");
+    const char *from_legacy =
+        __ploy_extend_find_derived("PLOY", "CanonicalBase");
+    REQUIRE(from_legacy != nullptr);
+    CHECK(std::string(from_legacy) == "CanonicalDerived");
+
+    CHECK(__ploy_extend_registry_count() == 2);
+    __ploy_extend_reset_registry_for_tests();
+}

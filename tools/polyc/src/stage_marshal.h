@@ -16,7 +16,7 @@
 // Responsibilities:
 //   - For each LinkEntry, build a MarshalCallPlan describing the parameter
 //     count and ABI requirements for the bridge stub generator.
-//   - For non-.ploy sources or empty link entries, returns trivially.
+//   - For non-.poly sources or empty link entries, returns trivially.
 // ============================================================================
 
 #include "tools/polyc/include/driver_stages.h"

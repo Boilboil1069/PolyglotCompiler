@@ -35,7 +35,7 @@ enum class LaunchRequest {
 
 struct LaunchConfig {
   std::string name;
-  std::string type;          ///< `ploy`, `python`, `cppdbg`, `lldb`, …
+  std::string type;          ///< `poly`, `python`, `cppdbg`, `lldb`, …
   LaunchRequest request{LaunchRequest::kLaunch};
   std::string program;
   std::vector<std::string> args;

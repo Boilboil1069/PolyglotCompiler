@@ -94,11 +94,11 @@ class PackageManagerBackend {
   virtual std::vector<Package> ParseLockfile(
       const std::string &content) const = 0;
 
-  /// Convert a `CONFIG` entry from a `.ploy` file into the canonical
+  /// Convert a `CONFIG` entry from a `.poly` file into the canonical
   /// `name==version` (or ecosystem-native) requirement string.
   virtual std::string ToConfigRequirement(const Package &p) const;
 
-  /// Inverse of `ToConfigRequirement`: split a `.ploy CONFIG`
+  /// Inverse of `ToConfigRequirement`: split a `.poly CONFIG`
   /// requirement string back into a name / version pair.
   virtual Package FromConfigRequirement(const std::string &requirement) const;
 };
@@ -149,9 +149,9 @@ class PackageManagerService {
       const std::function<std::optional<std::string>(const std::string &)>
           &reader) const;
 
-  /// Project the `CONFIG` block of a `.ploy` document against the
+  /// Project the `CONFIG` block of a `.poly` document against the
   /// resolved lockfile contents.  Returns the requirements that the
-  /// `.ploy CONFIG` declares but the lockfile does not yet pin, and
+  /// `.poly CONFIG` declares but the lockfile does not yet pin, and
   /// vice versa.
   struct ConfigSyncReport {
     std::vector<std::string> missing_in_lockfile;

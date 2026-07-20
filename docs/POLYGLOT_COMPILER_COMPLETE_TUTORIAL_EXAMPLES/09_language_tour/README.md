@@ -1,4 +1,4 @@
-# 09 Ploy 语言导览 / Ploy language tour
+# 09 Poly 语言导览 / Poly language tour
 
 状态 / Status: `FRONTEND`
 
@@ -38,13 +38,13 @@ not presented as current backend evidence.
 
 ```sh
 build/polyc --check \
-  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.ploy
+  docs/POLYGLOT_COMPILER_COMPLETE_TUTORIAL_EXAMPLES/09_language_tour/main.poly
 ```
 
 Expected stable payload / 预期稳定结果：
 
 ```json
-{"uri":"file://<SOURCE>/09_language_tour/main.ploy","diagnostics":[]}
+{"uri":"file://<SOURCE>/09_language_tour/main.poly","diagnostics":[]}
 ```
 
 按语言语义，只有以下两行应被执行：

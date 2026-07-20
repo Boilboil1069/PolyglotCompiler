@@ -1,0 +1,20 @@
+// ============================================================================
+// error_handling.poly — Error Checking Demonstration.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Python.
+//
+// Documents the topic of semantic-analysis diagnostics.  Per-error fixtures
+// live under `tests/unit/sema/`; this sample keeps a minimal IMPORT + LINK
+// skeleton plus the deterministic PRINTLN marker so the regression harness
+// can compare stdout byte-for-byte.
+// ============================================================================
+
+IMPORT cpp::bad_functions_cpp;
+IMPORT python::bad_functions_py;
+
+LINK(cpp, python, bad_functions_cpp::check, bad_functions_py::check) {
+    MAP_TYPE(cpp::int, python::int);
+}
+
+PRINTLN "10_error_handling: ok\r\n";

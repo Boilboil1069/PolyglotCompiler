@@ -6,7 +6,7 @@
 
 ## 1. Motivation
 
-Before this work, every cross-language object expression in `.ploy`
+Before this work, every cross-language object expression in `.poly`
 collapsed to the opaque `Any` type:
 
 | Expression                                          | Pre-1.9.0 type | New type                            |
@@ -20,7 +20,7 @@ The cost of `Any` was *every* cross-language call site became a runtime
 roulette: argument count, argument types and return types were only
 discovered when the foreign interpreter raised — usually deep inside a
 `__pyx_call` frame whose stack trace contained none of the user's
-`.ploy` source positions.
+`.poly` source positions.
 
 `HANDLE<lang::Class>` lifts that contract back into the static type
 system.  Once a class has a registered schema, the sema:
@@ -38,7 +38,7 @@ system.  Once a class has a registered schema, the sema:
 
 ### 2.1 `CLASS` schema declaration
 
-```ploy
+```poly
 CLASS python::torch::nn::Linear {
     METHOD __init__(in_features: i32, out_features: i32);
     METHOD forward(x: f32) -> f32;
@@ -70,7 +70,7 @@ class_path   ::= ident ("::" ident)*
 
 ### 2.2 `HANDLE<lang::class_path>` type expression
 
-```ploy
+```poly
 LET model: HANDLE<python::torch::nn::Linear> = NEW(python, torch::nn::Linear, 128, 10);
 ```
 
@@ -123,7 +123,7 @@ signatures when both are present.
 
 Explicit conversion is always available via `CONVERT` + `MAP_FUNC`:
 
-```ploy
+```poly
 LET py_obj: HANDLE<python::A> = ...;
 LET cpp_obj: HANDLE<cpp::A> = CONVERT(py_obj, MAP_FUNC bridge::py_to_cpp);
 ```

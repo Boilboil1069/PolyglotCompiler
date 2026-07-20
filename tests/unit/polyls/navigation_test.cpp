@@ -75,12 +75,12 @@ TEST_CASE("polyls definition jumps to FUNC declaration",
           "[polyls][navigation][definition]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
-  Open(s, "file:///w/main.ploy", "ploy",
+  Open(s, "file:///w/main.poly", "poly",
        "FUNC compute(a: INT) -> INT { RETURN a }\n"
        "LET total: INT = compute(1)\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///w/main.ploy"}}},
+      {"textDocument", {{"uri", "file:///w/main.poly"}}},
       {"position", Position(1, 17)}};  // cursor inside "compute"
   s.HandleIncoming(MakeRequest(10, "textDocument/definition", params));
 
@@ -89,7 +89,7 @@ TEST_CASE("polyls definition jumps to FUNC declaration",
   const Json &result = (*resp)["result"];
   REQUIRE(result.is_array());
   REQUIRE_FALSE(result.empty());
-  REQUIRE(result[0]["uri"] == "file:///w/main.ploy");
+  REQUIRE(result[0]["uri"] == "file:///w/main.poly");
   REQUIRE(result[0]["range"]["start"]["line"] == 0);
 }
 
@@ -97,13 +97,13 @@ TEST_CASE("polyls references include every use of a name",
           "[polyls][navigation][references]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
-  Open(s, "file:///w/r.ploy", "ploy",
+  Open(s, "file:///w/r.poly", "poly",
        "FUNC tally(x: INT) -> INT { RETURN x }\n"
        "LET a = tally(1)\n"
        "LET b = tally(2)\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///w/r.ploy"}}},
+      {"textDocument", {{"uri", "file:///w/r.poly"}}},
       {"position", Position(1, 9)},
       {"context", {{"includeDeclaration", true}}}};
   s.HandleIncoming(MakeRequest(11, "textDocument/references", params));
@@ -115,7 +115,7 @@ TEST_CASE("polyls references include every use of a name",
   REQUIRE(result.size() >= 3);  // declaration + two call sites
 }
 
-TEST_CASE("polyls definition follows .ploy LINK across languages",
+TEST_CASE("polyls definition follows .poly LINK across languages",
           "[polyls][navigation][cross-language]") {
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
@@ -126,14 +126,14 @@ TEST_CASE("polyls definition follows .ploy LINK across languages",
        "void enhance(int x) { (void)x; }\n"
        "}\n");
 
-  // .ploy LINK declaration (legacy form so the qualifier sits on a
+  // .poly LINK declaration (legacy form so the qualifier sits on a
   // single line and can be navigated by clicking on the cpp:: prefix).
-  Open(s, "file:///w/pipe.ploy", "ploy",
+  Open(s, "file:///w/pipe.poly", "poly",
        "LINK cpp::image_processor::enhance AS ploy_enhance\n");
 
   // Cursor on "enhance" in the LINK qualifier.
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///w/pipe.ploy"}}},
+      {"textDocument", {{"uri", "file:///w/pipe.poly"}}},
       {"position", Position(0, 28)}};
   s.HandleIncoming(MakeRequest(12, "textDocument/definition", params));
 
@@ -157,11 +157,11 @@ TEST_CASE("polyls implementation on a LINK lands in the host language",
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
   Open(s, "file:///w/host.cpp", "cpp", "void worker() {}\n");
-  Open(s, "file:///w/p.ploy", "ploy",
+  Open(s, "file:///w/p.poly", "poly",
        "LINK cpp::worker AS ploy_worker\n");
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///w/p.ploy"}}},
+      {"textDocument", {{"uri", "file:///w/p.poly"}}},
       {"position", Position(0, 11)}};  // inside "worker"
   s.HandleIncoming(MakeRequest(13, "textDocument/implementation", params));
 

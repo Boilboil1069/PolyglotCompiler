@@ -6,7 +6,7 @@
  * Computes fold ranges from raw text using a brace-balanced scan
  * plus `// region` / `// endregion` markers and multi-line C-style
  * block comments.  The model is language-agnostic: any C-family
- * brace style works and Ploy uses the same `{ }` delimiters.
+ * brace style works and Poly uses the same `{ }` delimiters.
  *
  * @ingroup  Tool / polyui
  * @author   Manning Cyrus

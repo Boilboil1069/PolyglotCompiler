@@ -2,11 +2,11 @@
  * @file     error_bridge.h
  * @brief    Cross-language structured exception bridge for the polyrt
  *           runtime.  Implements the C ABI invoked by code lowered from
- *           Ploy's TRY/CATCH/FINALLY/THROW constructs and the entry
+ *           Poly's TRY/CATCH/FINALLY/THROW constructs and the entry
  *           points used by per-language adapters to forward foreign
  *           exceptions (Python `Exception`, C++ `std::exception`, Java
  *           `Throwable`, .NET `Exception`, Rust `Result::Err`) into the
- *           unified Ploy `Error` handle.
+ *           unified Poly `Error` handle.
  *
  * @ingroup  Runtime / Services
  * @author   Manning Cyrus
@@ -68,7 +68,7 @@ int __ploy_rt_try_begin(void);
 // normally.  No-op if the counter is already zero (defensive).
 void __ploy_rt_try_end(void);
 
-// Raise an Error from compiled Ploy code.  `message_ptr` is a
+// Raise an Error from compiled Poly code.  `message_ptr` is a
 // NUL-terminated UTF-8 string interned by the lowering pass; pass
 // nullptr to raise a sentinel "<unspecified>" error.  Throws a
 // `RuntimeError` C++ exception when invoked inside an active handler
@@ -76,7 +76,7 @@ void __ploy_rt_try_end(void);
 POLYRT_NORETURN void __ploy_rt_throw(const char *message_ptr);
 
 // Raise an Error tagged with a host-language origin label
-// ("python", "cpp", "java", "dotnet", "rust", "ploy").  Used by the
+// ("python", "cpp", "java", "dotnet", "rust", "poly").  Used by the
 // per-language adapters to forward foreign exceptions.  Does not
 // return.
 POLYRT_NORETURN void __ploy_rt_throw_from(const char *message_ptr,

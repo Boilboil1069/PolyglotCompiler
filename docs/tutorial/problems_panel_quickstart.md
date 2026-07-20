@@ -1,21 +1,21 @@
 # Problems Panel Quickstart
 
-> **Document Version**: 2.0.0  
-> **Last Updated**: 2026-05-07  
-> **Project**: PolyglotCompiler 1.45.2  
+> **Document Version**: 2.0.0<br>
+> **Last Updated**: 2026-07-20<br>
+> **Project**: PolyglotCompiler 1.48.0<br>
 > **Companion**: [problems_panel_quickstart_zh.md](problems_panel_quickstart_zh.md)
 
-This 5-minute walk-through shows the real-time diagnostics flow first shipped in v1.21.0 and refined through v1.45.2.
+This 5-minute walk-through shows the real-time diagnostics flow first shipped in v1.21.0 and refined through v1.48.0.
 
-## 1. Open a `.ploy` file
+## 1. Open a `.poly` file
 
-Launch `polyui`, then **File → Open** any `.ploy` source. As soon as the editor opens, `IdeLspBridge` spawns `polyls` for that buffer and sends `textDocument/didOpen`.
+Launch `polyui`, then **File → Open** any `.poly` source. As soon as the editor opens, `IdeLspBridge` spawns `polyls` for that buffer and sends `textDocument/didOpen`.
 
 ## 2. Introduce an error
 
 Type a deliberately broken line, e.g.:
 
-```ploy
+```poly
 LET x = 1 +
 ```
 
@@ -26,7 +26,7 @@ Within ~200 ms (the change-debounce window) you should see:
 
 ## 3. Open the Problems Panel
 
-Click the `E:1` link in the status bar — `MainWindow` calls `ShowPanel("problems")` and the dock pops up at the bottom. You will see one row grouped under the file name with source `polyls:ploy`.
+Click the `E:1` link in the status bar — `MainWindow` calls `ShowPanel("problems")` and the dock pops up at the bottom. You will see one row grouped under the file name with source `polyls:poly`.
 
 ## 4. Filter
 
@@ -43,13 +43,13 @@ Double-click any row. The corresponding tab is activated and the cursor is place
 For environments without a running LSP (CI, sandboxed editors), the same diagnostics are reachable via the compiler driver:
 
 ```sh
-polyc --check path/to/file.ploy
+polyc --check path/to/file.poly
 ```
 
 `polyc` writes a single JSON document to `stdout` matching the LSP `PublishDiagnosticsParams` shape and exits with `0` (clean), `1` (errors), or `2` (usage / I/O failure). Pipe it into `jq` for inspection:
 
 ```sh
-polyc --check broken.ploy | jq '.diagnostics[] | {sev:.severity, msg:.message}'
+polyc --check broken.poly | jq '.diagnostics[] | {sev:.severity, msg:.message}'
 ```
 
 ## 7. Background scan on large workspaces
@@ -58,7 +58,7 @@ When the active workspace contains more than 2 000 files, the first scan runs as
 
 ## 8. Diagnostic id catalogue
 
-Every diagnostic carries a stable id of the form `polyc-(err|warn)-<E####|W####>`. The complete catalogue lives in [docs/specs/ploy_diagnostics.md](../specs/ploy_diagnostics.md); the most common entries are listed in section 20 of [ploy_language_tutorial.md](ploy_language_tutorial.md).
+Every diagnostic carries a stable id of the form `polyc-(err|warn)-<E####|W####>`. The maintained catalogue is section 20 of [poly_language_tutorial.md](poly_language_tutorial.md).
 
 ## See also
 

@@ -1,5 +1,5 @@
 // ============================================================================
-// Unit tests for ploy keyword aliases and the RETURNS deprecation warning
+// Unit tests for poly keyword aliases and the RETURNS deprecation warning
 // (demand 2026-04-28-6).
 //
 // Covers:
@@ -120,7 +120,7 @@ Diagnostic FindFirstWarning(const Diagnostics &diags, ErrorCode expected) {
 } // namespace
 
 TEST_CASE("AND/OR/NOT keywords parse identically to &&/||/!",
-          "[ploy][parser][alias]") {
+          "[poly][parser][alias]") {
     const std::string keyword_form =
         "FUNC test() -> i32 {\n"
         "  VAR x = a AND b OR NOT c;\n"
@@ -154,7 +154,7 @@ TEST_CASE("AND/OR/NOT keywords parse identically to &&/||/!",
 }
 
 TEST_CASE("Lower-case and/or/not work via the case-insensitive lexer",
-          "[ploy][parser][alias][case]") {
+          "[poly][parser][alias][case]") {
     const std::string lower_form =
         "func test() -> i32 {\n"
         "  var x = a and b or not c;\n"
@@ -174,7 +174,7 @@ TEST_CASE("Lower-case and/or/not work via the case-insensitive lexer",
 }
 
 TEST_CASE("RETURNS clause is parsed but emits a deprecation warning (UPPER)",
-          "[ploy][parser][deprecation]") {
+          "[poly][parser][deprecation]") {
     const std::string code =
         "LINK(cpp, python, math_ops::add, string_utils::concat) RETURNS cpp::int {\n"
         "  MAP_TYPE(cpp::int, python::int);\n"
@@ -201,7 +201,7 @@ TEST_CASE("RETURNS clause is parsed but emits a deprecation warning (UPPER)",
 }
 
 TEST_CASE("RETURNS clause deprecation warning fires for lower-case spelling and quotes the user's spelling",
-          "[ploy][parser][deprecation][case]") {
+          "[poly][parser][deprecation][case]") {
     const std::string code =
         "link(cpp, python, math_ops::add, string_utils::concat) returns cpp::int {\n"
         "  map_type(cpp::int, python::int);\n"

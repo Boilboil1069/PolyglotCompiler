@@ -4,7 +4,7 @@
  *           runtime used by polyls and the IDE editor.
  *
  * The runtime is a pure-C++ lexer/parser that supports the polyglot
- * languages bundled with PolyglotCompiler (Ploy + C++ + Python +
+ * languages bundled with PolyglotCompiler (Poly + C++ + Python +
  * Rust + Java + C#).  It is wire-compatible with the tree-sitter API
  * we use (Parse / Edit / Tokens / Folds / Outline / SmartSelect),
  * which means we can swap individual languages out for real
@@ -67,7 +67,12 @@ std::vector<LineView> SplitLines(const std::string &text) {
 /// editors hand us at didOpen time.
 std::string CanonicalLanguage(const std::string &lang) {
   if (lang == "c++" || lang == "C++") return "cpp";
-  if (lang == "poly") return "ploy";
+  std::string folded = lang;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
   if (lang == "c#" || lang == "dotnet" || lang == "C#") return "csharp";
   return lang;
 }
@@ -97,7 +102,7 @@ std::vector<RawSpan> LexLine(std::string_view line,
   std::size_t i = 0;
   // Pick a comment marker per language family.
   const bool is_python = g.name == "python";
-  const bool is_ploy = g.name == "ploy";
+  const bool is_ploy = g.name == "poly";
   while (i < n) {
     const char c = line[i];
     // Whitespace.
@@ -190,14 +195,14 @@ std::vector<RawSpan> LexLine(std::string_view line,
 std::string ClassifyWord(const std::string &text,
                          const gr::GrammarDescriptor &g) {
   if (g.keywords.count(text)) {
-    // Ploy directive keywords (LINK / IMPORT / EXPORT …) use the
+    // Poly directive keywords (LINK / IMPORT / EXPORT …) use the
     // distinct "link" style so the editor can paint them differently.
     static const std::unordered_set<std::string> kDirective = {
         "LINK", "IMPORT", "EXPORT", "MAP_TYPE", "MAP_FUNC",
         "PIPELINE", "CALL", "NEW",  "METHOD",   "GET",
         "SET",  "WITH",   "DELETE","EXTEND",   "CONVERT",
         "CONFIG"};
-    if (g.name == "ploy" && kDirective.count(text)) return "link";
+    if (g.name == "poly" && kDirective.count(text)) return "link";
     return "keyword";
   }
   if (g.primitive_types.count(text)) return "type";
@@ -381,7 +386,7 @@ std::vector<OutlineNode> ComputeOutline(const std::string &source,
       out.push_back(std::move(n));
       return true;
     };
-    if (g.name == "ploy") {
+    if (g.name == "poly") {
       if (try_emit("FUNC", "function")) continue;
       if (try_emit("PIPELINE", "function")) continue;
       if (try_emit("STRUCT", "struct")) continue;

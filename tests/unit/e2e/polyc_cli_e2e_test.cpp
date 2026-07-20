@@ -38,7 +38,7 @@ CompilationContext::Config MakeCfg(const std::string &source,
                                    const std::string &arch = "x86_64") {
     CompilationContext::Config cfg;
     cfg.source_text     = source;
-    cfg.source_language = "ploy";
+    cfg.source_language = "poly";
     cfg.source_label    = "<cli_e2e_test>";
     cfg.target_arch     = arch;
     cfg.mode            = "compile";
@@ -63,11 +63,11 @@ bool RunFullPipeline(const std::string &source,
 
 TEST_CASE("CLI E2E: single function compiles through all stages",
           "[cli][e2e][basic]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC square(x: INT) -> INT {
     RETURN x * x;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeCfg(kSource);
     CompilationPipeline pipeline(cfg);
@@ -90,7 +90,7 @@ FUNC square(x: INT) -> INT {
 
 TEST_CASE("CLI E2E: multi-function program with loops and branches",
           "[cli][e2e][control-flow]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC abs_val(n: INT) -> INT {
     IF n < 0 { RETURN 0 - n; }
     RETURN n;
@@ -110,7 +110,7 @@ FUNC fib(n: INT) -> INT {
     IF n <= 1 { RETURN n; }
     RETURN fib(n - 1) + fib(n - 2);
 }
-)ploy";
+)poly";
 
     CHECK(RunFullPipeline(kSource));
 }
@@ -121,7 +121,7 @@ FUNC fib(n: INT) -> INT {
 
 TEST_CASE("CLI E2E: cross-language LINK + CALL compiles successfully",
           "[cli][e2e][cross-lang]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 IMPORT cpp::math_ops;
 IMPORT python::string_utils;
 
@@ -136,7 +136,7 @@ FUNC compute(a: INT, b: INT) -> INT {
     LET sum = CALL(cpp, math_ops::add, a, b);
     RETURN sum;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeCfg(kSource);
     CompilationPipeline pipeline(cfg);
@@ -165,7 +165,7 @@ FUNC compute(a: INT, b: INT) -> INT {
 
 TEST_CASE("CLI E2E: PIPELINE declaration passes all stages",
           "[cli][e2e][pipeline]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 PIPELINE data_flow {
     FUNC extract(src: STRING) -> STRING {
         RETURN src;
@@ -177,7 +177,7 @@ PIPELINE data_flow {
         RETURN count;
     }
 }
-)ploy";
+)poly";
 
     CHECK(RunFullPipeline(kSource));
 }
@@ -188,11 +188,11 @@ PIPELINE data_flow {
 
 TEST_CASE("CLI E2E: syntax error is rejected at frontend stage",
           "[cli][e2e][failure][syntax]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC broken( -> INT {
     RETURN 1;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeCfg(kSource);
     CompilationPipeline pipeline(cfg);
@@ -212,11 +212,11 @@ FUNC broken( -> INT {
 
 TEST_CASE("CLI E2E: ARM64 backend compiles a simple function",
           "[cli][e2e][arm64]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC inc(x: INT) -> INT {
     RETURN x + 1;
 }
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeCfg(kSource, "arm64");
     CompilationPipeline pipeline(cfg);
@@ -239,13 +239,13 @@ FUNC inc(x: INT) -> INT {
 
 TEST_CASE("CLI E2E: EXPORT directive produces exported symbol",
           "[cli][e2e][export]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 FUNC helper(a: INT) -> INT {
     RETURN a * 2;
 }
 
 EXPORT helper AS "polyglot_helper";
-)ploy";
+)poly";
 
     CompilationContext::Config cfg = MakeCfg(kSource);
     CompilationPipeline pipeline(cfg);
@@ -269,7 +269,7 @@ EXPORT helper AS "polyglot_helper";
 
 TEST_CASE("CLI E2E: program with many functions and links compiles",
           "[cli][e2e][large]") {
-    const std::string kSource = R"ploy(
+    const std::string kSource = R"poly(
 IMPORT cpp::math;
 IMPORT python::util;
 
@@ -299,7 +299,7 @@ FUNC orchestrate(a: INT, b: INT) -> INT {
 }
 
 EXPORT orchestrate AS "polyglot_orchestrate";
-)ploy";
+)poly";
 
     CHECK(RunFullPipeline(kSource));
 }

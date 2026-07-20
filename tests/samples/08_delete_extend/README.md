@@ -6,12 +6,12 @@ DELETE deterministically destroys a foreign object and EXTEND derives a polyglot
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | DELETE, EXTEND |
-| Entry     | `delete_extend.ploy` |
+| Entry     | `delete_extend.poly` |
 
 ## Build
 
 ```powershell
-polyc 08_delete_extend\delete_extend.ploy --emit-obj=delete_extend.pobj --obj-format=pobj
+polyc 08_delete_extend\delete_extend.poly --emit-obj=delete_extend.pobj --obj-format=pobj
 polyld delete_extend.pobj -o delete_extend.exe
 ```
 
@@ -42,14 +42,14 @@ See [`README_zh.md`](./README_zh.md) for the Chinese counterpart.
 
 * the override is installed by patching the foreign runtime's method
   dispatch table at load time;
-* the foreign object **does not** enter the Ploy static type system,
+* the foreign object **does not** enter the Poly static type system,
   so an out-of-source subclass cannot break the host's soundness.
 
 Writing `EXTEND(cpp, ...)`, `EXTEND(rust, ...)`, `EXTEND(java, ...)`
 or any other statically-typed target is rejected by sema with the
 diagnostic
 `EXTEND is not allowed on statically-typed language '<lang>'`.
-The recommended alternative is a local Ploy `FUNC` wrapper that
+The recommended alternative is a local Poly `FUNC` wrapper that
 uses `CALL` / `METHOD` to invoke the foreign API; see sample
 [`35_extend_dynamic`](../35_extend_dynamic/) for the full migration
 pattern.

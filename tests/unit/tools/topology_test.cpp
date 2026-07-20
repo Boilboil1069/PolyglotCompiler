@@ -2,7 +2,7 @@
 //
 // Tests cover the four core components:
 //   1. TopologyGraph — node/edge management, topological sort, cycle detection.
-//   2. TopologyAnalyzer — AST-to-graph construction from .ploy source.
+//   2. TopologyAnalyzer — AST-to-graph construction from .poly source.
 //   3. TopologyValidator — edge type validation, unconnected port detection.
 //   4. TopologyPrinter — text / DOT / JSON / summary output formats.
 
@@ -21,6 +21,7 @@
 #include "frontends/python/include/python_frontend.h"
 #include "tools/polyc/src/foreign_signature_extractor.h"
 #include "tools/polytopo/include/topology_analyzer.h"
+#include "tools/polytopo/include/topology_codegen.h"
 #include "tools/polytopo/include/topology_graph.h"
 #include "tools/polytopo/include/topology_printer.h"
 #include "tools/polytopo/include/topology_validator.h"
@@ -38,7 +39,7 @@ using polyglot::ploy::PloySemaOptions;
 
 namespace {
 
-// Build a TopologyGraph from .ploy source code
+// Build a TopologyGraph from .poly source code
 TopologyGraph BuildGraph(const std::string &source) {
   Diagnostics diags;
   PloyLexer lexer(source, "<test>");
@@ -69,7 +70,7 @@ TEST_CASE("TopologyGraph: add and retrieve nodes", "[topology][graph]") {
 
   TopologyNode n1;
   n1.name = "foo";
-  n1.language = "ploy";
+  n1.language = "poly";
   n1.kind = TopologyNode::Kind::kFunction;
   auto id1 = graph.AddNode(n1);
 
@@ -105,7 +106,7 @@ TEST_CASE("TopologyGraph: add edges and query in/out", "[topology][graph]") {
 
   TopologyNode n1;
   n1.name = "src";
-  n1.language = "ploy";
+  n1.language = "poly";
   Port out_p;
   out_p.name = "result";
   out_p.direction = Port::Direction::kOutput;
@@ -114,7 +115,7 @@ TEST_CASE("TopologyGraph: add edges and query in/out", "[topology][graph]") {
 
   TopologyNode n2;
   n2.name = "dst";
-  n2.language = "ploy";
+  n2.language = "poly";
   Port in_p;
   in_p.name = "x";
   in_p.direction = Port::Direction::kInput;
@@ -273,7 +274,7 @@ TEST_CASE("TopologyValidator: valid edge passes", "[topology][validator]") {
 
   TopologyNode n1;
   n1.name = "producer";
-  n1.language = "ploy";
+  n1.language = "poly";
   Port out_p;
   out_p.name = "result";
   out_p.direction = Port::Direction::kOutput;
@@ -283,7 +284,7 @@ TEST_CASE("TopologyValidator: valid edge passes", "[topology][validator]") {
 
   TopologyNode n2;
   n2.name = "consumer";
-  n2.language = "ploy";
+  n2.language = "poly";
   Port in_p;
   in_p.name = "x";
   in_p.direction = Port::Direction::kInput;
@@ -348,7 +349,7 @@ TEST_CASE("TopologyPrinter: text output contains node names", "[topology][printe
 
   TopologyNode n1;
   n1.name = "alpha";
-  n1.language = "ploy";
+  n1.language = "poly";
   n1.kind = TopologyNode::Kind::kFunction;
   graph.AddNode(n1);
 
@@ -376,7 +377,7 @@ TEST_CASE("TopologyPrinter: DOT output is valid graph format", "[topology][print
 
   TopologyNode n1;
   n1.name = "src";
-  n1.language = "ploy";
+  n1.language = "poly";
   auto id1 = graph.AddNode(n1);
 
   TopologyNode n2;
@@ -409,7 +410,7 @@ TEST_CASE("TopologyPrinter: JSON output contains nodes and edges keys", "[topolo
 
   TopologyNode n;
   n.name = "node1";
-  n.language = "ploy";
+  n.language = "poly";
   graph.AddNode(n);
 
   PrintOptions opts;
@@ -425,13 +426,64 @@ TEST_CASE("TopologyPrinter: JSON output contains nodes and edges keys", "[topolo
   REQUIRE(output.find("node1") != std::string::npos);
 }
 
+TEST_CASE("Topology JSON reader canonicalizes legacy ploy language metadata",
+          "[topology][json][compat]") {
+  const std::string legacy_json = R"json({
+    "module": "legacy",
+    "source_file": "legacy.ploy",
+    "nodes": [
+      {"id": 1, "name": "main", "language": "PloY", "kind": "function",
+       "is_linked": false, "inputs": [], "outputs": []}
+    ],
+    "edges": []
+  })json";
+
+  TopologyGraph graph;
+  REQUIRE(ParseJsonToGraph(legacy_json, graph));
+  REQUIRE(graph.NodeCount() == 1);
+  CHECK(graph.Nodes().front().language == "poly");
+
+  const std::string generated = GeneratePloySrc(graph);
+  CHECK(generated.find("[poly]") != std::string::npos);
+  CHECK(generated.find("[ploy]") == std::string::npos);
+}
+
+TEST_CASE("TopologyGraph API canonicalizes Poly display-name variants",
+          "[topology][graph][compat]") {
+  TopologyGraph graph;
+  TopologyNode node;
+  node.name = "PloY::legacy";
+  node.language = "pLoY";
+  node.link_source_language = "PoLy";
+  node.inputs.push_back(Port{"input", Port::Direction::kInput,
+                             polyglot::core::Type::Any(), "PLOY"});
+  node.outputs.push_back(Port{"output", Port::Direction::kOutput,
+                              polyglot::core::Type::Any(), "POLY"});
+  const auto id = graph.AddNode(std::move(node));
+
+  const auto *stored = graph.GetNode(id);
+  REQUIRE(stored != nullptr);
+  CHECK(graph.FindNodeByName("PLOY::legacy") == stored);
+  CHECK(stored->name == "poly::legacy");
+  CHECK(stored->language == "poly");
+  CHECK(stored->link_source_language == "poly");
+  REQUIRE(stored->inputs.size() == 1);
+  CHECK(stored->inputs.front().language == "poly");
+  REQUIRE(stored->outputs.size() == 1);
+  CHECK(stored->outputs.front().language == "poly");
+
+  const std::string generated = GeneratePloySrc(graph);
+  CHECK(generated.find("PloY") == std::string::npos);
+  CHECK(generated.find("pLoY") == std::string::npos);
+}
+
 TEST_CASE("TopologyPrinter: summary output shows counts", "[topology][printer]") {
   TopologyGraph graph;
   graph.module_name = "summary_test";
 
   TopologyNode n1;
   n1.name = "a";
-  n1.language = "ploy";
+  n1.language = "poly";
   graph.AddNode(n1);
 
   TopologyNode n2;
@@ -452,7 +504,7 @@ TEST_CASE("TopologyPrinter: summary output shows counts", "[topology][printer]")
 }
 
 // ============================================================================
-// TopologyAnalyzer — end-to-end from .ploy source
+// TopologyAnalyzer — end-to-end from .poly source
 // ============================================================================
 
 TEST_CASE("TopologyAnalyzer: FUNC declaration creates node", "[topology][analyzer]") {
@@ -540,21 +592,21 @@ TEST_CASE("TopologyAnalyzer: LINK source node return type after foreign injectio
 
   // Find the sample file relative to the workspace root
   // The test binary runs from the build dir; samples are at:
-  //   <workspace>/tests/samples/01_basic_linking/basic_linking.ploy
+  //   <workspace>/tests/samples/01_basic_linking/basic_linking.poly
   std::string sample_dir;
   for (auto candidate : {
            "tests/samples/01_basic_linking",
            "../tests/samples/01_basic_linking",
            "../../tests/samples/01_basic_linking",
        }) {
-    if (std::filesystem::exists(std::string(candidate) + "/basic_linking.ploy")) {
+    if (std::filesystem::exists(std::string(candidate) + "/basic_linking.poly")) {
       sample_dir = candidate;
       break;
     }
   }
   REQUIRE_FALSE(sample_dir.empty());
 
-  std::string filename = sample_dir + "/basic_linking.ploy";
+  std::string filename = sample_dir + "/basic_linking.poly";
   std::ifstream ifs(filename);
   REQUIRE(ifs.is_open());
   std::string source((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
@@ -799,7 +851,7 @@ TEST_CASE("TopologyGraph: drill-down visibility — collapsed hides context chil
   // Pipeline container
   TopologyNode pipe;
   pipe.name = "pipeline:test";
-  pipe.language = "ploy";
+  pipe.language = "poly";
   pipe.kind = TopologyNode::Kind::kPipeline;
   pipe.origin = TopologyNode::Origin::kDecl;
   Port pipe_out;
@@ -811,7 +863,7 @@ TEST_CASE("TopologyGraph: drill-down visibility — collapsed hides context chil
   // Stage 1
   TopologyNode stage1;
   stage1.name = "pipeline:test::step1";
-  stage1.language = "ploy";
+  stage1.language = "poly";
   stage1.kind = TopologyNode::Kind::kFunction;
   stage1.origin = TopologyNode::Origin::kPipelineStage;
   Port s1_in;
@@ -827,7 +879,7 @@ TEST_CASE("TopologyGraph: drill-down visibility — collapsed hides context chil
   // Stage 2
   TopologyNode stage2;
   stage2.name = "pipeline:test::step2";
-  stage2.language = "ploy";
+  stage2.language = "poly";
   stage2.kind = TopologyNode::Kind::kFunction;
   stage2.origin = TopologyNode::Origin::kPipelineStage;
   Port s2_in;

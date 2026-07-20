@@ -24,9 +24,9 @@ TEST_CASE("Path policy honours allow / deny", "[polyui][ai]") {
   AiPrivacyPolicy p;
   p.allowed_paths = {"src/", "tests/"};
   p.denied_paths  = {"src/secret/"};
-  CHECK(PathPassesPolicy("src/main.ploy", p));
-  CHECK_FALSE(PathPassesPolicy("src/secret/keys.ploy", p));
-  CHECK(PathPassesPolicy("tests/unit.ploy", p));
+  CHECK(PathPassesPolicy("src/main.poly", p));
+  CHECK_FALSE(PathPassesPolicy("src/secret/keys.poly", p));
+  CHECK(PathPassesPolicy("tests/unit.poly", p));
   CHECK_FALSE(PathPassesPolicy("docs/readme.md", p));
 
   AiPrivacyPolicy empty;
@@ -37,20 +37,20 @@ TEST_CASE("FilterContextPaths drops disallowed paths",
           "[polyui][ai]") {
   AiPrivacyPolicy p;
   p.denied_paths = {".env"};
-  auto out = FilterContextPaths({"src/a.ploy", ".env", "src/b.ploy"}, p);
+  auto out = FilterContextPaths({"src/a.poly", ".env", "src/b.poly"}, p);
   REQUIRE(out.size() == 2);
-  CHECK(out[0] == "src/a.ploy");
-  CHECK(out[1] == "src/b.ploy");
+  CHECK(out[0] == "src/a.poly");
+  CHECK(out[1] == "src/b.poly");
 }
 
 TEST_CASE("RenderPromptTemplate substitutes known names",
           "[polyui][ai]") {
   std::unordered_map<std::string, std::string> vars = {
-      {"name", "Polyglot"}, {"lang", "ploy"}};
+      {"name", "Polyglot"}, {"lang", "poly"}};
   auto out = RenderPromptTemplate("hi {{name}}, edit {{lang}} files; "
                                   "{{ unknown }} stays.", vars);
   CHECK(out ==
-        "hi Polyglot, edit ploy files; {{ unknown }} stays.");
+        "hi Polyglot, edit poly files; {{ unknown }} stays.");
 }
 
 TEST_CASE("Mock provider returns a deterministic chat reply",
@@ -68,12 +68,12 @@ TEST_CASE("Mock provider returns a deterministic chat reply",
   CHECK(r.finish_reason == "stop");
   CHECK(r.content.find("hello") != std::string::npos);
 
-  auto suggest = p->InlineSuggest({"ploy", "FN ", "}", "f.ploy", 4});
+  auto suggest = p->InlineSuggest({"poly", "FN ", "}", "f.poly", 4});
   CHECK(suggest.alternatives.size() == 4);
 
   RefactorSuggestRequest rs;
   rs.instruction = "extract function";
-  rs.file_paths = {"src/a.ploy"};
+  rs.file_paths = {"src/a.poly"};
   rs.code = "FN x() { RETURN 1; }\n";
   auto rr = p->RefactorSuggest(rs);
   CHECK(rr.hunks.size() == 1);

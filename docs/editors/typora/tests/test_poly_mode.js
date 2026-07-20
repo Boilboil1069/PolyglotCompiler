@@ -99,6 +99,8 @@ function hasToken(tokens, text, style) {
 assert.equal(installPolyMode(CodeMirror), "1.0.0");
 assert.equal(CodeMirror.mimeModes["text/x-poly"], "poly");
 assert.equal(CodeMirror.mimeModes["text/x-ploy"], "poly");
+assert.equal(CodeMirror.modeInfo[0].name, "Poly");
+assert.deepEqual(CodeMirror.modeInfo[0].ext, ["poly", "ploy"]);
 assert.deepEqual(CodeMirror.modeInfo[0].alias, ["poly", "ploy"]);
 assert.deepEqual(CodeMirror.polyModeContextualKeywords, ["ATTR", "CLASS", "HANDLE"]);
 
@@ -131,6 +133,7 @@ const modePath = path.resolve(__dirname, "../poly.js");
 vm.runInNewContext(fs.readFileSync(modePath, "utf8"), {CodeMirror: browserCodeMirror});
 assert.equal(browserCodeMirror.polyModeVersion, "1.0.0");
 assert.equal(browserCodeMirror.mimeModes["text/x-poly"], "poly");
+assert.equal(browserCodeMirror.mimeModes["text/x-ploy"], "poly");
 
 const mode = CodeMirror.getMode({indentUnit: 2}, "poly");
 const aliasMode = CodeMirror.getMode({indentUnit: 2}, "ploy");

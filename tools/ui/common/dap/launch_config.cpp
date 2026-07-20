@@ -8,6 +8,9 @@
  */
 #include "tools/ui/common/dap/launch_config.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace polyglot::tools::ui::dap {
 
 namespace {
@@ -17,10 +20,20 @@ LaunchRequest ParseRequest(const std::string &raw) {
   return LaunchRequest::kLaunch;
 }
 
+std::string CanonicalLaunchType(std::string type) {
+  std::string folded = type;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return type;
+}
+
 LaunchConfig FromJson(const Json &cfg) {
   LaunchConfig out;
   out.name = cfg.value("name", std::string{});
-  out.type = cfg.value("type", std::string{});
+  out.type = CanonicalLaunchType(cfg.value("type", std::string{}));
   out.request = ParseRequest(cfg.value("request", std::string{"launch"}));
   out.program = cfg.value("program", std::string{});
   if (cfg.contains("args") && cfg["args"].is_array()) {
@@ -35,6 +48,9 @@ LaunchConfig FromJson(const Json &cfg) {
     }
   }
   out.extra = cfg;
+  if (out.extra.is_object() && !out.type.empty()) {
+    out.extra["type"] = out.type;
+  }
   return out;
 }
 
@@ -117,8 +133,8 @@ std::vector<LaunchConfig> DefaultLaunchConfigurations() {
     c.cwd = "${workspaceFolder}";
     out.push_back(std::move(c));
   };
-  add("Run .ploy file", "ploy");
-  add("Debug .ploy file", "ploy");
+  add("Run .poly file", "poly");
+  add("Debug .poly file", "poly");
   add("Python: current file (debugpy)", "python");
   add("C/C++: current binary (lldb)", "lldb");
   add("C/C++: current binary (gdb)", "gdb");

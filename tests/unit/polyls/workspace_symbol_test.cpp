@@ -48,7 +48,7 @@ TEST_CASE("polyls advertises documentSymbol + workspaceSymbol providers",
   REQUIRE(caps["workspaceSymbolProvider"] == true);
 }
 
-TEST_CASE("polyls documentSymbol returns ploy outline",
+TEST_CASE("polyls documentSymbol returns poly outline",
           "[polyls][symbols][documentSymbol]") {
   Captured cap;
   PolylsServer s;
@@ -66,8 +66,8 @@ TEST_CASE("polyls documentSymbol returns ploy outline",
       "}\n";
   Json open_params = {
       {"textDocument", {
-          {"uri", "file:///tmp/sample.ploy"},
-          {"languageId", "ploy"},
+          {"uri", "file:///tmp/sample.poly"},
+          {"languageId", "poly"},
           {"version", 1},
           {"text", text},
       }},
@@ -76,7 +76,7 @@ TEST_CASE("polyls documentSymbol returns ploy outline",
   cap.outbound.clear();
 
   Json req_params = {
-      {"textDocument", {{"uri", "file:///tmp/sample.ploy"}}},
+      {"textDocument", {{"uri", "file:///tmp/sample.poly"}}},
   };
   s.HandleIncoming(MakeRequest(2, "textDocument/documentSymbol", req_params));
   const Json *resp = FindResponse(cap, 2);
@@ -108,8 +108,8 @@ TEST_CASE("polyls workspace/symbol filters by query substring",
       "FUNC area(p: INT) -> INT { RETURN p }\n";
   Json open_params = {
       {"textDocument", {
-          {"uri", "file:///tmp/sample.ploy"},
-          {"languageId", "ploy"},
+          {"uri", "file:///tmp/sample.poly"},
+          {"languageId", "poly"},
           {"version", 1},
           {"text", text},
       }},

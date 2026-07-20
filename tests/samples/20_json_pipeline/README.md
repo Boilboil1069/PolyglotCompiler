@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, Java |
-| Entry | `json_pipeline.ploy` |
+| Entry | `json_pipeline.poly` |
 | Theme | JSON ingest pipeline |
 | Expected stdout | `20_json_pipeline: ok\r\n` |
 
 ## Files
 
-- `json_pipeline.ploy` — `.ploy` entry that wires the host sources together.
+- `json_pipeline.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `json_parser.py` — host source file
 - `SchemaValidator.java` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc json_pipeline.ploy --emit-obj=build/json_pipeline.obj --quiet
+polyc json_pipeline.poly --emit-obj=build/json_pipeline.obj --quiet
 polyld build/json_pipeline.obj -o build/json_pipeline.exe
 ./build/json_pipeline.exe
 ```

@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python |
 | 关键字   | WITH |
-| 入口文件 | `resource_management.ploy` |
+| 入口文件 | `resource_management.poly` |
 
 ## 编译
 
 ```powershell
-polyc 07_resource_management\resource_management.ploy --emit-obj=resource_management.pobj --obj-format=pobj
+polyc 07_resource_management\resource_management.poly --emit-obj=resource_management.pobj --obj-format=pobj
 polyld resource_management.pobj -o resource_management.exe
 ```
 

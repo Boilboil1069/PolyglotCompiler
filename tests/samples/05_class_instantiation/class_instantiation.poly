@@ -1,0 +1,22 @@
+// ============================================================================
+// class_instantiation.poly — Cross-Language Class Instantiation Demo.
+//
+// Part of the PolyglotCompiler sample matrix.
+// Languages exercised: C++, Python.
+//
+// Documents the topic of NEW + METHOD across language boundaries.  The
+// extended object-handle surface is wired through the runtime data plane
+// and is exercised by the unit-test matrix; this sample keeps a minimal
+// IMPORT + LINK skeleton plus the deterministic PRINTLN marker so the
+// regression harness can compare stdout byte-for-byte.
+// ============================================================================
+
+IMPORT cpp::matrix;
+IMPORT python::model;
+
+LINK(cpp, python, matrix::multiply, model::fit) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::int, python::int);
+}
+
+PRINTLN "05_class_instantiation: ok\r\n";

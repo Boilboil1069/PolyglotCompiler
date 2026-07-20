@@ -1,5 +1,5 @@
 // ============================================================================
-// Unit tests for ploy LANG / WITH LANG / @LANG version-pinning syntax.
+// Unit tests for poly LANG / WITH LANG / @LANG version-pinning syntax.
 //
 // Covers:
 //   1. `LANG <lang> = <version>;` module-level pragma is parsed and is the
@@ -41,7 +41,7 @@ using polyglot::ploy::WithLangBlock;
 
 namespace {
 
-// Parse a .ploy source string. Returns the analyzed module on success.
+// Parse a .poly source string. Returns the analyzed module on success.
 struct PipelineResult {
     std::shared_ptr<polyglot::ploy::Module> module;
     bool parse_ok{false};
@@ -110,13 +110,13 @@ void CollectCrossLangCalls(const std::shared_ptr<polyglot::ploy::Module> &mod,
 // ============================================================================
 
 TEST_CASE("LANG pragma stamps version on subsequent cross-lang calls",
-          "[ploy][lang][pin][pragma]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][pragma]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(python, ploy, math::sqrt, host_sqrt);
+LINK(python, poly, math::sqrt, host_sqrt);
 CALL(python, math::sqrt, 4.0);
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -129,15 +129,15 @@ CALL(python, math::sqrt, 4.0);
 }
 
 TEST_CASE("LANG pragma only affects matching language",
-          "[ploy][lang][pin][pragma]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][pragma]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(cpp, ploy, compute, host_compute);
-LINK(python, ploy, len, host_len);
+LINK(cpp, poly, compute, host_compute);
+LINK(python, poly, len, host_len);
 CALL(cpp, compute, 1);
 CALL(python, len, "abc");
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -158,17 +158,17 @@ CALL(python, len, "abc");
 // ============================================================================
 
 TEST_CASE("WITH LANG block scopes pins to body only",
-          "[ploy][lang][pin][with]") {
-    const std::string code = R"PLOY(
-LINK(python, ploy, math::sqrt, host_sqrt);
-LINK(cpp, ploy, std::abs, host_abs);
-LINK(python, ploy, len, host_len);
+          "[poly][lang][pin][with]") {
+    const std::string code = R"POLY(
+LINK(python, poly, math::sqrt, host_sqrt);
+LINK(cpp, poly, std::abs, host_abs);
+LINK(python, poly, len, host_len);
 WITH LANG (python="3.12", cpp="c++23") {
     CALL(python, math::sqrt, 4.0);
     CALL(cpp, std::abs, -1);
 }
 CALL(python, len, "abc");
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -184,19 +184,19 @@ CALL(python, len, "abc");
 }
 
 TEST_CASE("WITH LANG inner block shadows outer pragma",
-          "[ploy][lang][pin][with]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][with]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(python, ploy, before, host_before);
-LINK(python, ploy, inside, host_inside);
-LINK(python, ploy, after, host_after);
+LINK(python, poly, before, host_before);
+LINK(python, poly, inside, host_inside);
+LINK(python, poly, after, host_after);
 CALL(python, before, 1);
 WITH LANG (python="3.12") {
     CALL(python, inside, 2);
 }
 CALL(python, after, 3);
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -214,18 +214,18 @@ CALL(python, after, 3);
 // ============================================================================
 
 TEST_CASE("@LANG annotation pins exactly one statement",
-          "[ploy][lang][pin][annotation]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][annotation]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(python, ploy, first, host_first);
-LINK(python, ploy, annotated, host_annotated);
-LINK(python, ploy, third, host_third);
+LINK(python, poly, first, host_first);
+LINK(python, poly, annotated, host_annotated);
+LINK(python, poly, third, host_third);
 CALL(python, first, 1);
 @LANG (python="3.12")
 CALL(python, annotated, 2);
 CALL(python, third, 3);
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -243,17 +243,17 @@ CALL(python, third, 3);
 // ============================================================================
 
 TEST_CASE("Lowering propagates AST pin into CrossLangCallDescriptor::lang_version",
-          "[ploy][lang][pin][lowering]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][lowering]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(python, ploy, math::sqrt, host_sqrt);
+LINK(python, poly, math::sqrt, host_sqrt);
 @LANG (python="3.12")
-LINK(python, ploy, len, host_len);
+LINK(python, poly, len, host_len);
 CALL(python, math::sqrt, 4.0);
 @LANG (python="3.12")
 CALL(python, len, "abc");
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);
@@ -281,17 +281,17 @@ CALL(python, len, "abc");
 // ============================================================================
 
 TEST_CASE("LINK declarations inside LANG scope inherit the pinned version",
-          "[ploy][lang][pin][link]") {
-    const std::string code = R"PLOY(
+          "[poly][lang][pin][link]") {
+    const std::string code = R"POLY(
 LANG python = "3.11";
 
-LINK(ploy, python, my_sqrt, math::sqrt) {
+LINK(poly, python, my_sqrt, math::sqrt) {
 }
 WITH LANG (python="3.12") {
-    LINK(ploy, python, my_len, len) {
+    LINK(poly, python, my_len, len) {
     }
 }
-)PLOY";
+)POLY";
     auto r = RunPipeline(code);
     REQUIRE(r->parse_ok);
     REQUIRE(r->sema_ok);

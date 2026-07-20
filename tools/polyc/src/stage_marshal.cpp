@@ -20,7 +20,7 @@ MarshalResult RunMarshalStage(const DriverSettings &settings, const SemanticResu
   MarshalResult result;
   const bool V = settings.verbose;
 
-  if (!semantic.success || settings.language != "ploy") {
+  if (!semantic.success || settings.language != "poly") {
     result.success = semantic.success;
     return result;
   }

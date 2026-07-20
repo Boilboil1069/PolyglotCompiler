@@ -1,7 +1,7 @@
 # 00_minimal — print_then_exit
 
 The simplest possible end-to-end smoke sample for the polyglot
-toolchain. The single source file `print_then_exit.ploy` declares a
+toolchain. The single source file `print_then_exit.poly` declares a
 `main` function that prints `ok` followed by a newline and returns
 exit code `0`.
 
@@ -14,7 +14,7 @@ the line `ok\n` to standard output.
 ## Build & run
 
 ```sh
-polyc print_then_exit.ploy -o /tmp/print_then_exit
+polyc print_then_exit.poly -o /tmp/print_then_exit
 /tmp/print_then_exit
 echo "exit=$?"
 ```
@@ -31,6 +31,6 @@ The expected exit status is `0`.
 
 | File | Purpose |
 |------|---------|
-| `print_then_exit.ploy` | The single-function source. |
+| `print_then_exit.poly` | The single-function source. |
 | `expected_output.txt`  | Single-line `ok` produced by a real run; consumed by the samples regression harness. |
 | `README.md` / `README_zh.md` | Bilingual documentation. |

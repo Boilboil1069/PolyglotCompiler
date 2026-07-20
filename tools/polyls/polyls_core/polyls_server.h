@@ -133,7 +133,7 @@ class PolylsServer {
   void RefreshIndexFor(const std::string &uri);
 
   /// Apply the language identifier the editor sent at `didOpen` time
-  /// (e.g. "ploy", "cpp", "python", "rust", "java", "csharp").
+  /// (e.g. "poly", "cpp", "python", "rust", "java", "csharp").
   std::string IndexLanguageFor(const std::string &uri) const;
   // ── Wire helpers ─────────────────────────────────────────────────────
   void Send(const Json &payload);

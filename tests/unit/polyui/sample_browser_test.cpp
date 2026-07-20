@@ -30,12 +30,12 @@ TEST_CASE("LoadIndex parses a mixed sample/tutorial catalogue",
     "entries": [
       {"id":"hello","title":"Hello PolyGlot","kind":"sample",
        "difficulty":"beginner","languages":["cpp"],"topics":["intro"],
-       "root_path":"tests/samples/hello","files":["main.ploy"],
+       "root_path":"tests/samples/hello","files":["main.poly"],
        "summary":"prints hello"},
       {"id":"torch","title":"PyTorch interop","kind":"tutorial",
        "difficulty":"advanced","languages":["python","cpp"],
        "topics":["ai","ml"],"root_path":"docs/tutorial/torch",
-       "files":["README.md","driver.ploy","model.py"],
+       "files":["README.md","driver.poly","model.py"],
        "summary":"call torch.nn from PolyGlot"}
     ]
   })";
@@ -50,13 +50,36 @@ TEST_CASE("LoadIndex parses a mixed sample/tutorial catalogue",
   CHECK(t->topics.size() == 2);
 }
 
+TEST_CASE("LoadIndex canonicalizes legacy ploy language metadata",
+          "[polyui][samples]") {
+  SampleCatalogue cat;
+  REQUIRE(cat.LoadIndex(R"({
+    "entries": [
+      {"id":"legacy","title":"Legacy Poly sample","kind":"sample",
+       "languages":["PloY","Cpp"]}
+    ]
+  })"));
+
+  const auto *entry = cat.Find("legacy");
+  REQUIRE(entry);
+  REQUIRE(entry->languages.size() == 2);
+  CHECK(entry->languages[0] == "poly");
+  CHECK(entry->languages[1] == "Cpp");
+
+  CatalogueQuery query;
+  query.languages = {"PoLy"};
+  const auto matches = cat.Filter(query);
+  REQUIRE(matches.size() == 1);
+  CHECK(matches[0]->id == "legacy");
+}
+
 TEST_CASE("Filter respects language / topic / difficulty / text",
           "[polyui][samples]") {
   SampleCatalogue cat;
   CatalogueEntry a{"a","Hello",EntryKind::kSample,Difficulty::kBeginner,
-                   {"cpp"},{"intro"},"r",{"main.ploy"},"hello world"};
+                   {"cpp"},{"intro"},"r",{"main.poly"},"hello world"};
   CatalogueEntry b{"b","Torch",EntryKind::kTutorial,Difficulty::kAdvanced,
-                   {"python","cpp"},{"ai","ml"},"r",{"m.ploy"},"pytorch"};
+                   {"python","cpp"},{"ai","ml"},"r",{"m.poly"},"pytorch"};
   cat.AddEntry(a); cat.AddEntry(b);
 
   CatalogueQuery q;
@@ -82,14 +105,14 @@ TEST_CASE("PlanCopy maps every file to the destination root",
           "[polyui][samples]") {
   SampleCatalogue cat;
   CatalogueEntry a{"k","K",EntryKind::kSample,Difficulty::kBeginner,
-                   {"cpp"},{},"tests/samples/k",{"main.ploy","README.md"},""};
+                   {"cpp"},{},"tests/samples/k",{"main.poly","README.md"},""};
   cat.AddEntry(a);
   auto plan = cat.PlanCopy("k", "/tmp/dst");
   REQUIRE(plan);
   CHECK(plan->entry_id == "k");
   CHECK(plan->files.size() == 2);
-  CHECK(plan->files[0].first == "tests/samples/k/main.ploy");
-  CHECK(plan->files[0].second == "/tmp/dst/main.ploy");
+  CHECK(plan->files[0].first == "tests/samples/k/main.poly");
+  CHECK(plan->files[0].second == "/tmp/dst/main.poly");
   CHECK(plan->files[1].first == "tests/samples/k/README.md");
   CHECK_FALSE(cat.PlanCopy("missing", "/tmp/x"));
 }

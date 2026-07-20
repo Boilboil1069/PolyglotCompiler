@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Rust |
-| 入口 | `game_loop_demo.ploy` |
+| 入口 | `game_loop_demo.poly` |
 | 主题 | 游戏循环骨架 |
 | 预期 stdout | `30_game_loop_demo: ok\r\n` |
 
 ## 文件
 
-- `game_loop_demo.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `game_loop_demo.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `tick_scheduler.cpp` — 宿主语言源文件
 - `physics_step.rs` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc game_loop_demo.ploy --emit-obj=build/game_loop_demo.obj --quiet
+polyc game_loop_demo.poly --emit-obj=build/game_loop_demo.obj --quiet
 polyld build/game_loop_demo.obj -o build/game_loop_demo.exe
 ./build/game_loop_demo.exe
 ```

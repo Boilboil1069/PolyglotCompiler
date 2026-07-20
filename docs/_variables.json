@@ -2,9 +2,9 @@
     "_comment": "Single source of truth for documentation variables. Update values here; then run `python scripts/docs_generate.py` to propagate changes.",
 
     "project_name": "PolyglotCompiler",
-    "version": "1.4.0",
+    "version": "1.48.0",
     "doc_version": "1.2.0",
-    "last_updated": "2026-04-28",
+    "last_updated": "2026-07-20",
     "license": "GPLv3",
 
     "cpp_standard": "C++20",
@@ -45,7 +45,7 @@
         {"lang": "Go",         "dir": "frontends/go/",         "features": "lexer, parser, sema, lowering — go.mod + GOROOT/GOPATH resolver"},
         {"lang": "JavaScript", "dir": "frontends/javascript/", "features": "lexer, parser, sema, lowering — Node.js resolver, .d.ts/.js/.mjs"},
         {"lang": "Ruby",       "dir": "frontends/ruby/",       "features": "lexer, parser, sema, lowering — require/require_relative/load/autoload"},
-        {"lang": ".ploy",      "dir": "frontends/ploy/",       "features": "lexer, parser, sema, lowering — orchestration language"}
+        {"lang": ".poly",      "dir": "frontends/ploy/",       "features": "lexer, parser, sema, lowering — orchestration language"}
     ],
 
     "backends": [
@@ -76,7 +76,7 @@
     "docs_structure": {
         "api":         "API reference (bilingual)",
         "specs":       "Language & IR specifications, optimisation pipeline, runtime ABI, plugin specification, namespace architecture, release packaging",
-        "realization": "Implementation details (bilingual; ploy spec, cross-language linking, complex types, package mgmt/import, mixed compilation, class instantiation, compilation model, external packages, per-language runtime, JS/Ruby/Go frontends, editor expansion, topology tool)",
-        "tutorial":    "Tutorials: ploy language + project (bilingual)"
+        "realization": "Implementation details (bilingual; poly spec, cross-language linking, complex types, package mgmt/import, mixed compilation, class instantiation, compilation model, external packages, per-language runtime, JS/Ruby/Go frontends, editor expansion, topology tool)",
+        "tutorial":    "Tutorials: poly language + project (bilingual)"
     }
 }

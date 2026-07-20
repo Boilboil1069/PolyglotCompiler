@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | C++, Python |
-| Entry | `plugin_system.ploy` |
+| Entry | `plugin_system.poly` |
 | Theme | Plugin system |
 | Expected stdout | `27_plugin_system: ok\r\n` |
 
 ## Files
 
-- `plugin_system.ploy` — `.ploy` entry that wires the host sources together.
+- `plugin_system.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `plugin_host.cpp` — host source file
 - `sample_plugin.py` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc plugin_system.ploy --emit-obj=build/plugin_system.obj --quiet
+polyc plugin_system.poly --emit-obj=build/plugin_system.obj --quiet
 polyld build/plugin_system.obj -o build/plugin_system.exe
 ./build/plugin_system.exe
 ```

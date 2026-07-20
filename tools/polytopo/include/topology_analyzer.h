@@ -1,6 +1,6 @@
 /**
  * @file     topology_analyzer.h
- * @brief    Builds a TopologyGraph from a .ploy AST
+ * @brief    Builds a TopologyGraph from a .poly AST
  *
  * @ingroup  Tool / polytopo
  * @author   Manning Cyrus

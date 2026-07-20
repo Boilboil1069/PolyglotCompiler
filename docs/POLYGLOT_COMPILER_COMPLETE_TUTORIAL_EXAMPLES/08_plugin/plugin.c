@@ -17,7 +17,7 @@ static const PolyglotPluginInfo k_info = {
     "MIT",
     NULL,
     POLYGLOT_CAP_NONE,
-    "1.47.4"
+    "1.48.0"
 };
 
 POLYGLOT_EXPORT const PolyglotPluginInfo *polyglot_plugin_get_info(void) {
@@ -51,4 +51,3 @@ POLYGLOT_EXPORT int polyglot_plugin_activate(PolyglotPlugin *plugin) {
 POLYGLOT_EXPORT void polyglot_plugin_deactivate(PolyglotPlugin *plugin) {
     (void)plugin;
 }
-

@@ -47,8 +47,8 @@ TEST_CASE("polyls signatureHelp returns matching FUNC and active parameter",
   PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{
       {"textDocument",
-       {{"uri", "file:///s.ploy"},
-        {"languageId", "ploy"},
+       {{"uri", "file:///s.poly"},
+        {"languageId", "poly"},
         {"version", 1},
         {"text",
          "FUNC add(a, b) -> INT { RETURN a; }\n"
@@ -57,7 +57,7 @@ TEST_CASE("polyls signatureHelp returns matching FUNC and active parameter",
 
   // Cursor sits between the comma and the closing paren on line 1.
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///s.ploy"}}},
+      {"textDocument", {{"uri", "file:///s.poly"}}},
       {"position", {{"line", 1}, {"character", 21}}}};
   s.HandleIncoming(MakeRequest(30, "textDocument/signatureHelp", params));
 
@@ -77,14 +77,14 @@ TEST_CASE("polyls signatureHelp returns null outside any call",
   Captured cap;
   PolylsServer s; MakeReadyServer(s, cap);
   const Json open = Json{{"textDocument",
-                          {{"uri", "file:///s2.ploy"},
-                           {"languageId", "ploy"},
+                          {{"uri", "file:///s2.poly"},
+                           {"languageId", "poly"},
                            {"version", 1},
                            {"text", "LET x = 1\n"}}}};
   s.HandleIncoming(MakeNotification("textDocument/didOpen", open));
 
   const Json params = Json{
-      {"textDocument", {{"uri", "file:///s2.ploy"}}},
+      {"textDocument", {{"uri", "file:///s2.poly"}}},
       {"position", {{"line", 0}, {"character", 5}}}};
   s.HandleIncoming(MakeRequest(31, "textDocument/signatureHelp", params));
 

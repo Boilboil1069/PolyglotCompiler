@@ -1,11 +1,11 @@
 # Quickstart: Profiling a Mixed-Language Program
 
-> **Document Version**: 2.0.0  
-> **Last Updated**: 2026-05-07  
-> **Project**: PolyglotCompiler 1.45.2  
+> **Document Version**: 2.0.0<br>
+> **Last Updated**: 2026-07-20<br>
+> **Project**: PolyglotCompiler 1.48.0<br>
 > **Companion**: [profiling_quickstart_zh.md](profiling_quickstart_zh.md)
 
-This walk-through profiles `tests/samples/09_mixed_pipeline` (a `.ploy` program that drives a C++ image processor and a Python ML model).
+This walk-through profiles `tests/samples/09_mixed_pipeline` (a `.poly` program that drives a C++ image processor and a Python ML model).
 
 ## 1. Build with instrumentation
 
@@ -13,7 +13,7 @@ This walk-through profiles `tests/samples/09_mixed_pipeline` (a `.ploy` program 
 polyc --profile-instrument \
       --emit=call-graph:build/mixed.cgjson \
       --emit=profile-symbols:build/mixed.symjson \
-      tests/samples/09_mixed_pipeline/mixed_pipeline.ploy \
+      tests/samples/09_mixed_pipeline/mixed_pipeline.poly \
       -o build/mixed
 ```
 
@@ -21,7 +21,7 @@ polyc --profile-instrument \
 polyc --profile-instrument `
       --emit=call-graph:build\mixed.cgjson `
       --emit=profile-symbols:build\mixed.symjson `
-      tests\samples\09_mixed_pipeline\mixed_pipeline.ploy `
+      tests\samples\09_mixed_pipeline\mixed_pipeline.poly `
       -o build\mixed.exe
 ```
 
@@ -60,7 +60,7 @@ Feed the resulting JSON files into your dashboard of choice; the schemas are doc
 
 ## 5. Per-language breakdown
 
-The **Languages** tab groups self-time by host language (`cpp`, `python`, `rust`, `java`, `dotnet`, `go`, `javascript`, `ruby`, `ploy`). Bridge time is attributed to the **bridge** virtual language so cross-language overhead is immediately visible.
+The **Languages** tab groups self-time by host language (`cpp`, `python`, `rust`, `java`, `dotnet`, `go`, `javascript`, `ruby`, `poly`). Bridge time is attributed to the **bridge** virtual language so cross-language overhead is immediately visible.
 
 ## 6. Combine with the Call Analyzer
 

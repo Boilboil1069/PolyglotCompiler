@@ -31,7 +31,7 @@ enum class PickKind {
 struct PickItem {
   PickKind kind;
   std::string label;
-  std::string detail;     ///< e.g. "shell · build" or "ploy · launch".
+  std::string detail;     ///< e.g. "shell · build" or "poly · launch".
   std::string language;   ///< Launch type (empty for tasks).
   bool is_default{false};
 };

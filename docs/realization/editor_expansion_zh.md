@@ -7,7 +7,7 @@
 
 ## 1. polyui 编辑器增强
 
-### 1.1 增强的 .ploy 补全
+### 1.1 增强的 .poly 补全
 
 `CompilerService::GetPloyCompletions()` 现在返回更丰富的补全项：
 
@@ -20,7 +20,7 @@
 
 | 语言 | 匹配模式 |
 |------|----------|
-| ploy | `FUNC`、`STRUCT`、`ENUM`、`VAR`、`PIPELINE` 声明 |
+| poly | `FUNC`、`STRUCT`、`ENUM`、`VAR`、`PIPELINE` 声明 |
 | cpp | 函数定义、`class`、`struct`、`enum`、`namespace` |
 | python | `def`、`class` |
 | rust | `fn`、`struct`、`enum`、`impl`、`mod` |
@@ -68,7 +68,7 @@
 - **高亮**：在选中节点上启动脉冲动画。
 - **导出**：为选中节点构建 DOT 子图并保存到文件。
 
-### 2.3 生成 .ploy 中的源码位置注释
+### 2.3 生成 .poly 中的源码位置注释
 
 `GeneratePloySrc()` 在 `SourceLoc` 数据可用时，为 LINK 指令、PIPELINE 节点头和 FUNC 声明生成 `@source file:line` 注释。
 

@@ -1,5 +1,5 @@
 {
-  "uri": "file://<SOURCE>/06_diagnostics/type_error.ploy",
+  "uri": "file://<SOURCE>/06_diagnostics/type_error.poly",
   "diagnostics": [
     {
       "range": {

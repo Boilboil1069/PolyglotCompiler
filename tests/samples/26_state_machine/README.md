@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | C++, Java |
-| Entry | `state_machine.ploy` |
+| Entry | `state_machine.poly` |
 | Theme | Finite state machine |
 | Expected stdout | `26_state_machine: ok\r\n` |
 
 ## Files
 
-- `state_machine.ploy` — `.ploy` entry that wires the host sources together.
+- `state_machine.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `transition_table.cpp` — host source file
 - `FsmRunner.java` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc state_machine.ploy --emit-obj=build/state_machine.obj --quiet
+polyc state_machine.poly --emit-obj=build/state_machine.obj --quiet
 polyld build/state_machine.obj -o build/state_machine.exe
 ./build/state_machine.exe
 ```

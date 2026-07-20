@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、Java |
-| 入口 | `json_pipeline.ploy` |
+| 入口 | `json_pipeline.poly` |
 | 主题 | JSON 摄取流水线 |
 | 预期 stdout | `20_json_pipeline: ok\r\n` |
 
 ## 文件
 
-- `json_pipeline.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `json_pipeline.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `json_parser.py` — 宿主语言源文件
 - `SchemaValidator.java` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc json_pipeline.ploy --emit-obj=build/json_pipeline.obj --quiet
+polyc json_pipeline.poly --emit-obj=build/json_pipeline.obj --quiet
 polyld build/json_pipeline.obj -o build/json_pipeline.exe
 ./build/json_pipeline.exe
 ```

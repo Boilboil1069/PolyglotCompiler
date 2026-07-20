@@ -1,6 +1,6 @@
 # 34_default_args — Named-parameter default values
 
-`default_args.ploy` demonstrates the named-parameter / default-value
+`default_args.poly` demonstrates the named-parameter / default-value
 extension introduced by demand 2026-04-28-11.  Three shapes are
 covered:
 
@@ -17,7 +17,7 @@ Rules enforced by sema and the parser:
 * Required parameters must precede defaulted parameters in the
   declaration; mixing the order is a parse-time error.
 * A default expression must be either a constant-foldable literal /
-  unary / binary expression or a pure intra-Ploy call (no
+  unary / binary expression or a pure intra-Poly call (no
   cross-language `CALL`, no closure capture).  Reading another
   parameter inside the default is rejected.
 * A call site may freely mix positional and named arguments; a

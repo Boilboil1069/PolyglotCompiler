@@ -1,6 +1,6 @@
 # 模式匹配
 
-本文档介绍 `.ploy` 中 `MATCH` 语句的模式语法、前端在每个分支上执行
+本文档介绍 `.poly` 中 `MATCH` 语句的模式语法、前端在每个分支上执行
 的语义检查，以及 IR 生成器在两种降级（lowering）策略之间的选择。
 英文版位于
 [`pattern_matching.md`](pattern_matching.md)。
@@ -17,7 +17,7 @@ arm_body      ::= ('->' | '=>')? '{' statement* '}'
 模式（或守卫）与分支体之间的箭头是可选的；为了兼容早期的
 规范草稿，`->` 与 `=>` 均被接受。当前规范的标准写法不带箭头：
 
-```ploy
+```poly
 MATCH value {
     CASE 0 { RETURN "zero"; }
     CASE _ { RETURN "other"; }
@@ -164,7 +164,7 @@ unreachable 块。每个分支独立成块，后端可将其物化为稠密跳�
 ```
 
 模式绑定在分支体之前通过复用被检值的 SSA 值（或其元组 / 结构体
-投影）来物化；`.ploy` 默认值不可变，所以无需复制。
+投影）来物化；`.poly` 默认值不可变，所以无需复制。
 
 正是级联路径让守卫、含混合备选的 OR 模式、OPTION 变体以及任意
 嵌套模式都能被降级为验证器已经能识别的普通基本块跳转。
@@ -173,7 +173,7 @@ unreachable 块。每个分支独立成块，后端可将其物化为稠密跳�
 
 ### 5.1 布尔派发 —— 无需 DEFAULT 即可详尽
 
-```ploy
+```poly
 FUNC describe(b: bool) -> STRING {
     MATCH b {
         CASE TRUE  { RETURN "yes"; }
@@ -184,7 +184,7 @@ FUNC describe(b: bool) -> STRING {
 
 ### 5.2 OPTION 解包
 
-```ploy
+```poly
 FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {
     MATCH opt {
         CASE Some(x) { RETURN x; }
@@ -195,7 +195,7 @@ FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {
 
 ### 5.3 范围 / OR / 绑定 / 类型守卫，全部出现在同一个 MATCH 中
 
-```ploy
+```poly
 FUNC classify(value: i32) -> i32 {
     MATCH value {
         CASE 0                    { RETURN 100; }
@@ -210,7 +210,7 @@ FUNC classify(value: i32) -> i32 {
 
 ### 5.4 元组与结构体解构
 
-```ploy
+```poly
 STRUCT Point { x: i32, y: i32, label: STRING }
 
 FUNC pair_kind(p: TUPLE(i32, i32)) -> i32 {

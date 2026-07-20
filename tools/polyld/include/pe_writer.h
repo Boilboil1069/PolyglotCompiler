@@ -242,7 +242,7 @@ BuildResult BuildExitZeroPE(const std::vector<std::uint8_t> &user_text_bytes);
 ///
 /// The produced image's `AddressOfEntryPoint` is set to the SHIM (so the
 /// OS first runs our ABI prologue), and the shim then `call`s into the user
-/// `main` at its real RVA.  This is the path that lets a `.ploy` program
+/// `main` at its real RVA.  This is the path that lets a `.poly` program
 /// such as `FUNC main() -> i32 { RETURN 42; }` produce a `.exe` whose
 /// `GetExitCodeProcess` returns `42`.
 ///

@@ -1,12 +1,12 @@
 # Sample `05_class_instantiation`
 
-NEW / METHOD instantiating a Python class from .ploy and routing calls through a C++ helper.
+NEW / METHOD instantiating a Python class from .poly and routing calls through a C++ helper.
 
 | Field | Value |
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | NEW, METHOD |
-| Entry     | `class_instantiation.ploy` |
+| Entry     | `class_instantiation.poly` |
 
 ## How to run
 
@@ -15,7 +15,7 @@ NEW / METHOD instantiating a Python class from .ploy and routing calls through a
 ## Build
 
 ```powershell
-polyc 05_class_instantiation\class_instantiation.ploy --emit-obj=class_instantiation.pobj --obj-format=pobj
+polyc 05_class_instantiation\class_instantiation.poly --emit-obj=class_instantiation.pobj --obj-format=pobj
 polyld class_instantiation.pobj -o class_instantiation.exe
 ```
 

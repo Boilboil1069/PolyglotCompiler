@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This document describes the design and implementation of the `IMPORT ... PACKAGE` feature in the `.ploy` language, enabling direct import of language-native packages (e.g., Python's numpy, Rust's serde) for use in cross-language pipelines.
+This document describes the design and implementation of the `IMPORT ... PACKAGE` feature in the `.poly` language, enabling direct import of language-native packages (e.g., Python's numpy, Rust's serde) for use in cross-language pipelines.
 
 ## 2. Motivation
 
@@ -30,11 +30,11 @@ IMPORT language PACKAGE package_path [AS alias] ';'
 |----------------|-------------------------------------------|----------|
 | `language`     | Target language identifier (`python`, `rust`, `cpp`, `c`) | Yes |
 | `package_path` | Package name with optional dotted sub-path | Yes |
-| `alias`        | Short name for use in the `.ploy` file     | No |
+| `alias`        | Short name for use in the `.poly` file     | No |
 
 ### 3.2 Examples
 
-```ploy
+```poly
 // Basic package import
 IMPORT python PACKAGE numpy;
 
@@ -55,7 +55,7 @@ IMPORT rust PACKAGE serde;
 
 Once imported, the package name (or alias) can be used in `LINK` directives and `CALL` expressions:
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy AS np;
 
 // Use in LINK
@@ -105,7 +105,7 @@ For package import, the parser:
 
 `AnalyzeImportDecl` updated:
 
-1. Validates the language is supported (`cpp`, `c`, `python`, `rust`, `ploy`,
+1. Validates the language is supported (`cpp`, `c`, `python`, `rust`, `poly`,
    `java`, `dotnet`/`csharp`, `javascript`/`js`/`typescript`/`ts`,
    `ruby`/`rb`, `go`/`golang`)
 2. Determines the symbol name:

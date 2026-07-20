@@ -266,10 +266,10 @@ TEST_CASE("Behavior: arm64 assembly contains function label and ret", "[behavior
 }
 
 // ============================================================================
-// Ploy cross-language descriptor correctness
+// Poly cross-language descriptor correctness
 // ============================================================================
 
-TEST_CASE("Behavior: Ploy LINK produces correct descriptor count", "[behavior][ploy][descriptor]") {
+TEST_CASE("Behavior: Poly LINK produces correct descriptor count", "[behavior][poly][descriptor]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 LINK(cpp, python, math::add, pymath::add) {
@@ -299,7 +299,7 @@ FUNC use_add(a: i32, b: i32) -> i32 {
   REQUIRE(found_cpp_desc);
 }
 
-TEST_CASE("Behavior: Ploy FUNC produces named IR function", "[behavior][ploy][ir]") {
+TEST_CASE("Behavior: Poly FUNC produces named IR function", "[behavior][poly][ir]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 FUNC compute(x: i32, y: i32) -> i32 {
@@ -332,8 +332,8 @@ TEST_CASE("Failure: C++ syntax error produces diagnostic", "[behavior][failure][
   REQUIRE(diags.ErrorCount() >= 1);
 }
 
-TEST_CASE("Failure: Ploy missing RETURN in non-void function produces diagnostic",
-          "[behavior][failure][ploy]") {
+TEST_CASE("Failure: Poly missing RETURN in non-void function produces diagnostic",
+          "[behavior][failure][poly]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 FUNC bad_func(x: i32) -> i32 {
@@ -358,7 +358,7 @@ FUNC bad_func(x: i32) -> i32 {
   }
 }
 
-TEST_CASE("Failure: Ploy undefined variable produces error", "[behavior][failure][ploy]") {
+TEST_CASE("Failure: Poly undefined variable produces error", "[behavior][failure][poly]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 FUNC bad(x: i32) -> i32 {
@@ -382,7 +382,7 @@ FUNC bad(x: i32) -> i32 {
   CHECK(has_undef_diag);
 }
 
-TEST_CASE("Failure: Ploy type mismatch produces diagnostic", "[behavior][failure][ploy]") {
+TEST_CASE("Failure: Poly type mismatch produces diagnostic", "[behavior][failure][poly]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 FUNC mismatch() -> i32 {
@@ -406,7 +406,7 @@ FUNC mismatch() -> i32 {
   CHECK(has_type_diag);
 }
 
-TEST_CASE("Failure: empty ploy source produces no functions", "[behavior][failure][ploy]") {
+TEST_CASE("Failure: empty poly source produces no functions", "[behavior][failure][poly]") {
   frontends::Diagnostics diags;
   std::string code = "";
   auto result = CompilePloy(code, diags);

@@ -588,7 +588,7 @@ inline bool RubyVersionAtLeast(RubyVersion actual, RubyVersion required) {
 }
 
 // ===========================================================================
-// Generic helpers - used by ploy `LANG` directives, polyver, and CLI
+// Generic helpers - used by poly `LANG` directives, polyver, and CLI
 // ===========================================================================
 
 /**

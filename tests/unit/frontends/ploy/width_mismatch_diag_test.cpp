@@ -67,7 +67,7 @@ bool HasWarningContaining(const Diagnostics &diags, const std::string &needle) {
 }  // namespace
 
 TEST_CASE("i32 CONST initialised with i64-folded literal warns about width",
-          "[ploy][sema][width][diag]") {
+          "[poly][sema][width][diag]") {
     // The literal `5` folds to i64 in the constant folder, while the
     // declared CONST is i32.  Compilation continues but the warning is
     // recorded so IDEs can surface it as a yellow squiggle.
@@ -79,7 +79,7 @@ TEST_CASE("i32 CONST initialised with i64-folded literal warns about width",
 }
 
 TEST_CASE("f32 CONST initialised with f64-folded literal warns about width",
-          "[ploy][sema][width][diag]") {
+          "[poly][sema][width][diag]") {
     auto result = Analyze("const PI: f32 = 3.14;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.diags.HasWarnings());
@@ -88,7 +88,7 @@ TEST_CASE("f32 CONST initialised with f64-folded literal warns about width",
 }
 
 TEST_CASE("u32 CONST initialised with signed i64 literal warns about signedness",
-          "[ploy][sema][width][diag]") {
+          "[poly][sema][width][diag]") {
     auto result = Analyze("const KMask: u32 = 7;\n");
     REQUIRE_FALSE(result.diags.HasErrors());
     REQUIRE(result.diags.HasWarnings());
@@ -96,7 +96,7 @@ TEST_CASE("u32 CONST initialised with signed i64 literal warns about signedness"
 }
 
 TEST_CASE("Width-equal CONST emits no width-related diagnostic",
-          "[ploy][sema][width]") {
+          "[poly][sema][width]") {
     // We construct an initializer that the folder reports as i64 (the
     // default integer width), matching the declared i64.  Combined with
     // the AreTypesCompatible numeric ↔ numeric rule, no diagnostic at
@@ -107,7 +107,7 @@ TEST_CASE("Width-equal CONST emits no width-related diagnostic",
 }
 
 TEST_CASE("Width-mismatch diagnostic surfaces the alias name when one is used",
-          "[ploy][sema][width][diag]") {
+          "[poly][sema][width][diag]") {
     auto result = Analyze(
         "type Pixel = i32;\n"
         "const K: Pixel = 5;\n");

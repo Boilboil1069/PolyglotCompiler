@@ -422,7 +422,7 @@ public:
   explicit TopologyPanel(QWidget *parent = nullptr);
   ~TopologyPanel() override;
 
-  // Refresh the topology from a .ploy file path
+  // Refresh the topology from a .poly file path
   void LoadFromFile(const QString &ploy_file_path);
 
   // Clear the current graph
@@ -478,11 +478,11 @@ signals:
   // Emitted when the graph is modified interactively (edge add/remove)
   void GraphModified();
 
-  // Emitted when the .ploy source file is modified by edge sync operations.
+  // Emitted when the .poly source file is modified by edge sync operations.
   // The editor should highlight the affected line to show the change.
   void FileContentChanged(const QString &file_path, int line);
 
-  // Emitted when a .ploy file is generated and should be opened in editor
+  // Emitted when a .poly file is generated and should be opened in editor
   void OpenFileRequested(const QString &file_path);
 
 private slots:
@@ -514,7 +514,7 @@ private:
   void ApplyGrouping();
   void LayoutNodes();
   void UpdateDetailsPanel(uint64_t node_id);
-  // .ploy file synchronization helpers
+  // .poly file synchronization helpers
   void SyncEdgeToFile(TopoEdgeItem *edge);
   void RemoveEdgeFromFile(TopoEdgeItem *edge);
 

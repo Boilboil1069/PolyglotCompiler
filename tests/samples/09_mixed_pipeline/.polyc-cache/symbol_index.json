@@ -8,7 +8,7 @@
             "endCharacter": 27,
             "endLine": 20,
             "line": 20,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "import",
           "language": "cpp",
@@ -21,7 +21,7 @@
             "endCharacter": 23,
             "endLine": 21,
             "line": 21,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "import",
           "language": "python",
@@ -34,7 +34,7 @@
             "endCharacter": 24,
             "endLine": 22,
             "line": 22,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "import",
           "language": "rust",
@@ -47,7 +47,7 @@
             "endCharacter": 27,
             "endLine": 25,
             "line": 25,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "import",
           "language": "python",
@@ -60,10 +60,10 @@
             "endCharacter": 4,
             "endLine": 28,
             "line": 28,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "link",
-          "language": "ploy",
+          "language": "poly",
           "linkTargetLanguage": "cpp",
           "linkTargetQualified": "image_processor::enhance",
           "name": "enhance",
@@ -75,10 +75,10 @@
             "endCharacter": 4,
             "endLine": 33,
             "line": 33,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "link",
-          "language": "ploy",
+          "language": "poly",
           "linkTargetLanguage": "rust",
           "linkTargetQualified": "data_loader::parallel_map",
           "name": "parallel_map",
@@ -90,10 +90,10 @@
             "endCharacter": 4,
             "endLine": 38,
             "line": 38,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "link",
-          "language": "ploy",
+          "language": "poly",
           "linkTargetLanguage": "cpp",
           "linkTargetQualified": "image_processor::edge_detect",
           "name": "edge_detect",
@@ -105,12 +105,12 @@
             "endCharacter": 21,
             "endLine": 52,
             "line": 52,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "struct",
-          "language": "ploy",
+          "language": "poly",
           "name": "PipelineConfig",
-          "qualifiedName": "ploy::PipelineConfig"
+          "qualifiedName": "poly::PipelineConfig"
         },
         {
           "definition": {
@@ -118,12 +118,12 @@
             "endCharacter": 21,
             "endLine": 60,
             "line": 60,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "struct",
-          "language": "ploy",
+          "language": "poly",
           "name": "PipelineResult",
-          "qualifiedName": "ploy::PipelineResult"
+          "qualifiedName": "poly::PipelineResult"
         },
         {
           "definition": {
@@ -131,12 +131,12 @@
             "endCharacter": 23,
             "endLine": 70,
             "line": 70,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "custom_forward",
-          "qualifiedName": "ploy::custom_forward",
+          "qualifiedName": "poly::custom_forward",
           "signature": "custom_forward(x: LIST(FLOAT)) -> LIST(FLOAT) {",
           "typeDefinitionName": "LIST"
         },
@@ -146,12 +146,12 @@
             "endCharacter": 18,
             "endLine": 71,
             "line": 71,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "output",
-          "qualifiedName": "ploy::output"
+          "qualifiedName": "poly::output"
         },
         {
           "definition": {
@@ -159,12 +159,12 @@
             "endCharacter": 20,
             "endLine": 75,
             "line": 75,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "train_epoch",
-          "qualifiedName": "ploy::train_epoch",
+          "qualifiedName": "poly::train_epoch",
           "signature": "train_epoch(data: LIST(FLOAT), target: FLOAT) -> FLOAT {",
           "typeDefinitionName": "FLOAT"
         },
@@ -174,12 +174,12 @@
             "endCharacter": 16,
             "endLine": 76,
             "line": 76,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "pred",
-          "qualifiedName": "ploy::pred"
+          "qualifiedName": "poly::pred"
         },
         {
           "definition": {
@@ -187,12 +187,12 @@
             "endCharacter": 16,
             "endLine": 77,
             "line": 77,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "loss",
-          "qualifiedName": "ploy::loss"
+          "qualifiedName": "poly::loss"
         },
         {
           "definition": {
@@ -200,12 +200,12 @@
             "endCharacter": 20,
             "endLine": 85,
             "line": 85,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "pipeline",
-          "language": "ploy",
+          "language": "poly",
           "name": "ml_pipeline",
-          "qualifiedName": "ploy::pipeline::ml_pipeline"
+          "qualifiedName": "poly::pipeline::ml_pipeline"
         },
         {
           "definition": {
@@ -213,12 +213,12 @@
             "endCharacter": 28,
             "endLine": 88,
             "line": 88,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "load_and_preprocess",
-          "qualifiedName": "ploy::load_and_preprocess",
+          "qualifiedName": "poly::load_and_preprocess",
           "signature": "load_and_preprocess(path: STRING, width: INT, height: INT) -> INT {",
           "typeDefinitionName": "INT"
         },
@@ -228,12 +228,12 @@
             "endCharacter": 18,
             "endLine": 90,
             "line": 90,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "chunks",
-          "qualifiedName": "ploy::chunks"
+          "qualifiedName": "poly::chunks"
         },
         {
           "definition": {
@@ -241,12 +241,12 @@
             "endCharacter": 18,
             "endLine": 91,
             "line": 91,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "merged",
-          "qualifiedName": "ploy::merged"
+          "qualifiedName": "poly::merged"
         },
         {
           "definition": {
@@ -254,12 +254,12 @@
             "endCharacter": 18,
             "endLine": 94,
             "line": 94,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "buffer",
-          "qualifiedName": "ploy::buffer"
+          "qualifiedName": "poly::buffer"
         },
         {
           "definition": {
@@ -267,12 +267,12 @@
             "endCharacter": 14,
             "endLine": 107,
             "line": 107,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "train",
-          "qualifiedName": "ploy::train",
+          "qualifiedName": "poly::train",
           "signature": "train(input_size: INT, epochs: INT) -> FLOAT {",
           "typeDefinitionName": "FLOAT"
         },
@@ -282,12 +282,12 @@
             "endCharacter": 17,
             "endLine": 109,
             "line": 109,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "model",
-          "qualifiedName": "ploy::model"
+          "qualifiedName": "poly::model"
         },
         {
           "definition": {
@@ -295,12 +295,12 @@
             "endCharacter": 22,
             "endLine": 116,
             "line": 116,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "total_loss",
-          "qualifiedName": "ploy::total_loss"
+          "qualifiedName": "poly::total_loss"
         },
         {
           "definition": {
@@ -308,12 +308,12 @@
             "endCharacter": 17,
             "endLine": 117,
             "line": 117,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "epoch",
-          "qualifiedName": "ploy::epoch"
+          "qualifiedName": "poly::epoch"
         },
         {
           "definition": {
@@ -321,12 +321,12 @@
             "endCharacter": 20,
             "endLine": 120,
             "line": 120,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "data",
-          "qualifiedName": "ploy::data"
+          "qualifiedName": "poly::data"
         },
         {
           "definition": {
@@ -334,12 +334,12 @@
             "endCharacter": 20,
             "endLine": 121,
             "line": 121,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "loss",
-          "qualifiedName": "ploy::loss"
+          "qualifiedName": "poly::loss"
         },
         {
           "definition": {
@@ -347,12 +347,12 @@
             "endCharacter": 23,
             "endLine": 133,
             "line": 133,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "param_count",
-          "qualifiedName": "ploy::param_count"
+          "qualifiedName": "poly::param_count"
         },
         {
           "definition": {
@@ -360,12 +360,12 @@
             "endCharacter": 14,
             "endLine": 134,
             "line": 134,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "lr",
-          "qualifiedName": "ploy::lr"
+          "qualifiedName": "poly::lr"
         },
         {
           "definition": {
@@ -373,12 +373,12 @@
             "endCharacter": 14,
             "endLine": 148,
             "line": 148,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "infer",
-          "qualifiedName": "ploy::infer",
+          "qualifiedName": "poly::infer",
           "signature": "infer(data: LIST(FLOAT), size: INT) -> FLOAT {",
           "typeDefinitionName": "FLOAT"
         },
@@ -388,12 +388,12 @@
             "endCharacter": 26,
             "endLine": 150,
             "line": 150,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "enhance_result",
-          "qualifiedName": "ploy::enhance_result"
+          "qualifiedName": "poly::enhance_result"
         },
         {
           "definition": {
@@ -401,12 +401,12 @@
             "endCharacter": 18,
             "endLine": 153,
             "line": 153,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "scaled",
-          "qualifiedName": "ploy::scaled"
+          "qualifiedName": "poly::scaled"
         },
         {
           "definition": {
@@ -414,12 +414,12 @@
             "endCharacter": 18,
             "endLine": 156,
             "line": 156,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "result",
-          "qualifiedName": "ploy::result"
+          "qualifiedName": "poly::result"
         },
         {
           "definition": {
@@ -427,12 +427,12 @@
             "endCharacter": 22,
             "endLine": 162,
             "line": 162,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "batch_process",
-          "qualifiedName": "ploy::batch_process",
+          "qualifiedName": "poly::batch_process",
           "signature": "batch_process(batch_size: INT, threshold: FLOAT) -> INT {",
           "typeDefinitionName": "INT"
         },
@@ -442,12 +442,12 @@
             "endCharacter": 21,
             "endLine": 163,
             "line": 163,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "processed",
-          "qualifiedName": "ploy::processed"
+          "qualifiedName": "poly::processed"
         },
         {
           "definition": {
@@ -455,12 +455,12 @@
             "endCharacter": 20,
             "endLine": 164,
             "line": 164,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "positive",
-          "qualifiedName": "ploy::positive"
+          "qualifiedName": "poly::positive"
         },
         {
           "definition": {
@@ -468,12 +468,12 @@
             "endCharacter": 22,
             "endLine": 167,
             "line": 167,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "sample",
-          "qualifiedName": "ploy::sample"
+          "qualifiedName": "poly::sample"
         },
         {
           "definition": {
@@ -481,12 +481,12 @@
             "endCharacter": 20,
             "endLine": 168,
             "line": 168,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "pred",
-          "qualifiedName": "ploy::pred"
+          "qualifiedName": "poly::pred"
         },
         {
           "definition": {
@@ -494,12 +494,12 @@
             "endCharacter": 22,
             "endLine": 188,
             "line": 188,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "run_full_pipeline",
-          "qualifiedName": "ploy::run_full_pipeline",
+          "qualifiedName": "poly::run_full_pipeline",
           "signature": "run_full_pipeline(width: INT, height: INT, epochs: INT) -> FLOAT {",
           "typeDefinitionName": "FLOAT"
         },
@@ -509,12 +509,12 @@
             "endCharacter": 19,
             "endLine": 190,
             "line": 190,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "pixel_count",
-          "qualifiedName": "ploy::pixel_count"
+          "qualifiedName": "poly::pixel_count"
         },
         {
           "definition": {
@@ -522,12 +522,12 @@
             "endCharacter": 13,
             "endLine": 193,
             "line": 193,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "model",
-          "qualifiedName": "ploy::model"
+          "qualifiedName": "poly::model"
         },
         {
           "definition": {
@@ -535,12 +535,12 @@
             "endCharacter": 12,
             "endLine": 194,
             "line": 194,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "pred",
-          "qualifiedName": "ploy::pred"
+          "qualifiedName": "poly::pred"
         },
         {
           "definition": {
@@ -548,12 +548,12 @@
             "endCharacter": 14,
             "endLine": 197,
             "line": 197,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "variable",
-          "language": "ploy",
+          "language": "poly",
           "name": "result",
-          "qualifiedName": "ploy::result"
+          "qualifiedName": "poly::result"
         },
         {
           "definition": {
@@ -561,12 +561,12 @@
             "endCharacter": 18,
             "endLine": 206,
             "line": 206,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "ml_pipeline",
-          "qualifiedName": "ploy::export::ml_pipeline"
+          "qualifiedName": "poly::export::ml_pipeline"
         },
         {
           "definition": {
@@ -574,12 +574,12 @@
             "endCharacter": 24,
             "endLine": 207,
             "line": 207,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "kind": "function",
-          "language": "ploy",
+          "language": "poly",
           "name": "run_full_pipeline",
-          "qualifiedName": "ploy::export::run_full_pipeline"
+          "qualifiedName": "poly::export::run_full_pipeline"
         }
       ],
       "references": [
@@ -590,7 +590,7 @@
             "endCharacter": 27,
             "endLine": 20,
             "line": 20,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -601,7 +601,7 @@
             "endCharacter": 23,
             "endLine": 21,
             "line": 21,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -612,7 +612,7 @@
             "endCharacter": 24,
             "endLine": 22,
             "line": 22,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -623,7 +623,7 @@
             "endCharacter": 27,
             "endLine": 25,
             "line": 25,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "numpy"
         },
@@ -634,7 +634,7 @@
             "endCharacter": 33,
             "endLine": 28,
             "line": 28,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -645,7 +645,7 @@
             "endCharacter": 42,
             "endLine": 28,
             "line": 28,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "enhance"
         },
@@ -656,7 +656,7 @@
             "endCharacter": 52,
             "endLine": 28,
             "line": 28,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -667,7 +667,7 @@
             "endCharacter": 61,
             "endLine": 28,
             "line": 28,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -678,7 +678,7 @@
             "endCharacter": 30,
             "endLine": 33,
             "line": 33,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -689,7 +689,7 @@
             "endCharacter": 44,
             "endLine": 33,
             "line": 33,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "parallel_map"
         },
@@ -700,7 +700,7 @@
             "endCharacter": 54,
             "endLine": 33,
             "line": 33,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -711,7 +711,7 @@
             "endCharacter": 63,
             "endLine": 33,
             "line": 33,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -722,7 +722,7 @@
             "endCharacter": 31,
             "endLine": 38,
             "line": 38,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -733,7 +733,7 @@
             "endCharacter": 44,
             "endLine": 38,
             "line": 38,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "edge_detect"
         },
@@ -744,7 +744,7 @@
             "endCharacter": 57,
             "endLine": 38,
             "line": 38,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -755,7 +755,7 @@
             "endCharacter": 71,
             "endLine": 38,
             "line": 38,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "merge_chunks"
         },
@@ -766,7 +766,7 @@
             "endCharacter": 21,
             "endLine": 52,
             "line": 52,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "PipelineConfig"
         },
@@ -777,7 +777,7 @@
             "endCharacter": 21,
             "endLine": 60,
             "line": 60,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "PipelineResult"
         },
@@ -788,7 +788,7 @@
             "endCharacter": 8,
             "endLine": 62,
             "line": 62,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -799,7 +799,7 @@
             "endCharacter": 23,
             "endLine": 69,
             "line": 69,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -810,7 +810,7 @@
             "endCharacter": 38,
             "endLine": 69,
             "line": 69,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "NeuralNetwork"
         },
@@ -821,7 +821,7 @@
             "endCharacter": 23,
             "endLine": 70,
             "line": 70,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "custom_forward"
         },
@@ -832,7 +832,7 @@
             "endCharacter": 18,
             "endLine": 71,
             "line": 71,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "output"
         },
@@ -843,7 +843,7 @@
             "endCharacter": 49,
             "endLine": 71,
             "line": 71,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "forward"
         },
@@ -854,7 +854,7 @@
             "endCharacter": 21,
             "endLine": 72,
             "line": 72,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "output"
         },
@@ -865,7 +865,7 @@
             "endCharacter": 20,
             "endLine": 75,
             "line": 75,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "train_epoch"
         },
@@ -876,7 +876,7 @@
             "endCharacter": 25,
             "endLine": 75,
             "line": 75,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -887,7 +887,7 @@
             "endCharacter": 16,
             "endLine": 76,
             "line": 76,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pred"
         },
@@ -898,7 +898,7 @@
             "endCharacter": 47,
             "endLine": 76,
             "line": 76,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -909,7 +909,7 @@
             "endCharacter": 53,
             "endLine": 76,
             "line": 76,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -920,7 +920,7 @@
             "endCharacter": 16,
             "endLine": 77,
             "line": 77,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -931,7 +931,7 @@
             "endCharacter": 23,
             "endLine": 77,
             "line": 77,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pred"
         },
@@ -942,7 +942,7 @@
             "endCharacter": 19,
             "endLine": 78,
             "line": 78,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -953,7 +953,7 @@
             "endCharacter": 20,
             "endLine": 85,
             "line": 85,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_pipeline"
         },
@@ -964,7 +964,7 @@
             "endCharacter": 28,
             "endLine": 88,
             "line": 88,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "load_and_preprocess"
         },
@@ -975,7 +975,7 @@
             "endCharacter": 18,
             "endLine": 90,
             "line": 90,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "chunks"
         },
@@ -986,7 +986,7 @@
             "endCharacter": 43,
             "endLine": 90,
             "line": 90,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -997,7 +997,7 @@
             "endCharacter": 54,
             "endLine": 90,
             "line": 90,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "load_data"
         },
@@ -1008,7 +1008,7 @@
             "endCharacter": 18,
             "endLine": 91,
             "line": 91,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "merged"
         },
@@ -1019,7 +1019,7 @@
             "endCharacter": 43,
             "endLine": 91,
             "line": 91,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -1030,7 +1030,7 @@
             "endCharacter": 57,
             "endLine": 91,
             "line": 91,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "merge_chunks"
         },
@@ -1041,7 +1041,7 @@
             "endCharacter": 65,
             "endLine": 91,
             "line": 91,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "chunks"
         },
@@ -1052,7 +1052,7 @@
             "endCharacter": 18,
             "endLine": 94,
             "line": 94,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "buffer"
         },
@@ -1063,7 +1063,7 @@
             "endCharacter": 45,
             "endLine": 94,
             "line": 94,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -1074,7 +1074,7 @@
             "endCharacter": 58,
             "endLine": 94,
             "line": 94,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ImageBuffer"
         },
@@ -1085,7 +1085,7 @@
             "endCharacter": 26,
             "endLine": 95,
             "line": 95,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "buffer"
         },
@@ -1096,7 +1096,7 @@
             "endCharacter": 33,
             "endLine": 98,
             "line": 98,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -1107,7 +1107,7 @@
             "endCharacter": 42,
             "endLine": 98,
             "line": 98,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "enhance"
         },
@@ -1118,7 +1118,7 @@
             "endCharacter": 50,
             "endLine": 98,
             "line": 98,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "merged"
         },
@@ -1129,7 +1129,7 @@
             "endCharacter": 26,
             "endLine": 101,
             "line": 101,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "buffer"
         },
@@ -1140,7 +1140,7 @@
             "endCharacter": 14,
             "endLine": 107,
             "line": 107,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "train"
         },
@@ -1151,7 +1151,7 @@
             "endCharacter": 17,
             "endLine": 109,
             "line": 109,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1162,7 +1162,7 @@
             "endCharacter": 25,
             "endLine": 112,
             "line": 112,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1173,7 +1173,7 @@
             "endCharacter": 25,
             "endLine": 113,
             "line": 113,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1184,7 +1184,7 @@
             "endCharacter": 22,
             "endLine": 116,
             "line": 116,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "total_loss"
         },
@@ -1195,7 +1195,7 @@
             "endCharacter": 17,
             "endLine": 117,
             "line": 117,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "epoch"
         },
@@ -1206,7 +1206,7 @@
             "endCharacter": 19,
             "endLine": 119,
             "line": 119,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "epoch"
         },
@@ -1217,7 +1217,7 @@
             "endCharacter": 20,
             "endLine": 120,
             "line": 120,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -1228,7 +1228,7 @@
             "endCharacter": 20,
             "endLine": 121,
             "line": 121,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -1239,7 +1239,7 @@
             "endCharacter": 43,
             "endLine": 121,
             "line": 121,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1250,7 +1250,7 @@
             "endCharacter": 56,
             "endLine": 121,
             "line": 121,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "train_epoch"
         },
@@ -1261,7 +1261,7 @@
             "endCharacter": 62,
             "endLine": 121,
             "line": 121,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -1272,7 +1272,7 @@
             "endCharacter": 22,
             "endLine": 122,
             "line": 122,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "total_loss"
         },
@@ -1283,7 +1283,7 @@
             "endCharacter": 35,
             "endLine": 122,
             "line": 122,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "total_loss"
         },
@@ -1294,7 +1294,7 @@
             "endCharacter": 42,
             "endLine": 122,
             "line": 122,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -1305,7 +1305,7 @@
             "endCharacter": 19,
             "endLine": 125,
             "line": 125,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "loss"
         },
@@ -1316,7 +1316,7 @@
             "endCharacter": 17,
             "endLine": 129,
             "line": 129,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "epoch"
         },
@@ -1327,7 +1327,7 @@
             "endCharacter": 25,
             "endLine": 129,
             "line": 129,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "epoch"
         },
@@ -1338,7 +1338,7 @@
             "endCharacter": 23,
             "endLine": 133,
             "line": 133,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "param_count"
         },
@@ -1349,7 +1349,7 @@
             "endCharacter": 46,
             "endLine": 133,
             "line": 133,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1360,7 +1360,7 @@
             "endCharacter": 58,
             "endLine": 133,
             "line": 133,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "parameters"
         },
@@ -1371,7 +1371,7 @@
             "endCharacter": 14,
             "endLine": 134,
             "line": 134,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "lr"
         },
@@ -1382,7 +1382,7 @@
             "endCharacter": 34,
             "endLine": 134,
             "line": 134,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1393,7 +1393,7 @@
             "endCharacter": 41,
             "endLine": 137,
             "line": 137,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -1404,7 +1404,7 @@
             "endCharacter": 56,
             "endLine": 137,
             "line": 137,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "NeuralNetwork"
         },
@@ -1415,7 +1415,7 @@
             "endCharacter": 39,
             "endLine": 138,
             "line": 138,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "save"
         },
@@ -1426,7 +1426,7 @@
             "endCharacter": 28,
             "endLine": 142,
             "line": 142,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1437,7 +1437,7 @@
             "endCharacter": 25,
             "endLine": 144,
             "line": 144,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "total_loss"
         },
@@ -1448,7 +1448,7 @@
             "endCharacter": 14,
             "endLine": 148,
             "line": 148,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "infer"
         },
@@ -1459,7 +1459,7 @@
             "endCharacter": 19,
             "endLine": 148,
             "line": 148,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -1470,7 +1470,7 @@
             "endCharacter": 26,
             "endLine": 150,
             "line": 150,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "enhance_result"
         },
@@ -1481,7 +1481,7 @@
             "endCharacter": 54,
             "endLine": 150,
             "line": 150,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -1492,7 +1492,7 @@
             "endCharacter": 63,
             "endLine": 150,
             "line": 150,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "enhance"
         },
@@ -1503,7 +1503,7 @@
             "endCharacter": 69,
             "endLine": 150,
             "line": 150,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -1514,7 +1514,7 @@
             "endCharacter": 18,
             "endLine": 153,
             "line": 153,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "scaled"
         },
@@ -1525,7 +1525,7 @@
             "endCharacter": 43,
             "endLine": 153,
             "line": 153,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data_loader"
         },
@@ -1536,7 +1536,7 @@
             "endCharacter": 57,
             "endLine": 153,
             "line": 153,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "parallel_map"
         },
@@ -1547,7 +1547,7 @@
             "endCharacter": 63,
             "endLine": 153,
             "line": 153,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "data"
         },
@@ -1558,7 +1558,7 @@
             "endCharacter": 18,
             "endLine": 156,
             "line": 156,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "result"
         },
@@ -1569,7 +1569,7 @@
             "endCharacter": 42,
             "endLine": 156,
             "line": 156,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -1580,7 +1580,7 @@
             "endCharacter": 51,
             "endLine": 156,
             "line": 156,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -1591,7 +1591,7 @@
             "endCharacter": 59,
             "endLine": 156,
             "line": 156,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "scaled"
         },
@@ -1602,7 +1602,7 @@
             "endCharacter": 21,
             "endLine": 158,
             "line": 158,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "result"
         },
@@ -1613,7 +1613,7 @@
             "endCharacter": 22,
             "endLine": 162,
             "line": 162,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "batch_process"
         },
@@ -1624,7 +1624,7 @@
             "endCharacter": 21,
             "endLine": 163,
             "line": 163,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "processed"
         },
@@ -1635,7 +1635,7 @@
             "endCharacter": 20,
             "endLine": 164,
             "line": 164,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "positive"
         },
@@ -1646,7 +1646,7 @@
             "endCharacter": 22,
             "endLine": 167,
             "line": 167,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "sample"
         },
@@ -1657,7 +1657,7 @@
             "endCharacter": 20,
             "endLine": 168,
             "line": 168,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pred"
         },
@@ -1668,7 +1668,7 @@
             "endCharacter": 44,
             "endLine": 168,
             "line": 168,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -1679,7 +1679,7 @@
             "endCharacter": 53,
             "endLine": 168,
             "line": 168,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -1690,7 +1690,7 @@
             "endCharacter": 61,
             "endLine": 168,
             "line": 168,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "sample"
         },
@@ -1701,7 +1701,7 @@
             "endCharacter": 22,
             "endLine": 170,
             "line": 170,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pred"
         },
@@ -1712,7 +1712,7 @@
             "endCharacter": 28,
             "endLine": 172,
             "line": 172,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "positive"
         },
@@ -1723,7 +1723,7 @@
             "endCharacter": 39,
             "endLine": 172,
             "line": 172,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "positive"
         },
@@ -1734,7 +1734,7 @@
             "endCharacter": 21,
             "endLine": 180,
             "line": 180,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "processed"
         },
@@ -1745,7 +1745,7 @@
             "endCharacter": 33,
             "endLine": 180,
             "line": 180,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "processed"
         },
@@ -1756,7 +1756,7 @@
             "endCharacter": 23,
             "endLine": 183,
             "line": 183,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "positive"
         },
@@ -1767,7 +1767,7 @@
             "endCharacter": 22,
             "endLine": 188,
             "line": 188,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "run_full_pipeline"
         },
@@ -1778,7 +1778,7 @@
             "endCharacter": 19,
             "endLine": 190,
             "line": 190,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pixel_count"
         },
@@ -1789,7 +1789,7 @@
             "endCharacter": 47,
             "endLine": 190,
             "line": 190,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "image_processor"
         },
@@ -1800,7 +1800,7 @@
             "endCharacter": 56,
             "endLine": 190,
             "line": 190,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "enhance"
         },
@@ -1811,7 +1811,7 @@
             "endCharacter": 13,
             "endLine": 193,
             "line": 193,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1822,7 +1822,7 @@
             "endCharacter": 36,
             "endLine": 193,
             "line": 193,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -1833,7 +1833,7 @@
             "endCharacter": 51,
             "endLine": 193,
             "line": 193,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "NeuralNetwork"
         },
@@ -1844,7 +1844,7 @@
             "endCharacter": 12,
             "endLine": 194,
             "line": 194,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "pred"
         },
@@ -1855,7 +1855,7 @@
             "endCharacter": 35,
             "endLine": 194,
             "line": 194,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1866,7 +1866,7 @@
             "endCharacter": 44,
             "endLine": 194,
             "line": 194,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -1877,7 +1877,7 @@
             "endCharacter": 14,
             "endLine": 197,
             "line": 197,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "result"
         },
@@ -1888,7 +1888,7 @@
             "endCharacter": 38,
             "endLine": 197,
             "line": 197,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_model"
         },
@@ -1899,7 +1899,7 @@
             "endCharacter": 47,
             "endLine": 197,
             "line": 197,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "predict"
         },
@@ -1910,7 +1910,7 @@
             "endCharacter": 24,
             "endLine": 200,
             "line": 200,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "model"
         },
@@ -1921,7 +1921,7 @@
             "endCharacter": 17,
             "endLine": 202,
             "line": 202,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "result"
         },
@@ -1932,7 +1932,7 @@
             "endCharacter": 18,
             "endLine": 206,
             "line": 206,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_pipeline"
         },
@@ -1943,7 +1943,7 @@
             "endCharacter": 34,
             "endLine": 206,
             "line": 206,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "ml_pipeline"
         },
@@ -1954,12 +1954,12 @@
             "endCharacter": 24,
             "endLine": 207,
             "line": 207,
-            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+            "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
           },
           "name": "run_full_pipeline"
         }
       ],
-      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.ploy"
+      "uri": "file:///Volumes/extend/PolyglotCompiler/tests/samples/09_mixed_pipeline/mixed_pipeline.poly"
     },
     {
       "entries": [

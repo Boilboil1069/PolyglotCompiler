@@ -1,6 +1,6 @@
 /**
  * @file     format_engine.h
- * @brief    Brace-aware Ploy formatter and shared formatter options
+ * @brief    Brace-aware Poly formatter and shared formatter options
  *           (demand 2026-04-28-26 §3).
  *
  * @ingroup  Tool / polyui

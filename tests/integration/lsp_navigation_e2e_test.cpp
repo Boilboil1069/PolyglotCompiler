@@ -4,12 +4,12 @@
  *
  * Drives a full LSP client ↔ polyls round trip through the existing
  * @ref polyglot::tools::ui::lsp::LoopbackTransport pair.  The harness
- * opens the four files of `tests/samples/09_mixed_pipeline/` (the .ploy
+ * opens the four files of `tests/samples/09_mixed_pipeline/` (the .poly
  * pipeline plus its C++ / Python / Rust host modules) and validates
- * cross-language navigation: a `definition` request on the .ploy LINK
+ * cross-language navigation: a `definition` request on the .poly LINK
  * qualifier "image_processor::enhance" must return a location inside
  * `image_processor.cpp`, and a reverse `references` query inside the
- * C++ file must list the .ploy LINK call site.
+ * C++ file must list the .poly LINK call site.
  *
  * @ingroup  Tests / integration / LSP
  * @author   Manning Cyrus
@@ -90,11 +90,11 @@ TEST_CASE("LSP nav e2e: cross-language definition through the sample pipeline",
   const std::filesystem::path samples_root = POLYGLOT_TESTS_SAMPLES_ROOT;
   const std::filesystem::path dir = samples_root / "09_mixed_pipeline";
   REQUIRE(std::filesystem::exists(dir));
-  const auto ploy = dir / "mixed_pipeline.ploy";
+  const auto poly = dir / "mixed_pipeline.poly";
   const auto cpp = dir / "image_processor.cpp";
   const auto py = dir / "ml_model.py";
   const auto rs = dir / "data_loader.rs";
-  REQUIRE(std::filesystem::exists(ploy));
+  REQUIRE(std::filesystem::exists(poly));
   REQUIRE(std::filesystem::exists(cpp));
 
   Harness h;
@@ -111,17 +111,17 @@ TEST_CASE("LSP nav e2e: cross-language definition through the sample pipeline",
   REQUIRE(init_done.load());
   h.client()->Initialized();
 
-  // Open every file: the .ploy pipeline + its host-language modules.
+  // Open every file: the .poly pipeline + its host-language modules.
   // Order matters only insofar as the cpp/python/rust files must be
   // indexed before the cross-language query is issued.
   OpenDoc(*h.client(), cpp, "cpp");
   if (std::filesystem::exists(py)) OpenDoc(*h.client(), py, "python");
   if (std::filesystem::exists(rs)) OpenDoc(*h.client(), rs, "rust");
-  OpenDoc(*h.client(), ploy, "ploy");
+  OpenDoc(*h.client(), poly, "poly");
 
-  // Locate the substring "image_processor::enhance" inside the .ploy
+  // Locate the substring "image_processor::enhance" inside the .poly
   // file so we can drive the cursor onto the host-language qualifier.
-  const std::string ploy_text = ReadFile(ploy);
+  const std::string ploy_text = ReadFile(poly);
   const std::string needle = "image_processor::enhance";
   const std::size_t off = ploy_text.find(needle);
   REQUIRE(off != std::string::npos);
@@ -140,7 +140,7 @@ TEST_CASE("LSP nav e2e: cross-language definition through the sample pipeline",
   std::atomic<bool> got_def{false};
   bool saw_cpp_target = false;
   const lsp::Json def_params = lsp::Json{
-      {"textDocument", {{"uri", PathToUri(ploy)}}},
+      {"textDocument", {{"uri", PathToUri(poly)}}},
       {"position", {{"line", line}, {"character", enh_col}}}};
   h.client()->SendRequest(
       "textDocument/definition", def_params,
@@ -158,7 +158,7 @@ TEST_CASE("LSP nav e2e: cross-language definition through the sample pipeline",
   REQUIRE(saw_cpp_target);
 
   // textDocument/references issued from inside the C++ host file should
-  // surface the .ploy LINK call site (reverse cross-language).
+  // surface the .poly LINK call site (reverse cross-language).
   const std::string cpp_text = ReadFile(cpp);
   const std::size_t cpp_off = cpp_text.find("enhance");
   REQUIRE(cpp_off != std::string::npos);
@@ -179,7 +179,7 @@ TEST_CASE("LSP nav e2e: cross-language definition through the sample pipeline",
         REQUIRE(err.is_null());
         REQUIRE(result.is_array());
         for (const auto &loc : result) {
-          if (loc.value("uri", std::string{}) == PathToUri(ploy)) {
+          if (loc.value("uri", std::string{}) == PathToUri(poly)) {
             saw_ploy_backref = true;
           }
         }

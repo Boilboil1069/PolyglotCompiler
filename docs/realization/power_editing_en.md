@@ -9,7 +9,7 @@ Bring power-editor amenities up to VS Code parity:
 * **Code folding** — brace-balanced blocks, multi-line `/* … */`
   comments and explicit `// region` / `// endregion` markers.
 * **Formatter** — `polyls` answers `textDocument/formatting`,
-  `rangeFormatting`, `onTypeFormatting` for `.ploy`; foreign
+  `rangeFormatting`, `onTypeFormatting` for `.poly`; foreign
   languages route to their own LSP.
 * **Snippets** — VS Code-flavoured tabstops, choices, variables;
   user JSON files plus a built-in library.

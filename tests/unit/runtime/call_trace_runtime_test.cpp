@@ -29,7 +29,7 @@ namespace {
 
 // Stable interned identifiers — the runtime hooks compare names by
 // pointer (the IR pass emits the same .rodata symbol for enter / exit).
-constexpr const char *kLang = "ploy";
+constexpr const char *kLang = "poly";
 const char *const kAlpha = "alpha_fn";
 const char *const kBeta  = "beta_fn";
 const char *const kOuter = "outer_fn";
@@ -121,6 +121,33 @@ TEST_CASE("CallTracer JSON serialisation honours documented schema",
   REQUIRE(json.find("polyglot.calltrace.v1") != std::string::npos);
   REQUIRE(json.find("\"entries\"") != std::string::npos);
   REQUIRE(json.find(kAlpha) != std::string::npos);
+
+  CallTracer::Instance().Clear();
+}
+
+TEST_CASE("CallTracer canonicalizes the legacy ploy ABI language payload",
+          "[runtime][calltrace][compat]") {
+  CallTracer::Instance().Clear();
+  __ploy_rt_call_trace_enable(1);
+  const char *const names[] = {"legacy_lower", "legacy_display", "legacy_upper",
+                               "canonical_display", "canonical_upper"};
+  const char *const aliases[] = {"ploy", "Ploy", "PLOY", "Poly", "POLY"};
+  for (std::size_t i = 0; i < std::size(names); ++i) {
+    __ploy_rt_call_enter(names[i], aliases[i]);
+    __ploy_rt_call_exit(names[i]);
+  }
+  auto snap = CallTracer::Instance().PeekSnapshot();
+  __ploy_rt_call_trace_enable(0);
+
+  for (const char *name : names) {
+    const auto *stats = FindStats(snap, name);
+    REQUIRE(stats != nullptr);
+    CHECK(stats->language == "poly");
+  }
+  const auto json = CallTracer::SerializeJson(snap);
+  CHECK(json.find("\"language\":\"poly\"") != std::string::npos);
+  CHECK(json.find("\"language\":\"ploy\"") == std::string::npos);
+  CHECK(json.find("\"language\":\"Ploy\"") == std::string::npos);
 
   CallTracer::Instance().Clear();
 }

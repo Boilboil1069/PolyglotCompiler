@@ -118,7 +118,7 @@ TEST_CASE("LspClient dispatches notifications by method", "[lsp][client]") {
   // Server pushes a notification.
   server_xport->Send(EncodeFrame(
       MakeNotification("textDocument/publishDiagnostics",
-                       Json{{"uri", "file:///a.ploy"}, {"diagnostics", Json::array()}})));
+                       Json{{"uri", "file:///a.poly"}, {"diagnostics", Json::array()}})));
   REQUIRE(hits.load() == 1);
 
   // Unknown notifications must be dropped silently (no throw).
@@ -140,12 +140,12 @@ TEST_CASE("LspClient typed publishDiagnostics handler", "[lsp][client]") {
   d.message = "unused identifier";
   d.source = "polyls";
   PublishDiagnosticsParams params;
-  params.uri = "file:///a.ploy";
+  params.uri = "file:///a.poly";
   params.diagnostics.push_back(d);
   server_xport->Send(
       EncodeFrame(MakeNotification("textDocument/publishDiagnostics", ToJson(params))));
 
-  REQUIRE(captured.uri == "file:///a.ploy");
+  REQUIRE(captured.uri == "file:///a.poly");
   REQUIRE(captured.diagnostics.size() == 1);
   REQUIRE(captured.diagnostics.front().severity == DiagnosticSeverity::kWarning);
   REQUIRE(captured.diagnostics.front().message == "unused identifier");
@@ -195,7 +195,8 @@ TEST_CASE("LspCapabilityRegistry get / set / supports", "[lsp][capabilities]") {
 
 TEST_CASE("LspSessionRegistry GetOrCreate is idempotent", "[lsp][session]") {
   LspSessionRegistry reg;
-  const SessionKey key{"file:///workspace", "ploy"};
+  const SessionKey key{"file:///workspace", "poly"};
+  const SessionKey legacy_key{"file:///workspace", "PloY"};
 
   int factory_calls = 0;
   auto factory = [&]() {
@@ -205,12 +206,13 @@ TEST_CASE("LspSessionRegistry GetOrCreate is idempotent", "[lsp][session]") {
   };
 
   auto s1 = reg.GetOrCreate(key, factory);
-  auto s2 = reg.GetOrCreate(key, factory);
+  auto s2 = reg.GetOrCreate(legacy_key, factory);
   REQUIRE(s1.get() == s2.get());
   REQUIRE(factory_calls == 1);
   REQUIRE(reg.Find(key) == s1);
-  REQUIRE(s1->id == "ploy@file:///workspace");
+  REQUIRE(reg.Find(SessionKey{"file:///workspace", "POLY"}) == s1);
+  REQUIRE(s1->id == "poly@file:///workspace");
 
-  reg.Drop(key);
+  reg.Drop(legacy_key);
   REQUIRE(reg.Find(key) == nullptr);
 }

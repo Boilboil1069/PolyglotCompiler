@@ -13,8 +13,8 @@ using polyglot::ploy::PloyLexer;
 using polyglot::ploy::PloyParser;
 using polyglot::ploy::PloySema;
 
-TEST_CASE("Legacy LINK(...) form emits deprecation warning", "[ploy][link][deprec]") {
-  const char *src = "LINK(cpp, ploy, cpp::foo, ploy::bar);";
+TEST_CASE("Legacy LINK(...) form emits deprecation warning", "[poly][link][deprec]") {
+  const char *src = "LINK(cpp, poly, cpp::foo, poly::bar);";
   Diagnostics diags;
   PloyLexer lexer(std::string(src), "<test>");
   PloyParser parser(lexer, diags);

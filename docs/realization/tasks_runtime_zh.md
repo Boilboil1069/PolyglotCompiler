@@ -4,7 +4,7 @@
 
 为 PolyUI 提供 VS Code 级别的 build / test / lint / format 编排，与
 DAP 集成同时交付的启动配置选择器融合，并通过语言感知的 Hot Reload
-引擎将文件保存事件路由到 `.ploy` / Python / C++ / Rust / Java / .NET
+引擎将文件保存事件路由到 `.poly` / Python / C++ / Rust / Java / .NET
 运行进程，实现符号替换。
 
 ## 组件

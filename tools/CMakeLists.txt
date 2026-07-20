@@ -158,7 +158,7 @@ target_link_libraries(polyver
     nlohmann_json::nlohmann_json
 )
 
-# -- polydoc (.ploy doc-comment extractor) -------------------------------------
+# -- polydoc (.poly doc-comment extractor) -------------------------------------
 
 add_executable(polydoc
     polydoc/src/polydoc.cpp

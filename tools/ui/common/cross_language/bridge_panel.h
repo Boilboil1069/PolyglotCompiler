@@ -46,7 +46,7 @@ struct Bridge {
   HostLanguage target_language{HostLanguage::kCpp};
   std::string stub_name;     ///< Generated stub symbol.
   MarshallingStrategy strategy{MarshallingStrategy::kCopyByValue};
-  SourceLocation source;     ///< Source declaration site (`.ploy`).
+  SourceLocation source;     ///< Source declaration site (`.poly`).
   SourceLocation target;     ///< Resolved host-language site.
   long long call_count{0};   ///< Live counter from polyrt calltrace.
 };

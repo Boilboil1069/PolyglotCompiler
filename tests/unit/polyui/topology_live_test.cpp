@@ -16,10 +16,10 @@ using namespace std::chrono_literals;
 namespace {
 TopologyGraph MakeGraph() {
   TopologyGraph g;
-  g.AddNode({"a", "fn a", "a.ploy", 1, {"function"}});
-  g.AddNode({"b", "fn b", "b.ploy", 1, {"function"}});
-  g.AddNode({"c", "fn c", "c.ploy", 1, {"function"}});
-  g.AddNode({"d", "fn d", "d.ploy", 1, {"function"}});
+  g.AddNode({"a", "fn a", "a.poly", 1, {"function"}});
+  g.AddNode({"b", "fn b", "b.poly", 1, {"function"}});
+  g.AddNode({"c", "fn c", "c.poly", 1, {"function"}});
+  g.AddNode({"d", "fn d", "d.poly", 1, {"function"}});
   g.AddEdge({"a", "b", "calls"});
   g.AddEdge({"b", "c", "calls"});
   g.AddEdge({"c", "d", "calls"});
@@ -40,16 +40,16 @@ TEST_CASE("Neighbourhood respects radius in either direction",
 TEST_CASE("FocusOn by symbol returns the symbol's neighbourhood",
           "[polyui][topology]") {
   LiveTopologyTracker tracker(MakeGraph());
-  auto v = tracker.FocusOn("b.ploy", "b", 1);
+  auto v = tracker.FocusOn("b.poly", "b", 1);
   CHECK(v.nodes().size() == 3);
   CHECK(tracker.current_symbol() == "b");
-  CHECK(tracker.current_file() == "b.ploy");
+  CHECK(tracker.current_file() == "b.poly");
 }
 
 TEST_CASE("FocusOn falls back to file anchor when symbol unknown",
           "[polyui][topology]") {
   LiveTopologyTracker tracker(MakeGraph());
-  auto v = tracker.FocusOn("c.ploy", "", 1);
+  auto v = tracker.FocusOn("c.poly", "", 1);
   // c plus its incoming b and outgoing d.
   CHECK(v.nodes().size() == 3);
 }
@@ -70,7 +70,7 @@ TEST_CASE("NodeSource returns source position or nullopt",
   LiveTopologyTracker tracker(MakeGraph());
   auto src = tracker.NodeSource("a");
   REQUIRE(src);
-  CHECK(src->first == "a.ploy");
+  CHECK(src->first == "a.poly");
   CHECK(src->second == 1);
   CHECK_FALSE(tracker.NodeSource("missing"));
 }

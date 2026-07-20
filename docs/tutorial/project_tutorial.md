@@ -1,8 +1,8 @@
 # PolyglotCompiler Project Tutorial
 
-> **Version**: 3.0.0  
-> **Last Updated**: 2026-05-07  
-> **Project**: PolyglotCompiler 1.45.2  
+> **Version**: 3.0.0<br>
+> **Last Updated**: 2026-07-20<br>
+> **Project**: PolyglotCompiler 1.48.0<br>
 > **Audience**: Contributors, integrators and toolchain authors
 
 ---
@@ -32,7 +32,7 @@
 
 ## 1.1 What is PolyglotCompiler?
 
-PolyglotCompiler is a self-hosted multi-language compiler written in **C++20**. It compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **Go**, **JavaScript**, **Ruby** and the cross-language DSL **`.ploy`** to a shared SSA-form intermediate representation, then emits native code for **x86_64**, **ARM64** and **WebAssembly**. The linker (`polyld`) writes ELF, PE32+, Mach-O and Wasm directly; no external compiler is required for code generation.
+PolyglotCompiler is a self-hosted multi-language compiler written in **C++20**. It compiles **C++**, **Python**, **Rust**, **Java**, **C# (.NET)**, **Go**, **JavaScript**, **Ruby** and the cross-language DSL **`.poly`** to a shared SSA-form intermediate representation, then emits native code for **x86_64**, **ARM64** and **WebAssembly**. The linker (`polyld`) writes ELF, PE32+, Mach-O and Wasm directly; no external compiler is required for code generation.
 
 ### Core Capabilities
 
@@ -40,7 +40,7 @@ PolyglotCompiler is a self-hosted multi-language compiler written in **C++20**. 
 - **3 backends** (`backend_x86_64`, `backend_arm64`, `backend_wasm`) sharing a common `MachineIR` layer and a unified register / scheduling framework.
 - **11 toolchain executables**: `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polytopo`, `polybench`, `polyls`, `polydoc`, `polyver`, `polyui`.
 - **30 CTest targets** broken down by module (per-frontend, per-backend, runtime, linker, lsp, settings, samples regression, benchmarks).
-- **Cross-language interop** via `.ploy` (`LINK`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND`, `IMPORT … PACKAGE`, `MAP_TYPE`, `CONVERT`, `PIPELINE`).
+- **Cross-language interop** via `.poly` (`LINK`, `CALL`, `NEW`, `METHOD`, `GET`, `SET`, `WITH`, `DELETE`, `EXTEND`, `IMPORT … PACKAGE`, `MAP_TYPE`, `CONVERT`, `PIPELINE`).
 - **Container matrix** — `polyc --target=<triple> --container=<auto|elf|pe|macho|wasm>` covers Linux / Windows / macOS / WASI on x86_64 and arm64.
 - **Self-hosted Language Server** (`polyls`) over stdio JSON-RPC, consumed by `polyui` and any LSP-aware editor.
 - **Plugin system** with a stable C ABI (frontends, optimisers, backends, IDE panels, formatters, linters, debuggers, completion / diagnostic providers).
@@ -155,7 +155,7 @@ cmake --build build -j
 | `polytopo`          | Topology graph analyser                            | `polytopo[.exe]`            |
 | `polybench`         | Benchmark suite                                    | `polybench[.exe]`           |
 | `polyls`            | Language Server (stdio JSON-RPC)                   | `polyls[.exe]`              |
-| `polydoc`           | `.ploy` doc-comment extractor                      | `polydoc[.exe]`             |
+| `polydoc`           | `.poly` doc-comment extractor                      | `polydoc[.exe]`             |
 | `polyver`           | Toolchain probe & database writer                  | `polyver[.exe]`             |
 | `polyui`            | Qt desktop IDE (skipped if Qt is not found)        | `polyui[.exe]` / `polyui.app` |
 | `unit_tests` …      | Aggregate + per-module test binaries (see §7)      | various                     |
@@ -208,7 +208,7 @@ PolyglotCompiler/
 │   ├── go/                 #   Go frontend (go.mod + GOROOT / GOPATH resolver)
 │   ├── javascript/         #   JavaScript / TypeScript frontend (Node.js resolver)
 │   ├── ruby/               #   Ruby frontend (require / Gemfile / Bundler)
-│   └── ploy/               #   .ploy cross-language frontend
+│   └── ploy/               #   historical internal path for the .poly frontend
 ├── middle/                 # SSA IR, optimisation passes, PGO, LTO
 │   ├── include/{ir,passes,pgo,lto}/
 │   └── src/{ir,passes,pgo,lto}/
@@ -246,7 +246,7 @@ PolyglotCompiler/
 
 ```
 Source Code
- (.cpp / .py / .rs / .java / .cs / .go / .js / .rb / .ploy)
+ (.cpp / .py / .rs / .java / .cs / .go / .js / .rb / .poly)
         │
         ▼
 ┌─────────┐   Tokens   ┌─────────┐   AST    ┌─────────┐  Checked AST  ┌──────────┐  IR
@@ -304,7 +304,7 @@ All frontends register with `FrontendRegistry` and share `frontend_common`'s `Sh
 | `frontend_go`             | `frontends/go/`          | Go frontend                                          |
 | `frontend_javascript`     | `frontends/javascript/`  | JavaScript / TypeScript frontend                     |
 | `frontend_ruby`           | `frontends/ruby/`        | Ruby frontend                                        |
-| `frontend_ploy`           | `frontends/ploy/`        | `.ploy` cross-language frontend                      |
+| `frontend_ploy`           | `frontends/ploy/`        | `.poly` cross-language frontend                      |
 | `middle_ir`               | `middle/`                | IR, optimisation passes, PGO, LTO                    |
 | `backend_x86_64`          | `backends/x86_64/`       | x86_64 backend                                       |
 | `backend_arm64`           | `backends/arm64/`        | ARM64 backend                                        |
@@ -323,7 +323,7 @@ The driver auto-detects the source language from the file extension and pipes it
 
 ```bash
 # Auto-detected
-polyc sample.ploy   -o sample
+polyc sample.poly   -o sample
 polyc hello.cpp     -o hello
 polyc script.py     -o script
 polyc Main.java     -o main
@@ -336,10 +336,10 @@ polyc gem.rb        -o gem
 polyc --lang=cpp    input_file -o output
 
 # Emit intermediate artifacts
-polyc --emit-ir=output.ir   input.ploy
-polyc --emit-asm=output.s   input.ploy
-polyc --emit=call-graph:cg.json input.ploy
-polyc --emit-obj=out.o      input.ploy
+polyc --emit-ir=output.ir   input.poly
+polyc --emit-asm=output.s   input.poly
+polyc --emit=call-graph:cg.json input.poly
+polyc --emit-obj=out.o      input.poly
 
 # Cross-target compilation
 polyc --target=aarch64-apple-darwin    --container=macho -o app  main.cpp
@@ -348,7 +348,7 @@ polyc --target=wasm32-wasi             --container=wasm  -o app.wasm main.cpp
 
 # Settings & diagnostics
 polyc --settings ./.polyglot/settings.json --print-effective-settings
-polyc --check broken.ploy            # LSP-shaped JSON diagnostics on stdout
+polyc --check broken.poly            # LSP-shaped JSON diagnostics on stdout
 polyc --dump-token-pool              # SharedTokenPool stats
 polyc --progress=json                # machine-readable stage events
 polyc --clean-cache                  # clear incremental cache
@@ -416,9 +416,9 @@ Test coverage for the server lives under `test_polyls` (server / capabilities), 
 ## 5.8 polydoc — Doc Extractor
 
 ```bash
-polydoc tests/samples/01_basic_linking/basic_linking.ploy        # Markdown to stdout
-polydoc --json tests/samples/01_basic_linking/basic_linking.ploy # JSON to stdout
-polydoc -o docs/out.md tests/samples/01_basic_linking/basic_linking.ploy
+polydoc tests/samples/01_basic_linking/basic_linking.poly        # Markdown to stdout
+polydoc --json tests/samples/01_basic_linking/basic_linking.poly # JSON to stdout
+polydoc -o docs/out.md tests/samples/01_basic_linking/basic_linking.poly
 ```
 
 `polydoc` walks every `///` doc-comment block attached to top-level `FUNC`, `STRUCT`, `LET` or `VAR` declarations.
@@ -494,7 +494,7 @@ The historical monolithic `unit_tests` binary was split into 24 per-module binar
 | 4  | `test_frontend_python`     | Python frontend                                         |
 | 5  | `test_frontend_cpp`        | C++ frontend                                            |
 | 6  | `test_frontend_rust`       | Rust frontend                                           |
-| 7  | `test_frontend_ploy`       | `.ploy` frontend                                        |
+| 7  | `test_frontend_ploy`       | `.poly` frontend                                        |
 | 8  | `test_frontend_java`       | Java frontend                                           |
 | 9  | `test_frontend_dotnet`     | .NET (C#) frontend                                      |
 | 10 | `test_frontend_javascript` | JavaScript frontend                                     |
@@ -527,7 +527,7 @@ ctest --output-on-failure                       # everything
 ctest -R test_frontend_ploy                     # one target
 ctest -L benchmark                              # by label
 ./test_frontend_ploy [parser]                   # by Catch2 tag
-./unit_tests "[ploy],[python]"                  # combined tags via aggregate
+./unit_tests "[poly],[python]"                  # combined tags via aggregate
 ```
 
 ## 7.3 Sanitizer & Coverage Builds
@@ -561,7 +561,7 @@ lcov --capture --directory . --output-file coverage.info
 | Range                | Theme                                                                            |
 |----------------------|----------------------------------------------------------------------------------|
 | `00_minimal`         | Single-line minimum sample (host-portable stdout pinning).                       |
-| `01` … `09`          | Core `.ploy` interop (LINK, MAP_TYPE, PIPELINE, control flow, OOP, mixed).       |
+| `01` … `09`          | Core `.poly` interop (LINK, MAP_TYPE, PIPELINE, control flow, OOP, mixed).       |
 | `10` … `16`          | Diagnostics, Java / .NET interop, generics, async, full stack, CONFIG / VENV.    |
 | `17` … `30`          | Real-world domains (string / numeric / file / JSON / image / SQL / HTTP …).      |
 | `31` … `41`          | Recent language features (typed handles, pattern match, defaults, EXTEND on dynamic langs, TRY/CATCH, async/await, generics, visibility/attrs, string literals, grammar polish). |
@@ -570,7 +570,7 @@ lcov --capture --directory . --output-file coverage.info
 
 ```
 NN_feature_name/
-├── feature_name.ploy         # .ploy entry point
+├── feature_name.poly         # .poly entry point
 ├── source_file.cpp           # per-language sources
 ├── source_file.py
 ├── source_file.rs
@@ -586,19 +586,18 @@ NN_feature_name/
 ## 8.3 Compiling a Sample
 
 ```bash
-polyc tests/samples/01_basic_linking/basic_linking.ploy   -o basic_linking
-polyc tests/samples/09_mixed_pipeline/mixed_pipeline.ploy -o mixed_pipeline
-polyc tests/samples/15_full_stack/full_stack.ploy         -o full_stack
+polyc tests/samples/01_basic_linking/basic_linking.poly   -o basic_linking
+polyc tests/samples/09_mixed_pipeline/mixed_pipeline.poly -o mixed_pipeline
+polyc tests/samples/15_full_stack/full_stack.poly         -o full_stack
 ```
 
 ## 8.4 Driving the Whole Matrix
 
 ```bash
-# POSIX
-scripts/build_all_samples.sh   --polyc build/polyc --polyld build/polyld
-# Windows
-scripts\build_all_samples.ps1  -Polyc build\polyc.exe -Polyld build\polyld.exe
+bash scripts/build_all_samples.sh
 ```
+
+On Windows, invoke the tracked Bash harness from Git Bash or MSYS2; no PowerShell counterpart is currently tracked.
 
 The harness writes `samples_report.json` (with a top-level `ok` array sorted ASCII), which `samples_regression_test.cpp` consumes to assert that the OK set reported by the harness matches the OK set walked out of the per-sample status fields.
 
@@ -860,8 +859,8 @@ External `.polytheme.json` files (with optional sibling `.qss`) discovered from 
 ## 15.3 Diagnostics Toolbox
 
 ```bash
-polyc --emit-ir=debug.ir input.ploy            # inspect the IR
-polyc --check input.ploy | jq '.diagnostics[]' # LSP-shaped JSON
+polyc --emit-ir=debug.ir input.poly            # inspect the IR
+polyc --check input.poly | jq '.diagnostics[]' # LSP-shaped JSON
 ctest -V --output-on-failure -R <target>       # verbose CTest
 ./test_frontend_ploy "<test name>" -s          # Catch2 verbose
 polyrt async --json                             # event-loop snapshot

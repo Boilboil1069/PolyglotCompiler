@@ -34,7 +34,7 @@
 ## 构建
 
 ```bash
-./build/polyc tests/samples/39_visibility_attrs/visibility_attrs.ploy \
+./build/polyc tests/samples/39_visibility_attrs/visibility_attrs.poly \
     -o /tmp/sample39.o
 ```
 

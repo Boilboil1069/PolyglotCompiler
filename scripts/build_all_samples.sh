@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# build_all_samples.sh — POSIX counterpart to build_all_samples.ps1.
+# build_all_samples.sh — sample-matrix build and runtime harness.
 #
 # Walks every sample folder under tests/samples/, runs polyc then polyld on
-# each .ploy entry file, executes the produced binary, captures stdout and
+# each canonical .poly entry file, executes the produced binary, captures stdout and
 # byte-compares it against the sibling expected_output.txt.  Per-sample
-# status mirrors the PowerShell harness (OK / OUTPUT_MISMATCH / RUN_FAIL /
-# EMPTY_STDOUT / LINK_FAIL / COMPILE_FAIL / SKIP).
+# status uses the integration-report vocabulary (OK / OUTPUT_MISMATCH /
+# RUN_FAIL / EMPTY_STDOUT / LINK_FAIL / COMPILE_FAIL / SKIP).
 #
 # Exit code is 0 once the matrix has finished, regardless of per-sample
 # pass/fail, so the integration test layer can assert on report
@@ -67,7 +67,42 @@ TOTAL=0
 run_sample() {
     local dir="$1"
     local name; name="$(basename "$dir")"
-    local ploy; ploy="$(find "$dir" -maxdepth 1 -name '*.ploy' | head -n 1)"
+    local source=""
+    local -a poly_sources=()
+    local -a legacy_sources=()
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] && poly_sources+=("$candidate")
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.poly' -print | LC_ALL=C sort)
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] && legacy_sources+=("$candidate")
+    done < <(find "$dir" -maxdepth 1 -type f -name '*.ploy' -print | LC_ALL=C sort)
+
+    if [ "${#poly_sources[@]}" -gt 0 ] && [ "${#legacy_sources[@]}" -gt 0 ]; then
+        echo "ambiguous Poly source in $dir: both .poly and legacy .ploy files exist" >&2
+        return 2
+    fi
+
+    if [ "${#poly_sources[@]}" -eq 1 ]; then
+        source="${poly_sources[0]}"
+    elif [ "${#poly_sources[@]}" -gt 1 ]; then
+        # A sample may ship focused variants alongside its main entry. Prefer
+        # <directory-name-with-numeric-prefix-removed>.poly when available.
+        local preferred_stem="${name#*_}"
+        local preferred="$dir/$preferred_stem.poly"
+        if [ -f "$preferred" ]; then
+            source="$preferred"
+        else
+            echo "ambiguous Poly source in $dir: multiple .poly files and no $preferred_stem.poly entry" >&2
+            return 2
+        fi
+    elif [ "${#legacy_sources[@]}" -eq 1 ]; then
+        source="${legacy_sources[0]}"
+        echo "[samples] warning: $name uses legacy .ploy compatibility input" >&2
+    elif [ "${#legacy_sources[@]}" -gt 1 ]; then
+        echo "ambiguous legacy Poly source in $dir: multiple .ploy files" >&2
+        return 2
+    fi
+
     local status="SKIP" prc="" lrc="" erc="" sb=0 eb=0 doff=-1
 
     # Skip contract: a sibling expected_output.skip (instead of the usual
@@ -85,8 +120,9 @@ run_sample() {
         return
     fi
 
-    if [ -n "$ploy" ]; then
-        local stem; stem="$(basename "$ploy" .ploy)"
+    if [ -n "$source" ]; then
+        local filename; filename="$(basename "$source")"
+        local stem="${filename%.*}"
         local work="$WORK_ROOT/$name"
         rm -rf "$work" && mkdir -p "$work"
         local obj="$work/$stem.obj" exe="$work/$stem.exe" out="$work/$stem.stdout"
@@ -94,7 +130,7 @@ run_sample() {
         if [ -f "$exp" ]; then eb=$(wc -c < "$exp" | tr -d ' '); fi
 
         # 1) polyc
-        "$POLYC" "$ploy" "--emit-obj=$obj" --quiet \
+        "$POLYC" "$source" "--emit-obj=$obj" --quiet \
             >"$work/polyc.log" 2>"$work/polyc.log.err"
         prc=$?
         if [ "$prc" -ne 0 ] || [ ! -f "$obj" ]; then
@@ -150,7 +186,9 @@ run_sample() {
 }
 
 for d in "$SAMPLES_DIR"/*/; do
-    [ -d "$d" ] && run_sample "$d"
+    if [ -d "$d" ]; then
+        run_sample "$d" || exit $?
+    fi
 done
 
 # ----------------------------------------------------------------------------

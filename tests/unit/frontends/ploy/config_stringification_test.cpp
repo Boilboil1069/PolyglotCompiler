@@ -81,7 +81,7 @@ const VenvConfigDecl *FirstConfig(const std::shared_ptr<polyglot::ploy::Module> 
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Config registry: every documented (lang, manager) pair resolves",
-          "[ploy][config][registry]") {
+          "[poly][config][registry]") {
   // Every entry exposed by AllConfigManagerEntries() must round-trip
   // through ResolveConfigManager() and produce the same enumerator.
   for (const auto &entry : AllConfigManagerEntries()) {
@@ -94,14 +94,14 @@ TEST_CASE("Config registry: every documented (lang, manager) pair resolves",
 }
 
 TEST_CASE("Config registry: unknown (lang, manager) pair returns nullopt",
-          "[ploy][config][registry]") {
+          "[poly][config][registry]") {
   REQUIRE_FALSE(ResolveConfigManager("python", "npm").has_value());
   REQUIRE_FALSE(ResolveConfigManager("rust", "venv").has_value());
   REQUIRE_FALSE(ResolveConfigManager("invented_lang", "venv").has_value());
 }
 
 TEST_CASE("Config registry: legacy keyword translation",
-          "[ploy][config][registry]") {
+          "[poly][config][registry]") {
   REQUIRE(LegacyConfigKeywordToManagerName("VENV").value() == "venv");
   REQUIRE(LegacyConfigKeywordToManagerName("conda").value() == "conda");
   REQUIRE(LegacyConfigKeywordToManagerName("UV").value() == "uv");
@@ -115,7 +115,7 @@ TEST_CASE("Config registry: legacy keyword translation",
 // New stringified form is parsed and accepted for every registered manager.
 // ----------------------------------------------------------------------------
 
-TEST_CASE("CONFIG python \"venv\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG python \"venv\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG python "venv" ".venv";)");
   REQUIRE(r.module);
   const auto *cfg = FirstConfig(r.module);
@@ -129,7 +129,7 @@ TEST_CASE("CONFIG python \"venv\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG python \"conda\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG python \"conda\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG python "conda" "myenv";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -137,7 +137,7 @@ TEST_CASE("CONFIG python \"conda\" is accepted by sema", "[ploy][config]") {
   REQUIRE(r.sema_ok);
 }
 
-TEST_CASE("CONFIG rust \"cargo\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG rust \"cargo\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG rust "cargo" ".";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -146,7 +146,7 @@ TEST_CASE("CONFIG rust \"cargo\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG javascript \"npm\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG javascript \"npm\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG javascript "npm" "./node_modules";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -154,7 +154,7 @@ TEST_CASE("CONFIG javascript \"npm\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG java \"maven\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG java \"maven\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG java "maven" "./pom.xml";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -162,7 +162,7 @@ TEST_CASE("CONFIG java \"maven\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG dotnet \"nuget\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG dotnet \"nuget\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG dotnet "nuget" "./packages";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -170,7 +170,7 @@ TEST_CASE("CONFIG dotnet \"nuget\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG ruby \"bundler\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG ruby \"bundler\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG ruby "bundler" "./Gemfile";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -178,7 +178,7 @@ TEST_CASE("CONFIG ruby \"bundler\" is accepted by sema", "[ploy][config]") {
   REQUIRE_FALSE(r.diags.HasErrors());
 }
 
-TEST_CASE("CONFIG go \"gomod\" is accepted by sema", "[ploy][config]") {
+TEST_CASE("CONFIG go \"gomod\" is accepted by sema", "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG go "gomod" "./go.mod";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -192,14 +192,14 @@ TEST_CASE("CONFIG go \"gomod\" is accepted by sema", "[ploy][config]") {
 // ----------------------------------------------------------------------------
 
 TEST_CASE("CONFIG python \"npm\" is rejected as unknown manager",
-          "[ploy][config]") {
+          "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG python "npm" "./node_modules";)");
   REQUIRE(r.diags.HasErrors());
   REQUIRE(MessageContains(r.diags, "unknown package manager 'npm'"));
 }
 
 TEST_CASE("CONFIG rust \"venv\" is rejected as unknown manager",
-          "[ploy][config]") {
+          "[poly][config]") {
   auto r = AnalyzeSource(R"(CONFIG rust "venv" ".venv";)");
   REQUIRE(r.diags.HasErrors());
   REQUIRE(MessageContains(r.diags, "unknown package manager 'venv'"));
@@ -210,7 +210,7 @@ TEST_CASE("CONFIG rust \"venv\" is rejected as unknown manager",
 // ----------------------------------------------------------------------------
 
 TEST_CASE("Legacy CONFIG VENV is accepted with a deprecation warning",
-          "[ploy][config][deprecation]") {
+          "[poly][config][deprecation]") {
   auto r = AnalyzeSource(R"(CONFIG VENV python ".venv";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -224,14 +224,14 @@ TEST_CASE("Legacy CONFIG VENV is accepted with a deprecation warning",
 }
 
 TEST_CASE("Legacy CONFIG CONDA emits the same deprecation warning",
-          "[ploy][config][deprecation]") {
+          "[poly][config][deprecation]") {
   auto r = AnalyzeSource(R"(CONFIG CONDA python "myenv";)");
   REQUIRE_FALSE(r.diags.HasErrors());
   REQUIRE(MessageContains(r.diags, "legacy `CONFIG <KEYWORD>` form is deprecated"));
 }
 
 TEST_CASE("Legacy CONFIG VENV without explicit language defaults to python",
-          "[ploy][config][deprecation]") {
+          "[poly][config][deprecation]") {
   auto r = AnalyzeSource(R"(CONFIG VENV ".venv";)");
   const auto *cfg = FirstConfig(r.module);
   REQUIRE(cfg != nullptr);
@@ -243,7 +243,7 @@ TEST_CASE("Legacy CONFIG VENV without explicit language defaults to python",
 // Parser-level rejections for malformed canonical form.
 // ----------------------------------------------------------------------------
 
-TEST_CASE("CONFIG without manager string is rejected", "[ploy][config][parse]") {
+TEST_CASE("CONFIG without manager string is rejected", "[poly][config][parse]") {
   // Identifier after CONFIG must be followed by a string literal naming
   // the package manager — a bare `;` here is rejected.
   auto r = AnalyzeSource(R"(CONFIG python;)");
@@ -252,7 +252,7 @@ TEST_CASE("CONFIG without manager string is rejected", "[ploy][config][parse]") 
 }
 
 TEST_CASE("CONFIG with manager string but no path is rejected",
-          "[ploy][config][parse]") {
+          "[poly][config][parse]") {
   auto r = AnalyzeSource(R"(CONFIG python "venv";)");
   REQUIRE(r.diags.HasErrors());
   REQUIRE(MessageContains(r.diags, "expected string path"));

@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、JavaScript |
-| 入口 | `event_loop.ploy` |
+| 入口 | `event_loop.poly` |
 | 主题 | 事件循环模拟 |
 | 预期 stdout | `25_event_loop: ok\r\n` |
 
 ## 文件
 
-- `event_loop.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `event_loop.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `scheduler.js` — 宿主语言源文件
 - `dispatcher.py` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc event_loop.ploy --emit-obj=build/event_loop.obj --quiet
+polyc event_loop.poly --emit-obj=build/event_loop.obj --quiet
 polyld build/event_loop.obj -o build/event_loop.exe
 ./build/event_loop.exe
 ```

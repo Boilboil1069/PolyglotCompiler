@@ -2,7 +2,7 @@
  * @file     elf_exec_smoke_test.cpp
  * @brief    Linux end-to-end smoke for the polyld ELF writer.  Drives
  *           `polyc` to compile `tests/samples/00_minimal/
- *           print_then_exit.ploy`, asks `polyld` to link an `ET_EXEC`
+ *           print_then_exit.poly`, asks `polyld` to link an `ET_EXEC`
  *           image into `/tmp/polyld_elf_smoke`, then `fork + execve +
  *           waitpid`s the produced binary with stdout captured through
  *           a pipe and asserts `WEXITSTATUS == 0` plus stdout text
@@ -131,7 +131,7 @@ TEST_CASE("polyld emits a runnable ELF for 00_minimal/print_then_exit",
     return;
   }
   const fs::path sample =
-      repo / "tests" / "samples" / "00_minimal" / "print_then_exit.ploy";
+      repo / "tests" / "samples" / "00_minimal" / "print_then_exit.poly";
   if (!fs::exists(sample)) {
     SUCCEED("00_minimal sample missing; skipping");
     return;

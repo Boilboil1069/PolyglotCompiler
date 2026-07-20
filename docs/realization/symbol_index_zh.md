@@ -12,7 +12,7 @@
 
 * 击键级响应：索引采用无正则、单趟扫描的解析路径，仅识别跨语言
   `LINK` / `IMPORT` / `EXPORT` 词汇，避免运行完整解析器。
-* 支持 `.ploy` ↔ 宿主语言双向跳转，覆盖 `cpp`、`python`、`rust`、
+* 支持 `.poly` ↔ 宿主语言双向跳转，覆盖 `cpp`、`python`、`rust`、
   `java`、`dotnet`。
 * 自描述的 JSON 缓存，保证编辑器重启即可立即获得已就绪的工作区。
 
@@ -20,10 +20,10 @@
 
 | 来源             | 捕获的实体                                                |
 |------------------|-----------------------------------------------------------|
-| `.ploy`          | `FUNC`、`PIPELINE`、`STRUCT`、`LET`/`VAR` 绑定            |
-| `.ploy`          | `IMPORT lang::module` 与 `IMPORT lang PACKAGE pkg`        |
-| `.ploy`          | `LINK target_lang::… AS …` 及元组形式 `LINK(target,…)`    |
-| `.ploy`          | `EXPORT name AS lang::func`                               |
+| `.poly`          | `FUNC`、`PIPELINE`、`STRUCT`、`LET`/`VAR` 绑定            |
+| `.poly`          | `IMPORT lang::module` 与 `IMPORT lang PACKAGE pkg`        |
+| `.poly`          | `LINK target_lang::… AS …` 及元组形式 `LINK(target,…)`    |
+| `.poly`          | `EXPORT name AS lang::func`                               |
 | C++              | 命名空间限定的 class/struct 与自由函数                    |
 | Python           | `def name`、`class Name`                                  |
 | Rust             | `fn`、`struct`、`enum`、`trait`、`impl`（含 `pub`）       |
@@ -49,9 +49,9 @@ character, end_line, end_character)`）、`kind`、裸名与全限定名，对�
 找到顶层的 `void enhance(...)`。
 
 `CrossLanguageBackrefs(lang, qualified)` 是其反向：给定宿主语言符号，
-返回所有 `link_target_language` 与 `link_target_qualified` 匹配的 `.ploy`
+返回所有 `link_target_language` 与 `link_target_qualified` 匹配的 `.poly`
 `LINK` 站点。这正是宿主文件中发起 `references` 时，响应里同时包含每个
-引用它的 `.ploy` LINK 位置的根据。
+引用它的 `.poly` LINK 位置的根据。
 
 ## 服务端联动
 
@@ -88,7 +88,7 @@ character, end_line, end_character)`）、`kind`、裸名与全限定名，对�
   "generator": "polyls.symbol_index",
   "documents": [
     {
-      "uri": "file:///path/main.ploy",
+      "uri": "file:///path/main.poly",
       "entries": [ { "name": "compute", "kind": "function", … } ],
       "references": [ { "name": "compute", "isDefinition": true, … } ]
     }
@@ -107,4 +107,4 @@ character, end_line, end_character)`）、`kind`、裸名与全限定名，对�
   五个 LSP 处理器。
 * `tests/integration/lsp_navigation_e2e_test.cpp` — 使用
   `09_mixed_pipeline` 样例完成完整的客户端 ↔ 服务器往返，验证正向
-  （.ploy → C++）与反向（C++ → .ploy）跳转。
+  （.poly → C++）与反向（C++ → .poly）跳转。

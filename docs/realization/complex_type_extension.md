@@ -2,11 +2,11 @@
 
 ## 1. Overview
 
-This document describes the extension of the `.ploy` language to support complex parameter types for cross-language function-level linking. The goal is to enable seamless marshalling of container types (lists, tuples, dictionaries), structured types (structs), and optional types across language boundaries.
+This document describes the extension of the `.poly` language to support complex parameter types for cross-language function-level linking. The goal is to enable seamless marshalling of container types (lists, tuples, dictionaries), structured types (structs), and optional types across language boundaries.
 
 ### 1.1 Motivation
 
-The initial `.ploy` language supports primitive types (`INT`, `FLOAT`, `BOOL`, `STRING`, `VOID`) and simple `ARRAY`. Real-world cross-language interop requires richer type support:
+The initial `.poly` language supports primitive types (`INT`, `FLOAT`, `BOOL`, `STRING`, `VOID`) and simple `ARRAY`. Real-world cross-language interop requires richer type support:
 
 - **Python**: `list`, `tuple`, `dict`, `Optional`
 - **C++**: `std::vector<T>`, `std::map<K,V>`, `std::tuple<...>`, `struct`, `std::optional<T>`
@@ -38,7 +38,7 @@ The initial `.ploy` language supports primitive types (`INT`, `FLOAT`, `BOOL`, `
 
 Container types use **parenthesized** type arguments:
 
-```ploy
+```poly
 LIST(i32)                          // List of 32-bit integers
 TUPLE(i32, STRING, f64)            // Heterogeneous tuple
 DICT(STRING, i32)                  // Dictionary: string keys, int values
@@ -49,7 +49,7 @@ DICT(STRING, LIST(f64))            // Dict with list values
 
 ### 2.3 Struct Definitions
 
-```ploy
+```poly
 STRUCT Point {
     x: f64;
     y: f64;
@@ -65,7 +65,7 @@ STRUCT DataSet {
 
 ### 2.4 MAP_FUNC Declarations
 
-```ploy
+```poly
 // Conversion function with logic
 MAP_FUNC normalize(x: f64) -> f64 {
     IF x < 0.0 {
@@ -86,7 +86,7 @@ MAP_FUNC to_list(x: f64) -> LIST(f64) {
 
 ### 2.5 CONVERT Expression
 
-```ploy
+```poly
 LET x = CONVERT(python_value, i32);
 LET items = CONVERT(raw_list, LIST(f64));
 LET table = CONVERT(cpp_map, DICT(STRING, i32));
@@ -94,7 +94,7 @@ LET table = CONVERT(cpp_map, DICT(STRING, i32));
 
 ### 2.6 Container Literals
 
-```ploy
+```poly
 LET numbers = [1, 2, 3, 4, 5];                          // list literal
 LET pair = (1, "hello");                                  // tuple literal
 LET origin = Point { x: 0.0, y: 0.0, label: "origin" };  // struct literal
@@ -102,7 +102,7 @@ LET origin = Point { x: 0.0, y: 0.0, label: "origin" };  // struct literal
 
 ## 3. Extended Type Mapping Table
 
-| .ploy Type          | C++ Equivalent             | Python Equivalent   | Rust Equivalent         |
+| .poly Type          | C++ Equivalent             | Python Equivalent   | Rust Equivalent         |
 |---------------------|----------------------------|---------------------|-------------------------|
 | i32                 | int32_t                    | int                 | i32                     |
 | i64                 | int64_t                    | int                 | i64                     |
@@ -244,7 +244,7 @@ The `PolyglotLinker` emits marshalling code for container type parameters:
 
 ### 9.1 Cross-Language List Processing
 
-```ploy
+```poly
 IMPORT python PACKAGE numpy AS np;
 IMPORT cpp::math_engine;
 
@@ -270,7 +270,7 @@ PIPELINE analyze {
 
 ### 9.2 Cross-Language Struct Mapping
 
-```ploy
+```poly
 STRUCT CppPoint {
     x: f64;
     y: f64;
@@ -287,7 +287,7 @@ LINK(cpp, python, geometry::distance, point_gen::make_point) AS STRUCT {
 
 ### 9.3 Optional Types
 
-```ploy
+```poly
 FUNC safe_divide(a: f64, b: f64) -> OPTION(f64) {
     IF b == 0.0 {
         RETURN NULL;

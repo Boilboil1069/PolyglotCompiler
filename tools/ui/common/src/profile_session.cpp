@@ -32,6 +32,14 @@ constexpr const char *kExecSuffix = ".exe";
 constexpr const char *kExecSuffix = "";
 #endif
 
+QString CanonicalLanguage(QString language) {
+  if (language.compare(QStringLiteral("poly"), Qt::CaseInsensitive) == 0 ||
+      language.compare(QStringLiteral("ploy"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("poly");
+  }
+  return language;
+}
+
 } // namespace
 
 // ============================================================================
@@ -269,7 +277,8 @@ void ProfileSession::HandleStreamLine(const QString &line) {
   const QJsonObject obj = doc.object();
   TimelineEvent event;
   event.function = obj.value(QStringLiteral("function")).toString(QStringLiteral("<sample>"));
-  event.language = obj.value(QStringLiteral("language")).toString(QStringLiteral("ploy"));
+  event.language = CanonicalLanguage(
+      obj.value(QStringLiteral("language")).toString(QStringLiteral("poly")));
   event.thread = obj.value(QStringLiteral("thread")).toString(QStringLiteral("main"));
   event.start_ns =
       static_cast<std::uint64_t>(obj.value(QStringLiteral("timestamp_ns")).toDouble(0.0));
@@ -386,7 +395,8 @@ bool ProfileSession::ParseCallGraphDocument(const QJsonDocument &doc, QString *e
     CallGraphNode node;
     node.id = nobj.value(QStringLiteral("id")).toString();
     node.name = nobj.value(QStringLiteral("name")).toString();
-    node.language = nobj.value(QStringLiteral("language")).toString();
+    node.language = CanonicalLanguage(
+        nobj.value(QStringLiteral("language")).toString());
     node.file = nobj.value(QStringLiteral("file")).toString();
     node.line = nobj.value(QStringLiteral("line")).toInt(0);
     node.is_external = nobj.value(QStringLiteral("is_external")).toBool(false);
@@ -411,8 +421,10 @@ bool ProfileSession::ParseCallGraphDocument(const QJsonDocument &doc, QString *e
     if (edge.from.isEmpty() || edge.to.isEmpty()) {
       continue;
     }
-    edge.from_language = eobj.value(QStringLiteral("from_language")).toString();
-    edge.to_language = eobj.value(QStringLiteral("to_language")).toString();
+    edge.from_language = CanonicalLanguage(
+        eobj.value(QStringLiteral("from_language")).toString());
+    edge.to_language = CanonicalLanguage(
+        eobj.value(QStringLiteral("to_language")).toString());
     edges.push_back(std::move(edge));
   }
 
@@ -456,8 +468,8 @@ bool ProfileSession::ParseProfileDocument(const QJsonDocument &doc, QString *err
     TimelineEvent event;
     event.function = sobj.value(QStringLiteral("function"))
                           .toString(QStringLiteral("<sample>"));
-    event.language = sobj.value(QStringLiteral("language"))
-                          .toString(QStringLiteral("ploy"));
+    event.language = CanonicalLanguage(
+        sobj.value(QStringLiteral("language")).toString(QStringLiteral("poly")));
     event.thread = sobj.value(QStringLiteral("thread"))
                         .toString(QStringLiteral("main"));
     event.start_ns =
@@ -504,7 +516,7 @@ std::unique_ptr<FlameNode>
 ProfileSession::BuildFlameTreeFromSamples(const QJsonObject &doc) {
   auto root = std::make_unique<FlameNode>();
   root->function = QStringLiteral("<root>");
-  root->language = QStringLiteral("ploy");
+  root->language = QStringLiteral("poly");
 
   const QJsonArray frames = doc.value(QStringLiteral("frames")).toArray();
   if (frames.isEmpty()) {
@@ -517,8 +529,8 @@ ProfileSession::BuildFlameTreeFromSamples(const QJsonObject &doc) {
       const QJsonObject hobj = v.toObject();
       auto child = std::make_unique<FlameNode>();
       child->function = hobj.value(QStringLiteral("function")).toString();
-      child->language =
-          hobj.value(QStringLiteral("language")).toString(QStringLiteral("ploy"));
+      child->language = CanonicalLanguage(
+          hobj.value(QStringLiteral("language")).toString(QStringLiteral("poly")));
       child->inclusive_ns = static_cast<std::uint64_t>(
           hobj.value(QStringLiteral("inclusive_ns")).toDouble(0.0));
       child->self_ns = static_cast<std::uint64_t>(
@@ -557,8 +569,8 @@ ProfileSession::BuildFlameTreeFromSamples(const QJsonObject &doc) {
       if (!match) {
         auto child = std::make_unique<FlameNode>();
         child->function = frame_name;
-        child->language =
-            fobj.value(QStringLiteral("language")).toString(QStringLiteral("ploy"));
+        child->language = CanonicalLanguage(
+            fobj.value(QStringLiteral("language")).toString(QStringLiteral("poly")));
         child->parent = cursor;
         match = child.get();
         cursor->children.push_back(std::move(child));

@@ -136,7 +136,7 @@ TEST_CASE("Telemetry: default off, opt-in, allow-list, drain",
   telemetry::TelemetryEvent ev;
   ev.id = "editor.opened";
   ev.component = "editor";
-  ev.fields["language"] = "ploy";
+  ev.fields["language"] = "poly";
   ev.fields["secret"] = "should-be-stripped";
 
   CHECK_FALSE(buf.Record(c, allow, ev));                  // off by default
@@ -147,7 +147,7 @@ TEST_CASE("Telemetry: default off, opt-in, allow-list, drain",
   REQUIRE(buf.size() == 1);
   auto stored = buf.List().front();
   CHECK(stored.fields.count("secret") == 0);              // stripped
-  CHECK(stored.fields.at("language") == "ploy");
+  CHECK(stored.fields.at("language") == "poly");
 
   auto drained = buf.DrainForUpload(c);
   CHECK(drained.size() == 1);

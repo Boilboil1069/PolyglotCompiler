@@ -6,13 +6,13 @@ IMPORT PACKAGE 配合 semver 版本约束，以及字符串化的 `CONFIG <语�
 | --- | --- |
 | 涉及语言 | C++, Python（镜像样例：JavaScript、Rust、Java） |
 | 关键字   | IMPORT PACKAGE, CONFIG（v1.12.0 起字符串形式） |
-| 入口文件 | `package_import.ploy` |
-| 镜像文件 | `package_import_npm.ploy`、`package_import_cargo.ploy`、`package_import_maven.ploy` |
+| 入口文件 | `package_import.poly` |
+| 镜像文件 | `package_import_npm.poly`、`package_import_cargo.poly`、`package_import_maven.poly` |
 
 ## 编译
 
 ```powershell
-polyc 04_package_import\package_import.ploy --emit-obj=package_import.pobj --obj-format=pobj
+polyc 04_package_import\package_import.poly --emit-obj=package_import.pobj --obj-format=pobj
 polyld package_import.pobj -o package_import.exe
 ```
 

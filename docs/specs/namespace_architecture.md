@@ -52,7 +52,7 @@ polyglot
 │  ├─ python
 │  ├─ java
 │  ├─ dotnet
-│  └─ ploy
+│  └─ poly
 ├─ ir
 │  ├─ dialects
 │  └─ passes
@@ -139,7 +139,7 @@ Key observation:
 
 Key observations:
 - Frontends follow a consistent structure: `Lexer -> Parser -> Sema -> LowerToIR`.
-- `.ploy` frontend additionally emits cross-language link descriptors consumed by `polyld`.
+- `.poly` frontend additionally emits cross-language link descriptors consumed by `polyld`.
 
 ### 4.3 `middle`: IR, optimization, PGO/LTO
 | Namespace | Key Interfaces |

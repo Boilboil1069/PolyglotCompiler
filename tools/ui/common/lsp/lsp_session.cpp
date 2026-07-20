@@ -7,28 +7,53 @@
  */
 #include "tools/ui/common/lsp/lsp_session.h"
 
+#include <algorithm>
+#include <cctype>
+#include <utility>
+
 namespace polyglot::tools::ui::lsp {
 
+namespace {
+
+std::string CanonicalLanguageId(std::string language_id) {
+  std::string folded = language_id;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  if (folded == "poly" || folded == "ploy") return "poly";
+  return language_id;
+}
+
+SessionKey CanonicalSessionKey(SessionKey key) {
+  key.language_id = CanonicalLanguageId(std::move(key.language_id));
+  return key;
+}
+
+}  // namespace
+
 std::string LspSessionRegistry::MakeId(const SessionKey &key) {
-  return key.language_id + "@" + key.workspace_uri;
+  const SessionKey canonical = CanonicalSessionKey(key);
+  return canonical.language_id + "@" + canonical.workspace_uri;
 }
 
 std::shared_ptr<LspSession> LspSessionRegistry::GetOrCreate(
     const SessionKey &key,
     const std::function<std::shared_ptr<LspClient>()> &make_client) {
   std::lock_guard<std::mutex> lock(mu_);
-  auto it = sessions_.find(key);
+  const SessionKey canonical = CanonicalSessionKey(key);
+  auto it = sessions_.find(canonical);
   if (it != sessions_.end()) return it->second;
   auto session = std::make_shared<LspSession>();
   session->client = make_client();
-  session->id = MakeId(key);
-  sessions_[key] = session;
+  session->id = MakeId(canonical);
+  sessions_[canonical] = session;
   return session;
 }
 
 std::shared_ptr<LspSession> LspSessionRegistry::Find(const SessionKey &key) const {
   std::lock_guard<std::mutex> lock(mu_);
-  auto it = sessions_.find(key);
+  auto it = sessions_.find(CanonicalSessionKey(key));
   if (it == sessions_.end()) return nullptr;
   return it->second;
 }
@@ -37,7 +62,7 @@ void LspSessionRegistry::Drop(const SessionKey &key) {
   std::shared_ptr<LspSession> session;
   {
     std::lock_guard<std::mutex> lock(mu_);
-    auto it = sessions_.find(key);
+    auto it = sessions_.find(CanonicalSessionKey(key));
     if (it == sessions_.end()) return;
     session = it->second;
     sessions_.erase(it);

@@ -2,7 +2,7 @@
 
 ## 1. 架构概述
 
-拓扑分析工具（`polytopo`）为 `.ploy` 跨语言程序提供类似 Simulink 的函数输入/输出识别、链接检查和验证功能。它将每个函数、构造函数、方法、管线和跨语言调用建模为带有类型化输入/输出**端口（Port）**的**拓扑节点（TopologyNode）**。端口之间的连接表示为带有类型兼容性状态的**拓扑边（TopologyEdge）**。
+拓扑分析工具（`polytopo`）为 `.poly` 跨语言程序提供类似 Simulink 的函数输入/输出识别、链接检查和验证功能。它将每个函数、构造函数、方法、管线和跨语言调用建模为带有类型化输入/输出**端口（Port）**的**拓扑节点（TopologyNode）**。端口之间的连接表示为带有类型兼容性状态的**拓扑边（TopologyEdge）**。
 
 系统由四个核心库模块、一个命令行可执行文件和一个集成到 PolyglotCompiler IDE（`polyui`）中的基于 Qt 的图形面板组成。
 
@@ -37,7 +37,7 @@ tests/unit/tools/
 `topo_lib` CMake 库（`tools/CMakeLists.txt`）链接 `polyglot_common` 和 `frontend_ploy`，提供：
 
 - `TopologyGraph` — 图数据结构，含拓扑排序（Kahn 算法）和 DFS 环路检测。
-- `TopologyAnalyzer` — 从已解析并经过语义分析的 ploy AST 构建图。
+- `TopologyAnalyzer` — 从已解析并经过语义分析的 poly AST 构建图。
 - `TopologyValidator` — 验证类型兼容性、端口连通性、参数数量和语言互操作约束。
 - `TopologyPrinter` — 以多种格式渲染图。
 
@@ -51,7 +51,7 @@ tests/unit/tools/
 |-------------|-----------------|----------------------------------------|
 | `name`      | `std::string`   | 参数或返回值名称                       |
 | `direction` | `Direction`     | `kInput` 或 `kOutput`                  |
-| `type`      | `core::Type`    | ploy 类型系统中的语义类型              |
+| `type`      | `core::Type`    | poly 类型系统中的语义类型              |
 | `language`  | `std::string`   | 所属语言（如 `"cpp"`、`"python"`）     |
 | `index`     | `int`           | 在节点中的位置索引                     |
 | `id`        | `uint64_t`      | 在图构建时分配的唯一标识符             |
@@ -131,7 +131,7 @@ tests/unit/tools/
 ### 4.1 使用方法
 
 ```
-polytopo [选项] <文件.ploy>
+polytopo [选项] <文件.poly>
 
 选项：
   --format <text|dot|json|summary>   输出格式（默认：text）
@@ -198,11 +198,11 @@ panel_manager_->RegisterPanel("topology", topology_panel_, "Topology");
 | `[topology][graph]`   | 节点/边增删查、按名查找、根/叶、拓扑排序、环路检测、语言分布 |
 | `[topology][validator]`| 有效边通过、环路检测报错                               |
 | `[topology][printer]` | 文本/DOT/JSON/摘要输出格式验证                         |
-| `[topology][analyzer]`| FUNC、LINK、PIPELINE、CALL 端到端从 .ploy 源代码       |
+| `[topology][analyzer]`| FUNC、LINK、PIPELINE、CALL 端到端从 .poly 源代码       |
 
 ## 7. 代码生成 — `GeneratePloySrc`
 
-`topology_codegen.h`/`.cpp` 模块（polyui IDE 和 polytopo CLI 共享）将 `TopologyGraph` 转换为合法的 `.ploy` 源代码。
+`topology_codegen.h`/`.cpp` 模块（polyui IDE 和 polytopo CLI 共享）将 `TopologyGraph` 转换为合法的 `.poly` 源代码。
 
 ### 7.1 组件位置
 
@@ -216,7 +216,7 @@ tools/polytopo/
 
 ### 7.2 代码生成规则
 
-| 节点类型          | 生成的 .ploy 构造                                            |
+| 节点类型          | 生成的 .poly 构造                                            |
 |-------------------|-------------------------------------------------------------|
 | `kFunction`       | `FUNC name(inputs) -> output_type { body }`                |
 | `kConstructor`    | `LET v = NEW(language, class, args);`（在调用者函数体内）  |
@@ -233,7 +233,7 @@ tools/polytopo/
 
 附加指令：
 - `IMPORT lang::module;` — 为每个不同的外语模块生成。
-- `EXPORT name;` — 为所有非外部、非映射的 ploy 原生函数生成。
+- `EXPORT name;` — 为所有非外部、非映射的 poly 原生函数生成。
 
 ### 7.3 验证
 
@@ -241,8 +241,8 @@ tools/polytopo/
 
 ### 7.4 共享使用
 
-- **polyui IDE**：点击工具栏中的 **Generate .ploy** → `OnGeneratePloy()` → 写入 `<basename>_generated.ploy` 并在编辑器中打开。
-- **polytopo CLI**：`polytopo generate <topo.json> -o <output.ploy>` → `ParseJsonToGraph()` → `GeneratePloySrc()`。
+- **polyui IDE**：点击工具栏中的 **Generate .poly** → `OnGeneratePloy()` → 写入 `<basename>_generated.poly` 并在编辑器中打开。
+- **polytopo CLI**：`polytopo generate <topo.json> -o <output.poly>` → `ParseJsonToGraph()` → `GeneratePloySrc()`。
 
 两条路径使用 `topo_lib` 中相同的 `GeneratePloySrc()` 函数，确保输出一致。
 
@@ -253,7 +253,7 @@ tools/polytopo/
 ### 8.1 编辑器 → 拓扑（文件监视器）
 
 ```
-编辑器保存 .ploy 文件
+编辑器保存 .poly 文件
     → QFileSystemWatcher 检测变更
     → 200 毫秒防抖定时器触发
     → TopologyPanel::BuildGraphFromFile() 重建图
@@ -268,7 +268,7 @@ tools/polytopo/
 用户拖拽创建边
     → TopologyPanel::TryCreateEdge()
     → TopologyPanel::SyncEdgeToFile()
-        - 在 .ploy 文件末尾追加 "LINK src.port -> tgt.port"
+        - 在 .poly 文件末尾追加 "LINK src.port -> tgt.port"
         - 发射 FileContentChanged(file, line)
     → MainWindow 处理器：
         - 重新加载编辑器中的文件内容
@@ -278,7 +278,7 @@ tools/polytopo/
 用户右键删除边
     → TopologyPanel::RemoveEdge()
     → TopologyPanel::RemoveEdgeFromFile()
-        - 从 .ploy 文件中移除匹配的 LINK/CALL 行
+        - 从 .poly 文件中移除匹配的 LINK/CALL 行
         - 发射 FileContentChanged(file, removed_line)
     → MainWindow 处理器（相同的高亮流程）
 ```
@@ -287,8 +287,8 @@ tools/polytopo/
 
 | 能力                                   | 状态        |
 |----------------------------------------|-------------|
-| 解析 `.ploy` → 构建拓扑图             | ✅ 完整     |
-| 从拓扑图生成 `.ploy`                   | ✅ 完整     |
+| 解析 `.poly` → 构建拓扑图             | ✅ 完整     |
+| 从拓扑图生成 `.poly`                   | ✅ 完整     |
 | 文件变更实时重载                        | ✅ 200 毫秒 |
 | 边创建同步 LINK 到文件                  | ✅ 追加     |
 | 边删除同步从文件移除                    | ✅ 行匹配移除 |
@@ -318,8 +318,8 @@ tools/polytopo/
 
 ### 9.2 交互式边创建/删除
 
-- **创建**：从输出 `TopoPortItem` 拖拽到输入端口。临时 `QGraphicsLineItem` 预览连接。释放时执行验证检查（无自环、无重复、输出→输入方向性）。新的 `LINK` 语句追加到 `.ploy` 文件。
-- **删除**：右键点击边 → "Delete Edge"。面板从 `edge_items_` 移除边，同步移除 `.ploy` 文件中的对应行，并发射 `GraphModified()`。
+- **创建**：从输出 `TopoPortItem` 拖拽到输入端口。临时 `QGraphicsLineItem` 预览连接。释放时执行验证检查（无自环、无重复、输出→输入方向性）。新的 `LINK` 语句追加到 `.poly` 文件。
+- **删除**：右键点击边 → "Delete Edge"。面板从 `edge_items_` 移除边，同步移除 `.poly` 文件中的对应行，并发射 `GraphModified()`。
 
 ### 9.3 调试执行高亮
 

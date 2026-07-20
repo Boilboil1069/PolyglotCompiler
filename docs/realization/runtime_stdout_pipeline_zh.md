@@ -1,6 +1,6 @@
 # 运行时标准输出管线
 
-本文档描述把 `.ploy` 中的 `PRINTLN "literal";` 语句变成宿主进程标准输出字节
+本文档描述把 `.poly` 中的 `PRINTLN "literal";` 语句变成宿主进程标准输出字节
 的端到端管线。该管线由 demand `2026-04-28-49` 跟踪、按 B1–B8 共八个阶段增量
 建设；其中 **B1 至 B4** 已发布，其余阶段在此仅作为锚点列出，用于说明已发布
 层必须继续遵守的契约。
@@ -12,13 +12,13 @@
 ## 1. 层次图
 
 ```
-+------------------+   PRINTLN "hi";       (.ploy 源码)
-|  B2  ploy 前端   |
++------------------+   PRINTLN "hi";       (.poly 源码)
+|  B2  poly 前端   |
 +------------------+
         |  PrintlnStmt AST 节点 + sema 校验
         v
 +------------------+
-|  B3  ploy 降级   |
+|  B3  poly 降级   |
 +------------------+
         |  IR：@str.<hash> = constant [N x i8] c"..."
         |       call void @polyrt_println(i8* ptr, i64 len)
@@ -38,7 +38,7 @@
 
 ---
 
-## 2. B2 — ploy 前端（v1.5.3 发布）
+## 2. B2 — poly 前端（v1.5.3 发布）
 
 词法层识别关键字 `PRINTLN`；语法层产出携带**原始**字面量字节（保留转义序列）
 的 `PrintlnStmt` AST 节点；语义层校验字面量是合法的引号字符串 token，且语句
@@ -199,7 +199,7 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects);
 
 `tests/samples/<NN>_<name>/` 下原有 16 个样例目录均补齐：
 
-- 在 `.ploy` 入口文件末尾追加 `PRINTLN "<NN>_<name>: ok\r\n";` 标记语句。
+- 在 `.poly` 入口文件末尾追加 `PRINTLN "<NN>_<name>: ok\r\n";` 标记语句。
   这是每个样例必须遵守的契约，使脚本能够将 stdout 与同目录下的
   `expected_output.txt` 做逐字节比对。
 - 新增 `expected_output.txt`，内容正是上述标记行：纯 ASCII，无 BOM，以
@@ -220,7 +220,7 @@ CollectPolyrtPrintlnSequence(const std::vector<ObjectFile> &objects);
 | `RUN_FAIL` | 产物在运行期失败。 |
 | `LINK_FAIL` | `polyld` 失败。 |
 | `COMPILE_FAIL` | `polyc` 失败。 |
-| `SKIP` | 目录缺少 `.ploy` 入口。 |
+| `SKIP` | 目录缺少 `.poly` 入口。 |
 
 汇总结果写入 `build/samples_report.json`，每个样例对应一条记录，含字段
 `{name, status, polyc_rc, polyld_rc, exe_rc, stdout_bytes,
@@ -232,7 +232,7 @@ expected_bytes, diff_first_off}`。脚本默认以 0 退出，从而既能如实
 
 新增 14 个主题样例，位于 `tests/samples/17_string_processing/` 至
 `tests/samples/30_game_loop_demo/`。每个目录都遵循与 B6 一致的契约：
-`.ploy` 入口、两个可编译的宿主语言源文件（真实代码，无占位）、双语
+`.poly` 入口、两个可编译的宿主语言源文件（真实代码，无占位）、双语
 README、以及与结尾 PRINTLN 标记字节一致的 `expected_output.txt`。
 
 | 样例 | 语言 | 主题 |
@@ -311,7 +311,7 @@ COFF 在每个段符号后会放一条辅助（aux）记录，承载段长与重
 
 ### 9.3  泛化 `CollectPolyrtPrintlnSequence`
 
-恢复 pass 之前只识别早期 ploy 降级使用的历史 `println.msg<N>`
+恢复 pass 之前只识别早期 poly 降级使用的历史 `println.msg<N>`
 前缀。今天的 `IRBuilder::MakeStringLiteral` 是通用的，会为任意
 字符串字面量（包括 PRINTLN）发出 `str<N>` 符号，于是恢复
 返回空序列，链接器退化到 `BuildExitZeroPE`。该 pass 现在：
@@ -329,7 +329,7 @@ COFF 在每个段符号后会放一条辅助（aux）记录，承载段长与重
 
 `tests/integration/printf_pipeline_e2e_test.cpp` 中的
 `[printf][pe7][integration]` 用例驱动一段顶层包含两条 `PRINTLN`
-的 `.ploy` 源码穿过 `polyc → polyld`，运行产出的可执行文件，
+的 `.poly` 源码穿过 `polyc → polyld`，运行产出的可执行文件，
 通过 Win32 的 `cmd /c >` 或 POSIX 的 `fork/pipe/dup2` 捕获 stdout，
 最终断言捕获字节与 `"alpha\r\nbeta\r\n"` 完全一致。
 

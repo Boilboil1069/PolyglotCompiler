@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Java, Python |
 | 关键字   | MAP_TYPE containers |
-| 入口文件 | `generic_containers.ploy` |
+| 入口文件 | `generic_containers.poly` |
 
 ## 编译
 
 ```powershell
-polyc 13_generic_containers\generic_containers.ploy --emit-obj=generic_containers.pobj --obj-format=pobj
+polyc 13_generic_containers\generic_containers.poly --emit-obj=generic_containers.pobj --obj-format=pobj
 polyld generic_containers.pobj -o generic_containers.exe
 ```
 

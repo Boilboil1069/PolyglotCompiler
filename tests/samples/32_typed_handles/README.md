@@ -20,7 +20,7 @@ to the foreign runtime.
 ## Run it
 
 ```powershell
-polyc 32_typed_handles/typed_handles.ploy --emit-obj=build/sample.obj --quiet
+polyc 32_typed_handles/typed_handles.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 .\build\sample.exe
 ```

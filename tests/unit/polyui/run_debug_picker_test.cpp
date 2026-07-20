@@ -24,7 +24,7 @@ TEST_CASE("Picker fuses tasks and launches with build defaults first",
   fmt.type = "shell";  fmt.group = tasks::TaskGroup::kCustom;
   p.SetTasks({build, fmt});
 
-  dap::LaunchConfig l;  l.name = "Run main"; l.type = "ploy";
+  dap::LaunchConfig l;  l.name = "Run main"; l.type = "poly";
   l.request = dap::LaunchRequest::kLaunch;
   p.SetLaunches({l});
 
@@ -39,12 +39,12 @@ TEST_CASE("Picker fuses tasks and launches with build defaults first",
 TEST_CASE("Picker tracks the active selection",
           "[polyui][runtime][picker]") {
   RunDebugPicker p;
-  dap::LaunchConfig l;  l.name = "x"; l.type = "ploy";
+  dap::LaunchConfig l;  l.name = "x"; l.type = "poly";
   p.SetLaunches({l});
   CHECK_FALSE(p.Active().has_value());
   CHECK_FALSE(p.Select("missing"));
   CHECK(p.Select("x"));
   REQUIRE(p.Active().has_value());
   CHECK(p.Active()->kind == PickKind::kLaunch);
-  CHECK(p.Active()->language == "ploy");
+  CHECK(p.Active()->language == "poly");
 }

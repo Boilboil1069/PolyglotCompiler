@@ -68,7 +68,7 @@ std::unordered_map<uint64_t, QPointF> SnapshotPositions(const TopologyPanel &pan
     return out;
 }
 
-// A minimal multi-node, multi-edge .ploy source so layouts have something
+// A minimal multi-node, multi-edge .poly source so layouts have something
 // non-trivial to arrange.
 constexpr const char *kSampleSource = R"(
 IMPORT cpp::math;
@@ -138,7 +138,7 @@ TEST_CASE("TopologyPanel: default layout is static Hierarchical",
     }
 
     TopologyPanel panel;
-    QString path = WriteTempPloy(kSampleSource, "topo_layout_default.ploy");
+    QString path = WriteTempPloy(kSampleSource, "topo_layout_default.poly");
     panel.LoadFromFile(path);
 
     REQUIRE(panel.NodeItems().size() >= 2);
@@ -189,10 +189,10 @@ TEST_CASE("TopologyPanel: static layouts are deterministic",
         TopologyPanel panel_a;
         TopologyPanel panel_b;
         QString path_a = WriteTempPloy(kSampleSource,
-                                       QString("topo_layout_det_a_%1.ploy")
+                                       QString("topo_layout_det_a_%1.poly")
                                            .arg(static_cast<int>(mode)));
         QString path_b = WriteTempPloy(kSampleSource,
-                                       QString("topo_layout_det_b_%1.ploy")
+                                       QString("topo_layout_det_b_%1.poly")
                                            .arg(static_cast<int>(mode)));
         panel_a.LoadFromFile(path_a);
         panel_b.LoadFromFile(path_b);
@@ -246,7 +246,7 @@ TEST_CASE("TopologyPanel: static layouts produce distinct node positions",
         }
         TopologyPanel panel;
         QString path = WriteTempPloy(kSampleSource,
-                                     QString("topo_layout_spread_%1.ploy")
+                                     QString("topo_layout_spread_%1.poly")
                                          .arg(static_cast<int>(mode)));
         panel.LoadFromFile(path);
 

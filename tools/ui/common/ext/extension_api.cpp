@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 namespace polyglot::tools::ui::ext {
@@ -98,6 +99,19 @@ std::string ContributionKindName(ContributionKind k) {
 }
 
 namespace {
+
+std::string CanonicalActivationArgument(ActivationEvent event,
+                                        std::string argument) {
+  if (event == ActivationEvent::kOnLanguage) {
+    std::string folded = argument;
+    std::transform(folded.begin(), folded.end(), folded.begin(),
+                   [](unsigned char c) {
+                     return static_cast<char>(std::tolower(c));
+                   });
+    if (folded == "poly" || folded == "ploy") return "poly";
+  }
+  return argument;
+}
 
 std::optional<ContributionKind> ContributionKindFromName(
     const std::string &name) {
@@ -200,7 +214,8 @@ std::optional<ExtensionManifest> ParseManifest(const std::string &json) {
       } else if (t.is_object()) {
         std::string evt = t.value("event", std::string{"onStartup"});
         if (auto e = ActivationEventFromName(evt)) trig.event = *e;
-        trig.argument = t.value("argument", std::string{});
+        trig.argument = CanonicalActivationArgument(
+            trig.event, t.value("argument", std::string{}));
         m.activation.push_back(trig);
       }
     }
@@ -359,7 +374,11 @@ bool ExtensionHost::MatchesActivationEvent(
   if (it == records_.end()) return false;
   for (const auto &t : it->second.manifest.activation) {
     if (t.event != event) continue;
-    if (t.argument.empty() || t.argument == argument) return true;
+    const std::string configured =
+        CanonicalActivationArgument(event, t.argument);
+    const std::string incoming =
+        CanonicalActivationArgument(event, argument);
+    if (configured.empty() || configured == incoming) return true;
   }
   return false;
 }

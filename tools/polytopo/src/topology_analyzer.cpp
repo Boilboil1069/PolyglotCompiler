@@ -1,6 +1,6 @@
 /**
  * @file     topology_analyzer.cpp
- * @brief    Builds a TopologyGraph from a .ploy AST
+ * @brief    Builds a TopologyGraph from a .poly AST
  *
  * @ingroup  Tool / polytopo
  * @author   Manning Cyrus
@@ -135,7 +135,7 @@ void TopologyAnalyzer::AnalyzeStatement(const std::shared_ptr<ploy::Statement> &
 void TopologyAnalyzer::AnalyzeFuncDecl(const std::shared_ptr<ploy::FuncDecl> &func) {
   TopologyNode node;
   node.name = func->name;
-  node.language = "ploy";
+  node.language = "poly";
   node.kind = TopologyNode::Kind::kFunction;
   node.loc = func->loc;
 
@@ -145,7 +145,7 @@ void TopologyAnalyzer::AnalyzeFuncDecl(const std::shared_ptr<ploy::FuncDecl> &fu
     port.name = func->params[i].name;
     port.direction = Port::Direction::kInput;
     port.type = ResolveType(func->params[i].type);
-    port.language = "ploy";
+    port.language = "poly";
     port.index = static_cast<int>(i);
     node.inputs.push_back(std::move(port));
   }
@@ -155,7 +155,7 @@ void TopologyAnalyzer::AnalyzeFuncDecl(const std::shared_ptr<ploy::FuncDecl> &fu
   ret_port.name = "return";
   ret_port.direction = Port::Direction::kOutput;
   ret_port.type = func->return_type ? ResolveType(func->return_type) : core::Type::Void();
-  ret_port.language = "ploy";
+  ret_port.language = "poly";
   ret_port.index = 0;
   node.outputs.push_back(std::move(ret_port));
 
@@ -302,7 +302,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
   // Create the pipeline container node (declaration-level, origin=kDecl)
   TopologyNode node;
   node.name = "pipeline:" + pipeline->name;
-  node.language = "ploy";
+  node.language = "poly";
   node.kind = TopologyNode::Kind::kPipeline;
   node.loc = pipeline->loc;
 
@@ -311,7 +311,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
   out.name = "result";
   out.direction = Port::Direction::kOutput;
   out.type = core::Type::Any();
-  out.language = "ploy";
+  out.language = "poly";
   out.index = 0;
   node.outputs.push_back(std::move(out));
 
@@ -334,7 +334,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
 
     TopologyNode stage;
     stage.name = "pipeline:" + pipeline->name + "::" + func->name;
-    stage.language = "ploy";
+    stage.language = "poly";
     stage.kind = TopologyNode::Kind::kFunction;
     stage.loc = func->loc;
     stage.origin = TopologyNode::Origin::kPipelineStage; // visible in PIPELINE view
@@ -345,7 +345,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
       port.name = func->params[i].name;
       port.direction = Port::Direction::kInput;
       port.type = ResolveType(func->params[i].type);
-      port.language = "ploy";
+      port.language = "poly";
       port.index = static_cast<int>(i);
       stage.inputs.push_back(std::move(port));
     }
@@ -355,7 +355,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
     ret_port.name = "return";
     ret_port.direction = Port::Direction::kOutput;
     ret_port.type = func->return_type ? ResolveType(func->return_type) : core::Type::Void();
-    ret_port.language = "ploy";
+    ret_port.language = "poly";
     ret_port.index = 0;
     stage.outputs.push_back(std::move(ret_port));
 
@@ -388,7 +388,7 @@ void TopologyAnalyzer::AnalyzePipelineDecl(const std::shared_ptr<ploy::PipelineD
 void TopologyAnalyzer::AnalyzeMapFuncDecl(const std::shared_ptr<ploy::MapFuncDecl> &map_func) {
   TopologyNode node;
   node.name = "map:" + map_func->name;
-  node.language = "ploy";
+  node.language = "poly";
   node.kind = TopologyNode::Kind::kMapFunc;
   node.loc = map_func->loc;
 
@@ -397,7 +397,7 @@ void TopologyAnalyzer::AnalyzeMapFuncDecl(const std::shared_ptr<ploy::MapFuncDec
     port.name = map_func->params[i].name;
     port.direction = Port::Direction::kInput;
     port.type = ResolveType(map_func->params[i].type);
-    port.language = "ploy";
+    port.language = "poly";
     port.index = static_cast<int>(i);
     node.inputs.push_back(std::move(port));
   }
@@ -406,7 +406,7 @@ void TopologyAnalyzer::AnalyzeMapFuncDecl(const std::shared_ptr<ploy::MapFuncDec
   ret.name = "return";
   ret.direction = Port::Direction::kOutput;
   ret.type = map_func->return_type ? ResolveType(map_func->return_type) : core::Type::Any();
-  ret.language = "ploy";
+  ret.language = "poly";
   ret.index = 0;
   node.outputs.push_back(std::move(ret));
 

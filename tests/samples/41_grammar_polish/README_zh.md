@@ -7,7 +7,7 @@
 - `IF LET Some(x) = opt { … } ELSE { … }` 用于解构 `OPTION<T>`；
   `IF LET None = opt { … }` 同样支持，且不接受绑定。
 - `///` 文档注释在紧邻 `FUNC` / `STRUCT` / `LET` / `VAR` 声明时
-  会被收集。`polydoc` 工具会遍历 `.ploy` 源码，将文档块渲染为
+  会被收集。`polydoc` 工具会遍历 `.poly` 源码，将文档块渲染为
   Markdown 或 JSON。
 - 提示：`LIST<T>` 是连续序列容器，等价于 Rust `Vec<T>` 或 C++
   `std::vector<T>`，**不是**链表。形式定义见语言规范。
@@ -17,9 +17,9 @@
 构建与运行：
 
 ```sh
-polyc 41_grammar_polish/grammar_polish.ploy -o grammar_polish
+polyc 41_grammar_polish/grammar_polish.poly -o grammar_polish
 ./grammar_polish
 
-polydoc 41_grammar_polish/grammar_polish.ploy           # Markdown
-polydoc --json 41_grammar_polish/grammar_polish.ploy    # JSON
+polydoc 41_grammar_polish/grammar_polish.poly           # Markdown
+polydoc --json 41_grammar_polish/grammar_polish.poly    # JSON
 ```

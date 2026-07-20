@@ -6,12 +6,12 @@
 | --- | --- |
 | 涉及语言 | C++, Python, Rust, Java, C# |
 | 关键字   | all |
-| 入口文件 | `full_stack.ploy` |
+| 入口文件 | `full_stack.poly` |
 
 ## 编译
 
 ```powershell
-polyc 15_full_stack\full_stack.ploy --emit-obj=full_stack.pobj --obj-format=pobj
+polyc 15_full_stack\full_stack.poly --emit-obj=full_stack.pobj --obj-format=pobj
 polyld full_stack.pobj -o full_stack.exe
 ```
 

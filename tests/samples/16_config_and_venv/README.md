@@ -6,12 +6,12 @@ CONFIG VENV plus IMPORT PACKAGE version constraints driving a Python data-scienc
 | --- | --- |
 | Languages | Python, C# |
 | Keywords  | CONFIG VENV, IMPORT PACKAGE, CONVERT |
-| Entry     | `config_and_venv.ploy` |
+| Entry     | `config_and_venv.poly` |
 
 ## Build
 
 ```powershell
-polyc 16_config_and_venv\config_and_venv.ploy --emit-obj=config_and_venv.pobj --obj-format=pobj
+polyc 16_config_and_venv\config_and_venv.poly --emit-obj=config_and_venv.pobj --obj-format=pobj
 polyld config_and_venv.pobj -o config_and_venv.exe
 ```
 

@@ -4,7 +4,7 @@
 
 为 PolyUI 提供完整的 Debug Adapter Protocol 支持，使任何 DAP 适配器
 （debugpy、lldb-vscode、codelldb、netcoredbg…）都能驱动 IDE 调试界面；同
-时让自带的 `.ploy` 运行时调试器接入同一套 UI。
+时让自带的 `.poly` 运行时调试器接入同一套 UI。
 
 ## 组件
 

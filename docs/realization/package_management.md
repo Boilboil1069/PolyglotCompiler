@@ -1,8 +1,8 @@
-# Package Management in .ploy
+# Package Management in .poly
 
 ## Overview
 
-The `.ploy` language provides comprehensive package management capabilities that allow
+The `.poly` language provides comprehensive package management capabilities that allow
 importing packages from different language ecosystems (Python, Rust, C++, Java, .NET), with support
 for version constraints, selective imports, package auto-discovery, and virtual environment
 configuration.
@@ -15,7 +15,7 @@ Specify the minimum, maximum, or exact version of a package required by your pro
 
 **Syntax:**
 
-```ploy
+```poly
 IMPORT <language> PACKAGE <package_name> <version_op> <version>;
 ```
 
@@ -36,7 +36,7 @@ IMPORT <language> PACKAGE <package_name> <version_op> <version>;
 
 **Examples:**
 
-```ploy
+```poly
 // Require NumPy version 1.20 or later
 IMPORT python PACKAGE numpy >= 1.20;
 
@@ -60,13 +60,13 @@ Import only specific functions, classes, or symbols from a package instead of th
 
 **Syntax:**
 
-```ploy
+```poly
 IMPORT <language> PACKAGE <package_name>::(<symbol1>, <symbol2>, ...);
 ```
 
 **Examples:**
 
-```ploy
+```poly
 // Import only array, mean, and std from numpy
 IMPORT python PACKAGE numpy::(array, mean, std);
 
@@ -93,7 +93,7 @@ IMPORT <language> PACKAGE <package>[::(<symbols>)] [<version_op> <version>] [AS 
 > and means "import only these symbols from the package"; the version constraint comes after and
 > means "require this version of the package".
 
-```ploy
+```poly
 // Selective import + version constraint: require numpy >= 1.20, import only array and mean
 IMPORT python PACKAGE numpy::(array, mean) >= 1.20;
 
@@ -143,7 +143,7 @@ Configure a specific virtual environment to use for package resolution and disco
 
 **Syntax (canonical, since v1.12.0):**
 
-```ploy
+```poly
 CONFIG <language> "<package_manager>" "<path_or_env>";
 ```
 
@@ -153,7 +153,7 @@ compatibility but emits a deprecation warning at sema time.
 
 **Examples:**
 
-```ploy
+```poly
 // Configure a Python virtual environment (language defaults to "python")
 CONFIG VENV python "C:/Users/me/envs/data_science";
 
@@ -168,14 +168,14 @@ IMPORT python PACKAGE numpy >= 1.20;
 **Rules:**
 - Only one venv configuration per language is allowed per compilation unit
 - Duplicate `CONFIG VENV` for the same language produces a compile-time error
-- The language must be a valid supported language (cpp, python, rust, c, ploy)
+- The language must be a valid supported language (cpp, python, rust, c, poly)
 - The venv path is used when running package discovery commands
 - On Windows, the venv's Python is located at `<venv_path>\Scripts\python.exe`
 - On Unix/macOS, the venv's Python is located at `<venv_path>/bin/python`
 
 ## Full Example
 
-```ploy
+```poly
 // Configure Python virtual environment
 CONFIG VENV python "C:/Users/me/envs/data_science";
 
@@ -261,7 +261,7 @@ required.
 After the table edit a source file may use the canonical form
 immediately:
 
-```ploy
+```poly
 CONFIG python "pdm" "./pyproject.toml";
 ```
 

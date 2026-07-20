@@ -12,7 +12,7 @@
  *                            nothing at all is available (bogus polyld and
  *                            an obviously absent platform candidate).
  *   - ExpandLinkCommand: substitutes {OBJ}/{OUT} placeholders and only
- *                        appends --ploy-desc / --aux-dir when the chosen
+ *                        appends --poly-desc / --aux-dir when the chosen
  *                        linker is polyld.
  *
  * @ingroup  Tests / unit / tools
@@ -107,7 +107,7 @@ TEST_CASE("ExpandLinkCommand substitutes placeholders and gates polyld flags",
       ExpandLinkCommand(polyld_choice, "out.obj", "a.exe", "desc.paux", "auxdir");
   REQUIRE(cmd.find("out.obj") != std::string::npos);
   REQUIRE(cmd.find("a.exe") != std::string::npos);
-  REQUIRE(cmd.find("--ploy-desc") != std::string::npos);
+  REQUIRE(cmd.find("--poly-desc") != std::string::npos);
   REQUIRE(cmd.find("desc.paux") != std::string::npos);
   REQUIRE(cmd.find("--aux-dir") != std::string::npos);
 
@@ -118,7 +118,7 @@ TEST_CASE("ExpandLinkCommand substitutes placeholders and gates polyld flags",
   native_choice.command_template = "lld-link /NOLOGO /OUT:{OUT} {OBJ}";
   const std::string native_cmd =
       ExpandLinkCommand(native_choice, "out.obj", "a.exe", "desc.paux", "auxdir");
-  REQUIRE(native_cmd.find("--ploy-desc") == std::string::npos);
+  REQUIRE(native_cmd.find("--poly-desc") == std::string::npos);
   REQUIRE(native_cmd.find("--aux-dir") == std::string::npos);
   REQUIRE(native_cmd.find("out.obj") != std::string::npos);
   REQUIRE(native_cmd.find("a.exe") != std::string::npos);

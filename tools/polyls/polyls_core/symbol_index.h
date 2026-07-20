@@ -3,7 +3,7 @@
  * @brief    Workspace symbol index for navigation features
  *
  * The index records symbol definitions, declarations, implementations,
- * type-of relationships and reference sites for `.ploy` documents and
+ * type-of relationships and reference sites for `.poly` documents and
  * for the host-language modules they import (`cpp`, `python`, `rust`,
  * `java`, `dotnet`).  It is consumed by the polyls navigation handlers
  * (`textDocument/definition`, `declaration`, `implementation`,
@@ -52,12 +52,12 @@ struct SymbolLocation {
 
 /// Categorical kind of an indexed symbol.
 enum class IndexEntryKind {
-  kFunction,         ///< `.ploy` FUNC, host-language free function.
-  kPipeline,         ///< `.ploy` PIPELINE block.
-  kStruct,           ///< `.ploy` STRUCT or host-language class/struct.
-  kVariable,         ///< `.ploy` LET/VAR top-level binding.
+  kFunction,         ///< `.poly` FUNC, host-language free function.
+  kPipeline,         ///< `.poly` PIPELINE block.
+  kStruct,           ///< `.poly` STRUCT or host-language class/struct.
+  kVariable,         ///< `.poly` LET/VAR top-level binding.
   kImport,           ///< `IMPORT lang::module` or `IMPORT lang PACKAGE pkg`.
-  kLink,             ///< `.ploy` LINK declaration (the .ploy-side anchor).
+  kLink,             ///< `.poly` LINK declaration (the .poly-side anchor).
   kForeignFunction,  ///< Host-language function discovered in the workspace.
   kForeignClass,     ///< Host-language class/struct discovered.
 };
@@ -68,7 +68,7 @@ enum class IndexEntryKind {
 struct IndexEntry {
   std::string name;            ///< Bare identifier.
   std::string qualified_name;  ///< e.g. "cpp::image_processor::enhance".
-  std::string language;        ///< "ploy" / "cpp" / "python" / "rust" / "java" / "dotnet".
+  std::string language;        ///< "poly" / "cpp" / "python" / "rust" / "java" / "dotnet".
   IndexEntryKind kind{IndexEntryKind::kFunction};
 
   SymbolLocation definition;
@@ -81,7 +81,7 @@ struct IndexEntry {
   std::string link_target_qualified;
 
   /// Optional type whose declaration `textDocument/typeDefinition`
-  /// should jump to.  For `.ploy` LET bindings we record the type
+  /// should jump to.  For `.poly` LET bindings we record the type
   /// annotation text (when present); for FUNCs we record the return
   /// type.  Empty string when no type is known statically.
   std::string type_definition_name;
@@ -112,7 +112,7 @@ class SymbolIndex {
 
   /// (Re-)index a single document.  Pass an empty @p text to drop the
   /// document from the index.  @p language_id is the LSP-wire language
-  /// id ("ploy", "cpp", "python", "rust", "java", "csharp" / "dotnet").
+  /// id ("poly", "cpp", "python", "rust", "java", "csharp" / "dotnet").
   /// Unknown language ids default to a no-op (so opening foreign files
   /// in the editor never corrupts the index).
   void IndexDocument(const std::string &uri, const std::string &language_id,
@@ -150,13 +150,13 @@ class SymbolIndex {
 
   // ── Cross-language lookups ───────────────────────────────────────────
 
-  /// Forward jump: given a `.ploy` LINK target descriptor, return the
+  /// Forward jump: given a `.poly` LINK target descriptor, return the
   /// definition of the matching host-language symbol (if indexed).
   std::vector<SymbolLocation> CrossLanguageTarget(
       const std::string &target_language,
       const std::string &qualified_target) const;
 
-  /// Reverse jump: given a host-language symbol, return every `.ploy`
+  /// Reverse jump: given a host-language symbol, return every `.poly`
   /// LINK site that targets it.  Used by `references` queries issued
   /// from inside a host-language file.
   std::vector<SymbolLocation> CrossLanguageBackrefs(

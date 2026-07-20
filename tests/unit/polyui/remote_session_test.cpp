@@ -84,15 +84,15 @@ TEST_CASE("Filesystem operations round-trip on every backend",
     auto s = CreateSession(d);
     REQUIRE(s);
     s->Connect();
-    REQUIRE(s->WriteFile("/srv/main.ploy", "FN main() {}\n"));
-    REQUIRE(s->WriteFile("/srv/lib.ploy", "FN add(a,b) { RETURN a+b; }\n"));
-    auto contents = s->ReadFile("/srv/main.ploy");
+    REQUIRE(s->WriteFile("/srv/main.poly", "FN main() {}\n"));
+    REQUIRE(s->WriteFile("/srv/lib.poly", "FN add(a,b) { RETURN a+b; }\n"));
+    auto contents = s->ReadFile("/srv/main.poly");
     REQUIRE(contents);
     CHECK(*contents == "FN main() {}\n");
     auto entries = s->ListDir("/srv");
     CHECK(entries.size() == 2);
-    REQUIRE(s->RemoveFile("/srv/main.ploy"));
-    CHECK_FALSE(s->ReadFile("/srv/main.ploy"));
+    REQUIRE(s->RemoveFile("/srv/main.poly"));
+    CHECK_FALSE(s->ReadFile("/srv/main.poly"));
   }
 }
 

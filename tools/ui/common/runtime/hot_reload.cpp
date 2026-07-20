@@ -20,18 +20,24 @@ std::string ToLower(std::string s) {
   return s;
 }
 
+std::string CanonicalLanguage(std::string language) {
+  language = ToLower(std::move(language));
+  if (language == "ploy") return "poly";
+  return language;
+}
+
 }  // namespace
 
 void HotReloadEngine::RegisterHandler(std::string language,
                                       ReloadHandler handler) {
-  handlers_[std::move(language)] = std::move(handler);
+  handlers_[CanonicalLanguage(std::move(language))] = std::move(handler);
 }
 
 std::string HotReloadEngine::DetectLanguage(const std::string &file) {
   auto dot = file.find_last_of('.');
   if (dot == std::string::npos) return "";
   std::string ext = ToLower(file.substr(dot + 1));
-  if (ext == "ploy") return "ploy";
+  if (ext == "poly" || ext == "ploy") return "poly";
   if (ext == "py")   return "python";
   if (ext == "cc" || ext == "cpp" || ext == "cxx" || ext == "h" ||
       ext == "hpp" || ext == "hxx")
@@ -43,10 +49,13 @@ std::string HotReloadEngine::DetectLanguage(const std::string &file) {
 }
 
 ReloadResult HotReloadEngine::Notify(const ReloadRequest &request) {
+  ReloadRequest canonical_request = request;
+  canonical_request.language = CanonicalLanguage(request.language);
+
   // Coalesce: if a reload for the same file is already running, queue.
   auto in_flight_it = in_flight_.find(request.file);
   if (in_flight_it != in_flight_.end() && in_flight_it->second) {
-    pending_[request.file] = request;
+    pending_[request.file] = canonical_request;
     ReloadResult queued;
     queued.status  = ReloadStatus::kPartial;
     queued.message = "queued: reload already in flight";
@@ -54,7 +63,7 @@ ReloadResult HotReloadEngine::Notify(const ReloadRequest &request) {
   }
 
   ReloadHandler handler;
-  auto it = handlers_.find(request.language);
+  auto it = handlers_.find(canonical_request.language);
   if (it != handlers_.end()) {
     handler = it->second;
   } else {
@@ -64,12 +73,12 @@ ReloadResult HotReloadEngine::Notify(const ReloadRequest &request) {
   if (!handler) {
     ReloadResult r;
     r.status  = ReloadStatus::kUnsupported;
-    r.message = "no handler registered for language: " + request.language;
+    r.message = "no handler registered for language: " + canonical_request.language;
     return r;
   }
 
   in_flight_[request.file] = true;
-  ReloadResult result = handler(request);
+  ReloadResult result = handler(canonical_request);
   in_flight_[request.file] = false;
   return result;
 }

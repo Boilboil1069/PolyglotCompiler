@@ -11,12 +11,12 @@ Basic LINK / CALL / IMPORT / EXPORT directives between C++ math operations and P
 | --- | --- |
 | Languages | C++, Python |
 | Keywords  | LINK, CALL, IMPORT, EXPORT, MAP_TYPE |
-| Entry     | `basic_linking.ploy` |
+| Entry     | `basic_linking.poly` |
 
 ## Build
 
 ```powershell
-polyc 01_basic_linking\basic_linking.ploy --emit-obj=basic_linking.pobj --obj-format=pobj
+polyc 01_basic_linking\basic_linking.poly --emit-obj=basic_linking.pobj --obj-format=pobj
 polyld basic_linking.pobj -o basic_linking.exe
 ```
 

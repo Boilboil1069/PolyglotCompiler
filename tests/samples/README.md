@@ -1,17 +1,22 @@
-# `.ploy` Sample Programs
+# `.poly` Sample Programs
 
 This directory holds the canonical PolyglotCompiler sample matrix.  Every
 folder contains:
 
-- A `.ploy` entry file demonstrating one feature theme.
+- A `.poly` entry file demonstrating one feature theme.
 - One or more host-language source files (C++, Python, Rust, Java, C#, Go,
-  JavaScript) that the `.ploy` file references.
+  JavaScript) that the `.poly` file references.
 - An `expected_output.txt` file — byte-exact runtime stdout used by the
   regression harness.
 - Bilingual `README.md` (English) and `README_zh.md` (Chinese).
 
-The harness `scripts/build_all_samples.ps1` (POSIX twin:
-`scripts/build_all_samples.sh`) walks every folder, runs `polyc` then
+PolyglotCompiler 1.48.0 standardises the public name as **Poly**, the
+language identifier as `poly`, and sample sources as `.poly`. The 1.x
+toolchain still accepts one historical `.ploy` entry as a compatibility
+fallback (through the end of 1.x at minimum), but new and migrated samples
+must use `.poly`; generated diagnostics and metadata use `poly`.
+
+The tracked harness `scripts/build_all_samples.sh` walks every folder, runs `polyc` then
 `polyld`, executes the binary, captures stdout, and compares it byte-for-byte
 against `expected_output.txt`.  Each sample is classified into one of:
 
@@ -21,12 +26,11 @@ against `expected_output.txt`.  Each sample is classified into one of:
 - `RUN_FAIL` — produced binary failed at runtime.
 - `LINK_FAIL` — `polyld` failed.
 - `COMPILE_FAIL` — `polyc` failed.
-- `SKIP` — sample folder lacked a `.ploy` entry.
+- `SKIP` — sample folder lacked an accepted Poly entry.
 
 The harness writes `build/samples_report.json` and exits 0 by default so the
-report can document toolchain maturity without gating the build.  Pass
-`-FailOnMismatch` (PowerShell) or `--fail-on-mismatch` (bash) to flip into
-strict gating mode.
+report can document toolchain maturity without gating the build. Pass
+`--fail-on-mismatch` to flip into strict gating mode.
 
 ## Directory matrix
 
@@ -63,17 +67,17 @@ strict gating mode.
 | `28_ml_inference/` | Python, Rust | ML inference pipeline | Tokenizer + softmax scorer. |
 | `29_data_analytics/` | Python, Java | Data analytics | Loader + count/min/max/mean aggregator. |
 | `30_game_loop_demo/` | C++, Rust | Game loop skeleton | Tick scheduler + Euler integrator. |
-| `31_explicit_widths/` | Ploy, C++ | Width-aware numeric types + CONST | Demonstrates `i32` / `u32` / `i64`, `TYPE` aliases and folded `CONST`. |
-| `32_typed_handles/` | Ploy, Python, C++ | Statically-typed cross-language handles | `CLASS` schemas + `HANDLE<lang::T>` for type-checked `NEW` / `METHOD` / `GET` / `SET`. |
-| `33_pattern_matching/` | Ploy | Pattern matching dispatch | Literals, ranges, OR-patterns, bindings, type guards, tuple / struct destructuring and `OPTION` constructors in a single MATCH. |
-| `34_default_args/` | Ploy | Named-parameter default values | Trailing parameters with constant defaults; positional / named / mixed call sites; pure-call defaults. |
-| `35_extend_dynamic/` | Ploy, Python | EXTEND restricted to dynamic hosts | EXTEND is accepted on python / ruby / javascript only; static-language targets get a sema fix-it. |
-| `36_try_catch/` | Ploy | Structured exception handling | TRY / CATCH / FINALLY / THROW with the built-in `Error` handle and the cross-language runtime bridge. |
-| `37_async_await/` | Ploy | Cooperative async / await | `ASYNC FUNC` + `AWAIT` driving the cooperative event loop in `runtime/services/async_bridge.cpp`. |
-| `38_generics/` | Ploy | Generic FUNC / STRUCT | Type parameters with bounds + WHERE clause; type-erased MVP lowering. |
-| `39_visibility_attrs/` | Ploy | PUB / PRIVATE + `@name` attributes | Module-boundary visibility, EXPORT-requires-PUB rule, built-in attribute catalog (`@inline`, `@hot`, `@deprecated`, ...). |
-| `40_string_literals/` | Ploy | Raw / multiline / template string literals | `r"..."`, `r#"..."#`, `"""..."""`, and `f"..."` interpolation; sema validates formattable types. |
-| `41_grammar_polish/` | Ploy | Optional parens on IF/WHILE/FOR, `IF LET Some(x)`, `///` doc comments | v1.18.0 P3 polish bundle; `polydoc` extracts doc blocks to Markdown/JSON. |
+| `31_explicit_widths/` | Poly, C++ | Width-aware numeric types + CONST | Demonstrates `i32` / `u32` / `i64`, `TYPE` aliases and folded `CONST`. |
+| `32_typed_handles/` | Poly, Python, C++ | Statically-typed cross-language handles | `CLASS` schemas + `HANDLE<lang::T>` for type-checked `NEW` / `METHOD` / `GET` / `SET`. |
+| `33_pattern_matching/` | Poly | Pattern matching dispatch | Literals, ranges, OR-patterns, bindings, type guards, tuple / struct destructuring and `OPTION` constructors in a single MATCH. |
+| `34_default_args/` | Poly | Named-parameter default values | Trailing parameters with constant defaults; positional / named / mixed call sites; pure-call defaults. |
+| `35_extend_dynamic/` | Poly, Python | EXTEND restricted to dynamic hosts | EXTEND is accepted on python / ruby / javascript only; static-language targets get a sema fix-it. |
+| `36_try_catch/` | Poly | Structured exception handling | TRY / CATCH / FINALLY / THROW with the built-in `Error` handle and the cross-language runtime bridge. |
+| `37_async_await/` | Poly | Cooperative async / await | `ASYNC FUNC` + `AWAIT` driving the cooperative event loop in `runtime/services/async_bridge.cpp`. |
+| `38_generics/` | Poly | Generic FUNC / STRUCT | Type parameters with bounds + WHERE clause; type-erased MVP lowering. |
+| `39_visibility_attrs/` | Poly | PUB / PRIVATE + `@name` attributes | Module-boundary visibility, EXPORT-requires-PUB rule, built-in attribute catalog (`@inline`, `@hot`, `@deprecated`, ...). |
+| `40_string_literals/` | Poly | Raw / multiline / template string literals | `r"..."`, `r#"..."#`, `"""..."""`, and `f"..."` interpolation; sema validates formattable types. |
+| `41_grammar_polish/` | Poly | Optional parens on IF/WHILE/FOR, `IF LET Some(x)`, `///` doc comments | v1.18.0 P3 polish bundle; `polydoc` extracts doc blocks to Markdown/JSON. |
 
 ## By theme
 
@@ -123,26 +127,22 @@ strict gating mode.
 - **Java, Python** — `11_java_interop`, `20_json_pipeline`, `22_database_access`, `29_data_analytics`
 - **JavaScript, Python** — `25_event_loop`
 - **Python, Rust** — `17_string_processing`, `28_ml_inference`
-- **Ploy, C++** — `31_explicit_widths`
-- **Ploy, Python, C++** — `32_typed_handles`
-- **Ploy** — `33_pattern_matching`, `34_default_args`, `36_try_catch`, `37_async_await`, `38_generics`, `39_visibility_attrs`, `40_string_literals`, `41_grammar_polish`
-- **Ploy, Python** — `35_extend_dynamic`
+- **Poly, C++** — `31_explicit_widths`
+- **Poly, Python, C++** — `32_typed_handles`
+- **Poly** — `33_pattern_matching`, `34_default_args`, `36_try_catch`, `37_async_await`, `38_generics`, `39_visibility_attrs`, `40_string_literals`, `41_grammar_polish`
+- **Poly, Python** — `35_extend_dynamic`
 
 ## Build a single sample
 
 ```powershell
-polyc 09_mixed_pipeline/mixed_pipeline.ploy --emit-obj=build/sample.obj --quiet
+polyc 09_mixed_pipeline/mixed_pipeline.poly --emit-obj=build/sample.obj --quiet
 polyld build/sample.obj -o build/sample.exe
 ./build/sample.exe
 ```
 
 ## Build every sample
 
-```powershell
-# Windows
-./scripts/build_all_samples.ps1
-
-# POSIX
+```bash
 ./scripts/build_all_samples.sh
 ```
 

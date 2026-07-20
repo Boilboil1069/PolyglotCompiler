@@ -60,6 +60,37 @@
 
 namespace polyglot::tools::ui {
 
+namespace {
+
+QString CanonicalLanguageId(QString language) {
+  if (language.compare(QStringLiteral("poly"), Qt::CaseInsensitive) == 0 ||
+      language.compare(QStringLiteral("ploy"), Qt::CaseInsensitive) == 0) {
+    return QStringLiteral("poly");
+  }
+  return language;
+}
+
+QString DisplayLanguageName(const QString &language) {
+  const QString canonical = CanonicalLanguageId(language);
+  if (canonical == QStringLiteral("poly")) return QStringLiteral("Poly");
+  if (canonical == QStringLiteral("cpp")) return QStringLiteral("C++");
+  if (canonical == QStringLiteral("python")) return QStringLiteral("Python");
+  if (canonical == QStringLiteral("rust")) return QStringLiteral("Rust");
+  if (canonical == QStringLiteral("java")) return QStringLiteral("Java");
+  if (canonical == QStringLiteral("csharp")) return QStringLiteral("C#");
+  if (canonical == QStringLiteral("javascript")) return QStringLiteral("JavaScript");
+  if (canonical == QStringLiteral("ruby")) return QStringLiteral("Ruby");
+  if (canonical == QStringLiteral("go")) return QStringLiteral("Go");
+  return canonical;
+}
+
+bool IsPolySourcePath(const QString &path) {
+  return path.endsWith(QStringLiteral(".poly"), Qt::CaseInsensitive) ||
+         path.endsWith(QStringLiteral(".ploy"), Qt::CaseInsensitive);
+}
+
+}  // namespace
+
 // ============================================================================
 // Construction / Destruction
 // ============================================================================
@@ -88,7 +119,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   InitializePlugins();
 
   // Create an initial empty tab using the configured default language.
-  static const QStringList lang_ids = {"ploy",   "cpp",        "python", "rust", "java",
+  static const QStringList lang_ids = {"poly",   "cpp",        "python", "rust", "java",
                                        "csharp", "javascript", "ruby",   "go"};
   int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
   if (lang_index < 0 || lang_index >= lang_ids.size()) {
@@ -525,7 +556,7 @@ void MainWindow::SetupToolBar() {
 
   language_combo_ = new QComboBox(main_toolbar_);
   language_combo_->addItems(
-      {"Ploy", "C++", "Python", "Rust", "Java", "C#", "JavaScript", "Ruby", "Go"});
+      {"Poly", "C++", "Python", "Rust", "Java", "C#", "JavaScript", "Ruby", "Go"});
   language_combo_->setCurrentIndex(0);
   language_combo_->setStyleSheet(combo_init_ss);
   main_toolbar_->addWidget(language_combo_);
@@ -592,7 +623,7 @@ void MainWindow::SetupStatusBar() {
           [](const QString &) { open_problems(); });
   sb->addPermanentWidget(status_problems_);
 
-  status_language_ = new QLabel("Ploy");
+  status_language_ = new QLabel("Poly");
   sb->addPermanentWidget(status_language_);
 
   status_encoding_ = new QLabel("UTF-8");
@@ -853,7 +884,7 @@ void MainWindow::SetupConnections() {
             }
           });
 
-  // Topology panel: open generated .ploy file in editor
+  // Topology panel: open generated .poly file in editor
   connect(topology_panel_, &TopologyPanel::OpenFileRequested, this,
           [this](const QString &file_path) {
             if (!file_path.isEmpty()) {
@@ -861,7 +892,7 @@ void MainWindow::SetupConnections() {
             }
           });
 
-  // Topology panel: bidirectional sync - when edge sync modifies the .ploy
+  // Topology panel: bidirectional sync - when edge sync modifies the .poly
   // file, reload and highlight the affected line in the editor.
   connect(topology_panel_, &TopologyPanel::FileContentChanged, this,
           [this](const QString &file_path, int line) {
@@ -945,7 +976,7 @@ void MainWindow::SetupConnections() {
         {vertical_splitter_->height() * 2 / 3, vertical_splitter_->height() / 3});
   });
 
-  // File browser - generate topology for a .ploy file
+  // File browser - generate topology for a .poly file
   connect(file_browser_, &FileBrowser::GenerateTopologyRequested, this,
           [this](const QString &ploy_path) {
             panel_manager_->ShowPanel("topology");
@@ -1021,7 +1052,7 @@ void MainWindow::SetupAnalysisTimer() {
 // ============================================================================
 
 void MainWindow::NewFile() {
-  static const QStringList lang_ids = {"ploy",   "cpp",        "python", "rust", "java",
+  static const QStringList lang_ids = {"poly",   "cpp",        "python", "rust", "java",
                                        "csharp", "javascript", "ruby",   "go"};
   int lang_index = language_combo_ ? language_combo_->currentIndex() : 0;
   if (lang_index < 0 || lang_index >= lang_ids.size()) {
@@ -1048,7 +1079,7 @@ void MainWindow::NewFromTemplate() {
   };
 
   static const std::vector<Template> templates = {
-      {"Ploy �?Cross-language linker script", "ploy", "ploy",
+      {"Poly �?Cross-language linker script", "poly", "poly",
        "// Cross-language linker script\n"
        "// Link functions from different languages\n"
        "\n"
@@ -1271,7 +1302,7 @@ void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
   };
 
   static const std::vector<Template> templates = {
-      {"Ploy �?Cross-language linker script", "ploy", "ploy",
+      {"Poly �?Cross-language linker script", "poly", "poly",
        "// Cross-language linker script\n"
        "IMPORT python PACKAGE numpy;\n"
        "\n"
@@ -1348,8 +1379,8 @@ void MainWindow::NewFromTemplateInDir(const QString &parent_dir) {
 void MainWindow::OpenFile() {
   QStringList paths = QFileDialog::getOpenFileNames(
       this, "Open File", QString(),
-      "All Supported Files (*.ploy *.cpp *.h *.hpp *.c *.py *.rs *.java *.cs);;"
-      "Ploy Files (*.ploy);;"
+      "All Supported Files (*.poly *.ploy *.cpp *.h *.hpp *.c *.py *.rs *.java *.cs);;"
+      "Poly Files (*.poly *.ploy);;"
       "C++ Files (*.cpp *.h *.hpp *.c);;"
       "Python Files (*.py);;"
       "Rust Files (*.rs);;"
@@ -1430,7 +1461,7 @@ void MainWindow::SaveAs() {
     return;
 
   QString path = QFileDialog::getSaveFileName(this, "Save As", QString(),
-                                              "Ploy Files (*.ploy);;"
+                                              "Poly Files (*.poly);;"
                                               "C++ Files (*.cpp *.h *.hpp);;"
                                               "Python Files (*.py);;"
                                               "Rust Files (*.rs);;"
@@ -1454,7 +1485,7 @@ void MainWindow::SaveAs() {
       it->second.language = lang;
       AttachHighlighter(editor, lang);
       UpdateLanguageCombo(lang);
-      status_language_->setText(lang);
+      status_language_->setText(DisplayLanguageName(lang));
     }
 
     editor->SetFilePath(path);
@@ -1640,6 +1671,7 @@ int MainWindow::OpenMarkdownInTab(const QString &path) {
 }
 
 int MainWindow::CreateNewTab(const QString &title, const QString &language) {
+  const QString canonical_language = CanonicalLanguageId(language);
   auto *editor = new CodeEditor();
 
   // Apply editor theme.  Use the current theme's editor colors.
@@ -1663,16 +1695,16 @@ int MainWindow::CreateNewTab(const QString &title, const QString &language) {
   editor_tabs_->setCurrentIndex(index);
 
   TabInfo info;
-  info.language = language;
+  info.language = canonical_language;
   info.highlighter = nullptr;
   tab_info_[index] = info;
 
-  AttachHighlighter(editor, language);
-  UpdateLanguageCombo(language);
+  AttachHighlighter(editor, canonical_language);
+  UpdateLanguageCombo(canonical_language);
 
   // Wire the compiler service and language for auto-completion
   editor->SetCompilerService(compiler_service_.get());
-  editor->SetLanguage(language.toStdString());
+  editor->SetLanguage(canonical_language.toStdString());
 
   // Handle go-to-definition requests
   connect(
@@ -2722,9 +2754,9 @@ void MainWindow::OpenTopologyForCurrentFile() {
   if (it == tab_info_.end() || it->second.file_path.isEmpty())
     return;
 
-  // Only .ploy files are supported
-  if (!it->second.file_path.endsWith(".ploy", Qt::CaseInsensitive)) {
-    status_message_->setText("Topology view only supports .ploy files");
+  // The canonical suffix is .poly; .ploy remains a compatibility input.
+  if (!IsPolySourcePath(it->second.file_path)) {
+    status_message_->setText("Topology view only supports .poly files");
     return;
   }
 
@@ -2741,7 +2773,7 @@ void MainWindow::ShowAbout() {
   QMessageBox::about(this, "About " POLYGLOT_IDE_NAME,
                      "<h2>" POLYGLOT_IDE_NAME "</h2>"
                      "<p>Version " POLYGLOT_VERSION_STRING "</p>"
-                     "<p>A cross-language compiler IDE supporting Ploy, C++, Python, "
+                     "<p>A cross-language compiler IDE supporting Poly, C++, Python, "
                      "Rust, Java, and C#.</p>"
                      "<p>Built with Qt " QT_VERSION_STR " and the " POLYGLOT_PROJECT_NAME
                      " toolchain.</p>"
@@ -2795,7 +2827,7 @@ void MainWindow::OnTabChanged(int index) {
   auto it = tab_info_.find(index);
   if (it != tab_info_.end()) {
     UpdateLanguageCombo(it->second.language);
-    status_language_->setText(it->second.language);
+    status_language_->setText(DisplayLanguageName(it->second.language));
   }
 
   if (auto *editor = EditorAt(index)) {
@@ -2878,7 +2910,7 @@ void MainWindow::OnAnalysisTimerTimeout() {
 // ============================================================================
 
 void MainWindow::OnLanguageChanged(int index) {
-  static const QStringList lang_ids = {"ploy",   "cpp",        "python", "rust", "java",
+  static const QStringList lang_ids = {"poly",   "cpp",        "python", "rust", "java",
                                        "csharp", "javascript", "ruby",   "go"};
   if (index < 0 || index >= lang_ids.size())
     return;
@@ -2893,7 +2925,7 @@ void MainWindow::OnLanguageChanged(int index) {
       AttachHighlighter(editor, language);
       editor->SetLanguage(language.toStdString());
     }
-    status_language_->setText(language);
+    status_language_->setText(DisplayLanguageName(language));
   }
 }
 
@@ -2922,23 +2954,24 @@ void MainWindow::OnEditorTabMoved(int from, int to) {
 }
 
 QString MainWindow::LanguageToExtension(const QString &language) const {
-  if (language == "cpp")
+  const QString canonical = CanonicalLanguageId(language);
+  if (canonical == "cpp")
     return "cpp";
-  if (language == "python")
+  if (canonical == "python")
     return "py";
-  if (language == "rust")
+  if (canonical == "rust")
     return "rs";
-  if (language == "java")
+  if (canonical == "java")
     return "java";
-  if (language == "csharp")
+  if (canonical == "csharp")
     return "cs";
-  if (language == "javascript")
+  if (canonical == "javascript")
     return "js";
-  if (language == "ruby")
+  if (canonical == "ruby")
     return "rb";
-  if (language == "go")
+  if (canonical == "go")
     return "go";
-  return "ploy";
+  return "poly";
 }
 
 void MainWindow::ApplyEditorSettings(CodeEditor *editor) {
@@ -3264,8 +3297,8 @@ void MainWindow::ApplyCustomKeybindings() {
 
 QString MainWindow::DetectLanguage(const QString &filename) const {
   QString ext = QFileInfo(filename).suffix().toLower();
-  if (ext == "ploy")
-    return "ploy";
+  if (ext == "poly" || ext == "ploy")
+    return "poly";
   if (ext == "cpp" || ext == "c" || ext == "h" || ext == "hpp" || ext == "cc" || ext == "cxx" ||
       ext == "hh")
     return "cpp";
@@ -3283,13 +3316,13 @@ QString MainWindow::DetectLanguage(const QString &filename) const {
     return "ruby";
   if (ext == "go")
     return "go";
-  return "ploy"; // default
+  return "poly"; // default
 }
 
 void MainWindow::UpdateLanguageCombo(const QString &language) {
-  static const QStringList lang_ids = {"ploy",   "cpp",        "python", "rust", "java",
+  static const QStringList lang_ids = {"poly",   "cpp",        "python", "rust", "java",
                                        "csharp", "javascript", "ruby",   "go"};
-  int idx = lang_ids.indexOf(language);
+  int idx = lang_ids.indexOf(CanonicalLanguageId(language));
   if (idx >= 0) {
     // Block signals to prevent recursive OnLanguageChanged
     language_combo_->blockSignals(true);

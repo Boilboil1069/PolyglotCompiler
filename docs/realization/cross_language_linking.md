@@ -2,7 +2,7 @@
 
 ## 1. Architecture Overview
 
-The cross-language function-level linking system is implemented as a new frontend (`frontend_ploy`) that processes `.ploy` files through the standard compiler pipeline: Lexer → Parser → Sema → Lowering. The lowering phase generates polyglot IR containing cross-language call nodes, which the linker then resolves into concrete glue code.
+The cross-language function-level linking system is implemented as a new frontend (`frontend_ploy`) that processes `.poly` files through the standard compiler pipeline: Lexer → Parser → Sema → Lowering. The lowering phase generates polyglot IR containing cross-language call nodes, which the linker then resolves into concrete glue code.
 
 ### 1.1 Component Map
 
@@ -49,7 +49,7 @@ linker (extended):
 
 ## 2. Lexer Design
 
-The `PloyLexer` extends `frontends::LexerBase` and tokenizes `.ploy` source into the standard `Token` stream. It recognizes all 41 `.ploy` keywords, operators, literals, and comments.
+The `PloyLexer` extends `frontends::LexerBase` and tokenizes `.poly` source into the standard `Token` stream. It recognizes all 41 `.poly` keywords, operators, literals, and comments.
 
 ### 2.1 Token Classification
 
@@ -90,7 +90,7 @@ The AST follows the same pattern as the C++ and Python frontends with `AstNode`,
 
 ## 4. Parser Design
 
-The parser is a recursive-descent parser (~1380 lines) that handles all `.ploy` constructs.
+The parser is a recursive-descent parser (~1380 lines) that handles all `.poly` constructs.
 
 ### 4.1 LINK Parsing
 
@@ -128,7 +128,7 @@ MAP_TYPE '(' qualified_type ',' qualified_type ')' ';'
 The Sema pass performs:
 
 1. **Symbol Resolution**: Resolve all identifiers to their declarations, including cross-module references.
-2. **Language Validation**: Verify that LINK and IMPORT directives reference valid languages (`cpp`, `python`, `rust`, `c`, `ploy`).
+2. **Language Validation**: Verify that LINK and IMPORT directives reference valid languages (`cpp`, `python`, `rust`, `c`, `poly`).
 3. **Type Checking**: Validate that linked functions have compatible signatures after type mapping.
 4. **Link Validation**: Ensure that LINK directives reference valid target/source functions. When `MAP_TYPE` entries are present, `param_count_known` and `validated` flags are set on the `FunctionSignature`.
 5. **Type Mapping Validation**: Verify that MAP_TYPE declarations define valid conversions.
@@ -191,14 +191,14 @@ For each `LINK` directive, the linker generates a wrapper function that:
 
 The linker resolves cross-language symbols by:
 1. Loading object files from all source languages.
-2. Loading `.ploy` descriptor files from `--ploy-desc` or `--aux-dir`.
+2. Loading `.poly` descriptor files from `--poly-desc` or `--aux-dir`.
 3. Generating bridge symbols that connect the calling conventions.
 4. Materialising those generated bridge stubs as an internal POBJ input so the main linker resolves and relocates them together with user objects.
-5. Auto-compiling local `IMPORT lang::module;` source files discovered beside the `.ploy` file or under `-I` roots.
+5. Auto-compiling local `IMPORT lang::module;` source files discovered beside the `.poly` file or under `-I` roots.
 6. Emitting a foreign alias POBJ that maps module-qualified interface symbols (`module::func`, `module__func`) to the compiled implementation symbol.
 7. Rejecting unresolved symbols whenever cross-language descriptors are present.
 
-Descriptor-driven links are therefore strict: if a `.ploy` file references `python::string_utils::concat`, the final link either auto-compiles `string_utils.py` and exports the required module-qualified aliases, or reports the missing symbol. A build that cannot resolve the implementation or runtime symbols fails instead of producing a binary whose bridge path would be missing at runtime.
+Descriptor-driven links are therefore strict: if a `.poly` file references `python::string_utils::concat`, the final link either auto-compiles `string_utils.py` and exports the required module-qualified aliases, or reports the missing symbol. A build that cannot resolve the implementation or runtime symbols fails instead of producing a binary whose bridge path would be missing at runtime.
 
 ### 7.4 ABI Compatibility Validation
 

@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, Java |
-| Entry | `database_access.ploy` |
+| Entry | `database_access.poly` |
 | Theme | Database access layer |
 | Expected stdout | `22_database_access: ok\r\n` |
 
 ## Files
 
-- `database_access.ploy` — `.ploy` entry that wires the host sources together.
+- `database_access.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `db_connection.py` — host source file
 - `UserDao.java` — host source file
@@ -23,7 +23,7 @@
 ## Build
 
 ```powershell
-polyc database_access.ploy --emit-obj=build/database_access.obj --quiet
+polyc database_access.poly --emit-obj=build/database_access.obj --quiet
 polyld build/database_access.obj -o build/database_access.exe
 ./build/database_access.exe
 ```

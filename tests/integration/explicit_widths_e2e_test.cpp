@@ -2,7 +2,7 @@
  * @file     explicit_widths_e2e_test.cpp
  * @brief    End-to-end integration test for explicit-width primitive types,
  *           TYPE aliases, and CONST declarations introduced by demand
- *           2026-04-28-7.  Drives a small but realistic .ploy program that
+ *           2026-04-28-7.  Drives a small but realistic .poly program that
  *           combines all three features through the lexer + parser + sema
  *           pipeline and checks the resolved tables.
  *
@@ -29,9 +29,9 @@ using polyglot::ploy::PloySema;
 using polyglot::ploy::PloySemaOptions;
 
 TEST_CASE(
-    "End-to-end: TYPE alias + CONST + explicit widths flow through the ploy "
+    "End-to-end: TYPE alias + CONST + explicit widths flow through the poly "
     "frontend into a populated sema state",
-    "[integration][ploy][explicit_widths]") {
+    "[integration][poly][explicit_widths]") {
   // The program below mirrors the shape of the new
   // tests/samples/31_explicit_widths showcase but is kept inline so the
   // test runs in any working directory without needing fixture files.

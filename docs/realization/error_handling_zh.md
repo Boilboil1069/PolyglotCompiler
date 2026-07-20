@@ -1,11 +1,11 @@
 # 错误处理实现说明
 
-本文档说明 PolyglotCompiler v1.13.0 如何为 Ploy 实现结构化异常处理，
+本文档说明 PolyglotCompiler v1.13.0 如何为 Poly 实现结构化异常处理，
 以及运行时桥如何把宿主语言异常映射到统一的 `Error` 句柄。
 
 ## 表层语法
 
-Ploy v1.13.0 新增五个关键字：
+Poly v1.13.0 新增五个关键字：
 
 | 关键字     | 作用                                       |
 | --------- | ----------------------------------------- |
@@ -17,7 +17,7 @@ Ploy v1.13.0 新增五个关键字：
 
 完整形式如下：
 
-```ploy
+```poly
 TRY {
     body_statements;
 }
@@ -37,7 +37,7 @@ FINALLY {
 
 捕获绑定的类型为内建句柄 `Error`，定义如下：
 
-```ploy
+```poly
 HANDLE Error {
     message:    String;
     source_lang: String;
@@ -46,7 +46,7 @@ HANDLE Error {
 ```
 
 存储由运行时持有；字段仅在所在 `CATCH` 块内有效。`source_lang` 取值
-为 `ploy`、`python`、`cpp`、`java`、`dotnet`、`rust` 之一。
+为 `poly`、`python`、`cpp`、`java`、`dotnet`、`rust` 之一。
 
 ## IR 形态
 
@@ -85,7 +85,7 @@ try.merge:
 | ------------------------------------------------ | --------------------------------------------- |
 | `__ploy_rt_try_begin()`                          | 推入处理器作用域；首次进入返回 0              |
 | `__ploy_rt_try_end()`                            | 正常退出时弹出处理器作用域                    |
-| `__ploy_rt_throw(msg)`                           | 抛出标签为 `ploy` 的 Error                    |
+| `__ploy_rt_throw(msg)`                           | 抛出标签为 `poly` 的 Error                    |
 | `__ploy_rt_throw_from(msg, lang)`                | 抛出带宿主语言标签的 Error                    |
 | `__ploy_rt_current_error()`                      | 当前 Error 的不透明指针                       |
 | `__ploy_rt_current_error_message()`              | 以 NUL 结尾的消息                             |
@@ -113,7 +113,7 @@ try.merge:
 | Rust      | `Result::Err`        | `rsloy_throw_rust`     |
 
 每个适配器以表中的语言标签调用 `__ploy_rt_throw_from(msg, lang)`。
-反向——把 Ploy 的 `Error` 交回给宿主语言代码——由各语言桥层在 Ploy
+反向——把 Poly 的 `Error` 交回给宿主语言代码——由各语言桥层在 Poly
 被调者经由外语调用边界返回时执行。今天该路径只实现了数据平面（外
 语调用方可通过 `__ploy_rt_current_error_*` 读取当前 Error），IR 级
 派发器列入未来工作。
@@ -126,5 +126,5 @@ try.merge:
   选择匹配的 `CATCH` 子句。
 * 后缀 `?` 短路传播（`expr?`）：改写为一个隐式 `TRY`，把捕获到的
   Error 从外层函数中再次抛出。
-* 跨语言反向拦截：把 Ploy 回调内部抛出的 `Error` 路由进外语调用方
+* 跨语言反向拦截：把 Poly 回调内部抛出的 `Error` 路由进外语调用方
   的异常体系。

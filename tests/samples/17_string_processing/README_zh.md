@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | Python、Rust |
-| 入口 | `string_processing.ploy` |
+| 入口 | `string_processing.poly` |
 | 主题 | 字符串处理流水线 |
 | 预期 stdout | `17_string_processing: ok\r\n` |
 
 ## 文件
 
-- `string_processing.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `string_processing.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `str_tokenizer.rs` — 宿主语言源文件
 - `case_folder.py` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc string_processing.ploy --emit-obj=build/string_processing.obj --quiet
+polyc string_processing.poly --emit-obj=build/string_processing.obj --quiet
 polyld build/string_processing.obj -o build/string_processing.exe
 ./build/string_processing.exe
 ```

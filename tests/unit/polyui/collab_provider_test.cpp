@@ -39,14 +39,14 @@ TEST_CASE("In-memory PR review flow", "[polyui][collab]") {
 
   auto diff = p->GetPullRequestDiff(1);
   REQUIRE(diff.size() == 1);
-  CHECK(diff.front().file_path == "src/main.ploy");
+  CHECK(diff.front().file_path == "src/main.poly");
 
   ReviewSubmission rs;
   rs.verdict = ReviewVerdict::kComment;
   rs.body = "lgtm";
   ReviewComment c;
   c.body = "rename here";
-  c.file_path = "src/main.ploy";
+  c.file_path = "src/main.poly";
   c.line = 1;
   rs.comments.push_back(c);
   CHECK(p->SubmitReview(1, rs));
@@ -88,7 +88,7 @@ TEST_CASE("Issue lifecycle: create / link / reference",
   CHECK_FALSE(p->LinkCommit(99, "abc1234"));
 
   IssueRef ref;
-  ref.file_path = "src/main.ploy";
+  ref.file_path = "src/main.poly";
   ref.line = 42;
   ref.commit_sha = "abc1234";
   CHECK(p->AttachFileReference(issue.number, ref));

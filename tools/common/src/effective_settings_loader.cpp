@@ -8,11 +8,14 @@
  */
 #include "tools/common/include/effective_settings_loader.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <sstream>
+#include <string_view>
 
 #if defined(_WIN32)
 #  include <windows.h>
@@ -113,6 +116,121 @@ void DeepMerge(json &base, const json &override_) {
     }
   }
 }
+
+namespace {
+
+// Poly became the canonical language identifier in 1.48.  Settings files are
+// long-lived user data, so migrate the historical `ploy` spelling before
+// layer precedence is applied.  Doing this per layer is important: an old
+// user/workspace value must still override the new canonical default.
+bool IsPolyLanguageAlias(std::string_view language) {
+  if (language.size() != 4) return false;
+  std::string folded(language);
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) {
+                   return static_cast<char>(std::tolower(c));
+                 });
+  return folded == "poly" || folded == "ploy";
+}
+
+std::string CanonicalPolyLanguage(std::string language) {
+  return IsPolyLanguageAlias(language) ? std::string("poly") : language;
+}
+
+void PromotePolyObjectMembers(json &object) {
+  if (!object.is_object()) return;
+  json aliases;
+  bool has_alias = false;
+  std::vector<std::string> alias_keys;
+  for (auto it = object.begin(); it != object.end(); ++it) {
+    if (it.key() == "poly" || !IsPolyLanguageAlias(it.key())) continue;
+    if (!has_alias) {
+      aliases = *it;
+      has_alias = true;
+    } else if (aliases.is_object() && it->is_object()) {
+      DeepMerge(aliases, *it);
+    } else {
+      aliases = *it;
+    }
+    alias_keys.push_back(it.key());
+  }
+  if (!has_alias) return;
+
+  auto current = object.find("poly");
+  if (current != object.end()) {
+    if (aliases.is_object() && current->is_object()) {
+      DeepMerge(aliases, *current);  // an explicitly canonical value wins
+    } else {
+      aliases = *current;
+    }
+  }
+  object["poly"] = std::move(aliases);
+  for (const auto &key : alias_keys) object.erase(key);
+}
+
+void NormalizePolyNamingAliases(json &layer) {
+  if (!layer.is_object()) return;
+
+  // Canonical flat keys: `poly.strictMode`, etc.
+  std::vector<std::pair<std::string, json>> promoted;
+  std::vector<std::string> legacy_keys;
+  for (auto it = layer.begin(); it != layer.end(); ++it) {
+    const std::size_t dot = it.key().find('.');
+    if (dot == std::string::npos || !IsPolyLanguageAlias(
+                                       std::string_view(it.key()).substr(0, dot))) {
+      continue;
+    }
+    const std::string canonical = "poly" + it.key().substr(dot);
+    if (it.key() == canonical) continue;
+    const bool already_promoted =
+        std::any_of(promoted.begin(), promoted.end(),
+                    [&](const auto &item) { return item.first == canonical; });
+    if (!layer.contains(canonical) && !already_promoted)
+      promoted.emplace_back(canonical, *it);
+    legacy_keys.push_back(it.key());
+  }
+  for (auto &[key, value] : promoted) layer[key] = std::move(value);
+  for (const auto &key : legacy_keys) layer.erase(key);
+
+  // Also accept nested Poly/Ploy spelling variants.
+  PromotePolyObjectMembers(layer);
+
+  auto normalize_servers = [](json &servers) {
+    PromotePolyObjectMembers(servers);
+  };
+  if (auto flat = layer.find("languageServers.servers");
+      flat != layer.end() && flat->is_object()) {
+    normalize_servers(*flat);
+  }
+  if (auto language_servers = layer.find("languageServers");
+      language_servers != layer.end() && language_servers->is_object()) {
+    auto servers = language_servers->find("servers");
+    if (servers != language_servers->end() && servers->is_object()) {
+      normalize_servers(*servers);
+    }
+  }
+
+  auto normalize_associations = [](json &associations) {
+    if (!associations.is_object()) return;
+    for (auto it = associations.begin(); it != associations.end(); ++it) {
+      if (it->is_string()) {
+        *it = CanonicalPolyLanguage(it->get<std::string>());
+      }
+    }
+  };
+  if (auto flat = layer.find("files.associations");
+      flat != layer.end() && flat->is_object()) {
+    normalize_associations(*flat);
+  }
+  if (auto files = layer.find("files"); files != layer.end() && files->is_object()) {
+    auto associations = files->find("associations");
+    if (associations != files->end() && associations->is_object()) {
+      normalize_associations(*associations);
+    }
+  }
+}
+
+}  // namespace
 
 json GetByDottedKey(const json &tree, const std::string &dotted_key) {
   // Settings keys are stored as flat dotted strings (e.g. "editor.tabSize")
@@ -275,6 +393,9 @@ EffectiveSettings LoadEffectiveSettingsExplicit(const std::string &defaults_json
       out.workspace = json::object();
     }
   }
+
+  NormalizePolyNamingAliases(out.user);
+  NormalizePolyNamingAliases(out.workspace);
 
   // Merge.
   out.effective = out.defaults;

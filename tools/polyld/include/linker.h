@@ -486,7 +486,7 @@ struct LinkerConfig {
   std::string linker_script; // Custom linker script
 
   // Cross-language linking
-  std::vector<std::string> ploy_descriptor_files; // --ploy-desc files (aux descriptors)
+  std::vector<std::string> ploy_descriptor_files; // --poly-desc files (aux descriptors)
   std::string aux_dir;                            // --aux-dir path for auto-discovery
   bool allow_adhoc_link{false};                   // --allow-adhoc-link: permit ad-hoc stubs
 

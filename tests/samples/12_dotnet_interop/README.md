@@ -6,12 +6,12 @@ Cross-language NEW / METHOD against a .NET (C#) class fed by Python statistics u
 | --- | --- |
 | Languages | C#, Python |
 | Keywords  | NEW, METHOD (.NET) |
-| Entry     | `dotnet_interop.ploy` |
+| Entry     | `dotnet_interop.poly` |
 
 ## Build
 
 ```powershell
-polyc 12_dotnet_interop\dotnet_interop.ploy --emit-obj=dotnet_interop.pobj --obj-format=pobj
+polyc 12_dotnet_interop\dotnet_interop.poly --emit-obj=dotnet_interop.pobj --obj-format=pobj
 polyld dotnet_interop.pobj -o dotnet_interop.exe
 ```
 

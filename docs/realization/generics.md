@@ -2,7 +2,7 @@
 
 ## Surface syntax
 
-```ploy
+```poly
 FUNC max<T: Comparable>(a: T, b: T) -> T {
     IF (a > b) { RETURN a; } ELSE { RETURN b; }
 }

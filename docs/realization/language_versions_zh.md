@@ -8,7 +8,7 @@ javascript / ruby）和"语言版本"（如 `c++20`、`python 3.11`、`java 17`�
 的版本达成一致的基础设施。
 
 > 本里程碑（Phase 1）交付：类型体系、CLI 入口、`polyver` 工具链管理器、
-> 三个新诊断码以及通过 `polyc` 的转发链路。各前端的版本门控、ploy `LANG`
+> 三个新诊断码以及通过 `polyc` 的转发链路。各前端的版本门控、poly `LANG`
 > 语法、运行时 ABI 选择、UI 工具链页和集成测试集分别在 Phase 2 与 Phase 3
 > 中跟踪。
 
@@ -32,7 +32,7 @@ javascript / ruby）和"语言版本"（如 `c++20`、`python 3.11`、`java 17`�
 
 对一个翻译单元，最终生效的版本按下列顺序确定：
 
-1. **显式调用注解**（Phase 2 — ploy 的 `@LANG(version)` / `WITH LANG`）；
+1. **显式调用注解**（Phase 2 — poly 的 `@LANG(version)` / `WITH LANG`）；
 2. **文件级 pragma**（前端各自约定，例如 C++ `#pragma poly std=c++23`）；
 3. **项目固定** &mdash; `<项目根>/.polyglot/toolchains.lock` 中的条目
    （由 `polyver use` 写入）；
@@ -133,9 +133,9 @@ polyver --help                       打印帮助信息
 
 ## 后续路线（仍是 WIP）
 
-* **Phase 2 &mdash; ploy 语法（已完成）**：模块级 `LANG <name> = "<ver>";`、
+* **Phase 2 &mdash; poly 语法（已完成）**：模块级 `LANG <name> = "<ver>";`、
   作用域块 `WITH LANG (name=ver, …) { … }`，以及单语句注解
-  `@LANG (name=ver) <stmt>` 已在 ploy 词法 / 语法 / 语义阶段全链路落地。
+  `@LANG (name=ver) <stmt>` 已在 poly 词法 / 语法 / 语义阶段全链路落地。
   语义阶段维护一个 pin 栈：模块层 pragma 写入栈底，`WITH LANG` /
   `@LANG` push / pop 内层 frame，`AnalyzeCrossLangCall` /
   `AnalyzeNewExpression` / `AnalyzeMethodCallExpression` /
@@ -162,7 +162,7 @@ polyver --help                       打印帮助信息
   LINK 生成独立描述符。下沉阶段还会递归进入 `WithLangBlock::body` 与
   `LangAnnotation::target`，让被包裹的 LINK / CALL 全部到达描述符流水线。
 * **Phase 3（已完成）** &mdash; `polyui` 的 Tool-chains 页面调用
-  `polyver list/detect`、ploy `LANG` 的语法高亮，以及
+  `polyver list/detect`、poly `LANG` 的语法高亮，以及
   `tests/integration/language_versions/` 下九个语言的集成测试目录（含
   逐调用点双 pin 共存路径）。
 

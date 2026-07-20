@@ -9,8 +9,11 @@
 #include "runtime/include/services/call_trace.h"
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <cstring>
 #include <cstdio>
+#include <iterator>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -41,6 +44,26 @@ inline std::uint64_t NowNs() {
       std::chrono::duration_cast<std::chrono::nanoseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
           .count());
+}
+
+const char *CanonicalLanguage(const char *language) {
+  if (language == nullptr) {
+    return "unknown";
+  }
+  // The C ABI name is intentionally retained for 1.x binaries.  Normalize
+  // their historical language payload before it reaches profile metadata.
+  if (std::strlen(language) == 4) {
+    char folded[5]{};
+    for (std::size_t i = 0; i < 4; ++i) {
+      folded[i] = static_cast<char>(
+          std::tolower(static_cast<unsigned char>(language[i])));
+    }
+    if (std::strcmp(folded, "poly") == 0 ||
+        std::strcmp(folded, "ploy") == 0) {
+      return "poly";
+    }
+  }
+  return language;
 }
 
 } // namespace
@@ -84,7 +107,7 @@ void CallTracer::Enter(const char *qualified_name, const char *language) {
   // Push a frame onto the per-thread stack.  Inclusive timing accrues
   // here; the global table is touched only on Exit so contention is
   // bounded by the function frequency rather than the call duration.
-  ::LocalEntry frame{qualified_name, language ? language : "unknown",
+  ::LocalEntry frame{qualified_name, ::CanonicalLanguage(language),
                      std::chrono::steady_clock::now(), 0};
   ::tl_stack.push_back(frame);
   total_events_.fetch_add(1, std::memory_order_relaxed);
@@ -206,7 +229,7 @@ std::string CallTracer::SerializeJson(const CallTraceSnapshot &snap) {
     os << "{\"name\":";
     EscapeJsonString(os, e.qualified_name);
     os << ",\"language\":";
-    EscapeJsonString(os, e.language);
+    EscapeJsonString(os, ::CanonicalLanguage(e.language.c_str()));
     os << ",\"call_count\":" << e.call_count;
     os << ",\"inclusive_ns\":" << e.inclusive_ns;
     os << ",\"self_ns\":" << e.self_ns << '}';

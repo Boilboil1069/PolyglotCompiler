@@ -56,7 +56,7 @@ AnalyzeResult Analyze(const std::string &code) {
 }  // namespace
 
 TEST_CASE("Generic FUNC parses with bounded type parameter",
-          "[ploy][parser][sema][generics]") {
+          "[poly][parser][sema][generics]") {
     auto r = Analyze(
         "FUNC max<T: Comparable>(a: T, b: T) -> T { RETURN a; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -70,7 +70,7 @@ TEST_CASE("Generic FUNC parses with bounded type parameter",
 }
 
 TEST_CASE("Generic FUNC parses with multiple type parameters",
-          "[ploy][parser][generics]") {
+          "[poly][parser][generics]") {
     auto r = Analyze(
         "FUNC zip<A, B>(a: A, b: B) -> A { RETURN a; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -84,7 +84,7 @@ TEST_CASE("Generic FUNC parses with multiple type parameters",
 }
 
 TEST_CASE("WHERE clause merges into type parameter bounds",
-          "[ploy][parser][sema][generics][where]") {
+          "[poly][parser][sema][generics][where]") {
     auto r = Analyze(
         "FUNC f<T>(x: T) -> T WHERE T: Numeric { RETURN x; }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -96,7 +96,7 @@ TEST_CASE("WHERE clause merges into type parameter bounds",
 }
 
 TEST_CASE("WHERE clause referencing unknown parameter is rejected",
-          "[ploy][parser][generics][where]") {
+          "[poly][parser][generics][where]") {
     auto r = Analyze(
         "FUNC f<T>(x: T) -> T WHERE U: Numeric { RETURN x; }");
     CHECK(r.diags.HasErrors());
@@ -111,7 +111,7 @@ TEST_CASE("WHERE clause referencing unknown parameter is rejected",
 }
 
 TEST_CASE("Unknown built-in bound is rejected by sema",
-          "[ploy][sema][generics][bounds]") {
+          "[poly][sema][generics][bounds]") {
     auto r = Analyze(
         "FUNC f<T: Frobnicable>(x: T) -> T { RETURN x; }");
     CHECK(r.diags.HasErrors());
@@ -126,7 +126,7 @@ TEST_CASE("Unknown built-in bound is rejected by sema",
 }
 
 TEST_CASE("Generic STRUCT parses and records type parameters",
-          "[ploy][parser][sema][generics][struct]") {
+          "[poly][parser][sema][generics][struct]") {
     auto r = Analyze(
         "STRUCT Pair<A, B> { first: A, second: B }");
     REQUIRE_FALSE(r.diags.HasErrors());
@@ -141,7 +141,7 @@ TEST_CASE("Generic STRUCT parses and records type parameters",
 }
 
 TEST_CASE("Generic STRUCT instantiation in field type resolves cleanly",
-          "[ploy][sema][generics][struct]") {
+          "[poly][sema][generics][struct]") {
     auto r = Analyze(
         "STRUCT Pair<A, B> { first: A, second: B } "
         "STRUCT Holder { p: Pair<i32, STRING> }");
@@ -149,7 +149,7 @@ TEST_CASE("Generic STRUCT instantiation in field type resolves cleanly",
 }
 
 TEST_CASE("Plain FUNC stays non-generic",
-          "[ploy][parser][generics]") {
+          "[poly][parser][generics]") {
     auto r = Analyze("FUNC plain() -> i32 { RETURN 1; }");
     REQUIRE_FALSE(r.diags.HasErrors());
     auto fn = std::dynamic_pointer_cast<FuncDecl>(r.module->declarations[0]);

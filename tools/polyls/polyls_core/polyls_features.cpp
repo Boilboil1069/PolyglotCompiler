@@ -5,13 +5,13 @@
  *
  * Implements demand 2026-04-28-21 §4 — `textDocument/completion`,
  * `completionItem/resolve`, `textDocument/hover` and
- * `textDocument/signatureHelp` for `.ploy` documents.  The
+ * `textDocument/signatureHelp` for `.poly` documents.  The
  * implementation is self-contained and does not depend on any Qt
  * widgets so the polyls binary remains a headless console process.
  *
  * Algorithms are deliberately lightweight:
  *
- *   • Keywords: hard-coded list of `.ploy` keywords with snippet
+ *   • Keywords: hard-coded list of `.poly` keywords with snippet
  *     templates aligned with the IDE's existing editor table.
  *   • Document symbols: a single regex-free pass over the source
  *     extracts FUNC / PIPELINE / LET / VAR / STRUCT / IMPORT entries
@@ -123,7 +123,7 @@ bool IsLinkLanguageContext(std::string_view line, std::size_t column,
   return true;
 }
 
-/// Document symbol parsed from a `.ploy` source.  Positions are 0-based
+/// Document symbol parsed from a `.poly` source.  Positions are 0-based
 /// to match the LSP wire format.
 struct PloySymbol {
   std::string name;
@@ -252,7 +252,7 @@ std::vector<PloySymbol> CollectDocumentSymbols(std::string_view text) {
   return out;
 }
 
-/// Hard-coded keyword table for `.ploy`.  Keep in sync with
+/// Hard-coded keyword table for `.poly`.  Keep in sync with
 /// CompilerService::GetPloyCompletions() so the in-process editor
 /// completion list and the LSP one offer the same coverage.
 struct PloyKeyword {
@@ -364,9 +364,9 @@ void PolylsServer::HandleCompletion(int id, const Json &params) {
     language_id = it->second.language_id;
   }
 
-  // Only `.ploy` is owned by polyls.  Foreign language ids return an
+  // Only `.poly` is owned by polyls.  Foreign language ids return an
   // empty list so the editor's local completer takes over.
-  if (language_id != "ploy" && language_id != "poly") {
+  if (language_id != "poly" && language_id != "ploy") {
     SendResponse(id, Json::array());
     return;
   }
@@ -502,18 +502,18 @@ void PolylsServer::HandleHover(int id, const Json &params) {
   for (const auto &sym : CollectDocumentSymbols(text)) {
     if (sym.name != ident) continue;
     if (sym.kind == "func") {
-      markdown = "```ploy\nFUNC " + sym.name + sym.params;
+      markdown = "```poly\nFUNC " + sym.name + sym.params;
       if (!sym.return_type.empty()) markdown += " -> " + sym.return_type;
       markdown += "\n```\n\n*User-defined function.*";
     } else if (sym.kind == "pipeline") {
-      markdown = "```ploy\nPIPELINE " + sym.name + "\n```\n\n*User-defined pipeline.*";
+      markdown = "```poly\nPIPELINE " + sym.name + "\n```\n\n*User-defined pipeline.*";
     } else if (sym.kind == "struct") {
-      markdown = "```ploy\nSTRUCT " + sym.name + "\n```\n\n*User-defined struct.*";
+      markdown = "```poly\nSTRUCT " + sym.name + "\n```\n\n*User-defined struct.*";
     } else if (sym.kind == "let" || sym.kind == "var") {
-      markdown = "```ploy\n" + std::string(sym.kind == "let" ? "LET " : "VAR ") +
+      markdown = "```poly\n" + std::string(sym.kind == "let" ? "LET " : "VAR ") +
                  sym.name + "\n```\n\n*Local variable.*";
     } else if (sym.kind == "import") {
-      markdown = "```ploy\nIMPORT " + sym.return_type + " PACKAGE " + sym.name +
+      markdown = "```poly\nIMPORT " + sym.return_type + " PACKAGE " + sym.name +
                  "\n```\n\n*Imported package — cross-language symbols are " +
                  "available through `" + sym.return_type + "::" + sym.name + "::…`*";
     }
@@ -712,7 +712,7 @@ void PolylsServer::HandleDocumentSymbol(int id, const Json &params) {
     text = it->second.text;
     language_id = it->second.language_id;
   }
-  if (language_id != "ploy" && language_id != "poly") {
+  if (language_id != "poly" && language_id != "ploy") {
     // Foreign languages: foster the editor's own outline by returning
     // an empty array (LSP spec permits this).
     SendResponse(id, Json::array());
@@ -852,7 +852,7 @@ void PolylsServer::HandleFormatting(int id, const Json &params) {
     text = it->second.text;
     language_id = it->second.language_id;
   }
-  if (language_id != "ploy" && language_id != "poly") {
+  if (language_id != "poly" && language_id != "ploy") {
     // Foreign languages would route through their own LSP — we
     // return an empty edit list so the editor falls back gracefully.
     SendResponse(id, Json::array());
@@ -864,7 +864,7 @@ void PolylsServer::HandleFormatting(int id, const Json &params) {
 }
 
 void PolylsServer::HandleRangeFormatting(int id, const Json &params) {
-  // For Ploy we re-format the whole document (range formatting falls
+  // For Poly we re-format the whole document (range formatting falls
   // back to full formatting because re-indenting a sub-range without
   // its enclosing brace context produces unstable results).
   HandleFormatting(id, params);

@@ -18,6 +18,26 @@
 
 namespace polyglot::linker {
 
+namespace {
+
+std::string CanonicalLanguage(std::string language) {
+  std::string folded = language;
+  std::transform(folded.begin(), folded.end(), folded.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (folded == "poly" || folded == "ploy")
+    return "poly";
+  return language;
+}
+
+// Language names are canonicalized in descriptor metadata, while bridge
+// symbol spelling remains part of the historical __ploy_* runtime ABI.
+std::string AbiLanguageToken(const std::string &language) {
+  const std::string canonical = CanonicalLanguage(language);
+  return canonical == "poly" ? "ploy" : canonical;
+}
+
+} // namespace
+
 // ============================================================================
 // Container type detection helpers
 // ============================================================================
@@ -59,15 +79,29 @@ PolyglotLinker::PolyglotLinker(const LinkerConfig &config) : config_(config) {}
 // ============================================================================
 
 void PolyglotLinker::AddCallDescriptor(const ploy::CrossLangCallDescriptor &desc) {
-  call_descriptors_.push_back(desc);
+  auto canonical = desc;
+  canonical.source_language = CanonicalLanguage(canonical.source_language);
+  canonical.target_language = CanonicalLanguage(canonical.target_language);
+  call_descriptors_.push_back(std::move(canonical));
 }
 
 void PolyglotLinker::AddLinkEntry(const ploy::LinkEntry &entry) {
-  link_entries_.push_back(entry);
+  auto canonical = entry;
+  canonical.source_language = CanonicalLanguage(canonical.source_language);
+  canonical.target_language = CanonicalLanguage(canonical.target_language);
+  for (auto &mapping : canonical.param_mappings) {
+    if (!mapping.source_language.empty())
+      mapping.source_language = CanonicalLanguage(mapping.source_language);
+    if (!mapping.target_language.empty())
+      mapping.target_language = CanonicalLanguage(mapping.target_language);
+  }
+  link_entries_.push_back(std::move(canonical));
 }
 
 void PolyglotLinker::AddCrossLangSymbol(const CrossLangSymbol &sym) {
-  cross_lang_symbols_.push_back(sym);
+  auto canonical = sym;
+  canonical.language = CanonicalLanguage(canonical.language);
+  cross_lang_symbols_.push_back(std::move(canonical));
 }
 
 // ============================================================================
@@ -83,7 +117,7 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
 
   // Set of known languages for validation
   static const std::unordered_set<std::string> known_languages = {
-      "cpp", "c", "python", "rust", "java", "dotnet", "csharp", "ploy"};
+      "cpp", "c", "python", "rust", "java", "dotnet", "csharp", "poly"};
 
   auto is_valid_language = [&](const std::string &lang) { return known_languages.count(lang) > 0; };
 
@@ -116,6 +150,9 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
         has_errors = true;
         continue;
       }
+
+      target_lang = CanonicalLanguage(target_lang);
+      source_lang = CanonicalLanguage(source_lang);
 
       // Validate languages
       if (!is_valid_language(target_lang)) {
@@ -166,14 +203,14 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
       ploy::TypeMappingEntry mapping;
       auto src_sep = src_spec.find("::");
       if (src_sep != std::string::npos) {
-        mapping.source_language = src_spec.substr(0, src_sep);
+        mapping.source_language = CanonicalLanguage(src_spec.substr(0, src_sep));
         mapping.source_type = src_spec.substr(src_sep + 2);
       } else {
         mapping.source_type = src_spec;
       }
       auto tgt_sep = tgt_spec.find("::");
       if (tgt_sep != std::string::npos) {
-        mapping.target_language = tgt_spec.substr(0, tgt_sep);
+        mapping.target_language = CanonicalLanguage(tgt_spec.substr(0, tgt_sep));
         mapping.target_type = tgt_spec.substr(tgt_sep + 2);
       } else {
         mapping.target_type = tgt_spec;
@@ -189,6 +226,9 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
         has_errors = true;
         continue;
       }
+
+      src_lang = CanonicalLanguage(src_lang);
+      tgt_lang = CanonicalLanguage(tgt_lang);
 
       // Validate languages
       if (!is_valid_language(src_lang)) {
@@ -227,6 +267,7 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
         has_errors = true;
         continue;
       }
+      lang = CanonicalLanguage(lang);
       if (!is_valid_language(lang)) {
         ReportError("unknown language '" + lang + "' in VERSION at " + path + ":" +
                     std::to_string(line_num));
@@ -255,6 +296,8 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
         has_errors = true;
         continue;
       }
+
+      lang = CanonicalLanguage(lang);
 
       // Validate language
       if (!is_valid_language(lang)) {
@@ -305,7 +348,7 @@ bool PolyglotLinker::ResolveLinks() {
 
   // Cross-module signature consistency check: when multiple call descriptors
   // reference the same source function, verify that their parameter counts
-  // and types agree.  Mismatches indicate that different .ploy modules have
+  // and types agree.  Mismatches indicate that different .poly modules have
   // conflicting views of the same foreign function.
   {
     std::unordered_map<std::string, const ploy::CrossLangCallDescriptor *> seen_sigs;
@@ -602,8 +645,10 @@ bool PolyglotLinker::ResolveSymbolPair(const ploy::LinkEntry &entry) {
 
 CrossLangSymbol *PolyglotLinker::FindSymbolByName(const std::string &name,
                                                   const std::string &language) {
+  const std::string canonical_language = CanonicalLanguage(language);
   for (auto &sym : cross_lang_symbols_) {
-    if ((sym.name == name || sym.mangled_name == name) && sym.language == language) {
+    if ((sym.name == name || sym.mangled_name == name) &&
+        CanonicalLanguage(sym.language) == canonical_language) {
       return &sym;
     }
   }
@@ -626,9 +671,10 @@ GlueStub PolyglotLinker::GenerateGlueStub(const ploy::LinkEntry &entry,
   // Generate the stub name. When the LinkEntry carries a pinned foreign
   // language version (e.g. python=3.11) embed it as a `_v<sanitized_version>_`
   // segment so that distinct toolchains route to distinct bridges. The
-  // sanitisation rule mirrors `MangleStubName` in the ploy lowering: any
+  // sanitisation rule mirrors `MangleStubName` in the poly lowering: any
   // non-alphanumeric character is normalised to `_`.
-  stub.stub_name = "__ploy_bridge_" + entry.target_language + "_" + entry.source_language + "_";
+  stub.stub_name = "__ploy_bridge_" + AbiLanguageToken(entry.target_language) + "_" +
+                   AbiLanguageToken(entry.source_language) + "_";
   if (!entry.lang_version.empty()) {
     stub.stub_name += "v";
     for (char c : entry.lang_version) {

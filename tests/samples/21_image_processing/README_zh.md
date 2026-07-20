@@ -5,13 +5,13 @@
 | 字段 | 值 |
 | --- | --- |
 | 语言 | C++、Rust |
-| 入口 | `image_processing.ploy` |
+| 入口 | `image_processing.poly` |
 | 主题 | 图像处理内核 |
 | 预期 stdout | `21_image_processing: ok\r\n` |
 
 ## 文件
 
-- `image_processing.ploy` — `.ploy` 入口文件，串联各宿主语言源文件。
+- `image_processing.poly` — `.poly` 入口文件，串联各宿主语言源文件。
 - `expected_output.txt` — 回归脚本进行字节对比的预期 stdout。
 - `greyscale_kernel.cpp` — 宿主语言源文件
 - `box_blur.rs` — 宿主语言源文件
@@ -19,7 +19,7 @@
 ## 构建
 
 ```powershell
-polyc image_processing.ploy --emit-obj=build/image_processing.obj --quiet
+polyc image_processing.poly --emit-obj=build/image_processing.obj --quiet
 polyld build/image_processing.obj -o build/image_processing.exe
 ./build/image_processing.exe
 ```

@@ -1,13 +1,13 @@
 {
-  "module": "pipeline.ploy",
-  "source_file": "<SOURCE>/05_topology/pipeline.ploy",
+  "module": "pipeline.poly",
+  "source_file": "<SOURCE>/05_topology/pipeline.poly",
   "node_count": 1,
   "edge_count": 0,
   "nodes": [
     {
       "id": 1,
       "name": "pipeline:audit",
-      "language": "ploy",
+      "language": "poly",
       "kind": "pipeline",
       "is_linked": false,
       "inputs": [],

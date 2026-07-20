@@ -3,7 +3,7 @@
 //
 // These tests verify complete end-to-end compilation pipelines:
 // lexer ->parser ->sema ->lowering ->IR output, for realistic
-// multi-feature .ploy programs.
+// multi-feature .poly programs.
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
@@ -619,7 +619,7 @@ EXPORT game_pipeline AS "game";
 // E2E: Frontend ->Backend x86_64 Assembly Emission
 // ============================================================================
 
-TEST_CASE("E2E: ploy compile to x86_64 assembly", "[integration][e2e][x86]") {
+TEST_CASE("E2E: poly compile to x86_64 assembly", "[integration][e2e][x86]") {
     Diagnostics diags;
     std::string code = R"(
 LINK(cpp, python, math_ops::add, format_utils::to_str) {
@@ -656,7 +656,7 @@ FUNC compute(x: i64) -> i64 {
 // E2E: Frontend ->Backend ARM64 Assembly Emission
 // ============================================================================
 
-TEST_CASE("E2E: ploy compile to arm64 assembly", "[integration][e2e][arm64]") {
+TEST_CASE("E2E: poly compile to arm64 assembly", "[integration][e2e][arm64]") {
     Diagnostics diags;
     std::string code = R"(
 LINK(cpp, python, engine::run, data::fetch) {
@@ -688,7 +688,7 @@ FUNC engine_main() -> i64 {
 // E2E: Frontend ->Backend WASM Assembly (WAT) Emission
 // ============================================================================
 
-TEST_CASE("E2E: ploy compile to wasm WAT", "[integration][e2e][wasm]") {
+TEST_CASE("E2E: poly compile to wasm WAT", "[integration][e2e][wasm]") {
     Diagnostics diags;
     std::string code = R"(
 LINK(cpp, python, math::multiply, formatter::print) {
@@ -766,7 +766,7 @@ FUNC run(n: i64) -> i64 {
         linker.AddCallDescriptor(desc);
     }
 
-    // Add the LINK entry that corresponds to the .ploy LINK declaration
+    // Add the LINK entry that corresponds to the .poly LINK declaration
     polyglot::ploy::LinkEntry link_entry;
     link_entry.kind = polyglot::ploy::LinkDecl::LinkKind::kFunction;
     link_entry.target_language = "cpp";
@@ -855,7 +855,7 @@ TEST_CASE("E2E: LoadDescriptorFile feeds real descriptors into PolyglotLinker",
     //   3. Verify ResolveLinks() succeeds and stubs are generated
     //
     // The descriptor file format mirrors what CompilationPipeline::RunBridgeGeneration()
-    // writes to aux/<stem>_link_descriptors.paux and passes as --ploy-desc to polyld.
+    // writes to aux/<stem>_link_descriptors.paux and passes as --poly-desc to polyld.
 
     // Build a minimal descriptor file in a temp buffer
     std::string desc_content =
@@ -929,6 +929,35 @@ TEST_CASE("E2E: DiscoverDescriptors picks up _link_descriptors.paux from aux dir
     REQUIRE_FALSE(linker.GetStubs().empty());
 
     fs::remove_all(aux_dir, ec);
+}
+
+TEST_CASE("E2E: legacy ploy descriptors normalize metadata but preserve bridge ABI",
+          "[integration][e2e][linker][descriptor-compat]") {
+    namespace fs = std::filesystem;
+    fs::path tmp_dir = fs::temp_directory_path() / "polyglot_test_legacy_ploy_descriptor";
+    std::error_code ec;
+    fs::create_directories(tmp_dir, ec);
+    REQUIRE_FALSE(ec);
+    fs::path desc_file = tmp_dir / "legacy_descriptors.paux";
+    {
+        std::ofstream ofs(desc_file);
+        REQUIRE(ofs.is_open());
+        ofs << "LINK cpp PloY native::work local_work\n";
+        ofs << "SYMBOL native::work cpp native::work\n";
+        ofs << "SYMBOL local_work pLoY local_work\n";
+    }
+
+    polyglot::linker::LinkerConfig config;
+    polyglot::linker::PolyglotLinker linker(config);
+    REQUIRE(linker.LoadDescriptorFile(desc_file.string()));
+    REQUIRE(linker.ResolveLinks());
+    REQUIRE(linker.GetStubs().size() == 1);
+    const auto &stub = linker.GetStubs().front();
+    CHECK(stub.source_language == "poly");
+    CHECK(stub.stub_name.find("__ploy_bridge_cpp_ploy_") == 0);
+    CHECK(stub.stub_name.find("_poly_") == std::string::npos);
+
+    fs::remove_all(tmp_dir, ec);
 }
 
 // ============================================================================
@@ -1359,10 +1388,10 @@ TEST_CASE("E2E: cpp->python dict marshal stub uses pydict helper",
 }
 
 // ---------------------------------------------------------------------------
-// 10. Full .ploy compile -> linker -> stub generation pipeline
+// 10. Full .poly compile -> linker -> stub generation pipeline
 // ---------------------------------------------------------------------------
 
-TEST_CASE("E2E: .ploy compile pipeline produces stub with GIL for Python call",
+TEST_CASE("E2E: .poly compile pipeline produces stub with GIL for Python call",
           "[integration][e2e][linker][marshal][pipeline]") {
     Diagnostics diags;
     std::string code = R"(

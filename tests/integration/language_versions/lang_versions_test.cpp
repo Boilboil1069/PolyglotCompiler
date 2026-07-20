@@ -1,5 +1,5 @@
 // ============================================================================
-// Integration Tests — Per-language version gating and ploy LANG propagation
+// Integration Tests — Per-language version gating and poly LANG propagation
 //
 // This suite validates the language-version pinning machinery introduced
 // for cross-language compilation:
@@ -10,10 +10,10 @@
 //     source with `kLangVersionMismatch` under an older one.
 //   * The Go and Ruby frontends do not yet implement parser-level gating
 //     for the demand-prescribed features (generics, pattern matching),
-//     so for those languages we instead assert that the .ploy `LANG`
+//     so for those languages we instead assert that the .poly `LANG`
 //     pragma propagates a version pin into every cross-language call
 //     directed at that language.
-//   * Per-call-site `@LANG` annotations on the same .ploy module produce
+//   * Per-call-site `@LANG` annotations on the same .poly module produce
 //     two distinct `lang_version_pin` values for two LINKs to the same
 //     target language — proving the dual-ABI bridge code path is
 //     reachable.
@@ -64,7 +64,7 @@ size_t CountVersionMismatches(const Diagnostics &diags) {
     return n;
 }
 
-// Walk a ploy module and return every cross-language call expression.
+// Walk a poly module and return every cross-language call expression.
 void CollectCallsInExpression(const std::shared_ptr<polyglot::ploy::Expression> &expr,
                               std::vector<std::shared_ptr<polyglot::ploy::CrossLangCallExpression>>
                                   &out) {
@@ -322,7 +322,7 @@ TEST_CASE("Lang versions / JS: optional chaining is rejected on ES2017",
 }
 
 // ============================================================================
-// Go / Ruby — propagation through .ploy LANG pragma
+// Go / Ruby — propagation through .poly LANG pragma
 // (Go generics and Ruby `case ... in` are not parser-gated yet; the pin
 // is still required to flow through to every cross-language call so the
 // runtime / linker stage can dispatch to a matching toolchain.)
@@ -331,7 +331,7 @@ TEST_CASE("Lang versions / JS: optional chaining is rejected on ES2017",
 namespace {
 
 std::shared_ptr<polyglot::ploy::Module> ParsePloy(const std::string &code, Diagnostics &diags) {
-    polyglot::ploy::PloyLexer lexer(code, "<ploy>");
+    polyglot::ploy::PloyLexer lexer(code, "<poly>");
     polyglot::ploy::PloyParser parser(lexer, diags);
     parser.ParseModule();
     auto mod = parser.TakeModule();
@@ -346,15 +346,15 @@ std::shared_ptr<polyglot::ploy::Module> ParsePloy(const std::string &code, Diagn
 
 TEST_CASE("Lang versions / Go: LANG pragma propagates 1.18 onto every call",
           "[lang-versions][go]") {
-    const std::string code = R"PLOY(
+    const std::string code = R"POLY(
 LANG go = "1.18";
 
-LINK(go, ploy, slices::map, host_slices_map);
-LINK(go, ploy, slices::filter, host_slices_filter);
+LINK(go, poly, slices::map, host_slices_map);
+LINK(go, poly, slices::filter, host_slices_filter);
 
 CALL(go, slices::map, 1);
 CALL(go, slices::filter, 2);
-)PLOY";
+)POLY";
     Diagnostics diags;
     auto mod = ParsePloy(code, diags);
     REQUIRE(mod != nullptr);
@@ -383,15 +383,15 @@ TEST_CASE("Lang versions / Go: missing pragma leaves pin empty", "[lang-versions
 
 TEST_CASE("Lang versions / Ruby: LANG pragma propagates 3.0 onto every call",
           "[lang-versions][ruby]") {
-    const std::string code = R"PLOY(
+    const std::string code = R"POLY(
 LANG ruby = "3.0";
 
-LINK(ruby, ploy, kernel::puts, host_puts);
-LINK(ruby, ploy, kernel::raise, host_raise);
+LINK(ruby, poly, kernel::puts, host_puts);
+LINK(ruby, poly, kernel::raise, host_raise);
 
 CALL(ruby, kernel::puts, "hi");
 CALL(ruby, kernel::raise, "boom");
-)PLOY";
+)POLY";
     Diagnostics diags;
     auto mod = ParsePloy(code, diags);
     REQUIRE(mod != nullptr);
@@ -423,14 +423,14 @@ TEST_CASE("Lang versions / Ruby: missing pragma leaves pin empty",
 // Per-callsite version coexistence
 // ============================================================================
 
-TEST_CASE("Lang versions / ploy: per-callsite @LANG produces dual ABI pins",
-          "[lang-versions][ploy][per-callsite]") {
-    const std::string code = R"PLOY(
+TEST_CASE("Lang versions / poly: per-callsite @LANG produces dual ABI pins",
+          "[lang-versions][poly][per-callsite]") {
+    const std::string code = R"POLY(
 LANG cpp = "c++17";
 
-LINK(cpp, ploy, math17::add, host::add17);
+LINK(cpp, poly, math17::add, host::add17);
 @LANG (cpp="c++23")
-LINK(cpp, ploy, math23::add, host::add23);
+LINK(cpp, poly, math23::add, host::add23);
 
 FUNC mix(a: INT, b: INT) -> INT {
     LET r17 = CALL(cpp, math17::add, a, b);
@@ -438,7 +438,7 @@ FUNC mix(a: INT, b: INT) -> INT {
     LET r23 = CALL(cpp, math23::add, a, b);
     RETURN r17 + r23;
 }
-)PLOY";
+)POLY";
 
     Diagnostics diags;
     auto mod = ParsePloy(code, diags);

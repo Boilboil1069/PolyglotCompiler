@@ -1,4 +1,4 @@
-/* Optional Typora colours for ```poly and ```ploy fences.
+/* Optional Typora colours for canonical ```poly and legacy ```ploy fences.
  *
  * The mode only emits standard CodeMirror 5 token classes, so every Typora
  * theme already has a usable fallback. Install this file only when you want

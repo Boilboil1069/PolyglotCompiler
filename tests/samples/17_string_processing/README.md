@@ -5,13 +5,13 @@
 | Field | Value |
 | --- | --- |
 | Languages | Python, Rust |
-| Entry | `string_processing.ploy` |
+| Entry | `string_processing.poly` |
 | Theme | String processing pipeline |
 | Expected stdout | `17_string_processing: ok\r\n` |
 
 ## Files
 
-- `string_processing.ploy` — `.ploy` entry that wires the host sources together.
+- `string_processing.poly` — `.poly` entry that wires the host sources together.
 - `expected_output.txt` — byte-exact runtime stdout the regression harness compares against.
 - `str_tokenizer.rs` — host source file
 - `case_folder.py` — host source file
@@ -19,7 +19,7 @@
 ## Build
 
 ```powershell
-polyc string_processing.ploy --emit-obj=build/string_processing.obj --quiet
+polyc string_processing.poly --emit-obj=build/string_processing.obj --quiet
 polyld build/string_processing.obj -o build/string_processing.exe
 ./build/string_processing.exe
 ```

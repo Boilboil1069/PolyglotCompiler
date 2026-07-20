@@ -1,8 +1,8 @@
 /**
  * @file     package_indexer.cpp
- * @brief    Ploy language frontend implementation
+ * @brief    Poly language frontend implementation
  *
- * @ingroup  Frontend / Ploy
+ * @ingroup  Frontend / Poly
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
@@ -436,7 +436,7 @@ void PackageIndexer::IndexRust(const std::string &crate_dir,
 // Runs `cargo metadata --format-version 1 --no-deps` against `crate_dir` and
 // performs a small purpose-built JSON walk over the resulting payload to
 // extract every entry of the top-level "packages" array.  We deliberately
-// avoid pulling nlohmann::json into the ploy frontend library to keep its
+// avoid pulling nlohmann::json into the poly frontend library to keep its
 // dependency surface minimal — the parsing logic mirrors the npm walker
 // already used by IndexJavaScriptViaNpm.
 //
@@ -1097,7 +1097,7 @@ void PackageIndexer::IndexJavaScriptViaNpm(const std::string &project_path,
   // Tiny dependency-only JSON walker — enough for `npm ls`'s output shape:
   //   { ..., "dependencies": { "name": { "version": "1.2.3", ... }, ... } }
   // We do not pull in nlohmann::json here so the indexer remains
-  // standalone for ploy unit tests.
+  // standalone for poly unit tests.
   size_t deps_pos = out.find("\"dependencies\"");
   if (deps_pos == std::string::npos)
     return;
