@@ -1,0 +1,9 @@
+Order risk report (risk-kernel/1.0)
+A1001  score=  0  action=APPROVE shipping=$6.58
+A1002  score= 75  action=HIGH    shipping=$26.06
+A1003  score=  4  action=APPROVE shipping=$8.17
+A1004  score= 17  action=REVIEW  shipping=$11.99
+A1005  score=100  action=HIGH    shipping=$35.31
+A1006  score=  0  action=APPROVE shipping=$5.01
+Summary: orders=6 amount=$2772.39 shipping=$93.12 approve=3 review=1 high=2
+JSON: build/report.json

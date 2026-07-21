@@ -1,0 +1,33 @@
+// PolyglotCompiler-side contract for the same Python + C++ application.
+// The executable demo currently runs through Python's ctypes bridge; this file
+// is kept compilable by the Poly frontend and documents the intended native
+// orchestration once container marshalling is complete.
+
+IMPORT cpp::risk_kernel;
+IMPORT python::report_pipeline;
+
+// Compatibility LINK form is intentional: the current signed-LINK parser
+// records the signature but does not populate both language fields required by
+// sema. Replace these with signed LINK declarations when that gap is closed.
+LINK(poly, cpp, order_risk::risk_evaluate, risk_kernel::risk_evaluate) RETURNS INT {
+    MAP_TYPE(poly::PTR, cpp::PTR);
+}
+LINK(poly, cpp, order_risk::kernel_version, risk_kernel::risk_kernel_version) RETURNS STRING;
+LINK(poly, python, order_risk::load_orders, report_pipeline::load_orders) RETURNS LIST(ANY) {
+    MAP_TYPE(poly::STRING, python::str);
+}
+
+STRUCT RunSummary {
+    orders: INT;
+    approved: INT;
+    review: INT;
+    high_risk: INT;
+}
+
+PIPELINE order_risk_pipeline {
+    FUNC describe() -> STRING {
+        RETURN "CSV -> Python validation -> C++ scoring -> Python JSON report";
+    }
+}
+
+PRINTLN "order_risk_analyzer: contract ok\r\n";

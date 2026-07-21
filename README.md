@@ -201,6 +201,16 @@ PIPELINE ml_pipeline {
 EXPORT ml_pipeline AS "train_model";
 ```
 
+For a complete runnable application rather than a syntax-only sample, see
+[`examples/order_risk_analyzer`](examples/order_risk_analyzer/README.md). It
+processes real CSV input through Python validation, a compiled C++ scoring
+kernel, and Python JSON reporting, with an ABI contract and end-to-end tests.
+
+如果需要一个完整可运行、而非只展示语法的项目，请参阅
+[`examples/order_risk_analyzer`](examples/order_risk_analyzer/README_zh.md)。
+它将真实 CSV 输入依次交给 Python 校验、C++ 动态库评分和 Python JSON
+报告，并包含 ABI 契约与端到端测试。
+
 ### Core Syntax / 核心语法
 
 | Feature                | Syntax                                                 | Description                                  |
