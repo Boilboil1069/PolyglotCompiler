@@ -1,0 +1,86 @@
+{
+  "name": "Polyglot Solarized Light",
+  "id": "polyglot.solarized-light",
+  "type": "light",
+  "version": "1.0.0",
+  "author": "Polyglot Compiler Project",
+  "description": "Solarized Light by Ethan Schoonover, ported to the polyglot color-key namespace.",
+  "colors": {
+    "workbench.background": "#fdf6e3",
+    "workbench.surface": "#eee8d5",
+    "workbench.surfaceAlt": "#f5efdc",
+    "workbench.border": "#93a1a1",
+
+    "foreground": "#657b83",
+    "descriptionForeground": "#586e75",
+    "disabledForeground": "#93a1a1",
+
+    "focusBorder": "#268bd2",
+    "selectionBackground": "#eee8d5",
+    "selectionForeground": "#586e75",
+
+    "errorForeground": "#dc322f",
+    "editorWarning.foreground": "#b58900",
+    "testing.iconPassed": "#859900",
+    "editorInfo.foreground": "#268bd2",
+
+    "editor.background": "#fdf6e3",
+    "editor.foreground": "#657b83",
+    "editor.selectionBackground": "#eee8d5",
+    "editor.lineHighlightBackground": "#eee8d5",
+    "editorLineNumber.foreground": "#93a1a1",
+    "editorGutter.background": "#fdf6e3",
+
+    "tab.inactiveBackground": "#eee8d5",
+    "tab.activeBackground": "#fdf6e3",
+    "tab.activeBorder": "#268bd2",
+    "tab.hoverBackground": "#e6e0cd",
+    "tab.inactiveForeground": "#93a1a1",
+    "tab.activeForeground": "#586e75",
+
+    "statusBar.background": "#268bd2",
+    "statusBar.foreground": "#fdf6e3",
+
+    "menu.background": "#eee8d5",
+    "menu.foreground": "#657b83",
+    "menu.selectionBackground": "#e6e0cd",
+    "menu.separatorBackground": "#93a1a1",
+
+    "button.secondaryBackground": "#eee8d5",
+    "button.secondaryForeground": "#657b83",
+    "button.secondaryHoverBackground": "#e6e0cd",
+    "button.background": "#268bd2",
+    "button.foreground": "#fdf6e3",
+    "button.hoverBackground": "#2aa198",
+
+    "input.background": "#fdf6e3",
+    "input.foreground": "#657b83",
+    "input.border": "#93a1a1",
+    "input.placeholderForeground": "#93a1a1",
+
+    "scrollbar.shadow": "#fdf6e3",
+    "scrollbarSlider.background": "#eee8d5",
+    "scrollbarSlider.hoverBackground": "#93a1a1",
+
+    "progressBar.background": "#eee8d5",
+    "progressBar.foreground": "#268bd2",
+
+    "topology.node.background": "#eee8d5",
+    "topology.edge.valid": "#859900",
+    "topology.edge.incompatible": "#dc322f"
+  },
+  "tokenColors": [
+    { "name": "Comment",  "scope": ["comment"],
+      "settings": { "foreground": "#93a1a1", "fontStyle": "italic" } },
+    { "name": "String",   "scope": ["string"],
+      "settings": { "foreground": "#2aa198" } },
+    { "name": "Number",   "scope": ["constant.numeric"],
+      "settings": { "foreground": "#d33682" } },
+    { "name": "Keyword",  "scope": ["keyword.control"],
+      "settings": { "foreground": "#859900", "fontStyle": "bold" } },
+    { "name": "Function", "scope": ["entity.name.function"],
+      "settings": { "foreground": "#268bd2" } },
+    { "name": "Type",     "scope": ["entity.name.type"],
+      "settings": { "foreground": "#b58900" } }
+  ]
+}

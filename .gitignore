@@ -54,5 +54,3 @@ tests/samples/*/*.json
 !scripts\package_macos.sh
 
 scripts/dist/*
-
-/tools/ui/common/

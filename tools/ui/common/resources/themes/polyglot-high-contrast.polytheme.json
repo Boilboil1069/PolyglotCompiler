@@ -1,0 +1,69 @@
+{
+  "name": "Polyglot High Contrast",
+  "id": "polyglot.high-contrast",
+  "type": "high-contrast",
+  "version": "1.0.0",
+  "author": "Polyglot Compiler Project",
+  "description": "Pure black + saturated highlights, designed for accessibility (WCAG AAA).",
+  "extends": "polyglot.dark",
+  "colors": {
+    "workbench.background": "#000000",
+    "workbench.surface": "#000000",
+    "workbench.surfaceAlt": "#0a0a0a",
+    "workbench.border": "#6fc3df",
+
+    "foreground": "#ffffff",
+    "descriptionForeground": "#e6e6e6",
+    "disabledForeground": "#7f7f7f",
+
+    "focusBorder": "#f38518",
+    "selectionBackground": "#ffd900",
+    "selectionForeground": "#000000",
+
+    "editor.background": "#000000",
+    "editor.foreground": "#ffffff",
+    "editor.selectionBackground": "#ffd900",
+    "editor.lineHighlightBackground": "#1a1a1a",
+    "editorLineNumber.foreground": "#ffffff",
+    "editorGutter.background": "#000000",
+
+    "tab.inactiveBackground": "#000000",
+    "tab.activeBackground": "#000000",
+    "tab.activeBorder": "#f38518",
+    "tab.hoverBackground": "#1a1a1a",
+    "tab.inactiveForeground": "#e6e6e6",
+    "tab.activeForeground": "#ffffff",
+
+    "statusBar.background": "#000000",
+    "statusBar.foreground": "#ffffff",
+
+    "menu.background": "#000000",
+    "menu.foreground": "#ffffff",
+    "menu.selectionBackground": "#ffd900",
+    "menu.separatorBackground": "#6fc3df",
+
+    "button.secondaryBackground": "#000000",
+    "button.secondaryForeground": "#ffffff",
+    "button.secondaryHoverBackground": "#1a1a1a",
+    "button.background": "#f38518",
+    "button.foreground": "#000000",
+    "button.hoverBackground": "#ffd900",
+
+    "input.background": "#000000",
+    "input.foreground": "#ffffff",
+    "input.border": "#6fc3df",
+    "input.placeholderForeground": "#cccccc",
+
+    "topology.node.background": "#000000",
+    "topology.edge.valid": "#3ff23f",
+    "topology.edge.incompatible": "#ff5555"
+  },
+  "tokenColors": [
+    { "name": "Comment",  "scope": ["comment"],
+      "settings": { "foreground": "#7ca668", "fontStyle": "italic" } },
+    { "name": "String",   "scope": ["string"],
+      "settings": { "foreground": "#ce9178" } },
+    { "name": "Keyword",  "scope": ["keyword.control"],
+      "settings": { "foreground": "#ff80ff", "fontStyle": "bold" } }
+  ]
+}
