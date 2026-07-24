@@ -26,7 +26,8 @@
 
 #include "tools/common/include/effective_settings_loader.h"
 #include "common/include/target_triple.h"
-#include <vector>#include "middle/include/ir/ir_context.h"
+#include <vector>
+#include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/ir_printer.h"
 #include "middle/include/passes/transform/advanced_optimizations.h"
 #include "middle/include/passes/transform/common_subexpr.h"
