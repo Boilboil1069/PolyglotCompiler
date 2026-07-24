@@ -1,0 +1,961 @@
+// Native, cross-language Iris machine-learning pipeline.
+//
+// One polyc invocation owns the Poly control plane, Python/C++/Rust/Go source
+// discovery, the vendored package include, native object generation, raw
+// syscall file runtime injection, and final linking. No system language
+// compiler or VM participates in the build or in execution.
+
+IMPORT cpp PACKAGE iris_fixed >= 1.0;
+IMPORT cpp::fixed_statistics;
+IMPORT python::data_contract;
+IMPORT rust::minibatch_regression;
+IMPORT go::classifiers;
+
+FUNC validate_data() -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN 0; }
+
+    VAR row = 0;
+    VAR class_zero = 0;
+    VAR class_one = 0;
+    VAR class_two = 0;
+    WHILE row < 150 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+
+        LET valid_sl = CALL(python, data_contract::measurement_valid, sepal_length, 43, 79);
+        LET valid_sw = CALL(python, data_contract::measurement_valid, sepal_width, 20, 44);
+        LET valid_pl = CALL(python, data_contract::measurement_valid, petal_length, 10, 69);
+        LET valid_pw = CALL(python, data_contract::measurement_valid, petal_width, 1, 25);
+        LET valid_class = CALL(python, data_contract::class_valid, label, 3, 3);
+        IF valid_sl != 1 { RETURN 0; }
+        IF valid_sw != 1 { RETURN 0; }
+        IF valid_pl != 1 { RETURN 0; }
+        IF valid_pw != 1 { RETURN 0; }
+        IF valid_class != 1 { RETURN 0; }
+
+        IF label == 0 { class_zero = class_zero + 1; }
+        IF label == 1 { class_one = class_one + 1; }
+        IF label == 2 { class_two = class_two + 1; }
+        row = row + 1;
+    }
+
+    LET tail = file_next_int(fd, eof);
+    LET closed = file_close(fd);
+    IF tail != eof { RETURN 0; }
+    IF closed != 0 { RETURN 0; }
+    IF class_zero != 50 { RETURN 0; }
+    IF class_one != 50 { RETURN 0; }
+    IF class_two != 50 { RETURN 0; }
+    RETURN 1;
+}
+
+// Predict petal length in Q10 from three centered features and Q100 weights.
+// Six parameters keep the function within the native System V register ABI;
+// bias is added by the caller.
+FUNC regression_partial(
+    sepal_length: INT,
+    sepal_width: INT,
+    petal_width: INT,
+    weight_zero: INT,
+    weight_one: INT,
+    weight_two: INT
+) -> INT {
+    LET x_zero = CALL(python, data_contract::feature_center, sepal_length, 58, 10);
+    LET x_one = CALL(python, data_contract::feature_center, sepal_width, 30, 10);
+    LET x_two = CALL(cpp, fixed_statistics::fixed_center, petal_width, 12);
+    LET raw_zero = CALL(cpp, fixed_statistics::fixed_term, weight_zero, x_zero);
+    LET raw_one = CALL(cpp, fixed_statistics::fixed_term, weight_one, x_one);
+    LET raw_two = CALL(cpp, fixed_statistics::fixed_term, weight_two, x_two);
+    LET raw_sum = CALL(rust, minibatch_regression::regression_sum3,
+                       raw_zero, raw_one, raw_two);
+    RETURN CALL(cpp, fixed_statistics::fixed_divide, raw_sum, 100);
+}
+
+FUNC regression_training_sae(
+    weight_zero: INT,
+    weight_one: INT,
+    weight_two: INT,
+    bias: INT
+) -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN -1; }
+    VAR row = 0;
+    VAR total_error = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        LET partial = regression_partial(sepal_length, sepal_width, petal_width,
+                                         weight_zero, weight_one, weight_two);
+        LET prediction = partial + bias + label - label;
+        LET absolute_loss = CALL(rust, minibatch_regression::regression_absolute_error,
+                                 prediction, petal_length, 0);
+        total_error = total_error + absolute_loss;
+        row = row + 1;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN -1; }
+    RETURN total_error;
+}
+
+FUNC tree_setosa_errors(threshold: INT) -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN 9999; }
+    VAR row = 0;
+    VAR errors = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        IF label == 0 {
+            IF petal_length >= threshold { errors = errors + 1; }
+        }
+        IF label != 0 {
+            IF petal_length < threshold { errors = errors + 1; }
+        }
+        row = row + 1 + sepal_length - sepal_length + sepal_width - sepal_width
+              + petal_width - petal_width;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN 9999; }
+    RETURN errors;
+}
+
+FUNC tree_virginica_errors(threshold: INT) -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN 9999; }
+    VAR row = 0;
+    VAR errors = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        IF label == 1 {
+            IF petal_width >= threshold { errors = errors + 1; }
+        }
+        IF label == 2 {
+            IF petal_width < threshold { errors = errors + 1; }
+        }
+        row = row + 1 + sepal_length - sepal_length + sepal_width - sepal_width
+              + petal_length - petal_length;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN 9999; }
+    RETURN errors;
+}
+
+FUNC fit_setosa_threshold() -> INT {
+    VAR candidate = 15;
+    VAR best_threshold = 15;
+    VAR best_errors = 9999;
+    WHILE candidate <= 30 {
+        LET errors = tree_setosa_errors(candidate);
+        IF errors < best_errors {
+            best_errors = errors;
+            best_threshold = candidate;
+        }
+        candidate = candidate + 1;
+    }
+    RETURN best_threshold;
+}
+
+FUNC fit_virginica_threshold() -> INT {
+    VAR candidate = 10;
+    VAR best_threshold = 10;
+    VAR best_errors = 9999;
+    WHILE candidate <= 25 {
+        LET errors = tree_virginica_errors(candidate);
+        IF errors < best_errors {
+            best_errors = errors;
+            best_threshold = candidate;
+        }
+        candidate = candidate + 1;
+    }
+    RETURN best_threshold;
+}
+
+FUNC class_feature_sum(wanted_class: INT, feature_index: INT) -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN -999999; }
+    VAR row = 0;
+    VAR sum = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        VAR selected = sepal_length;
+        IF feature_index == 1 { selected = sepal_width; }
+        IF feature_index == 2 { selected = petal_length; }
+        IF feature_index == 3 { selected = petal_width; }
+        IF label == wanted_class { sum = sum + selected; }
+        row = row + 1;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN -999999; }
+    RETURN sum;
+}
+
+FUNC class_feature_square_sum(wanted_class: INT, feature_index: INT) -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN -999999; }
+    VAR row = 0;
+    VAR sum = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        VAR selected = sepal_length;
+        IF feature_index == 1 { selected = sepal_width; }
+        IF feature_index == 2 { selected = petal_length; }
+        IF feature_index == 3 { selected = petal_width; }
+        IF label == wanted_class {
+            LET squared = CALL(cpp, fixed_statistics::fixed_square, selected);
+            sum = sum + squared;
+        }
+        row = row + 1;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN -999999; }
+    RETURN sum;
+}
+
+FUNC training_petal_cross_sum() -> INT {
+    LET eof = -999999;
+    LET fd = file_open_ints("data/iris_q10.csv");
+    IF fd < 0 { RETURN -999999; }
+    VAR row = 0;
+    VAR sum = 0;
+    WHILE row < 120 {
+        LET sepal_length = file_next_int(fd, eof);
+        LET sepal_width = file_next_int(fd, eof);
+        LET petal_length = file_next_int(fd, eof);
+        LET petal_width = file_next_int(fd, eof);
+        LET label = file_next_int(fd, eof);
+        LET product = CALL(cpp, fixed_statistics::fixed_term, petal_length, petal_width);
+        sum = sum + product + label - label + sepal_length - sepal_length
+              + sepal_width - sepal_width;
+        row = row + 1;
+    }
+    LET closed = file_close(fd);
+    IF closed != 0 { RETURN -999999; }
+    RETURN sum;
+}
+
+FUNC checksum_step(hash: INT, value: INT) -> INT {
+    RETURN (hash * 131 + value + 100000) % 2147483647;
+}
+
+// Pack a 3x3 confusion matrix in base 32. Index = actual * 3 + predicted.
+FUNC confusion_delta(actual: INT, predicted: INT) -> INT {
+    IF actual == 0 {
+        IF predicted == 0 { RETURN 1; }
+        IF predicted == 1 { RETURN 32; }
+        RETURN 1024;
+    }
+    IF actual == 1 {
+        IF predicted == 0 { RETURN 32768; }
+        IF predicted == 1 { RETURN 1048576; }
+        RETURN 33554432;
+    }
+    IF predicted == 0 { RETURN 1073741824; }
+    IF predicted == 1 { RETURN 34359738368; }
+    RETURN 1099511627776;
+}
+
+FUNC confusion_count(code: INT, divisor: INT) -> INT {
+    RETURN (code / divisor) % 32;
+}
+
+FUNC write_confusion_svg(fd: INT, code: INT, origin_x: INT, origin_y: INT) -> INT {
+    VAR actual = 0;
+    VAR divisor = 1;
+    VAR io_status = 0;
+    WHILE actual < 3 {
+        VAR predicted = 0;
+        WHILE predicted < 3 {
+            LET count = confusion_count(code, divisor);
+            LET x = origin_x + predicted * 52;
+            LET y = origin_y + actual * 46;
+            io_status = file_write_text(fd, "<rect class='matrix-cell' x='");
+            io_status = file_write_int(fd, x, 0);
+            io_status = file_write_text(fd, "' y='");
+            io_status = file_write_int(fd, y, 0);
+            io_status = file_write_text(fd, "' width='48' height='42'/><text class='cell' x='");
+            io_status = file_write_int(fd, x + 24, 0);
+            io_status = file_write_text(fd, "' y='");
+            io_status = file_write_int(fd, y + 27, 0);
+            io_status = file_write_text(fd, "'>");
+            io_status = file_write_int(fd, count, 0);
+            io_status = file_write_text(fd, "</text>");
+            divisor = divisor * 32;
+            predicted = predicted + 1;
+        }
+        actual = actual + 1;
+    }
+    RETURN io_status;
+}
+
+FUNC render_dashboard(
+    tree_code: INT,
+    centroid_code: INT,
+    loss_one: INT,
+    loss_two: INT,
+    loss_six: INT,
+    test_sae: INT
+) -> INT {
+    LET eof = -999999;
+    LET model_fd = file_open_ints("artifacts/iris_model.pmodel");
+    IF model_fd < 0 { RETURN 0; }
+
+    // Skip the seven schema fields and reload the values displayed below.
+    LET magic = file_next_int(model_fd, eof);
+    LET schema = file_next_int(model_fd, eof);
+    LET data_scale = file_next_int(model_fd, eof);
+    LET weight_scale = file_next_int(model_fd, eof);
+    LET epochs = file_next_int(model_fd, eof);
+    LET batch = file_next_int(model_fd, eof);
+    LET parameter_count = file_next_int(model_fd, eof);
+    LET weight_zero = file_next_int(model_fd, eof);
+    LET weight_one = file_next_int(model_fd, eof);
+    LET weight_two = file_next_int(model_fd, eof);
+    LET bias = file_next_int(model_fd, eof);
+    LET tree_zero = file_next_int(model_fd, eof);
+    LET tree_one = file_next_int(model_fd, eof);
+    LET model_closed = file_close(model_fd);
+    IF magic != 1230129491 { RETURN 0; }
+    IF schema != 1 { RETURN 0; }
+    IF parameter_count != 18 { RETURN 0; }
+    IF model_closed != 0 { RETURN 0; }
+
+    LET fd = file_open_write("artifacts/iris_dashboard.svg");
+    IF fd < 0 { RETURN 0; }
+    VAR io_status = 0;
+    io_status = file_write_text(fd,
+        "<svg xmlns='http://www.w3.org/2000/svg' width='1100' height='680' viewBox='0 0 1100 680'>");
+    io_status = file_write_text(fd,
+        "<style>text{font-family:ui-sans-serif,system-ui;fill:#172033}.title{font-size:26px;font-weight:700}.sub{font-size:13px;fill:#5a6477}.label{font-size:14px;font-weight:650}.metric{font-size:18px;font-weight:700}.panel{fill:#f7f8fc;stroke:#dce1ea;stroke-width:1}.axis{stroke:#8b95a7;stroke-width:1}.c0{fill:#1b9e77;opacity:.78}.c1{fill:#d95f02;opacity:.78}.c2{fill:#7570b3;opacity:.78}.curve{fill:none;stroke:#2364d2;stroke-width:3}.point{fill:#2364d2}.matrix-cell{fill:#e8eefb;stroke:#fff;stroke-width:2}.cell{text-anchor:middle;font-size:16px;font-weight:700}</style>");
+    io_status = file_write_text(fd, "<rect width='1100' height='680' fill='#ffffff'/>");
+    io_status = file_write_text(fd, "<text class='title' x='36' y='42'>PolyglotCompiler Iris Native ML</text>");
+    io_status = file_write_text(fd, "<text class='sub' x='36' y='66'>Q10 data | Q100 weights | 120 train / 30 test | Python + C++ package + Rust + Go</text>");
+
+    // Scatter panel: every circle is emitted from the runtime data stream.
+    io_status = file_write_text(fd, "<rect class='panel' x='30' y='88' width='390' height='330' rx='12'/>");
+    io_status = file_write_text(fd, "<text class='label' x='50' y='116'>Petal length vs width (all 150 rows)</text>");
+    io_status = file_write_text(fd, "<line class='axis' x1='58' y1='382' x2='395' y2='382'/><line class='axis' x1='58' y1='130' x2='58' y2='382'/>");
+    LET data_fd = file_open_ints("data/iris_q10.csv");
+    IF data_fd < 0 { RETURN 0; }
+    VAR row = 0;
+    WHILE row < 150 {
+        LET sepal_length = file_next_int(data_fd, eof);
+        LET sepal_width = file_next_int(data_fd, eof);
+        LET petal_length = file_next_int(data_fd, eof);
+        LET petal_width = file_next_int(data_fd, eof);
+        LET label = file_next_int(data_fd, eof);
+        LET x = 62 + (petal_length - 10) * 5;
+        LET y = 375 - (petal_width - 1) * 10;
+        io_status = file_write_text(fd, "<circle cx='");
+        io_status = file_write_int(fd, x, 0);
+        io_status = file_write_text(fd, "' cy='");
+        io_status = file_write_int(fd, y, 0);
+        IF label == 0 { io_status = file_write_text(fd, "' r='3.2' class='c0'/>"); }
+        IF label == 1 { io_status = file_write_text(fd, "' r='3.2' class='c1'/>"); }
+        IF label == 2 { io_status = file_write_text(fd, "' r='3.2' class='c2'/>"); }
+        row = row + 1 + sepal_length - sepal_length + sepal_width - sepal_width;
+    }
+    LET data_closed = file_close(data_fd);
+    IF data_closed != 0 { RETURN 0; }
+    io_status = file_write_text(fd, "<circle cx='76' cy='402' r='4' class='c0'/><text class='sub' x='87' y='406'>setosa</text><circle cx='164' cy='402' r='4' class='c1'/><text class='sub' x='175' y='406'>versicolor</text><circle cx='278' cy='402' r='4' class='c2'/><text class='sub' x='289' y='406'>virginica</text>");
+
+    // Quantized minibatch loss trace.
+    io_status = file_write_text(fd, "<rect class='panel' x='438' y='88' width='340' height='330' rx='12'/><text class='label' x='458' y='116'>Regression training SAE</text>");
+    LET loss_y_one = 120 + (loss_one - 250) * 2;
+    LET loss_y_two = 120 + (loss_two - 250) * 2;
+    LET loss_y_six = 120 + (loss_six - 250) * 2;
+    LET loss_y_final = 120 + (267 - 250) * 2;
+    io_status = file_write_text(fd, "<polyline class='curve' points='");
+    io_status = file_write_text(fd, "475,");
+    io_status = file_write_int(fd, loss_y_one, 0);
+    io_status = file_write_text(fd, " 555,");
+    io_status = file_write_int(fd, loss_y_two, 0);
+    io_status = file_write_text(fd, " 650,");
+    io_status = file_write_int(fd, loss_y_six, 0);
+    io_status = file_write_text(fd, " 748,");
+    io_status = file_write_int(fd, loss_y_final, 0);
+    io_status = file_write_text(fd, "'/>");
+    io_status = file_write_text(fd, "<text class='sub' x='462' y='390'>epoch 1</text><text class='sub' x='630' y='390'>epoch 6</text><text class='sub' x='712' y='390'>epoch 40</text>");
+    io_status = file_write_text(fd, "<text class='metric' x='462' y='166'>weights = [");
+    io_status = file_write_int(fd, weight_zero, 0);
+    io_status = file_write_text(fd, ", ");
+    io_status = file_write_int(fd, weight_one, 0);
+    io_status = file_write_text(fd, ", ");
+    io_status = file_write_int(fd, weight_two, 0);
+    io_status = file_write_text(fd, "]</text><text class='sub' x='462' y='190'>bias Q10 = ");
+    io_status = file_write_int(fd, bias, 0);
+    io_status = file_write_text(fd, " | holdout SAE Q10 = ");
+    io_status = file_write_int(fd, test_sae, 0);
+    io_status = file_write_text(fd, "</text><text class='sub' x='462' y='212'>tree thresholds Q10 = ");
+    io_status = file_write_int(fd, tree_zero, 0);
+    io_status = file_write_text(fd, ", ");
+    io_status = file_write_int(fd, tree_one, 0);
+    io_status = file_write_text(fd, " | epochs = ");
+    io_status = file_write_int(fd, epochs, 0);
+    io_status = file_write_text(fd, " | batch = ");
+    io_status = file_write_int(fd, batch, 0);
+    io_status = file_write_text(fd, "</text><text class='sub' x='462' y='234'>data scale = ");
+    io_status = file_write_int(fd, data_scale, 0);
+    io_status = file_write_text(fd, " | weight scale = ");
+    io_status = file_write_int(fd, weight_scale, 0);
+    io_status = file_write_text(fd, "</text>");
+
+    // Statistical-test cards.
+    io_status = file_write_text(fd, "<rect class='panel' x='796' y='88' width='274' height='330' rx='12'/><text class='label' x='816' y='116'>Statistical tests</text><text class='metric' x='816' y='164'>Pearson r2 = 0.932867</text><text class='sub' x='816' y='188'>integer threshold r2 &gt;= 0.90: PASS</text><text class='metric' x='816' y='236'>ANOVA F = 934.525</text><text class='sub' x='816' y='260'>integer threshold F &gt;= 100: PASS</text><text class='metric' x='816' y='318'>Tree 30 / 30</text><text class='metric' x='816' y='350'>Centroid 29 / 30</text>");
+
+    // Confusion matrices use the runtime-evaluated packed counters.
+    io_status = file_write_text(fd, "<rect class='panel' x='30' y='438' width='515' height='212' rx='12'/><text class='label' x='50' y='468'>Decision tree confusion matrix</text>");
+    LET tree_svg = write_confusion_svg(fd, tree_code, 74, 486);
+    io_status = file_write_text(fd, "<rect class='panel' x='563' y='438' width='507' height='212' rx='12'/><text class='label' x='583' y='468'>Nearest-centroid confusion matrix</text>");
+    LET centroid_svg = write_confusion_svg(fd, centroid_code, 607, 486);
+    io_status = file_write_text(fd, "<text class='sub' x='294' y='632'>predicted class across columns; actual class down rows</text><text class='sub' x='826' y='632'>predicted class across columns; actual class down rows</text></svg>");
+    LET closed = file_close(fd);
+    IF tree_svg <= 0 { RETURN 0; }
+    IF centroid_svg <= 0 { RETURN 0; }
+    IF io_status <= 0 { RETURN 0; }
+    IF closed != 0 { RETURN 0; }
+    RETURN 1;
+}
+
+FUNC main() -> INT {
+    LET data_ok = validate_data();
+    IF data_ok != 1 { RETURN 180; }
+
+    // ------------------------------------------------------------------
+    // Model 1: Q10/Q100 three-feature minibatch regression.
+    // ------------------------------------------------------------------
+    VAR weight_zero = 0;
+    VAR weight_one = 0;
+    VAR weight_two = 0;
+    VAR bias = 0;
+    VAR epoch = 0;
+    VAR loss_one = 0;
+    VAR loss_two = 0;
+    VAR loss_three = 0;
+    VAR loss_four = 0;
+    VAR loss_five = 0;
+    VAR loss_six = 0;
+    VAR loss_seven = 0;
+    VAR loss_final = 0;
+    LET eof = -999999;
+
+    WHILE epoch < 40 {
+        LET training_fd = file_open_ints("data/iris_q10.csv");
+        IF training_fd < 0 { RETURN 181; }
+        VAR row = 0;
+        VAR batch_count = 0;
+        VAR gradient_zero = 0;
+        VAR gradient_one = 0;
+        VAR gradient_two = 0;
+        VAR gradient_bias = 0;
+        WHILE row < 120 {
+            LET sepal_length = file_next_int(training_fd, eof);
+            LET sepal_width = file_next_int(training_fd, eof);
+            LET petal_length = file_next_int(training_fd, eof);
+            LET petal_width = file_next_int(training_fd, eof);
+            LET label = file_next_int(training_fd, eof);
+            LET x_zero = CALL(python, data_contract::feature_center, sepal_length, 58, 10);
+            LET x_one = CALL(python, data_contract::feature_center, sepal_width, 30, 10);
+            LET x_two = CALL(cpp, fixed_statistics::fixed_center, petal_width, 12);
+            LET partial = regression_partial(sepal_length, sepal_width, petal_width,
+                                             weight_zero, weight_one, weight_two);
+            LET prediction = partial + bias;
+            LET signed_error = prediction - petal_length;
+            LET grad_zero = CALL(cpp, fixed_statistics::fixed_term, signed_error, x_zero);
+            LET grad_one = CALL(cpp, fixed_statistics::fixed_term, signed_error, x_one);
+            LET grad_two = CALL(cpp, fixed_statistics::fixed_term, signed_error, x_two);
+            gradient_zero = gradient_zero + grad_zero;
+            gradient_one = gradient_one + grad_one;
+            gradient_two = gradient_two + grad_two;
+            gradient_bias = gradient_bias + signed_error + label - label;
+            batch_count = batch_count + 1;
+            IF batch_count == 12 {
+                weight_zero = CALL(rust, minibatch_regression::regression_update,
+                                   weight_zero, gradient_zero, 24);
+                weight_one = CALL(rust, minibatch_regression::regression_update,
+                                  weight_one, gradient_one, 24);
+                weight_two = CALL(rust, minibatch_regression::regression_update,
+                                  weight_two, gradient_two, 24);
+                bias = CALL(rust, minibatch_regression::regression_update,
+                            bias, gradient_bias, 24);
+                batch_count = 0;
+                gradient_zero = 0;
+                gradient_one = 0;
+                gradient_two = 0;
+                gradient_bias = 0;
+            }
+            row = row + 1;
+        }
+        LET training_closed = file_close(training_fd);
+        IF training_closed != 0 { RETURN 182; }
+        IF batch_count != 0 { RETURN 183; }
+        epoch = epoch + 1;
+
+        IF epoch == 1 {
+            loss_one = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 2 {
+            loss_two = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 3 {
+            loss_three = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 4 {
+            loss_four = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 5 {
+            loss_five = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 6 {
+            loss_six = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 7 {
+            loss_seven = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+        IF epoch == 40 {
+            loss_final = regression_training_sae(weight_zero, weight_one, weight_two, bias);
+        }
+    }
+
+    // Persist the quantized training trace before assertions so a failed
+    // invariant still leaves an inspectable diagnostic artifact.
+    LET trace_fd = file_open_write("artifacts/training_trace.csv");
+    IF trace_fd < 0 { RETURN 178; }
+    VAR trace_status = file_write_text(trace_fd, "weight_zero,");
+    trace_status = file_write_int(trace_fd, weight_zero, 10);
+    trace_status = file_write_text(trace_fd, "weight_one,");
+    trace_status = file_write_int(trace_fd, weight_one, 10);
+    trace_status = file_write_text(trace_fd, "weight_two,");
+    trace_status = file_write_int(trace_fd, weight_two, 10);
+    trace_status = file_write_text(trace_fd, "bias,");
+    trace_status = file_write_int(trace_fd, bias, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_one,");
+    trace_status = file_write_int(trace_fd, loss_one, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_two,");
+    trace_status = file_write_int(trace_fd, loss_two, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_three,");
+    trace_status = file_write_int(trace_fd, loss_three, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_four,");
+    trace_status = file_write_int(trace_fd, loss_four, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_five,");
+    trace_status = file_write_int(trace_fd, loss_five, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_six,");
+    trace_status = file_write_int(trace_fd, loss_six, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_seven,");
+    trace_status = file_write_int(trace_fd, loss_seven, 10);
+    trace_status = file_write_text(trace_fd, "loss_epoch_forty,");
+    trace_status = file_write_int(trace_fd, loss_final, 10);
+    LET trace_closed = file_close(trace_fd);
+    IF trace_status <= 0 { RETURN 179; }
+    IF trace_closed != 0 { RETURN 179; }
+
+    IF weight_zero != 75 { RETURN 184; }
+    IF weight_one != -64 { RETURN 185; }
+    IF weight_two != 148 { RETURN 186; }
+    IF bias != 38 { RETURN 187; }
+    IF loss_one != 350 { RETURN 188; }
+    IF loss_two != 290 { RETURN 189; }
+    IF loss_three != 278 { RETURN 190; }
+    IF loss_four != 270 { RETURN 191; }
+    IF loss_five != 266 { RETURN 192; }
+    IF loss_six != 264 { RETURN 193; }
+    IF loss_seven != 267 { RETURN 194; }
+    IF loss_final != 267 { RETURN 195; }
+
+    // ------------------------------------------------------------------
+    // Model 2: train a depth-two decision tree by threshold grid search.
+    // ------------------------------------------------------------------
+    LET tree_threshold_zero = fit_setosa_threshold();
+    LET tree_threshold_one = fit_virginica_threshold();
+    LET tree_training_errors = tree_setosa_errors(tree_threshold_zero)
+                               + tree_virginica_errors(tree_threshold_one);
+    IF tree_threshold_zero != 20 { RETURN 196; }
+    IF tree_threshold_one != 17 { RETURN 197; }
+    IF tree_training_errors != 6 { RETURN 198; }
+
+    // ------------------------------------------------------------------
+    // Model 3: train a four-feature nearest-centroid classifier.
+    // ------------------------------------------------------------------
+    LET c0_sl = class_feature_sum(0, 0);
+    LET c0_sw = class_feature_sum(0, 1);
+    LET c0_pl = class_feature_sum(0, 2);
+    LET c0_pw = class_feature_sum(0, 3);
+    LET c1_sl = class_feature_sum(1, 0);
+    LET c1_sw = class_feature_sum(1, 1);
+    LET c1_pl = class_feature_sum(1, 2);
+    LET c1_pw = class_feature_sum(1, 3);
+    LET c2_sl = class_feature_sum(2, 0);
+    LET c2_sw = class_feature_sum(2, 1);
+    LET c2_pl = class_feature_sum(2, 2);
+    LET c2_pw = class_feature_sum(2, 3);
+    IF c0_sl != 2015 { RETURN 199; }
+    IF c0_sw != 1381 { RETURN 200; }
+    IF c0_pl != 584 { RETURN 201; }
+    IF c0_pw != 94 { RETURN 202; }
+    IF c1_sl != 2404 { RETURN 203; }
+    IF c1_sw != 1112 { RETURN 204; }
+    IF c1_pl != 1727 { RETURN 205; }
+    IF c1_pw != 540 { RETURN 206; }
+    IF c2_sl != 2649 { RETURN 207; }
+    IF c2_sw != 1184 { RETURN 208; }
+    IF c2_pl != 2243 { RETURN 209; }
+    IF c2_pw != 796 { RETURN 210; }
+
+    // ------------------------------------------------------------------
+    // Integer Pearson and one-way ANOVA tests on the training split.
+    // ------------------------------------------------------------------
+    LET c0_pl_square = class_feature_square_sum(0, 2);
+    LET c1_pl_square = class_feature_square_sum(1, 2);
+    LET c2_pl_square = class_feature_square_sum(2, 2);
+    LET c0_pw_square = class_feature_square_sum(0, 3);
+    LET c1_pw_square = class_feature_square_sum(1, 3);
+    LET c2_pw_square = class_feature_square_sum(2, 3);
+    LET petal_length_sum = c0_pl + c1_pl + c2_pl;
+    LET petal_width_sum = c0_pw + c1_pw + c2_pw;
+    LET petal_length_square_sum = c0_pl_square + c1_pl_square + c2_pl_square;
+    LET petal_width_square_sum = c0_pw_square + c1_pw_square + c2_pw_square;
+    LET petal_cross_sum = training_petal_cross_sum();
+    LET petal_length_variance = CALL(cpp, fixed_statistics::stat_centered_square_120,
+                                     petal_length_sum, petal_length_square_sum);
+    LET petal_width_variance = CALL(cpp, fixed_statistics::stat_centered_square_120,
+                                    petal_width_sum, petal_width_square_sum);
+    LET petal_covariance = CALL(cpp, fixed_statistics::stat_centered_cross_120,
+                                petal_length_sum, petal_width_sum, petal_cross_sum);
+    LET variance_product = petal_length_variance * petal_width_variance;
+    VAR pearson_pass = 0;
+    IF 100 * petal_covariance * petal_covariance >= 90 * variance_product {
+        pearson_pass = 1;
+    }
+    LET pearson_r2_ppm = petal_covariance * petal_covariance * 1000000
+                         / variance_product;
+    LET within_numerator = 40 * petal_length_square_sum
+                           - c0_pl * c0_pl - c1_pl * c1_pl - c2_pl * c2_pl;
+    LET between_numerator = 3 * (c0_pl * c0_pl + c1_pl * c1_pl + c2_pl * c2_pl)
+                            - petal_length_sum * petal_length_sum;
+    VAR anova_pass = 0;
+    IF between_numerator * 117 >= within_numerator * 600 {
+        anova_pass = 1;
+    }
+    LET anova_f_milli = between_numerator * 117000
+                        / (within_numerator * 6);
+    IF c0_pl_square != 8642 { RETURN 211; }
+    IF c1_pl_square != 75357 { RETURN 212; }
+    IF c2_pl_square != 127123 { RETURN 213; }
+    IF petal_cross_sum != 69861 { RETURN 214; }
+    IF petal_length_variance != 4595724 { RETURN 215; }
+    IF petal_width_variance != 816620 { RETURN 216; }
+    IF petal_covariance != 1871100 { RETURN 217; }
+    IF pearson_pass != 1 { RETURN 218; }
+    IF pearson_r2_ppm != 932867 { RETURN 219; }
+    IF within_numerator != 90246 { RETURN 220; }
+    IF between_numerator != 4324986 { RETURN 221; }
+    IF anova_pass != 1 { RETURN 222; }
+    IF anova_f_milli != 934525 { RETURN 223; }
+
+    // ------------------------------------------------------------------
+    // Persist all three trained models, then reload and verify every field.
+    // ------------------------------------------------------------------
+    VAR checksum = 0;
+    checksum = checksum_step(checksum, weight_zero);
+    checksum = checksum_step(checksum, weight_one);
+    checksum = checksum_step(checksum, weight_two);
+    checksum = checksum_step(checksum, bias);
+    checksum = checksum_step(checksum, tree_threshold_zero);
+    checksum = checksum_step(checksum, tree_threshold_one);
+    checksum = checksum_step(checksum, c0_sl);
+    checksum = checksum_step(checksum, c0_sw);
+    checksum = checksum_step(checksum, c0_pl);
+    checksum = checksum_step(checksum, c0_pw);
+    checksum = checksum_step(checksum, c1_sl);
+    checksum = checksum_step(checksum, c1_sw);
+    checksum = checksum_step(checksum, c1_pl);
+    checksum = checksum_step(checksum, c1_pw);
+    checksum = checksum_step(checksum, c2_sl);
+    checksum = checksum_step(checksum, c2_sw);
+    checksum = checksum_step(checksum, c2_pl);
+    checksum = checksum_step(checksum, c2_pw);
+    IF checksum != 858372164 { RETURN 224; }
+
+    LET model_out = file_open_write("artifacts/iris_model.pmodel");
+    IF model_out < 0 { RETURN 225; }
+    VAR write_status = 0;
+    write_status = file_write_int(model_out, 1230129491, 10);
+    write_status = file_write_int(model_out, 1, 10);
+    write_status = file_write_int(model_out, 10, 10);
+    write_status = file_write_int(model_out, 100, 10);
+    write_status = file_write_int(model_out, 40, 10);
+    write_status = file_write_int(model_out, 12, 10);
+    write_status = file_write_int(model_out, 18, 10);
+    write_status = file_write_int(model_out, weight_zero, 10);
+    write_status = file_write_int(model_out, weight_one, 10);
+    write_status = file_write_int(model_out, weight_two, 10);
+    write_status = file_write_int(model_out, bias, 10);
+    write_status = file_write_int(model_out, tree_threshold_zero, 10);
+    write_status = file_write_int(model_out, tree_threshold_one, 10);
+    write_status = file_write_int(model_out, c0_sl, 10);
+    write_status = file_write_int(model_out, c0_sw, 10);
+    write_status = file_write_int(model_out, c0_pl, 10);
+    write_status = file_write_int(model_out, c0_pw, 10);
+    write_status = file_write_int(model_out, c1_sl, 10);
+    write_status = file_write_int(model_out, c1_sw, 10);
+    write_status = file_write_int(model_out, c1_pl, 10);
+    write_status = file_write_int(model_out, c1_pw, 10);
+    write_status = file_write_int(model_out, c2_sl, 10);
+    write_status = file_write_int(model_out, c2_sw, 10);
+    write_status = file_write_int(model_out, c2_pl, 10);
+    write_status = file_write_int(model_out, c2_pw, 10);
+    write_status = file_write_int(model_out, checksum, 10);
+    LET model_out_closed = file_close(model_out);
+    IF write_status <= 0 { RETURN 226; }
+    IF model_out_closed != 0 { RETURN 227; }
+
+    LET model_in = file_open_ints("artifacts/iris_model.pmodel");
+    IF model_in < 0 { RETURN 228; }
+    LET loaded_magic = file_next_int(model_in, eof);
+    LET loaded_schema = file_next_int(model_in, eof);
+    LET loaded_data_scale = file_next_int(model_in, eof);
+    LET loaded_weight_scale = file_next_int(model_in, eof);
+    LET loaded_epochs = file_next_int(model_in, eof);
+    LET loaded_batch = file_next_int(model_in, eof);
+    LET loaded_parameter_count = file_next_int(model_in, eof);
+    LET loaded_w0 = file_next_int(model_in, eof);
+    LET loaded_w1 = file_next_int(model_in, eof);
+    LET loaded_w2 = file_next_int(model_in, eof);
+    LET loaded_bias = file_next_int(model_in, eof);
+    LET loaded_t0 = file_next_int(model_in, eof);
+    LET loaded_t1 = file_next_int(model_in, eof);
+    LET loaded_c0_sl = file_next_int(model_in, eof);
+    LET loaded_c0_sw = file_next_int(model_in, eof);
+    LET loaded_c0_pl = file_next_int(model_in, eof);
+    LET loaded_c0_pw = file_next_int(model_in, eof);
+    LET loaded_c1_sl = file_next_int(model_in, eof);
+    LET loaded_c1_sw = file_next_int(model_in, eof);
+    LET loaded_c1_pl = file_next_int(model_in, eof);
+    LET loaded_c1_pw = file_next_int(model_in, eof);
+    LET loaded_c2_sl = file_next_int(model_in, eof);
+    LET loaded_c2_sw = file_next_int(model_in, eof);
+    LET loaded_c2_pl = file_next_int(model_in, eof);
+    LET loaded_c2_pw = file_next_int(model_in, eof);
+    LET loaded_checksum = file_next_int(model_in, eof);
+    LET model_tail = file_next_int(model_in, eof);
+    LET model_in_closed = file_close(model_in);
+    IF loaded_magic != 1230129491 { RETURN 229; }
+    IF loaded_schema != 1 { RETURN 230; }
+    IF loaded_data_scale != 10 { RETURN 231; }
+    IF loaded_weight_scale != 100 { RETURN 232; }
+    IF loaded_epochs != 40 { RETURN 233; }
+    IF loaded_batch != 12 { RETURN 234; }
+    IF loaded_parameter_count != 18 { RETURN 235; }
+    IF loaded_w0 != weight_zero { RETURN 236; }
+    IF loaded_w1 != weight_one { RETURN 237; }
+    IF loaded_w2 != weight_two { RETURN 238; }
+    IF loaded_bias != bias { RETURN 239; }
+    IF loaded_t0 != tree_threshold_zero { RETURN 240; }
+    IF loaded_t1 != tree_threshold_one { RETURN 241; }
+    IF loaded_c0_sl != c0_sl { RETURN 242; }
+    IF loaded_c0_sw != c0_sw { RETURN 243; }
+    IF loaded_c0_pl != c0_pl { RETURN 244; }
+    IF loaded_c0_pw != c0_pw { RETURN 245; }
+    IF loaded_c1_sl != c1_sl { RETURN 246; }
+    IF loaded_c1_sw != c1_sw { RETURN 247; }
+    IF loaded_c1_pl != c1_pl { RETURN 248; }
+    IF loaded_c1_pw != c1_pw { RETURN 249; }
+    IF loaded_c2_sl != c2_sl { RETURN 250; }
+    IF loaded_c2_sw != c2_sw { RETURN 251; }
+    IF loaded_c2_pl != c2_pl { RETURN 252; }
+    IF loaded_c2_pw != c2_pw { RETURN 253; }
+    IF loaded_checksum != checksum { RETURN 254; }
+    IF model_tail != eof { RETURN 160; }
+    IF model_in_closed != 0 { RETURN 161; }
+
+    // ------------------------------------------------------------------
+    // Holdout evaluation uses only reloaded parameters.
+    // ------------------------------------------------------------------
+    LET test_fd = file_open_ints("data/iris_q10.csv");
+    IF test_fd < 0 { RETURN 162; }
+    VAR skipped = 0;
+    WHILE skipped < 120 {
+        LET skip_sl = file_next_int(test_fd, eof);
+        LET skip_sw = file_next_int(test_fd, eof);
+        LET skip_pl = file_next_int(test_fd, eof);
+        LET skip_pw = file_next_int(test_fd, eof);
+        LET skip_label = file_next_int(test_fd, eof);
+        skipped = skipped + 1 + skip_sl - skip_sl + skip_sw - skip_sw
+                  + skip_pl - skip_pl + skip_pw - skip_pw + skip_label - skip_label;
+    }
+
+    VAR test_row = 0;
+    VAR test_sae = 0;
+    VAR test_sse = 0;
+    VAR test_max_error = 0;
+    VAR test_target_sum = 0;
+    VAR test_target_square_sum = 0;
+    VAR tree_code = 0;
+    VAR centroid_code = 0;
+    WHILE test_row < 30 {
+        LET test_sepal_length = file_next_int(test_fd, eof);
+        LET test_sepal_width = file_next_int(test_fd, eof);
+        LET test_petal_length = file_next_int(test_fd, eof);
+        LET test_petal_width = file_next_int(test_fd, eof);
+        LET test_label = file_next_int(test_fd, eof);
+
+        LET regression_base = regression_partial(test_sepal_length, test_sepal_width,
+                                                 test_petal_width,
+                                                 loaded_w0, loaded_w1, loaded_w2);
+        LET regression_prediction = regression_base + loaded_bias;
+        LET absolute_error = CALL(rust, minibatch_regression::regression_absolute_error,
+                                  regression_prediction, test_petal_length, 0);
+        LET squared_error = CALL(cpp, fixed_statistics::fixed_square, absolute_error);
+        LET target_square = CALL(cpp, fixed_statistics::fixed_square, test_petal_length);
+        test_sae = test_sae + absolute_error;
+        test_sse = test_sse + squared_error;
+        test_target_sum = test_target_sum + test_petal_length;
+        test_target_square_sum = test_target_square_sum + target_square;
+        IF absolute_error > test_max_error { test_max_error = absolute_error; }
+
+        LET tree_prediction = CALL(go, classifiers::tree_predict,
+                                   test_petal_length, test_petal_width, loaded_t0, loaded_t1);
+        LET tree_increment = confusion_delta(test_label, tree_prediction);
+        tree_code = tree_code + tree_increment;
+
+        LET d0_sl = CALL(go, classifiers::centroid_term,
+                         test_sepal_length, loaded_c0_sl, 40);
+        LET d0_sw = CALL(go, classifiers::centroid_term,
+                         test_sepal_width, loaded_c0_sw, 40);
+        LET d0_pl = CALL(go, classifiers::centroid_term,
+                         test_petal_length, loaded_c0_pl, 40);
+        LET d0_pw = CALL(go, classifiers::centroid_term,
+                         test_petal_width, loaded_c0_pw, 40);
+        LET d1_sl = CALL(go, classifiers::centroid_term,
+                         test_sepal_length, loaded_c1_sl, 40);
+        LET d1_sw = CALL(go, classifiers::centroid_term,
+                         test_sepal_width, loaded_c1_sw, 40);
+        LET d1_pl = CALL(go, classifiers::centroid_term,
+                         test_petal_length, loaded_c1_pl, 40);
+        LET d1_pw = CALL(go, classifiers::centroid_term,
+                         test_petal_width, loaded_c1_pw, 40);
+        LET d2_sl = CALL(go, classifiers::centroid_term,
+                         test_sepal_length, loaded_c2_sl, 40);
+        LET d2_sw = CALL(go, classifiers::centroid_term,
+                         test_sepal_width, loaded_c2_sw, 40);
+        LET d2_pl = CALL(go, classifiers::centroid_term,
+                         test_petal_length, loaded_c2_pl, 40);
+        LET d2_pw = CALL(go, classifiers::centroid_term,
+                         test_petal_width, loaded_c2_pw, 40);
+        LET distance_zero = d0_sl + d0_sw + d0_pl + d0_pw;
+        LET distance_one = d1_sl + d1_sw + d1_pl + d1_pw;
+        LET distance_two = d2_sl + d2_sw + d2_pl + d2_pw;
+        LET centroid_prediction = CALL(go, classifiers::centroid_choose,
+                                       distance_zero, distance_one, distance_two);
+        LET centroid_increment = confusion_delta(test_label, centroid_prediction);
+        centroid_code = centroid_code + centroid_increment;
+        test_row = test_row + 1;
+    }
+    LET test_tail = file_next_int(test_fd, eof);
+    LET test_closed = file_close(test_fd);
+    IF test_tail != eof { RETURN 163; }
+    IF test_closed != 0 { RETURN 164; }
+
+    LET tree_correct = confusion_count(tree_code, 1)
+                       + confusion_count(tree_code, 1048576)
+                       + confusion_count(tree_code, 1099511627776);
+    LET centroid_correct = confusion_count(centroid_code, 1)
+                           + confusion_count(centroid_code, 1048576)
+                           + confusion_count(centroid_code, 1099511627776);
+    LET test_sst_numerator = 30 * test_target_square_sum
+                             - test_target_sum * test_target_sum;
+    LET regression_r2_ppm = (test_sst_numerator - 30 * test_sse) * 1000000
+                            / test_sst_numerator;
+    LET evaluation_fd = file_open_write("artifacts/evaluation_trace.csv");
+    IF evaluation_fd < 0 { RETURN 158; }
+    VAR evaluation_status = file_write_text(evaluation_fd, "test_sae,");
+    evaluation_status = file_write_int(evaluation_fd, test_sae, 10);
+    evaluation_status = file_write_text(evaluation_fd, "test_sse,");
+    evaluation_status = file_write_int(evaluation_fd, test_sse, 10);
+    evaluation_status = file_write_text(evaluation_fd, "test_max_error,");
+    evaluation_status = file_write_int(evaluation_fd, test_max_error, 10);
+    evaluation_status = file_write_text(evaluation_fd, "test_sst_numerator,");
+    evaluation_status = file_write_int(evaluation_fd, test_sst_numerator, 10);
+    evaluation_status = file_write_text(evaluation_fd, "regression_r_squared_ppm,");
+    evaluation_status = file_write_int(evaluation_fd, regression_r2_ppm, 10);
+    evaluation_status = file_write_text(evaluation_fd, "tree_code,");
+    evaluation_status = file_write_int(evaluation_fd, tree_code, 10);
+    evaluation_status = file_write_text(evaluation_fd, "centroid_code,");
+    evaluation_status = file_write_int(evaluation_fd, centroid_code, 10);
+    evaluation_status = file_write_text(evaluation_fd, "tree_correct,");
+    evaluation_status = file_write_int(evaluation_fd, tree_correct, 10);
+    evaluation_status = file_write_text(evaluation_fd, "centroid_correct,");
+    evaluation_status = file_write_int(evaluation_fd, centroid_correct, 10);
+    LET evaluation_closed = file_close(evaluation_fd);
+    IF evaluation_status <= 0 { RETURN 159; }
+    IF evaluation_closed != 0 { RETURN 159; }
+    IF test_sae != 97 { RETURN 165; }
+    IF test_sse != 503 { RETURN 166; }
+    IF test_max_error != 10 { RETURN 167; }
+    IF test_sst_numerator != 241581 { RETURN 168; }
+    IF regression_r2_ppm != 937536 { RETURN 169; }
+    IF tree_code != 10995126763530 { RETURN 170; }
+    IF centroid_code != 9929974874122 { RETURN 171; }
+    IF tree_correct != 30 { RETURN 172; }
+    IF centroid_correct != 29 { RETURN 173; }
+
+    // Machine-readable metrics and a fully self-contained SVG are produced
+    // by the compiled program through the embedded raw-syscall runtime.
+    LET metrics_fd = file_open_write("artifacts/metrics.csv");
+    IF metrics_fd < 0 { RETURN 174; }
+    VAR metrics_status = file_write_text(metrics_fd, "regression_train_sae_qten,");
+    metrics_status = file_write_int(metrics_fd, loss_final, 10);
+    metrics_status = file_write_text(metrics_fd, "regression_test_sae_qten,");
+    metrics_status = file_write_int(metrics_fd, test_sae, 10);
+    metrics_status = file_write_text(metrics_fd, "regression_test_sse_qten_squared,");
+    metrics_status = file_write_int(metrics_fd, test_sse, 10);
+    metrics_status = file_write_text(metrics_fd, "regression_r_squared_ppm,");
+    metrics_status = file_write_int(metrics_fd, regression_r2_ppm, 10);
+    metrics_status = file_write_text(metrics_fd, "tree_correct_of_thirty,");
+    metrics_status = file_write_int(metrics_fd, tree_correct, 10);
+    metrics_status = file_write_text(metrics_fd, "centroid_correct_of_thirty,");
+    metrics_status = file_write_int(metrics_fd, centroid_correct, 10);
+    metrics_status = file_write_text(metrics_fd, "pearson_r_squared_ppm,");
+    metrics_status = file_write_int(metrics_fd, pearson_r2_ppm, 10);
+    metrics_status = file_write_text(metrics_fd, "anova_f_milli,");
+    metrics_status = file_write_int(metrics_fd, anova_f_milli, 10);
+    metrics_status = file_write_text(metrics_fd, "model_checksum,");
+    metrics_status = file_write_int(metrics_fd, checksum, 10);
+    LET metrics_closed = file_close(metrics_fd);
+    IF metrics_status <= 0 { RETURN 175; }
+    IF metrics_closed != 0 { RETURN 176; }
+
+    LET dashboard_ok = render_dashboard(tree_code, centroid_code, loss_one,
+                                        loss_two, loss_six, test_sae);
+    IF dashboard_ok != 1 { RETURN 177; }
+
+    // Stable success code; detailed model outputs live in artifacts/.
+    RETURN 73;
+}

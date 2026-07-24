@@ -9,6 +9,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
@@ -35,6 +36,7 @@ public:
 private:
   frontends::Token Consume();
   void Advance();
+  const frontends::Token &PeekNext();
   bool IsSymbol(const std::string &symbol) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
@@ -45,6 +47,11 @@ private:
   void ParseTopLevel();
   std::shared_ptr<PackageDecl> ParsePackageDecl();
   std::shared_ptr<ImportDecl> ParseImportDecl();
+  std::shared_ptr<ModuleDecl> ParseModuleDecl();
+  std::shared_ptr<Statement> ParseCompactMember(
+      const std::string &access, const std::vector<Annotation> &annotations,
+      bool is_static, bool is_final, bool is_abstract, bool is_synchronized,
+      bool is_native, bool is_volatile, bool is_transient);
   std::vector<Annotation> ParseAnnotations();
   std::string ParseAccessModifier();
 
@@ -67,6 +74,7 @@ private:
                                             const std::vector<Annotation> &annotations);
   std::vector<TypeParameter> ParseTypeParameters();
   std::vector<Parameter> ParseParameters();
+  void ClassifyConstructorInvocation(ConstructorDecl &constructor);
 
   // Types
   std::shared_ptr<TypeNode> ParseType();
@@ -91,6 +99,7 @@ private:
   std::shared_ptr<Expression> ParseUnary();
   std::shared_ptr<Expression> ParsePostfix();
   std::shared_ptr<Expression> ParsePrimary();
+  std::shared_ptr<Expression> ParseSwitchExpression();
   std::shared_ptr<Expression> ParseLambda();
   int GetPrecedence(const std::string &op) const;
 
@@ -99,6 +108,7 @@ private:
 
   JavaLexer &lexer_;
   frontends::Token current_{};
+  std::optional<frontends::Token> lookahead_;
   std::shared_ptr<Module> module_;
   // Active Java release for syntax gating. `kAuto` is treated as
   // `kJavaReleaseDefault` and admits every construct the parser knows.

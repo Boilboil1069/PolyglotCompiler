@@ -157,6 +157,8 @@ struct LambdaExpression : Expression {
     std::shared_ptr<TypeNode> type;
     bool is_ref{false};
     bool is_out{false};
+    bool is_in{false};
+    bool is_scoped{false};
   };
   std::vector<Param> params;
   std::shared_ptr<Statement> body;  // block body
@@ -432,6 +434,18 @@ struct MethodDecl : Statement {
 
 /** @brief PropertyDecl data structure. */
 struct PropertyDecl : Statement {
+  /** A property accessor body must remain in the AST.  Discarding it loses
+   * observable validation, assignment and exception semantics. */
+  struct Accessor {
+    enum class Kind { kGet, kSet, kInit };
+    Kind kind{Kind::kGet};
+    core::SourceLoc loc{};
+    bool is_auto{false};
+    bool uses_field_keyword{false}; // C# 14 synthesized backing field
+    std::vector<std::shared_ptr<Statement>> body;
+    std::shared_ptr<Expression> expression_body;
+  };
+
   std::string name;
   std::shared_ptr<TypeNode> type;
   std::string access;
@@ -443,9 +457,35 @@ struct PropertyDecl : Statement {
   bool has_setter{false};
   bool is_init_only{false}; // C# 9.0 init accessor
   bool is_required{false};  // C# 11 required modifier
+  bool is_partial{false};   // C# 13 partial property
   std::shared_ptr<Expression> init;
   std::shared_ptr<Expression> expression_body;
+  std::vector<Accessor> accessors;
+  bool uses_field_keyword{false};
   std::vector<Attribute> attributes;
+};
+
+/** @brief User-defined operator declaration. */
+struct OperatorDecl : Statement {
+  std::string op;
+  std::vector<Parameter> params;
+  std::shared_ptr<TypeNode> return_type;
+  std::vector<std::shared_ptr<Statement>> body;
+  std::shared_ptr<Expression> expression_body;
+  std::vector<Attribute> attributes;
+  std::string access;
+  bool is_static{false};
+  bool is_compound_assignment{false}; // C# 14
+};
+
+/** @brief C# 14 extension block declaration. */
+struct ExtensionDecl : Statement {
+  std::vector<TypeParameter> type_params;
+  Parameter receiver;
+  bool has_receiver_name{false}; // false denotes a static extension block
+  std::vector<std::shared_ptr<Statement>> members;
+  std::vector<Attribute> attributes;
+  std::string access;
 };
 
 /** @brief EventDecl data structure. */
@@ -454,6 +494,7 @@ struct EventDecl : Statement {
   std::shared_ptr<TypeNode> type;
   std::string access;
   bool is_static{false};
+  bool is_partial{false}; // C# 14 partial event
   std::vector<Attribute> attributes;
 };
 
@@ -491,6 +532,7 @@ struct ConstructorDecl : Statement {
   std::string initializer_kind; // "base" or "this"
   std::vector<std::shared_ptr<Expression>> initializer_args;
   bool is_static{false};
+  bool is_partial{false}; // C# 14 partial constructor
 };
 
 /** @brief DestructorDecl data structure. */
@@ -583,6 +625,13 @@ struct UsingDirective : Statement {
   bool is_global{false}; // C# 10 global usings
 };
 
+/** @brief File-based application directive (`#:sdk`, `#:package`, ...). */
+struct FileDirective : Statement {
+  std::string name;
+  std::string value;
+  std::string spelling;
+};
+
 // ============================================================================
 // Module (compilation unit)
 // ============================================================================
@@ -590,6 +639,7 @@ struct UsingDirective : Statement {
 /** @brief Module data structure. */
 struct Module {
   std::string filename;
+  std::vector<std::shared_ptr<FileDirective>> file_directives;
   std::vector<std::shared_ptr<UsingDirective>> usings;
   std::vector<std::shared_ptr<Statement>> declarations;
   // Top-level statements (C# 9.0+)

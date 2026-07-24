@@ -34,6 +34,7 @@
 #include "middle/include/ir/ir_context.h"
 
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/common/include/language_frontend.h"
 #include "frontends/common/include/language_versions.h"
 #include "frontends/ploy/include/package_discovery_cache.h"
 #include "frontends/ploy/include/ploy_lowering.h"
@@ -183,7 +184,9 @@ struct DriverSettings {
   // -------------------------------------------------------------------------
   // Per-language version selection.
   //
-  // All nine fields default to `kAuto` (= "let the frontend infer").
+  // All nine fields default to `kAuto` (= deterministic stable default).
+  // Toolchain/project discovery, when requested by a higher-level UI, must
+  // resolve these fields before the frontend stage.
   // The CLI populates them from `--std=...`, `--python-version=...`,
   // `--java-release=...`, `--cs-lang=...`, `--target-framework=...`,
   // `--rust-edition=...`, `--go-version=...`, `--ecma=...`,
@@ -268,6 +271,24 @@ struct FrontendResult {
 
   bool success{false};
 };
+
+// `--force` may continue after ordinary recoverable diagnostics, but these
+// codes identify an unknown grammar boundary or intentionally incomplete IR.
+// Passing either state to the backend/package stages would manufacture an
+// artefact whose semantics the frontend did not establish.
+bool HasNonRecoverableFrontendError(const frontends::Diagnostics &diagnostics);
+bool MustStopAfterFrontend(bool frontend_success, bool force,
+                           const frontends::Diagnostics &diagnostics);
+
+// A direct source has exactly one grammar.  Reject selectors for unrelated
+// languages instead of silently ignoring them; Poly orchestration sources are
+// the intentional exception because they may import several languages.
+bool ValidateDirectLanguageVersionSelectors(
+    const DriverSettings &settings, frontends::Diagnostics &diagnostics);
+bool ValidateDirectLanguageVersionSelectors(
+    const std::string &language, const std::string &source_path,
+    const frontends::FrontendOptions &options,
+    frontends::Diagnostics &diagnostics);
 
 // ============================================================================
 // Stage 2 - SemanticResult

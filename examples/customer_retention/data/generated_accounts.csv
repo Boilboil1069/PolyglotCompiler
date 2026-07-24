@@ -1,0 +1,7 @@
+account_id,sessions,purchases,complaints,days_since_login,activity_signal,health_score,segment
+1001,12,5,0,1,49,47,healthy
+1002,10,4,1,4,36,28,watch
+1003,8,3,2,7,23,9,risk
+1004,6,2,3,10,10,-10,risk
+1005,4,1,4,13,-3,-29,risk
+

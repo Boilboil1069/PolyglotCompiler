@@ -50,7 +50,7 @@ PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .poly│
+│ Sources: C++ │ Python │ Rust │ Java │ C# (.NET) │ JavaScript │ Ruby │ Go │ .poly│
 └──────────────┬─────────────────────────────────────────────────────┬────────────┘
                ▼                                                     ▼
 ┌──────────────────────────────────────┐                  ┌────────────────────┐
@@ -61,7 +61,7 @@ PolyglotCompiler 将 **C++**、**Python**、**Rust**、**Java**、**C#（.NET）
                     ▼                                               ▼
               ┌───────────┐                                 ┌─────────────┐
               │ Shared IR │ ──── 25+ Optimisation Passes ──▶│  Polyglot   │
-              │   (SSA)   │      (PGO • LTO • loop • …)    │   Linker    │
+              │   (SSA)   │      (PGO • LTO • loop • …)     │   Linker    │
               └─────┬─────┘                                 └──────┬──────┘
         ┌───────────┼─────────────────┐                            │
         ▼           ▼                 ▼                            ▼
@@ -203,13 +203,16 @@ EXPORT ml_pipeline AS "train_model";
 
 For a complete runnable application rather than a syntax-only sample, see
 [`examples/order_risk_analyzer`](examples/order_risk_analyzer/README.md). It
-processes real CSV input through Python validation, a compiled C++ scoring
-kernel, and Python JSON reporting, with an ABI contract and end-to-end tests.
+uses one `polyc` command to stream real CSV data through C++, Python, Rust,
+and Go business stages. All four languages consume manifest-resolved local
+packages and execute real construction, aggregate state, and member calls;
+C++ also executes deterministic destruction.
 
 如果需要一个完整可运行、而非只展示语法的项目，请参阅
 [`examples/order_risk_analyzer`](examples/order_risk_analyzer/README_zh.md)。
-它将真实 CSV 输入依次交给 Python 校验、C++ 动态库评分和 Python JSON
-报告，并包含 ABI 契约与端到端测试。
+它通过一条 `polyc` 命令将真实 CSV 数据交给 C++、Python、Rust 与 Go
+业务阶段。四种语言都使用由 manifest 解析的本地包，并执行真实构造、
+聚合状态与成员调用；C++ 还执行确定性析构。
 
 ### Core Syntax / 核心语法
 

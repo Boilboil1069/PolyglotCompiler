@@ -6,7 +6,10 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <optional>
+
 #include "frontends/common/include/frontend_registry.h"
+#include "frontends/common/include/preprocessor.h"
 #include "frontends/common/include/sema_context.h"
 #include "frontends/cpp/include/cpp_frontend.h"
 #include "frontends/cpp/include/cpp_lexer.h"
@@ -15,6 +18,70 @@
 #include "frontends/cpp/include/cpp_sema.h"
 
 namespace polyglot::cpp {
+
+namespace {
+
+bool HasPreprocessorDirective(const std::string &source) {
+  size_t line_start = 0;
+  while (line_start < source.size()) {
+    size_t cursor = line_start;
+    while (cursor < source.size() && (source[cursor] == ' ' || source[cursor] == '\t'))
+      ++cursor;
+    if (cursor < source.size() && source[cursor] == '#')
+      return true;
+    const auto newline = source.find('\n', line_start);
+    if (newline == std::string::npos)
+      break;
+    line_start = newline + 1;
+  }
+  return false;
+}
+
+std::optional<std::string> PrepareCppSource(const std::string &source, const std::string &filename,
+                                            frontends::Diagnostics &diagnostics,
+                                            const frontends::FrontendOptions &options,
+                                            bool signature_scan) {
+  if (options.source_is_preprocessed)
+    return source;
+
+  if (!options.enable_preprocessing) {
+    if (HasPreprocessorDirective(source)) {
+      diagnostics.ReportError(
+          core::SourceLoc{filename, 1, 1}, frontends::ErrorCode::kUnsupportedSyntax,
+          "C++ source contains preprocessor directives, but preprocessing is disabled and the "
+          "input was not marked as already preprocessed");
+      return std::nullopt;
+    }
+    return source;
+  }
+
+  frontends::Preprocessor preprocessor(diagnostics);
+  // In signature-only mode, <...> headers supply external declarations and
+  // must not be re-exported as if they belonged to this module.  Quoted
+  // project headers still resolve and preprocess normally.
+  preprocessor.SetAngleIncludesExternal(signature_scan);
+  std::vector<std::string> include_paths = options.include_paths;
+  include_paths.insert(include_paths.end(), options.system_include_paths.begin(),
+                       options.system_include_paths.end());
+  preprocessor.SetIncludePaths(std::move(include_paths));
+  preprocessor.Define("__cplusplus",
+                      frontends::CppDialectCplusplusValue(options.cpp_dialect));
+  for (const auto &definition : options.defines) {
+    const auto equals = definition.find('=');
+    if (equals == std::string::npos)
+      preprocessor.Define(definition, "1");
+    else
+      preprocessor.Define(definition.substr(0, equals), definition.substr(equals + 1));
+  }
+  for (const auto &name : options.undefines)
+    preprocessor.Undefine(name);
+  auto processed = preprocessor.Process(source, filename);
+  if (diagnostics.HasErrors())
+    return std::nullopt;
+  return processed;
+}
+
+} // namespace
 
 // ============================================================================
 // Auto-registration
@@ -46,7 +113,10 @@ std::vector<frontends::Token> CppLanguageFrontend::Tokenize(const std::string &s
 bool CppLanguageFrontend::Analyze(const std::string &source, const std::string &filename,
                                   frontends::Diagnostics &diagnostics,
                                   const frontends::FrontendOptions &options) const {
-  CppLexer lexer(source, filename);
+  auto prepared = PrepareCppSource(source, filename, diagnostics, options, false);
+  if (!prepared)
+    return false;
+  CppLexer lexer(*prepared, filename);
   CppParser parser(lexer, diagnostics);
   parser.SetCppDialect(options.cpp_dialect);
   parser.ParseModule();
@@ -71,7 +141,10 @@ frontends::FrontendResult CppLanguageFrontend::Lower(
     frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   frontends::FrontendResult result;
 
-  CppLexer lexer(source, filename);
+  auto prepared = PrepareCppSource(source, filename, diagnostics, options, false);
+  if (!prepared)
+    return result;
+  CppLexer lexer(*prepared, filename);
   CppParser parser(lexer, diagnostics);
   parser.SetCppDialect(options.cpp_dialect);
   parser.ParseModule();
@@ -149,14 +222,30 @@ core::Type CppTypeToCore(const std::shared_ptr<TypeNode> &tn) {
 
 std::vector<frontends::ForeignFunctionSignature> CppLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> CppLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
-  CppLexer lexer(source, filename);
-  CppParser parser(lexer, diags);
+  auto prepared = PrepareCppSource(source, filename, diagnostics, options, true);
+  if (!prepared)
+    return result;
+  CppLexer lexer(*prepared, filename);
+  CppParser parser(lexer, diagnostics);
+  parser.SetCppDialect(options.cpp_dialect);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
+    return result;
+
+  frontends::SemaContext ctx(diagnostics);
+  AnalyzeModuleSignatures(*module, ctx);
+  if (diagnostics.HasErrors())
     return result;
 
   // Walk all top-level declarations looking for functions

@@ -263,14 +263,29 @@ void ExtractFromFunction(const std::string &fn_name,
 
 std::vector<frontends::ForeignFunctionSignature> JsLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> JsLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
   JsLexer lexer(source, filename);
-  JsParser parser(lexer, diags);
+  JsParser parser(lexer, diagnostics);
+  parser.SetEcmaVersion(options.ecma_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
+    return result;
+
+  // Signature extraction does not need to resolve external modules, but it
+  // must run the same local semantic checks as Analyze before exposing types.
+  frontends::SemaContext sema_context(diagnostics);
+  AnalyzeModule(*module, sema_context);
+  if (diagnostics.HasErrors())
     return result;
 
   auto walk = [&](auto &&self, const std::shared_ptr<Statement> &s) -> void {

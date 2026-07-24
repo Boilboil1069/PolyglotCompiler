@@ -132,7 +132,7 @@ frontends::Token RustLexer::LexRawIdentifier() {
   while (std::isalnum(static_cast<unsigned char>(Peek())) || Peek() == '_') {
     lexeme.push_back(Get());
   }
-  return frontends::Token{frontends::TokenKind::kIdentifier, lexeme, loc};
+  return frontends::Token{frontends::TokenKind::kIdentifier, lexeme, loc, false, "r#" + lexeme};
 }
 
 frontends::Token RustLexer::LexNumber() {
@@ -158,7 +158,9 @@ frontends::Token RustLexer::LexNumber() {
     consume_digits([](unsigned char c) { return c >= '0' && c <= '7'; });
   } else {
     consume_digits([](unsigned char c) { return std::isdigit(c); });
-    if (Peek() == '.') {
+    // Do not consume the first dot of a range (`0..3`, `0..=3`) as part of
+    // the numeric literal.
+    if (Peek() == '.' && PeekNext() != '.') {
       lexeme.push_back(Get());
       consume_digits([](unsigned char c) { return std::isdigit(c); });
     }
@@ -171,8 +173,9 @@ frontends::Token RustLexer::LexNumber() {
     }
   }
 
-  // type suffix
-  while (std::isalpha(static_cast<unsigned char>(Peek())) || Peek() == '_') {
+  // Type suffixes contain digits (`i64`, `u32`, `f64`).  Once the numeric
+  // body is complete, consume the whole suffix as part of the same token.
+  while (std::isalnum(static_cast<unsigned char>(Peek())) || Peek() == '_') {
     lexeme.push_back(Get());
   }
   return frontends::Token{frontends::TokenKind::kNumber, lexeme, loc};
@@ -301,12 +304,19 @@ frontends::Token RustLexer::NextToken() {
     SkipBlockComment();
     return NextToken();
   }
+  auto starts_raw_string = [&](size_t prefix_length) {
+    size_t cursor = position_ + prefix_length;
+    while (cursor < source_.size() && source_[cursor] == '#')
+      ++cursor;
+    return cursor < source_.size() && source_[cursor] == '"';
+  };
+  const bool raw_string = c == 'r' && starts_raw_string(1);
+  const bool raw_byte_string = c == 'b' && PeekNext() == 'r' && starts_raw_string(2);
+  if (c == '"' || (c == 'b' && PeekNext() == '"') || raw_string || raw_byte_string) {
+    return LexString();
+  }
   if (c == 'r' && PeekNext() == '#') {
     return LexRawIdentifier();
-  }
-  if (c == '"' || (c == 'b' && PeekNext() == '"') ||
-      (c == 'r' && (PeekNext() == '"' || PeekNext() == '#'))) {
-    return LexString();
   }
   if (c == 'b' && PeekNext() == '\'') {
     return LexChar();

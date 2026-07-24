@@ -1,0 +1,2 @@
+customer_retention: rows=5 healthy=1 watch=1 risk=3 checksum=45
+customer_retention: frontend=index.html data=data/generated_accounts.js

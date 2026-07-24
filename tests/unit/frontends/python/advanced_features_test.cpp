@@ -30,6 +30,13 @@ bool ParseAndLower(const std::string &code, Diagnostics &diags, IRContext &ctx) 
     return !diags.HasErrors();
 }
 
+bool HasUnsupportedLowering(const Diagnostics &diags) {
+    for (const auto &diagnostic : diags.All())
+        if (diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering)
+            return true;
+    return false;
+}
+
 } // namespace
 
 // ============ Test 1: Decorators ============
@@ -108,7 +115,8 @@ TEST_CASE("Python - Context Managers", "[python][with]") {
         std::string code = "def test():\n    with open('file.txt') as f:\n        data = f.read()";
         Diagnostics diags;
         IRContext ctx;
-        REQUIRE(ParseAndLower(code, diags, ctx));
+        REQUIRE_FALSE(ParseAndLower(code, diags, ctx));
+        REQUIRE(HasUnsupportedLowering(diags));
     }
     
     SECTION("Multiple context managers") {
@@ -207,7 +215,8 @@ TEST_CASE("Python - Generators", "[python][generator]") {
         std::string code = "def inf():\n    while True:\n        yield 1";
         Diagnostics diags;
         IRContext ctx;
-        REQUIRE(ParseAndLower(code, diags, ctx));
+        REQUIRE_FALSE(ParseAndLower(code, diags, ctx));
+        REQUIRE(HasUnsupportedLowering(diags));
     }
 }
 
@@ -264,7 +273,8 @@ TEST_CASE("Python - Async/Await", "[python][async]") {
         std::string code = "async def gen():\n    yield 1\n    yield 2";
         Diagnostics diags;
         IRContext ctx;
-        REQUIRE(ParseAndLower(code, diags, ctx));
+        REQUIRE_FALSE(ParseAndLower(code, diags, ctx));
+        REQUIRE(HasUnsupportedLowering(diags));
     }
 }
 
@@ -428,7 +438,13 @@ def test(value):
 )";
         Diagnostics diags;
         IRContext ctx;
-        REQUIRE(ParseAndLower(code, diags, ctx));
+        REQUIRE_FALSE(ParseAndLower(code, diags, ctx));
+        bool unsupported = false;
+        for (const auto &diagnostic : diags.All())
+            unsupported = unsupported ||
+                          diagnostic.code ==
+                              polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        REQUIRE(unsupported);
     }
 }
 
@@ -615,7 +631,8 @@ TEST_CASE("Python - Lambda", "[python][lambda]") {
         std::string code = "def t():\n    f = lambda x: (x, x*2)";
         Diagnostics diags;
         IRContext ctx;
-        REQUIRE(ParseAndLower(code, diags, ctx));
+        REQUIRE_FALSE(ParseAndLower(code, diags, ctx));
+        REQUIRE(HasUnsupportedLowering(diags));
     }
     
     SECTION("Lambda with *args, **kwargs") {

@@ -11,6 +11,7 @@
 #include <string>
 #include <chrono>
 #include <iostream>
+#include <unordered_map>
 
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -55,6 +56,28 @@ PerfResult CompileTimed(const std::string &code) {
     }
 
     PloySema sema(diags, PloySemaOptions{});
+    FunctionSignature compute_sig;
+    compute_sig.name = "lib::compute";
+    compute_sig.language = "python";
+    compute_sig.param_types = {polyglot::core::Type::Int()};
+    compute_sig.return_type = polyglot::core::Type::Int();
+    compute_sig.param_count = 1;
+    compute_sig.param_count_known = true;
+    compute_sig.validated = true;
+
+    FunctionSignature transform_sig;
+    transform_sig.name = "proc::transform";
+    transform_sig.language = "cpp";
+    transform_sig.param_types = {polyglot::core::Type::Float()};
+    transform_sig.return_type = polyglot::core::Type::Float();
+    transform_sig.param_count = 1;
+    transform_sig.param_count_known = true;
+    transform_sig.validated = true;
+
+    sema.InjectForeignSignatures({
+        {compute_sig.name, compute_sig},
+        {transform_sig.name, transform_sig},
+    });
     if (!sema.Analyze(module)) {
         for (const auto &d : diags.All()) std::cerr << "[PERF-DIAG] " << d.message << "\n";
         return {false, "", 0.0};
@@ -136,10 +159,11 @@ std::string GeneratePipeline(int stages) {
 
     oss << "PIPELINE big_pipeline {\n";
     for (int i = 0; i < stages; ++i) {
-        oss << "    FUNC stage_" << i << "(x" << i << ": FLOAT) -> FLOAT {\n";
         if (i % 2 == 0) {
+            oss << "    FUNC stage_" << i << "(x" << i << ": FLOAT) -> FLOAT {\n";
             oss << "        LET r" << i << " = CALL(cpp, proc::transform, x" << i << ");\n";
         } else {
+            oss << "    FUNC stage_" << i << "(x" << i << ": INT) -> INT {\n";
             oss << "        LET r" << i << " = CALL(python, lib::compute, x" << i << ");\n";
         }
         oss << "        RETURN r" << i << ";\n";

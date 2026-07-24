@@ -24,6 +24,7 @@ public:
 private:
   frontends::Token ReadNumber();
   frontends::Token ReadString();
+  frontends::Token ReadRawString();
   frontends::Token ReadVerbatimString();
   frontends::Token ReadInterpolatedString();
   frontends::Token ReadChar();

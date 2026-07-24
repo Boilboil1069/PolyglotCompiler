@@ -219,6 +219,14 @@ private:
       AnalyzeProperty(*prop);
       return;
     }
+    if (auto op = std::dynamic_pointer_cast<OperatorDecl>(decl)) {
+      AnalyzeOperator(*op);
+      return;
+    }
+    if (auto extension = std::dynamic_pointer_cast<ExtensionDecl>(decl)) {
+      AnalyzeExtension(*extension);
+      return;
+    }
     if (auto ctor = std::dynamic_pointer_cast<ConstructorDecl>(decl)) {
       AnalyzeConstructor(*ctor);
       return;
@@ -393,6 +401,58 @@ private:
       AnalyzeExpr(prop.expression_body);
     if (prop.init)
       AnalyzeExpr(prop.init);
+    for (const auto &accessor : prop.accessors) {
+      EnterScope(ScopeKind::kFunction, "<property-accessor>");
+      if (accessor.kind != PropertyDecl::Accessor::Kind::kGet) {
+        Symbol value{"value", t, accessor.loc, SymbolKind::kParameter, "csharp"};
+        Syms().Declare(value);
+      }
+      if (accessor.uses_field_keyword) {
+        Symbol field{"field", t, accessor.loc, SymbolKind::kField, "csharp"};
+        Syms().Declare(field);
+      }
+      if (accessor.expression_body)
+        AnalyzeExpr(accessor.expression_body);
+      for (const auto &statement : accessor.body)
+        AnalyzeStmt(statement);
+      ExitScope();
+    }
+  }
+
+  void AnalyzeOperator(const OperatorDecl &op) {
+    std::vector<Type> params;
+    for (const auto &param : op.params)
+      params.push_back(MapType(param.type));
+    Type result = MapType(op.return_type);
+    Type function_type = Types().FunctionType("operator" + op.op, result, params);
+    function_type.language = "csharp";
+    Symbol symbol{"operator" + op.op, function_type, op.loc, SymbolKind::kFunction, "csharp"};
+    symbol.access = op.access;
+    Syms().Declare(symbol);
+
+    EnterScope(ScopeKind::kFunction, "operator" + op.op);
+    for (const auto &param : op.params) {
+      Symbol parameter{param.name, MapType(param.type), op.loc,
+                       SymbolKind::kParameter, "csharp"};
+      Syms().Declare(parameter);
+    }
+    if (op.expression_body)
+      AnalyzeExpr(op.expression_body);
+    for (const auto &statement : op.body)
+      AnalyzeStmt(statement);
+    ExitScope();
+  }
+
+  void AnalyzeExtension(const ExtensionDecl &extension) {
+    EnterScope(ScopeKind::kClass, "<extension>");
+    if (extension.has_receiver_name) {
+      Symbol receiver{extension.receiver.name, MapType(extension.receiver.type), extension.loc,
+                      SymbolKind::kParameter, "csharp"};
+      Syms().Declare(receiver);
+    }
+    for (const auto &member : extension.members)
+      AnalyzeDecl(member);
+    ExitScope();
   }
 
   void AnalyzeConstructor(const ConstructorDecl &ctor) {
@@ -428,6 +488,8 @@ private:
         std::dynamic_pointer_cast<DelegateDecl>(stmt) ||
         std::dynamic_pointer_cast<MethodDecl>(stmt) || std::dynamic_pointer_cast<FieldDecl>(stmt) ||
         std::dynamic_pointer_cast<PropertyDecl>(stmt) ||
+        std::dynamic_pointer_cast<OperatorDecl>(stmt) ||
+        std::dynamic_pointer_cast<ExtensionDecl>(stmt) ||
         std::dynamic_pointer_cast<ConstructorDecl>(stmt) ||
         std::dynamic_pointer_cast<NamespaceDecl>(stmt)) {
       AnalyzeDecl(stmt);
@@ -730,8 +792,11 @@ private:
     if (auto sw = std::dynamic_pointer_cast<SwitchExpression>(expr)) {
       AnalyzeExpr(sw->governing);
       for (auto &arm : sw->arms) {
-        if (arm.pattern)
-          AnalyzeExpr(arm.pattern);
+        if (arm.pattern) {
+          auto discard = std::dynamic_pointer_cast<Identifier>(arm.pattern);
+          if (!discard || discard->name != "_")
+            AnalyzeExpr(arm.pattern);
+        }
         if (arm.guard)
           AnalyzeExpr(arm.guard);
         if (arm.value)

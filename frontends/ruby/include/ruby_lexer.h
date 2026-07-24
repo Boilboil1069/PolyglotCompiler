@@ -35,11 +35,13 @@ private:
   frontends::Token LexNumber();
   frontends::Token LexString(char quote);
   frontends::Token LexSymbol();
-  frontends::Token LexHeredoc(const std::string &tag, bool indent_strip);
+  frontends::Token LexHeredoc();
   frontends::Token LexOperator();
   bool AtLineStart() const;
+  bool LooksLikeHeredoc() const;
 
   std::string pending_doc_;
+  bool pending_newline_{false};
   bool prev_allows_unary_{true}; // distinguishes `- x` (unary) from `a - x`
 };
 

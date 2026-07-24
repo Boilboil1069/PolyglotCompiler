@@ -23,9 +23,9 @@ public:
   RustParser(RustLexer &lexer, frontends::Diagnostics &diagnostics) :
       ParserBase(diagnostics), lexer_(lexer) {}
 
-  // Active Rust edition for syntax gating. `let-else` requires Edition 2021
-  // or newer; Edition 2024 unlocks additional syntax. `kAuto` is treated as
-  // `kRustEditionDefault`.
+  // Active Rust edition for syntax gating. `async`/`.await` require Edition
+  // 2018 or newer. Library/compiler-version features such as `let-else` are
+  // deliberately not gated by this edition selector.
   void SetRustEdition(frontends::RustEdition e) { rust_edition_ = e; }
 
   void ParseModule() override;
@@ -35,6 +35,7 @@ private:
   frontends::Token Consume();
   frontends::Token PeekToken();
   frontends::Token NextNonComment();
+  bool IsIdentifierToken() const;
   bool IsSymbol(const std::string &symbol) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
@@ -83,6 +84,7 @@ private:
   std::shared_ptr<Expression> ParsePrimary();
   std::shared_ptr<Expression> ParseClosure();
   std::shared_ptr<Expression> ParsePathExpression();
+  std::shared_ptr<Expression> ParseStructExpression(std::shared_ptr<PathExpression> path);
   std::string ParseDelimitedBody(const std::string &open, const std::string &close);
   std::shared_ptr<Pattern> ParsePattern();
   std::shared_ptr<Pattern> ParseStructPattern(PathPattern path);
@@ -99,6 +101,10 @@ private:
   std::shared_ptr<Module> module_{std::make_shared<Module>()};
   frontends::Token current_{};
   std::vector<frontends::Token> pushback_{};
+  // Rust excludes an unparenthesized struct literal in control-flow
+  // conditions (`if Point { ... }` is a path condition plus a block).  Keep
+  // that grammar context explicit instead of guessing from identifier case.
+  bool no_struct_literal_{false};
   // Active Rust edition for syntax gating. `kAuto` ⇒ `kRustEditionDefault`.
   frontends::RustEdition rust_edition_{frontends::RustEdition::kAuto};
 };

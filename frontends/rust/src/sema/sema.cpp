@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -99,6 +100,9 @@ private:
   std::unordered_map<std::string, std::unordered_map<std::string, Type>> trait_methods_{};
   // Types implementing traits
   std::unordered_map<std::string, std::vector<std::string>> impl_traits_{};
+  // Named-field declarations used to validate struct expressions.
+  std::unordered_map<std::string, std::unordered_map<std::string, Type>> struct_fields_{};
+  std::string current_impl_type_{};
   // Copy types (types implementing Copy trait)
   std::unordered_set<std::string> copy_types_{"i8",  "i16", "i32",  "i64", "i128", "u8",   "u16",
                                               "u32", "u64", "u128", "f32", "f64",  "bool", "char"};
@@ -214,7 +218,10 @@ private:
           fq += "::";
         fq += tp->segments[i];
       }
-      if (!tp->generic_args.empty()) {
+      const bool has_generic_args =
+          std::any_of(tp->generic_args.begin(), tp->generic_args.end(),
+                      [](const auto &args) { return !args.empty(); });
+      if (has_generic_args) {
         std::vector<Type> args;
         for (auto &arg_list : tp->generic_args) {
           for (auto &arg : arg_list)
@@ -222,6 +229,10 @@ private:
         }
         return Types().Generic(fq, args, "rust");
       }
+      if (fq == "Self" && !current_impl_type_.empty())
+        return Type::Struct(current_impl_type_, "rust");
+      if (auto resolved = Syms().Lookup(fq); resolved.has_value() && resolved->symbol)
+        return resolved->symbol->type;
       return Types().MapFromLanguage("rust", fq);
     }
     if (auto ref = std::dynamic_pointer_cast<ReferenceType>(node)) {
@@ -230,10 +241,10 @@ private:
       return t;
     }
     if (auto sl = std::dynamic_pointer_cast<SliceType>(node)) {
-      return Types().PointerTo(MapType(sl->inner));
+      return Type::Slice(MapType(sl->inner));
     }
     if (auto arr = std::dynamic_pointer_cast<ArrayType>(node)) {
-      return Types().PointerTo(MapType(arr->inner));
+      return Type::Array(MapType(arr->inner));
     }
     if (auto tup = std::dynamic_pointer_cast<TupleType>(node)) {
       std::vector<Type> elems;
@@ -281,7 +292,9 @@ private:
       int sid = Syms().EnterScope(st->name, ScopeKind::kClass);
       Syms().RegisterTypeScope(st->name, sid);
       for (auto &f : st->fields) {
-        Symbol fs{f.name, MapType(f.type), st->loc, SymbolKind::kField, "rust"};
+        Type field_type = MapType(f.type);
+        struct_fields_[st->name][f.name] = field_type;
+        Symbol fs{f.name, field_type, st->loc, SymbolKind::kField, "rust"};
         Syms().Declare(fs);
       }
       Syms().ExitScope();
@@ -300,9 +313,17 @@ private:
     }
     if (auto impl = std::dynamic_pointer_cast<ImplItem>(item)) {
       Type target = MapType(impl->target_type);
+      const std::string saved_impl_type = current_impl_type_;
+      current_impl_type_ = MapTypeName(target);
       scope_stack_.push_back({ScopeKind::kClass});
       int sid = Syms().EnterScope(MapTypeName(target), ScopeKind::kClass);
       Syms().RegisterTypeScope(MapTypeName(target), sid);
+      if (auto fields = struct_fields_.find(MapTypeName(target)); fields != struct_fields_.end()) {
+        for (const auto &[field_name, field_type] : fields->second) {
+          Symbol field{field_name, field_type, impl->loc, SymbolKind::kField, "rust"};
+          Syms().Declare(field);
+        }
+      }
       if (impl->trait_type) {
         std::string trait_name = MapTypeName(MapType(impl->trait_type));
         impl_traits_[MapTypeName(target)].push_back(trait_name);
@@ -311,6 +332,7 @@ private:
         AnalyzeItem(m);
       Syms().ExitScope();
       scope_stack_.pop_back();
+      current_impl_type_ = saved_impl_type;
       return;
     }
     if (auto alias = std::dynamic_pointer_cast<TypeAliasItem>(item)) {
@@ -497,8 +519,18 @@ private:
 
     // Analyze function body
     if (fn.has_body) {
-      for (auto &stmt : fn.body)
-        AnalyzeStmt(stmt);
+      for (size_t i = 0; i < fn.body.size(); ++i) {
+        auto tail = std::dynamic_pointer_cast<ExprStatement>(fn.body[i]);
+        if (i + 1 == fn.body.size() && tail && !tail->has_semicolon) {
+          Type value = AnalyzeExpr(tail->expr);
+          if (!Types().IsCompatible(value, current_return_type_)) {
+            Diags().Report(tail->loc, "tail expression type does not match function return type");
+          }
+          saw_return_ = true;
+        } else {
+          AnalyzeStmt(fn.body[i]);
+        }
+      }
     }
 
     // Comprehensive return type lifetime validation
@@ -562,6 +594,16 @@ private:
       std::string var_name;
       if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(let->pattern)) {
         var_name = id->name;
+      }
+
+      // The else block runs before bindings from the successful pattern are
+      // introduced, so analyze it in its own scope first.
+      if (let->has_else) {
+        AnalyzeBlock(let->else_body);
+        if (std::dynamic_pointer_cast<IdentifierPattern>(let->pattern) ||
+            std::dynamic_pointer_cast<WildcardPattern>(let->pattern)) {
+          Diags().Report(let->loc, "let-else requires a refutable pattern");
+        }
       }
 
       DeclarePattern(let->pattern, t, let->loc);
@@ -729,6 +771,17 @@ private:
       }
       return;
     }
+    if (auto tuple_struct = std::dynamic_pointer_cast<TupleStructPattern>(pat)) {
+      Type element_type = Type::Any();
+      if (!tuple_struct->path.segments.empty() &&
+          tuple_struct->path.segments.back() == "Some" && type.kind == core::TypeKind::kOptional) {
+        element_type = type.GetElementType();
+      }
+      for (auto &elem : tuple_struct->elements) {
+        DeclarePattern(elem, element_type, loc);
+      }
+      return;
+    }
     if (auto strct = std::dynamic_pointer_cast<StructPattern>(pat)) {
       for (auto &f : strct->fields) {
         DeclarePattern(f.pattern, Type::Any(), loc);
@@ -760,8 +813,9 @@ private:
       return Type::Invalid();
     }
     if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
-      if (!lit->value.empty() && (isdigit(lit->value[0]) || lit->value[0] == '-'))
-        return Type::Float();
+      if (!lit->value.empty() && (isdigit(lit->value[0]) || lit->value[0] == '-')) {
+        return lit->value.find_first_of(".eE") == std::string::npos ? Type::Int() : Type::Float();
+      }
       return Type::String();
     }
     if (auto path = std::dynamic_pointer_cast<PathExpression>(expr)) {
@@ -783,11 +837,13 @@ private:
         arg_types.push_back(AnalyzeExpr(a));
       if (callee_t.kind == core::TypeKind::kFunction && callee_t.type_args.size() >= 1) {
         size_t param_count = callee_t.type_args.size() - 1;
-        if (param_count != arg_types.size()) {
+        const size_t receiver_count =
+            std::dynamic_pointer_cast<MemberExpression>(call->callee) && param_count > 0 ? 1 : 0;
+        if (param_count - receiver_count != arg_types.size()) {
           Diags().Report(call->loc, "argument count mismatch");
         } else {
           for (size_t i = 0; i < arg_types.size(); ++i) {
-            const auto &expected = callee_t.type_args[i + 1];
+            const auto &expected = callee_t.type_args[i + 1 + receiver_count];
             if (expected.kind == core::TypeKind::kGenericParam && arg_types[i].IsConcrete()) {
               // allow inference by concreteness
             } else if (!Types().IsCompatible(arg_types[i], expected)) {
@@ -820,6 +876,36 @@ private:
         return callee_t.type_args[0];
       }
       return Type::Any();
+    }
+    if (auto value = std::dynamic_pointer_cast<StructExpression>(expr)) {
+      if (value->path.segments.empty()) {
+        Diags().Report(value->loc, "struct expression requires a named type");
+        return Type::Invalid();
+      }
+      std::string name = value->path.segments.back();
+      if (name == "Self")
+        name = current_impl_type_;
+      auto known = struct_fields_.find(name);
+      if (known == struct_fields_.end()) {
+        Diags().Report(value->loc, "Unknown struct in expression: " + name);
+        return Type::Invalid();
+      }
+      std::unordered_set<std::string> initialized;
+      for (const auto &field : value->fields) {
+        auto expected = known->second.find(field.name);
+        if (expected == known->second.end()) {
+          Diags().Report(value->loc, "Unknown field in struct expression: " + field.name);
+          continue;
+        }
+        if (!initialized.insert(field.name).second)
+          Diags().Report(value->loc, "field initialized more than once: " + field.name);
+        Type actual = AnalyzeExpr(field.value);
+        if (!Types().IsCompatible(actual, expected->second))
+          Diags().Report(field.value->loc, "struct field initializer type mismatch");
+      }
+      if (!value->has_rest && initialized.size() != known->second.size())
+        Diags().Report(value->loc, "struct expression does not initialize every field");
+      return Type::Struct(name, "rust");
     }
     if (auto assign = std::dynamic_pointer_cast<AssignmentExpression>(expr)) {
       // check conflicts before assignment
@@ -868,14 +954,38 @@ private:
         }
         return inner;
       }
-      return AnalyzeExpr(un->operand);
+      auto inner = AnalyzeExpr(un->operand);
+      if (un->op == "*" && (inner.kind == core::TypeKind::kPointer ||
+                             inner.kind == core::TypeKind::kReference)) {
+        return inner.GetElementType();
+      }
+      return inner;
     }
     if (auto mem = std::dynamic_pointer_cast<MemberExpression>(expr)) {
       auto obj_t = AnalyzeExpr(mem->object);
-      if (auto member_res = Syms().LookupMember(obj_t.name, mem->member)) {
+      if (mem->member == "first") {
+        Type receiver = obj_t;
+        while ((receiver.kind == core::TypeKind::kPointer ||
+                receiver.kind == core::TypeKind::kReference) &&
+               !receiver.type_args.empty()) {
+          receiver = receiver.GetElementType();
+        }
+        if ((receiver.kind == core::TypeKind::kSlice || receiver.kind == core::TypeKind::kArray) &&
+            !receiver.type_args.empty()) {
+          Type result = Type::Optional(Types().PointerTo(receiver.GetElementType()));
+          return Types().FunctionType("slice::first", result, {});
+        }
+      }
+      Type receiver = obj_t;
+      while ((receiver.kind == core::TypeKind::kPointer ||
+              receiver.kind == core::TypeKind::kReference) &&
+             !receiver.type_args.empty()) {
+        receiver = receiver.GetElementType();
+      }
+      if (auto member_res = Syms().LookupMember(receiver.name, mem->member)) {
         return member_res->symbol->type;
       }
-      auto impl_it = impl_traits_.find(obj_t.name);
+      auto impl_it = impl_traits_.find(receiver.name);
       if (impl_it != impl_traits_.end()) {
         for (auto &tr : impl_it->second) {
           auto tm = trait_methods_.find(tr);

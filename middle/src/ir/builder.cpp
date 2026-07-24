@@ -346,12 +346,8 @@ void IRBuilder::AddPhiIncoming(PhiInstruction *phi, BasicBlock *pred, const std:
 std::shared_ptr<BasicBlock> IRBuilder::CreateBlock(const std::string &name) {
   // Use the active function if set, otherwise fall back to the default function.
   auto target_fn = active_function_ ? active_function_ : context_.DefaultFunction();
-  auto bb = std::make_shared<BasicBlock>();
-  bb->name = name;
-  target_fn->blocks.push_back(bb);
-  if (!target_fn->entry)
-    target_fn->entry = bb.get();
-  return bb;
+  target_fn->CreateBlock(name);
+  return target_fn->blocks.back();
 }
 
 std::string IRBuilder::MakeStringLiteral(const std::string &text, const std::string &hint) {

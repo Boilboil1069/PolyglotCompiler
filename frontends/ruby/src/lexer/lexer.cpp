@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-26
  */
+#include <algorithm>
 #include <cctype>
 #include <string>
 #include <unordered_set>
@@ -50,6 +51,113 @@ bool RbLexer::AtLineStart() const {
     --p;
   }
   return true;
+}
+
+bool RbLexer::LooksLikeHeredoc() const {
+  if (!prev_allows_unary_ || Peek() != '<' || PeekNext() != '<')
+    return false;
+  size_t p = position_ + 2;
+  if (p < source_.size() && (source_[p] == '-' || source_[p] == '~'))
+    ++p;
+  if (p >= source_.size())
+    return false;
+
+  char quote = '\0';
+  if (source_[p] == '\'' || source_[p] == '"' || source_[p] == '`')
+    quote = source_[p++];
+  if (p >= source_.size() || !IsIdentStart(source_[p]))
+    return false;
+  while (p < source_.size() && IsIdentPart(source_[p]))
+    ++p;
+  if (quote != '\0') {
+    if (p >= source_.size() || source_[p] != quote)
+      return false;
+    ++p;
+  }
+  while (p < source_.size() && (source_[p] == ' ' || source_[p] == '\t' || source_[p] == '\r'))
+    ++p;
+  return p >= source_.size() || source_[p] == '\n';
+}
+
+frontends::Token RbLexer::LexHeredoc() {
+  auto loc = CurrentLoc();
+  Get();
+  Get(); // <<
+  bool allow_indented_terminator = false;
+  bool strip_indent = false;
+  if (Peek() == '-' || Peek() == '~') {
+    allow_indented_terminator = true;
+    strip_indent = Peek() == '~';
+    Get();
+  }
+
+  char quote = '\0';
+  if (Peek() == '\'' || Peek() == '"' || Peek() == '`')
+    quote = Get();
+  bool allow_interpolation = quote != '\'';
+  std::string tag;
+  while (!Eof() && IsIdentPart(Peek()))
+    tag.push_back(Get());
+  if (quote != '\0' && Peek() == quote)
+    Get();
+  while (!Eof() && Peek() != '\n')
+    Get();
+  if (Peek() == '\n')
+    Get();
+
+  std::vector<std::string> lines;
+  bool terminated = false;
+  while (!Eof()) {
+    std::string line;
+    while (!Eof() && Peek() != '\n' && Peek() != '\r')
+      line.push_back(Get());
+    if (Peek() == '\r')
+      Get();
+    bool had_newline = Peek() == '\n';
+    if (had_newline)
+      Get();
+
+    std::string terminator = line;
+    if (allow_indented_terminator) {
+      size_t first = terminator.find_first_not_of(" \t");
+      terminator = first == std::string::npos ? "" : terminator.substr(first);
+    }
+    if (terminator == tag) {
+      terminated = true;
+      pending_newline_ = had_newline;
+      break;
+    }
+    lines.push_back(line + (had_newline ? "\n" : ""));
+  }
+
+  if (strip_indent) {
+    size_t common = std::string::npos;
+    for (const auto &line : lines) {
+      size_t count = 0;
+      while (count < line.size() && (line[count] == ' ' || line[count] == '\t'))
+        ++count;
+      size_t content = line.find_first_not_of(" \t\r\n");
+      if (content != std::string::npos)
+        common = common == std::string::npos ? count : std::min(common, count);
+    }
+    if (common != std::string::npos && common > 0) {
+      for (auto &line : lines)
+        line.erase(0, std::min(common, line.find_first_not_of(" \t")));
+    }
+  }
+
+  std::string body;
+  for (const auto &line : lines)
+    body += line;
+  frontends::Token token{frontends::TokenKind::kString, body, loc};
+  if (!terminated)
+    token.raw_lexeme = "__polyglot_ruby_unterminated_heredoc__";
+  else if (allow_interpolation && body.find("#{") != std::string::npos)
+    token.raw_lexeme = "__polyglot_ruby_interpolated_heredoc__";
+  else
+    token.raw_lexeme = "__polyglot_ruby_heredoc__";
+  prev_allows_unary_ = false;
+  return token;
 }
 
 void RbLexer::SkipSpacesAndContinuations() {
@@ -241,7 +349,7 @@ frontends::Token RbLexer::LexOperator() {
       "**=", "<<=", ">>=", "===", "<=>", "&&=", "||=", "..."};
   static const std::vector<std::string> two = {"**", "==", "!=", "<=", ">=", "<<", ">>", "&&",
                                                "||", "+=", "-=", "*=", "/=", "%=", "|=", "&=",
-                                               "^=", "::", "..", "=>", "->", "::"};
+                                               "^=", "::", "..", "=>", "->", "&.", "=~", "!~"};
   if (position_ + 2 < source_.size()) {
     std::string s3 = source_.substr(position_, 3);
     for (auto &op : three)
@@ -283,6 +391,15 @@ frontends::Token RbLexer::LexOperator() {
 }
 
 frontends::Token RbLexer::NextToken() {
+  if (pending_newline_) {
+    pending_newline_ = false;
+    frontends::Token token;
+    token.kind = frontends::TokenKind::kNewline;
+    token.lexeme = "\n";
+    token.loc = CurrentLoc();
+    prev_allows_unary_ = true;
+    return token;
+  }
   while (true) {
     SkipSpacesAndContinuations();
     if (Eof()) {
@@ -325,6 +442,8 @@ frontends::Token RbLexer::NextToken() {
       return LexString(c);
     if (c == ':' && (IsIdentStart(PeekNext()) || PeekNext() == '"'))
       return LexSymbol();
+    if (c == '<' && PeekNext() == '<' && LooksLikeHeredoc())
+      return LexHeredoc();
     return LexOperator();
   }
 }

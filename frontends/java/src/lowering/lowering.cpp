@@ -6,6 +6,7 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
@@ -19,9 +20,13 @@ namespace {
 
 using Name = std::string;
 
-ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
-  if (!node)
-    return ir::IRType::I64(true);
+ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node, frontends::Diagnostics &diags,
+                    const core::SourceLoc &fallback_loc) {
+  if (!node) {
+    diags.ReportError(fallback_loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "Java lowering requires a resolved runtime type");
+    return ir::IRType::Invalid();
+  }
   if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
     auto &n = simple->name;
     if (n == "byte")
@@ -47,8 +52,16 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
     return ir::IRType::Pointer(ir::IRType::I8()); // reference types
   }
   if (auto arr = std::dynamic_pointer_cast<ArrayType>(node)) {
-    return ir::IRType::Pointer(ToIRType(arr->element_type));
+    if (arr->dimensions != 1) {
+      diags.ReportError(arr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "multidimensional Java array layout is not supported");
+      return ir::IRType::Invalid();
+    }
+    auto element = ToIRType(arr->element_type, diags, arr->loc);
+    return element.kind == ir::IRTypeKind::kInvalid ? element : ir::IRType::Pointer(element);
   }
+  diags.ReportError(node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                    "unsupported Java runtime type reached IR lowering");
   return ir::IRType::Invalid();
 }
 
@@ -108,43 +121,67 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
   return {lit->name, ir::IRType::F64()};
 }
 
+bool FlattenMemberName(const std::shared_ptr<Expression> &expr, std::string &out) {
+  if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
+    out = id->name;
+    return true;
+  }
+  if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
+    std::string base;
+    if (!FlattenMemberName(member->object, base))
+      return false;
+    out = base + "." + member->member;
+    return true;
+  }
+  return false;
+}
+
 // Map binary operator string to BinaryInstruction::Op
-ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float) {
+bool MapBinOp(const std::string &op, bool is_float,
+              ir::BinaryInstruction::Op &mapped) {
   if (op == "+")
-    return is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
   if (op == "-")
-    return is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
   if (op == "*")
-    return is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
   if (op == "/")
-    return is_float ? ir::BinaryInstruction::Op::kFDiv : ir::BinaryInstruction::Op::kSDiv;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFDiv : ir::BinaryInstruction::Op::kSDiv;
   if (op == "%")
-    return ir::BinaryInstruction::Op::kSRem;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFRem : ir::BinaryInstruction::Op::kSRem;
   if (op == "&")
-    return ir::BinaryInstruction::Op::kAnd;
+    mapped = ir::BinaryInstruction::Op::kAnd;
   if (op == "|")
-    return ir::BinaryInstruction::Op::kOr;
+    mapped = ir::BinaryInstruction::Op::kOr;
   if (op == "^")
-    return ir::BinaryInstruction::Op::kXor;
+    mapped = ir::BinaryInstruction::Op::kXor;
   if (op == "<<")
-    return ir::BinaryInstruction::Op::kShl;
+    mapped = ir::BinaryInstruction::Op::kShl;
   if (op == ">>")
-    return ir::BinaryInstruction::Op::kAShr;
+    mapped = ir::BinaryInstruction::Op::kAShr;
   if (op == ">>>")
-    return ir::BinaryInstruction::Op::kLShr;
+    mapped = ir::BinaryInstruction::Op::kLShr;
   if (op == "==")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFoe : ir::BinaryInstruction::Op::kCmpEq;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFoe
+                      : ir::BinaryInstruction::Op::kCmpEq;
   if (op == "!=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFne : ir::BinaryInstruction::Op::kCmpNe;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFne
+                      : ir::BinaryInstruction::Op::kCmpNe;
   if (op == "<")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFlt : ir::BinaryInstruction::Op::kCmpSlt;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFlt
+                      : ir::BinaryInstruction::Op::kCmpSlt;
   if (op == "<=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFle : ir::BinaryInstruction::Op::kCmpSle;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFle
+                      : ir::BinaryInstruction::Op::kCmpSle;
   if (op == ">")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFgt : ir::BinaryInstruction::Op::kCmpSgt;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFgt
+                      : ir::BinaryInstruction::Op::kCmpSgt;
   if (op == ">=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFge : ir::BinaryInstruction::Op::kCmpSge;
-  return ir::BinaryInstruction::Op::kAdd;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFge
+                      : ir::BinaryInstruction::Op::kCmpSge;
+  return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "&" ||
+         op == "|" || op == "^" || op == "<<" || op == ">>" || op == ">>>" || op == "==" ||
+         op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
 }
 
 bool IsCmpOp(ir::BinaryInstruction::Op op) {
@@ -176,9 +213,16 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 
   if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
     auto it = lc.env.find(id->name);
-    if (it != lc.env.end())
+    if (it != lc.env.end() && !it->second.value.empty())
       return {it->second.value, it->second.type};
-    return {id->name, ir::IRType::I64(true)};
+    if (it != lc.env.end()) {
+      lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "use of an uninitialized Java local in IR lowering: " + id->name);
+    } else {
+      lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unresolved Java value in IR lowering: " + id->name);
+    }
+    return {};
   }
 
   if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
@@ -189,6 +233,12 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       return {"0", ir::IRType::I1()};
     if (v == "null")
       return {"0", ir::IRType::Pointer(ir::IRType::I8())};
+
+    if (v.starts_with("\"\"\"")) {
+      lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java text-block normalization is not implemented in IR lowering");
+      return {};
+    }
 
     if (!v.empty() && v[0] == '"') {
       auto name = lc.builder.MakeStringLiteral(v, "jstr");
@@ -204,12 +254,16 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       return MakeFloatLiteral(fv, lc);
 
     if (!v.empty() && v[0] == '\'') {
-      if (v.size() >= 3)
+      if (v.size() == 3)
         return MakeLiteral(static_cast<long long>(v[1]), lc);
-      return MakeLiteral(0, lc);
+      lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "escaped Java character literal lowering is not implemented");
+      return {};
     }
 
-    return {v, ir::IRType::I64(true)};
+    lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported Java literal reached IR lowering: " + v);
+    return {};
   }
 
   if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
@@ -217,26 +271,49 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (operand.type.kind == ir::IRTypeKind::kInvalid)
       return {};
     if (unary->op == "-") {
-      auto neg = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kSub, "0", operand.value, "");
+      const bool fp = operand.type.kind == ir::IRTypeKind::kF32 ||
+                      operand.type.kind == ir::IRTypeKind::kF64;
+      auto neg = lc.builder.MakeBinary(fp ? ir::BinaryInstruction::Op::kFSub
+                                          : ir::BinaryInstruction::Op::kSub,
+                                       "0", operand.value, "");
+      neg->type = operand.type;
       return {neg->name, operand.type};
     }
     if (unary->op == "!") {
       auto not_val = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, "1", "");
+      not_val->type = ir::IRType::I1();
       return {not_val->name, ir::IRType::I1()};
     }
     if (unary->op == "~") {
       auto comp = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, "-1", "");
+      comp->type = operand.type;
       return {comp->name, operand.type};
     }
-    return operand;
+    if (unary->op == "+")
+      return operand;
+    lc.diags.ReportError(unary->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported Java unary operator in lowering: " + unary->op);
+    return {};
   }
 
   if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
     // Assignment
     if (bin->op == "=") {
       auto rhs = EvalExpr(bin->right, lc);
+      if (rhs.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
+        if (!lc.env.contains(id->name)) {
+          lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "Java field or unresolved assignment target requires storage lowering: " +
+                                   id->name);
+          return {};
+        }
         lc.env[id->name] = {rhs.value, rhs.type};
+      } else {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Java lowering only supports identifier assignment targets");
+        return {};
       }
       return rhs;
     }
@@ -246,24 +323,41 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
         bin->op == "%=") {
       auto left = EvalExpr(bin->left, lc);
       auto right = EvalExpr(bin->right, lc);
+      if (left.type.kind == ir::IRTypeKind::kInvalid ||
+          right.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       std::string base_op = bin->op.substr(0, bin->op.size() - 1);
       bool is_float =
           (left.type.kind == ir::IRTypeKind::kF32 || left.type.kind == ir::IRTypeKind::kF64);
-      auto op = MapBinOp(base_op, is_float);
+      ir::BinaryInstruction::Op op;
+      if (!MapBinOp(base_op, is_float, op)) {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "unsupported Java binary operator: " + base_op);
+        return {};
+      }
       auto result = lc.builder.MakeBinary(op, left.value, right.value, "");
+      result->type = left.type;
       if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
         lc.env[id->name] = {result->name, left.type};
+      } else {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Java lowering only supports identifier compound-assignment targets");
+        return {};
       }
       return {result->name, left.type};
+    }
+    if (bin->op == "&=" || bin->op == "|=" || bin->op == "^=" || bin->op == "<<=" ||
+        bin->op == ">>=" || bin->op == ">>>=") {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported Java compound assignment operator: " + bin->op);
+      return {};
     }
 
     // Logical short-circuit operators
     if (bin->op == "&&" || bin->op == "||") {
-      auto left = EvalExpr(bin->left, lc);
-      auto right = EvalExpr(bin->right, lc);
-      auto op = bin->op == "&&" ? ir::BinaryInstruction::Op::kAnd : ir::BinaryInstruction::Op::kOr;
-      auto logical = lc.builder.MakeBinary(op, left.value, right.value, "");
-      return {logical->name, ir::IRType::I1()};
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java short-circuit operators require control-flow lowering");
+      return {};
     }
 
     auto left = EvalExpr(bin->left, lc);
@@ -273,9 +367,20 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 
     bool is_float =
         (left.type.kind == ir::IRTypeKind::kF32 || left.type.kind == ir::IRTypeKind::kF64);
-    auto op = MapBinOp(bin->op, is_float);
+    if (left.type.kind == ir::IRTypeKind::kPointer && bin->op != "==" && bin->op != "!=") {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java reference/string operators require JVM runtime semantics");
+      return {};
+    }
+    ir::BinaryInstruction::Op op;
+    if (!MapBinOp(bin->op, is_float, op)) {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported Java binary operator: " + bin->op);
+      return {};
+    }
     auto inst = lc.builder.MakeBinary(op, left.value, right.value, "");
     ir::IRType result_type = IsCmpOp(op) ? ir::IRType::I1() : left.type;
+    inst->type = result_type;
     return {inst->name, result_type};
   }
 
@@ -283,90 +388,69 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     std::vector<std::string> arg_values;
     for (auto &arg : call->args) {
       auto r = EvalExpr(arg, lc);
+      if (r.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       arg_values.push_back(r.value);
     }
 
     std::string callee_name;
     if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
       callee_name = id->name;
-    } else if (auto member = std::dynamic_pointer_cast<MemberExpression>(call->callee)) {
-      auto obj = EvalExpr(member->object, lc);
-      callee_name = obj.value + "." + member->member;
-      arg_values.insert(arg_values.begin(), obj.value);
+    } else if (!FlattenMemberName(call->callee, callee_name)) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "indirect Java calls are not supported by lowering");
+      return {};
     }
 
     // Map well-known Java methods
     if (callee_name == "System.out.println" || callee_name == "System.out.print") {
-      callee_name = "__ploy_java_print";
+      auto inst = lc.builder.MakeCall("__ploy_java_print", arg_values, ir::IRType::Void(), "");
+      return {inst->name, inst->type};
     }
 
-    auto inst = lc.builder.MakeCall(callee_name, arg_values, ir::IRType::I64(true), "");
-    return {inst->name, inst->type};
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java call lowering requires a resolved method signature: " + callee_name);
+    return {};
   }
 
   if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
-    auto obj = EvalExpr(member->object, lc);
-    std::string field_name = obj.value + "." + member->member;
-    return {field_name, ir::IRType::I64(true)};
+    lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java field/member value lowering requires object-layout support");
+    return {};
   }
 
   if (auto new_expr = std::dynamic_pointer_cast<NewExpression>(expr)) {
-    ir::IRType alloc_type = ToIRType(new_expr->type);
-    auto ptr_type = ir::IRType::Pointer(alloc_type);
-
-    std::vector<std::string> args;
-    for (auto &arg : new_expr->args) {
-      auto r = EvalExpr(arg, lc);
-      args.push_back(r.value);
-    }
-
-    auto alloc = lc.builder.MakeCall("__builtin_new", {}, ptr_type, "");
-
-    std::string type_name;
-    if (auto st = std::dynamic_pointer_cast<SimpleType>(new_expr->type)) {
-      type_name = st->name;
-    }
-    if (!type_name.empty()) {
-      std::vector<std::string> ctor_args = {alloc->name};
-      for (auto &a : args)
-        ctor_args.push_back(a);
-      lc.builder.MakeCall(type_name + "::<init>", ctor_args, ir::IRType::Void(), "");
-    }
-
-    return {alloc->name, ptr_type};
+    lc.diags.ReportError(new_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java object/array allocation requires JVM layout and GC support");
+    return {};
   }
 
   if (auto cast = std::dynamic_pointer_cast<CastExpression>(expr)) {
-    auto val = EvalExpr(cast->expr, lc);
-    ir::IRType target = ToIRType(cast->target_type);
-    auto conv = lc.builder.MakeCast(ir::CastInstruction::CastKind::kBitcast, val.value, target, "");
-    return {conv->name, target};
+    lc.diags.ReportError(cast->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java casts require checked numeric/reference conversion semantics");
+    return {};
   }
 
   if (auto arr = std::dynamic_pointer_cast<ArrayAccessExpression>(expr)) {
-    auto base = EvalExpr(arr->array, lc);
-    auto idx = EvalExpr(arr->index, lc);
-    ir::IRType elem_type = ir::IRType::I64(true);
-    if (base.type.kind == ir::IRTypeKind::kPointer && !base.type.subtypes.empty()) {
-      elem_type = base.type.subtypes[0];
-    }
-    auto gep = lc.builder.MakeDynamicGEP(base.value, elem_type, idx.value, "arr_ptr");
-    auto load = lc.builder.MakeLoad(gep->name, elem_type, "arr_elem");
-    return {load->name, elem_type};
+    lc.diags.ReportError(arr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java array access requires JVM bounds and array-layout semantics");
+    return {};
   }
 
   if (auto tern = std::dynamic_pointer_cast<TernaryExpression>(expr)) {
-    // Lower ternary as if/else with merge block
-    auto cond = EvalExpr(tern->condition, lc);
-    auto then_val = EvalExpr(tern->then_expr, lc);
-    auto else_val = EvalExpr(tern->else_expr, lc);
-    // Simplified: just evaluate both and use a phi-like approach
-    // For now, return then_val (a full implementation would use branches)
-    (void)cond;
-    (void)else_val;
-    return then_val;
+    lc.diags.ReportError(tern->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java conditional-expression lowering requires control-flow and phi nodes");
+    return {};
   }
 
+  if (std::dynamic_pointer_cast<SwitchExpression>(expr)) {
+    lc.diags.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java switch-expression lowering is not supported by the current IR backend");
+    return {};
+  }
+
+  lc.diags.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Java expression reached IR lowering");
   return {};
 }
 
@@ -390,25 +474,40 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto var = std::dynamic_pointer_cast<VarDecl>(stmt)) {
-    ir::IRType vt = ToIRType(var->type);
+    if (!var->annotations.empty()) {
+      lc.diags.ReportError(var->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java local annotations require retention/processor metadata lowering");
+      return false;
+    }
     if (var->init) {
       auto init_val = EvalExpr(var->init, lc);
-      lc.env[var->name] = {init_val.value, init_val.type};
+      if (init_val.type.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      auto vt = var->type ? ToIRType(var->type, lc.diags, var->loc) : init_val.type;
+      if (vt.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      lc.env[var->name] = {init_val.value, vt};
     } else {
-      lc.env[var->name] = {"0", vt};
+      auto vt = ToIRType(var->type, lc.diags, var->loc);
+      if (vt.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      lc.env[var->name] = {"", vt};
     }
     return true;
   }
 
   if (auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
-    if (expr_stmt->expr)
-      EvalExpr(expr_stmt->expr, lc);
+    if (expr_stmt->expr &&
+        EvalExpr(expr_stmt->expr, lc).type.kind == ir::IRTypeKind::kInvalid)
+      return false;
     return true;
   }
 
   if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
     if (ret->value) {
       auto val = EvalExpr(ret->value, lc);
+      if (val.type.kind == ir::IRTypeKind::kInvalid)
+        return false;
       lc.builder.MakeReturn(val.value);
     } else {
       lc.builder.MakeReturn("");
@@ -418,6 +517,8 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
+    lc.diags.ReportError(if_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java branch lowering requires local-value SSA/phi construction");
     auto cond = EvalExpr(if_stmt->condition, lc);
     if (cond.type.kind == ir::IRTypeKind::kInvalid)
       return false;
@@ -469,6 +570,8 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
+    lc.diags.ReportError(while_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java loop lowering requires storage/SSA semantics for mutable locals");
     auto *cond_block = lc.fn->CreateBlock("while.cond");
     auto *body_block = lc.fn->CreateBlock("while.body");
     auto *exit_block = lc.fn->CreateBlock("while.end");
@@ -507,6 +610,8 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto for_stmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
+    lc.diags.ReportError(for_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java loop lowering requires storage/SSA semantics for mutable locals");
     if (for_stmt->init)
       LowerStmt(for_stmt->init, lc);
 
@@ -564,6 +669,8 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto foreach_stmt = std::dynamic_pointer_cast<ForEachStatement>(stmt)) {
+    lc.diags.ReportError(foreach_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java enhanced-for requires resolved iterator/array semantics");
     auto iterable = EvalExpr(foreach_stmt->iterable, lc);
     auto iter = lc.builder.MakeCall("__ploy_java_iterator", {iterable.value},
                                     ir::IRType::Pointer(ir::IRType::I8()), "");
@@ -591,7 +698,7 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
       }
     }
     lc.terminated = false;
-    ir::IRType elem_type = ToIRType(foreach_stmt->var_type);
+    ir::IRType elem_type = ToIRType(foreach_stmt->var_type, lc.diags, foreach_stmt->loc);
     auto current = lc.builder.MakeCall("__ploy_java_next", {iter->name}, elem_type, "");
     lc.env[foreach_stmt->var_name] = {current->name, elem_type};
     LowerStmt(foreach_stmt->body, lc);
@@ -609,44 +716,15 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto switch_stmt = std::dynamic_pointer_cast<SwitchStatement>(stmt)) {
-    auto sel = EvalExpr(switch_stmt->selector, lc);
-    auto *end_block = lc.fn->CreateBlock("switch.end");
-    for (auto &c : switch_stmt->cases) {
-      auto *case_block = lc.fn->CreateBlock("switch.case");
-      for (auto &bb : lc.fn->blocks) {
-        if (bb.get() == case_block) {
-          lc.builder.SetInsertPoint(bb);
-          break;
-        }
-      }
-      lc.terminated = false;
-      for (auto &s : c.body) {
-        if (!LowerStmt(s, lc))
-          return false;
-        if (lc.terminated)
-          break;
-      }
-      if (!lc.terminated)
-        lc.builder.MakeBranch(end_block);
-    }
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == end_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    return true;
+    lc.diags.ReportError(switch_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java switch-statement dispatch lowering is not implemented");
+    return false;
   }
 
   if (auto try_stmt = std::dynamic_pointer_cast<TryStatement>(stmt)) {
-    // Simplified: just lower all sections sequentially
-    LowerStmt(try_stmt->body, lc);
-    for (auto &c : try_stmt->catches)
-      LowerStmt(c.body, lc);
-    if (try_stmt->finally_body)
-      LowerStmt(try_stmt->finally_body, lc);
-    return true;
+    lc.diags.ReportError(try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java exception-region lowering is not implemented");
+    return false;
   }
 
   if (auto throw_stmt = std::dynamic_pointer_cast<ThrowStatement>(stmt)) {
@@ -657,14 +735,14 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto sync = std::dynamic_pointer_cast<SynchronizedStatement>(stmt)) {
-    auto monitor = EvalExpr(sync->monitor, lc);
-    lc.builder.MakeCall("__ploy_java_monitor_enter", {monitor.value}, ir::IRType::Void(), "");
-    LowerStmt(sync->body, lc);
-    lc.builder.MakeCall("__ploy_java_monitor_exit", {monitor.value}, ir::IRType::Void(), "");
-    return true;
+    lc.diags.ReportError(sync->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java synchronized lowering requires exception-safe monitor regions");
+    return false;
   }
 
-  return true;
+  lc.diags.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Java statement reached IR lowering");
+  return false;
 }
 
 /** @} */
@@ -673,19 +751,44 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
 /** @{ */
 
 bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
+  const bool has_parameter_annotations =
+      std::any_of(method.params.begin(), method.params.end(),
+                  [](const Parameter &parameter) { return !parameter.annotations.empty(); });
+  if (!method.annotations.empty() || has_parameter_annotations) {
+    lc.diags.ReportError(
+        method.loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Java method/parameter annotations require retention and annotation-metadata lowering");
+    return false;
+  }
+  if (!method.type_params.empty() || method.is_synchronized) {
+    lc.diags.ReportError(
+        method.loc, frontends::ErrorCode::kUnsupportedLowering,
+        method.is_synchronized
+            ? "Java synchronized method lowering requires exception-safe monitor regions"
+            : "generic Java method lowering requires erasure/bridge dispatch support");
+    return false;
+  }
   std::string mangled =
       lc.current_class.empty() ? method.name : lc.current_class + "::" + method.name;
 
-  ir::IRType ret = ToIRType(method.return_type);
+  ir::IRType ret = ToIRType(method.return_type, lc.diags, method.loc);
   if (ret.kind == ir::IRTypeKind::kInvalid)
-    ret = ir::IRType::I64(true);
+    return false;
 
   std::vector<std::pair<std::string, ir::IRType>> params;
   if (!method.is_static && !lc.current_class.empty()) {
     params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
   }
   for (auto &p : method.params) {
-    params.push_back({p.name, ToIRType(p.type)});
+    if (p.is_varargs) {
+      lc.diags.ReportError(method.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java varargs calling convention is not supported by lowering");
+      return false;
+    }
+    auto type = ToIRType(p.type, lc.diags, method.loc);
+    if (type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+    params.push_back({p.name, type});
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ret, params);
@@ -712,20 +815,46 @@ bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
     if (ret.kind == ir::IRTypeKind::kVoid) {
       lc.builder.MakeReturn("");
     } else {
-      auto zero = MakeLiteral(0, lc);
-      lc.builder.MakeReturn(zero.value);
+      lc.diags.ReportError(method.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "non-void Java method can reach the end without a lowered return");
+      return false;
     }
   }
   return true;
 }
 
 bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
+  const bool has_parameter_annotations =
+      std::any_of(ctor.params.begin(), ctor.params.end(),
+                  [](const Parameter &parameter) { return !parameter.annotations.empty(); });
+  if (!ctor.annotations.empty() || has_parameter_annotations) {
+    lc.diags.ReportError(
+        ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Java constructor/parameter annotations require retention metadata lowering");
+    return false;
+  }
+  if (ctor.invocation_kind != ConstructorDecl::InvocationKind::kNone) {
+    lc.diags.ReportError(
+        ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+        ctor.has_flexible_body
+            ? "Java 25 flexible constructor bodies require explicit prologue/invocation lowering"
+            : "explicit Java this/super constructor invocation lowering is not implemented");
+    return false;
+  }
   std::string mangled = lc.current_class + "::<init>";
 
   std::vector<std::pair<std::string, ir::IRType>> params;
   params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
   for (auto &p : ctor.params) {
-    params.push_back({p.name, ToIRType(p.type)});
+    if (p.is_varargs) {
+      lc.diags.ReportError(ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Java varargs constructor lowering is not supported");
+      return false;
+    }
+    auto type = ToIRType(p.type, lc.diags, ctor.loc);
+    if (type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+    params.push_back({p.name, type});
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ir::IRType::Void(), params);
@@ -755,6 +884,17 @@ bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
 }
 
 void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
+  if (!cls.annotations.empty()) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java class annotations require retention/processor metadata lowering");
+    return;
+  }
+  if (!cls.type_params.empty() || cls.superclass || !cls.interfaces.empty() || cls.is_sealed ||
+      cls.is_non_sealed || !cls.permits.empty()) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "generic/inherited/sealed Java class runtime semantics are not implemented");
+    return;
+  }
   auto saved_class = lc.current_class;
   lc.current_class = cls.name;
 
@@ -766,12 +906,21 @@ void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
     } else if (auto ctor = std::dynamic_pointer_cast<ConstructorDecl>(member)) {
       LowerConstructor(*ctor, lc);
     } else if (auto field = std::dynamic_pointer_cast<FieldDecl>(member)) {
-      if (field->is_static && field->init) {
-        auto val = EvalExpr(field->init, lc);
-        lc.env[cls.name + "::" + field->name] = {val.value, val.type};
-      }
+      lc.diags.ReportError(field->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           field->is_static
+                               ? "Java static fields require class storage/<clinit> lowering"
+                               : "Java instance fields require JVM object-layout lowering");
     } else if (auto inner = std::dynamic_pointer_cast<ClassDecl>(member)) {
       LowerClass(*inner, lc);
+    } else if (std::dynamic_pointer_cast<InterfaceDecl>(member) ||
+               std::dynamic_pointer_cast<EnumDecl>(member) ||
+               std::dynamic_pointer_cast<RecordDecl>(member)) {
+      lc.diags.ReportError(
+          member->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Java nested interface/enum/record lowering is not implemented by the current IR backend");
+    } else {
+      lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported Java class member reached IR lowering");
     }
   }
 
@@ -779,6 +928,16 @@ void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
 }
 
 void LowerEnum(const EnumDecl &en, LoweringContext &lc) {
+  const bool has_constant_semantics =
+      std::any_of(en.constants.begin(), en.constants.end(), [](const EnumDecl::EnumConstant &value) {
+        return !value.annotations.empty() || !value.args.empty() || !value.body.empty();
+      });
+  if (!en.annotations.empty() || has_constant_semantics || !en.members.empty() ||
+      !en.interfaces.empty()) {
+    lc.diags.ReportError(en.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Java annotated/stateful enum lowering requires JVM enum metadata");
+    return;
+  }
   int ordinal = 0;
   for (auto &c : en.constants) {
     lc.env[en.name + "::" + c.name] = {std::to_string(ordinal), ir::IRType::I32(true)};
@@ -787,50 +946,13 @@ void LowerEnum(const EnumDecl &en, LoweringContext &lc) {
 }
 
 void LowerRecord(const RecordDecl &rec, LoweringContext &lc) {
-  auto saved_class = lc.current_class;
-  lc.current_class = rec.name;
-
-  // Generate canonical constructor
-  std::vector<std::pair<std::string, ir::IRType>> ctor_params;
-  ctor_params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
-  for (auto &comp : rec.components) {
-    ctor_params.push_back({comp.name, ToIRType(comp.type)});
-  }
-  lc.fn = lc.ir_ctx.CreateFunction(rec.name + "::<init>", ir::IRType::Void(), ctor_params);
-  auto *entry = lc.fn->CreateBlock("entry");
-  lc.fn->entry = entry;
-  if (!lc.fn->blocks.empty()) {
-    lc.builder.SetInsertPoint(lc.fn->blocks.back());
-  }
-  lc.env.clear();
-  for (auto &p : ctor_params) {
-    lc.env[p.first] = {p.first, p.second};
-  }
-  lc.builder.MakeReturn("");
-
-  // Generate accessor methods for each component
-  for (auto &comp : rec.components) {
-    ir::IRType comp_type = ToIRType(comp.type);
-    std::vector<std::pair<std::string, ir::IRType>> acc_params;
-    acc_params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
-    lc.fn = lc.ir_ctx.CreateFunction(rec.name + "::" + comp.name, comp_type, acc_params);
-    auto *acc_entry = lc.fn->CreateBlock("entry");
-    lc.fn->entry = acc_entry;
-    if (!lc.fn->blocks.empty()) {
-      lc.builder.SetInsertPoint(lc.fn->blocks.back());
-    }
-    auto zero = MakeLiteral(0, lc);
-    lc.builder.MakeReturn(zero.value);
-  }
-
-  // Lower additional members
-  for (auto &member : rec.members) {
-    if (auto method = std::dynamic_pointer_cast<MethodDecl>(member)) {
-      LowerMethod(*method, lc);
-    }
-  }
-
-  lc.current_class = saved_class;
+  // A faithful record implementation needs an object layout, component
+  // stores, generated accessors, equals/hashCode/toString, and constructor
+  // validation.  The previous placeholder emitted accessors that always
+  // returned zero, which was observably wrong.  Fail closed until that model
+  // exists.
+  lc.diags.ReportError(rec.loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Java record lowering requires record object-layout support");
 }
 
 } // namespace
@@ -838,25 +960,30 @@ void LowerRecord(const RecordDecl &rec, LoweringContext &lc) {
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags) {
   LoweringContext lc(ctx, diags);
 
+  if (module.is_compact_source) {
+    const auto loc = module.declarations.empty() ? core::SourceLoc{}
+                                                  : module.declarations.front()->loc;
+    diags.ReportError(loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "Java 25 compact source files require implicit-class metadata lowering");
+    return;
+  }
+
   for (const auto &decl : module.declarations) {
-    if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
+    if (auto descriptor = std::dynamic_pointer_cast<ModuleDecl>(decl)) {
+      diags.ReportError(descriptor->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "Java module descriptors require module metadata emission");
+    } else if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
       LowerClass(*cls, lc);
     } else if (auto iface = std::dynamic_pointer_cast<InterfaceDecl>(decl)) {
-      // Lower default methods only
-      auto saved = lc.current_class;
-      lc.current_class = iface->name;
-      for (auto &m : iface->members) {
-        if (auto method = std::dynamic_pointer_cast<MethodDecl>(m)) {
-          if (method->is_default && !method->body.empty()) {
-            LowerMethod(*method, lc);
-          }
-        }
-      }
-      lc.current_class = saved;
+      diags.ReportError(iface->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "Java interface/default-method dispatch lowering is not implemented");
     } else if (auto en = std::dynamic_pointer_cast<EnumDecl>(decl)) {
       LowerEnum(*en, lc);
     } else if (auto rec = std::dynamic_pointer_cast<RecordDecl>(decl)) {
       LowerRecord(*rec, lc);
+    } else {
+      diags.ReportError(decl->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "unsupported Java top-level declaration reached IR lowering");
     }
   }
 }

@@ -33,6 +33,8 @@ struct AstNode {
 
 // ----------------------------- Types --------------------------------------
 
+struct Expression;
+
 enum class TypeKind {
   kNamed,     // int, string, MyType, pkg.Name
   kPointer,   // *T
@@ -44,6 +46,8 @@ enum class TypeKind {
   kStruct,    // struct{...}
   kInterface, // interface{...}
   kEllipsis,  // ...T (variadic)
+  kApproximation, // ~T in an interface type set
+  kUnion,         // T | U in an interface type set
 };
 
 struct TypeNode : AstNode {
@@ -52,9 +56,13 @@ struct TypeNode : AstNode {
   std::shared_ptr<TypeNode> elem;                 // pointer/slice/array/chan/ellipsis
   std::shared_ptr<TypeNode> key;                  // map key
   long long array_len{0};                         // -1 for [...]T
+  std::shared_ptr<Expression> array_len_expr;     // unevaluated constant expression in [N]T
   int chan_dir{0};                                // 0=bi, 1=send, 2=recv
   std::vector<std::shared_ptr<TypeNode>> params;  // func params
   std::vector<std::shared_ptr<TypeNode>> results; // func results
+  // Instantiation arguments for named types, e.g. Pair[string, int].
+  std::vector<std::shared_ptr<TypeNode>> type_args;
+  std::vector<std::shared_ptr<TypeNode>> terms; // kUnion
   struct Field {
     std::vector<std::string> names; // empty = embedded
     std::shared_ptr<TypeNode> type;
@@ -118,6 +126,12 @@ struct IndexExpr : Expression {
   std::shared_ptr<Expression> index;
 };
 
+/** A generic function or type instantiation such as Map[K, V]. */
+struct TypeInstantiationExpr : Expression {
+  std::shared_ptr<Expression> x;
+  std::vector<std::shared_ptr<TypeNode>> type_args;
+};
+
 struct SliceExpr : Expression {
   std::shared_ptr<Expression> x;
   std::shared_ptr<Expression> low, high, max;
@@ -133,6 +147,9 @@ struct CallExpr : Expression {
   std::shared_ptr<Expression> fun;
   std::vector<std::shared_ptr<Expression>> args;
   bool has_ellipsis{false};
+  // Go 1.26's new(expression) form must not be confused with legacy
+  // new(Type): the expression is evaluated and its dynamic type matters.
+  bool is_new_expression{false};
 };
 
 struct StarExpr : Expression {
@@ -252,6 +269,11 @@ struct ValueSpec : AstNode { // for var / const
 
 struct TypeSpec : AstNode {
   std::string name;
+  struct TypeParameter {
+    std::string name;
+    std::shared_ptr<TypeNode> constraint;
+  };
+  std::vector<TypeParameter> type_params;
   std::shared_ptr<TypeNode> type;
   bool is_alias{false}; // type Foo = Bar
 };
@@ -271,6 +293,7 @@ struct Receiver : AstNode {
 struct FuncDecl : AstNode {
   std::string name;
   std::optional<Receiver> receiver;
+  std::vector<TypeSpec::TypeParameter> type_params;
   std::vector<std::pair<std::string, std::shared_ptr<TypeNode>>> params; // expanded
   std::vector<std::pair<std::string, std::shared_ptr<TypeNode>>>
       results;                 // result names may be empty

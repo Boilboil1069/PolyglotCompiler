@@ -1,14 +1,15 @@
 ﻿# PolyglotCompiler 用户指南
 
 > **文档版本**：4.0.0<br>
-> **最后更新**：2026-07-20<br>
+> **最后更新**：2026-07-24<br>
 > **项目**：PolyglotCompiler 1.48.0<br>
 > **配套文档**：[USER_GUIDE.md](USER_GUIDE.md)
 
-PolyglotCompiler 完整动手指南——一条多语言编译器工具链：吞入
-C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
-**Poly** 胶水语言，统一降到同一份中间表示（IR），并为
-**x86_64**、**ARM64** 与 **WebAssembly** 生成原生代码。配套 IDE
+PolyglotCompiler 完整动手指南——一条多语言编译器工具链：按明确的
+语言版本分析 C++、Python、Rust、Java、C#/.NET、Go、JavaScript、
+Ruby 以及自研的 **Poly** 胶水语言。只有具备保语义下沉路径的
+构造才进入统一中间表示（IR），并可为 **x86_64**、**ARM64** 或
+**WebAssembly** 生成代码；不支持的语法或下沉会在写产物之前停止。配套 IDE
 （`polyui`）提供基于 LSP 的多语言编辑器、调试器、性能分析器、调用关系
 分析器、包管理视图与测试浏览器。
 
@@ -41,13 +42,15 @@ C++、Python、Rust、Java、C#/.NET、Go、JavaScript、Ruby 以及自研的
 
 ### 1.1 PolyglotCompiler 是什么
 
-PolyglotCompiler 把多语言混合的源码树编译成一份链接产物。一个程序
-可以同时引入 C++ 图像滤镜、Rust 序列化器、Python 机器学习模型与
-Go HTTP 客户端，由 `.poly` 驱动文件粘合，最终产出 x86_64、ARM64 或
-WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建：
+PolyglotCompiler 可在所选构造都有受支持的下沉路径时，把多语言
+混合源码树编译成一份链接产物。`.poly` 驱动可描述 C++、Rust、
+Python、Go 与其他已注册语言之间的导入和 bridge；遇到尚不可用的
+语法、ABI 或下沉路径时，分析会拒绝，而不是制造不完整可执行件。
+整个编译器围绕三条核心保证构建：
 
-1. **统一 IR。** 每种支持语言降到同一份 SSA、三地址形式的 IR；优化、
-   调试信息、代码生成只写一次，全部前端共享。
+1. **统一且受校验的 IR 边界。** 每个成功下沉的语言构造进入同一份
+   SSA、三地址形式的 IR；优化、调试信息与代码生成共享，无法
+   忠实映射到 IR 的构造则在后端之前被拒绝。
 2. **跨语言一等公民调用。** `bridge_call` IR 操作经由统一的 FFI
    编排层（`runtime::ffi::BridgeFrame`）跨越语言边界，链接器会校验
    每个 bridge 调用点是否存在已注册的对端。
@@ -59,8 +62,8 @@ WebAssembly 单一可执行件。整个编译器围绕三条核心保证构建�
 
 | 领域       | 1.48.0 状态                                                                                                  |
 |------------|--------------------------------------------------------------------------------------------------------------|
-| 前端       | C++、Python、Rust、Java、.NET（C#）、Go、JavaScript、Ruby、Poly，共 9 个。                                    |
-| 后端       | x86_64（System V + Win64 + macOS Mach-O）、ARM64（AAPCS64，Linux ELF + macOS Mach-O）、WebAssembly MVP+SIMD。 |
+| 前端       | 对 C++23、Python 3.14、Rust 2024、Java 26、C# 14/.NET 10、Go 1.26、ECMAScript 2026、Ruby 4.0 与 Poly 做版本感知分析；下沉 fail-closed。 |
+| 后端       | 消费已校验的统一 IR，目标为 x86_64（System V + Win64 + macOS Mach-O）、ARM64（AAPCS64，Linux ELF + macOS Mach-O）与 WebAssembly MVP+SIMD；这不表示每个源语言构造都能进入 IR。 |
 | 工具驱动   | `polyc`、`polyld`、`polyasm`、`polyopt`、`polyrt`、`polybench`、`polytopo`、`polyls`、`polydoc`、`polyver`、`polyui`，共 11 个。 |
 | 垃圾回收器 | 标记—清扫、三色、分代、引用计数（4 种算法，运行时可选）。                                                     |
 | 测试面     | 30 个 CTest 目标，覆盖单元、集成、端到端、基准与工具。                                                        |
@@ -293,6 +296,9 @@ build/polyui &
                           可执行 / 库 / wasm 模块
 ```
 
+图中只有完成版本感知分析与保语义下沉的源码才会进入中端。
+`E2006`、`E4003` 或 `E6001` 会在后端或打包阶段之前终止该路径。
+
 ### 3.2 目录布局
 
 | 路径               | 内容                                                                    |
@@ -501,48 +507,84 @@ Poly 诊断与其他前端共用统一目录，标识符格式
 
 | 前端              | 库目标             | 测试目标                   | 亮点                                                                  |
 |-------------------|--------------------|----------------------------|-----------------------------------------------------------------------|
-| `frontend_cpp`    | `frontend_cpp`     | `test_frontend_cpp`        | C++20 子集；约束折叠的模板；默认关闭 RTTI。                           |
-| `frontend_python` | `frontend_python`  | `test_frontend_python`     | Python 3.11 子集；类型提示尽量降为 IR 类型。                          |
-| `frontend_rust`   | `frontend_rust`    | `test_frontend_rust`       | Rust 2024 子集；所有权降为作用域受限的 RC 句柄。                      |
-| `frontend_java`   | `frontend_java`    | `test_frontend_java`       | Java 21 子集；sealed class 与 record。                                |
-| `frontend_dotnet` | `frontend_dotnet`  | `test_frontend_dotnet`     | C# 12 子集；值类型 struct；`async`/`await` 降为协程。                 |
-| `frontend_go`     | `frontend_go`      | `test_frontend_go`         | Go 1.22 子集；goroutine 降到运行时任务调度器。                        |
-| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ES2023 子集；NaN 标记的值；可选 Number → i64 收窄。               |
-| `frontend_ruby`   | `frontend_ruby`    | `test_frontend_ruby`       | Ruby 3.3 子集；block 降为 closure。                                   |
+| `frontend_cpp`    | `frontend_cpp`     | `test_frontend_cpp`        | C++23 分析基线；C++26 选择器用于边界检查。                            |
+| `frontend_python` | `frontend_python`  | `test_frontend_python`     | Python 3.14 分析基线，含现代字符串与类型语法。                        |
+| `frontend_rust`   | `frontend_rust`    | `test_frontend_rust`       | Rust 2024 edition 分析与 edition 关键字处理。                         |
+| `frontend_java`   | `frontend_java`    | `test_frontend_java`       | Java 26 分析基线；8–26 每个 release 独立选择。                        |
+| `frontend_dotnet` | `frontend_dotnet`  | `test_frontend_dotnet`     | C# 14 / .NET 10 分析基线，preview 选择器独立。                        |
+| `frontend_go`     | `frontend_go`      | `test_frontend_go`         | Go 1.26 分析基线；1.18–1.26 精确门控。                               |
+| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ECMAScript 2026 分析基线，另含 `esnext`。                         |
+| `frontend_ruby`   | `frontend_ruby`    | `test_frontend_ruby`       | Ruby 4.0 分析基线与现代版本精确门控。                                 |
 | `frontend_ploy`   | `frontend_ploy`    | `test_frontend_ploy`       | 胶水语言；完整文法、泛型、异步、错误处理。                            |
 | common            | `frontend_common`  | `test_frontend_common`     | 共享诊断、源码映射与查询机制。                                        |
 
-“前端完整” 的判定：（a）解析文档化子集，（b）IR 通过校验器，
-（c）按目录发出诊断，（d）通过 `test_frontend_<lang>` 目标。
+前端边界可靠的判定：（a）接受的源码建立忠实 AST；（b）尚未建模的构造报告
+`kUnsupportedSyntax`，不得丢弃；（c）保持语义地下沉，否则报告
+`kUnsupportedLowering`；（d）通过 `test_frontend_<lang>` 目标。
+
+在本项目中，**完整的现代语言支持**指版本感知的词法/语法分析、
+忠实的 AST 与分析边界，以及不静默误编译。它**不等于**每个语法构造、
+标准库、运行时协议、ABI 细节或反射/动态操作都已有原生统一 IR 与后端下沉。
+
+#### 稳定默认值与选择器
+
+| 语言 | 确定的稳定默认值 | `polyc` 选择器 |
+|------|----------------------|------------------|
+| C++ | C++23 | `--std=c++23`（`c++98` 至 `c++26`） |
+| Python | Python 3.14 | `--python-version=3.14`（2.7 与 3.6–3.14） |
+| Rust | Rust 2024 edition | `--rust-edition=2024`（2015/2018/2021/2024） |
+| Java | Java 26 | `--java-release=26`（8–26） |
+| C# / .NET | C# 14 + .NET 10 | `--cs-lang=14 --target-framework=net10`；`preview` 需显式选择 |
+| Go | Go 1.26 | `--go-version=1.26`（1.18–1.26） |
+| JavaScript | ECMAScript 2026 | `--ecma=es2026`（ES5、ES2015–ES2026 或 `esnext`） |
+| Ruby | Ruby 4.0 | `--ruby-version=4.0`（1.9、2.7、3.0–3.4 或 4.0） |
+
+`auto` 解析为上表稳定默认值。`--list-language-versions` 打印可识别的写法。
+未知的命令行写法属于用法错误；不兼容的显式选择器、源码 `LANG` 固定值，
+或 C#/目标框架组合报告 `E6001`。直接编译单个源文件时，不得携带其他语言的
+选择器；`.poly` 编排源可有意地为多个导入语言携带选择器。
+
+未给出 `--cs-lang` 时，目标框架默认映射为 `net6` → C# 10、`net7` →
+C# 11、`net8` → C# 12、`net9` → C# 13、`net10` → C# 14。显式且不兼容的
+语言/TFM 组合报告 `E6001`。
+
+| 诊断 | 边界 |
+|------|------|
+| `E2006` / `kUnsupportedSyntax` | 所选前端无法忠实表示该语法；不得跳过 token 或捏造 AST。 |
+| `E4003` / `kUnsupportedLowering` | 分析已有忠实表示，但尚无保语义的 IR/运行时下沉。 |
+| `E6001` / `kLangVersionMismatch` | 特性、源码固定值、CLI 选择器或 C#/TFM 配对与所选版本冲突。 |
+
+这三类诊断不可恢复；`--force` 不得把它们的部分状态送入后端或
+产物写入器。外语签名发现同样 fail-closed：无法读取的源文件、有歧义的
+重载/别名冲突都会报错，不会猜测签名。仅因声明被解析，并不会推断默认参数、
+rest/varargs 及其跨语言 ABI。.NET 目标框架只选择 C# 兼容性/默认映射，不是
+完整的 .NET reference-pack 或 API 表面校验器。
 
 ### 5.1 C++ 前端
 
-支持 C++20，少数实用限制：
+默认按 C++23 分析。concepts/requires、modules、spaceship、指定初始化、
+if-init/if-constexpr 与现代 lambda 都有明确 AST 和版本边界；仍依赖 C++
+运行时或模板 ABI 的构造会在下沉阶段明确拒绝。
 
-* `<thread>` 与 `<atomic>` 降到运行时任务原语。
-* RTTI 默认关闭；按翻译单元用 `// poly: rtti on` 打开。
-* 异常展开使用平台原生 unwinder；wasm 上走 JS trap 路径。
-* 模板按需实例化；约束折叠在实例化前完成。
+本项目不对 `<thread>`、`<atomic>`、RTTI、异常、模板实例化或 C++ 标准库
+ABI 做统括性下沉承诺。声明可能为分析或外语签名发现而保留，但尝试生成
+可执行 IR 时会报 `E4003`。原始预处理指令必须经过已配置的预处理；预处理
+不可用时绝不会把它们静默当作普通源码。
 
 `.poly` 流水线里被引入的示例：
 
 ```cpp
-// frontends/cpp/examples/sharpen.cpp
-#include <vector>
-#include <cstdint>
-
-extern "C" std::vector<uint8_t> sharpen(const std::vector<uint8_t> &raw) {
-    // Apply a 3x3 sharpening kernel; returns a new buffer.
-    std::vector<uint8_t> out(raw.size());
-    // ... kernel implementation ...
-    return out;
+// 使用标量 C 兼容边界，不宣称具备 C++ 标准库 ABI。
+extern "C" int sharpen_level(int pixel, int amount) {
+    return pixel + amount;
 }
 ```
 
 ### 5.2 Python 前端
 
-支持 Python 3.11 文法。可解析的类型提示按其推导出明确 IR 类型；
-未标注参数降为 `box<value>`。
+默认按 Python 3.14 分析。类型提示、结构化匹配、PEP 695 声明、异常组以及
+插值/模板字符串会被解析或明确诊断。缺失/未知标注不会被猜为整数类型；
+没有忠实 IR 模型的动态内建或运算符会报 `E4003`。
 
 ```python
 # frontends/python/examples/classify.py
@@ -554,38 +596,48 @@ def classify(image: bytes) -> str:
     return "cat" if arr.mean() > 127 else "dog"
 ```
 
-前端通过包管理器探测识别 `numpy`；与之配对的 `IMPORT python PACKAGE
-numpy` 声明确保链接期合法。
+包发现可以让分析看到 `numpy` 依赖，但不会合成 NumPy 运行时语义，
+也不会让每个调用自动可下沉。配对的 `IMPORT python PACKAGE numpy` 声明描述
+bridge；不可用的调用或返回表示仍会 fail-closed。
 
 ### 5.3 Rust 前端
 
-Rust 2024 子集；所有权降为作用域受限的 RC 句柄，让 IR 校验器跨语言
-统一建模生命周期。`Result<T, E>` 降为 `option<variant<T, E>>`。
+默认采用 Rust 2024 edition。edition 关键字、async、range、let-else 与
+尾表达式都有明确边界；缺少 async runtime、迭代器或 pattern IR 的路径
+会 fail-closed，不再生成近似语义。
 
 ### 5.4 Java 前端
 
-Java 21 子集；sealed class 与 record 直接降为 IR `variant`/`struct`。
-泛型采用类型擦除并附带一张并行的 reified 表用于跨语言调用。
+默认 Java 26，并为 8 到 26 的每个 release 提供精确选择。record、sealed、
+module 声明、switch expression、compact source file、flexible constructor body 与
+上下文关键字都会做版本门禁，并在识别时保留。尚不支持的 JVM layout 或
+下沉路径报 `E4003`；选择 release 26 不会隐式允许仅 preview 语法。
 
 ### 5.5 .NET 前端
 
-C# 12 子集；值类型保持为 IR `struct`。`async`/`await` 降到运行时
-协程机制。可空引用类型语义被保留。
+稳定默认是 C# 14 / .NET 10。file/global、record、primary constructor、
+raw string、extension block、使用 `field` 的属性访问器、复合赋值运算符、
+文件 `#:` 指令与当前上下文关键字均有版本门控，并在分析中保留；
+暂无保持语义 IR 的值类型或运行时特性会报 `E4003`。
 
 ### 5.6 Go 前端
 
-Go 1.22 子集；goroutine 调度到运行时任务池，channel 降为运行时
-原语。通过注释指令支持 build tag。
+默认 Go 1.26。泛型、type set、generic alias 与现代 range 具有精确 release
+门控；Go 1.26 的 `new(expression)` 与自引用泛型约束也在该边界检查。无法安全
+表达的泛型实例化、多结果约定、具名返回或迭代器语义在下沉阶段 fail-closed。
 
 ### 5.7 JavaScript 前端
 
-ES2023 子集；类型推导无法证明更窄类型时使用 NaN 标记。出现类型反馈或
-显式 `| 0` 模式时执行 Number → i64 收窄。
+默认 ECMAScript 2026。上下文关键字、ASI 敏感形式、template、dynamic
+import 与现代 class 语法会被忠实表示或明确拒绝；依赖运行时的 class /
+resource 语义会 fail-closed。显式资源管理 `using` 语法要求 `esnext`；decorator
+仍是明确的 unsupported-syntax 边界，不会当作 ECMAScript 2026 语法接受。
 
 ### 5.8 Ruby 前端
 
-Ruby 3.3 子集；block 降为 closure；常见 DSL 模式
-（`define_method`、`attr_accessor`）在降级期被识别折叠。
+默认 Ruby 4.0。pattern matching、参数转发、endless method、safe navigation、
+现代 hash 与续行规则都有明确版本边界；没有静态 IR 语义的动态派发路径
+报告 `kUnsupportedLowering`。
 
 ### 5.9 Poly 前端
 
@@ -620,6 +672,17 @@ polyc [options] <inputs…> [-o <output>]
   --format                     对输入运行内置格式化
   --jobs=<N>                   并行前端任务数（默认硬件线程数）
   --trace=<path>               写出整次运行的 Chrome trace JSON
+  --force                      仅跨过可恢复诊断继续
+  --std=<dialect>              选择 C++ dialect
+  --python-version=<v>         选择 Python 版本
+  --java-release=<n>           选择 Java release
+  --cs-lang=<v>                选择 C# 7.3–14 或 preview
+  --target-framework=<tfm>     选择 net6–net10
+  --rust-edition=<year>        选择 Rust 2015/2018/2021/2024
+  --go-version=<v>             选择 Go 1.18–1.26
+  --ecma=<v>                   选择 ES5/ES2015–ES2026/esnext
+  --ruby-version=<v>           选择 Ruby 1.9/2.7/3.0–4.0
+  --list-language-versions     打印可识别的选择器并退出
 ```
 
 示例：
@@ -642,6 +705,10 @@ polyc --pgo=use=main.profdata main.poly -o main_pgo
 | 1   | 输出错误诊断，不写产物。                   |
 | 2   | 用法 / I/O 失败。                          |
 | 3   | 内部错误（带堆栈）。                       |
+
+无效选择器写法属于用法错误。版本冲突以及 fail-closed 前端诊断
+`E2006`、`E4003`、`E6001` 都不写产物；`--force` 不会覆盖它们。默认值与
+边界语义见[第 5 章](#5-语言前端)。
 
 ### 6.2 `polyld` —— 链接器
 
@@ -1036,17 +1103,17 @@ bridge 调用点示例：
 
 ### 9.3 各语言运行时
 
-`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` 提供前端在
-运行时所需的最小机制：异常 unwinder、异步调度器、值装箱、内建辅助。
-各运行时暴露 `Init(Host *host)` 与 `Shutdown()`，由主程序的开头/末尾
-调用。
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` 包含异常传输、
+调度、值装箱与内建辅助的运行时钩子。钩子存在并不表示每个对应源语言构造
+都有前端下沉。各运行时暴露 `Init(Host *host)` 与 `Shutdown()`，由主程序的
+开头/末尾调用。
 
 ### 9.4 服务
 
 * **性能分析钩子**（`__ploy_rt_call_enter/exit`）—— 由
   `__ploy_rt_call_trace_enable` 切换。
-* **任务调度器** —— work-stealing 池，被 `async`/`await`、Go 前端的
-  goroutine、并行 pass 共用；用 `POLY_TASKS_THREADS` 配置。
+* **任务调度器** —— work-stealing 池，可供已明确实现的 async/goroutine
+  下沉路径与并行 pass 使用；用 `POLY_TASKS_THREADS` 配置。
 * **遥测** —— 选择性开启的计数器，经 `polytelemetry` 路由；默认关闭。
   详见 [realization/telemetry_zh.md](realization/telemetry_zh.md)。
 * **stdout 流水线** —— IDE 控制台所用的 stdout/stderr 多路捕获，详见
@@ -1060,9 +1127,10 @@ ELF/Mach-O 上为 DWARF 5，PE 上为 CodeView，WebAssembly 上同时输出
 
 ### 9.6 异常
 
-每种运行时实现 `Throw(Value)` 与 `Catch(Type)`，IR 通过
-`landingpad` 与 `invoke` 表达。跨语言异常以装箱 `Value` 形式传播；
-接收语言的运行时决定是按原生重新抛出还是返回错误结果。
+IR/运行时契约为已实现的异常路径定义 `Throw(Value)`、`Catch(Type)`、
+`landingpad` 与 `invoke` 钩子。这并不保证每种语言和目标的原生异常或
+unwinder 兼容性。无法保留源异常语义的前端会报 `E4003`，而不是将其导向
+通用 trap 或装箱值。
 
 ---
 
@@ -1467,6 +1535,9 @@ ctest --test-dir build -T memcheck              # 在 valgrind 下
 语言与工具的渐进之旅。每个示例都有自己的 `README` 并被
 `samples_smoke` 目标覆盖。
 
+示例名称描述所测的语法或互操边界，本身不承诺原生下沉。smoke test
+可以有意验证明确的 `E2006`、`E4003` 或 `E6001` 结果。
+
 | 示例                                  | 演示                                          |
 |---------------------------------------|-----------------------------------------------|
 | `00_minimal`                          | 单 `.poly` 文件，无宿主导入。                 |
@@ -1480,12 +1551,12 @@ ctest --test-dir build -T memcheck              # 在 valgrind 下
 | `08_collections`                      | 列表 / map / set 跨语言桥接。                 |
 | `09_mixed_pipeline`                   | C++ + Python 流水线驱动。                     |
 | `10_rust_serde`                       | Rust serde 从 Poly 桥接。                     |
-| `11_java_records`                     | Java record 映射到 IR `struct`。              |
-| `12_dotnet_async`                     | C# async 降到运行时调度器。                   |
-| `13_go_concurrency`                   | goroutine 与 channel。                        |
-| `14_javascript_promises`              | JS Promise 与 Poly `ASYNC` 互通。             |
+| `11_java_records`                     | Java record 分析/下沉边界。                 |
+| `12_dotnet_async`                     | C# async 分析/下沉边界。                    |
+| `13_go_concurrency`                   | Go goroutine/channel 边界。                |
+| `14_javascript_promises`              | JS Promise/Poly `ASYNC` bridge 边界。       |
 | `15_async_await`                      | 异步函数与任务调度器。                        |
-| `16_ruby_blocks`                      | Ruby block 降为 closure。                     |
+| `16_ruby_blocks`                      | Ruby block/closure 边界。                     |
 | `17_optional_match`                   | `OPTION` / `MATCH` 穷尽。                     |
 | `18_extended_strings`                 | `r"…"`、`b"…"`、`f"…"` 字面量。               |
 | `19_visibility`                       | `PUBLIC` / `PRIVATE` / `INTERNAL`。           |
@@ -1817,7 +1888,7 @@ cc -shared -fPIC -I /opt/polyglot/include hello.c \
 | Bridge call     | 经 `runtime::ffi::BridgeFrame` 降级的跨语言调用。                     |
 | CTest target    | 注册到 CTest 的逻辑测试可执行（本项目共 30 个）。                     |
 | Driver          | `build/` 下任意一个工具二进制（共 11 个）。                           |
-| Frontend        | 把某种源语言降到统一 IR 的静态库。                                    |
+| Frontend        | 分析某种源语言，且仅将具有忠实统一 IR 映射的构造下沉的静态库。 |
 | Pipeline        | Poly 中的 `PIPELINE` 链；亦指优化 pass 序列。                         |
 | Sample          | `tests/samples/` 下的编号项目。                                       |
 | Triple          | 传给 `--target=` 的 `arch-vendor-os-abi` 字符串。                     |

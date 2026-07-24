@@ -24,6 +24,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fcntl.h>
+#include <fstream>
 #include <spawn.h>
 #include <string>
 #include <sys/stat.h>
@@ -211,6 +212,71 @@ TEST_CASE("polyc Mach-O single-command link emits a runnable executable",
   fs::remove(object, ec);
   fs::remove(ir, ec);
   fs::remove(assembly, ec);
+}
+
+TEST_CASE("polyld replaces an executed signed Mach-O at the same output path",
+          "[macho][exec][integration][codesign]") {
+  fs::path repo = RepoRoot();
+  REQUIRE_FALSE(repo.empty());
+  fs::path build_dir = repo / "build";
+  fs::path polyc = build_dir / "polyc";
+  fs::path polyld = build_dir / "polyld";
+  if (!fs::exists(polyc) || !fs::exists(polyld)) {
+    SUCCEED("polyc / polyld not built yet — skipping signed-vnode smoke");
+    return;
+  }
+
+  const fs::path scratch = fs::temp_directory_path() /
+      ("polyld_macho_signed_vnode_" + std::to_string(::getpid()));
+  std::error_code ec;
+  fs::remove_all(scratch, ec);
+  fs::create_directories(scratch, ec);
+  REQUIRE_FALSE(ec);
+
+  const fs::path first_source = scratch / "first.poly";
+  const fs::path second_source = scratch / "second.poly";
+  const fs::path first_object = scratch / "first.o";
+  const fs::path second_object = scratch / "second.o";
+  const fs::path image = scratch / "same-output";
+  {
+    std::ofstream out(first_source);
+    REQUIRE(out.good());
+    out << "FUNC main() -> INT { RETURN 7; }\n";
+  }
+  {
+    std::ofstream out(second_source);
+    REQUIRE(out.good());
+    out << "FUNC main() -> INT { RETURN 9; }\n";
+  }
+
+  REQUIRE(RunInherit({polyc.string(), first_source.string(),
+                      "--emit-obj=" + first_object.string()}) == 0);
+  REQUIRE(RunInherit({polyc.string(), second_source.string(),
+                      "--emit-obj=" + second_object.string()}) == 0);
+  REQUIRE(fs::exists(first_object));
+  REQUIRE(fs::exists(second_object));
+
+  REQUIRE(RunInherit({polyld.string(), first_object.string(), "-o", image.string()}) == 0);
+  REQUIRE(fs::exists(image));
+  ::chmod(image.c_str(), 0755);
+  struct stat first_stat {};
+  REQUIRE(::stat(image.c_str(), &first_stat) == 0);
+  std::string first_output;
+  REQUIRE(SpawnCaptureStdout(image.string(), first_output) == 7);
+
+  // Do not remove the previously executed image.  The linker must replace
+  // its vnode rather than truncate the signed Mach-O in place, otherwise
+  // taskgated can retain the old cs_blob and kill the new image before main.
+  REQUIRE(RunInherit({polyld.string(), second_object.string(), "-o", image.string()}) == 0);
+  REQUIRE(fs::exists(image));
+  ::chmod(image.c_str(), 0755);
+  struct stat second_stat {};
+  REQUIRE(::stat(image.c_str(), &second_stat) == 0);
+  CHECK(first_stat.st_ino != second_stat.st_ino);
+  std::string second_output;
+  REQUIRE(SpawnCaptureStdout(image.string(), second_output) == 9);
+
+  fs::remove_all(scratch, ec);
 }
 
 #else // !__APPLE__

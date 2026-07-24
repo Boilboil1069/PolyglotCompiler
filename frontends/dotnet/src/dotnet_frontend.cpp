@@ -17,6 +17,64 @@
 
 namespace polyglot::dotnet {
 
+namespace {
+
+frontends::DotnetLangVersion LanguageDefaultForTargetFramework(
+    frontends::DotnetTargetFramework framework) {
+  switch (framework) {
+  case frontends::DotnetTargetFramework::kNet6:
+    return frontends::DotnetLangVersion::kCs10;
+  case frontends::DotnetTargetFramework::kNet7:
+    return frontends::DotnetLangVersion::kCs11;
+  case frontends::DotnetTargetFramework::kNet8:
+    return frontends::DotnetLangVersion::kCs12;
+  case frontends::DotnetTargetFramework::kNet9:
+    return frontends::DotnetLangVersion::kCs13;
+  case frontends::DotnetTargetFramework::kNet10:
+    return frontends::DotnetLangVersion::kCs14;
+  case frontends::DotnetTargetFramework::kAuto:
+    return frontends::kDotnetLangVersionDefault;
+  }
+  return frontends::kDotnetLangVersionDefault;
+}
+
+bool ResolveTargetFrameworkLanguageVersion(frontends::FrontendOptions &options,
+                                           const std::string &filename,
+                                           frontends::Diagnostics &diagnostics) {
+  if (options.dotnet_target_framework ==
+      frontends::DotnetTargetFramework::kAuto) {
+    return true;
+  }
+
+  const auto framework_default =
+      LanguageDefaultForTargetFramework(options.dotnet_target_framework);
+  if (options.dotnet_lang_version == frontends::DotnetLangVersion::kAuto) {
+    // Match the SDK's target-framework-derived default instead of silently
+    // analysing every TFM as the repository-wide C# 14 default.
+    options.dotnet_lang_version = framework_default;
+    return true;
+  }
+
+  if (options.dotnet_lang_version == frontends::DotnetLangVersion::kPreview ||
+      !frontends::DotnetLangVersionAtLeast(framework_default,
+                                           options.dotnet_lang_version)) {
+    diagnostics.ReportError(
+        core::SourceLoc{filename, 1, 1},
+        frontends::ErrorCode::kLangVersionMismatch,
+        std::string(frontends::DotnetTargetFrameworkToString(
+                        options.dotnet_target_framework)) +
+            " supports C# " +
+            frontends::DotnetLangVersionToString(framework_default) +
+            " by default, but C# " +
+            frontends::DotnetLangVersionToString(options.dotnet_lang_version) +
+            " was selected");
+    return false;
+  }
+  return true;
+}
+
+} // namespace
+
 // ============================================================================
 // Auto-registration
 // ============================================================================
@@ -47,9 +105,13 @@ std::vector<frontends::Token> DotnetLanguageFrontend::Tokenize(const std::string
 bool DotnetLanguageFrontend::Analyze(const std::string &source, const std::string &filename,
                                      frontends::Diagnostics &diagnostics,
                                      const frontends::FrontendOptions &options) const {
+  auto effective_options = options;
+  if (!ResolveTargetFrameworkLanguageVersion(effective_options, filename,
+                                             diagnostics))
+    return false;
   DotnetLexer lexer(source, filename);
   DotnetParser parser(lexer, diagnostics);
-  parser.SetDotnetLangVersion(options.dotnet_lang_version);
+  parser.SetDotnetLangVersion(effective_options.dotnet_lang_version);
   parser.ParseModule();
   if (diagnostics.HasErrors())
     return false;
@@ -60,7 +122,7 @@ bool DotnetLanguageFrontend::Analyze(const std::string &source, const std::strin
 
   frontends::SemaContext ctx(diagnostics);
   DotNetSemaOptions sema_opts;
-  AssemblyLoader loader(options.dotnet_references, diagnostics);
+  AssemblyLoader loader(effective_options.dotnet_references, diagnostics);
   if (!loader.empty())
     sema_opts.loader = &loader;
   AnalyzeModule(*module, ctx, sema_opts);
@@ -76,9 +138,14 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
     frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   frontends::FrontendResult result;
 
+  auto effective_options = options;
+  if (!ResolveTargetFrameworkLanguageVersion(effective_options, filename,
+                                             diagnostics))
+    return result;
+
   DotnetLexer lexer(source, filename);
   DotnetParser parser(lexer, diagnostics);
-  parser.SetDotnetLangVersion(options.dotnet_lang_version);
+  parser.SetDotnetLangVersion(effective_options.dotnet_lang_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
 
@@ -87,7 +154,7 @@ frontends::FrontendResult DotnetLanguageFrontend::Lower(
 
   frontends::SemaContext ctx(diagnostics);
   DotNetSemaOptions sema_opts;
-  AssemblyLoader loader(options.dotnet_references, diagnostics);
+  AssemblyLoader loader(effective_options.dotnet_references, diagnostics);
   if (!loader.empty())
     sema_opts.loader = &loader;
   AnalyzeModule(*module, ctx, sema_opts);
@@ -176,57 +243,87 @@ core::Type DotnetTypeToCore(const std::shared_ptr<TypeNode> &tn) {
   return core::Type::Any();
 }
 
-void ExtractFromClassMembers(const std::string &class_name, const std::string &module_name,
-                             const std::vector<std::shared_ptr<Statement>> &members,
-                             std::vector<frontends::ForeignFunctionSignature> &out) {
-  for (const auto &member : members) {
-    if (auto method = std::dynamic_pointer_cast<MethodDecl>(member)) {
-      frontends::ForeignFunctionSignature sig;
-      sig.name = method->name;
-      sig.qualified_name = module_name.empty()
-                               ? class_name + "::" + method->name
-                               : module_name + "::" + class_name + "::" + method->name;
-      sig.return_type = DotnetTypeToCore(method->return_type);
-      sig.is_method = !method->is_static;
-      sig.class_name = class_name;
-      sig.has_type_annotations = true;
-
-      for (const auto &p : method->params) {
-        sig.param_types.push_back(DotnetTypeToCore(p.type));
-        sig.param_names.push_back(p.name);
-      }
-
-      out.push_back(std::move(sig));
+void ExtractDotnetDeclaration(
+    const std::shared_ptr<Statement> &decl, const std::string &scope,
+    const std::string &module_name,
+    std::vector<frontends::ForeignFunctionSignature> &out) {
+  if (!decl)
+    return;
+  if (auto method = std::dynamic_pointer_cast<MethodDecl>(decl)) {
+    frontends::ForeignFunctionSignature sig;
+    sig.name = method->name;
+    sig.class_name = scope;
+    const std::string owner = module_name.empty() ? scope : module_name + "::" + scope;
+    sig.qualified_name = owner.empty() ? method->name : owner + "::" + method->name;
+    sig.return_type = DotnetTypeToCore(method->return_type);
+    sig.is_method = !method->is_static;
+    sig.has_type_annotations = true;
+    for (const auto &param : method->params) {
+      sig.param_types.push_back(DotnetTypeToCore(param.type));
+      sig.param_names.push_back(param.name);
     }
+    out.push_back(std::move(sig));
+    return;
   }
+  if (auto extension = std::dynamic_pointer_cast<ExtensionDecl>(decl)) {
+    for (const auto &member : extension->members)
+      ExtractDotnetDeclaration(member, scope, module_name, out);
+    return;
+  }
+
+  std::string own_name;
+  const std::vector<std::shared_ptr<Statement>> *members = nullptr;
+  if (auto ns = std::dynamic_pointer_cast<NamespaceDecl>(decl)) {
+    own_name = ns->name;
+    members = &ns->members;
+  } else if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
+    own_name = cls->name;
+    members = &cls->members;
+  } else if (auto st = std::dynamic_pointer_cast<StructDecl>(decl)) {
+    own_name = st->name;
+    members = &st->members;
+  } else if (auto iface = std::dynamic_pointer_cast<InterfaceDecl>(decl)) {
+    own_name = iface->name;
+    members = &iface->members;
+  }
+  if (!members)
+    return;
+  const std::string child_scope = scope.empty() ? own_name : scope + "." + own_name;
+  for (const auto &member : *members)
+    ExtractDotnetDeclaration(member, child_scope, module_name, out);
 }
 
 } // namespace
 
 std::vector<frontends::ForeignFunctionSignature> DotnetLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> DotnetLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
+  auto effective_options = options;
+  if (!ResolveTargetFrameworkLanguageVersion(effective_options, filename,
+                                             diagnostics))
+    return result;
+  if (!Analyze(source, filename, diagnostics, effective_options) ||
+      diagnostics.HasErrors())
+    return result;
   DotnetLexer lexer(source, filename);
-  DotnetParser parser(lexer, diags);
+  DotnetParser parser(lexer, diagnostics);
+  parser.SetDotnetLangVersion(effective_options.dotnet_lang_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
     return result;
 
-  for (const auto &decl : module->declarations) {
-    if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
-      ExtractFromClassMembers(cls->name, module_name, cls->members, result);
-    }
-    if (auto ns = std::dynamic_pointer_cast<NamespaceDecl>(decl)) {
-      for (const auto &ns_member : ns->members) {
-        if (auto cls = std::dynamic_pointer_cast<ClassDecl>(ns_member)) {
-          ExtractFromClassMembers(cls->name, module_name, cls->members, result);
-        }
-      }
-    }
-  }
+  for (const auto &decl : module->declarations)
+    ExtractDotnetDeclaration(decl, "", module_name, result);
 
   return result;
 }

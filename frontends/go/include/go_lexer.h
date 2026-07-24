@@ -16,6 +16,23 @@ class GoLexer : public frontends::LexerBase {
 public:
   GoLexer(const std::string &src, const std::string &file) : frontends::LexerBase(src, file) {}
 
+  struct FullState {
+    frontends::LexerBase::LexerState base;
+    std::string pending_doc;
+    bool prev_terminator{false};
+    bool emit_semi{false};
+  };
+
+  FullState SaveFullState() const {
+    return {SaveState(), pending_doc_, prev_terminator_, emit_semi_};
+  }
+  void RestoreFullState(const FullState &state) {
+    RestoreState(state.base);
+    pending_doc_ = state.pending_doc;
+    prev_terminator_ = state.prev_terminator;
+    emit_semi_ = state.emit_semi;
+  }
+
   frontends::Token NextToken() override;
 
   /// Doc comment captured immediately above the next significant token.

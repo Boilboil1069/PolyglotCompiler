@@ -34,6 +34,25 @@ enum class Opcode {
     kLoad, kStore, kLea, kCall, kRet, kJmp, kJcc
 };
 
+/// Integer comparison predicate carried by the third operand of kCmp.
+///
+/// A kCmp with a result vreg materialises an i1 value with the matching
+/// SETcc instruction.  A flags-only kCmp omits this operand and is used by
+/// the conditional-branch sequence to compare an already-materialised bool
+/// against zero.
+enum class IntComparePredicate : long long {
+    kEq = 0,
+    kNe,
+    kUlt,
+    kUle,
+    kUgt,
+    kUge,
+    kSlt,
+    kSle,
+    kSgt,
+    kSge,
+};
+
 /// @brief Traits hook required by the common MachineIR templates and the
 ///        common ABI calling-convention facade.
 ///

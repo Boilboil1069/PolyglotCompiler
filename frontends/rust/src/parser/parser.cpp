@@ -25,7 +25,39 @@ frontends::Token RustParser::Consume() {
   } else {
     current_ = NextNonComment();
   }
+  if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == "gen" &&
+      current_.SourceText() == "gen" &&
+      frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2024)) {
+    diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                             "'gen' is reserved in Rust 2024; use the raw identifier 'r#gen'");
+  }
+  if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "#" &&
+      frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2024)) {
+    const auto next = PeekToken();
+    const bool adjacent = next.loc.file == current_.loc.file && next.loc.line == current_.loc.line &&
+                          next.loc.column == current_.loc.column + 1;
+    const bool guarded_string = next.kind == frontends::TokenKind::kString &&
+                                !next.lexeme.empty() && next.lexeme.front() == '"';
+    const bool repeated_hash = next.kind == frontends::TokenKind::kSymbol && next.lexeme == "#";
+    if (adjacent && (guarded_string || repeated_hash)) {
+      diagnostics_.ReportError(
+          current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+          "guarded string syntax beginning with '#" +
+              std::string(guarded_string ? "\"" : "#") + "' is reserved in Rust 2024");
+    }
+  }
   return current_;
+}
+
+bool RustParser::IsIdentifierToken() const {
+  if (current_.kind == frontends::TokenKind::kIdentifier)
+    return true;
+  // These spellings were ordinary identifiers in Edition 2015.  The lexer
+  // keeps a stable keyword table, so the parser supplies the edition-sensitive
+  // interpretation at identifier positions.
+  return current_.kind == frontends::TokenKind::kKeyword &&
+         !frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018) &&
+         (current_.lexeme == "async" || current_.lexeme == "await" || current_.lexeme == "dyn");
 }
 
 frontends::Token RustParser::PeekToken() {
@@ -82,6 +114,7 @@ void RustParser::Sync() {
 std::vector<Attribute> RustParser::ParseAttributes() {
   std::vector<Attribute> attrs;
   while (IsSymbol("#")) {
+    const auto attribute_loc = current_.loc;
     Consume();
     bool is_inner = false;
     if (MatchSymbol("!")) {
@@ -94,6 +127,17 @@ std::vector<Attribute> RustParser::ParseAttributes() {
     Attribute attr;
     attr.is_inner = is_inner;
     attr.text = ParseDelimitedBody("[", "]");
+    if (frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2024)) {
+      const bool wrapped = attr.text.rfind("unsafe(", 0) == 0;
+      const bool unsafe_attribute =
+          attr.text == "no_mangle" || attr.text.rfind("export_name=", 0) == 0 ||
+          attr.text.rfind("link_section=", 0) == 0;
+      if (unsafe_attribute && !wrapped) {
+        diagnostics_.ReportError(
+            attribute_loc, frontends::ErrorCode::kUnsupportedSyntax,
+            "Rust 2024 requires unsafe attributes to be written as '#[unsafe(...)]'");
+      }
+    }
     attrs.push_back(std::move(attr));
   }
   return attrs;
@@ -187,6 +231,35 @@ std::shared_ptr<BlockExpression> RustParser::ParseBlockExpression() {
 }
 
 std::shared_ptr<Expression> RustParser::ParsePrimary() {
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "async" &&
+      (frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018) ||
+       (PeekToken().kind == frontends::TokenKind::kSymbol &&
+        (PeekToken().lexeme == "{" || PeekToken().lexeme == "|")) ||
+       (PeekToken().kind == frontends::TokenKind::kKeyword && PeekToken().lexeme == "move"))) {
+    auto async_loc = current_.loc;
+    if (!frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018)) {
+      diagnostics_.ReportError(async_loc, frontends::ErrorCode::kLangVersionMismatch,
+                               std::string("async blocks require Rust edition 2018 or newer ") +
+                                   "(current: " +
+                                   frontends::RustEditionToString(rust_edition_) + ")");
+    }
+    Consume();
+    if (IsSymbol("|") ||
+        (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "move")) {
+      auto closure = std::dynamic_pointer_cast<ClosureExpression>(ParseClosure());
+      if (closure)
+        closure->is_async = true;
+      return closure;
+    }
+    MatchKeyword("move");
+    auto body = ParseBlockExpression();
+    if (!body)
+      return nullptr;
+    auto async = std::make_shared<AsyncBlock>();
+    async->loc = async_loc;
+    async->body = std::move(body->statements);
+    return async;
+  }
   if (IsSymbol("|")) {
     return ParseClosure();
   }
@@ -208,7 +281,7 @@ std::shared_ptr<Expression> RustParser::ParsePrimary() {
     Consume();
     return lit;
   }
-  if (current_.kind == frontends::TokenKind::kIdentifier ||
+  if (IsIdentifierToken() ||
       (current_.kind == frontends::TokenKind::kKeyword &&
        (current_.lexeme == "self" || current_.lexeme == "Self" || current_.lexeme == "super" ||
         current_.lexeme == "crate"))) {
@@ -248,7 +321,7 @@ std::shared_ptr<Expression> RustParser::ParseClosure() {
     // parse params until '|'
     while (!IsSymbol("|") && current_.kind != frontends::TokenKind::kEndOfFile) {
       ClosureExpression::Param p;
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierToken()) {
         p.name = current_.lexeme;
         Consume();
         if (MatchSymbol(":")) {
@@ -280,7 +353,7 @@ std::shared_ptr<Expression> RustParser::ParsePathExpression() {
     Consume();
   }
   auto is_path_segment = [&]() {
-    if (current_.kind == frontends::TokenKind::kIdentifier)
+    if (IsIdentifierToken())
       return true;
     if (current_.kind == frontends::TokenKind::kKeyword) {
       return current_.lexeme == "self" || current_.lexeme == "Self" || current_.lexeme == "super" ||
@@ -310,6 +383,52 @@ std::shared_ptr<Expression> RustParser::ParsePathExpression() {
     diagnostics_.Report(current_.loc, "Expected path segment");
   }
   return path;
+}
+
+std::shared_ptr<Expression>
+RustParser::ParseStructExpression(std::shared_ptr<PathExpression> path) {
+  auto value = std::make_shared<StructExpression>();
+  value->loc = path->loc;
+  value->path = *path;
+  ExpectSymbol("{", "Expected '{' to start struct expression");
+
+  while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    if (IsSymbol("..")) {
+      value->has_rest = true;
+      Consume();
+      // Preserve the expression for parser recovery, while lowering rejects
+      // functional-update syntax until move/copy semantics are modeled.
+      (void)ParseExpression();
+      if (IsSymbol(","))
+        Consume();
+      break;
+    }
+
+    if (!IsIdentifierToken()) {
+      diagnostics_.Report(current_.loc, "Expected named field in struct expression");
+      break;
+    }
+
+    StructExpression::FieldInitializer field;
+    field.name = current_.lexeme;
+    auto field_loc = current_.loc;
+    Consume();
+    if (MatchSymbol(":")) {
+      field.value = ParseExpression();
+    } else {
+      auto shorthand = std::make_shared<Identifier>();
+      shorthand->loc = field_loc;
+      shorthand->name = field.name;
+      field.value = shorthand;
+    }
+    value->fields.push_back(std::move(field));
+
+    if (!MatchSymbol(","))
+      break;
+  }
+
+  ExpectSymbol("}", "Expected '}' after struct expression");
+  return value;
 }
 
 std::shared_ptr<Pattern> RustParser::ParsePattern() {
@@ -385,13 +504,13 @@ std::shared_ptr<Pattern> RustParser::ParsePattern() {
       Consume();
       return lit;
     }
-    if (current_.kind == frontends::TokenKind::kIdentifier ||
+    if (IsIdentifierToken() ||
         (current_.kind == frontends::TokenKind::kKeyword &&
          (current_.lexeme == "self" || current_.lexeme == "Self" || current_.lexeme == "super" ||
           current_.lexeme == "crate"))) {
       auto save_loc = current_.loc;
       auto path = PathPattern{};
-      while (current_.kind == frontends::TokenKind::kIdentifier ||
+      while (IsIdentifierToken() ||
              (current_.kind == frontends::TokenKind::kKeyword &&
               (current_.lexeme == "self" || current_.lexeme == "Self" ||
                current_.lexeme == "super" || current_.lexeme == "crate"))) {
@@ -581,7 +700,7 @@ std::shared_ptr<TypePath> RustParser::ParseTypePath() {
     Consume();
   }
   auto is_type_segment = [&]() {
-    if (current_.kind == frontends::TokenKind::kIdentifier)
+    if (IsIdentifierToken())
       return true;
     if (current_.kind == frontends::TokenKind::kKeyword) {
       return current_.lexeme == "self" || current_.lexeme == "Self" || current_.lexeme == "super" ||
@@ -618,7 +737,8 @@ std::shared_ptr<LifetimeType> RustParser::ParseLifetime() {
 }
 
 std::shared_ptr<TypeNode> RustParser::ParseType() {
-  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "dyn") {
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "dyn" &&
+      frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018)) {
     auto dyn = std::make_shared<TraitObjectType>();
     dyn->loc = current_.loc;
     Consume();
@@ -788,6 +908,12 @@ std::vector<std::string> RustParser::ParseTypeParams() {
 std::shared_ptr<Expression> RustParser::ParsePostfix() {
   auto expr = ParsePrimary();
   while (expr) {
+    if (IsSymbol("{") && !no_struct_literal_) {
+      if (auto path = std::dynamic_pointer_cast<PathExpression>(expr)) {
+        expr = ParseStructExpression(path);
+        continue;
+      }
+    }
     if (IsSymbol("!")) {
       // macro call: only if callee is path
       auto path = std::dynamic_pointer_cast<PathExpression>(expr);
@@ -847,7 +973,8 @@ std::shared_ptr<Expression> RustParser::ParsePostfix() {
     }
     if (IsSymbol(".")) {
       Consume();
-      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "await") {
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "await" &&
+          frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018)) {
         auto aw = std::make_shared<AwaitExpression>();
         aw->loc = current_.loc;
         aw->value = expr;
@@ -856,7 +983,7 @@ std::shared_ptr<Expression> RustParser::ParsePostfix() {
         expr = aw;
         continue;
       }
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierToken()) {
         auto mem = std::make_shared<MemberExpression>();
         mem->object = expr;
         mem->member = current_.lexeme;
@@ -1044,6 +1171,28 @@ std::shared_ptr<Expression> RustParser::ParseLogicalOr() {
 }
 
 std::shared_ptr<Expression> RustParser::ParseRange() {
+  auto can_end_range = [&]() {
+    return current_.kind == frontends::TokenKind::kEndOfFile || IsSymbol(",") || IsSymbol(";") ||
+           IsSymbol(")") || IsSymbol("]") || IsSymbol("}") || IsSymbol("{");
+  };
+
+  if (IsSymbol("..") || IsSymbol("..=") || IsSymbol("...")) {
+    auto range = std::make_shared<RangeExpression>();
+    range->loc = current_.loc;
+    range->inclusive = current_.lexeme != "..";
+    Consume();
+    if (can_end_range()) {
+      if (range->inclusive) {
+        diagnostics_.Report(range->loc, "inclusive range requires an end bound");
+      }
+      range->kind = RangeExpression::RangeKind::kFull;
+    } else {
+      range->end = ParseLogicalOr();
+      range->kind = RangeExpression::RangeKind::kTo;
+    }
+    return range;
+  }
+
   auto expr = ParseLogicalOr();
   while (IsSymbol("..") || IsSymbol("..=") || IsSymbol("...")) {
     bool inclusive = current_.lexeme != "..";
@@ -1052,9 +1201,15 @@ std::shared_ptr<Expression> RustParser::ParseRange() {
     range->loc = expr ? expr->loc : current_.loc;
     range->start = expr;
     range->inclusive = inclusive;
-    range->kind =
-        inclusive ? RangeExpression::RangeKind::kInclusive : RangeExpression::RangeKind::kExclusive;
-    range->end = ParseLogicalOr();
+    if (can_end_range()) {
+      if (inclusive)
+        diagnostics_.Report(range->loc, "inclusive range requires an end bound");
+      range->kind = RangeExpression::RangeKind::kFrom;
+    } else {
+      range->kind = inclusive ? RangeExpression::RangeKind::kInclusive
+                              : RangeExpression::RangeKind::kExclusive;
+      range->end = ParseLogicalOr();
+    }
     expr = range;
   }
   return expr;
@@ -1063,7 +1218,9 @@ std::shared_ptr<Expression> RustParser::ParseRange() {
 std::shared_ptr<Expression> RustParser::ParseAssignment() {
   auto lhs = ParseRange();
   if (current_.kind == frontends::TokenKind::kSymbol) {
-    const std::string &op = current_.lexeme;
+    // Copy before Consume(): current_ is replaced with the next token and a
+    // reference would silently turn `field = 0` into an operator named `0`.
+    const std::string op = current_.lexeme;
     if (op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=" ||
         op == "&=" || op == "|=" || op == "^=" || op == "<<=" || op == ">>=") {
       Consume();
@@ -1082,7 +1239,10 @@ std::shared_ptr<Expression> RustParser::ParseIfExpression() {
   auto if_expr = std::make_shared<IfExpression>();
   if_expr->loc = current_.loc;
   MatchKeyword("if");
+  const bool saved_no_struct_literal = no_struct_literal_;
+  no_struct_literal_ = true;
   if_expr->condition = ParseExpression();
+  no_struct_literal_ = saved_no_struct_literal;
   auto then_block = ParseBlockExpression();
   if (then_block) {
     if_expr->then_body = then_block->statements;
@@ -1109,7 +1269,10 @@ std::shared_ptr<Expression> RustParser::ParseWhileExpression() {
   auto wh = std::make_shared<WhileExpression>();
   wh->loc = current_.loc;
   MatchKeyword("while");
+  const bool saved_no_struct_literal = no_struct_literal_;
+  no_struct_literal_ = true;
   wh->condition = ParseExpression();
+  no_struct_literal_ = saved_no_struct_literal;
   auto body = ParseBlockExpression();
   if (body)
     wh->body = body->statements;
@@ -1120,7 +1283,10 @@ std::shared_ptr<Expression> RustParser::ParseMatchExpression() {
   auto m = std::make_shared<MatchExpression>();
   m->loc = current_.loc;
   MatchKeyword("match");
+  const bool saved_no_struct_literal = no_struct_literal_;
+  no_struct_literal_ = true;
   m->scrutinee = ParseExpression();
+  no_struct_literal_ = saved_no_struct_literal;
   ExpectSymbol("{", "Expected '{' after match scrutinee");
   while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
     auto arm = std::make_shared<MatchArm>();
@@ -1212,7 +1378,7 @@ std::shared_ptr<Statement> RustParser::ParseConstItem() {
   auto item = std::make_shared<ConstItem>();
   item->loc = current_.loc;
   MatchKeyword("const");
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  if (IsIdentifierToken()) {
     item->name = current_.lexeme;
     Consume();
   } else {
@@ -1284,21 +1450,18 @@ std::shared_ptr<Statement> RustParser::ParseLet() {
   if (MatchSymbol("=")) {
     stmt->init = ParseExpression();
   }
-  // `let ... else { diverging-block };` (RFC 3137) is only legal from Rust
-  // edition 2021 onwards.  We detect the `else` keyword that immediately
-  // follows the initializer expression and either consume the diverging
-  // block (newer editions) or emit `kLangVersionMismatch` while still
-  // recovering by skipping the block so subsequent items continue parsing.
+  // `let ... else { diverging-block };` stabilized in Rust 1.65.  That is a
+  // compiler-version feature, not an edition feature, so all selectable
+  // editions accept it.  Preserve the block in the AST for sema/lowering.
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
-    if (!frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2021)) {
-      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
-                               std::string("'let ... else' requires Rust edition 2021 "
-                                           "or newer (current: ") +
-                                   frontends::RustEditionToString(rust_edition_) + ")");
-    }
+    stmt->has_else = true;
     Consume(); // 'else'
     if (IsSymbol("{")) {
-      ParseDelimitedBody("{", "}");
+      auto else_block = ParseBlockExpression();
+      if (else_block)
+        stmt->else_body = std::move(else_block->statements);
+    } else {
+      diagnostics_.Report(current_.loc, "Expected block after 'else' in let-else statement");
     }
   }
   MatchSymbol(";");
@@ -1353,7 +1516,10 @@ std::shared_ptr<Statement> RustParser::ParseFor() {
   if (!MatchKeyword("in")) {
     diagnostics_.Report(current_.loc, "Expected 'in' in for loop");
   }
+  const bool saved_no_struct_literal = no_struct_literal_;
+  no_struct_literal_ = true;
   stmt->iterable = ParseExpression();
+  no_struct_literal_ = saved_no_struct_literal;
   auto body = ParseBlockExpression();
   if (body)
     stmt->body = body->statements;
@@ -1374,7 +1540,7 @@ std::shared_ptr<Statement> RustParser::ParseStruct() {
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
       StructField field;
       field.visibility = ParseVisibility();
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierToken()) {
         field.name = current_.lexeme;
         Consume();
       } else {
@@ -1488,7 +1654,14 @@ std::shared_ptr<Statement> RustParser::ParseFunction() {
   bool saw_modifier = true;
   while (saw_modifier) {
     saw_modifier = false;
-    if (MatchKeyword("async")) {
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "async") {
+      if (!frontends::RustEditionAtLeast(rust_edition_, frontends::RustEdition::kE2018)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("async functions require Rust edition 2018 or newer (current: ") +
+                frontends::RustEditionToString(rust_edition_) + ")");
+      }
+      Consume();
       fn->is_async = true;
       saw_modifier = true;
     }
@@ -1510,7 +1683,7 @@ std::shared_ptr<Statement> RustParser::ParseFunction() {
     }
   }
   MatchKeyword("fn");
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  if (IsIdentifierToken()) {
     fn->name = current_.lexeme;
     Consume();
   } else {
@@ -1552,7 +1725,7 @@ std::shared_ptr<Statement> RustParser::ParseFunction() {
         fn->params.push_back(std::move(p));
         return;
       }
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierToken()) {
         p.name = current_.lexeme;
         Consume();
         if (MatchSymbol(":")) {
@@ -1828,7 +2001,8 @@ std::shared_ptr<Statement> RustParser::ParseStatement(bool allow_trailing_expr) 
   auto expr_stmt = std::make_shared<ExprStatement>();
   expr_stmt->loc = current_.loc;
   expr_stmt->expr = ParseExpression();
-  if (!MatchSymbol(";")) {
+  expr_stmt->has_semicolon = MatchSymbol(";");
+  if (!expr_stmt->has_semicolon) {
     if (!allow_trailing_expr || !IsSymbol("}")) {
       diagnostics_.Report(current_.loc, "Expected ';'");
     }

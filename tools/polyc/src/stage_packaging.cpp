@@ -32,6 +32,7 @@
 
 #include "frontends/common/include/frontend_registry.h"
 #include "tools/polyc/include/linker_probe.h"
+#include "tools/polyc/src/local_source_packages.h"
 #include "tools/polyc/src/stage_packaging.h"
 
 #if __has_include(<elf.h>)
@@ -312,6 +313,15 @@ std::string CompileImportedSource(const DriverSettings &settings, const Imported
                                   const std::string &aux_dir, bool verbose) {
   if (aux_dir.empty())
     return {};
+  std::string bundle_error;
+  const std::string compilation_source = ::polyglot::tools::BuildVendoredSourceBundle(
+      settings.source_path, fn.language, fn.source_file, aux_dir, &bundle_error,
+      !settings.package_index);
+  if (compilation_source.empty()) {
+    if (verbose && !bundle_error.empty())
+      std::cerr << "[stage/packaging] " << bundle_error << "\n";
+    return {};
+  }
   fs::path out = fs::path(aux_dir) /
                  (SanitizedSymbol(fn.language + "_" + fn.module) +
                   (settings.obj_format == "coff" ? ".obj" : ".o"));
@@ -320,7 +330,7 @@ std::string CompileImportedSource(const DriverSettings &settings, const Imported
       ResolveSelfPolyc(),
       "--lang=" + fn.language,
       "-c",
-      fn.source_file,
+      compilation_source,
       "-o",
       out.string(),
       "--arch=" + settings.arch,
@@ -329,12 +339,46 @@ std::string CompileImportedSource(const DriverSettings &settings, const Imported
   };
   if (!verbose)
     args.push_back("--quiet");
+  if (settings.strict)
+    args.push_back("--strict");
+  if (!settings.package_index)
+    args.push_back("--no-package-index");
   for (const auto &inc : settings.include_paths)
     args.push_back("-I" + inc);
+  for (const auto &inc : settings.system_include_paths)
+    args.push_back("-isystem=" + inc);
+  for (const auto &define : settings.defines)
+    args.push_back("-D" + define);
+  for (const auto &undefine : settings.undefines)
+    args.push_back("-U" + undefine);
+  for (const auto &stub : settings.python_stub_paths)
+    args.push_back("--python-stubs=" + stub);
+  if (!settings.rust_crate_dir.empty())
+    args.push_back("--crate-dir=" + settings.rust_crate_dir);
+  for (const auto &[name, path] : settings.rust_externs)
+    args.push_back("--extern=" + name + (path.empty() ? "" : "=" + path));
+  if (!settings.go_project_dir.empty())
+    args.push_back("--go-project=" + settings.go_project_dir);
+  for (const auto &path : settings.go_module_paths)
+    args.push_back("--go-mod-cache=" + path);
+  if (fn.language == "cpp" && settings.cpp_dialect != frontends::CppDialect::kAuto)
+    args.push_back("--std=" +
+                   std::string(frontends::CppDialectToString(settings.cpp_dialect)));
+  if (fn.language == "python" &&
+      settings.python_version != frontends::PythonVersion::kAuto)
+    args.push_back("--python-version=" +
+                   std::string(frontends::PythonVersionToString(settings.python_version)));
+  if (fn.language == "rust" && settings.rust_edition != frontends::RustEdition::kAuto)
+    args.push_back("--rust-edition=" +
+                   std::string(frontends::RustEditionToString(settings.rust_edition)));
+  if (fn.language == "go" && settings.go_version != frontends::GoVersion::kAuto)
+    args.push_back("--go-version=" +
+                   std::string(frontends::GoVersionToString(settings.go_version)));
 
   const std::string cmd = JoinCommandArgs(args);
   if (verbose)
     std::cerr << "[stage/packaging] compiling import " << fn.language << "::" << fn.module
+              << (compilation_source == fn.source_file ? "" : " with vendored packages")
               << " -> " << out.string() << "\n";
   int rc = std::system(cmd.c_str());
   if (rc != 0)
@@ -414,11 +458,18 @@ std::string BuildImportedAliasObject(const DriverSettings &settings,
   bool needs_python_shim = false;
 
   for (const auto &fn : imports) {
+    std::string implementation = fn.function;
+    if (fn.language == "java") {
+      const auto separator = fn.module.rfind("::");
+      const std::string class_name =
+          separator == std::string::npos ? fn.module : fn.module.substr(separator + 2);
+      implementation = class_name + "::" + fn.function;
+    }
     const std::string target =
-        (settings.obj_format == "macho") ? "_" + fn.function : fn.function;
+        (settings.obj_format == "macho") ? "_" + implementation : implementation;
     std::vector<std::string> aliases;
     auto add_alias = [&](const std::string &alias) {
-      if (emitted_aliases.insert(alias).second)
+      if (alias != target && emitted_aliases.insert(alias).second)
         aliases.push_back(alias);
     };
     add_alias(fn.qualified);
@@ -868,6 +919,7 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
     std::uint64_t value;
   };
   std::vector<NL> local_syms, ext_syms, undef_syms;
+  std::vector<std::string> local_names, ext_names, undef_names;
   std::unordered_map<std::string, std::uint32_t> seen;
 
   for (const auto &sym : obj_symbols) {
@@ -895,15 +947,19 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
         nl.sect = 1;
       }
       nl.value = sym.value;
-      if (sym.global)
+      if (sym.global) {
         ext_syms.push_back(nl);
-      else
+        ext_names.push_back(sym.name);
+      } else {
         local_syms.push_back(nl);
+        local_names.push_back(sym.name);
+      }
     } else {
       nl.type = kNExt | kNUndf;
       nl.sect = 0;
       nl.value = 0;
       undef_syms.push_back(nl);
+      undef_names.push_back(sym.name);
     }
   }
 
@@ -919,6 +975,21 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
   std::uint32_t nundefsym = static_cast<std::uint32_t>(undef_syms.size());
   all_syms.insert(all_syms.end(), undef_syms.begin(), undef_syms.end());
 
+  // Relocations index the final nlist array, not the incoming ObjSymbol
+  // order.  Mach-O requires that array to be grouped as local definitions,
+  // external definitions, then undefined symbols.  Keep an explicit mapping
+  // after that grouping; using the original order silently redirects branches
+  // whenever a translation unit contains both local block labels and global
+  // function symbols.
+  std::unordered_map<std::string, std::uint32_t> name_to_merged_idx;
+  std::uint32_t merged_idx = 0;
+  for (const auto &name : local_names)
+    name_to_merged_idx[name] = merged_idx++;
+  for (const auto &name : ext_names)
+    name_to_merged_idx[name] = merged_idx++;
+  for (const auto &name : undef_names)
+    name_to_merged_idx[name] = merged_idx++;
+
   // Build relocation entries for __text section
   struct MachReloc {
     std::int32_t address;
@@ -926,25 +997,13 @@ std::string BuildMachO64(const std::string &path, const std::vector<ObjSection> 
   };
   std::vector<MachReloc> text_relocs;
   if (text_it != obj_sections.end()) {
-    // Build a sym-name-to-merged-index map
-    std::unordered_map<std::string, std::uint32_t> name_to_idx;
-    {
-      std::uint32_t idx = 0;
-      std::unordered_map<std::string, bool> added;
-      for (const auto &sym : obj_symbols) {
-        if (added.count(sym.name))
-          continue;
-        added[sym.name] = true;
-        name_to_idx[sym.name] = idx++;
-      }
-    }
     for (const auto &r : text_it->relocs) {
       MachReloc mr{};
       mr.address = static_cast<std::int32_t>(r.offset);
       std::uint32_t sym_idx = r.symbol_index;
       if (r.symbol_index < obj_symbols.size()) {
-        auto it2 = name_to_idx.find(obj_symbols[r.symbol_index].name);
-        if (it2 != name_to_idx.end())
+        auto it2 = name_to_merged_idx.find(obj_symbols[r.symbol_index].name);
+        if (it2 != name_to_merged_idx.end())
           sym_idx = it2->second;
       }
       bool pcrel = (r.type == 1);

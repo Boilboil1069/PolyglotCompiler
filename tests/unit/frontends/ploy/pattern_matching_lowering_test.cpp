@@ -173,19 +173,15 @@ TEST_CASE("MATCH with a range arm falls back to the structural cascade",
 }
 
 // ----------------------------------------------------------------------------
-// 3. Cascade path with OPTION constructor patterns: ensure the lowering
-//    does not collapse OPTION variants into a switch table and that the
-//    cascade actually produces multiple basic blocks (try / body / merge).
-//    Full IR verification of OPTION cascades is intentionally out of
-//    scope here: the OPTION runtime layout is wired up by a separate
-//    pipeline stage and `Verify` is exercised end-to-end by the
-//    integration suite.
+// 3. OPTION constructor patterns need tag and payload extraction. Until the
+//    IR ABI exposes those operations, lowering must fail instead of comparing
+//    the aggregate with an integer sentinel and binding the whole aggregate.
 // ----------------------------------------------------------------------------
 
-TEST_CASE("MATCH on OPTION lowers via the structural cascade",
-          "[poly][lowering][pattern_matching][branch_table]") {
+TEST_CASE("MATCH on OPTION fails closed without a tag and payload ABI",
+          "[poly][lowering][pattern_matching][unsupported]") {
   LowerEnv env;
-  REQUIRE(LowerSource(
+  CHECK_FALSE(LowerSource(
       "FUNC unwrap_or(opt: OPTION(i32), fallback: i32) -> i32 {\n"
       "  MATCH opt {\n"
       "    CASE Some(x) { RETURN x; }\n"
@@ -194,14 +190,37 @@ TEST_CASE("MATCH on OPTION lowers via the structural cascade",
       "  RETURN fallback;\n"
       "}\n",
       env));
-  REQUIRE_FALSE(env.diags.HasErrors());
+  CHECK(std::any_of(env.diags.All().begin(), env.diags.All().end(), [](const auto &diag) {
+    return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+  }));
+}
 
-  Function *fn = env.ctx.FindFunction("unwrap_or");
-  REQUIRE(fn != nullptr);
-  // OPTION variants are refutable, so the fast switch path must not fire.
-  CHECK(FindSwitch(*fn) == nullptr);
-  // The cascade introduces at least the `match.merge` join block plus
-  // one body block per arm, so the function must own more than the
-  // single entry block a wildcard-only MATCH would produce.
-  CHECK(fn->blocks.size() >= 3u);
+TEST_CASE("IF LET fails closed instead of using OPTION truthiness",
+          "[poly][lowering][pattern_matching][unsupported]") {
+  LowerEnv env;
+  CHECK_FALSE(LowerSource(
+      "FUNC use(opt: OPTION(i32)) -> i32 {\n"
+      "  IF LET Some(x) = opt { RETURN x; } ELSE { RETURN 0; }\n"
+      "}\n",
+      env));
+  CHECK(std::any_of(env.diags.All().begin(), env.diags.All().end(), [](const auto &diag) {
+    return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+  }));
+}
+
+TEST_CASE("opaque cross-language result cannot become a branch condition",
+          "[poly][lowering][abi][unsupported]") {
+  LowerEnv env;
+  CHECK_FALSE(LowerSource(
+      "LINK(cpp, python, math::probe, util::probe) {\n"
+      "  MAP_TYPE(cpp::int, python::int);\n"
+      "}\n"
+      "FUNC use() -> i32 {\n"
+      "  IF CALL(cpp, math::probe, 1) { RETURN 1; }\n"
+      "  RETURN 0;\n"
+      "}\n",
+      env));
+  CHECK(std::any_of(env.diags.All().begin(), env.diags.All().end(), [](const auto &diag) {
+    return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+  }));
 }

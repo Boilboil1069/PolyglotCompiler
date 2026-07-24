@@ -72,6 +72,10 @@ core::Type ToCoreType(const std::shared_ptr<TypeNode> &t) {
     break;
   case TypeKind::kEllipsis:
     return core::Type::Any();
+  case TypeKind::kApproximation:
+    return ToCoreType(t->elem);
+  case TypeKind::kUnion:
+    return core::Type::Any();
   }
   const std::string &n = t->name;
   if (n == "bool")

@@ -98,10 +98,9 @@ private:
   void LowerFuncDecl(const std::shared_ptr<FuncDecl> &func);
   void LowerVarDecl(const std::shared_ptr<VarDecl> &var);
   void LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt);
-  // IF LET Some(x) = expr { … } ELSE { … }   (since v1.18.0)
-  // Lowered as a conditional branch on the scrutinee's truthiness.  The
-  // bound name is currently a no-op placeholder; full OPTION<T> tag
-  // dispatch lands with the OPTION lowering work track.
+  // IF LET requires the OPTION tag/payload ABI. Until that ABI is represented
+  // in IR, lowering rejects this construct instead of guessing from
+  // truthiness or binding the whole OPTION value as its payload.
   void LowerIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let);
   void LowerWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt);
   void LowerForStatement(const std::shared_ptr<ForStatement> &for_stmt);
@@ -137,11 +136,8 @@ private:
   // to suspend the current task until the awaited future resolves
   // (since v1.14.0).
   EvalResult LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await);
-  // Postfix `?` short-circuit unwrap of an `OPTION<T>` operand
-  // (since v1.19.0).  Lowered as a single conditional branch on the
-  // operand's truthiness: `Some` continues with the unwrapped value,
-  // `None` triggers an early return synthesised against the enclosing
-  // function's `ret_type`.
+  // Postfix `?` also requires the concrete OPTION tag/payload ABI and is
+  // rejected until that representation can be lowered without approximation.
   EvalResult LowerOptionUnwrapExpression(const std::shared_ptr<OptionUnwrapExpression> &unwrap);
   EvalResult LowerIdentifier(const std::shared_ptr<Identifier> &id);
   EvalResult LowerLiteral(const std::shared_ptr<Literal> &lit);
@@ -153,7 +149,7 @@ private:
   EvalResult LowerDeleteExpression(const std::shared_ptr<DeleteExpression> &del_expr);
 
   // Condition truthiness: ensure a value is I1 for branch conditions.
-  std::string EnsureI1(const EvalResult &val);
+  std::string EnsureI1(const EvalResult &val, const core::SourceLoc &loc);
 
   // Type conversion
   ir::IRType PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node);
@@ -161,8 +157,9 @@ private:
 
   // Glue code generation for LINK directives
   void GenerateLinkStub(const LinkEntry &link);
-  void GenerateMarshalCode(const std::string &src_val, const ir::IRType &src_type,
-                           const ir::IRType &dst_type, const std::string &dst_name);
+  bool GenerateMarshalCode(const std::string &src_val, const ir::IRType &src_type,
+                           const ir::IRType &dst_type, const std::string &dst_name,
+                           const core::SourceLoc &loc, const std::string &context);
 
   // Helper
   void Report(const core::SourceLoc &loc, const std::string &message);
@@ -176,7 +173,10 @@ private:
   std::vector<CrossLangCallDescriptor> call_descriptors_{};
   // Map from SSA value name to named-argument label for argument reordering.
   std::unordered_map<std::string, std::string> named_arg_labels_{};
+  std::vector<ir::BasicBlock *> break_targets_{};
+  std::vector<ir::BasicBlock *> continue_targets_{};
   std::shared_ptr<ir::Function> current_function_{};
+  size_t generated_name_index_{0};
   bool terminated_{false};
 };
 

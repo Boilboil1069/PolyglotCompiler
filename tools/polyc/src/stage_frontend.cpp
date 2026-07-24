@@ -65,6 +65,100 @@ bool HasEnvVar(const char *name) {
 
 } // namespace
 
+bool HasNonRecoverableFrontendError(const frontends::Diagnostics &diagnostics) {
+  for (const auto &diagnostic : diagnostics.All()) {
+    if (diagnostic.severity != frontends::DiagnosticSeverity::kError)
+      continue;
+    switch (diagnostic.code) {
+    case frontends::ErrorCode::kUnsupportedSyntax:
+    case frontends::ErrorCode::kUnsupportedLowering:
+    case frontends::ErrorCode::kLangVersionMismatch:
+      return true;
+    default:
+      break;
+    }
+  }
+  return false;
+}
+
+bool MustStopAfterFrontend(bool frontend_success, bool force,
+                           const frontends::Diagnostics &diagnostics) {
+  return !frontend_success &&
+         (!force || HasNonRecoverableFrontendError(diagnostics));
+}
+
+bool ValidateDirectLanguageVersionSelectors(
+    const std::string &requested_language, const std::string &source_path,
+    const frontends::FrontendOptions &options,
+    frontends::Diagnostics &diagnostics) {
+  const auto *frontend =
+      frontends::FrontendRegistry::Instance().GetFrontend(requested_language);
+  const std::string language = frontend ? frontend->Name() : requested_language;
+  if (language == "poly")
+    return true;
+
+  std::vector<std::string> unrelated;
+  const auto reject_if = [&](bool selected, const char *flag,
+                             const char *owner) {
+    if (selected && language != owner)
+      unrelated.emplace_back(flag);
+  };
+  reject_if(options.cpp_dialect != frontends::CppDialect::kAuto,
+            "--std", "cpp");
+  reject_if(options.python_version != frontends::PythonVersion::kAuto,
+            "--python-version", "python");
+  reject_if(options.java_release != frontends::JavaRelease::kAuto,
+            "--java-release", "java");
+  reject_if(options.dotnet_lang_version != frontends::DotnetLangVersion::kAuto,
+            "--cs-lang", "dotnet");
+  reject_if(options.dotnet_target_framework !=
+                frontends::DotnetTargetFramework::kAuto,
+            "--target-framework", "dotnet");
+  reject_if(options.rust_edition != frontends::RustEdition::kAuto,
+            "--rust-edition", "rust");
+  reject_if(options.go_version != frontends::GoVersion::kAuto,
+            "--go-version", "go");
+  reject_if(options.ecma_version != frontends::EcmaVersion::kAuto,
+            "--ecma", "javascript");
+  reject_if(options.ruby_version != frontends::RubyVersion::kAuto,
+            "--ruby-version", "ruby");
+
+  if (unrelated.empty())
+    return true;
+
+  std::ostringstream flags;
+  for (std::size_t i = 0; i < unrelated.size(); ++i) {
+    if (i)
+      flags << ", ";
+    flags << unrelated[i];
+  }
+  const std::string label =
+      source_path.empty() ? "<cli>" : source_path;
+  diagnostics.ReportError(
+      core::SourceLoc{label, 1, 1},
+      frontends::ErrorCode::kLangVersionMismatch,
+      "version selector(s) " + flags.str() +
+          " do not apply to direct source language '" + language +
+          "'; multiple language selectors are valid only for Poly orchestration sources");
+  return false;
+}
+
+bool ValidateDirectLanguageVersionSelectors(
+    const DriverSettings &settings, frontends::Diagnostics &diagnostics) {
+  frontends::FrontendOptions options;
+  options.cpp_dialect = settings.cpp_dialect;
+  options.python_version = settings.python_version;
+  options.java_release = settings.java_release;
+  options.dotnet_lang_version = settings.dotnet_lang_version;
+  options.dotnet_target_framework = settings.dotnet_target_framework;
+  options.rust_edition = settings.rust_edition;
+  options.go_version = settings.go_version;
+  options.ecma_version = settings.ecma_version;
+  options.ruby_version = settings.ruby_version;
+  return ValidateDirectLanguageVersionSelectors(
+      settings.language, settings.source_path, options, diagnostics);
+}
+
 // ============================================================================
 // RunFrontendStage
 // ============================================================================
@@ -74,7 +168,13 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
   result.language = settings.language;
   result.source_label = settings.source_path.empty() ? "<cli>" : settings.source_path;
   result.processed_source = settings.source;
+  bool preprocessed_by_stage = false;
   result.pkg_cache = std::make_shared<ploy::PackageDiscoveryCache>();
+
+  if (!ValidateDirectLanguageVersionSelectors(settings, result.diagnostics)) {
+    result.success = false;
+    return result;
+  }
 
   const bool V = settings.verbose;
 
@@ -102,6 +202,10 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
         pp.SetTokenPool(session_pool.get());
         ApplyIncludePaths(pp, settings.include_paths);
         ApplyIncludePaths(pp, settings.system_include_paths);
+        if (fe->Name() == "cpp") {
+          pp.Define("__cplusplus",
+                    frontends::CppDialectCplusplusValue(settings.cpp_dialect));
+        }
         // Apply -D / -U flags
         for (const auto &d : settings.defines) {
           auto eq = d.find('=');
@@ -114,6 +218,7 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
         for (const auto &u : settings.undefines)
           pp.Undefine(u);
         result.processed_source = pp.Process(settings.source, result.source_label);
+        preprocessed_by_stage = true;
         if (V)
           std::cerr << "[stage/frontend] preprocessed\n";
       }
@@ -136,6 +241,11 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
     fe_opts.verbose = V;
     fe_opts.strict = settings.strict;
     fe_opts.force = settings.force;
+    // The stage owns preprocessing for direct CLI compilation.  Mark that
+    // fact explicitly so the frontend does not expand the token stream a
+    // second time.  `enable_preprocessing=false` remains a caller policy for
+    // raw input and therefore fails closed when directives are still present.
+    fe_opts.source_is_preprocessed = preprocessed_by_stage;
     fe_opts.include_paths = settings.include_paths;
     fe_opts.system_include_paths = settings.system_include_paths;
     fe_opts.defines = settings.defines;
@@ -166,7 +276,12 @@ FrontendResult RunFrontendStage(const DriverSettings &settings) {
 
     auto fe_result = fe->Lower(result.processed_source, result.source_label, *result.ir_ctx,
                                result.diagnostics, fe_opts);
-    result.success = fe_result.lowered;
+    // `lowered` only means that an IR lowering pass ran; it may have emitted
+    // an intentionally incomplete IR together with kUnsupportedLowering.
+    // The stage succeeds only when the frontend explicitly says the result is
+    // valid and no error diagnostic was produced.  --force is handled by the
+    // driver at the stage boundary and must not turn partial IR into success.
+    result.success = fe_result.lowered && fe_result.success && !result.diagnostics.HasErrors();
     if (settings.dump_token_pool) {
       const auto stats = session_pool->Stats();
       std::ostringstream js;

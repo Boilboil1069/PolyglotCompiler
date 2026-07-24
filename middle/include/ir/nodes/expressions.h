@@ -89,15 +89,19 @@ inline IRType ResolveGEPResultType(IRType base_ptr_type, const std::vector<size_
   IRType cur = base_ptr_type;
   for (size_t idx : indices) {
     if (cur.kind == IRTypeKind::kPointer || cur.kind == IRTypeKind::kReference) {
-      cur = cur.subtypes.empty() ? IRType::Invalid() : cur.subtypes[0];
+      const IRType selected = cur.subtypes.empty() ? IRType::Invalid() : cur.subtypes[0];
+      cur = selected;
       continue;
     }
     if (cur.kind == IRTypeKind::kArray || cur.kind == IRTypeKind::kVector) {
-      cur = cur.subtypes.empty() ? IRType::Invalid() : cur.subtypes[0];
+      const IRType selected = cur.subtypes.empty() ? IRType::Invalid() : cur.subtypes[0];
+      cur = selected;
       continue;
     }
     if (cur.kind == IRTypeKind::kStruct) {
-      cur = idx < cur.subtypes.size() ? cur.subtypes[idx] : IRType::Invalid();
+      const IRType selected =
+          idx < cur.subtypes.size() ? cur.subtypes[idx] : IRType::Invalid();
+      cur = selected;
       continue;
     }
   }

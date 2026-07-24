@@ -8,7 +8,6 @@
  */
 #include <cctype>
 #include <cstdlib>
-#include <iostream>
 #include <optional>
 #include <set>
 #include <stack>
@@ -46,12 +45,7 @@ ir::IRType ToIRType(const std::string &type_hint) {
     return ir::IRType::Void();
   if (type_hint == "str")
     return ir::IRType::Pointer(ir::IRType::I8());
-  // Default to i64 for dynamic types
-  if (!type_hint.empty()) {
-    std::cerr << "[python-lowering] unresolved type hint '" << type_hint
-              << "'; defaulting to i64\n";
-  }
-  return ir::IRType::I64(true);
+  return ir::IRType::Invalid();
 }
 
 /** @} */
@@ -94,9 +88,20 @@ struct LoopContext {
 /** @name - */
 /** @{ */
 struct ClassInfo {
+  struct MethodInfo {
+    std::string lowered_name;
+    ir::IRType return_type{ir::IRType::Invalid()};
+    // The receiver is represented explicitly in IR, but is not part of the
+    // Python source-level argument list kept here.
+    std::vector<ir::IRType> parameter_types;
+  };
+
   std::string name;
   std::vector<std::string> methods;
   std::vector<std::string> fields;
+  std::unordered_map<std::string, size_t> field_indices;
+  std::unordered_map<std::string, MethodInfo> method_info;
+  ir::IRType struct_type{ir::IRType::Invalid()};
 };
 
 /** @} */
@@ -128,6 +133,12 @@ struct LoweringContext {
 
   // Temp counter for unique names
   size_t temp_counter{0};
+
+  // Tracks recursive lowering of nested function definitions.  Lowering a
+  // nested function temporarily replaces fn/env/the builder insertion point;
+  // the enclosing function state must be restored afterwards.
+  size_t function_depth{0};
+  std::unordered_map<std::string, ir::IRType> function_returns;
 
   LoweringContext(ir::IRContext &ctx, frontends::Diagnostics &d) :
       ir_ctx(ctx), diags(d), builder(ctx) {}
@@ -168,6 +179,52 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc);
 bool LowerFunction(const FunctionDef &fn, LoweringContext &lc);
 bool LowerClass(const ClassDef &cls, LoweringContext &lc);
+
+std::string ClassNameOf(const ir::IRType &type) {
+  if (type.kind == ir::IRTypeKind::kStruct)
+    return type.name;
+  if ((type.kind == ir::IRTypeKind::kPointer ||
+       type.kind == ir::IRTypeKind::kReference) &&
+      !type.subtypes.empty() && type.subtypes.front().kind == ir::IRTypeKind::kStruct) {
+    return type.subtypes.front().name;
+  }
+  return {};
+}
+
+ir::IRType DeclaredParameterType(const Parameter &parameter) {
+  if (!parameter.annotation)
+    return ir::IRType::I64(true);
+  if (auto id = std::dynamic_pointer_cast<Identifier>(parameter.annotation))
+    return ToIRType(id->name);
+  return ir::IRType::Invalid();
+}
+
+ir::IRType DeclaredReturnType(const FunctionDef &fn) {
+  // __init__ and __del__ are lifecycle hooks in the supported static subset.
+  // They do not produce a Python object result and therefore use a void ABI.
+  if (fn.name == "__init__" || fn.name == "__del__")
+    return ir::IRType::Void();
+  if (!fn.return_annotation)
+    return ir::IRType::I64(true);
+  if (auto id = std::dynamic_pointer_cast<Identifier>(fn.return_annotation))
+    return ToIRType(id->name);
+  if (auto literal = std::dynamic_pointer_cast<Literal>(fn.return_annotation);
+      literal && literal->value == "None")
+    return ir::IRType::Void();
+  return ir::IRType::Invalid();
+}
+
+bool IsSelfAttribute(const std::shared_ptr<Expression> &expr, std::string *field = nullptr) {
+  auto attribute = std::dynamic_pointer_cast<AttributeExpression>(expr);
+  if (!attribute)
+    return false;
+  auto receiver = std::dynamic_pointer_cast<Identifier>(attribute->object);
+  if (!receiver || receiver->name != "self")
+    return false;
+  if (field)
+    *field = attribute->attribute;
+  return true;
+}
 
 /** @} */
 
@@ -229,8 +286,12 @@ bool IsFloatLiteral(const std::string &text, double *out) {
 /** @name - */
 /** @{ */
 EvalResult MakeLiteral(long long v, LoweringContext &lc) {
-  auto lit = lc.builder.MakeLiteral(v, lc.NextTemp("lit"));
-  return {lit->name, ir::IRType::I64(true)};
+  (void)lc;
+  // Integer constants are represented textually in IR operands.  Giving a
+  // detached LiteralExpression an SSA-like name (for example, `lit.0`) made
+  // the verifier and native instruction selector treat it as an undefined
+  // virtual register.
+  return {std::to_string(v), ir::IRType::I64(true)};
 }
 
 EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
@@ -250,30 +311,9 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
 EvalResult EvalName(const std::shared_ptr<Identifier> &name, LoweringContext &lc) {
   auto it = lc.env.find(name->name);
   if (it == lc.env.end()) {
-    // Check for built-in names
-    if (name->name == "print" || name->name == "len" || name->name == "range" ||
-        name->name == "int" || name->name == "float" || name->name == "str" ||
-        name->name == "list" || name->name == "dict" || name->name == "set" ||
-        name->name == "type" || name->name == "isinstance" || name->name == "hasattr" ||
-        name->name == "bool" || name->name == "tuple" || name->name == "object" ||
-        name->name == "abs" || name->name == "min" || name->name == "max" || name->name == "sum" ||
-        name->name == "sorted" || name->name == "reversed" || name->name == "enumerate" ||
-        name->name == "zip" || name->name == "map" || name->name == "filter" ||
-        name->name == "open" || name->name == "input" || name->name == "super" ||
-        name->name == "getattr" || name->name == "setattr" || name->name == "issubclass" ||
-        name->name == "property" || name->name == "classmethod" || name->name == "staticmethod" ||
-        // Exception types
-        name->name == "ValueError" || name->name == "TypeError" || name->name == "RuntimeError" ||
-        name->name == "KeyError" || name->name == "IndexError" || name->name == "AttributeError" ||
-        name->name == "StopIteration" || name->name == "Exception" || name->name == "IOError" ||
-        name->name == "OSError" || name->name == "FileNotFoundError" || name->name == "NameError" ||
-        name->name == "ZeroDivisionError" || name->name == "NotImplementedError" ||
-        // Constants
-        name->name == "None" || name->name == "True" || name->name == "False") {
-      // Return a placeholder for built-in functions/types
-      return {name->name, ir::IRType::I64(true)};
-    }
-    lc.diags.Report(name->loc, "Undefined name: " + name->name);
+    lc.diags.ReportError(name->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python global/builtin name '" + name->name +
+                             "' requires a modeled runtime value representation");
     return EvalResult::Invalid();
   }
   // Load from alloca if mutable
@@ -293,7 +333,8 @@ EvalResult EvalName(const std::shared_ptr<Identifier> &name, LoweringContext &lc
 
 /** @name - */
 /** @{ */
-ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float = false) {
+std::optional<ir::BinaryInstruction::Op> MapBinOp(const std::string &op,
+                                                  bool is_float = false) {
   if (op == "+")
     return is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
   if (op == "-")
@@ -306,8 +347,6 @@ ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float = false)
     return ir::BinaryInstruction::Op::kSDiv; // Floor division
   if (op == "%")
     return is_float ? ir::BinaryInstruction::Op::kFRem : ir::BinaryInstruction::Op::kSRem;
-  if (op == "**")
-    return ir::BinaryInstruction::Op::kMul; // Simplified power
   if (op == "&")
     return ir::BinaryInstruction::Op::kAnd;
   if (op == "|")
@@ -330,7 +369,7 @@ ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float = false)
     return is_float ? ir::BinaryInstruction::Op::kCmpFgt : ir::BinaryInstruction::Op::kCmpSgt;
   if (op == ">=")
     return is_float ? ir::BinaryInstruction::Op::kCmpFge : ir::BinaryInstruction::Op::kCmpSge;
-  return ir::BinaryInstruction::Op::kAdd;
+  return std::nullopt;
 }
 
 bool IsCmpOp(ir::BinaryInstruction::Op op) {
@@ -372,6 +411,11 @@ EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringConte
     auto lhs = EvalExpr(bin->left, lc);
     if (!lhs.IsValid())
       return EvalResult::Invalid();
+    if (lhs.type.kind != ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python and/or on non-bool values requires object-truthiness lowering");
+      return EvalResult::Invalid();
+    }
 
     auto *rhs_block = lc.fn->CreateBlock(bin->op == "and" ? "and.rhs" : "or.rhs");
     auto *merge_block = lc.fn->CreateBlock(bin->op == "and" ? "and.end" : "or.end");
@@ -391,6 +435,11 @@ EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringConte
     auto rhs = EvalExpr(bin->right, lc);
     if (!rhs.IsValid())
       return EvalResult::Invalid();
+    if (rhs.type.kind != ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python and/or branch values require a common modeled bool ABI");
+      return EvalResult::Invalid();
+    }
 
     auto *rhs_end_block = lc.builder.GetInsertPoint().get();
     lc.builder.MakeBranch(merge_block);
@@ -412,16 +461,54 @@ EvalResult EvalBinOp(const std::shared_ptr<BinaryExpression> &bin, LoweringConte
     return {phi->name, result_type};
   }
 
+  static const std::unordered_set<std::string> supported_ops = {
+      "+",  "-",   "*",      "/",  "//", "%",  "**", "&", "|", "^", "<<", ">>",
+      "==", "!=",  "<",      "<=", ">",  ">=", "is", "is not", "in", "not in"};
+  if (supported_ops.count(bin->op) == 0) {
+    lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python binary operator '" + bin->op +
+                             "' has no faithful static IR lowering");
+    return EvalResult::Invalid();
+  }
+
   auto lhs = EvalExpr(bin->left, lc);
   auto rhs = EvalExpr(bin->right, lc);
   if (!lhs.IsValid() || !rhs.IsValid())
     return EvalResult::Invalid();
+  if (!lhs.type.SameShape(rhs.type)) {
+    lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python mixed-type binary coercion requires dynamic numeric semantics");
+    return EvalResult::Invalid();
+  }
+
+  // These operators do not have LLVM-like primitive semantics in Python
+  // (notably negative modulo/floor division and arbitrary-precision pow), so
+  // preserve them through explicit runtime calls rather than approximating.
+  static const std::unordered_map<std::string, std::string> runtime_ops = {
+      {"/", "__py_true_div"}, {"//", "__py_floor_div"}, {"%", "__py_mod"},
+      {"**", "__py_pow"},    {"is", "__py_is"},          {"is not", "__py_is_not"},
+      {"in", "__py_contains"}, {"not in", "__py_not_contains"}};
+  if (auto it = runtime_ops.find(bin->op); it != runtime_ops.end()) {
+    ir::IRType result_type =
+        (bin->op == "is" || bin->op == "is not" || bin->op == "in" || bin->op == "not in")
+            ? ir::IRType::I1()
+            : (bin->op == "/" ? ir::IRType::F64() : lhs.type);
+    auto call = lc.builder.MakeCall(it->second, {lhs.value, rhs.value}, result_type,
+                                    lc.NextTemp("bin.runtime"));
+    return {call->name, result_type};
+  }
 
   bool is_float = (lhs.type.kind == ir::IRTypeKind::kF64 || rhs.type.kind == ir::IRTypeKind::kF64);
-  ir::BinaryInstruction::Op op = MapBinOp(bin->op, is_float);
-  auto inst = lc.builder.MakeBinary(op, lhs.value, rhs.value, lc.NextTemp("bin"));
+  auto op = MapBinOp(bin->op, is_float);
+  if (!op) {
+    lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python binary operator '" + bin->op +
+                             "' has no primitive IR lowering");
+    return EvalResult::Invalid();
+  }
+  auto inst = lc.builder.MakeBinary(*op, lhs.value, rhs.value, lc.NextTemp("bin"));
 
-  if (IsCmpOp(op)) {
+  if (IsCmpOp(*op)) {
     inst->type = ir::IRType::I1();
   } else {
     inst->type = is_float ? ir::IRType::F64() : lhs.type;
@@ -444,6 +531,11 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
     return EvalResult::Invalid();
 
   if (un->op == "not") {
+    if (operand.type.kind != ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python not on non-bool values requires object-truthiness lowering");
+      return EvalResult::Invalid();
+    }
     // Boolean not: compare with 0
     auto zero = MakeLiteral(0, lc);
     auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpEq, operand.value, zero.value,
@@ -452,6 +544,12 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
     return {inst->name, ir::IRType::I1()};
   }
   if (un->op == "-") {
+    if ((!operand.type.IsInteger() && !operand.type.IsFloat()) ||
+        operand.type.kind == ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python unary minus requires numeric __neg__ runtime semantics");
+      return EvalResult::Invalid();
+    }
     auto zero = MakeLiteral(0, lc);
     bool is_float = operand.type.kind == ir::IRTypeKind::kF64;
     auto op = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
@@ -460,9 +558,20 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
     return {inst->name, operand.type};
   }
   if (un->op == "+") {
-    return operand; // Unary plus is a no-op
+    if ((!operand.type.IsInteger() && !operand.type.IsFloat()) ||
+        operand.type.kind == ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python unary plus requires numeric __pos__ runtime semantics");
+      return EvalResult::Invalid();
+    }
+    return operand;
   }
   if (un->op == "~") {
+    if (!operand.type.IsInteger() || operand.type.kind == ir::IRTypeKind::kI1) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python bitwise not requires integer __invert__ runtime semantics");
+      return EvalResult::Invalid();
+    }
     // Bitwise not: XOR with -1
     auto neg_one = MakeLiteral(-1, lc);
     auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, neg_one.value,
@@ -471,7 +580,9 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
     return {inst->name, operand.type};
   }
 
-  lc.diags.Report(un->loc, "Unsupported unary operator: " + un->op);
+  lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python unary operator '" + un->op +
+                           "' has no faithful static IR lowering");
   return EvalResult::Invalid();
 }
 
@@ -484,63 +595,191 @@ EvalResult EvalUnaryOp(const std::shared_ptr<UnaryExpression> &un, LoweringConte
 
 /** @name - */
 /** @{ */
-EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext &lc) {
-  std::vector<std::string> args;
-  std::vector<ir::IRType> arg_types;
-  for (const auto &arg : call->args) {
-    if (arg.is_star) {
-      // *args unpacking: evaluate the iterable and emit a runtime helper
-      // that expands it into individual arguments.  For IR purposes we
-      // pass the iterable pointer directly; the runtime call convention
-      // treats it as a variadic pack.
-      auto ev = EvalExpr(arg.value, lc);
-      if (!ev.IsValid())
-        return EvalResult::Invalid();
-      auto expanded =
-          lc.builder.MakeCall("__py_unpack_args", {ev.value}, ir::IRType::Pointer(ir::IRType::I8()),
-                              lc.NextTemp("star"));
-      args.push_back(expanded->name);
-      arg_types.push_back(expanded->type);
-      continue;
+struct AttributeAddress {
+  std::string address;
+  ir::IRType field_type{ir::IRType::Invalid()};
+  std::string class_name;
+
+  bool IsValid() const { return field_type.kind != ir::IRTypeKind::kInvalid; }
+};
+
+AttributeAddress EvalStaticAttributeAddress(
+    const std::shared_ptr<AttributeExpression> &attribute, const EvalResult &object,
+    LoweringContext &lc) {
+  const std::string class_name = ClassNameOf(object.type);
+  if (class_name.empty())
+    return {};
+
+  auto class_it = lc.classes.find(class_name);
+  if (class_it == lc.classes.end()) {
+    lc.diags.ReportError(attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python object uses an unregistered static class layout: " +
+                             class_name);
+    return {};
+  }
+  auto field_it = class_it->second.field_indices.find(attribute->attribute);
+  if (field_it == class_it->second.field_indices.end()) {
+    if (class_it->second.method_info.count(attribute->attribute) != 0) {
+      lc.diags.ReportError(
+          attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python method '" + class_name + "." + attribute->attribute +
+              "' cannot be used as a value: bound-method descriptors are outside the "
+              "static object subset");
+    } else {
+      lc.diags.ReportError(
+          attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python dynamic attribute '" + class_name + "." + attribute->attribute +
+              "' is not supported; declare integer fields with unconditional "
+              "self.<field> assignments in __init__");
     }
-    if (arg.is_kwstar) {
-      // **kwargs unpacking: similar treatment — pass the dict to a
-      // runtime helper that merges keyword arguments.
-      auto ev = EvalExpr(arg.value, lc);
-      if (!ev.IsValid())
-        return EvalResult::Invalid();
-      auto expanded =
-          lc.builder.MakeCall("__py_unpack_kwargs", {ev.value},
-                              ir::IRType::Pointer(ir::IRType::I8()), lc.NextTemp("kwstar"));
-      args.push_back(expanded->name);
-      arg_types.push_back(expanded->type);
-      continue;
-    }
-    auto ev = EvalExpr(arg.value, lc);
-    if (!ev.IsValid())
-      return EvalResult::Invalid();
-    args.push_back(ev.value);
-    arg_types.push_back(ev.type);
+    return {};
   }
 
-  std::string callee_name;
-  if (auto name = std::dynamic_pointer_cast<Identifier>(call->callee)) {
-    callee_name = name->name;
-  } else if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(call->callee)) {
-    // Method call: obj.method(...)
-    auto obj = EvalExpr(attr->object, lc);
-    if (!obj.IsValid())
+  const size_t field_index = field_it->second;
+  if (field_index >= class_it->second.struct_type.subtypes.size()) {
+    lc.diags.ReportError(attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python static class field index is outside its aggregate layout");
+    return {};
+  }
+  auto gep = lc.builder.MakeGEP(object.value, class_it->second.struct_type,
+                                {0, field_index}, lc.NextTemp("field.addr"));
+  return {gep->name, class_it->second.struct_type.subtypes[field_index], class_name};
+}
+
+EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext &lc) {
+  for (const auto &arg : call->args) {
+    if (arg.is_star || arg.is_kwstar || !arg.keyword.empty()) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python keyword/star arguments require descriptor-aware call lowering");
       return EvalResult::Invalid();
-    // Mangle method name
-    callee_name = "__py_method_" + attr->attribute;
-    args.insert(args.begin(), obj.value);
-    arg_types.insert(arg_types.begin(), obj.type);
-  } else {
-    // Indirect call through expression
-    auto callee = EvalExpr(call->callee, lc);
-    if (!callee.IsValid())
+    }
+  }
+
+  auto evaluate_arguments = [&]()
+      -> std::optional<std::pair<std::vector<std::string>, std::vector<ir::IRType>>> {
+    std::vector<std::string> values;
+    std::vector<ir::IRType> types;
+    values.reserve(call->args.size());
+    types.reserve(call->args.size());
+    for (const auto &arg : call->args) {
+      auto evaluated = EvalExpr(arg.value, lc);
+      if (!evaluated.IsValid())
+        return std::nullopt;
+      values.push_back(evaluated.value);
+      types.push_back(evaluated.type);
+    }
+    return std::make_pair(std::move(values), std::move(types));
+  };
+
+  // The static subset models only direct instance calls.  The receiver is
+  // evaluated before arguments, matching Python's evaluation order, then
+  // passed explicitly as the first IR argument.
+  if (auto attribute = std::dynamic_pointer_cast<AttributeExpression>(call->callee)) {
+    auto object = EvalExpr(attribute->object, lc);
+    if (!object.IsValid())
       return EvalResult::Invalid();
-    callee_name = callee.value;
+    const std::string class_name = ClassNameOf(object.type);
+    if (class_name.empty()) {
+      lc.diags.ReportError(
+          attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python dynamic method calls require descriptor and runtime dispatch semantics");
+      return EvalResult::Invalid();
+    }
+
+    auto class_it = lc.classes.find(class_name);
+    auto method_it = class_it == lc.classes.end()
+                         ? ClassInfo::MethodInfo{} /* only used for a diagnostic below */
+                         : [&]() {
+                             auto found = class_it->second.method_info.find(attribute->attribute);
+                             return found == class_it->second.method_info.end()
+                                        ? ClassInfo::MethodInfo{}
+                                        : found->second;
+                           }();
+    if (method_it.lowered_name.empty()) {
+      lc.diags.ReportError(attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python dynamic/unknown method '" + class_name + "." +
+                               attribute->attribute +
+                               "' is not part of the statically declared class");
+      return EvalResult::Invalid();
+    }
+
+    auto evaluated = evaluate_arguments();
+    if (!evaluated)
+      return EvalResult::Invalid();
+    auto &[args, arg_types] = *evaluated;
+    if (arg_types.size() != method_it.parameter_types.size()) {
+      lc.diags.ReportError(attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python static method '" + class_name + "." +
+                               attribute->attribute + "' expects " +
+                               std::to_string(method_it.parameter_types.size()) +
+                               " argument(s), got " + std::to_string(arg_types.size()));
+      return EvalResult::Invalid();
+    }
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+      if (!arg_types[i].SameShape(method_it.parameter_types[i])) {
+        lc.diags.ReportError(attribute->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python static method argument requires an exact modeled ABI type");
+        return EvalResult::Invalid();
+      }
+    }
+    args.insert(args.begin(), object.value);
+    auto inst = lc.builder.MakeCall(method_it.lowered_name, args, method_it.return_type,
+                                    lc.NextTemp("method.call"));
+    return {inst->name, inst->type};
+  }
+
+  auto name = std::dynamic_pointer_cast<Identifier>(call->callee);
+  if (!name) {
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python indirect calls require callable-object runtime semantics");
+    return EvalResult::Invalid();
+  }
+  const std::string &callee_name = name->name;
+
+  if (callee_name == "getattr" || callee_name == "setattr" || callee_name == "hasattr") {
+    lc.diags.ReportError(
+        call->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python dynamic attribute built-in '" + callee_name +
+            "' is not supported by deterministic static class layouts");
+    return EvalResult::Invalid();
+  }
+
+  auto evaluated = evaluate_arguments();
+  if (!evaluated)
+    return EvalResult::Invalid();
+  auto &[args, arg_types] = *evaluated;
+
+  // Class construction is stack based.  This deliberately does not claim
+  // Python GC semantics: callers must invoke close()/__del__() explicitly if
+  // the class exposes a lifecycle cleanup method.
+  if (auto class_it = lc.classes.find(callee_name); class_it != lc.classes.end()) {
+    auto init_it = class_it->second.method_info.find("__init__");
+    if (init_it == class_it->second.method_info.end()) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python static class '" + callee_name +
+                               "' requires an explicit __init__ method");
+      return EvalResult::Invalid();
+    }
+    if (arg_types.size() != init_it->second.parameter_types.size()) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python constructor '" + callee_name + "' expects " +
+                               std::to_string(init_it->second.parameter_types.size()) +
+                               " argument(s), got " + std::to_string(arg_types.size()));
+      return EvalResult::Invalid();
+    }
+    for (size_t i = 0; i < arg_types.size(); ++i) {
+      if (!arg_types[i].SameShape(init_it->second.parameter_types[i])) {
+        lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python constructor argument requires an exact modeled ABI type");
+        return EvalResult::Invalid();
+      }
+    }
+
+    auto storage = lc.builder.MakeAlloca(class_it->second.struct_type,
+                                         lc.NextTemp(callee_name + ".object"));
+    args.insert(args.begin(), storage->name);
+    lc.builder.MakeCall(init_it->second.lowered_name, args, ir::IRType::Void(), "");
+    return {storage->name, ir::IRType::Pointer(class_it->second.struct_type)};
   }
 
   // Handle built-in functions
@@ -580,7 +819,14 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
     return {inst->name, range_iter_type};
   }
 
-  auto inst = lc.builder.MakeCall(callee_name, args, ir::IRType::I64(true), lc.NextTemp("call"));
+  auto return_it = lc.function_returns.find(callee_name);
+  if (return_it == lc.function_returns.end()) {
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python call target '" + callee_name +
+                             "' has no statically modeled signature");
+    return EvalResult::Invalid();
+  }
+  auto inst = lc.builder.MakeCall(callee_name, args, return_it->second, lc.NextTemp("call"));
   return {inst->name, inst->type};
 }
 
@@ -598,11 +844,20 @@ EvalResult EvalAttribute(const std::shared_ptr<AttributeExpression> &attr, Lower
   if (!obj.IsValid())
     return EvalResult::Invalid();
 
-  // Generate a field access call
-  std::string getter_name = "__py_getattr_" + attr->attribute;
-  auto inst =
-      lc.builder.MakeCall(getter_name, {obj.value}, ir::IRType::I64(true), lc.NextTemp("attr"));
-  return {inst->name, inst->type};
+  if (!ClassNameOf(obj.type).empty()) {
+    auto address = EvalStaticAttributeAddress(attr, obj, lc);
+    if (!address.IsValid())
+      return EvalResult::Invalid();
+    auto load = lc.builder.MakeLoad(address.address, address.field_type,
+                                    lc.NextTemp("field.load"));
+    return {load->name, load->type};
+  }
+
+  lc.diags.ReportError(
+      attr->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "Python attribute access requires a statically known class object; dynamic attributes "
+      "need the full Python object runtime");
+  return EvalResult::Invalid();
 }
 
 /** @} */
@@ -635,9 +890,14 @@ EvalResult EvalIndex(const std::shared_ptr<IndexExpression> &idx, LoweringContex
 /** @name - */
 /** @{ */
 EvalResult EvalSlice(const std::shared_ptr<SliceExpression> &slice, LoweringContext &lc) {
-  auto start = slice->start ? EvalExpr(slice->start, lc) : MakeLiteral(0, lc);
-  auto stop = slice->stop ? EvalExpr(slice->stop, lc) : MakeLiteral(-1, lc);
-  auto step = slice->step ? EvalExpr(slice->step, lc) : MakeLiteral(1, lc);
+  if (!slice->start || !slice->stop || !slice->step) {
+    lc.diags.ReportError(slice->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "omitted Python slice bounds require a distinct None sentinel");
+    return EvalResult::Invalid();
+  }
+  auto start = EvalExpr(slice->start, lc);
+  auto stop = EvalExpr(slice->stop, lc);
+  auto step = EvalExpr(slice->step, lc);
 
   if (!start.IsValid() || !stop.IsValid() || !step.IsValid())
     return EvalResult::Invalid();
@@ -770,8 +1030,9 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
     result_name = lc.NextTemp("dictcomp");
     break;
   case ComprehensionExpression::Kind::kGenerator:
-    result_name = lc.NextTemp("genexp");
-    break;
+    lc.diags.ReportError(comp->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python generator expressions require lazy generator-frame lowering");
+    return EvalResult::Invalid();
   }
 
   // Create empty container
@@ -846,7 +1107,9 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
     if (auto id = std::dynamic_pointer_cast<Identifier>(clause.target)) {
       target_name = id->name;
     } else {
-      lc.diags.Report(comp->loc, "Only simple identifiers supported as comprehension targets");
+      lc.diags.ReportError(
+          comp->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python destructuring comprehension targets require pattern-binding lowering");
       return EvalResult::Invalid();
     }
 
@@ -860,6 +1123,11 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
         auto cond = EvalExpr(clause.ifs[i], lc);
         if (!cond.IsValid())
           return EvalResult::Invalid();
+        if (cond.type.kind != ir::IRTypeKind::kI1) {
+          lc.diags.ReportError(clause.ifs[i]->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "Python comprehension truthiness requires dynamic runtime semantics");
+          return EvalResult::Invalid();
+        }
 
         if (i + 1 < clause.ifs.size()) {
           // More conditions to check
@@ -933,47 +1201,9 @@ EvalResult EvalComprehension(const std::shared_ptr<ComprehensionExpression> &com
 /** @name - */
 /** @{ */
 EvalResult EvalLambda(const std::shared_ptr<LambdaExpression> &lambda, LoweringContext &lc) {
-  // Create a nested function for the lambda
-  std::string lambda_name = lc.NextTemp("lambda");
-
-  // Build parameter list
-  std::vector<std::pair<std::string, ir::IRType>> params;
-  for (const auto &p : lambda->params) {
-    params.push_back({p.name, ir::IRType::I64(true)});
-  }
-
-  // Save current state
-  auto saved_fn = lc.fn;
-  auto saved_env = lc.env;
-  bool saved_term = lc.terminated;
-
-  // Create lambda function
-  lc.fn = lc.ir_ctx.CreateFunction(lambda_name, ir::IRType::I64(true), params);
-  auto *entry = lc.fn->CreateBlock("entry");
-  lc.fn->entry = entry;
-  lc.SetInsertBlock(entry);
-
-  lc.env.clear();
-  for (const auto &p : params) {
-    lc.env[p.first] = {p.first, p.second, "", false};
-  }
-  lc.terminated = false;
-
-  // Evaluate body and return result
-  auto result = EvalExpr(lambda->body, lc);
-  if (result.IsValid()) {
-    lc.builder.MakeReturn(result.value);
-  } else {
-    lc.builder.MakeReturn("");
-  }
-
-  // Restore state
-  lc.fn = saved_fn;
-  lc.env = saved_env;
-  lc.terminated = saved_term;
-
-  // Return function pointer
-  return {lambda_name, ir::IRType::I64(true)};
+  lc.diags.ReportError(lambda->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python lambda lowering requires closure-environment and function-object ABI support");
+  return EvalResult::Invalid();
 }
 
 /** @} */
@@ -986,19 +1216,9 @@ EvalResult EvalLambda(const std::shared_ptr<LambdaExpression> &lambda, LoweringC
 /** @name - */
 /** @{ */
 EvalResult EvalAwait(const std::shared_ptr<AwaitExpression> &await, LoweringContext &lc) {
-  if (!lc.in_async_function) {
-    lc.diags.Report(await->loc, "'await' outside async function");
-    return EvalResult::Invalid();
-  }
-
-  auto awaitable = EvalExpr(await->value, lc);
-  if (!awaitable.IsValid())
-    return EvalResult::Invalid();
-
-  // Generate await intrinsic call
-  auto inst = lc.builder.MakeCall("__py_await", {awaitable.value}, ir::IRType::I64(true),
-                                  lc.NextTemp("await"));
-  return {inst->name, inst->type};
+  lc.diags.ReportError(await->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python await requires coroutine suspension and resumption lowering");
+  return EvalResult::Invalid();
 }
 
 /** @} */
@@ -1011,19 +1231,9 @@ EvalResult EvalAwait(const std::shared_ptr<AwaitExpression> &await, LoweringCont
 /** @name - */
 /** @{ */
 EvalResult EvalYield(const std::shared_ptr<YieldExpression> &yield, LoweringContext &lc) {
-  EvalResult val;
-  if (yield->value) {
-    val = EvalExpr(yield->value, lc);
-    if (!val.IsValid())
-      return EvalResult::Invalid();
-  } else {
-    val = MakeLiteral(0, lc); // yield None
-  }
-
-  std::string fn_name = yield->is_from ? "__py_yield_from" : "__py_yield";
-  auto inst =
-      lc.builder.MakeCall(fn_name, {val.value}, ir::IRType::I64(true), lc.NextTemp("yield"));
-  return {inst->name, inst->type};
+  lc.diags.ReportError(yield->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python yield requires resumable generator-frame lowering");
+  return EvalResult::Invalid();
 }
 
 /** @} */
@@ -1043,6 +1253,10 @@ EvalResult EvalNamedExpr(const std::shared_ptr<NamedExpression> &named, Lowering
   // Assign to target
   if (auto id = std::dynamic_pointer_cast<Identifier>(named->target)) {
     lc.env[id->name] = {val.value, val.type, "", false};
+  } else {
+    lc.diags.ReportError(named->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python named-expression target is not lowerable");
+    return EvalResult::Invalid();
   }
 
   return val;
@@ -1064,6 +1278,12 @@ EvalResult EvalFormattedString(const std::shared_ptr<FormattedString> &fstr, Low
       auto str_ptr = lc.builder.MakeStringLiteral(part.literal, lc.NextTemp("fstr.lit"));
       parts.push_back(str_ptr);
     } else {
+      if (!part.format_spec.empty()) {
+        lc.diags.ReportError(
+            fstr->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "Python f-string conversions and format specifications require runtime formatting");
+        return EvalResult::Invalid();
+      }
       auto val = EvalExpr(part.expr, lc);
       if (!val.IsValid())
         return EvalResult::Invalid();
@@ -1098,6 +1318,13 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (literal->is_string) {
       auto str_ptr = lc.builder.MakeStringLiteral(literal->value, lc.NextTemp("str"));
       return {str_ptr, ir::IRType::Pointer(ir::IRType::I8())};
+    }
+    if (literal->value == "True" || literal->value == "False")
+      return {literal->value == "True" ? "1" : "0", ir::IRType::I1()};
+    if (literal->value == "None") {
+      lc.diags.ReportError(literal->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python None requires a distinct object/sentinel representation");
+      return EvalResult::Invalid();
     }
     long long iv{};
     if (IsIntegerLiteral(literal->value, &iv)) {
@@ -1191,12 +1418,18 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     return EvalNamedExpr(named, lc);
   }
 
+  if (auto templated = std::dynamic_pointer_cast<TemplateString>(expr)) {
+    lc.diags.ReportError(templated->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python template strings require runtime Template-object lowering");
+    return EvalResult::Invalid();
+  }
   // Formatted string (f-string)
   if (auto fstr = std::dynamic_pointer_cast<FormattedString>(expr)) {
     return EvalFormattedString(fstr, lc);
   }
 
-  lc.diags.Report(expr->loc, "Unsupported expression type in lowering");
+  lc.diags.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python expression is parsed but has no faithful IR lowering");
   return EvalResult::Invalid();
 }
 
@@ -1216,11 +1449,12 @@ bool LowerReturn(const std::shared_ptr<ReturnStatement> &ret, LoweringContext &l
   EvalResult v;
   if (ret->value) {
     v = EvalExpr(ret->value, lc);
-    if (!v.IsValid()) {
-      lc.builder.MakeReturn("");
-      lc.terminated = true;
-      return true;
-    }
+    if (!v.IsValid())
+      return false;
+  } else if (lc.fn && lc.fn->ret_type.kind != ir::IRTypeKind::kVoid) {
+    lc.diags.ReportError(ret->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python bare return cannot be represented by a non-None IR return type");
+    return false;
   }
   lc.builder.MakeReturn(v.value);
   lc.terminated = true;
@@ -1228,20 +1462,16 @@ bool LowerReturn(const std::shared_ptr<ReturnStatement> &ret, LoweringContext &l
 }
 
 bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc) {
-  if (assign->targets.empty())
+  if (assign->targets.empty()) {
+    lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python assignment has no lowerable target");
     return false;
+  }
 
   // Handle annotated assignment without value (just type declaration)
   if (!assign->value && assign->annotation) {
-    for (const auto &target : assign->targets) {
-      if (auto name = std::dynamic_pointer_cast<Identifier>(target)) {
-        ir::IRType ty = ir::IRType::I64(true);
-        if (auto ann_id = std::dynamic_pointer_cast<Identifier>(assign->annotation)) {
-          ty = ToIRType(ann_id->name);
-        }
-        lc.env[name->name] = {"", ty, "", false};
-      }
-    }
+    // A variable annotation does not initialize or bind a runtime value.
+    // Leaving it out of the value environment makes a later read fail closed.
     return true;
   }
 
@@ -1255,7 +1485,8 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
   // Handle augmented assignment
   if (assign->op != "=") {
     if (assign->targets.size() != 1) {
-      lc.diags.Report(assign->loc, "Augmented assignment requires single target");
+      lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python augmented assignment requires a single static target");
       return false;
     }
     auto target = assign->targets[0];
@@ -1290,18 +1521,82 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
       else if (assign->op == ">>=")
         bin_op = ">>";
       else {
-        lc.diags.Report(assign->loc, "Unknown augmented assignment operator: " + assign->op);
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented assignment operator '" + assign->op +
+                                 "' has no faithful IR lowering");
+        return false;
+      }
+
+      if (bin_op == "**" || bin_op == "/" || bin_op == "//" || bin_op == "%") {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented operator '" + assign->op +
+                                 "' requires Python runtime numeric semantics");
         return false;
       }
 
       bool is_float =
           (current.type.kind == ir::IRTypeKind::kF64 || result.type.kind == ir::IRTypeKind::kF64);
+      if (!current.type.SameShape(result.type)) {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented assignment coercion requires runtime semantics");
+        return false;
+      }
       auto op = MapBinOp(bin_op, is_float);
-      auto inst = lc.builder.MakeBinary(op, current.value, result.value, lc.NextTemp("aug"));
+      if (!op) {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented assignment has no primitive IR lowering");
+        return false;
+      }
+      auto inst = lc.builder.MakeBinary(*op, current.value, result.value, lc.NextTemp("aug"));
       inst->type = current.type;
       lc.env[name->name] = {inst->name, inst->type, "", false};
       return true;
     }
+    if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(target)) {
+      auto object = EvalExpr(attr->object, lc);
+      if (!object.IsValid())
+        return false;
+      if (ClassNameOf(object.type).empty()) {
+        lc.diags.ReportError(
+            assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "Python augmented dynamic-attribute assignment requires the full object runtime");
+        return false;
+      }
+      auto address = EvalStaticAttributeAddress(attr, object, lc);
+      if (!address.IsValid())
+        return false;
+      if (!address.field_type.SameShape(result.type)) {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python static class fields have a deterministic integer ABI");
+        return false;
+      }
+
+      std::string bin_op = assign->op.substr(0, assign->op.size() - 1);
+      if (bin_op == "**" || bin_op == "/" || bin_op == "//" || bin_op == "%") {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented member operator '" + assign->op +
+                                 "' requires Python runtime numeric semantics");
+        return false;
+      }
+      auto op = MapBinOp(bin_op, false);
+      if (!op) {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python augmented member operator '" + assign->op +
+                                 "' has no primitive IR lowering");
+        return false;
+      }
+      auto old_value = lc.builder.MakeLoad(address.address, address.field_type,
+                                           lc.NextTemp("field.old"));
+      auto updated = lc.builder.MakeBinary(*op, old_value->name, result.value,
+                                           lc.NextTemp("field.update"));
+      updated->type = address.field_type;
+      lc.builder.MakeStore(address.address, updated->name);
+      return true;
+    }
+    lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python augmented subscript assignment requires runtime "
+                         "read-modify-write semantics");
+    return false;
   }
 
   // Simple assignment
@@ -1316,15 +1611,33 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
           auto item = lc.builder.MakeCall("__py_getitem", {result.value, idx_val.value},
                                           ir::IRType::I64(true), lc.NextTemp("unpack"));
           lc.env[elem_name->name] = {item->name, item->type, "", false};
+        } else {
+          lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "nested Python unpacking targets require recursive lowering");
+          return false;
         }
       }
     } else if (auto attr = std::dynamic_pointer_cast<AttributeExpression>(target)) {
-      // Attribute assignment: obj.attr = value
       auto obj = EvalExpr(attr->object, lc);
       if (!obj.IsValid())
         return false;
-      lc.builder.MakeCall("__py_setattr_" + attr->attribute, {obj.value, result.value},
-                          ir::IRType::Void(), "");
+      if (ClassNameOf(obj.type).empty()) {
+        lc.diags.ReportError(
+            assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "Python dynamic attribute assignment requires the full object runtime; the static "
+            "subset only permits __init__-declared integer fields");
+        return false;
+      }
+      auto address = EvalStaticAttributeAddress(attr, obj, lc);
+      if (!address.IsValid())
+        return false;
+      if (!address.field_type.SameShape(result.type)) {
+        lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python static class field '" + address.class_name + "." +
+                                 attr->attribute + "' requires an integer value");
+        return false;
+      }
+      lc.builder.MakeStore(address.address, result.value);
     } else if (auto idx = std::dynamic_pointer_cast<IndexExpression>(target)) {
       // Index assignment: obj[key] = value
       auto obj = EvalExpr(idx->object, lc);
@@ -1334,7 +1647,8 @@ bool LowerAssign(const std::shared_ptr<Assignment> &assign, LoweringContext &lc)
       lc.builder.MakeCall("__py_setitem", {obj.value, key.value, result.value}, ir::IRType::Void(),
                           "");
     } else {
-      lc.diags.Report(assign->loc, "Unsupported assignment target type");
+      lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python assignment target has no faithful IR lowering");
       return false;
     }
   }
@@ -1348,10 +1662,19 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
   auto cond = EvalExpr(if_stmt->condition, lc);
   if (!cond.IsValid())
     return false;
+  if (cond.type.kind != ir::IRTypeKind::kI1) {
+    lc.diags.ReportError(if_stmt->condition->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python if truthiness requires dynamic runtime semantics");
+    return false;
+  }
 
   auto *then_block = lc.fn->CreateBlock("if.then");
   auto *else_block = if_stmt->else_body.empty() ? nullptr : lc.fn->CreateBlock("if.else");
   auto *merge_block = lc.fn->CreateBlock("if.end");
+
+  // The false edge of an if-without-else comes from the block containing the
+  // condition, which is not necessarily the function entry block.
+  auto *condition_block = lc.builder.GetInsertPoint().get();
 
   // Save environment state before branches for PHI generation
   std::unordered_map<std::string, EnvEntry> env_before = lc.env;
@@ -1402,7 +1725,27 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
   }
 
   lc.SetInsertBlock(merge_block);
-  lc.terminated = then_term && (else_term || !else_block);
+  const bool both_branches_terminate = else_block && then_term && else_term;
+  lc.terminated = both_branches_terminate;
+
+  // Keep the environment associated with paths that can actually reach the
+  // merge.  In particular, a terminating then branch without an else must not
+  // leak its assignments onto the false path.
+  if (!else_block) {
+    lc.env = env_before;
+  } else if (then_term && !else_term) {
+    lc.env = env_after_else;
+  } else if (!then_term && else_term) {
+    lc.env = env_after_then;
+  } else if (both_branches_terminate) {
+    lc.env = env_before;
+  }
+
+  // Function verification requires every block, including an unreachable
+  // synthetic merge block, to have a terminator.
+  if (both_branches_terminate) {
+    lc.builder.MakeUnreachable();
+  }
 
   // Generate PHI nodes for variables modified in either branch
   // Only needed if both branches can reach merge block
@@ -1463,9 +1806,9 @@ bool LowerIf(const std::shared_ptr<IfStatement> &if_stmt, LoweringContext &lc) {
         if (else_block && !else_term && else_pred) {
           phi_incomings.push_back({else_pred, else_val});
         } else if (!else_block && !then_term) {
-          // No else branch: use original value from entry
-          auto *entry_pred = lc.fn->entry;
-          phi_incomings.push_back({entry_pred, else_val});
+          // No else branch: use the original value from the condition's
+          // block, which owns the direct false edge to the merge.
+          phi_incomings.push_back({condition_block, else_val});
         }
 
         if (phi_incomings.size() > 1) {
@@ -1504,12 +1847,15 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
   lc.SetInsertBlock(cond_block);
   lc.terminated = false;
 
-  // Create placeholder PHI nodes for variables that might be modified in loop
-  // These will be updated after processing the loop body
-  std::vector<std::pair<std::string, std::shared_ptr<ir::PhiInstruction>>> loop_phis;
-
   auto cond = EvalExpr(while_stmt->condition, lc);
   if (!cond.IsValid()) {
+    lc.loop_stack.pop();
+    return false;
+  }
+  if (cond.type.kind != ir::IRTypeKind::kI1) {
+    lc.diags.ReportError(while_stmt->condition->loc,
+                         frontends::ErrorCode::kUnsupportedLowering,
+                         "Python while truthiness requires dynamic runtime semantics");
     lc.loop_stack.pop();
     return false;
   }
@@ -1564,6 +1910,11 @@ bool LowerWhile(const std::shared_ptr<WhileStatement> &while_stmt, LoweringConte
 bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc) {
   if (lc.terminated)
     return true;
+  if (for_stmt->is_async) {
+    lc.diags.ReportError(for_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python async iteration has no faithful IR lowering");
+    return false;
+  }
 
   // Save environment before loop for PHI generation
   std::unordered_map<std::string, EnvEntry> env_before = lc.env;
@@ -1611,8 +1962,19 @@ bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc
         auto item = lc.builder.MakeCall("__py_getitem", {next_val->name, idx_lit.value},
                                         ir::IRType::I64(true), lc.NextTemp("unpack"));
         lc.env[elem->name] = {item->name, item->type, "", false};
+      } else {
+        lc.diags.ReportError(tup->elements[i]->loc,
+                             frontends::ErrorCode::kUnsupportedLowering,
+                             "Python nested/starred loop unpacking has no faithful IR lowering");
+        lc.loop_stack.pop();
+        return false;
       }
     }
+  } else {
+    lc.diags.ReportError(for_stmt->target->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python loop assignment target has no faithful IR lowering");
+    lc.loop_stack.pop();
+    return false;
   }
 
   for (auto &s : for_stmt->body) {
@@ -1660,6 +2022,11 @@ bool LowerFor(const std::shared_ptr<ForStatement> &for_stmt, LoweringContext &lc
 bool LowerWith(const std::shared_ptr<WithStatement> &with_stmt, LoweringContext &lc) {
   if (lc.terminated)
     return true;
+
+  lc.diags.ReportError(
+      with_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "Python with/async with cleanup across return and exception paths is not implemented");
+  return false;
 
   // Enter context managers
   std::vector<std::pair<std::string, std::string>> contexts; // (mgr, exit_fn)
@@ -1720,6 +2087,20 @@ bool LowerWith(const std::shared_ptr<WithStatement> &with_stmt, LoweringContext 
 bool LowerTry(const std::shared_ptr<TryStatement> &try_stmt, LoweringContext &lc) {
   if (lc.terminated)
     return true;
+
+  lc.diags.ReportError(
+      try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "Python try/except/else/finally exception control flow is not implemented faithfully");
+  return false;
+
+  for (const auto &handler : try_stmt->handlers) {
+    if (handler.is_exception_group) {
+      lc.diags.ReportError(
+          try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python exception groups require except* splitting/merging runtime semantics");
+      return false;
+    }
+  }
 
   auto *try_block = lc.fn->CreateBlock("try.body");
   auto *exit_block = lc.fn->CreateBlock("try.end");
@@ -1946,63 +2327,13 @@ bool LowerMatch(const std::shared_ptr<MatchStatement> &match_stmt, LoweringConte
   if (lc.terminated)
     return true;
 
-  auto subject = EvalExpr(match_stmt->subject, lc);
-  if (!subject.IsValid())
-    return false;
-
-  auto *exit_block = lc.fn->CreateBlock("match.end");
-
-  // Create blocks for each case
-  std::vector<ir::BasicBlock *> case_blocks;
-  for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
-    case_blocks.push_back(lc.fn->CreateBlock("case." + std::to_string(i)));
-  }
-  case_blocks.push_back(exit_block); // Default fallthrough
-
-  // Generate pattern matching
-  for (size_t i = 0; i < match_stmt->cases.size(); ++i) {
-    const auto &mc = match_stmt->cases[i];
-
-    // Check pattern match
-    auto pattern_match = lc.builder.MakeCall("__py_match_pattern", {subject.value},
-                                             ir::IRType::I1(), lc.NextTemp("match"));
-
-    // Check guard if present
-    if (mc.guard) {
-      auto guard_result = EvalExpr(mc.guard, lc);
-      if (guard_result.IsValid()) {
-        auto combined = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kAnd, pattern_match->name,
-                                              guard_result.value, lc.NextTemp("guard"));
-        combined->type = ir::IRType::I1();
-        lc.builder.MakeCondBranch(combined->name, case_blocks[i], case_blocks[i + 1]);
-      } else {
-        lc.builder.MakeCondBranch(pattern_match->name, case_blocks[i], case_blocks[i + 1]);
-      }
-    } else {
-      lc.builder.MakeCondBranch(pattern_match->name, case_blocks[i], case_blocks[i + 1]);
-    }
-
-    // Case body
-    lc.SetInsertBlock(case_blocks[i]);
-    lc.terminated = false;
-
-    bool case_term = false;
-    for (auto &s : mc.body) {
-      if (!LowerStmt(s, lc))
-        return false;
-      if (lc.terminated) {
-        case_term = true;
-        break;
-      }
-    }
-    if (!case_term) {
-      lc.builder.MakeBranch(exit_block);
-    }
-  }
-
-  lc.SetInsertBlock(exit_block);
-  lc.terminated = false;
-  return true;
+  // The compact runtime API cannot currently carry the pattern tree or bind
+  // captures. Calling a pattern matcher with only the subject would silently
+  // turn every case into the same test, so fail closed until that ABI exists.
+  lc.diags.ReportError(match_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python structural pattern matching requires pattern-aware runtime "
+                       "lowering and capture binding");
+  return false;
 }
 
 bool LowerRaise(const std::shared_ptr<RaiseStatement> &raise, LoweringContext &lc) {
@@ -2036,6 +2367,12 @@ bool LowerAssert(const std::shared_ptr<AssertStatement> &assert_stmt, LoweringCo
   auto cond = EvalExpr(assert_stmt->test, lc);
   if (!cond.IsValid())
     return false;
+  if (cond.type.kind != ir::IRTypeKind::kI1) {
+    lc.diags.ReportError(assert_stmt->test->loc,
+                         frontends::ErrorCode::kUnsupportedLowering,
+                         "Python assert truthiness requires dynamic runtime semantics");
+    return false;
+  }
 
   auto *fail_block = lc.fn->CreateBlock("assert.fail");
   auto *pass_block = lc.fn->CreateBlock("assert.pass");
@@ -2144,15 +2481,15 @@ bool IsBuiltinFunction(const std::string &module, const std::string &func) {
 }
 
 // Get runtime function name for built-in
-std::string GetBuiltinRuntimeName(const std::string &module, const std::string &func) {
+std::optional<std::string> GetBuiltinRuntimeName(const std::string &module,
+                                                 const std::string &func) {
   auto modules = GetBuiltinModuleFunctions();
   if (auto it = modules.find(module); it != modules.end()) {
     if (auto it2 = it->second.find(func); it2 != it->second.end()) {
       return it2->second.runtime_name;
     }
   }
-  // Fallback: generate dynamic lookup name
-  return "__py_" + module + "_" + func;
+  return std::nullopt;
 }
 
 bool LowerImport(const std::shared_ptr<ImportStatement> &import_stmt, LoweringContext &lc) {
@@ -2170,11 +2507,16 @@ bool LowerImport(const std::shared_ptr<ImportStatement> &import_stmt, LoweringCo
 
       if (is_builtin && IsBuiltinFunction(modname, export_name)) {
         // Static linking: create global reference to built-in function
-        std::string rt_name = GetBuiltinRuntimeName(modname, export_name);
+        auto rt_name = GetBuiltinRuntimeName(modname, export_name);
+        if (!rt_name) {
+          lc.diags.ReportError(import_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "Python built-in import has no registered runtime signature");
+          return false;
+        }
 
         // Create a global function pointer
         auto global = lc.ir_ctx.CreateGlobal("@__mod_" + modname + "_" + export_name,
-                                             ir::IRType::Pointer(ir::IRType::I8()), true, rt_name);
+                                             ir::IRType::Pointer(ir::IRType::I8()), true, *rt_name);
 
         lc.env[bind_name] = {global->name, global->type, "", false};
       } else {
@@ -2236,20 +2578,16 @@ bool LowerImport(const std::shared_ptr<ImportStatement> &import_stmt, LoweringCo
 }
 
 bool LowerGlobal(const std::shared_ptr<GlobalStatement> &global_stmt, LoweringContext &lc) {
-  // Mark names as global (affects name lookup)
-  for (const auto &name : global_stmt->names) {
-    // Create or reference global variable
-    auto global = lc.ir_ctx.CreateGlobal(name, ir::IRType::I64(true), false, "0");
-    lc.env[name] = {global->name, global->type, "", true};
-  }
-  return true;
+  lc.diags.ReportError(
+      global_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "Python global rebinding requires a shared module-object environment and initialization order");
+  return false;
 }
 
 bool LowerNonlocal(const std::shared_ptr<NonlocalStatement> &nonlocal_stmt, LoweringContext &lc) {
-  // Nonlocal is handled at semantic analysis; here it's a no-op
-  (void)nonlocal_stmt;
-  (void)lc;
-  return true;
+  lc.diags.ReportError(nonlocal_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python nonlocal rebinding requires closure-cell lowering");
+  return false;
 }
 
 /** @} */
@@ -2313,6 +2651,10 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   if (auto nonlocal_stmt = std::dynamic_pointer_cast<NonlocalStatement>(stmt)) {
     return LowerNonlocal(nonlocal_stmt, lc);
   }
+  if (std::dynamic_pointer_cast<TypeAlias>(stmt)) {
+    // Type aliases are compile-time-only declarations.
+    return true;
+  }
   if (auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
     (void)EvalExpr(expr_stmt->expr, lc);
     return true;
@@ -2330,7 +2672,8 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
     return LowerClass(*cls_def, lc);
   }
 
-  lc.diags.Report(stmt->loc, "Unsupported statement type in lowering");
+  lc.diags.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Python statement is parsed but has no faithful IR lowering");
   return false;
 }
 
@@ -2345,22 +2688,84 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
 /** @name - */
 /** @{ */
 bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
-  // Determine return type from type hints
-  ir::IRType ret_ty = ir::IRType::I64(true);
-  if (fn.return_annotation) {
-    if (auto id = std::dynamic_pointer_cast<Identifier>(fn.return_annotation)) {
-      ret_ty = ToIRType(id->name);
+  if (fn.is_async) {
+    lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python async functions/coroutines have no faithful IR lowering");
+    return false;
+  }
+  if (!fn.type_parameters.empty()) {
+    lc.diags.ReportError(
+        fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python generic functions require type-parameter specialization and runtime semantics");
+    return false;
+  }
+  for (const auto &arg : fn.params) {
+    if (arg.default_value) {
+      lc.diags.ReportError(
+          arg.default_value->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python default arguments require definition-time evaluation and call binding");
+      return false;
+    }
+  }
+
+  const bool nested_function = lc.function_depth != 0;
+  const auto saved_fn = lc.fn;
+  const auto saved_insert_block = lc.builder.GetInsertPoint();
+  const auto saved_env = lc.env;
+  const auto saved_loop_stack = lc.loop_stack;
+  const bool saved_terminated = lc.terminated;
+
+  // Determine return type from type hints.  Lifecycle hooks use a void ABI
+  // even when conventional Python source omits `-> None`.
+  ir::IRType ret_ty = DeclaredReturnType(fn);
+  if (ret_ty.kind == ir::IRTypeKind::kInvalid) {
+    std::string annotation = "composite";
+    if (auto id = std::dynamic_pointer_cast<Identifier>(fn.return_annotation))
+      annotation = "'" + id->name + "'";
+    lc.diags.ReportError(fn.return_annotation ? fn.return_annotation->loc : fn.loc,
+                         frontends::ErrorCode::kUnsupportedLowering,
+                         "Python return annotation " + annotation +
+                             " has no modeled IR ABI");
+    return false;
+  }
+  if ((fn.name == "__init__" || fn.name == "__del__") && fn.return_annotation) {
+    auto id = std::dynamic_pointer_cast<Identifier>(fn.return_annotation);
+    auto literal = std::dynamic_pointer_cast<Literal>(fn.return_annotation);
+    if ((!id || id->name != "None") && (!literal || literal->value != "None")) {
+      lc.diags.ReportError(fn.return_annotation->loc,
+                           frontends::ErrorCode::kUnsupportedLowering,
+                           "Python lifecycle hook '" + fn.name +
+                               "' must return None in the static object ABI");
+      return false;
     }
   }
 
   // Build parameter list
   std::vector<std::pair<std::string, ir::IRType>> params;
   params.reserve(fn.params.size());
-  for (const auto &arg : fn.params) {
-    ir::IRType param_ty = ir::IRType::I64(true);
-    if (arg.annotation) {
-      if (auto id = std::dynamic_pointer_cast<Identifier>(arg.annotation)) {
-        param_ty = ToIRType(id->name);
+  for (size_t parameter_index = 0; parameter_index < fn.params.size(); ++parameter_index) {
+    const auto &arg = fn.params[parameter_index];
+    ir::IRType param_ty;
+    if (!lc.current_class.empty() && parameter_index == 0) {
+      auto class_it = lc.classes.find(lc.current_class);
+      if (arg.name != "self" || class_it == lc.classes.end()) {
+        lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python static instance methods require 'self' as their first "
+                             "parameter");
+        return false;
+      }
+      param_ty = ir::IRType::Pointer(class_it->second.struct_type);
+    } else {
+      param_ty = DeclaredParameterType(arg);
+      if (param_ty.kind == ir::IRTypeKind::kInvalid) {
+        std::string annotation = "composite";
+        if (auto id = std::dynamic_pointer_cast<Identifier>(arg.annotation))
+          annotation = "'" + id->name + "'";
+        lc.diags.ReportError(arg.annotation ? arg.annotation->loc : fn.loc,
+                             frontends::ErrorCode::kUnsupportedLowering,
+                             "Python parameter annotation " + annotation +
+                                 " has no modeled IR ABI");
+        return false;
       }
     }
     params.push_back({arg.name, param_ty});
@@ -2369,6 +2774,21 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
   // Handle async functions
   bool was_async = lc.in_async_function;
   lc.in_async_function = fn.is_async;
+  ++lc.function_depth;
+
+  const auto finish = [&](bool result) {
+    lc.in_async_function = was_async;
+    --lc.function_depth;
+    if (nested_function) {
+      lc.fn = saved_fn;
+      lc.env = saved_env;
+      lc.loop_stack = saved_loop_stack;
+      lc.terminated = saved_terminated;
+      lc.builder.SetCurrentFunction(saved_fn);
+      lc.builder.SetInsertPoint(saved_insert_block);
+    }
+    return result;
+  };
 
   // Mangle function name for methods
   std::string func_name = fn.name;
@@ -2377,57 +2797,15 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(func_name, ret_ty, params);
+  lc.builder.SetCurrentFunction(lc.fn);
   auto *entry = lc.fn->CreateBlock("entry");
   lc.fn->entry = entry;
   lc.SetInsertBlock(entry);
 
   lc.env.clear();
+  lc.loop_stack = std::stack<LoopContext>{};
   for (const auto &p : params) {
     lc.env[p.first] = {p.first, p.second, "", false};
-  }
-
-  // Handle default arguments with PHI nodes for proper SSA
-  // For each parameter with default: check if arg was provided, use default if not
-  // Python's sentinel is typically a special "not provided" marker
-  for (size_t i = 0; i < fn.params.size(); ++i) {
-    const auto &arg = fn.params[i];
-    if (arg.default_value) {
-      // Check if this argument was provided (compare with sentinel)
-      auto sentinel_check = lc.builder.MakeCall("__py_arg_provided", {arg.name, std::to_string(i)},
-                                                ir::IRType::I1(), lc.NextTemp("arg_provided"));
-
-      auto *use_arg_block = lc.fn->CreateBlock("default.use_arg." + arg.name);
-      auto *use_default_block = lc.fn->CreateBlock("default.use_default." + arg.name);
-      auto *merge_block = lc.fn->CreateBlock("default.merge." + arg.name);
-
-      lc.builder.MakeCondBranch(sentinel_check->name, use_arg_block, use_default_block);
-
-      // Branch 1: Use the provided argument value
-      lc.SetInsertBlock(use_arg_block);
-      std::string provided_val = arg.name;
-      lc.builder.MakeBranch(merge_block);
-      auto *arg_end_block = lc.builder.GetInsertPoint().get();
-
-      // Branch 2: Evaluate and use the default value
-      lc.SetInsertBlock(use_default_block);
-      auto default_result = EvalExpr(arg.default_value, lc);
-      std::string default_val =
-          default_result.IsValid() ? default_result.value : MakeLiteral(0, lc).value;
-      lc.builder.MakeBranch(merge_block);
-      auto *default_end_block = lc.builder.GetInsertPoint().get();
-
-      // Merge with PHI node
-      lc.SetInsertBlock(merge_block);
-
-      ir::IRType param_type = params[i].second;
-      std::vector<std::pair<ir::BasicBlock *, std::string>> phi_incomings = {
-          {arg_end_block, provided_val}, {default_end_block, default_val}};
-
-      auto phi = lc.builder.MakePhi(param_type, phi_incomings, lc.NextTemp("param"));
-
-      // Update environment with PHI result
-      lc.env[arg.name] = {phi->name, param_type, "", false};
-    }
   }
 
   lc.terminated = false;
@@ -2435,8 +2813,7 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
   // Lower function body
   for (const auto &stmt : fn.body) {
     if (!LowerStmt(stmt, lc)) {
-      lc.in_async_function = was_async;
-      return false;
+      return finish(false);
     }
     if (lc.terminated)
       break;
@@ -2447,13 +2824,14 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
     if (ret_ty.kind == ir::IRTypeKind::kVoid) {
       lc.builder.MakeReturn("");
     } else {
-      auto zero = MakeLiteral(0, lc);
-      lc.builder.MakeReturn(zero.value);
+      lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Python non-None function may fall through without a return value");
+      lc.builder.MakeUnreachable();
+      return finish(false);
     }
   }
 
-  lc.in_async_function = was_async;
-  return true;
+  return finish(true);
 }
 
 /** @} */
@@ -2465,45 +2843,188 @@ bool LowerFunction(const FunctionDef &fn, LoweringContext &lc) {
 
 /** @name - */
 /** @{ */
-bool LowerClass(const ClassDef &cls, LoweringContext &lc) {
-  // Register class info
+bool RegisterClassInfo(const ClassDef &cls, LoweringContext &lc) {
+  if (!cls.bases.empty()) {
+    lc.diags.ReportError(
+        cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python inheritance is outside the deterministic static object subset; class '" +
+            cls.name + "' must not declare base classes");
+    return false;
+  }
+  if (!cls.keywords.empty()) {
+    lc.diags.ReportError(
+        cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python metaclass/class keyword arguments require the dynamic object runtime");
+    return false;
+  }
+  if (!cls.type_parameters.empty()) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python generic classes require runtime type-parameter semantics");
+    return false;
+  }
+  if (!cls.decorators.empty()) {
+    lc.diags.ReportError(
+        cls.decorators.front()->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python class decorators (including dataclass transforms) are not descriptors in the "
+        "static object subset");
+    return false;
+  }
+
   ClassInfo info;
   info.name = cls.name;
+  const FunctionDef *initializer = nullptr;
+
+  for (const auto &stmt : cls.body) {
+    if (auto method = std::dynamic_pointer_cast<FunctionDef>(stmt)) {
+      if (method->is_async) {
+        lc.diags.ReportError(method->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python async methods require coroutine object semantics");
+        return false;
+      }
+      if (!method->decorators.empty()) {
+        lc.diags.ReportError(
+            method->decorators.front()->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "Python method decorators/properties require descriptor binding and are not "
+            "supported by static instance dispatch");
+        return false;
+      }
+      if (method->params.empty() || method->params.front().name != "self") {
+        lc.diags.ReportError(method->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python static instance method '" + cls.name + "." +
+                                 method->name + "' must declare self first");
+        return false;
+      }
+      for (const auto &parameter : method->params) {
+        if (parameter.is_vararg || parameter.is_kwarg || parameter.is_kwonly ||
+            parameter.default_value) {
+          lc.diags.ReportError(
+              method->loc, frontends::ErrorCode::kUnsupportedLowering,
+              "Python static methods do not support defaults, keyword-only, *args, or **kwargs "
+              "binding");
+          return false;
+        }
+      }
+
+      ClassInfo::MethodInfo method_info;
+      method_info.lowered_name = cls.name + "." + method->name;
+      method_info.return_type = DeclaredReturnType(*method);
+      if (method_info.return_type.kind == ir::IRTypeKind::kInvalid) {
+        lc.diags.ReportError(method->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python method return annotation has no modeled static ABI");
+        return false;
+      }
+      for (size_t i = 1; i < method->params.size(); ++i) {
+        auto parameter_type = DeclaredParameterType(method->params[i]);
+        if (parameter_type.kind == ir::IRTypeKind::kInvalid) {
+          lc.diags.ReportError(method->params[i].annotation
+                                   ? method->params[i].annotation->loc
+                                   : method->loc,
+                               frontends::ErrorCode::kUnsupportedLowering,
+                               "Python method parameter annotation has no modeled static ABI");
+          return false;
+        }
+        method_info.parameter_types.push_back(parameter_type);
+      }
+      if (!info.method_info.emplace(method->name, std::move(method_info)).second) {
+        lc.diags.ReportError(method->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Python method replacement/overloading is dynamic and unsupported: " +
+                                 cls.name + "." + method->name);
+        return false;
+      }
+      info.methods.push_back(method->name);
+      if (method->name == "__init__")
+        initializer = method.get();
+      continue;
+    }
+    if (std::dynamic_pointer_cast<PassStatement>(stmt))
+      continue;
+
+    lc.diags.ReportError(
+        stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python class variables, nested declarations, and descriptors require the dynamic "
+        "class object runtime; only instance methods are supported");
+    return false;
+  }
+
+  if (!initializer) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python static class '" + cls.name +
+                             "' requires an explicit __init__ constructor");
+    return false;
+  }
+
+  // A field enters the layout only through an unconditional top-level
+  // self.<field> assignment in __init__.  Source order defines the stable
+  // aggregate order; every field has the current integer ABI (i64).
+  for (const auto &stmt : initializer->body) {
+    auto assignment = std::dynamic_pointer_cast<Assignment>(stmt);
+    if (!assignment)
+      continue;
+    for (const auto &target : assignment->targets) {
+      std::string field;
+      if (!IsSelfAttribute(target, &field))
+        continue;
+      if (assignment->op != "=") {
+        lc.diags.ReportError(
+            assignment->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "Python constructor fields must be initialized with plain '=' before mutation");
+        return false;
+      }
+      if (assignment->annotation) {
+        auto annotation = std::dynamic_pointer_cast<Identifier>(assignment->annotation);
+        if (!annotation || annotation->name != "int") {
+          lc.diags.ReportError(
+              assignment->annotation->loc, frontends::ErrorCode::kUnsupportedLowering,
+              "Python static class fields currently require the int annotation/ABI");
+          return false;
+        }
+      }
+      if (info.field_indices.count(field) == 0) {
+        const size_t index = info.fields.size();
+        info.field_indices.emplace(field, index);
+        info.fields.push_back(field);
+      }
+    }
+  }
+  if (info.fields.empty()) {
+    lc.diags.ReportError(
+        initializer->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Python static __init__ must declare at least one integer field with self.<field> = value");
+    return false;
+  }
+
+  std::vector<ir::IRType> fields(info.fields.size(), ir::IRType::I64(true));
+  info.struct_type = ir::IRType::Struct(cls.name, std::move(fields));
+  for (const auto &[method_name, method] : info.method_info)
+    lc.function_returns[cls.name + "." + method_name] = method.return_type;
+  lc.classes[cls.name] = std::move(info);
+  return true;
+}
+
+bool LowerClass(const ClassDef &cls, LoweringContext &lc) {
+  auto class_it = lc.classes.find(cls.name);
+  if (class_it == lc.classes.end() ||
+      class_it->second.struct_type.kind != ir::IRTypeKind::kStruct) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python class has no registered deterministic aggregate layout: " +
+                             cls.name);
+    return false;
+  }
 
   // Save current class context
   std::string saved_class = lc.current_class;
   lc.current_class = cls.name;
 
-  // Process base classes
-  for (const auto &base : cls.bases) {
-    if (auto id = std::dynamic_pointer_cast<Identifier>(base)) {
-      // Inherit from base class
-      lc.builder.MakeCall("__py_class_inherit", {}, ir::IRType::Void(), "");
-    }
-  }
-
-  // Create class initialization function
-  std::string init_fn_name = cls.name + ".__init__";
-
-  // Lower methods and collect field information
   for (const auto &stmt : cls.body) {
     if (auto method = std::dynamic_pointer_cast<FunctionDef>(stmt)) {
-      info.methods.push_back(method->name);
-      LowerFunction(*method, lc);
-    } else if (auto assign = std::dynamic_pointer_cast<Assignment>(stmt)) {
-      // Class-level assignment (class variable or annotation)
-      for (const auto &target : assign->targets) {
-        if (auto id = std::dynamic_pointer_cast<Identifier>(target)) {
-          info.fields.push_back(id->name);
-        }
+      if (!LowerFunction(*method, lc)) {
+        lc.current_class = saved_class;
+        return false;
       }
     }
   }
 
-  // Store class info
-  lc.classes[cls.name] = info;
   lc.current_class = saved_class;
-
   return true;
 }
 
@@ -2518,26 +3039,11 @@ bool LowerClass(const ClassDef &cls, LoweringContext &lc) {
 /** @{ */
 bool ApplyDecorators(const std::vector<std::shared_ptr<Expression>> &decorators,
                      const std::string &func_name, LoweringContext &lc) {
-  for (auto it = decorators.rbegin(); it != decorators.rend(); ++it) {
-    const auto &dec = *it;
-    if (auto id = std::dynamic_pointer_cast<Identifier>(dec)) {
-      // Apply decorator: func = decorator(func)
-      lc.builder.MakeCall("__py_apply_decorator_" + id->name, {func_name}, ir::IRType::I64(true),
-                          func_name);
-    } else if (auto call = std::dynamic_pointer_cast<CallExpression>(dec)) {
-      // Decorator with arguments: @decorator(args)(func)
-      if (auto callee_id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
-        std::vector<std::string> args;
-        for (const auto &arg : call->args) {
-          auto ev = EvalExpr(arg.value, lc);
-          if (ev.IsValid())
-            args.push_back(ev.value);
-        }
-        args.push_back(func_name);
-        lc.builder.MakeCall("__py_apply_decorator_" + callee_id->name, args, ir::IRType::I64(true),
-                            func_name);
-      }
-    }
+  (void)func_name;
+  if (!decorators.empty()) {
+    lc.diags.ReportError(decorators.front()->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Python decorator evaluation and rebinding are not implemented faithfully");
+    return false;
   }
   return true;
 }
@@ -2555,47 +3061,41 @@ bool ApplyDecorators(const std::vector<std::shared_ptr<Expression>> &decorators,
 /** @{ */
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags) {
   LoweringContext lc(ctx, diags);
+  const size_t errors_before_declaration_scan = diags.ErrorCount();
 
-  // First pass: collect class and function declarations
+  // First pass: collect class and function declarations/signatures so calls
+  // never have to invent a placeholder return ABI.
   for (const auto &stmt : module.body) {
     if (auto cls = std::dynamic_pointer_cast<ClassDef>(stmt)) {
-      ClassInfo info;
-      info.name = cls->name;
-      lc.classes[cls->name] = info;
+      if (!RegisterClassInfo(*cls, lc))
+        continue;
+    } else if (auto fn = std::dynamic_pointer_cast<FunctionDef>(stmt)) {
+      ir::IRType return_type = DeclaredReturnType(*fn);
+      if (return_type.kind != ir::IRTypeKind::kInvalid)
+        lc.function_returns[fn->name] = return_type;
     }
   }
+  if (diags.ErrorCount() != errors_before_declaration_scan)
+    return;
 
   // Second pass: lower all top-level definitions
   for (const auto &stmt : module.body) {
     if (auto fn = std::dynamic_pointer_cast<FunctionDef>(stmt)) {
-      if (!LowerFunction(*fn, lc)) {
-        diags.Report(fn->loc, "Failed to lower function: " + fn->name);
-      }
+      (void)LowerFunction(*fn, lc);
       // Apply decorators
       if (!fn->decorators.empty()) {
         ApplyDecorators(fn->decorators, fn->name, lc);
       }
     } else if (auto cls = std::dynamic_pointer_cast<ClassDef>(stmt)) {
-      if (!LowerClass(*cls, lc)) {
-        diags.Report(cls->loc, "Failed to lower class: " + cls->name);
-      }
+      (void)LowerClass(*cls, lc);
       // Apply class decorators
       if (!cls->decorators.empty()) {
         ApplyDecorators(cls->decorators, cls->name, lc);
       }
     } else if (auto assign = std::dynamic_pointer_cast<Assignment>(stmt)) {
-      // Module-level assignment (global variable)
-      if (assign->value) {
-        // Need a module init function context
-        if (!lc.fn) {
-          lc.fn = ctx.CreateFunction("__module_init__", ir::IRType::Void(), {});
-          auto *entry = lc.fn->CreateBlock("entry");
-          lc.fn->entry = entry;
-          lc.SetInsertBlock(entry);
-          lc.terminated = false;
-        }
-        LowerAssign(assign, lc);
-      }
+      diags.ReportError(
+          assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Python module-level assignment requires persistent global storage and init ordering");
     } else if (auto import_stmt = std::dynamic_pointer_cast<ImportStatement>(stmt)) {
       // Module-level import
       if (!lc.fn) {
@@ -2606,8 +3106,10 @@ void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics 
         lc.terminated = false;
       }
       LowerImport(import_stmt, lc);
+    } else if (!std::dynamic_pointer_cast<TypeAlias>(stmt)) {
+      diags.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "Python top-level statement has no faithful module-initializer lowering");
     }
-    // Other top-level statements are skipped
   }
 
   // Finalize module init function if created

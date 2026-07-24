@@ -76,6 +76,13 @@ CompileResult CompilePython(const std::string &code, Diagnostics &diags) {
     return result;
 }
 
+bool HasUnsupportedLowering(const Diagnostics &diags) {
+    for (const auto &diagnostic : diags.All())
+        if (diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering)
+            return true;
+    return false;
+}
+
 } // namespace
 
 // ============================================================================
@@ -187,9 +194,68 @@ class Point:
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
     REQUIRE(result.lower_ok);
-    
-    // Should have __init__ and magnitude methods
-    REQUIRE(result.ir->Functions().size() >= 2);
+    REQUIRE(result.ir->Functions().size() == 2);
+    REQUIRE(result.ir_text.find("Point.__init__") != std::string::npos);
+    REQUIRE(result.ir_text.find("Point.magnitude") != std::string::npos);
+    REQUIRE(result.ir_text.find(" = gep ") != std::string::npos);
+}
+
+TEST_CASE("Python E2E - packaged static object reaches native x86 lowering",
+          "[python][e2e][class][oop][x86]") {
+    const std::string package_source = R"(
+class FraudAssessment:
+    def __init__(self, velocity: int, amount: int, failed: int):
+        self.velocity = velocity
+        self.amount = amount
+        self.failed = failed
+        self.score = velocity + amount
+
+    def apply_failure_penalty(self, multiplier: int) -> int:
+        self.score += self.failed * multiplier
+        return self.score
+
+    def band(self) -> int:
+        if self.score >= 80:
+            return 3
+        else:
+            if self.score >= 45:
+                return 2
+            else:
+                return 1
+
+    def close(self) -> None:
+        self.velocity = 0
+        self.amount = 0
+        self.failed = 0
+        self.score = 0
+)";
+    const std::string consumer_source = R"(
+def fraud_session_band(velocity: int, amount: int, failed: int) -> int:
+    session = FraudAssessment(velocity, amount, failed)
+    session.apply_failure_penalty(12)
+    result = session.band()
+    session.close()
+    return result
+)";
+
+    Diagnostics diags;
+    auto result = CompilePython(package_source + consumer_source, diags);
+    std::string diagnostic_text;
+    for (const auto &diagnostic : diags.All())
+        diagnostic_text += diagnostic.message + "\n";
+    INFO("Diagnostics:\n" << diagnostic_text);
+    REQUIRE(result.parse_ok);
+    REQUIRE(result.sema_ok);
+    REQUIRE(result.lower_ok);
+    REQUIRE(result.ir_text.find("FraudAssessment.__init__") != std::string::npos);
+    REQUIRE(result.ir_text.find("FraudAssessment.close") != std::string::npos);
+
+    polyglot::backends::x86_64::X86Target target;
+    target.SetModule(result.ir.get());
+    const std::string asm_code = target.EmitAssembly();
+    INFO("Generated Assembly:\n" << asm_code);
+    REQUIRE(!asm_code.empty());
+    REQUIRE(asm_code.find("fraud_session_band") != std::string::npos);
 }
 
 TEST_CASE("Python E2E - Exception handling compilation", "[python][e2e]") {
@@ -207,7 +273,8 @@ def safe_divide(a: int, b: int) -> int:
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Context manager compilation", "[python][e2e]") {
@@ -223,7 +290,8 @@ def process_file():
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Async function compilation", "[python][e2e]") {
@@ -241,9 +309,8 @@ async def main():
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
-    
-    REQUIRE(result.ir->Functions().size() >= 2);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Generator compilation", "[python][e2e]") {
@@ -260,7 +327,8 @@ def counter(n: int):
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Lambda compilation", "[python][e2e]") {
@@ -278,7 +346,8 @@ def main():
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Decorated function compilation", "[python][e2e]") {
@@ -296,7 +365,8 @@ def main():
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Complex expressions", "[python][e2e]") {
@@ -313,7 +383,8 @@ def compute(a: int, b: int, c: int) -> int:
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Collection operations", "[python][e2e]") {
@@ -395,7 +466,12 @@ def classify(x):
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    bool unsupported = false;
+    for (const auto &diagnostic : diags.All())
+        unsupported = unsupported ||
+                      diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    REQUIRE(unsupported);
 }
 
 // ============================================================================
@@ -516,7 +592,8 @@ def binary_search(arr, target):
     
     REQUIRE(result.parse_ok);
     REQUIRE(result.sema_ok);
-    REQUIRE(result.lower_ok);
+    REQUIRE_FALSE(result.lower_ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python E2E - Bubble sort", "[python][e2e][regression]") {

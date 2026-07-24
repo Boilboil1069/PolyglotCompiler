@@ -144,3 +144,63 @@ async def f(x, *args, **kwargs) -> int:
   REQUIRE(saw_try);
   REQUIRE(saw_match);
 }
+
+TEST_CASE("Python match and case remain usable as identifiers", "[python][parser][soft-keyword]") {
+  Diagnostics diag;
+  PythonLexer lexer("match = 1\ncase = match + 1\n", "<mem>", &diag);
+  PythonParser parser(lexer, diag);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  REQUIRE_FALSE(diag.HasErrors());
+  REQUIRE(mod->body.size() == 2);
+  auto first = std::dynamic_pointer_cast<Assignment>(mod->body[0]);
+  auto second = std::dynamic_pointer_cast<Assignment>(mod->body[1]);
+  REQUIRE(first);
+  REQUIRE(second);
+  REQUIRE(std::dynamic_pointer_cast<Identifier>(first->targets[0])->name == "match");
+  REQUIRE(std::dynamic_pointer_cast<Identifier>(second->targets[0])->name == "case");
+}
+
+TEST_CASE("Python parser represents modern declaration and handler metadata",
+          "[python][parser][pep695][posonly][exception-group]") {
+  const char *src = R"(
+type Pair[T] = tuple[T, T]
+class Box[T]:
+    pass
+def first[T](value: T, /) -> T:
+    try:
+        return value
+    except* ValueError:
+        pass
+)";
+  Diagnostics diag;
+  PythonLexer lexer(src, "<mem>", &diag);
+  PythonParser parser(lexer, diag);
+  parser.SetPythonVersion(polyglot::frontends::PythonVersion::kPy3_12);
+  parser.ParseModule();
+  auto mod = parser.TakeModule();
+  for (const auto &diagnostic : diag.All())
+    UNSCOPED_INFO(diagnostic.message);
+  REQUIRE_FALSE(diag.HasErrors());
+  REQUIRE(mod->body.size() == 3);
+
+  auto alias = std::dynamic_pointer_cast<TypeAlias>(mod->body[0]);
+  REQUIRE(alias);
+  REQUIRE(alias->name == "Pair");
+  REQUIRE(alias->type_parameters.size() == 1);
+  REQUIRE(alias->type_parameters[0].name == "T");
+  auto cls = std::dynamic_pointer_cast<ClassDef>(mod->body[1]);
+  REQUIRE(cls);
+  REQUIRE(cls->type_parameters.size() == 1);
+  REQUIRE(cls->type_parameters[0].name == "T");
+  auto fn = std::dynamic_pointer_cast<FunctionDef>(mod->body[2]);
+  REQUIRE(fn);
+  REQUIRE(fn->type_parameters.size() == 1);
+  REQUIRE(fn->type_parameters[0].name == "T");
+  REQUIRE(fn->params.size() == 1);
+  REQUIRE(fn->params[0].is_posonly);
+  auto try_stmt = std::dynamic_pointer_cast<TryStatement>(fn->body[0]);
+  REQUIRE(try_stmt);
+  REQUIRE(try_stmt->handlers.size() == 1);
+  REQUIRE(try_stmt->handlers[0].is_exception_group);
+}

@@ -269,7 +269,8 @@ TEST_CASE("Behavior: arm64 assembly contains function label and ret", "[behavior
 // Poly cross-language descriptor correctness
 // ============================================================================
 
-TEST_CASE("Behavior: Poly LINK produces correct descriptor count", "[behavior][poly][descriptor]") {
+TEST_CASE("Behavior: Poly opaque LINK call produces a descriptor without guessing ABI",
+          "[behavior][poly][descriptor]") {
   frontends::Diagnostics diags;
   std::string code = R"(
 LINK(cpp, python, math::add, pymath::add) {
@@ -277,14 +278,15 @@ LINK(cpp, python, math::add, pymath::add) {
     MAP_TYPE(cpp::int, python::int);
 }
 
-FUNC use_add(a: i32, b: i32) -> i32 {
-    LET result = CALL(cpp, math::add, a, b);
-    RETURN result;
+FUNC use_add(value: i32) -> VOID {
+    CALL(cpp, math::add, value);
+    RETURN;
 }
     )";
   auto result = CompilePloy(code, diags);
 
   REQUIRE(result.success);
+  REQUIRE(result.warning_count >= 1);
   // Must produce at least one cross-language call descriptor
   REQUIRE(result.descriptors.size() >= 1);
   // The descriptor must reference cpp as source language (the foreign language being called)

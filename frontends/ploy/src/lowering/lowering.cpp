@@ -307,10 +307,30 @@ void PloyLowering::LowerStatement(const std::shared_ptr<Statement> &stmt) {
     LowerTryStatement(try_stmt);
   } else if (auto throw_stmt = std::dynamic_pointer_cast<ThrowStatement>(stmt)) {
     LowerThrowStatement(throw_stmt);
+  } else if (std::dynamic_pointer_cast<BreakStatement>(stmt)) {
+    if (break_targets_.empty()) {
+      diagnostics_.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "cannot lower BREAK without an active loop target");
+      return;
+    }
+    builder_.MakeBranch(break_targets_.back());
+    terminated_ = true;
+  } else if (std::dynamic_pointer_cast<ContinueStatement>(stmt)) {
+    if (continue_targets_.empty()) {
+      diagnostics_.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "cannot lower CONTINUE without an active loop target");
+      return;
+    }
+    builder_.MakeBranch(continue_targets_.back());
+    terminated_ = true;
+  } else if (std::dynamic_pointer_cast<MapTypeDecl>(stmt) ||
+             std::dynamic_pointer_cast<VenvConfigDecl>(stmt) ||
+             std::dynamic_pointer_cast<LangPragma>(stmt)) {
+    // Sema-only/module metadata: intentionally no runtime IR.
+  } else {
+    diagnostics_.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Poly statement has no semantics-preserving IR lowering");
   }
-  // BREAK and CONTINUE are handled at a higher level (loop lowering)
-  // MAP_TYPE is metadata only, no IR generation needed
-  // CONFIG VENV/CONDA/UV/PIPENV/POETRY is metadata only, processed during semantic analysis
 }
 
 // ============================================================================
@@ -494,9 +514,10 @@ void PloyLowering::LowerFuncDecl(const std::shared_ptr<FuncDecl> &func) {
 
 void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
   // Resolve the type from the AST annotation if present, otherwise consult
-  // the sema symbol table to get the inferred type.  Fall back to I64 only
-  // as a last resort.
-  ir::IRType var_type = ir::IRType::I64(true);
+  // the sema symbol table to get the inferred type.  An unresolved type is
+  // not an integer: retain Invalid until an initializer supplies a concrete
+  // type, otherwise fail closed below.
+  ir::IRType var_type = ir::IRType::Invalid();
   if (var->type) {
     var_type = PloyTypeToIR(var->type);
   } else {
@@ -510,20 +531,43 @@ void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
 
   if (var->init) {
     EvalResult init_result = LowerExpression(var->init);
-    if (init_result.type.kind != ir::IRTypeKind::kInvalid) {
+    if (init_result.type.kind == ir::IRTypeKind::kInvalid ||
+        (init_result.type.is_placeholder && var->is_mutable)) {
+      diagnostics_.ReportError(
+          var->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "cannot lower variable '" + var->name +
+              "' with an invalid initializer or mutable unresolved ABI storage");
+      return;
+    }
+    if (var_type.kind == ir::IRTypeKind::kInvalid) {
       var_type = init_result.type;
+    }
+    std::string init_value = init_result.value;
+    if (!init_result.type.SameShape(var_type)) {
+      init_value = var->name + ".init.converted." + std::to_string(generated_name_index_++);
+      if (!GenerateMarshalCode(init_result.value, init_result.type, var_type, init_value, var->loc,
+                               "initializer for variable '" + var->name + "'")) {
+        return;
+      }
     }
     if (var->is_mutable) {
       // Mutable VAR: use alloca/store/load pattern so that
       // re-assignments inside loops produce correct SSA.
       auto alloca_inst = builder_.MakeAlloca(var_type, var->name);
-      builder_.MakeStore(alloca_inst->name, init_result.value);
+      builder_.MakeStore(alloca_inst->name, init_value);
       env_[var->name] = EnvEntry{alloca_inst->name, var_type, true};
     } else {
       // Immutable LET: bind the SSA value directly.
-      env_[var->name] = EnvEntry{init_result.value, var_type, false};
+      env_[var->name] = EnvEntry{init_value, var_type, false};
     }
   } else {
+    if (var_type.kind == ir::IRTypeKind::kInvalid || var_type.is_placeholder) {
+      diagnostics_.ReportError(
+          var->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "cannot lower uninitialized variable '" + var->name +
+              "' without a concrete type");
+      return;
+    }
     // Allocate space for the variable (no initializer)
     auto alloca_inst = builder_.MakeAlloca(var_type, var->name);
     env_[var->name] = EnvEntry{alloca_inst->name, var_type, var->is_mutable};
@@ -539,8 +583,18 @@ void PloyLowering::LowerVarDecl(const std::shared_ptr<VarDecl> &var) {
 // For integers: emit  icmp ne %val, 0
 // For pointers: emit  ptrtoint %val to i64  then  icmp ne %tmp, 0
 // For floats:   emit  fcmp one %val, 0.0       (ordered not-equal)
-std::string PloyLowering::EnsureI1(const EvalResult &val) {
+std::string PloyLowering::EnsureI1(const EvalResult &val, const core::SourceLoc &loc) {
   const ir::IRType &t = val.type;
+  // A placeholder is an explicitly unknown ABI value.  Its bits have no
+  // language-level truthiness, even when the permissive compatibility mode
+  // allowed the opaque call itself to be emitted.
+  if (t.kind == ir::IRTypeKind::kInvalid || t.is_placeholder || val.value.empty()) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kUnsupportedLowering,
+        "cannot lower a condition whose value type or ABI is unresolved");
+    return {};
+  }
+
   // Already I1 — nothing to do.
   if (t.kind == ir::IRTypeKind::kI1)
     return val.value;
@@ -568,21 +622,17 @@ std::string PloyLowering::EnsureI1(const EvalResult &val) {
     return cmp->name;
   }
 
-  // Invalid / placeholder — treat as always-true (non-zero) for safety.
-  // This avoids verifier failures for opaque cross-lang return values.
-  if (t.kind == ir::IRTypeKind::kInvalid || t.is_placeholder) {
-    auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe, val.value, "0", "tobool");
-    cmp->type = ir::IRType::I1();
-    return cmp->name;
-  }
-
-  // Fallthrough: return as-is and let the verifier decide.
-  return val.value;
+  diagnostics_.ReportError(loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "condition type '" + t.name +
+                               "' has no defined Poly truthiness lowering");
+  return {};
 }
 
 void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt) {
   EvalResult cond = LowerExpression(if_stmt->condition);
-  std::string cond_i1 = EnsureI1(cond);
+  std::string cond_i1 = EnsureI1(cond, if_stmt->condition ? if_stmt->condition->loc : if_stmt->loc);
+  if (cond_i1.empty())
+    return;
 
   auto then_bb = builder_.CreateBlock("if.then");
   auto else_bb = builder_.CreateBlock("if.else");
@@ -621,35 +671,10 @@ void PloyLowering::LowerIfStatement(const std::shared_ptr<IfStatement> &if_stmt)
 }
 
 void PloyLowering::LowerIfLetStatement(const std::shared_ptr<IfLetStatement> &if_let) {
-  // MVP lowering: dispatch on the scrutinee's truthiness; the bound
-  // name has no IR materialisation yet (full OPTION<T> tag handling
-  // is tracked separately).  THEN-body for `Some` / `None` follows
-  // the same condition because the runtime tag bit is not yet
-  // exposed to the lowering layer.
-  EvalResult cond = LowerExpression(if_let->scrutinee);
-  std::string cond_i1 = EnsureI1(cond);
-
-  auto then_bb = builder_.CreateBlock("iflet.then");
-  auto else_bb = builder_.CreateBlock("iflet.else");
-  auto merge_bb = builder_.CreateBlock("iflet.merge");
-
-  builder_.MakeCondBranch(cond_i1, then_bb.get(), else_bb.get());
-
-  builder_.SetInsertPoint(then_bb);
-  terminated_ = false;
-  LowerBlockStatements(if_let->then_body);
-  bool then_terminated = terminated_;
-  if (!terminated_) builder_.MakeBranch(merge_bb.get());
-
-  builder_.SetInsertPoint(else_bb);
-  terminated_ = false;
-  if (!if_let->else_body.empty()) LowerBlockStatements(if_let->else_body);
-  bool else_terminated = terminated_;
-  if (!terminated_) builder_.MakeBranch(merge_bb.get());
-
-  builder_.SetInsertPoint(merge_bb);
-  terminated_ = then_terminated && else_terminated;
-  if (terminated_) builder_.MakeUnreachable();
+  diagnostics_.ReportError(
+      if_let->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "IF LET requires OPTION tag and payload extraction, which the Poly IR ABI does not yet "
+      "represent");
 }
 
 void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &while_stmt) {
@@ -662,13 +687,24 @@ void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &wh
   // Condition block
   builder_.SetInsertPoint(cond_bb);
   EvalResult cond = LowerExpression(while_stmt->condition);
-  std::string cond_i1 = EnsureI1(cond);
+  std::string cond_i1 =
+      EnsureI1(cond, while_stmt->condition ? while_stmt->condition->loc : while_stmt->loc);
+  if (cond_i1.empty()) {
+    builder_.MakeBranch(exit_bb.get());
+    builder_.SetInsertPoint(exit_bb);
+    terminated_ = false;
+    return;
+  }
   builder_.MakeCondBranch(cond_i1, body_bb.get(), exit_bb.get());
 
   // Body block
   builder_.SetInsertPoint(body_bb);
   terminated_ = false;
+  break_targets_.push_back(exit_bb.get());
+  continue_targets_.push_back(cond_bb.get());
   LowerBlockStatements(while_stmt->body);
+  continue_targets_.pop_back();
+  break_targets_.pop_back();
   if (!terminated_) {
     builder_.MakeBranch(cond_bb.get());
   }
@@ -679,51 +715,122 @@ void PloyLowering::LowerWhileStatement(const std::shared_ptr<WhileStatement> &wh
 }
 
 void PloyLowering::LowerForStatement(const std::shared_ptr<ForStatement> &for_stmt) {
-  // Lower FOR as a WHILE over the iterable
-  // For range iterables (0..10), generate an index-based loop
-  EvalResult iter = LowerExpression(for_stmt->iterable);
+  // The current IR has no iterable protocol (next/element/end) contract.
+  // A RangeExpression, however, has exact scalar semantics and can be lowered
+  // without pretending an arbitrary collection value is a numeric bound.
+  auto range = std::dynamic_pointer_cast<RangeExpression>(for_stmt->iterable);
+  if (!range || !range->start || !range->end) {
+    diagnostics_.ReportError(
+        for_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "FOR IN over a general iterable requires an iterator ABI; only explicit integer ranges "
+        "can currently be lowered faithfully");
+    return;
+  }
+
+  EvalResult start = LowerExpression(range->start);
+  EvalResult end = LowerExpression(range->end);
+  if (start.type.kind == ir::IRTypeKind::kInvalid || end.type.kind == ir::IRTypeKind::kInvalid ||
+      start.type.is_placeholder || end.type.is_placeholder || !start.type.IsInteger() ||
+      !end.type.IsInteger() || start.type.kind != end.type.kind) {
+    diagnostics_.ReportError(range->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "range bounds must lower to the same concrete integer IR type");
+    return;
+  }
 
   auto cond_bb = builder_.CreateBlock("for.cond");
   auto body_bb = builder_.CreateBlock("for.body");
+  auto step_bb = builder_.CreateBlock("for.step");
   auto exit_bb = builder_.CreateBlock("for.exit");
 
   // Initialize iterator variable
-  auto idx_alloca = builder_.MakeAlloca(ir::IRType::I64(true), for_stmt->iterator_name + ".idx");
-  builder_.MakeStore(idx_alloca->name, "0");
+  auto idx_alloca = builder_.MakeAlloca(start.type, for_stmt->iterator_name + ".idx");
+  builder_.MakeStore(idx_alloca->name, start.value);
   builder_.MakeBranch(cond_bb.get());
 
   // Condition: check if index is within range
   builder_.SetInsertPoint(cond_bb);
-  auto idx_load = builder_.MakeLoad(idx_alloca->name, ir::IRType::I64(true), "idx.val");
-  // Comparison against the iterable length (simplified: use the iter value as upper bound)
-  auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpSlt, idx_load->name, iter.value,
+  auto idx_load = builder_.MakeLoad(idx_alloca->name, start.type, "idx.val");
+  auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpSlt, idx_load->name, end.value,
                                  "for.cond.cmp");
   cmp->type = ir::IRType::I1();
   builder_.MakeCondBranch(cmp->name, body_bb.get(), exit_bb.get());
 
   // Body block
   builder_.SetInsertPoint(body_bb);
-  env_[for_stmt->iterator_name] = EnvEntry{idx_load->name, ir::IRType::I64(true)};
+  auto shadowed_iterator = env_.find(for_stmt->iterator_name);
+  const bool had_shadowed_iterator = shadowed_iterator != env_.end();
+  EnvEntry saved_iterator;
+  if (had_shadowed_iterator)
+    saved_iterator = shadowed_iterator->second;
+  env_[for_stmt->iterator_name] = EnvEntry{idx_load->name, start.type};
   terminated_ = false;
+  break_targets_.push_back(exit_bb.get());
+  continue_targets_.push_back(step_bb.get());
   LowerBlockStatements(for_stmt->body);
+  continue_targets_.pop_back();
+  break_targets_.pop_back();
 
-  // Increment
+  // A normal fallthrough and CONTINUE both execute the range step.
   if (!terminated_) {
-    auto idx_reload = builder_.MakeLoad(idx_alloca->name, ir::IRType::I64(true), "idx.next.load");
-    auto inc =
-        builder_.MakeBinary(ir::BinaryInstruction::Op::kAdd, idx_reload->name, "1", "idx.inc");
-    inc->type = ir::IRType::I64(true);
-    builder_.MakeStore(idx_alloca->name, inc->name);
-    builder_.MakeBranch(cond_bb.get());
+    builder_.MakeBranch(step_bb.get());
   }
 
+  builder_.SetInsertPoint(step_bb);
+  auto idx_reload = builder_.MakeLoad(idx_alloca->name, start.type, "idx.next.load");
+  auto inc = builder_.MakeBinary(ir::BinaryInstruction::Op::kAdd, idx_reload->name, "1", "idx.inc");
+  inc->type = start.type;
+  builder_.MakeStore(idx_alloca->name, inc->name);
+  builder_.MakeBranch(cond_bb.get());
+
   builder_.SetInsertPoint(exit_bb);
-  env_.erase(for_stmt->iterator_name);
+  if (had_shadowed_iterator)
+    env_[for_stmt->iterator_name] = saved_iterator;
+  else
+    env_.erase(for_stmt->iterator_name);
   terminated_ = false;
 }
 
 void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &match_stmt) {
+  // Admit only patterns whose predicate and bindings can be represented
+  // exactly. OPTION/constructor, tuple, struct, and runtime type patterns
+  // need layout or type-tag operations that this IR layer does not expose.
+  // Reject them before emitting control flow; fabricating an always-true
+  // predicate or binding the whole scrutinee would silently change semantics.
+  std::function<const Pattern *(const std::shared_ptr<Pattern> &)> first_unsupported_pattern;
+  first_unsupported_pattern = [&](const std::shared_ptr<Pattern> &pat) -> const Pattern * {
+    if (!pat || std::dynamic_pointer_cast<WildcardPattern>(pat) ||
+        std::dynamic_pointer_cast<IdentifierPattern>(pat) ||
+        std::dynamic_pointer_cast<LiteralPattern>(pat) ||
+        std::dynamic_pointer_cast<RangePattern>(pat)) {
+      return nullptr;
+    }
+    if (auto bind = std::dynamic_pointer_cast<BindingPattern>(pat))
+      return first_unsupported_pattern(bind->sub);
+    if (auto or_pattern = std::dynamic_pointer_cast<OrPattern>(pat)) {
+      for (const auto &alternative : or_pattern->alternatives) {
+        if (const Pattern *unsupported = first_unsupported_pattern(alternative))
+          return unsupported;
+      }
+      return nullptr;
+    }
+    return pat.get();
+  };
+  for (const auto &match_case : match_stmt->cases) {
+    if (const Pattern *unsupported = first_unsupported_pattern(match_case.pattern)) {
+      diagnostics_.ReportError(
+          unsupported->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "pattern requires constructor, payload, aggregate, or runtime type-test lowering that "
+          "the Poly IR ABI does not yet represent");
+      return;
+    }
+  }
+
   EvalResult match_val = LowerExpression(match_stmt->value);
+  if (match_val.type.kind == ir::IRTypeKind::kInvalid || match_val.type.is_placeholder) {
+    diagnostics_.ReportError(match_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "MATCH scrutinee has an unresolved type or ABI");
+    return;
+  }
   auto merge_bb = builder_.CreateBlock("match.merge");
 
   // Fast path: when every CASE pattern is a plain integer literal (and at
@@ -858,66 +965,7 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
       if (bind->sub) return lower_predicate(bind->sub, bindings);
       return "1";
     }
-    if (auto tp = std::dynamic_pointer_cast<TypePattern>(pat)) {
-      // Static type-guard: refinement is enforced by sema; at runtime the
-      // scrutinee's IR is reused without cast (this is sound because the
-      // outer flow guarantees the scrutinee's dynamic type matches when
-      // the static type system already proved it does).
-      if (!tp->name.empty()) bindings.emplace_back(tp->name, match_val);
-      return "1";
-    }
-    if (auto ctor = std::dynamic_pointer_cast<ConstructorPattern>(pat)) {
-      // OPTION lowering: Some / None compare against a sentinel `0` for
-      // None and `1` for Some.  When `Some(sub)` is used, bindings from
-      // the inner pattern are derived from the scrutinee (the boxed
-      // payload representation is opaque to poly at this stage).
-      if (ctor->name == "None") {
-        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpEq,
-                                       match_val.value, "0", "match.is_none");
-        cmp->type = ir::IRType::I1();
-        return cmp->name;
-      }
-      if (ctor->name == "Some") {
-        auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe,
-                                       match_val.value, "0", "match.is_some");
-        cmp->type = ir::IRType::I1();
-        if (!ctor->args.empty()) {
-          // For now we forward the scrutinee SSA value into any inner
-          // binding; richer payload extraction is deferred until the
-          // OPTION layout is finalised in the runtime ABI.
-          std::vector<std::pair<std::string, EvalResult>> inner_b;
-          (void) lower_predicate(ctor->args.front(), inner_b);
-          for (auto &b : inner_b) bindings.push_back(std::move(b));
-        }
-        return cmp->name;
-      }
-      // Generic nominal constructors: conservatively always-true; the
-      // structural check is delegated to the foreign runtime.
-      return "1";
-    }
-    if (auto tup = std::dynamic_pointer_cast<TuplePattern>(pat)) {
-      // No tuple ABI yet; lower to always-true and delegate to the body
-      // (the bindings still receive the whole scrutinee).
-      for (const auto &e : tup->elements) {
-        std::vector<std::pair<std::string, EvalResult>> inner_b;
-        (void) lower_predicate(e, inner_b);
-        for (auto &b : inner_b) bindings.push_back(std::move(b));
-      }
-      return "1";
-    }
-    if (auto sp = std::dynamic_pointer_cast<StructPattern>(pat)) {
-      for (const auto &fp : sp->fields) {
-        if (fp.sub) {
-          std::vector<std::pair<std::string, EvalResult>> inner_b;
-          (void) lower_predicate(fp.sub, inner_b);
-          for (auto &b : inner_b) bindings.push_back(std::move(b));
-        } else {
-          // Shorthand `field` => `field: <bind>`; reuse the scrutinee.
-          bindings.emplace_back(fp.name, match_val);
-        }
-      }
-      return "1";
-    }
+    // Constructor/aggregate/type patterns are unreachable after preflight.
     return "0";
   };
 
@@ -953,7 +1001,7 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
         env_[b.first] = EnvEntry{b.second.value, b.second.type, false};
       }
       EvalResult guard_val = LowerExpression(mc.guard);
-      std::string guard_i1 = EnsureI1(guard_val);
+      std::string guard_i1 = EnsureI1(guard_val, mc.guard->loc);
       builder_.MakeCondBranch(guard_i1, body_bb.get(), next_bb.get());
       // Restore env_ before falling through to the next try block.
       for (auto &b : bindings) env_.erase(b.first);
@@ -998,8 +1046,32 @@ void PloyLowering::LowerMatchStatement(const std::shared_ptr<MatchStatement> &ma
 void PloyLowering::LowerReturnStatement(const std::shared_ptr<ReturnStatement> &ret) {
   if (ret->value) {
     EvalResult val = LowerExpression(ret->value);
-    builder_.MakeReturn(val.value);
+    if (!current_function_ || current_function_->ret_type.kind == ir::IRTypeKind::kVoid ||
+        current_function_->ret_type.kind == ir::IRTypeKind::kInvalid) {
+      diagnostics_.ReportError(ret->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "cannot return a value without a concrete non-void return ABI");
+      return;
+    }
+    if (val.type.kind == ir::IRTypeKind::kInvalid || val.type.is_placeholder) {
+      diagnostics_.ReportError(ret->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "cannot return a value whose type or ABI is unresolved");
+      return;
+    }
+    std::string return_value = val.value;
+    if (!val.type.SameShape(current_function_->ret_type)) {
+      return_value = "return.converted." + std::to_string(generated_name_index_++);
+      if (!GenerateMarshalCode(val.value, val.type, current_function_->ret_type, return_value,
+                               ret->loc, "function return")) {
+        return;
+      }
+    }
+    builder_.MakeReturn(return_value);
   } else {
+    if (current_function_ && current_function_->ret_type.kind != ir::IRTypeKind::kVoid) {
+      diagnostics_.ReportError(ret->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "cannot emit a value-less return from a non-void function");
+      return;
+    }
     builder_.MakeReturn();
   }
   terminated_ = true;
@@ -1139,12 +1211,9 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
   if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
     return LowerLiteral(lit);
   }
-  // Template (interpolated) string literal (since v1.17.0).  MVP lowering:
-  // assemble the formatted bytes at compile time when every interpolated
-  // expression is itself a constant `Literal`.  When the template references
-  // a runtime value the lowering layer falls back to concatenating the
-  // literal text segments only and emits a warning so the user knows the
-  // runtime-formatting helper is still tracked as future work.
+  // Template strings are folded only when every interpolation is a literal.
+  // Dropping runtime-valued parts would produce a different string, so that
+  // path is a lowering error until a formatting runtime ABI exists.
   if (auto tmpl = std::dynamic_pointer_cast<TemplateString>(expr)) {
     std::string formatted;
     bool runtime_seen = false;
@@ -1178,12 +1247,11 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
       }
     }
     if (runtime_seen) {
-      diagnostics_.ReportWarning(tmpl->loc,
-                                 frontends::ErrorCode::kGenericWarning,
-                                 "template string interpolates a runtime value; "
-                                 "v1.17.0 lowers only the literal text segments "
-                                 "(runtime formatting helper is tracked as "
-                                 "future work)");
+      diagnostics_.ReportError(
+          tmpl->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "template string runtime interpolation requires a formatting ABI; refusing to drop "
+          "the interpolated value");
+      return {"", ir::IRType::Invalid()};
     }
     std::string sym = builder_.MakeStringLiteral(formatted, "template.str");
     return {sym, ir::IRType::Pointer(ir::IRType::I8())};
@@ -1218,6 +1286,16 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
   if (auto set_attr = std::dynamic_pointer_cast<SetAttrExpression>(expr)) {
     return LowerSetAttrExpression(set_attr);
   }
+  if (std::dynamic_pointer_cast<MemberExpression>(expr)) {
+    diagnostics_.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "member access has no semantics-preserving Poly IR lowering");
+    return {"", ir::IRType::Invalid()};
+  }
+  if (std::dynamic_pointer_cast<IndexExpression>(expr)) {
+    diagnostics_.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "index access requires a container layout/access ABI");
+    return {"", ir::IRType::Invalid()};
+  }
   if (auto qid = std::dynamic_pointer_cast<QualifiedIdentifier>(expr)) {
     // Qualified identifiers are treated as external references.
     // Resolve the type from the sema symbol table if available.
@@ -1236,8 +1314,9 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     return {sym, qid_type};
   }
   if (auto range = std::dynamic_pointer_cast<RangeExpression>(expr)) {
-    // Range expression - lower the end value as the iteration bound
-    return LowerExpression(range->end);
+    diagnostics_.ReportError(range->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "range values are only representable as the iterable of FOR IN");
+    return {"", ir::IRType::Invalid()};
   }
 
   if (auto conv = std::dynamic_pointer_cast<ConvertExpression>(expr)) {
@@ -1269,6 +1348,8 @@ PloyLowering::EvalResult PloyLowering::LowerExpression(const std::shared_ptr<Exp
     return val;
   }
 
+  diagnostics_.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Poly expression has no semantics-preserving IR lowering");
   return {"", ir::IRType::Invalid()};
 }
 
@@ -1325,10 +1406,25 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
       auto it = env_.find(id->name);
       if (it != env_.end() && it->second.is_mutable) {
+        if (rhs.type.kind == ir::IRTypeKind::kInvalid || rhs.type.is_placeholder) {
+          diagnostics_.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                                   "assignment to '" + id->name +
+                                       "' has an unresolved value type or ABI");
+          return {"", ir::IRType::Invalid()};
+        }
+        std::string stored_value = rhs.value;
+        if (!rhs.type.SameShape(it->second.type)) {
+          stored_value = id->name + ".assigned.converted." +
+                         std::to_string(generated_name_index_++);
+          if (!GenerateMarshalCode(rhs.value, rhs.type, it->second.type, stored_value, bin->loc,
+                                   "assignment to variable '" + id->name + "'")) {
+            return {"", ir::IRType::Invalid()};
+          }
+        }
         // Mutable VAR: store to the alloca address
-        builder_.MakeStore(it->second.ir_name, rhs.value);
-        // Keep the env entry pointing to the alloca (type may change)
-        it->second.type = rhs.type;
+        builder_.MakeStore(it->second.ir_name, stored_value);
+        // A mutable binding's declared storage type never changes.
+        return {stored_value, it->second.type};
       } else {
         // Immutable LET or unknown: direct SSA rebind
         env_[id->name] = EnvEntry{rhs.value, rhs.type, false};
@@ -1338,114 +1434,175 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     return rhs;
   }
 
+  // Logical operators are control-flow operations, not eager bitwise
+  // operators.  The RHS block is only reachable when its value is needed.
+  if (bin->op == "&&" || bin->op == "||") {
+    EvalResult left = LowerExpression(bin->left);
+    std::string left_bool =
+        EnsureI1(left, bin->left ? bin->left->loc : bin->loc);
+    if (left_bool.empty())
+      return {"", ir::IRType::Invalid()};
+
+    auto result_slot = builder_.MakeAlloca(
+        ir::IRType::I1(), "logic.result.addr." + std::to_string(generated_name_index_++));
+    builder_.MakeStore(result_slot->name, bin->op == "&&" ? "0" : "1");
+    auto rhs_bb = builder_.CreateBlock(bin->op == "&&" ? "logic.and.rhs" : "logic.or.rhs");
+    auto merge_bb =
+        builder_.CreateBlock(bin->op == "&&" ? "logic.and.merge" : "logic.or.merge");
+
+    if (bin->op == "&&")
+      builder_.MakeCondBranch(left_bool, rhs_bb.get(), merge_bb.get());
+    else
+      builder_.MakeCondBranch(left_bool, merge_bb.get(), rhs_bb.get());
+
+    builder_.SetInsertPoint(rhs_bb);
+    EvalResult right = LowerExpression(bin->right);
+    std::string right_bool =
+        EnsureI1(right, bin->right ? bin->right->loc : bin->loc);
+    if (right_bool.empty()) {
+      builder_.MakeBranch(merge_bb.get());
+      builder_.SetInsertPoint(merge_bb);
+      return {"", ir::IRType::Invalid()};
+    }
+    builder_.MakeStore(result_slot->name, right_bool);
+    builder_.MakeBranch(merge_bb.get());
+
+    builder_.SetInsertPoint(merge_bb);
+    auto result = builder_.MakeLoad(
+        result_slot->name, ir::IRType::I1(),
+        "logic.result." + std::to_string(generated_name_index_++));
+    return {result->name, ir::IRType::I1()};
+  }
+
   EvalResult left = LowerExpression(bin->left);
   EvalResult right = LowerExpression(bin->right);
 
-  /** @name Smart type inference for binary operands */
-  /** @{ */
-  // When one operand comes from a cross-language call, its IR type may be
-  // opaque pointer (Pointer(I8)), I64 placeholder, or Invalid.  We need to
-  // infer the correct numeric type from the other operand or from the
-  // AST-level type annotation to select integer vs float operations.
+  // Unknown cross-language ABI values may be carried through permissive
+  // compatibility mode, but interpreting their bits as a number changes the
+  // program's meaning. Require a concrete type before selecting an operator.
+  if (left.type.kind == ir::IRTypeKind::kInvalid ||
+      right.type.kind == ir::IRTypeKind::kInvalid || left.type.is_placeholder ||
+      right.type.is_placeholder || left.value.empty() || right.value.empty()) {
+    diagnostics_.ReportError(
+        bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "binary operator '" + bin->op + "' cannot interpret an unresolved value or ABI");
+    return {"", ir::IRType::Invalid()};
+  }
 
-  // Helper: determine if a type is "opaque" (needs type inference)
-  auto is_opaque = [](const ir::IRType &t) -> bool {
-    if (t.is_placeholder)
-      return true;
-    if (t.kind == ir::IRTypeKind::kPointer)
-      return true;
-    if (t.kind == ir::IRTypeKind::kInvalid)
-      return true;
-    return false;
-  };
-
-  // Helper: determine if a type is definitely float
   auto is_float_type = [](const ir::IRType &t) -> bool {
     return t.kind == ir::IRTypeKind::kF32 || t.kind == ir::IRTypeKind::kF64;
   };
-
-  // Helper: determine if a type is definitely integer
-  [[maybe_unused]] auto is_int_type = [](const ir::IRType &t) -> bool {
-    return t.kind == ir::IRTypeKind::kI1 || t.kind == ir::IRTypeKind::kI8 ||
-           t.kind == ir::IRTypeKind::kI16 || t.kind == ir::IRTypeKind::kI32 ||
-           t.kind == ir::IRTypeKind::kI64;
+  auto is_pointer_type = [](const ir::IRType &t) -> bool {
+    return t.kind == ir::IRTypeKind::kPointer || t.kind == ir::IRTypeKind::kReference;
   };
 
-  // Resolve opaque types: if one side is opaque, adopt the other side's type
   ir::IRType effective_left = left.type;
   ir::IRType effective_right = right.type;
-  if (is_opaque(left.type) && !is_opaque(right.type)) {
-    effective_left = right.type;
-  } else if (is_opaque(right.type) && !is_opaque(left.type)) {
-    effective_right = left.type;
-  } else if (is_opaque(left.type) && is_opaque(right.type)) {
-    // Both opaque: fall back to I64 (integer) unless the AST expression
-    // contains a float literal hint
-    effective_left = ir::IRType::I64(true);
-    effective_right = ir::IRType::I64(true);
-  }
-
-  // Insert casts for opaque operands.
-  // Strategy: always convert opaque (Pointer / placeholder) to I64 via
-  // PtrToInt.  If the other side is float, we still use integer arithmetic
-  // because the opaque value has no well-defined float representation.
-  // This keeps the cast chain legal (PtrToInt is valid, Bitcast Ptr→Float
-  // is NOT).
   std::string left_val = left.value;
   std::string right_val = right.value;
-  ir::IRType resolved_left = effective_left;
-  ir::IRType resolved_right = effective_right;
-  if (is_opaque(left.type)) {
-    if (left.type.kind == ir::IRTypeKind::kPointer ||
-        left.type.kind == ir::IRTypeKind::kReference) {
-      auto cast = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt, left.value,
-                                    ir::IRType::I64(true));
-      left_val = cast->name;
+
+  if (is_pointer_type(left.type) || is_pointer_type(right.type)) {
+    if (!is_pointer_type(left.type) || !is_pointer_type(right.type) ||
+        (bin->op != "==" && bin->op != "!=")) {
+      diagnostics_.ReportError(
+          bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "only identity equality is defined for pointer/handle values in Poly IR lowering");
+      return {"", ir::IRType::Invalid()};
     }
-    resolved_left = ir::IRType::I64(true);
-  }
-  if (is_opaque(right.type)) {
-    if (right.type.kind == ir::IRTypeKind::kPointer ||
-        right.type.kind == ir::IRTypeKind::kReference) {
-      auto cast = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt, right.value,
-                                    ir::IRType::I64(true));
-      right_val = cast->name;
-    }
-    resolved_right = ir::IRType::I64(true);
+    auto left_int = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt, left.value,
+                                      ir::IRType::I64(false));
+    auto right_int = builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt, right.value,
+                                       ir::IRType::I64(false));
+    auto cmp = builder_.MakeBinary(bin->op == "==" ? ir::BinaryInstruction::Op::kCmpEq
+                                                   : ir::BinaryInstruction::Op::kCmpNe,
+                                   left_int->name, right_int->name, "ptr.eq");
+    cmp->type = ir::IRType::I1();
+    return {cmp->name, cmp->type};
   }
 
-  // If one side was opaque (now I64) and the other is float, downgrade to
-  // integer arithmetic so that we don't need an unavailable SIToFP cast.
-  if (is_opaque(left.type) || is_opaque(right.type)) {
-    effective_left = resolved_left;
-    effective_right = resolved_right;
+  if ((!left.type.IsInteger() && !left.type.IsFloat()) ||
+      (!right.type.IsInteger() && !right.type.IsFloat()) ||
+      (left.type.IsInteger() != right.type.IsInteger())) {
+    diagnostics_.ReportError(
+        bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "binary operator '" + bin->op +
+            "' requires both operands to be integers or both operands to be floats; "
+            "the IR has no semantics-preserving implicit integer/float cast");
+    return {"", ir::IRType::Invalid()};
+  }
+
+  // Promote operands to one concrete width before selecting the operation.
+  // Mixed signed integers follow the usual value-preserving rule: a wider
+  // signed type wins; otherwise the common width is unsigned.
+  ir::IRType common_type = left.type;
+  if (left.type.IsInteger()) {
+    const int left_bits = left.type.BitWidth();
+    const int right_bits = right.type.BitWidth();
+    const int common_bits = std::max(left_bits, right_bits);
+    bool common_signed = left.type.is_signed == right.type.is_signed
+                             ? left.type.is_signed
+                             : ((left.type.is_signed && left_bits > right_bits) ||
+                                (right.type.is_signed && right_bits > left_bits));
+    switch (common_bits) {
+    case 1:
+      common_type = ir::IRType::I1();
+      break;
+    case 8:
+      common_type = ir::IRType::I8(common_signed);
+      break;
+    case 16:
+      common_type = ir::IRType::I16(common_signed);
+      break;
+    case 32:
+      common_type = ir::IRType::I32(common_signed);
+      break;
+    case 64:
+      common_type = ir::IRType::I64(common_signed);
+      break;
+    default:
+      diagnostics_.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "integer operation uses a width not represented by Poly IR");
+      return {"", ir::IRType::Invalid()};
+    }
+  } else {
+    common_type = left.type.BitWidth() >= right.type.BitWidth() ? left.type : right.type;
+  }
+
+  if (!left.type.SameShape(common_type)) {
+    left_val = "binary.left.converted." + std::to_string(generated_name_index_++);
+    if (!GenerateMarshalCode(left.value, left.type, common_type, left_val, bin->loc,
+                             "left operand of '" + bin->op + "'"))
+      return {"", ir::IRType::Invalid()};
+    effective_left = common_type;
+  }
+  if (!right.type.SameShape(common_type)) {
+    right_val = "binary.right.converted." + std::to_string(generated_name_index_++);
+    if (!GenerateMarshalCode(right.value, right.type, common_type, right_val, bin->loc,
+                             "right operand of '" + bin->op + "'"))
+      return {"", ir::IRType::Invalid()};
+    effective_right = common_type;
   }
 
   // Determine operation
   ir::BinaryInstruction::Op op;
-  ir::IRType result_type = effective_left;
-  bool is_float = is_float_type(effective_left) || is_float_type(effective_right);
+  ir::IRType result_type = common_type;
+  bool is_float = is_float_type(common_type);
+  bool is_signed = common_type.IsSigned();
 
   if (bin->op == "+") {
     op = is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
-    if (is_float)
-      result_type = ir::IRType::F64();
   } else if (bin->op == "-") {
     op = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
-    if (is_float)
-      result_type = ir::IRType::F64();
   } else if (bin->op == "*") {
     op = is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
-    if (is_float)
-      result_type = ir::IRType::F64();
   } else if (bin->op == "/") {
-    op = is_float ? ir::BinaryInstruction::Op::kFDiv : ir::BinaryInstruction::Op::kSDiv;
-    if (is_float)
-      result_type = ir::IRType::F64();
+    op = is_float ? ir::BinaryInstruction::Op::kFDiv
+                  : (is_signed ? ir::BinaryInstruction::Op::kSDiv
+                               : ir::BinaryInstruction::Op::kUDiv);
   } else if (bin->op == "%") {
-    op = is_float ? ir::BinaryInstruction::Op::kFRem : ir::BinaryInstruction::Op::kSRem;
-    if (is_float)
-      result_type = ir::IRType::F64();
+    op = is_float ? ir::BinaryInstruction::Op::kFRem
+                  : (is_signed ? ir::BinaryInstruction::Op::kSRem
+                               : ir::BinaryInstruction::Op::kURem);
   } else if (bin->op == "==") {
     op = is_float ? ir::BinaryInstruction::Op::kCmpFoe : ir::BinaryInstruction::Op::kCmpEq;
     result_type = ir::IRType::I1();
@@ -1453,22 +1610,24 @@ PloyLowering::EvalResult PloyLowering::LowerBinaryExpression(
     op = is_float ? ir::BinaryInstruction::Op::kCmpFne : ir::BinaryInstruction::Op::kCmpNe;
     result_type = ir::IRType::I1();
   } else if (bin->op == "<") {
-    op = is_float ? ir::BinaryInstruction::Op::kCmpFlt : ir::BinaryInstruction::Op::kCmpSlt;
+    op = is_float ? ir::BinaryInstruction::Op::kCmpFlt
+                  : (is_signed ? ir::BinaryInstruction::Op::kCmpSlt
+                               : ir::BinaryInstruction::Op::kCmpUlt);
     result_type = ir::IRType::I1();
   } else if (bin->op == ">") {
-    op = is_float ? ir::BinaryInstruction::Op::kCmpFgt : ir::BinaryInstruction::Op::kCmpSgt;
+    op = is_float ? ir::BinaryInstruction::Op::kCmpFgt
+                  : (is_signed ? ir::BinaryInstruction::Op::kCmpSgt
+                               : ir::BinaryInstruction::Op::kCmpUgt);
     result_type = ir::IRType::I1();
   } else if (bin->op == "<=") {
-    op = is_float ? ir::BinaryInstruction::Op::kCmpFle : ir::BinaryInstruction::Op::kCmpSle;
+    op = is_float ? ir::BinaryInstruction::Op::kCmpFle
+                  : (is_signed ? ir::BinaryInstruction::Op::kCmpSle
+                               : ir::BinaryInstruction::Op::kCmpUle);
     result_type = ir::IRType::I1();
   } else if (bin->op == ">=") {
-    op = is_float ? ir::BinaryInstruction::Op::kCmpFge : ir::BinaryInstruction::Op::kCmpSge;
-    result_type = ir::IRType::I1();
-  } else if (bin->op == "&&") {
-    op = ir::BinaryInstruction::Op::kAnd;
-    result_type = ir::IRType::I1();
-  } else if (bin->op == "||") {
-    op = ir::BinaryInstruction::Op::kOr;
+    op = is_float ? ir::BinaryInstruction::Op::kCmpFge
+                  : (is_signed ? ir::BinaryInstruction::Op::kCmpSge
+                               : ir::BinaryInstruction::Op::kCmpUge);
     result_type = ir::IRType::I1();
   } else {
     Report(bin->loc, "unsupported binary operator '" + bin->op + "'");
@@ -1582,9 +1741,11 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
     arg_names = reordered;
   }
 
-  // Resolve the return type from sema's known signatures instead of
-  // always using I64.  If no signature is found, fall back to I64.
-  ir::IRType call_ret_type = ir::IRType::I64(true);
+  // Resolve the return type from sema's known signatures. In the documented
+  // opt-in non-strict mode an unresolved call may still be emitted as a
+  // placeholder so legacy code can pass or discard it, but consumers may not
+  // interpret that placeholder as a concrete value.
+  ir::IRType call_ret_type = ir::IRType::Invalid();
   {
     auto sig_it = sema_.KnownSignatures().find(callee_name);
     if (sig_it != sema_.KnownSignatures().end() &&
@@ -1603,8 +1764,55 @@ PloyLowering::EvalResult PloyLowering::LowerCallExpression(
       }
     }
   }
+  if (call_ret_type.kind == ir::IRTypeKind::kInvalid) {
+    if (sema_.IsStrictMode()) {
+      diagnostics_.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "call to '" + callee_name +
+                                   "' has no resolved return ABI in strict mode");
+      return {"", ir::IRType::Invalid()};
+    }
+    call_ret_type = ir::IRType::I64(true);
+    call_ret_type.is_placeholder = true;
+    diagnostics_.ReportWarning(
+        call->loc, frontends::ErrorCode::kOpaqueTypeFallback,
+        "call to '" + callee_name +
+            "' has no resolved return ABI; emitting an opt-in non-strict placeholder");
+  }
 
-  auto inst = builder_.MakeCall(callee_name, arg_names, call_ret_type, "");
+  // Source-facing file helpers use friendly names, while every frontend and
+  // target shares a stable C ABI symbol.  The backend sees these names and
+  // automatically appends the syscall-only implementation to the object.
+  std::string native_callee = callee_name;
+  const auto unwrap_string_literal = [](std::string &arg) {
+    // MakeStringLiteral retains a `.ptr` ConstantGEP alias for the historical
+    // println linker.  Native calls need the address of the character bytes,
+    // not the address of that pointer slot.  A direct literal is identifiable
+    // by this suffix, so route it to the underlying data symbol.  Non-literal
+    // string expressions already evaluate to an actual pointer and stay
+    // untouched.
+    if (arg.size() > 4 && arg.compare(arg.size() - 4, 4, ".ptr") == 0)
+      arg.resize(arg.size() - 4);
+  };
+  if (callee_name == "file_open_ints") {
+    native_callee = "polyrt_open_read";
+    if (!arg_names.empty())
+      unwrap_string_literal(arg_names.front());
+  } else if (callee_name == "file_open_write") {
+    native_callee = "polyrt_open_write";
+    if (!arg_names.empty())
+      unwrap_string_literal(arg_names.front());
+  } else if (callee_name == "file_next_int")
+    native_callee = "polyrt_read_i64_or";
+  else if (callee_name == "file_write_text") {
+    native_callee = "polyrt_write_text";
+    if (arg_names.size() > 1)
+      unwrap_string_literal(arg_names[1]);
+  } else if (callee_name == "file_write_int")
+    native_callee = "polyrt_write_i64";
+  else if (callee_name == "file_close")
+    native_callee = "polyrt_close_read";
+
+  auto inst = builder_.MakeCall(native_callee, arg_names, call_ret_type, "");
   return {inst->name, inst->type};
 }
 
@@ -1619,11 +1827,21 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
     arg_types.push_back(a.type);
   }
 
+  // Source modules imported with `IMPORT <lang>::<module>` are compiled by
+  // polyc's own frontends into the same native ABI as Poly.  Call their
+  // qualified symbol directly; the packaging stage materialises a portable
+  // alias to the language frontend's native symbol.  Runtime bridges remain
+  // reserved for PACKAGE/VM-backed calls and explicit LINK mappings.
+  const bool direct_native_import =
+      sema_.IsLocalSourceCall(call->language, call->function);
+
   // Generate the stub name for the cross-language call.
   // Look up the LINK entry matching the call target to use the correct
   // language pair for name mangling: __ploy_bridge_<target_lang>_<source_lang>_<sym>.
   std::string stub_name;
-  {
+  if (direct_native_import) {
+    stub_name = call->function;
+  } else {
     const LinkEntry *link_match = nullptr;
     for (const auto &le : sema_.Links()) {
       if (le.target_language == call->language && le.target_symbol == call->function) {
@@ -1658,42 +1876,47 @@ PloyLowering::EvalResult PloyLowering::LowerCrossLangCall(
       // In strict mode this is an error; in permissive mode a warning.
       if (sema_.IsStrictMode()) {
         diagnostics_.ReportError(
-            call->loc, frontends::ErrorCode::kTypeMismatch,
+            call->loc, frontends::ErrorCode::kUnsupportedLowering,
             "cross-language call to '" + call->function +
                 "' has unknown return type/signature (strict mode rejects fallback lowering)");
+        return {"", ir::IRType::Invalid()};
       } else {
-        diagnostics_.ReportWarning(call->loc, frontends::ErrorCode::kGenericWarning,
+        diagnostics_.ReportWarning(call->loc, frontends::ErrorCode::kOpaqueTypeFallback,
                                    "cross-language call to '" + call->function +
                                        "' has unknown return type; defaulting to opaque pointer");
       }
     }
   }
 
-  // Record the cross-language call descriptor
-  CrossLangCallDescriptor desc;
-  desc.stub_name = stub_name;
-  desc.source_language = call->language;
-  desc.target_language = "poly";
-  desc.source_function = call->function;
-  desc.target_function = stub_name;
-  desc.source_param_types = arg_types;
-  desc.source_return_type = call_ret_type;
-  desc.target_return_type = call_ret_type;
+  // Record a runtime bridge descriptor only for non-native calls.  Local
+  // source imports are represented in the staged driver's marshal plan and
+  // linked directly.
+  if (!direct_native_import) {
+    CrossLangCallDescriptor desc;
+    desc.stub_name = stub_name;
+    desc.source_language = call->language;
+    desc.target_language = "poly";
+    desc.source_function = call->function;
+    desc.target_function = stub_name;
+    desc.source_param_types = arg_types;
+    desc.source_return_type = call_ret_type;
+    desc.target_return_type = call_ret_type;
 
-  // Generate marshalling descriptors for each argument
-  for (const auto &at : arg_types) {
-    CrossLangCallDescriptor::MarshalOp marshal;
-    marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-    marshal.from = at;
-    marshal.to = at; // Same type by default; overridden by MAP_TYPE
-    desc.param_marshal.push_back(marshal);
+    // Generate marshalling descriptors for each argument
+    for (const auto &at : arg_types) {
+      CrossLangCallDescriptor::MarshalOp marshal;
+      marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+      marshal.from = at;
+      marshal.to = at; // Same type by default; overridden by MAP_TYPE
+      desc.param_marshal.push_back(marshal);
+    }
+    desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
+    desc.return_marshal.from = call_ret_type;
+    desc.return_marshal.to = call_ret_type;
+    desc.lang_version = call->lang_version_pin;
+
+    call_descriptors_.push_back(desc);
   }
-  desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-  desc.return_marshal.from = call_ret_type;
-  desc.return_marshal.to = call_ret_type;
-  desc.lang_version = call->lang_version_pin;
-
-  call_descriptors_.push_back(desc);
 
   // Emit the call instruction to the stub
   auto inst = builder_.MakeCall(stub_name, arg_names, call_ret_type, "");
@@ -1720,13 +1943,15 @@ PloyLowering::EvalResult PloyLowering::LowerNewExpression(
   // resolution via ResolveObjectType, so we can trust the symbol table.
   ir::IRType obj_type = ir::IRType::Pointer(ir::IRType::Void());
   {
-    auto sym_it = sema_.Symbols().find(new_expr->class_name);
-    if (sym_it != sema_.Symbols().end() && sym_it->second.type.kind != core::TypeKind::kAny &&
-        sym_it->second.type.kind != core::TypeKind::kUnknown &&
-        sym_it->second.type.kind != core::TypeKind::kInvalid) {
-      ir::IRType inner = CoreTypeToIR(sym_it->second.type);
-      if (inner.kind != ir::IRTypeKind::kInvalid) {
-        obj_type = ir::IRType::Pointer(inner);
+    const std::string schema_key = new_expr->language + "::" + new_expr->class_name;
+    if (sema_.LookupClassSchema(schema_key)) {
+      obj_type = ir::IRType::Pointer(ir::IRType::I8());
+    } else {
+      auto sym_it = sema_.Symbols().find(new_expr->class_name);
+      if (sym_it != sema_.Symbols().end() && sym_it->second.type.kind != core::TypeKind::kAny &&
+          sym_it->second.type.kind != core::TypeKind::kUnknown &&
+          sym_it->second.type.kind != core::TypeKind::kInvalid) {
+        obj_type = CoreTypeToIR(sym_it->second.type);
       }
     }
   }
@@ -1808,15 +2033,31 @@ PloyLowering::EvalResult PloyLowering::LowerMethodCallExpression(
   // Resolve return type from sema known signatures.  Try the method name
   // directly, then try qualified with the object type if available.
   ir::IRType method_ret_type = ir::IRType::Pointer(ir::IRType::Void());
+  method_ret_type.is_placeholder = true;
   const FunctionSignature *sig = nullptr;
   {
-    auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
-    if (sig_it != sema_.KnownSignatures().end() &&
-        sig_it->second.return_type.kind != core::TypeKind::kAny &&
-        sig_it->second.return_type.kind != core::TypeKind::kUnknown &&
-        sig_it->second.return_type.kind != core::TypeKind::kInvalid) {
-      method_ret_type = CoreTypeToIR(sig_it->second.return_type);
+    // A typed receiver identifies the exact CLASS schema and avoids guessing
+    // from a bare method name that may occur on multiple classes.
+    if (auto id = std::dynamic_pointer_cast<Identifier>(method_call->object)) {
+      auto symbol = sema_.Symbols().find(id->name);
+      if (symbol != sema_.Symbols().end() &&
+          symbol->second.type.kind == core::TypeKind::kClass) {
+        const std::string schema_key = symbol->second.type.language + "::" +
+                                       symbol->second.type.name;
+        if (const ForeignClassSchema *schema = sema_.LookupClassSchema(schema_key)) {
+          auto method = schema->methods.find(method_call->method_name);
+          if (method != schema->methods.end())
+            sig = &method->second;
+        }
+      }
     }
+    auto sig_it = sema_.KnownSignatures().find(method_call->method_name);
+    if (!sig && sig_it != sema_.KnownSignatures().end())
+      sig = &sig_it->second;
+    if (sig && sig->return_type.kind != core::TypeKind::kAny &&
+        sig->return_type.kind != core::TypeKind::kUnknown &&
+        sig->return_type.kind != core::TypeKind::kInvalid)
+      method_ret_type = CoreTypeToIR(sig->return_type);
   }
 
   // Record the cross-language call descriptor for the method
@@ -2017,91 +2258,15 @@ PloyLowering::EvalResult PloyLowering::LowerSetAttrExpression(
 // ============================================================================
 
 void PloyLowering::LowerWithStatement(const std::shared_ptr<WithStatement> &with_stmt) {
-  // WITH(lang, resource) AS name { body }
-  // Lowered to:
-  //   1. Evaluate the resource expression
-  //   2. Call __enter__ on the resource
-  //   3. Bind the result to 'name'
-  //   4. Execute body
-  //   5. Call __exit__ on the resource (even on error)
-
-  // Step 1: Evaluate resource
-  EvalResult resource = LowerExpression(with_stmt->resource_expr);
-
-  // Step 2: Call __enter__ on the resource
-  std::string enter_stub = MangleStubName("poly", with_stmt->language, "__enter__",
-                                          with_stmt->lang_version_pin);
-  std::vector<std::string> enter_args = {resource.value};
-
-  // Resolve the enter return type - use typed pointer if class is known
-  ir::IRType enter_ret_type = ir::IRType::Pointer(ir::IRType::Void());
-  {
-    // Check if sema resolved a concrete type for the __enter__ return
-    auto sym_it = sema_.Symbols().find(with_stmt->var_name);
-    if (sym_it != sema_.Symbols().end() && sym_it->second.type.kind != core::TypeKind::kAny &&
-        sym_it->second.type.kind != core::TypeKind::kUnknown &&
-        sym_it->second.type.kind != core::TypeKind::kInvalid) {
-      ir::IRType resolved = CoreTypeToIR(sym_it->second.type);
-      if (resolved.kind != ir::IRTypeKind::kInvalid) {
-        enter_ret_type = resolved;
-      }
-    }
-  }
-  auto enter_result = builder_.MakeCall(enter_stub, enter_args, enter_ret_type, "");
-
-  // Record __enter__ call descriptor
-  CrossLangCallDescriptor enter_desc;
-  enter_desc.stub_name = enter_stub;
-  enter_desc.source_language = with_stmt->language;
-  enter_desc.target_language = "poly";
-  enter_desc.source_function = "__enter__";
-  enter_desc.target_function = enter_stub;
-  enter_desc.source_param_types = {resource.type};
-  enter_desc.source_return_type = enter_ret_type;
-  enter_desc.target_return_type = enter_ret_type;
-  CrossLangCallDescriptor::MarshalOp enter_marshal;
-  enter_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-  enter_marshal.from = resource.type;
-  enter_marshal.to = resource.type;
-  enter_desc.param_marshal.push_back(enter_marshal);
-  enter_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-  enter_desc.return_marshal.from = enter_ret_type;
-  enter_desc.return_marshal.to = enter_ret_type;
-  enter_desc.lang_version = with_stmt->lang_version_pin;
-  call_descriptors_.push_back(enter_desc);
-
-  // Step 3: Bind the result to the variable name
-  env_[with_stmt->var_name] = EnvEntry{enter_result->name, enter_result->type};
-
-  // Step 4: Execute body
-  LowerBlockStatements(with_stmt->body);
-
-  // Step 5: Call __exit__ on the resource
-  std::string exit_stub = MangleStubName("poly", with_stmt->language, "__exit__",
-                                         with_stmt->lang_version_pin);
-  std::vector<std::string> exit_args = {resource.value};
-  builder_.MakeCall(exit_stub, exit_args, ir::IRType::Void(), "");
-
-  // Record __exit__ call descriptor (shared by normal and unwind paths)
-  CrossLangCallDescriptor exit_desc;
-  exit_desc.stub_name = exit_stub;
-  exit_desc.source_language = with_stmt->language;
-  exit_desc.target_language = "poly";
-  exit_desc.source_function = "__exit__";
-  exit_desc.target_function = exit_stub;
-  exit_desc.source_param_types = {resource.type};
-  exit_desc.source_return_type = ir::IRType::Void();
-  exit_desc.target_return_type = ir::IRType::Void();
-  CrossLangCallDescriptor::MarshalOp exit_marshal;
-  exit_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-  exit_marshal.from = resource.type;
-  exit_marshal.to = resource.type;
-  exit_desc.param_marshal.push_back(exit_marshal);
-  exit_desc.return_marshal.kind = CrossLangCallDescriptor::MarshalOp::Kind::kDirect;
-  exit_desc.return_marshal.from = ir::IRType::Void();
-  exit_desc.return_marshal.to = ir::IRType::Void();
-  exit_desc.lang_version = with_stmt->lang_version_pin;
-  call_descriptors_.push_back(exit_desc);
+  // Correct context-manager lowering needs four-argument __exit__(self,
+  // exc_type, exc_value, traceback), suppression handling, and cleanup edges
+  // for RETURN/THROW/BREAK/CONTINUE.  The current IR builder has no cleanup
+  // region abstraction, so emitting only a normal-path one-argument call
+  // would silently violate the language contract.
+  diagnostics_.ReportError(
+      with_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+      "WITH requires exception-aware cleanup edges and the four-argument __exit__ ABI, which "
+      "Poly IR lowering does not yet represent");
 }
 
 // ============================================================================
@@ -2144,10 +2309,29 @@ void PloyLowering::LowerThrowStatement(const std::shared_ptr<ThrowStatement> &th
 void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_stmt) {
   if (!try_stmt) return;
 
+  if (try_stmt->catches.size() > 1) {
+    diagnostics_.ReportError(
+        try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "multiple CATCH clauses require a typed runtime error discriminator; executing every "
+        "handler sequentially is not semantics-preserving");
+    return;
+  }
+  if (try_stmt->has_finally) {
+    diagnostics_.ReportError(
+        try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "FINALLY requires cleanup edges for every RETURN/THROW/BREAK/CONTINUE path, which Poly "
+        "IR lowering does not yet represent");
+    return;
+  }
+  if (try_stmt->catches.empty()) {
+    diagnostics_.ReportError(try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "TRY without a CATCH has no representable handler target");
+    return;
+  }
+
   // 1) try.entry — push a handler and branch on the return value.
   auto body_bb     = builder_.CreateBlock("try.body");
   auto catch_bb    = builder_.CreateBlock("try.catch");
-  auto finally_bb  = builder_.CreateBlock("try.finally");
   auto merge_bb    = builder_.CreateBlock("try.merge");
 
   // `__ploy_rt_try_begin` returns i32 (0 = first entry, 1 = unwound here).
@@ -2157,6 +2341,8 @@ void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_st
 
   // Compare the tag against zero: equal -> body, non-zero -> catch.
   auto cmp = builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpNe, tag, "0", "try.thrown");
+  if (cmp)
+    cmp->type = ir::IRType::I1();
   builder_.MakeCondBranch(cmp ? cmp->name : tag, catch_bb.get(), body_bb.get());
 
   // 2) try.body — the protected statements.  On normal completion we
@@ -2167,7 +2353,7 @@ void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_st
   bool body_terminated = terminated_;
   if (!terminated_) {
     builder_.MakeCall("__ploy_rt_try_end", {}, ir::IRType::Void());
-    builder_.MakeBranch(try_stmt->has_finally ? finally_bb.get() : merge_bb.get());
+    builder_.MakeBranch(merge_bb.get());
   }
 
   // 3) try.catch — load the current Error handle, bind it to the
@@ -2178,36 +2364,28 @@ void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_st
                                     ir::IRType::Pointer(ir::IRType::I8(true)), "try.err");
   std::string err_value = err_call ? err_call->name : std::string("0");
 
-  // Run every CATCH clause sequentially.  Without a typed-error
-  // discriminator the first clause wins; the runtime guarantees that
-  // only one clause's binding is observable per unwind because the
-  // body short-circuits on `terminated_`.
-  for (const auto &clause : try_stmt->catches) {
-    if (terminated_) break;
-    if (!clause.var_name.empty()) {
-      // Allocate a slot for the bound Error handle so subsequent
-      // attribute accesses lower through the standard load path.
-      auto slot = builder_.MakeAlloca(ir::IRType::Pointer(ir::IRType::I8(true)),
-                                      clause.var_name);
-      builder_.MakeStore(slot ? slot->name : clause.var_name, err_value);
-    }
-    LowerBlockStatements(clause.body);
+  const auto &clause = try_stmt->catches.front();
+  auto shadowed_error = env_.find(clause.var_name);
+  const bool had_shadowed_error = !clause.var_name.empty() && shadowed_error != env_.end();
+  EnvEntry saved_error;
+  if (had_shadowed_error)
+    saved_error = shadowed_error->second;
+  if (!clause.var_name.empty()) {
+    env_[clause.var_name] =
+        EnvEntry{err_value, ir::IRType::Pointer(ir::IRType::I8(true)), false};
+  }
+  LowerBlockStatements(clause.body);
+  if (!clause.var_name.empty()) {
+    if (had_shadowed_error)
+      env_[clause.var_name] = saved_error;
+    else
+      env_.erase(clause.var_name);
   }
   // Mark the error consumed once the catch body completes.
   bool catch_terminated = terminated_;
   if (!terminated_) {
     builder_.MakeCall("__ploy_rt_clear_error", {}, ir::IRType::Void());
-    builder_.MakeBranch(try_stmt->has_finally ? finally_bb.get() : merge_bb.get());
-  }
-
-  // 4) try.finally — unconditional cleanup, joined from both arms.
-  if (try_stmt->has_finally) {
-    builder_.SetInsertPoint(finally_bb);
-    terminated_ = false;
-    LowerBlockStatements(try_stmt->finally_body);
-    if (!terminated_) {
-      builder_.MakeBranch(merge_bb.get());
-    }
+    builder_.MakeBranch(merge_bb.get());
   }
 
   // 5) try.merge — continuation point for the surrounding block.  The
@@ -2215,7 +2393,7 @@ void PloyLowering::LowerTryStatement(const std::shared_ptr<TryStatement> &try_st
   // a fall-through (e.g. body `RETURN` and catch `THROW`); in that
   // case the surrounding lowering will mark it terminated.
   builder_.SetInsertPoint(merge_bb);
-  terminated_ = body_terminated && catch_terminated && !try_stmt->has_finally;
+  terminated_ = body_terminated && catch_terminated;
   if (terminated_) {
     builder_.MakeUnreachable();
   }
@@ -2308,35 +2486,74 @@ PloyLowering::EvalResult PloyLowering::LowerConvertExpression(
   ir::IRType target_type =
       conv->target_type ? PloyTypeToIR(conv->target_type) : ir::IRType::I64(true);
 
-  // If source and target types match, pass through directly
-  if (src.type.kind == target_type.kind) {
+  // If source and target types match exactly, pass through directly.
+  if (src.type.SameShape(target_type)) {
     return src;
   }
 
   // Generate conversion code based on types
-  std::string dst_name = src.value + ".converted";
-  GenerateMarshalCode(src.value, src.type, target_type, dst_name);
+  std::string dst_name = "convert.result." + std::to_string(generated_name_index_++);
+  if (!GenerateMarshalCode(src.value, src.type, target_type, dst_name, conv->loc,
+                           "CONVERT expression")) {
+    return {"", ir::IRType::Invalid()};
+  }
   return {dst_name, target_type};
 }
 
 PloyLowering::EvalResult PloyLowering::LowerListLiteral(const std::shared_ptr<ListLiteral> &list) {
-  // Create a runtime list via __ploy_rt_list_create
   ir::IRType ptr_type = ir::IRType::Pointer(ir::IRType::I8());
+  if (list->elements.empty()) {
+    diagnostics_.ReportError(list->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "an empty LIST literal has no element layout; add a typed "
+                             "constructor once the runtime exposes one");
+    return {"", ir::IRType::Invalid()};
+  }
 
-  // Determine element size (default to 8 bytes for i64)
-  std::string elem_size_val = "8";
+  std::vector<EvalResult> elements;
+  elements.reserve(list->elements.size());
+  for (const auto &element : list->elements) {
+    EvalResult lowered = LowerExpression(element);
+    if (lowered.type.kind == ir::IRTypeKind::kInvalid || lowered.type.is_placeholder) {
+      diagnostics_.ReportError(list->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "LIST element has an unresolved type or ABI layout");
+      return {"", ir::IRType::Invalid()};
+    }
+    elements.push_back(lowered);
+  }
+
+  const ir::IRType elem_type = elements.front().type;
+  for (size_t i = 1; i < elements.size(); ++i) {
+    if (elements[i].type.SameShape(elem_type))
+      continue;
+    std::string converted =
+        "list.element.converted." + std::to_string(generated_name_index_++);
+    if (!GenerateMarshalCode(elements[i].value, elements[i].type, elem_type, converted, list->loc,
+                             "LIST element")) {
+      return {"", ir::IRType::Invalid()};
+    }
+    elements[i] = {converted, elem_type};
+  }
+
+  const size_t elem_size = ir_ctx_.Layout().SizeOf(elem_type);
+  if (elem_size == 0) {
+    diagnostics_.ReportError(list->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "LIST element type '" + elem_type.name + "' is unsized in Poly IR");
+    return {"", ir::IRType::Invalid()};
+  }
 
   // Call __ploy_rt_list_create(elem_size, initial_capacity)
+  std::string elem_size_val = std::to_string(elem_size);
   std::string capacity_val = std::to_string(list->elements.size());
   auto create_call = builder_.MakeCall("__ploy_rt_list_create", {elem_size_val, capacity_val},
-                                       ptr_type, "list.ptr");
+                                       ptr_type,
+                                       "list.ptr." + std::to_string(generated_name_index_++));
 
   // Push each element
-  for (const auto &elem : list->elements) {
-    EvalResult e = LowerExpression(elem);
+  for (const EvalResult &element : elements) {
     // Allocate space for the element and store it
-    auto alloca_inst = builder_.MakeAlloca(e.type, e.value + ".addr");
-    builder_.MakeStore(alloca_inst->name, e.value);
+    auto alloca_inst = builder_.MakeAlloca(
+        elem_type, "list.element.addr." + std::to_string(generated_name_index_++));
+    builder_.MakeStore(alloca_inst->name, element.value);
     builder_.MakeCall("__ploy_rt_list_push", {create_call->name, alloca_inst->name},
                       ir::IRType::Void(), "");
   }
@@ -2352,6 +2569,11 @@ PloyLowering::EvalResult PloyLowering::LowerTupleLiteral(
 
   for (const auto &elem : tuple->elements) {
     EvalResult e = LowerExpression(elem);
+    if (e.type.kind == ir::IRTypeKind::kInvalid || e.type.is_placeholder) {
+      diagnostics_.ReportError(tuple->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "TUPLE element has an unresolved type or ABI layout");
+      return {"", ir::IRType::Invalid()};
+    }
     elem_types.push_back(e.type);
     elem_values.push_back(e.value);
   }
@@ -2359,7 +2581,8 @@ PloyLowering::EvalResult PloyLowering::LowerTupleLiteral(
   ir::IRType tuple_type = ir::IRType::Struct("tuple", elem_types);
 
   // Allocate the tuple on the stack
-  auto alloca_inst = builder_.MakeAlloca(tuple_type, "tuple.addr");
+  auto alloca_inst = builder_.MakeAlloca(
+      tuple_type, "tuple.addr." + std::to_string(generated_name_index_++));
 
   // Store each element at its field offset
   for (size_t i = 0; i < elem_values.size(); ++i) {
@@ -2369,30 +2592,79 @@ PloyLowering::EvalResult PloyLowering::LowerTupleLiteral(
     builder_.MakeStore(gep->name, elem_values[i]);
   }
 
-  return {alloca_inst->name, tuple_type};
+  auto value = builder_.MakeLoad(
+      alloca_inst->name, tuple_type,
+      "tuple.value." + std::to_string(generated_name_index_++));
+  return {value->name, tuple_type};
 }
 
 PloyLowering::EvalResult PloyLowering::LowerDictLiteral(const std::shared_ptr<DictLiteral> &dict) {
-  // Create a runtime dict via __ploy_rt_dict_create
   ir::IRType ptr_type = ir::IRType::Pointer(ir::IRType::I8());
+  if (dict->entries.empty()) {
+    diagnostics_.ReportError(dict->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "an empty DICT literal has no key/value layout; add a typed "
+                             "constructor once the runtime exposes one");
+    return {"", ir::IRType::Invalid()};
+  }
 
-  // Default key and value sizes (8 bytes each for i64)
-  std::string key_size_val = "8";
-  std::string value_size_val = "8";
-
-  auto create_call = builder_.MakeCall("__ploy_rt_dict_create", {key_size_val, value_size_val},
-                                       ptr_type, "dict.ptr");
-
-  // Insert each entry
+  std::vector<std::pair<EvalResult, EvalResult>> entries;
+  entries.reserve(dict->entries.size());
   for (const auto &entry : dict->entries) {
     EvalResult key = LowerExpression(entry.key);
-    EvalResult val = LowerExpression(entry.value);
+    EvalResult value = LowerExpression(entry.value);
+    if (key.type.kind == ir::IRTypeKind::kInvalid || value.type.kind == ir::IRTypeKind::kInvalid ||
+        key.type.is_placeholder || value.type.is_placeholder) {
+      diagnostics_.ReportError(dict->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "DICT key or value has an unresolved type or ABI layout");
+      return {"", ir::IRType::Invalid()};
+    }
+    entries.emplace_back(key, value);
+  }
 
+  const ir::IRType key_type = entries.front().first.type;
+  const ir::IRType value_type = entries.front().second.type;
+  for (size_t i = 1; i < entries.size(); ++i) {
+    if (!entries[i].first.type.SameShape(key_type)) {
+      std::string converted =
+          "dict.key.converted." + std::to_string(generated_name_index_++);
+      if (!GenerateMarshalCode(entries[i].first.value, entries[i].first.type, key_type, converted,
+                               dict->loc, "DICT key")) {
+        return {"", ir::IRType::Invalid()};
+      }
+      entries[i].first = {converted, key_type};
+    }
+    if (!entries[i].second.type.SameShape(value_type)) {
+      std::string converted =
+          "dict.value.converted." + std::to_string(generated_name_index_++);
+      if (!GenerateMarshalCode(entries[i].second.value, entries[i].second.type, value_type,
+                               converted, dict->loc, "DICT value")) {
+        return {"", ir::IRType::Invalid()};
+      }
+      entries[i].second = {converted, value_type};
+    }
+  }
+
+  const size_t key_size = ir_ctx_.Layout().SizeOf(key_type);
+  const size_t value_size = ir_ctx_.Layout().SizeOf(value_type);
+  if (key_size == 0 || value_size == 0) {
+    diagnostics_.ReportError(dict->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "DICT key or value type is unsized in Poly IR");
+    return {"", ir::IRType::Invalid()};
+  }
+
+  auto create_call = builder_.MakeCall(
+      "__ploy_rt_dict_create", {std::to_string(key_size), std::to_string(value_size)}, ptr_type,
+      "dict.ptr." + std::to_string(generated_name_index_++));
+
+  // Insert each entry
+  for (const auto &[key, value] : entries) {
     // Allocate and store key and value for passing by pointer
-    auto key_alloca = builder_.MakeAlloca(key.type, "dict.key.addr");
+    auto key_alloca = builder_.MakeAlloca(
+        key_type, "dict.key.addr." + std::to_string(generated_name_index_++));
     builder_.MakeStore(key_alloca->name, key.value);
-    auto val_alloca = builder_.MakeAlloca(val.type, "dict.val.addr");
-    builder_.MakeStore(val_alloca->name, val.value);
+    auto val_alloca = builder_.MakeAlloca(
+        value_type, "dict.val.addr." + std::to_string(generated_name_index_++));
+    builder_.MakeStore(val_alloca->name, value.value);
 
     builder_.MakeCall("__ploy_rt_dict_insert",
                       {create_call->name, key_alloca->name, val_alloca->name}, ir::IRType::Void(),
@@ -2404,25 +2676,80 @@ PloyLowering::EvalResult PloyLowering::LowerDictLiteral(const std::shared_ptr<Di
 
 PloyLowering::EvalResult PloyLowering::LowerStructLiteral(
     const std::shared_ptr<StructLiteral> &struct_lit) {
-  // Look up the struct type from the environment
-  auto it = env_.find(struct_lit->struct_name);
-  ir::IRType struct_type = ir::IRType::I64(true); // Default fallback
-  if (it != env_.end()) {
-    struct_type = it->second.type;
+  // Both the concrete IR layout and sema's ordered field schema are required.
+  // A missing definition is not an i64 value, and source initializer order is
+  // unrelated to the declaration's ABI field order.
+  auto env_it = env_.find(struct_lit->struct_name);
+  auto def_it = sema_.StructDefs().find(struct_lit->struct_name);
+  if (env_it == env_.end() || env_it->second.type.kind != ir::IRTypeKind::kStruct ||
+      def_it == sema_.StructDefs().end()) {
+    diagnostics_.ReportError(struct_lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "struct literal '" + struct_lit->struct_name +
+                                 "' has no concrete ordered IR layout");
+    return {"", ir::IRType::Invalid()};
+  }
+  const ir::IRType &struct_type = env_it->second.type;
+  const auto &defined_fields = def_it->second;
+
+  std::unordered_map<std::string, size_t> field_indices;
+  for (size_t i = 0; i < defined_fields.size(); ++i)
+    field_indices.emplace(defined_fields[i].first, i);
+  std::vector<bool> initialized(defined_fields.size(), false);
+
+  for (const auto &field : struct_lit->fields) {
+    auto field_it = field_indices.find(field.name);
+    if (field_it == field_indices.end() || initialized[field_it->second]) {
+      diagnostics_.ReportError(
+          struct_lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "struct literal '" + struct_lit->struct_name +
+              "' has an unknown or duplicate field '" + field.name + "'");
+      return {"", ir::IRType::Invalid()};
+    }
+    initialized[field_it->second] = true;
+  }
+  if (std::any_of(initialized.begin(), initialized.end(), [](bool present) { return !present; })) {
+    diagnostics_.ReportError(struct_lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "struct literal '" + struct_lit->struct_name +
+                                 "' omits fields required by its concrete layout");
+    return {"", ir::IRType::Invalid()};
   }
 
   // Allocate the struct on the stack
   auto alloca_inst = builder_.MakeAlloca(struct_type, struct_lit->struct_name + ".val");
 
   // Lower and store each field
-  for (size_t i = 0; i < struct_lit->fields.size(); ++i) {
-    EvalResult field_val = LowerExpression(struct_lit->fields[i].value);
-    std::string field_ptr = alloca_inst->name + "." + struct_lit->fields[i].name;
-    auto gep = builder_.MakeGEP(alloca_inst->name, struct_type, {i}, field_ptr);
-    builder_.MakeStore(gep->name, field_val.value);
+  for (const auto &field : struct_lit->fields) {
+    EvalResult field_val = LowerExpression(field.value);
+    if (field_val.type.kind == ir::IRTypeKind::kInvalid || field_val.type.is_placeholder) {
+      diagnostics_.ReportError(struct_lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "struct field '" + field.name +
+                                   "' has an unresolved lowering type or ABI");
+      return {"", ir::IRType::Invalid()};
+    }
+    const size_t field_index = field_indices.at(field.name);
+    ir::IRType expected_type = CoreTypeToIR(defined_fields[field_index].second);
+    if (expected_type.kind == ir::IRTypeKind::kInvalid || expected_type.is_placeholder) {
+      diagnostics_.ReportError(struct_lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "struct field '" + field.name +
+                                   "' has no concrete declared IR layout");
+      return {"", ir::IRType::Invalid()};
+    }
+    std::string stored_value = field_val.value;
+    if (!field_val.type.SameShape(expected_type)) {
+      stored_value = "struct.field.converted." + std::to_string(generated_name_index_++);
+      if (!GenerateMarshalCode(field_val.value, field_val.type, expected_type, stored_value,
+                               field.value ? field.value->loc : struct_lit->loc,
+                               "struct field '" + field.name + "'")) {
+        return {"", ir::IRType::Invalid()};
+      }
+    }
+    std::string field_ptr = alloca_inst->name + "." + field.name;
+    auto gep = builder_.MakeGEP(alloca_inst->name, struct_type, {field_index}, field_ptr);
+    builder_.MakeStore(gep->name, stored_value);
   }
 
-  return {alloca_inst->name, struct_type};
+  auto value = builder_.MakeLoad(alloca_inst->name, struct_type, struct_lit->struct_name + ".load");
+  return {value->name, struct_type};
 }
 
 // ============================================================================
@@ -2433,166 +2760,196 @@ void PloyLowering::GenerateLinkStub(const LinkEntry &link) {
   std::string stub_name =
       MangleStubName(link.target_language, link.source_language, link.target_symbol);
 
-  // Create the bridge function
-  // The stub marshals arguments from target calling convention to source,
-  // calls the source function, and marshals the return value back.
-
-  // Resolve the return type from the known function signature registered
-  // during semantic analysis.
-  ir::IRType ret_type = ir::IRType::Pointer(ir::IRType::Void());
-  // Look up the function signature from the sema public accessor.
-  const FunctionSignature *sig = nullptr;
-  {
-    auto it = sema_.KnownSignatures().find(link.target_symbol);
-    if (it != sema_.KnownSignatures().end()) {
-      sig = &it->second;
-    }
-  }
-  if (sig && sig->return_type.kind != core::TypeKind::kAny &&
-      sig->return_type.kind != core::TypeKind::kUnknown &&
-      sig->return_type.kind != core::TypeKind::kInvalid) {
-    ret_type = CoreTypeToIR(sig->return_type);
-  } else if (sema_.IsStrictMode()) {
-    diagnostics_.ReportError(link.defined_at, frontends::ErrorCode::kSignatureMissing,
-                             "LINK stub for '" + link.target_symbol +
-                                 "' has no resolved return type in strict mode");
+  if (link.kind != LinkDecl::LinkKind::kFunction) {
+    diagnostics_.ReportError(
+        link.defined_at, frontends::ErrorCode::kUnsupportedLowering,
+        "LINK AS VAR/STRUCT requires a concrete foreign data layout; MAP_TYPE entries are type "
+        "relations, not field offsets or global storage ABIs");
     return;
   }
 
-  // For function links, create a wrapper function
-  if (link.kind == LinkDecl::LinkKind::kFunction) {
-    // Build the parameter list from the function signature registered
-    // during semantic analysis.  Each parameter gets its resolved type
-    // so the stub faithfully mirrors the real calling convention.
-    std::vector<std::pair<std::string, ir::IRType>> params;
-    if (sig && sig->param_count_known && sig->param_count > 0) {
-      for (size_t i = 0; i < sig->param_count; ++i) {
-        ir::IRType pt = ir::IRType::I64(true);
-        if (i < sig->param_types.size()) {
-          pt = CoreTypeToIR(sig->param_types[i]);
-        }
-        params.emplace_back("arg" + std::to_string(i), pt);
-      }
-    } else if (!link.param_mappings.empty()) {
-      // Fall back to MAP_TYPE entries when no explicit signature is available.
-      for (size_t i = 0; i < link.param_mappings.size(); ++i) {
-        ir::IRType pt = ir::IRType::I64(true);
-        if (!link.param_mappings[i].target_type.empty()) {
-          core::Type ct =
-              core::TypeSystem().MapFromLanguage(link.param_mappings[i].target_language.empty()
-                                                     ? link.target_language
-                                                     : link.param_mappings[i].target_language,
-                                                 link.param_mappings[i].target_type);
-          pt = CoreTypeToIR(ct);
-        }
-        params.emplace_back("arg" + std::to_string(i), pt);
-      }
-    } else {
-      // No signature information - in strict mode this is an error because
-      // the generated stub will have an incorrect calling convention.
-      // In permissive mode, fall back to a single opaque i64 argument
-      // with a warning so the pipeline can continue.
-      if (sema_.IsStrictMode()) {
-        diagnostics_.ReportError(
-            link.defined_at, frontends::ErrorCode::kTypeMismatch,
-            "LINK stub for '" + link.target_symbol +
-                "' has no signature information (strict mode rejects opaque fallback)");
-        return;
-      } else {
-        diagnostics_.ReportWarning(
-            link.defined_at, frontends::ErrorCode::kGenericWarning,
-            "LINK stub for '" + link.target_symbol +
-                "' has no signature information; defaulting to single opaque i64 argument");
-        params.emplace_back("arg0", ir::IRType::I64(true));
-      }
+  auto find_signature = [&](const std::string &name) -> const FunctionSignature * {
+    auto it = sema_.KnownSignatures().find(name);
+    return it == sema_.KnownSignatures().end() ? nullptr : &it->second;
+  };
+  auto concrete_core_type = [](const core::Type &type) {
+    return type.kind != core::TypeKind::kAny && type.kind != core::TypeKind::kUnknown &&
+           type.kind != core::TypeKind::kInvalid;
+  };
+  auto complete_signature = [&](const FunctionSignature *signature) {
+    if (!signature || !signature->param_count_known ||
+        signature->param_types.size() < signature->param_count ||
+        !concrete_core_type(signature->return_type)) {
+      return false;
+    }
+    return std::all_of(signature->param_types.begin(),
+                       signature->param_types.begin() + signature->param_count,
+                       concrete_core_type);
+  };
+
+  const FunctionSignature *target_sig = find_signature(link.target_symbol);
+  const FunctionSignature *source_sig = find_signature(link.source_symbol);
+  const bool exact_signatures = complete_signature(target_sig) && complete_signature(source_sig) &&
+                                target_sig->param_count == source_sig->param_count;
+
+  auto saved_fn = current_function_;
+  auto saved_insert = builder_.GetInsertPoint();
+
+  if (!exact_signatures) {
+    if (sema_.IsStrictMode()) {
+      diagnostics_.ReportError(
+          link.defined_at, frontends::ErrorCode::kUnsupportedLowering,
+          "LINK stub for '" + link.target_symbol +
+              "' needs complete target and source signatures; MAP_TYPE entries cannot define "
+              "function arity");
+      return;
     }
 
-    auto fn = ir_ctx_.CreateFunction(stub_name, ret_type, params);
-    auto saved_fn = current_function_;
+    diagnostics_.ReportWarning(
+        link.defined_at, frontends::ErrorCode::kOpaqueTypeFallback,
+        "LINK stub for '" + link.target_symbol +
+            "' has incomplete endpoint signatures; emitting an explicitly opaque compatibility "
+            "stub and ignoring MAP_TYPE for executable marshalling");
+
+    ir::IRType opaque_param = ir::IRType::I64(true);
+    opaque_param.is_placeholder = true;
+    ir::IRType opaque_return = ir::IRType::Pointer(ir::IRType::Void());
+    opaque_return.is_placeholder = true;
+    if (target_sig && concrete_core_type(target_sig->return_type)) {
+      ir::IRType resolved_return = CoreTypeToIR(target_sig->return_type);
+      if (resolved_return.kind != ir::IRTypeKind::kInvalid)
+        opaque_return = resolved_return;
+    }
+
+    auto fn = ir_ctx_.CreateFunction(stub_name, opaque_return, {{"arg0", opaque_param}});
     current_function_ = fn;
     builder_.SetCurrentFunction(fn);
-
     auto entry = builder_.CreateBlock("stub.entry");
     builder_.SetInsertPoint(entry);
 
-    // Marshal arguments (type conversion if needed)
-    std::vector<std::string> call_args;
-    for (const auto &p : params) {
-      // Apply marshalling based on MAP_TYPE entries
-      bool marshalled = false;
-      for (const auto &mapping : link.param_mappings) {
-        // If a mapping exists for this parameter type, generate conversion code
-        if (!mapping.source_type.empty() && !mapping.target_type.empty()) {
-          GenerateMarshalCode(p.first, p.second, p.second, p.first + ".marshalled");
-          call_args.push_back(p.first + ".marshalled");
-          marshalled = true;
-          break;
-        }
-      }
-      if (!marshalled) {
-        call_args.push_back(p.first);
-      }
-    }
-
-    // Construct the source function's mangled name
     std::string source_func = link.source_symbol;
-    for (char &c : source_func) {
-      if (c == ':')
-        c = '_';
-    }
-
-    // Call the source function
-    auto call_inst = builder_.MakeCall(source_func, call_args, ret_type, "result");
-
-    // Marshal return value back
-    builder_.MakeReturn(call_inst->name);
+    std::replace(source_func.begin(), source_func.end(), ':', '_');
+    auto call = builder_.MakeCall(source_func, {"arg0"}, opaque_return, "opaque.result");
+    if (opaque_return.kind == ir::IRTypeKind::kVoid)
+      builder_.MakeReturn();
+    else
+      builder_.MakeReturn(call->name);
 
     current_function_ = saved_fn;
-    builder_.SetCurrentFunction(saved_fn);
-  } else if (link.kind == LinkDecl::LinkKind::kVariable) {
-    // For variable links, create a global alias
-    std::string source_var = link.source_symbol;
-    for (char &c : source_var) {
-      if (c == ':')
-        c = '_';
-    }
-    ir_ctx_.CreateGlobal(stub_name, ir::IRType::I64(true), false, source_var);
-  } else if (link.kind == LinkDecl::LinkKind::kStruct) {
-    // For struct links, create type conversion functions
-    std::string convert_name = stub_name + "_convert";
-    auto fn = ir_ctx_.CreateFunction(convert_name, ir::IRType::Pointer(ir::IRType::I8()),
-                                     {{"src", ir::IRType::Pointer(ir::IRType::I8())}});
-    auto saved_fn = current_function_;
-    current_function_ = fn;
-    builder_.SetCurrentFunction(fn);
-
-    auto entry = builder_.CreateBlock("struct.convert.entry");
-    builder_.SetInsertPoint(entry);
-
-    // Field-by-field conversion based on MAP_TYPE entries in the LINK body
-    for (size_t i = 0; i < link.param_mappings.size(); ++i) {
-      // Each mapping represents a field conversion
-      // Generate load-convert-store sequences for each field
-      std::string field_name = "field" + std::to_string(i);
-      auto field_load = builder_.MakeLoad("src", ir::IRType::I64(true), field_name);
-      (void)field_load; // Field conversion would store into the destination struct
-    }
-
-    builder_.MakeReturn("src");
-    current_function_ = saved_fn;
-    builder_.SetCurrentFunction(saved_fn);
+    if (saved_fn)
+      builder_.SetCurrentFunction(saved_fn);
+    else
+      builder_.ClearCurrentFunction();
+    builder_.SetInsertPoint(saved_insert);
+    return;
   }
+
+  std::vector<std::pair<std::string, ir::IRType>> params;
+  std::vector<ir::IRType> source_param_types;
+  params.reserve(target_sig->param_count);
+  source_param_types.reserve(source_sig->param_count);
+  for (size_t i = 0; i < target_sig->param_count; ++i) {
+    ir::IRType target_type = CoreTypeToIR(target_sig->param_types[i]);
+    ir::IRType source_type = CoreTypeToIR(source_sig->param_types[i]);
+    if (target_type.kind == ir::IRTypeKind::kInvalid ||
+        source_type.kind == ir::IRTypeKind::kInvalid) {
+      diagnostics_.ReportError(link.defined_at, frontends::ErrorCode::kUnsupportedLowering,
+                               "LINK parameter has no concrete endpoint IR type");
+      return;
+    }
+    params.emplace_back("arg" + std::to_string(i), target_type);
+    source_param_types.push_back(source_type);
+  }
+
+  ir::IRType target_return = CoreTypeToIR(target_sig->return_type);
+  ir::IRType source_return = CoreTypeToIR(source_sig->return_type);
+  if (target_return.kind == ir::IRTypeKind::kInvalid ||
+      source_return.kind == ir::IRTypeKind::kInvalid ||
+      (target_return.kind == ir::IRTypeKind::kVoid) !=
+          (source_return.kind == ir::IRTypeKind::kVoid)) {
+    diagnostics_.ReportError(link.defined_at, frontends::ErrorCode::kUnsupportedLowering,
+                             "LINK return types have no compatible concrete endpoint ABI");
+    return;
+  }
+
+  auto fn = ir_ctx_.CreateFunction(stub_name, target_return, params);
+  current_function_ = fn;
+  builder_.SetCurrentFunction(fn);
+  auto entry = builder_.CreateBlock("stub.entry");
+  builder_.SetInsertPoint(entry);
+
+  std::vector<std::string> call_args;
+  call_args.reserve(params.size());
+  for (size_t i = 0; i < params.size(); ++i) {
+    if (params[i].second.SameShape(source_param_types[i])) {
+      call_args.push_back(params[i].first);
+      continue;
+    }
+    std::string marshalled =
+        params[i].first + ".marshalled." + std::to_string(generated_name_index_++);
+    if (!GenerateMarshalCode(params[i].first, params[i].second, source_param_types[i], marshalled,
+                             link.defined_at,
+                             "LINK parameter " + std::to_string(i) + " for '" +
+                                 link.target_symbol + "'")) {
+      current_function_ = saved_fn;
+      if (saved_fn)
+        builder_.SetCurrentFunction(saved_fn);
+      else
+        builder_.ClearCurrentFunction();
+      builder_.SetInsertPoint(saved_insert);
+      return;
+    }
+    call_args.push_back(marshalled);
+  }
+
+  std::string source_func = link.source_symbol;
+  std::replace(source_func.begin(), source_func.end(), ':', '_');
+  auto call = builder_.MakeCall(source_func, call_args, source_return, "source.result");
+  if (target_return.kind == ir::IRTypeKind::kVoid) {
+    builder_.MakeReturn();
+  } else if (source_return.SameShape(target_return)) {
+    builder_.MakeReturn(call->name);
+  } else {
+    std::string marshalled_return =
+        "link.return.marshalled." + std::to_string(generated_name_index_++);
+    if (!GenerateMarshalCode(call->name, source_return, target_return, marshalled_return,
+                             link.defined_at, "LINK return for '" + link.target_symbol + "'")) {
+      current_function_ = saved_fn;
+      if (saved_fn)
+        builder_.SetCurrentFunction(saved_fn);
+      else
+        builder_.ClearCurrentFunction();
+      builder_.SetInsertPoint(saved_insert);
+      return;
+    }
+    builder_.MakeReturn(marshalled_return);
+  }
+
+  current_function_ = saved_fn;
+  if (saved_fn)
+    builder_.SetCurrentFunction(saved_fn);
+  else
+    builder_.ClearCurrentFunction();
+  builder_.SetInsertPoint(saved_insert);
 }
 
 // ============================================================================
 // Marshal Code Generation
 // ============================================================================
 
-void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRType &src_type,
-                                       const ir::IRType &dst_type, const std::string &dst_name) {
-  // Determine marshalling strategy based on source and destination types
-  if (src_type.kind == dst_type.kind) {
-    // Same type kind - direct copy (assign instruction or move)
+bool PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRType &src_type,
+                                       const ir::IRType &dst_type, const std::string &dst_name,
+                                       const core::SourceLoc &loc,
+                                       const std::string &context) {
+  if (src_val.empty() || src_type.kind == ir::IRTypeKind::kInvalid ||
+      dst_type.kind == ir::IRTypeKind::kInvalid || src_type.is_placeholder ||
+      dst_type.is_placeholder) {
+    diagnostics_.ReportError(loc, frontends::ErrorCode::kUnsupportedLowering,
+                             context + " has an unresolved source or destination ABI type");
+    return false;
+  }
+
+  auto emit_assign = [&]() {
     auto assign = std::make_shared<ir::AssignInstruction>();
     assign->name = dst_name;
     assign->type = dst_type;
@@ -2600,37 +2957,18 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
     auto bb = builder_.GetInsertPoint();
     if (bb)
       bb->AddInstruction(assign);
-    return;
-  }
+  };
 
-  // Integer to float conversion
-  if (src_type.IsInteger() && dst_type.IsFloat()) {
-    builder_.MakeCast(ir::CastInstruction::CastKind::kBitcast, src_val, dst_type, dst_name);
-    return;
-  }
-
-  // Float to integer conversion
-  if (src_type.IsFloat() && dst_type.IsInteger()) {
-    builder_.MakeCast(ir::CastInstruction::CastKind::kBitcast, src_val, dst_type, dst_name);
-    return;
+  // Identical layouts and integer signedness are a direct copy.
+  if (src_type.SameShape(dst_type)) {
+    emit_assign();
+    return true;
   }
 
   // Integer width conversion
   if (src_type.IsInteger() && dst_type.IsInteger()) {
-    // Determine if widening or narrowing
-    int src_bits = 64, dst_bits = 64;
-    if (src_type.kind == ir::IRTypeKind::kI8)
-      src_bits = 8;
-    else if (src_type.kind == ir::IRTypeKind::kI16)
-      src_bits = 16;
-    else if (src_type.kind == ir::IRTypeKind::kI32)
-      src_bits = 32;
-    if (dst_type.kind == ir::IRTypeKind::kI8)
-      dst_bits = 8;
-    else if (dst_type.kind == ir::IRTypeKind::kI16)
-      dst_bits = 16;
-    else if (dst_type.kind == ir::IRTypeKind::kI32)
-      dst_bits = 32;
+    const int src_bits = src_type.BitWidth();
+    const int dst_bits = dst_type.BitWidth();
 
     if (dst_bits > src_bits) {
       auto cast_kind = src_type.is_signed ? ir::CastInstruction::CastKind::kSExt
@@ -2638,24 +2976,52 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
       builder_.MakeCast(cast_kind, src_val, dst_type, dst_name);
     } else if (dst_bits < src_bits) {
       builder_.MakeCast(ir::CastInstruction::CastKind::kTrunc, src_val, dst_type, dst_name);
+    } else {
+      // Equal-width signedness conversion preserves the bits and changes the
+      // operation-selection metadata used by signed/unsigned comparisons.
+      emit_assign();
     }
-    return;
+    return true;
+  }
+
+  if (src_type.IsFloat() && dst_type.IsFloat()) {
+    const bool widen = src_type.kind == ir::IRTypeKind::kF32 &&
+                       dst_type.kind == ir::IRTypeKind::kF64;
+    const bool narrow = src_type.kind == ir::IRTypeKind::kF64 &&
+                        dst_type.kind == ir::IRTypeKind::kF32;
+    if (widen) {
+      builder_.MakeCast(ir::CastInstruction::CastKind::kFpExt, src_val, dst_type, dst_name);
+      return true;
+    }
+    if (narrow) {
+      builder_.MakeCast(ir::CastInstruction::CastKind::kFpTrunc, src_val, dst_type, dst_name);
+      return true;
+    }
   }
 
   // Pointer-to-pointer: direct bitcast
-  if (src_type.kind == ir::IRTypeKind::kPointer && dst_type.kind == ir::IRTypeKind::kPointer) {
+  const bool src_pointer = src_type.kind == ir::IRTypeKind::kPointer ||
+                           src_type.kind == ir::IRTypeKind::kReference;
+  const bool dst_pointer = dst_type.kind == ir::IRTypeKind::kPointer ||
+                           dst_type.kind == ir::IRTypeKind::kReference;
+  if (src_pointer && dst_pointer) {
     builder_.MakeCast(ir::CastInstruction::CastKind::kBitcast, src_val, dst_type, dst_name);
-    return;
+    return true;
+  }
+  if (src_pointer && dst_type.IsInteger()) {
+    builder_.MakeCast(ir::CastInstruction::CastKind::kPtrToInt, src_val, dst_type, dst_name);
+    return true;
+  }
+  if (src_type.IsInteger() && dst_pointer) {
+    builder_.MakeCast(ir::CastInstruction::CastKind::kIntToPtr, src_val, dst_type, dst_name);
+    return true;
   }
 
-  // Default: attempt direct use (the linker will validate)
-  auto assign = std::make_shared<ir::AssignInstruction>();
-  assign->name = dst_name;
-  assign->type = dst_type;
-  assign->operands.push_back(src_val);
-  auto bb = builder_.GetInsertPoint();
-  if (bb)
-    bb->AddInstruction(assign);
+  diagnostics_.ReportError(
+      loc, frontends::ErrorCode::kUnsupportedLowering,
+      context + " cannot marshal '" + src_type.name + "' to '" + dst_type.name +
+          "' because the IR has no semantics-preserving conversion operation");
+  return false;
 }
 
 // ============================================================================
@@ -2663,37 +3029,56 @@ void PloyLowering::GenerateMarshalCode(const std::string &src_val, const ir::IRT
 // ============================================================================
 
 ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node) {
-  if (!type_node)
-    return ir::IRType::I64(true);
+  if (!type_node) {
+    diagnostics_.ReportError(core::SourceLoc{}, frontends::ErrorCode::kUnsupportedLowering,
+                             "missing Poly type reached IR lowering");
+    return ir::IRType::Invalid();
+  }
 
   if (auto st = std::dynamic_pointer_cast<SimpleType>(type_node)) {
     // Support both upper-case Poly keywords and lower-case C-style aliases
-    if (st->name == "INT" || st->name == "i32" || st->name == "i64" || st->name == "int" ||
-        st->name == "int32" || st->name == "int64")
+    if (st->name == "INT" || st->name == "I64" || st->name == "ISIZE" ||
+        st->name == "i64" || st->name == "int" || st->name == "int64")
       return ir::IRType::I64(true);
-    if (st->name == "FLOAT" || st->name == "f32" || st->name == "f64" || st->name == "float" ||
-        st->name == "float32" || st->name == "float64" || st->name == "double")
+    if (st->name == "I8" || st->name == "i8")
+      return ir::IRType::I8(true);
+    if (st->name == "I16" || st->name == "i16")
+      return ir::IRType::I16(true);
+    if (st->name == "I32" || st->name == "i32" || st->name == "int32")
+      return ir::IRType::I32(true);
+    if (st->name == "FLOAT" || st->name == "F64" || st->name == "f64" ||
+        st->name == "float" || st->name == "float64" || st->name == "double")
       return ir::IRType::F64();
+    if (st->name == "F32" || st->name == "f32" || st->name == "float32")
+      return ir::IRType::F32();
     if (st->name == "BOOL" || st->name == "bool")
       return ir::IRType::I1();
     if (st->name == "STRING" || st->name == "string" || st->name == "str")
       return ir::IRType::Pointer(ir::IRType::I8());
     if (st->name == "VOID" || st->name == "void")
       return ir::IRType::Void();
-    if (st->name == "u8" || st->name == "byte")
-      return ir::IRType::I8();
-    if (st->name == "u32" || st->name == "u64")
+    if (st->name == "PTR" || st->name == "ptr" || st->name == "pointer")
+      return ir::IRType::Pointer(ir::IRType::I8());
+    if (st->name == "U8" || st->name == "u8" || st->name == "byte")
+      return ir::IRType::I8(false);
+    if (st->name == "U16" || st->name == "u16")
+      return ir::IRType::I16(false);
+    if (st->name == "U32" || st->name == "u32")
+      return ir::IRType::I32(false);
+    if (st->name == "U64" || st->name == "USIZE" || st->name == "u64")
       return ir::IRType::I64(false);
+    auto alias = sema_.TypeAliases().find(st->name);
+    if (alias != sema_.TypeAliases().end())
+      return CoreTypeToIR(alias->second);
     // Check if it is a known struct name in the environment
     auto it = env_.find(st->name);
     if (it != env_.end() && it->second.type.kind == ir::IRTypeKind::kStruct) {
       return it->second.type;
     }
-    // Unknown type name - log a diagnostic and fall back to I64
-    diagnostics_.ReportWarning(core::SourceLoc{}, frontends::ErrorCode::kGenericWarning,
-                               "unknown type '" + st->name +
-                                   "' in Poly type lowering; falling back to i64");
-    return ir::IRType::I64(true);
+    diagnostics_.ReportError(type_node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "type '" + st->name +
+                                 "' has no concrete Poly IR layout at this lowering boundary");
+    return ir::IRType::Invalid();
   }
 
   if (auto pt = std::dynamic_pointer_cast<ParameterizedType>(type_node)) {
@@ -2722,6 +3107,10 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
       ir::IRType inner = PloyTypeToIR(pt->type_args[0]);
       return ir::IRType::Struct("option", {ir::IRType::I1(), inner});
     }
+    diagnostics_.ReportError(type_node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "parameterized type '" + pt->name +
+                                 "' has no concrete Poly IR representation");
+    return ir::IRType::Invalid();
   }
 
   if (auto qt = std::dynamic_pointer_cast<QualifiedType>(type_node)) {
@@ -2729,17 +3118,58 @@ ir::IRType PloyLowering::PloyTypeToIR(const std::shared_ptr<TypeNode> &type_node
     return CoreTypeToIR(ct);
   }
 
-  diagnostics_.ReportWarning(core::SourceLoc{}, frontends::ErrorCode::kGenericWarning,
-                             "unrecognized type node in Poly type lowering; falling back to i64");
-  return ir::IRType::I64(true);
+  if (std::dynamic_pointer_cast<HandleType>(type_node))
+    return ir::IRType::Pointer(ir::IRType::I8());
+
+  if (auto fn = std::dynamic_pointer_cast<FunctionType>(type_node)) {
+    std::vector<ir::IRType> params;
+    params.reserve(fn->param_types.size());
+    for (const auto &param : fn->param_types) {
+      ir::IRType lowered = PloyTypeToIR(param);
+      if (lowered.kind == ir::IRTypeKind::kInvalid)
+        return lowered;
+      params.push_back(lowered);
+    }
+    ir::IRType result = fn->return_type ? PloyTypeToIR(fn->return_type) : ir::IRType::Void();
+    if (result.kind == ir::IRTypeKind::kInvalid)
+      return result;
+    return ir::IRType::Pointer(ir::IRType::Function(result, params));
+  }
+
+  diagnostics_.ReportError(type_node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unrecognized Poly type node has no IR representation");
+  return ir::IRType::Invalid();
 }
 
 ir::IRType PloyLowering::CoreTypeToIR(const core::Type &ct) {
   switch (ct.kind) {
   case core::TypeKind::kInt:
-    return ir::IRType::I64(true);
+    switch (ct.bit_width) {
+    case 0:
+      return ir::IRType::I64(ct.is_signed);
+    case 8:
+      return ir::IRType::I8(ct.is_signed);
+    case 16:
+      return ir::IRType::I16(ct.is_signed);
+    case 32:
+      return ir::IRType::I32(ct.is_signed);
+    case 64:
+      return ir::IRType::I64(ct.is_signed);
+    default:
+      diagnostics_.ReportError(core::SourceLoc{}, frontends::ErrorCode::kUnsupportedLowering,
+                               "integer width " + std::to_string(ct.bit_width) +
+                                   " is not represented by Poly IR");
+      return ir::IRType::Invalid();
+    }
   case core::TypeKind::kFloat:
-    return ir::IRType::F64();
+    if (ct.bit_width == 0 || ct.bit_width == 64)
+      return ir::IRType::F64();
+    if (ct.bit_width == 32)
+      return ir::IRType::F32();
+    diagnostics_.ReportError(core::SourceLoc{}, frontends::ErrorCode::kUnsupportedLowering,
+                             "floating-point width " + std::to_string(ct.bit_width) +
+                                 " is not represented by Poly IR");
+    return ir::IRType::Invalid();
   case core::TypeKind::kBool:
     return ir::IRType::I1();
   case core::TypeKind::kVoid:
@@ -2988,56 +3418,17 @@ PloyLowering::LowerAwaitExpression(const std::shared_ptr<AwaitExpression> &await
   return {result, ir::IRType::Pointer(ir::IRType::I8(true))};
 }
 
-// Postfix `?` short-circuit unwrap of an `OPTION<T>` operand
-// (since v1.19.0).
-//
-// Lowering shape (matching the `IF LET` pattern's MVP scrutinee
-// truthiness dispatch):
-//
-//     %v   = <operand>
-//     %c   = truthy(%v)              ; i1
-//     condbr %c, unwrap.cont, unwrap.none
-//   unwrap.none:
-//     ret  0                         ; or `ret void` when the
-//                                    ; enclosing FUNC returns void
-//   unwrap.cont:
-//     ; result == %v
-//
-// The result value of the expression is the operand value itself; the
-// runtime OPTION<T> tag will be teased apart by the dedicated OPTION
-// lowering work track once it lands.
+// Postfix `?` needs a stable OPTION tag/payload representation and an exact
+// early-return value. Treating the aggregate as a scalar truth value and
+// returning the whole aggregate as its payload is not a compatibility mode.
 PloyLowering::EvalResult
 PloyLowering::LowerOptionUnwrapExpression(
     const std::shared_ptr<OptionUnwrapExpression> &unwrap) {
-  if (!unwrap || !unwrap->operand) {
-    return {"", ir::IRType::Invalid()};
-  }
-  EvalResult operand = LowerExpression(unwrap->operand);
-  std::string cond_i1 = EnsureI1(operand);
-
-  auto none_bb = builder_.CreateBlock("unwrap.none");
-  auto cont_bb = builder_.CreateBlock("unwrap.cont");
-
-  builder_.MakeCondBranch(cond_i1, cont_bb.get(), none_bb.get());
-
-  // None branch: synthesise an early return matching the enclosing
-  // function's declared return type.  Void / Invalid emit a bare
-  // `ret`; every other type uses `0` which is the canonical zero
-  // for the i64-collapsed OPTION layout used everywhere else in
-  // this lowering.
-  builder_.SetInsertPoint(none_bb);
-  bool void_return = !current_function_ ||
-                     current_function_->ret_type.kind == ir::IRTypeKind::kVoid ||
-                     current_function_->ret_type.kind == ir::IRTypeKind::kInvalid;
-  if (void_return) {
-    builder_.MakeReturn();
-  } else {
-    builder_.MakeReturn("0");
-  }
-
-  // Continue with the unwrapped value in the success block.
-  builder_.SetInsertPoint(cont_bb);
-  return operand;
+  diagnostics_.ReportError(
+      unwrap ? unwrap->loc : core::SourceLoc{}, frontends::ErrorCode::kUnsupportedLowering,
+      "postfix '?' requires OPTION tag/payload extraction that the Poly IR ABI does not yet "
+      "represent");
+  return {"", ir::IRType::Invalid()};
 }
 
 } // namespace polyglot::ploy

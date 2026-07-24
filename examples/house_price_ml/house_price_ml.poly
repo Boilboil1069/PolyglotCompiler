@@ -1,0 +1,113 @@
+// Cross-language ordinary least-squares training owned by one Poly entry.
+// The whole executable is built by PolyglotCompiler's built-in frontends.
+
+IMPORT python::data_generator;
+IMPORT cpp::sufficient_statistics;
+IMPORT rust::linear_regression;
+IMPORT go::model_service;
+
+FUNC feature_for(row: INT) -> INT {
+    RETURN CALL(python, data_generator::generate_feature, row, 1, 1);
+}
+
+FUNC target_for(row: INT, feature: INT) -> INT {
+    LET noise = CALL(python, data_generator::generate_noise, row, 1, 4);
+    RETURN CALL(python, data_generator::generate_target, feature, noise, 3);
+}
+
+FUNC square_for(value: INT) -> INT {
+    RETURN CALL(cpp, sufficient_statistics::stat_square, value, 1, 0);
+}
+
+FUNC cross_for(feature: INT, target: INT) -> INT {
+    RETURN CALL(cpp, sufficient_statistics::stat_cross_product, feature, target, 1);
+}
+
+FUNC predict_for(slope: INT, intercept: INT, feature: INT) -> INT {
+    RETURN CALL(go, model_service::model_predict, slope, intercept, feature);
+}
+
+FUNC error_for(prediction: INT, target: INT) -> INT {
+    RETURN CALL(go, model_service::model_absolute_error, prediction, target, 0);
+}
+
+FUNC main() -> INT {
+    // Python generates eight training samples at runtime.
+    LET x0 = feature_for(0);
+    LET y0 = target_for(0, x0);
+    LET x1 = feature_for(1);
+    LET y1 = target_for(1, x1);
+    LET x2 = feature_for(2);
+    LET y2 = target_for(2, x2);
+    LET x3 = feature_for(3);
+    LET y3 = target_for(3, x3);
+    LET x4 = feature_for(4);
+    LET y4 = target_for(4, x4);
+    LET x5 = feature_for(5);
+    LET y5 = target_for(5, x5);
+    LET x6 = feature_for(6);
+    LET y6 = target_for(6, x6);
+    LET x7 = feature_for(7);
+    LET y7 = target_for(7, x7);
+
+    // C++ calculates the sufficient statistics used by OLS.
+    LET sum_x = x0 + x1 + x2 + x3 + x4 + x5 + x6 + x7;
+    LET sum_y = y0 + y1 + y2 + y3 + y4 + y5 + y6 + y7;
+    LET sum_x2 = square_for(x0) + square_for(x1) + square_for(x2) + square_for(x3)
+        + square_for(x4) + square_for(x5) + square_for(x6) + square_for(x7);
+    LET sum_xy = cross_for(x0, y0) + cross_for(x1, y1) + cross_for(x2, y2)
+        + cross_for(x3, y3) + cross_for(x4, y4) + cross_for(x5, y5)
+        + cross_for(x6, y6) + cross_for(x7, y7);
+
+    // Rust fits y = slope * x + intercept with the closed-form OLS solution.
+    LET numerator = CALL(
+        rust, linear_regression::ols_numerator, 8, sum_xy, sum_x * sum_y
+    );
+    LET denominator = CALL(
+        rust, linear_regression::ols_denominator, 8, sum_x2, sum_x
+    );
+    LET slope = CALL(
+        rust, linear_regression::fit_slope, numerator, denominator, 0
+    );
+    LET intercept = CALL(
+        rust, linear_regression::fit_intercept, sum_y, slope * sum_x, 8
+    );
+
+    // Python generates four unseen rows; Go serves predictions and evaluates MAE.
+    LET x8 = feature_for(8);
+    LET y8 = target_for(8, x8);
+    LET x9 = feature_for(9);
+    LET y9 = target_for(9, x9);
+    LET x10 = feature_for(10);
+    LET y10 = target_for(10, x10);
+    LET x11 = feature_for(11);
+    LET y11 = target_for(11, x11);
+
+    LET p8 = predict_for(slope, intercept, x8);
+    LET p9 = predict_for(slope, intercept, x9);
+    LET p10 = predict_for(slope, intercept, x10);
+    LET p11 = predict_for(slope, intercept, x11);
+    LET total_error = error_for(p8, y8) + error_for(p9, y9)
+        + error_for(p10, y10) + error_for(p11, y11);
+    LET mae = CALL(go, model_service::model_mean_absolute_error, total_error, 4, 0);
+
+    // These checks prove that data generation, training, and holdout evaluation ran.
+    IF numerator != 1008 {
+        RETURN 201;
+    }
+    IF denominator != 336 {
+        RETURN 202;
+    }
+    IF slope != 3 {
+        RETURN 203;
+    }
+    IF intercept != 7 {
+        RETURN 204;
+    }
+    IF mae != 1 {
+        RETURN 205;
+    }
+
+    // Dynamic audit: 3 * 40 + 7 * 3 + 1 = 142.
+    RETURN slope * 40 + intercept * 3 + mae;
+}

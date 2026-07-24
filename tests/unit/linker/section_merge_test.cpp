@@ -23,6 +23,7 @@
 #include "tools/polyld/include/linker.h"
 
 using polyglot::backends::COFFBuilder;
+using polyglot::backends::MachOBuilder;
 using polyglot::backends::Section;
 using polyglot::backends::Symbol;
 using polyglot::linker::Linker;
@@ -76,6 +77,103 @@ std::string EmitSyntheticCoffObject() {
           static_cast<std::streamsize>(obj.size()));
   REQUIRE(f.good());
   f.close();
+  return path;
+}
+
+// Build a Mach-O object containing a real x86-64 `jmp rel32` relocation.
+// The target can be either a defined local label (the regression case) or
+// an undefined global symbol (the hard-failure case).
+std::string EmitSyntheticMachOBranchObject(bool define_local_target) {
+  MachOBuilder builder(/*is_arm64=*/false);
+
+  Section text;
+  text.name = ".text";
+  text.data = {
+      0xE9, 0x00, 0x00, 0x00, 0x00, // jmp rel32
+      0xCC, 0xCC, 0xCC,             // bytes skipped by the branch
+      0xC3                            // local_target: ret
+  };
+
+  polyglot::backends::Relocation branch;
+  branch.offset = 1; // Four-byte displacement field after the E9 opcode.
+  branch.symbol = define_local_target ? "local_target" : "missing_target";
+  branch.type = 1; // MachOBuilder's generic PC-relative branch encoding.
+  branch.addend = 0;
+  text.relocations.push_back(branch);
+  builder.AddSection(text);
+
+  Symbol entry;
+  entry.name = "macho_entry";
+  entry.section = ".text";
+  entry.offset = 0;
+  entry.size = text.data.size();
+  entry.is_global = true;
+  entry.is_function = true;
+  builder.AddSymbol(entry);
+
+  Symbol target;
+  target.name = define_local_target ? "local_target" : "missing_target";
+  target.section = define_local_target ? ".text" : "";
+  target.offset = define_local_target ? 8 : 0;
+  target.size = define_local_target ? 1 : 0;
+  target.is_global = !define_local_target;
+  target.is_function = true;
+  builder.AddSymbol(target);
+
+  std::vector<std::uint8_t> object = builder.Build();
+  REQUIRE(!object.empty());
+
+  static int counter = 0;
+  const std::string path =
+      "polyld_local_branch_" + std::to_string(++counter) + ".o";
+  std::ofstream file(path, std::ios::binary);
+  REQUIRE(file.good());
+  file.write(reinterpret_cast<const char *>(object.data()),
+             static_cast<std::streamsize>(object.size()));
+  REQUIRE(file.good());
+  file.close();
+  return path;
+}
+
+// Emit an earlier contribution with the same local-label spelling.  This
+// ensures the branch regression also proves object scoping and contribution
+// offset handling, rather than succeeding accidentally at output offset zero.
+std::string EmitSyntheticMachOPrefixObject() {
+  MachOBuilder builder(/*is_arm64=*/false);
+
+  Section text;
+  text.name = ".text";
+  text.data.assign(16, 0x90);
+  builder.AddSection(text);
+
+  Symbol entry;
+  entry.name = "prefix_entry";
+  entry.section = ".text";
+  entry.offset = 0;
+  entry.size = text.data.size();
+  entry.is_global = true;
+  entry.is_function = true;
+  builder.AddSymbol(entry);
+
+  Symbol same_named_local;
+  same_named_local.name = "local_target";
+  same_named_local.section = ".text";
+  same_named_local.offset = 0;
+  same_named_local.size = 1;
+  same_named_local.is_global = false;
+  same_named_local.is_function = true;
+  builder.AddSymbol(same_named_local);
+
+  const std::vector<std::uint8_t> object = builder.Build();
+  REQUIRE(!object.empty());
+
+  const std::string path = "polyld_local_branch_prefix.o";
+  std::ofstream file(path, std::ios::binary);
+  REQUIRE(file.good());
+  file.write(reinterpret_cast<const char *>(object.data()),
+             static_cast<std::streamsize>(object.size()));
+  REQUIRE(file.good());
+  file.close();
   return path;
 }
 
@@ -205,4 +303,92 @@ TEST_CASE("Linker concatenates .text from multiple COFF inputs",
 
   std::remove(a_path.c_str());
   std::remove(b_path.c_str());
+}
+
+TEST_CASE("Linker applies a Mach-O branch relocation to a same-object local symbol",
+          "[linker][relocation][macho][local-symbol]") {
+  const std::string prefix_path = EmitSyntheticMachOPrefixObject();
+  const std::string object_path = EmitSyntheticMachOBranchObject(true);
+
+  LinkerConfig config;
+  config.input_files = {prefix_path, object_path};
+  config.output_file = object_path + ".out";
+  config.output_format = OutputFormat::kExecutable;
+  config.target_arch = TargetArch::kX86_64;
+
+  Linker linker(config);
+  REQUIRE(linker.LoadObjectFiles());
+  REQUIRE(linker.ResolveSymbols());
+
+  // Local labels must remain object-scoped instead of polluting the global
+  // table, even though relocations still need to resolve them.
+  REQUIRE(linker.LookupSymbol("_local_target") == nullptr);
+
+  REQUIRE(linker.LayoutSections());
+  REQUIRE(linker.ApplyRelocations());
+  REQUIRE(linker.GetStats().relocations_processed == 1);
+
+  bool text_seen = false;
+  for (const auto &section : linker.GetOutputSections()) {
+    if (section.name != "__text") {
+      continue;
+    }
+    text_seen = true;
+    std::uint64_t branch_contribution = 0;
+    bool branch_contribution_seen = false;
+    for (const auto &contribution : section.contributions) {
+      if (contribution.object_index == 1) {
+        branch_contribution = contribution.output_offset;
+        branch_contribution_seen = true;
+        break;
+      }
+    }
+    REQUIRE(branch_contribution_seen);
+    REQUIRE(branch_contribution > 0);
+    REQUIRE(section.data.size() >= branch_contribution + 9);
+    // target(8) - next_instruction(5) = +3.  A zero displacement is the
+    // original bug and would branch to the first skipped byte instead.  The
+    // earlier contribution also ensures an address computed without this
+    // object's output offset cannot pass.
+    REQUIRE(section.data[branch_contribution + 1] == 0x03);
+    REQUIRE(section.data[branch_contribution + 2] == 0x00);
+    REQUIRE(section.data[branch_contribution + 3] == 0x00);
+    REQUIRE(section.data[branch_contribution + 4] == 0x00);
+  }
+  REQUIRE(text_seen);
+
+  std::remove(prefix_path.c_str());
+  std::remove(object_path.c_str());
+}
+
+TEST_CASE("Linker rejects an unresolved relocation instead of writing zero",
+          "[linker][relocation][unresolved]") {
+  const std::string object_path = EmitSyntheticMachOBranchObject(false);
+
+  LinkerConfig config;
+  config.input_files = {object_path};
+  config.output_file = object_path + ".out";
+  config.output_format = OutputFormat::kExecutable;
+  config.target_arch = TargetArch::kX86_64;
+
+  Linker linker(config);
+  REQUIRE(linker.LoadObjectFiles());
+  // Undefined symbols are warnings at this stage unless no_undefined is set;
+  // relocation application must nevertheless refuse to encode address zero.
+  REQUIRE(linker.ResolveSymbols());
+  REQUIRE(linker.LayoutSections());
+  REQUIRE_FALSE(linker.ApplyRelocations());
+  REQUIRE(linker.GetStats().relocations_processed == 0);
+
+  bool diagnostic_seen = false;
+  for (const std::string &error : linker.GetErrors()) {
+    if (error.find("Unresolved symbol in relocation: _missing_target") !=
+        std::string::npos) {
+      diagnostic_seen = true;
+      break;
+    }
+  }
+  REQUIRE(diagnostic_seen);
+
+  std::remove(object_path.c_str());
 }

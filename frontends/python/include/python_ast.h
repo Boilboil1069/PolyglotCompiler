@@ -34,6 +34,7 @@ struct Parameter {
   std::string name;
   std::shared_ptr<Expression> annotation;
   std::shared_ptr<Expression> default_value;
+  bool is_posonly{false};
   bool is_vararg{false};
   bool is_kwarg{false};
   bool is_kwonly{false};
@@ -75,6 +76,11 @@ struct DictExpression : Expression {
 struct UnaryExpression : Expression {
   std::string op;
   std::shared_ptr<Expression> operand;
+};
+
+/** @brief Starred expression retained where modern typing grammar permits it. */
+struct StarredExpression : Expression {
+  std::shared_ptr<Expression> value;
 };
 
 /** @brief BinaryExpression data structure. */
@@ -228,6 +234,7 @@ struct ExceptHandler {
   std::shared_ptr<Expression> type;
   std::string name;
   std::vector<std::shared_ptr<Statement>> body;
+  bool is_exception_group{false}; // except* (PEP 654)
 };
 
 /** @brief TryStatement data structure. */
@@ -280,9 +287,27 @@ struct ImportStatement : Statement {
   std::vector<Alias> names;
 };
 
+/** @brief PEP 695/696 generic type parameter. */
+struct TypeParameter : AstNode {
+  /** @brief The three parameter forms introduced by PEP 695. */
+  enum class Kind { kTypeVar, kTypeVarTuple, kParamSpec };
+  Kind kind{Kind::kTypeVar};
+  std::string name;
+  std::shared_ptr<Expression> bound;
+  std::shared_ptr<Expression> default_value; // Python 3.13 / PEP 696
+};
+
+/** @brief PEP 695 type alias declaration (`type Name[T] = Value`). */
+struct TypeAlias : Statement {
+  std::string name;
+  std::vector<TypeParameter> type_parameters;
+  std::shared_ptr<Expression> value;
+};
+
 /** @brief FunctionDef data structure. */
 struct FunctionDef : Statement {
   std::string name;
+  std::vector<TypeParameter> type_parameters;
   std::vector<Parameter> params;
   std::shared_ptr<Expression> return_annotation;
   std::vector<std::shared_ptr<Statement>> body;
@@ -293,6 +318,7 @@ struct FunctionDef : Statement {
 /** @brief ClassDef data structure. */
 struct ClassDef : Statement {
   std::string name;
+  std::vector<TypeParameter> type_parameters;
   std::vector<std::shared_ptr<Expression>> bases;
   std::vector<CallArg> keywords;
   std::vector<std::shared_ptr<Statement>> body;
@@ -402,6 +428,13 @@ struct FormattedString : Expression {
   };
   std::vector<Part> parts;
 };
+
+/** @brief Python 3.14 template string (PEP 750).
+ *
+ * Template strings share f-string lexical segmentation but evaluate to a
+ * Template object rather than eagerly concatenating to str.
+ */
+struct TemplateString : FormattedString {};
 
 /** @brief WalrusExpression data structure. */
 struct WalrusExpression : Expression {

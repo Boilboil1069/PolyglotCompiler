@@ -121,6 +121,11 @@ struct StaticCastExpression : Expression {
 struct InitializerListExpression : Expression {
   std::vector<std::shared_ptr<Expression>> elements;
 };
+/** @brief A C++20 designated initializer element (`.member = value`). */
+struct DesignatedInitializerExpression : Expression {
+  std::string member;
+  std::shared_ptr<Expression> value;
+};
 /** @brief FoldExpression data structure. */
 struct FoldExpression : Expression {
   std::string op;
@@ -179,6 +184,12 @@ struct VarDecl : Statement {
   std::string access;
   std::vector<Attribute> attributes;
   std::shared_ptr<Expression> init;
+  // Direct-initialization (`Type value(arg1, arg2)`) is distinct from an
+  // assignment initializer.  Keeping the arguments on the declaration lets
+  // semantic analysis resolve a constructor and lets lowering pass the
+  // address of the stack object as the implicit `this` argument.
+  bool has_direct_init{false};
+  std::vector<std::shared_ptr<Expression>> direct_init_args;
 };
 /** @brief ExprStatement data structure. */
 struct ExprStatement : Statement {
@@ -191,10 +202,17 @@ struct ReturnStatement : Statement {
 };
 /** @brief IfStatement data structure. */
 struct IfStatement : Statement {
+  // C++17 init-statement, scoped to both branches and the condition.
+  std::shared_ptr<Statement> init;
   std::shared_ptr<Expression> condition;
   std::vector<std::shared_ptr<Statement>> then_body;
   std::vector<std::shared_ptr<Statement>> else_body;
   bool is_constexpr{false};
+  // C++23 immediate-function branch: `if consteval` / `if !consteval`.
+  // This has no runtime condition expression and must remain distinct from
+  // `if constexpr`, whose condition is an ordinary constant expression.
+  bool is_consteval{false};
+  bool is_negated_consteval{false};
 };
 /** @brief WhileStatement data structure. */
 struct WhileStatement : Statement {
@@ -270,6 +288,10 @@ struct FunctionDecl : Statement {
     std::string name;
     std::shared_ptr<TypeNode> type;
     std::shared_ptr<Expression> default_value;
+    // C++23 explicit object parameter (`this T&& self`).  Keeping this
+    // distinct from an ordinary first parameter prevents lowering from
+    // silently manufacturing a second, implicit `this` argument.
+    bool is_explicit_object{false};
   };
   std::shared_ptr<TypeNode> return_type;
   std::string name;
@@ -290,6 +312,9 @@ struct FunctionDecl : Statement {
   bool is_const_qualified{false};
   bool is_friend{false};
   bool is_export{false};
+  bool has_body{false};
+  bool is_coroutine{false};
+  bool has_explicit_object_parameter{false};
   std::string operator_symbol;
   std::string access;
   std::vector<Attribute> attributes;

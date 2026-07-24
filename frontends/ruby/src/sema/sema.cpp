@@ -77,6 +77,7 @@ private:
       for (auto &w : cs->whens) {
         for (auto &t : w.tests)
           VisitExpr(t);
+        VisitExpr(w.guard);
         Visit(w.body);
       }
       Visit(cs->else_branch);

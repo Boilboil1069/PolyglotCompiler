@@ -668,48 +668,56 @@ std::string Preprocessor::ProcessInternal(const std::string &source, const std::
           is_angle = true;
         }
 
-        auto resolved = ResolveInclude(target, current_dir, is_angle);
-        if (!resolved) {
-          diagnostics_.Report(core::SourceLoc{file, line_no, 1},
-                              "Failed to resolve include: " + target);
-          ++line_no;
-          continue;
-        }
-        auto contents = ReadFile(*resolved);
-        if (!contents) {
-          diagnostics_.Report(core::SourceLoc{file, line_no, 1},
-                              "Failed to read include: " + *resolved);
-          ++line_no;
-          continue;
-        }
-
-        // include guard / pragma once detection
-        bool skip_body = false;
-        auto guard = DetectIncludeGuard(*contents);
-        if (guard && guard->empty()) {
-          // pragma once
-          if (pragma_once_files_.count(*resolved)) {
-            skip_body = true;
-          } else {
-            pragma_once_files_.insert(*resolved);
+        if (is_angle && angle_includes_external_) {
+          // A signature-only C++ scan must not ingest the implementation
+          // details of libc++/libstdc++ as declarations belonging to the user
+          // module.  Preserve a line marker as a comment while continuing to
+          // process macros and conditionals declared in the current file.
+          output += "// external system include <" + target + ">\n";
+        } else {
+          auto resolved = ResolveInclude(target, current_dir, is_angle);
+          if (!resolved) {
+            diagnostics_.Report(core::SourceLoc{file, line_no, 1},
+                                "Failed to resolve include: " + target);
+            ++line_no;
+            continue;
           }
-        } else if (guard && !guard->empty()) {
-          if (macros_.count(*guard)) {
-            skip_body = true;
-          } else {
-            Define(*guard, "1");
-            guard_to_file_[*guard] = *resolved;
+          auto contents = ReadFile(*resolved);
+          if (!contents) {
+            diagnostics_.Report(core::SourceLoc{file, line_no, 1},
+                                "Failed to read include: " + *resolved);
+            ++line_no;
+            continue;
           }
-        }
-        if (skip_body) {
-          ++line_no;
-          continue;
-        }
 
-        // line/file bookkeeping
-        output += "#line 1 \"" + *resolved + "\"\n";
-        output += ProcessInternal(*contents, *resolved, depth + 1);
-        output += "\n#line " + std::to_string(line_no + 1) + " \"" + file + "\"\n";
+          // include guard / pragma once detection
+          bool skip_body = false;
+          auto guard = DetectIncludeGuard(*contents);
+          if (guard && guard->empty()) {
+            // pragma once
+            if (pragma_once_files_.count(*resolved)) {
+              skip_body = true;
+            } else {
+              pragma_once_files_.insert(*resolved);
+            }
+          } else if (guard && !guard->empty()) {
+            if (macros_.count(*guard)) {
+              skip_body = true;
+            } else {
+              Define(*guard, "1");
+              guard_to_file_[*guard] = *resolved;
+            }
+          }
+          if (skip_body) {
+            ++line_no;
+            continue;
+          }
+
+          // line/file bookkeeping
+          output += "#line 1 \"" + *resolved + "\"\n";
+          output += ProcessInternal(*contents, *resolved, depth + 1);
+          output += "\n#line " + std::to_string(line_no + 1) + " \"" + file + "\"\n";
+        }
       } else if (directive == "ifdef" || directive == "ifndef") {
         std::string name;
         line_stream >> name;

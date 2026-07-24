@@ -175,30 +175,31 @@ DriverSettings ParseArgs(int argc, char **argv) {
           << "\n"
           << "Language version selection:\n"
           << "  --std=<dialect>           C++ dialect: c++17|c++20|c++23|c++26 (alias: -std=)\n"
-          << "  --python-version=<v>      Python: 3.8|3.10|3.11|3.12|3.13\n"
-          << "  --java-release=<n>        Java release: 8|11|17|21|23\n"
-          << "  --cs-lang=<v>             C# language: 7.3|8|9|10|11|12\n"
-          << "  --target-framework=<tfm>  .NET target: net6|net7|net8|net9\n"
+          << "  --python-version=<v>      Python: 3.6 through 3.14 (plus 2.7)\n"
+          << "  --java-release=<n>        Java release: 8 through 26\n"
+          << "  --cs-lang=<v>             C# language: 7.3|8|9|10|11|12|13|14|preview\n"
+          << "  --target-framework=<tfm>  .NET target: net6|net7|net8|net9|net10\n"
           << "  --rust-edition=<y>        Rust edition: 2015|2018|2021|2024\n"
-          << "  --go-version=<v>          Go release: 1.18|1.20|1.21|1.22|1.23\n"
-          << "  --ecma=<v>                ECMAScript: es2017|es2020|es2022|es2023|esnext\n"
-          << "  --ruby-version=<v>        Ruby: 2.7|3.0|3.2|3.3\n"
-          << "  --list-language-versions  Print the supported version matrix and exit\n"
+          << "  --go-version=<v>          Go release: 1.18 through 1.26\n"
+          << "  --ecma=<v>                ECMAScript: es2015 through es2026, es5, esnext\n"
+          << "  --ruby-version=<v>        Ruby: 2.7|3.0|3.1|3.2|3.3|3.4|4.0\n"
+          << "  --list-language-versions  Print recognised version selectors and exit\n"
           << "\n"
           << "Source can be a file path or inline code.\n";
       std::exit(0);
     }
     if (arg == "--list-language-versions") {
-      std::cout << "polyc supported language/version matrix:\n"
+      std::cout << "polyc recognised language/version selectors:\n"
                 << "  cpp        : c++98 c++03 c++11 c++14 c++17 c++20 c++23 c++26\n"
-                << "  python     : 2.7 3.6 3.8 3.10 3.11 3.12 3.13\n"
-                << "  java       : 8 11 17 21 23\n"
-                << "  dotnet/cs  : 7.3 8 9 10 11 12  (target: net6 net7 net8 net9)\n"
+                << "  python     : 2.7 3.6 3.7 3.8 3.9 3.10 3.11 3.12 3.13 3.14\n"
+                << "  java       : 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26\n"
+                << "  dotnet/cs  : 7.3 8 9 10 11 12 13 14 preview  (target: net6 net7 net8 net9 net10)\n"
                 << "  rust       : 2015 2018 2021 2024 (editions)\n"
-                << "  go         : 1.18 1.20 1.21 1.22 1.23\n"
-                << "  javascript : es5 es2015 es2017 es2020 es2022 es2023 esnext\n"
-                << "  ruby       : 1.9 2.7 3.0 3.2 3.3\n"
-                << "Use `auto` (or omit the flag) to enable per-language inference.\n";
+                << "  go         : 1.18 1.19 1.20 1.21 1.22 1.23 1.24 1.25 1.26\n"
+                << "  javascript : es5 es2015 es2016 es2017 es2018 es2019 es2020 es2021 es2022 es2023 es2024 es2025 es2026 esnext\n"
+                << "  ruby       : 1.9 2.7 3.0 3.1 3.2 3.3 3.4 4.0\n"
+                << "A selector controls syntax analysis; individual lowering capabilities are\n"
+                << "reported explicitly by the selected frontend.\n";
       std::exit(0);
     }
     if (arg.rfind("--lang=", 0) == 0) {
@@ -564,10 +565,10 @@ DriverSettings ParseArgs(int argc, char **argv) {
       continue;
     }
     // Language version selection.
-    // Each flag accepts the canonical token plus common aliases; "auto" keeps
-    // per-language inference. Unknown values fall through to a non-fatal
-    // warning so the build can continue with the conservative default.
-    auto parse_version_flag = [&s](std::string_view long_form, std::string_view alias_form,
+    // Each flag accepts the canonical token plus common aliases.  An explicit
+    // but unknown version is a usage error: silently analysing with a different
+    // dialect is unsafe and can change both syntax and ABI interpretation.
+    auto parse_version_flag = [](std::string_view long_form, std::string_view alias_form,
                                    const std::string &arg_in, auto setter) -> int {
       const std::string lf = std::string(long_form) + "=";
       const std::string af = std::string(alias_form) + "=";
@@ -576,8 +577,8 @@ DriverSettings ParseArgs(int argc, char **argv) {
       else if (!alias_form.empty() && arg_in.rfind(af, 0) == 0) val = arg_in.substr(af.size());
       else return 0;
       if (!setter(val)) {
-        std::cerr << "[warn] unrecognised " << long_form << " value '" << val
-                  << "', falling back to language default\n";
+        std::cerr << "[error] unrecognised " << long_form << " value '" << val << "'\n";
+        std::exit(2);
       }
       return 1;
     };
@@ -871,21 +872,87 @@ int main(int argc, char **argv) {
     if (arg == "--check" || arg.rfind("--check=", 0) == 0) {
       std::string check_path;
       if (arg == "--check") {
-        if (i + 1 >= argc) {
-          std::cerr << "[polyc] --check requires a file path\n";
-          return 2;
-        }
-        check_path = argv[++i];
+        // Prefer the documented adjacent form, but allow language/version
+        // selectors before the path as normal command-line options.
+        if (i + 1 < argc && argv[i + 1][0] != '-')
+          check_path = argv[++i];
       } else {
         check_path = arg.substr(std::string("--check=").size());
       }
       std::string lang_override;
+      polyglot::frontends::FrontendOptions opts;
+      bool invalid_version = false;
+      auto parse_check_version = [&](const std::string &a, std::string_view flag, auto parser,
+                                     auto &target) -> bool {
+        const std::string prefix = std::string(flag) + "=";
+        if (a.rfind(prefix, 0) != 0)
+          return false;
+        const std::string value = a.substr(prefix.size());
+        auto parsed = parser(value);
+        if (!parsed) {
+          std::cerr << "[polyc] --check: unrecognised " << flag << " value '" << value
+                    << "'\n";
+          invalid_version = true;
+        } else {
+          target = *parsed;
+        }
+        return true;
+      };
       for (int j = 1; j < argc; ++j) {
         std::string a = argv[j];
+        if (a == "--check" || a.rfind("--check=", 0) == 0)
+          continue;
         if (a.rfind("--lang=", 0) == 0) {
           lang_override = a.substr(std::string("--lang=").size());
-          break;
+          continue;
         }
+        if (parse_check_version(a, "--std", polyglot::frontends::ParseCppDialect,
+                                opts.cpp_dialect) ||
+            parse_check_version(a, "-std", polyglot::frontends::ParseCppDialect,
+                                opts.cpp_dialect) ||
+            parse_check_version(a, "--python-version", polyglot::frontends::ParsePythonVersion,
+                                opts.python_version) ||
+            parse_check_version(a, "--py", polyglot::frontends::ParsePythonVersion,
+                                opts.python_version) ||
+            parse_check_version(a, "--java-release", polyglot::frontends::ParseJavaRelease,
+                                opts.java_release) ||
+            parse_check_version(a, "--java", polyglot::frontends::ParseJavaRelease,
+                                opts.java_release) ||
+            parse_check_version(a, "--cs-lang", polyglot::frontends::ParseDotnetLangVersion,
+                                opts.dotnet_lang_version) ||
+            parse_check_version(a, "--csharp", polyglot::frontends::ParseDotnetLangVersion,
+                                opts.dotnet_lang_version) ||
+            parse_check_version(a, "--target-framework",
+                                polyglot::frontends::ParseDotnetTargetFramework,
+                                opts.dotnet_target_framework) ||
+            parse_check_version(a, "--tfm", polyglot::frontends::ParseDotnetTargetFramework,
+                                opts.dotnet_target_framework) ||
+            parse_check_version(a, "--rust-edition", polyglot::frontends::ParseRustEdition,
+                                opts.rust_edition) ||
+            parse_check_version(a, "--edition", polyglot::frontends::ParseRustEdition,
+                                opts.rust_edition) ||
+            parse_check_version(a, "--go-version", polyglot::frontends::ParseGoVersion,
+                                opts.go_version) ||
+            parse_check_version(a, "--go", polyglot::frontends::ParseGoVersion,
+                                opts.go_version) ||
+            parse_check_version(a, "--ecma", polyglot::frontends::ParseEcmaVersion,
+                                opts.ecma_version) ||
+            parse_check_version(a, "--es", polyglot::frontends::ParseEcmaVersion,
+                                opts.ecma_version) ||
+            parse_check_version(a, "--ruby-version", polyglot::frontends::ParseRubyVersion,
+                                opts.ruby_version) ||
+            parse_check_version(a, "--ruby", polyglot::frontends::ParseRubyVersion,
+                                opts.ruby_version)) {
+          continue;
+        }
+        if (check_path.empty() && !a.empty() && a.front() != '-')
+          check_path = a;
+      }
+      if (invalid_version)
+        return 2;
+      if (check_path.empty()) {
+        std::cerr << "[polyc] --check requires a file path\n";
+        return 2;
       }
       const std::string source = ReadFileContent(check_path);
       if (source.empty() && !fs::exists(check_path)) {
@@ -902,8 +969,16 @@ int main(int argc, char **argv) {
         return 2;
       }
       polyglot::frontends::Diagnostics diags;
-      polyglot::frontends::FrontendOptions opts;
-      (void)frontend->Analyze(source, check_path, diags, opts);
+      const bool selectors_valid =
+          ValidateDirectLanguageVersionSelectors(language, check_path, opts, diags);
+      const bool analyzed =
+          selectors_valid && frontend->Analyze(source, check_path, diags, opts);
+      if (!analyzed && !diags.HasErrors()) {
+        diags.ReportError(
+            polyglot::core::SourceLoc{check_path, 1, 1},
+            polyglot::frontends::ErrorCode::kUnsupportedSyntax,
+            "frontend analysis failed without providing a diagnostic");
+      }
 
       // Emit LSP-style JSON.  We hand-format to avoid a dependency on the
       // nlohmann::json header from this early exit point.
@@ -1153,6 +1228,36 @@ int main(int argc, char **argv) {
     cfg.dotnet_references = settings.dotnet_references;
     cfg.rust_crate_dir = settings.rust_crate_dir;
     cfg.rust_externs = settings.rust_externs;
+    // The staged .poly pipeline performs foreign-source analysis during its
+    // semantic stage.  Give that extraction path the exact same language
+    // versions and resolver inputs as direct frontend compilation; otherwise
+    // CLI selectors would be silently ignored for IMPORTed modules.
+    cfg.frontend_options.strict = settings.strict;
+    cfg.frontend_options.force = settings.force;
+    cfg.frontend_options.include_paths = settings.include_paths;
+    cfg.frontend_options.system_include_paths = settings.system_include_paths;
+    cfg.frontend_options.defines = settings.defines;
+    cfg.frontend_options.undefines = settings.undefines;
+    cfg.frontend_options.python_stub_paths = settings.python_stub_paths;
+    cfg.frontend_options.classpath = settings.classpath;
+    cfg.frontend_options.dotnet_references = settings.dotnet_references;
+    cfg.frontend_options.rust_crate_dir = settings.rust_crate_dir;
+    cfg.frontend_options.rust_externs = settings.rust_externs;
+    cfg.frontend_options.go_project_dir = settings.go_project_dir;
+    cfg.frontend_options.go_module_paths = settings.go_module_paths;
+    cfg.frontend_options.js_project_dir = settings.js_project_dir;
+    cfg.frontend_options.node_modules_paths = settings.node_modules_paths;
+    cfg.frontend_options.ruby_project_dir = settings.ruby_project_dir;
+    cfg.frontend_options.gem_paths = settings.gem_paths;
+    cfg.frontend_options.cpp_dialect = settings.cpp_dialect;
+    cfg.frontend_options.python_version = settings.python_version;
+    cfg.frontend_options.java_release = settings.java_release;
+    cfg.frontend_options.dotnet_lang_version = settings.dotnet_lang_version;
+    cfg.frontend_options.dotnet_target_framework = settings.dotnet_target_framework;
+    cfg.frontend_options.rust_edition = settings.rust_edition;
+    cfg.frontend_options.go_version = settings.go_version;
+    cfg.frontend_options.ecma_version = settings.ecma_version;
+    cfg.frontend_options.ruby_version = settings.ruby_version;
 
     polyglot::compilation::CompilationPipeline pipeline(std::move(cfg));
     bool ok = false;
@@ -1214,8 +1319,16 @@ int main(int argc, char **argv) {
         std::cerr << "[polyc] wrote " << stats_path.string() << "\n";
     }
   }
-  if (!frontend.success && !settings.force) {
-    std::cerr << "[error] Frontend stage failed.\n";
+  const bool has_nonrecoverable_frontend_error =
+      HasNonRecoverableFrontendError(frontend.diagnostics);
+  if (MustStopAfterFrontend(frontend.success, settings.force,
+                            frontend.diagnostics)) {
+    if (has_nonrecoverable_frontend_error && settings.force) {
+      std::cerr << "[error] Frontend grammar/version/lowering boundary is incomplete; "
+                   "--force cannot continue to backend or packaging.\n";
+    } else {
+      std::cerr << "[error] Frontend stage failed.\n";
+    }
     for (const auto &d : frontend.diagnostics.All())
       std::cerr << polyglot::frontends::Diagnostics::Format(d) << "\n";
     PrintErrorSummary(frontend.diagnostics, JP);

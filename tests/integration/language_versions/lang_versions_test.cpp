@@ -8,11 +8,9 @@
 //     accepts a feature-positive fixture under a sufficiently new
 //     dialect / release / edition / ECMA version, and rejects the same
 //     source with `kLangVersionMismatch` under an older one.
-//   * The Go and Ruby frontends do not yet implement parser-level gating
-//     for the demand-prescribed features (generics, pattern matching),
-//     so for those languages we instead assert that the .poly `LANG`
-//     pragma propagates a version pin into every cross-language call
-//     directed at that language.
+//   * Go and Ruby have dedicated unit coverage for their parser-level gates;
+//     this suite additionally asserts that a .poly `LANG` pragma propagates
+//     the selected version into every cross-language call directed at them.
 //   * Per-call-site `@LANG` annotations on the same .poly module produce
 //     two distinct `lang_version_pin` values for two LINKs to the same
 //     target language — proving the dual-ABI bridge code path is
@@ -258,7 +256,7 @@ file class Helper { }
 }
 
 // ============================================================================
-// Rust — let-else on edition 2021+
+// Rust — let-else is a Rust 1.65 language feature, not an edition feature
 // ============================================================================
 
 TEST_CASE("Lang versions / Rust: let-else is accepted on edition 2021",
@@ -276,9 +274,17 @@ pub fn first(values: &[i32]) -> i32 {
     parser.SetRustEdition(polyglot::frontends::RustEdition::kE2021);
     parser.ParseModule();
     CHECK(CountVersionMismatches(diags) == 0);
+    auto mod = parser.TakeModule();
+    REQUIRE(mod);
+    auto fn = std::dynamic_pointer_cast<polyglot::rust::FunctionItem>(mod->items.front());
+    REQUIRE(fn);
+    auto let_else = std::dynamic_pointer_cast<polyglot::rust::LetStatement>(fn->body.front());
+    REQUIRE(let_else);
+    CHECK(let_else->has_else);
+    CHECK(let_else->else_body.size() == 1);
 }
 
-TEST_CASE("Lang versions / Rust: let-else is rejected on edition 2018",
+TEST_CASE("Lang versions / Rust: let-else is also accepted on edition 2018",
           "[lang-versions][rust]") {
     const char *src = R"rust(
 pub fn first(values: &[i32]) -> i32 {
@@ -292,7 +298,7 @@ pub fn first(values: &[i32]) -> i32 {
     polyglot::rust::RustParser parser(lex, diags);
     parser.SetRustEdition(polyglot::frontends::RustEdition::kE2018);
     parser.ParseModule();
-    CHECK(CountVersionMismatches(diags) >= 1);
+    CHECK(CountVersionMismatches(diags) == 0);
 }
 
 // ============================================================================
@@ -322,10 +328,8 @@ TEST_CASE("Lang versions / JS: optional chaining is rejected on ES2017",
 }
 
 // ============================================================================
-// Go / Ruby — propagation through .poly LANG pragma
-// (Go generics and Ruby `case ... in` are not parser-gated yet; the pin
-// is still required to flow through to every cross-language call so the
-// runtime / linker stage can dispatch to a matching toolchain.)
+// Go / Ruby — propagation through .poly LANG pragma.  Parser gates live in
+// their frontend unit suites; this verifies runtime/linker version metadata.
 // ============================================================================
 
 namespace {

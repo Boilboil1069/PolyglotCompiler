@@ -6,11 +6,13 @@
  * @author   Manning Cyrus
  * @date     2026-04-10
  */
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
-#include <iostream>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "middle/include/ir/ir_builder.h"
@@ -25,10 +27,21 @@ namespace {
 
 using Name = std::string;
 
+struct StructLayout {
+  std::string name;
+  ir::IRType type{ir::IRType::Invalid()};
+  std::vector<std::string> field_names;
+  std::unordered_map<std::string, size_t> field_indices;
+};
+
+using StructLayoutMap = std::unordered_map<std::string, StructLayout>;
+
 // Convert Rust type to IR type - handles all common Rust types
-ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type) {
+ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type,
+                    const StructLayoutMap *struct_layouts = nullptr,
+                    const std::string &self_type = {}) {
   if (!type)
-    return ir::IRType::I64(true);
+    return ir::IRType::Void();
 
   if (auto path = std::dynamic_pointer_cast<TypePath>(type)) {
     std::string type_name = path->segments.empty() ? "" : path->segments.back();
@@ -43,9 +56,11 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type) {
     if (type_name == "i64")
       return ir::IRType::I64(true);
     if (type_name == "i128")
-      return ir::IRType::I64(true); // Treat as i64 for now
+      return ir::IRType::Invalid();
     if (type_name == "isize")
-      return ir::IRType::I64(true); // Platform-dependent
+      // Every architecture represented by the current IR DataLayout is
+      // 64-bit.  Revisit this mapping when a 32-bit DataLayout is introduced.
+      return ir::IRType::I64(true);
 
     // Unsigned integer types
     if (type_name == "u8")
@@ -57,9 +72,9 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type) {
     if (type_name == "u64")
       return ir::IRType::I64(false);
     if (type_name == "u128")
-      return ir::IRType::I64(false); // Treat as u64 for now
+      return ir::IRType::Invalid();
     if (type_name == "usize")
-      return ir::IRType::I64(false); // Platform-dependent
+      return ir::IRType::I64(false);
 
     // Floating point types
     if (type_name == "f32")
@@ -79,60 +94,66 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &type) {
     if (type_name == "()" || path->segments.empty())
       return ir::IRType::Void();
 
-    // String type - represented as pointer to i8
-    if (type_name == "str" || type_name == "String") {
-      return ir::IRType::Pointer(ir::IRType::I8());
+    // `str` is a fat pointer and `String` is an owned three-word value.  A
+    // thin byte pointer is not an ABI-compatible substitute.
+    if (type_name == "str" || type_name == "String")
+      return ir::IRType::Invalid();
+
+    const std::string resolved_name = type_name == "Self" ? self_type : type_name;
+    if (struct_layouts && !resolved_name.empty()) {
+      auto layout = struct_layouts->find(resolved_name);
+      if (layout != struct_layouts->end())
+        return layout->second.type;
     }
 
-    // Default to i64 for unknown Rust types (warn at runtime)
-    std::cerr << "[rust-lowering] unknown type '" << type_name << "'; defaulting to i64\n";
-    return ir::IRType::I64(true);
+    return ir::IRType::Invalid();
   }
 
   // Reference types become pointers
   if (auto ref = std::dynamic_pointer_cast<ReferenceType>(type)) {
-    auto inner = ToIRType(ref->inner);
+    auto inner = ToIRType(ref->inner, struct_layouts, self_type);
+    if (inner.kind == ir::IRTypeKind::kInvalid)
+      return ir::IRType::Invalid();
     return ir::IRType::Pointer(inner);
   }
 
-  // Slice types become pointers (fat pointers in reality)
-  if (auto slice = std::dynamic_pointer_cast<SliceType>(type)) {
-    auto inner = ToIRType(slice->inner);
-    return ir::IRType::Pointer(inner);
-  }
-
-  // Array types become pointers
-  if (auto arr = std::dynamic_pointer_cast<ArrayType>(type)) {
-    auto inner = ToIRType(arr->inner);
-    return ir::IRType::Pointer(inner);
-  }
+  // Slices are fat pointers and fixed arrays are by-value aggregates.  The
+  // current IR boundary has no faithful representation for either ABI.
+  if (std::dynamic_pointer_cast<SliceType>(type) ||
+      std::dynamic_pointer_cast<ArrayType>(type))
+    return ir::IRType::Invalid();
 
   // Tuple types - use struct representation
   if (auto tup = std::dynamic_pointer_cast<TupleType>(type)) {
     if (tup->elements.empty())
       return ir::IRType::Void();
-    // For now, tuples with single element return that element type
-    if (tup->elements.size() == 1)
-      return ToIRType(tup->elements[0]);
-    // Complex tuples as struct
+    // `(T,)` remains a tuple in Rust; never collapse it to `T`.
     std::vector<ir::IRType> fields;
     for (const auto &elem : tup->elements) {
-      fields.push_back(ToIRType(elem));
+      auto field = ToIRType(elem, struct_layouts, self_type);
+      if (field.kind == ir::IRTypeKind::kInvalid)
+        return ir::IRType::Invalid();
+      fields.push_back(field);
     }
     return ir::IRType::Struct("tuple", fields);
   }
 
   // Function types become function pointers
   if (auto fn = std::dynamic_pointer_cast<FunctionType>(type)) {
-    auto ret = ToIRType(fn->return_type);
+    auto ret = ToIRType(fn->return_type, struct_layouts, self_type);
+    if (ret.kind == ir::IRTypeKind::kInvalid)
+      return ir::IRType::Invalid();
     std::vector<ir::IRType> params;
     for (const auto &p : fn->params) {
-      params.push_back(ToIRType(p));
+      auto param = ToIRType(p, struct_layouts, self_type);
+      if (param.kind == ir::IRTypeKind::kInvalid)
+        return ir::IRType::Invalid();
+      params.push_back(param);
     }
     return ir::IRType::Pointer(ir::IRType::Function(ret, params));
   }
 
-  return ir::IRType::I64(true);
+  return ir::IRType::Invalid();
 }
 
 struct EnvEntry {
@@ -140,10 +161,22 @@ struct EnvEntry {
   ir::IRType type{ir::IRType::Invalid()};
 };
 
+struct MethodInfo {
+  std::string owner;
+  std::string name;
+  std::string lowered_name;
+  const FunctionItem *function{nullptr};
+  ir::IRType return_type{ir::IRType::Invalid()};
+};
+
 struct LoweringContext {
   ir::IRContext &ir_ctx;
   frontends::Diagnostics &diags;
   std::unordered_map<Name, EnvEntry> env;
+  std::unordered_map<Name, ir::IRType> function_returns;
+  StructLayoutMap struct_layouts;
+  std::unordered_map<Name, MethodInfo> methods;
+  std::string current_impl;
   ir::IRBuilder builder;
   std::shared_ptr<ir::Function> fn;
   bool terminated{false};
@@ -164,9 +197,42 @@ struct EvalResult {
 bool IsIntegerLiteral(const std::string &text, long long *out) {
   if (text.empty())
     return false;
+
+  std::string normalized;
+  normalized.reserve(text.size());
+  for (char c : text) {
+    if (c != '_')
+      normalized.push_back(c);
+  }
+
+  static const std::vector<std::string> suffixes = {
+      "isize", "usize", "i128", "u128", "i64", "u64", "i32",
+      "u32",   "i16",   "u16",  "i8",   "u8"};
+  for (const auto &suffix : suffixes) {
+    if (normalized.size() > suffix.size() &&
+        normalized.compare(normalized.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      normalized.resize(normalized.size() - suffix.size());
+      break;
+    }
+  }
+  if (normalized.empty())
+    return false;
+
+  const char *digits = normalized.c_str();
+  int base = 0;
+  if (normalized.size() > 2 && normalized[0] == '0' &&
+      (normalized[1] == 'b' || normalized[1] == 'B')) {
+    digits += 2;
+    base = 2;
+  } else if (normalized.size() > 2 && normalized[0] == '0' &&
+             (normalized[1] == 'o' || normalized[1] == 'O')) {
+    digits += 2;
+    base = 8;
+  }
+
   char *end = nullptr;
-  long long v = std::strtoll(text.c_str(), &end, 0);
-  if (end == text.c_str() || *end != '\0')
+  long long v = std::strtoll(digits, &end, base);
+  if (end == digits || *end != '\0')
     return false;
   if (out)
     *out = v;
@@ -177,9 +243,24 @@ bool IsIntegerLiteral(const std::string &text, long long *out) {
 bool IsFloatLiteral(const std::string &text, double *out) {
   if (text.empty())
     return false;
+
+  std::string normalized;
+  normalized.reserve(text.size());
+  for (char c : text) {
+    if (c != '_')
+      normalized.push_back(c);
+  }
+  for (const std::string &suffix : {std::string("f32"), std::string("f64")}) {
+    if (normalized.size() > suffix.size() &&
+        normalized.compare(normalized.size() - suffix.size(), suffix.size(), suffix) == 0) {
+      normalized.resize(normalized.size() - suffix.size());
+      break;
+    }
+  }
+
   char *end = nullptr;
-  double v = std::strtod(text.c_str(), &end);
-  if (end == text.c_str() || (*end != '\0' && *end != 'f'))
+  double v = std::strtod(normalized.c_str(), &end);
+  if (end == normalized.c_str() || *end != '\0')
     return false;
   if (out)
     *out = v;
@@ -189,7 +270,8 @@ bool IsFloatLiteral(const std::string &text, double *out) {
 // Forward declarations
 EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc);
 bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc);
-bool LowerFunction(const FunctionItem &fn, LoweringContext &lc);
+bool LowerFunction(const FunctionItem &fn, LoweringContext &lc,
+                   const std::string &impl_owner = {});
 
 // Create an integer literal
 EvalResult MakeLiteral(long long v, LoweringContext &lc) {
@@ -224,21 +306,23 @@ EvalResult EvalPath(const std::shared_ptr<PathExpression> &path, LoweringContext
 }
 
 // Map Rust binary operator to IR operator
-ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_signed = true,
-                                   bool is_float = false) {
+std::optional<ir::BinaryInstruction::Op> MapBinOp(const std::string &op, bool is_signed = true,
+                                                  bool is_float = false) {
   // Arithmetic operators
   if (op == "+")
-    return ir::BinaryInstruction::Op::kAdd;
+    return is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
   if (op == "-")
-    return ir::BinaryInstruction::Op::kSub;
+    return is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
   if (op == "*")
-    return ir::BinaryInstruction::Op::kMul;
+    return is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
   if (op == "/") {
     if (is_float)
       return ir::BinaryInstruction::Op::kFDiv;
     return is_signed ? ir::BinaryInstruction::Op::kSDiv : ir::BinaryInstruction::Op::kUDiv;
   }
   if (op == "%") {
+    if (is_float)
+      return ir::BinaryInstruction::Op::kFRem;
     return is_signed ? ir::BinaryInstruction::Op::kSRem : ir::BinaryInstruction::Op::kURem;
   }
 
@@ -268,7 +352,7 @@ ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_signed = true,
   if (op == ">>")
     return is_signed ? ir::BinaryInstruction::Op::kAShr : ir::BinaryInstruction::Op::kLShr;
 
-  return ir::BinaryInstruction::Op::kAdd;
+  return std::nullopt;
 }
 
 // Check if operator is a comparison
@@ -355,11 +439,21 @@ EvalResult EvalBinary(const std::shared_ptr<BinaryExpression> &bin, LoweringCont
   auto rhs = EvalExpr(bin->right, lc);
   if (lhs.type.kind == ir::IRTypeKind::kInvalid || rhs.type.kind == ir::IRTypeKind::kInvalid)
     return {};
+  if (lhs.type != rhs.type) {
+    lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust binary operands require an explicit modeled coercion");
+    return {};
+  }
 
   bool is_signed = lhs.type.is_signed;
   bool is_float = lhs.type.kind == ir::IRTypeKind::kF32 || lhs.type.kind == ir::IRTypeKind::kF64;
-  ir::BinaryInstruction::Op op = MapBinOp(bin->op, is_signed, is_float);
-  auto inst = lc.builder.MakeBinary(op, lhs.value, rhs.value, "");
+  auto op = MapBinOp(bin->op, is_signed, is_float);
+  if (!op) {
+    lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported Rust binary operator lowering: " + bin->op);
+    return {};
+  }
+  auto inst = lc.builder.MakeBinary(*op, lhs.value, rhs.value, "");
 
   // Set result type based on operation
   if (IsComparisonOp(bin->op)) {
@@ -378,39 +472,104 @@ EvalResult EvalUnary(const std::shared_ptr<UnaryExpression> &un, LoweringContext
 
   if (un->op == "-") {
     // Negation: 0 - operand
-    auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kSub, "0", operand.value, "");
+    const bool is_float = operand.type.kind == ir::IRTypeKind::kF32 ||
+                          operand.type.kind == ir::IRTypeKind::kF64;
+    auto inst = lc.builder.MakeBinary(is_float ? ir::BinaryInstruction::Op::kFSub
+                                               : ir::BinaryInstruction::Op::kSub,
+                                      "0", operand.value, "");
     inst->type = operand.type;
     return {inst->name, inst->type};
   }
 
   if (un->op == "!") {
-    // Logical not: xor with 1
-    auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, "1", "");
-    inst->type = ir::IRType::I1();
+    if (!operand.type.IsInteger()) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust '!' lowering requires a modeled bool/integer operand");
+      return {};
+    }
+    const std::string mask = operand.type.kind == ir::IRTypeKind::kI1 ? "1" : "-1";
+    auto inst = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, mask, "");
+    inst->type = operand.type;
     return {inst->name, inst->type};
   }
 
   if (un->op == "&" || un->op == "&mut") {
-    // Reference: return pointer to operand
-    // In simple IR, we treat this as identity for now
-    return {operand.value, ir::IRType::Pointer(operand.type)};
+    lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust borrow lowering requires addressable storage and is not implemented");
+    return {};
   }
 
   if (un->op == "*") {
     // Dereference: load from pointer
-    ir::IRType inner_type = ir::IRType::I64(true);
-    if (operand.type.kind == ir::IRTypeKind::kPointer && !operand.type.subtypes.empty()) {
-      inner_type = operand.type.subtypes[0];
+    if (operand.type.kind != ir::IRTypeKind::kPointer || operand.type.subtypes.empty()) {
+      lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust dereference lowering requires a modeled pointer value");
+      return {};
     }
+    ir::IRType inner_type = operand.type.subtypes[0];
     auto inst = lc.builder.MakeLoad(operand.value, inner_type, "");
     return {inst->name, inst->type};
   }
 
-  return operand;
+  lc.diags.ReportError(un->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Rust unary operator lowering: " + un->op);
+  return {};
 }
 
 // Evaluate function call expression
 EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext &lc) {
+  if (auto member = std::dynamic_pointer_cast<MemberExpression>(call->callee)) {
+    auto receiver = EvalExpr(member->object, lc);
+    if (receiver.type.kind != ir::IRTypeKind::kPointer || receiver.type.subtypes.empty() ||
+        receiver.type.subtypes.front().kind != ir::IRTypeKind::kStruct) {
+      lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust instance method lowering requires an addressable struct receiver");
+      return {};
+    }
+
+    const std::string owner = receiver.type.subtypes.front().name;
+    auto method = lc.methods.find(owner + "." + member->member);
+    if (method == lc.methods.end() || !method->second.function) {
+      lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust method '" + owner + "::" + member->member +
+                               "' has no modeled receiver signature");
+      return {};
+    }
+
+    const auto &target = *method->second.function;
+    if (target.params.empty() || target.params.front().name != "self" ||
+        target.params.size() != call->args.size() + 1) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust method call argument count does not match '" + owner + "::" +
+                               member->member + "'");
+      return {};
+    }
+
+    auto receiver_type = ToIRType(target.params.front().type, &lc.struct_layouts, owner);
+    if (receiver_type.kind != ir::IRTypeKind::kPointer ||
+        receiver_type.subtypes.empty() || receiver_type.subtypes.front().name != owner) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust method receiver must be &self or &mut self for aggregate lowering");
+      return {};
+    }
+
+    std::vector<std::string> method_args{receiver.value};
+    for (size_t i = 0; i < call->args.size(); ++i) {
+      auto expected = ToIRType(target.params[i + 1].type, &lc.struct_layouts, owner);
+      auto actual = EvalExpr(call->args[i], lc);
+      if (expected.kind == ir::IRTypeKind::kInvalid || actual.type != expected) {
+        lc.diags.ReportError(call->args[i]->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "Rust method argument has no exact modeled ABI type");
+        return {};
+      }
+      method_args.push_back(actual.value);
+    }
+
+    auto inst = lc.builder.MakeCall(method->second.lowered_name, method_args,
+                                    method->second.return_type, "");
+    return {inst->name, inst->type};
+  }
+
   std::vector<std::string> args;
   std::vector<ir::IRType> arg_types;
   for (const auto &arg : call->args) {
@@ -427,11 +586,19 @@ EvalResult EvalCall(const std::shared_ptr<CallExpression> &call, LoweringContext
   } else if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
     callee_name = id->name;
   } else {
-    lc.diags.Report(call->loc, "only direct function calls are supported");
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust indirect call lowering requires a modeled callable ABI");
     return {};
   }
 
-  auto inst = lc.builder.MakeCall(callee_name, args, ir::IRType::I64(true), "");
+  auto known = lc.function_returns.find(callee_name);
+  if (known == lc.function_returns.end()) {
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust call target '" + callee_name +
+                             "' has no modeled function signature");
+    return {};
+  }
+  auto inst = lc.builder.MakeCall(callee_name, args, known->second, "");
   return {inst->name, inst->type};
 }
 
@@ -453,9 +620,17 @@ EvalResult EvalLiteral(const std::shared_ptr<Literal> &lit, LoweringContext &lc)
   if (lit->value == "false")
     return MakeBoolLiteral(false, lc);
 
-  // Check for float literal (contains '.' or 'f' suffix)
-  if (lit->value.find('.') != std::string::npos ||
-      (!lit->value.empty() && lit->value.back() == 'f')) {
+  // Check for float literal (decimal point/exponent or an explicit suffix).
+  // Do not mistake the `e` hex digit in values such as 0xdead for a decimal
+  // exponent marker.
+  const bool non_decimal_prefix =
+      lit->value.size() > 2 && lit->value[0] == '0' &&
+      (lit->value[1] == 'x' || lit->value[1] == 'X' || lit->value[1] == 'b' ||
+       lit->value[1] == 'B' || lit->value[1] == 'o' || lit->value[1] == 'O');
+  if (!non_decimal_prefix &&
+      (lit->value.find('.') != std::string::npos || lit->value.find('e') != std::string::npos ||
+       lit->value.find('E') != std::string::npos || lit->value.find("f32") != std::string::npos ||
+       lit->value.find("f64") != std::string::npos)) {
     double v{};
     if (IsFloatLiteral(lit->value, &v)) {
       return MakeFloatLiteral(v, lc);
@@ -468,20 +643,111 @@ EvalResult EvalLiteral(const std::shared_ptr<Literal> &lit, LoweringContext &lc)
     return MakeLiteral(v, lc);
   }
 
-  // String literal - return as constant string pointer
-  auto str_ptr = lc.builder.MakeStringLiteral(lit->value, "str");
-  return {str_ptr, ir::IRType::Pointer(ir::IRType::I8())};
+  if (!lit->value.empty() && std::isdigit(static_cast<unsigned char>(lit->value.front()))) {
+    lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust numeric literal exceeds or does not match the modeled scalar ABI");
+  } else if (!lit->value.empty() && lit->value.front() == '\'') {
+    lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust char literal escape/scalar lowering is not implemented");
+  } else {
+    lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust string/byte-string literals require slice-aware runtime lowering");
+  }
+  return {};
 }
 
-// Evaluate member expression (struct field access)
-EvalResult EvalMember(const std::shared_ptr<MemberExpression> &mem, LoweringContext &lc) {
+struct MemberAddress {
+  std::string value;
+  ir::IRType field_type{ir::IRType::Invalid()};
+};
+
+MemberAddress EvalMemberAddress(const std::shared_ptr<MemberExpression> &mem,
+                                LoweringContext &lc) {
   auto obj = EvalExpr(mem->object, lc);
   if (obj.type.kind == ir::IRTypeKind::kInvalid)
     return {};
 
-  // For now, emit a GEP-like instruction for field access
-  std::string field_name = obj.value + "." + mem->member;
-  return {field_name, ir::IRType::I64(true)}; // Type would need lookup
+  if (obj.type.kind != ir::IRTypeKind::kPointer || obj.type.subtypes.empty() ||
+      obj.type.subtypes.front().kind != ir::IRTypeKind::kStruct) {
+    lc.diags.ReportError(mem->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust field access requires an addressable struct value");
+    return {};
+  }
+
+  const auto &struct_type = obj.type.subtypes.front();
+  auto layout = lc.struct_layouts.find(struct_type.name);
+  if (layout == lc.struct_layouts.end()) {
+    lc.diags.ReportError(mem->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust field access has no aggregate layout for '" + struct_type.name + "'");
+    return {};
+  }
+  auto field = layout->second.field_indices.find(mem->member);
+  if (field == layout->second.field_indices.end()) {
+    lc.diags.Report(mem->loc, "unknown Rust struct field: " + mem->member);
+    return {};
+  }
+
+  const size_t index = field->second;
+  auto gep = lc.builder.MakeGEP(obj.value, layout->second.type, {0, index}, "");
+  return {gep->name, layout->second.type.subtypes[index]};
+}
+
+// Evaluate member expression (struct field access)
+EvalResult EvalMember(const std::shared_ptr<MemberExpression> &mem, LoweringContext &lc) {
+  auto address = EvalMemberAddress(mem, lc);
+  if (address.field_type.kind == ir::IRTypeKind::kInvalid)
+    return {};
+  auto load = lc.builder.MakeLoad(address.value, address.field_type, "");
+  return {load->name, load->type};
+}
+
+EvalResult EvalStruct(const std::shared_ptr<StructExpression> &value,
+                      LoweringContext &lc) {
+  if (value->has_rest) {
+    lc.diags.ReportError(value->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust struct update syntax requires move/copy field semantics");
+    return {};
+  }
+  if (value->path.segments.empty()) {
+    lc.diags.Report(value->loc, "Rust struct expression requires a named type");
+    return {};
+  }
+  const std::string parsed_name = value->path.segments.back();
+  const std::string struct_name = parsed_name == "Self" ? lc.current_impl : parsed_name;
+  auto layout = lc.struct_layouts.find(struct_name);
+  if (layout == lc.struct_layouts.end()) {
+    lc.diags.ReportError(value->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust struct expression has no modeled layout for '" + struct_name + "'");
+    return {};
+  }
+
+  auto storage = lc.builder.MakeAlloca(layout->second.type, struct_name + ".value");
+  std::unordered_set<std::string> initialized;
+  for (const auto &initializer : value->fields) {
+    auto field = layout->second.field_indices.find(initializer.name);
+    if (field == layout->second.field_indices.end()) {
+      lc.diags.Report(value->loc, "unknown field '" + initializer.name + "' in " + struct_name);
+      return {};
+    }
+    if (!initialized.insert(initializer.name).second) {
+      lc.diags.Report(value->loc, "field '" + initializer.name + "' initialized more than once");
+      return {};
+    }
+    const size_t index = field->second;
+    auto field_value = EvalExpr(initializer.value, lc);
+    if (field_value.type != layout->second.type.subtypes[index]) {
+      lc.diags.ReportError(initializer.value->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust struct field initializer requires an exact modeled ABI type");
+      return {};
+    }
+    auto address = lc.builder.MakeGEP(storage->name, layout->second.type, {0, index}, "");
+    lc.builder.MakeStore(address->name, field_value.value);
+  }
+  if (initialized.size() != layout->second.field_names.size()) {
+    lc.diags.Report(value->loc, "Rust struct expression must initialize every field");
+    return {};
+  }
+  return {storage->name, ir::IRType::Pointer(layout->second.type)};
 }
 
 // Evaluate index expression (array/slice indexing)
@@ -491,12 +757,16 @@ EvalResult EvalIndex(const std::shared_ptr<IndexExpression> &idx, LoweringContex
   if (obj.type.kind == ir::IRTypeKind::kInvalid || index.type.kind == ir::IRTypeKind::kInvalid)
     return {};
 
-  // Determine element type
-  ir::IRType elem_type = ir::IRType::I64(true);
+  ir::IRType elem_type = ir::IRType::Invalid();
   if (obj.type.kind == ir::IRTypeKind::kPointer && !obj.type.subtypes.empty()) {
     elem_type = obj.type.subtypes[0];
   } else if (obj.type.kind == ir::IRTypeKind::kArray && !obj.type.subtypes.empty()) {
     elem_type = obj.type.subtypes[0];
+  }
+  if (elem_type.kind == ir::IRTypeKind::kInvalid) {
+    lc.diags.ReportError(idx->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust indexing requires a modeled array/slice element layout");
+    return {};
   }
 
   // Generate dynamic array access using arithmetic
@@ -520,7 +790,12 @@ EvalResult EvalAssignment(const std::shared_ptr<AssignmentExpression> &assign,
 
     std::string base_op = assign->op.substr(0, assign->op.size() - 1);
     auto op = MapBinOp(base_op, lhs.type.is_signed);
-    auto inst = lc.builder.MakeBinary(op, lhs.value, rhs.value, "");
+    if (!op) {
+      lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported Rust compound assignment lowering: " + assign->op);
+      return {};
+    }
+    auto inst = lc.builder.MakeBinary(*op, lhs.value, rhs.value, "");
     inst->type = lhs.type;
     rhs = {inst->name, inst->type};
   }
@@ -535,13 +810,25 @@ EvalResult EvalAssignment(const std::shared_ptr<AssignmentExpression> &assign,
     lc.env[name] = {rhs.value, rhs.type};
     return rhs;
   }
+  if (auto member = std::dynamic_pointer_cast<MemberExpression>(assign->left)) {
+    auto address = EvalMemberAddress(member, lc);
+    if (address.field_type.kind == ir::IRTypeKind::kInvalid || address.field_type != rhs.type)
+      return {};
+    lc.builder.MakeStore(address.value, rhs.value);
+    return rhs;
+  }
 
-  lc.diags.Report(assign->loc, "unsupported assignment target");
+  lc.diags.ReportError(assign->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Rust assignment target requires place-expression lowering");
   return {};
 }
 
 // Evaluate if expression (returns value)
 EvalResult EvalIfExpr(const std::shared_ptr<IfExpression> &if_expr, LoweringContext &lc) {
+  lc.diags.ReportError(if_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "value-producing Rust if expressions require branch-result PHI lowering");
+  return {};
+
   auto cond = EvalExpr(if_expr->condition, lc);
   if (cond.type.kind == ir::IRTypeKind::kInvalid)
     return {};
@@ -608,9 +895,13 @@ EvalResult EvalIfExpr(const std::shared_ptr<IfExpression> &if_expr, LoweringCont
 // Evaluate block expression
 EvalResult EvalBlock(const std::shared_ptr<BlockExpression> &blk, LoweringContext &lc) {
   EvalResult last{};
-  for (auto &s : blk->statements) {
-    if (!LowerStmt(s, lc))
+  for (size_t i = 0; i < blk->statements.size(); ++i) {
+    auto tail = std::dynamic_pointer_cast<ExprStatement>(blk->statements[i]);
+    if (i + 1 == blk->statements.size() && tail && !tail->has_semicolon) {
+      last = EvalExpr(tail->expr, lc);
+    } else if (!LowerStmt(blk->statements[i], lc)) {
       return {};
+    }
     if (lc.terminated)
       break;
   }
@@ -620,97 +911,30 @@ EvalResult EvalBlock(const std::shared_ptr<BlockExpression> &blk, LoweringContex
 
 // Evaluate match expression
 EvalResult EvalMatch(const std::shared_ptr<MatchExpression> &match, LoweringContext &lc) {
-  auto scrutinee = EvalExpr(match->scrutinee, lc);
-  if (scrutinee.type.kind == ir::IRTypeKind::kInvalid)
-    return {};
-
-  auto *merge_block = lc.fn->CreateBlock("match.end");
-
-  // For each arm, create a block and comparison
-  for (size_t i = 0; i < match->arms.size(); ++i) {
-    const auto &arm = match->arms[i];
-    auto *arm_block = lc.fn->CreateBlock("match.arm." + std::to_string(i));
-    auto *next_block = (i + 1 < match->arms.size())
-                           ? lc.fn->CreateBlock("match.next." + std::to_string(i))
-                           : merge_block;
-
-    // Pattern matching - simplified to literal/wildcard comparison
-    bool is_wildcard = false;
-    if (auto wild = std::dynamic_pointer_cast<WildcardPattern>(arm->pattern)) {
-      is_wildcard = true;
-    } else if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(arm->pattern)) {
-      is_wildcard = (id->name == "_");
-    }
-
-    if (is_wildcard) {
-      // Wildcard matches everything - unconditional branch
-      lc.builder.MakeBranch(arm_block);
-    } else if (auto lit = std::dynamic_pointer_cast<LiteralPattern>(arm->pattern)) {
-      // Compare against literal
-      auto cmp =
-          lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpEq, scrutinee.value, lit->value, "");
-      cmp->type = ir::IRType::I1();
-      lc.builder.MakeCondBranch(cmp->name, arm_block, next_block);
-    } else {
-      // Default to unconditional for complex patterns
-      lc.builder.MakeBranch(arm_block);
-    }
-
-    // Arm body
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == arm_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    EvalExpr(arm->body, lc);
-    if (!lc.terminated) {
-      lc.builder.MakeBranch(merge_block);
-    }
-
-    // Next block for next arm comparison
-    if (next_block != merge_block) {
-      for (auto &bb : lc.fn->blocks) {
-        if (bb.get() == next_block) {
-          lc.builder.SetInsertPoint(bb);
-          break;
-        }
-      }
-    }
-  }
-
-  // Merge block
-  for (auto &bb : lc.fn->blocks) {
-    if (bb.get() == merge_block) {
-      lc.builder.SetInsertPoint(bb);
-      break;
-    }
-  }
-  lc.terminated = false;
-  return {merge_block->name, ir::IRType::Void()};
+  lc.diags.ReportError(match->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Rust match expressions require pattern bindings and branch-result PHI lowering");
+  return {};
 }
 
 // Evaluate range expression
 EvalResult EvalRange(const std::shared_ptr<RangeExpression> &range, LoweringContext &lc) {
-  EvalResult start{}, end{};
-  if (range->start)
-    start = EvalExpr(range->start, lc);
-  if (range->end)
-    end = EvalExpr(range->end, lc);
-
-  // Range is represented as a pair (start, end)
-  // For iteration, this would be expanded in the for loop lowering
-  return start; // Return start for now
+  lc.diags.ReportError(range->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Rust range values require an aggregate representation; only direct "
+                       "range for-loops are currently lowered");
+  return {};
 }
 
 // Evaluate closure expression
 EvalResult EvalClosure(const std::shared_ptr<ClosureExpression> &cls, LoweringContext &lc) {
-  // Create an anonymous function for the closure
-  std::string closure_name = "__closure_" + std::to_string(reinterpret_cast<uintptr_t>(cls.get()));
-
-  // For now, just return a function pointer
-  return {closure_name, ir::IRType::Pointer(ir::IRType::Function(ir::IRType::I64(true), {}))};
+  if (cls->is_async) {
+    lc.diags.ReportError(
+        cls->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "Rust async closure lowering requires generator state-machine support");
+    return {};
+  }
+  lc.diags.ReportError(cls->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "Rust closure environment and capture lowering is not implemented");
+  return {};
 }
 
 // Main expression evaluation dispatcher
@@ -731,6 +955,13 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
   // Path expression (variable or type path)
   if (auto path = std::dynamic_pointer_cast<PathExpression>(expr)) {
     return EvalPath(path, lc);
+  }
+
+  // Named-field struct construction.  The resulting value is represented by
+  // its address so receiver calls and field accesses retain Rust lvalue
+  // semantics without inventing an aggregate register ABI.
+  if (auto value = std::dynamic_pointer_cast<StructExpression>(expr)) {
+    return EvalStruct(value, lc);
   }
 
   // Binary expression
@@ -896,28 +1127,33 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       return {"", ir::IRType::Void()};
     }
 
-    // Generic macro: emit a runtime call with the macro body as a string
-    std::string sym = lc.builder.MakeStringLiteral(macro->body, "macro_body");
-    std::string func = "__rs_macro_" + macro_name;
-    for (char &c : func) {
-      if (c == ':')
-        c = '_';
-    }
-    auto inst = lc.builder.MakeCall(func, {sym}, ir::IRType::I64(true), "");
-    return {inst->name, ir::IRType::I64(true)};
+    lc.diags.ReportError(macro->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "user-defined Rust macro expansion is not implemented");
+    return {};
   }
 
   // Try expression
   if (auto try_expr = std::dynamic_pointer_cast<TryExpression>(expr)) {
-    return EvalExpr(try_expr->value, lc);
+    lc.diags.ReportError(try_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust '?' propagation lowering is not implemented");
+    return {};
   }
 
   // Await expression
   if (auto await = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
-    return EvalExpr(await->future ? await->future : await->value, lc);
+    lc.diags.ReportError(await->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust .await lowering requires an async runtime and is not implemented");
+    return {};
   }
 
-  lc.diags.Report(expr->loc, "unsupported expression type in lowering");
+  if (auto async = std::dynamic_pointer_cast<AsyncBlock>(expr)) {
+    lc.diags.ReportError(async->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust async block lowering requires an async runtime and is not implemented");
+    return {};
+  }
+
+  lc.diags.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Rust expression lowering");
   return {};
 }
 
@@ -926,8 +1162,11 @@ bool LowerReturn(const std::shared_ptr<ReturnStatement> &ret, LoweringContext &l
   if (lc.terminated)
     return true;
   EvalResult v;
-  if (ret->value)
+  if (ret->value) {
     v = EvalExpr(ret->value, lc);
+    if (v.type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+  }
   lc.builder.MakeReturn(v.value);
   lc.terminated = true;
   return true;
@@ -935,17 +1174,77 @@ bool LowerReturn(const std::shared_ptr<ReturnStatement> &ret, LoweringContext &l
 
 // Lower let binding statement
 bool LowerLet(const std::shared_ptr<LetStatement> &let, LoweringContext &lc) {
-  EvalResult result;
-  if (let->init) {
-    result = EvalExpr(let->init, lc);
-    if (result.type.kind == ir::IRTypeKind::kInvalid) {
-      lc.diags.Report(let->loc, "failed to evaluate let initializer");
+  if (!let->init) {
+    if (let->has_else || !std::dynamic_pointer_cast<IdentifierPattern>(let->pattern)) {
+      lc.diags.ReportError(let->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "uninitialized Rust lowering supports only a simple deferred binding");
       return false;
     }
-  } else {
-    // Uninitialized binding - use zero/default
-    ir::IRType ty = ToIRType(let->type_annotation);
-    result = {"0", ty};
+    // Do not invent Rust's nonexistent default value.  A subsequent assignment
+    // creates the SSA binding; a read before then is rejected by EvalPath.
+    return true;
+  }
+
+  EvalResult result;
+  result = EvalExpr(let->init, lc);
+  if (result.type.kind == ir::IRTypeKind::kInvalid)
+    return false;
+
+  if (let->has_else) {
+    // Literal let-else patterns can be represented exactly with the current
+    // scalar IR.  Enum/struct/slice patterns need a concrete Rust layout ABI;
+    // rejecting them is safer than treating every pattern as a match.
+    auto literal = std::dynamic_pointer_cast<LiteralPattern>(let->pattern);
+    if (!literal) {
+      lc.diags.ReportError(
+          let->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "let-else lowering currently requires a scalar literal pattern; "
+          "enum/struct/slice pattern layout is not implemented");
+      return false;
+    }
+
+    auto literal_expr = std::make_shared<Literal>();
+    literal_expr->loc = literal->loc;
+    literal_expr->value = literal->value;
+    auto expected = EvalExpr(literal_expr, lc);
+    if (expected.type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+    auto matches = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpEq, result.value,
+                                         expected.value, "let_else_match");
+    matches->type = ir::IRType::I1();
+
+    auto *matched_block = lc.fn->CreateBlock("let_else.match");
+    auto *else_block = lc.fn->CreateBlock("let_else.else");
+    lc.builder.MakeCondBranch(matches->name, matched_block, else_block);
+
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == else_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    for (auto &stmt : let->else_body) {
+      if (!LowerStmt(stmt, lc))
+        return false;
+      if (lc.terminated)
+        break;
+    }
+    if (!lc.terminated) {
+      lc.diags.ReportError(
+          let->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "Rust let-else lowering requires a provably diverging else block");
+      return false;
+    }
+
+    for (auto &bb : lc.fn->blocks) {
+      if (bb.get() == matched_block) {
+        lc.builder.SetInsertPoint(bb);
+        break;
+      }
+    }
+    lc.terminated = false;
+    return true;
   }
 
   // Handle different pattern types
@@ -957,29 +1256,26 @@ bool LowerLet(const std::shared_ptr<LetStatement> &let, LoweringContext &lc) {
   if (auto tup = std::dynamic_pointer_cast<TuplePattern>(let->pattern)) {
     // Destructuring tuple pattern: let (a, b, c) = expr;
     // Extract each element from the tuple value using GEP.
-    if (result.type.kind == ir::IRTypeKind::kStruct && !result.type.subtypes.empty()) {
+    if (result.type.kind == ir::IRTypeKind::kStruct &&
+        result.type.subtypes.size() == tup->elements.size()) {
       // The result is a struct type representing the tuple.
       for (size_t i = 0; i < tup->elements.size() && i < result.type.subtypes.size(); ++i) {
         auto elem_pat = std::dynamic_pointer_cast<IdentifierPattern>(tup->elements[i]);
-        if (elem_pat) {
-          auto gep = lc.builder.MakeGEP(result.value, result.type, {i});
-          auto load = lc.builder.MakeLoad(gep->name, result.type.subtypes[i]);
-          lc.env[elem_pat->name] = {load->name, result.type.subtypes[i]};
+        if (!elem_pat && !std::dynamic_pointer_cast<WildcardPattern>(tup->elements[i])) {
+          lc.diags.ReportError(let->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "nested Rust tuple-pattern lowering is not implemented");
+          return false;
         }
-        // Wildcard patterns are silently ignored.
+        if (!elem_pat)
+          continue;
+        auto gep = lc.builder.MakeGEP(result.value, result.type, {i});
+        auto load = lc.builder.MakeLoad(gep->name, result.type.subtypes[i]);
+        lc.env[elem_pat->name] = {load->name, result.type.subtypes[i]};
       }
     } else {
-      // Non-struct tuple value: extract elements using offset arithmetic.
-      for (size_t i = 0; i < tup->elements.size(); ++i) {
-        auto elem_pat = std::dynamic_pointer_cast<IdentifierPattern>(tup->elements[i]);
-        if (elem_pat) {
-          // Use a runtime helper to extract element i from the tuple
-          std::string idx_str = std::to_string(i);
-          auto extract = lc.builder.MakeCall("__rs_tuple_extract", {result.value, idx_str},
-                                             ir::IRType::I64(true), "");
-          lc.env[elem_pat->name] = {extract->name, ir::IRType::I64(true)};
-        }
-      }
+      lc.diags.ReportError(let->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust tuple destructuring requires an exact modeled tuple layout");
+      return false;
     }
     return true;
   }
@@ -989,7 +1285,8 @@ bool LowerLet(const std::shared_ptr<LetStatement> &let, LoweringContext &lc) {
     return true;
   }
 
-  lc.diags.Report(let->loc, "unsupported pattern type in let binding");
+  lc.diags.ReportError(let->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Rust let-pattern lowering");
   return false;
 }
 
@@ -1058,7 +1355,13 @@ bool LowerIf(const std::shared_ptr<IfExpression> &if_expr, LoweringContext &lc) 
       break;
     }
   }
-  lc.terminated = then_term && (else_term || !else_block);
+  // Without an explicit else, the false edge reaches the merge block and
+  // lowering must continue.  When both explicit branches return, keep the
+  // otherwise-unreachable merge block structurally valid for IR verification.
+  const bool all_paths_terminate = else_block && then_term && else_term;
+  if (all_paths_terminate)
+    lc.builder.MakeUnreachable();
+  lc.terminated = all_paths_terminate;
   return true;
 }
 
@@ -1175,11 +1478,44 @@ bool LowerFor(const std::shared_ptr<ForStatement> &fr, LoweringContext &lc) {
   if (lc.terminated)
     return true;
 
-  // Evaluate the iterable
-  auto iterable = EvalExpr(fr->iterable, lc);
+  auto range = std::dynamic_pointer_cast<RangeExpression>(fr->iterable);
+  if (!range) {
+    lc.diags.ReportError(fr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust for-loop lowering currently requires a range expression; "
+                         "IntoIterator lowering is not implemented");
+    return false;
+  }
+  if (!range->start || range->kind == RangeExpression::RangeKind::kTo ||
+      range->kind == RangeExpression::RangeKind::kFull) {
+    lc.diags.ReportError(fr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "this Rust range cannot be used as a lowered iterator");
+    return false;
+  }
 
-  // For range-based iteration, we need to handle Range expressions
-  // For now, create a simple loop structure
+  auto start = EvalExpr(range->start, lc);
+  if (start.type.kind == ir::IRTypeKind::kInvalid)
+    return false;
+  EvalResult end;
+  if (range->end) {
+    end = EvalExpr(range->end, lc);
+    if (end.type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+  }
+
+  auto pattern = std::dynamic_pointer_cast<IdentifierPattern>(fr->pattern);
+  if (!pattern) {
+    lc.diags.ReportError(fr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "range for-loop lowering requires an identifier pattern");
+    return false;
+  }
+
+  auto preheader = lc.builder.GetInsertPoint();
+  if (!preheader) {
+    lc.diags.ReportError(fr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "range for-loop has no insertion block");
+    return false;
+  }
+
   auto *cond_block = lc.fn->CreateBlock("for.cond");
   auto *body_block = lc.fn->CreateBlock("for.body");
   auto *incr_block = lc.fn->CreateBlock("for.incr");
@@ -1191,12 +1527,10 @@ bool LowerFor(const std::shared_ptr<ForStatement> &fr, LoweringContext &lc) {
   lc.loop_exit = exit_block;
   lc.loop_continue = incr_block;
 
-  // Initialize loop variable from pattern
-  std::string loop_var;
-  if (auto id = std::dynamic_pointer_cast<IdentifierPattern>(fr->pattern)) {
-    loop_var = id->name;
-    lc.env[loop_var] = {iterable.value, iterable.type};
-  }
+  const std::string loop_var = pattern->name;
+  std::optional<EnvEntry> old_binding;
+  if (auto found = lc.env.find(loop_var); found != lc.env.end())
+    old_binding = found->second;
 
   lc.builder.MakeBranch(cond_block);
 
@@ -1207,8 +1541,23 @@ bool LowerFor(const std::shared_ptr<ForStatement> &fr, LoweringContext &lc) {
       break;
     }
   }
-  // Simple condition: always true for now (infinite iteration guard would be needed)
-  lc.builder.MakeCondBranch("1", body_block, exit_block);
+  auto counter = lc.builder.MakePhi(start.type, {{preheader.get(), start.value}}, "range.index");
+  if (loop_var != "_")
+    lc.env[loop_var] = {counter->name, counter->type};
+
+  if (range->end) {
+    auto cmp_op = start.type.is_signed
+                      ? (range->inclusive ? ir::BinaryInstruction::Op::kCmpSle
+                                          : ir::BinaryInstruction::Op::kCmpSlt)
+                      : (range->inclusive ? ir::BinaryInstruction::Op::kCmpUle
+                                          : ir::BinaryInstruction::Op::kCmpUlt);
+    auto condition = lc.builder.MakeBinary(cmp_op, counter->name, end.value, "range.condition");
+    condition->type = ir::IRType::I1();
+    lc.builder.MakeCondBranch(condition->name, body_block, exit_block);
+  } else {
+    // `start..` is intentionally unbounded but still increments on each pass.
+    lc.builder.MakeCondBranch("1", body_block, exit_block);
+  }
 
   // Body block
   for (auto &bb : lc.fn->blocks) {
@@ -1237,17 +1586,20 @@ bool LowerFor(const std::shared_ptr<ForStatement> &fr, LoweringContext &lc) {
       break;
     }
   }
-  // Increment loop variable
-  if (!loop_var.empty()) {
-    auto &entry = lc.env[loop_var];
-    auto inc = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kAdd, entry.value, "1", "");
-    inc->type = entry.type;
-    entry.value = inc->name;
-  }
+  auto inc = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kAdd, counter->name, "1",
+                                   "range.next");
+  inc->type = counter->type;
   lc.builder.MakeBranch(cond_block);
+  lc.builder.AddPhiIncoming(counter.get(), incr_block, inc->name);
 
   lc.loop_exit = old_exit;
   lc.loop_continue = old_continue;
+
+  if (old_binding) {
+    lc.env[loop_var] = *old_binding;
+  } else {
+    lc.env.erase(loop_var);
+  }
 
   // Exit block
   for (auto &bb : lc.fn->blocks) {
@@ -1272,7 +1624,9 @@ bool LowerBreak(const std::shared_ptr<BreakStatement> &brk, LoweringContext &lc)
 
   // Evaluate break value if present (for loop expressions)
   if (brk->value) {
-    EvalExpr(brk->value, lc);
+    lc.diags.ReportError(brk->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust break-with-value requires loop-result PHI lowering");
+    return false;
   }
 
   lc.builder.MakeBranch(lc.loop_exit);
@@ -1354,8 +1708,7 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
       return LowerBlock(blk, lc);
     }
     // General expression - evaluate for side effects
-    (void)EvalExpr(expr_stmt->expr, lc);
-    return true;
+    return EvalExpr(expr_stmt->expr, lc).type.kind != ir::IRTypeKind::kInvalid;
   }
 
   // If expression as statement
@@ -1386,9 +1739,17 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
 
   // Impl block — lower each method inside it
   if (auto impl = std::dynamic_pointer_cast<ImplItem>(stmt)) {
+    auto target = std::dynamic_pointer_cast<TypePath>(impl->target_type);
+    const std::string owner =
+        target && !target->segments.empty() ? target->segments.back() : std::string{};
+    if (owner.empty()) {
+      lc.diags.ReportError(impl->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust impl lowering requires a concrete named struct target");
+      return false;
+    }
     for (const auto &m : impl->items) {
       if (auto fn_item = std::dynamic_pointer_cast<FunctionItem>(m)) {
-        if (!LowerFunction(*fn_item, lc))
+        if (!LowerFunction(*fn_item, lc, owner))
           return false;
       }
     }
@@ -1407,37 +1768,70 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   // Type alias, trait, mod, struct, enum, macro_rules — metadata only,
   // no IR is generated directly for these declarations.
   if (std::dynamic_pointer_cast<TypeAliasItem>(stmt) ||
+      std::dynamic_pointer_cast<UseDeclaration>(stmt) ||
       std::dynamic_pointer_cast<TraitItem>(stmt) || std::dynamic_pointer_cast<ModItem>(stmt) ||
       std::dynamic_pointer_cast<StructItem>(stmt) || std::dynamic_pointer_cast<EnumItem>(stmt) ||
       std::dynamic_pointer_cast<MacroRulesItem>(stmt)) {
     return true;
   }
 
-  lc.diags.Report(stmt->loc, "unsupported statement type in lowering");
+  lc.diags.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported Rust statement lowering");
   return false;
 }
 
 // Lower a complete function
-bool LowerFunction(const FunctionItem &fn, LoweringContext &lc) {
-  ir::IRType ret_ty = ToIRType(fn.return_type);
-  if (ret_ty.kind == ir::IRTypeKind::kInvalid)
-    ret_ty = ir::IRType::Void();
+bool LowerFunction(const FunctionItem &fn, LoweringContext &lc,
+                   const std::string &impl_owner) {
+  lc.current_impl = impl_owner;
+  if (!fn.has_body)
+    return true; // declaration only; no executable semantics to emit
+  if (fn.is_async) {
+    lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust async function lowering requires an async runtime and is not implemented");
+    return false;
+  }
+  ir::IRType ret_ty = ToIRType(fn.return_type, &lc.struct_layouts, impl_owner);
+  if (ret_ty.kind == ir::IRTypeKind::kInvalid) {
+    lc.diags.ReportError(fn.return_type ? fn.return_type->loc : fn.loc,
+                         frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported Rust return type lowering (including i128/u128)");
+    return false;
+  }
+  if (ret_ty.kind == ir::IRTypeKind::kStruct) {
+    lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "Rust aggregate return ABI is not implemented; construct the struct "
+                         "in the caller and invoke receiver methods instead");
+    return false;
+  }
 
   // Process parameters with full type support
   std::vector<std::pair<std::string, ir::IRType>> params;
   params.reserve(fn.params.size());
   for (auto &param : fn.params) {
-    ir::IRType param_ty = ToIRType(param.type);
+    if (!param.type) {
+      lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust function parameters require a modeled explicit type");
+      return false;
+    }
+    ir::IRType param_ty = ToIRType(param.type, &lc.struct_layouts, impl_owner);
     if (param_ty.kind == ir::IRTypeKind::kInvalid) {
-      // Unresolved parameter type — default to i64 and warn
-      std::cerr << "[rust-lowering] unresolved type for parameter '" << param.name
-                << "' in function '" << fn.name << "'; defaulting to i64\n";
-      param_ty = ir::IRType::I64(true);
+      lc.diags.ReportError(param.type->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported Rust parameter type lowering for '" + param.name +
+                               "' (including i128/u128)");
+      return false;
+    }
+    if (param_ty.kind == ir::IRTypeKind::kStruct) {
+      lc.diags.ReportError(param.type->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "Rust by-value aggregate parameter ABI is not implemented");
+      return false;
     }
     params.push_back({param.name, param_ty});
   }
 
-  lc.fn = lc.ir_ctx.CreateFunction(fn.name, ret_ty, params);
+  const std::string lowered_name =
+      impl_owner.empty() ? fn.name : impl_owner + "." + fn.name;
+  lc.fn = lc.ir_ctx.CreateFunction(lowered_name, ret_ty, params);
   auto *entry = lc.fn->CreateBlock("entry");
   lc.fn->entry = entry;
   for (auto &bb : lc.fn->blocks) {
@@ -1457,9 +1851,17 @@ bool LowerFunction(const FunctionItem &fn, LoweringContext &lc) {
   lc.terminated = false;
 
   // Lower function body
-  for (auto &stmt : fn.body) {
-    if (!LowerStmt(stmt, lc))
+  for (size_t i = 0; i < fn.body.size(); ++i) {
+    auto tail = std::dynamic_pointer_cast<ExprStatement>(fn.body[i]);
+    if (i + 1 == fn.body.size() && tail && !tail->has_semicolon) {
+      auto value = EvalExpr(tail->expr, lc);
+      if (value.type.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      lc.builder.MakeReturn(ret_ty.kind == ir::IRTypeKind::kVoid ? "" : value.value);
+      lc.terminated = true;
+    } else if (!LowerStmt(fn.body[i], lc)) {
       return false;
+    }
     if (lc.terminated)
       break;
   }
@@ -1469,9 +1871,9 @@ bool LowerFunction(const FunctionItem &fn, LoweringContext &lc) {
     if (ret_ty.kind == ir::IRTypeKind::kVoid) {
       lc.builder.MakeReturn("");
     } else {
-      // Return zero/default for non-void functions
-      auto zero = MakeLiteral(0, lc);
-      lc.builder.MakeReturn(zero.value);
+      lc.diags.ReportError(fn.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "non-void Rust function may reach the end without returning a value");
+      return false;
     }
   }
   return true;
@@ -1481,10 +1883,142 @@ bool LowerFunction(const FunctionItem &fn, LoweringContext &lc) {
 
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags) {
   LoweringContext lc(ctx, diags);
+
+  // Build exact named-field layouts before signatures or bodies are lowered.
+  // This keeps field offsets deterministic and lets every impl resolve `Self`.
+  for (const auto &item : module.items) {
+    auto item_struct = std::dynamic_pointer_cast<StructItem>(item);
+    if (!item_struct)
+      continue;
+    if (item_struct->is_tuple || item_struct->is_unit) {
+      // They remain parser/sema features, but this vertical slice intentionally
+      // models only named fields so construction cannot silently use the wrong
+      // tuple/unit ABI.
+      continue;
+    }
+
+    StructLayout layout;
+    layout.name = item_struct->name;
+    std::vector<ir::IRType> fields;
+    for (const auto &field : item_struct->fields) {
+      auto field_type = ToIRType(field.type, &lc.struct_layouts);
+      if (field_type.kind == ir::IRTypeKind::kInvalid ||
+          field_type.kind == ir::IRTypeKind::kStruct ||
+          field_type.kind == ir::IRTypeKind::kArray) {
+        diags.ReportError(field.type ? field.type->loc : item_struct->loc,
+                          frontends::ErrorCode::kUnsupportedLowering,
+                          "Rust struct field '" + field.name +
+                              "' requires a modeled scalar field ABI");
+        continue;
+      }
+      layout.field_indices[field.name] = fields.size();
+      layout.field_names.push_back(field.name);
+      fields.push_back(field_type);
+    }
+    layout.type = ir::IRType::Struct(layout.name, fields);
+    lc.struct_layouts[layout.name] = std::move(layout);
+  }
+
   for (const auto &item : module.items) {
     if (auto fn = std::dynamic_pointer_cast<FunctionItem>(item)) {
-      LowerFunction(*fn, lc);
+      auto ret = ToIRType(fn->return_type, &lc.struct_layouts);
+      if (ret.kind != ir::IRTypeKind::kInvalid)
+        lc.function_returns[fn->name] = ret;
     }
+    if (auto impl = std::dynamic_pointer_cast<ImplItem>(item)) {
+      auto target = std::dynamic_pointer_cast<TypePath>(impl->target_type);
+      const std::string owner =
+          target && !target->segments.empty() ? target->segments.back() : std::string{};
+      if (owner.empty() || lc.struct_layouts.find(owner) == lc.struct_layouts.end())
+        continue;
+      for (const auto &member : impl->items) {
+        auto fn = std::dynamic_pointer_cast<FunctionItem>(member);
+        if (!fn)
+          continue;
+        auto ret = ToIRType(fn->return_type, &lc.struct_layouts, owner);
+        if (ret.kind == ir::IRTypeKind::kInvalid)
+          continue;
+        MethodInfo info;
+        info.owner = owner;
+        info.name = fn->name;
+        info.lowered_name = owner + "." + fn->name;
+        info.function = fn.get();
+        info.return_type = ret;
+        lc.methods[owner + "." + fn->name] = info;
+        lc.function_returns[info.lowered_name] = ret;
+      }
+    }
+  }
+  for (const auto &item : module.items) {
+    if (auto fn = std::dynamic_pointer_cast<FunctionItem>(item)) {
+      if (!LowerFunction(*fn, lc))
+        break;
+      continue;
+    }
+    if (auto impl = std::dynamic_pointer_cast<ImplItem>(item)) {
+      if (impl->trait_type) {
+        diags.ReportError(impl->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "Rust trait impl lowering and virtual obligations are not implemented");
+        break;
+      }
+      auto target = std::dynamic_pointer_cast<TypePath>(impl->target_type);
+      const std::string owner =
+          target && !target->segments.empty() ? target->segments.back() : std::string{};
+      if (owner.empty() || lc.struct_layouts.find(owner) == lc.struct_layouts.end()) {
+        diags.ReportError(impl->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "Rust impl lowering requires a modeled named-field struct target");
+        break;
+      }
+      for (const auto &member : impl->items) {
+        if (auto fn = std::dynamic_pointer_cast<FunctionItem>(member)) {
+          if (!LowerFunction(*fn, lc, owner))
+            break;
+        } else {
+          diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "Rust associated const/type lowering is not implemented");
+          break;
+        }
+      }
+      if (diags.HasErrors())
+        break;
+      continue;
+    }
+    if (auto module_item = std::dynamic_pointer_cast<ModItem>(item)) {
+      if (!module_item->items.empty()) {
+        diags.ReportError(module_item->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "inline Rust module item lowering and symbol qualification are not implemented");
+        break;
+      }
+      continue;
+    }
+    if (auto trait = std::dynamic_pointer_cast<TraitItem>(item)) {
+      const bool has_default_body = std::any_of(
+          trait->items.begin(), trait->items.end(), [](const auto &member) {
+            auto fn = std::dynamic_pointer_cast<FunctionItem>(member);
+            return fn && fn->has_body;
+          });
+      if (has_default_body) {
+        diags.ReportError(trait->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "Rust trait default-method lowering is not implemented");
+        break;
+      }
+      continue;
+    }
+    if (std::dynamic_pointer_cast<ConstItem>(item)) {
+      diags.ReportError(item->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "Rust top-level const evaluation and storage lowering are not implemented");
+      break;
+    }
+    if (std::dynamic_pointer_cast<UseDeclaration>(item) ||
+        std::dynamic_pointer_cast<TypeAliasItem>(item) ||
+        std::dynamic_pointer_cast<StructItem>(item) ||
+        std::dynamic_pointer_cast<EnumItem>(item) ||
+        std::dynamic_pointer_cast<MacroRulesItem>(item)) {
+      continue; // metadata-only item
+    }
+    diags.ReportError(item->loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "unsupported Rust top-level item lowering");
+    break;
   }
 }
 

@@ -30,8 +30,22 @@ void BasicBlock::SetTerminator(const std::shared_ptr<Instruction> &term) {
 }
 
 BasicBlock *Function::CreateBlock(const std::string &block_name) {
+  // Frontends deliberately use descriptive block stems such as `if.then`
+  // and `while.cond`.  A function can contain many constructs with the same
+  // stem, but IR block names are also symbol names in the native backends and
+  // therefore must be unique within the function.
+  std::string unique_name = block_name;
+  std::size_t suffix = 1;
+  auto name_is_used = [&](const std::string &candidate) {
+    return std::any_of(blocks.begin(), blocks.end(), [&](const auto &existing) {
+      return existing && existing->name == candidate;
+    });
+  };
+  while (name_is_used(unique_name))
+    unique_name = block_name + "." + std::to_string(suffix++);
+
   auto bb = std::make_shared<BasicBlock>();
-  bb->name = block_name;
+  bb->name = std::move(unique_name);
   blocks.push_back(bb);
   if (!entry)
     entry = bb.get();

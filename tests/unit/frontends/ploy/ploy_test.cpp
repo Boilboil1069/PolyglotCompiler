@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <sstream>
 #include <string>
 
@@ -43,6 +44,13 @@ std::shared_ptr<Module> Parse(const std::string &code, Diagnostics &diags) {
     PloyParser parser(lexer, diags);
     parser.ParseModule();
     return parser.TakeModule();
+}
+
+bool HasErrorCode(const Diagnostics &diags, ErrorCode code) {
+    for (const auto &diag : diags.All()) {
+        if (diag.code == code) return true;
+    }
+    return false;
 }
 
 bool AnalyzeCode(const std::string &code, Diagnostics &diags, PloySema &sema) {
@@ -516,7 +524,7 @@ LINK(cpp, python, math::add, utils::get_values);
     REQUIRE(ir.find("__ploy_bridge") != std::string::npos);
 }
 
-TEST_CASE("Poly lowering generates PIPELINE function", "[poly][lowering]") {
+TEST_CASE("Poly lowering rejects a value return from void PIPELINE", "[poly][lowering]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 PIPELINE process_data {
@@ -524,7 +532,8 @@ PIPELINE process_data {
     RETURN x;
 }
 )", diags);
-    REQUIRE(ir.find("__ploy_pipeline_process_data") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 TEST_CASE("Poly lowering generates IF with branches", "[poly][lowering]") {
@@ -650,7 +659,8 @@ FUNC classify(x: i32) -> i32 {
 // Integration Tests
 // ============================================================================
 
-TEST_CASE("Poly full pipeline: LINK + FUNC + CALL", "[poly][integration]") {
+TEST_CASE("Poly full pipeline: unresolved LINK result cannot satisfy typed return",
+          "[poly][integration][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, math::add, utils::get_values);
@@ -660,12 +670,12 @@ FUNC use_add(a: i32, b: i32) -> i32 {
     RETURN result;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    // Should have both the bridge stub and the use_add function
-    REQUIRE(ir.find("use_add") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
-TEST_CASE("Poly full pipeline: PIPELINE with control flow", "[poly][integration]") {
+TEST_CASE("Poly full pipeline: void PIPELINE rejects control-flow value return",
+          "[poly][integration][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 PIPELINE transform {
@@ -680,11 +690,12 @@ PIPELINE transform {
     RETURN sum;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    REQUIRE(ir.find("__ploy_pipeline_transform") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
-TEST_CASE("Poly full pipeline: multiple LINKs with PIPELINE", "[poly][integration]") {
+TEST_CASE("Poly full pipeline: unresolved LINK result cannot be returned from PIPELINE",
+          "[poly][integration][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 LINK(cpp, python, math::sin, pymath::sin);
@@ -698,7 +709,8 @@ PIPELINE compute {
     RETURN s;
 }
 )", diags);
-    REQUIRE(!ir.empty());
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 // ============================================================================
@@ -942,7 +954,8 @@ MAP_FUNC identity(x: i32) -> i32 {
     REQUIRE(ir.find("__ploy_mapfunc_identity") != std::string::npos);
 }
 
-TEST_CASE("Poly lowering generates CONVERT call", "[poly][lowering][complex]") {
+TEST_CASE("Poly lowering rejects integer-to-float CONVERT without a numeric cast opcode",
+          "[poly][lowering][complex][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test(x: i32) -> void {
@@ -950,8 +963,251 @@ FUNC test(x: i32) -> void {
     RETURN;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    REQUIRE(ir.find("test") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+}
+
+TEST_CASE("Poly lowering preserves explicit primitive widths and signedness",
+          "[poly][lowering][types][width]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+FUNC preserve_widths(s8: i8, s16: I16, s32: i32, s64: I64,
+                     u8_value: u8, u16_value: U16, u32_value: u32, u64_value: U64,
+                     f32_value: f32, f64_value: F64) -> i32 {
+    RETURN s32;
+}
+)", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+    REQUIRE_FALSE(diags.HasErrors());
+
+    const auto *fn = ctx.FindFunction("preserve_widths");
+    REQUIRE(fn != nullptr);
+    REQUIRE(fn->param_types.size() == 10);
+
+    CHECK(fn->param_types[0].kind == polyglot::ir::IRTypeKind::kI8);
+    CHECK(fn->param_types[1].kind == polyglot::ir::IRTypeKind::kI16);
+    CHECK(fn->param_types[2].kind == polyglot::ir::IRTypeKind::kI32);
+    CHECK(fn->param_types[3].kind == polyglot::ir::IRTypeKind::kI64);
+    CHECK(fn->param_types[4].kind == polyglot::ir::IRTypeKind::kI8);
+    CHECK(fn->param_types[5].kind == polyglot::ir::IRTypeKind::kI16);
+    CHECK(fn->param_types[6].kind == polyglot::ir::IRTypeKind::kI32);
+    CHECK(fn->param_types[7].kind == polyglot::ir::IRTypeKind::kI64);
+    CHECK(fn->param_types[8].kind == polyglot::ir::IRTypeKind::kF32);
+    CHECK(fn->param_types[9].kind == polyglot::ir::IRTypeKind::kF64);
+
+    for (size_t i = 0; i < 4; ++i) {
+        CHECK(fn->param_types[i].is_signed);
+    }
+    for (size_t i = 4; i < 8; ++i) {
+        CHECK_FALSE(fn->param_types[i].is_signed);
+    }
+    CHECK(fn->ret_type.kind == polyglot::ir::IRTypeKind::kI32);
+    CHECK(fn->ret_type.is_signed);
+}
+
+TEST_CASE("Poly lowering emits width casts and unsigned arithmetic opcodes",
+          "[poly][lowering][types][width]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+FUNC narrow(x: I64) -> I32 { RETURN x; }
+FUNC divide(a: U32, b: U32) -> U32 { RETURN a / b; }
+)", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const auto *narrow = ctx.FindFunction("narrow");
+    const auto *divide = ctx.FindFunction("divide");
+    REQUIRE(narrow);
+    REQUIRE(divide);
+    bool found_trunc = false;
+    for (const auto &block : narrow->blocks) {
+        for (const auto &instruction : block->instructions) {
+            auto cast = std::dynamic_pointer_cast<polyglot::ir::CastInstruction>(instruction);
+            if (cast && cast->cast == polyglot::ir::CastInstruction::CastKind::kTrunc &&
+                cast->type.kind == polyglot::ir::IRTypeKind::kI32) {
+                found_trunc = true;
+            }
+        }
+    }
+    bool found_unsigned_div = false;
+    for (const auto &block : divide->blocks) {
+        for (const auto &instruction : block->instructions) {
+            auto binary = std::dynamic_pointer_cast<polyglot::ir::BinaryInstruction>(instruction);
+            if (binary && binary->op == polyglot::ir::BinaryInstruction::Op::kUDiv &&
+                binary->type.kind == polyglot::ir::IRTypeKind::kI32 &&
+                !binary->type.is_signed) {
+                found_unsigned_div = true;
+            }
+        }
+    }
+    CHECK(found_trunc);
+    CHECK(found_unsigned_div);
+}
+
+TEST_CASE("Poly logical AND lowers RHS call into a short-circuit block",
+          "[poly][lowering][short-circuit]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+FUNC side_effect() -> BOOL { RETURN TRUE; }
+FUNC choose(left: BOOL) -> BOOL { RETURN left && side_effect(); }
+)", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const auto *fn = ctx.FindFunction("choose");
+    REQUIRE(fn);
+    bool rhs_has_call = false;
+    bool entry_has_cond_branch = false;
+    for (const auto &block : fn->blocks) {
+        if (block.get() == fn->entry) {
+            entry_has_cond_branch =
+                dynamic_cast<polyglot::ir::CondBranchStatement *>(block->terminator.get()) != nullptr;
+        }
+        if (block->name.find("logic.and.rhs") == std::string::npos) continue;
+        for (const auto &instruction : block->instructions) {
+            auto call = std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction);
+            if (call && call->callee == "side_effect") rhs_has_call = true;
+        }
+    }
+    CHECK(entry_has_cond_branch);
+    CHECK(rhs_has_call);
+}
+
+TEST_CASE("Poly container literals pass exact element sizes to the runtime",
+          "[poly][lowering][containers][layout]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+FUNC build() -> VOID {
+    LET flags = [TRUE, FALSE];
+    LET table = {TRUE: TRUE, FALSE: FALSE};
+    RETURN;
+}
+)", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const auto *fn = ctx.FindFunction("build");
+    REQUIRE(fn);
+    bool list_size_is_one = false;
+    bool dict_sizes_are_one = false;
+    for (const auto &block : fn->blocks) {
+        for (const auto &instruction : block->instructions) {
+            auto call = std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction);
+            if (!call) continue;
+            if (call->callee == "__ploy_rt_list_create" && call->operands.size() == 2)
+                list_size_is_one = call->operands[0] == "1";
+            if (call->callee == "__ploy_rt_dict_create" && call->operands.size() == 2)
+                dict_sizes_are_one = call->operands[0] == "1" && call->operands[1] == "1";
+        }
+    }
+    CHECK(list_size_is_one);
+    CHECK(dict_sizes_are_one);
+}
+
+TEST_CASE("Poly empty container literals fail closed without an inferred runtime layout",
+          "[poly][lowering][containers][unsupported]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR("FUNC empty() -> VOID { LET xs = []; RETURN; }", diags);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+}
+
+TEST_CASE("Poly LINK MAP_TYPE does not invent function arity or fake casts",
+          "[poly][lowering][link][abi]") {
+    Diagnostics diags;
+    auto module = Parse(R"(
+LINK(cpp, python, math::add, pymath::add) {
+    MAP_TYPE(cpp::int, python::int);
+    MAP_TYPE(cpp::double, python::float);
+}
+)", diags);
+    REQUIRE(module);
+    REQUIRE_FALSE(diags.HasErrors());
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+
+    const polyglot::ir::Function *stub = nullptr;
+    for (const auto &function : ctx.Functions()) {
+        if (function->name.find("__ploy_bridge") != std::string::npos) {
+            stub = function.get();
+            break;
+        }
+    }
+    REQUIRE(stub);
+    REQUIRE(stub->param_types.size() == 1);
+    CHECK(stub->param_types[0].is_placeholder);
+    CHECK(std::none_of(stub->blocks.front()->instructions.begin(),
+                       stub->blocks.front()->instructions.end(), [](const auto &instruction) {
+        return instruction->name.find("marshalled") != std::string::npos;
+    }));
+    CHECK(HasErrorCode(diags, ErrorCode::kOpaqueTypeFallback));
+}
+
+TEST_CASE("Poly LINK AS STRUCT fails closed without concrete field layouts",
+          "[poly][lowering][link][unsupported]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+LINK(cpp, rust, Point, RustPoint) AS STRUCT {
+    MAP_TYPE(cpp::int, rust::i32);
+}
+)", diags);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+}
+
+TEST_CASE("Poly multiple CATCH clauses fail closed without typed error dispatch",
+          "[poly][lowering][try-catch][unsupported]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC guarded() -> VOID {
+    TRY { THROW "boom"; }
+    CATCH (first: Error) { PRINTLN "first"; }
+    CATCH (second: Error) { PRINTLN "second"; }
+    RETURN;
+}
+)", diags);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
+}
+
+TEST_CASE("Poly FINALLY fails closed without cleanup edges",
+          "[poly][lowering][try-catch][unsupported]") {
+    Diagnostics diags;
+    std::string ir = LowerAndGetIR(R"(
+FUNC guarded() -> VOID {
+    TRY { PRINTLN "work"; }
+    FINALLY { PRINTLN "cleanup"; }
+    RETURN;
+}
+)", diags);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 // ============================================================================
@@ -1568,7 +1824,8 @@ IMPORT rust PACKAGE serde >= 1.0;
 // Package Import with LINK Integration
 // ============================================================================
 
-TEST_CASE("Poly versioned import with LINK and PIPELINE", "[poly][integration][version]") {
+TEST_CASE("Poly versioned LINK result cannot be returned from void PIPELINE",
+          "[poly][integration][version][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE numpy >= 1.20 AS np;
@@ -1583,8 +1840,8 @@ PIPELINE analysis {
     RETURN result;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    REQUIRE(ir.find("__ploy_pipeline_analysis") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 // ============================================================================
@@ -1791,7 +2048,8 @@ IMPORT rust PACKAGE serde >= 1.0;
     REQUIRE(np_import->version_constraint == "1.20");
 }
 
-TEST_CASE("Poly full pipeline: CONDA + versioned imports + selective", "[poly][integration][pkgmgr]") {
+TEST_CASE("Poly full pipeline: package CALL result cannot be returned from void PIPELINE",
+          "[poly][integration][pkgmgr][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 CONFIG CONDA python "data_science";
@@ -1808,8 +2066,8 @@ PIPELINE analysis {
     RETURN result;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    REQUIRE(ir.find("__ploy_pipeline_analysis") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 TEST_CASE("Poly full pipeline: POETRY + multiple packages", "[poly][integration][pkgmgr]") {
@@ -2184,7 +2442,8 @@ FUNC ml_pipeline() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Poly full pipeline: NEW inside PIPELINE", "[poly][integration][class]") {
+TEST_CASE("Poly full pipeline: void PIPELINE rejects value return after NEW",
+          "[poly][integration][class][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE torch;
@@ -2196,7 +2455,8 @@ PIPELINE ml_pipeline {
     RETURN 0;
 }
 )", diags);
-    REQUIRE(!ir.empty());
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 TEST_CASE("Poly full pipeline: NEW with Rust classes", "[poly][integration][class]") {
@@ -2550,7 +2810,8 @@ FUNC test() -> INT {
 // WITH - Lowering Tests
 // ============================================================================
 
-TEST_CASE("Poly lowering: WITH generates enter/exit stubs", "[poly][lowering]") {
+TEST_CASE("Poly lowering: WITH fails closed without exception-aware cleanup ABI",
+          "[poly][lowering][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2560,12 +2821,12 @@ FUNC test() -> INT {
     RETURN 0;
 }
 )", diags);
-    REQUIRE(!ir.empty());
-    CHECK(ir.find("__enter__") != std::string::npos);
-    CHECK(ir.find("__exit__") != std::string::npos);
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
-TEST_CASE("Poly lowering: WITH descriptor records enter and exit", "[poly][lowering]") {
+TEST_CASE("Poly lowering: unsupported WITH emits no partial enter/exit descriptors",
+          "[poly][lowering][unsupported]") {
     Diagnostics diags;
     auto [ir_str, descriptors] = LowerAndGetDescriptors(R"(
 FUNC test() -> INT {
@@ -2575,15 +2836,9 @@ FUNC test() -> INT {
     RETURN 0;
 }
 )", diags);
-    REQUIRE(!ir_str.empty());
-
-    bool found_enter = false, found_exit = false;
-    for (const auto &d : descriptors) {
-        if (d.source_function == "__enter__") found_enter = true;
-        if (d.source_function == "__exit__") found_exit = true;
-    }
-    CHECK(found_enter);
-    CHECK(found_exit);
+    CHECK(ir_str.empty());
+    CHECK(descriptors.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 // ============================================================================
@@ -2667,7 +2922,8 @@ FUNC test() -> INT {
     REQUIRE(!ir.empty());
 }
 
-TEST_CASE("Poly integration: WITH + GET + SET pipeline", "[poly][integration][class]") {
+TEST_CASE("Poly integration: WITH + GET fails closed before partial cleanup lowering",
+          "[poly][integration][class][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 FUNC test() -> INT {
@@ -2678,10 +2934,12 @@ FUNC test() -> INT {
     RETURN 0;
 }
 )", diags);
-    REQUIRE(!ir.empty());
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
-TEST_CASE("Poly integration: mixed cross-lang class instantiation", "[poly][integration][class]") {
+TEST_CASE("Poly integration: unresolved cross-lang object result cannot satisfy INT return",
+          "[poly][integration][class][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"(
 IMPORT python PACKAGE sklearn.preprocessing;
@@ -2695,10 +2953,12 @@ FUNC cross_lang_demo() -> INT {
     RETURN result;
 }
 )", diags);
-    REQUIRE(!ir.empty());
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
-TEST_CASE("Poly integration: WITH for database connection", "[poly][integration][class]") {
+TEST_CASE("Poly integration: database WITH requires cleanup ABI",
+          "[poly][integration][class][unsupported]") {
     Diagnostics diags;
     std::string ir = LowerAndGetIR(R"poly(
 FUNC db_query() -> INT {
@@ -2710,7 +2970,8 @@ FUNC db_query() -> INT {
     RETURN 0;
 }
 )poly", diags);
-    REQUIRE(!ir.empty());
+    CHECK(ir.empty());
+    CHECK(HasErrorCode(diags, ErrorCode::kUnsupportedLowering));
 }
 
 // ============================================================================

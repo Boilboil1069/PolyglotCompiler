@@ -9,21 +9,20 @@
  * Translates a JavaScript AST into the Polyglot IR.  The lowering targets
  * a typed numeric subset suitable for cross-language interop:
  *   - Top-level function declarations become IR functions
- *   - Function parameters are typed via JSDoc annotations (defaulting to f64)
- *   - Arithmetic, comparison, logical and bitwise operations on numeric
- *     and boolean operands lower to their IR counterparts
+ *   - Function parameters and returns require supported JSDoc annotations
+ *   - Selected arithmetic, strict comparison, unary and bitwise operations
+ *     lower when operand types prove the primitive semantics are equivalent
  *   - Variable declarations become alloca/store pairs
  *   - if/while/for/return statements lower to control-flow blocks
- *   - Calls into other JS functions resolve by qualified name
- *   - Calls into globals or unresolved identifiers are emitted as
- *     extern function calls so that the linker can bind them later
+ *   - Calls resolve only against pre-collected, fully typed JS signatures
  *
  * Constructs that have no clean static lowering (closures, classes,
- * generators, async/await, prototype chains) are reported as warnings
- * and elided from IR - they remain valid JavaScript at runtime, just
- * not part of the cross-language IR surface.
+ * generators, async/await, prototype chains) produce E4003 diagnostics.
+ * Frontend lowering therefore fails closed instead of emitting executable IR
+ * with approximated JavaScript semantics.
  */
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,10 +36,11 @@ namespace polyglot::javascript {
 
 namespace {
 
-// Map a JSDoc TypeNode to an IR primitive type.  Falls back to f64 (number).
+// Map a JSDoc TypeNode to an IR primitive type. Missing and unknown types are
+// deliberately invalid: JavaScript's dynamic values cannot be modeled as f64.
 ir::IRType ToIRType(const std::shared_ptr<TypeNode> &t) {
   if (!t)
-    return ir::IRType::F64();
+    return ir::IRType::Invalid();
   if (auto nt = std::dynamic_pointer_cast<NamedType>(t)) {
     const std::string &n = nt->name;
     if (n == "number" || n == "Number")
@@ -67,47 +67,119 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &t) {
       return ir::IRType::I64(true);
     if (n == "any" || n == "unknown" || n == "object" || n == "Object")
       return ir::IRType::Pointer(ir::IRType::I8());
-    return ir::IRType::F64();
+    return ir::IRType::Invalid();
   }
   if (auto gt = std::dynamic_pointer_cast<GenericType>(t)) {
     if (gt->name == "Promise" || gt->name == "Array" || gt->name == "Map" || gt->name == "Set") {
       return ir::IRType::Pointer(ir::IRType::I8());
     }
-    return ir::IRType::F64();
+    return ir::IRType::Invalid();
   }
   if (std::dynamic_pointer_cast<UnionType>(t)) {
-    // Union types collapse to "any" (opaque pointer) for IR purposes.
-    return ir::IRType::Pointer(ir::IRType::I8());
+    return ir::IRType::Invalid();
   }
-  return ir::IRType::F64();
+  return ir::IRType::Invalid();
 }
 
 class Lowerer {
+  struct FunctionSignature {
+    ir::IRType return_type{ir::IRType::Invalid()};
+    std::vector<ir::IRType> param_types;
+  };
+
 public:
   Lowerer(const Module &mod, ir::IRContext &ctx, frontends::Diagnostics &diag) :
       module_(mod), ctx_(ctx), builder_(ctx), diag_(diag) {}
 
   void Run() {
+    for (auto &s : module_.body) {
+      if (auto fd = std::dynamic_pointer_cast<FunctionDecl>(s)) {
+        RegisterFunctionSignature(*fd);
+      } else if (auto exp = std::dynamic_pointer_cast<ExportDecl>(s)) {
+        if (auto fd = std::dynamic_pointer_cast<FunctionDecl>(exp->declaration))
+          RegisterFunctionSignature(*fd);
+      }
+    }
+
     // Lower each top-level function declaration; everything else is
     // reported but not embedded in IR (we focus on the FFI surface).
     for (auto &s : module_.body) {
       if (auto fd = std::dynamic_pointer_cast<FunctionDecl>(s)) {
         LowerFunction(*fd);
+      } else if (auto cd = std::dynamic_pointer_cast<ClassDecl>(s)) {
+        RejectUnlowerableClassFeatures(*cd);
       } else if (auto exp = std::dynamic_pointer_cast<ExportDecl>(s)) {
         if (auto fd = std::dynamic_pointer_cast<FunctionDecl>(exp->declaration)) {
           LowerFunction(*fd);
+        } else if (auto cd = std::dynamic_pointer_cast<ClassDecl>(exp->declaration)) {
+          RejectUnlowerableClassFeatures(*cd);
+        } else if (exp->declaration || exp->default_expr) {
+          diag_.ReportError(exp->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "executable JavaScript export has no module-initializer lowering");
         }
+      } else if (!std::dynamic_pointer_cast<ImportDecl>(s)) {
+        diag_.ReportError(s->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript top-level statement has no module-initializer lowering");
       }
     }
   }
 
 private:
+  void RegisterFunctionSignature(const FunctionDecl &fd) {
+    FunctionSignature signature;
+    signature.return_type = ToIRType(fd.return_type);
+    for (const auto &param : fd.params)
+      signature.param_types.push_back(ToIRType(param.type));
+    function_signatures_[fd.name] = std::move(signature);
+  }
+
+  void RejectUnlowerableClassFeatures(const ClassDecl &cls) {
+    for (const auto &member : cls.members) {
+      if (std::dynamic_pointer_cast<StaticBlock>(member) ||
+          std::dynamic_pointer_cast<FieldDecl>(member)) {
+        diag_.ReportError(
+            member->loc, frontends::ErrorCode::kUnsupportedLowering,
+            "JavaScript class fields/static blocks are parsed and analyzed but require "
+            "dynamic runtime lowering");
+        return;
+      }
+      if (auto method = std::dynamic_pointer_cast<MethodDecl>(member); method && method->is_private) {
+        diag_.ReportError(method->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript private methods require dynamic runtime lowering");
+        return;
+      }
+    }
+    diag_.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript classes require dynamic prototype/runtime lowering");
+  }
+
   // ---- Function lowering -------------------------------------------------
 
   void LowerFunction(const FunctionDecl &fd) {
     if (fd.is_async || fd.is_generator) {
-      diag_.Report(fd.loc, "JavaScript " + std::string(fd.is_async ? "async" : "generator") +
-                               " function '" + fd.name + "' is not lowered to IR");
+      diag_.ReportError(fd.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript " + std::string(fd.is_async ? "async" : "generator") +
+                            " function '" + fd.name + "' requires runtime lowering");
+      return;
+    }
+
+    for (const auto &param : fd.params) {
+      if (param.rest || param.default_value) {
+        diag_.ReportError(fd.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript rest/default parameters require call-protocol lowering");
+        return;
+      }
+      if (!param.type || ToIRType(param.type).kind == ir::IRTypeKind::kInvalid) {
+        diag_.ReportError(fd.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript parameter '" + param.name +
+                              "' requires a supported JSDoc type for static lowering");
+        return;
+      }
+    }
+    if (!fd.return_type || ToIRType(fd.return_type).kind == ir::IRTypeKind::kInvalid) {
+      diag_.ReportError(fd.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript function '" + fd.name +
+                            "' requires a supported JSDoc return type for static lowering");
       return;
     }
 
@@ -143,15 +215,12 @@ private:
       }
     }
     if (!terminated_) {
-      // Implicit return - produce 0/undefined of the right type.
       if (ret_ty.kind == ir::IRTypeKind::kVoid) {
         builder_.MakeReturn();
       } else {
-        std::string zero =
-            (ret_ty.kind == ir::IRTypeKind::kF32 || ret_ty.kind == ir::IRTypeKind::kF64)
-                ? builder_.MakeLiteral(0.0)->name
-                : builder_.MakeLiteral((long long)0)->name;
-        builder_.MakeReturn(zero);
+        diag_.ReportError(fd.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript non-void function may complete without a return value");
+        builder_.MakeUnreachable();
       }
     }
     builder_.ClearCurrentFunction();
@@ -171,17 +240,36 @@ private:
       return;
     }
     if (auto vd = std::dynamic_pointer_cast<VariableDecl>(s)) {
+      if (vd->kind == "using" || vd->kind == "await using") {
+        diag_.ReportError(vd->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript using declarations require deterministic-disposal "
+                          "runtime lowering");
+        return;
+      }
       for (auto &d : vd->decls) {
-        ir::IRType ty = ir::IRType::F64();
-        if (d.type)
-          ty = ToIRType(d.type);
+        if (!d.name.empty() && (d.name.front() == '[' || d.name.front() == '{')) {
+          diag_.ReportError(vd->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript destructuring declarations require iterator/property "
+                            "runtime semantics");
+          continue;
+        }
+        if (!d.init) {
+          diag_.ReportError(vd->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript uninitialized declarations require a distinct undefined "
+                            "value representation");
+          continue;
+        }
+        ir::IRType ty = d.type ? ToIRType(d.type) : InferExpressionType(d.init);
+        if (ty.kind == ir::IRTypeKind::kInvalid || ty.kind == ir::IRTypeKind::kVoid) {
+          diag_.ReportError(vd->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript declaration type cannot be represented faithfully in IR");
+          continue;
+        }
         auto a = builder_.MakeAlloca(ty, d.name + ".addr");
         locals_[d.name] = {d.name + ".addr", ty};
-        if (d.init) {
-          auto v = LowerExpression(d.init, ty);
-          if (!v.empty())
-            builder_.MakeStore(d.name + ".addr", v);
-        }
+        auto v = LowerExpression(d.init, ty);
+        if (!v.empty())
+          builder_.MakeStore(d.name + ".addr", v);
       }
       return;
     }
@@ -191,15 +279,40 @@ private:
     }
     if (auto rs = std::dynamic_pointer_cast<ReturnStatement>(s)) {
       if (rs->value) {
+        if (current_ret_.kind == ir::IRTypeKind::kVoid) {
+          diag_.ReportError(rs->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript value return conflicts with the declared void ABI");
+          builder_.MakeUnreachable();
+          terminated_ = true;
+          return;
+        }
+        auto actual_type = InferExpressionType(rs->value);
+        if (actual_type.kind == ir::IRTypeKind::kInvalid ||
+            !actual_type.SameShape(current_ret_)) {
+          diag_.ReportError(rs->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript return value requires an unmodeled conversion to the "
+                            "declared JSDoc return type");
+          builder_.MakeUnreachable();
+          terminated_ = true;
+          return;
+        }
         auto v = LowerExpression(rs->value, current_ret_);
         builder_.MakeReturn(v);
       } else {
-        builder_.MakeReturn();
+        if (current_ret_.kind != ir::IRTypeKind::kVoid) {
+          diag_.ReportError(rs->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "JavaScript bare return requires an undefined value representation");
+          builder_.MakeUnreachable();
+        } else {
+          builder_.MakeReturn();
+        }
       }
       terminated_ = true;
       return;
     }
     if (auto ifs = std::dynamic_pointer_cast<IfStatement>(s)) {
+      if (!RequireBoolean(ifs->condition, "if"))
+        return;
       auto fn = builder_.CurrentFunction();
       auto then_bb = fn->CreateBlock("if.then");
       auto else_bb = ifs->else_branch ? fn->CreateBlock("if.else") : nullptr;
@@ -225,6 +338,8 @@ private:
       return;
     }
     if (auto wh = std::dynamic_pointer_cast<WhileStatement>(s)) {
+      if (!RequireBoolean(wh->condition, "while"))
+        return;
       auto fn = builder_.CurrentFunction();
       auto cond_bb = fn->CreateBlock("while.cond");
       auto body_bb = fn->CreateBlock("while.body");
@@ -245,6 +360,8 @@ private:
       return;
     }
     if (auto fs = std::dynamic_pointer_cast<ForStatement>(s)) {
+      if (fs->condition && !RequireBoolean(fs->condition, "for"))
+        return;
       auto fn = builder_.CurrentFunction();
       if (fs->init)
         LowerStatement(fs->init);
@@ -277,26 +394,134 @@ private:
       return;
     }
     if (auto br = std::dynamic_pointer_cast<BreakStatement>(s)) {
-      if (!loop_stack_.empty()) {
+      if (!br->label.empty()) {
+        diag_.ReportError(br->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "labeled JavaScript break requires label-aware CFG lowering");
+      } else if (!loop_stack_.empty()) {
         builder_.MakeBranch(loop_stack_.back().brk);
         terminated_ = true;
+      } else {
+        diag_.ReportError(br->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript break outside a modeled loop has no CFG target");
       }
       return;
     }
     if (auto co = std::dynamic_pointer_cast<ContinueStatement>(s)) {
-      if (!loop_stack_.empty()) {
+      if (!co->label.empty()) {
+        diag_.ReportError(co->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "labeled JavaScript continue requires label-aware CFG lowering");
+      } else if (!loop_stack_.empty()) {
         builder_.MakeBranch(loop_stack_.back().cont);
         terminated_ = true;
+      } else {
+        diag_.ReportError(co->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript continue outside a modeled loop has no CFG target");
       }
       return;
     }
-    // Other statements are silently skipped - they have no IR equivalent.
+    diag_.ReportError(s->loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript statement is parsed but has no faithful IR lowering");
   }
 
   // ---- Expression lowering ----------------------------------------------
 
   static bool IsFloat(const ir::IRType &t) {
     return t.kind == ir::IRTypeKind::kF32 || t.kind == ir::IRTypeKind::kF64;
+  }
+
+  static bool IsInteger(const ir::IRType &t) { return t.IsInteger() && t.kind != ir::IRTypeKind::kI1; }
+
+  ir::IRType InferExpressionType(const std::shared_ptr<Expression> &e) const {
+    if (!e)
+      return ir::IRType::Invalid();
+    if (auto lit = std::dynamic_pointer_cast<Literal>(e)) {
+      switch (lit->kind) {
+      case Literal::Kind::kNumber: return ir::IRType::F64();
+      case Literal::Kind::kBool: return ir::IRType::I1();
+      case Literal::Kind::kString:
+      case Literal::Kind::kTemplateString: return ir::IRType::Pointer(ir::IRType::I8());
+      default: return ir::IRType::Invalid();
+      }
+    }
+    if (auto id = std::dynamic_pointer_cast<Identifier>(e)) {
+      auto it = locals_.find(id->name);
+      return it == locals_.end() ? ir::IRType::Invalid() : it->second.type;
+    }
+    if (auto bin = std::dynamic_pointer_cast<BinaryExpr>(e)) {
+      if (bin->op == "==" || bin->op == "!=")
+        return ir::IRType::Invalid();
+      auto lhs = InferExpressionType(bin->left);
+      auto rhs = InferExpressionType(bin->right);
+      if (lhs.kind == ir::IRTypeKind::kInvalid || !lhs.SameShape(rhs))
+        return ir::IRType::Invalid();
+      if (bin->op == "===" || bin->op == "!==" || bin->op == "<" || bin->op == "<=" ||
+          bin->op == ">" || bin->op == ">=")
+        return lhs.IsScalar() ? ir::IRType::I1() : ir::IRType::Invalid();
+      if (bin->op == "+" || bin->op == "-" || bin->op == "*" || bin->op == "/" ||
+          bin->op == "%")
+        return (IsFloat(lhs) || IsInteger(lhs)) ? lhs : ir::IRType::Invalid();
+      if (bin->op == "&" || bin->op == "|" || bin->op == "^" || bin->op == "<<" ||
+          bin->op == ">>" || bin->op == ">>>")
+        return IsInteger(lhs) ? lhs : ir::IRType::Invalid();
+      return ir::IRType::Invalid();
+    }
+    if (auto unary = std::dynamic_pointer_cast<UnaryExpr>(e)) {
+      auto operand = InferExpressionType(unary->operand);
+      if (unary->op == "!")
+        return operand.kind == ir::IRTypeKind::kI1 ? ir::IRType::I1() : ir::IRType::Invalid();
+      if (unary->op == "+" || unary->op == "-")
+        return (IsFloat(operand) || IsInteger(operand)) ? operand : ir::IRType::Invalid();
+      if (unary->op == "~")
+        return IsInteger(operand) ? operand : ir::IRType::Invalid();
+      return ir::IRType::Invalid();
+    }
+    if (auto update = std::dynamic_pointer_cast<UpdateExpr>(e)) {
+      auto id = std::dynamic_pointer_cast<Identifier>(update->target);
+      if (!id)
+        return ir::IRType::Invalid();
+      auto it = locals_.find(id->name);
+      if (it == locals_.end() || (!IsFloat(it->second.type) && !IsInteger(it->second.type)))
+        return ir::IRType::Invalid();
+      return it->second.type;
+    }
+    if (auto assign = std::dynamic_pointer_cast<AssignExpr>(e)) {
+      if (assign->op != "=")
+        return ir::IRType::Invalid();
+      auto id = std::dynamic_pointer_cast<Identifier>(assign->target);
+      if (!id)
+        return ir::IRType::Invalid();
+      auto it = locals_.find(id->name);
+      auto rhs = InferExpressionType(assign->value);
+      if (it == locals_.end() || !it->second.type.SameShape(rhs))
+        return ir::IRType::Invalid();
+      return it->second.type;
+    }
+    if (auto conditional = std::dynamic_pointer_cast<ConditionalExpr>(e)) {
+      if (InferExpressionType(conditional->test).kind != ir::IRTypeKind::kI1)
+        return ir::IRType::Invalid();
+      auto then_type = InferExpressionType(conditional->then_branch);
+      auto else_type = InferExpressionType(conditional->else_branch);
+      return then_type.SameShape(else_type) ? then_type : ir::IRType::Invalid();
+    }
+    if (auto call = std::dynamic_pointer_cast<CallExpr>(e)) {
+      auto id = std::dynamic_pointer_cast<Identifier>(call->callee);
+      if (!id)
+        return ir::IRType::Invalid();
+      auto it = function_signatures_.find(id->name);
+      return it == function_signatures_.end() ? ir::IRType::Invalid() : it->second.return_type;
+    }
+    if (std::dynamic_pointer_cast<TemplateLiteral>(e))
+      return ir::IRType::Pointer(ir::IRType::I8());
+    return ir::IRType::Invalid();
+  }
+
+  bool RequireBoolean(const std::shared_ptr<Expression> &expression, const std::string &context) {
+    if (InferExpressionType(expression).kind == ir::IRTypeKind::kI1)
+      return true;
+    diag_.ReportError(expression->loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript " + context +
+                          " condition requires ToBoolean/dynamic truthiness lowering");
+    return false;
   }
 
   std::string LowerExpression(const std::shared_ptr<Expression> &e, const ir::IRType &want) {
@@ -311,24 +536,21 @@ private:
         auto load = builder_.MakeLoad(it->second.addr, it->second.type, id->name);
         return load->name;
       }
-      // Unknown identifier - leave the lookup to the runtime.
-      diag_.Report(id->loc, "unresolved identifier '" + id->name +
-                                "' in IR lowering; emitting opaque reference");
-      return id->name;
+      diag_.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "unresolved JavaScript identifier '" + id->name +
+                            "' requires dynamic environment lookup");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
     }
     if (auto bin = std::dynamic_pointer_cast<BinaryExpr>(e)) {
       return LowerBinary(*bin, want);
     }
     if (auto lg = std::dynamic_pointer_cast<LogicalExpr>(e)) {
-      // Lower &&/||/?? as bitwise on i1 - semantic short-circuit is a
-      // future optimisation; this preserves truthy-falsy values for
-      // typical JSDoc'd boolean code.
-      auto l = LowerExpression(lg->left, ir::IRType::I1());
-      auto r = LowerExpression(lg->right, ir::IRType::I1());
-      ir::BinaryInstruction::Op op =
-          (lg->op == "&&") ? ir::BinaryInstruction::Op::kAnd : ir::BinaryInstruction::Op::kOr;
-      auto bi = builder_.MakeBinary(op, l, r, "logical");
-      return bi->name;
+      diag_.ReportError(lg->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript short-circuit/nullish expressions require value-aware CFG "
+                        "lowering");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
     }
     if (auto u = std::dynamic_pointer_cast<UnaryExpr>(e)) {
       return LowerUnary(*u, want);
@@ -337,16 +559,49 @@ private:
       return LowerUpdate(*u);
     }
     if (auto a = std::dynamic_pointer_cast<AssignExpr>(e)) {
-      auto rhs = LowerExpression(a->value, want);
+      if (a->op != "=") {
+        diag_.ReportError(a->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript compound/logical assignment operator '" + a->op +
+                              "' requires read-modify-write and short-circuit semantics");
+        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                             : builder_.MakeLiteral((long long)0)->name;
+      }
       if (auto id = std::dynamic_pointer_cast<Identifier>(a->target)) {
         auto it = locals_.find(id->name);
         if (it != locals_.end()) {
+          auto rhs_type = InferExpressionType(a->value);
+          if (!it->second.type.SameShape(rhs_type)) {
+            diag_.ReportError(a->loc, frontends::ErrorCode::kUnsupportedLowering,
+                              "JavaScript assignment requires an unmodeled value conversion");
+            return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                                 : builder_.MakeLiteral((long long)0)->name;
+          }
+          auto rhs = LowerExpression(a->value, it->second.type);
           builder_.MakeStore(it->second.addr, rhs);
+          return rhs;
+        } else {
+          diag_.ReportError(a->loc, frontends::ErrorCode::kUnsupportedLowering,
+                            "assignment to unresolved JavaScript binding requires dynamic "
+                            "environment lookup");
         }
+      } else {
+        diag_.ReportError(a->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript destructuring/member assignment requires runtime lowering");
       }
-      return rhs;
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
     }
     if (auto c = std::dynamic_pointer_cast<ConditionalExpr>(e)) {
+      if (!RequireBoolean(c->test, "conditional"))
+        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                             : builder_.MakeLiteral((long long)0)->name;
+      auto result_type = InferExpressionType(e);
+      if (result_type.kind == ir::IRTypeKind::kInvalid || !result_type.SameShape(want)) {
+        diag_.ReportError(c->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript conditional branches need a common modeled IR type");
+        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                             : builder_.MakeLiteral((long long)0)->name;
+      }
       auto fn = builder_.CurrentFunction();
       auto then_bb = fn->CreateBlock("cond.then");
       auto else_bb = fn->CreateBlock("cond.else");
@@ -369,8 +624,26 @@ private:
     if (auto call = std::dynamic_pointer_cast<CallExpr>(e)) {
       return LowerCall(*call, want);
     }
-    // Arrow/function expressions, member expressions, templates, etc.
-    // are not part of the static IR surface - return a literal zero.
+    if (auto templ = std::dynamic_pointer_cast<TemplateLiteral>(e)) {
+      std::vector<std::string> parts;
+      for (size_t i = 0; i < templ->quasis.size(); ++i) {
+        parts.push_back(builder_.MakeStringLiteral(templ->quasis[i], "tmpl.quasi"));
+        if (i < templ->expressions.size() && templ->expressions[i]) {
+          auto value = LowerExpression(templ->expressions[i], ir::IRType::F64());
+          auto string_value = builder_.MakeCall("__js_to_string", {value},
+                                                ir::IRType::Pointer(ir::IRType::I8()),
+                                                "tmpl.value");
+          parts.push_back(string_value->name);
+        }
+      }
+      auto joined = builder_.MakeCall("__js_string_concat", parts,
+                                      ir::IRType::Pointer(ir::IRType::I8()), "template");
+      return joined->name;
+    }
+    // Keep the IR structurally valid after reporting the unsupported node;
+    // callers must reject the result because diagnostics now contains E4003.
+    diag_.ReportError(e->loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript expression is parsed but has no faithful IR lowering");
     return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
                          : builder_.MakeLiteral((long long)0)->name;
   }
@@ -378,63 +651,110 @@ private:
   std::string LowerLiteral(const Literal &lit, const ir::IRType &want) {
     switch (lit.kind) {
     case Literal::Kind::kNumber: {
-      bool is_float = lit.value.find('.') != std::string::npos ||
-                      lit.value.find('e') != std::string::npos ||
-                      lit.value.find('E') != std::string::npos;
-      if (IsFloat(want) || is_float) {
-        double d = 0.0;
-        try {
-          d = std::stod(lit.value);
-        } catch (...) {}
-        return builder_.MakeLiteral(d)->name;
+      std::string normalized;
+      normalized.reserve(lit.value.size());
+      for (char ch : lit.value) {
+        if (ch != '_')
+          normalized.push_back(ch);
       }
-      long long v = 0;
       try {
-        if (lit.value.size() > 2 && lit.value[0] == '0' &&
-            (lit.value[1] == 'x' || lit.value[1] == 'X')) {
-          v = std::stoll(lit.value.substr(2), nullptr, 16);
-        } else if (lit.value.size() > 2 && lit.value[0] == '0' &&
-                   (lit.value[1] == 'b' || lit.value[1] == 'B')) {
-          v = std::stoll(lit.value.substr(2), nullptr, 2);
-        } else if (lit.value.size() > 2 && lit.value[0] == '0' &&
-                   (lit.value[1] == 'o' || lit.value[1] == 'O')) {
-          v = std::stoll(lit.value.substr(2), nullptr, 8);
+        long long integer_value = 0;
+        bool integer_base_literal = normalized.size() > 2 && normalized[0] == '0' &&
+                                    (normalized[1] == 'x' || normalized[1] == 'X' ||
+                                     normalized[1] == 'b' || normalized[1] == 'B' ||
+                                     normalized[1] == 'o' || normalized[1] == 'O');
+        if (integer_base_literal) {
+          int base = (normalized[1] == 'x' || normalized[1] == 'X')
+                         ? 16
+                         : ((normalized[1] == 'b' || normalized[1] == 'B') ? 2 : 8);
+          size_t consumed = 0;
+          integer_value = std::stoll(normalized.substr(2), &consumed, base);
+          if (consumed != normalized.size() - 2)
+            throw std::invalid_argument("trailing numeric characters");
+          if (IsFloat(want))
+            return builder_.MakeLiteral(static_cast<double>(integer_value))->name;
         } else {
-          v = std::stoll(lit.value);
+          size_t consumed = 0;
+          if (IsFloat(want)) {
+            double value = std::stod(normalized, &consumed);
+            if (consumed != normalized.size())
+              throw std::invalid_argument("trailing numeric characters");
+            return builder_.MakeLiteral(value)->name;
+          }
+          integer_value = std::stoll(normalized, &consumed, 10);
+          if (consumed != normalized.size())
+            throw std::invalid_argument("trailing numeric characters");
         }
-      } catch (...) {}
-      return builder_.MakeLiteral(v)->name;
+        return builder_.MakeLiteral(integer_value)->name;
+      } catch (...) {
+        diag_.ReportError(lit.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript numeric literal cannot be represented by the declared IR type");
+        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                             : builder_.MakeLiteral((long long)0)->name;
+      }
     }
     case Literal::Kind::kBigInt: {
-      std::string raw = lit.value;
-      if (!raw.empty() && raw.back() == 'n')
-        raw.pop_back();
-      long long v = 0;
-      try {
-        v = std::stoll(raw);
-      } catch (...) {}
-      return builder_.MakeLiteral(v)->name;
+      diag_.ReportError(lit.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript BigInt requires arbitrary-precision runtime lowering");
+      return builder_.MakeLiteral((long long)0)->name;
     }
-    case Literal::Kind::kBool:
-      return builder_.MakeLiteral((long long)(lit.value == "true" ? 1 : 0))->name;
+    case Literal::Kind::kBool: {
+      auto value = builder_.MakeLiteral((long long)(lit.value == "true" ? 1 : 0))->name;
+      auto one = builder_.MakeLiteral((long long)1)->name;
+      return builder_.MakeBinary(ir::BinaryInstruction::Op::kCmpEq, value, one, "bool")->name;
+    }
     case Literal::Kind::kNull:
     case Literal::Kind::kUndefined:
+      diag_.ReportError(lit.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript null/undefined require distinct tagged runtime values");
       return builder_.MakeLiteral((long long)0)->name;
     case Literal::Kind::kString:
     case Literal::Kind::kTemplateString:
-    case Literal::Kind::kRegex:
       return builder_.MakeStringLiteral(lit.value, "jsstr");
+    case Literal::Kind::kRegex:
+      diag_.ReportError(lit.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript RegExp literals require RegExp-object runtime lowering");
+      return builder_.MakeLiteral((long long)0)->name;
     }
+    diag_.ReportError(lit.loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript literal kind has no faithful IR representation");
     return builder_.MakeLiteral((long long)0)->name;
   }
 
   std::string LowerBinary(const BinaryExpr &b, const ir::IRType &want) {
-    auto l = LowerExpression(b.left, want);
-    auto r = LowerExpression(b.right, want);
+    if (b.op == "==" || b.op == "!=") {
+      diag_.ReportError(b.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript loose equality requires coercion and abstract-equality semantics");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+    auto operand_type = InferExpressionType(b.left);
+    auto rhs_type = InferExpressionType(b.right);
+    if (operand_type.kind == ir::IRTypeKind::kInvalid || !operand_type.SameShape(rhs_type)) {
+      diag_.ReportError(b.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript binary operands require unmodeled coercion or dynamic dispatch");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+    const bool numeric = IsFloat(operand_type) || IsInteger(operand_type);
+    const bool bitwise = b.op == "&" || b.op == "|" || b.op == "^" || b.op == "<<" ||
+                         b.op == ">>" || b.op == ">>>";
+    if ((!numeric && b.op != "===" && b.op != "!==") ||
+        ((b.op == "===" || b.op == "!==") && !operand_type.IsScalar()) ||
+        (bitwise && operand_type.kind != ir::IRTypeKind::kI32) ||
+        ((b.op == "/" || b.op == "%") && !IsFloat(operand_type))) {
+      diag_.ReportError(b.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript operator '" + b.op +
+                            "' needs ToNumber/ToInt32/string runtime semantics");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+    auto l = LowerExpression(b.left, operand_type);
+    auto r = LowerExpression(b.right, operand_type);
     using Op = ir::BinaryInstruction::Op;
     Op op;
     bool is_cmp = false;
-    bool is_float = IsFloat(want);
+    bool is_float = IsFloat(operand_type);
     if (b.op == "+")
       op = is_float ? Op::kFAdd : Op::kAdd;
     else if (b.op == "-")
@@ -457,58 +777,108 @@ private:
       op = Op::kAShr;
     else if (b.op == ">>>")
       op = Op::kLShr;
-    else if (b.op == "==" || b.op == "===") {
+    else if (b.op == "===") {
       op = is_float ? Op::kCmpFoe : Op::kCmpEq;
       is_cmp = true;
-    } else if (b.op == "!=" || b.op == "!==") {
+    } else if (b.op == "!==") {
       op = is_float ? Op::kCmpFne : Op::kCmpNe;
       is_cmp = true;
     } else if (b.op == "<") {
-      op = is_float ? Op::kCmpFlt : Op::kCmpSlt;
+      op = is_float ? Op::kCmpFlt
+                    : (operand_type.is_signed ? Op::kCmpSlt : Op::kCmpUlt);
       is_cmp = true;
     } else if (b.op == "<=") {
-      op = is_float ? Op::kCmpFle : Op::kCmpSle;
+      op = is_float ? Op::kCmpFle
+                    : (operand_type.is_signed ? Op::kCmpSle : Op::kCmpUle);
       is_cmp = true;
     } else if (b.op == ">") {
-      op = is_float ? Op::kCmpFgt : Op::kCmpSgt;
+      op = is_float ? Op::kCmpFgt
+                    : (operand_type.is_signed ? Op::kCmpSgt : Op::kCmpUgt);
       is_cmp = true;
     } else if (b.op == ">=") {
-      op = is_float ? Op::kCmpFge : Op::kCmpSge;
+      op = is_float ? Op::kCmpFge
+                    : (operand_type.is_signed ? Op::kCmpSge : Op::kCmpUge);
       is_cmp = true;
-    } else
-      op = Op::kAdd;
+    } else {
+      diag_.ReportError(b.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript binary operator '" + b.op +
+                            "' has no faithful static IR lowering");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
     auto bi = builder_.MakeBinary(op, l, r, is_cmp ? "cmp" : "bop");
     return bi->name;
   }
 
   std::string LowerUnary(const UnaryExpr &u, const ir::IRType &want) {
-    auto v = LowerExpression(u.operand, want);
+    auto operand_type = InferExpressionType(u.operand);
+    if (operand_type.kind == ir::IRTypeKind::kInvalid) {
+      diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript unary operand requires dynamic conversion semantics");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+    auto v = LowerExpression(u.operand, operand_type);
     if (u.op == "-") {
-      auto zero = IsFloat(want) ? builder_.MakeLiteral(0.0)->name
-                                : builder_.MakeLiteral((long long)0)->name;
-      auto bi = builder_.MakeBinary(IsFloat(want) ? ir::BinaryInstruction::Op::kFSub
-                                                  : ir::BinaryInstruction::Op::kSub,
+      if (!IsFloat(operand_type) && !IsInteger(operand_type)) {
+        diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript unary minus requires ToNumber runtime semantics");
+        return builder_.MakeLiteral((long long)0)->name;
+      }
+      auto zero = IsFloat(operand_type) ? builder_.MakeLiteral(0.0)->name
+                                       : builder_.MakeLiteral((long long)0)->name;
+      auto bi = builder_.MakeBinary(IsFloat(operand_type) ? ir::BinaryInstruction::Op::kFSub
+                                                          : ir::BinaryInstruction::Op::kSub,
                                     zero, v, "neg");
       return bi->name;
     }
     if (u.op == "!") {
+      if (operand_type.kind != ir::IRTypeKind::kI1) {
+        diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript logical not requires ToBoolean runtime semantics");
+        return builder_.MakeLiteral((long long)0)->name;
+      }
       auto one = builder_.MakeLiteral((long long)1)->name;
       auto bi = builder_.MakeBinary(ir::BinaryInstruction::Op::kXor, v, one, "not");
       return bi->name;
     }
     if (u.op == "~") {
+      if (!IsInteger(operand_type) || operand_type.kind != ir::IRTypeKind::kI32) {
+        diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript bitwise not requires modeled ToInt32 semantics");
+        return builder_.MakeLiteral((long long)0)->name;
+      }
       auto m1 = builder_.MakeLiteral((long long)-1)->name;
       auto bi = builder_.MakeBinary(ir::BinaryInstruction::Op::kXor, v, m1, "bnot");
       return bi->name;
     }
-    return v; // typeof / void / delete are pass-throughs in IR.
+    if (u.op == "+" && (IsFloat(operand_type) || IsInteger(operand_type)))
+      return v;
+    diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript unary operator '" + u.op +
+                          "' requires runtime semantics");
+    return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                         : builder_.MakeLiteral((long long)0)->name;
   }
 
   std::string LowerUpdate(const UpdateExpr &u) {
+    if (u.op != "++" && u.op != "--") {
+      diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "unknown JavaScript update operator '" + u.op + "'");
+      return "";
+    }
     if (auto id = std::dynamic_pointer_cast<Identifier>(u.target)) {
       auto it = locals_.find(id->name);
-      if (it == locals_.end())
+      if (it == locals_.end()) {
+        diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "update of unresolved JavaScript binding requires dynamic lookup");
         return "";
+      }
+      if (!IsFloat(it->second.type) && !IsInteger(it->second.type)) {
+        diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript update requires ToNumeric runtime semantics");
+        return "";
+      }
       auto loaded = builder_.MakeLoad(it->second.addr, it->second.type, id->name);
       auto one = IsFloat(it->second.type) ? builder_.MakeLiteral(1.0)->name
                                           : builder_.MakeLiteral((long long)1)->name;
@@ -520,30 +890,63 @@ private:
       builder_.MakeStore(it->second.addr, bi->name);
       return u.prefix ? bi->name : loaded->name;
     }
+    diag_.ReportError(u.loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "JavaScript member update requires runtime lowering");
     return "";
   }
 
   std::string LowerCall(const CallExpr &c, const ir::IRType &want) {
+    if (c.optional || c.is_new) {
+      diag_.ReportError(c.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript optional/new calls require dynamic runtime lowering");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
     std::string callee_name;
     if (auto id = std::dynamic_pointer_cast<Identifier>(c.callee)) {
       callee_name = id->name;
     } else if (auto m = std::dynamic_pointer_cast<MemberExpr>(c.callee)) {
-      // Lower as flattened name "obj.prop"
-      if (auto o = std::dynamic_pointer_cast<Identifier>(m->object)) {
-        callee_name = o->name + "." + m->property;
-      } else {
-        callee_name = m->property;
-      }
+      diag_.ReportError(m->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript method calls require receiver/dynamic-dispatch lowering");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
     } else {
-      return builder_.MakeLiteral((long long)0)->name;
+      diag_.ReportError(c.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript computed call target requires dynamic runtime lowering");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+
+    auto signature = function_signatures_.find(callee_name);
+    if (signature == function_signatures_.end() ||
+        signature->second.return_type.kind == ir::IRTypeKind::kInvalid) {
+      diag_.ReportError(c.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript call target '" + callee_name +
+                            "' has no statically modeled JSDoc signature");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
+    }
+    if (c.args.size() != signature->second.param_types.size()) {
+      diag_.ReportError(c.loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "JavaScript call arity/default binding is not represented by the IR ABI");
+      return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                           : builder_.MakeLiteral((long long)0)->name;
     }
 
     std::vector<std::string> args;
     args.reserve(c.args.size());
-    for (auto &a : c.args) {
-      args.push_back(LowerExpression(a, ir::IRType::F64()));
+    for (size_t i = 0; i < c.args.size(); ++i) {
+      const auto &param_type = signature->second.param_types[i];
+      auto arg_type = InferExpressionType(c.args[i]);
+      if (param_type.kind == ir::IRTypeKind::kInvalid || !param_type.SameShape(arg_type)) {
+        diag_.ReportError(c.args[i]->loc, frontends::ErrorCode::kUnsupportedLowering,
+                          "JavaScript call argument requires an unmodeled conversion");
+        return IsFloat(want) ? builder_.MakeLiteral(0.0)->name
+                             : builder_.MakeLiteral((long long)0)->name;
+      }
+      args.push_back(LowerExpression(c.args[i], param_type));
     }
-    auto call = builder_.MakeCall(callee_name, args, want, "call");
+    auto call = builder_.MakeCall(callee_name, args, signature->second.return_type, "call");
     return call->name;
   }
 
@@ -561,6 +964,7 @@ private:
   ir::IRBuilder builder_;
   frontends::Diagnostics &diag_;
   std::unordered_map<std::string, Local> locals_;
+  std::unordered_map<std::string, FunctionSignature> function_signatures_;
   std::vector<LoopFrame> loop_stack_;
   ir::IRType current_ret_{ir::IRType::Void()};
   bool terminated_{false};

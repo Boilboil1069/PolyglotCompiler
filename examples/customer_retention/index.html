@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="由 PolyglotCompiler 编译 Python、Java 与 JavaScript 后生成数据的客户留存监控前端。"
+    />
+    <title>Pulseboard · 客户留存健康度</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="data/generated_accounts.js"></script>
+    <script defer src="javascript/retention_policy.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Pulseboard 首页">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <span>
+          <strong>Pulseboard</strong>
+          <small>Polyglot retention intelligence</small>
+        </span>
+      </a>
+      <nav class="topnav" aria-label="页面导航">
+        <a href="#overview">总览</a>
+        <a href="#accounts">账户</a>
+        <span class="build-pill"><i aria-hidden="true"></i> Compiler native</span>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span>RETENTION SIGNAL / 01</span></p>
+          <h1 id="hero-title">在客户离开之前，<br /><em>先看见信号。</em></h1>
+          <p class="hero-lede">
+            Python 生成遥测，Java 计算活跃度，JavaScript 应用留存策略。
+            一条 PolyglotCompiler 链路，把结果送到这个浏览器仪表盘。
+          </p>
+          <div class="hero-actions">
+            <button class="button button-primary" id="risk-cta" type="button">
+              查看高风险账户 <span aria-hidden="true">→</span>
+            </button>
+            <button class="button button-ghost" id="verify-button" type="button">
+              重新校验数据
+            </button>
+          </div>
+          <div class="validation-line" id="validation-line" role="status" aria-live="polite">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="validation-copy">正在读取编译产物…</span>
+          </div>
+        </div>
+
+        <div class="hero-panel" aria-label="跨语言处理链路">
+          <div class="hero-panel-head">
+            <span>LIVE PIPELINE</span>
+            <span class="mono">checksum / <strong id="hero-checksum">--</strong></span>
+          </div>
+          <div class="signal-orbit" aria-hidden="true">
+            <div class="orbit-ring orbit-one"></div>
+            <div class="orbit-ring orbit-two"></div>
+            <div class="orbit-core">
+              <span id="hero-risk-count">--</span>
+              <small>at risk</small>
+            </div>
+            <span class="orbit-node node-python">PY</span>
+            <span class="orbit-node node-java">JV</span>
+            <span class="orbit-node node-js">JS</span>
+          </div>
+          <div class="pipeline-strip">
+            <div><b>01</b><span>Python</span><small>telemetry</small></div>
+            <i aria-hidden="true"></i>
+            <div><b>02</b><span>Java</span><small>activity</small></div>
+            <i aria-hidden="true"></i>
+            <div><b>03</b><span>JavaScript</span><small>health</small></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="关键留存指标">
+        <article class="metric-card metric-dark">
+          <span class="metric-label">账户总数</span>
+          <strong id="metric-total">--</strong>
+          <small>本次确定性数据集</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">平均健康分</span>
+          <strong id="metric-average">--</strong>
+          <small id="average-caption">等待编译数据</small>
+        </article>
+        <article class="metric-card metric-alert">
+          <span class="metric-label">高风险账户</span>
+          <strong id="metric-risk">--</strong>
+          <small id="risk-caption">需要主动触达</small>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">距上次登录</span>
+          <strong><span id="metric-days">--</span><sup>天</sup></strong>
+          <small>样本平均值</small>
+        </article>
+      </section>
+
+      <section class="overview-grid" id="overview" aria-label="留存总览">
+        <article class="panel distribution-panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-kicker">PORTFOLIO MIX</p>
+              <h2>客户健康分布</h2>
+            </div>
+            <span class="period-chip">当前批次</span>
+          </header>
+          <div class="distribution-body">
+            <div class="donut" id="segment-donut" role="img" aria-label="客户健康分布环形图">
+              <div class="donut-center"><strong id="donut-total">--</strong><span>accounts</span></div>
+            </div>
+            <div class="legend" id="segment-legend"></div>
+          </div>
+        </article>
+
+        <article class="panel score-panel">
+          <header class="panel-header">
+            <div>
+              <p class="panel-kicker">HEALTH RANGE</p>
+              <h2>账户信号强度</h2>
+            </div>
+            <span class="score-scale">−30 <i></i> 50</span>
+          </header>
+          <div class="score-bars" id="score-bars"></div>
+        </article>
+      </section>
+
+      <section class="accounts-panel" id="accounts" aria-labelledby="accounts-title">
+        <header class="accounts-header">
+          <div>
+            <p class="panel-kicker">ACCOUNT WATCHLIST</p>
+            <h2 id="accounts-title">留存账户清单</h2>
+            <p>点击账户可查看完整的跨语言评分路径。</p>
+          </div>
+          <div class="table-controls">
+            <label class="search-field">
+              <span class="sr-only">搜索账户编号</span>
+              <span aria-hidden="true">⌕</span>
+              <input id="account-search" type="search" inputmode="numeric" placeholder="搜索账户编号" />
+            </label>
+            <label class="sort-field">
+              <span class="sr-only">账户排序方式</span>
+              <select id="account-sort">
+                <option value="health-desc">健康分：高到低</option>
+                <option value="health-asc">健康分：低到高</option>
+                <option value="days-desc">未登录：久到近</option>
+                <option value="id-asc">账户编号</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <div class="filter-row" role="group" aria-label="按客户状态筛选">
+          <button class="filter-chip is-active" type="button" data-filter="all">全部 <b id="count-all">0</b></button>
+          <button class="filter-chip" type="button" data-filter="healthy">健康 <b id="count-healthy">0</b></button>
+          <button class="filter-chip" type="button" data-filter="watch">关注 <b id="count-watch">0</b></button>
+          <button class="filter-chip" type="button" data-filter="risk">风险 <b id="count-risk">0</b></button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">账户</th>
+                <th scope="col">会话 / 购买</th>
+                <th scope="col">投诉</th>
+                <th scope="col">未登录</th>
+                <th scope="col">活跃信号</th>
+                <th scope="col">健康分</th>
+                <th scope="col">状态</th>
+              </tr>
+            </thead>
+            <tbody id="account-rows"></tbody>
+          </table>
+          <div class="empty-state" id="empty-state" hidden>
+            <strong>没有匹配的账户</strong>
+            <span>换一个编号或筛选条件试试。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="compiler-note" aria-label="构建说明">
+        <div>
+          <span class="compiler-index">04</span>
+          <div>
+            <p class="panel-kicker">BUILT DIFFERENTLY</p>
+            <h2>不是 mock 数据，也没有外部语言编译器。</h2>
+          </div>
+        </div>
+        <p>
+          页面数据由 Poly 入口在原生运行时写出。Python、Java 与 JavaScript 源码全部经过
+          PolyglotCompiler 自带前端，下沉为同一个本地可执行程序。
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <span>Pulseboard / customer_retention</span>
+      <span>Generated by PolyglotCompiler · No javac · No Node · No CPython</span>
+    </footer>
+
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden>
+      <aside class="detail-drawer" id="detail-drawer" aria-labelledby="detail-title" aria-modal="true" role="dialog">
+        <button class="drawer-close" id="drawer-close" type="button" aria-label="关闭账户详情">×</button>
+        <p class="panel-kicker">SIGNAL TRACE</p>
+        <h2 id="detail-title">账户详情</h2>
+        <div id="detail-content"></div>
+      </aside>
+    </div>
+
+    <noscript>此仪表盘需要启用浏览器 JavaScript 才能展示由编译器生成的数据。</noscript>
+  </body>
+</html>
+

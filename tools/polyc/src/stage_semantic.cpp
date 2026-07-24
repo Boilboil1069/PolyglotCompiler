@@ -39,22 +39,50 @@ SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendRe
   opts.discovery_cache = frontend.pkg_cache;
 
   result.sema = std::make_shared<ploy::PloySema>(result.diagnostics, opts);
-  const bool ok = result.sema->Analyze(frontend.ast);
 
   // ── Foreign Signature Extraction ─────────────────────────────────────────
-  // After sema has processed the .poly AST (which registers LINK-based
-  // signatures), extract type signatures from the actual foreign source
-  // files referenced by IMPORT declarations.  This fills in real
-  // parameter/return types for functions that were otherwise only known as
-  // "Any".
+  // Extract and inject before semantic analysis so CALL expressions are
+  // checked against the real foreign parameter and return types on their
+  // first (and only) analysis pass.  Injecting after Analyze() leaves AST type
+  // annotations as Unknown and cannot retract diagnostics already emitted for
+  // missing or mismatched signatures.
   {
     ForeignExtractionOptions feopts;
     // Base directory = directory containing the .poly source file.
     if (!settings.source_path.empty()) {
       feopts.base_directory = fs::path(settings.source_path).parent_path().string();
     }
+    feopts.poly_source_file = settings.source_path;
+    feopts.require_local_source_packages = !settings.package_index;
     feopts.include_paths = settings.include_paths;
     feopts.verbose = V;
+    feopts.diagnostics = &result.diagnostics;
+    feopts.frontend_options.strict = settings.strict;
+    feopts.frontend_options.force = settings.force;
+    feopts.frontend_options.include_paths = settings.include_paths;
+    feopts.frontend_options.system_include_paths = settings.system_include_paths;
+    feopts.frontend_options.defines = settings.defines;
+    feopts.frontend_options.undefines = settings.undefines;
+    feopts.frontend_options.python_stub_paths = settings.python_stub_paths;
+    feopts.frontend_options.classpath = settings.classpath;
+    feopts.frontend_options.dotnet_references = settings.dotnet_references;
+    feopts.frontend_options.rust_crate_dir = settings.rust_crate_dir;
+    feopts.frontend_options.rust_externs = settings.rust_externs;
+    feopts.frontend_options.go_project_dir = settings.go_project_dir;
+    feopts.frontend_options.go_module_paths = settings.go_module_paths;
+    feopts.frontend_options.js_project_dir = settings.js_project_dir;
+    feopts.frontend_options.node_modules_paths = settings.node_modules_paths;
+    feopts.frontend_options.ruby_project_dir = settings.ruby_project_dir;
+    feopts.frontend_options.gem_paths = settings.gem_paths;
+    feopts.frontend_options.cpp_dialect = settings.cpp_dialect;
+    feopts.frontend_options.python_version = settings.python_version;
+    feopts.frontend_options.java_release = settings.java_release;
+    feopts.frontend_options.dotnet_lang_version = settings.dotnet_lang_version;
+    feopts.frontend_options.dotnet_target_framework = settings.dotnet_target_framework;
+    feopts.frontend_options.rust_edition = settings.rust_edition;
+    feopts.frontend_options.go_version = settings.go_version;
+    feopts.frontend_options.ecma_version = settings.ecma_version;
+    feopts.frontend_options.ruby_version = settings.ruby_version;
 
     ForeignSignatureExtractor extractor(feopts);
     auto foreign_sigs = extractor.ExtractAll(*frontend.ast);
@@ -68,7 +96,10 @@ SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendRe
     }
   }
 
-  if (!ok && !settings.force) {
+  const bool ok = result.sema->Analyze(frontend.ast);
+
+  const bool semantic_valid = ok && !result.diagnostics.HasErrors();
+  if (!semantic_valid && !settings.force) {
     result.success = false;
     if (V)
       std::cerr << "[stage/semantic] FAILED\n";
@@ -92,7 +123,9 @@ SemanticResult RunSemanticStage(const DriverSettings &settings, const FrontendRe
   }
   result.symbols_dump = oss.str();
 
-  result.success = true;
+  // --force may allow later diagnostic stages to inspect the partial
+  // database, but it must not relabel a semantically invalid result as valid.
+  result.success = semantic_valid;
   return result;
 }
 

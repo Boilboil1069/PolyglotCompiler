@@ -255,14 +255,29 @@ void ExtractFromFunctionDef(const FunctionDef &fn, const std::string &module_nam
 
 std::vector<frontends::ForeignFunctionSignature> PythonLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> PythonLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
-  PythonLexer lexer(source, filename);
-  PythonParser parser(lexer, diags);
+  PythonLexer lexer(source, filename, &diagnostics);
+  PythonParser parser(lexer, diagnostics);
+  parser.SetPythonVersion(options.python_version);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
+    return result;
+
+  frontends::SemaContext sema_context(diagnostics);
+  PyiLoader loader(options.python_stub_paths, diagnostics);
+  PythonSemaOptions sema_options{&loader};
+  AnalyzeModule(*module, sema_context, sema_options);
+  if (diagnostics.HasErrors())
     return result;
 
   for (const auto &stmt : module->body) {

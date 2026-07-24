@@ -45,6 +45,8 @@ struct Literal : Expression {
   enum class Kind { kInt, kFloat, kString, kSymbol, kBool, kNil, kRegex };
   Kind kind{Kind::kInt};
   std::string value;
+  bool is_heredoc{false};
+  bool heredoc_allows_interpolation{false};
 };
 struct ArrayLit : Expression {
   std::vector<std::shared_ptr<Expression>> elems;
@@ -76,6 +78,8 @@ struct CallExpr : Expression {
   std::vector<std::shared_ptr<Expression>> args;
   std::shared_ptr<Statement> block; // do/end or {...} body, may be null
   std::vector<std::string> block_params;
+  bool uses_implicit_it{false}; // Ruby 3.4 implicit parameter in a parameterless block
+  bool safe{false}; // receiver&.method
 };
 struct IndexExpr : Expression {
   std::shared_ptr<Expression> obj;
@@ -124,7 +128,10 @@ struct ForStmt : Statement {
 struct CaseStmt : Statement {
   struct When {
     std::vector<std::shared_ptr<Expression>> tests;
+    std::shared_ptr<Expression> guard;
     std::shared_ptr<Statement> body;
+    bool is_pattern{false};
+    bool guard_unless{false};
   };
   std::shared_ptr<Expression> subject;
   std::vector<When> whens;
@@ -159,6 +166,7 @@ struct Param {
   bool splat{false};
   bool double_splat{false};
   bool block{false};
+  bool forwarding{false}; // anonymous `...` forwarding parameter
 };
 
 struct MethodDecl : Statement {

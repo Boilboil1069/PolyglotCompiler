@@ -40,8 +40,11 @@ std::string TrimDocLine(const std::string &line) {
 void RbParser::Advance() {
   current_ = lexer_.NextToken();
   auto d = lexer_.TakeDocComment();
-  if (!d.empty())
-    pending_doc_ = d;
+  if (!d.empty()) {
+    if (!pending_doc_.empty())
+      pending_doc_.push_back('\n');
+    pending_doc_ += d;
+  }
 }
 
 bool RbParser::IsKeyword(const std::string &k) const {
@@ -87,6 +90,27 @@ void RbParser::SkipTerminators() {
   while (current_.kind == frontends::TokenKind::kNewline ||
          (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == ";")) {
     Advance();
+  }
+}
+
+void RbParser::ConsumeNewlinesBeforeLogicalOperator() {
+  if (current_.kind != frontends::TokenKind::kNewline)
+    return;
+  do {
+    Advance();
+  } while (current_.kind == frontends::TokenKind::kNewline);
+  logical_operator_after_newline_ =
+      IsSymbol("&&") || IsSymbol("||") || IsKeyword("and") || IsKeyword("or");
+}
+
+void RbParser::GateLineLeadingLogicalOperator(const core::SourceLoc &loc) {
+  if (!logical_operator_after_newline_)
+    return;
+  logical_operator_after_newline_ = false;
+  if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby4_0)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kLangVersionMismatch,
+        "line-leading logical operator continuation requires Ruby 4.0 or newer");
   }
 }
 
@@ -215,7 +239,7 @@ std::shared_ptr<Block> RbParser::ParseBlockUntil(std::initializer_list<std::stri
   while (current_.kind != frontends::TokenKind::kEndOfFile) {
     bool stop = false;
     for (auto &t : terminators) {
-      if (IsKeyword(t)) {
+      if (IsKeyword(t) || IsSymbol(t)) {
         stop = true;
         break;
       }
@@ -290,22 +314,29 @@ std::vector<Param> RbParser::ParseDefParams() {
   auto stop_at = [&]() {
     if (had_paren)
       return IsSymbol(")");
-    return AtTerminator() || IsSymbol("|");
+    return AtTerminator() || IsSymbol("|") || (params.empty() && IsSymbol("="));
   };
 
   while (!stop_at() && current_.kind != frontends::TokenKind::kEndOfFile) {
     Param p;
-    if (MatchSymbol("**"))
+    if (MatchSymbol("...")) {
+      p.name = "...";
+      p.forwarding = true;
+      if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby2_7)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 "anonymous argument forwarding requires Ruby 2.7 or newer");
+      }
+    } else if (MatchSymbol("**"))
       p.double_splat = true;
     else if (MatchSymbol("*"))
       p.splat = true;
     else if (MatchSymbol("&"))
       p.block = true;
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+    if (!p.forwarding && current_.kind == frontends::TokenKind::kIdentifier) {
       p.name = current_.lexeme;
       Advance();
     }
-    if (MatchSymbol("="))
+    if (!p.forwarding && MatchSymbol("="))
       p.default_value = ParseExpression();
     else if (MatchSymbol(":")) {
       // keyword argument; default is optional
@@ -350,6 +381,21 @@ std::shared_ptr<Statement> RbParser::ParseDef() {
   if (!m->params.empty() && m->params.back().name == "$return$") {
     m->return_type = m->params.back().type;
     m->params.pop_back();
+  }
+  if (MatchSymbol("=")) {
+    if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby3_0)) {
+      diagnostics_.ReportError(loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "endless method definitions require Ruby 3.0 or newer");
+    }
+    auto expression = ParseExpression();
+    auto statement = std::make_shared<ExprStmt>();
+    statement->loc = expression ? expression->loc : loc;
+    statement->expr = expression;
+    auto body = std::make_shared<Block>();
+    body->loc = loc;
+    body->stmts.push_back(std::move(statement));
+    m->body = std::move(body);
+    return m;
   }
   SkipTerminators();
   auto body = ParseBlockUntil({"end", "rescue", "ensure"});
@@ -516,14 +562,29 @@ std::shared_ptr<Statement> RbParser::ParseCase() {
   if (!AtTerminator() && !IsKeyword("when"))
     s->subject = ParseExpression();
   SkipTerminators();
-  while (MatchKeyword("when")) {
+  while (IsKeyword("when") || IsKeyword("in")) {
     CaseStmt::When w;
+    w.is_pattern = IsKeyword("in");
+    Advance();
+    if (w.is_pattern &&
+        !frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby3_0)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "case/in pattern matching requires Ruby 3.0 or newer");
+    }
+    bool old_pattern_state = parsing_pattern_;
+    parsing_pattern_ = w.is_pattern;
     w.tests.push_back(ParseExpression());
-    while (MatchSymbol(","))
+    while (!w.is_pattern && MatchSymbol(","))
       w.tests.push_back(ParseExpression());
+    parsing_pattern_ = old_pattern_state;
+    if (IsKeyword("if") || IsKeyword("unless")) {
+      w.guard_unless = IsKeyword("unless");
+      Advance();
+      w.guard = ParseExpression();
+    }
     MatchKeyword("then");
     SkipTerminators();
-    w.body = ParseBlockUntil({"end", "when", "else"});
+    w.body = ParseBlockUntil({"end", "when", "in", "else"});
     s->whens.push_back(w);
   }
   if (MatchKeyword("else")) {
@@ -599,6 +660,20 @@ std::shared_ptr<Expression> RbParser::ParseAssignment() {
       return a;
     }
   }
+  if (MatchSymbol("=>")) {
+    if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby3_0)) {
+      diagnostics_.ReportError(left ? left->loc : current_.loc,
+                               frontends::ErrorCode::kLangVersionMismatch,
+                               "rightward assignment requires Ruby 3.0 or newer");
+    }
+    auto target = ParseTernary();
+    auto assignment = std::make_shared<AssignExpr>();
+    assignment->loc = left ? left->loc : current_.loc;
+    assignment->op = "=>";
+    assignment->target = target;
+    assignment->value = left;
+    return assignment;
+  }
   return left;
 }
 
@@ -637,6 +712,8 @@ std::shared_ptr<Expression> RbParser::ParseRange() {
 std::shared_ptr<Expression> RbParser::ParseOrExpr() {
   auto l = ParseAndExpr();
   while (IsSymbol("||") || IsKeyword("or")) {
+    auto operator_loc = current_.loc;
+    GateLineLeadingLogicalOperator(operator_loc);
     std::string op = current_.lexeme;
     Advance();
     auto r = ParseAndExpr();
@@ -651,7 +728,12 @@ std::shared_ptr<Expression> RbParser::ParseOrExpr() {
 }
 std::shared_ptr<Expression> RbParser::ParseAndExpr() {
   auto l = ParseNotExpr();
-  while (IsSymbol("&&") || IsKeyword("and")) {
+  while (true) {
+    ConsumeNewlinesBeforeLogicalOperator();
+    if (!IsSymbol("&&") && !IsKeyword("and"))
+      break;
+    auto operator_loc = current_.loc;
+    GateLineLeadingLogicalOperator(operator_loc);
     std::string op = current_.lexeme;
     Advance();
     auto r = ParseNotExpr();
@@ -840,15 +922,64 @@ std::vector<std::shared_ptr<Expression>> RbParser::ParseCallArgs(bool until_pare
   return args;
 }
 
+void RbParser::ParseAttachedBlock(const std::shared_ptr<CallExpr> &call) {
+  bool brace_block = MatchSymbol("{");
+  bool do_block = false;
+  if (!brace_block)
+    do_block = MatchKeyword("do");
+  if (!brace_block && !do_block)
+    return;
+
+  bool explicit_empty_params = MatchSymbol("||");
+  bool explicit_params = explicit_empty_params;
+  if (!explicit_empty_params && MatchSymbol("|")) {
+    explicit_params = true;
+    while (current_.kind == frontends::TokenKind::kIdentifier) {
+      call->block_params.push_back(current_.lexeme);
+      Advance();
+      if (!MatchSymbol(","))
+        break;
+    }
+    ExpectSymbol("|", "expected '|'");
+  }
+
+  if (do_block)
+    SkipTerminators();
+  block_it_usage_.push_back(explicit_params ? -1 : 0);
+  call->block = ParseBlockUntil(brace_block ? std::initializer_list<std::string>{"}"}
+                                             : std::initializer_list<std::string>{"end"});
+  int implicit_it_usage = block_it_usage_.back();
+  block_it_usage_.pop_back();
+  if (implicit_it_usage == 1) {
+    call->uses_implicit_it = true;
+    call->block_params.push_back("it");
+    if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby3_4)) {
+      diagnostics_.ReportError(call->loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "implicit block parameter 'it' requires Ruby 3.4 or newer");
+    }
+  }
+
+  if (brace_block)
+    ExpectSymbol("}", "expected '}'");
+  else
+    ExpectKeyword("end", "expected 'end'");
+}
+
 std::shared_ptr<Expression> RbParser::ParseCallTail(std::shared_ptr<Expression> e) {
   while (true) {
-    if (MatchSymbol(".") || MatchSymbol("&.")) {
-      bool safe = false; // prev token was "&." iff the parser saw "&."
-      // We can't know safe here exactly; assume unsafe call (lexer emits "&." separately).
-      (void)safe;
+    if (IsSymbol(".") || IsSymbol("&.")) {
+      bool safe = IsSymbol("&.");
+      auto operator_loc = current_.loc;
+      Advance();
+      if (safe &&
+          !frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby2_7)) {
+        diagnostics_.ReportError(operator_loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 "safe navigation requires Ruby 2.3 or newer");
+      }
       auto m = std::make_shared<MemberExpr>();
       m->loc = e ? e->loc : current_.loc;
       m->obj = e;
+      m->safe = safe;
       if (current_.kind == frontends::TokenKind::kIdentifier ||
           current_.kind == frontends::TokenKind::kKeyword) {
         m->member = current_.lexeme;
@@ -860,8 +991,18 @@ std::shared_ptr<Expression> RbParser::ParseCallTail(std::shared_ptr<Expression> 
         call->loc = m->loc;
         call->receiver = e;
         call->method = m->member;
+        call->safe = safe;
         call->args = ParseCallArgs(true);
         ExpectSymbol(")", "expected ')'");
+        ParseAttachedBlock(call);
+        e = call;
+      } else if (IsSymbol("{") || IsKeyword("do")) {
+        auto call = std::make_shared<CallExpr>();
+        call->loc = m->loc;
+        call->receiver = e;
+        call->method = m->member;
+        call->safe = safe;
+        ParseAttachedBlock(call);
         e = call;
       } else {
         e = m;
@@ -912,6 +1053,20 @@ std::shared_ptr<Expression> RbParser::ParsePrimary() {
     l->value = current_.lexeme;
     l->kind = (!current_.lexeme.empty() && current_.lexeme[0] == ':') ? Literal::Kind::kSymbol
                                                                       : Literal::Kind::kString;
+    if (current_.raw_lexeme == "__polyglot_ruby_heredoc__" ||
+        current_.raw_lexeme == "__polyglot_ruby_interpolated_heredoc__" ||
+        current_.raw_lexeme == "__polyglot_ruby_unterminated_heredoc__") {
+      l->is_heredoc = true;
+      l->heredoc_allows_interpolation =
+          current_.raw_lexeme == "__polyglot_ruby_interpolated_heredoc__";
+      if (current_.raw_lexeme == "__polyglot_ruby_interpolated_heredoc__") {
+        diagnostics_.ReportError(loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                 "interpolated Ruby heredocs are not yet represented faithfully");
+      } else if (current_.raw_lexeme == "__polyglot_ruby_unterminated_heredoc__") {
+        diagnostics_.ReportError(loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                 "unterminated Ruby heredoc");
+      }
+    }
     Advance();
     return l;
   }
@@ -948,8 +1103,22 @@ std::shared_ptr<Expression> RbParser::ParsePrimary() {
   if (IsSymbol("{"))
     return ParseHash();
 
+  if (IsSymbol("...")) {
+    auto forwarding = std::make_shared<Identifier>();
+    forwarding->loc = loc;
+    forwarding->name = "...";
+    if (!frontends::RubyVersionAtLeast(ruby_version_, frontends::RubyVersion::kRuby2_7)) {
+      diagnostics_.ReportError(loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "anonymous argument forwarding requires Ruby 2.7 or newer");
+    }
+    Advance();
+    return forwarding;
+  }
+
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     std::string name = current_.lexeme;
+    if (name == "it" && !block_it_usage_.empty() && block_it_usage_.back() == 0)
+      block_it_usage_.back() = 1;
     Advance();
     // Method call: name(args), name arg1, arg2 (no paren) — heuristic: if next
     // token is '(' or starts an expression on the same logical line we treat
@@ -960,33 +1129,14 @@ std::shared_ptr<Expression> RbParser::ParsePrimary() {
       c->method = name;
       c->args = ParseCallArgs(true);
       ExpectSymbol(")", "expected ')'");
-      // Optional block
-      if (MatchSymbol("{")) {
-        if (MatchSymbol("|")) {
-          while (current_.kind == frontends::TokenKind::kIdentifier) {
-            c->block_params.push_back(current_.lexeme);
-            Advance();
-            if (!MatchSymbol(","))
-              break;
-          }
-          ExpectSymbol("|", "expected '|'");
-        }
-        c->block = ParseBlockUntil({"}"});
-        ExpectSymbol("}", "expected '}'");
-      } else if (MatchKeyword("do")) {
-        if (MatchSymbol("|")) {
-          while (current_.kind == frontends::TokenKind::kIdentifier) {
-            c->block_params.push_back(current_.lexeme);
-            Advance();
-            if (!MatchSymbol(","))
-              break;
-          }
-          ExpectSymbol("|", "expected '|'");
-        }
-        SkipTerminators();
-        c->block = ParseBlockUntil({"end"});
-        ExpectKeyword("end", "expected 'end'");
-      }
+      ParseAttachedBlock(c);
+      return c;
+    }
+    if (IsSymbol("{") || IsKeyword("do")) {
+      auto c = std::make_shared<CallExpr>();
+      c->loc = loc;
+      c->method = name;
+      ParseAttachedBlock(c);
       return c;
     }
     auto id = std::make_shared<Identifier>();
@@ -1025,8 +1175,34 @@ std::shared_ptr<Expression> RbParser::ParseHash() {
   while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
     HashLit::Pair p;
     p.key = ParseExpression();
-    if (MatchSymbol("=>") || MatchSymbol(":")) {
+    bool rocket = MatchSymbol("=>");
+    bool label = !rocket && MatchSymbol(":");
+    if ((rocket || label) && !IsSymbol(",") && !IsSymbol("}")) {
       p.value = ParseExpression();
+    } else if (label) {
+      auto key_name = std::dynamic_pointer_cast<Identifier>(p.key);
+      if (!key_name) {
+        diagnostics_.ReportError(p.key ? p.key->loc : loc,
+                                 frontends::ErrorCode::kInvalidExpression,
+                                 "hash value omission requires an identifier key");
+      } else {
+        auto value = std::make_shared<Identifier>();
+        value->loc = key_name->loc;
+        value->name = key_name->name;
+        p.value = value;
+      }
+      auto required = parsing_pattern_ ? frontends::RubyVersion::kRuby3_0
+                                       : frontends::RubyVersion::kRuby3_1;
+      if (!frontends::RubyVersionAtLeast(ruby_version_, required)) {
+        diagnostics_.ReportError(p.key ? p.key->loc : loc,
+                                 frontends::ErrorCode::kLangVersionMismatch,
+                                 parsing_pattern_
+                                     ? "hash capture patterns require Ruby 3.0 or newer"
+                                     : "hash value omission requires Ruby 3.1 or newer");
+      }
+    } else if (!rocket) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnexpectedToken,
+                               "expected '=>' or ':' in hash literal");
     }
     h->pairs.push_back(p);
     if (!MatchSymbol(","))

@@ -15,6 +15,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <unordered_set>
@@ -40,8 +42,11 @@
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_lowering.h"
 #include "frontends/ploy/include/ploy_parser.h"
+#include "runtime/include/libs/native_file_runtime.h"
 #include "tools/polyc/include/compilation_pipeline.h"
 #include "tools/polyc/include/linker_probe.h"
+#include "tools/polyc/src/foreign_signature_extractor.h"
+#include "tools/polyc/src/local_source_packages.h"
 
 namespace polyglot::compilation {
 namespace {
@@ -56,6 +61,46 @@ using polyglot::tools::linker_probe::SelectAvailableLinker;
 
 constexpr std::uint32_t kPobjSectionFlagBss = 1u << 1;
 
+bool UsesNativeFileRuntime(const ir::IRContext &ctx) {
+  for (const auto &fn : ctx.Functions()) {
+    if (!fn)
+      continue;
+    for (const auto &block : fn->blocks) {
+      if (!block)
+        continue;
+      for (const auto &instruction : block->instructions) {
+        const auto *call = dynamic_cast<const ir::CallInstruction *>(instruction.get());
+        if (call && runtime::IsNativeFileRuntimeSymbol(call->callee))
+          return true;
+      }
+    }
+  }
+  return false;
+}
+
+std::string RuntimeTargetOS(const CompilationContext::Config &config) {
+  if (!config.target_os.empty())
+    return config.target_os;
+  using common::OS;
+  switch (config.target_triple.os) {
+  case OS::kDarwin:
+    return "darwin";
+  case OS::kLinux:
+    return "linux";
+  case OS::kWindows:
+    return "windows";
+  case OS::kFreeBSD:
+    return "freebsd";
+  case OS::kWasi:
+    return "wasi";
+  case OS::kNone:
+    return "none";
+  case OS::kUnknown:
+    return "unknown";
+  }
+  return "unknown";
+}
+
 std::string CanonicalSourceLanguage(std::string language) {
   std::string folded = language;
   std::transform(folded.begin(), folded.end(), folded.begin(),
@@ -68,6 +113,252 @@ std::string CanonicalSourceLanguage(std::string language) {
 std::string AbiLanguageToken(const std::string &language) {
   const std::string canonical = CanonicalSourceLanguage(language);
   return canonical == "poly" ? "ploy" : canonical;
+}
+
+void AppendUniqueDirectory(std::vector<std::string> &paths, const fs::path &candidate) {
+  std::error_code ec;
+  if (!fs::is_directory(candidate, ec))
+    return;
+
+  fs::path normalized = fs::weakly_canonical(candidate, ec);
+  if (ec)
+    normalized = fs::absolute(candidate, ec);
+  const std::string value = normalized.lexically_normal().string();
+  if (value.empty())
+    return;
+  if (std::find(paths.begin(), paths.end(), value) == paths.end())
+    paths.push_back(value);
+}
+
+std::string LowerAscii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+std::string TrimAscii(std::string value) {
+  const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
+  value.erase(value.begin(),
+              std::find_if(value.begin(), value.end(),
+                           [&](unsigned char c) { return !is_space(c); }));
+  value.erase(std::find_if(value.rbegin(), value.rend(),
+                           [&](unsigned char c) { return !is_space(c); })
+                  .base(),
+              value.end());
+  return value;
+}
+
+// Parse the small, deliberately constrained string subset used by
+// poly.package.toml metadata.  Requiring a TOML string (instead of accepting
+// arbitrary bare values) keeps paths and package identities unambiguous.
+std::optional<std::string> ParseManifestString(std::string value) {
+  value = TrimAscii(std::move(value));
+  if (value.size() < 2)
+    return std::nullopt;
+
+  const char quote = value.front();
+  if ((quote != '"' && quote != '\'') || value.back() != quote)
+    return std::nullopt;
+
+  std::string result;
+  result.reserve(value.size() - 2);
+  for (std::size_t i = 1; i + 1 < value.size(); ++i) {
+    const char c = value[i];
+    if (quote == '"' && c == '\\') {
+      if (++i + 1 >= value.size())
+        return std::nullopt;
+      const char escaped = value[i];
+      if (escaped != '\\' && escaped != '"')
+        return std::nullopt;
+      result.push_back(escaped);
+      continue;
+    }
+    if (c == quote)
+      return std::nullopt;
+    result.push_back(c);
+  }
+  return result;
+}
+
+struct LocalPackageManifest {
+  std::string name;
+  std::string language;
+  std::string include_dir;
+};
+
+std::optional<LocalPackageManifest> ReadLocalPackageManifest(const fs::path &manifest_path) {
+  std::ifstream input(manifest_path);
+  if (!input)
+    return std::nullopt;
+
+  LocalPackageManifest manifest;
+  std::string line;
+  while (std::getline(input, line)) {
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+    bool escaped = false;
+    std::size_t comment = std::string::npos;
+    for (std::size_t i = 0; i < line.size(); ++i) {
+      const char c = line[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c == '\\' && in_double_quote) {
+        escaped = true;
+        continue;
+      }
+      if (c == '\'' && !in_double_quote)
+        in_single_quote = !in_single_quote;
+      else if (c == '"' && !in_single_quote)
+        in_double_quote = !in_double_quote;
+      else if (c == '#' && !in_single_quote && !in_double_quote) {
+        comment = i;
+        break;
+      }
+    }
+    if (comment != std::string::npos)
+      line.erase(comment);
+    line = TrimAscii(std::move(line));
+    if (line.empty())
+      continue;
+    // Package identity fields belong to the TOML root table.  Do not let an
+    // equally named field in [exports] or another table override them.
+    if (line.front() == '[')
+      break;
+
+    const auto equals = line.find('=');
+    if (equals == std::string::npos)
+      continue;
+    const std::string key = TrimAscii(line.substr(0, equals));
+    auto value = ParseManifestString(line.substr(equals + 1));
+    if (!value)
+      continue;
+    if (key == "name")
+      manifest.name = std::move(*value);
+    else if (key == "language")
+      manifest.language = LowerAscii(std::move(*value));
+    else if (key == "include_dir")
+      manifest.include_dir = std::move(*value);
+  }
+
+  if (manifest.name.empty() || manifest.language.empty() || manifest.include_dir.empty())
+    return std::nullopt;
+  return manifest;
+}
+
+std::set<std::string> DiscoverDeclaredCppPackages(const CompilationContext::Config &config) {
+  std::string source = config.source_text;
+  if (source.empty() && !config.source_file.empty()) {
+    std::ifstream input(config.source_file);
+    if (input)
+      source.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+  }
+
+  std::vector<frontends::Token> tokens;
+  ploy::PloyLexer lexer(std::move(source), config.source_file);
+  for (;;) {
+    auto token = lexer.NextToken();
+    const bool done = token.kind == frontends::TokenKind::kEndOfFile;
+    tokens.push_back(std::move(token));
+    if (done)
+      break;
+  }
+
+  std::set<std::string> packages;
+  for (std::size_t i = 0; i + 3 < tokens.size(); ++i) {
+    if (tokens[i].kind != frontends::TokenKind::kKeyword ||
+        tokens[i].lexeme != "IMPORT")
+      continue;
+    if ((tokens[i + 1].kind != frontends::TokenKind::kIdentifier &&
+         tokens[i + 1].kind != frontends::TokenKind::kKeyword) ||
+        LowerAscii(tokens[i + 1].lexeme) != "cpp")
+      continue;
+    if (tokens[i + 2].kind != frontends::TokenKind::kKeyword ||
+        tokens[i + 2].lexeme != "PACKAGE" ||
+        tokens[i + 3].kind != frontends::TokenKind::kIdentifier)
+      continue;
+
+    std::string name = tokens[i + 3].lexeme;
+    std::size_t cursor = i + 4;
+    while (cursor + 1 < tokens.size() &&
+           tokens[cursor].kind == frontends::TokenKind::kSymbol &&
+           tokens[cursor].lexeme == "." &&
+           tokens[cursor + 1].kind == frontends::TokenKind::kIdentifier) {
+      name += "." + tokens[cursor + 1].lexeme;
+      cursor += 2;
+    }
+    packages.insert(std::move(name));
+  }
+  return packages;
+}
+
+bool IsSafePackageRelativePath(const fs::path &path) {
+  if (path.empty() || path.is_absolute() || path.has_root_name() || path.has_root_directory())
+    return false;
+  return std::none_of(path.begin(), path.end(),
+                      [](const fs::path &part) { return part == ".."; });
+}
+
+bool IsPathWithin(const fs::path &child, const fs::path &parent) {
+  const auto mismatch = std::mismatch(parent.begin(), parent.end(), child.begin(), child.end());
+  return mismatch.first == parent.end();
+}
+
+// A .poly entry is also the project root for hermetic, vendored native
+// packages. Project-wide include/ and vendor/include conventions remain
+// available, while package include roots are admitted only when the Poly file
+// declares `IMPORT cpp PACKAGE <name>` and a matching poly.package.toml names
+// both that package and the C++ language. Explicit CLI include paths retain
+// precedence because discovered paths are appended afterwards.
+void DiscoverProjectIncludePaths(CompilationContext::Config &config) {
+  if (config.source_language != "poly" || config.source_file.empty())
+    return;
+
+  std::error_code ec;
+  fs::path source = fs::absolute(config.source_file, ec);
+  if (ec)
+    source = fs::path(config.source_file);
+  const fs::path root = source.parent_path();
+
+  AppendUniqueDirectory(config.include_paths, root / "include");
+  AppendUniqueDirectory(config.include_paths, root / "vendor" / "include");
+
+  const auto declared_packages = DiscoverDeclaredCppPackages(config);
+  if (declared_packages.empty())
+    return;
+
+  const fs::path packages = root / "packages";
+  if (!fs::is_directory(packages, ec))
+    return;
+
+  std::vector<fs::path> package_roots;
+  for (fs::directory_iterator it(packages, ec), end; !ec && it != end; it.increment(ec)) {
+    if (it->is_directory(ec))
+      package_roots.push_back(it->path());
+  }
+  std::sort(package_roots.begin(), package_roots.end());
+  for (const auto &package_root : package_roots) {
+    const auto manifest = ReadLocalPackageManifest(package_root / "poly.package.toml");
+    if (!manifest || manifest->language != "cpp" ||
+        declared_packages.find(manifest->name) == declared_packages.end())
+      continue;
+
+    const fs::path declared_include = fs::path(manifest->include_dir);
+    if (!IsSafePackageRelativePath(declared_include))
+      continue;
+    const fs::path relative_include = declared_include.lexically_normal();
+
+    std::error_code canonical_ec;
+    const fs::path canonical_root = fs::weakly_canonical(package_root, canonical_ec);
+    if (canonical_ec)
+      continue;
+    const fs::path canonical_include =
+        fs::weakly_canonical(package_root / relative_include, canonical_ec);
+    if (canonical_ec || !IsPathWithin(canonical_include, canonical_root))
+      continue;
+    AppendUniqueDirectory(config.include_paths, canonical_include);
+  }
 }
 
 #pragma pack(push, 1)
@@ -449,10 +740,13 @@ std::string ResolveImportedSourceFile(const CompilationContext::Config &config,
   std::error_code ec;
   for (const auto &root : roots) {
     for (const auto &module_path : ModulePathCandidates(module_name)) {
-      for (const auto &ext : frontend->Extensions()) {
-        fs::path candidate = root / (module_path + ext);
-        if (fs::exists(candidate, ec))
-          return candidate.string();
+      for (const auto &prefix : {fs::path{}, fs::path(language)}) {
+        for (const auto &ext : frontend->Extensions()) {
+          fs::path candidate = root / prefix / module_path;
+          candidate += ext;
+          if (fs::exists(candidate, ec))
+            return candidate.string();
+        }
       }
     }
   }
@@ -476,7 +770,17 @@ std::vector<ImportedFunction> CollectImportedFunctions(const CompilationContext:
   std::unordered_set<std::string> seen;
   std::string op;
   while (in >> op) {
-    if (op == "SYMBOL") {
+    if (op == "IMPORT") {
+      std::string language;
+      std::string module;
+      in >> language >> module;
+      const std::string key = language + "::" + module + "::*";
+      if (!seen.insert(key).second)
+        continue;
+      const std::string source = ResolveImportedSourceFile(config, language, module);
+      if (!source.empty())
+        result.push_back(ImportedFunction{language, module, "", "", source});
+    } else if (op == "SYMBOL") {
       std::string name;
       std::string language;
       std::string mangled;
@@ -506,6 +810,15 @@ std::string CompileImportedSource(const CompilationContext::Config &config,
                                   const std::string &effective_fmt) {
   if (config.aux_dir.empty())
     return {};
+  std::string bundle_error;
+  const std::string compilation_source = ::polyglot::tools::BuildVendoredSourceBundle(
+      config.source_file, fn.language, fn.source_file, config.aux_dir, &bundle_error,
+      !config.package_index);
+  if (compilation_source.empty()) {
+    if (config.verbose && !bundle_error.empty())
+      std::cerr << "[pipeline] " << bundle_error << "\n";
+    return {};
+  }
   fs::path out = fs::path(config.aux_dir) /
                  (SanitizedSymbol(fn.language + "_" + fn.module) +
                   ObjectExtension(effective_fmt));
@@ -513,21 +826,59 @@ std::string CompileImportedSource(const CompilationContext::Config &config,
       ResolveSelfPolyc(),
       "--lang=" + fn.language,
       "-c",
-      fn.source_file,
+      compilation_source,
       "-o",
       out.string(),
       "--arch=" + config.target_arch,
       "--obj-format=" + effective_fmt,
       "--target=" + config.target_triple.str(),
+      "--no-aux",
   };
   if (!config.verbose)
     args.push_back("--quiet");
+  if (config.strict_mode)
+    args.push_back("--strict");
+  if (!config.package_index)
+    args.push_back("--no-package-index");
   for (const auto &inc : config.include_paths)
     args.push_back("-I" + inc);
+  for (const auto &inc : config.system_include_paths)
+    args.push_back("-isystem=" + inc);
+  for (const auto &define : config.defines)
+    args.push_back("-D" + define);
+  for (const auto &undefine : config.undefines)
+    args.push_back("-U" + undefine);
+  for (const auto &stub : config.python_stub_paths)
+    args.push_back("--python-stubs=" + stub);
+  if (!config.rust_crate_dir.empty())
+    args.push_back("--crate-dir=" + config.rust_crate_dir);
+  for (const auto &[name, path] : config.rust_externs)
+    args.push_back("--extern=" + name + (path.empty() ? "" : "=" + path));
+  const auto &frontend_options = config.frontend_options;
+  if (!frontend_options.go_project_dir.empty())
+    args.push_back("--go-project=" + frontend_options.go_project_dir);
+  for (const auto &path : frontend_options.go_module_paths)
+    args.push_back("--go-mod-cache=" + path);
+  if (fn.language == "cpp" &&
+      frontend_options.cpp_dialect != frontends::CppDialect::kAuto)
+    args.push_back("--std=" +
+                   std::string(frontends::CppDialectToString(frontend_options.cpp_dialect)));
+  if (fn.language == "python" &&
+      frontend_options.python_version != frontends::PythonVersion::kAuto)
+    args.push_back("--python-version=" + std::string(frontends::PythonVersionToString(
+                                               frontend_options.python_version)));
+  if (fn.language == "rust" &&
+      frontend_options.rust_edition != frontends::RustEdition::kAuto)
+    args.push_back("--rust-edition=" + std::string(frontends::RustEditionToString(
+                                             frontend_options.rust_edition)));
+  if (fn.language == "go" && frontend_options.go_version != frontends::GoVersion::kAuto)
+    args.push_back("--go-version=" +
+                   std::string(frontends::GoVersionToString(frontend_options.go_version)));
 
   const std::string cmd = JoinCommandArgs(args);
   if (config.verbose) {
     std::cerr << "[pipeline] compiling import " << fn.language << "::" << fn.module
+              << (compilation_source == fn.source_file ? "" : " with vendored packages")
               << " -> " << out.string() << "\n";
   }
   int rc = std::system(cmd.c_str());
@@ -540,15 +891,16 @@ std::string CompileImportedSource(const CompilationContext::Config &config,
 linker::Relocation MakeCallReloc(std::uint64_t offset, std::uint32_t symbol_index,
                                  const CompilationContext::Config &config) {
   linker::Relocation reloc{};
-  reloc.offset = offset;
   reloc.symbol_index = static_cast<int>(symbol_index);
   reloc.addend = 0;
   const bool use_arm64 =
       (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
        config.target_arch == "armv8");
   if (use_arm64) {
+    reloc.offset = offset;
     reloc.type = static_cast<std::uint32_t>(linker::RelocationType_ARM64::kR_AARCH64_CALL26);
   } else {
+    reloc.offset = offset + 1; // skip the E8 call opcode; patch rel32
     reloc.type = static_cast<std::uint32_t>(linker::RelocationType_x86_64::kR_X86_64_PLT32);
     reloc.addend = -4;
   }
@@ -583,20 +935,6 @@ void AddAliasWrapper(const CompilationContext::Config &config,
                                      true});
 }
 
-void AddReturnShim(const CompilationContext::Config &config, const std::string &name,
-                   InternalSection &text, std::vector<InternalSymbol> &symbols) {
-  const bool use_arm64 =
-      (config.target_arch == "arm64" || config.target_arch == "aarch64" ||
-       config.target_arch == "armv8");
-  std::vector<std::uint8_t> code =
-      use_arm64 ? std::vector<std::uint8_t>{0xC0, 0x03, 0x5F, 0xD6}
-                : std::vector<std::uint8_t>{0xC3};
-  const std::uint64_t base = static_cast<std::uint64_t>(text.data.size());
-  text.data.insert(text.data.end(), code.begin(), code.end());
-  symbols.push_back(InternalSymbol{name, 0, base, static_cast<std::uint64_t>(code.size()), true,
-                                   true});
-}
-
 std::string BuildImportedAliasObject(const CompilationContext::Config &config,
                                      const std::vector<ImportedFunction> &imports,
                                      const std::string &effective_fmt,
@@ -608,30 +946,30 @@ std::string BuildImportedAliasObject(const CompilationContext::Config &config,
   text.name = ".text";
   std::vector<InternalSymbol> symbols;
   std::set<std::string> emitted;
-  bool needs_python_shim = false;
 
   for (const auto &fn : imports) {
-    const std::string target = (effective_fmt == "macho") ? "_" + fn.function : fn.function;
+    if (fn.function.empty())
+      continue;
+    std::string implementation = fn.function;
+    if (fn.language == "java") {
+      const auto separator = fn.module.rfind("::");
+      const std::string class_name =
+          separator == std::string::npos ? fn.module : fn.module.substr(separator + 2);
+      implementation = class_name + "::" + fn.function;
+    }
+    const std::string target =
+        (effective_fmt == "macho") ? "_" + implementation : implementation;
     std::vector<std::string> aliases;
     auto add_alias = [&](const std::string &alias) {
-      if (emitted.insert(alias).second)
+      if (alias != target && emitted.insert(alias).second)
         aliases.push_back(alias);
     };
     add_alias(fn.qualified);
+    if (effective_fmt == "macho")
+      add_alias("_" + fn.qualified);
     add_alias(SanitizedSymbol(fn.qualified));
     add_alias("_" + SanitizedSymbol(fn.qualified));
     AddAliasWrapper(config, aliases, target, text, symbols);
-    if (fn.language == "python")
-      needs_python_shim = true;
-  }
-
-  if (needs_python_shim) {
-    for (const std::string &name : {"PyGILState_Ensure", "PyGILState_Release",
-                                   "PyLong_AsLongLong", "PyLong_FromLongLong",
-                                   "PyFloat_AsDouble", "PyFloat_FromDouble"}) {
-      if (emitted.insert(name).second)
-        AddReturnShim(config, name, text, symbols);
-    }
   }
 
   fs::path out = fs::path(config.aux_dir) / (stem + "_foreign_aliases.pobj");
@@ -659,14 +997,16 @@ std::vector<std::string> BuildForeignInputs(const CompilationContext::Config &co
     auto it = compiled.find(fn.source_file);
     if (it == compiled.end()) {
       std::string obj = CompileImportedSource(config, fn, effective_fmt);
+      it = compiled.emplace(fn.source_file, obj).first;
       if (obj.empty()) {
         diagnostics.ReportError(core::SourceLoc{"<packaging>", 1, 1},
                                 frontends::ErrorCode::kUnresolvedSymbol,
                                 "failed to auto-compile imported source: " + fn.source_file);
         continue;
       }
-      it = compiled.emplace(fn.source_file, obj).first;
     }
+    if (it->second.empty())
+      continue;
     if (std::find(inputs.begin(), inputs.end(), it->second) == inputs.end())
       inputs.push_back(it->second);
   }
@@ -741,7 +1081,9 @@ public:
 
 class DefaultSemanticStage final : public SemanticStage {
 public:
-  explicit DefaultSemanticStage(bool strict_mode = false) : strict_mode_(strict_mode) {}
+  explicit DefaultSemanticStage(bool strict_mode = false,
+                                ::polyglot::tools::ForeignExtractionOptions foreign_options = {}) :
+      strict_mode_(strict_mode), foreign_options_(std::move(foreign_options)) {}
 
   SemanticDatabase Run(const FrontendOutput &input, frontends::Diagnostics &diagnostics,
                        const std::shared_ptr<ploy::PackageDiscoveryCache> &cache) override {
@@ -763,6 +1105,11 @@ public:
     opts.discovery_cache = cache;
     db.sema_instance = std::make_shared<ploy::PloySema>(diagnostics, opts);
 
+    auto extraction_options = foreign_options_;
+    extraction_options.diagnostics = &diagnostics;
+    ::polyglot::tools::ForeignSignatureExtractor extractor(extraction_options);
+    db.sema_instance->InjectForeignSignatures(extractor.ExtractAll(*input.ast));
+
     db.success = db.sema_instance->Analyze(input.ast);
 
     db.symbols = db.sema_instance->Symbols();
@@ -779,6 +1126,7 @@ public:
 
 private:
   bool strict_mode_{false};
+  ::polyglot::tools::ForeignExtractionOptions foreign_options_;
 };
 
 class DefaultMarshalPlanStage final : public MarshalPlanStage {
@@ -832,6 +1180,58 @@ public:
       plan.call_plans.push_back(std::move(call_plan));
     }
 
+    // Local source IMPORT calls do not require users to duplicate every
+    // function signature in a LINK declaration.  Sema has already validated
+    // them against signatures extracted from the actual imported files, so
+    // carry them forward as native-import plans for automatic compilation and
+    // direct common-ABI linking.
+    if (input.sema_instance) {
+      std::unordered_set<std::string> seen_native_calls;
+      for (const auto &call : input.sema_instance->CrossLanguageCalls()) {
+        if (!call || !input.sema_instance->IsLocalSourceCall(call->language, call->function))
+          continue;
+        const std::string key = call->language + "::" + call->function;
+        if (!seen_native_calls.insert(key).second)
+          continue;
+
+        CallMarshalPlan call_plan;
+        call_plan.link_id = "native-import:" + key;
+        call_plan.target_language = "poly";
+        call_plan.source_language = call->language;
+        call_plan.target_function = call->function;
+        call_plan.source_function = call->function;
+        call_plan.lang_version = call->lang_version_pin;
+        call_plan.is_native_import = true;
+
+        auto sig_it = input.signatures.find(call->function);
+        if (sig_it == input.signatures.end()) {
+          const auto pos = call->function.rfind("::");
+          if (pos != std::string::npos)
+            sig_it = input.signatures.find(call->function.substr(pos + 2));
+        }
+        if (sig_it != input.signatures.end()) {
+          for (std::size_t i = 0; i < sig_it->second.param_types.size(); ++i) {
+            ParamMarshalPlan p;
+            p.param_index = i;
+            p.source_type = sig_it->second.param_types[i];
+            p.target_type = sig_it->second.param_types[i];
+            p.strategy = MarshalStrategy::kDirectCopy;
+            p.size_bytes = 8;
+            p.alignment = 8;
+            call_plan.param_plans.push_back(std::move(p));
+          }
+          call_plan.return_plan.source_type = sig_it->second.return_type;
+          call_plan.return_plan.target_type = sig_it->second.return_type;
+          call_plan.return_plan.strategy = MarshalStrategy::kDirectCopy;
+          call_plan.return_plan.size_bytes = 8;
+        }
+
+        call_plan.target_abi.calling_convention = "sysv64";
+        call_plan.source_abi = call_plan.target_abi;
+        plan.call_plans.push_back(std::move(call_plan));
+      }
+    }
+
     plan.success = true;
     return plan;
   }
@@ -857,6 +1257,8 @@ public:
 
     // Build descriptors from marshal plan.
     for (const auto &cp : plan.call_plans) {
+      if (cp.is_native_import)
+        continue;
       ploy::CrossLangCallDescriptor desc;
       // Mirror the mangling rule from `MangleStubName` in poly lowering:
       // weave a `_v<sanitized_version>_` segment into the stub name when a
@@ -1155,6 +1557,35 @@ public:
     }
 
     absorb_artifacts(bres.artifacts, backend->TargetTriple());
+    if (UsesNativeFileRuntime(*ir_module)) {
+      std::string runtime_error;
+      auto blob = runtime::BuildNativeFileRuntime(config.target_arch, RuntimeTargetOS(config),
+                                                  &runtime_error);
+      if (blob.text.empty()) {
+        diagnostics.ReportError(core::SourceLoc{"<backend>", 1, 1},
+                                frontends::ErrorCode::kLoweringUndefined, runtime_error);
+        AppendDiagnostics(diagnostics, out.backend_diagnostics);
+        out.success = false;
+        return out;
+      }
+
+      CompiledObject runtime_object;
+      runtime_object.name = ".text";
+      runtime_object.code = std::move(blob.text);
+      for (const auto &exported : blob.symbols) {
+        linker::Symbol symbol;
+        symbol.name = exported.name;
+        symbol.section = ".text";
+        symbol.offset = exported.offset;
+        symbol.value = exported.offset;
+        symbol.size = exported.size;
+        symbol.binding = linker::SymbolBinding::kGlobal;
+        symbol.type = linker::SymbolType::kFunction;
+        symbol.is_defined = true;
+        runtime_object.symbols.push_back(std::move(symbol));
+      }
+      out.objects.push_back(std::move(runtime_object));
+    }
     out.ir_ctx = std::move(ir_module);
     out.success = true;
     return out;
@@ -1259,6 +1690,25 @@ public:
         sym_index[s.name] = static_cast<std::uint32_t>(symbols.size());
         symbols.push_back(std::move(s));
       }
+    }
+
+    // The deterministic public entry must refer to the source module's real
+    // entry function, not blindly to byte zero of the merged text section.
+    // This matters as soon as a Poly module contains helper functions before
+    // `main`, and it also keeps the generated executable honest when foreign
+    // source objects are absorbed later by the linker.
+    for (const char *candidate : {"__ploy_main", "main", "entry"}) {
+      const auto entry_it = sym_index.find(candidate);
+      if (entry_it == sym_index.end())
+        continue;
+      const auto &entry = symbols[entry_it->second];
+      if (!entry.defined)
+        continue;
+      auto &start = symbols[sym_index["_start"]];
+      start.section_index = entry.section_index;
+      start.value = entry.value;
+      start.size = entry.size;
+      break;
     }
 
     for (std::size_t oi = 0; oi < input.objects.size(); ++oi) {
@@ -1413,6 +1863,11 @@ public:
         }
         std::vector<std::string> link_inputs{obj_out};
         auto foreign_inputs = BuildForeignInputs(config, effective_fmt, stem, diagnostics);
+        if (diagnostics.HasErrors()) {
+          AppendDiagnostics(diagnostics, out.packaging_diagnostics);
+          out.success = false;
+          return out;
+        }
         link_inputs.insert(link_inputs.end(), foreign_inputs.begin(), foreign_inputs.end());
         const std::string input_args = JoinCommandArgs(link_inputs);
 
@@ -1559,6 +2014,7 @@ void CompilationContext::Config::SetTargetOs(const std::string &os) {
 
 CompilationPipeline::CompilationPipeline(CompilationContext::Config config) {
   config.source_language = CanonicalSourceLanguage(std::move(config.source_language));
+  DiscoverProjectIncludePaths(config);
   context_.config = std::move(config);
 
   // ---- BIN-7: keep target_triple / target_os / target_arch in sync.
@@ -1580,7 +2036,30 @@ CompilationPipeline::CompilationPipeline(CompilationContext::Config config) {
 
   context_.package_cache = std::make_shared<ploy::PackageDiscoveryCache>();
   frontend_stage_ = CreateFrontendStage();
-  semantic_stage_ = std::make_unique<DefaultSemanticStage>(context_.config.strict_mode);
+  ::polyglot::tools::ForeignExtractionOptions foreign_options;
+  if (!context_.config.source_file.empty()) {
+    foreign_options.base_directory =
+        fs::path(context_.config.source_file).parent_path().string();
+  }
+  foreign_options.poly_source_file = context_.config.source_file;
+  foreign_options.bundle_directory = context_.config.aux_dir;
+  foreign_options.require_local_source_packages = !context_.config.package_index;
+  foreign_options.include_paths = context_.config.include_paths;
+  foreign_options.verbose = context_.config.verbose;
+  foreign_options.frontend_options = context_.config.frontend_options;
+  foreign_options.frontend_options.strict = context_.config.strict_mode;
+  foreign_options.frontend_options.force = context_.config.force;
+  foreign_options.frontend_options.include_paths = context_.config.include_paths;
+  foreign_options.frontend_options.system_include_paths = context_.config.system_include_paths;
+  foreign_options.frontend_options.defines = context_.config.defines;
+  foreign_options.frontend_options.undefines = context_.config.undefines;
+  foreign_options.frontend_options.python_stub_paths = context_.config.python_stub_paths;
+  foreign_options.frontend_options.classpath = context_.config.classpath;
+  foreign_options.frontend_options.dotnet_references = context_.config.dotnet_references;
+  foreign_options.frontend_options.rust_crate_dir = context_.config.rust_crate_dir;
+  foreign_options.frontend_options.rust_externs = context_.config.rust_externs;
+  semantic_stage_ = std::make_unique<DefaultSemanticStage>(context_.config.strict_mode,
+                                                           std::move(foreign_options));
   marshal_plan_stage_ = CreateMarshalPlanStage();
   bridge_generation_stage_ = CreateBridgeGenerationStage();
   backend_stage_ = CreateBackendStage(context_.config.target_arch);
@@ -1711,8 +2190,24 @@ bool CompilationPipeline::RunBridgeGeneration() {
         }
       }
 
+      // Every local source import is a build dependency even when only some
+      // of its functions are called.  The packaging stage consumes these
+      // rows to auto-compile the module with the matching built-in frontend;
+      // polyld treats them as provenance metadata.
+      if (context_.semantic_db->validated_ast) {
+        for (const auto &decl : context_.semantic_db->validated_ast->declarations) {
+          auto import = std::dynamic_pointer_cast<ploy::ImportDecl>(decl);
+          if (import && !import->language.empty() && !import->module_path.empty() &&
+              import->package_name.empty()) {
+            ofs << "IMPORT " << import->language << " " << import->module_path << "\n";
+          }
+        }
+      }
+
       // Emit CALL descriptors (from lowering, carried through marshal plan)
       for (const auto &cp : context_.marshal_plan->call_plans) {
+        if (cp.is_native_import)
+          continue;
         // Mirror the mangling rule from `MangleStubName` in poly lowering:
         // include a `_v<sanitized_version>_` segment when a version is
         // pinned so polyld can resolve the right versioned bridge.
@@ -1747,8 +2242,12 @@ bool CompilationPipeline::RunBridgeGeneration() {
         emit_sym(entry.source_symbol, entry.source_language);
       }
       for (const auto &cp : context_.marshal_plan->call_plans) {
-        emit_sym(cp.target_function, cp.target_language);
-        emit_sym(cp.source_function, cp.source_language);
+        if (cp.is_native_import) {
+          emit_sym(cp.source_function, cp.source_language);
+        } else {
+          emit_sym(cp.target_function, cp.target_language);
+          emit_sym(cp.source_function, cp.source_language);
+        }
       }
 
       ofs.close();

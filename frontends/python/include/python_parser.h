@@ -38,8 +38,10 @@ private:
   void Advance();
   void SkipNewlines();
   bool IsSymbol(const std::string &symbol) const;
+  bool IsName(const std::string &name) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
+  bool MatchName(const std::string &name);
   void ExpectSymbol(const std::string &symbol, const std::string &message);
   void Sync();
   void ParseTopLevel();
@@ -48,6 +50,7 @@ private:
   std::shared_ptr<Statement> ParseCompoundStatement();
   std::vector<std::shared_ptr<Statement>> ParseSuite();
   std::shared_ptr<Statement> ParseImport();
+  std::shared_ptr<Statement> ParseTypeAlias();
   std::shared_ptr<Statement> ParseClass();
   std::shared_ptr<Statement> ParseFunction();
   std::shared_ptr<Statement> ParseAsyncFunction();
@@ -85,6 +88,7 @@ private:
   std::shared_ptr<Expression> ParsePostfix();
   std::shared_ptr<Expression> ParsePrimary();
   std::shared_ptr<Expression> ParseAtom();
+  std::shared_ptr<Expression> ParseFormattedString();
   std::shared_ptr<Expression> ParseComprehensionTail(std::shared_ptr<Expression> first,
                                                      bool is_dict, bool is_set, bool is_generator,
                                                      std::shared_ptr<Expression> value = nullptr);
@@ -92,6 +96,8 @@ private:
   void ParseCallArguments(CallExpression &call);
   std::vector<std::shared_ptr<Expression>> ParseExpressionList();
   std::shared_ptr<Expression> ParseExpressionListAsExpr();
+  std::vector<TypeParameter> ParseTypeParameters();
+  bool LooksLikeMatchStatement();
   void AttachPendingDoc(const std::shared_ptr<AstNode> &node);
 
   PythonLexer &lexer_;

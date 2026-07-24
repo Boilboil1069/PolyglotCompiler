@@ -20,6 +20,7 @@
 #include "common/include/core/types.h"
 #include "common/include/binary_container.h"
 #include "common/include/target_triple.h"
+#include "frontends/common/include/language_frontend.h"
 #include "frontends/common/include/lexer_base.h"
 #include "frontends/ploy/include/ploy_ast.h"
 #include "frontends/ploy/include/ploy_sema.h"
@@ -140,6 +141,10 @@ struct CallMarshalPlan {
   std::string source_language;
   std::string target_function;
   std::string source_function;
+  // True for IMPORT <lang>::<module> sources compiled by polyc itself.  All
+  // built-in frontends lower scalar calls to the common native ABI, so these
+  // calls can link directly without CPython/JNI/runtime adapter shims.
+  bool is_native_import{false};
 
   // Marshalling plans for each parameter
   std::vector<ParamMarshalPlan> param_plans;
@@ -391,6 +396,9 @@ struct CompilationContext {
     std::vector<std::string> dotnet_references;                    // --reference / -r
     std::string rust_crate_dir;                                    // --crate-dir
     std::vector<std::pair<std::string, std::string>> rust_externs; // --extern name=path
+    // Explicit language versions and project-resolution inputs used when the
+    // semantic stage analyses locally imported foreign source files.
+    frontends::FrontendOptions frontend_options{};
     // Path to the serialized cross-language descriptor file written after
     // bridge generation (passed as --poly-desc to polyld in link mode).
     std::string ploy_desc_file;

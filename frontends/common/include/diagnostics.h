@@ -45,6 +45,7 @@ enum class ErrorCode {
   kMissingClosingBrace = 2003,
   kMissingClosingParen = 2004,
   kInvalidExpression = 2005,
+  kUnsupportedSyntax = 2006,
 
   // Semantic errors (3xxx)
   kUndefinedSymbol = 3001,
@@ -76,6 +77,7 @@ enum class ErrorCode {
   // Lowering errors (4xxx)
   kLoweringUndefined = 4001,
   kUnsupportedOperator = 4002,
+  kUnsupportedLowering = 4003,
 
   // Linker errors (5xxx)
   kUnresolvedSymbol = 5001,
@@ -197,6 +199,13 @@ public:
   }
 
   const std::vector<Diagnostic> &All() const { return diagnostics_; }
+
+  /// Merge diagnostics produced by a nested frontend while preserving their
+  /// original locations, severities, codes and related notes.
+  void Append(const Diagnostics &other) {
+    diagnostics_.insert(diagnostics_.end(), other.diagnostics_.begin(),
+                        other.diagnostics_.end());
+  }
 
   bool HasErrors() const {
     for (const auto &d : diagnostics_) {

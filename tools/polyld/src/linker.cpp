@@ -1290,6 +1290,12 @@ bool Linker::ParseMachORelocations(std::ifstream &file, ObjectFile &obj, InputSe
     reloc.offset = info.r_address;
     reloc.type = info.r_type;
     reloc.is_pc_relative = info.r_pcrel != 0;
+    if (reloc.is_pc_relative && info.r_length == 2 &&
+        config_.target_arch == TargetArch::kX86_64) {
+      // The four-byte branch displacement is relative to the instruction
+      // immediately following the relocation field.
+      reloc.addend = -4;
+    }
     reloc.size = 1 << info.r_length;
     reloc.section = section.name;
 
@@ -1756,14 +1762,20 @@ bool Linker::LoadPOBJ(const std::string &path, ObjectFile &obj) {
     reloc.offset = rr.offset;
     reloc.type = static_cast<int>(rr.type);
     reloc.addend = rr.addend;
+    reloc.is_pc_relative =
+        (config_.target_arch == TargetArch::kX86_64 &&
+         (reloc.type == 2 || reloc.type == 4 || reloc.type == 9 || reloc.type == 26)) ||
+        (config_.target_arch == TargetArch::kAArch64 &&
+         (reloc.type == 282 || reloc.type == 283));
     reloc.symbol_index = static_cast<int>(rr.symbol_index);
     if (reloc.symbol_index >= 0 && reloc.symbol_index < static_cast<int>(obj.symbols.size())) {
       reloc.symbol = obj.symbols[reloc.symbol_index].name;
     }
-    obj.relocations.push_back(reloc);
     if (rr.section_index < obj.sections.size()) {
+      reloc.section = obj.sections[rr.section_index].name;
       obj.sections[rr.section_index].relocations.push_back(reloc);
     }
+    obj.relocations.push_back(reloc);
   }
 
   Trace("POBJ loaded: " + std::to_string(obj.sections.size()) + " sections, " +
@@ -2480,32 +2492,33 @@ void Linker::AssignSymbolAddresses() {
     if (!sym.is_defined || sym.is_absolute)
       continue;
 
-    // Find the section
-    for (const auto &sec : output_sections_) {
-      if (sec.name == sym.section) {
-        sym.value = sec.virtual_address + sym.offset;
-        break;
+    // Resolve through the exact input contribution. Looking up only by the
+    // section name loses the per-object offset as soon as several inputs all
+    // contribute a `.text`/`__text` section.
+    bool resolved = false;
+    if (sym.object_file_index >= 0) {
+      for (const auto &sec : output_sections_) {
+        for (const auto &contrib : sec.contributions) {
+          if (contrib.object_index != sym.object_file_index ||
+              contrib.section_index != sym.section_index)
+            continue;
+          sym.value = sec.virtual_address + contrib.output_offset + sym.offset;
+          resolved = true;
+          break;
+        }
+        if (resolved)
+          break;
       }
     }
 
-    // If not found in output sections, look at contributions
-    if (sym.value == 0 && sym.object_file_index >= 0) {
+    // Synthetic symbols without an owning object retain the section-relative
+    // fallback used by the legacy path.
+    if (!resolved) {
       for (const auto &sec : output_sections_) {
-        for (const auto &contrib : sec.contributions) {
-          if (contrib.object_index == sym.object_file_index) {
-            // Check if symbol is in this contribution
-            const auto &obj = objects_[contrib.object_index];
-            if (contrib.section_index < static_cast<int>(obj.sections.size())) {
-              const auto &in_sec = obj.sections[contrib.section_index];
-              if (in_sec.name == sym.section) {
-                sym.value = sec.virtual_address + contrib.output_offset + sym.offset;
-                break;
-              }
-            }
-          }
-        }
-        if (sym.value != 0)
+        if (sec.name == sym.section) {
+          sym.value = sec.virtual_address + sym.offset;
           break;
+        }
       }
     }
   }
@@ -2630,7 +2643,7 @@ bool Linker::ApplyRelocations() {
       }
 
       // Apply the relocation
-      if (!ApplyRelocation(reloc, *out_sec, section_base)) {
+      if (!ApplyRelocation(reloc, *out_sec, section_base, static_cast<int>(obj_idx))) {
         return false;
       }
 
@@ -2643,16 +2656,84 @@ bool Linker::ApplyRelocations() {
   return true;
 }
 
-std::int64_t Linker::CalculateRelocationValue(const Relocation &reloc, std::uint64_t reloc_addr) {
-  // Look up symbol
-  const Symbol *sym = LookupSymbol(reloc.symbol);
-  if (!sym) {
-    ReportWarning("Undefined symbol in relocation: " + reloc.symbol);
-    return 0;
+std::optional<std::int64_t>
+Linker::CalculateRelocationValue(const Relocation &reloc, std::uint64_t reloc_addr,
+                                 int object_index) {
+  std::optional<std::uint64_t> symbol_address;
+
+  // A local symbol deliberately does not participate in the global symbol
+  // table: two object files are allowed to use the same local label.  Resolve
+  // an indexed, same-object local first and translate its section-relative
+  // offset through that object's exact output-section contribution.
+  if (object_index >= 0 && object_index < static_cast<int>(objects_.size()) &&
+      reloc.symbol_index >= 0) {
+    const ObjectFile &object = objects_[static_cast<std::size_t>(object_index)];
+    const Symbol *local_symbol = nullptr;
+
+    if (reloc.symbol_index < static_cast<int>(object.symbols.size())) {
+      const Symbol &indexed = object.symbols[static_cast<std::size_t>(reloc.symbol_index)];
+      // Some input readers retain the native symbol-table indices while
+      // others omit non-named entries.  Never bind an indexed relocation to
+      // a different symbol merely because the compacted vector has that
+      // slot.
+      if (indexed.name == reloc.symbol && indexed.is_defined && !indexed.is_global()) {
+        local_symbol = &indexed;
+      }
+    }
+
+    // Preserve support for compact symbol vectors (notably legacy ELF
+    // objects) while keeping resolution scoped to this object file.
+    if (!local_symbol && !reloc.symbol.empty()) {
+      for (const Symbol &candidate : object.symbols) {
+        if (candidate.name == reloc.symbol && candidate.is_defined &&
+            !candidate.is_global()) {
+          local_symbol = &candidate;
+          break;
+        }
+      }
+    }
+
+    if (local_symbol) {
+      if (local_symbol->is_absolute) {
+        symbol_address = local_symbol->offset;
+      } else {
+        for (const OutputSection &target_section : output_sections_) {
+          for (const OutputSection::Contribution &contribution :
+               target_section.contributions) {
+            if (contribution.object_index != object_index ||
+                contribution.section_index != local_symbol->section_index) {
+              continue;
+            }
+            symbol_address = target_section.virtual_address + contribution.output_offset +
+                             local_symbol->offset;
+            break;
+          }
+          if (symbol_address) {
+            break;
+          }
+        }
+
+        if (!symbol_address) {
+          ReportError("Cannot locate output contribution for local relocation symbol: " +
+                      reloc.symbol);
+          return std::nullopt;
+        }
+      }
+    }
   }
 
-  std::int64_t sym_addr = static_cast<std::int64_t>(sym->value);
-  std::int64_t value = sym_addr + reloc.addend;
+  // Undefined and non-local references keep normal global resolution and
+  // interposition semantics.
+  if (!symbol_address) {
+    const Symbol *symbol = LookupSymbol(reloc.symbol);
+    if (!symbol || !symbol->is_defined) {
+      ReportError("Unresolved symbol in relocation: " + reloc.symbol);
+      return std::nullopt;
+    }
+    symbol_address = symbol->is_absolute ? symbol->offset : symbol->value;
+  }
+
+  std::int64_t value = static_cast<std::int64_t>(*symbol_address) + reloc.addend;
 
   if (reloc.is_pc_relative) {
     value -= static_cast<std::int64_t>(reloc_addr);
@@ -2662,7 +2743,7 @@ std::int64_t Linker::CalculateRelocationValue(const Relocation &reloc, std::uint
 }
 
 bool Linker::ApplyRelocation(const Relocation &reloc, OutputSection &section,
-                             std::uint64_t section_base) {
+                             std::uint64_t section_base, int object_index) {
   // Find the offset within the output section
   std::uint64_t offset = 0;
   bool found = false;
@@ -2671,7 +2752,7 @@ bool Linker::ApplyRelocation(const Relocation &reloc, OutputSection &section,
     const auto &obj = objects_[contrib.object_index];
     const auto &in_sec = obj.sections[contrib.section_index];
 
-    if (in_sec.name == reloc.section) {
+    if (contrib.object_index == object_index && in_sec.name == reloc.section) {
       offset = contrib.output_offset + reloc.offset;
       found = true;
       break;
@@ -2686,16 +2767,20 @@ bool Linker::ApplyRelocation(const Relocation &reloc, OutputSection &section,
   std::uint64_t reloc_addr = section_base + offset;
 
   // Calculate value
-  std::int64_t value = CalculateRelocationValue(reloc, reloc_addr);
+  const std::optional<std::int64_t> value =
+      CalculateRelocationValue(reloc, reloc_addr, object_index);
+  if (!value) {
+    return false;
+  }
 
   // Apply based on target architecture
   if (config_.target_arch == TargetArch::kX86_64) {
-    return ApplyELFRelocation_x86_64(reloc, section.data, offset, value);
+    return ApplyELFRelocation_x86_64(reloc, section.data, offset, *value);
   } else if (config_.target_arch == TargetArch::kAArch64) {
-    return ApplyELFRelocation_ARM64(reloc, section.data, offset, value);
+    return ApplyELFRelocation_ARM64(reloc, section.data, offset, *value);
   }
 
-  return ApplyELFRelocation_x86_64(reloc, section.data, offset, value);
+  return ApplyELFRelocation_x86_64(reloc, section.data, offset, *value);
 }
 
 bool Linker::ApplyELFRelocation_x86_64(const Relocation &reloc, std::vector<std::uint8_t> &data,
@@ -3049,6 +3134,7 @@ bool Linker::GenerateELFExecutable() {
   req.arch = (config_.target_arch == TargetArch::kAArch64)
                  ? pe::Arch::kAArch64
                  : pe::Arch::kX86_64;
+  req.image_type = static_cast<std::uint16_t>(elf_image_type_);
   req.base_address = config_.base_address ? config_.base_address
                                           : pe::kDefaultExeBase;
 

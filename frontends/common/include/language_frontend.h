@@ -31,6 +31,11 @@ struct FrontendOptions {
   bool strict{false};              // reject placeholders / Any fallback
   bool force{false};               // continue past errors
   bool enable_preprocessing{true}; // run preprocessor before parsing
+  // The caller has already expanded directives exactly once.  This is
+  // deliberately distinct from `enable_preprocessing`: disabling the
+  // preprocessor on raw source must not silently feed `#if`/`#define` lines
+  // to a parser that cannot preserve their conditional semantics.
+  bool source_is_preprocessed{false};
 
   // C / C++ preprocessor inputs
   std::vector<std::string> include_paths{"."};
@@ -66,12 +71,11 @@ struct FrontendOptions {
   // -------------------------------------------------------------------------
   // Per-language version / dialect.
   //
-  // Each field defaults to `kAuto` which means: let the frontend infer the
-  // version from (1) source pragmas / leading comments, (2) project
-  // configuration files (`go.mod` / `Cargo.toml` / `*.csproj` /
-  // `package.json` / `pyproject.toml` / `Gemfile`), (3) tool-chain probing
-  // (`python --version`, `dotnet --version`, ...), (4) per-language
-  // conservative default (see `language_versions.h`).
+  // Each field defaults to `kAuto`, which maps deterministically to the
+  // per-language stable default in `language_versions.h`.  Project or
+  // toolchain discovery belongs to the caller (polyc/polyver/UI), which must
+  // resolve it to an explicit enum before invoking a frontend when exact
+  // reproducibility is required.
   //
   // These fields are populated by polyc CLI flags (`--std=...`,
   // `--python-version=...` etc.), by poly `LANG`/`WITH LANG`/`@LANG`
@@ -82,6 +86,9 @@ struct FrontendOptions {
   PythonVersion         python_version{PythonVersion::kAuto};
   JavaRelease           java_release{JavaRelease::kAuto};
   DotnetLangVersion     dotnet_lang_version{DotnetLangVersion::kAuto};
+  // Syntax/default-language compatibility only.  The common frontend
+  // contract does not yet load .NET reference packs or prove that APIs used
+  // by the source exist in the selected target framework.
   DotnetTargetFramework dotnet_target_framework{DotnetTargetFramework::kAuto};
   RustEdition           rust_edition{RustEdition::kAuto};
   GoVersion             go_version{GoVersion::kAuto};
@@ -122,6 +129,11 @@ struct FrontendResult {
 // Represents a function/method signature extracted by parsing a source file
 // in its native language.  Used for cross-language type inference in the
 // topology graph and .poly sema.
+//
+// This is currently a fixed-arity projection: it has no overload identity or
+// default/rest/variadic parameter metadata.  Callers must reject distinct
+// signatures that collapse onto one lookup key rather than silently choosing
+// one, and must not claim full call-shape coverage for variadic declarations.
 
 /** @brief ForeignFunctionSignature data structure. */
 struct ForeignFunctionSignature {
@@ -204,6 +216,61 @@ public:
       const std::string &source, const std::string &filename,
       const std::string &module_name) const {
     return {};
+  }
+
+  // Version-aware, fail-closed extraction entry point.  For `auto`, the
+  // default adapter first runs complete analysis and invokes the legacy AST
+  // walker only when it is error-free.  Explicit selectors require an
+  // override because a legacy AST walker cannot receive the selected grammar.
+  // Keeping the three-argument overload preserves source compatibility for
+  // plugins, while compiler code should always call this overload.
+  virtual std::vector<ForeignFunctionSignature> ExtractSignatures(
+      const std::string &source, const std::string &filename,
+      const std::string &module_name, Diagnostics &diagnostics,
+      const FrontendOptions &options) const {
+    // A legacy plugin's three-argument extractor has no way to receive the
+    // caller's dialect.  Re-parsing with that extractor after a successful
+    // version-aware Analyze() would therefore be unsound: the two parses may
+    // accept different grammars.  Built-in frontends override this overload;
+    // legacy plugins remain usable with `auto`, but explicit selectors fail
+    // closed until the plugin implements the version-aware entry point.
+    const std::string language = Name();
+    bool explicit_version = false;
+    if (language == "cpp") {
+      explicit_version = options.cpp_dialect != CppDialect::kAuto;
+    } else if (language == "python") {
+      explicit_version = options.python_version != PythonVersion::kAuto;
+    } else if (language == "java") {
+      explicit_version = options.java_release != JavaRelease::kAuto;
+    } else if (language == "dotnet") {
+      explicit_version = options.dotnet_lang_version != DotnetLangVersion::kAuto ||
+                         options.dotnet_target_framework != DotnetTargetFramework::kAuto;
+    } else if (language == "rust") {
+      explicit_version = options.rust_edition != RustEdition::kAuto;
+    } else if (language == "go") {
+      explicit_version = options.go_version != GoVersion::kAuto;
+    } else if (language == "javascript") {
+      explicit_version = options.ecma_version != EcmaVersion::kAuto;
+    } else if (language == "ruby") {
+      explicit_version = options.ruby_version != RubyVersion::kAuto;
+    }
+    if (explicit_version) {
+      diagnostics.ReportError(
+          core::SourceLoc{filename, 1, 1}, ErrorCode::kUnsupportedSyntax,
+          "frontend '" + language +
+              "' does not implement version-aware signature extraction");
+      return {};
+    }
+    const bool analyzed = Analyze(source, filename, diagnostics, options);
+    if (!analyzed && !diagnostics.HasErrors()) {
+      diagnostics.ReportError(
+          core::SourceLoc{filename, 1, 1}, ErrorCode::kUnsupportedSyntax,
+          "frontend '" + language +
+              "' failed analysis without providing a diagnostic");
+    }
+    if (!analyzed || diagnostics.HasErrors())
+      return {};
+    return ExtractSignatures(source, filename, module_name);
   }
 };
 

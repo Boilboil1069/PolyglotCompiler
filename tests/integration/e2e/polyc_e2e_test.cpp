@@ -16,14 +16,26 @@
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_message.hpp>
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 #include <sstream>
 #include <algorithm>
 
+#include "backends/x86_64/include/x86_target.h"
+#include "frontends/common/include/language_frontend.h"
 #include "tools/polyld/include/polyglot_linker.h"
 #include "tools/polyc/include/compilation_pipeline.h"
+#include "tools/polyc/src/local_source_packages.h"
 #include "frontends/common/include/diagnostics.h"
+#include "frontends/go/include/go_frontend.h"
+#include "frontends/python/include/python_frontend.h"
+#include "frontends/rust/include/rust_frontend.h"
+#include "middle/include/ir/verifier.h"
 
 using namespace polyglot::compilation;
 using polyglot::frontends::Diagnostics;
@@ -33,6 +45,8 @@ using polyglot::frontends::Diagnostics;
 // ============================================================================
 
 namespace {
+
+namespace fs = std::filesystem;
 
 // Build a minimal pipeline config for an in-memory poly source string.
 // The output is set to compile-only (no real linking to disk).
@@ -67,6 +81,78 @@ bool RunThroughSema(const std::string &source, Diagnostics &out_diags) {
     return true;
 }
 
+std::string ReadTextFile(const fs::path &path) {
+    std::ifstream input(path, std::ios::binary);
+    REQUIRE(input.good());
+    return std::string(std::istreambuf_iterator<char>(input),
+                       std::istreambuf_iterator<char>());
+}
+
+void RequireFrontendAndX86Lowering(
+    const polyglot::frontends::ILanguageFrontend &frontend,
+    const fs::path &bundle_path,
+    const std::string &wrapper_name,
+    const std::vector<std::string> &expected_package_calls) {
+    const std::string source = ReadTextFile(bundle_path);
+    polyglot::frontends::FrontendOptions options;
+    options.strict = true;
+
+    // Analyze is an independent lexer/parser/sema pass.  Lower then repeats
+    // that checked frontend path and must produce verifiable native IR.
+    Diagnostics analysis_diags;
+    const bool analyzed = frontend.Analyze(source, bundle_path.string(),
+                                           analysis_diags, options);
+    INFO(frontend.Name() << " analyze diagnostics:\n" << analysis_diags.FormatAll());
+    REQUIRE(analyzed);
+    REQUIRE_FALSE(analysis_diags.HasErrors());
+
+    polyglot::ir::IRContext ir;
+    Diagnostics lowering_diags;
+    const auto result = frontend.Lower(source, bundle_path.string(), ir,
+                                       lowering_diags, options);
+    INFO(frontend.Name() << " lowering diagnostics:\n" << lowering_diags.FormatAll());
+    REQUIRE(result.success);
+    REQUIRE(result.lowered);
+    REQUIRE_FALSE(lowering_diags.HasErrors());
+    REQUIRE_FALSE(ir.Functions().empty());
+
+    std::string verify_message;
+    const bool verified = polyglot::ir::Verify(ir, &verify_message);
+    INFO(frontend.Name() << " IR verifier: " << verify_message);
+    REQUIRE(verified);
+
+    const auto *wrapper = ir.FindFunction(wrapper_name);
+    REQUIRE(wrapper != nullptr);
+    for (const auto &expected : expected_package_calls) {
+        bool found = false;
+        for (const auto &block : wrapper->blocks) {
+            for (const auto &instruction : block->instructions) {
+                const auto *call =
+                    dynamic_cast<const polyglot::ir::CallInstruction *>(instruction.get());
+                found = found || (call && call->callee == expected);
+            }
+        }
+        INFO(frontend.Name() << " package call: " << expected);
+        REQUIRE(found);
+    }
+
+    // This closes the gap between a frontend-only fixture and the real polyc
+    // path: aggregate allocas/GEPs and receiver calls must survive x86 isel.
+    polyglot::backends::x86_64::X86Target target(&ir);
+    const auto object = target.EmitObjectCode();
+    bool has_machine_text = false;
+    for (const auto &section : object.sections)
+        has_machine_text = has_machine_text ||
+                           (section.name == ".text" && !section.data.empty());
+    REQUIRE(has_machine_text);
+
+    bool exports_wrapper = false;
+    for (const auto &symbol : object.symbols)
+        exports_wrapper = exports_wrapper ||
+                          (symbol.name == wrapper_name && symbol.defined);
+    REQUIRE(exports_wrapper);
+}
+
 } // namespace
 
 TEST_CASE("CompilationPipeline canonicalizes Poly aliases without rewriting other languages",
@@ -84,6 +170,394 @@ TEST_CASE("CompilationPipeline canonicalizes Poly aliases without rewriting othe
         CompilationPipeline pipeline(std::move(cfg));
         CHECK(pipeline.GetContext().config.source_language == expected);
     }
+}
+
+TEST_CASE("CompilationPipeline resolves only declared vendored C++ package manifests",
+          "[e2e][compile][poly][packages][cpp]") {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() /
+        ("polyc_local_package_discovery_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path explicit_root = root / "explicit";
+    const fs::path project_include = root / "include";
+    const fs::path vendor_include = root / "vendor" / "include";
+    const fs::path declared_root = root / "packages" / "order_policy" / "public_api";
+    const fs::path undeclared_default_root = root / "packages" / "order_policy" / "include";
+    const fs::path undeclared_root = root / "packages" / "private_policy" / "hidden";
+    const fs::path missing_manifest_root = root / "packages" / "missing_manifest" / "include";
+    const fs::path wrong_language_root = root / "packages" / "python_policy" / "headers";
+    const fs::path traversal_package = root / "packages" / "traversal_policy";
+    const fs::path absolute_package = root / "packages" / "absolute_policy";
+    const fs::path traversal_target = root / "packages" / "escape_target";
+    const fs::path absolute_target = root / "absolute_target";
+    std::error_code ec;
+    for (const auto &directory : {explicit_root, project_include, vendor_include, declared_root,
+                                  undeclared_default_root, undeclared_root,
+                                  missing_manifest_root, wrong_language_root, traversal_package,
+                                  absolute_package, traversal_target, absolute_target}) {
+        fs::create_directories(directory, ec);
+        REQUIRE_FALSE(ec);
+    }
+
+    const auto write_manifest = [&](const fs::path &package_directory,
+                                    const std::string &name,
+                                    const std::string &language,
+                                    const std::string &include_dir) {
+        std::ofstream out(package_directory / "poly.package.toml");
+        REQUIRE(out.good());
+        out << "name = \"" << name << "\"\n"
+            << "version = \"1.0.0\"\n"
+            << "language = \"" << language << "\"\n"
+            << "include_dir = \"" << include_dir << "\"\n";
+    };
+    write_manifest(root / "packages" / "order_policy", "order_policy", "cpp", "public_api");
+    write_manifest(root / "packages" / "private_policy", "private_policy", "cpp", "hidden");
+    write_manifest(root / "packages" / "python_policy", "python_policy", "python", "headers");
+    write_manifest(root / "packages" / "traversal_policy", "traversal_policy", "cpp",
+                   "../escape_target");
+    write_manifest(root / "packages" / "absolute_policy", "absolute_policy", "cpp",
+                   absolute_target.string());
+
+    const std::string source = R"poly(
+// IMPORT cpp PACKAGE private_policy; -- comments are not declarations.
+IMPORT cpp PACKAGE order_policy >= 1.0;
+IMPORT cpp PACKAGE missing_manifest;
+IMPORT cpp PACKAGE python_policy;
+IMPORT cpp PACKAGE traversal_policy;
+IMPORT cpp PACKAGE absolute_policy;
+FUNC main() -> INT { RETURN 0; }
+)poly";
+
+    const fs::path entry = root / "order_risk.poly";
+    {
+        std::ofstream out(entry);
+        REQUIRE(out.good());
+        out << source;
+    }
+
+    auto cfg = MakeConfig(source);
+    cfg.source_file = entry.string();
+    cfg.source_label = entry.string();
+    cfg.include_paths.push_back(explicit_root.string());
+    CompilationPipeline pipeline(std::move(cfg));
+
+    const auto &paths = pipeline.GetContext().config.include_paths;
+    const auto contains = [&](const fs::path &path) {
+        const fs::path expected = fs::weakly_canonical(path, ec);
+        REQUIRE_FALSE(ec);
+        return std::find(paths.begin(), paths.end(), expected.string()) != paths.end();
+    };
+
+    REQUIRE_FALSE(paths.empty());
+    CHECK(paths.front() == explicit_root.string());
+    CHECK(contains(project_include));
+    CHECK(contains(vendor_include));
+    CHECK(contains(declared_root));
+    CHECK_FALSE(contains(undeclared_default_root));
+    CHECK_FALSE(contains(undeclared_root));
+    CHECK_FALSE(contains(missing_manifest_root));
+    CHECK_FALSE(contains(wrong_language_root));
+    CHECK_FALSE(contains(traversal_target));
+    CHECK_FALSE(contains(absolute_target));
+
+    fs::remove_all(root, ec);
+}
+
+TEST_CASE("polyc bundles declared vendored source packages for Python Rust and Go",
+          "[e2e][compile][poly][packages][source]") {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() /
+        ("polyc_local_source_packages_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path aux = root / "aux";
+    std::error_code ec;
+    fs::create_directories(aux, ec);
+    REQUIRE_FALSE(ec);
+
+    const fs::path entry = root / "app.poly";
+    {
+        std::ofstream out(entry);
+        REQUIRE(out.good());
+        out << "IMPORT python PACKAGE fraud_policy >= 1.0;\n"
+               "IMPORT rust PACKAGE fulfillment_policy >= 1.0;\n"
+               "IMPORT go PACKAGE logistics_policy >= 1.0;\n"
+               "// IMPORT python PACKAGE ignored_comment;\n"
+               "FUNC main() -> INT { RETURN 0; }\n";
+    }
+
+    const auto make_package = [&](const std::string &directory,
+                                  const std::string &name,
+                                  const std::string &language,
+                                  const std::string &source_name,
+                                  const std::string &source) {
+        const fs::path package = root / "packages" / directory;
+        fs::create_directories(package / "src", ec);
+        REQUIRE_FALSE(ec);
+        std::ofstream manifest(package / "poly.package.toml");
+        REQUIRE(manifest.good());
+        manifest << "name = \"" << name << "\"\n"
+                 << "version = \"1.0.0\"\n"
+                 << "language = \"" << language << "\"\n"
+                 << "source = \"src/" << source_name << "\"\n";
+        std::ofstream package_source(package / "src" / source_name);
+        REQUIRE(package_source.good());
+        package_source << source;
+    };
+    make_package("fraud", "fraud_policy", "python", "policy.py", R"python(
+class FraudAssessment:
+    def __init__(self, velocity: int, amount: int, failed: int):
+        self.velocity = velocity
+        self.amount = amount
+        self.failed = failed
+        self.score = velocity + amount
+
+    def apply_failure_penalty(self, multiplier: int) -> int:
+        self.score += self.failed * multiplier
+        return self.score
+
+    def band(self) -> int:
+        if self.score >= 80:
+            return 3
+        else:
+            if self.score >= 45:
+                return 2
+            else:
+                return 1
+
+    def close(self) -> None:
+        self.velocity = 0
+        self.amount = 0
+        self.failed = 0
+        self.score = 0
+)python");
+    make_package("fulfillment", "fulfillment_policy", "rust", "policy.rs", R"rust(
+pub struct FulfillmentSession {
+    requested: i64,
+    reserved: i64,
+    status: i64,
+}
+
+impl FulfillmentSession {
+    pub fn gate(&self) -> i64 {
+        return self.reserved - self.requested + self.status;
+    }
+
+    pub fn close(&mut self) -> i64 {
+        self.requested = 0;
+        self.reserved = 0;
+        self.status = 0;
+        return self.requested + self.reserved + self.status;
+    }
+}
+)rust");
+    make_package("logistics", "logistics_policy", "go", "policy.go", R"go(
+package logistics_policy
+
+type LogisticsSession struct { gate int; eta int }
+
+func NewLogisticsSession(session *LogisticsSession, gate int, eta int) {
+    session.gate = gate
+    session.eta = eta
+}
+
+func (session *LogisticsSession) Adjust(delta int) { session.eta += delta }
+func (session *LogisticsSession) Decision() int { return session.gate + session.eta }
+)go");
+
+    const fs::path python_consumer = root / "fraud_engine.py";
+    const fs::path rust_consumer = root / "fulfillment_engine.rs";
+    const fs::path go_consumer = root / "logistics_engine.go";
+    {
+        std::ofstream out(python_consumer);
+        out << R"python(
+def fraud_session_band(velocity: int, amount: int, failed: int) -> int:
+    session = FraudAssessment(velocity, amount, failed)
+    session.apply_failure_penalty(12)
+    result = session.band()
+    session.close()
+    return result
+)python";
+    }
+    {
+        std::ofstream out(rust_consumer);
+        out << R"rust(
+pub fn fulfillment_session_gate(requested: i64, reserved: i64, status: i64) -> i64 {
+    let mut session = FulfillmentSession {
+        requested: requested,
+        reserved: reserved,
+        status: status,
+    };
+    let result = session.gate();
+    let closed = session.close();
+    return result + closed;
+}
+)rust";
+    }
+    {
+        std::ofstream out(go_consumer);
+        out << R"go(package main
+
+func logistics_session_decision(gate int, eta int) int {
+    var session LogisticsSession
+    NewLogisticsSession(&session, gate, eta)
+    session.Adjust(2)
+    return session.Decision()
+}
+)go";
+    }
+
+    std::string error;
+    const std::string python_bundle = polyglot::tools::BuildVendoredSourceBundle(
+        entry.string(), "python", python_consumer.string(), aux.string(), &error, true);
+    INFO(error);
+    REQUIRE_FALSE(python_bundle.empty());
+    REQUIRE(python_bundle != python_consumer.string());
+    const std::string python_text = ReadTextFile(python_bundle);
+    CHECK(python_text.find("FraudAssessment") != std::string::npos);
+    CHECK(python_text.find("fraud_session_band") != std::string::npos);
+    polyglot::python::PythonLanguageFrontend python_frontend;
+    RequireFrontendAndX86Lowering(
+        python_frontend, python_bundle, "fraud_session_band",
+        {"FraudAssessment.__init__", "FraudAssessment.apply_failure_penalty",
+         "FraudAssessment.band", "FraudAssessment.close"});
+
+    const std::string rust_bundle = polyglot::tools::BuildVendoredSourceBundle(
+        entry.string(), "rust", rust_consumer.string(), aux.string(), &error, true);
+    INFO(error);
+    REQUIRE_FALSE(rust_bundle.empty());
+    const std::string rust_text = ReadTextFile(rust_bundle);
+    CHECK(rust_text.find("FulfillmentSession") != std::string::npos);
+    CHECK(rust_text.find("fulfillment_session_gate") != std::string::npos);
+    polyglot::rust::RustLanguageFrontend rust_frontend;
+    RequireFrontendAndX86Lowering(
+        rust_frontend, rust_bundle, "fulfillment_session_gate",
+        {"FulfillmentSession.gate", "FulfillmentSession.close"});
+
+    const std::string go_bundle = polyglot::tools::BuildVendoredSourceBundle(
+        entry.string(), "go", go_consumer.string(), aux.string(), &error, true);
+    INFO(error);
+    REQUIRE_FALSE(go_bundle.empty());
+    const std::string go_text = ReadTextFile(go_bundle);
+    CHECK(go_text.find("package main") != std::string::npos);
+    CHECK(go_text.find("package logistics_policy") == std::string::npos);
+    CHECK(go_text.find("LogisticsSession") != std::string::npos);
+    CHECK(go_text.find("logistics_session_decision") != std::string::npos);
+    polyglot::go::GoLanguageFrontend go_frontend;
+    RequireFrontendAndX86Lowering(
+        go_frontend, go_bundle, "logistics_session_decision",
+        {"NewLogisticsSession", "LogisticsSession.Adjust",
+         "LogisticsSession.Decision"});
+
+    fs::remove_all(root, ec);
+}
+
+TEST_CASE("strict local source packages fail closed on unresolved or unsafe manifests",
+          "[e2e][compile][poly][packages][source][strict-local][negative]") {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() /
+        ("polyc_strict_local_packages_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const fs::path packages = root / "packages";
+    const fs::path aux = root / "aux";
+    std::error_code ec;
+    fs::create_directories(packages, ec);
+    REQUIRE_FALSE(ec);
+    fs::create_directories(aux, ec);
+    REQUIRE_FALSE(ec);
+
+    const fs::path consumer = root / "consumer.py";
+    {
+        std::ofstream out(consumer);
+        REQUIRE(out.good());
+        out << "def run() -> int:\n    return 1\n";
+    }
+
+    const auto write_entry = [&](const std::string &stem, const std::string &declaration) {
+        const fs::path entry = root / (stem + ".poly");
+        std::ofstream out(entry);
+        REQUIRE(out.good());
+        out << declaration << "\nFUNC main() -> INT { RETURN 0; }\n";
+        return entry;
+    };
+    const auto write_manifest = [&](const fs::path &directory,
+                                    const std::string &name,
+                                    const std::string &language,
+                                    const std::string &version,
+                                    const std::string &source) {
+        fs::create_directories(directory / "src", ec);
+        REQUIRE_FALSE(ec);
+        std::ofstream out(directory / "poly.package.toml");
+        REQUIRE(out.good());
+        out << "name = \"" << name << "\"\n"
+            << "version = \"" << version << "\"\n"
+            << "language = \"" << language << "\"\n";
+        if (!source.empty())
+            out << "source = \"" << source << "\"\n";
+    };
+    const auto require_failure = [&](const fs::path &entry,
+                                     const std::string &package_name,
+                                     const std::string &error_needle = std::string()) {
+        std::string error;
+        const std::string result = polyglot::tools::BuildVendoredSourceBundle(
+            entry.string(), "python", consumer.string(), aux.string(), &error, true);
+        INFO("strict-local package: " << package_name << "\nerror: " << error);
+        CHECK(result.empty());
+        CHECK_FALSE(error.empty());
+        CHECK(error.find(error_needle.empty() ? package_name : error_needle) !=
+              std::string::npos);
+    };
+
+    const fs::path missing_entry = write_entry(
+        "missing", "IMPORT python PACKAGE missing_policy >= 1.0;");
+    require_failure(missing_entry, "missing_policy");
+
+    const fs::path wrong_language = packages / "wrong_language";
+    write_manifest(wrong_language, "wrong_language_policy", "rust", "1.0.0",
+                   "src/policy.rs");
+    {
+        std::ofstream out(wrong_language / "src" / "policy.rs");
+        out << "pub fn marker() -> i64 { return 1; }\n";
+    }
+    const fs::path wrong_language_entry = write_entry(
+        "wrong_language",
+        "IMPORT python PACKAGE wrong_language_policy >= 1.0;");
+    require_failure(wrong_language_entry, "wrong_language_policy");
+
+    const fs::path no_source = packages / "no_source";
+    write_manifest(no_source, "no_source_policy", "python", "1.0.0", "");
+    const fs::path no_source_entry = write_entry(
+        "no_source", "IMPORT python PACKAGE no_source_policy >= 1.0;");
+    require_failure(no_source_entry, "no_source_policy");
+
+    const fs::path old_version = packages / "old_version";
+    write_manifest(old_version, "old_policy", "python", "1.0.0", "src/policy.py");
+    {
+        std::ofstream out(old_version / "src" / "policy.py");
+        out << "class OldPolicy:\n    pass\n";
+    }
+    const fs::path old_version_entry = write_entry(
+        "old_version", "IMPORT python PACKAGE old_policy >= 2.0;");
+    require_failure(old_version_entry, "old_policy");
+
+    // A package directory symlink must not make a manifest outside packages/
+    // eligible for strict-local resolution.
+    const fs::path outside = root / "outside_package";
+    write_manifest(outside, "escape_policy", "python", "1.0.0", "src/policy.py");
+    {
+        std::ofstream out(outside / "src" / "policy.py");
+        out << "class EscapedPolicy:\n    pass\n";
+    }
+    fs::create_directory_symlink(outside, packages / "escape_link", ec);
+    if (ec) {
+        WARN("directory symlinks unavailable; escape case skipped: " << ec.message());
+        ec.clear();
+    } else {
+        const fs::path escape_entry = write_entry(
+            "escape", "IMPORT python PACKAGE escape_policy >= 1.0;");
+        require_failure(escape_entry, "escape_policy", "escapes");
+    }
+
+    fs::remove_all(root, ec);
 }
 
 TEST_CASE("CompilationPipeline instruments legacy Poly input with canonical metadata",

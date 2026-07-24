@@ -1,0 +1,7 @@
+name = "fraud_policy"
+version = "1.0.0"
+language = "python"
+source = "src/fraud_policy.py"
+
+[exports]
+types = ["FraudAssessment"]

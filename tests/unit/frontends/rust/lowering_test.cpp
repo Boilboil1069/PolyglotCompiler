@@ -1,16 +1,17 @@
 // Rust Lowering Tests
-// Tests for the Rust AST to IR lowering including:
-// - Complete expression lowering (all expression types)
-// - Complete statement lowering (all statement types)
-// - Full parameter type handling
-// - Control flow lowering (if, while, for, loop, match)
+// Tests both the faithfully modeled scalar/CFG subset and explicit E4003
+// boundaries for Rust constructs that still require richer IR/runtime support.
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
+#include <unordered_set>
 
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/rust/include/rust_ast.h"
+#include "frontends/rust/include/rust_frontend.h"
 #include "frontends/rust/include/rust_lowering.h"
 #include "middle/include/ir/ir_context.h"
+#include "middle/include/ir/verifier.h"
 
 using polyglot::frontends::Diagnostics;
 using polyglot::ir::IRContext;
@@ -23,6 +24,85 @@ std::shared_ptr<Identifier> MakeId(const std::string &name) {
     auto id = std::make_shared<Identifier>();
     id->name = name;
     return id;
+}
+
+TEST_CASE("Rust frontend lowers struct lifecycle and receiver methods",
+          "[rust][lowering][struct][impl][method]") {
+    const char *source = R"(
+struct Session {
+    requested: i64,
+    reserved: i64,
+    status: i64,
+}
+
+impl Session {
+    fn gate(&self) -> i64 {
+        return self.reserved - self.requested + self.status;
+    }
+
+    fn close(&mut self) -> i64 {
+        self.requested = 0;
+        self.reserved = 0;
+        self.status = 0;
+        return self.requested + self.reserved + self.status;
+    }
+}
+
+pub fn session_gate(requested: i64, reserved: i64, status: i64) -> i64 {
+    let mut session = Session {
+        requested: requested,
+        reserved: reserved,
+        status: status,
+    };
+    let result = session.gate();
+    let closed = session.close();
+    return result + closed;
+}
+)";
+
+    RustLanguageFrontend frontend;
+    polyglot::frontends::FrontendOptions options;
+    IRContext ctx;
+    Diagnostics diags;
+    auto result = frontend.Lower(source, "session.rs", ctx, diags, options);
+
+    INFO(diags.FormatAll());
+    REQUIRE(result.success);
+    REQUIRE_FALSE(diags.HasErrors());
+    REQUIRE(ctx.FindFunction("Session.gate") != nullptr);
+    REQUIRE(ctx.FindFunction("Session.close") != nullptr);
+    auto *wrapper = ctx.FindFunction("session_gate");
+    REQUIRE(wrapper != nullptr);
+
+    bool saw_struct_alloca = false;
+    bool saw_field_gep = false;
+    bool saw_gate_call = false;
+    bool saw_close_call = false;
+    for (const auto &block : wrapper->blocks) {
+        for (const auto &instruction : block->instructions) {
+            if (auto alloca = std::dynamic_pointer_cast<polyglot::ir::AllocaInstruction>(instruction)) {
+                if (alloca->type.kind == polyglot::ir::IRTypeKind::kPointer &&
+                    !alloca->type.subtypes.empty() &&
+                    alloca->type.subtypes.front().kind == polyglot::ir::IRTypeKind::kStruct)
+                    saw_struct_alloca = true;
+            }
+            if (std::dynamic_pointer_cast<polyglot::ir::GetElementPtrInstruction>(instruction))
+                saw_field_gep = true;
+            if (auto call = std::dynamic_pointer_cast<polyglot::ir::CallInstruction>(instruction)) {
+                saw_gate_call = saw_gate_call || call->callee == "Session.gate";
+                saw_close_call = saw_close_call || call->callee == "Session.close";
+            }
+        }
+    }
+    REQUIRE(saw_struct_alloca);
+    REQUIRE(saw_field_gep);
+    REQUIRE(saw_gate_call);
+    REQUIRE(saw_close_call);
+
+    std::string verify_message;
+    const bool valid = polyglot::ir::Verify(ctx, &verify_message);
+    INFO(verify_message);
+    REQUIRE(valid);
 }
 
 // Helper to create a literal
@@ -144,6 +224,78 @@ TEST_CASE("Rust Lowering - Basic Expressions", "[rust][lowering]") {
         
         REQUIRE(ctx.Functions().size() == 1);
     }
+}
+
+TEST_CASE("Rust lowering keeps typed business constants as immediates",
+          "[rust][lowering][literal][control]") {
+    FunctionItem::Param requested;
+    requested.name = "requested";
+    requested.type = MakeTypePath("i64");
+
+    auto condition = MakeBinary("<=", MakeId("requested"), MakeLit("0_i64"));
+    auto branch = std::make_shared<IfExpression>();
+    branch->condition = condition;
+    branch->then_body.push_back(MakeReturn(MakeLit("0_i64")));
+    auto branch_statement = std::make_shared<ExprStatement>();
+    branch_statement->expr = branch;
+
+    auto scaled = MakeBinary("*", MakeId("requested"), MakeLit("12_i64"));
+    auto payable = MakeBinary("+", scaled, MakeLit("15_i64"));
+
+    Module module;
+    module.items.push_back(MakeFunction("business_score", {requested}, MakeTypePath("i64"),
+                                            {branch_statement, MakeReturn(payable)}));
+    module.items.push_back(MakeFunction("hex_value", {}, MakeTypePath("i64"),
+                                            {MakeReturn(MakeLit("0xdead_i64"))}));
+
+    IRContext ctx;
+    Diagnostics diags;
+    LowerToIR(module, ctx, diags);
+
+    REQUIRE_FALSE(diags.HasErrors());
+    auto *fn = ctx.FindFunction("business_score");
+    REQUIRE(fn != nullptr);
+    auto *hex_fn = ctx.FindFunction("hex_value");
+    REQUIRE(hex_fn != nullptr);
+    REQUIRE(hex_fn->entry != nullptr);
+    REQUIRE(hex_fn->entry->terminator != nullptr);
+    REQUIRE(hex_fn->entry->terminator->operands == std::vector<std::string>{"57005"});
+
+    bool saw_zero_compare = false;
+    bool saw_twelve_multiply = false;
+    bool saw_fifteen_add = false;
+    std::unordered_set<std::string> definitions;
+    for (const auto &block : fn->blocks) {
+        for (const auto &instruction : block->instructions) {
+            if (!instruction->name.empty())
+                REQUIRE(definitions.insert(instruction->name).second);
+            auto binary = std::dynamic_pointer_cast<polyglot::ir::BinaryInstruction>(instruction);
+            if (!binary)
+                continue;
+            REQUIRE(binary->operands.size() == 2);
+            if (binary->op == polyglot::ir::BinaryInstruction::Op::kCmpSle &&
+                binary->operands[1] == "0") {
+                REQUIRE(binary->type.kind == polyglot::ir::IRTypeKind::kI1);
+                saw_zero_compare = true;
+            }
+            if (binary->op == polyglot::ir::BinaryInstruction::Op::kMul &&
+                binary->operands[1] == "12") {
+                saw_twelve_multiply = true;
+            }
+            if (binary->op == polyglot::ir::BinaryInstruction::Op::kAdd &&
+                binary->operands[1] == "15") {
+                saw_fifteen_add = true;
+            }
+        }
+    }
+
+    REQUIRE(saw_zero_compare);
+    REQUIRE(saw_twelve_multiply);
+    REQUIRE(saw_fifteen_add);
+    std::string verify_message;
+    const bool valid = polyglot::ir::Verify(ctx, &verify_message);
+    INFO(verify_message);
+    REQUIRE(valid);
 }
 
 // ============ Test 2: Binary Expression Lowering ============
@@ -508,8 +660,12 @@ TEST_CASE("Rust Lowering - Match Expression", "[rust][lowering]") {
         LowerToIR(mod, ctx, diags);
         
         REQUIRE(ctx.Functions().size() == 1);
-        // Should have blocks for each arm
-        REQUIRE(ctx.Functions()[0]->blocks.size() >= 3);
+        bool unsupported = false;
+        for (const auto &diagnostic : diags.All())
+            unsupported = unsupported ||
+                          diagnostic.code ==
+                              polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        REQUIRE(unsupported);
     }
 }
 
@@ -652,5 +808,236 @@ TEST_CASE("Rust Lowering - Assignment Expression", "[rust][lowering]") {
         LowerToIR(mod, ctx, diags);
         
         REQUIRE(ctx.Functions().size() == 1);
+    }
+}
+
+TEST_CASE("Rust Lowering - Modern boundary behavior", "[rust][lowering][modern]") {
+    SECTION("Function tail expression becomes the return value") {
+        FunctionItem::Param p;
+        p.name = "x";
+        p.type = MakeTypePath("i64");
+        auto tail = std::make_shared<ExprStatement>();
+        tail->expr = MakeId("x");
+        tail->has_semicolon = false;
+
+        Module mod;
+        mod.items.push_back(MakeFunction("identity", {p}, MakeTypePath("i64"), {tail}));
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE_FALSE(diags.HasErrors());
+        REQUIRE(ctx.Functions().size() == 1);
+        REQUIRE(ctx.Functions()[0]->entry);
+        REQUIRE(ctx.Functions()[0]->entry->terminator);
+        REQUIRE(ctx.Functions()[0]->entry->terminator->operands == std::vector<std::string>{"x"});
+    }
+
+    SECTION("Scalar literal let-else lowers both control-flow paths") {
+        FunctionItem::Param p;
+        p.name = "x";
+        p.type = MakeTypePath("i64");
+
+        auto let_else = std::make_shared<LetStatement>();
+        auto literal_pattern = std::make_shared<LiteralPattern>();
+        literal_pattern->value = "1";
+        let_else->pattern = literal_pattern;
+        let_else->init = MakeId("x");
+        let_else->has_else = true;
+        let_else->else_body.push_back(MakeReturn(MakeLit("0")));
+
+        Module mod;
+        mod.items.push_back(
+            MakeFunction("choose", {p}, MakeTypePath("i64"), {let_else, MakeReturn(MakeId("x"))}));
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE_FALSE(diags.HasErrors());
+        REQUIRE(ctx.Functions().size() == 1);
+        REQUIRE(ctx.Functions()[0]->blocks.size() == 3);
+    }
+
+    SECTION("Range for-loop uses a bounded condition and induction phi") {
+        auto range = std::make_shared<RangeExpression>();
+        range->kind = RangeExpression::RangeKind::kExclusive;
+        range->start = MakeLit("0");
+        range->end = MakeLit("3");
+
+        auto loop = std::make_shared<ForStatement>();
+        loop->pattern = MakeIdPattern("i");
+        loop->iterable = range;
+
+        Module mod;
+        mod.items.push_back(MakeFunction("iterate", {}, nullptr, {loop}));
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE_FALSE(diags.HasErrors());
+        REQUIRE(ctx.Functions().size() == 1);
+        REQUIRE(ctx.Functions()[0]->blocks.size() == 5);
+        auto *condition = ctx.Functions()[0]->blocks[1].get();
+        REQUIRE(condition->name == "for.cond");
+        REQUIRE_FALSE(condition->instructions.empty());
+        auto phi = std::dynamic_pointer_cast<polyglot::ir::PhiInstruction>(
+            condition->instructions.front());
+        REQUIRE(phi);
+        REQUIRE(phi->incomings.size() == 2);
+        REQUIRE(condition->terminator);
+    }
+
+    SECTION("Async constructs fail closed during lowering") {
+        auto async_fn = MakeFunction("pending", {}, MakeTypePath("i64"), {});
+        async_fn->is_async = true;
+        Module mod;
+        mod.items.push_back(async_fn);
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE(diags.HasErrors());
+        REQUIRE(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+        REQUIRE(ctx.Functions().empty());
+    }
+
+    SECTION("Async closures fail closed during lowering") {
+        auto closure = std::make_shared<ClosureExpression>();
+        closure->is_async = true;
+        closure->body = MakeLit("1");
+
+        Module mod;
+        mod.items.push_back(
+            MakeFunction("make_callback", {}, nullptr, {MakeLet("callback", closure)}));
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+    }
+
+    SECTION("Ordinary closures do not degrade into nonexistent function pointers") {
+        auto closure = std::make_shared<ClosureExpression>();
+        closure->body = MakeLit("1");
+
+        Module mod;
+        mod.items.push_back(
+            MakeFunction("make_callback", {}, nullptr, {MakeLet("callback", closure)}));
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+    }
+
+    SECTION("Top-level const evaluation fails closed") {
+        Module mod;
+        auto constant = std::make_shared<ConstItem>();
+        constant->name = "VALUE";
+        constant->value = MakeLit("1");
+        mod.items.push_back(constant);
+        IRContext ctx;
+        Diagnostics diags;
+        LowerToIR(mod, ctx, diags);
+
+        REQUIRE(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+        REQUIRE(ctx.Functions().empty());
+    }
+
+    SECTION("Lossy types, borrows, complex matches, and missing returns fail closed") {
+        FunctionItem::Param wide;
+        wide.name = "value";
+        wide.type = MakeTypePath("i128");
+        Module wide_mod;
+        wide_mod.items.push_back(
+            MakeFunction("wide", {wide}, MakeTypePath("i128"), {MakeReturn(MakeId("value"))}));
+        IRContext wide_ctx;
+        Diagnostics wide_diags;
+        LowerToIR(wide_mod, wide_ctx, wide_diags);
+        REQUIRE(std::any_of(wide_diags.All().begin(), wide_diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+
+        auto borrow = MakeUnary("&", MakeId("value"));
+        Module borrow_mod;
+        borrow_mod.items.push_back(
+            MakeFunction("borrow", {}, nullptr, {MakeLet("value", MakeLit("1")),
+                                                  MakeLet("reference", borrow)}));
+        IRContext borrow_ctx;
+        Diagnostics borrow_diags;
+        LowerToIR(borrow_mod, borrow_ctx, borrow_diags);
+        REQUIRE(std::any_of(borrow_diags.All().begin(), borrow_diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+
+        auto match = std::make_shared<MatchExpression>();
+        match->scrutinee = MakeLit("1");
+        auto arm = std::make_shared<MatchArm>();
+        arm->pattern = std::make_shared<TuplePattern>();
+        arm->body = MakeLit("0");
+        match->arms.push_back(arm);
+        auto match_stmt = std::make_shared<ExprStatement>();
+        match_stmt->expr = match;
+        Module match_mod;
+        match_mod.items.push_back(MakeFunction("complex_match", {}, nullptr, {match_stmt}));
+        IRContext match_ctx;
+        Diagnostics match_diags;
+        LowerToIR(match_mod, match_ctx, match_diags);
+        REQUIRE(std::any_of(match_diags.All().begin(), match_diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+
+        Module return_mod;
+        return_mod.items.push_back(MakeFunction("missing", {}, MakeTypePath("i64"), {}));
+        IRContext return_ctx;
+        Diagnostics return_diags;
+        LowerToIR(return_mod, return_ctx, return_diags);
+        REQUIRE(std::any_of(return_diags.All().begin(), return_diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+    }
+
+    SECTION("Indirect calls and non-place assignments report E4003") {
+        auto call = std::make_shared<CallExpression>();
+        auto closure = std::make_shared<ClosureExpression>();
+        closure->body = MakeLit("1");
+        call->callee = closure;
+        auto call_stmt = std::make_shared<ExprStatement>();
+        call_stmt->expr = call;
+
+        Module call_mod;
+        call_mod.items.push_back(MakeFunction("indirect", {}, nullptr, {call_stmt}));
+        IRContext call_ctx;
+        Diagnostics call_diags;
+        LowerToIR(call_mod, call_ctx, call_diags);
+        REQUIRE(std::any_of(call_diags.All().begin(), call_diags.All().end(), [](const auto &diag) {
+            return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+        }));
+
+        auto assignment = std::make_shared<AssignmentExpression>();
+        assignment->op = "=";
+        assignment->left = MakeLit("0");
+        assignment->right = MakeLit("1");
+        auto assignment_stmt = std::make_shared<ExprStatement>();
+        assignment_stmt->expr = assignment;
+
+        Module assignment_mod;
+        assignment_mod.items.push_back(
+            MakeFunction("assign", {}, nullptr, {assignment_stmt}));
+        IRContext assignment_ctx;
+        Diagnostics assignment_diags;
+        LowerToIR(assignment_mod, assignment_ctx, assignment_diags);
+        REQUIRE(std::any_of(
+            assignment_diags.All().begin(), assignment_diags.All().end(), [](const auto &diag) {
+                return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+            }));
     }
 }

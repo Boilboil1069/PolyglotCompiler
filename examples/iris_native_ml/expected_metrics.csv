@@ -1,0 +1,9 @@
+regression_train_sae_qten,267
+regression_test_sae_qten,97
+regression_test_sse_qten_squared,503
+regression_r_squared_ppm,937536
+tree_correct_of_thirty,30
+centroid_correct_of_thirty,29
+pearson_r_squared_ppm,932867
+anova_f_milli,934525
+model_checksum,858372164

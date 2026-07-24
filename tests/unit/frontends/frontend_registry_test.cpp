@@ -265,6 +265,174 @@ TEST_CASE("[registry] Unknown language returns nullptr", "[frontend_registry]") 
     CHECK(reg.GetFrontend("cobol") == nullptr);
 }
 
+TEST_CASE("[versions] Current language selectors round-trip canonically",
+          "[frontend_versions]") {
+    using namespace polyglot::frontends;
+
+    for (const std::string version : {"c++98", "c++03", "c++11", "c++14", "c++17",
+                                      "c++20", "c++23", "c++26"}) {
+        auto parsed = ParseCppDialect(version);
+        REQUIRE(parsed);
+        CHECK(CppDialectToString(*parsed) == version);
+    }
+    for (const std::string version : {"2.7", "3.6", "3.7", "3.8", "3.9", "3.10",
+                                      "3.11", "3.12", "3.13", "3.14"}) {
+        auto parsed = ParsePythonVersion(version);
+        REQUIRE(parsed);
+        CHECK(PythonVersionToString(*parsed) == version);
+    }
+    for (int release = 8; release <= 26; ++release) {
+        const auto version = std::to_string(release);
+        auto parsed = ParseJavaRelease(version);
+        REQUIRE(parsed);
+        CHECK(JavaReleaseToString(*parsed) == version);
+    }
+    for (const std::string version : {"7.3", "8", "9", "10", "11", "12", "13",
+                                      "14", "preview"}) {
+        auto parsed = ParseDotnetLangVersion(version);
+        REQUIRE(parsed);
+        CHECK(DotnetLangVersionToString(*parsed) == version);
+    }
+    for (const std::string version : {"net6", "net7", "net8", "net9", "net10"}) {
+        auto parsed = ParseDotnetTargetFramework(version);
+        REQUIRE(parsed);
+        CHECK(DotnetTargetFrameworkToString(*parsed) == version);
+    }
+    for (const std::string version : {"2015", "2018", "2021", "2024"}) {
+        auto parsed = ParseRustEdition(version);
+        REQUIRE(parsed);
+        CHECK(RustEditionToString(*parsed) == version);
+    }
+    for (const std::string version : {"1.18", "1.19", "1.20", "1.21", "1.22",
+                                      "1.23", "1.24", "1.25", "1.26"}) {
+        auto parsed = ParseGoVersion(version);
+        REQUIRE(parsed);
+        CHECK(GoVersionToString(*parsed) == version);
+    }
+    for (const std::string version : {"es5", "es2015", "es2016", "es2017", "es2018",
+                                      "es2019", "es2020", "es2021", "es2022",
+                                      "es2023", "es2024", "es2025", "es2026",
+                                      "esnext"}) {
+        auto parsed = ParseEcmaVersion(version);
+        REQUIRE(parsed);
+        CHECK(EcmaVersionToString(*parsed) == version);
+    }
+    for (const std::string version : {"1.9", "2.7", "3.0", "3.1", "3.2", "3.3",
+                                      "3.4", "4.0"}) {
+        auto parsed = ParseRubyVersion(version);
+        REQUIRE(parsed);
+        CHECK(RubyVersionToString(*parsed) == version);
+    }
+
+    CHECK(PythonVersionToString(*ParsePythonVersion("3.14")) ==
+          std::string("3.14"));
+    CHECK(PythonVersionToString(*ParsePythonVersion("3.7")) ==
+          std::string("3.7"));
+    CHECK(PythonVersionToString(*ParsePythonVersion("3.9")) ==
+          std::string("3.9"));
+    CHECK(JavaReleaseToString(*ParseJavaRelease("26")) == std::string("26"));
+    CHECK(JavaReleaseToString(*ParseJavaRelease("16")) == std::string("16"));
+    CHECK(JavaReleaseToString(*ParseJavaRelease("22")) == std::string("22"));
+    CHECK(DotnetLangVersionToString(*ParseDotnetLangVersion("14")) ==
+          std::string("14"));
+    CHECK(DotnetLangVersionToString(*ParseDotnetLangVersion("preview")) ==
+          std::string("preview"));
+    CHECK(DotnetTargetFrameworkToString(*ParseDotnetTargetFramework("net10")) ==
+          std::string("net10"));
+    CHECK(GoVersionToString(*ParseGoVersion("1.26")) == std::string("1.26"));
+    CHECK(GoVersionToString(*ParseGoVersion("1.19")) == std::string("1.19"));
+    CHECK(EcmaVersionToString(*ParseEcmaVersion("es2026")) ==
+          std::string("es2026"));
+    CHECK(EcmaVersionToString(*ParseEcmaVersion("es2016")) ==
+          std::string("es2016"));
+    CHECK(EcmaVersionToString(*ParseEcmaVersion("es2019")) ==
+          std::string("es2019"));
+    CHECK(EcmaVersionToString(*ParseEcmaVersion("es2021")) ==
+          std::string("es2021"));
+    CHECK(RubyVersionToString(*ParseRubyVersion("4.0")) == std::string("4.0"));
+    CHECK(RubyVersionToString(*ParseRubyVersion("3.1")) == std::string("3.1"));
+    CHECK(PythonVersionToString(*ParsePythonVersion("python3.14")) ==
+          std::string("3.14"));
+    CHECK(DotnetLangVersionToString(*ParseDotnetLangVersion("csharp14")) ==
+          std::string("14"));
+    CHECK(EcmaVersionToString(*ParseEcmaVersion("ecmascript2026")) ==
+          std::string("es2026"));
+
+    CHECK(kCppDialectDefault == CppDialect::kCpp23);
+    CHECK(kPythonVersionDefault == PythonVersion::kPy3_14);
+    CHECK(kJavaReleaseDefault == JavaRelease::kJava26);
+    CHECK(kDotnetLangVersionDefault == DotnetLangVersion::kCs14);
+    CHECK(kDotnetTargetFrameworkDefault == DotnetTargetFramework::kNet10);
+    CHECK(kRustEditionDefault == RustEdition::kE2024);
+    CHECK(kGoVersionDefault == GoVersion::kGo1_26);
+    CHECK(kEcmaVersionDefault == EcmaVersion::kEs2026);
+    CHECK(kRubyVersionDefault == RubyVersion::kRuby4_0);
+    CHECK(std::string(CppDialectCplusplusValue(CppDialect::kCpp17)) == "201703L");
+    CHECK(std::string(CppDialectCplusplusValue(CppDialect::kCpp23)) == "202302L");
+    CHECK(std::string(CppDialectCplusplusValue(CppDialect::kCpp26)) == "202400L");
+
+    std::string canonical;
+    REQUIRE(CanonicalizeLanguageVersion("ruby=4", canonical));
+    CHECK(canonical == "ruby=4.0");
+}
+
+TEST_CASE("[registry] Version-aware signature extraction fails closed",
+          "[frontend_registry][signatures]") {
+    auto *frontend = FrontendRegistry::Instance().GetFrontend("cpp");
+    REQUIRE(frontend != nullptr);
+
+    polyglot::frontends::Diagnostics diagnostics;
+    polyglot::frontends::FrontendOptions options;
+    options.cpp_dialect = polyglot::frontends::CppDialect::kCpp23;
+    const auto signatures = frontend->ExtractSignatures(
+        "int broken( { return 0; }", "<broken.cpp>", "broken", diagnostics, options);
+
+    CHECK(signatures.empty());
+    CHECK(diagnostics.HasErrors());
+}
+
+TEST_CASE("[versions] .NET target framework selects a real C# syntax boundary",
+          "[frontend_versions][dotnet][tfm]") {
+    using namespace polyglot::frontends;
+
+    auto *frontend = FrontendRegistry::Instance().GetFrontend("dotnet");
+    REQUIRE(frontend != nullptr);
+    constexpr const char *csharp11_source =
+        R"cs(class C { void Store() { var text = """hello"""; } })cs";
+
+    FrontendOptions net6_options;
+    net6_options.dotnet_target_framework = DotnetTargetFramework::kNet6;
+    Diagnostics net6_diagnostics;
+    CHECK_FALSE(frontend->Analyze(csharp11_source, "<net6.cs>", net6_diagnostics,
+                                  net6_options));
+    CHECK(std::any_of(net6_diagnostics.All().begin(), net6_diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code == ErrorCode::kLangVersionMismatch;
+                      }));
+
+    FrontendOptions net7_options;
+    net7_options.dotnet_target_framework = DotnetTargetFramework::kNet7;
+    Diagnostics net7_diagnostics;
+    const bool net7_ok = frontend->Analyze(csharp11_source, "<net7.cs>",
+                                           net7_diagnostics, net7_options);
+    for (const auto &diagnostic : net7_diagnostics.All())
+        UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+    CHECK(net7_ok);
+    CHECK_FALSE(net7_diagnostics.HasErrors());
+
+    FrontendOptions conflicting_options;
+    conflicting_options.dotnet_target_framework = DotnetTargetFramework::kNet8;
+    conflicting_options.dotnet_lang_version = DotnetLangVersion::kCs14;
+    Diagnostics conflicting_diagnostics;
+    CHECK_FALSE(frontend->Analyze("class C {}", "<net8.cs>",
+                                  conflicting_diagnostics, conflicting_options));
+    CHECK(std::any_of(conflicting_diagnostics.All().begin(),
+                      conflicting_diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code == ErrorCode::kLangVersionMismatch;
+                      }));
+}
+
 // ============================================================================
 // Section: NeedsPreprocessing contract
 // ============================================================================

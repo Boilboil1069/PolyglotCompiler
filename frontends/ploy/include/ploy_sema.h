@@ -261,6 +261,11 @@ public:
   const std::unordered_map<std::string, ForeignClassSchema> &ClassSchemas() const {
     return class_schemas_;
   }
+  const std::vector<std::shared_ptr<CrossLangCallExpression>> &CrossLanguageCalls() const {
+    return cross_language_calls_;
+  }
+  bool IsLocalSourceCall(const std::string &language,
+                         const std::string &qualified_function) const;
 
   // Register a class schema for foreign class validation.
   void RegisterClassSchema(const std::string &qualified_name, ForeignClassSchema schema);
@@ -493,6 +498,11 @@ private:
   std::unordered_map<std::string, core::Type> map_funcs_{};
   // Known function signatures for parameter validation
   std::unordered_map<std::string, FunctionSignature> known_signatures_{};
+  // Local source imports and the CALL sites that target them.  These let the
+  // staged driver compile imported modules and use the common native ABI
+  // without requiring a hand-written LINK declaration for every call.
+  std::unordered_set<std::string> local_source_imports_{};
+  std::vector<std::shared_ptr<CrossLangCallExpression>> cross_language_calls_{};
   // ABI signatures for cross-language link validation
   std::unordered_map<std::string, std::shared_ptr<ABISignature>> abi_signatures_{};
   // Foreign class schemas for NEW/METHOD/GET/SET validation

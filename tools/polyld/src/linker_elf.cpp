@@ -428,7 +428,7 @@ BuildResult BuildELFImage(const BuildRequest &req) {
   AppendU8(img, 0);            // EI_ABIVERSION
   for (int i = 0; i < 7; ++i)  // EI_PAD
     AppendU8(img, 0);
-  AppendU16(img, kEtExec);
+  AppendU16(img, req.image_type);
   AppendU16(img, req.arch == Arch::kAArch64 ? kEmAarch64 : kEmX86_64);
   AppendU32(img, kEvCurrent);
   AppendU64(img, text_vaddr);   // e_entry — points at the start stub

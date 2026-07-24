@@ -304,3 +304,25 @@ WITH LANG (python="3.12") {
     CHECK(links[1].source_symbol == "len");
     CHECK(links[1].lang_version == "3.12");
 }
+
+TEST_CASE("LANG pins reject unknown versions instead of leaking raw strings",
+          "[poly][lang][pin][validation]") {
+    auto r = RunPipeline("LANG python = \"banana\";\n");
+    REQUIRE(r->parse_ok);
+    CHECK_FALSE(r->sema_ok);
+    REQUIRE(r->diags.ErrorCount() == 1);
+    CHECK(r->diags.All()[0].code ==
+          polyglot::frontends::ErrorCode::kLangVersionMismatch);
+}
+
+TEST_CASE("LANG pins canonicalize current language versions",
+          "[poly][lang][pin][validation]") {
+    const std::string code = R"POLY(
+LANG python = "3.14";
+WITH LANG (go="1.26", javascript="es2026", ruby="4") {
+}
+)POLY";
+    auto r = RunPipeline(code);
+    REQUIRE(r->parse_ok);
+    REQUIRE(r->sema_ok);
+}

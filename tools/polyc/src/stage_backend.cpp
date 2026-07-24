@@ -10,6 +10,7 @@
 // stage_backend.cpp — Stage 5 implementation
 // ============================================================================
 
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <type_traits>
@@ -28,6 +29,7 @@
 #include "backends/wasm/include/wasm_target.h"
 #include "backends/x86_64/include/x86_target.h"
 #include "frontends/ploy/include/ploy_lowering.h"
+#include "runtime/include/libs/native_file_runtime.h"
 #include "tools/polyc/src/stage_backend.h"
 
 namespace polyglot::tools {
@@ -116,6 +118,91 @@ void SetRegAlloc(backends::arm64::Arm64Target &t, RegAllocChoice c) {
   t.SetRegAllocStrategy(c == RegAllocChoice::kGraphColoring
                             ? backends::arm64::RegAllocStrategy::kGraphColoring
                             : backends::arm64::RegAllocStrategy::kLinearScan);
+}
+
+bool UsesNativeFileRuntime(const ir::IRContext &ctx) {
+  for (const auto &fn : ctx.Functions()) {
+    if (!fn)
+      continue;
+    for (const auto &block : fn->blocks) {
+      if (!block)
+        continue;
+      for (const auto &instruction : block->instructions) {
+        const auto *call = dynamic_cast<const ir::CallInstruction *>(instruction.get());
+        if (call && runtime::IsNativeFileRuntimeSymbol(call->callee))
+          return true;
+      }
+    }
+  }
+  return false;
+}
+
+std::string RuntimeTargetOS(const DriverSettings &settings) {
+  using common::OS;
+  switch (settings.target_triple.os) {
+  case OS::kDarwin:
+    return "darwin";
+  case OS::kLinux:
+    return "linux";
+  case OS::kWindows:
+    return "windows";
+  case OS::kFreeBSD:
+    return "freebsd";
+  case OS::kWasi:
+    return "wasi";
+  case OS::kNone:
+    return "none";
+  case OS::kUnknown:
+    break;
+  }
+  if (settings.obj_format == "macho")
+    return "darwin";
+  if (settings.obj_format == "elf")
+    return "linux";
+  if (settings.obj_format == "coff")
+    return "windows";
+  return settings.obj_format;
+}
+
+bool AppendNativeFileRuntime(const DriverSettings &settings, BackendResult &result) {
+  std::string error;
+  auto blob = runtime::BuildNativeFileRuntime(settings.arch, RuntimeTargetOS(settings), &error);
+  if (blob.text.empty()) {
+    result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1}, error);
+    return false;
+  }
+
+  std::uint32_t text_index = 0xFFFFFFFFu;
+  for (std::uint32_t i = 0; i < result.sections.size(); ++i) {
+    if (result.sections[i].name == ".text") {
+      text_index = i;
+      break;
+    }
+  }
+  if (text_index == 0xFFFFFFFFu) {
+    result.diagnostics.Report(core::SourceLoc{"<backend>", 1, 1},
+                              "cannot inject native file runtime without a .text section");
+    return false;
+  }
+
+  auto &text = result.sections[text_index].data;
+  const std::uint64_t base = text.size();
+  text.insert(text.end(), blob.text.begin(), blob.text.end());
+  for (const auto &exported : blob.symbols) {
+    auto existing = std::find_if(result.symbols.begin(), result.symbols.end(),
+                                 [&](const ObjSymbol &s) { return s.name == exported.name; });
+    if (existing == result.symbols.end()) {
+      result.symbols.push_back({exported.name, text_index, base + exported.offset,
+                                exported.size, true, true});
+    } else {
+      existing->section_index = text_index;
+      existing->value = base + exported.offset;
+      existing->size = exported.size;
+      existing->global = true;
+      existing->defined = true;
+    }
+  }
+  return true;
 }
 
 } // namespace
@@ -356,6 +443,10 @@ BackendResult RunBackendStage(const DriverSettings &settings, const FrontendResu
       mc.symbols.push_back({"__ploy_degraded_build", ".text", 0, 0, true, false});
     }
     AbsorbMC(mc, result.sections, result.symbols);
+    if (UsesNativeFileRuntime(*ir_ctx) && !AppendNativeFileRuntime(settings, result)) {
+      result.success = false;
+      return;
+    }
     result.success = true;
   };
 

@@ -228,13 +228,27 @@ void Visit(const std::shared_ptr<Statement> &s, const std::string &module_name,
 
 std::vector<frontends::ForeignFunctionSignature> RubyLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> RubyLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> out;
-  frontends::Diagnostics d;
   RbLexer lex(source, filename);
-  RbParser p(lex, d);
+  RbParser p(lex, diagnostics);
+  p.SetRubyVersion(options.ruby_version);
   p.ParseModule();
   auto m = p.TakeModule();
-  if (!m)
+  if (!m || diagnostics.HasErrors())
+    return out;
+  // Requires/gems do not affect locally-declared method signatures, but local
+  // semantic checks still run so malformed bodies cannot leak signatures.
+  frontends::SemaContext sema_context(diagnostics);
+  AnalyzeModule(*m, sema_context);
+  if (diagnostics.HasErrors())
     return out;
   for (auto &s : m->body)
     Visit(s, module_name, "", out);

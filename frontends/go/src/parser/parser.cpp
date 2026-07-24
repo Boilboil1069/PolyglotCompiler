@@ -25,6 +25,57 @@
 
 namespace polyglot::go {
 
+namespace {
+
+bool IsDefinitelyNewExpressionArgument(const std::shared_ptr<Expression> &expr) {
+  if (!expr)
+    return false;
+  if (std::dynamic_pointer_cast<BasicLit>(expr) ||
+      std::dynamic_pointer_cast<BinaryExpr>(expr) ||
+      std::dynamic_pointer_cast<CallExpr>(expr) ||
+      std::dynamic_pointer_cast<FuncLit>(expr) ||
+      std::dynamic_pointer_cast<CompositeLit>(expr) ||
+      std::dynamic_pointer_cast<IndexExpr>(expr) ||
+      std::dynamic_pointer_cast<SliceExpr>(expr) ||
+      std::dynamic_pointer_cast<TypeAssertExpr>(expr))
+    return true;
+  if (auto paren = std::dynamic_pointer_cast<ParenExpr>(expr))
+    return IsDefinitelyNewExpressionArgument(paren->inner);
+  if (auto unary = std::dynamic_pointer_cast<UnaryExpr>(expr))
+    return unary->op != "*"; // *T is syntactically a legacy pointer type too.
+  return false; // identifiers/selectors require name resolution to disambiguate.
+}
+
+bool TypeReferencesName(const std::shared_ptr<TypeNode> &type, const std::string &name) {
+  if (!type)
+    return false;
+  if (type->kind == TypeKind::kNamed && type->name == name)
+    return true;
+  if (TypeReferencesName(type->elem, name) || TypeReferencesName(type->key, name))
+    return true;
+  for (const auto &child : type->params)
+    if (TypeReferencesName(child, name))
+      return true;
+  for (const auto &child : type->results)
+    if (TypeReferencesName(child, name))
+      return true;
+  for (const auto &child : type->type_args)
+    if (TypeReferencesName(child, name))
+      return true;
+  for (const auto &child : type->terms)
+    if (TypeReferencesName(child, name))
+      return true;
+  for (const auto &field : type->fields)
+    if (TypeReferencesName(field.type, name))
+      return true;
+  for (const auto &method : type->methods)
+    if (TypeReferencesName(method.type, name))
+      return true;
+  return false;
+}
+
+} // namespace
+
 void GoParser::Advance() {
   current_ = lexer_.NextToken();
   auto d = lexer_.TakePendingDoc();
@@ -197,10 +248,113 @@ TypeSpec GoParser::ParseTypeSpec() {
   }
   ts.name = current_.lexeme;
   Advance();
+  ts.type_params = ParseTypeParameters();
+  if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_26)) {
+    for (const auto &param : ts.type_params) {
+      if (TypeReferencesName(param.constraint, ts.name)) {
+        diagnostics_.ReportError(
+            param.constraint ? param.constraint->loc : ts.loc,
+            frontends::ErrorCode::kLangVersionMismatch,
+            std::string("a generic type may refer to itself in a type-parameter constraint only "
+                        "in Go 1.26 or newer (current: ") +
+                frontends::GoVersionToString(go_version_) + ")");
+        break;
+      }
+    }
+  }
   if (MatchSymbol("="))
     ts.is_alias = true;
+  if (ts.is_alias && !ts.type_params.empty() &&
+      !frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_24)) {
+    diagnostics_.ReportError(
+        ts.loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("generic type aliases require Go 1.24 or newer (current: ") +
+            frontends::GoVersionToString(go_version_) + ")");
+  }
   ts.type = ParseType();
   return ts;
+}
+
+std::vector<TypeSpec::TypeParameter> GoParser::ParseTypeParameters() {
+  std::vector<TypeSpec::TypeParameter> params;
+  if (!MatchSymbol("["))
+    return params;
+
+  if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_18)) {
+    diagnostics_.ReportError(
+        current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("type parameters require Go 1.18 or newer (current: ") +
+            frontends::GoVersionToString(go_version_) + ")");
+  }
+
+  while (!IsSymbol("]") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    std::vector<std::string> names;
+    if (current_.kind != frontends::TokenKind::kIdentifier) {
+      diagnostics_.Report(current_.loc, "expected type parameter name");
+      break;
+    }
+    names.push_back(current_.lexeme);
+    Advance();
+
+    // A comma can separate names sharing one constraint (T, U any), or
+    // terminate the current declaration (T any, U comparable).  Collect
+    // adjacent identifiers only when another type-start token follows.
+    while (MatchSymbol(",")) {
+      if (current_.kind != frontends::TokenKind::kIdentifier)
+        break;
+      auto saved_state = lexer_.SaveFullState();
+      auto saved_current = current_;
+      auto saved_doc = pending_doc_;
+      std::string candidate = current_.lexeme;
+      Advance();
+      bool shares_constraint = current_.kind == frontends::TokenKind::kIdentifier ||
+                               IsSymbol("~") || IsSymbol("*") || IsSymbol("[") ||
+                               IsKeyword("interface") || IsKeyword("struct") ||
+                               IsKeyword("map") || IsKeyword("chan") || IsKeyword("func");
+      if (shares_constraint) {
+        names.push_back(std::move(candidate));
+      } else {
+        lexer_.RestoreFullState(saved_state);
+        current_ = saved_current;
+        pending_doc_ = saved_doc;
+        break;
+      }
+    }
+
+    std::shared_ptr<TypeNode> constraint;
+    if (IsSymbol("~")) {
+      // Preserve approximation constraints as a named spelling.  This keeps
+      // the syntax in the AST without pretending it is a runtime type.
+      auto loc = current_.loc;
+      Advance();
+      auto inner = ParseType();
+      constraint = std::make_shared<TypeNode>();
+      constraint->loc = loc;
+      constraint->kind = TypeKind::kNamed;
+      constraint->name = "~" + (inner ? inner->name : std::string{});
+    } else {
+      constraint = ParseType();
+    }
+    for (auto &name : names)
+      params.push_back(TypeSpec::TypeParameter{std::move(name), constraint});
+    if (!MatchSymbol(","))
+      break;
+  }
+  ExpectSymbol("]", "expected ']' after type parameters");
+  return params;
+}
+
+std::vector<std::shared_ptr<TypeNode>> GoParser::ParseTypeArguments() {
+  std::vector<std::shared_ptr<TypeNode>> args;
+  if (!MatchSymbol("["))
+    return args;
+  while (!IsSymbol("]") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    args.push_back(ParseType());
+    if (!MatchSymbol(","))
+      break;
+  }
+  ExpectSymbol("]", "expected ']' after type arguments");
+  return args;
 }
 
 // ============================================================================
@@ -210,6 +364,12 @@ TypeSpec GoParser::ParseTypeSpec() {
 std::shared_ptr<TypeNode> GoParser::ParseType() {
   auto t = std::make_shared<TypeNode>();
   t->loc = current_.loc;
+  if (IsSymbol("~")) {
+    Advance();
+    t->kind = TypeKind::kApproximation;
+    t->elem = ParseType();
+    return t;
+  }
   if (IsSymbol("*")) {
     Advance();
     t->kind = TypeKind::kPointer;
@@ -239,8 +399,10 @@ std::shared_ptr<TypeNode> GoParser::ParseType() {
       } catch (...) {}
       Advance();
     } else {
-      // expression length — skip
-      ParseExpression();
+      // Array lengths are constant expressions, not merely integer tokens.
+      // Preserve the expression so analysis/signature extraction cannot
+      // silently turn `[N]T` into `[0]T`.
+      t->array_len_expr = ParseExpression();
     }
     ExpectSymbol("]", "expected ']'");
     t->kind = TypeKind::kArray;
@@ -298,6 +460,8 @@ std::shared_ptr<TypeNode> GoParser::ParseType() {
         Advance();
       }
     }
+    if (IsSymbol("["))
+      t->type_args = ParseTypeArguments();
     return t;
   }
   diagnostics_.Report(current_.loc, "expected type, got '" + current_.lexeme + "'");
@@ -413,6 +577,30 @@ std::vector<TypeNode::Field> GoParser::ParseInterfaceMethods() {
           }
         }
         f.type = et;
+        if (MatchSymbol("|")) {
+          auto union_type = std::make_shared<TypeNode>();
+          union_type->loc = et->loc;
+          union_type->kind = TypeKind::kUnion;
+          union_type->terms.push_back(et);
+          do {
+            union_type->terms.push_back(ParseType());
+          } while (MatchSymbol("|"));
+          f.type = union_type;
+        }
+      }
+    } else if (IsSymbol("~")) {
+      auto first = ParseType();
+      if (MatchSymbol("|")) {
+        auto union_type = std::make_shared<TypeNode>();
+        union_type->loc = first->loc;
+        union_type->kind = TypeKind::kUnion;
+        union_type->terms.push_back(first);
+        do {
+          union_type->terms.push_back(ParseType());
+        } while (MatchSymbol("|"));
+        f.type = union_type;
+      } else {
+        f.type = first;
       }
     } else {
       diagnostics_.Report(current_.loc, "expected interface method");
@@ -562,7 +750,7 @@ void GoParser::ParseSignature(
   if (IsSymbol("(")) {
     bool v2 = false;
     results = ParseParamGroup(&v2);
-  } else if (!IsSymbol("{") && !IsSymbol(";") &&
+  } else if (!IsSymbol("{") && !IsSymbol(";") && !IsSymbol(")") && !IsSymbol(",") &&
              current_.kind != frontends::TokenKind::kEndOfFile) {
     // Single un-named return type
     auto t = ParseType();
@@ -594,11 +782,26 @@ std::shared_ptr<FuncDecl> GoParser::ParseFuncDecl() {
   }
   fn->name = current_.lexeme;
   Advance();
+  fn->type_params = ParseTypeParameters();
   bool variadic = false;
   ParseSignature(fn->params, fn->results, variadic);
   fn->is_variadic = variadic;
+
+  auto saved_function_values = std::move(known_function_values_);
+  known_function_values_.clear();
+  for (const auto &[name, type] : fn->params) {
+    if (!name.empty() && type && type->kind == TypeKind::kFunc)
+      known_function_values_.insert(name);
+  }
+  for (const auto &known_fn : file_->funcs) {
+    if (known_fn && !known_fn->receiver)
+      known_function_values_.insert(known_fn->name);
+  }
+  if (!fn->receiver)
+    known_function_values_.insert(fn->name);
   if (IsSymbol("{"))
     fn->body = ParseBlock();
+  known_function_values_ = std::move(saved_function_values);
   return fn;
 }
 
@@ -746,6 +949,53 @@ std::shared_ptr<Statement> GoParser::ParseIfStmt() {
   return s;
 }
 
+bool GoParser::IsKnownFunctionValue(const std::shared_ptr<Expression> &expr) const {
+  if (!expr)
+    return false;
+  if (std::dynamic_pointer_cast<FuncLit>(expr))
+    return true;
+  if (auto paren = std::dynamic_pointer_cast<ParenExpr>(expr))
+    return IsKnownFunctionValue(paren->inner);
+  if (auto id = std::dynamic_pointer_cast<Identifier>(expr))
+    return known_function_values_.contains(id->name);
+  return false;
+}
+
+void GoParser::CheckRangeVersion(const std::shared_ptr<Expression> &operand,
+                                 const core::SourceLoc &loc) {
+  if (IsKnownFunctionValue(operand)) {
+    if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_23)) {
+      diagnostics_.ReportError(
+          loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("ranging over a function requires Go 1.23 or newer (current: ") +
+              frontends::GoVersionToString(go_version_) + ")");
+    }
+    return;
+  }
+
+  if (auto lit = std::dynamic_pointer_cast<BasicLit>(operand)) {
+    if (lit->kind == BasicLit::Kind::kInt &&
+        !frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_22)) {
+      diagnostics_.ReportError(
+          loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("ranging over an integer requires Go 1.22 or newer (current: ") +
+              frontends::GoVersionToString(go_version_) + ")");
+    }
+    // Strings are rangeable in every supported release. Other literal kinds
+    // are invalid independently of language-version selection.
+    return;
+  }
+
+  // Before Go 1.22 an identifier could denote either an old rangeable value
+  // or a newly-rangeable integer. This parser has no complete Go type checker,
+  // so accepting the uncertain case would bypass the version contract.
+  if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_22)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kUnsupportedSyntax,
+        "cannot verify the range operand type for a pre-Go-1.22 language target");
+  }
+}
+
 std::shared_ptr<Statement> GoParser::ParseForStmt() {
   auto s = std::make_shared<ForStmt>();
   s->loc = current_.loc;
@@ -770,10 +1020,21 @@ std::shared_ptr<Statement> GoParser::ParseForStmt() {
         s->range_lhs = as->lhs;
         s->range_assign = as->op;
         s->range_x = un->operand;
+        CheckRangeVersion(s->range_x, s->loc);
         no_composite_lit_ = saved_nc;
         s->body = ParseBlock();
         return s;
       }
+    }
+  }
+  if (auto es = std::dynamic_pointer_cast<ExprStmt>(first)) {
+    if (auto un = std::dynamic_pointer_cast<UnaryExpr>(es->expr); un && un->op == "range") {
+      s->is_range = true;
+      s->range_x = un->operand;
+      CheckRangeVersion(s->range_x, s->loc);
+      no_composite_lit_ = saved_nc;
+      s->body = ParseBlock();
+      return s;
     }
   }
   if (MatchSymbol(";")) {
@@ -1008,6 +1269,40 @@ std::shared_ptr<Expression> GoParser::ParsePrimaryExpr() {
         break;
       }
     } else if (IsSymbol("[")) {
+      // A bracket suffix immediately followed by a call is a generic
+      // instantiation. Determine that shape with token-only lookahead so an
+      // ordinary expression such as a[i+1] cannot leak speculative errors.
+      auto lookahead = lexer_.SaveFullState();
+      int bracket_depth = 1;
+      frontends::Token after;
+      while (bracket_depth > 0) {
+        auto tok = lexer_.NextToken();
+        if (tok.kind == frontends::TokenKind::kEndOfFile)
+          break;
+        if (tok.kind == frontends::TokenKind::kSymbol && tok.lexeme == "[")
+          ++bracket_depth;
+        else if (tok.kind == frontends::TokenKind::kSymbol && tok.lexeme == "]")
+          --bracket_depth;
+      }
+      if (bracket_depth == 0)
+        after = lexer_.NextToken();
+      lexer_.RestoreFullState(lookahead);
+
+      if (after.kind == frontends::TokenKind::kSymbol && after.lexeme == "(") {
+        if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_18)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("generic instantiations require Go 1.18 or newer (current: ") +
+                  frontends::GoVersionToString(go_version_) + ")");
+        }
+        auto type_args = ParseTypeArguments();
+        auto inst = std::make_shared<TypeInstantiationExpr>();
+        inst->loc = current_.loc;
+        inst->x = e;
+        inst->type_args = std::move(type_args);
+        e = inst;
+        continue;
+      }
       Advance();
       // index or slice
       std::shared_ptr<Expression> low, high, max;
@@ -1057,6 +1352,17 @@ std::shared_ptr<Expression> GoParser::ParsePrimaryExpr() {
         }
       }
       ExpectSymbol(")", "expected ')'");
+      if (auto id = std::dynamic_pointer_cast<Identifier>(call->fun);
+          id && id->name == "new" && call->args.size() == 1 &&
+          IsDefinitelyNewExpressionArgument(call->args.front())) {
+        call->is_new_expression = true;
+        if (!frontends::GoVersionAtLeast(go_version_, frontends::GoVersion::kGo1_26)) {
+          diagnostics_.ReportError(
+              call->loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("new(expression) requires Go 1.26 or newer (current: ") +
+                  frontends::GoVersionToString(go_version_) + ")");
+        }
+      }
       e = call;
     } else if (IsSymbol("{") && !no_composite_lit_) {
       // Composite literal on previously-parsed type-name expression.

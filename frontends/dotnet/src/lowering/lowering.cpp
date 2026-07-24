@@ -19,9 +19,13 @@ namespace {
 
 using Name = std::string;
 
-ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
-  if (!node)
-    return ir::IRType::I64(true);
+ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node, frontends::Diagnostics &diags,
+                    const core::SourceLoc &fallback_loc) {
+  if (!node) {
+    diags.ReportError(fallback_loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "C# lowering requires a resolved runtime type");
+    return ir::IRType::Invalid();
+  }
   if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
     auto &n = simple->name;
     if (n == "sbyte")
@@ -48,8 +52,11 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
       return ir::IRType::F32();
     if (n == "double")
       return ir::IRType::F64();
-    if (n == "decimal")
-      return ir::IRType::F64(); // simplified
+    if (n == "decimal") {
+      diags.ReportError(node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "C# decimal cannot be represented as binary f64");
+      return ir::IRType::Invalid();
+    }
     if (n == "bool")
       return ir::IRType::I1();
     if (n == "char")
@@ -61,11 +68,21 @@ ir::IRType ToIRType(const std::shared_ptr<TypeNode> &node) {
     return ir::IRType::Pointer(ir::IRType::I8()); // reference types
   }
   if (auto arr = std::dynamic_pointer_cast<ArrayType>(node)) {
-    return ir::IRType::Pointer(ToIRType(arr->element_type));
+    if (arr->rank != 1) {
+      diags.ReportError(arr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                        "multidimensional C# array layout is not supported");
+      return ir::IRType::Invalid();
+    }
+    auto element = ToIRType(arr->element_type, diags, arr->loc);
+    return element.kind == ir::IRTypeKind::kInvalid ? element : ir::IRType::Pointer(element);
   }
   if (auto nullable = std::dynamic_pointer_cast<NullableType>(node)) {
-    return ToIRType(nullable->inner);
+    diags.ReportError(nullable->loc, frontends::ErrorCode::kUnsupportedLowering,
+                      "C# nullable values require a tagged representation");
+    return ir::IRType::Invalid();
   }
+  diags.ReportError(node->loc, frontends::ErrorCode::kUnsupportedLowering,
+                    "unsupported C# runtime type reached IR lowering");
   return ir::IRType::Invalid();
 }
 
@@ -125,42 +142,77 @@ EvalResult MakeFloatLiteral(double v, LoweringContext &lc) {
   return {lit->name, ir::IRType::F64()};
 }
 
-ir::BinaryInstruction::Op MapBinOp(const std::string &op, bool is_float) {
+bool FlattenMemberName(const std::shared_ptr<Expression> &expr, std::string &out) {
+  if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
+    out = id->name;
+    return true;
+  }
+  if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
+    std::string base;
+    if (!FlattenMemberName(member->object, base))
+      return false;
+    out = base + "." + member->member;
+    return true;
+  }
+  return false;
+}
+
+bool MapBinOp(const std::string &op, const ir::IRType &type,
+              ir::BinaryInstruction::Op &mapped) {
+  const bool is_float =
+      type.kind == ir::IRTypeKind::kF32 || type.kind == ir::IRTypeKind::kF64;
   if (op == "+")
-    return is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFAdd : ir::BinaryInstruction::Op::kAdd;
   if (op == "-")
-    return is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFSub : ir::BinaryInstruction::Op::kSub;
   if (op == "*")
-    return is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFMul : ir::BinaryInstruction::Op::kMul;
   if (op == "/")
-    return is_float ? ir::BinaryInstruction::Op::kFDiv : ir::BinaryInstruction::Op::kSDiv;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFDiv
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kSDiv
+                                        : ir::BinaryInstruction::Op::kUDiv);
   if (op == "%")
-    return ir::BinaryInstruction::Op::kSRem;
+    mapped = is_float ? ir::BinaryInstruction::Op::kFRem
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kSRem
+                                        : ir::BinaryInstruction::Op::kURem);
   if (op == "&")
-    return ir::BinaryInstruction::Op::kAnd;
+    mapped = ir::BinaryInstruction::Op::kAnd;
   if (op == "|")
-    return ir::BinaryInstruction::Op::kOr;
+    mapped = ir::BinaryInstruction::Op::kOr;
   if (op == "^")
-    return ir::BinaryInstruction::Op::kXor;
+    mapped = ir::BinaryInstruction::Op::kXor;
   if (op == "<<")
-    return ir::BinaryInstruction::Op::kShl;
+    mapped = ir::BinaryInstruction::Op::kShl;
   if (op == ">>")
-    return ir::BinaryInstruction::Op::kAShr;
+    mapped = type.is_signed ? ir::BinaryInstruction::Op::kAShr
+                            : ir::BinaryInstruction::Op::kLShr;
   if (op == ">>>")
-    return ir::BinaryInstruction::Op::kLShr;
+    mapped = ir::BinaryInstruction::Op::kLShr;
   if (op == "==")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFoe : ir::BinaryInstruction::Op::kCmpEq;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFoe
+                      : ir::BinaryInstruction::Op::kCmpEq;
   if (op == "!=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFne : ir::BinaryInstruction::Op::kCmpNe;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFne
+                      : ir::BinaryInstruction::Op::kCmpNe;
   if (op == "<")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFlt : ir::BinaryInstruction::Op::kCmpSlt;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFlt
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kCmpSlt
+                                        : ir::BinaryInstruction::Op::kCmpUlt);
   if (op == "<=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFle : ir::BinaryInstruction::Op::kCmpSle;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFle
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kCmpSle
+                                        : ir::BinaryInstruction::Op::kCmpUle);
   if (op == ">")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFgt : ir::BinaryInstruction::Op::kCmpSgt;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFgt
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kCmpSgt
+                                        : ir::BinaryInstruction::Op::kCmpUgt);
   if (op == ">=")
-    return is_float ? ir::BinaryInstruction::Op::kCmpFge : ir::BinaryInstruction::Op::kCmpSge;
-  return ir::BinaryInstruction::Op::kAdd;
+    mapped = is_float ? ir::BinaryInstruction::Op::kCmpFge
+                      : (type.is_signed ? ir::BinaryInstruction::Op::kCmpSge
+                                        : ir::BinaryInstruction::Op::kCmpUge);
+  return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op == "&" ||
+         op == "|" || op == "^" || op == "<<" || op == ">>" || op == ">>>" || op == "==" ||
+         op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">=";
 }
 
 bool IsCmpOp(ir::BinaryInstruction::Op op) {
@@ -171,6 +223,10 @@ bool IsCmpOp(ir::BinaryInstruction::Op op) {
   case ir::BinaryInstruction::Op::kCmpSle:
   case ir::BinaryInstruction::Op::kCmpSgt:
   case ir::BinaryInstruction::Op::kCmpSge:
+  case ir::BinaryInstruction::Op::kCmpUlt:
+  case ir::BinaryInstruction::Op::kCmpUle:
+  case ir::BinaryInstruction::Op::kCmpUgt:
+  case ir::BinaryInstruction::Op::kCmpUge:
   case ir::BinaryInstruction::Op::kCmpFoe:
   case ir::BinaryInstruction::Op::kCmpFne:
   case ir::BinaryInstruction::Op::kCmpFlt:
@@ -192,9 +248,16 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
 
   if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
     auto it = lc.env.find(id->name);
-    if (it != lc.env.end())
+    if (it != lc.env.end() && !it->second.value.empty())
       return {it->second.value, it->second.type};
-    return {id->name, ir::IRType::I64(true)};
+    if (it != lc.env.end()) {
+      lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "use of an uninitialized C# local in IR lowering: " + id->name);
+      return {};
+    }
+    lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unresolved C# value in IR lowering: " + id->name);
+    return {};
   }
 
   if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
@@ -206,7 +269,20 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (v == "null")
       return {"0", ir::IRType::Pointer(ir::IRType::I8())};
 
-    if (!v.empty() && v[0] == '"') {
+    if (!v.empty() && v[0] == '$') {
+      lc.diags.ReportError(
+          lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+          "C# interpolated-string lowering is not supported by the current IR backend");
+      return {};
+    }
+
+    if (v.starts_with("\"\"\"")) {
+      lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "C# raw-string value normalization is not implemented");
+      return {};
+    }
+
+    if ((!v.empty() && v[0] == '"') || v.starts_with("@\"")) {
       auto name = lc.builder.MakeStringLiteral(v, "csstr");
       return {name, ir::IRType::Pointer(ir::IRType::I8())};
     }
@@ -216,16 +292,26 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
       return MakeLiteral(iv, lc);
 
     double fv;
-    if (IsFloatLiteral(v, &fv))
+    if (IsFloatLiteral(v, &fv)) {
+      if (v.ends_with("m") || v.ends_with("M")) {
+        lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "C# decimal literals cannot be represented as binary f64");
+        return {};
+      }
       return MakeFloatLiteral(fv, lc);
-
-    if (!v.empty() && v[0] == '\'') {
-      if (v.size() >= 3)
-        return MakeLiteral(static_cast<long long>(v[1]), lc);
-      return MakeLiteral(0, lc);
     }
 
-    return {v, ir::IRType::I64(true)};
+    if (!v.empty() && v[0] == '\'') {
+      if (v.size() == 3)
+        return MakeLiteral(static_cast<long long>(v[1]), lc);
+      lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "escaped C# character literal lowering is not implemented");
+      return {};
+    }
+
+    lc.diags.ReportError(lit->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported C# literal reached IR lowering: " + v);
+    return {};
   }
 
   if (auto unary = std::dynamic_pointer_cast<UnaryExpression>(expr)) {
@@ -233,25 +319,48 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (operand.type.kind == ir::IRTypeKind::kInvalid)
       return {};
     if (unary->op == "-") {
-      auto neg = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kSub, "0", operand.value, "");
+      const bool fp = operand.type.kind == ir::IRTypeKind::kF32 ||
+                      operand.type.kind == ir::IRTypeKind::kF64;
+      auto neg = lc.builder.MakeBinary(fp ? ir::BinaryInstruction::Op::kFSub
+                                          : ir::BinaryInstruction::Op::kSub,
+                                       "0", operand.value, "");
+      neg->type = operand.type;
       return {neg->name, operand.type};
     }
     if (unary->op == "!") {
       auto not_val = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, "1", "");
+      not_val->type = ir::IRType::I1();
       return {not_val->name, ir::IRType::I1()};
     }
     if (unary->op == "~") {
       auto comp = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kXor, operand.value, "-1", "");
+      comp->type = operand.type;
       return {comp->name, operand.type};
     }
-    return operand;
+    if (unary->op == "+")
+      return operand;
+    lc.diags.ReportError(unary->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported C# unary operator in lowering: " + unary->op);
+    return {};
   }
 
   if (auto bin = std::dynamic_pointer_cast<BinaryExpression>(expr)) {
     if (bin->op == "=") {
       auto rhs = EvalExpr(bin->right, lc);
+      if (rhs.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
+        if (!lc.env.contains(id->name)) {
+          lc.diags.ReportError(id->loc, frontends::ErrorCode::kUnsupportedLowering,
+                               "C# field or unresolved assignment target requires storage lowering: " +
+                                   id->name);
+          return {};
+        }
         lc.env[id->name] = {rhs.value, rhs.type};
+      } else {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "C# lowering only supports identifier assignment targets");
+        return {};
       }
       return rhs;
     }
@@ -260,23 +369,38 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
         bin->op == "%=") {
       auto left = EvalExpr(bin->left, lc);
       auto right = EvalExpr(bin->right, lc);
+      if (left.type.kind == ir::IRTypeKind::kInvalid ||
+          right.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       std::string base_op = bin->op.substr(0, bin->op.size() - 1);
-      bool is_float =
-          (left.type.kind == ir::IRTypeKind::kF32 || left.type.kind == ir::IRTypeKind::kF64);
-      auto op = MapBinOp(base_op, is_float);
+      ir::BinaryInstruction::Op op;
+      if (!MapBinOp(base_op, left.type, op)) {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "unsupported C# binary operator: " + base_op);
+        return {};
+      }
       auto result = lc.builder.MakeBinary(op, left.value, right.value, "");
+      result->type = left.type;
       if (auto id = std::dynamic_pointer_cast<Identifier>(bin->left)) {
         lc.env[id->name] = {result->name, left.type};
+      } else {
+        lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                             "C# lowering only supports identifier compound-assignment targets");
+        return {};
       }
       return {result->name, left.type};
     }
+    if (bin->op == "&=" || bin->op == "|=" || bin->op == "^=" || bin->op == "<<=" ||
+        bin->op == ">>=" || bin->op == ">>>=" || bin->op == "\?\?=") {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported C# compound assignment operator: " + bin->op);
+      return {};
+    }
 
     if (bin->op == "&&" || bin->op == "||") {
-      auto left = EvalExpr(bin->left, lc);
-      auto right = EvalExpr(bin->right, lc);
-      auto op = bin->op == "&&" ? ir::BinaryInstruction::Op::kAnd : ir::BinaryInstruction::Op::kOr;
-      auto logical = lc.builder.MakeBinary(op, left.value, right.value, "");
-      return {logical->name, ir::IRType::I1()};
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "C# short-circuit operators require control-flow lowering");
+      return {};
     }
 
     auto left = EvalExpr(bin->left, lc);
@@ -284,11 +408,20 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     if (left.type.kind == ir::IRTypeKind::kInvalid || right.type.kind == ir::IRTypeKind::kInvalid)
       return {};
 
-    bool is_float =
-        (left.type.kind == ir::IRTypeKind::kF32 || left.type.kind == ir::IRTypeKind::kF64);
-    auto op = MapBinOp(bin->op, is_float);
+    if (left.type.kind == ir::IRTypeKind::kPointer && bin->op != "==" && bin->op != "!=") {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "C# reference/string operators require managed runtime semantics");
+      return {};
+    }
+    ir::BinaryInstruction::Op op;
+    if (!MapBinOp(bin->op, left.type, op)) {
+      lc.diags.ReportError(bin->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported C# binary operator: " + bin->op);
+      return {};
+    }
     auto inst = lc.builder.MakeBinary(op, left.value, right.value, "");
     ir::IRType result_type = IsCmpOp(op) ? ir::IRType::I1() : left.type;
+    inst->type = result_type;
     return {inst->name, result_type};
   }
 
@@ -296,120 +429,94 @@ EvalResult EvalExpr(const std::shared_ptr<Expression> &expr, LoweringContext &lc
     std::vector<std::string> arg_values;
     for (auto &arg : call->args) {
       auto r = EvalExpr(arg, lc);
+      if (r.type.kind == ir::IRTypeKind::kInvalid)
+        return {};
       arg_values.push_back(r.value);
     }
 
     std::string callee_name;
     if (auto id = std::dynamic_pointer_cast<Identifier>(call->callee)) {
       callee_name = id->name;
-    } else if (auto member = std::dynamic_pointer_cast<MemberExpression>(call->callee)) {
-      auto obj = EvalExpr(member->object, lc);
-      callee_name = obj.value + "." + member->member;
-      arg_values.insert(arg_values.begin(), obj.value);
+    } else if (!FlattenMemberName(call->callee, callee_name)) {
+      lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "indirect C# calls are not supported by lowering");
+      return {};
     }
 
     // Map well-known .NET methods
     if (callee_name == "Console.WriteLine" || callee_name == "Console.Write") {
-      callee_name = "__ploy_dotnet_print";
+      auto inst = lc.builder.MakeCall("__ploy_dotnet_print", arg_values, ir::IRType::Void(), "");
+      return {inst->name, inst->type};
     }
 
-    auto inst = lc.builder.MakeCall(callee_name, arg_values, ir::IRType::I64(true), "");
-    return {inst->name, inst->type};
+    lc.diags.ReportError(call->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# call lowering requires a resolved method signature: " + callee_name);
+    return {};
   }
 
   if (auto member = std::dynamic_pointer_cast<MemberExpression>(expr)) {
-    auto obj = EvalExpr(member->object, lc);
-    return {obj.value + "." + member->member, ir::IRType::I64(true)};
+    lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# member-value lowering requires object-layout support");
+    return {};
   }
 
   if (auto new_expr = std::dynamic_pointer_cast<NewExpression>(expr)) {
-    ir::IRType alloc_type = ToIRType(new_expr->type);
-    auto ptr_type = ir::IRType::Pointer(alloc_type);
-
-    std::vector<std::string> args;
-    for (auto &arg : new_expr->args) {
-      auto r = EvalExpr(arg, lc);
-      args.push_back(r.value);
-    }
-
-    auto alloc = lc.builder.MakeCall("__builtin_new", {}, ptr_type, "");
-
-    std::string type_name;
-    if (auto st = std::dynamic_pointer_cast<SimpleType>(new_expr->type)) {
-      type_name = st->name;
-    }
-    if (!type_name.empty()) {
-      std::vector<std::string> ctor_args = {alloc->name};
-      for (auto &a : args)
-        ctor_args.push_back(a);
-      lc.builder.MakeCall(type_name + "::.ctor", ctor_args, ir::IRType::Void(), "");
-    }
-
-    return {alloc->name, ptr_type};
+    lc.diags.ReportError(new_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# object/array allocation requires managed layout and GC support");
+    return {};
   }
 
   if (auto cast = std::dynamic_pointer_cast<CastExpression>(expr)) {
-    auto val = EvalExpr(cast->expr, lc);
-    ir::IRType target = ToIRType(cast->target_type);
-    auto conv = lc.builder.MakeCast(ir::CastInstruction::CastKind::kBitcast, val.value, target, "");
-    return {conv->name, target};
+    lc.diags.ReportError(cast->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# casts require checked numeric/reference conversion semantics");
+    return {};
   }
 
   if (auto index = std::dynamic_pointer_cast<IndexExpression>(expr)) {
-    auto base = EvalExpr(index->object, lc);
-    auto idx = EvalExpr(index->index, lc);
-    ir::IRType elem_type = ir::IRType::I64(true);
-    if (base.type.kind == ir::IRTypeKind::kPointer && !base.type.subtypes.empty()) {
-      elem_type = base.type.subtypes[0];
-    }
-    auto gep = lc.builder.MakeDynamicGEP(base.value, elem_type, idx.value, "idx_ptr");
-    auto load = lc.builder.MakeLoad(gep->name, elem_type, "idx_val");
-    return {load->name, elem_type};
+    lc.diags.ReportError(index->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# indexing requires array/span bounds and layout semantics");
+    return {};
   }
 
   if (auto tern = std::dynamic_pointer_cast<TernaryExpression>(expr)) {
-    auto cond = EvalExpr(tern->condition, lc);
-    auto then_val = EvalExpr(tern->then_expr, lc);
-    auto else_val = EvalExpr(tern->else_expr, lc);
-    (void)cond;
-    (void)else_val;
-    return then_val;
+    lc.diags.ReportError(tern->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# conditional-expression lowering requires control-flow and phi nodes");
+    return {};
   }
 
   if (auto nc = std::dynamic_pointer_cast<NullCoalescingExpression>(expr)) {
-    auto left = EvalExpr(nc->left, lc);
-    auto right = EvalExpr(nc->right, lc);
-    // Simplified: null-check left, use right if null
-    auto is_null = lc.builder.MakeBinary(ir::BinaryInstruction::Op::kCmpEq, left.value, "0", "");
-    // Just return left for now (a full impl would use branches)
-    (void)is_null;
-    (void)right;
-    return left;
+    lc.diags.ReportError(nc->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# null-coalescing lowering requires short-circuit control flow");
+    return {};
   }
 
   if (auto is_expr = std::dynamic_pointer_cast<IsExpression>(expr)) {
-    auto val = EvalExpr(is_expr->expr, lc);
-    std::string type_name;
-    if (auto st = std::dynamic_pointer_cast<SimpleType>(is_expr->type)) {
-      type_name = st->name;
-    }
-    auto check = lc.builder.MakeCall("__ploy_dotnet_isinstance", {val.value, type_name},
-                                     ir::IRType::I1(), "");
-    return {check->name, ir::IRType::I1()};
+    lc.diags.ReportError(is_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# type tests require managed runtime type metadata");
+    return {};
   }
 
   if (auto as_expr = std::dynamic_pointer_cast<AsExpression>(expr)) {
-    auto val = EvalExpr(as_expr->expr, lc);
-    ir::IRType target = ToIRType(as_expr->type);
-    auto conv = lc.builder.MakeCast(ir::CastInstruction::CastKind::kBitcast, val.value, target, "");
-    return {conv->name, target};
+    lc.diags.ReportError(as_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# 'as' conversion requires checked runtime type semantics");
+    return {};
   }
 
   if (auto await = std::dynamic_pointer_cast<AwaitExpression>(expr)) {
-    auto val = EvalExpr(await->operand, lc);
-    return val;
+    lc.diags.ReportError(await->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# await lowering requires an async state machine");
+    return {};
   }
 
+  if (auto switch_expr = std::dynamic_pointer_cast<SwitchExpression>(expr)) {
+    lc.diags.ReportError(
+        switch_expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+        "C# switch expressions require pattern dispatch and merge-value control flow");
+    return {};
+  }
+
+  lc.diags.ReportError(expr->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported C# expression reached IR lowering");
   return {};
 }
 
@@ -433,25 +540,35 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto var = std::dynamic_pointer_cast<VarDecl>(stmt)) {
-    ir::IRType vt = ToIRType(var->type);
     if (var->init) {
       auto init_val = EvalExpr(var->init, lc);
-      lc.env[var->name] = {init_val.value, init_val.type};
+      if (init_val.type.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      auto vt = var->type ? ToIRType(var->type, lc.diags, var->loc) : init_val.type;
+      if (vt.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      lc.env[var->name] = {init_val.value, vt};
     } else {
-      lc.env[var->name] = {"0", vt};
+      auto vt = ToIRType(var->type, lc.diags, var->loc);
+      if (vt.kind == ir::IRTypeKind::kInvalid)
+        return false;
+      lc.env[var->name] = {"", vt};
     }
     return true;
   }
 
   if (auto expr_stmt = std::dynamic_pointer_cast<ExprStatement>(stmt)) {
-    if (expr_stmt->expr)
-      EvalExpr(expr_stmt->expr, lc);
+    if (expr_stmt->expr &&
+        EvalExpr(expr_stmt->expr, lc).type.kind == ir::IRTypeKind::kInvalid)
+      return false;
     return true;
   }
 
   if (auto ret = std::dynamic_pointer_cast<ReturnStatement>(stmt)) {
     if (ret->value) {
       auto val = EvalExpr(ret->value, lc);
+      if (val.type.kind == ir::IRTypeKind::kInvalid)
+        return false;
       lc.builder.MakeReturn(val.value);
     } else {
       lc.builder.MakeReturn("");
@@ -461,201 +578,33 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto if_stmt = std::dynamic_pointer_cast<IfStatement>(stmt)) {
-    auto cond = EvalExpr(if_stmt->condition, lc);
-    if (cond.type.kind == ir::IRTypeKind::kInvalid)
-      return false;
-
-    auto *then_block = lc.fn->CreateBlock("if.then");
-    auto *else_block = if_stmt->else_body ? lc.fn->CreateBlock("if.else") : nullptr;
-    auto *merge_block = lc.fn->CreateBlock("if.end");
-
-    lc.builder.MakeCondBranch(cond.value, then_block, else_block ? else_block : merge_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == then_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    LowerStmt(if_stmt->then_body, lc);
-    bool then_term = lc.terminated;
-    if (!then_term)
-      lc.builder.MakeBranch(merge_block);
-
-    bool else_term = false;
-    if (else_block) {
-      for (auto &bb : lc.fn->blocks) {
-        if (bb.get() == else_block) {
-          lc.builder.SetInsertPoint(bb);
-          break;
-        }
-      }
-      lc.terminated = false;
-      LowerStmt(if_stmt->else_body, lc);
-      else_term = lc.terminated;
-      if (!else_term)
-        lc.builder.MakeBranch(merge_block);
-    }
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == merge_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = then_term && (else_term || !else_block);
-    return true;
+    lc.diags.ReportError(if_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# branch lowering requires local-value SSA/phi construction");
+    return false;
   }
 
   if (auto while_stmt = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
-    auto *cond_block = lc.fn->CreateBlock("while.cond");
-    auto *body_block = lc.fn->CreateBlock("while.body");
-    auto *exit_block = lc.fn->CreateBlock("while.end");
-
-    lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == cond_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    auto cond = EvalExpr(while_stmt->condition, lc);
-    lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == body_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    LowerStmt(while_stmt->body, lc);
-    if (!lc.terminated)
-      lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == exit_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    return true;
+    lc.diags.ReportError(while_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# loop lowering requires storage/SSA semantics for mutable locals");
+    return false;
   }
 
   if (auto for_stmt = std::dynamic_pointer_cast<ForStatement>(stmt)) {
-    if (for_stmt->init)
-      LowerStmt(for_stmt->init, lc);
-
-    auto *cond_block = lc.fn->CreateBlock("for.cond");
-    auto *body_block = lc.fn->CreateBlock("for.body");
-    auto *inc_block = lc.fn->CreateBlock("for.inc");
-    auto *exit_block = lc.fn->CreateBlock("for.end");
-
-    lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == cond_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    if (for_stmt->condition) {
-      auto cond = EvalExpr(for_stmt->condition, lc);
-      lc.builder.MakeCondBranch(cond.value, body_block, exit_block);
-    } else {
-      lc.builder.MakeBranch(body_block);
-    }
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == body_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    LowerStmt(for_stmt->body, lc);
-    if (!lc.terminated)
-      lc.builder.MakeBranch(inc_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == inc_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    if (for_stmt->update)
-      EvalExpr(for_stmt->update, lc);
-    lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == exit_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    return true;
+    lc.diags.ReportError(for_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# loop lowering requires storage/SSA semantics for mutable locals");
+    return false;
   }
 
   if (auto foreach_stmt = std::dynamic_pointer_cast<ForEachStatement>(stmt)) {
-    auto iterable = EvalExpr(foreach_stmt->iterable, lc);
-    auto iter = lc.builder.MakeCall("__ploy_dotnet_get_enumerator", {iterable.value},
-                                    ir::IRType::Pointer(ir::IRType::I8()), "");
-
-    auto *cond_block = lc.fn->CreateBlock("foreach.cond");
-    auto *body_block = lc.fn->CreateBlock("foreach.body");
-    auto *exit_block = lc.fn->CreateBlock("foreach.end");
-
-    lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == cond_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    auto has_next =
-        lc.builder.MakeCall("__ploy_dotnet_move_next", {iter->name}, ir::IRType::I1(), "");
-    lc.builder.MakeCondBranch(has_next->name, body_block, exit_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == body_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    ir::IRType elem_type = ToIRType(foreach_stmt->var_type);
-    auto current = lc.builder.MakeCall("__ploy_dotnet_get_current", {iter->name}, elem_type, "");
-    lc.env[foreach_stmt->var_name] = {current->name, elem_type};
-    LowerStmt(foreach_stmt->body, lc);
-    if (!lc.terminated)
-      lc.builder.MakeBranch(cond_block);
-
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == exit_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    return true;
+    lc.diags.ReportError(foreach_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# foreach requires resolved enumerator and disposal semantics");
+    return false;
   }
 
   if (auto try_stmt = std::dynamic_pointer_cast<TryStatement>(stmt)) {
-    LowerStmt(try_stmt->body, lc);
-    for (auto &c : try_stmt->catches)
-      LowerStmt(c.body, lc);
-    if (try_stmt->finally_body)
-      LowerStmt(try_stmt->finally_body, lc);
-    return true;
+    lc.diags.ReportError(try_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# exception-region lowering is not implemented");
+    return false;
   }
 
   if (auto throw_stmt = std::dynamic_pointer_cast<ThrowStatement>(stmt)) {
@@ -670,63 +619,26 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
   }
 
   if (auto using_stmt = std::dynamic_pointer_cast<UsingStatement>(stmt)) {
-    if (using_stmt->declaration) {
-      if (using_stmt->declaration->init) {
-        auto val = EvalExpr(using_stmt->declaration->init, lc);
-        lc.env[using_stmt->declaration->name] = {val.value, val.type};
-      }
-    }
-    if (using_stmt->body)
-      LowerStmt(using_stmt->body, lc);
-    if (using_stmt->declaration) {
-      auto it = lc.env.find(using_stmt->declaration->name);
-      if (it != lc.env.end()) {
-        lc.builder.MakeCall("__ploy_dotnet_dispose", {it->second.value}, ir::IRType::Void(), "");
-      }
-    }
-    return true;
+    lc.diags.ReportError(using_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# using lowering requires exception-safe disposal regions");
+    return false;
   }
 
   if (auto lock_stmt = std::dynamic_pointer_cast<LockStatement>(stmt)) {
-    auto monitor = EvalExpr(lock_stmt->expr, lc);
-    lc.builder.MakeCall("__ploy_dotnet_monitor_enter", {monitor.value}, ir::IRType::Void(), "");
-    LowerStmt(lock_stmt->body, lc);
-    lc.builder.MakeCall("__ploy_dotnet_monitor_exit", {monitor.value}, ir::IRType::Void(), "");
-    return true;
+    lc.diags.ReportError(lock_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# lock lowering requires exception-safe monitor regions");
+    return false;
   }
 
   if (auto switch_stmt = std::dynamic_pointer_cast<SwitchStatement>(stmt)) {
-    auto sel = EvalExpr(switch_stmt->governing, lc);
-    auto *end_block = lc.fn->CreateBlock("switch.end");
-    for (auto &sec : switch_stmt->sections) {
-      auto *sec_block = lc.fn->CreateBlock("switch.section");
-      for (auto &bb : lc.fn->blocks) {
-        if (bb.get() == sec_block) {
-          lc.builder.SetInsertPoint(bb);
-          break;
-        }
-      }
-      lc.terminated = false;
-      for (auto &s : sec.body) {
-        if (!LowerStmt(s, lc))
-          return false;
-        if (lc.terminated)
-          break;
-      }
-      if (!lc.terminated)
-        lc.builder.MakeBranch(end_block);
-    }
-    for (auto &bb : lc.fn->blocks) {
-      if (bb.get() == end_block) {
-        lc.builder.SetInsertPoint(bb);
-        break;
-      }
-    }
-    lc.terminated = false;
-    return true;
+    lc.diags.ReportError(switch_stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# switch dispatch lowering is not implemented");
+    return false;
   }
 
-  return true;
+  lc.diags.ReportError(stmt->loc, frontends::ErrorCode::kUnsupportedLowering,
+                       "unsupported C# statement reached IR lowering");
+  return false;
 }
 
 /** @} */
@@ -735,19 +647,35 @@ bool LowerStmt(const std::shared_ptr<Statement> &stmt, LoweringContext &lc) {
 /** @{ */
 
 bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
+  if (method.is_async || !method.type_params.empty()) {
+    lc.diags.ReportError(
+        method.loc, frontends::ErrorCode::kUnsupportedLowering,
+        method.is_async ? "C# async method lowering requires a state machine"
+                        : "generic C# method lowering requires runtime generic specialization");
+    return false;
+  }
   std::string mangled =
       lc.current_class.empty() ? method.name : lc.current_class + "::" + method.name;
 
-  ir::IRType ret = ToIRType(method.return_type);
+  ir::IRType ret = ToIRType(method.return_type, lc.diags, method.loc);
   if (ret.kind == ir::IRTypeKind::kInvalid)
-    ret = ir::IRType::I64(true);
+    return false;
 
   std::vector<std::pair<std::string, ir::IRType>> params;
   if (!method.is_static && !lc.current_class.empty()) {
     params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
   }
   for (auto &p : method.params) {
-    params.push_back({p.name, ToIRType(p.type)});
+    if (p.is_ref || p.is_out || p.is_in || p.is_params || p.is_this || p.default_value) {
+      lc.diags.ReportError(p.type ? p.type->loc : method.loc,
+                           frontends::ErrorCode::kUnsupportedLowering,
+                           "C# parameter passing/default semantics are not represented by this IR lowering");
+      return false;
+    }
+    auto type = ToIRType(p.type, lc.diags, method.loc);
+    if (type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+    params.push_back({p.name, type});
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ret, params);
@@ -766,6 +694,8 @@ bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
   // Expression body (e.g., int Foo() => 42;)
   if (method.expression_body) {
     auto val = EvalExpr(method.expression_body, lc);
+    if (val.type.kind == ir::IRTypeKind::kInvalid)
+      return false;
     if (ret.kind != ir::IRTypeKind::kVoid) {
       lc.builder.MakeReturn(val.value);
     } else {
@@ -785,20 +715,34 @@ bool LowerMethod(const MethodDecl &method, LoweringContext &lc) {
     if (ret.kind == ir::IRTypeKind::kVoid) {
       lc.builder.MakeReturn("");
     } else {
-      auto zero = MakeLiteral(0, lc);
-      lc.builder.MakeReturn(zero.value);
+      lc.diags.ReportError(method.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "non-void C# method can reach the end without a lowered return");
+      return false;
     }
   }
   return true;
 }
 
 bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
+  if (ctor.is_partial) {
+    lc.diags.ReportError(ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# partial-constructor lowering is not implemented");
+    return false;
+  }
   std::string mangled = lc.current_class + "::.ctor";
 
   std::vector<std::pair<std::string, ir::IRType>> params;
   params.push_back({"this", ir::IRType::Pointer(ir::IRType::I8())});
   for (auto &p : ctor.params) {
-    params.push_back({p.name, ToIRType(p.type)});
+    if (p.is_ref || p.is_out || p.is_in || p.is_params || p.default_value) {
+      lc.diags.ReportError(ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "C# constructor parameter passing/default semantics are not supported");
+      return false;
+    }
+    auto type = ToIRType(p.type, lc.diags, ctor.loc);
+    if (type.kind == ir::IRTypeKind::kInvalid)
+      return false;
+    params.push_back({p.name, type});
   }
 
   lc.fn = lc.ir_ctx.CreateFunction(mangled, ir::IRType::Void(), params);
@@ -816,14 +760,9 @@ bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
 
   // Base/this initializer call
   if (!ctor.initializer_kind.empty()) {
-    std::vector<std::string> init_args = {"this"};
-    for (auto &a : ctor.initializer_args) {
-      auto v = EvalExpr(a, lc);
-      init_args.push_back(v.value);
-    }
-    std::string init_name =
-        ctor.initializer_kind == "base" ? "__base::.ctor" : lc.current_class + "::.ctor";
-    lc.builder.MakeCall(init_name, init_args, ir::IRType::Void(), "");
+    lc.diags.ReportError(ctor.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# constructor chaining requires resolved constructor dispatch");
+    return false;
   }
 
   for (auto &s : ctor.body) {
@@ -840,6 +779,22 @@ bool LowerConstructor(const ConstructorDecl &ctor, LoweringContext &lc) {
 }
 
 void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
+  if (cls.is_record) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# record class lowering requires synthesized record semantics");
+    return;
+  }
+  if (!cls.primary_ctor_params.empty()) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# primary-constructor lowering is not implemented");
+    return;
+  }
+  if (!cls.type_params.empty() || cls.base_type || !cls.interfaces.empty()) {
+    lc.diags.ReportError(cls.loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "generic/inherited C# class runtime semantics are not implemented");
+    return;
+  }
+
   auto saved_class = lc.current_class;
   lc.current_class = cls.name;
 
@@ -851,12 +806,34 @@ void LowerClass(const ClassDecl &cls, LoweringContext &lc) {
     } else if (auto ctor = std::dynamic_pointer_cast<ConstructorDecl>(member)) {
       LowerConstructor(*ctor, lc);
     } else if (auto field = std::dynamic_pointer_cast<FieldDecl>(member)) {
-      if (field->is_static && field->init) {
-        auto val = EvalExpr(field->init, lc);
-        lc.env[cls.name + "::" + field->name] = {val.value, val.type};
-      }
+      lc.diags.ReportError(field->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           field->is_static
+                               ? "C# static fields require type storage/initializer lowering"
+                               : "C# instance fields require managed object-layout lowering");
+    } else if (auto property = std::dynamic_pointer_cast<PropertyDecl>(member)) {
+      lc.diags.ReportError(
+          property->loc, frontends::ErrorCode::kUnsupportedLowering,
+          property->uses_field_keyword
+              ? "C# 14 field-backed properties require synthesized backing-field semantics"
+              : "C# properties require managed accessor and object-layout lowering");
+    } else if (auto op = std::dynamic_pointer_cast<OperatorDecl>(member)) {
+      lc.diags.ReportError(
+          op->loc, frontends::ErrorCode::kUnsupportedLowering,
+          op->is_compound_assignment
+              ? "C# 14 compound-assignment operators require operator dispatch lowering"
+              : "C# user-defined operators require operator dispatch lowering");
+    } else if (auto extension = std::dynamic_pointer_cast<ExtensionDecl>(member)) {
+      lc.diags.ReportError(extension->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "C# 14 extension members require extension-binding metadata");
     } else if (auto inner = std::dynamic_pointer_cast<ClassDecl>(member)) {
       LowerClass(*inner, lc);
+    } else if (std::dynamic_pointer_cast<StructDecl>(member) ||
+               std::dynamic_pointer_cast<InterfaceDecl>(member)) {
+      lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "nested C# struct/interface lowering is not implemented");
+    } else {
+      lc.diags.ReportError(member->loc, frontends::ErrorCode::kUnsupportedLowering,
+                           "unsupported C# class member reached IR lowering");
     }
   }
 
@@ -885,10 +862,21 @@ void LowerDecl(const std::shared_ptr<Statement> &decl, LoweringContext &lc) {
     return;
   if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
     LowerClass(*cls, lc);
+  } else if (auto st = std::dynamic_pointer_cast<StructDecl>(decl)) {
+    lc.diags.ReportError(
+        st->loc, frontends::ErrorCode::kUnsupportedLowering,
+        st->is_record ? "C# record struct lowering requires synthesized record semantics"
+                      : "C# struct lowering is not implemented by the current IR backend");
+  } else if (auto iface = std::dynamic_pointer_cast<InterfaceDecl>(decl)) {
+    lc.diags.ReportError(iface->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "C# interface lowering is not implemented by the current IR backend");
   } else if (auto en = std::dynamic_pointer_cast<EnumDecl>(decl)) {
     LowerEnum(*en, lc);
   } else if (auto ns = std::dynamic_pointer_cast<NamespaceDecl>(decl)) {
     LowerNamespace(*ns, lc);
+  } else {
+    lc.diags.ReportError(decl->loc, frontends::ErrorCode::kUnsupportedLowering,
+                         "unsupported C# top-level declaration reached IR lowering");
   }
 }
 
@@ -897,33 +885,21 @@ void LowerDecl(const std::shared_ptr<Statement> &decl, LoweringContext &lc) {
 void LowerToIR(const Module &module, ir::IRContext &ctx, frontends::Diagnostics &diags) {
   LoweringContext lc(ctx, diags);
 
+  if (!module.file_directives.empty()) {
+    diags.ReportError(module.file_directives.front()->loc,
+                      frontends::ErrorCode::kUnsupportedLowering,
+                      "C# 14 file-based application directives require SDK/package resolution");
+  }
+
   for (const auto &decl : module.declarations) {
     LowerDecl(decl, lc);
   }
 
   // Lower top-level statements into a synthetic Main method (C# 9.0+)
   if (!module.top_level_statements.empty()) {
-    std::vector<std::pair<std::string, ir::IRType>> main_params;
-    lc.fn = lc.ir_ctx.CreateFunction("<Program>$::Main", ir::IRType::I32(true), main_params);
-    auto *entry = lc.fn->CreateBlock("entry");
-    lc.fn->entry = entry;
-    if (!lc.fn->blocks.empty()) {
-      lc.builder.SetInsertPoint(lc.fn->blocks.back());
-    }
-    lc.env.clear();
-    lc.terminated = false;
-
-    for (const auto &stmt : module.top_level_statements) {
-      if (!LowerStmt(stmt, lc))
-        break;
-      if (lc.terminated)
-        break;
-    }
-
-    if (!lc.terminated) {
-      auto zero = MakeLiteral(0, lc);
-      lc.builder.MakeReturn(zero.value);
-    }
+    diags.ReportError(module.top_level_statements.front()->loc,
+                      frontends::ErrorCode::kUnsupportedLowering,
+                      "C# top-level statement lowering is not implemented");
   }
 }
 

@@ -36,6 +36,7 @@ public:
 private:
   frontends::Token Consume();
   void Advance();
+  bool IsIdentifierToken() const;
   bool IsSymbol(const std::string &symbol) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
@@ -110,6 +111,7 @@ private:
   // Active C++ dialect for syntax gating. `kAuto` is treated as
   // `kCppDialectDefault` and admits every construct the parser knows.
   frontends::CppDialect cpp_dialect_{frontends::CppDialect::kAuto};
+  FunctionDecl *current_function_{nullptr};
 };
 
 } // namespace polyglot::cpp

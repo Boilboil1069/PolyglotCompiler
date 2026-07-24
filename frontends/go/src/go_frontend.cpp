@@ -132,7 +132,8 @@ core::Type GoTypeToCore(const std::shared_ptr<TypeNode> &t) {
   if (t->kind == TypeKind::kSlice)
     return core::Type::Slice(GoTypeToCore(t->elem));
   if (t->kind == TypeKind::kArray)
-    return core::Type::Array(GoTypeToCore(t->elem));
+    return core::Type::Array(GoTypeToCore(t->elem),
+                             t->array_len > 0 ? static_cast<size_t>(t->array_len) : 0);
   if (t->kind == TypeKind::kMap) {
     return core::Type{core::TypeKind::kStruct, "map", "go"};
   }
@@ -176,22 +177,66 @@ core::Type GoTypeToCore(const std::shared_ptr<TypeNode> &t) {
   return core::Type{core::TypeKind::kClass, n, "go"};
 }
 
+bool HasUnprojectableArrayExtent(const std::shared_ptr<TypeNode> &type) {
+  if (!type)
+    return false;
+  if (type->kind == TypeKind::kArray &&
+      (type->array_len_expr || type->array_len <= 0))
+    return true;
+  if (HasUnprojectableArrayExtent(type->elem) || HasUnprojectableArrayExtent(type->key))
+    return true;
+  for (const auto &nested : type->params)
+    if (HasUnprojectableArrayExtent(nested))
+      return true;
+  for (const auto &nested : type->results)
+    if (HasUnprojectableArrayExtent(nested))
+      return true;
+  for (const auto &nested : type->type_args)
+    if (HasUnprojectableArrayExtent(nested))
+      return true;
+  return false;
+}
+
 } // namespace
 
 std::vector<frontends::ForeignFunctionSignature> GoLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> GoLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> out;
-  frontends::Diagnostics d;
+  if (!Analyze(source, filename, diagnostics, options) || diagnostics.HasErrors())
+    return out;
   GoLexer lex(source, filename);
-  GoParser p(lex, d);
+  GoParser p(lex, diagnostics);
+  p.SetGoVersion(options.go_version);
   p.ParseFile();
   auto f = p.TakeFile();
-  if (!f)
+  if (!f || diagnostics.HasErrors())
     return out;
   std::string mod = module_name.empty() ? f->package_name : module_name;
   for (auto &fn : f->funcs) {
     if (!fn)
       continue;
+    bool unprojectable_extent = false;
+    for (const auto &parameter : fn->params)
+      unprojectable_extent |= HasUnprojectableArrayExtent(parameter.second);
+    for (const auto &result : fn->results)
+      unprojectable_extent |= HasUnprojectableArrayExtent(result.second);
+    if (fn->receiver)
+      unprojectable_extent |= HasUnprojectableArrayExtent(fn->receiver->type);
+    if (unprojectable_extent) {
+      diagnostics.ReportError(
+          fn->loc, frontends::ErrorCode::kSignatureMissing,
+          "Go foreign signatures require a positive literal array extent; constant-expression "
+          "evaluation is not available in the fixed-arity signature projection");
+      return {};
+    }
     // Only export capitalised names (Go's convention) - but include all
     // for cross-language access.
     frontends::ForeignFunctionSignature sig;
@@ -204,8 +249,13 @@ std::vector<frontends::ForeignFunctionSignature> GoLanguageFrontend::ExtractSign
       sig.return_type = GoTypeToCore(fn->results.front().second);
     else if (fn->results.empty())
       sig.return_type = core::Type::Void();
-    else
-      sig.return_type = GoTypeToCore(fn->results.front().second);
+    else {
+      std::vector<core::Type> result_types;
+      result_types.reserve(fn->results.size());
+      for (const auto &result : fn->results)
+        result_types.push_back(GoTypeToCore(result.second));
+      sig.return_type = core::Type::Tuple(std::move(result_types));
+    }
     sig.has_type_annotations = true;
     sig.is_method = fn->receiver.has_value();
     if (sig.is_method && fn->receiver->type) {

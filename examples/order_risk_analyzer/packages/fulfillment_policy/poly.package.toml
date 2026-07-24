@@ -1,0 +1,7 @@
+name = "fulfillment_policy"
+version = "1.0.0"
+language = "rust"
+source = "src/fulfillment_policy.rs"
+
+[exports]
+types = ["FulfillmentSession"]

@@ -1,0 +1,7 @@
+name = "order_policy"
+version = "1.0.0"
+language = "cpp"
+include_dir = "include"
+
+[exports]
+headers = ["order_policy/pricing_session.hpp"]

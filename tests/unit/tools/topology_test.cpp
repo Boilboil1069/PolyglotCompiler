@@ -7,6 +7,7 @@
 //   4. TopologyPrinter — text / DOT / JSON / summary output formats.
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -38,6 +39,73 @@ using polyglot::ploy::PloySemaOptions;
 // ============================================================================
 
 namespace {
+
+class ContractSignatureFrontend final
+    : public polyglot::frontends::ILanguageFrontend {
+public:
+  std::string Name() const override { return "contract_fixture"; }
+  std::string DisplayName() const override { return "Signature Contract Fixture"; }
+  std::vector<std::string> Extensions() const override { return {".contract"}; }
+
+  std::vector<polyglot::frontends::Token>
+  Tokenize(const std::string &, const std::string &) const override {
+    return {};
+  }
+
+  bool Analyze(const std::string &, const std::string &,
+               Diagnostics &,
+               const polyglot::frontends::FrontendOptions &) const override {
+    return true;
+  }
+
+  polyglot::frontends::FrontendResult Lower(
+      const std::string &, const std::string &, polyglot::ir::IRContext &,
+      Diagnostics &,
+      const polyglot::frontends::FrontendOptions &) const override {
+    return {.success = true, .lowered = true};
+  }
+
+  std::vector<polyglot::frontends::ForeignFunctionSignature>
+  ExtractSignatures(const std::string &source, const std::string &,
+                    const std::string &module_name, Diagnostics &,
+                    const polyglot::frontends::FrontendOptions &) const override {
+    using polyglot::core::Type;
+    using polyglot::frontends::ForeignFunctionSignature;
+    const auto signature = [&](std::string name, std::string qualified,
+                               Type parameter, Type result) {
+      ForeignFunctionSignature sig;
+      sig.name = std::move(name);
+      sig.qualified_name = std::move(qualified);
+      sig.param_types = {std::move(parameter)};
+      sig.param_names = {"value"};
+      sig.return_type = std::move(result);
+      return sig;
+    };
+
+    if (source.find("mode=overload") != std::string::npos) {
+      return {
+          signature("compute", module_name + "::compute", Type::Int(32, true),
+                    Type::Int(32, true)),
+          signature("compute", module_name + "::compute", Type::Float(64),
+                    Type::Float(64)),
+      };
+    }
+    if (source.find("mode=alias") != std::string::npos) {
+      return {
+          signature("run", module_name + "::A::run", Type::Int(32, true),
+                    Type::Int(32, true)),
+          signature("run", module_name + "::B::run", Type::Float(64),
+                    Type::Float(64)),
+      };
+    }
+    if (source.find("mode=duplicate") != std::string::npos) {
+      auto sig = signature("work", module_name + "::work", Type::Int(32, true),
+                           Type::Int(32, true));
+      return {sig, sig};
+    }
+    return {};
+  }
+};
 
 // Build a TopologyGraph from .poly source code
 TopologyGraph BuildGraph(const std::string &source) {
@@ -639,9 +707,13 @@ TEST_CASE("TopologyAnalyzer: LINK source node return type after foreign injectio
   // Foreign signature extraction
   polyglot::tools::ForeignExtractionOptions feopts;
   feopts.base_directory = std::filesystem::path(filename).parent_path().string();
+  Diagnostics extraction_diags;
+  feopts.diagnostics = &extraction_diags;
   polyglot::tools::ForeignSignatureExtractor extractor(feopts);
   auto foreign_sigs = extractor.ExtractAll(*module);
 
+  for (const auto &diagnostic : extraction_diags.All())
+    UNSCOPED_INFO(Diagnostics::Format(diagnostic));
   INFO("Foreign sigs extracted: " << foreign_sigs.size());
   REQUIRE_FALSE(foreign_sigs.empty());
 
@@ -679,6 +751,140 @@ TEST_CASE("TopologyAnalyzer: LINK source node return type after foreign injectio
 
   INFO("abs_val output port type.name = '" << abs_val_node->outputs[0].type.name << "'");
   CHECK(abs_val_node->outputs[0].type.name == "i32");
+}
+
+TEST_CASE("Foreign signature extraction rejects CLI and module LANG conflicts",
+          "[topology][foreign][versions]") {
+  auto &registry = polyglot::frontends::FrontendRegistry::Instance();
+  registry.Register(std::make_shared<polyglot::python::PythonLanguageFrontend>());
+
+  std::string fixture_dir;
+  for (const auto *candidate : {
+           "tests/integration/language_versions/python",
+           "../tests/integration/language_versions/python",
+           "../../tests/integration/language_versions/python",
+       }) {
+    if (std::filesystem::exists(std::string(candidate) + "/walrus_in_3_8.py")) {
+      fixture_dir = candidate;
+      break;
+    }
+  }
+  REQUIRE_FALSE(fixture_dir.empty());
+
+  Diagnostics parse_diagnostics;
+  PloyLexer lexer(R"(
+LANG python = "3.14";
+IMPORT python::walrus_in_3_8;
+)", "<version-conflict.poly>");
+  PloyParser parser(lexer, parse_diagnostics);
+  parser.ParseModule();
+  auto module = parser.TakeModule();
+  REQUIRE(module != nullptr);
+  REQUIRE_FALSE(parse_diagnostics.HasErrors());
+
+  Diagnostics extraction_diagnostics;
+  polyglot::tools::ForeignExtractionOptions options;
+  options.base_directory = fixture_dir;
+  options.diagnostics = &extraction_diagnostics;
+  options.frontend_options.python_version =
+      polyglot::frontends::PythonVersion::kPy3_13;
+
+  polyglot::tools::ForeignSignatureExtractor extractor(options);
+  CHECK(extractor.ExtractAll(*module).empty());
+  CHECK(std::any_of(extraction_diagnostics.All().begin(),
+                    extraction_diagnostics.All().end(), [](const auto &diagnostic) {
+                      return diagnostic.code ==
+                             polyglot::frontends::ErrorCode::kLangVersionMismatch;
+                    }));
+}
+
+TEST_CASE("Foreign signature extraction is diagnostic and module-atomic",
+          "[topology][foreign][contract]") {
+  auto &registry = polyglot::frontends::FrontendRegistry::Instance();
+  registry.Register(std::make_shared<ContractSignatureFrontend>());
+
+  std::string fixture_dir;
+  for (const auto *candidate : {
+           "tests/fixtures/foreign_signature_contract",
+           "../tests/fixtures/foreign_signature_contract",
+           "../../tests/fixtures/foreign_signature_contract",
+       }) {
+    if (std::filesystem::exists(candidate)) {
+      fixture_dir = candidate;
+      break;
+    }
+  }
+  REQUIRE_FALSE(fixture_dir.empty());
+
+  const auto extract = [&](const std::string &module_name,
+                           Diagnostics &diagnostics) {
+    Diagnostics parse_diagnostics;
+    const std::string source =
+        "IMPORT contract_fixture::" + module_name + ";\n";
+    PloyLexer lexer(source, "<foreign-contract.poly>");
+    PloyParser parser(lexer, parse_diagnostics);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module != nullptr);
+    REQUIRE_FALSE(parse_diagnostics.HasErrors());
+
+    polyglot::tools::ForeignExtractionOptions options;
+    options.base_directory = fixture_dir;
+    options.diagnostics = &diagnostics;
+    polyglot::tools::ForeignSignatureExtractor extractor(options);
+    return extractor.ExtractAll(*module);
+  };
+
+  SECTION("missing local source reports E3023") {
+    Diagnostics diagnostics;
+    CHECK(extract("missing", diagnostics).empty());
+    CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code ==
+                               polyglot::frontends::ErrorCode::kSignatureMissing;
+                      }));
+  }
+
+  SECTION("unreadable local source reports E3023") {
+    Diagnostics diagnostics;
+    CHECK(extract("unreadable", diagnostics).empty());
+    CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code ==
+                                   polyglot::frontends::ErrorCode::kSignatureMissing &&
+                               diagnostic.message.find("could not read") !=
+                                   std::string::npos;
+                      }));
+  }
+
+  SECTION("overload collision rejects every signature from the module") {
+    Diagnostics diagnostics;
+    CHECK(extract("overload", diagnostics).empty());
+    CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code ==
+                               polyglot::frontends::ErrorCode::kSignatureMismatch;
+                      }));
+  }
+
+  SECTION("short alias collision rejects every signature from the module") {
+    Diagnostics diagnostics;
+    CHECK(extract("alias", diagnostics).empty());
+    CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
+                      [](const auto &diagnostic) {
+                        return diagnostic.code ==
+                               polyglot::frontends::ErrorCode::kSignatureMismatch;
+                      }));
+  }
+
+  SECTION("identical duplicate declaration is deduplicated") {
+    Diagnostics diagnostics;
+    const auto signatures = extract("duplicate", diagnostics);
+    CHECK_FALSE(diagnostics.HasErrors());
+    CHECK(signatures.size() == 2);
+    CHECK(signatures.count("duplicate::work") == 1);
+    CHECK(signatures.count("work") == 1);
+  }
 }
 
 // ============================================================================

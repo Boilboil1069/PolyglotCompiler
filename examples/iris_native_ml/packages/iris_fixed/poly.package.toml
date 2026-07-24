@@ -1,0 +1,7 @@
+name = "iris_fixed"
+version = "1.0.0"
+language = "cpp"
+include_dir = "include"
+
+[exports]
+headers = ["iris_fixed/qmath.hpp"]

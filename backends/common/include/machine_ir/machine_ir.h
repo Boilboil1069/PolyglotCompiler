@@ -48,7 +48,16 @@ template <typename TargetTraits>
 struct Operand {
     using Register = typename TargetTraits::Register;
 
-    enum class Kind { kVReg, kPhysReg, kImm, kLabel, kStackSlot, kMemVReg, kMemLabel };
+    enum class Kind {
+        kVReg,
+        kPhysReg,
+        kImm,
+        kLabel,
+        kStackSlot,
+        kStackObject,
+        kMemVReg,
+        kMemLabel
+    };
 
     Kind         kind{Kind::kImm};
     int          vreg{-1};
@@ -56,6 +65,7 @@ struct Operand {
     long long    imm{0};
     std::string  label;
     int          stack_slot{-1};
+    long long    displacement{0};
     bool         is_float{false};
 
     static Operand VReg(int v, bool is_float_op = false) {
@@ -95,11 +105,24 @@ struct Operand {
         return op;
     }
 
-    static Operand MemVReg(int v, bool is_float_op = false) {
+    /// Address of an explicitly-sized local stack object.  The object index
+    /// is resolved to an RBP-relative byte offset after register allocation,
+    /// when the number of spill slots is known.
+    static Operand StackObject(int object, long long displacement = 0) {
         Operand op;
-        op.kind     = Kind::kMemVReg;
-        op.vreg     = v;
-        op.is_float = is_float_op;
+        op.kind         = Kind::kStackObject;
+        op.stack_slot   = object;
+        op.displacement = displacement;
+        return op;
+    }
+
+    static Operand MemVReg(int v, long long displacement = 0,
+                           bool is_float_op = false) {
+        Operand op;
+        op.kind         = Kind::kMemVReg;
+        op.vreg         = v;
+        op.displacement = displacement;
+        op.is_float     = is_float_op;
         return op;
     }
 
@@ -125,6 +148,17 @@ struct MachineInstr {
     int                              cost{1};
     int                              latency{1};
     bool                             terminator{false};
+    // Load/store width and signed-load semantics.  A zero width preserves the
+    // historical target default (one native word).
+    std::size_t                      memory_width{0};
+    bool                             memory_signed{false};
+};
+
+/// Explicit local storage requested by an IR alloca that cannot be promoted
+/// to a scalar virtual register.
+struct StackObject {
+    std::size_t size{0};
+    std::size_t alignment{1};
 };
 
 template <typename TargetTraits, typename OpcodeT>
@@ -137,6 +171,12 @@ template <typename TargetTraits, typename OpcodeT>
 struct MachineFunction {
     std::string                                              name;
     std::vector<MachineBasicBlock<TargetTraits, OpcodeT>>    blocks;
+    // Virtual registers corresponding to source-level function parameters,
+    // in ABI order.  Targets materialise incoming argument registers into
+    // these vregs in the function prologue.
+    std::vector<int>                                         param_vregs;
+    std::vector<bool>                                        param_is_float;
+    std::vector<StackObject>                                 stack_objects;
 };
 
 /// @brief Live-range information for a virtual register.
@@ -189,6 +229,15 @@ ComputeLiveIntervals(const MachineFunction<TargetTraits, OpcodeT>& fn) {
         auto [inserted_it, _] = intervals.emplace(vreg, li);
         return inserted_it->second;
     };
+
+    // Parameters are all live on function entry because their ABI registers
+    // are materialised before the first machine instruction. Starting an
+    // interval only at its first use could otherwise assign two arguments to
+    // one physical register and overwrite one in the prologue.
+    for (int param_vreg : fn.param_vregs) {
+        auto& li = ensure(param_vreg);
+        li.start = 0;
+    }
 
     for (const auto& bb : fn.blocks) {
         for (const auto& mi : bb.instructions) {
@@ -294,7 +343,9 @@ namespace detail {
 template <typename TargetTraits>
 inline bool Overlaps(const LiveInterval<TargetTraits>& a,
                      const LiveInterval<TargetTraits>& b) {
-    return !(a.end <= b.start || b.end <= a.start);
+    // Interval endpoints denote instruction positions and are inclusive.
+    // Two values used at the same instruction therefore interfere.
+    return !(a.end < b.start || b.end < a.start);
 }
 
 }  // namespace detail

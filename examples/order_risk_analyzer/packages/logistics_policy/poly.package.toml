@@ -1,0 +1,9 @@
+name = "logistics_policy"
+version = "1.0.0"
+language = "go"
+source = "src/logistics_policy.go"
+
+[exports]
+types = ["LogisticsSession"]
+functions = ["NewLogisticsSession"]
+methods = ["LogisticsSession.AdjustETA", "LogisticsSession.Decision"]

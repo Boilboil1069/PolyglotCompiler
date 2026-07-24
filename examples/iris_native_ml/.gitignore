@@ -1,0 +1,5 @@
+/artifacts/
+/aux/
+/build/
+!/run.sh
+!/test.sh

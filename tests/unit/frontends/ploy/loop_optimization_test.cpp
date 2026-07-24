@@ -159,11 +159,11 @@ FUNC sum_range() -> INT {
 }
 
 // ============================================================================
-// 3. FOR..IN vs WHILE: both loops over the same range must produce the same
-//    number of basic blocks (structural equivalence check)
+// 3. FOR..IN vs WHILE: range lowering has one explicit step block so that
+//    CONTINUE executes the increment before returning to the condition.
 // ============================================================================
 
-TEST_CASE("Poly loop: FOR..IN and equivalent WHILE have matching block counts", "[poly][loop]") {
+TEST_CASE("Poly loop: FOR..IN range has an explicit continue-safe step block", "[poly][loop]") {
     Diagnostics for_diags;
     auto for_result = Compile(R"(
 FUNC sum_for() -> INT {
@@ -193,10 +193,30 @@ FUNC sum_while() -> INT {
     int for_blocks = CountBasicBlocks(for_result.ir_text, "sum_for");
     int while_blocks = CountBasicBlocks(while_result.ir_text, "sum_while");
 
-    // Both should produce the same structural block count (loop header + body + exit)
+    // FOR owns a distinct step target; the hand-written WHILE increments in
+    // its body and therefore needs one fewer block.
     CHECK(for_blocks >= 3);
     CHECK(while_blocks >= 3);
-    CHECK(for_blocks == while_blocks);
+    CHECK(for_blocks == while_blocks + 1);
+}
+
+TEST_CASE("Poly loop: general iterable fails closed instead of becoming a numeric bound",
+          "[poly][loop][lowering][unsupported]") {
+    Diagnostics diags;
+    auto result = Compile(R"(
+FUNC sum_items() -> INT {
+    VAR total = 0;
+    FOR item IN [10, 20] {
+        total = total + item;
+    }
+    RETURN total;
+}
+)", diags);
+
+    CHECK_FALSE(result.success);
+    CHECK(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+        return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    }));
 }
 
 // ============================================================================
@@ -456,7 +476,8 @@ FUNC infinite_work() -> INT {
 // 11. Loop in PIPELINE: block structure is preserved inside pipeline functions
 // ============================================================================
 
-TEST_CASE("Poly loop: PIPELINE with loop produces multi-block IR", "[poly][loop]") {
+TEST_CASE("Poly loop: void PIPELINE rejects loop result return",
+          "[poly][loop][unsupported]") {
     Diagnostics diags;
     auto result = Compile(R"(
 PIPELINE aggregate {
@@ -468,13 +489,10 @@ PIPELINE aggregate {
 }
 )", diags);
 
-    REQUIRE(result.success);
-    REQUIRE(!diags.HasErrors());
-
-    CHECK(result.ir_text.find("__ploy_pipeline_aggregate") != std::string::npos);
-
-    int blocks = CountBasicBlocks(result.ir_text, "__ploy_pipeline_aggregate");
-    CHECK(blocks >= 3);
+    CHECK_FALSE(result.success);
+    CHECK(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+        return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    }));
 }
 
 // ============================================================================

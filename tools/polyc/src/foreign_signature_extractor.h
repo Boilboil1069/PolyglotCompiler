@@ -14,6 +14,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -41,11 +42,29 @@ struct ForeignExtractionOptions {
   /// Directory containing the .poly file (used as base for relative paths).
   std::string base_directory;
 
+  /// Original .poly entry and writable auxiliary directory.  When both are
+  /// set, project-local PACKAGE manifests may contribute source to the same
+  /// bundled unit used later by the packaging stage.
+  std::string poly_source_file;
+  std::string bundle_directory;
+  bool require_local_source_packages{false};
+
   /// Additional search directories for foreign source files.
   std::vector<std::string> include_paths;
 
   /// Whether to emit verbose logging to stderr.
   bool verbose{false};
+
+  /// Language versions and project/toolchain inputs used while analysing the
+  /// imported source.  Signature extraction must use the same dialect as the
+  /// main frontend pipeline.
+  frontends::FrontendOptions frontend_options{};
+
+  /// Optional sink for resolution/read/lexer/parser/sema/signature-collision
+  /// failures from imported sources.  Compiler callers should always provide
+  /// it; when null, extraction still fails closed but diagnostics are only
+  /// printed in verbose mode.
+  frontends::Diagnostics *diagnostics{nullptr};
 };
 
 /** @brief ForeignSignatureExtractor class. */
@@ -55,7 +74,9 @@ public:
 
   /// Walk the poly Module's IMPORT declarations and extract signatures from
   /// all referenced foreign-language source files.
-  /// Returns a map of qualified_name → FunctionSignature.
+  /// Returns a map of qualified_name → FunctionSignature.  Each imported
+  /// module is committed atomically: an unrepresentable overload or alias
+  /// collision rejects every signature from that module.
   std::unordered_map<std::string, ploy::FunctionSignature> ExtractAll(
       const ploy::Module &module) const;
 
@@ -64,8 +85,9 @@ private:
   /// Returns the full path if found, or empty string if not found.
   std::string ResolveSourceFile(const std::string &language, const std::string &module_name) const;
 
-  /// Read a file into a string.  Returns empty string on failure.
-  static std::string ReadFile(const std::string &path);
+  /// Read a file into a string.  An empty string is a valid empty file;
+  /// std::nullopt denotes an open/read failure.
+  static std::optional<std::string> ReadFile(const std::string &path);
 
   ForeignExtractionOptions opts_;
 };

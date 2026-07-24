@@ -264,9 +264,43 @@ frontends::Token DotnetLexer::ReadString() {
       lexeme.push_back(Get());
     }
   }
-  if (!Eof())
+  if (!Eof()) {
     lexeme.push_back(Get()); // closing '"'
-  return frontends::Token{frontends::TokenKind::kString, lexeme, loc};
+    return frontends::Token{frontends::TokenKind::kString, lexeme, loc};
+  }
+  return frontends::Token{frontends::TokenKind::kUnknown,
+                          "unterminated C# string literal", loc};
+}
+
+frontends::Token DotnetLexer::ReadRawString() {
+  // C# 11 raw/interpolated-raw strings.  Keep the complete spelling in one
+  // token; interpolation is intentionally left for the expression parser.
+  core::SourceLoc loc = CurrentLoc();
+  std::string lexeme;
+  while (Peek() == '$')
+    lexeme.push_back(Get());
+
+  size_t quote_count = 0;
+  while (Peek() == '"') {
+    lexeme.push_back(Get());
+    ++quote_count;
+  }
+
+  while (!Eof()) {
+    if (Peek() == '"') {
+      size_t run = 0;
+      while (position_ + run < source_.size() && source_[position_ + run] == '"')
+        ++run;
+      if (run >= quote_count) {
+        for (size_t i = 0; i < quote_count; ++i)
+          lexeme.push_back(Get());
+        return frontends::Token{frontends::TokenKind::kString, lexeme, loc};
+      }
+    }
+    lexeme.push_back(Get());
+  }
+  return frontends::Token{frontends::TokenKind::kUnknown,
+                          "unterminated C# raw string literal", loc};
 }
 
 frontends::Token DotnetLexer::ReadVerbatimString() {
@@ -358,6 +392,17 @@ frontends::Token DotnetLexer::NextToken() {
 
   char c = Peek();
 
+  // Raw strings use a delimiter of at least three quotes and may have one
+  // or more '$' interpolation prefixes.
+  size_t prefix = position_;
+  while (prefix < source_.size() && source_[prefix] == '$')
+    ++prefix;
+  size_t quotes = 0;
+  while (prefix + quotes < source_.size() && source_[prefix + quotes] == '"')
+    ++quotes;
+  if (quotes >= 3)
+    return ReadRawString();
+
   // Line comments
   if (c == '/' && PeekNext() == '/') {
     core::SourceLoc loc = CurrentLoc();
@@ -394,7 +439,10 @@ frontends::Token DotnetLexer::NextToken() {
     while (!Eof() && Peek() != '\n') {
       text.push_back(Get());
     }
-    return frontends::Token{frontends::TokenKind::kComment, text, loc};
+    // Keep directives visible to the parser.  In particular, C# 14
+    // file-based applications use semantic `#:` directives; treating every
+    // `#` line as a comment silently erased their package/SDK contract.
+    return frontends::Token{frontends::TokenKind::kPreprocessor, text, loc};
   }
 
   // Interpolated string

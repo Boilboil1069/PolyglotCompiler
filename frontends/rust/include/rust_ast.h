@@ -137,6 +137,24 @@ struct PathExpression : Expression {
   std::vector<std::vector<std::shared_ptr<TypeNode>>> generic_args;
 };
 
+/** A named-field struct value such as `Point { x: 1, y: 2 }`.
+ *
+ * The frontend deliberately keeps this distinct from a block expression so
+ * lowering can require a complete, statically known aggregate layout.  Tuple
+ * struct construction and functional-update syntax remain separate, explicit
+ * unsupported boundaries.
+ */
+struct StructExpression : Expression {
+  struct FieldInitializer {
+    std::string name;
+    std::shared_ptr<Expression> value;
+  };
+
+  PathExpression path;
+  std::vector<FieldInitializer> fields;
+  bool has_rest{false};
+};
+
 /** @brief UnaryExpression data structure. */
 struct UnaryExpression : Expression {
   std::string op;
@@ -193,6 +211,7 @@ struct TryExpression : Expression {
 /** @brief ClosureExpression data structure. */
 struct ClosureExpression : Expression {
   bool is_move{false};
+  bool is_async{false};
   /** @brief Param data structure. */
   struct Param {
     std::string name;
@@ -278,11 +297,17 @@ struct LetStatement : Statement {
   std::shared_ptr<Pattern> pattern;
   std::shared_ptr<Expression> init;
   std::shared_ptr<TypeNode> type_annotation;
+  // Present for `let PATTERN = EXPR else { ... };` (Rust 1.65+).
+  bool has_else{false};
+  std::vector<std::shared_ptr<Statement>> else_body;
 };
 
 /** @brief ExprStatement data structure. */
 struct ExprStatement : Statement {
   std::shared_ptr<Expression> expr;
+  // Rust block tail expressions omit the semicolon and determine the block's
+  // value.  Keeping this bit prevents lowering them as discarded statements.
+  bool has_semicolon{true};
 };
 
 /** @brief ReturnStatement data structure. */

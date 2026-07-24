@@ -1,33 +1,187 @@
-// PolyglotCompiler-side contract for the same Python + C++ application.
-// The executable demo currently runs through Python's ctypes bridge; this file
-// is kept compilable by the Poly frontend and documents the intended native
-// orchestration once container marshalling is complete.
+// Data-driven order authorization application.
+// One polyc invocation owns source discovery, four vendored-package manifests,
+// four language frontends, native file runtime injection, and final linking.
 
-IMPORT cpp::risk_kernel;
-IMPORT python::report_pipeline;
+IMPORT cpp::pricing_engine;
+// Every language has a project-vendored package dependency. polyc resolves the
+// manifests below: C++ receives a declared include root, while Python/Rust/Go
+// receive declared source units before signature extraction and compilation.
+// No shell-level -I flag, language package manager, or downloaded toolchain is
+// involved.
+IMPORT cpp PACKAGE order_policy >= 1.0;
+IMPORT python::fraud_engine;
+IMPORT python PACKAGE fraud_policy >= 1.0;
+IMPORT rust::fulfillment_engine;
+IMPORT rust PACKAGE fulfillment_policy >= 1.0;
+IMPORT go::logistics_engine;
+IMPORT go PACKAGE logistics_policy >= 1.0;
 
-// Compatibility LINK form is intentional: the current signed-LINK parser
-// records the signature but does not populate both language fields required by
-// sema. Replace these with signed LINK declarations when that gap is closed.
-LINK(poly, cpp, order_risk::risk_evaluate, risk_kernel::risk_evaluate) RETURNS INT {
-    MAP_TYPE(poly::PTR, cpp::PTR);
-}
-LINK(poly, cpp, order_risk::kernel_version, risk_kernel::risk_kernel_version) RETURNS STRING;
-LINK(poly, python, order_risk::load_orders, report_pipeline::load_orders) RETURNS LIST(ANY) {
-    MAP_TYPE(poly::STRING, python::str);
-}
+FUNC evaluate_order(
+    unit_price: INT,
+    quantity: INT,
+    recent_orders: INT,
+    failed_payments: INT,
+    available_units: INT,
+    delivery_zone: INT
+) -> INT {
+    // C++ free-function rules remain independently auditable.
+    LET subtotal = CALL(cpp, pricing_engine::pricing_subtotal, unit_price, quantity);
+    LET discount = CALL(cpp, pricing_engine::pricing_discount, subtotal, quantity, 2);
+    LET shipping_fee = delivery_zone + 8;
+    LET payable = CALL(cpp, pricing_engine::pricing_payable, subtotal, discount, shipping_fee);
 
-STRUCT RunSummary {
-    orders: INT;
-    approved: INT;
-    review: INT;
-    high_risk: INT;
-}
-
-PIPELINE order_risk_pipeline {
-    FUNC describe() -> STRING {
-        RETURN "CSV -> Python validation -> C++ scoring -> Python JSON report";
+    // The same result must be reproduced by the vendored C++ class package.
+    // Its wrapper constructs OrderPricingSession, mutates/reads four fields,
+    // invokes four instance methods, and runs the destructor before returning.
+    LET object_payable = CALL(
+        cpp, pricing_engine::pricing_session_payable, unit_price, quantity, delivery_zone
+    );
+    IF object_payable != payable {
+        RETURN 60;
     }
+
+    // Python: derive independent velocity and amount features, then a band.
+    LET velocity_points = CALL(
+        python, fraud_engine::fraud_velocity_points, recent_orders, failed_payments, 1
+    );
+    LET amount_points = CALL(
+        python, fraud_engine::fraud_amount_points, payable, 28, 0
+    );
+    LET risk_band = CALL(
+        python, fraud_engine::fraud_risk_band, velocity_points, amount_points, failed_payments
+    );
+    LET object_risk_band = CALL(
+        python, fraud_engine::fraud_session_band, velocity_points, amount_points, failed_payments
+    );
+    IF object_risk_band != risk_band {
+        RETURN 61;
+    }
+
+    // Rust: reserve stock, authorize payment, and combine both gates.
+    LET reserved = CALL(
+        rust, fulfillment_engine::inventory_reservable, quantity, available_units, 5
+    );
+    LET payment_status = CALL(
+        rust, fulfillment_engine::payment_authorization, risk_band, payable, failed_payments
+    );
+    LET fulfillment_status = CALL(
+        rust, fulfillment_engine::fulfillment_gate, quantity, reserved, payment_status
+    );
+    LET object_fulfillment_status = CALL(
+        rust, fulfillment_engine::fulfillment_session_gate, quantity, reserved, payment_status
+    );
+    IF object_fulfillment_status != fulfillment_status {
+        RETURN 62;
+    }
+
+    // Go: calculate delivery capacity and normalize the final decision.
+    LET base_days = CALL(
+        go, logistics_engine::logistics_base_days, delivery_zone, quantity, reserved
+    );
+    LET capacity_delay = CALL(
+        go, logistics_engine::logistics_capacity_delay, quantity, 4, 1
+    );
+    LET eta_days = base_days + capacity_delay;
+    LET decision = CALL(
+        go, logistics_engine::logistics_decision, fulfillment_status, risk_band, eta_days
+    );
+    LET object_decision = CALL(
+        go, logistics_engine::logistics_session_decision,
+        fulfillment_status, risk_band, eta_days
+    );
+    IF object_decision != decision {
+        RETURN 63;
+    }
+    RETURN decision;
 }
 
-PRINTLN "order_risk_analyzer: contract ok\r\n";
+FUNC read_and_evaluate_order(fd: INT, eof: INT) -> INT {
+    // polyrt_read_i64_or skips CSV text/delimiters and parses the next signed
+    // integer. The descriptor offset is maintained by the kernel, so these
+    // calls form a real streaming reader rather than embedded constants.
+    LET order_id = file_next_int(fd, eof);
+    IF order_id == eof {
+        RETURN eof;
+    }
+
+    LET unit_price = file_next_int(fd, eof);
+    LET quantity = file_next_int(fd, eof);
+    LET recent_orders = file_next_int(fd, eof);
+    LET failed_payments = file_next_int(fd, eof);
+    LET available_units = file_next_int(fd, eof);
+    LET delivery_zone = file_next_int(fd, eof);
+    LET expected_decision = file_next_int(fd, eof);
+
+    LET actual = evaluate_order(
+        unit_price,
+        quantity,
+        recent_orders,
+        failed_payments,
+        available_units,
+        delivery_zone
+    );
+    IF actual != expected_decision {
+        RETURN -1;
+    }
+    RETURN actual;
+}
+
+// Stream until actual EOF.  Tail recursion avoids embedding a fixed sequence
+// of eight reads and carries the aggregation state through ordinary native
+// ABI arguments.  stats_code packs rows/approved/review/fraud/inventory as
+// decimal fields; for this data set the expected aggregate is 8/3/2/1/2.
+FUNC process_order_stream(
+    fd: INT,
+    eof: INT,
+    row_count: INT,
+    checksum: INT,
+    stats_code: INT
+) -> INT {
+    LET decision = read_and_evaluate_order(fd, eof);
+
+    IF decision == eof {
+        IF row_count != 8 { RETURN 222; }
+        IF checksum != 483 { RETURN 223; }
+        IF stats_code != 83212 { RETURN 224; }
+        // POSIX process codes are one byte: 483 - 251 = 232.
+        RETURN checksum - 251;
+    }
+    IF decision < 0 {
+        RETURN 225;
+    }
+
+    // Every delta adds 10,000 for one processed row plus the matching
+    // category digit: approved/review/fraud/inventory respectively.
+    IF decision >= 100 {
+        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
+                                    stats_code + 11000);
+    }
+    IF decision == 20 {
+        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
+                                    stats_code + 10100);
+    }
+    IF decision == 40 {
+        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
+                                    stats_code + 10010);
+    }
+    IF decision == 30 {
+        RETURN process_order_stream(fd, eof, row_count + 1, checksum + decision,
+                                    stats_code + 10001);
+    }
+    RETURN 226;
+}
+
+FUNC main() -> INT {
+    LET eof = 999999;
+    LET fd = file_open_ints("data/orders.csv");
+    IF fd < 0 {
+        RETURN 220;
+    }
+
+    LET audit_status = process_order_stream(fd, eof, 0, 0, 0);
+    LET close_status = file_close(fd);
+    IF close_status != 0 {
+        RETURN 221;
+    }
+    RETURN audit_status;
+}

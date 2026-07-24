@@ -63,6 +63,12 @@ bool PythonParser::IsSymbol(const std::string &symbol) const {
   return current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == symbol;
 }
 
+bool PythonParser::IsName(const std::string &name) const {
+  return (current_.kind == frontends::TokenKind::kIdentifier ||
+          current_.kind == frontends::TokenKind::kKeyword) &&
+         current_.lexeme == name;
+}
+
 bool PythonParser::MatchSymbol(const std::string &symbol) {
   if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == symbol) {
     Consume();
@@ -77,6 +83,46 @@ bool PythonParser::MatchKeyword(const std::string &keyword) {
     return true;
   }
   return false;
+}
+
+bool PythonParser::MatchName(const std::string &name) {
+  if (IsName(name)) {
+    Consume();
+    return true;
+  }
+  return false;
+}
+
+bool PythonParser::LooksLikeMatchStatement() {
+  if (current_.kind != frontends::TokenKind::kIdentifier || current_.lexeme != "match")
+    return false;
+
+  auto saved_token = current_;
+  auto saved_state = lexer_.SaveState();
+  auto saved_doc = pending_doc_;
+  int nesting = 0;
+  bool result = false;
+  Advance();
+  while (current_.kind != frontends::TokenKind::kEndOfFile &&
+         current_.kind != frontends::TokenKind::kNewline &&
+         current_.kind != frontends::TokenKind::kDedent) {
+    if (IsSymbol("(") || IsSymbol("[") || IsSymbol("{")) {
+      ++nesting;
+    } else if (IsSymbol(")") || IsSymbol("]") || IsSymbol("}")) {
+      if (nesting > 0)
+        --nesting;
+    } else if (nesting == 0 && IsSymbol(":")) {
+      result = true;
+      break;
+    } else if (nesting == 0 && IsSymbol("=")) {
+      break;
+    }
+    Advance();
+  }
+  lexer_.RestoreState(saved_state);
+  current_ = saved_token;
+  pending_doc_ = saved_doc;
+  return result;
 }
 
 void PythonParser::ExpectSymbol(const std::string &symbol, const std::string &message) {
@@ -120,8 +166,34 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
   if (!IsSymbol(":")) {
     bool kwonly = false;
     bool seen_kwarg = false;
+    bool seen_posonly_separator = false;
     while (true) {
-      if (MatchSymbol("*")) {
+      if (IsSymbol("/")) {
+        auto slash_loc = current_.loc;
+        Consume();
+        if (!frontends::PythonVersionAtLeast(python_version_,
+                                             frontends::PythonVersion::kPy3_8)) {
+          diagnostics_.ReportError(
+              slash_loc, frontends::ErrorCode::kLangVersionMismatch,
+              "positional-only parameters require Python 3.8 or newer (current: " +
+                  std::string(frontends::PythonVersionToString(python_version_)) + ")");
+        }
+        if (seen_posonly_separator) {
+          diagnostics_.ReportError(slash_loc, frontends::ErrorCode::kUnexpectedToken,
+                                   "duplicate '/' positional-only parameter separator");
+        } else if (lam->params.empty() || kwonly) {
+          diagnostics_.Report(slash_loc, "'/' must follow positional parameters");
+        } else {
+          for (auto &param : lam->params)
+            param.is_posonly = true;
+        }
+        seen_posonly_separator = true;
+        if (IsSymbol(":"))
+          break;
+        if (!MatchSymbol(","))
+          diagnostics_.Report(current_.loc, "Expected ',' after '/'");
+        continue;
+      } else if (MatchSymbol("*")) {
         if (IsSymbol(",") || IsSymbol(":")) {
           kwonly = true;
         } else if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -182,6 +254,55 @@ std::shared_ptr<Expression> PythonParser::ParseLambda() {
   return lam;
 }
 
+std::shared_ptr<Expression> PythonParser::ParseFormattedString() {
+  const bool is_template = current_.raw_lexeme == "__polyglot_python_tstring__";
+  std::shared_ptr<FormattedString> formatted =
+      is_template ? std::static_pointer_cast<FormattedString>(std::make_shared<TemplateString>())
+                  : std::make_shared<FormattedString>();
+  formatted->loc = current_.loc;
+  if (is_template &&
+      !frontends::PythonVersionAtLeast(python_version_, frontends::PythonVersion::kPy3_14)) {
+    diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                             "template strings require Python 3.14 or newer (current: " +
+                                 std::string(frontends::PythonVersionToString(python_version_)) +
+                                 ")");
+  }
+
+  FormattedString::Part initial;
+  initial.is_literal = true;
+  initial.literal = current_.lexeme;
+  formatted->parts.push_back(std::move(initial));
+  Consume();
+
+  while (IsSymbol("{")) {
+    Consume();
+    FormattedString::Part expression_part;
+    expression_part.is_literal = false;
+    expression_part.expr = ParseExpression();
+
+    // Conversion/debug markers and format specs are deliberately retained as
+    // source text rather than discarded.  The expression itself is still a
+    // real AST node and is visited by sema/lowering.
+    while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+      if (!expression_part.format_spec.empty())
+        expression_part.format_spec.push_back(' ');
+      expression_part.format_spec += current_.SourceText();
+      Consume();
+    }
+    ExpectSymbol("}", "Expected '}' after f-string expression");
+    formatted->parts.push_back(std::move(expression_part));
+
+    if (current_.kind == frontends::TokenKind::kString) {
+      FormattedString::Part literal_part;
+      literal_part.is_literal = true;
+      literal_part.literal = current_.lexeme;
+      formatted->parts.push_back(std::move(literal_part));
+      Consume();
+    }
+  }
+  return formatted;
+}
+
 std::shared_ptr<Expression> PythonParser::ParseAtom() {
   if (current_.kind == frontends::TokenKind::kKeyword) {
     if (current_.lexeme == "lambda")
@@ -204,6 +325,11 @@ std::shared_ptr<Expression> PythonParser::ParseAtom() {
     ident->loc = current_.loc;
     Consume();
     return ident;
+  }
+  if (current_.kind == frontends::TokenKind::kString &&
+      (current_.raw_lexeme == "__polyglot_python_fstring__" ||
+       current_.raw_lexeme == "__polyglot_python_tstring__")) {
+    return ParseFormattedString();
   }
   if (current_.kind == frontends::TokenKind::kNumber ||
       current_.kind == frontends::TokenKind::kString) {
@@ -717,6 +843,17 @@ std::shared_ptr<Expression> PythonParser::ParseSliceOrIndex(std::shared_ptr<Expr
     idx->index = s;
     return idx;
   }
+  if (MatchSymbol(",")) {
+    auto tuple = std::make_shared<TupleExpression>();
+    tuple->loc = loc;
+    tuple->elements.push_back(start);
+    while (!IsSymbol("]") && current_.kind != frontends::TokenKind::kEndOfFile) {
+      tuple->elements.push_back(ParseExpression());
+      if (!MatchSymbol(","))
+        break;
+    }
+    start = tuple;
+  }
   ExpectSymbol("]", "Expected ']' after subscript");
   auto idx = std::make_shared<IndexExpression>();
   idx->loc = loc;
@@ -748,6 +885,103 @@ std::shared_ptr<Expression> PythonParser::ParseNamedExpression() {
 
 std::shared_ptr<Expression> PythonParser::ParseExpression() {
   return ParseNamedExpression();
+}
+
+std::vector<TypeParameter> PythonParser::ParseTypeParameters() {
+  std::vector<TypeParameter> parameters;
+  if (!MatchSymbol("["))
+    return parameters;
+
+  bool saw_default = false;
+  bool previous_was_type_var_tuple = false;
+  while (!IsSymbol("]") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    TypeParameter parameter;
+    parameter.loc = current_.loc;
+    if (MatchSymbol("**"))
+      parameter.kind = TypeParameter::Kind::kParamSpec;
+    else if (MatchSymbol("*"))
+      parameter.kind = TypeParameter::Kind::kTypeVarTuple;
+
+    if (current_.kind != frontends::TokenKind::kIdentifier) {
+      diagnostics_.Report(current_.loc, "Expected type parameter name");
+      Sync();
+      break;
+    }
+    parameter.name = current_.lexeme;
+    Consume();
+
+    // Bounds/constraints and defaults are semantically observable and must
+    // remain in the AST; consuming and discarding them would make a modern
+    // declaration look simpler than its source contract.
+    if (MatchSymbol(":"))
+      parameter.bound = ParseExpression();
+    bool has_default = false;
+    if (IsSymbol("=")) {
+      const auto default_loc = current_.loc;
+      Consume();
+      has_default = true;
+      if (!frontends::PythonVersionAtLeast(python_version_,
+                                           frontends::PythonVersion::kPy3_13)) {
+        diagnostics_.ReportError(
+            default_loc, frontends::ErrorCode::kLangVersionMismatch,
+            "type parameter defaults require Python 3.13 or newer (current: " +
+                std::string(frontends::PythonVersionToString(python_version_)) + ")");
+      }
+      if (IsSymbol("*")) {
+        auto starred = std::make_shared<StarredExpression>();
+        starred->loc = current_.loc;
+        Consume();
+        starred->value = ParseExpression();
+        parameter.default_value = std::move(starred);
+      } else {
+        parameter.default_value = ParseExpression();
+      }
+    }
+
+    if (!has_default && saw_default) {
+      diagnostics_.ReportError(
+          parameter.loc, frontends::ErrorCode::kUnexpectedToken,
+          "non-default type parameter cannot follow a type parameter with a default");
+    }
+    if (has_default && previous_was_type_var_tuple &&
+        parameter.kind == TypeParameter::Kind::kTypeVar) {
+      diagnostics_.ReportError(
+          parameter.loc, frontends::ErrorCode::kUnexpectedToken,
+          "a TypeVar with a default cannot immediately follow a TypeVarTuple");
+    }
+    saw_default |= has_default;
+    previous_was_type_var_tuple =
+        parameter.kind == TypeParameter::Kind::kTypeVarTuple;
+
+    parameters.push_back(std::move(parameter));
+
+    if (!MatchSymbol(","))
+      break;
+  }
+  ExpectSymbol("]", "Expected ']' after type parameters");
+  return parameters;
+}
+
+std::shared_ptr<Statement> PythonParser::ParseTypeAlias() {
+  auto alias = std::make_shared<TypeAlias>();
+  alias->loc = current_.loc;
+  MatchName("type");
+  if (!frontends::PythonVersionAtLeast(python_version_, frontends::PythonVersion::kPy3_12)) {
+    diagnostics_.ReportError(alias->loc, frontends::ErrorCode::kLangVersionMismatch,
+                             "'type' alias statements require Python 3.12 or newer (current: " +
+                                 std::string(frontends::PythonVersionToString(python_version_)) +
+                                 ")");
+  }
+  if (current_.kind == frontends::TokenKind::kIdentifier) {
+    alias->name = current_.lexeme;
+    Consume();
+  } else {
+    diagnostics_.Report(current_.loc, "Expected type alias name");
+  }
+  alias->type_parameters = ParseTypeParameters();
+  ExpectSymbol("=", "Expected '=' in type alias statement");
+  alias->value = ParseExpression();
+  return alias;
 }
 
 std::shared_ptr<Statement> PythonParser::ParseImport() {
@@ -974,8 +1208,43 @@ std::shared_ptr<Statement> PythonParser::ParseTry() {
     ExceptHandler handler;
     handler.body.clear();
     Consume();
+    if (MatchSymbol("*")) {
+      handler.is_exception_group = true;
+      if (!frontends::PythonVersionAtLeast(python_version_,
+                                           frontends::PythonVersion::kPy3_11)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 "'except*' requires Python 3.11 or newer (current: " +
+                                     std::string(frontends::PythonVersionToString(
+                                         python_version_)) +
+                                     ")");
+      }
+    }
     if (!IsSymbol(":")) {
+      auto exception_loc = current_.loc;
       handler.type = ParseExpression();
+
+      // PEP 758 (Python 3.14) permits an unparenthesized tuple of exception
+      // types in both except and except* clauses: `except A, B:`.  Preserve
+      // that syntax as the same TupleExpression used by the parenthesized
+      // spelling, but gate only the parenthesis elision at 3.14.
+      if (MatchSymbol(",")) {
+        if (!frontends::PythonVersionAtLeast(python_version_,
+                                             frontends::PythonVersion::kPy3_14)) {
+          diagnostics_.ReportError(
+              exception_loc, frontends::ErrorCode::kLangVersionMismatch,
+              "unparenthesized multiple exception types require Python 3.14 or newer "
+              "(current: " +
+                  std::string(frontends::PythonVersionToString(python_version_)) + ")");
+        }
+        auto tuple = std::make_shared<TupleExpression>();
+        tuple->loc = exception_loc;
+        tuple->is_parenthesized = false;
+        tuple->elements.push_back(handler.type);
+        do {
+          tuple->elements.push_back(ParseExpression());
+        } while (MatchSymbol(",") && !IsSymbol(":"));
+        handler.type = std::move(tuple);
+      }
       if (MatchKeyword("as")) {
         if (current_.kind == frontends::TokenKind::kIdentifier) {
           handler.name = current_.lexeme;
@@ -1004,7 +1273,7 @@ std::shared_ptr<Statement> PythonParser::ParseTry() {
 std::shared_ptr<Statement> PythonParser::ParseMatch() {
   auto stmt = std::make_shared<MatchStatement>();
   stmt->loc = current_.loc;
-  MatchKeyword("match");
+  MatchName("match");
   stmt->subject = ParseExpression();
   ExpectSymbol(":", "Expected ':' after match subject");
   if (current_.kind == frontends::TokenKind::kNewline) {
@@ -1017,7 +1286,7 @@ std::shared_ptr<Statement> PythonParser::ParseMatch() {
     SkipNewlines();
     while (current_.kind != frontends::TokenKind::kDedent &&
            current_.kind != frontends::TokenKind::kEndOfFile) {
-      if (!MatchKeyword("case")) {
+      if (!MatchName("case")) {
         diagnostics_.Report(current_.loc, "Expected 'case' in match statement");
         Sync();
         SkipNewlines();
@@ -1135,12 +1404,45 @@ std::shared_ptr<Statement> PythonParser::ParseFunction() {
   } else {
     diagnostics_.Report(current_.loc, "Expected function name");
   }
+  if (IsSymbol("[")) {
+    if (!frontends::PythonVersionAtLeast(python_version_, frontends::PythonVersion::kPy3_12)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "generic function type parameters require Python 3.12 or newer");
+    }
+    fn->type_parameters = ParseTypeParameters();
+  }
   ExpectSymbol("(", "Expected '(' after function name");
   if (!MatchSymbol(")")) {
     bool kwonly = false;
     bool seen_kwarg = false;
+    bool seen_posonly_separator = false;
     while (true) {
-      if (MatchSymbol("*")) {
+      if (IsSymbol("/")) {
+        auto slash_loc = current_.loc;
+        Consume();
+        if (!frontends::PythonVersionAtLeast(python_version_,
+                                             frontends::PythonVersion::kPy3_8)) {
+          diagnostics_.ReportError(
+              slash_loc, frontends::ErrorCode::kLangVersionMismatch,
+              "positional-only parameters require Python 3.8 or newer (current: " +
+                  std::string(frontends::PythonVersionToString(python_version_)) + ")");
+        }
+        if (seen_posonly_separator) {
+          diagnostics_.ReportError(slash_loc, frontends::ErrorCode::kUnexpectedToken,
+                                   "duplicate '/' positional-only parameter separator");
+        } else if (fn->params.empty() || kwonly) {
+          diagnostics_.Report(slash_loc, "'/' must follow positional parameters");
+        } else {
+          for (auto &param : fn->params)
+            param.is_posonly = true;
+        }
+        seen_posonly_separator = true;
+        if (IsSymbol(")"))
+          break;
+        if (!MatchSymbol(","))
+          diagnostics_.Report(current_.loc, "Expected ',' after '/'");
+        continue;
+      } else if (MatchSymbol("*")) {
         if (IsSymbol(")") || IsSymbol(",")) {
           kwonly = true;
         } else if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -1223,6 +1525,13 @@ std::shared_ptr<Statement> PythonParser::ParseClass() {
   } else {
     diagnostics_.Report(current_.loc, "Expected class name");
   }
+  if (IsSymbol("[")) {
+    if (!frontends::PythonVersionAtLeast(python_version_, frontends::PythonVersion::kPy3_12)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "generic class type parameters require Python 3.12 or newer");
+    }
+    cls->type_parameters = ParseTypeParameters();
+  }
   if (MatchSymbol("(")) {
     if (!IsSymbol(")")) {
       while (true) {
@@ -1275,6 +1584,36 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
     } else {
       diagnostics_.Report(current_.loc, "Expected 'class' or 'def' after decorator");
     }
+    AttachPendingDoc(stmt);
+    return stmt;
+  }
+
+  // `type`, `match`, and `case` are soft keywords.  They remain ordinary
+  // identifiers unless the surrounding token shape selects the corresponding
+  // statement grammar.
+  if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == "type") {
+    auto saved_token = current_;
+    auto saved_state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    Advance();
+    bool is_alias = current_.kind == frontends::TokenKind::kIdentifier;
+    lexer_.RestoreState(saved_state);
+    current_ = saved_token;
+    pending_doc_ = saved_doc;
+    if (is_alias) {
+      auto stmt = ParseTypeAlias();
+      AttachPendingDoc(stmt);
+      return stmt;
+    }
+  }
+  if (LooksLikeMatchStatement()) {
+    if (!frontends::PythonVersionAtLeast(python_version_, frontends::PythonVersion::kPy3_10)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "'match' / 'case' statements require Python 3.10 or newer (current: " +
+                                   std::string(frontends::PythonVersionToString(python_version_)) +
+                                   ")");
+    }
+    auto stmt = ParseMatch();
     AttachPendingDoc(stmt);
     return stmt;
   }
@@ -1344,20 +1683,6 @@ std::shared_ptr<Statement> PythonParser::ParseStatement() {
     }
     if (current_.lexeme == "try") {
       auto stmt = ParseTry();
-      AttachPendingDoc(stmt);
-      return stmt;
-    }
-    if (current_.lexeme == "match") {
-      // PEP 634 / 636 structural pattern matching landed in Python 3.10.
-      // Older targets must reject the soft keyword as a statement opener.
-      if (!frontends::PythonVersionAtLeast(python_version_,
-                                           frontends::PythonVersion::kPy3_10)) {
-        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
-                            "'match' / 'case' statements require Python 3.10 or newer (current: " +
-                                std::string(frontends::PythonVersionToString(python_version_)) +
-                                ")");
-      }
-      auto stmt = ParseMatch();
       AttachPendingDoc(stmt);
       return stmt;
     }

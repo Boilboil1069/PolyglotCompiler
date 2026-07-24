@@ -8,72 +8,113 @@ PolyglotCompiler distinguishes between the **source language** (cpp / python / j
 foundation that lets every component agree on the version that should be used
 for a particular translation unit.
 
-> Phase 1 (this milestone) ships the type system, the CLI surface, the
-> `polyver` tool-chain manager, the diagnostic codes, and the wiring through
-> `polyc`. Per-frontend version gating, poly `LANG` syntax, runtime ABI
-> selection, the UI Toolchains tab and the integration tests are tracked
-> separately in Phase 2 and Phase 3.
+> The version selector, CLI, `polyver`, poly `LANG` pin, foreign-signature
+> extraction and per-frontend gating paths are wired end to end.  The contract
+> is fail-closed: recognizing a version never implies that an unmodelled syntax
+> form may be silently accepted or lowered.
 
-## Supported version matrix
+## Recognised version selectors
 
 | Language    | Recognised versions                                      | Default      | Enum (`polyglot::frontends`)        |
 |-------------|----------------------------------------------------------|--------------|-------------------------------------|
-| cpp         | c++98 c++03 c++11 c++14 c++17 c++20 c++23 c++26          | c++20        | `CppDialect`                        |
-| python      | 2.7 3.6 3.8 3.10 3.11 3.12 3.13                          | 3.11         | `PythonVersion`                     |
-| java        | 8 11 17 21 23                                            | 17           | `JavaRelease`                       |
-| dotnet (C#) | 7.3 8 9 10 11 12 (target: net6 net7 net8 net9)           | C# 11 / net8 | `DotnetLangVersion` / `…Framework`  |
-| rust        | 2015 2018 2021 2024 (editions)                           | 2021         | `RustEdition`                       |
-| go          | 1.18 1.20 1.21 1.22 1.23                                 | 1.21         | `GoVersion`                         |
-| javascript  | es5 es2015 es2017 es2020 es2022 es2023 esnext            | es2022       | `EcmaVersion`                       |
-| ruby        | 1.9 2.7 3.0 3.2 3.3                                      | 3.2          | `RubyVersion`                       |
+| cpp         | c++98 c++03 c++11 c++14 c++17 c++20 c++23 c++26          | c++23         | `CppDialect`                        |
+| python      | 2.7; every 3.x release from 3.6 through 3.14               | 3.14          | `PythonVersion`                     |
+| java        | every release from 8 through 26                            | 26            | `JavaRelease`                       |
+| dotnet (C#) | 7.3 8 9 10 11 12 13 14 preview (target: net6 … net10)     | C# 14 / net10 | `DotnetLangVersion` / `…Framework`  |
+| rust        | 2015 2018 2021 2024 (editions)                            | 2024          | `RustEdition`                       |
+| go          | every release from 1.18 through 1.26                       | 1.26          | `GoVersion`                         |
+| javascript  | es5; every annual edition from es2015 through es2026; esnext | es2026      | `EcmaVersion`                       |
+| ruby        | 1.9 2.7 3.0 3.1 3.2 3.3 3.4 4.0                          | 4.0           | `RubyVersion`                       |
 
-Every enum reserves the member `kAuto`; the value `auto` (or omitting the flag)
-asks the frontend to infer the version from the inference order described
-below.
+Every enum reserves `kAuto`. Inside a frontend it resolves deterministically to
+the default shown above. Project/tool-chain discovery is a caller concern:
+`polyver` or the UI must convert a discovered value to an explicit enum before
+invoking the frontend.
 
-## Inference order
+These are selectors, not a claim that every construct can be lowered. Analysis
+must either build a faithful AST or report an error; lowering must report
+`kUnsupportedLowering` for an analysed construct it cannot compile. It must
+never silently discard a construct.
 
-For a given translation unit, the effective version is resolved as:
+## Audited modern-language boundaries
 
-1. **Explicit per-call annotation** (Phase 2 — poly `@LANG(version)` /
-   `WITH LANG`).
-2. **File-level pragma** (frontend-specific; e.g. C++ `#pragma poly std=c++23`).
-3. **Project pin** &mdash; the value recorded in `<project>/.polyglot/toolchains.lock`
-   (written by `polyver use`).
-4. **CLI flag** passed to `polyc` (see below).
-5. **User catalog default** &mdash; the entry marked `"default": true` in
-   `~/.polyglot/toolchains.json` for that language.
-6. **Tool-chain probe** &mdash; the highest version discovered by
-   `polyver detect` for that language.
-7. **Conservative fallback** &mdash; the `kXxxVersionDefault` constant defined
-   in `frontends/common/include/language_versions.h`.
+This work advances every default to its current stable baseline and gives the
+following modern syntax families a regression-tested version gate and AST
+contract:
 
-If steps 1–6 disagree the build emits diagnostic
-`E_LANG_VERSION_MISMATCH` (`6001`); if step 6 has to fall back to step 7 the
-warning `W_LANG_VERSION_FALLBACK` (`6002`) is raised; if no tool-chain at all
-is available a hard `E_TOOLCHAIN_NOT_FOUND` (`6003`) is reported.
+| Language | Representative faithfully analysed and precisely gated boundaries |
+|----------|---------------------------------------------------------------------|
+| C++ | C++11 `nullptr`, lambdas and range-for; C++17 structured bindings, folds and `if` initialisers; C++20 modules, concepts, `requires`, `<=>`, designated initialisers and coroutines; C++23 explicit object parameters and `if consteval`. C++26 is a selectable boundary, but unstandardised or unmodelled constructs are never presented as supported. |
+| Python | Python 3.8 positional-only parameters and assignment expressions, structural pattern matching, `except*`, PEP 695 type parameters, Python 3.13 type-parameter defaults, and Python 3.14 template strings (a distinct AST) plus PEP 758 unparenthesised exception lists. |
+| Rust | 2015/2018/2021/2024 keyword contexts, async/await, and the 2024 `gen`, guarded-string reservation and unsafe-attribute rules. |
+| Java | Java 9 module descriptors and private interface methods; records, sealed types and switch expressions; Java 25 module imports, compact source files and flexible constructor bodies. The Java 26 default selects stable syntax; preview-only forms are not silently enabled as stable. |
+| C# | C# 8 switch expressions, C# 9 `init`, plus raw strings, primary constructors and collection/parameter evolution; C# 14 extension blocks, `field`-backed properties, compound-assignment operators, `#:` file directives, null-conditional assignment, unbound `nameof`, and partial constructors/events. |
+| Go | Generics and type sets; Go 1.22 integer range, 1.23 range-over-function, 1.24 generic aliases, and Go 1.26 `new(expression)` plus self-referential generic constraints. |
+| JavaScript | ES2015 declaration/class/module/arrow-function boundaries, class private fields/static blocks, the RegExp `v` flag and ES2025 import attributes. Explicit-resource-management `using`/`await using` is accepted only under `esnext`; decorators still produce `kUnsupportedSyntax`. |
+| Ruby | Safe navigation, pattern/rightward assignment, argument forwarding and block ASTs; Ruby 3.1 hash-value omission, Ruby 3.4 implicit `it`, and Ruby 4.0 line-leading logical continuation. |
+
+Here, “complete modern support” means a complete and inspectable **frontend
+boundary**: either produce a faithful AST and complete analysis, or fail at the
+first stage that cannot preserve the source. It does not claim that every node
+already has native IR, runtime ABI and backend support. Such nodes report
+`kUnsupportedLowering` when they reach a lowering path that cannot preserve
+their semantics.
+
+## Resolution and conflict rules actually implemented
+
+1. An explicit `polyc` / API version selects the caller's requirement.
+2. A module-level poly `LANG` pin fills an `auto` selection for imported source.
+3. If both are explicit they must agree, otherwise
+   `kLangVersionMismatch` is reported.
+4. If neither is explicit, the deterministic `kXxxVersionDefault` is used.
+
+Scoped `WITH LANG` / `@LANG` pins remain attached to individual bridge call
+descriptors. An unknown CLI selector is a command-line usage error: `polyc`
+prints the error and exits with status 2. Invalid or conflicting poly pins
+report `kLangVersionMismatch`. Neither path falls back to another dialect.
+
+.NET also has a real TFM-derived default: `net6` through `net10` select C# 10
+through C# 14 respectively. An explicit `--cs-lang` newer than the supported
+default for the selected TFM, or `preview` paired with a stable explicit TFM,
+reports `kLangVersionMismatch`. `--cs-lang=preview` remains available when the
+TFM itself is left at `auto` for preview-boundary analysis. TFM currently
+participates only in language-version compatibility; it does not validate the
+API surface of the corresponding .NET reference pack.
+
+The foreign-signature index currently projects fixed parameters only;
+default/rest/variadic metadata and full overload resolution are not part of the
+cross-language ABI model yet. An overload or short-name alias collision therefore
+reports `kSignatureMismatch` and atomically rejects the module instead of
+overwriting an earlier signature. A missing or unreadable foreign source reports
+`kSignatureMissing`. C++ signature scanning treats `<...>` system headers as an
+external contract, while local `"..."` headers must resolve; macros and
+conditionals are still preprocessed for the selected dialect.
 
 ## `polyc` command-line surface
 
 `polyc` accepts one optional flag per language plus a discovery command. All
-flags accept `auto` (default) to keep inference enabled. Aliases follow common
-upstream conventions.
+flags accept `auto` (default), which selects the deterministic modern default
+from the table. Aliases follow common upstream conventions.
 
 | Flag                          | Alias       | Example values                              |
 |-------------------------------|-------------|---------------------------------------------|
 | `--std=<dialect>`             | `-std=`     | `c++20`, `c++23`, `20`                      |
-| `--python-version=<v>`        | `--py=`     | `3.11`, `3.13`                              |
-| `--java-release=<n>`          | `--java=`   | `17`, `21`                                  |
-| `--cs-lang=<v>`               | `--csharp=` | `11`, `12`                                  |
-| `--target-framework=<tfm>`    | `--tfm=`    | `net8`, `net9`                              |
+| `--python-version=<v>`        | `--py=`     | `3.12`, `3.14`                              |
+| `--java-release=<n>`          | `--java=`   | `21`, `26`                                  |
+| `--cs-lang=<v>`               | `--csharp=` | `12`, `14`                                  |
+| `--target-framework=<tfm>`    | `--tfm=`    | `net8`, `net10`                             |
 | `--rust-edition=<y>`          | `--edition=`| `2021`, `2024`                              |
-| `--go-version=<v>`            | `--go=`     | `1.21`, `1.22`                              |
-| `--ecma=<v>`                  | `--es=`     | `es2022`, `esnext`                          |
-| `--ruby-version=<v>`          | `--ruby=`   | `3.2`                                       |
+| `--go-version=<v>`            | `--go=`     | `1.22`, `1.26`                              |
+| `--ecma=<v>`                  | `--es=`     | `es2024`, `es2026`, `esnext`                |
+| `--ruby-version=<v>`          | `--ruby=`   | `3.4`, `4.0`                                |
 | `--list-language-versions`    | —           | print the version matrix above and exit     |
 
 The selected versions are forwarded by `tools/polyc/src/stage_frontend.cpp`
 into `polyglot::frontends::FrontendOptions`, where each frontend can react.
+
+`kUnsupportedSyntax`, `kUnsupportedLowering`, and `kLangVersionMismatch` are
+non-bypassable boundary errors. `--force` cannot send a missing AST, partial IR,
+or dialect conflict into backend / packaging stages.
 
 ## `polyver` &mdash; tool-chain manager
 
@@ -123,23 +164,25 @@ The same schema is used for the project lock file.
 | Language    | Probed executables / versions                                      |
 |-------------|--------------------------------------------------------------------|
 | cpp         | `clang++`, `g++`, `cl` (MSVC). Maps `gcc>=10`/`msvc>=19` → `c++20`, `gcc>=13` → `c++23` |
-| python      | `python3.13` … `python3.6`, `python3`, `python`, `python2`         |
+| python      | `python3.14` … `python3.7`, `python3`, `python`                    |
 | java        | `java -version` (parses `(?:openjdk|java) version "?(\d+)`)        |
 | dotnet      | `dotnet --list-runtimes` (one entry per `Microsoft.NETCore.App` major) |
-| rust        | `rustc --version` (records edition `2021`; full version stored in `vendor`) |
+| rust        | `rustc --version` (`rustc>=1.85` → edition `2024`, otherwise `2021`; full version stored in `vendor`) |
 | go          | `go version` (`go1.X` → `1.X`)                                     |
-| javascript  | `node --version`; major→`es2020/es2022/es2023`                     |
+| javascript  | `node --version`; release-line mapping through `es2026`            |
 | ruby        | `ruby --version`                                                   |
 
 ## Diagnostic codes
 
 | Code   | Symbol                          | Severity | Meaning                                                                |
 |--------|---------------------------------|----------|------------------------------------------------------------------------|
-| `6001` | `kLangVersionMismatch`          | Error    | A pragma / pin / flag asks for version *X* but the active tool-chain provides *Y*. |
-| `6002` | `kLangVersionFallback`          | Warning  | No source could supply a version; the conservative default was used.   |
+| `2006` | `kUnsupportedSyntax`            | Error    | The selected frontend cannot faithfully represent a recognised source construct. |
+| `4003` | `kUnsupportedLowering`          | Error    | Analysis succeeded, but lowering has no semantics-preserving implementation for the AST node. |
+| `6001` | `kLangVersionMismatch`          | Error    | Source syntax, a pin, or a tool-chain conflicts with the selected language version. |
+| `6002` | `kLangVersionFallback`          | Warning  | No source supplied a version; the deterministic stable default was used. |
 | `6003` | `kToolchainNotFound`            | Error    | No tool-chain at all is available for the requested language.          |
 
-## Roadmap (still WIP)
+## Implementation status
 
 * **Phase 2 &mdash; poly syntax (done)**: module-level
   `LANG <name> = "<ver>";`, scoped `WITH LANG (name=ver, …) { … }` blocks,
@@ -158,16 +201,20 @@ The same schema is used for the project lock file.
   `.paux` descriptor file; polyld's `LoadDescriptorFile` picks it up and
   attaches it to the matching call descriptor. Coverage lives in
   `tests/unit/frontends/ploy/lang_version_pin_test.cpp`.
-* **Phase 2 &mdash; runtime / backend gating (mostly done)**: every frontend
-  now honors the `FrontendOptions` version field. C++ gates concepts /
-  consteval on C++20+, Python gates the walrus operator on 3.8+, Java
-  gates `record` on Java 17+, .NET gates `file class` on C# 11+, Rust
-  gates `let ... else` on edition 2021+, and JavaScript gates optional
-  chaining on ES2020+. Each violation surfaces as
+* **Phase 2 &mdash; analysis / lowering boundaries (hardened)**: every frontend
+  now honors the `FrontendOptions` version field for the implemented modern
+  syntax families. Examples include C++ concepts/modules/spaceship, Python
+  assignment expressions and PEP 695 declarations, Java records/sealed types,
+  C# file/global/raw-string forms, Rust async/await edition boundaries, Go
+  generics and range evolution, ECMAScript optional chaining, and Ruby modern
+  argument/pattern forms. Source syntax that is newer than the selected
+  release, as well as malformed or unknown selectors/pins, surfaces as
   `ErrorCode::kLangVersionMismatch`. The runtime consumes the
   descriptor `VERSION` line to dispatch to the matching ABI bridge
   variant; the linker (`tools/polyld`) and the linker library
   (`tools/polyld_lib`) thread the version through descriptor loading.
+  Analysed constructs without a safe IR representation surface
+  `kUnsupportedLowering` instead of being dropped.
 * **Phase 2 &mdash; LINK pinning (done)**: `LinkEntry::lang_version` is
   now resolved against the *target* (foreign) language, not the source
   (host) language, so wrapping a `LINK` in `WITH LANG` / `@LANG` makes
@@ -183,4 +230,3 @@ The same schema is used for the project lock file.
 
 The project VERSION has been bumped to `1.3.0` and the requirements
 ledger entry `2026-04-27-3` carries the `--end -done` completion mark.
-

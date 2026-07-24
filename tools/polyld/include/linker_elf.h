@@ -39,6 +39,7 @@ constexpr std::uint8_t  kElfData2Lsb = 1;
 constexpr std::uint8_t  kEvCurrent   = 1;
 
 constexpr std::uint16_t kEtExec      = 2;
+constexpr std::uint16_t kEtDyn       = 3;
 
 constexpr std::uint16_t kEmX86_64    = 62;
 constexpr std::uint16_t kEmAarch64   = 183;
@@ -100,6 +101,9 @@ enum class Arch {
 struct BuildRequest {
   Arch          arch{Arch::kX86_64};
   std::uint64_t base_address{kDefaultExeBase};
+  /// ELF header image type. Executables use ET_EXEC; shared libraries pass
+  /// ET_DYN while reusing the same section/program-header builder.
+  std::uint16_t image_type{kEtExec};
   /// Raw user `.text` payload.  The writer prepends the architecture-
   /// specific `_start` stub so the final on-disk `.text` byte stream
   /// looks like `[ stub | user_text ]`.  `entry_offset` is therefore

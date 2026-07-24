@@ -30,6 +30,21 @@ frontends::Token CppParser::Consume() {
   return current_;
 }
 
+bool CppParser::IsIdentifierToken() const {
+  if (current_.kind == frontends::TokenKind::kIdentifier)
+    return true;
+  if (current_.kind != frontends::TokenKind::kKeyword)
+    return false;
+  // `module` and `import` are contextual keywords.  `concept` and
+  // `requires` only became keywords in C++20, so they remain valid names in
+  // older dialects even though the lexer intentionally emits one stable
+  // token kind for them.
+  if (current_.lexeme == "module" || current_.lexeme == "import")
+    return true;
+  return !frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20) &&
+         (current_.lexeme == "concept" || current_.lexeme == "requires");
+}
+
 bool CppParser::IsSymbol(const std::string &symbol) const {
   if (current_.kind != frontends::TokenKind::kSymbol)
     return false;
@@ -138,6 +153,7 @@ std::string CppParser::ParseQualifiedName() {
 /** @name Types */
 /** @{ */
 std::shared_ptr<TypeNode> CppParser::ParseType() {
+  bool is_placeholder_auto = false;
   auto parse_cv = [&]() -> std::pair<bool, bool> {
     bool c = false, v = false;
     while (current_.kind == frontends::TokenKind::kKeyword &&
@@ -190,6 +206,7 @@ std::shared_ptr<TypeNode> CppParser::ParseType() {
     auto simple = std::make_shared<SimpleType>();
     simple->loc = current_.loc;
     std::string name = ParseQualifiedName();
+    is_placeholder_auto = name == "auto";
     if (IsSymbol("<")) {
       int depth = 0;
       name += "<";
@@ -238,6 +255,11 @@ std::shared_ptr<TypeNode> CppParser::ParseType() {
       continue;
     }
     if (IsSymbol("[")) {
+      // In a declaration, `auto [name, ...]` starts a structured binding;
+      // leave its bracket for ParseStructuredBinding instead of treating it
+      // as an array suffix on the placeholder type.
+      if (is_placeholder_auto)
+        break;
       auto arr = std::make_shared<ArrayType>();
       arr->loc = current_.loc;
       Consume();
@@ -320,25 +342,43 @@ std::vector<std::shared_ptr<Expression>> CppParser::ParseTemplateArgs() {
   std::vector<std::shared_ptr<Expression>> args;
   if (!MatchSymbol("<"))
     return args;
-  int depth = 1;
-  while (current_.kind != frontends::TokenKind::kEndOfFile && depth > 0) {
-    args.push_back(ParseAssignment());
+  bool outer_closed = false;
+  while (current_.kind != frontends::TokenKind::kEndOfFile && !outer_closed && !IsSymbol(">")) {
+    auto arg_loc = current_.loc;
+    std::string spelling;
+    int nested_angles = 0;
+    while (current_.kind != frontends::TokenKind::kEndOfFile) {
+      if (nested_angles == 0 && (IsSymbol(",") || IsSymbol(">")))
+        break;
+      if (IsSymbol("<")) {
+        ++nested_angles;
+      } else if (IsSymbol(">")) {
+        --nested_angles;
+      } else if (IsSymbol(">>")) {
+        // Since C++11, `>>` may close a nested template-id and this outer
+        // argument list in one token.
+        if (nested_angles <= 1)
+          outer_closed = true;
+        nested_angles = std::max(0, nested_angles - 2);
+      }
+      spelling += current_.lexeme;
+      Consume();
+      if (outer_closed)
+        break;
+    }
+    if (spelling.empty()) {
+      diagnostics_.Report(current_.loc, "Expected template argument");
+      break;
+    }
+    auto arg = std::make_shared<Identifier>();
+    arg->loc = arg_loc;
+    arg->name = std::move(spelling);
+    args.push_back(arg);
     if (MatchSymbol(","))
       continue;
-    if (MatchSymbol(">")) {
-      depth--;
-      break;
-    }
-    if (IsSymbol(">")) {
-      MatchSymbol(">");
-      depth--;
-      break;
-    }
-    if (MatchSymbol("<")) {
-      depth++;
-      continue;
-    }
   }
+  if (!outer_closed)
+    ExpectSymbol(">", "Expected '>' after template arguments");
   return args;
 }
 
@@ -346,33 +386,23 @@ std::string CppParser::ParseRequiresClause() {
   if (!(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "requires")) {
     return "";
   }
-  Consume();
-  std::string clause;
-  int paren = 0;
-  int bracket = 0;
-  int angle = 0;
-  while (current_.kind != frontends::TokenKind::kEndOfFile) {
-    if (paren == 0 && bracket == 0 && angle == 0 && (IsSymbol("{") || IsSymbol(";"))) {
-      break;
-    }
-    if (IsSymbol("("))
-      paren++;
-    else if (IsSymbol(")"))
-      paren = std::max(0, paren - 1);
-    else if (IsSymbol("["))
-      bracket++;
-    else if (IsSymbol("]"))
-      bracket = std::max(0, bracket - 1);
-    else if (IsSymbol("<"))
-      angle++;
-    else if (IsSymbol(">"))
-      angle = std::max(0, angle - 1);
-    if (!clause.empty())
-      clause += " ";
-    clause += current_.lexeme;
-    Consume();
+  if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+    diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                             std::string("'requires' clauses require C++20 or newer (current: ") +
+                                 frontends::CppDialectToString(cpp_dialect_) + ")");
   }
-  return clause;
+  Consume();
+  // A constraint-expression has ordinary expression precedence.  Parsing it
+  // structurally is important: scanning until `{` also consumes the return
+  // type, name, and parameter list of `requires C<T> T f(T)`.
+  auto constraint = ParseLogicalOr();
+  if (!constraint) {
+    diagnostics_.Report(current_.loc, "Expected constraint expression after 'requires'");
+    return "";
+  }
+  // Constraints are not semantically evaluated yet, but a non-empty marker
+  // preserves their presence without discarding the following declaration.
+  return "<constraint-expression>";
 }
 
 /** @} */
@@ -380,11 +410,36 @@ std::string CppParser::ParseRequiresClause() {
 /** @name Expressions */
 /** @{ */
 std::shared_ptr<Expression> CppParser::ParsePrimary() {
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  if (current_.kind == frontends::TokenKind::kKeyword &&
+      (current_.lexeme == "true" || current_.lexeme == "false" ||
+       current_.lexeme == "nullptr")) {
+    if (current_.lexeme == "nullptr" &&
+        !frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp11)) {
+      diagnostics_.ReportError(
+          current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("'nullptr' requires C++11 or newer (current: ") +
+              frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
+    auto lit = std::make_shared<Literal>();
+    lit->value = current_.lexeme;
+    lit->loc = current_.loc;
+    Consume();
+    return lit;
+  }
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "this") {
     auto ident = std::make_shared<Identifier>();
     ident->name = current_.lexeme;
     ident->loc = current_.loc;
     Consume();
+    return ident;
+  }
+  if (IsIdentifierToken()) {
+    auto ident = std::make_shared<Identifier>();
+    ident->loc = current_.loc;
+    // Qualified names are primary expressions too (`std::sqrt`,
+    // `ns::factory<T>`), not only type names.  Keeping the qualification in
+    // the identifier lets postfix call/template parsing operate normally.
+    ident->name = ParseQualifiedName();
     return ident;
   }
   if (current_.kind == frontends::TokenKind::kNumber ||
@@ -398,6 +453,12 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
   if (IsSymbol("(")) {
     Consume();
     if (IsSymbol("...")) {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("fold expressions require C++17 or newer (current: ") +
+                frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
       auto fold = std::make_shared<FoldExpression>();
       fold->loc = current_.loc;
       fold->is_left_fold = false;
@@ -413,6 +474,12 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
     }
     auto first = ParseExpression();
     if (IsSymbol("...")) {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("fold expressions require C++17 or newer (current: ") +
+                frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
       auto fold = std::make_shared<FoldExpression>();
       fold->loc = first ? first->loc : current_.loc;
       fold->lhs = first;
@@ -429,11 +496,17 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
       ExpectSymbol(")", "Expected ')' to end fold expression");
       return fold;
     }
-    if (current_.kind == frontends::TokenKind::kSymbol) {
+    if (current_.kind == frontends::TokenKind::kSymbol && !IsSymbol(")")) {
       auto op_token = current_;
       auto la = lexer_.NextToken();
       pushback_.push_back(la);
       if (la.kind == frontends::TokenKind::kSymbol && la.lexeme == "...") {
+        if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+          diagnostics_.ReportError(
+              la.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("fold expressions require C++17 or newer (current: ") +
+                  frontends::CppDialectToString(cpp_dialect_) + ")");
+        }
         Consume(); // operator
         Consume(); // ellipsis
         auto fold = std::make_shared<FoldExpression>();
@@ -467,12 +540,35 @@ std::shared_ptr<Expression> CppParser::ParsePrimary() {
     auto init = std::make_shared<InitializerListExpression>();
     init->loc = current_.loc;
     Consume();
+    auto parse_element = [&]() -> std::shared_ptr<Expression> {
+      if (IsSymbol(".")) {
+        auto designated = std::make_shared<DesignatedInitializerExpression>();
+        designated->loc = current_.loc;
+        if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("designated initializers require C++20 or newer (current: ") +
+                  frontends::CppDialectToString(cpp_dialect_) + ")");
+        }
+        Consume();
+        if (current_.kind == frontends::TokenKind::kIdentifier) {
+          designated->member = current_.lexeme;
+          Consume();
+        } else {
+          diagnostics_.Report(current_.loc, "Expected member name after '.'");
+        }
+        ExpectSymbol("=", "Expected '=' in designated initializer");
+        designated->value = ParseAssignment();
+        return designated;
+      }
+      return ParseAssignment();
+    };
     if (!IsSymbol("}")) {
-      init->elements.push_back(ParseAssignment());
+      init->elements.push_back(parse_element());
       while (MatchSymbol(",")) {
         if (IsSymbol("}"))
           break;
-        init->elements.push_back(ParseAssignment());
+        init->elements.push_back(parse_element());
       }
     }
     ExpectSymbol("}", "Expected '}' to close initializer list");
@@ -551,12 +647,14 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
       call->loc = expr ? expr->loc : current_.loc;
       Consume();
       if (!IsSymbol(")")) {
-        call->args.push_back(ParseExpression());
+        // A comma separates arguments at this grammar level.  Parsing the
+        // comma-expression here collapses `f(a, b)` into one argument.
+        call->args.push_back(ParseAssignment());
         while (MatchSymbol(",")) {
-          call->args.push_back(ParseExpression());
+          call->args.push_back(ParseAssignment());
         }
       }
-      MatchSymbol(")");
+      ExpectSymbol(")", "Expected ')' after call arguments");
       expr = call;
       continue;
     }
@@ -612,6 +710,12 @@ std::shared_ptr<Expression> CppParser::ParsePostfix() {
 std::shared_ptr<Expression> CppParser::ParseLambda() {
   auto lam = std::make_shared<LambdaExpression>();
   lam->loc = current_.loc;
+  if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp11)) {
+    diagnostics_.ReportError(
+        lam->loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("lambda expressions require C++11 or newer (current: ") +
+            frontends::CppDialectToString(cpp_dialect_) + ")");
+  }
   MatchSymbol("[");
   if (!IsSymbol("]")) {
     while (true) {
@@ -626,8 +730,10 @@ std::shared_ptr<Expression> CppParser::ParseLambda() {
     }
   }
   ExpectSymbol("]", "Expected ']' after lambda capture list");
-  ExpectSymbol("(", "Expected '(' for lambda parameters");
-  if (!IsSymbol(")")) {
+  // An empty parameter list may omit `()` when the body begins immediately:
+  // `[] { return 1; }`.
+  const bool has_parameter_list = MatchSymbol("(");
+  if (has_parameter_list && !IsSymbol(")")) {
     while (true) {
       LambdaExpression::Param p;
       // C++ lambda params: type name (e.g., "int y")
@@ -646,7 +752,9 @@ std::shared_ptr<Expression> CppParser::ParseLambda() {
         break;
     }
   }
-  ExpectSymbol(")", "Expected ')' after lambda parameters");
+  if (has_parameter_list) {
+    ExpectSymbol(")", "Expected ')' after lambda parameters");
+  }
   if (MatchSymbol("->")) {
     lam->return_type = ParseType();
   }
@@ -678,6 +786,8 @@ std::shared_ptr<Expression> CppParser::ParseUnary() {
     unary->loc = current_.loc;
     Consume();
     unary->operand = ParseUnary();
+    if (current_function_)
+      current_function_->is_coroutine = true;
     return unary;
   }
   if (IsSymbol("+") || IsSymbol("-") || IsSymbol("!") || IsSymbol("~") || IsSymbol("&") ||
@@ -731,9 +841,9 @@ std::shared_ptr<Expression> CppParser::ParseUnary() {
     }
     if (MatchSymbol("(")) {
       if (!IsSymbol(")")) {
-        nw->args.push_back(ParseExpression());
+        nw->args.push_back(ParseAssignment());
         while (MatchSymbol(",")) {
-          nw->args.push_back(ParseExpression());
+          nw->args.push_back(ParseAssignment());
         }
       }
       ExpectSymbol(")", "Expected ')' after new arguments");
@@ -798,10 +908,18 @@ std::shared_ptr<Expression> CppParser::ParseShift() {
 
 std::shared_ptr<Expression> CppParser::ParseRelational() {
   auto expr = ParseShift();
-  while (IsSymbol("<") || IsSymbol(">") || IsSymbol("<=") || IsSymbol(">=")) {
+  while (IsSymbol("<") || IsSymbol(">") || IsSymbol("<=") || IsSymbol(">=") ||
+         IsSymbol("<=>")) {
     auto bin = std::make_shared<BinaryExpression>();
     bin->op = current_.lexeme;
     bin->loc = expr ? expr->loc : current_.loc;
+    if (bin->op == "<=>" &&
+        !frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+      diagnostics_.ReportError(
+          current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("the three-way comparison operator requires C++20 or newer (current: ") +
+              frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
     Consume();
     bin->left = expr;
     bin->right = ParseShift();
@@ -1182,6 +1300,8 @@ std::shared_ptr<Statement> CppParser::ParseReturn() {
                               frontends::CppDialectToString(cpp_dialect_) + ")");
     }
     stmt->is_co_return = true;
+    if (current_function_)
+      current_function_->is_coroutine = true;
     Consume();
   } else {
     MatchKeyword("return");
@@ -1414,7 +1534,7 @@ std::shared_ptr<Statement> CppParser::ParseRecord(const std::string &kind) {
       op_symbol = current_.lexeme;
       name = "operator" + op_symbol;
       Consume();
-    } else if (current_.kind == frontends::TokenKind::kIdentifier) {
+    } else if (IsIdentifierToken()) {
       name = current_.lexeme;
       Consume();
     }
@@ -1563,6 +1683,15 @@ std::shared_ptr<Statement> CppParser::ParseVarDecl(std::shared_ptr<TypeNode> typ
   if (IsSymbol("=")) {
     Consume();
     decl->init = ParseExpression();
+  } else if (IsSymbol("(")) {
+    decl->has_direct_init = true;
+    Consume();
+    if (!IsSymbol(")")) {
+      decl->direct_init_args.push_back(ParseAssignment());
+      while (MatchSymbol(","))
+        decl->direct_init_args.push_back(ParseAssignment());
+    }
+    ExpectSymbol(")", "Expected ')' after direct initializer");
   }
   MatchSymbol(";");
   return decl;
@@ -1573,6 +1702,12 @@ std::shared_ptr<Statement> CppParser::ParseStructuredBinding(std::shared_ptr<Typ
                                                              bool is_static) {
   auto decl = std::make_shared<StructuredBindingDecl>();
   decl->loc = current_.loc;
+  if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+    diagnostics_.ReportError(
+        decl->loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("structured bindings require C++17 or newer (current: ") +
+            frontends::CppDialectToString(cpp_dialect_) + ")");
+  }
   decl->type = type;
   ExpectSymbol("[", "Expected '[' in structured binding");
   while (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -1603,19 +1738,44 @@ std::shared_ptr<FunctionDecl> CppParser::ParseFunctionWithSignature(
   fn->access = access;
   fn->is_operator = is_operator;
   fn->operator_symbol = op_symbol;
-  (void)inside_record;
   ExpectSymbol("(", "Expected '(' after function name");
   if (!IsSymbol(")")) {
     while (true) {
-      if (current_.kind == frontends::TokenKind::kIdentifier ||
-          current_.kind == frontends::TokenKind::kKeyword) {
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "this") {
+        const auto object_loc = current_.loc;
+        if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp23)) {
+          diagnostics_.ReportError(
+              object_loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("explicit object parameters require C++23 or newer (current: ") +
+                  frontends::CppDialectToString(cpp_dialect_) + ")");
+        }
+        if (!inside_record) {
+          diagnostics_.ReportError(object_loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                   "explicit object parameters are only valid on member functions");
+        }
+        if (!fn->params.empty()) {
+          diagnostics_.ReportError(object_loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                   "an explicit object parameter must be the first parameter");
+        }
+        Consume();
+        FunctionDecl::Param param;
+        param.type = ParseType();
+        param.is_explicit_object = true;
+        if (IsIdentifierToken()) {
+          param.name = current_.lexeme;
+          Consume();
+        }
+        fn->has_explicit_object_parameter = true;
+        fn->params.push_back(std::move(param));
+      } else if (current_.kind == frontends::TokenKind::kIdentifier ||
+                 current_.kind == frontends::TokenKind::kKeyword) {
         auto param_type = ParseType();
-        if (current_.kind == frontends::TokenKind::kIdentifier) {
+        if (IsIdentifierToken()) {
           FunctionDecl::Param param;
           param.name = current_.lexeme;
           Consume();
           if (MatchSymbol("=")) {
-            param.default_value = ParseExpression();
+            param.default_value = ParseAssignment();
           }
           param.type = param_type;
           fn->params.push_back(std::move(param));
@@ -1680,6 +1840,9 @@ std::shared_ptr<FunctionDecl> CppParser::ParseFunctionWithSignature(
     return fn;
   }
   ExpectSymbol("{", "Expected '{' to start function body");
+  fn->has_body = true;
+  auto *saved_function = current_function_;
+  current_function_ = fn.get();
   while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
     auto before_line = current_.loc.line;
     auto before_col = current_.loc.column;
@@ -1690,12 +1853,13 @@ std::shared_ptr<FunctionDecl> CppParser::ParseFunctionWithSignature(
     }
   }
   MatchSymbol("}");
+  current_function_ = saved_function;
   return fn;
 }
 
 std::shared_ptr<Statement> CppParser::ParseFunction() {
   auto ret = ParseType();
-  if (current_.kind != frontends::TokenKind::kIdentifier) {
+  if (!IsIdentifierToken()) {
     diagnostics_.Report(current_.loc, "Expected function name");
     return nullptr;
   }
@@ -1732,12 +1896,110 @@ std::shared_ptr<Statement> CppParser::ParseIf() {
   auto stmt = std::make_shared<IfStatement>();
   stmt->loc = current_.loc;
   MatchKeyword("if");
+  if ((current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "consteval") ||
+      IsSymbol("!")) {
+    const auto consteval_loc = current_.loc;
+    if (MatchSymbol("!"))
+      stmt->is_negated_consteval = true;
+    if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "consteval") {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp23)) {
+        diagnostics_.ReportError(
+            consteval_loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("'if consteval' requires C++23 or newer (current: ") +
+                frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
+      stmt->is_consteval = true;
+      Consume();
+      if (!IsSymbol("{")) {
+        diagnostics_.Report(current_.loc,
+                            "Expected compound statement after 'if consteval'");
+      }
+      stmt->then_body.push_back(ParseBlockOrStatement());
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
+        Consume();
+        if (!IsSymbol("{"))
+          diagnostics_.Report(current_.loc,
+                              "Expected compound statement after 'else' of 'if consteval'");
+        stmt->else_body.push_back(ParseBlockOrStatement());
+      }
+      return stmt;
+    }
+    // `if !expr` is not a valid non-parenthesized ordinary if condition.  Keep
+    // the parser progressing with its regular diagnostic path.
+    diagnostics_.Report(current_.loc, "Expected 'consteval' after 'if !'");
+  }
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "constexpr") {
+    if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                               std::string("'if constexpr' requires C++17 or newer (current: ") +
+                                   frontends::CppDialectToString(cpp_dialect_) + ")");
+    }
     stmt->is_constexpr = true;
     Consume();
   }
   ExpectSymbol("(", "Expected '(' after if");
-  stmt->condition = ParseExpression();
+
+  // Parse a declaration init-statement (`if (int x = f(); x > 0)`).
+  auto is_builtin_type = [&]() {
+    if (current_.kind != frontends::TokenKind::kKeyword)
+      return false;
+    const auto &kw = current_.lexeme;
+    return kw == "auto" || kw == "bool" || kw == "char" || kw == "char8_t" ||
+           kw == "char16_t" || kw == "char32_t" || kw == "double" || kw == "float" ||
+           kw == "int" || kw == "long" || kw == "short" || kw == "signed" ||
+           kw == "unsigned" || kw == "wchar_t" || kw == "const" || kw == "volatile";
+  };
+  bool looks_decl_init = is_builtin_type();
+  if (!looks_decl_init && current_.kind == frontends::TokenKind::kIdentifier) {
+    auto la = lexer_.NextToken();
+    pushback_.push_back(la);
+    looks_decl_init = la.kind == frontends::TokenKind::kIdentifier;
+  }
+  if (looks_decl_init) {
+    auto type = ParseType();
+    if (current_.kind == frontends::TokenKind::kIdentifier) {
+      auto init = std::make_shared<VarDecl>();
+      init->loc = current_.loc;
+      init->type = std::move(type);
+      init->name = current_.lexeme;
+      Consume();
+      if (MatchSymbol("="))
+        init->init = ParseExpression();
+      if (MatchSymbol(";")) {
+        if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+          diagnostics_.ReportError(
+              init->loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("if init-statements require C++17 or newer (current: ") +
+                  frontends::CppDialectToString(cpp_dialect_) + ")");
+        }
+        stmt->init = init;
+        stmt->condition = ParseExpression();
+      } else {
+        diagnostics_.Report(current_.loc, "Expected ';' after if init-statement");
+        stmt->condition = init->init;
+      }
+    } else {
+      diagnostics_.Report(current_.loc, "Expected variable name in if init-statement");
+      stmt->condition = ParseExpression();
+    }
+  } else {
+    auto first = ParseExpression();
+    if (MatchSymbol(";")) {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp17)) {
+        diagnostics_.ReportError(
+            first ? first->loc : current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("if init-statements require C++17 or newer (current: ") +
+                frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
+      auto init = std::make_shared<ExprStatement>();
+      init->loc = first ? first->loc : current_.loc;
+      init->expr = first;
+      stmt->init = init;
+      stmt->condition = ParseExpression();
+    } else {
+      stmt->condition = first;
+    }
+  }
   ExpectSymbol(")", "Expected ')' after condition");
   stmt->then_body.push_back(ParseBlockOrStatement());
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "else") {
@@ -1782,6 +2044,12 @@ std::shared_ptr<Statement> CppParser::ParseFor() {
       auto var_loc = current_.loc;
       Consume();
       if (MatchSymbol(":")) {
+        if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp11)) {
+          diagnostics_.ReportError(
+              var_loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("range-based for statements require C++11 or newer (current: ") +
+                  frontends::CppDialectToString(cpp_dialect_) + ")");
+        }
         auto rng = std::make_shared<RangeForStatement>();
         auto loop = std::make_shared<VarDecl>();
         loop->loc = var_loc;
@@ -1903,9 +2171,19 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
 
   if (current_.kind == frontends::TokenKind::kKeyword) {
     if (current_.lexeme == "module") {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("modules require C++20 or newer (current: ") +
+                                     frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
       return ParseModuleDecl(is_export);
     }
     if (current_.lexeme == "import") {
+      if (!frontends::CppDialectAtLeast(cpp_dialect_, frontends::CppDialect::kCpp20)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("imports require C++20 or newer (current: ") +
+                                     frontends::CppDialectToString(cpp_dialect_) + ")");
+      }
       auto imp = ParseImport();
       if (auto decl = std::dynamic_pointer_cast<ImportDeclaration>(imp)) {
         decl->is_export = is_export;
@@ -2005,7 +2283,7 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
       if (IsSymbol("[")) {
         return ParseStructuredBinding(type, is_constexpr, is_inline, is_static);
       }
-      if (current_.kind != frontends::TokenKind::kIdentifier &&
+      if (!IsIdentifierToken() &&
           !(current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "operator")) {
         diagnostics_.Report(current_.loc, "Expected identifier after type");
         MatchSymbol(";");
@@ -2024,7 +2302,7 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
         name = current_.lexeme;
         Consume();
       }
-      if (IsSymbol("(")) {
+      if (IsSymbol("(") && current_function_ == nullptr) {
         auto fn = ParseFunctionWithSignature(type, name, is_constexpr, is_consteval, is_inline,
                                              is_static, is_operator, op_symbol, "", false);
         if (fn) {
@@ -2044,15 +2322,24 @@ std::shared_ptr<Statement> CppParser::ParseStatement() {
     return ParseBlock();
   }
 
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  bool looks_named_declaration = false;
+  if (IsIdentifierToken()) {
+    auto lookahead = lexer_.NextToken();
+    pushback_.push_back(lookahead);
+    looks_named_declaration = lookahead.kind == frontends::TokenKind::kIdentifier ||
+                              (lookahead.kind == frontends::TokenKind::kSymbol &&
+                               (lookahead.lexeme == "*" || lookahead.lexeme == "&" ||
+                                lookahead.lexeme == "&&" || lookahead.lexeme == "::"));
+  }
+  if (IsIdentifierToken() && looks_named_declaration) {
     auto type = ParseType();
     if (IsSymbol("[")) {
       return ParseStructuredBinding(type, is_constexpr, is_inline, is_static);
     }
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+    if (IsIdentifierToken()) {
       std::string name = current_.lexeme;
       Consume();
-      if (IsSymbol("(")) {
+      if (IsSymbol("(") && current_function_ == nullptr) {
         auto fn = ParseFunctionWithSignature(type, name, is_constexpr, is_consteval, is_inline,
                                              is_static, false, "", "", false);
         if (fn) {

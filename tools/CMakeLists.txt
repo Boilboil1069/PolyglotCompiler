@@ -24,6 +24,7 @@ add_library(polyc_lib STATIC
     polyc/src/stage_bridge.cpp
     polyc/src/stage_backend.cpp
     polyc/src/stage_packaging.cpp
+    polyc/src/local_source_packages.cpp
     polyc/src/foreign_signature_extractor.cpp
     polyc/src/linker_probe.cpp
     polyc/src/call_graph_emitter.cpp

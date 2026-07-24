@@ -9,6 +9,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "frontends/common/include/language_versions.h"
 #include "frontends/common/include/parser_base.h"
@@ -38,6 +39,8 @@ private:
   bool ExpectSymbol(const std::string &s, const std::string &msg);
   void SkipTerminators();
   bool AtTerminator() const;
+  void ConsumeNewlinesBeforeLogicalOperator();
+  void GateLineLeadingLogicalOperator(const core::SourceLoc &loc);
 
   std::shared_ptr<Statement> ParseTopLevel();
   std::shared_ptr<Statement> ParseStatement();
@@ -73,6 +76,7 @@ private:
   std::shared_ptr<Expression> ParsePostfix();
   std::shared_ptr<Expression> ParsePrimary();
   std::shared_ptr<Expression> ParseCallTail(std::shared_ptr<Expression> e);
+  void ParseAttachedBlock(const std::shared_ptr<CallExpr> &call);
   std::shared_ptr<Expression> ParseArray();
   std::shared_ptr<Expression> ParseHash();
   std::vector<std::shared_ptr<Expression>> ParseCallArgs(bool until_paren);
@@ -83,6 +87,11 @@ private:
   std::string pending_doc_;
   // Active Ruby release for syntax gating. `kAuto` ⇒ `kRubyVersionDefault`.
   frontends::RubyVersion ruby_version_{frontends::RubyVersion::kAuto};
+  bool parsing_pattern_{false};
+  bool logical_operator_after_newline_{false};
+  // One entry per block currently being parsed: -1 means an explicit `|...|`
+  // parameter list, 0 is an implicit-it candidate, and 1 means `it` was used.
+  std::vector<int> block_it_usage_;
 };
 
 } // namespace polyglot::ruby

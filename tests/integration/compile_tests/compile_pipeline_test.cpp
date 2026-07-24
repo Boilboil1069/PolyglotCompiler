@@ -7,11 +7,22 @@
 // ============================================================================
 
 #include <catch2/catch_test_macros.hpp>
+#include <csignal>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <iostream>
+#include <unordered_map>
+
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include "frontends/ploy/include/ploy_lexer.h"
 #include "frontends/ploy/include/ploy_parser.h"
@@ -122,7 +133,231 @@ CompileResult CompileWithDescriptors(const std::string &code, Diagnostics &diags
     return {oss.str(), lowering.CallDescriptors(), true};
 }
 
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+
+using X86Target = polyglot::backends::x86_64::X86Target;
+using RegAllocStrategy = polyglot::backends::x86_64::RegAllocStrategy;
+
+X86Target::MCResult CompilePolyToX86Object(
+    const std::string &code,
+    RegAllocStrategy strategy = RegAllocStrategy::kLinearScan) {
+    Diagnostics diags;
+    PloyLexer lexer(code, "<native-execute>");
+    PloyParser parser(lexer, diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module != nullptr);
+    REQUIRE_FALSE(diags.HasErrors());
+
+    PloySema sema(diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    REQUIRE_FALSE(diags.HasErrors());
+
+    IRContext ctx;
+    PloyLowering lowering(ctx, diags, sema);
+    REQUIRE(lowering.Lower(module));
+    REQUIRE_FALSE(diags.HasErrors());
+
+    X86Target target(&ctx);
+    target.SetRegAllocStrategy(strategy);
+    return target.EmitObjectCode();
+}
+
+std::vector<std::uint8_t> RelocateX86Text(const X86Target::MCResult &mc) {
+    const X86Target::MCSection *text = nullptr;
+    for (const auto &section : mc.sections) {
+        if (section.name == ".text") {
+            text = &section;
+            break;
+        }
+    }
+    REQUIRE(text != nullptr);
+
+    std::unordered_map<std::string, std::uint64_t> text_symbols;
+    for (const auto &symbol : mc.symbols) {
+        if (symbol.defined && symbol.section == ".text")
+            text_symbols[symbol.name] = symbol.value;
+    }
+
+    std::vector<std::uint8_t> relocated = text->data;
+    for (const auto &reloc : mc.relocs) {
+        if (reloc.section != ".text")
+            continue;
+        const auto symbol = text_symbols.find(reloc.symbol);
+        REQUIRE(symbol != text_symbols.end());
+
+        if (reloc.type == 1) {
+            REQUIRE(reloc.offset + sizeof(std::int32_t) <= relocated.size());
+            const std::int64_t displacement =
+                static_cast<std::int64_t>(symbol->second) + reloc.addend -
+                static_cast<std::int64_t>(reloc.offset);
+            REQUIRE(displacement >= std::numeric_limits<std::int32_t>::min());
+            REQUIRE(displacement <= std::numeric_limits<std::int32_t>::max());
+            const auto encoded = static_cast<std::int32_t>(displacement);
+            std::memcpy(relocated.data() + reloc.offset, &encoded, sizeof(encoded));
+        } else {
+            REQUIRE(reloc.type == 0);
+            REQUIRE(reloc.offset + sizeof(std::uint64_t) <= relocated.size());
+            const auto value = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(symbol->second) + reloc.addend);
+            std::memcpy(relocated.data() + reloc.offset, &value, sizeof(value));
+        }
+    }
+    return relocated;
+}
+
+template <typename NativeFunction, typename... Args>
+std::int64_t ExecuteX86Function(const X86Target::MCResult &mc,
+                                const std::string &name, Args... args) {
+    const auto text = RelocateX86Text(mc);
+    const auto symbol = std::find_if(
+        mc.symbols.begin(), mc.symbols.end(), [&](const auto &candidate) {
+            return candidate.defined && candidate.section == ".text" &&
+                   candidate.name == name;
+        });
+    REQUIRE(symbol != mc.symbols.end());
+    REQUIRE(symbol->value < text.size());
+
+    const long page_size = ::sysconf(_SC_PAGESIZE);
+    REQUIRE(page_size > 0);
+    const std::size_t allocation_size =
+        (text.size() + static_cast<std::size_t>(page_size) - 1) /
+        static_cast<std::size_t>(page_size) * static_cast<std::size_t>(page_size);
+    void *mapping = ::mmap(nullptr, allocation_size, PROT_READ | PROT_WRITE,
+                           MAP_PRIVATE | MAP_ANON, -1, 0);
+    REQUIRE(mapping != MAP_FAILED);
+    std::memcpy(mapping, text.data(), text.size());
+    REQUIRE(::mprotect(mapping, allocation_size, PROT_READ | PROT_EXEC) == 0);
+
+    auto *entry = static_cast<std::uint8_t *>(mapping) + symbol->value;
+    auto function = reinterpret_cast<NativeFunction>(entry);
+    const std::int64_t result = function(args...);
+    REQUIRE(::munmap(mapping, allocation_size) == 0);
+    return result;
+}
+
+template <typename NativeFunction>
+int ExecuteX86FunctionWithTimeout(const X86Target::MCResult &mc,
+                                  const std::string &name) {
+    const pid_t child = ::fork();
+    REQUIRE(child >= 0);
+    if (child == 0) {
+        const auto result = ExecuteX86Function<NativeFunction>(mc, name);
+        ::_exit(static_cast<unsigned char>(result));
+    }
+
+    int status = 0;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        const pid_t waited = ::waitpid(child, &status, WNOHANG);
+        REQUIRE(waited >= 0);
+        if (waited == child) {
+            REQUIRE(WIFEXITED(status));
+            return WEXITSTATUS(status);
+        }
+        ::usleep(10000);
+    }
+
+    ::kill(child, SIGKILL);
+    REQUIRE(::waitpid(child, &status, 0) == child);
+    FAIL("native x86_64 function did not terminate within two seconds");
+    return -1;
+}
+
+#endif
+
 } // namespace
+
+TEST_CASE("Integration: x86_64 executes Poly WHILE accumulation with mutable locals",
+          "[integration][compile][x86][native][mutable]") {
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+    const std::string code = R"poly(
+FUNC main() -> INT {
+    VAR i = 0;
+    VAR total = 0;
+    WHILE i < 10 {
+        total = total + i;
+        i = i + 1;
+    }
+    RETURN total;
+}
+)poly";
+    const auto mc = CompilePolyToX86Object(code);
+    using NativeFunction = std::int64_t (*)();
+    CHECK(ExecuteX86FunctionWithTimeout<NativeFunction>(mc, "main") == 45);
+#else
+    SUCCEED("native x86_64 execution requires an x86_64 POSIX host");
+#endif
+}
+
+TEST_CASE("Integration: x86_64 executes branch assignments to a Poly mutable local",
+          "[integration][compile][x86][native][mutable]") {
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+    const std::string code = R"poly(
+FUNC choose(flag: INT) -> INT {
+    VAR value = 1;
+    IF flag > 0 {
+        value = 7;
+    } ELSE {
+        value = 9;
+    }
+    RETURN value;
+}
+)poly";
+    const auto mc = CompilePolyToX86Object(code);
+    using NativeFunction = std::int64_t (*)(std::int64_t);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "choose", 3) == 7);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "choose", -3) == 9);
+#else
+    SUCCEED("native x86_64 execution requires an x86_64 POSIX host");
+#endif
+}
+
+TEST_CASE("Integration: x86_64 signed division preserves live values and remainder",
+          "[integration][compile][x86][native][division]") {
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+    const std::string code = R"poly(
+FUNC encode_division(value: INT, divisor: INT, sentinel: INT) -> INT {
+    LET quotient = value / divisor;
+    LET remainder = value % divisor;
+    RETURN sentinel * 10000 + quotient * 100 + remainder;
+}
+)poly";
+    const auto mc = CompilePolyToX86Object(code);
+    using NativeFunction = std::int64_t (*)(std::int64_t, std::int64_t,
+                                            std::int64_t);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", 29, 6, 123) ==
+          1230405);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", -29, 6, 123) ==
+          1229595);
+#else
+    SUCCEED("native x86_64 execution requires an x86_64 POSIX host");
+#endif
+}
+
+TEST_CASE("Integration: x86_64 compares signed values with a wide immediate",
+          "[integration][compile][x86][native][compare]") {
+#if defined(__x86_64__) && (defined(__APPLE__) || defined(__linux__))
+    constexpr std::int64_t boundary = 10995126763530LL;
+    const std::string code = R"poly(
+FUNC compare_wide(value: INT) -> INT {
+    IF value == 10995126763530 {
+        RETURN 2;
+    }
+    IF value < 10995126763530 {
+        RETURN 1;
+    }
+    RETURN 3;
+}
+)poly";
+    const auto mc = CompilePolyToX86Object(code);
+    using NativeFunction = std::int64_t (*)(std::int64_t);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "compare_wide", boundary - 1) == 1);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "compare_wide", boundary) == 2);
+    CHECK(ExecuteX86Function<NativeFunction>(mc, "compare_wide", boundary + 1) == 3);
+#else
+    SUCCEED("native x86_64 execution requires an x86_64 POSIX host");
+#endif
+}
 
 // ============================================================================
 // Pipeline: Basic LINK + CALL (matches 01_basic_linking pattern)
@@ -231,7 +466,7 @@ TEST_CASE("Integration: PIPELINE with WHILE and BREAK", "[integration][compile]"
     Diagnostics diags;
     std::string code = R"(
 PIPELINE refiner {
-    FUNC refine(max_iter: i32, target: f64) -> f64 {
+    FUNC refine(max_iter: INT, target: f64) -> f64 {
         VAR current = 0.0;
         VAR iteration = 0;
         WHILE iteration < max_iter {
@@ -511,13 +746,21 @@ EXPORT use_packages AS "use_pkg";
 // Pipeline: Complete ML Training Loop (all features combined)
 // ============================================================================
 
-TEST_CASE("Integration: complete ML training loop compiles", "[integration][compile]") {
+TEST_CASE("Integration: ML training CLASS schema fails closed at unresolved typed-object lowering",
+          "[integration][compile][fail-closed]") {
     Diagnostics diags;
     std::string code = R"(
 IMPORT python PACKAGE torch;
 
+CLASS python::torch::nn::Linear {
+    METHOD __init__(in_features: INT, out_features: INT);
+    METHOD forward(x: LIST(FLOAT)) -> FLOAT;
+    ATTR training: BOOL;
+    ATTR learning_rate: FLOAT;
+}
+
 PIPELINE ml_training {
-    FUNC train(epochs: i32) -> f64 {
+    FUNC train(epochs: INT) -> f64 {
         LET model = NEW(python, torch::nn::Linear, 4, 1);
         SET(python, model, training, TRUE);
 
@@ -545,12 +788,40 @@ PIPELINE ml_training {
 
 EXPORT ml_training AS "train_model";
     )";
+
+    // The source-level CLASS contract is fully understood by parsing and
+    // semantic analysis.  The expected rejection below is specifically the
+    // lowering boundary, which does not yet retain a local handle's CLASS
+    // identity while resolving METHOD/GET result ABIs.
+    Diagnostics sema_diags;
+    PloyLexer lexer(code, "<ml-schema-sema>");
+    PloyParser parser(lexer, sema_diags);
+    parser.ParseModule();
+    auto module = parser.TakeModule();
+    REQUIRE(module != nullptr);
+    REQUIRE_FALSE(sema_diags.HasErrors());
+    PloySema sema(sema_diags, PloySemaOptions{});
+    REQUIRE(sema.Analyze(module));
+    const auto *schema = sema.LookupClassSchema("python::torch::nn::Linear");
+    REQUIRE(schema != nullptr);
+    CHECK(schema->methods.count("__init__") == 1u);
+    CHECK(schema->methods.count("forward") == 1u);
+    CHECK(schema->attributes.count("training") == 1u);
+    CHECK(schema->attributes.count("learning_rate") == 1u);
+
     auto result = CompileWithDescriptors(code, diags);
-    REQUIRE(result.success);
-    REQUIRE_FALSE(result.ir_text.empty());
-    REQUIRE(result.ir_text.find("train") != std::string::npos);
-    // Many descriptors: NEW + SET + METHOD + GET + DELETE
-    REQUIRE(result.descriptors.size() >= 5);
+    REQUIRE_FALSE(result.success);
+    REQUIRE(diags.HasErrors());
+
+    bool rejected_unresolved_abi = false;
+    for (const auto &diag : diags.All()) {
+        if (diag.message.find("unresolved value or ABI") != std::string::npos ||
+            diag.message.find("unresolved value type or ABI") != std::string::npos) {
+            rejected_unresolved_abi = true;
+            break;
+        }
+    }
+    CHECK(rejected_unresolved_abi);
 }
 
 // ============================================================================

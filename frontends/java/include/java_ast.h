@@ -8,6 +8,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -339,12 +340,20 @@ struct FieldDecl : Statement {
 
 /** @brief ConstructorDecl data structure. */
 struct ConstructorDecl : Statement {
+  enum class InvocationKind { kNone, kThis, kSuper };
+
   std::string name;
   std::vector<Parameter> params;
   std::vector<std::shared_ptr<Statement>> body;
   std::vector<Annotation> annotations;
   std::string access;
   std::vector<std::shared_ptr<TypeNode>> throws_types;
+  // Explicit constructor invocation, when present, is retained in `body` at
+  // this index. Java 25 permits statements before it (flexible constructor
+  // bodies); earlier releases require it to be the first statement.
+  InvocationKind invocation_kind{InvocationKind::kNone};
+  std::size_t invocation_index{0};
+  bool has_flexible_body{false};
 };
 
 /** @brief ClassDecl data structure. */
@@ -410,12 +419,33 @@ struct RecordDecl : Statement {
 struct ImportDecl : Statement {
   std::string path; // e.g., "java.util.List" or "java.util.*"
   bool is_static{false};
+  bool is_module{false}; // Java 25 module import declaration
 };
 
 /** @brief PackageDecl data structure. */
 struct PackageDecl : Statement {
   std::string name;
   std::vector<Annotation> annotations;
+};
+
+/** Java 9 module descriptor (`module-info.java`). */
+struct ModuleDecl : Statement {
+  struct Directive {
+    enum class Kind { kRequires, kExports, kOpens, kUses, kProvides };
+
+    core::SourceLoc loc{};
+    Kind kind{Kind::kRequires};
+    // Required module, exported/opened package, or used/provided service.
+    std::string name;
+    bool is_transitive{false};
+    bool is_static{false};
+    // `to` targets for exports/opens, or implementations after `with`.
+    std::vector<std::string> targets;
+  };
+
+  std::string name;
+  bool is_open{false};
+  std::vector<Directive> directives;
 };
 
 // ============================================================================
@@ -428,6 +458,9 @@ struct Module {
   std::shared_ptr<PackageDecl> package_decl;
   std::vector<std::shared_ptr<ImportDecl>> imports;
   std::vector<std::shared_ptr<Statement>> declarations;
+  // Java 25 compact source files contain members of an implicitly declared
+  // top-level class. Their FieldDecl/MethodDecl nodes live in `declarations`.
+  bool is_compact_source{false};
 };
 
 } // namespace polyglot::java

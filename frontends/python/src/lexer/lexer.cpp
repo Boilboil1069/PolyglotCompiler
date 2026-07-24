@@ -37,9 +37,9 @@ frontends::Token PythonLexer::LexIdentifier() {
   }
   static const std::unordered_set<std::string> keywords = {
       "False",  "None",    "True",  "and",      "as",     "assert", "async",  "await",
-      "break",  "case",    "class", "continue", "def",    "del",    "elif",   "else",
+      "break",  "class",   "continue", "def",   "del",    "elif",   "else",
       "except", "finally", "for",   "from",     "global", "if",     "import", "in",
-      "is",     "lambda",  "match", "nonlocal", "not",    "or",     "pass",   "raise",
+      "is",     "lambda",  "nonlocal", "not",   "or",     "pass",   "raise",
       "return", "try",     "while", "with",     "yield"};
   frontends::TokenKind kind =
       keywords.count(lexeme) ? frontends::TokenKind::kKeyword : frontends::TokenKind::kIdentifier;
@@ -195,7 +195,8 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
     if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
       // Check for string prefix (r/f/b) inside f-string expressions.
       // Only treat as string start if followed by a quote character.
-      if (c == 'r' || c == 'R' || c == 'b' || c == 'B' || c == 'f' || c == 'F') {
+      if (c == 'r' || c == 'R' || c == 'b' || c == 'B' || c == 'f' || c == 'F' ||
+          c == 't' || c == 'T') {
         char next_ch = (position_ + 1 < source_.size()) ? source_[position_ + 1] : '\0';
         if (next_ch == '"' || next_ch == '\'') {
           pending_.push_back(LexStringInternal(false));
@@ -203,7 +204,7 @@ bool PythonLexer::ParseFormatExpression(core::SourceLoc brace_loc) {
         }
         // Two-char prefix (rb, br, rf, fr)
         if (next_ch == 'r' || next_ch == 'R' || next_ch == 'b' || next_ch == 'B' ||
-            next_ch == 'f' || next_ch == 'F') {
+            next_ch == 'f' || next_ch == 'F' || next_ch == 't' || next_ch == 'T') {
           char after = (position_ + 2 < source_.size()) ? source_[position_ + 2] : '\0';
           if (after == '"' || after == '\'') {
             pending_.push_back(LexStringInternal(false));
@@ -258,6 +259,7 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
   core::SourceLoc loc = CurrentLoc();
   bool raw = false;
   bool formatted = false;
+  bool templated = false;
   bool bytes = false;
 
   for (;;) {
@@ -269,6 +271,14 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
     }
     if (p == 'f' || p == 'F') {
       if (allow_formatting) {
+        formatted = true;
+      }
+      Get();
+      continue;
+    }
+    if (p == 't' || p == 'T') {
+      if (allow_formatting) {
+        templated = true;
         formatted = true;
       }
       Get();
@@ -293,11 +303,21 @@ frontends::Token PythonLexer::LexStringInternal(bool allow_formatting) {
 
   std::string segment;
   core::SourceLoc segment_loc = CurrentLoc();
+  bool first_segment = true;
   auto flush_segment = [&]() {
-    if (!segment.empty()) {
-      pending_.push_back(frontends::Token{frontends::TokenKind::kString, segment, segment_loc});
+    if (!segment.empty() || (formatted && first_segment)) {
+      frontends::Token token{frontends::TokenKind::kString, segment, segment_loc};
+      // The token stream otherwise cannot distinguish f"{value}" from a
+      // dictionary that happens to follow a normal string.  Mark only the
+      // first segment; the parser consumes the following {expr} segments.
+      if (formatted && first_segment) {
+        token.raw_lexeme = templated ? "__polyglot_python_tstring__"
+                                     : "__polyglot_python_fstring__";
+      }
+      pending_.push_back(std::move(token));
       segment.clear();
     }
+    first_segment = false;
     segment_loc = CurrentLoc();
   };
 
@@ -486,14 +506,16 @@ frontends::Token PythonLexer::NextToken() {
   // (e.g. r, b, f, rb, br, rf, fr) and the prefix MUST be immediately
   // followed by a quote character (' or ").  We must not mistake ordinary
   // identifiers like "break" (b + r + ...) for string literals.
-  if (c == 'r' || c == 'R' || c == 'f' || c == 'F' || c == 'b' || c == 'B') {
+  if (c == 'r' || c == 'R' || c == 'f' || c == 'F' || c == 'b' || c == 'B' ||
+      c == 't' || c == 'T') {
     char next = PeekNext();
     if (next == '"' || next == '\'') {
       // Single-char prefix directly followed by quote: r"...", f'...'
       return LexString();
     }
     // Two-char prefix: rb, br, rf, fr (and case variants)
-    if (next == 'r' || next == 'R' || next == 'f' || next == 'F' || next == 'b' || next == 'B') {
+    if (next == 'r' || next == 'R' || next == 'f' || next == 'F' || next == 'b' ||
+        next == 'B' || next == 't' || next == 'T') {
       // Peek two characters ahead to verify a quote follows
       if (position_ + 2 < source_.size()) {
         char after = source_[position_ + 2];

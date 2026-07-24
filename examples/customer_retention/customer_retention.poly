@@ -1,0 +1,200 @@
+// A small real cross-language retention pipeline owned by one Poly entry.
+// Python generates telemetry, Java weighs engagement, and JavaScript applies
+// the recency policy. Every foreign source is compiled by built-in frontends.
+
+IMPORT python::telemetry_data;
+IMPORT java::SignalRules;
+IMPORT javascript::retention_policy;
+
+FUNC sessions_for(row: INT) -> INT {
+    RETURN CALL(python, telemetry_data::telemetry_sessions, row, 12, 2);
+}
+
+FUNC purchases_for(row: INT) -> INT {
+    RETURN CALL(python, telemetry_data::telemetry_purchases, row, 5);
+}
+
+FUNC complaints_for(row: INT) -> INT {
+    RETURN CALL(python, telemetry_data::telemetry_complaints, row);
+}
+
+FUNC days_since_login_for(row: INT) -> INT {
+    RETURN CALL(python, telemetry_data::telemetry_days_since_login, row, 3, 1);
+}
+
+FUNC activity_for(sessions: INT, purchases: INT, complaints: INT) -> INT {
+    RETURN CALL(
+        java,
+        SignalRules::java_activity_signal,
+        sessions,
+        purchases,
+        complaints,
+        2,
+        5,
+        4
+    );
+}
+
+FUNC health_for(activity: INT, days_since_login: INT) -> INT {
+    RETURN CALL(
+        javascript,
+        retention_policy::js_retention_score,
+        activity,
+        days_since_login,
+        2
+    );
+}
+
+FUNC segment_for(health: INT) -> INT {
+    IF health >= 30 {
+        RETURN 1;
+    } ELSE {
+        IF health >= 10 {
+            RETURN 2;
+        } ELSE {
+            RETURN 3;
+        }
+    }
+}
+
+FUNC write_account_record(
+    fd: INT,
+    row: INT,
+    id: INT
+) -> INT {
+    // Keep this helper below the six-register local-call ABI boundary. The
+    // values are deliberately recomputed through the same three compiled
+    // language stages before they are written for the browser.
+    LET sessions = sessions_for(row);
+    LET purchases = purchases_for(row);
+    LET complaints = complaints_for(row);
+    LET days_since_login = days_since_login_for(row);
+    LET activity = activity_for(sessions, purchases, complaints);
+    LET health = health_for(activity, days_since_login);
+    LET segment = segment_for(health);
+
+    VAR status = file_write_text(fd, "    { id: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, id, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", sessions: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, sessions, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", purchases: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, purchases, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", complaints: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, complaints, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", daysSinceLogin: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, days_since_login, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", activity: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, activity, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", health: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, health, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, ", segment: ");
+    IF status < 0 { RETURN -1; }
+    status = file_write_int(fd, segment, 0);
+    IF status < 0 { RETURN -1; }
+    status = file_write_text(fd, " },");
+    RETURN status;
+}
+
+FUNC main() -> INT {
+    LET s0 = sessions_for(0);
+    LET p0 = purchases_for(0);
+    LET c0 = complaints_for(0);
+    LET d0 = days_since_login_for(0);
+    LET a0 = activity_for(s0, p0, c0);
+    LET h0 = health_for(a0, d0);
+
+    LET s1 = sessions_for(1);
+    LET p1 = purchases_for(1);
+    LET c1 = complaints_for(1);
+    LET d1 = days_since_login_for(1);
+    LET a1 = activity_for(s1, p1, c1);
+    LET h1 = health_for(a1, d1);
+
+    LET s2 = sessions_for(2);
+    LET p2 = purchases_for(2);
+    LET c2 = complaints_for(2);
+    LET d2 = days_since_login_for(2);
+    LET a2 = activity_for(s2, p2, c2);
+    LET h2 = health_for(a2, d2);
+
+    LET s3 = sessions_for(3);
+    LET p3 = purchases_for(3);
+    LET c3 = complaints_for(3);
+    LET d3 = days_since_login_for(3);
+    LET a3 = activity_for(s3, p3, c3);
+    LET h3 = health_for(a3, d3);
+
+    LET s4 = sessions_for(4);
+    LET p4 = purchases_for(4);
+    LET c4 = complaints_for(4);
+    LET d4 = days_since_login_for(4);
+    LET a4 = activity_for(s4, p4, c4);
+    LET h4 = health_for(a4, d4);
+
+    // These assertions prove that all three language stages ran on real data.
+    IF a0 != 49 { RETURN 201; }
+    IF a1 != 36 { RETURN 202; }
+    IF a2 != 23 { RETURN 203; }
+    IF a3 != 10 { RETURN 204; }
+    IF a4 + 3 != 0 { RETURN 205; }
+    IF h0 != 47 { RETURN 211; }
+    IF h1 != 28 { RETURN 212; }
+    IF h2 != 9 { RETURN 213; }
+    IF h3 + 10 != 0 { RETURN 214; }
+    IF h4 + 29 != 0 { RETURN 215; }
+
+    LET b0 = segment_for(h0);
+    LET b1 = segment_for(h1);
+    LET b2 = segment_for(h2);
+    LET b3 = segment_for(h3);
+    LET b4 = segment_for(h4);
+    IF b0 != 1 { RETURN 221; }
+    IF b1 != 2 { RETURN 222; }
+    IF b2 + b3 + b4 != 9 { RETURN 223; }
+
+    // Generate the browser data module from the values that actually crossed
+    // Python -> Java -> JavaScript. The syscall-only file runtime is embedded
+    // by PolyglotCompiler and does not invoke an interpreter or host compiler.
+    LET data_fd = file_open_write("data/generated_accounts.js");
+    IF data_fd < 0 { RETURN 231; }
+    VAR io_status = file_write_text(
+        data_fd,
+        "window.CUSTOMER_RETENTION_DATA={version:1,source:'Python to Java to JavaScript, compiled by PolyglotCompiler',weights:{session:2,purchase:5,complaint:4,inactivity:2},thresholds:{healthy:30,watch:10},accounts:["
+    );
+    IF io_status < 0 { RETURN 232; }
+    io_status = write_account_record(data_fd, 0, 1001);
+    IF io_status < 0 { RETURN 232; }
+    io_status = write_account_record(data_fd, 1, 1002);
+    IF io_status < 0 { RETURN 232; }
+    io_status = write_account_record(data_fd, 2, 1003);
+    IF io_status < 0 { RETURN 232; }
+    io_status = write_account_record(data_fd, 3, 1004);
+    IF io_status < 0 { RETURN 232; }
+    io_status = write_account_record(data_fd, 4, 1005);
+    IF io_status < 0 { RETURN 232; }
+    io_status = file_write_text(data_fd, "],checksum:");
+    IF io_status < 0 { RETURN 232; }
+    io_status = file_write_int(data_fd, h0 + h1 + h2 + h3 + h4, 0);
+    IF io_status < 0 { RETURN 232; }
+    io_status = file_write_text(data_fd, "};");
+    IF io_status < 0 { RETURN 232; }
+    LET close_status = file_close(data_fd);
+    IF close_status != 0 { RETURN 233; }
+
+    // 47 + 28 + 9 - 10 - 29 = 45.
+    RETURN h0 + h1 + h2 + h3 + h4;
+}

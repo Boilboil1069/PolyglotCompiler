@@ -1,0 +1,9 @@
+test_sae,97
+test_sse,503
+test_max_error,10
+test_sst_numerator,241581
+regression_r_squared_ppm,937536
+tree_code,10995126763530
+centroid_code,9929974874122
+tree_correct,30
+centroid_correct,29

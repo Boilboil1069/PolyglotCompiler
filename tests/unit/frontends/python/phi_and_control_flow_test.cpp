@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
 #include <sstream>
 #include <string>
 
@@ -43,6 +44,13 @@ bool HasPhiNode(const std::string &ir) {
     return ir.find("phi") != std::string::npos;
 }
 
+bool HasUnsupportedLowering(const Diagnostics &diags) {
+    for (const auto &diagnostic : diags.All())
+        if (diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering)
+            return true;
+    return false;
+}
+
 } // namespace
 
 // ============================================================================
@@ -57,12 +65,8 @@ def test(x: int, y: int) -> int:
     return result
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    // Should generate PHI node for the logical and result
-    REQUIRE(ir.find("and.end") != std::string::npos);
-    REQUIRE(HasPhiNode(ir));
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python PHI - Logical OR with short-circuit", "[python][lowering][phi]") {
@@ -73,12 +77,8 @@ def test(x: int, y: int) -> int:
     return result
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    // Should generate PHI node for the logical or result
-    REQUIRE(ir.find("or.end") != std::string::npos);
-    REQUIRE(HasPhiNode(ir));
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python PHI - Chained logical operators", "[python][lowering][phi]") {
@@ -89,11 +89,8 @@ def test(a: int, b: int, c: int) -> int:
     return result
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    // Should generate multiple PHI nodes for chained operators
-    REQUIRE(HasPhiNode(ir));
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -312,6 +309,24 @@ def test(items):
     }
 }
 
+TEST_CASE("Python Comprehension - Destructuring target reports E4003",
+          "[python][lowering][comprehension][fail-closed]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+def test(items: int) -> int:
+    result = [x for x, y in items]
+    return 0
+)", diags);
+
+    (void)ctx;
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
+    REQUIRE(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diagnostic) {
+        return diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering &&
+               diagnostic.message.find("destructuring comprehension targets") != std::string::npos;
+    }));
+}
+
 // ============================================================================
 // Exception Handling Tests
 // ============================================================================
@@ -327,13 +342,8 @@ def test(x: int):
     return x
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    REQUIRE(ir.find("try.body") != std::string::npos);
-    REQUIRE(ir.find("try.landingpad") != std::string::npos);
-    REQUIRE(ir.find("__py_push_exception_frame") != std::string::npos);
-    REQUIRE(ir.find("__py_setjmp") != std::string::npos);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Exception - Try-except with type", "[python][lowering][exception]") {
@@ -347,11 +357,8 @@ def test(value: int, exc_type):
     return x
 )", diags);
     
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    if (ok) {
-        REQUIRE(ir.find("__py_exception_isinstance") != std::string::npos);
-    }
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Exception - Try-except-else", "[python][lowering][exception]") {
@@ -367,10 +374,8 @@ def test(x: int):
     return x
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    REQUIRE(ir.find("try.else") != std::string::npos);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Exception - Try-except-finally", "[python][lowering][exception]") {
@@ -386,11 +391,8 @@ def test(x: int):
     return x
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    REQUIRE(ir.find("try.finally") != std::string::npos);
-    REQUIRE(ir.find("__py_check_reraise_flag") != std::string::npos);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Exception - Multiple exception handlers", "[python][lowering][exception]") {
@@ -408,13 +410,8 @@ def test(x: int, exc1, exc2):
     return x
 )", diags);
     
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    if (ok) {
-        REQUIRE(ir.find("except.0") != std::string::npos);
-        REQUIRE(ir.find("except.1") != std::string::npos);
-        REQUIRE(ir.find("except.2") != std::string::npos);
-    }
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -428,11 +425,8 @@ def greet(name: str, greeting: str = "Hello"):
     return greeting + name
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    REQUIRE(ir.find("__py_arg_provided") != std::string::npos);
-    REQUIRE(ir.find("default.merge") != std::string::npos);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Default Args - Multiple defaults", "[python][lowering][phi]") {
@@ -442,11 +436,8 @@ def func(a: int, b: int = 1, c: int = 2) -> int:
     return a + b + c
 )", diags);
     
-    REQUIRE(ok);
-    auto ir = GetIR(ctx);
-    INFO("IR:\n" << ir);
-    // Should have PHI nodes for both b and c defaults
-    REQUIRE(HasPhiNode(ir));
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================

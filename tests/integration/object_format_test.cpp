@@ -557,6 +557,70 @@ TEST_CASE("Object format: Mach-O64 has LC_DYSYMTAB", "[integration][objfmt][mach
   REQUIRE(found_dysymtab);
 }
 
+TEST_CASE("Object format: Mach-O64 relocations follow grouped symbol-table indices",
+          "[integration][objfmt][macho][reloc]") {
+  TmpDir tmp;
+
+  ObjSection text;
+  text.name = ".text";
+  text.data.assign(16, 0x90);
+  ObjReloc branch;
+  branch.section_index = 0;
+  branch.offset = 4;
+  branch.type = 1;
+  branch.symbol_index = 1; // local block label in the incoming symbol order
+  branch.addend = -4;
+  text.relocs.push_back(branch);
+
+  ObjSymbol global_fn;
+  global_fn.name = "entry";
+  global_fn.section_index = 0;
+  global_fn.value = 0;
+  global_fn.size = 16;
+  global_fn.global = true;
+  global_fn.defined = true;
+
+  ObjSymbol local_block;
+  local_block.name = "entry.__bb1";
+  local_block.section_index = 0;
+  local_block.value = 8;
+  local_block.size = 0;
+  local_block.global = false;
+  local_block.defined = true;
+
+  BackendResult backend;
+  backend.success = true;
+  backend.sections.push_back(std::move(text));
+  // Deliberately place the external definition before the local definition.
+  // Mach-O groups locals first, so the relocation must be remapped from
+  // incoming index 1 to final nlist index 0.
+  backend.symbols = {global_fn, local_block};
+
+  BridgeResult bridge;
+  DriverSettings settings;
+  settings.output = (tmp.path / "macho_reloc_index").string();
+  settings.obj_format = "macho";
+  settings.arch = "x86_64";
+  settings.mode = "compile";
+  settings.emit_obj_path = (tmp.path / "macho_reloc_index.o").string();
+
+  auto pkg = RunPackagingStage(settings, backend, bridge, "", "macho_reloc_index");
+  REQUIRE(pkg.success);
+
+  const auto buf = ReadBinary(pkg.obj_path);
+  REQUIRE(buf.size() >= 32 + 72 + 80);
+  REQUIRE(ReadU32(buf, 32) == 0x19); // LC_SEGMENT_64
+  const std::size_t text_section = 32 + 72;
+  const std::uint32_t reloc_offset = ReadU32(buf, text_section + 56);
+  const std::uint32_t reloc_count = ReadU32(buf, text_section + 60);
+  REQUIRE(reloc_count == 1);
+  REQUIRE(reloc_offset + 8 <= buf.size());
+
+  const std::uint32_t packed = ReadU32(buf, reloc_offset + 4);
+  const std::uint32_t symbol_index = packed & 0x00FFFFFFu;
+  REQUIRE(symbol_index == 0);
+}
+
 TEST_CASE("Object format: Mach-O64 has __DATA section when data present",
           "[integration][objfmt][macho]") {
   TmpDir tmp;

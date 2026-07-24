@@ -13,6 +13,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include "frontends/common/include/language_versions.h"
 #include "frontends/ploy/include/command_runner.h"
 #include "frontends/ploy/include/package_discovery_cache.h"
 #include "frontends/ploy/include/ploy_sema.h"
@@ -26,6 +27,18 @@ std::string CanonicalizePolyAlias(const std::string &language) {
   std::transform(folded.begin(), folded.end(), folded.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return (folded == "poly" || folded == "ploy") ? "poly" : language;
+}
+
+bool CanonicalizePinnedVersion(const std::string &language, const std::string &version,
+                               std::string &canonical_version) {
+  std::string canonical_pair;
+  if (!frontends::CanonicalizeLanguageVersion(language + "=" + version, canonical_pair))
+    return false;
+  const auto separator = canonical_pair.find('=');
+  if (separator == std::string::npos || separator + 1 >= canonical_pair.size())
+    return false;
+  canonical_version = canonical_pair.substr(separator + 1);
+  return true;
 }
 
 // Returns true when `expr` is a constant-foldable expression — i.e. a
@@ -72,7 +85,49 @@ PloySema::PloySema(frontends::Diagnostics &diagnostics, const PloySemaOptions &o
     discovery_cache_(options.discovery_cache ? options.discovery_cache
                                              : std::make_shared<PackageDiscoveryCache>()),
     command_runner_(options.command_runner ? options.command_runner
-                                           : std::make_shared<DefaultCommandRunner>()) {}
+                                           : std::make_shared<DefaultCommandRunner>()) {
+  // Scalar-only native file API.  The implementation is injected by polyc's
+  // backend when a lowered call references the corresponding polyrt symbol;
+  // registering the source names here gives ordinary Poly code strict type
+  // checking without requiring a LINK declaration or an external runtime.
+  const auto register_file_builtin =
+      [this](const std::string &name, std::vector<core::Type> params,
+             std::vector<std::string> param_names) {
+        const core::Type result_type = core::Type::Int();
+        PloySymbol symbol;
+        symbol.kind = PloySymbol::Kind::kFunction;
+        symbol.name = name;
+        symbol.type = type_system_.FunctionType(name, result_type, params);
+        symbol.visibility = Visibility::kPub;
+        symbol.defined_at = core::SourceLoc{"<polyrt>", 1, 1};
+        symbols_.emplace(name, std::move(symbol));
+
+        FunctionSignature sig;
+        sig.name = name;
+        sig.language = "poly";
+        sig.param_types = std::move(params);
+        sig.param_names = std::move(param_names);
+        sig.param_has_default.assign(sig.param_types.size(), false);
+        sig.param_default_values.assign(sig.param_types.size(), nullptr);
+        sig.return_type = result_type;
+        sig.param_count = sig.param_types.size();
+        sig.param_count_known = true;
+        sig.validated = true;
+        sig.defined_at = core::SourceLoc{"<polyrt>", 1, 1};
+        RegisterFunctionSignature(name, sig);
+      };
+
+  register_file_builtin("file_open_ints", {core::Type::String()}, {"path"});
+  register_file_builtin("file_open_write", {core::Type::String()}, {"path"});
+  register_file_builtin("file_next_int", {core::Type::Int(), core::Type::Int()},
+                        {"fd", "eof"});
+  register_file_builtin("file_write_text", {core::Type::Int(), core::Type::String()},
+                        {"fd", "text"});
+  register_file_builtin("file_write_int",
+                        {core::Type::Int(), core::Type::Int(), core::Type::Int()},
+                        {"fd", "value", "separator"});
+  register_file_builtin("file_close", {core::Type::Int()}, {"fd"});
+}
 
 // ============================================================================
 // Public Interface
@@ -421,6 +476,11 @@ void PloySema::AnalyzeImportDecl(const std::shared_ptr<ImportDecl> &import) {
   // Validate language if specified
   if (!import->language.empty() && !IsValidLanguage(import->language)) {
     Report(import->loc, "unknown language '" + import->language + "' in IMPORT");
+  }
+
+  if (!import->language.empty() && !import->module_path.empty() &&
+      import->package_name.empty()) {
+    local_source_imports_.insert(import->language + "::" + import->module_path);
   }
 
   // Validate version constraint if present
@@ -1848,6 +1908,7 @@ core::Type PloySema::AnalyzeCallExpression(const std::shared_ptr<CallExpression>
 
 core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExpression> &call) {
   call->language = CanonicalizePolyAlias(call->language);
+  cross_language_calls_.push_back(call);
   // Validate language
   if (!IsValidLanguage(call->language)) {
     ReportError(call->loc, frontends::ErrorCode::kInvalidLanguage,
@@ -1922,6 +1983,15 @@ core::Type PloySema::AnalyzeCrossLangCall(const std::shared_ptr<CrossLangCallExp
                        ") has no known return type; defaults to Unknown �?"
                        "add MAP_TYPE to enable type checking");
   return core::Type::Unknown();
+}
+
+bool PloySema::IsLocalSourceCall(const std::string &language,
+                                 const std::string &qualified_function) const {
+  const auto pos = qualified_function.rfind("::");
+  if (pos == std::string::npos || pos == 0)
+    return false;
+  return local_source_imports_.count(CanonicalizePolyAlias(language) + "::" +
+                                     qualified_function.substr(0, pos)) != 0;
 }
 
 core::Type PloySema::AnalyzeNewExpression(const std::shared_ptr<NewExpression> &new_expr) {
@@ -4604,11 +4674,18 @@ void PloySema::AnalyzeLangPragma(const std::shared_ptr<LangPragma> &pragma) {
                 "LANG pragma for '" + pragma->language + "' has empty version");
     return;
   }
+  std::string canonical_version;
+  if (!CanonicalizePinnedVersion(canon, pragma->version, canonical_version)) {
+    ReportError(pragma->loc, frontends::ErrorCode::kLangVersionMismatch,
+                "unsupported version '" + pragma->version + "' for language '" + canon + "'",
+                "use a version listed by `polyc --list-language-versions`");
+    return;
+  }
   // Module-wide pins live in stack[0]; later pragmas overwrite earlier ones.
   if (lang_pin_stack_.empty()) {
     lang_pin_stack_.emplace_back();
   }
-  lang_pin_stack_.front()[canon] = pragma->version;
+  lang_pin_stack_.front()[canon] = canonical_version;
 }
 
 void PloySema::AnalyzeWithLangBlock(const std::shared_ptr<WithLangBlock> &block) {
@@ -4627,7 +4704,14 @@ void PloySema::AnalyzeWithLangBlock(const std::shared_ptr<WithLangBlock> &block)
                   "WITH LANG pin for '" + pin.language + "' has empty version");
       continue;
     }
-    frame[canon] = pin.version;
+    std::string canonical_version;
+    if (!CanonicalizePinnedVersion(canon, pin.version, canonical_version)) {
+      ReportError(block->loc, frontends::ErrorCode::kLangVersionMismatch,
+                  "unsupported version '" + pin.version + "' for language '" + canon + "'",
+                  "use a version listed by `polyc --list-language-versions`");
+      continue;
+    }
+    frame[canon] = canonical_version;
   }
   lang_pin_stack_.push_back(std::move(frame));
   AnalyzeBlockStatements(block->body);
@@ -4650,7 +4734,14 @@ void PloySema::AnalyzeLangAnnotation(const std::shared_ptr<LangAnnotation> &anno
                   "@LANG pin for '" + pin.language + "' has empty version");
       continue;
     }
-    frame[canon] = pin.version;
+    std::string canonical_version;
+    if (!CanonicalizePinnedVersion(canon, pin.version, canonical_version)) {
+      ReportError(anno->loc, frontends::ErrorCode::kLangVersionMismatch,
+                  "unsupported version '" + pin.version + "' for language '" + canon + "'",
+                  "use a version listed by `polyc --list-language-versions`");
+      continue;
+    }
+    frame[canon] = canonical_version;
   }
   lang_pin_stack_.push_back(std::move(frame));
   if (anno->target) {

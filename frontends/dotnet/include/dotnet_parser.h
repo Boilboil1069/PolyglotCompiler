@@ -35,14 +35,24 @@ private:
   std::shared_ptr<Module> module_;
   // Active C# language version for syntax gating. `kAuto` ⇒ `kDotnetLangVersionDefault`.
   frontends::DotnetLangVersion dotnet_lang_version_{frontends::DotnetLangVersion::kAuto};
+  bool in_property_accessor_{false};
+  bool saw_field_keyword_{false};
 
   void Advance();
   frontends::Token Consume();
+  frontends::Token PeekToken();
   bool IsSymbol(const std::string &symbol) const;
   bool MatchSymbol(const std::string &symbol);
   bool MatchKeyword(const std::string &keyword);
   void ExpectSymbol(const std::string &symbol, const std::string &msg);
   void Sync();
+  void ReportFeatureBoundary(const core::SourceLoc &loc,
+                             frontends::DotnetLangVersion required,
+                             const std::string &feature, bool faithfully_represented);
+  void SkipRecognizedMember();
+  PropertyDecl::Accessor ParsePropertyAccessorBody(PropertyDecl::Accessor::Kind kind,
+                                                    const core::SourceLoc &loc);
+  std::shared_ptr<Expression> ParsePropertyExpressionBody(bool &uses_field_keyword);
   std::string ParseQualifiedName();
 
   // Declarations
@@ -53,9 +63,11 @@ private:
   std::string ParseAccessModifier();
 
   std::shared_ptr<ClassDecl> ParseClassDecl(const std::string &access,
-                                            const std::vector<Attribute> &attrs);
+                                            const std::vector<Attribute> &attrs,
+                                            bool is_record = false);
   std::shared_ptr<StructDecl> ParseStructDecl(const std::string &access,
-                                              const std::vector<Attribute> &attrs);
+                                              const std::vector<Attribute> &attrs,
+                                              bool is_record = false);
   std::shared_ptr<InterfaceDecl> ParseInterfaceDecl(const std::string &access,
                                                     const std::vector<Attribute> &attrs);
   std::shared_ptr<EnumDecl> ParseEnumDecl(const std::string &access,
@@ -73,6 +85,16 @@ private:
   std::shared_ptr<ConstructorDecl> ParseConstructorDecl(const std::string &access,
                                                         const std::string &class_name);
   std::shared_ptr<DestructorDecl> ParseDestructorDecl(const std::string &class_name);
+  std::shared_ptr<Statement> ParseCommonTypeMember(const std::string &owner,
+                                                   const std::string &access,
+                                                   const std::vector<Attribute> &attrs,
+                                                   bool allow_constructor);
+  std::shared_ptr<ExtensionDecl> ParseExtensionDecl(
+      const std::string &access, const std::vector<Attribute> &attrs);
+  std::shared_ptr<OperatorDecl> ParseOperatorDecl(
+      const std::string &access, const std::vector<Attribute> &attrs,
+      const std::shared_ptr<TypeNode> &return_type, bool is_static,
+      const core::SourceLoc &loc);
 
   // Types and type params
   std::shared_ptr<TypeNode> ParseType();
@@ -102,6 +124,8 @@ private:
   std::shared_ptr<Expression> ParseBinary(int min_prec);
   std::shared_ptr<Expression> ParseUnary();
   std::shared_ptr<Expression> ParsePostfix();
+  std::shared_ptr<Expression> ParseSwitchExpression(
+      std::shared_ptr<Expression> governing);
   std::shared_ptr<Expression> ParsePrimary();
   int GetPrecedence(const std::string &op) const;
 };

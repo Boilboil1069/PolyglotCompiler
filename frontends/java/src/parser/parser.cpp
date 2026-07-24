@@ -8,13 +8,60 @@
  */
 #include "frontends/java/include/java_parser.h"
 
+#include <unordered_set>
+
 #include "frontends/common/include/diagnostics.h"
 #include "frontends/common/include/language_versions.h"
 
 namespace polyglot::java {
 
+namespace {
+
+bool IsIdentifierLike(const frontends::Token &token) {
+  if (token.kind == frontends::TokenKind::kIdentifier)
+    return true;
+  if (token.kind != frontends::TokenKind::kKeyword)
+    return false;
+
+  // Java's restricted/contextual keywords remain legal identifiers in many
+  // name positions (for example `int record;`).  Keep true reserved words out
+  // of this set and let the surrounding production decide when these spellings
+  // have their special meaning.
+  static const std::unordered_set<std::string> contextual = {
+      "module", "open",   "requires", "transitive", "exports", "opens",
+      "to",     "uses",   "provides", "with",       "var",     "yield",
+      "record", "sealed", "permits",  "when"};
+  return contextual.contains(token.lexeme);
+}
+
+bool IsPrimitivePatternType(const std::shared_ptr<TypeNode> &type) {
+  const auto simple = std::dynamic_pointer_cast<SimpleType>(type);
+  if (!simple)
+    return false;
+  static const std::unordered_set<std::string> primitive_types = {
+      "boolean", "byte", "short", "int", "long", "char", "float", "double"};
+  return primitive_types.contains(simple->name);
+}
+
+} // namespace
+
 void JavaParser::Advance() {
-  current_ = lexer_.NextToken();
+  if (lookahead_) {
+    current_ = std::move(*lookahead_);
+    lookahead_.reset();
+  } else {
+    current_ = lexer_.NextToken();
+  }
+}
+
+const frontends::Token &JavaParser::PeekNext() {
+  if (!lookahead_) {
+    auto token = lexer_.NextToken();
+    while (token.kind == frontends::TokenKind::kComment)
+      token = lexer_.NextToken();
+    lookahead_ = std::move(token);
+  }
+  return *lookahead_;
 }
 
 frontends::Token JavaParser::Consume() {
@@ -136,8 +183,86 @@ std::shared_ptr<ImportDecl> JavaParser::ParseImportDecl() {
     node->is_static = true;
   }
 
+  if (MatchKeyword("module")) {
+    node->is_module = true;
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava25)) {
+      diagnostics_.ReportError(
+          node->loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("module import declarations require Java 25 or newer (current: ") +
+              frontends::JavaReleaseToString(java_release_) + ")");
+    }
+  }
+
   node->path = ParseQualifiedName();
   ExpectSymbol(";", "expected ';' after import declaration");
+  return node;
+}
+
+std::shared_ptr<ModuleDecl> JavaParser::ParseModuleDecl() {
+  auto node = std::make_shared<ModuleDecl>();
+  node->loc = current_.loc;
+  if (MatchKeyword("open"))
+    node->is_open = true;
+  if (!MatchKeyword("module")) {
+    diagnostics_.Report(current_.loc, "expected 'module' in module declaration");
+    return node;
+  }
+  if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava9)) {
+    diagnostics_.ReportError(
+        node->loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("module declarations require Java 9 or newer (current: ") +
+            frontends::JavaReleaseToString(java_release_) + ")");
+  }
+  node->name = ParseQualifiedName();
+  ExpectSymbol("{", "expected '{' after module name");
+  while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    ModuleDecl::Directive directive;
+    directive.loc = current_.loc;
+    if (MatchKeyword("requires")) {
+      directive.kind = ModuleDecl::Directive::Kind::kRequires;
+      while (current_.kind == frontends::TokenKind::kKeyword &&
+             (current_.lexeme == "transitive" || current_.lexeme == "static")) {
+        if (current_.lexeme == "transitive")
+          directive.is_transitive = true;
+        else
+          directive.is_static = true;
+        Consume();
+      }
+      directive.name = ParseQualifiedName();
+    } else if (current_.kind == frontends::TokenKind::kKeyword &&
+               (current_.lexeme == "exports" || current_.lexeme == "opens")) {
+      directive.kind = current_.lexeme == "exports"
+                           ? ModuleDecl::Directive::Kind::kExports
+                           : ModuleDecl::Directive::Kind::kOpens;
+      Consume();
+      directive.name = ParseQualifiedName();
+      if (MatchKeyword("to")) {
+        do {
+          directive.targets.push_back(ParseQualifiedName());
+        } while (MatchSymbol(","));
+      }
+    } else if (MatchKeyword("uses")) {
+      directive.kind = ModuleDecl::Directive::Kind::kUses;
+      directive.name = ParseQualifiedName();
+    } else if (MatchKeyword("provides")) {
+      directive.kind = ModuleDecl::Directive::Kind::kProvides;
+      directive.name = ParseQualifiedName();
+      if (!MatchKeyword("with"))
+        diagnostics_.Report(current_.loc, "expected 'with' in provides directive");
+      do {
+        directive.targets.push_back(ParseQualifiedName());
+      } while (MatchSymbol(","));
+    } else {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               "unsupported Java module directive: " + current_.lexeme);
+      while (!IsSymbol(";") && !IsSymbol("}") &&
+             current_.kind != frontends::TokenKind::kEndOfFile)
+        Consume();
+    }
+    ExpectSymbol(";", "expected ';' after module directive");
+    node->directives.push_back(std::move(directive));
+  }
+  ExpectSymbol("}", "expected '}' after module declaration");
   return node;
 }
 
@@ -148,20 +273,46 @@ std::vector<Annotation> JavaParser::ParseAnnotations() {
     Annotation ann;
     ann.name = current_.lexeme;
     Consume();
-    if (IsSymbol("(")) {
-      Consume();
-      // Skip annotation arguments for now
-      int depth = 1;
-      while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
-        if (IsSymbol("("))
-          depth++;
-        else if (IsSymbol(")"))
-          depth--;
-        if (depth > 0)
-          Consume();
+    if (MatchSymbol("(")) {
+      while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
+        if (IsSymbol("{") ||
+            (current_.kind == frontends::TokenKind::kKeyword &&
+             !current_.lexeme.empty() && current_.lexeme[0] == '@')) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+              "nested annotations and array-valued annotation elements require a dedicated AST");
+          int paren_depth = 1;
+          while (paren_depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
+            if (IsSymbol("("))
+              ++paren_depth;
+            else if (IsSymbol(")"))
+              --paren_depth;
+            if (paren_depth > 0)
+              Consume();
+          }
+          break;
+        }
+        ann.args.push_back(ParseExpression());
+        if (MatchSymbol(","))
+          continue;
+        if (!IsSymbol(")")) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+              "annotation argument form is recognized but not represented faithfully");
+          int paren_depth = 1;
+          while (paren_depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile) {
+            if (IsSymbol("("))
+              ++paren_depth;
+            else if (IsSymbol(")"))
+              --paren_depth;
+            if (paren_depth > 0)
+              Consume();
+          }
+          break;
+        }
+        break;
       }
-      if (IsSymbol(")"))
-        Consume();
+      ExpectSymbol(")", "expected ')' after annotation arguments");
     }
     annotations.push_back(ann);
   }
@@ -179,6 +330,16 @@ std::string JavaParser::ParseAccessModifier() {
 }
 
 void JavaParser::ParseTopLevel() {
+  if (MatchSymbol(";"))
+    return; // empty type declaration
+
+  if (current_.kind == frontends::TokenKind::kKeyword &&
+      (current_.lexeme == "module" ||
+       (current_.lexeme == "open" && PeekNext().kind == frontends::TokenKind::kKeyword &&
+        PeekNext().lexeme == "module"))) {
+    module_->declarations.push_back(ParseModuleDecl());
+    return;
+  }
   auto annotations = ParseAnnotations();
   std::string access = ParseAccessModifier();
 
@@ -186,6 +347,8 @@ void JavaParser::ParseTopLevel() {
   bool is_abstract = false, is_final = false, is_static = false;
   bool is_sealed = false, is_non_sealed = false;
   bool is_strictfp = false;
+  bool is_synchronized = false, is_native = false;
+  bool is_volatile = false, is_transient = false;
 
   while (current_.kind == frontends::TokenKind::kKeyword) {
     auto &kw = current_.lexeme;
@@ -217,6 +380,18 @@ void JavaParser::ParseTopLevel() {
     } else if (kw == "strictfp") {
       is_strictfp = true;
       Consume();
+    } else if (kw == "synchronized") {
+      is_synchronized = true;
+      Consume();
+    } else if (kw == "native") {
+      is_native = true;
+      Consume();
+    } else if (kw == "volatile") {
+      is_volatile = true;
+      Consume();
+    } else if (kw == "transient") {
+      is_transient = true;
+      Consume();
     } else
       break;
   }
@@ -237,19 +412,90 @@ void JavaParser::ParseTopLevel() {
   } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "enum") {
     module_->declarations.push_back(ParseEnumDecl(access, annotations));
   } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "record") {
-    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava16)) {
       diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
-                               std::string("'record' declarations require Java 17 or newer "
+                               std::string("'record' declarations require Java 16 or newer "
                                            "(current: ") +
                                    frontends::JavaReleaseToString(java_release_) + ")");
     }
     module_->declarations.push_back(ParseRecordDecl(access, annotations));
   } else {
-    // Skip unknown tokens
-    if (current_.kind != frontends::TokenKind::kEndOfFile) {
-      Consume();
+    if (current_.kind == frontends::TokenKind::kEndOfFile)
+      return;
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava25)) {
+      diagnostics_.ReportError(
+          current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("compact source files require Java 25 or newer (current: ") +
+              frontends::JavaReleaseToString(java_release_) + ")");
+    }
+    auto member = ParseCompactMember(access, annotations, is_static, is_final, is_abstract,
+                                     is_synchronized, is_native, is_volatile, is_transient);
+    if (member) {
+      module_->is_compact_source = true;
+      module_->declarations.push_back(std::move(member));
+    } else {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               "malformed compact source member");
+      Sync();
+      if (IsSymbol(";"))
+        Consume();
     }
   }
+}
+
+std::shared_ptr<Statement> JavaParser::ParseCompactMember(
+    const std::string &access, const std::vector<Annotation> &annotations,
+    bool is_static, bool is_final, bool is_abstract, bool is_synchronized,
+    bool is_native, bool is_volatile, bool is_transient) {
+  auto type_params = ParseTypeParameters();
+  auto type = ParseType();
+  if (!type || !IsIdentifierLike(current_))
+    return nullptr;
+  const std::string name = current_.lexeme;
+  Consume();
+
+  if (IsSymbol("(")) {
+    auto method = std::make_shared<MethodDecl>();
+    method->loc = type->loc;
+    method->name = name;
+    method->return_type = type;
+    method->access = access;
+    method->annotations = annotations;
+    method->type_params = std::move(type_params);
+    method->is_static = is_static;
+    method->is_final = is_final;
+    method->is_abstract = is_abstract;
+    method->is_synchronized = is_synchronized;
+    method->is_native = is_native;
+    method->params = ParseParameters();
+    if (MatchKeyword("throws")) {
+      do {
+        method->throws_types.push_back(ParseType());
+      } while (MatchSymbol(","));
+    }
+    if (IsSymbol("{")) {
+      auto body = ParseBlock();
+      method->body = std::move(body->statements);
+    } else {
+      ExpectSymbol(";", "expected ';' after compact source method");
+    }
+    return method;
+  }
+
+  auto field = std::make_shared<FieldDecl>();
+  field->loc = type->loc;
+  field->name = name;
+  field->type = type;
+  field->access = access;
+  field->annotations = annotations;
+  field->is_static = is_static;
+  field->is_final = is_final;
+  field->is_volatile = is_volatile;
+  field->is_transient = is_transient;
+  if (MatchSymbol("="))
+    field->init = ParseExpression();
+  ExpectSymbol(";", "expected ';' after compact source field");
+  return field;
 }
 
 // ============================================================================
@@ -302,6 +548,7 @@ std::shared_ptr<ClassDecl> JavaParser::ParseClassDecl(const std::string &access,
       bool member_static = false, member_final = false, member_abstract = false;
       bool member_synchronized = false, member_native = false, member_default = false;
       bool member_volatile = false, member_transient = false;
+      bool member_sealed = false, member_non_sealed = false;
 
       while (current_.kind == frontends::TokenKind::kKeyword) {
         auto &kw = current_.lexeme;
@@ -329,6 +576,16 @@ std::shared_ptr<ClassDecl> JavaParser::ParseClassDecl(const std::string &access,
         } else if (kw == "transient") {
           member_transient = true;
           Consume();
+        } else if (kw == "sealed" || kw == "non-sealed") {
+          if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+            diagnostics_.ReportError(
+                current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                std::string("sealed types require Java 17 or newer (current: ") +
+                    frontends::JavaReleaseToString(java_release_) + ")");
+          }
+          member_sealed = kw == "sealed";
+          member_non_sealed = kw == "non-sealed";
+          Consume();
         } else
           break;
       }
@@ -336,7 +593,29 @@ std::shared_ptr<ClassDecl> JavaParser::ParseClassDecl(const std::string &access,
       if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "class") {
         auto inner = ParseClassDecl(member_access, member_annotations);
         inner->is_static = member_static;
+        inner->is_sealed = member_sealed;
+        inner->is_non_sealed = member_non_sealed;
         node->members.push_back(inner);
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "interface") {
+        auto inner = ParseInterfaceDecl(member_access, member_annotations);
+        inner->is_sealed = member_sealed;
+        node->members.push_back(inner);
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "enum") {
+        node->members.push_back(ParseEnumDecl(member_access, member_annotations));
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "record") {
+        if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava16)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("record declarations require Java 16 or newer (current: ") +
+                  frontends::JavaReleaseToString(java_release_) + ")");
+        }
+        node->members.push_back(ParseRecordDecl(member_access, member_annotations));
         continue;
       }
 
@@ -355,7 +634,7 @@ std::shared_ptr<ClassDecl> JavaParser::ParseClassDecl(const std::string &access,
       // Return type or field type
       auto type = ParseType();
 
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         std::string name = current_.lexeme;
         Consume();
 
@@ -474,11 +753,24 @@ std::shared_ptr<InterfaceDecl> JavaParser::ParseInterfaceDecl(
       auto type_params = ParseTypeParameters();
       auto type = ParseType();
 
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         std::string name = current_.lexeme;
         Consume();
 
         if (IsSymbol("(")) {
+          if (acc == "private" &&
+              !frontends::JavaReleaseAtLeast(java_release_,
+                                             frontends::JavaRelease::kJava9)) {
+            diagnostics_.ReportError(
+                type->loc, frontends::ErrorCode::kLangVersionMismatch,
+                std::string("private interface methods require Java 9 or newer (current: ") +
+                    frontends::JavaReleaseToString(java_release_) + ")");
+          }
+          if (acc == "private" && (is_abstract || is_default)) {
+            diagnostics_.ReportError(
+                type->loc, frontends::ErrorCode::kUnexpectedToken,
+                "private interface methods cannot be abstract or default");
+          }
           auto method = std::make_shared<MethodDecl>();
           method->loc = type->loc;
           method->name = name;
@@ -501,6 +793,11 @@ std::shared_ptr<InterfaceDecl> JavaParser::ParseInterfaceDecl(
             auto block = ParseBlock();
             method->body = block->statements;
           } else {
+            if (acc == "private") {
+              diagnostics_.ReportError(
+                  method->loc, frontends::ErrorCode::kUnexpectedToken,
+                  "private interface methods must declare a body");
+            }
             ExpectSymbol(";", "expected ';' after interface method");
           }
           node->members.push_back(method);
@@ -555,7 +852,7 @@ std::shared_ptr<EnumDecl> JavaParser::ParseEnumDecl(const std::string &access,
     while (!IsSymbol("}") && !IsSymbol(";") && current_.kind != frontends::TokenKind::kEndOfFile) {
       EnumDecl::EnumConstant constant;
       constant.annotations = ParseAnnotations();
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         constant.name = current_.lexeme;
         Consume();
       }
@@ -627,7 +924,121 @@ std::shared_ptr<RecordDecl> JavaParser::ParseRecordDecl(
   if (IsSymbol("{")) {
     Consume();
     while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
-      Consume(); // Skip body for now
+      auto member_annotations = ParseAnnotations();
+      auto member_access = ParseAccessModifier();
+      bool member_static = false, member_final = false, member_abstract = false;
+      bool member_synchronized = false, member_native = false;
+      while (current_.kind == frontends::TokenKind::kKeyword) {
+        const auto kw = current_.lexeme;
+        if (kw == "static")
+          member_static = true;
+        else if (kw == "final")
+          member_final = true;
+        else if (kw == "abstract")
+          member_abstract = true;
+        else if (kw == "synchronized")
+          member_synchronized = true;
+        else if (kw == "native")
+          member_native = true;
+        else
+          break;
+        Consume();
+      }
+
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "class") {
+        node->members.push_back(ParseClassDecl(member_access, member_annotations));
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "interface") {
+        node->members.push_back(ParseInterfaceDecl(member_access, member_annotations));
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "enum") {
+        node->members.push_back(ParseEnumDecl(member_access, member_annotations));
+        continue;
+      }
+      if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "record") {
+        node->members.push_back(ParseRecordDecl(member_access, member_annotations));
+        continue;
+      }
+
+      // Canonical or compact record constructor.
+      if (current_.kind == frontends::TokenKind::kIdentifier && current_.lexeme == node->name) {
+        auto ctor = std::make_shared<ConstructorDecl>();
+        ctor->loc = current_.loc;
+        ctor->name = node->name;
+        ctor->access = member_access;
+        ctor->annotations = member_annotations;
+        Consume();
+        if (IsSymbol("("))
+          ctor->params = ParseParameters();
+        if (IsSymbol("{")) {
+          auto body = ParseBlock();
+          ctor->body = body->statements;
+        } else {
+          diagnostics_.Report(current_.loc, "expected record constructor body");
+          Sync();
+        }
+        node->members.push_back(ctor);
+        continue;
+      }
+
+      auto method_type_params = ParseTypeParameters();
+      auto type = ParseType();
+      if (!IsIdentifierLike(current_)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                 "unsupported or malformed record member");
+        Sync();
+        if (IsSymbol(";"))
+          Consume();
+        else if (IsSymbol("{"))
+          ParseBlock();
+        else if (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile)
+          Consume();
+        continue;
+      }
+      const std::string name = current_.lexeme;
+      Consume();
+      if (IsSymbol("(")) {
+        auto method = std::make_shared<MethodDecl>();
+        method->loc = type->loc;
+        method->name = name;
+        method->return_type = type;
+        method->access = member_access;
+        method->annotations = member_annotations;
+        method->type_params = std::move(method_type_params);
+        method->is_static = member_static;
+        method->is_final = member_final;
+        method->is_abstract = member_abstract;
+        method->is_synchronized = member_synchronized;
+        method->is_native = member_native;
+        method->params = ParseParameters();
+        if (MatchKeyword("throws")) {
+          do {
+            method->throws_types.push_back(ParseType());
+          } while (MatchSymbol(","));
+        }
+        if (IsSymbol("{")) {
+          auto body = ParseBlock();
+          method->body = body->statements;
+        } else {
+          ExpectSymbol(";", "expected ';' after record method");
+        }
+        node->members.push_back(method);
+      } else {
+        auto field = std::make_shared<FieldDecl>();
+        field->loc = type->loc;
+        field->name = name;
+        field->type = type;
+        field->access = member_access;
+        field->annotations = member_annotations;
+        field->is_static = member_static;
+        field->is_final = member_final;
+        if (MatchSymbol("="))
+          field->init = ParseExpression();
+        ExpectSymbol(";", "expected ';' after record field");
+        node->members.push_back(field);
+      }
     }
     ExpectSymbol("}", "expected '}' at end of record body");
   }
@@ -658,9 +1069,38 @@ std::shared_ptr<ConstructorDecl> JavaParser::ParseConstructorDecl(const std::str
   if (IsSymbol("{")) {
     auto block = ParseBlock();
     node->body = block->statements;
+    ClassifyConstructorInvocation(*node);
   }
 
   return node;
+}
+
+void JavaParser::ClassifyConstructorInvocation(ConstructorDecl &constructor) {
+  for (std::size_t index = 0; index < constructor.body.size(); ++index) {
+    auto expression_statement =
+        std::dynamic_pointer_cast<ExprStatement>(constructor.body[index]);
+    auto call = expression_statement
+                    ? std::dynamic_pointer_cast<CallExpression>(expression_statement->expr)
+                    : nullptr;
+    auto callee = call ? std::dynamic_pointer_cast<Identifier>(call->callee) : nullptr;
+    if (!callee || (callee->name != "this" && callee->name != "super"))
+      continue;
+
+    constructor.invocation_kind =
+        callee->name == "this" ? ConstructorDecl::InvocationKind::kThis
+                               : ConstructorDecl::InvocationKind::kSuper;
+    constructor.invocation_index = index;
+    constructor.has_flexible_body = index != 0;
+    if (constructor.has_flexible_body &&
+        !frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava25)) {
+      diagnostics_.ReportError(
+          constructor.body[index]->loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("statements before an explicit constructor invocation require Java 25 or "
+                      "newer (current: ") +
+              frontends::JavaReleaseToString(java_release_) + ")");
+    }
+    return;
+  }
 }
 
 std::vector<TypeParameter> JavaParser::ParseTypeParameters() {
@@ -671,7 +1111,7 @@ std::vector<TypeParameter> JavaParser::ParseTypeParameters() {
 
   while (!IsSymbol(">") && current_.kind != frontends::TokenKind::kEndOfFile) {
     TypeParameter tp;
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+    if (IsIdentifierLike(current_)) {
       tp.name = current_.lexeme;
       Consume();
     }
@@ -817,7 +1257,7 @@ std::shared_ptr<Statement> JavaParser::ParseStatement() {
       auto node = std::make_shared<BreakStatement>();
       node->loc = current_.loc;
       Consume();
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         node->label = current_.lexeme;
         Consume();
       }
@@ -828,7 +1268,7 @@ std::shared_ptr<Statement> JavaParser::ParseStatement() {
       auto node = std::make_shared<ContinueStatement>();
       node->loc = current_.loc;
       Consume();
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         node->label = current_.lexeme;
         Consume();
       }
@@ -857,10 +1297,10 @@ std::shared_ptr<Statement> JavaParser::ParseStatement() {
       return node;
     }
     if (kw == "yield") {
-      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava17)) {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava14)) {
         diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
                                  std::string("'yield' statement (switch expressions) requires "
-                                             "Java 17 or newer (current: ") +
+                                             "Java 14 or newer (current: ") +
                                      frontends::JavaReleaseToString(java_release_) + ")");
       }
       auto node = std::make_shared<YieldStatement>();
@@ -911,10 +1351,10 @@ std::shared_ptr<Statement> JavaParser::ParseVarDecl() {
 
   // Type (or 'var' for Java 10+)
   if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "var") {
-    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava11)) {
+    if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava10)) {
       diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
                                std::string("'var' local-variable type inference requires "
-                                           "Java 11 or newer (current: ") +
+                                           "Java 10 or newer (current: ") +
                                    frontends::JavaReleaseToString(java_release_) + ")");
     }
     node->type = nullptr; // inferred
@@ -923,7 +1363,7 @@ std::shared_ptr<Statement> JavaParser::ParseVarDecl() {
     node->type = ParseType();
   }
 
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  if (IsIdentifierLike(current_)) {
     node->name = current_.lexeme;
     Consume();
   }
@@ -998,7 +1438,26 @@ std::shared_ptr<Statement> JavaParser::ParseSwitch() {
       while (MatchSymbol(",")) {
         c.labels.push_back(ParseExpression());
       }
+      if (!IsSymbol("->") && !IsSymbol(":")) {
+        if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava21)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("pattern switch labels require Java 21 or newer (current: ") +
+                  frontends::JavaReleaseToString(java_release_) + ")");
+        }
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                                 "pattern switch labels require a dedicated pattern AST");
+        while (!IsSymbol("->") && !IsSymbol(":") && !IsSymbol("}") &&
+               current_.kind != frontends::TokenKind::kEndOfFile)
+          Consume();
+      }
       if (IsSymbol("->")) {
+        if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava14)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("switch rules require Java 14 or newer (current: ") +
+                  frontends::JavaReleaseToString(java_release_) + ")");
+        }
         c.is_arrow = true;
         Consume();
         c.body.push_back(ParseStatement());
@@ -1013,6 +1472,12 @@ std::shared_ptr<Statement> JavaParser::ParseSwitch() {
       }
     } else if (MatchKeyword("default")) {
       if (IsSymbol("->")) {
+        if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava14)) {
+          diagnostics_.ReportError(
+              current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+              std::string("switch rules require Java 14 or newer (current: ") +
+                  frontends::JavaReleaseToString(java_release_) + ")");
+        }
         c.is_arrow = true;
         Consume();
         c.body.push_back(ParseStatement());
@@ -1059,7 +1524,7 @@ std::shared_ptr<Statement> JavaParser::ParseTry() {
     while (MatchSymbol("|")) {
       cc.exception_types.push_back(ParseType());
     }
-    if (current_.kind == frontends::TokenKind::kIdentifier) {
+    if (IsIdentifierLike(current_)) {
       cc.var_name = current_.lexeme;
       Consume();
     }
@@ -1179,8 +1644,42 @@ std::shared_ptr<Expression> JavaParser::ParseBinary(int min_precedence) {
     inst->expr = left;
     Consume();
     inst->type = ParseType();
+    // Record patterns (Java 21+) cannot be represented by InstanceofExpression's
+    // single binding field.  Preserve the language-version diagnostic and fail
+    // explicitly rather than discarding nested component patterns.
+    if (IsSymbol("(")) {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava21)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("record patterns require Java 21 or newer (current: ") +
+                frontends::JavaReleaseToString(java_release_) + ")");
+      }
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               "record patterns require a dedicated nested-pattern AST");
+      int depth = 0;
+      do {
+        if (IsSymbol("("))
+          ++depth;
+        else if (IsSymbol(")"))
+          --depth;
+        Consume();
+      } while (depth > 0 && current_.kind != frontends::TokenKind::kEndOfFile);
+      return inst;
+    }
     // Pattern matching instanceof (Java 16+)
     if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava16)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("pattern matching for instanceof requires Java 16 or newer (current: ") +
+                frontends::JavaReleaseToString(java_release_) + ")");
+      }
+      if (IsPrimitivePatternType(inst->type)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+            "primitive types in patterns are preview-only and are not enabled by a stable "
+            "Java release selector");
+      }
       inst->pattern_var = current_.lexeme;
       Consume();
     }
@@ -1217,7 +1716,7 @@ std::shared_ptr<Expression> JavaParser::ParsePostfix() {
       auto member = std::make_shared<MemberExpression>();
       member->loc = expr->loc;
       member->object = expr;
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         member->member = current_.lexeme;
         Consume();
       }
@@ -1269,11 +1768,91 @@ std::shared_ptr<Expression> JavaParser::ParsePostfix() {
   return expr;
 }
 
+std::shared_ptr<Expression> JavaParser::ParseSwitchExpression() {
+  auto node = std::make_shared<SwitchExpression>();
+  node->loc = current_.loc;
+  if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava14)) {
+    diagnostics_.ReportError(
+        current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+        std::string("switch expressions require Java 14 or newer (current: ") +
+            frontends::JavaReleaseToString(java_release_) + ")");
+  }
+  Consume(); // switch
+  ExpectSymbol("(", "expected '(' after switch");
+  node->selector = ParseExpression();
+  ExpectSymbol(")", "expected ')' after switch selector");
+  ExpectSymbol("{", "expected '{' in switch expression");
+
+  while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    SwitchExpression::Case c;
+    if (MatchKeyword("case")) {
+      c.labels.push_back(ParseExpression());
+      while (MatchSymbol(","))
+        c.labels.push_back(ParseExpression());
+    } else if (!MatchKeyword("default")) {
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               "expected case/default in switch expression");
+      Consume();
+      continue;
+    }
+
+    // Type/record patterns and guarded labels need a dedicated pattern AST;
+    // reject them explicitly instead of turning the trailing binding into a
+    // statement in the selected arm.
+    if (!IsSymbol("->") && !IsSymbol(":")) {
+      if (!frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava21)) {
+        diagnostics_.ReportError(
+            current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+            std::string("pattern switch labels require Java 21 or newer (current: ") +
+                frontends::JavaReleaseToString(java_release_) + ")");
+      }
+      diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               "pattern switch labels are not yet supported");
+      while (!IsSymbol("->") && !IsSymbol(":") && !IsSymbol("}") &&
+             current_.kind != frontends::TokenKind::kEndOfFile)
+        Consume();
+    }
+
+    if (MatchSymbol("->")) {
+      c.is_arrow = true;
+      if (IsSymbol("{")) {
+        auto block = ParseBlock();
+        c.body = block->statements;
+      } else if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "throw") {
+        c.body.push_back(ParseThrow());
+      } else {
+        c.value = ParseExpression();
+        ExpectSymbol(";", "expected ';' after switch expression arm");
+      }
+    } else {
+      ExpectSymbol(":", "expected ':' or '->' after switch label");
+      while (!IsSymbol("}") &&
+             !(current_.kind == frontends::TokenKind::kKeyword &&
+               (current_.lexeme == "case" || current_.lexeme == "default")) &&
+             current_.kind != frontends::TokenKind::kEndOfFile) {
+        c.body.push_back(ParseStatement());
+      }
+    }
+    node->cases.push_back(std::move(c));
+  }
+  ExpectSymbol("}", "expected '}' after switch expression");
+  return node;
+}
+
 std::shared_ptr<Expression> JavaParser::ParsePrimary() {
+  if (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "switch")
+    return ParseSwitchExpression();
   // Literals
   if (current_.kind == frontends::TokenKind::kNumber ||
       current_.kind == frontends::TokenKind::kString ||
       current_.kind == frontends::TokenKind::kChar) {
+    if (current_.kind == frontends::TokenKind::kString && current_.lexeme.starts_with("\"\"\"") &&
+        !frontends::JavaReleaseAtLeast(java_release_, frontends::JavaRelease::kJava15)) {
+      diagnostics_.ReportError(
+          current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("text blocks require Java 15 or newer (current: ") +
+              frontends::JavaReleaseToString(java_release_) + ")");
+    }
     auto lit = std::make_shared<Literal>();
     lit->loc = current_.loc;
     lit->value = current_.lexeme;
@@ -1341,7 +1920,7 @@ std::shared_ptr<Expression> JavaParser::ParsePrimary() {
   }
 
   // Identifier
-  if (current_.kind == frontends::TokenKind::kIdentifier) {
+  if (IsIdentifierLike(current_)) {
     auto id = std::make_shared<Identifier>();
     id->loc = current_.loc;
     id->name = current_.lexeme;
@@ -1366,7 +1945,7 @@ std::shared_ptr<Expression> JavaParser::ParseLambda() {
     Consume();
     while (!IsSymbol(")") && current_.kind != frontends::TokenKind::kEndOfFile) {
       LambdaExpression::Param p;
-      if (current_.kind == frontends::TokenKind::kIdentifier) {
+      if (IsIdentifierLike(current_)) {
         p.name = current_.lexeme;
         Consume();
       }

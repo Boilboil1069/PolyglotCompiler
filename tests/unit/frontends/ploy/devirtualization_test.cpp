@@ -439,8 +439,8 @@ EXTEND(python, Animal) AS Cat {
 // 10. Full pipeline: EXTEND + inheritance chain → PIPELINE call
 // ============================================================================
 
-TEST_CASE("Poly devirt: EXTEND inside PIPELINE generates correct bridge stubs",
-          "[poly][devirt][integration]") {
+TEST_CASE("Poly devirt: void PIPELINE rejects value return after EXTEND calls",
+          "[poly][devirt][integration][unsupported]") {
     Diagnostics diags;
     auto result = CompileWithDescriptors(R"(
 EXTEND(python, Estimator) AS RidgeRegression {
@@ -456,13 +456,8 @@ PIPELINE ml_train {
 }
 )", diags);
 
-    REQUIRE(result.success);
-    REQUIRE(!diags.HasErrors());
-
-    // PIPELINE function must appear
-    CHECK(result.ir_text.find("__ploy_pipeline_ml_train") != std::string::npos);
-
-    // Both devirtualised bridges must appear
-    CHECK(result.ir_text.find("__ploy_extend_RidgeRegression_fit") != std::string::npos);
-    CHECK(result.ir_text.find("__ploy_extend_RidgeRegression_predict") != std::string::npos);
+    CHECK_FALSE(result.success);
+    CHECK(std::any_of(diags.All().begin(), diags.All().end(), [](const auto &diag) {
+        return diag.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    }));
 }

@@ -117,7 +117,8 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
 
   // Set of known languages for validation
   static const std::unordered_set<std::string> known_languages = {
-      "cpp", "c", "python", "rust", "java", "dotnet", "csharp", "poly"};
+      "cpp", "c", "python", "rust", "go", "java", "dotnet", "csharp",
+      "javascript", "ruby", "poly"};
 
   auto is_valid_language = [&](const std::string &lang) { return known_languages.count(lang) > 0; };
 
@@ -141,7 +142,11 @@ bool PolyglotLinker::LoadDescriptorFile(const std::string &path) {
     std::string kind;
     iss >> kind;
 
-    if (kind == "LINK") {
+    if (kind == "IMPORT") {
+      // Local-source build provenance.  polyc has already compiled and added
+      // this module's object file; there is no bridge action at link time.
+      continue;
+    } else if (kind == "LINK") {
       ploy::LinkEntry entry;
       std::string target_lang, source_lang, target_sym, source_sym;
       if (!(iss >> target_lang >> source_lang >> target_sym >> source_sym)) {

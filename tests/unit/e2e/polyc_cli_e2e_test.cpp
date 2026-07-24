@@ -19,14 +19,21 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include "tools/polyc/include/compilation_pipeline.h"
+#include "tools/polyc/include/driver_stages.h"
+#include "tools/polyc/src/stage_frontend.h"
 #include "frontends/common/include/diagnostics.h"
 
 using namespace polyglot::compilation;
 using polyglot::frontends::Diagnostics;
+using polyglot::tools::MustStopAfterFrontend;
+using polyglot::tools::RunFrontendStage;
+using polyglot::tools::ValidateDirectLanguageVersionSelectors;
 
 // ============================================================================
 // Helpers
@@ -44,6 +51,20 @@ CompilationContext::Config MakeCfg(const std::string &source,
     cfg.mode            = "compile";
     cfg.opt_level       = 0;
     cfg.verbose         = false;
+    // IMPORT is fail-closed: E2E programs that name local foreign modules
+    // must point at real source fixtures instead of relying on the historical
+    // silent-missing-source fallback.
+    for (const auto *candidate : {
+             "tests/fixtures/cli_e2e_foreign",
+             "../tests/fixtures/cli_e2e_foreign",
+             "../../tests/fixtures/cli_e2e_foreign",
+             "tests/samples/01_basic_linking",
+             "../tests/samples/01_basic_linking",
+             "../../tests/samples/01_basic_linking",
+         }) {
+        if (std::filesystem::exists(candidate))
+            cfg.include_paths.emplace_back(candidate);
+    }
     return cfg;
 }
 
@@ -56,6 +77,93 @@ bool RunFullPipeline(const std::string &source,
 }
 
 } // namespace
+
+TEST_CASE("CLI contract: --force cannot bypass incomplete frontend boundaries",
+          "[cli][force][frontend-contract]") {
+    const polyglot::core::SourceLoc loc{"<force-contract>", 1, 1};
+
+    SECTION("E2006 unsupported syntax is non-recoverable") {
+        Diagnostics diagnostics;
+        diagnostics.ReportError(loc, polyglot::frontends::ErrorCode::kUnsupportedSyntax,
+                                "unsupported modern syntax");
+        CHECK(MustStopAfterFrontend(false, true, diagnostics));
+    }
+
+    SECTION("E6001 language-version mismatch is non-recoverable") {
+        Diagnostics diagnostics;
+        diagnostics.ReportError(loc, polyglot::frontends::ErrorCode::kLangVersionMismatch,
+                                "dialect conflict");
+        CHECK(MustStopAfterFrontend(false, true, diagnostics));
+    }
+
+    SECTION("E4003 unsupported lowering is non-recoverable") {
+        Diagnostics diagnostics;
+        diagnostics.ReportError(loc, polyglot::frontends::ErrorCode::kUnsupportedLowering,
+                                "partial IR");
+        CHECK(MustStopAfterFrontend(false, true, diagnostics));
+    }
+
+    SECTION("ordinary recoverable errors still follow force policy") {
+        Diagnostics diagnostics;
+        diagnostics.ReportError(loc, polyglot::frontends::ErrorCode::kTypeMismatch,
+                                "recoverable diagnostic");
+        CHECK_FALSE(MustStopAfterFrontend(false, true, diagnostics));
+        CHECK(MustStopAfterFrontend(false, false, diagnostics));
+    }
+}
+
+TEST_CASE("CLI contract: direct sources reject unrelated language selectors",
+          "[cli][frontend-contract][versions]") {
+    SECTION("stage reports E6001 before compiling with an ignored selector") {
+        polyglot::tools::DriverSettings settings;
+        settings.language = "python";
+        settings.source = "value = 1\n";
+        settings.cpp_dialect = polyglot::frontends::CppDialect::kCpp23;
+
+        const auto frontend = RunFrontendStage(settings);
+        CHECK_FALSE(frontend.success);
+        CHECK(frontend.ir_ctx == nullptr);
+        CHECK(std::any_of(frontend.diagnostics.All().begin(),
+                          frontend.diagnostics.All().end(), [](const auto &diagnostic) {
+                            return diagnostic.code ==
+                                   polyglot::frontends::ErrorCode::kLangVersionMismatch;
+                          }));
+    }
+
+    SECTION("matching direct selector remains valid") {
+        polyglot::tools::DriverSettings settings;
+        settings.language = "python";
+        settings.python_version = polyglot::frontends::PythonVersion::kPy3_13;
+        Diagnostics diagnostics;
+        CHECK(ValidateDirectLanguageVersionSelectors(settings, diagnostics));
+        CHECK_FALSE(diagnostics.HasErrors());
+    }
+
+    SECTION("Poly orchestration may select several imported languages") {
+        polyglot::tools::DriverSettings settings;
+        settings.language = "poly";
+        settings.cpp_dialect = polyglot::frontends::CppDialect::kCpp23;
+        settings.python_version = polyglot::frontends::PythonVersion::kPy3_13;
+        settings.go_version = polyglot::frontends::GoVersion::kGo1_25;
+        Diagnostics diagnostics;
+        CHECK(ValidateDirectLanguageVersionSelectors(settings, diagnostics));
+        CHECK_FALSE(diagnostics.HasErrors());
+    }
+
+    SECTION("check-mode FrontendOptions use the same selector-owner validation") {
+        polyglot::frontends::FrontendOptions options;
+        options.cpp_dialect = polyglot::frontends::CppDialect::kCpp11;
+        Diagnostics diagnostics;
+        CHECK_FALSE(ValidateDirectLanguageVersionSelectors(
+            "python", "example.py", options, diagnostics));
+        REQUIRE(diagnostics.HasErrors());
+        CHECK(std::any_of(diagnostics.All().begin(), diagnostics.All().end(),
+                          [](const auto &diagnostic) {
+                            return diagnostic.code ==
+                                   polyglot::frontends::ErrorCode::kLangVersionMismatch;
+                          }));
+    }
+}
 
 // ============================================================================
 // 1. Single pure function — all stages pass
@@ -142,7 +250,10 @@ FUNC compute(a: INT, b: INT) -> INT {
     CompilationPipeline pipeline(cfg);
 
     REQUIRE(pipeline.RunFrontend());
-    REQUIRE(pipeline.RunSemantic());
+    const bool semantic_ok = pipeline.RunSemantic();
+    for (const auto &diagnostic : pipeline.GetContext().diagnostics->All())
+        UNSCOPED_INFO(Diagnostics::Format(diagnostic));
+    REQUIRE(semantic_ok);
 
     const auto *sema_db = pipeline.GetSemanticDb();
     REQUIRE(sema_db != nullptr);

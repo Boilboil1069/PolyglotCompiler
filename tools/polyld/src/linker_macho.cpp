@@ -20,8 +20,11 @@
 #include "tools/polyld/include/linker_macho.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -966,8 +969,12 @@ void EmitCodeSignatureCommand(std::vector<std::uint8_t> &cmds,
 
 } // namespace
 
-BuildResult BuildMachOImage(const BuildRequest &req) {
+BuildResult BuildMachOImage(const BuildRequest &input) {
   BuildResult out;
+  // Relocations are deliberately applied after final layout, so keep a local
+  // mutable copy of the segment bytes while preserving the value-style public
+  // API used by tests and Linker.
+  BuildRequest req = input;
   if (req.segments.empty() && req.filetype == kFileTypeExecute) {
     return out; // executable with no code is meaningless
   }
@@ -1087,6 +1094,77 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
     if (si == 0) cur_file = L.fileoff + L.filesize; // ensure no gap
   }
 
+  // `n_sect` is a 1-based index across every section in load-command
+  // order, not an index local to a segment. Keep the flattened final VM
+  // addresses so section-relative SymbolDesc values can be resolved only
+  // after header size, alignment, and all preceding segments are known.
+  std::vector<std::uint64_t> section_vmaddrs;
+  std::vector<std::pair<std::size_t, std::size_t>> section_locations;
+  for (std::size_t segment_index = 0; segment_index < layouts.size(); ++segment_index) {
+    const auto &layout = layouts[segment_index];
+    section_vmaddrs.insert(section_vmaddrs.end(),
+                           layout.sect_addr.begin(), layout.sect_addr.end());
+    for (std::size_t section_index = 0; section_index < layout.sect_addr.size(); ++section_index)
+      section_locations.emplace_back(segment_index, section_index);
+  }
+
+  // Re-materialise relocations against the addresses above.  Generic layout
+  // places sections back-to-back, whereas Mach-O page-separates segments; a
+  // text->data REL32 calculated before this point otherwise lands in __TEXT
+  // padding.  Same-section patches are harmless and make this the single
+  // source of truth for every carried relocation.
+  for (const auto &patch : req.final_relocations) {
+    if (patch.source_section >= section_vmaddrs.size() ||
+        (!patch.target_is_absolute && patch.target_section >= section_vmaddrs.size())) {
+      return BuildResult{};
+    }
+    const auto [segment_index, section_index] =
+        section_locations[patch.source_section];
+    auto &bytes = req.segments[segment_index].sections[section_index].data;
+
+    const std::uint64_t width =
+        patch.kind == FinalRelocationKind::kPcRel32 ? 4u : 8u;
+    if (patch.source_offset > bytes.size() ||
+        width > bytes.size() - patch.source_offset) {
+      return BuildResult{};
+    }
+
+    const std::uint64_t source_address =
+        section_vmaddrs[patch.source_section] + patch.source_offset;
+    const std::uint64_t target_address =
+        patch.target_is_absolute
+            ? patch.target_offset
+            : section_vmaddrs[patch.target_section] + patch.target_offset;
+    if (source_address > static_cast<std::uint64_t>(INT64_MAX) ||
+        target_address > static_cast<std::uint64_t>(INT64_MAX)) {
+      return BuildResult{};
+    }
+    std::int64_t value = static_cast<std::int64_t>(target_address);
+    if ((patch.addend > 0 && value > INT64_MAX - patch.addend) ||
+        (patch.addend < 0 && value < INT64_MIN - patch.addend)) {
+      return BuildResult{};
+    }
+    value += patch.addend;
+
+    if (patch.kind == FinalRelocationKind::kPcRel32) {
+      if (value < INT64_MIN + static_cast<std::int64_t>(source_address))
+        return BuildResult{};
+      value -= static_cast<std::int64_t>(source_address);
+      if (value < INT32_MIN || value > INT32_MAX)
+        return BuildResult{};
+      const std::uint32_t encoded =
+          static_cast<std::uint32_t>(static_cast<std::int32_t>(value));
+      for (unsigned i = 0; i != 4; ++i)
+        bytes[patch.source_offset + i] =
+            static_cast<std::uint8_t>((encoded >> (i * 8)) & 0xffu);
+    } else {
+      const std::uint64_t encoded = static_cast<std::uint64_t>(value);
+      for (unsigned i = 0; i != 8; ++i)
+        bytes[patch.source_offset + i] =
+            static_cast<std::uint8_t>((encoded >> (i * 8)) & 0xffu);
+    }
+  }
+
   // __LINKEDIT comes after every user segment.  Its content is built
   // below; for now we just reserve the file offset.
   const std::uint64_t linkedit_fileoff = cur_file;
@@ -1112,11 +1190,26 @@ BuildResult BuildMachOImage(const BuildRequest &req) {
 
   for (std::size_t i = 0; i < req.symbols.size(); ++i) {
     const auto &sym = req.symbols[i];
+    std::uint64_t final_value = sym.n_value;
+    if (sym.n_value_is_section_relative) {
+      const bool is_section_symbol =
+          (sym.n_type & kNTypeMask) == kNTypeSect;
+      if (!is_section_symbol || sym.n_sect == 0 ||
+          static_cast<std::size_t>(sym.n_sect) > section_vmaddrs.size()) {
+        return BuildResult{};
+      }
+      const std::uint64_t section_vmaddr = section_vmaddrs[sym.n_sect - 1];
+      if (sym.n_value >
+          std::numeric_limits<std::uint64_t>::max() - section_vmaddr) {
+        return BuildResult{};
+      }
+      final_value = section_vmaddr + sym.n_value;
+    }
     PutU32(nlist_bytes, name_offsets[i]); // n_strx
     nlist_bytes.push_back(sym.n_type);
     nlist_bytes.push_back(sym.n_sect);
     PutU16(nlist_bytes, sym.n_desc);
-    PutU64(nlist_bytes, sym.n_value);
+    PutU64(nlist_bytes, final_value);
   }
 
   // ---------------------------------------------------------------------
@@ -1503,16 +1596,42 @@ ma::MachOArch ArchFromConfig(TargetArch a) {
 // `__TEXT/__text`, everything read-only-data into `__DATA_CONST/__const`,
 // and everything writable into `__DATA/__data`.  This mirrors what
 // Apple's static toolchain produces for small programs.
+enum class PartitionKind {
+  kNone,
+  kText,
+  kReadOnlyData,
+  kData,
+};
+
+struct SectionPlacement {
+  PartitionKind kind{PartitionKind::kNone};
+  std::uint64_t offset{0};
+};
+
 struct PartitionedBytes {
   std::vector<std::uint8_t> text;
   std::vector<std::uint8_t> rdata;
   std::vector<std::uint8_t> data;
+  // Parallel to the input OutputSection vector. Each offset is measured
+  // from the first byte of the final collapsed Mach-O section.
+  std::vector<SectionPlacement> placements;
 };
 
 PartitionedBytes PartitionSections(
     const std::vector<OutputSection> &sections) {
   PartitionedBytes p;
-  for (const auto &sec : sections) {
+  p.placements.resize(sections.size());
+  auto append_aligned = [](std::vector<std::uint8_t> &dst,
+                           const OutputSection &sec) -> std::uint64_t {
+    const std::uint64_t alignment = std::max<std::uint64_t>(1, sec.alignment);
+    const std::uint64_t aligned =
+        ((static_cast<std::uint64_t>(dst.size()) + alignment - 1) / alignment) * alignment;
+    dst.resize(static_cast<std::size_t>(aligned), 0);
+    dst.insert(dst.end(), sec.data.begin(), sec.data.end());
+    return aligned;
+  };
+  for (std::size_t i = 0; i < sections.size(); ++i) {
+    const auto &sec = sections[i];
     const bool is_exec =
         (static_cast<std::uint64_t>(sec.flags) &
          static_cast<std::uint64_t>(SectionFlags::kExecInstr)) != 0;
@@ -1521,14 +1640,102 @@ PartitionedBytes PartitionSections(
          static_cast<std::uint64_t>(SectionFlags::kWrite)) != 0;
     if (sec.type == SectionType::kNobits) continue;
     if (is_exec) {
-      p.text.insert(p.text.end(), sec.data.begin(), sec.data.end());
+      p.placements[i] = {PartitionKind::kText, append_aligned(p.text, sec)};
     } else if (is_write) {
-      p.data.insert(p.data.end(), sec.data.begin(), sec.data.end());
+      p.placements[i] = {PartitionKind::kData, append_aligned(p.data, sec)};
     } else {
-      p.rdata.insert(p.rdata.end(), sec.data.begin(), sec.data.end());
+      p.placements[i] = {
+          PartitionKind::kReadOnlyData, append_aligned(p.rdata, sec)};
     }
   }
   return p;
+}
+
+struct SymbolPlacement {
+  PartitionKind kind{PartitionKind::kNone};
+  std::uint64_t offset{0};
+};
+
+std::optional<SymbolPlacement> LocateSymbol(
+    const Symbol &symbol,
+    const std::vector<OutputSection> &sections,
+    const PartitionedBytes &parts) {
+  auto make_placement = [&](std::size_t section_index,
+                            std::uint64_t offset_in_output_section)
+      -> std::optional<SymbolPlacement> {
+    if (section_index >= parts.placements.size()) return std::nullopt;
+    const auto &placement = parts.placements[section_index];
+    if (placement.kind == PartitionKind::kNone ||
+        offset_in_output_section >
+            std::numeric_limits<std::uint64_t>::max() - placement.offset) {
+      return std::nullopt;
+    }
+    return SymbolPlacement{
+        placement.kind, placement.offset + offset_in_output_section};
+  };
+
+  // Prefer the exact object contribution. Several inputs commonly own a
+  // section with the same name, so name-only lookup loses their merged offset.
+  if (symbol.object_file_index >= 0) {
+    for (std::size_t i = 0; i < sections.size(); ++i) {
+      for (const auto &contribution : sections[i].contributions) {
+        if (contribution.object_index != symbol.object_file_index ||
+            contribution.section_index != symbol.section_index) {
+          continue;
+        }
+        if (symbol.offset >
+            std::numeric_limits<std::uint64_t>::max() - contribution.output_offset) {
+          return std::nullopt;
+        }
+        return make_placement(i, contribution.output_offset + symbol.offset);
+      }
+    }
+  }
+
+  // Synthetic symbols without an owning object can still be placed from
+  // their output-section name and section-relative offset.
+  for (std::size_t i = 0; i < sections.size(); ++i) {
+    if (sections[i].name == symbol.section) {
+      return make_placement(i, symbol.offset);
+    }
+  }
+  return std::nullopt;
+}
+
+std::uint8_t MachSectionIndex(const ma::BuildRequest &req,
+                              PartitionKind kind) {
+  const char *wanted_segment = nullptr;
+  const char *wanted_section = nullptr;
+  switch (kind) {
+    case PartitionKind::kText:
+      wanted_segment = "__TEXT";
+      wanted_section = "__text";
+      break;
+    case PartitionKind::kReadOnlyData:
+      wanted_segment = "__DATA_CONST";
+      wanted_section = "__const";
+      break;
+    case PartitionKind::kData:
+      wanted_segment = "__DATA";
+      wanted_section = "__data";
+      break;
+    case PartitionKind::kNone:
+      return 0;
+  }
+
+  std::size_t index = 1;
+  for (const auto &segment : req.segments) {
+    for (const auto &section : segment.sections) {
+      if (segment.segname == wanted_segment &&
+          section.sectname == wanted_section) {
+        return index <= std::numeric_limits<std::uint8_t>::max()
+                   ? static_cast<std::uint8_t>(index)
+                   : 0;
+      }
+      ++index;
+    }
+  }
+  return 0;
 }
 
 // Common driver shared by the executable / dylib / bundle entry points.
@@ -1538,8 +1745,127 @@ struct EmitInputs {
   const LinkerConfig &cfg;
   const std::vector<OutputSection> &sections;
   const std::unordered_map<std::string, Symbol> &symbols;
+  const std::vector<ObjectFile> &objects;
   const Symbol *entry_symbol; // may be null
 };
+
+const Symbol *ResolveRelocationTarget(
+    const Relocation &relocation, std::size_t object_index,
+    const std::vector<ObjectFile> &objects,
+    const std::unordered_map<std::string, Symbol> &symbols) {
+  if (object_index < objects.size()) {
+    const auto &object = objects[object_index];
+    if (relocation.symbol_index >= 0 &&
+        static_cast<std::size_t>(relocation.symbol_index) < object.symbols.size()) {
+      const auto &candidate = object.symbols[relocation.symbol_index];
+      if (candidate.name == relocation.symbol && candidate.is_defined &&
+          !candidate.is_global()) {
+        return &candidate;
+      }
+    }
+    for (const auto &candidate : object.symbols) {
+      if (candidate.name == relocation.symbol && candidate.is_defined &&
+          !candidate.is_global()) {
+        return &candidate;
+      }
+    }
+  }
+  const auto global = symbols.find(relocation.symbol);
+  return global == symbols.end() ? nullptr : &global->second;
+}
+
+bool AppendFinalRelocationPatches(ma::BuildRequest &req, const EmitInputs &in,
+                                  const PartitionedBytes &parts,
+                                  std::string &error_out) {
+  if (req.arch != ma::MachOArch::kX86_64)
+    return true;
+
+  for (std::size_t object_index = 0; object_index < in.objects.size(); ++object_index) {
+    const auto &object = in.objects[object_index];
+    for (const auto &relocation : object.relocations) {
+      ma::FinalRelocationKind kind;
+      if (relocation.is_pc_relative && relocation.size == 4) {
+        kind = ma::FinalRelocationKind::kPcRel32;
+      } else if (!relocation.is_pc_relative && relocation.size == 8) {
+        kind = ma::FinalRelocationKind::kAbs64;
+      } else {
+        continue;
+      }
+
+      std::size_t source_output_index = in.sections.size();
+      const OutputSection::Contribution *source_contribution = nullptr;
+      for (std::size_t section_index = 0; section_index < in.sections.size(); ++section_index) {
+        for (const auto &contribution : in.sections[section_index].contributions) {
+          if (contribution.object_index != static_cast<int>(object_index) ||
+              contribution.section_index < 0 ||
+              static_cast<std::size_t>(contribution.section_index) >= object.sections.size() ||
+              object.sections[contribution.section_index].name != relocation.section) {
+            continue;
+          }
+          source_output_index = section_index;
+          source_contribution = &contribution;
+          break;
+        }
+        if (source_contribution)
+          break;
+      }
+      if (!source_contribution || source_output_index >= parts.placements.size()) {
+        error_out = "polyld-err-E3231: cannot place final Mach-O relocation source for '" +
+                    relocation.symbol + "'";
+        return false;
+      }
+      const auto &source_placement = parts.placements[source_output_index];
+      const std::uint8_t source_section_number =
+          MachSectionIndex(req, source_placement.kind);
+      if (source_section_number == 0) {
+        error_out = "polyld-err-E3231: final Mach-O relocation source has no output section";
+        return false;
+      }
+      if (relocation.offset > source_contribution->size ||
+          static_cast<std::uint64_t>(relocation.size) >
+              source_contribution->size - relocation.offset) {
+        error_out = "polyld-err-E3231: final Mach-O relocation source is out of bounds";
+        return false;
+      }
+
+      const Symbol *target =
+          ResolveRelocationTarget(relocation, object_index, in.objects, in.symbols);
+      if (!target || !target->is_defined) {
+        error_out = "polyld-err-E3231: unresolved final Mach-O relocation target '" +
+                    relocation.symbol + "'";
+        return false;
+      }
+
+      ma::FinalRelocationPatch patch;
+      patch.source_section = source_section_number - 1;
+      patch.source_offset = source_placement.offset + source_contribution->output_offset +
+                            relocation.offset;
+      patch.addend = relocation.addend;
+      patch.kind = kind;
+      if (target->is_absolute) {
+        patch.target_is_absolute = true;
+        patch.target_offset = target->offset;
+      } else {
+        const auto target_placement = LocateSymbol(*target, in.sections, parts);
+        if (!target_placement) {
+          error_out = "polyld-err-E3231: cannot place final Mach-O relocation target '" +
+                      relocation.symbol + "'";
+          return false;
+        }
+        const std::uint8_t target_section_number =
+            MachSectionIndex(req, target_placement->kind);
+        if (target_section_number == 0) {
+          error_out = "polyld-err-E3231: final Mach-O relocation target has no output section";
+          return false;
+        }
+        patch.target_section = target_section_number - 1;
+        patch.target_offset = target_placement->offset;
+      }
+      req.final_relocations.push_back(patch);
+    }
+  }
+  return true;
+}
 
 bool EmitMachOImage(const EmitInputs &in, std::uint32_t filetype,
                     bool emit_pagezero, bool emit_main,
@@ -1654,19 +1980,20 @@ bool EmitMachOImage(const EmitInputs &in, std::uint32_t filetype,
     req.segments.push_back(std::move(d));
   }
 
+  if (!AppendFinalRelocationPatches(req, in, parts, error_out))
+    return false;
+
   // ----- Symbols -------------------------------------------------------
-  // For BIN-5 we emit one external definition per global defined symbol
-  // anchored to the __TEXT segment.  Undefined symbols come last so the
-  // dysymtab indices remain monotonic, matching Apple's expected layout.
+  // Resolve every defined symbol through its exact merged contribution.
+  // SymbolDesc carries a section-relative offset here; BuildMachOImage adds
+  // the selected section's final VM address after header/segment layout.
   const Symbol *entry = in.entry_symbol;
   std::uint64_t entry_off = 0;
   if (entry && entry->is_defined) {
-    // Symbol values are recorded relative to the linker's base address;
-    // converting to an offset within the __TEXT segment is enough for
-    // LC_MAIN's `entryoff`.
-    entry_off = entry->value > cfg.base_address
-                    ? entry->value - cfg.base_address
-                    : entry->value;
+    const auto placement = LocateSymbol(*entry, in.sections, parts);
+    if (placement && placement->kind == PartitionKind::kText) {
+      entry_off = placement->offset;
+    }
   }
   // Ensure the entry offset stays within the __TEXT segment (which
   // includes the header pages).  Fall back to "first instruction" when
@@ -1700,18 +2027,27 @@ bool EmitMachOImage(const EmitInputs &in, std::uint32_t filetype,
   req.symbols.push_back(m);
   ++req.extdef_count;
 
-  // Walk the linker's symbol table for additional defined globals.
+  // Walk the linker's symbol table for additional defined globals. Mach-O
+  // n_sect numbering spans all sections in all segments, so data symbols
+  // must not inherit the old hard-coded `n_sect = 1` approximation.
   for (const auto &kv : in.symbols) {
     const Symbol &s = kv.second;
     if (!s.is_defined || !s.is_global() || s.name == marker) continue;
     if (s.name.empty()) continue;
     ma::SymbolDesc d{};
-    d.name    = s.name;
-    d.n_type  = ma::kNTypeSect | ma::kNTypeExt;
-    d.n_sect  = 1; // approximation: every global lives in __text for now
-    d.n_value = req.base_address + (s.value > cfg.base_address
-                                        ? s.value - cfg.base_address
-                                        : s.value);
+    d.name = s.name;
+    if (s.is_absolute) {
+      d.n_type = ma::kNTypeAbs | ma::kNTypeExt;
+      d.n_value = s.value;
+    } else {
+      const auto placement = LocateSymbol(s, in.sections, parts);
+      if (!placement) continue;
+      d.n_sect = MachSectionIndex(req, placement->kind);
+      if (d.n_sect == 0) continue;
+      d.n_type = ma::kNTypeSect | ma::kNTypeExt;
+      d.n_value = placement->offset;
+      d.n_value_is_section_relative = true;
+    }
     req.symbols.push_back(d);
     ++req.extdef_count;
   }
@@ -1738,17 +2074,24 @@ bool EmitMachOImage(const EmitInputs &in, std::uint32_t filetype,
 bool BuildAndWrite(const LinkerConfig &cfg,
                    const std::vector<OutputSection> &sections,
                    const std::unordered_map<std::string, Symbol> &symbols,
+                   const std::vector<ObjectFile> &objects,
                    const Symbol *entry,
                    std::uint32_t filetype, bool emit_pagezero, bool emit_main,
                    const std::string &install_name,
                    std::uint64_t &written_size,
                    std::string &error_out) {
   std::vector<std::uint8_t> image;
-  EmitInputs in{cfg, sections, symbols, entry};
+  EmitInputs in{cfg, sections, symbols, objects, entry};
   if (!EmitMachOImage(in, filetype, emit_pagezero, emit_main, install_name,
                        image, error_out)) {
     return false;
   }
+  // Do not truncate a previously executed signed Mach-O in place.  Darwin's
+  // kernel caches the code-signing blob by vnode; rewriting the same inode can
+  // therefore leave a statically valid new image that taskgated kills before
+  // _dyld_start with "Code Signature Invalid".  Removing the exact output
+  // first guarantees that the replacement receives a fresh vnode.
+  std::remove(cfg.output_file.c_str());
   std::ofstream out(cfg.output_file, std::ios::binary);
   if (!out) {
     error_out = "Cannot create output file: " + cfg.output_file;
@@ -1806,7 +2149,7 @@ bool Linker::GenerateMachOExecutable() {
     synth.data             = std::move(text);
     std::vector<OutputSection> synth_sections;
     synth_sections.push_back(std::move(synth));
-    if (!BuildAndWrite(config_, synth_sections, symbol_table_,
+    if (!BuildAndWrite(config_, synth_sections, symbol_table_, objects_,
                         /*entry=*/nullptr,
                         ::polyglot::linker::macho::kFileTypeExecute,
                         /*emit_pagezero*/ true, /*emit_main*/ true,
@@ -1820,8 +2163,21 @@ bool Linker::GenerateMachOExecutable() {
     return true;
   }
 
-  if (!BuildAndWrite(config_, output_sections_, symbol_table_,
-                      LookupSymbol(config_.entry_point),
+  const Symbol *entry = LookupSymbol(config_.entry_point);
+  if (entry == nullptr) {
+    // Mach-O object symbols carry the platform's leading underscore. Poly
+    // source also exports `_start`, so its raw nlist spelling is `__start`.
+    // Fall back through the canonical source entry spellings when the generic
+    // cross-format default (`_start`) is not present verbatim.
+    for (const char *candidate : {"__start", "_main", "__ploy_main", "main"}) {
+      entry = LookupSymbol(candidate);
+      if (entry != nullptr && entry->is_defined)
+        break;
+      entry = nullptr;
+    }
+  }
+
+  if (!BuildAndWrite(config_, output_sections_, symbol_table_, objects_, entry,
                       ::polyglot::linker::macho::kFileTypeExecute,
                       /*emit_pagezero*/ true, /*emit_main*/ true,
                       /*install_name*/ "", written, err)) {
@@ -1846,7 +2202,7 @@ bool Linker::GenerateMachODylib() {
   }
   std::uint64_t written = 0;
   std::string err;
-  if (!BuildAndWrite(config_, output_sections_, symbol_table_,
+  if (!BuildAndWrite(config_, output_sections_, symbol_table_, objects_,
                       LookupSymbol(config_.entry_point),
                       ::polyglot::linker::macho::kFileTypeDylib,
                       /*emit_pagezero*/ false, /*emit_main*/ false,
@@ -1862,7 +2218,7 @@ bool Linker::GenerateMachOBundle() {
   Trace("Generating Mach-O bundle: " + config_.output_file);
   std::uint64_t written = 0;
   std::string err;
-  if (!BuildAndWrite(config_, output_sections_, symbol_table_,
+  if (!BuildAndWrite(config_, output_sections_, symbol_table_, objects_,
                       LookupSymbol(config_.entry_point),
                       ::polyglot::linker::macho::kFileTypeBundle,
                       /*emit_pagezero*/ false, /*emit_main*/ false,

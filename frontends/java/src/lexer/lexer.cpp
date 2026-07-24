@@ -57,6 +57,17 @@ frontends::Token JavaLexer::LexIdentifierOrKeyword() {
     lexeme.push_back(Get());
   }
 
+  // `non-sealed` is the only Java restricted keyword containing a hyphen.
+  // Recognize it as one token only for the exact, whitespace-free spelling.
+  if (lexeme == "non" && source_.compare(position_, 7, "-sealed") == 0) {
+    const size_t end = position_ + 7;
+    if (end >= source_.size() ||
+        !IsIdentContinue(static_cast<unsigned char>(source_[end]))) {
+      for (int i = 0; i < 7; ++i)
+        lexeme.push_back(Get());
+    }
+  }
+
   // Java keywords across all supported versions (8, 17, 21, 23)
   static const std::unordered_set<std::string> keywords = {
       // Core keywords (Java 8+)

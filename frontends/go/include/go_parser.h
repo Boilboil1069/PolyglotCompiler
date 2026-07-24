@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "frontends/common/include/diagnostics.h"
@@ -50,6 +51,8 @@ private:
   GenDecl ParseGenDecl(const std::string &keyword);
   ValueSpec ParseValueSpec();
   TypeSpec ParseTypeSpec();
+  std::vector<TypeSpec::TypeParameter> ParseTypeParameters();
+  std::vector<std::shared_ptr<TypeNode>> ParseTypeArguments();
   std::shared_ptr<FuncDecl> ParseFuncDecl();
   void ParseSignature(std::vector<std::pair<std::string, std::shared_ptr<TypeNode>>> &params,
                       std::vector<std::pair<std::string, std::shared_ptr<TypeNode>>> &results,
@@ -82,6 +85,9 @@ private:
   std::shared_ptr<Expression> ParseCompositeLit(std::shared_ptr<TypeNode> type);
   std::vector<std::shared_ptr<Expression>> ParseExpressionList();
   int BinaryPrecedence(const std::string &op);
+  void CheckRangeVersion(const std::shared_ptr<Expression> &operand,
+                         const core::SourceLoc &loc);
+  bool IsKnownFunctionValue(const std::shared_ptr<Expression> &expr) const;
 
   void SkipSemis();
 
@@ -95,6 +101,7 @@ private:
   bool no_composite_lit_ = false;
   // Active Go release for syntax gating. `kAuto` ⇒ `kGoVersionDefault`.
   frontends::GoVersion go_version_{frontends::GoVersion::kAuto};
+  std::unordered_set<std::string> known_function_values_;
 };
 
 } // namespace polyglot::go

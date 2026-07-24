@@ -164,58 +164,84 @@ core::Type JavaTypeToCore(const std::shared_ptr<TypeNode> &tn) {
   return core::Type::Any();
 }
 
+void AddJavaMethodSignature(const MethodDecl &method, const std::string &type_name,
+                            const std::string &module_name,
+                            std::vector<frontends::ForeignFunctionSignature> &out) {
+  frontends::ForeignFunctionSignature sig;
+  sig.name = method.name;
+  sig.class_name = type_name;
+  const std::string owner = module_name.empty() ? type_name : module_name + "::" + type_name;
+  sig.qualified_name = owner.empty() ? method.name : owner + "::" + method.name;
+  sig.return_type = JavaTypeToCore(method.return_type);
+  sig.is_method = !method.is_static;
+  sig.has_type_annotations = true;
+  for (const auto &param : method.params) {
+    sig.param_types.push_back(JavaTypeToCore(param.type));
+    sig.param_names.push_back(param.name);
+  }
+  out.push_back(std::move(sig));
+}
+
+void ExtractJavaDeclaration(
+    const std::shared_ptr<Statement> &decl, const std::string &parent_type,
+    const std::string &module_name,
+    std::vector<frontends::ForeignFunctionSignature> &out) {
+  if (!decl)
+    return;
+  if (auto method = std::dynamic_pointer_cast<MethodDecl>(decl)) {
+    AddJavaMethodSignature(*method, parent_type, module_name, out);
+    return;
+  }
+
+  std::string own_name;
+  const std::vector<std::shared_ptr<Statement>> *members = nullptr;
+  if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
+    own_name = cls->name;
+    members = &cls->members;
+  } else if (auto iface = std::dynamic_pointer_cast<InterfaceDecl>(decl)) {
+    own_name = iface->name;
+    members = &iface->members;
+  } else if (auto record = std::dynamic_pointer_cast<RecordDecl>(decl)) {
+    own_name = record->name;
+    members = &record->members;
+  } else if (auto en = std::dynamic_pointer_cast<EnumDecl>(decl)) {
+    own_name = en->name;
+    members = &en->members;
+  }
+  if (!members)
+    return;
+  const std::string qualified_type =
+      parent_type.empty() ? own_name : parent_type + "::" + own_name;
+  for (const auto &member : *members)
+    ExtractJavaDeclaration(member, qualified_type, module_name, out);
+}
+
 } // namespace
 
 std::vector<frontends::ForeignFunctionSignature> JavaLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> JavaLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
+  if (!Analyze(source, filename, diagnostics, options) || diagnostics.HasErrors())
+    return result;
   JavaLexer lexer(source, filename);
-  JavaParser parser(lexer, diags);
+  JavaParser parser(lexer, diagnostics);
+  parser.SetJavaRelease(options.java_release);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
     return result;
 
-  // Walk declarations —Java top-level is usually a class
-  for (const auto &decl : module->declarations) {
-    if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
-      for (const auto &member : cls->members) {
-        if (auto method = std::dynamic_pointer_cast<MethodDecl>(member)) {
-          frontends::ForeignFunctionSignature sig;
-          sig.name = method->name;
-          sig.qualified_name = module_name.empty()
-                                   ? cls->name + "::" + method->name
-                                   : module_name + "::" + cls->name + "::" + method->name;
-          sig.return_type = JavaTypeToCore(method->return_type);
-          sig.is_method = !method->is_static;
-          sig.class_name = cls->name;
-          sig.has_type_annotations = true; // Java always has types
-
-          for (const auto &p : method->params) {
-            sig.param_types.push_back(JavaTypeToCore(p.type));
-            sig.param_names.push_back(p.name);
-          }
-
-          result.push_back(std::move(sig));
-        }
-      }
-    }
-    // Top-level methods (shouldn't happen in valid Java but handle anyway)
-    if (auto method = std::dynamic_pointer_cast<MethodDecl>(decl)) {
-      frontends::ForeignFunctionSignature sig;
-      sig.name = method->name;
-      sig.qualified_name = module_name.empty() ? method->name : module_name + "::" + method->name;
-      sig.return_type = JavaTypeToCore(method->return_type);
-      sig.has_type_annotations = true;
-      for (const auto &p : method->params) {
-        sig.param_types.push_back(JavaTypeToCore(p.type));
-        sig.param_names.push_back(p.name);
-      }
-      result.push_back(std::move(sig));
-    }
-  }
+  for (const auto &decl : module->declarations)
+    ExtractJavaDeclaration(decl, "", module_name, result);
 
   return result;
 }

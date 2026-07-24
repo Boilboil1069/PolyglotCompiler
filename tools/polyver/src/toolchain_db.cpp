@@ -286,8 +286,8 @@ std::optional<ToolchainEntry> ToolchainDb::Find(const std::string &language,
 namespace {
 
 void DetectPython(ToolchainDb &db) {
-  static const std::array<const char *, 9> kBins = {
-      "python3.13", "python3.12", "python3.11", "python3.10",
+  static const std::array<const char *, 10> kBins = {
+      "python3.14", "python3.13", "python3.12", "python3.11", "python3.10",
       "python3.9",  "python3.8",  "python3.7",  "python3",
       "python",
   };
@@ -352,7 +352,15 @@ void DetectRust(ToolchainDb &db) {
     // string for traceability.
     ToolchainEntry e;
     e.language = "rust";
-    e.version  = "2021"; // conservative: rustc >=1.56 supports 2021
+    int rust_major = 0;
+    int rust_minor = 0;
+    int rust_patch = 0;
+    std::sscanf(v->c_str(), "%d.%d.%d", &rust_major, &rust_minor, &rust_patch);
+    // Edition 2024 is stable starting with rustc 1.85.  Keep older compilers
+    // on the newest edition that they can actually accept.
+    e.version = (rust_major > 1 || (rust_major == 1 && rust_minor >= 85))
+                    ? "2024"
+                    : "2021";
     e.path     = exe.string();
     e.vendor   = "rustc " + *v;
     db.AddEntry(e);
@@ -381,10 +389,17 @@ void DetectNode(ToolchainDb &db) {
     if (!v)
       continue;
     int major = std::atoi(v->c_str());
-    // Map node major to ECMAScript baseline: node >= 14 supports es2020,
-    // node >= 16 supports es2022, node >= 20 supports es2023.
+    // Map Node's release line to the conservative annual ECMAScript baseline
+    // accepted by that runtime.  Newer syntax may still require feature-level
+    // probing; this entry deliberately promises only the annual baseline.
     std::string ecma = "es2020";
-    if (major >= 20)
+    if (major >= 26)
+      ecma = "es2026";
+    else if (major >= 24)
+      ecma = "es2025";
+    else if (major >= 22)
+      ecma = "es2024";
+    else if (major >= 20)
       ecma = "es2023";
     else if (major >= 16)
       ecma = "es2022";

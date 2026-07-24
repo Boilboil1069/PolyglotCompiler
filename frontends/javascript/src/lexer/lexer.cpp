@@ -48,7 +48,6 @@ const std::unordered_set<std::string> &Keywords() {
       "in",
       "instanceof",
       "new",
-      "of",
       "return",
       "super",
       "switch",
@@ -61,16 +60,10 @@ const std::unordered_set<std::string> &Keywords() {
       "while",
       "with",
       "yield",
-      // Future / contextual keywords
-      "async",
-      "await",
-      "let",
-      "static",
       // Literals (treated as keywords for parser convenience)
       "true",
       "false",
       "null",
-      "undefined",
       // Strict-mode-only / JSDoc adjacent
       "enum",
       "implements",
@@ -79,8 +72,6 @@ const std::unordered_set<std::string> &Keywords() {
       "private",
       "protected",
       "public",
-      "as",
-      "from",
   };
   return kw;
 }

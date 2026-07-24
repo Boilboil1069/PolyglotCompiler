@@ -29,6 +29,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "frontends/javascript/include/javascript_parser.h"
@@ -58,14 +59,22 @@ std::string TrimDocLine(const std::string &line) {
 // ============================================================================
 
 void JsParser::Advance() {
+  auto previous = current_;
   current_ = lexer_.NextToken();
+  line_terminator_before_current_ =
+      previous.kind != frontends::TokenKind::kUnknown && current_.loc.line > previous.loc.line;
   auto doc = lexer_.TakeDocComment();
   if (!doc.empty())
     pending_doc_ = doc;
 }
 
 bool JsParser::IsKeyword(const std::string &kw) const {
-  return current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == kw;
+  // ECMAScript has many contextual keywords (async, await, of, static,
+  // as/from, and let in sloppy contexts).  Keep them as identifiers in the
+  // lexer and let each grammar production opt into their keyword meaning.
+  return (current_.kind == frontends::TokenKind::kKeyword ||
+          current_.kind == frontends::TokenKind::kIdentifier) &&
+         current_.lexeme == kw;
 }
 
 bool JsParser::IsSymbol(const std::string &sym) const {
@@ -105,6 +114,32 @@ bool JsParser::ExpectKeyword(const std::string &kw, const std::string &msg) {
 void JsParser::ConsumeSemicolon() {
   // Automatic Semicolon Insertion: accept ';' but never error on its absence.
   MatchSymbol(";");
+}
+
+void JsParser::SkipUnsupportedDecorators() {
+  while (IsSymbol("@")) {
+    auto decorator_loc = current_.loc;
+    diagnostics_.ReportError(
+        decorator_loc, frontends::ErrorCode::kUnsupportedSyntax,
+        "ECMAScript decorators are not supported by the JavaScript frontend");
+    Advance();
+
+    int nesting = 0;
+    bool consumed_expression_token = false;
+    while (current_.kind != frontends::TokenKind::kEndOfFile) {
+      if (nesting == 0 && consumed_expression_token &&
+          (IsSymbol("@") || IsKeyword("class") || IsKeyword("function") ||
+           line_terminator_before_current_)) {
+        break;
+      }
+      if (IsSymbol("(") || IsSymbol("[") || IsSymbol("{"))
+        ++nesting;
+      else if (IsSymbol(")") || IsSymbol("]") || IsSymbol("}"))
+        nesting = std::max(0, nesting - 1);
+      consumed_expression_token = true;
+      Advance();
+    }
+  }
 }
 
 // ============================================================================
@@ -207,8 +242,21 @@ std::shared_ptr<Module> JsParser::TakeModule() {
 }
 
 std::shared_ptr<Statement> JsParser::ParseTopLevel() {
-  if (IsKeyword("import"))
-    return ParseImportDecl();
+  if (IsKeyword("import")) {
+    // `import(...)` and `import.meta` are expressions, not declarations.
+    auto saved = current_;
+    auto state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
+    Advance();
+    bool is_expression = IsSymbol("(") || IsSymbol(".");
+    lexer_.RestoreState(state);
+    current_ = saved;
+    pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
+    if (!is_expression)
+      return ParseImportDecl();
+  }
   if (IsKeyword("export"))
     return ParseExportDecl();
   return ParseStatement();
@@ -218,8 +266,63 @@ std::shared_ptr<Statement> JsParser::ParseTopLevel() {
 // Imports / Exports
 // ============================================================================
 
+void JsParser::ParseImportAttributes(std::vector<ImportAttribute> &attributes) {
+  if (IsKeyword("assert")) {
+    auto loc = current_.loc;
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kUnsupportedSyntax,
+        "legacy import assertions are not supported; use import attributes with {...}");
+    Advance();
+  } else if (IsKeyword("with")) {
+    auto loc = current_.loc;
+    if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2025)) {
+      diagnostics_.ReportError(
+          loc, frontends::ErrorCode::kLangVersionMismatch,
+          "import attributes require ES2025 or newer (current: " +
+              std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+    }
+    Advance();
+  } else {
+    return;
+  }
+
+  if (!ExpectSymbol("{", "expected '{' before import attributes"))
+    return;
+  while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+    ImportAttribute attribute;
+    if (current_.kind == frontends::TokenKind::kIdentifier ||
+        current_.kind == frontends::TokenKind::kKeyword ||
+        current_.kind == frontends::TokenKind::kString) {
+      attribute.key = current_.lexeme;
+      Advance();
+    } else {
+      diagnostics_.Report(current_.loc, "expected import attribute key");
+      Advance();
+    }
+    ExpectSymbol(":", "expected ':' after import attribute key");
+    if (current_.kind == frontends::TokenKind::kString) {
+      attribute.value = current_.lexeme;
+      Advance();
+    } else {
+      diagnostics_.Report(current_.loc, "import attribute values must be string literals");
+      if (!IsSymbol("}") && !IsSymbol(","))
+        Advance();
+    }
+    attributes.push_back(std::move(attribute));
+    if (!MatchSymbol(","))
+      break;
+  }
+  ExpectSymbol("}", "expected '}' after import attributes");
+}
+
 std::shared_ptr<Statement> JsParser::ParseImportDecl() {
   auto loc = current_.loc;
+  if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kLangVersionMismatch,
+        "import declarations require ES2015 or newer (current: " +
+            std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+  }
   auto decl = std::make_shared<ImportDecl>();
   decl->loc = loc;
   Advance(); // consume 'import'
@@ -228,6 +331,7 @@ std::shared_ptr<Statement> JsParser::ParseImportDecl() {
   if (current_.kind == frontends::TokenKind::kString) {
     decl->source = current_.lexeme;
     Advance();
+    ParseImportAttributes(decl->attributes);
     ConsumeSemicolon();
     return decl;
   }
@@ -284,12 +388,19 @@ std::shared_ptr<Statement> JsParser::ParseImportDecl() {
       Advance();
     }
   }
+  ParseImportAttributes(decl->attributes);
   ConsumeSemicolon();
   return decl;
 }
 
 std::shared_ptr<Statement> JsParser::ParseExportDecl() {
   auto loc = current_.loc;
+  if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kLangVersionMismatch,
+        "export declarations require ES2015 or newer (current: " +
+            std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+  }
   Advance(); // consume 'export'
 
   bool is_default = MatchKeyword("default");
@@ -323,6 +434,7 @@ std::shared_ptr<Statement> JsParser::ParseExportDecl() {
       decl->source = current_.lexeme;
       Advance();
     }
+    ParseImportAttributes(decl->attributes);
     ConsumeSemicolon();
     return decl;
   }
@@ -359,11 +471,49 @@ std::shared_ptr<Statement> JsParser::ParseExportDecl() {
 // ============================================================================
 
 std::shared_ptr<Statement> JsParser::ParseStatement() {
+  if (IsSymbol("@")) {
+    SkipUnsupportedDecorators();
+    if (IsKeyword("class"))
+      return ParseClassDecl(false, false);
+    if (IsKeyword("function"))
+      return ParseFunctionDecl(false, false);
+    // The unsupported decorator has been consumed. Continue from the next
+    // statement boundary without manufacturing a misleading expression AST.
+    return ParseStatement();
+  }
   if (IsSymbol("{"))
     return ParseBlock();
   if (IsSymbol(";")) {
     Advance();
     return std::make_shared<BlockStatement>();
+  }
+  if (IsKeyword("using")) {
+    auto saved = current_;
+    auto state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    bool saved_line = line_terminator_before_current_;
+    Advance();
+    bool declaration_shape = current_.kind == frontends::TokenKind::kIdentifier ||
+                             IsSymbol("[") || IsSymbol("{");
+    lexer_.RestoreState(state);
+    current_ = saved;
+    pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line;
+    if (declaration_shape)
+      return ParseVariableDecl();
+  }
+  if (IsKeyword("await")) {
+    auto saved = current_;
+    auto state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    bool saved_line = line_terminator_before_current_;
+    Advance();
+    if (!line_terminator_before_current_ && IsKeyword("using"))
+      return ParseVariableDecl("await using");
+    lexer_.RestoreState(state);
+    current_ = saved;
+    pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line;
   }
   if (IsKeyword("let") || IsKeyword("const") || IsKeyword("var"))
     return ParseVariableDecl();
@@ -392,7 +542,8 @@ std::shared_ptr<Statement> JsParser::ParseStatement() {
     Advance();
     auto s = std::make_shared<BreakStatement>();
     s->loc = loc;
-    if (current_.kind == frontends::TokenKind::kIdentifier && !IsSymbol(";")) {
+    if (!line_terminator_before_current_ &&
+        current_.kind == frontends::TokenKind::kIdentifier && !IsSymbol(";")) {
       s->label = current_.lexeme;
       Advance();
     }
@@ -404,7 +555,8 @@ std::shared_ptr<Statement> JsParser::ParseStatement() {
     Advance();
     auto s = std::make_shared<ContinueStatement>();
     s->loc = loc;
-    if (current_.kind == frontends::TokenKind::kIdentifier && !IsSymbol(";")) {
+    if (!line_terminator_before_current_ &&
+        current_.kind == frontends::TokenKind::kIdentifier && !IsSymbol(";")) {
       s->label = current_.lexeme;
       Advance();
     }
@@ -415,23 +567,23 @@ std::shared_ptr<Statement> JsParser::ParseStatement() {
     // async function ...
     // (async arrow handled inside primary)
     auto saved = current_;
+    auto state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
     Advance();
-    if (IsKeyword("function")) {
+    if (!line_terminator_before_current_ && IsKeyword("function")) {
       auto fn = std::dynamic_pointer_cast<FunctionDecl>(ParseFunctionDecl(false, false));
       if (fn)
         fn->is_async = true;
       return fn;
     }
-    // not actually a function — fall through as an expression starting with 'async'
-    // We rebuild the expression manually because ParsePrimary needs the original token.
-    auto ident = std::make_shared<Identifier>();
-    ident->loc = saved.loc;
-    ident->name = saved.lexeme;
-    auto expr_stmt = std::make_shared<ExprStatement>();
-    expr_stmt->loc = saved.loc;
-    expr_stmt->expr = ident;
-    ConsumeSemicolon();
-    return expr_stmt;
+    // Not actually a declaration: restore the contextual identifier and let
+    // normal expression/arrow parsing consume it.
+    lexer_.RestoreState(state);
+    current_ = saved;
+    pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
+    return ParseExprStatement();
   }
 
   // Labeled statement: identifier ':' statement
@@ -439,6 +591,7 @@ std::shared_ptr<Statement> JsParser::ParseStatement() {
     auto saved = current_;
     auto state = lexer_.SaveState();
     auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
     Advance();
     if (IsSymbol(":")) {
       Advance();
@@ -452,6 +605,7 @@ std::shared_ptr<Statement> JsParser::ParseStatement() {
     lexer_.RestoreState(state);
     current_ = saved;
     pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
   }
 
   return ParseExprStatement();
@@ -472,11 +626,23 @@ std::shared_ptr<BlockStatement> JsParser::ParseBlock() {
   return block;
 }
 
-std::shared_ptr<Statement> JsParser::ParseVariableDecl() {
+std::shared_ptr<Statement> JsParser::ParseVariableDecl(const std::string &forced_kind) {
   auto loc = current_.loc;
   auto decl = std::make_shared<VariableDecl>();
   decl->loc = loc;
-  decl->kind = current_.lexeme;
+  decl->kind = forced_kind.empty() ? current_.lexeme : forced_kind;
+  if ((decl->kind == "let" || decl->kind == "const") &&
+      !frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kLangVersionMismatch,
+        decl->kind + " declarations require ES2015 or newer (current: " +
+            std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+  }
+  if ((decl->kind == "using" || decl->kind == "await using") &&
+      !frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEsNext)) {
+    diagnostics_.ReportError(loc, frontends::ErrorCode::kLangVersionMismatch,
+                             "explicit resource-management declarations require esnext");
+  }
   Advance();
 
   while (true) {
@@ -507,6 +673,11 @@ std::shared_ptr<Statement> JsParser::ParseVariableDecl() {
     }
     if (MatchSymbol("=")) {
       d.init = ParseAssignment();
+    }
+    if ((decl->kind == "using" || decl->kind == "await using") && !d.init) {
+      diagnostics_.ReportError(d.name.empty() ? loc : current_.loc,
+                               frontends::ErrorCode::kMissingExpression,
+                               "using declarations require an initializer");
     }
     decl->decls.push_back(d);
     if (!MatchSymbol(","))
@@ -566,6 +737,7 @@ std::shared_ptr<Statement> JsParser::ParseFor() {
   auto state = lexer_.SaveState();
   auto saved = current_;
   auto saved_doc = pending_doc_;
+  bool saved_line_terminator = line_terminator_before_current_;
 
   // Try for-in / for-of: optionally [let|const|var] IDENT in|of EXPR
   std::string var_kind;
@@ -577,11 +749,9 @@ std::shared_ptr<Statement> JsParser::ParseFor() {
     std::string vname = current_.lexeme;
     auto vloc = current_.loc;
     Advance();
-    if (MatchKeyword("in") ||
-        (current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "of")) {
-      bool is_of = current_.kind == frontends::TokenKind::kKeyword && current_.lexeme == "of";
-      if (is_of)
-        Advance();
+    bool is_in = MatchKeyword("in");
+    bool is_of = !is_in && MatchKeyword("of");
+    if (is_in || is_of) {
       auto stmt = std::make_shared<ForInOfStatement>();
       stmt->loc = loc;
       stmt->is_of = is_of;
@@ -597,10 +767,12 @@ std::shared_ptr<Statement> JsParser::ParseFor() {
     lexer_.RestoreState(state);
     current_ = saved;
     pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
   } else {
     lexer_.RestoreState(state);
     current_ = saved;
     pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
   }
 
   // C-style for(init; cond; update) body
@@ -693,7 +865,8 @@ std::shared_ptr<Statement> JsParser::ParseReturn() {
   Advance();
   auto stmt = std::make_shared<ReturnStatement>();
   stmt->loc = loc;
-  if (!IsSymbol(";") && !IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
+  if (!line_terminator_before_current_ && !IsSymbol(";") && !IsSymbol("}") &&
+      current_.kind != frontends::TokenKind::kEndOfFile) {
     stmt->value = ParseExpression();
   }
   ConsumeSemicolon();
@@ -705,7 +878,12 @@ std::shared_ptr<Statement> JsParser::ParseThrow() {
   Advance();
   auto stmt = std::make_shared<ThrowStatement>();
   stmt->loc = loc;
-  stmt->value = ParseExpression();
+  if (line_terminator_before_current_) {
+    diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kUnexpectedToken,
+                             "line terminator is not allowed after 'throw'");
+  } else {
+    stmt->value = ParseExpression();
+  }
   ConsumeSemicolon();
   return stmt;
 }
@@ -864,8 +1042,21 @@ std::shared_ptr<MethodDecl> JsParser::ParseMethodDecl(bool is_static) {
   method->loc = current_.loc;
   method->is_static = is_static;
 
-  if (MatchKeyword("async"))
-    method->is_async = true;
+  if (IsKeyword("async")) {
+    auto saved = current_;
+    auto state = lexer_.SaveState();
+    auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
+    Advance();
+    if (!line_terminator_before_current_ && !IsSymbol("(")) {
+      method->is_async = true;
+    } else {
+      lexer_.RestoreState(state);
+      current_ = saved;
+      pending_doc_ = saved_doc;
+      line_terminator_before_current_ = saved_line_terminator;
+    }
+  }
 
   // get / set / generator marker
   bool is_getter = false, is_setter = false;
@@ -875,6 +1066,7 @@ std::shared_ptr<MethodDecl> JsParser::ParseMethodDecl(bool is_static) {
     auto saved = current_;
     auto state = lexer_.SaveState();
     auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
     std::string keyword = current_.lexeme;
     Advance();
     if (current_.kind == frontends::TokenKind::kIdentifier) {
@@ -886,6 +1078,7 @@ std::shared_ptr<MethodDecl> JsParser::ParseMethodDecl(bool is_static) {
       lexer_.RestoreState(state);
       current_ = saved;
       pending_doc_ = saved_doc;
+      line_terminator_before_current_ = saved_line_terminator;
     }
   }
   if (MatchSymbol("*"))
@@ -920,6 +1113,12 @@ std::shared_ptr<MethodDecl> JsParser::ParseMethodDecl(bool is_static) {
 
 std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported_default) {
   auto loc = current_.loc;
+  if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+    diagnostics_.ReportError(
+        loc, frontends::ErrorCode::kLangVersionMismatch,
+        "class declarations require ES2015 or newer (current: " +
+            std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+  }
   Advance(); // consume 'class'
 
   auto cls = std::make_shared<ClassDecl>();
@@ -938,7 +1137,42 @@ std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported
   while (!IsSymbol("}") && current_.kind != frontends::TokenKind::kEndOfFile) {
     if (MatchSymbol(";"))
       continue;
-    bool is_static = MatchKeyword("static");
+    if (IsSymbol("@")) {
+      SkipUnsupportedDecorators();
+      if (IsSymbol("}"))
+        break;
+    }
+    bool is_static = false;
+    if (IsKeyword("static")) {
+      auto static_token = current_;
+      auto static_state = lexer_.SaveState();
+      auto static_doc = pending_doc_;
+      bool static_line = line_terminator_before_current_;
+      Advance();
+      // `static() {}`, `static = value`, and `static;` declare a member named
+      // "static".  In all other class-member shapes it is the modifier.
+      if (!line_terminator_before_current_ && !IsSymbol("(") && !IsSymbol("=") &&
+          !IsSymbol(";") && !IsSymbol("}")) {
+        is_static = true;
+      } else {
+        lexer_.RestoreState(static_state);
+        current_ = static_token;
+        pending_doc_ = static_doc;
+        line_terminator_before_current_ = static_line;
+      }
+    }
+
+    if (is_static && IsSymbol("{")) {
+      if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 "class static initialization blocks require ES2022 or newer");
+      }
+      auto static_block = std::make_shared<StaticBlock>();
+      static_block->loc = current_.loc;
+      static_block->body = ParseBlock();
+      cls->members.push_back(std::move(static_block));
+      continue;
+    }
 
     // Field detection: identifier (or # private) followed by '=' or ';'
     if (current_.kind == frontends::TokenKind::kIdentifier ||
@@ -946,8 +1180,16 @@ std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported
       auto state = lexer_.SaveState();
       auto saved = current_;
       auto saved_doc = pending_doc_;
+      bool saved_line_terminator = line_terminator_before_current_;
       std::string field_name = saved.lexeme;
-      bool is_private = false;
+      bool is_private = !field_name.empty() && field_name.front() == '#';
+      if (is_private &&
+          !frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
+        diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
+                                 std::string("class private fields ('#name') require ES2022 "
+                                             "or newer (current: ") +
+                                     frontends::EcmaVersionToString(ecma_version_) + ")");
+      }
       if (current_.kind == frontends::TokenKind::kSymbol && current_.lexeme == "#") {
         if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
           diagnostics_.ReportError(current_.loc, frontends::ErrorCode::kLangVersionMismatch,
@@ -964,12 +1206,17 @@ std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported
       } else {
         Advance();
       }
-      if (IsSymbol("=") || IsSymbol(";")) {
+      if (IsSymbol("=") || IsSymbol(";") || IsSymbol("}") || line_terminator_before_current_) {
         auto field = std::make_shared<FieldDecl>();
         field->loc = saved.loc;
         field->name = field_name;
         field->is_static = is_static;
         field->is_private = is_private;
+        if (!is_private &&
+            !frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
+          diagnostics_.ReportError(field->loc, frontends::ErrorCode::kLangVersionMismatch,
+                                   "public class fields require ES2022 or newer");
+        }
         if (MatchSymbol("="))
           field->init = ParseAssignment();
         ConsumeSemicolon();
@@ -980,9 +1227,15 @@ std::shared_ptr<Statement> JsParser::ParseClassDecl(bool exported, bool exported
       lexer_.RestoreState(state);
       current_ = saved;
       pending_doc_ = saved_doc;
+      line_terminator_before_current_ = saved_line_terminator;
     }
 
     auto method = ParseMethodDecl(is_static);
+    if (method && method->is_private &&
+        !frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2022)) {
+      diagnostics_.ReportError(method->loc, frontends::ErrorCode::kLangVersionMismatch,
+                               "class private methods require ES2022 or newer");
+    }
     if (method)
       cls->members.push_back(method);
   }
@@ -1020,8 +1273,9 @@ std::shared_ptr<Expression> JsParser::ParseAssignment() {
     auto state = lexer_.SaveState();
     auto saved = current_;
     auto saved_doc = pending_doc_;
+    bool saved_line_terminator = line_terminator_before_current_;
     Advance();
-    if (IsKeyword("function")) {
+    if (!line_terminator_before_current_ && IsKeyword("function")) {
       // Parse function expression manually.
       auto loc = saved.loc;
       Advance(); // consume 'function'
@@ -1040,10 +1294,51 @@ std::shared_ptr<Expression> JsParser::ParseAssignment() {
         fe->body = ParseBlock();
       return fe;
     }
-    // not async function — restore and fall through.
+    if (!line_terminator_before_current_ &&
+        current_.kind == frontends::TokenKind::kIdentifier) {
+      auto parameter = current_;
+      Advance();
+      if (IsSymbol("=>")) {
+        Advance();
+        if (!frontends::EcmaVersionAtLeast(ecma_version_,
+                                           frontends::EcmaVersion::kEs2015)) {
+          diagnostics_.ReportError(
+              saved.loc, frontends::ErrorCode::kLangVersionMismatch,
+              "arrow functions require ES2015 or newer (current: " +
+                  std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+        }
+        auto arrow = std::make_shared<ArrowFunction>();
+        arrow->loc = saved.loc;
+        arrow->is_async = true;
+        ArrowFunction::Param param;
+        param.name = parameter.lexeme;
+        arrow->params.push_back(std::move(param));
+        if (IsSymbol("{")) {
+          arrow->body = ParseBlock();
+        } else {
+          auto value = ParseAssignment();
+          auto body = std::make_shared<ReturnStatement>();
+          body->loc = value ? value->loc : current_.loc;
+          body->value = value;
+          arrow->body = body;
+          arrow->body_is_expression = true;
+        }
+        return arrow;
+      }
+    } else if (!line_terminator_before_current_ && IsSymbol("(")) {
+      auto candidate = ParseArrowOrParenExpr();
+      if (auto arrow = std::dynamic_pointer_cast<ArrowFunction>(candidate)) {
+        arrow->is_async = true;
+        arrow->loc = saved.loc;
+        return arrow;
+      }
+    }
+    // Not an async function/arrow — restore and fall through as an ordinary
+    // identifier expression (e.g. `async(value)` or `async = 1`).
     lexer_.RestoreState(state);
     current_ = saved;
     pending_doc_ = saved_doc;
+    line_terminator_before_current_ = saved_line_terminator;
   }
 
   if (IsKeyword("function")) {
@@ -1223,7 +1518,7 @@ std::shared_ptr<Expression> JsParser::ParseUpdate() {
     return u;
   }
   auto expr = ParseLeftHandSide();
-  if (IsSymbol("++") || IsSymbol("--")) {
+  if (!line_terminator_before_current_ && (IsSymbol("++") || IsSymbol("--"))) {
     auto loc = current_.loc;
     std::string op = current_.lexeme;
     Advance();
@@ -1362,6 +1657,75 @@ std::shared_ptr<Expression> JsParser::ParseCallTail(std::shared_ptr<Expression> 
   return expr;
 }
 
+void JsParser::ValidateRegexLiteral(Literal &literal) {
+  const std::string &raw = literal.value;
+  bool escaped = false;
+  bool in_class = false;
+  size_t closing_slash = std::string::npos;
+  for (size_t i = 1; i < raw.size(); ++i) {
+    char c = raw[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c == '\\') {
+      escaped = true;
+      continue;
+    }
+    if (c == '[')
+      in_class = true;
+    else if (c == ']')
+      in_class = false;
+    else if (c == '/' && !in_class) {
+      closing_slash = i;
+      break;
+    }
+  }
+
+  if (closing_slash == std::string::npos) {
+    diagnostics_.ReportError(literal.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                             "unterminated JavaScript regular-expression literal");
+    literal.regex_pattern = raw.size() > 1 ? raw.substr(1) : std::string{};
+    return;
+  }
+
+  literal.regex_pattern = raw.substr(1, closing_slash - 1);
+  literal.regex_flags = raw.substr(closing_slash + 1);
+  std::unordered_set<char> seen;
+  for (char flag : literal.regex_flags) {
+    if (std::string("dgimsuvy").find(flag) == std::string::npos) {
+      diagnostics_.ReportError(literal.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               std::string("unknown regular-expression flag '") + flag + "'");
+      continue;
+    }
+    if (!seen.insert(flag).second) {
+      diagnostics_.ReportError(literal.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                               std::string("duplicate regular-expression flag '") + flag + "'");
+    }
+
+    frontends::EcmaVersion required = frontends::EcmaVersion::kEs5;
+    if (flag == 'u' || flag == 'y')
+      required = frontends::EcmaVersion::kEs2015;
+    else if (flag == 's')
+      required = frontends::EcmaVersion::kEs2018;
+    else if (flag == 'd')
+      required = frontends::EcmaVersion::kEs2022;
+    else if (flag == 'v')
+      required = frontends::EcmaVersion::kEs2024;
+    if (!frontends::EcmaVersionAtLeast(ecma_version_, required)) {
+      diagnostics_.ReportError(
+          literal.loc, frontends::ErrorCode::kLangVersionMismatch,
+          std::string("regular-expression flag '") + flag + "' requires " +
+              frontends::EcmaVersionToString(required) + " or newer (current: " +
+              frontends::EcmaVersionToString(ecma_version_) + ")");
+    }
+  }
+  if (seen.count('u') != 0 && seen.count('v') != 0) {
+    diagnostics_.ReportError(literal.loc, frontends::ErrorCode::kUnsupportedSyntax,
+                             "regular-expression flags 'u' and 'v' are mutually exclusive");
+  }
+}
+
 std::shared_ptr<Expression> JsParser::ParsePrimary() {
   auto loc = current_.loc;
 
@@ -1376,13 +1740,15 @@ std::shared_ptr<Expression> JsParser::ParsePrimary() {
     return lit;
   }
   if (current_.kind == frontends::TokenKind::kString) {
+    if (!current_.lexeme.empty() && current_.lexeme.front() == '`')
+      return ParseTemplateLiteral();
     auto lit = std::make_shared<Literal>();
     lit->loc = loc;
     lit->value = current_.lexeme;
-    lit->kind = (!current_.lexeme.empty() && current_.lexeme[0] == '`')
-                    ? Literal::Kind::kTemplateString
-                : (!current_.lexeme.empty() && current_.lexeme[0] == '/') ? Literal::Kind::kRegex
-                                                                          : Literal::Kind::kString;
+    lit->kind = (!current_.lexeme.empty() && current_.lexeme[0] == '/') ? Literal::Kind::kRegex
+                                                                        : Literal::Kind::kString;
+    if (lit->kind == Literal::Kind::kRegex)
+      ValidateRegexLiteral(*lit);
     Advance();
     // Convert template literal lexeme into a TemplateLiteral expression for
     // simple cases (we keep the raw string here; lowering-time evaluation
@@ -1420,6 +1786,13 @@ std::shared_ptr<Expression> JsParser::ParsePrimary() {
     Advance();
     return id;
   }
+  if (IsKeyword("import")) {
+    auto id = std::make_shared<Identifier>();
+    id->loc = loc;
+    id->name = "import";
+    Advance();
+    return id;
+  }
   if (current_.kind == frontends::TokenKind::kIdentifier) {
     auto saved = current_;
     [[maybe_unused]] auto state = lexer_.SaveState();
@@ -1428,6 +1801,12 @@ std::shared_ptr<Expression> JsParser::ParsePrimary() {
     // Single-identifier arrow: `x => …`
     if (IsSymbol("=>")) {
       Advance();
+      if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+        diagnostics_.ReportError(
+            saved.loc, frontends::ErrorCode::kLangVersionMismatch,
+            "arrow functions require ES2015 or newer (current: " +
+                std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+      }
       auto arrow = std::make_shared<ArrowFunction>();
       arrow->loc = saved.loc;
       ArrowFunction::Param p;
@@ -1466,6 +1845,92 @@ std::shared_ptr<Expression> JsParser::ParsePrimary() {
   err->name = current_.lexeme;
   Advance();
   return err;
+}
+
+std::shared_ptr<Expression> JsParser::ParseTemplateLiteral() {
+  auto templ = std::make_shared<TemplateLiteral>();
+  templ->loc = current_.loc;
+  const std::string raw = current_.lexeme;
+  Advance();
+
+  const size_t begin = (!raw.empty() && raw.front() == '`') ? 1 : 0;
+  const size_t end = (raw.size() > begin && raw.back() == '`') ? raw.size() - 1 : raw.size();
+  size_t quasi_begin = begin;
+  size_t i = begin;
+  while (i < end) {
+    if (raw[i] == '\\') {
+      i += (i + 1 < end) ? 2 : 1;
+      continue;
+    }
+    if (raw[i] != '$' || i + 1 >= end || raw[i + 1] != '{') {
+      ++i;
+      continue;
+    }
+
+    templ->quasis.push_back(raw.substr(quasi_begin, i - quasi_begin));
+    size_t expression_begin = i + 2;
+    size_t cursor = expression_begin;
+    int braces = 1;
+    char quote = '\0';
+    while (cursor < end && braces > 0) {
+      char c = raw[cursor];
+      if (quote != '\0') {
+        if (c == '\\') {
+          cursor += (cursor + 1 < end) ? 2 : 1;
+          continue;
+        }
+        if (c == quote)
+          quote = '\0';
+        ++cursor;
+        continue;
+      }
+      if (c == '\'' || c == '"' || c == '`') {
+        quote = c;
+        ++cursor;
+        continue;
+      }
+      if (c == '{')
+        ++braces;
+      else if (c == '}')
+        --braces;
+      ++cursor;
+    }
+
+    if (braces != 0) {
+      diagnostics_.ReportError(templ->loc, frontends::ErrorCode::kUnterminatedString,
+                               "unterminated template literal interpolation");
+      templ->quasis.push_back(raw.substr(expression_begin));
+      return templ;
+    }
+
+    const size_t expression_end = cursor - 1;
+    std::string expression_source =
+        raw.substr(expression_begin, expression_end - expression_begin);
+    if (expression_source.empty()) {
+      diagnostics_.ReportError(templ->loc, frontends::ErrorCode::kInvalidExpression,
+                               "template interpolation cannot be empty");
+      templ->expressions.push_back(nullptr);
+    } else {
+      JsLexer embedded_lexer(expression_source, templ->loc.file);
+      JsParser embedded_parser(embedded_lexer, diagnostics_);
+      embedded_parser.SetEcmaVersion(ecma_version_);
+      embedded_parser.Advance();
+      auto expression = embedded_parser.ParseExpression();
+      if (expression)
+        expression->loc = templ->loc;
+      if (embedded_parser.current_.kind != frontends::TokenKind::kEndOfFile) {
+        diagnostics_.ReportError(
+            templ->loc, frontends::ErrorCode::kUnsupportedSyntax,
+            "unsupported trailing syntax in template literal interpolation");
+      }
+      templ->expressions.push_back(std::move(expression));
+    }
+
+    i = cursor;
+    quasi_begin = i;
+  }
+  templ->quasis.push_back(raw.substr(quasi_begin, end - quasi_begin));
+  return templ;
 }
 
 std::shared_ptr<Expression> JsParser::ParseArrayLiteral() {
@@ -1560,12 +2025,19 @@ std::shared_ptr<Expression> JsParser::ParseArrowOrParenExpr() {
   auto state = lexer_.SaveState();
   auto saved = current_;
   auto saved_doc = pending_doc_;
+  bool saved_line_terminator = line_terminator_before_current_;
 
   // Try to parse as arrow function: `(params) =>` or `() =>`
   auto params = ParseFunctionParams(); // consumes through ')'
   auto ret_type = ExtractReturnType(params);
   if (IsSymbol("=>")) {
     Advance();
+    if (!frontends::EcmaVersionAtLeast(ecma_version_, frontends::EcmaVersion::kEs2015)) {
+      diagnostics_.ReportError(
+          loc, frontends::ErrorCode::kLangVersionMismatch,
+          "arrow functions require ES2015 or newer (current: " +
+              std::string(frontends::EcmaVersionToString(ecma_version_)) + ")");
+    }
     auto arrow = std::make_shared<ArrowFunction>();
     arrow->loc = loc;
     arrow->params = params;
@@ -1586,6 +2058,7 @@ std::shared_ptr<Expression> JsParser::ParseArrowOrParenExpr() {
   lexer_.RestoreState(state);
   current_ = saved;
   pending_doc_ = saved_doc;
+  line_terminator_before_current_ = saved_line_terminator;
   Advance(); // consume '('
   auto expr = ParseExpression();
   ExpectSymbol(")", "expected ')'");

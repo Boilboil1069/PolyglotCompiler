@@ -1,0 +1,5 @@
+/aux/
+/build/
+!/expected_output.txt
+!/run.sh
+!/test.sh

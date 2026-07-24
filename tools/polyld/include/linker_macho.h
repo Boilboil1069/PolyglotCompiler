@@ -194,7 +194,31 @@ struct SymbolDesc {
   std::uint8_t n_type{0}; ///< nlist `n_type` byte (e.g. N_SECT|N_EXT).
   std::uint8_t n_sect{0}; ///< 1-based section index, 0 for undefined.
   std::uint16_t n_desc{0};
-  std::uint64_t n_value{0};
+  std::uint64_t n_value{0}; ///< Absolute value, or section offset when flagged below.
+  /// Resolve `n_value` against the final VM address of `n_sect` after layout.
+  /// This is intentionally explicit: Mach-O header marker symbols use N_SECT
+  /// but live at the image base, before the first section's VM address.
+  bool n_value_is_section_relative{false};
+};
+
+/// A relocation whose value depends on the final segment VM layout.  The
+/// generic linker initially merges sections before the Mach-O writer assigns
+/// page-separated __TEXT/__DATA addresses; carrying these patches into the
+/// writer prevents cross-section references from retaining that provisional
+/// address delta.
+enum class FinalRelocationKind : std::uint8_t {
+  kPcRel32,
+  kAbs64,
+};
+
+struct FinalRelocationPatch {
+  std::uint32_t source_section{0}; ///< Zero-based flattened section index.
+  std::uint64_t source_offset{0};  ///< Byte offset of the relocation field.
+  std::uint32_t target_section{0}; ///< Zero-based flattened section index.
+  std::uint64_t target_offset{0};  ///< Target offset within target_section.
+  std::int64_t addend{0};
+  FinalRelocationKind kind{FinalRelocationKind::kPcRel32};
+  bool target_is_absolute{false};
 };
 
 /// Top-level request handed to `BuildMachOImage`.
@@ -207,6 +231,7 @@ struct BuildRequest {
   std::uint64_t stack_size{0};        ///< 0 means "let the loader pick".
   std::vector<SegmentDesc> segments;  ///< Excludes __LINKEDIT (writer adds it).
   std::vector<SymbolDesc> symbols;    ///< Local + external + undef, in that order.
+  std::vector<FinalRelocationPatch> final_relocations;
   std::uint32_t local_count{0};
   std::uint32_t extdef_count{0};
   std::uint32_t undef_count{0};

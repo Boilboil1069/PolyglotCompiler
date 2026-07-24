@@ -96,6 +96,22 @@ private:
     return Type::Any();
   }
 
+  void AnalyzeAnnotations(const std::vector<Annotation> &annotations) {
+    for (const auto &annotation : annotations) {
+      for (const auto &argument : annotation.args) {
+        // `name = value` in an annotation denotes an element name, not a
+        // Java variable assignment. Analyze only the value expression while
+        // retaining the complete binary node in the AST.
+        if (auto named = std::dynamic_pointer_cast<BinaryExpression>(argument);
+            named && named->op == "=") {
+          AnalyzeExpr(named->right);
+        } else {
+          AnalyzeExpr(argument);
+        }
+      }
+    }
+  }
+
   /** @} */
 
   /** @name Imports */
@@ -201,6 +217,12 @@ private:
     if (!decl)
       return;
 
+    if (auto module = std::dynamic_pointer_cast<ModuleDecl>(decl)) {
+      Symbol sym{module->name, Type::Module(module->name, "java"), module->loc,
+                 SymbolKind::kModule, "java"};
+      Syms().Declare(sym);
+      return;
+    }
     if (auto cls = std::dynamic_pointer_cast<ClassDecl>(decl)) {
       AnalyzeClass(*cls);
       return;
@@ -231,6 +253,7 @@ private:
       return;
     }
     if (auto var = std::dynamic_pointer_cast<VarDecl>(decl)) {
+      AnalyzeAnnotations(var->annotations);
       auto t = MapType(var->type);
       if (t.kind == core::TypeKind::kAny && var->init) {
         t = AnalyzeExpr(var->init);
@@ -246,6 +269,7 @@ private:
   }
 
   void AnalyzeClass(const ClassDecl &cls) {
+    AnalyzeAnnotations(cls.annotations);
     Type t = Type::Struct(cls.name, "java");
     Symbol sym{cls.name, t, cls.loc, SymbolKind::kTypeName, "java"};
     sym.access = cls.access;
@@ -288,6 +312,7 @@ private:
   }
 
   void AnalyzeInterface(const InterfaceDecl &iface) {
+    AnalyzeAnnotations(iface.annotations);
     Type t = Type::Struct(iface.name, "java");
     Symbol sym{iface.name, t, iface.loc, SymbolKind::kTypeName, "java"};
     sym.access = iface.access;
@@ -313,6 +338,7 @@ private:
   }
 
   void AnalyzeEnum(const EnumDecl &en) {
+    AnalyzeAnnotations(en.annotations);
     Type t = Type::Enum(en.name, "java");
     Symbol sym{en.name, t, en.loc, SymbolKind::kTypeName, "java"};
     sym.access = en.access;
@@ -321,6 +347,7 @@ private:
     EnterScope(ScopeKind::kClass, en.name);
 
     for (auto &c : en.constants) {
+      AnalyzeAnnotations(c.annotations);
       Symbol cs{c.name, t, en.loc, SymbolKind::kVariable, "java"};
       Syms().Declare(cs);
     }
@@ -333,6 +360,7 @@ private:
   }
 
   void AnalyzeRecord(const RecordDecl &rec) {
+    AnalyzeAnnotations(rec.annotations);
     Type t = Type::Struct(rec.name, "java");
     Symbol sym{rec.name, t, rec.loc, SymbolKind::kTypeName, "java"};
     sym.access = rec.access;
@@ -342,6 +370,7 @@ private:
 
     // Record components become implicit fields and accessor methods
     for (auto &comp : rec.components) {
+      AnalyzeAnnotations(comp.annotations);
       Type ct = MapType(comp.type);
       Symbol fs{comp.name, ct, rec.loc, SymbolKind::kField, "java"};
       Syms().Declare(fs);
@@ -377,10 +406,12 @@ private:
   }
 
   void AnalyzeMethod(const MethodDecl &method) {
+    AnalyzeAnnotations(method.annotations);
     EnterScope(ScopeKind::kFunction, method.name);
     current_return_type_ = MapType(method.return_type);
 
     for (auto &p : method.params) {
+      AnalyzeAnnotations(p.annotations);
       Symbol param{p.name, MapType(p.type), method.loc, SymbolKind::kParameter, "java"};
       Syms().Declare(param);
     }
@@ -393,6 +424,7 @@ private:
   }
 
   void AnalyzeField(const FieldDecl &field) {
+    AnalyzeAnnotations(field.annotations);
     Type t = MapType(field.type);
     if (field.init) {
       AnalyzeExpr(field.init);
@@ -405,9 +437,11 @@ private:
   }
 
   void AnalyzeConstructor(const ConstructorDecl &ctor) {
+    AnalyzeAnnotations(ctor.annotations);
     EnterScope(ScopeKind::kFunction, ctor.name);
 
     for (auto &p : ctor.params) {
+      AnalyzeAnnotations(p.annotations);
       Symbol param{p.name, MapType(p.type), ctor.loc, SymbolKind::kParameter, "java"};
       Syms().Declare(param);
     }

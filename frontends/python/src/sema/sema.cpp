@@ -277,6 +277,15 @@ private:
       AnalyzeClass(*cls);
       return;
     }
+    if (auto alias = std::dynamic_pointer_cast<TypeAlias>(stmt)) {
+      DeclareSimple(alias->name, SymbolKind::kTypeName, Type::Any(), alias->loc);
+      // PEP 695 alias values/bounds and PEP 696 defaults are evaluated lazily
+      // in an annotation scope. Keep their exact expression ASTs, but do not
+      // perform ordinary eager name lookup here: forward and recursive aliases
+      // are valid Python and may resolve only when __value__/__bound__/__default__
+      // is accessed.
+      return;
+    }
     if (auto assign = std::dynamic_pointer_cast<Assignment>(stmt)) {
       auto val_type = AnalyzeExpr(assign->value);
       for (const auto &target : assign->targets) {
@@ -353,6 +362,7 @@ private:
         // literals, wildcards (_), and structural patterns.  Analyzing
         // them as normal expressions would produce false "undefined
         // name" diagnostics (e.g. for the wildcard _).
+        DeclarePatternBindings(c.pattern, c.pattern ? c.pattern->loc : stmt->loc);
         AnalyzeExpr(c.guard);
         AnalyzeBody(c.body);
       }
@@ -489,7 +499,11 @@ private:
     for (size_t i = 0; i < fn.params.size(); ++i) {
       params.push_back(Type::Any());
     }
-    Type ret = fn.return_annotation ? AnalyzeExpr(fn.return_annotation) : Type::Any();
+    // Generic annotations are resolved inside the function scope after its
+    // PEP 695 type parameters have been declared.
+    Type ret = (fn.return_annotation && fn.type_parameters.empty())
+                   ? AnalyzeExpr(fn.return_annotation)
+                   : Type::Any();
     if (fn.is_async) {
       ret = Types().Generic("coroutine", {ret}, "python");
     }
@@ -507,6 +521,10 @@ private:
     scope_states_.push_back({ScopeKind::kFunction});
     Syms().EnterScope(fn.name, ScopeKind::kFunction);
 
+    for (const auto &type_parameter : fn.type_parameters) {
+      DeclareName(type_parameter.name, Type::Any(), type_parameter.loc,
+                  SymbolKind::kTypeName);
+    }
     for (const auto &p : fn.params) {
       Symbol param{p.name, Type::Any(), fn.loc, SymbolKind::kParameter, "python"};
       if (!Syms().Declare(param)) {
@@ -545,6 +563,10 @@ private:
     scope_states_.push_back({ScopeKind::kClass});
     int sid = Syms().EnterScope(cls.name, ScopeKind::kClass);
     Syms().RegisterTypeScope(cls.name, sid);
+    for (const auto &type_parameter : cls.type_parameters) {
+      DeclareName(type_parameter.name, Type::Any(), type_parameter.loc,
+                  SymbolKind::kTypeName);
+    }
     for (const auto &stmt : cls.body) {
       AnalyzeStmt(stmt);
     }
@@ -569,6 +591,43 @@ private:
       for (auto &elem : list->elements) {
         DeclareOrAssign(elem, type, loc);
       }
+    }
+  }
+
+  void DeclarePatternBindings(const std::shared_ptr<Expression> &pattern,
+                              const core::SourceLoc &loc) {
+    if (!pattern)
+      return;
+    if (auto ident = std::dynamic_pointer_cast<Identifier>(pattern)) {
+      if (ident->name != "_")
+        DeclareName(ident->name, Type::Any(), loc, SymbolKind::kVariable);
+      return;
+    }
+    if (auto tuple = std::dynamic_pointer_cast<TupleExpression>(pattern)) {
+      for (auto &element : tuple->elements)
+        DeclarePatternBindings(element, loc);
+      return;
+    }
+    if (auto list = std::dynamic_pointer_cast<ListExpression>(pattern)) {
+      for (auto &element : list->elements)
+        DeclarePatternBindings(element, loc);
+      return;
+    }
+    if (auto dict = std::dynamic_pointer_cast<DictExpression>(pattern)) {
+      for (auto &item : dict->items)
+        DeclarePatternBindings(item.second, loc);
+      return;
+    }
+    if (auto alternative = std::dynamic_pointer_cast<BinaryExpression>(pattern)) {
+      if (alternative->op == "|") {
+        DeclarePatternBindings(alternative->left, loc);
+        DeclarePatternBindings(alternative->right, loc);
+      }
+      return;
+    }
+    if (auto call = std::dynamic_pointer_cast<CallExpression>(pattern)) {
+      for (auto &argument : call->args)
+        DeclarePatternBindings(argument.value, loc);
     }
   }
 
@@ -606,6 +665,25 @@ private:
   Type AnalyzeExpr(const std::shared_ptr<Expression> &expr) {
     if (!expr)
       return Type::Invalid();
+    if (auto named = std::dynamic_pointer_cast<NamedExpression>(expr)) {
+      auto value_type = AnalyzeExpr(named->value);
+      DeclareOrAssign(named->target, value_type, named->loc);
+      return value_type;
+    }
+    if (auto templated = std::dynamic_pointer_cast<TemplateString>(expr)) {
+      for (auto &part : templated->parts) {
+        if (!part.is_literal)
+          AnalyzeExpr(part.expr);
+      }
+      return Types().Generic("Template", {}, "python");
+    }
+    if (auto formatted = std::dynamic_pointer_cast<FormattedString>(expr)) {
+      for (auto &part : formatted->parts) {
+        if (!part.is_literal)
+          AnalyzeExpr(part.expr);
+      }
+      return Type::String();
+    }
     if (auto id = std::dynamic_pointer_cast<Identifier>(expr)) {
       auto resolved = Syms().Lookup(id->name);
       if (resolved.has_value()) {

@@ -29,7 +29,8 @@ struct ScopeState {
 
 class Analyzer {
 public:
-  Analyzer(const Module &mod, frontends::SemaContext &ctx) : module_(mod), ctx_(ctx) {}
+  Analyzer(const Module &mod, frontends::SemaContext &ctx, bool analyze_bodies = true) :
+      module_(mod), ctx_(ctx), analyze_bodies_(analyze_bodies) {}
 
   void Run() {
     scope_stack_.push_back({ScopeKind::kModule});
@@ -52,6 +53,10 @@ private:
     if (!node)
       return Type::Any();
     if (auto simple = std::dynamic_pointer_cast<SimpleType>(node)) {
+      if (auto resolved = Syms().Lookup(simple->name); resolved.has_value() &&
+          resolved->symbol->kind == SymbolKind::kTypeName) {
+        return resolved->symbol->type;
+      }
       return Types().MapFromLanguage("cpp", simple->name);
     }
     if (auto ptr = std::dynamic_pointer_cast<PointerType>(node)) {
@@ -101,13 +106,20 @@ private:
       return;
     if (auto fn = std::dynamic_pointer_cast<FunctionDecl>(decl)) {
       DeclareFunction(*fn);
-      AnalyzeFunction(*fn);
+      if (analyze_bodies_)
+        AnalyzeFunction(*fn);
       return;
     }
     if (auto var = std::dynamic_pointer_cast<VarDecl>(decl)) {
       auto t = MapType(var->type);
-      if (t.kind == core::TypeKind::kAny && var->init)
-        t = AnalyzeExpr(var->init);
+      if (analyze_bodies_ && var->has_direct_init) {
+        for (const auto &arg : var->direct_init_args)
+          AnalyzeExpr(arg);
+      } else if (analyze_bodies_ && var->init) {
+        auto init_type = AnalyzeExpr(var->init);
+        if (t.kind == core::TypeKind::kAny)
+          t = init_type;
+      }
       Symbol sym{var->name, t, var->loc, SymbolKind::kVariable, "cpp"};
       sym.access = var->access;
       if (!Syms().Declare(sym)) {
@@ -119,6 +131,8 @@ private:
       Type t = Type::Struct(rec->name, "cpp");
       Symbol sym{rec->name, t, rec->loc, SymbolKind::kTypeName, "cpp"};
       Syms().Declare(sym);
+      const std::string saved_class = current_class_;
+      current_class_ = rec->name;
       scope_stack_.push_back({ScopeKind::kClass});
       int sid = Syms().EnterScope(rec->name, ScopeKind::kClass);
       Syms().RegisterTypeScope(rec->name, sid);
@@ -141,6 +155,7 @@ private:
       }
       Syms().ExitScope();
       scope_stack_.pop_back();
+      current_class_ = saved_class;
       return;
     }
     if (auto en = std::dynamic_pointer_cast<EnumDecl>(decl)) {
@@ -165,13 +180,35 @@ private:
     }
     if (auto tpl = std::dynamic_pointer_cast<TemplateDecl>(decl)) {
       // treat template parameters as generic placeholders; analyze inner in a template scope
+      const int declaration_scope = Syms().CurrentScopeId();
       scope_stack_.push_back({ScopeKind::kBlock});
       Syms().EnterScope("<template>", ScopeKind::kBlock);
       for (auto &p : tpl->params) {
-        Symbol ts{p, Type::GenericParam(p, "cpp"), decl->loc, SymbolKind::kTypeName, "cpp"};
+        // Parser parameters preserve the spelling (`typename T`, `class U`).
+        // The declared generic name is the final identifier before a default.
+        std::string name = p;
+        if (auto eq = name.find('='); eq != std::string::npos)
+          name.erase(eq);
+        while (!name.empty() && name.back() == ' ')
+          name.pop_back();
+        if (auto space = name.find_last_of(' '); space != std::string::npos)
+          name.erase(0, space + 1);
+        Symbol ts{name, Type::GenericParam(name, "cpp"), decl->loc, SymbolKind::kTypeName, "cpp"};
         Syms().Declare(ts);
       }
-      AnalyzeDecl(tpl->inner);
+      if (auto fn = std::dynamic_pointer_cast<FunctionDecl>(tpl->inner)) {
+        std::vector<Type> params;
+        for (auto &p : fn->params)
+          params.push_back(MapType(p.type));
+        Type fnt = Types().FunctionType(fn->name, MapType(fn->return_type), params);
+        fnt.language = "cpp";
+        Symbol sym{fn->name, fnt, fn->loc, SymbolKind::kFunction, "cpp"};
+        Syms().DeclareInScope(declaration_scope, sym);
+        if (analyze_bodies_)
+          AnalyzeFunction(*fn);
+      } else {
+        AnalyzeDecl(tpl->inner);
+      }
       Syms().ExitScope();
       scope_stack_.pop_back();
       return;
@@ -246,6 +283,12 @@ private:
     scope_stack_.push_back({ScopeKind::kFunction});
     Syms().EnterScope(fn.name, ScopeKind::kFunction);
     current_return_type_ = MapType(fn.return_type);
+    if (!current_class_.empty() && !fn.is_static && !fn.has_explicit_object_parameter) {
+      auto class_type = Type::Struct(current_class_, "cpp");
+      Symbol this_param{"this", Types().PointerTo(std::move(class_type)), fn.loc,
+                        SymbolKind::kParameter, "cpp"};
+      Syms().Declare(this_param);
+    }
     for (auto &p : fn.params) {
       Symbol param{p.name, MapType(p.type), fn.loc, SymbolKind::kParameter, "cpp"};
       Syms().Declare(param);
@@ -268,8 +311,14 @@ private:
     }
     if (auto var = std::dynamic_pointer_cast<VarDecl>(stmt)) {
       auto t = MapType(var->type);
-      if (t.kind == core::TypeKind::kAny && var->init)
-        t = AnalyzeExpr(var->init);
+      if (var->has_direct_init) {
+        for (const auto &arg : var->direct_init_args)
+          AnalyzeExpr(arg);
+      } else if (var->init) {
+        auto init_type = AnalyzeExpr(var->init);
+        if (t.kind == core::TypeKind::kAny)
+          t = init_type;
+      }
       Symbol sym{var->name, t, var->loc, SymbolKind::kVariable, "cpp"};
       Syms().Declare(sym);
       return;
@@ -286,9 +335,13 @@ private:
       return;
     }
     if (auto ifs = std::dynamic_pointer_cast<IfStatement>(stmt)) {
-      AnalyzeExpr(ifs->condition);
+      EnterScope(ScopeKind::kBlock);
+      AnalyzeStmt(ifs->init);
+      if (!ifs->is_consteval)
+        AnalyzeExpr(ifs->condition);
       AnalyzeBlock(ifs->then_body);
       AnalyzeBlock(ifs->else_body);
+      ExitScope();
       return;
     }
     if (auto wh = std::dynamic_pointer_cast<WhileStatement>(stmt)) {
@@ -341,6 +394,14 @@ private:
         return resolved->symbol->type;
       }
       Diags().Report(id->loc, "Undefined identifier: " + id->name);
+      return Type::Invalid();
+    }
+    if (auto tid = std::dynamic_pointer_cast<TemplateIdExpression>(expr)) {
+      auto resolved = Syms().Lookup(tid->name);
+      if (resolved.has_value()) {
+        return resolved->symbol->type;
+      }
+      Diags().Report(tid->loc, "Undefined template: " + tid->name);
       return Type::Invalid();
     }
     if (auto lit = std::dynamic_pointer_cast<Literal>(expr)) {
@@ -404,8 +465,12 @@ private:
       return AnalyzeExpr(un->operand);
     }
     if (auto mem = std::dynamic_pointer_cast<MemberExpression>(expr)) {
-      AnalyzeExpr(mem->object);
       auto obj_t = AnalyzeExpr(mem->object);
+      if ((obj_t.kind == core::TypeKind::kPointer ||
+           obj_t.kind == core::TypeKind::kReference) &&
+          !obj_t.type_args.empty()) {
+        obj_t = obj_t.type_args.front();
+      }
       if (auto member_res = Syms().LookupMember(obj_t.name, mem->member)) {
         return member_res->symbol->type;
       }
@@ -446,6 +511,15 @@ private:
       scope_stack_.pop_back();
       return Types().FunctionType("lambda");
     }
+    if (auto designated = std::dynamic_pointer_cast<DesignatedInitializerExpression>(expr)) {
+      return AnalyzeExpr(designated->value);
+    }
+    if (auto init = std::dynamic_pointer_cast<InitializerListExpression>(expr)) {
+      Type element = Type::Any();
+      for (auto &value : init->elements)
+        element = AnalyzeExpr(value);
+      return element;
+    }
     return Type::Any();
   }
 
@@ -470,14 +544,21 @@ private:
 
   const Module &module_;
   frontends::SemaContext &ctx_;
+  bool analyze_bodies_{true};
   std::vector<ScopeState> scope_stack_{};
   Type current_return_type_{Type::Any()};
+  std::string current_class_{};
 };
 
 } // namespace
 
 void AnalyzeModule(const Module &module, frontends::SemaContext &context) {
   Analyzer analyzer(module, context);
+  analyzer.Run();
+}
+
+void AnalyzeModuleSignatures(const Module &module, frontends::SemaContext &context) {
+  Analyzer analyzer(module, context, false);
   analyzer.Run();
 }
 

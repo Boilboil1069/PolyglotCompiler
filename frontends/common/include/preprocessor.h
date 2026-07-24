@@ -45,6 +45,13 @@ public:
   void SetIncludePaths(std::vector<std::string> paths);
   void SetMaxIncludeDepth(size_t depth);
 
+  // Signature scanners can treat <...> headers as external declaration
+  // providers instead of recursively parsing a platform C++ standard library.
+  // Quoted "..." project headers are unaffected and still must resolve.
+  void SetAngleIncludesExternal(bool external) noexcept {
+    angle_includes_external_ = external;
+  }
+
   // Custom file loader hook for testing or virtual FS.
   void SetFileLoader(std::function<std::optional<std::string>(const std::string &)> loader);
 
@@ -82,6 +89,7 @@ private:
   std::unordered_set<std::string> pragma_once_files_{};
   std::unordered_map<std::string, std::string> guard_to_file_{};
   SharedTokenPool *token_pool_{nullptr};
+  bool angle_includes_external_{false};
 };
 
 } // namespace polyglot::frontends

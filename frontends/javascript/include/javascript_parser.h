@@ -48,13 +48,14 @@ private:
   std::shared_ptr<Statement> ParseTopLevel();
   std::shared_ptr<Statement> ParseImportDecl();
   std::shared_ptr<Statement> ParseExportDecl();
+  void ParseImportAttributes(std::vector<ImportAttribute> &attributes);
   /** @} */
 
   /** @name Statements */
   /** @{ */
   std::shared_ptr<Statement> ParseStatement();
   std::shared_ptr<BlockStatement> ParseBlock();
-  std::shared_ptr<Statement> ParseVariableDecl();
+  std::shared_ptr<Statement> ParseVariableDecl(const std::string &forced_kind = {});
   std::shared_ptr<Statement> ParseIf();
   std::shared_ptr<Statement> ParseWhile();
   std::shared_ptr<Statement> ParseDoWhile();
@@ -91,12 +92,18 @@ private:
   std::shared_ptr<MethodDecl> ParseMethodDecl(bool is_static);
   std::shared_ptr<TypeNode> ParseJsdocType(const std::string &raw);
   int GetBinaryPrecedence(const std::string &op) const;
+  void SkipUnsupportedDecorators();
+  void ValidateRegexLiteral(Literal &literal);
   /** @} */
 
   JsLexer &lexer_;
   frontends::Token current_{};
   std::shared_ptr<Module> module_;
   std::string pending_doc_;
+  // True when a line terminator occurred between the previous token and
+  // current_. Required by ASI restricted productions (`return`, `throw`,
+  // postfix ++/--, async arrows, and labels).
+  bool line_terminator_before_current_{false};
   // Active ECMAScript edition for syntax gating. `kAuto` ⇒ `kEcmaVersionDefault`.
   frontends::EcmaVersion ecma_version_{frontends::EcmaVersion::kAuto};
 };

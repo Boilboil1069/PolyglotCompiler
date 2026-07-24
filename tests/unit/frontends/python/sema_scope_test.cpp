@@ -2,6 +2,8 @@
 
 #include "frontends/common/include/sema_context.h"
 #include "frontends/python/include/python_ast.h"
+#include "frontends/python/include/python_lexer.h"
+#include "frontends/python/include/python_parser.h"
 #include "frontends/python/include/python_sema.h"
 
 using polyglot::frontends::SemaContext;
@@ -48,4 +50,34 @@ TEST_CASE("Python sema captures outer variable", "[python][sema]") {
   REQUIRE(sym_x != nullptr);
   REQUIRE(sym_x->captured);
   REQUIRE(diags.All().empty());
+}
+
+TEST_CASE("Python sema binds walrus targets", "[python][sema][walrus]") {
+  const char *source = "if (n := 10):\n    pass\nresult = n\n";
+  Diagnostics diags;
+  polyglot::python::PythonLexer lexer(source, "<mem>", &diags);
+  polyglot::python::PythonParser parser(lexer, diags);
+  parser.ParseModule();
+  auto module = parser.TakeModule();
+  SemaContext ctx(diags);
+  AnalyzeModule(*module, ctx);
+  REQUIRE_FALSE(diags.HasErrors());
+  REQUIRE(ctx.Symbols().FindInAnyScope("n") != nullptr);
+}
+
+TEST_CASE("Python sema binds match capture patterns", "[python][sema][match]") {
+  const char *source =
+      "subject = 1\n"
+      "match subject:\n"
+      "    case captured:\n"
+      "        result = captured\n";
+  Diagnostics diags;
+  polyglot::python::PythonLexer lexer(source, "<mem>", &diags);
+  polyglot::python::PythonParser parser(lexer, diags);
+  parser.ParseModule();
+  auto module = parser.TakeModule();
+  SemaContext ctx(diags);
+  AnalyzeModule(*module, ctx);
+  REQUIRE_FALSE(diags.HasErrors());
+  REQUIRE(ctx.Symbols().FindInAnyScope("captured") != nullptr);
 }

@@ -295,16 +295,20 @@ bool CheckGEP(const GetElementPtrInstruction &gep, const IRType &base_ptr, const
   for (size_t idx : gep.indices) {
     switch (cur.kind) {
     case IRTypeKind::kPointer:
-    case IRTypeKind::kReference:
+    case IRTypeKind::kReference: {
       if (cur.subtypes.empty())
         return Fail("gep on pointer with unknown pointee", msg);
-      cur = cur.subtypes[0];
+      // The selected subtype is owned by `cur`; copy it before assigning to
+      // `cur` so vector destruction cannot invalidate the assignment source.
+      const IRType pointee = cur.subtypes[0];
+      cur = pointee;
       if (layout) {
         cur_align = layout->AlignOf(cur);
       }
       break;
+    }
     case IRTypeKind::kArray:
-    case IRTypeKind::kVector:
+    case IRTypeKind::kVector: {
       if (cur.count == 0)
         return Fail("gep on zero-length aggregate", msg);
       if (idx >= cur.count)
@@ -319,8 +323,10 @@ bool CheckGEP(const GetElementPtrInstruction &gep, const IRType &base_ptr, const
         offset += idx * elem_size;
         cur_align = std::max(cur_align, elem_align);
       }
-      cur = cur.subtypes[0];
+      const IRType element = cur.subtypes[0];
+      cur = element;
       break;
+    }
     case IRTypeKind::kStruct:
       if (idx >= cur.subtypes.size())
         return Fail("gep struct field out of bounds", msg);
@@ -340,7 +346,10 @@ bool CheckGEP(const GetElementPtrInstruction &gep, const IRType &base_ptr, const
           field_off += s;
         }
       }
-      cur = cur.subtypes[idx];
+      {
+        const IRType field = cur.subtypes[idx];
+        cur = field;
+      }
       break;
     default:
       return Fail("gep on non-aggregate", msg);

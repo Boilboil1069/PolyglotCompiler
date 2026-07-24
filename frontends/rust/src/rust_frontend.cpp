@@ -223,14 +223,29 @@ void ExtractFromFunction(const FunctionItem &fn, const std::string &module_name,
 
 std::vector<frontends::ForeignFunctionSignature> RustLanguageFrontend::ExtractSignatures(
     const std::string &source, const std::string &filename, const std::string &module_name) const {
+  frontends::Diagnostics diagnostics;
+  frontends::FrontendOptions options;
+  return ExtractSignatures(source, filename, module_name, diagnostics, options);
+}
+
+std::vector<frontends::ForeignFunctionSignature> RustLanguageFrontend::ExtractSignatures(
+    const std::string &source, const std::string &filename, const std::string &module_name,
+    frontends::Diagnostics &diagnostics, const frontends::FrontendOptions &options) const {
   std::vector<frontends::ForeignFunctionSignature> result;
 
-  frontends::Diagnostics diags;
   RustLexer lexer(source, filename);
-  RustParser parser(lexer, diags);
+  RustParser parser(lexer, diagnostics);
+  parser.SetRustEdition(options.rust_edition);
   parser.ParseModule();
   auto module = parser.TakeModule();
-  if (!module)
+  if (!module || diagnostics.HasErrors())
+    return result;
+
+  frontends::SemaContext ctx(diagnostics);
+  CrateLoader loader(options.rust_crate_dir, options.rust_externs, diagnostics);
+  RustSemaOptions sema_opts{&loader};
+  AnalyzeModule(*module, ctx, sema_opts);
+  if (diagnostics.HasErrors())
     return result;
 
   for (const auto &item : module->items) {

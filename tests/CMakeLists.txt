@@ -118,6 +118,7 @@ set(UNIT_TEST_FRONTEND_PLOY
     unit/frontends/ploy/visibility_attrs_test.cpp
     unit/frontends/ploy/string_literals_test.cpp
     unit/frontends/ploy/polish_grammar_test.cpp
+    unit/frontends/ploy/native_file_builtin_test.cpp
 )
 
 set(UNIT_TEST_FRONTEND_JAVA
@@ -178,6 +179,7 @@ set(UNIT_TEST_RUNTIME
     unit/runtime/threading_services_test.cpp
     unit/runtime/call_trace_runtime_test.cpp
     unit/runtime/error_bridge_test.cpp
+    unit/runtime/native_file_runtime_test.cpp
     unit/runtime/async_bridge_test.cpp
 )
 
@@ -671,8 +673,10 @@ set(INTEGRATION_TEST_SOURCES
     integration/binary_matrix/binary_matrix_test.cpp
     integration/macho_exec_smoke_test.cpp
     integration/elf_exec_smoke_test.cpp
+    integration/native_file_runtime_e2e_test.cpp
 )
 add_executable(integration_tests ${INTEGRATION_TEST_SOURCES})
+add_dependencies(integration_tests polyc polyld)
 target_link_libraries(integration_tests PRIVATE ${POLYGLOT_TEST_ALL_LIBS} lsp_lib polyls_core)
 target_compile_definitions(integration_tests PRIVATE
     POLYGLOT_TESTS_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/external_packages"
@@ -751,6 +755,21 @@ add_test(NAME benchmark_tests   COMMAND benchmark_tests)
 add_test(NAME samples_regression
          COMMAND integration_tests "[samples]")
 set_tests_properties(samples_regression PROPERTIES LABELS "integration;samples")
+
+# Real four-language business fixture.  The script deliberately invokes only
+# the polyc built in this tree; polyc owns package discovery, per-language
+# frontend compilation, and the final polyld link.  Its native file runtime is
+# currently implemented for x86_64 POSIX hosts, so do not register a test that
+# would be guaranteed to reject an unsupported target.
+if(UNIX AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+    add_test(NAME example_order_risk_analyzer
+             COMMAND ${CMAKE_COMMAND} -E env
+                     "POLYGLOT_BUILD_DIR=$<TARGET_FILE_DIR:polyc>"
+                     "${CMAKE_SOURCE_DIR}/examples/order_risk_analyzer/test.sh")
+    set_tests_properties(example_order_risk_analyzer PROPERTIES
+        LABELS "integration;e2e;example;polyglot"
+        TIMEOUT 60)
+endif()
 
 # Benchmark tier targets
 add_test(NAME benchmark_fast COMMAND ${CMAKE_COMMAND} -E env POLYBENCH_MODE=fast $<TARGET_FILE:benchmark_tests>)

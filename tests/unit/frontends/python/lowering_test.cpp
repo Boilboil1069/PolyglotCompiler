@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <sstream>
 #include <string>
+#include <unordered_set>
 
 #include "frontends/python/include/python_lexer.h"
 #include "frontends/python/include/python_parser.h"
@@ -8,6 +9,7 @@
 #include "frontends/common/include/diagnostics.h"
 #include "middle/include/ir/ir_context.h"
 #include "middle/include/ir/ir_printer.h"
+#include "middle/include/ir/verifier.h"
 
 using polyglot::frontends::Diagnostics;
 using polyglot::python::PythonLexer;
@@ -39,6 +41,53 @@ std::string GetIR(const IRContext &ctx) {
     return oss.str();
 }
 
+bool HasUnsupportedLowering(const Diagnostics &diags) {
+    for (const auto &diagnostic : diags.All())
+        if (diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering)
+            return true;
+    return false;
+}
+
+bool DiagnosticsContain(const Diagnostics &diags, const std::string &needle) {
+    for (const auto &diagnostic : diags.All())
+        if (diagnostic.message.find(needle) != std::string::npos)
+            return true;
+    return false;
+}
+
+bool TerminatorTargetsBelongToFunction(const polyglot::ir::Function &fn) {
+    std::unordered_set<const polyglot::ir::BasicBlock *> blocks;
+    for (const auto &block : fn.blocks)
+        blocks.insert(block.get());
+
+    const auto belongs = [&](const polyglot::ir::BasicBlock *target) {
+        return target && blocks.count(target) != 0;
+    };
+
+    for (const auto &block : fn.blocks) {
+        if (!block->terminator)
+            return false;
+        if (auto *branch =
+                dynamic_cast<polyglot::ir::BranchStatement *>(block->terminator.get())) {
+            if (!belongs(branch->target))
+                return false;
+        } else if (auto *branch = dynamic_cast<polyglot::ir::CondBranchStatement *>(
+                       block->terminator.get())) {
+            if (!belongs(branch->true_target) || !belongs(branch->false_target))
+                return false;
+        } else if (auto *switch_stmt =
+                       dynamic_cast<polyglot::ir::SwitchStatement *>(block->terminator.get())) {
+            if (!belongs(switch_stmt->default_target))
+                return false;
+            for (const auto &case_entry : switch_stmt->cases) {
+                if (!belongs(case_entry.target))
+                    return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 // ============================================================================
@@ -58,6 +107,13 @@ def test():
     auto ir = GetIR(ctx);
     INFO("IR:\n" << ir);
     REQUIRE(ir.find("test") != std::string::npos);
+    REQUIRE(ir.find("ret 42") != std::string::npos);
+    REQUIRE(ir.find("lit.") == std::string::npos);
+
+    std::string verify_message;
+    const bool valid = polyglot::ir::Verify(ctx, &verify_message);
+    INFO(verify_message);
+    REQUIRE(valid);
 }
 
 TEST_CASE("Python Lowering - Float literals", "[python][lowering][expr]") {
@@ -266,6 +322,83 @@ def bar():
     REQUIRE(ctx.Functions().size() == 2);
 }
 
+TEST_CASE("Python lowering keeps nested-function CFGs isolated",
+          "[python][lowering][func][cfg]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+def outer(x: int) -> int:
+    def inner(y: int) -> int:
+        if y > 0:
+            return y
+        else:
+            return 0
+    if x > 0:
+        return inner(x)
+    else:
+        return 0
+)", diags);
+
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
+}
+
+TEST_CASE("Python fraud-style functions keep every branch target local",
+          "[python][lowering][func][cfg]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+def velocity(recent: int, failed: int, changes: int) -> int:
+    if failed >= 3:
+        return 70
+    else:
+        if recent >= 10:
+            if changes >= 2:
+                return 55
+            else:
+                pass
+            return 45
+        else:
+            pass
+    return 5
+
+def amount(payable: int, age: int, mismatch: int) -> int:
+    if mismatch != 0:
+        if payable >= 150:
+            return 35
+        else:
+            pass
+        return 20
+    else:
+        if age < 3:
+            return 18
+        else:
+            pass
+    return 6
+
+def band(velocity_points: int, amount_points: int, failed: int) -> int:
+    score = velocity_points + amount_points + failed * 12
+    if score >= 80:
+        return 3
+    else:
+        if score >= 45:
+            return 2
+        else:
+            pass
+    return 1
+)", diags);
+
+    REQUIRE(ok);
+    REQUIRE(ctx.Functions().size() == 3);
+
+    std::string verify_message;
+    const bool valid = polyglot::ir::Verify(ctx, &verify_message);
+    INFO(verify_message);
+    REQUIRE(valid);
+    for (const auto &fn : ctx.Functions()) {
+        INFO("function: " << fn->name);
+        REQUIRE(TerminatorTargetsBelongToFunction(*fn));
+    }
+}
+
 TEST_CASE("Python Lowering - Function call", "[python][lowering][func]") {
     Diagnostics diags;
     auto [ctx, ok] = ParseAndLower(R"(
@@ -409,23 +542,182 @@ class Point:
 )", diags);
     
     REQUIRE(ok);
-    // Should have __init__ and get_x methods
-    REQUIRE(ctx.Functions().size() >= 2);
+    REQUIRE(ctx.Functions().size() == 2);
+    auto ir = GetIR(ctx);
+    INFO("IR:\n" << ir);
+    REQUIRE(ir.find("Point.__init__") != std::string::npos);
+    REQUIRE(ir.find("Point.get_x") != std::string::npos);
+    REQUIRE(ir.find(" = gep ") != std::string::npos);
+
+    std::string verify_message;
+    REQUIRE(polyglot::ir::Verify(ctx, &verify_message));
+}
+
+TEST_CASE("Python lowering emits a real aggregate object lifecycle",
+          "[python][lowering][class][oop][aggregate]") {
+    Diagnostics diags;
+    const std::string package_source = R"(
+class FraudAssessment:
+    def __init__(self, velocity: int, amount: int, failed: int):
+        self.velocity = velocity
+        self.amount = amount
+        self.failed = failed
+        self.score = velocity + amount
+
+    def apply_failure_penalty(self, multiplier: int) -> int:
+        self.score += self.failed * multiplier
+        return self.score
+
+    def band(self) -> int:
+        if self.score >= 80:
+            return 3
+        else:
+            if self.score >= 45:
+                return 2
+            else:
+                return 1
+
+    def close(self) -> None:
+        self.velocity = 0
+        self.amount = 0
+        self.failed = 0
+        self.score = 0
+)";
+
+    const std::string consumer_source = R"(
+def fraud_session_band(velocity: int, amount: int, failed: int) -> int:
+    session = FraudAssessment(velocity, amount, failed)
+    session.apply_failure_penalty(12)
+    result = session.band()
+    session.close()
+    return result
+)";
+    // This is the same source-bundling boundary used by IMPORT ... PACKAGE:
+    // the local package is merged ahead of its consumer, with no CPython
+    // import/runtime participation.
+    auto [ctx, ok] = ParseAndLower(package_source + consumer_source, diags);
+
+    std::string diagnostic_text;
+    for (const auto &diagnostic : diags.All())
+        diagnostic_text += diagnostic.message + "\n";
+    INFO("Diagnostics:\n" << diagnostic_text);
+    REQUIRE(ok);
+
+    size_t aggregate_allocas = 0;
+    size_t geps = 0;
+    size_t loads = 0;
+    size_t stores = 0;
+    size_t constructor_calls = 0;
+    size_t member_calls = 0;
+    size_t close_calls = 0;
+    for (const auto &function : ctx.Functions()) {
+        for (const auto &block : function->blocks) {
+            for (const auto &instruction : block->instructions) {
+                if (auto *alloca = dynamic_cast<polyglot::ir::AllocaInstruction *>(instruction.get())) {
+                    if (alloca->type.kind == polyglot::ir::IRTypeKind::kPointer &&
+                        !alloca->type.subtypes.empty() &&
+                        alloca->type.subtypes.front().kind == polyglot::ir::IRTypeKind::kStruct &&
+                        alloca->type.subtypes.front().name == "FraudAssessment" &&
+                        alloca->type.subtypes.front().subtypes.size() == 4)
+                        ++aggregate_allocas;
+                }
+                if (dynamic_cast<polyglot::ir::GetElementPtrInstruction *>(instruction.get()))
+                    ++geps;
+                if (dynamic_cast<polyglot::ir::LoadInstruction *>(instruction.get()))
+                    ++loads;
+                if (dynamic_cast<polyglot::ir::StoreInstruction *>(instruction.get()))
+                    ++stores;
+                if (auto *call = dynamic_cast<polyglot::ir::CallInstruction *>(instruction.get())) {
+                    constructor_calls += call->callee == "FraudAssessment.__init__";
+                    member_calls += call->callee == "FraudAssessment.apply_failure_penalty" ||
+                                    call->callee == "FraudAssessment.band";
+                    close_calls += call->callee == "FraudAssessment.close";
+                }
+            }
+        }
+    }
+
+    REQUIRE(aggregate_allocas == 1);
+    REQUIRE(geps >= 12);
+    REQUIRE(loads >= 5);
+    REQUIRE(stores >= 9);
+    REQUIRE(constructor_calls == 1);
+    REQUIRE(member_calls == 2);
+    REQUIRE(close_calls == 1);
+
+    auto ir = GetIR(ctx);
+    INFO("IR:\n" << ir);
+    const auto construct = ir.find("FraudAssessment.__init__");
+    const auto close = ir.rfind("FraudAssessment.close");
+    const auto wrapper_return = ir.rfind("ret ");
+    REQUIRE(construct != std::string::npos);
+    REQUIRE(close != std::string::npos);
+    REQUIRE(wrapper_return != std::string::npos);
+    REQUIRE(construct < close);
+    REQUIRE(close < wrapper_return);
+
+    std::string verify_message;
+    const bool valid = polyglot::ir::Verify(ctx, &verify_message);
+    INFO(verify_message);
+    REQUIRE(valid);
 }
 
 TEST_CASE("Python Lowering - Class with inheritance", "[python][lowering][class]") {
     Diagnostics diags;
     auto [ctx, ok] = ParseAndLower(R"(
 class Base:
+    def __init__(self, value: int):
+        self.value = value
+
     def foo(self):
         return 1
 
 class Derived(Base):
+    def __init__(self, value: int):
+        self.value = value
+
     def bar(self):
         return 2
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
+    REQUIRE(DiagnosticsContain(diags, "inheritance"));
+}
+
+TEST_CASE("Python static classes reject dynamic fields and descriptors clearly",
+          "[python][lowering][class][fail-closed]") {
+    SECTION("dynamic field") {
+        Diagnostics diags;
+        auto [ctx, ok] = ParseAndLower(R"(
+class Session:
+    def __init__(self, value: int):
+        self.value = value
+
+    def add_dynamic_field(self, extra: int) -> int:
+        self.extra = extra
+        return self.extra
+)", diags);
+        REQUIRE_FALSE(ok);
+        REQUIRE(HasUnsupportedLowering(diags));
+        REQUIRE(DiagnosticsContain(diags, "dynamic attribute"));
+    }
+
+    SECTION("property descriptor") {
+        Diagnostics diags;
+        auto [ctx, ok] = ParseAndLower(R"(
+class Session:
+    def __init__(self, value: int):
+        self.value = value
+
+    @property
+    def current(self) -> int:
+        return self.value
+)", diags);
+        REQUIRE_FALSE(ok);
+        REQUIRE(HasUnsupportedLowering(diags));
+        REQUIRE(DiagnosticsContain(diags, "descriptor"));
+    }
 }
 
 // ============================================================================
@@ -443,7 +735,8 @@ def test():
     return x
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Lowering - Try-except-finally", "[python][lowering][exception]") {
@@ -459,7 +752,8 @@ def test():
     return x
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Lowering - Raise statement", "[python][lowering][exception]") {
@@ -471,7 +765,8 @@ def test(x):
     return x
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -487,7 +782,8 @@ def test():
     return data
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Lowering - Multiple context managers", "[python][lowering][with]") {
@@ -498,7 +794,8 @@ def test():
         pass
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -518,7 +815,42 @@ def test(x):
             return "other"
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    bool unsupported = false;
+    for (const auto &diagnostic : diags.All())
+        unsupported = unsupported ||
+                      diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    REQUIRE(unsupported);
+}
+
+TEST_CASE("Python lowering fails closed for f-string format specs and except-star",
+          "[python][lowering][fail-closed]") {
+    Diagnostics format_diags;
+    auto [format_ctx, format_ok] = ParseAndLower(
+        "def render(value):\n    return f'{value:.2f}'\n", format_diags);
+    REQUIRE_FALSE(format_ok);
+    bool format_unsupported = false;
+    for (const auto &diagnostic : format_diags.All())
+        format_unsupported = format_unsupported ||
+                             diagnostic.code ==
+                                 polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    REQUIRE(format_unsupported);
+
+    Diagnostics group_diags;
+    auto [group_ctx, group_ok] = ParseAndLower(
+        "def handle():\n"
+        "    try:\n"
+        "        work()\n"
+        "    except* ValueError:\n"
+        "        pass\n",
+        group_diags);
+    REQUIRE_FALSE(group_ok);
+    bool group_unsupported = false;
+    for (const auto &diagnostic : group_diags.All())
+        group_unsupported = group_unsupported ||
+                            diagnostic.code ==
+                                polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    REQUIRE(group_unsupported);
 }
 
 // ============================================================================
@@ -532,7 +864,8 @@ async def fetch():
     return 42
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 TEST_CASE("Python Lowering - Await expression", "[python][lowering][async]") {
@@ -543,7 +876,8 @@ async def main():
     return result
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -559,7 +893,8 @@ def gen():
     yield 3
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -574,9 +909,8 @@ def test():
     return f(5)
 )", diags);
     
-    REQUIRE(ok);
-    // Should create a lambda function
-    REQUIRE(ctx.Functions().size() >= 2);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -612,7 +946,8 @@ def main():
     return helper()
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -640,7 +975,22 @@ def test():
     return sqrt(4)
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
+}
+
+TEST_CASE("Python lowering does not fabricate signatures for imported callables",
+          "[python][lowering][import][fail-closed]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+from math import imaginary_api
+
+def test(value: float) -> float:
+    return imaginary_api(value)
+)", diags);
+
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }
 
 // ============================================================================
@@ -701,5 +1051,33 @@ def increment():
     return counter
 )", diags);
     
-    REQUIRE(ok);
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
+}
+
+TEST_CASE("Python lowering fails closed for template strings", "[python][lowering][tstring]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+def render(value):
+    return t"value={value}"
+)", diags);
+    (void)ctx;
+    REQUIRE_FALSE(ok);
+    bool unsupported = false;
+    for (const auto &diagnostic : diags.All())
+        unsupported = unsupported ||
+                      diagnostic.code == polyglot::frontends::ErrorCode::kUnsupportedLowering;
+    REQUIRE(unsupported);
+}
+
+TEST_CASE("Python lowering rejects generic functions without specialization",
+          "[python][lowering][pep695]") {
+    Diagnostics diags;
+    auto [ctx, ok] = ParseAndLower(R"(
+def identity[T](value: T) -> T:
+    return value
+)", diags);
+    (void)ctx;
+    REQUIRE_FALSE(ok);
+    REQUIRE(HasUnsupportedLowering(diags));
 }

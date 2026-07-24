@@ -11,12 +11,21 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
+#include "backends/common/include/object_file.h"
+#include "common/include/binary_container.h"
+#include "tools/polyld/include/linker.h"
 #include "tools/polyld/include/linker_macho.h"
 
 using namespace polyglot::linker::macho;
@@ -55,6 +64,125 @@ std::uint32_t ReadU32(const std::vector<std::uint8_t> &bytes, std::size_t off) {
          (static_cast<std::uint32_t>(bytes[off + 1]) << 8) |
          (static_cast<std::uint32_t>(bytes[off + 2]) << 16) |
          (static_cast<std::uint32_t>(bytes[off + 3]) << 24);
+}
+
+std::uint64_t ReadU64(const std::vector<std::uint8_t> &bytes, std::size_t off) {
+  REQUIRE(off + 8 <= bytes.size());
+  std::uint64_t value = 0;
+  for (int i = 0; i < 8; ++i)
+    value |= static_cast<std::uint64_t>(bytes[off + i]) << (8 * i);
+  return value;
+}
+
+std::string FixedName(const std::vector<std::uint8_t> &bytes,
+                      std::size_t off, std::size_t width) {
+  REQUIRE(off + width <= bytes.size());
+  std::size_t length = 0;
+  while (length < width && bytes[off + length] != 0) ++length;
+  return std::string(reinterpret_cast<const char *>(bytes.data() + off), length);
+}
+
+struct ParsedSection {
+  std::string segment;
+  std::string section;
+  std::uint64_t address{0};
+  std::uint64_t size{0};
+  std::uint32_t file_offset{0};
+  std::uint8_t index{0};
+};
+
+struct ParsedSymbol {
+  std::uint8_t type{0};
+  std::uint8_t section{0};
+  std::uint64_t value{0};
+};
+
+struct ParsedMachO {
+  std::vector<ParsedSection> sections;
+  std::unordered_map<std::string, ParsedSymbol> symbols;
+};
+
+ParsedMachO ParseMachO(const std::vector<std::uint8_t> &image) {
+  REQUIRE(image.size() >= 32);
+  REQUIRE(ReadU32(image, 0) == kMachOMagic64);
+
+  ParsedMachO parsed;
+  std::optional<std::size_t> symtab_command;
+  const auto command_count = ReadU32(image, 16);
+  std::size_t command_offset = 32;
+  std::uint16_t section_index = 1;
+  for (std::uint32_t i = 0; i < command_count; ++i) {
+    REQUIRE(command_offset + 8 <= image.size());
+    const auto command = ReadU32(image, command_offset);
+    const auto command_size = ReadU32(image, command_offset + 4);
+    REQUIRE(command_size >= 8);
+    REQUIRE(command_offset + command_size <= image.size());
+    if (command == kLcSegment64) {
+      const auto segment = FixedName(image, command_offset + 8, 16);
+      const auto section_count = ReadU32(image, command_offset + 64);
+      std::size_t section_offset = command_offset + 72;
+      for (std::uint32_t j = 0; j < section_count; ++j) {
+        REQUIRE(section_index <= 255);
+        ParsedSection section;
+        section.section = FixedName(image, section_offset, 16);
+        section.segment = segment;
+        section.address = ReadU64(image, section_offset + 32);
+        section.size = ReadU64(image, section_offset + 40);
+        section.file_offset = ReadU32(image, section_offset + 48);
+        section.index = static_cast<std::uint8_t>(section_index++);
+        parsed.sections.push_back(std::move(section));
+        section_offset += 80;
+      }
+    } else if (command == kLcSymtab) {
+      symtab_command = command_offset;
+    }
+    command_offset += command_size;
+  }
+
+  REQUIRE(symtab_command.has_value());
+  const auto symoff = ReadU32(image, *symtab_command + 8);
+  const auto symbol_count = ReadU32(image, *symtab_command + 12);
+  const auto stroff = ReadU32(image, *symtab_command + 16);
+  const auto strsize = ReadU32(image, *symtab_command + 20);
+  REQUIRE(static_cast<std::uint64_t>(symoff) +
+              static_cast<std::uint64_t>(symbol_count) * 16 <= image.size());
+  REQUIRE(static_cast<std::uint64_t>(stroff) + strsize <= image.size());
+
+  for (std::uint32_t i = 0; i < symbol_count; ++i) {
+    const std::size_t offset = symoff + static_cast<std::size_t>(i) * 16;
+    const auto string_index = ReadU32(image, offset);
+    REQUIRE(string_index < strsize);
+    const std::size_t name_start = stroff + string_index;
+    std::size_t name_end = name_start;
+    while (name_end < stroff + strsize && image[name_end] != 0) ++name_end;
+    REQUIRE(name_end < stroff + strsize);
+    const std::string name(
+        reinterpret_cast<const char *>(image.data() + name_start),
+        name_end - name_start);
+    parsed.symbols.emplace(
+        name, ParsedSymbol{image[offset + 4], image[offset + 5],
+                           ReadU64(image, offset + 8)});
+  }
+  return parsed;
+}
+
+const ParsedSection &FindSection(const ParsedMachO &parsed,
+                                 const std::string &segment,
+                                 const std::string &section) {
+  const auto found = std::find_if(
+      parsed.sections.begin(), parsed.sections.end(),
+      [&](const ParsedSection &candidate) {
+        return candidate.segment == segment && candidate.section == section;
+      });
+  REQUIRE(found != parsed.sections.end());
+  return *found;
+}
+
+std::vector<std::uint8_t> ReadFile(const std::filesystem::path &path) {
+  std::ifstream input(path, std::ios::binary);
+  REQUIRE(input.good());
+  return {std::istreambuf_iterator<char>(input),
+          std::istreambuf_iterator<char>()};
 }
 
 } // namespace
@@ -127,6 +255,131 @@ TEST_CASE("BIN-5: BuildMachOImage executable carries MH_EXECUTE filetype byte",
   REQUIRE(result.num_load_commands == ReadU32(result.image, 16));
 }
 
+TEST_CASE("Mach-O writer resolves nlist values against final global section indices",
+          "[linker_macho][symbols][sections]") {
+  BuildRequest req;
+  req.arch = MachOArch::kX86_64;
+  req.filetype = kFileTypeExecute;
+  req.base_address = 0x100000000ULL;
+  req.emit_pagezero = false;
+  req.emit_dyld_info = false;
+
+  SegmentDesc text;
+  text.segname = "__TEXT";
+  text.initprot = kVmProtRead | kVmProtExecute;
+  text.maxprot = kVmProtRead | kVmProtExecute;
+  SectionDesc stubs;
+  stubs.sectname = "__stubs";
+  stubs.segname = "__TEXT";
+  stubs.alignment_log2 = 4;
+  stubs.data.assign(19, 0xCC);
+  SectionDesc code;
+  code.sectname = "__text";
+  code.segname = "__TEXT";
+  code.alignment_log2 = 5;
+  code.flags = kSectionTypeRegular | kSectionAttrPureInstr |
+               kSectionAttrSomeInstr;
+  code.data = {0x90, 0x90, 0x90, 0x90, 0x90, 0xC3, 0xCC};
+  text.sections.push_back(std::move(stubs));
+  text.sections.push_back(std::move(code));
+  req.segments.push_back(std::move(text));
+
+  SegmentDesc data;
+  data.segname = "__DATA";
+  data.initprot = kVmProtRead | kVmProtWrite;
+  data.maxprot = kVmProtRead | kVmProtWrite;
+  SectionDesc data_section;
+  data_section.sectname = "__data";
+  data_section.segname = "__DATA";
+  data_section.alignment_log2 = 3;
+  data_section.data = {0x10, 0x20, 0x30, 0x40, 0x50};
+  data.sections.push_back(std::move(data_section));
+  req.segments.push_back(std::move(data));
+
+  SymbolDesc raw_header;
+  raw_header.name = "__mh_execute_header";
+  raw_header.n_type = kNTypeSect | kNTypeExt;
+  raw_header.n_sect = 1;
+  raw_header.n_value = req.base_address;
+  req.symbols.push_back(raw_header);
+
+  SymbolDesc function;
+  function.name = "_function";
+  function.n_type = kNTypeSect | kNTypeExt;
+  function.n_sect = 2;  // __TEXT,__text, after __TEXT,__stubs
+  function.n_value = 5;
+  function.n_value_is_section_relative = true;
+  req.symbols.push_back(function);
+
+  SymbolDesc global;
+  global.name = "_global";
+  global.n_type = kNTypeSect | kNTypeExt;
+  global.n_sect = 3;  // __DATA,__data in the second segment
+  global.n_value = 3;
+  global.n_value_is_section_relative = true;
+  req.symbols.push_back(global);
+  req.extdef_count = 3;
+
+  const auto result = BuildMachOImage(req);
+  REQUIRE_FALSE(result.image.empty());
+  const auto parsed = ParseMachO(result.image);
+  const auto &text_section = FindSection(parsed, "__TEXT", "__text");
+  const auto &writable_section = FindSection(parsed, "__DATA", "__data");
+
+  REQUIRE(parsed.symbols.at("_function").section == text_section.index);
+  REQUIRE(parsed.symbols.at("_function").value == text_section.address + 5);
+  REQUIRE(result.image[text_section.file_offset + 5] == 0xC3);
+
+  REQUIRE(parsed.symbols.at("_global").section == writable_section.index);
+  REQUIRE(parsed.symbols.at("_global").value == writable_section.address + 3);
+  REQUIRE(result.image[writable_section.file_offset + 3] == 0x40);
+
+  // Explicit absolute values remain untouched even when their type is N_SECT.
+  REQUIRE(parsed.symbols.at("__mh_execute_header").value == req.base_address);
+}
+
+TEST_CASE("Mach-O writer applies cross-section REL32 after final segment layout",
+          "[linker_macho][relocation][sections]") {
+  auto req = MakeMinimalRequest(kFileTypeExecute, MachOArch::kX86_64);
+  // lea rax, [rip + disp32]; ret.  The displacement field starts at byte 3
+  // and is relative to the following instruction (addend -4).
+  req.segments.front().sections.front().data =
+      {0x48, 0x8d, 0x05, 0x00, 0x00, 0x00, 0x00, 0xc3};
+
+  SegmentDesc data;
+  data.segname = "__DATA";
+  data.initprot = kVmProtRead | kVmProtWrite;
+  data.maxprot = kVmProtRead | kVmProtWrite;
+  SectionDesc payload;
+  payload.sectname = "__data";
+  payload.segname = "__DATA";
+  payload.alignment_log2 = 3;
+  payload.data = {'c', 's', 'v', 0};
+  data.sections.push_back(std::move(payload));
+  req.segments.push_back(std::move(data));
+
+  FinalRelocationPatch relocation;
+  relocation.source_section = 0;
+  relocation.source_offset = 3;
+  relocation.target_section = 1;
+  relocation.target_offset = 0;
+  relocation.addend = -4;
+  relocation.kind = FinalRelocationKind::kPcRel32;
+  req.final_relocations.push_back(relocation);
+
+  const auto result = BuildMachOImage(req);
+  REQUIRE_FALSE(result.image.empty());
+  const auto parsed = ParseMachO(result.image);
+  const auto &text = FindSection(parsed, "__TEXT", "__text");
+  const auto &data_section = FindSection(parsed, "__DATA", "__data");
+  const std::int32_t displacement =
+      static_cast<std::int32_t>(ReadU32(result.image, text.file_offset + 3));
+  const std::uint64_t resolved = static_cast<std::uint64_t>(
+      static_cast<std::int64_t>(text.address + 7) + displacement);
+  REQUIRE(resolved == data_section.address);
+  REQUIRE(result.image[data_section.file_offset] == static_cast<std::uint8_t>('c'));
+}
+
 TEST_CASE("BIN-5: BuildMachOImage dylib carries MH_DYLIB filetype + install name",
           "[linker_macho][bin5]") {
   auto req = MakeMinimalRequest(kFileTypeDylib, MachOArch::kArm64);
@@ -160,4 +413,110 @@ TEST_CASE("BIN-5: BuildMachOImage rejects empty segment list",
   req.arch     = MachOArch::kX86_64;
   auto result = BuildMachOImage(req);
   REQUIRE(result.image.empty());
+}
+
+TEST_CASE("polyld Mach-O symbols match emitted text and data VM addresses",
+          "[linker][macho][symbols][integration]") {
+  namespace fs = std::filesystem;
+  using polyglot::backends::COFFBuilder;
+  using polyglot::common::BinaryContainer;
+  using polyglot::linker::Linker;
+  using polyglot::linker::LinkerConfig;
+  using polyglot::linker::OutputFormat;
+  using polyglot::linker::TargetArch;
+
+  COFFBuilder builder(/*is_arm64=*/false);
+  polyglot::backends::Section text;
+  text.name = ".text";
+  text.data = {0x90, 0x90, 0xC3, 0xCC, 0xCC};
+  builder.AddSection(text);
+  polyglot::backends::Section rdata;
+  rdata.name = ".rdata";
+  rdata.data = {0x11, 0x22, 0x33};
+  builder.AddSection(rdata);
+  polyglot::backends::Section data;
+  data.name = ".data";
+  data.data = {0xAA, 0xBB, 0xCC, 0xDD};
+  builder.AddSection(data);
+
+  polyglot::backends::Symbol entry;
+  entry.name = "macho_entry";
+  entry.section = ".text";
+  entry.offset = 2;
+  entry.size = 1;
+  entry.is_global = true;
+  entry.is_function = true;
+  builder.AddSymbol(entry);
+  polyglot::backends::Symbol constant;
+  constant.name = "macho_constant";
+  constant.section = ".rdata";
+  constant.offset = 1;
+  constant.size = 1;
+  constant.is_global = true;
+  constant.is_function = false;
+  builder.AddSymbol(constant);
+  polyglot::backends::Symbol variable;
+  variable.name = "macho_variable";
+  variable.section = ".data";
+  variable.offset = 2;
+  variable.size = 1;
+  variable.is_global = true;
+  variable.is_function = false;
+  builder.AddSymbol(variable);
+
+  static unsigned fixture_id = 0;
+  const auto stem =
+      fs::temp_directory_path() /
+      ("polyld_macho_symbol_address_" + std::to_string(++fixture_id));
+  const fs::path object_path = stem.string() + ".obj";
+  const fs::path image_path = stem.string() + ".macho";
+  const auto object = builder.Build();
+  REQUIRE_FALSE(object.empty());
+  {
+    std::ofstream output(object_path, std::ios::binary);
+    REQUIRE(output.good());
+    output.write(reinterpret_cast<const char *>(object.data()),
+                 static_cast<std::streamsize>(object.size()));
+    REQUIRE(output.good());
+  }
+
+  LinkerConfig config;
+  config.input_files = {object_path.string()};
+  config.output_file = image_path.string();
+  config.output_format = OutputFormat::kExecutable;
+  config.target_arch = TargetArch::kX86_64;
+  config.target_os = "macos";
+  config.container = BinaryContainer::kMachO;
+  config.entry_point = "macho_entry";
+  Linker linker(config);
+  REQUIRE(linker.Link());
+
+  const auto image = ReadFile(image_path);
+  const auto parsed = ParseMachO(image);
+  const auto &text_section = FindSection(parsed, "__TEXT", "__text");
+  const auto &constant_section =
+      FindSection(parsed, "__DATA_CONST", "__const");
+  const auto &data_section = FindSection(parsed, "__DATA", "__data");
+
+  REQUIRE(parsed.symbols.count("macho_entry") == 1);
+  const auto &entry_symbol = parsed.symbols.at("macho_entry");
+  REQUIRE(entry_symbol.section == text_section.index);
+  REQUIRE(entry_symbol.value == text_section.address + 2);
+  REQUIRE(image[text_section.file_offset + 2] == 0xC3);
+
+  REQUIRE(parsed.symbols.count("macho_constant") == 1);
+  const auto &constant_symbol = parsed.symbols.at("macho_constant");
+  REQUIRE(constant_symbol.section == constant_section.index);
+  REQUIRE(constant_symbol.value == constant_section.address + 1);
+  REQUIRE(image[constant_section.file_offset + 1] == 0x22);
+
+  REQUIRE(parsed.symbols.count("macho_variable") == 1);
+  const auto &variable_symbol = parsed.symbols.at("macho_variable");
+  REQUIRE(variable_symbol.section == data_section.index);
+  REQUIRE(variable_symbol.value == data_section.address + 2);
+  REQUIRE(image[data_section.file_offset + 2] == 0xCC);
+
+  std::error_code ignored;
+  fs::remove(object_path, ignored);
+  fs::remove(image_path, ignored);
 }

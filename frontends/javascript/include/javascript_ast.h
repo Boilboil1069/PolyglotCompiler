@@ -63,6 +63,10 @@ struct Literal : Expression {
   enum class Kind { kNumber, kString, kTemplateString, kBool, kNull, kUndefined, kRegex, kBigInt };
   Kind kind{Kind::kNumber};
   std::string value;
+  // Populated for kRegex. `value` retains the exact source spelling while
+  // these fields expose the pattern and flags without lossy re-tokenization.
+  std::string regex_pattern;
+  std::string regex_flags;
 };
 
 struct ArrayExpr : Expression {
@@ -310,12 +314,22 @@ struct FieldDecl : Statement {
   bool is_private{false};
 };
 
+/** @brief ES2022 class static initialization block. */
+struct StaticBlock : Statement {
+  std::shared_ptr<BlockStatement> body;
+};
+
 struct ClassDecl : Statement {
   std::string name;
   std::shared_ptr<Expression> superclass;
   std::vector<std::shared_ptr<Statement>> members;
   bool exported{false};
   bool exported_default{false};
+};
+
+struct ImportAttribute {
+  std::string key;
+  std::string value;
 };
 
 struct ImportDecl : Statement {
@@ -328,6 +342,7 @@ struct ImportDecl : Statement {
   };
   std::vector<Specifier> specifiers;
   std::string source;
+  std::vector<ImportAttribute> attributes;
 };
 
 struct ExportDecl : Statement {
@@ -339,6 +354,7 @@ struct ExportDecl : Statement {
   };
   std::vector<Specifier> specifiers;
   std::string source;
+  std::vector<ImportAttribute> attributes;
   bool is_default{false};
   std::shared_ptr<Expression> default_expr;
 };

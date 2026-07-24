@@ -1,15 +1,17 @@
 ﻿# PolyglotCompiler User Guide
 
 > **Document Version**: 4.0.0<br>
-> **Last Updated**: 2026-07-20<br>
+> **Last Updated**: 2026-07-24<br>
 > **Project**: PolyglotCompiler 1.48.0<br>
 > **Companion**: [USER_GUIDE_zh.md](USER_GUIDE_zh.md)
 
 A complete, hands-on guide to PolyglotCompiler — a multi-language compiler
-toolchain that ingests C++, Python, Rust, Java, C#/.NET, Go, JavaScript,
-Ruby, and the in-house **Poly** glue language, lowers everything to a
-single unified IR, and emits native code for **x86_64**, **ARM64**, and
-**WebAssembly**. The companion IDE (`polyui`) ships an LSP-driven
+toolchain that analyses C++, Python, Rust, Java, C#/.NET, Go, JavaScript,
+Ruby, and the in-house **Poly** glue language against explicit language
+versions. Source constructs with a semantics-preserving lowering path enter a
+single unified IR and may be emitted for **x86_64**, **ARM64**, or
+**WebAssembly**; unsupported syntax or lowering stops before an artefact is
+written. The companion IDE (`polyui`) ships an LSP-driven
 multi-language editor, debugger, profiler, call analyzer, package
 manager view, and test explorer.
 
@@ -42,15 +44,17 @@ manager view, and test explorer.
 
 ### 1.1 What PolyglotCompiler is
 
-PolyglotCompiler turns mixed-language source trees into a single linked
-artefact. A program may import a C++ image filter, a Rust serialiser,
-a Python ML model, and a Go HTTP client, glue them with a `.poly` driver
-file, and produce one executable for x86_64, ARM64, or WebAssembly. The
+PolyglotCompiler can turn a mixed-language source tree into a single linked
+artefact when every selected construct has a supported lowering path. A
+`.poly` driver can describe imports and bridges between C++, Rust, Python, Go,
+and the other registered languages; analysis rejects an unavailable syntax,
+ABI, or lowering path instead of manufacturing a partial executable. The
 compiler is built around three guarantees:
 
-1. **One IR for everything.** Every supported language lowers to the
-   same SSA, three-address representation. Optimisation, debug info,
-   and code generation are written once and reused across frontends.
+1. **One checked IR boundary.** Every successfully lowered language construct
+   enters the same SSA, three-address representation. Optimisation, debug info,
+   and code generation are shared, while constructs without a faithful IR
+   mapping are rejected before the backend.
 2. **First-class cross-language calls.** A `bridge_call` IR opcode
    crosses language boundaries through a single FFI marshalling layer
    (`runtime::ffi::BridgeFrame`). The linker verifies that every bridge
@@ -64,8 +68,8 @@ compiler is built around three guarantees:
 
 | Domain                     | Status in 1.48.0                                                                                          |
 |----------------------------|-----------------------------------------------------------------------------------------------------------|
-| Frontends                  | C++, Python, Rust, Java, .NET (C#), Go, JavaScript, Ruby, Poly — 9 in total.                              |
-| Backends                   | x86_64 (System V + Win64 + macOS Mach-O), ARM64 (AAPCS64, Linux ELF + macOS Mach-O), WebAssembly MVP+SIMD. |
+| Frontends                  | Version-aware analysis for C++23, Python 3.14, Rust 2024, Java 26, C# 14/.NET 10, Go 1.26, ECMAScript 2026, Ruby 4.0, and Poly; lowering is fail-closed. |
+| Backends                   | Consume verified unified IR for x86_64 (System V + Win64 + macOS Mach-O), ARM64 (AAPCS64, Linux ELF + macOS Mach-O), and WebAssembly MVP+SIMD; this is not a promise that every source-language construct reaches IR. |
 | Tool drivers               | `polyc`, `polyld`, `polyasm`, `polyopt`, `polyrt`, `polybench`, `polytopo`, `polyls`, `polydoc`, `polyver`, `polyui` — 11 in total. |
 | Garbage collectors         | Mark-and-Sweep, Tri-colour, Generational, Reference-Counting (4 algorithms, runtime-selectable).          |
 | Test surface               | 30 CTest targets covering unit, integration, e2e, benchmark, and tooling.                                 |
@@ -310,6 +314,10 @@ panel logs the `initialize` exchange with `polyls`, `pyright`, and
                           executable / library / wasm module
 ```
 
+Only source that completes version-aware analysis and semantics-preserving
+lowering enters the middle-end in this diagram. An `E2006`, `E4003`, or
+`E6001` diagnostic terminates the path before backend or packaging stages.
+
 ### 3.2 Directory layout
 
 | Path                | Contents                                                                  |
@@ -531,52 +539,96 @@ identifiers.
 
 | Frontend       | Lib target          | Test target                | Highlights                                                            |
 |----------------|---------------------|----------------------------|-----------------------------------------------------------------------|
-| `frontend_cpp` | `frontend_cpp`      | `test_frontend_cpp`        | C++20 subset, templates with constraint folding, RTTI off by default. |
-| `frontend_python` | `frontend_python`| `test_frontend_python`     | Python 3.11 subset, type hints lowered to IR types where possible.    |
-| `frontend_rust`| `frontend_rust`     | `test_frontend_rust`       | Rust 2024 subset, ownership lowered to scope-bounded RC handles.      |
-| `frontend_java`| `frontend_java`     | `test_frontend_java`       | Java 21 subset, sealed classes and records.                           |
-| `frontend_dotnet` | `frontend_dotnet`| `test_frontend_dotnet`    | C# 12 subset, value-type structs, `async`/`await` lowered to coroutines. |
-| `frontend_go`  | `frontend_go`       | `test_frontend_go`         | Go 1.22 subset, goroutines lowered onto the runtime's task scheduler. |
-| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ES2023 subset, NaN-tagged values, optional Number → i64 narrowing. |
-| `frontend_ruby`| `frontend_ruby`     | `test_frontend_ruby`       | Ruby 3.3 subset, blocks lowered to closures.                          |
+| `frontend_cpp` | `frontend_cpp`      | `test_frontend_cpp`        | C++23 analysis baseline; C++26 selector available for boundary checks. |
+| `frontend_python` | `frontend_python`| `test_frontend_python`     | Python 3.14 analysis baseline, including modern string/type syntax.   |
+| `frontend_rust`| `frontend_rust`     | `test_frontend_rust`       | Rust 2024 edition analysis and edition-sensitive keyword handling.    |
+| `frontend_java`| `frontend_java`     | `test_frontend_java`       | Java 26 analysis baseline with exact 8–26 release selectors.          |
+| `frontend_dotnet` | `frontend_dotnet`| `test_frontend_dotnet`    | C# 14 / .NET 10 analysis baseline plus a distinct preview selector.   |
+| `frontend_go`  | `frontend_go`       | `test_frontend_go`         | Go 1.26 analysis baseline with exact 1.18–1.26 gates.                 |
+| `frontend_javascript` | `frontend_javascript` | `test_frontend_javascript` | ECMAScript 2026 analysis baseline plus `esnext`.                  |
+| `frontend_ruby`| `frontend_ruby`     | `test_frontend_ruby`       | Ruby 4.0 analysis baseline with exact modern-version gates.           |
 | `frontend_ploy`| `frontend_ploy`     | `test_frontend_ploy`       | Glue language; full grammar, generics, async, error handling.         |
 | common         | `frontend_common`   | `test_frontend_common`     | Shared diagnostic, source-map, and lookup machinery.                  |
 
-A frontend is "complete" when it (a) parses the documented subset,
-(b) lowers to IR that the verifier accepts, (c) emits diagnostics in the
-catalogue, and (d) passes its `test_frontend_<lang>` target.
+A frontend boundary is sound when it (a) builds a faithful AST for accepted
+source, (b) reports `kUnsupportedSyntax` instead of discarding an unmodelled
+construct, (c) lowers with preserved semantics or reports
+`kUnsupportedLowering`, and (d) passes its `test_frontend_<lang>` target.
+
+In this project, **complete modern-language support** means version-aware
+lexing/parsing, a faithful AST and analysis boundary, and no silent
+miscompilation. It does **not** mean that every grammar construct, standard
+library, runtime protocol, ABI detail, or reflective/dynamic operation already
+has native unified-IR and backend lowering.
+
+#### Stable defaults and selectors
+
+| Language | Deterministic stable default | `polyc` selector |
+|----------|------------------------------|------------------|
+| C++ | C++23 | `--std=c++23` (`c++98` through `c++26`) |
+| Python | Python 3.14 | `--python-version=3.14` (2.7 and 3.6–3.14) |
+| Rust | Rust 2024 edition | `--rust-edition=2024` (2015/2018/2021/2024) |
+| Java | Java 26 | `--java-release=26` (8–26) |
+| C# / .NET | C# 14 with .NET 10 | `--cs-lang=14 --target-framework=net10`; `preview` is opt-in |
+| Go | Go 1.26 | `--go-version=1.26` (1.18–1.26) |
+| JavaScript | ECMAScript 2026 | `--ecma=es2026` (ES5, ES2015–ES2026, or `esnext`) |
+| Ruby | Ruby 4.0 | `--ruby-version=4.0` (1.9, 2.7, 3.0–3.4, or 4.0) |
+
+`auto` resolves to the stable default above. `--list-language-versions` prints
+the recognised spellings. An unknown command-line spelling is a usage error;
+an incompatible explicit selector, source `LANG` pin, or C#/target-framework
+combination reports `E6001`. A direct source file rejects selectors for other
+languages; a `.poly` orchestration source may intentionally carry selectors
+for several imported languages.
+
+When `--cs-lang` is omitted, the target-framework defaults are `net6` → C#
+10, `net7` → C# 11, `net8` → C# 12, `net9` → C# 13, and `net10` →
+C# 14. An explicitly incompatible language/TFM pair reports `E6001`.
+
+| Diagnostic | Boundary |
+|------------|----------|
+| `E2006` / `kUnsupportedSyntax` | The selected frontend cannot faithfully represent the syntax; it must not skip tokens or invent an AST. |
+| `E4003` / `kUnsupportedLowering` | Analysis has a faithful representation, but no semantics-preserving IR/runtime lowering exists. |
+| `E6001` / `kLangVersionMismatch` | A feature, source pin, CLI selector, or C#/TFM pairing conflicts with the selected version. |
+
+These three diagnostics are non-recoverable. `--force` cannot send their
+partial state to the backend or package writer. Foreign signature discovery is
+also fail-closed: unreadable sources and ambiguous overload/alias collisions
+are errors rather than guessed signatures. Default arguments, rest/varargs,
+and their cross-language ABI are not inferred merely because a declaration was
+parsed. A .NET target framework selects the C# compatibility/default mapping;
+it is not a complete .NET reference-pack or API-surface validator.
 
 ### 5.1 C++ frontend
 
-Supports C++20 with a few practical restrictions:
+Uses C++23 as the default analysis dialect.  Concepts/requires, modules,
+spaceship comparisons, designated initialisers, if-init/if-constexpr and
+modern lambda forms have explicit AST and version boundaries. Constructs that
+still require a C++ runtime or template ABI are rejected during lowering.
 
-* `<thread>` and `<atomic>` lower to runtime task primitives.
-* RTTI is off by default; enable per-translation-unit with
-  `// poly: rtti on`.
-* Exception unwinding uses the platform-native unwinder; on wasm a JS
-  trap path is used.
-* Templates are instantiated lazily; constraint folding runs before
-  instantiation.
+There is no blanket lowering claim for `<thread>`, `<atomic>`, RTTI,
+exceptions, template instantiation, or the C++ standard-library ABI. A
+declaration may be retained for analysis or foreign-signature discovery while
+an attempted executable lowering reports `E4003`. Raw preprocessor directives
+must pass through configured preprocessing; they are never silently treated as
+ordinary source when preprocessing is unavailable.
 
 Example C++ that becomes part of a `.poly` pipeline:
 
 ```cpp
-// frontends/cpp/examples/sharpen.cpp
-#include <vector>
-#include <cstdint>
-
-extern "C" std::vector<uint8_t> sharpen(const std::vector<uint8_t> &raw) {
-    // Apply a 3x3 sharpening kernel; returns a new buffer.
-    std::vector<uint8_t> out(raw.size());
-    // ... kernel implementation ...
-    return out;
+// A scalar C-compatible boundary avoids claiming a C++ library ABI.
+extern "C" int sharpen_level(int pixel, int amount) {
+    return pixel + amount;
 }
 ```
 
 ### 5.2 Python frontend
 
-Supports Python 3.11 syntax. Type hints are honoured where they yield
-unambiguous IR types; un-annotated parameters lower to `box<value>`.
+Uses Python 3.14 as the default analysis version. Type hints, structural
+matching, PEP 695 declarations, exception groups and interpolated/template
+strings are parsed or explicitly diagnosed. An absent/unknown annotation is
+not guessed as an integer type, and dynamic built-ins or operators without a
+faithful IR model report `E4003`.
 
 ```python
 # frontends/python/examples/classify.py
@@ -588,45 +640,58 @@ def classify(image: bytes) -> str:
     return "cat" if arr.mean() > 127 else "dog"
 ```
 
-The frontend resolves `numpy` via the package-manager probe; the
-matching `IMPORT python PACKAGE numpy` declaration in the Poly driver
-is what makes the import valid at link time.
+Package discovery can make a `numpy` dependency visible to analysis; it does
+not synthesize NumPy runtime semantics or make every call lowerable. The
+matching `IMPORT python PACKAGE numpy` declaration describes the bridge, while
+an unavailable call or return representation still fails closed.
 
 ### 5.3 Rust frontend
 
-Rust 2024 subset, ownership lowered to scope-bounded RC handles so that
-the IR verifier can model lifetimes uniformly across languages.
-`Result<T, E>` lowers to `option<variant<T, E>>`.
+Rust 2024 is the default edition. Edition-sensitive keywords, async syntax,
+ranges, let-else and tail expressions have explicit boundaries. Async runtime,
+unmodelled iterator and pattern paths fail lowering rather than emitting an
+approximation.
 
 ### 5.4 Java frontend
 
-Java 21 subset; sealed classes and records lower directly to IR
-`variant`/`struct`. Generics use type erasure plus a parallel reified
-table for cross-language calls.
+Java 26 is the default release, with exact selectors for every release from 8
+through 26. Records, sealed types, module declarations, switch expressions,
+compact source files, flexible constructor bodies, and contextual keywords are
+version-gated and preserved when recognised. Unsupported JVM layouts or
+lowering paths report `E4003`; selecting release 26 is not implicit permission
+for preview-only syntax.
 
 ### 5.5 .NET frontend
 
-C# 12 subset; value types stay as IR `struct`. `async`/`await` lower to
-the runtime's coroutine machinery. Nullable reference types are
-honoured.
+C# 14 with .NET 10 is the stable default. File/global forms, records, primary
+constructors, raw strings, extension blocks, field-backed property accessors,
+compound assignment operators, file `#:` directives, and current contextual
+keywords are version-gated and retained in analysis. Value-type/runtime
+features without a semantics-preserving IR path report `E4003`.
 
 ### 5.6 Go frontend
 
-Go 1.22 subset; goroutines schedule onto the runtime task pool, channels
-lower to runtime primitives. Build tags are supported via comment
-directives.
+Go 1.26 is the default. Generics, type sets, generic aliases and modern range
+forms have exact release gates; Go 1.26 `new(expression)` and self-referential
+generic constraints are checked at that boundary. Generic instantiation,
+multi-result conventions, named returns, or iterator semantics that cannot yet
+be represented safely fail closed during lowering.
 
 ### 5.7 JavaScript frontend
 
-ES2023 subset; values are NaN-tagged when type inference cannot prove a
-narrower type. Number → i64 narrowing happens when type-feedback or
-explicit `| 0` patterns are present.
+ECMAScript 2026 is the default. Contextual keywords, ASI-sensitive forms,
+templates, dynamic imports and modern class syntax are represented or
+explicitly rejected; runtime-dependent class/resource semantics fail closed.
+Explicit resource-management `using` syntax requires `esnext`, and decorators
+remain an explicit unsupported-syntax boundary rather than being accepted as
+ECMAScript 2026.
 
 ### 5.8 Ruby frontend
 
-Ruby 3.3 subset; blocks lower to closures, common DSL patterns
-(`define_method`, `attr_accessor`) are recognised and folded during
-lowering.
+Ruby 4.0 is the default. Pattern matching, forwarding, endless methods,
+safe-navigation, modern hashes and line-continuation rules have explicit
+version boundaries. Dynamic dispatch paths without static IR semantics report
+`kUnsupportedLowering`.
 
 ### 5.9 Poly frontend
 
@@ -663,6 +728,17 @@ polyc [options] <inputs…> [-o <output>]
   --format                     run the built-in formatter on inputs
   --jobs=<N>                   parallel frontend jobs (default: hardware threads)
   --trace=<path>               write a Chrome-trace JSON for the whole run
+  --force                      continue after recoverable diagnostics only
+  --std=<dialect>              select the C++ dialect
+  --python-version=<v>         select the Python version
+  --java-release=<n>           select the Java release
+  --cs-lang=<v>                select C# 7.3–14 or preview
+  --target-framework=<tfm>     select net6–net10
+  --rust-edition=<year>        select Rust 2015/2018/2021/2024
+  --go-version=<v>             select Go 1.18–1.26
+  --ecma=<v>                   select ES5/ES2015–ES2026/esnext
+  --ruby-version=<v>           select Ruby 1.9/2.7/3.0–4.0
+  --list-language-versions     print recognised selectors and exit
 ```
 
 Examples:
@@ -685,6 +761,11 @@ Exit codes:
 | 1    | Errors emitted; no artefact written.          |
 | 2    | Usage / I/O failure.                          |
 | 3    | Internal compiler error (with stack trace).   |
+
+Invalid selector spellings are usage errors. Version conflicts and the
+fail-closed frontend diagnostics `E2006`, `E4003`, and `E6001` produce no
+artefact; `--force` does not override them. See [chapter 5](#5-language-frontends)
+for defaults and boundary semantics.
 
 ### 6.2 `polyld` — linker
 
@@ -1089,18 +1170,18 @@ A bridged call site looks like:
 
 ### 9.3 Language runtimes
 
-`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` provide the
-minimum machinery each frontend needs at run time: exception unwinder,
-async scheduler, value boxing, intrinsic helpers. Each runtime exposes
-an `Init(Host *host)` and `Shutdown()` pair invoked from the main
-program prologue / epilogue.
+`runtime/lang/{cpp,py,rust,java,dotnet,go,js,ruby,poly}/` contain runtime
+hooks for exception transport, scheduling, value boxing, and intrinsic
+helpers. The presence of a hook does not imply that every corresponding source
+construct has frontend lowering. Each runtime exposes an `Init(Host *host)` and
+`Shutdown()` pair invoked from the main program prologue / epilogue.
 
 ### 9.4 Services
 
 * **Profiler hooks** (`__ploy_rt_call_enter/exit`) — toggled with
   `__ploy_rt_call_trace_enable`.
-* **Task scheduler** — work-stealing pool consumed by `async`/`await`,
-  Go-frontend goroutines, and parallel passes. Configurable via
+* **Task scheduler** — work-stealing pool available to explicitly implemented
+  async/goroutine lowering paths and to parallel passes. Configurable via
   `POLY_TASKS_THREADS`.
 * **Telemetry** — opt-in counters routed through `polytelemetry`; off by
   default. See [realization/telemetry_en.md](realization/telemetry_en.md).
@@ -1117,10 +1198,11 @@ inside a host-language frame.
 
 ### 9.6 Exceptions
 
-Each language runtime implements `Throw(Value)` and `Catch(Type)`
-operations expressed in IR by `landingpad` and `invoke`. Cross-language
-exceptions propagate as boxed `Value`s; the receiving runtime decides
-whether to rethrow natively or surface as an error result.
+The IR/runtime contract defines `Throw(Value)`, `Catch(Type)`, `landingpad`,
+and `invoke` hooks for implemented exception paths. This is not a guarantee of
+native exception or unwinder compatibility for every language and target. A
+frontend that cannot preserve the source exception semantics reports `E4003`
+instead of routing it through a generic trap or boxed value.
 
 ---
 
@@ -1551,6 +1633,10 @@ ctest --test-dir build -T memcheck              # under valgrind
 graduated tour of the language and tooling. Each sample has its own
 `README` and is exercised by the `samples_smoke` target.
 
+Sample names describe the syntax or interoperability boundary under test; they
+do not by themselves promise native lowering. A smoke test may intentionally
+verify an explicit `E2006`, `E4003`, or `E6001` result.
+
 | Sample                                | Demonstrates                                  |
 |---------------------------------------|-----------------------------------------------|
 | `00_minimal`                          | Single `.poly` file, no host imports.         |
@@ -1564,12 +1650,12 @@ graduated tour of the language and tooling. Each sample has its own
 | `08_collections`                      | List / map / set bridging across languages.   |
 | `09_mixed_pipeline`                   | C++ + Python pipeline driver.                 |
 | `10_rust_serde`                       | Rust serde bridged from Poly.                 |
-| `11_java_records`                     | Java records mapped to IR `struct`.           |
-| `12_dotnet_async`                     | C# async lowered to the runtime scheduler.    |
-| `13_go_concurrency`                   | Goroutines and channels.                      |
-| `14_javascript_promises`              | JS Promise interop with Poly `ASYNC`.         |
+| `11_java_records`                     | Java record analysis/lowering boundary.       |
+| `12_dotnet_async`                     | C# async analysis/lowering boundary.          |
+| `13_go_concurrency`                   | Go goroutine/channel boundary.                |
+| `14_javascript_promises`              | JS Promise/Poly `ASYNC` bridge boundary.      |
 | `15_async_await`                      | Async functions and the task scheduler.       |
-| `16_ruby_blocks`                      | Ruby blocks lowered to closures.              |
+| `16_ruby_blocks`                      | Ruby block/closure boundary.                  |
 | `17_optional_match`                   | `OPTION` / `MATCH` exhaustiveness.            |
 | `18_extended_strings`                 | `r"…"`, `b"…"`, `f"…"` literals.              |
 | `19_visibility`                       | `PUBLIC` / `PRIVATE` / `INTERNAL`.            |
@@ -1911,7 +1997,7 @@ for clean shutdown.
 | Bridge call     | A cross-language call lowered through `runtime::ffi::BridgeFrame`.      |
 | CTest target    | A logical test executable registered with CTest (30 in this project).   |
 | Driver          | Any of the 11 tool binaries shipped under `build/`.                     |
-| Frontend        | A static library that lowers one source language to unified IR.         |
+| Frontend        | A static library that analyses one source language and lowers only constructs with a faithful unified-IR mapping. |
 | Pipeline        | A `PIPELINE` chain in Poly; also the optimisation pass sequence.        |
 | Sample          | A numbered project under `tests/samples/`.                              |
 | Triple          | The `arch-vendor-os-abi` string passed to `--target=`.                  |

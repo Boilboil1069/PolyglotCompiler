@@ -1,0 +1,13 @@
+split,row,area_bucket,price_unit
+train,0,1,11
+train,1,2,12
+train,2,3,15
+train,3,4,20
+train,4,5,23
+train,5,6,24
+train,6,7,27
+train,7,8,32
+test,8,9,35
+test,9,10,36
+test,10,11,39
+test,11,12,44

@@ -622,8 +622,11 @@ private:
   void AssignSymbolAddresses();
 
   // Relocation processing
-  bool ApplyRelocation(const Relocation &reloc, OutputSection &section, std::uint64_t section_base);
-  std::int64_t CalculateRelocationValue(const Relocation &reloc, std::uint64_t reloc_addr);
+  bool ApplyRelocation(const Relocation &reloc, OutputSection &section,
+                       std::uint64_t section_base, int object_index);
+  std::optional<std::int64_t> CalculateRelocationValue(const Relocation &reloc,
+                                                       std::uint64_t reloc_addr,
+                                                       int object_index);
   bool ApplyELFRelocation_x86_64(const Relocation &reloc, std::vector<std::uint8_t> &data,
                                  std::uint64_t offset, std::int64_t value);
   bool ApplyELFRelocation_ARM64(const Relocation &reloc, std::vector<std::uint8_t> &data,

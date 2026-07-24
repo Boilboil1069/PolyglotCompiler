@@ -315,6 +315,8 @@ private:
         } else if (auto fld = std::dynamic_pointer_cast<FieldDecl>(m)) {
           if (fld->init)
             AnalyzeExpression(fld->init);
+        } else if (auto static_block = std::dynamic_pointer_cast<StaticBlock>(m)) {
+          AnalyzeStatement(static_block->body);
         }
       }
       return;
