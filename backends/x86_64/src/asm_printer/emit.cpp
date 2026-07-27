@@ -1103,6 +1103,14 @@ X86Target::MCResult X86Target::EmitObjectCode() {
           // Move lhs into RAX.
           if (lhs.kind == Operand::Kind::kImm) {
             EmitMovImmReg(text_sec.data, Register::kRax, lhs.imm);
+          } else if (lhs.kind == Operand::Kind::kVReg &&
+                     is_spilled_vreg(lhs.vreg)) {
+            // A spilled lhs is deliberately reloaded into RAX after the
+            // allocator-owned RAX/RDX snapshots.  Do not mistake that scratch
+            // register for a value that was originally resident in RAX and
+            // overwrite it with the saved pre-division contents.
+            EmitFrameLoad(text_sec.data, Register::kRax,
+                          spill_offset(lhs.vreg));
           } else {
             const Register lhs_reg = operand_register(lhs, Register::kRax);
             if (lhs_reg == Register::kRax) {

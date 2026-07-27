@@ -322,13 +322,19 @@ FUNC encode_division(value: INT, divisor: INT, sentinel: INT) -> INT {
     RETURN sentinel * 10000 + quotient * 100 + remainder;
 }
 )poly";
-    const auto mc = CompilePolyToX86Object(code);
     using NativeFunction = std::int64_t (*)(std::int64_t, std::int64_t,
                                             std::int64_t);
-    CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", 29, 6, 123) ==
-          1230405);
-    CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", -29, 6, 123) ==
-          1229595);
+    for (const auto strategy : {RegAllocStrategy::kLinearScan,
+                                RegAllocStrategy::kGraphColoring}) {
+        INFO("register allocator="
+             << (strategy == RegAllocStrategy::kLinearScan ? "linear-scan"
+                                                            : "graph-coloring"));
+        const auto mc = CompilePolyToX86Object(code, strategy);
+        CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", 29, 6,
+                                                 123) == 1230405);
+        CHECK(ExecuteX86Function<NativeFunction>(mc, "encode_division", -29, 6,
+                                                 123) == 1229595);
+    }
 #else
     SUCCEED("native x86_64 execution requires an x86_64 POSIX host");
 #endif
